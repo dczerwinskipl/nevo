@@ -1269,3 +1269,37 @@ test('Claude permission deferral maps to kind permission with decoupled interact
   assert.notEqual(result.interaction.id, 'toolu_perm_01');
 });
 
+// Regression: a long Bash command/heredoc (very common — multi-line git commits,
+// generated scripts) used to map its full raw text into `description` with no length
+// bound. The canonical model caps ToolInvocation.description at 1000 chars, so this
+// failed the entire Turn's validation ("'tool.description' must be a string of at most
+// 1000 characters") rather than just being a long label — the raw command survives
+// separately, unbounded, in `input.command` (an expandable technical detail, C5).
+test('mapClaudeTool truncates a Bash description well under the canonical 1000-char limit, preserving the kind/title', () => {
+  const longCommand = 'echo "line"\n'.repeat(200); // well over 1000 chars
+  const mapped = mapClaudeTool('Bash', { command: longCommand });
+  assert.equal(mapped.kind, 'command');
+  assert.equal(mapped.title, 'Run command');
+  assert.ok(mapped.description.length <= 300, 'description must be bounded');
+  assert.ok(mapped.description.length < longCommand.length, 'must actually be truncated, not passed through');
+  assert.ok(mapped.description.endsWith('…'));
+});
+
+test('mapClaudeTool leaves a short Bash description unchanged', () => {
+  const mapped = mapClaudeTool('Bash', { command: 'npm test' });
+  assert.equal(mapped.description, 'npm test');
+});
+
+test('mapClaudeTool: a truncated description always validates against the canonical ToolInvocation model', async () => {
+  const { validateToolInvocationWorkItem } = await import('../server/ai/model/work-items.mjs');
+  const longCommand = 'x'.repeat(5000);
+  const mapped = mapClaudeTool('Bash', { command: longCommand });
+  const validated = validateToolInvocationWorkItem({
+    id: 't1', seq: 1, toolName: 'Bash', kind: mapped.kind, title: mapped.title,
+    description: mapped.description, input: { command: longCommand }, status: 'active',
+  });
+  assert.equal(validated.description, mapped.description);
+  // The full, untruncated command remains available separately for Work Details.
+  assert.equal(validated.input.command, longCommand);
+});
+

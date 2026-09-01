@@ -30,6 +30,20 @@ export const CLAUDE_CAPABILITIES = Object.freeze({
   usage: true,
 });
 
+// `description` is a concise label for primary UI presentation (C5) — the canonical
+// model bounds it to 1000 chars, and the full untruncated value already survives
+// separately in `input` (an expandable technical detail, not length-limited). A raw
+// shell command, heredoc, or long search pattern can easily exceed that, which
+// previously failed the entire Turn's canonical validation instead of just the label.
+const MAX_TOOL_DESCRIPTION_LENGTH = 300;
+
+function truncateToolDescription(value) {
+  if (typeof value !== 'string') return undefined;
+  return value.length > MAX_TOOL_DESCRIPTION_LENGTH
+    ? `${value.slice(0, MAX_TOOL_DESCRIPTION_LENGTH - 1)}…`
+    : value;
+}
+
 export function mapClaudeTool(toolName = '', input = {}) {
   const name = String(toolName || '').trim();
   const lower = name.toLowerCase();
@@ -38,7 +52,7 @@ export function mapClaudeTool(toolName = '', input = {}) {
     return {
       kind: 'command',
       title: 'Run command',
-      description: typeof input?.command === 'string' ? input.command : undefined,
+      description: truncateToolDescription(typeof input?.command === 'string' ? input.command : undefined),
     };
   }
 
@@ -46,7 +60,7 @@ export function mapClaudeTool(toolName = '', input = {}) {
     return {
       kind: 'read',
       title: 'Read file',
-      description: typeof input?.file_path === 'string' ? input.file_path : (typeof input?.path === 'string' ? input.path : undefined),
+      description: truncateToolDescription(typeof input?.file_path === 'string' ? input.file_path : (typeof input?.path === 'string' ? input.path : undefined)),
     };
   }
 
@@ -54,7 +68,7 @@ export function mapClaudeTool(toolName = '', input = {}) {
     return {
       kind: 'write',
       title: 'Write file',
-      description: typeof input?.file_path === 'string' ? input.file_path : (typeof input?.path === 'string' ? input.path : undefined),
+      description: truncateToolDescription(typeof input?.file_path === 'string' ? input.file_path : (typeof input?.path === 'string' ? input.path : undefined)),
     };
   }
 
@@ -62,7 +76,7 @@ export function mapClaudeTool(toolName = '', input = {}) {
     return {
       kind: 'edit',
       title: 'Edit file',
-      description: typeof input?.file_path === 'string' ? input.file_path : (typeof input?.path === 'string' ? input.path : undefined),
+      description: truncateToolDescription(typeof input?.file_path === 'string' ? input.file_path : (typeof input?.path === 'string' ? input.path : undefined)),
     };
   }
 
@@ -70,7 +84,7 @@ export function mapClaudeTool(toolName = '', input = {}) {
     return {
       kind: 'list',
       title: 'List files',
-      description: typeof input?.path === 'string' ? input.path : (typeof input?.pattern === 'string' ? input.pattern : undefined),
+      description: truncateToolDescription(typeof input?.path === 'string' ? input.path : (typeof input?.pattern === 'string' ? input.pattern : undefined)),
     };
   }
 
@@ -78,7 +92,7 @@ export function mapClaudeTool(toolName = '', input = {}) {
     return {
       kind: 'search',
       title: 'Search files',
-      description: typeof input?.pattern === 'string' ? input.pattern : (typeof input?.query === 'string' ? input.query : (typeof input?.path === 'string' ? input.path : undefined)),
+      description: truncateToolDescription(typeof input?.pattern === 'string' ? input.pattern : (typeof input?.query === 'string' ? input.query : (typeof input?.path === 'string' ? input.path : undefined))),
     };
   }
 
@@ -86,7 +100,7 @@ export function mapClaudeTool(toolName = '', input = {}) {
     return {
       kind: 'web',
       title: 'Web search / fetch',
-      description: typeof input?.url === 'string' ? input.url : (typeof input?.query === 'string' ? input.query : undefined),
+      description: truncateToolDescription(typeof input?.url === 'string' ? input.url : (typeof input?.query === 'string' ? input.query : undefined)),
     };
   }
 

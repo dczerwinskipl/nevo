@@ -140,7 +140,25 @@ export function extractFinalResponse(raw) {
   return null;
 }
 
+// `description` is a concise UI label (C5); the canonical model bounds it to 1000
+// chars. The full, untruncated value already survives separately wherever the raw
+// input is retained — a long command line must only truncate the label, never fail
+// the whole Turn's canonical validation.
+const MAX_TOOL_DESCRIPTION_LENGTH = 300;
+
+function truncateToolDescription(value) {
+  if (typeof value !== 'string') return undefined;
+  return value.length > MAX_TOOL_DESCRIPTION_LENGTH
+    ? `${value.slice(0, MAX_TOOL_DESCRIPTION_LENGTH - 1)}…`
+    : value;
+}
+
 export function mapAntigravityTool(toolName, parameters = {}) {
+  const mapped = mapAntigravityToolRaw(toolName, parameters);
+  return { ...mapped, description: truncateToolDescription(mapped.description) };
+}
+
+function mapAntigravityToolRaw(toolName, parameters = {}) {
   const name = String(toolName || 'tool');
   const params = parameters && typeof parameters === 'object' ? parameters : {};
 

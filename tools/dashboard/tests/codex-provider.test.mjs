@@ -10,6 +10,7 @@ import {
   CodexAgentProvider,
   createCodexAgentProvider,
   mapCodexCommandActions,
+  toolDescription,
 } from '../server/ai/providers/codex/provider.mjs';
 import { TurnLifecycleCoordinator } from '../server/ai/sessions/turns/coordinator.mjs';
 import { createDefaultAgentSessionService } from '../server/ai/routes.mjs';
@@ -1068,5 +1069,29 @@ test('Codex evidence replay: maps full diagnostic turn with reasoning, commentar
   const serialized = JSON.stringify(snapshot);
   assert.ok(!serialized.includes('rawPayload'));
   assert.ok(!serialized.includes('providerRequestId'));
+});
+
+// Regression: commandExecution.command was mapped into ToolInvocation.description with
+// no length bound; the canonical model caps it at 1000 chars, so a long command failed
+// the entire Turn's validation instead of just the label. The full command remains
+// available separately, unbounded, in `input.command`.
+test('toolDescription truncates a long commandExecution.command well under the canonical 1000-char limit', () => {
+  const longCommand = 'echo hi && '.repeat(200);
+  const mapped = toolDescription({ type: 'commandExecution', command: longCommand, cwd: '/repo' });
+  assert.equal(mapped.kind, 'command');
+  assert.ok(mapped.description.length <= 300);
+  assert.ok(mapped.description.length < longCommand.length);
+  assert.equal(mapped.input.command, longCommand, 'the full command remains available in input');
+});
+
+test('toolDescription: a truncated commandExecution description always validates against the canonical model', async () => {
+  const { validateToolInvocationWorkItem } = await import('../server/ai/model/work-items.mjs');
+  const longCommand = 'x'.repeat(5000);
+  const mapped = toolDescription({ type: 'commandExecution', command: longCommand, cwd: '/repo' });
+  const validated = validateToolInvocationWorkItem({
+    id: 't1', seq: 1, toolName: mapped.toolName, kind: mapped.kind, title: mapped.title,
+    description: mapped.description, input: mapped.input, status: 'active',
+  });
+  assert.equal(validated.description, mapped.description);
 });
 

@@ -153,7 +153,20 @@ export function mapCodexCommandActions(actions = []) {
   }).filter(Boolean);
 }
 
-function toolDescription(item) {
+// `description` is a concise UI label (C5); the canonical model bounds it to 1000
+// chars. The full, untruncated value already survives separately in `input` (an
+// expandable technical detail, not length-limited) — a long shell command must only
+// truncate the label, never fail the whole Turn's canonical validation.
+const MAX_TOOL_DESCRIPTION_LENGTH = 300;
+
+function truncateToolDescription(value) {
+  if (typeof value !== 'string') return undefined;
+  return value.length > MAX_TOOL_DESCRIPTION_LENGTH
+    ? `${value.slice(0, MAX_TOOL_DESCRIPTION_LENGTH - 1)}…`
+    : value;
+}
+
+export function toolDescription(item) {
   switch (item.type) {
     case 'commandExecution': {
       const actions = mapCodexCommandActions(item.commandActions);
@@ -161,7 +174,7 @@ function toolDescription(item) {
         toolName: 'Command',
         kind: 'command',
         title: 'Run command',
-        description: item.command || undefined,
+        description: truncateToolDescription(item.command || undefined),
         input: { command: item.command, cwd: item.cwd },
         actions,
       };
@@ -171,7 +184,7 @@ function toolDescription(item) {
         toolName: 'File change',
         kind: 'edit',
         title: 'Edit file',
-        description: Array.isArray(item.changes) ? item.changes.map(c => c.path).join(', ') : undefined,
+        description: truncateToolDescription(Array.isArray(item.changes) ? item.changes.map(c => c.path).join(', ') : undefined),
         input: { changes: item.changes },
       };
     case 'mcpToolCall':

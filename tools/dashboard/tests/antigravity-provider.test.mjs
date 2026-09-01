@@ -2354,3 +2354,19 @@ test('Antigravity evidence replay: maps full protocol capture from fixture to ca
   assert.ok(!serialized.includes('rawEvents'));
 });
 
+// Regression: run_command's CommandLine was mapped into ToolInvocation.description with
+// no length bound; the canonical model caps it at 1000 chars, so a long command line
+// failed the entire Turn's validation instead of just the label.
+test('mapAntigravityTool truncates a long run_command CommandLine well under the canonical 1000-char limit', () => {
+  const longCommandLine = 'echo hi && '.repeat(200);
+  const mapped = mapAntigravityTool('run_command', { CommandLine: longCommandLine, Cwd: '/repo' });
+  assert.equal(mapped.kind, 'command');
+  assert.ok(mapped.description.length <= 300);
+  assert.ok(mapped.description.length < longCommandLine.length);
+});
+
+test('mapAntigravityTool leaves a short CommandLine description unchanged', () => {
+  const mapped = mapAntigravityTool('run_command', { CommandLine: 'npm test' });
+  assert.equal(mapped.description, 'npm test');
+});
+
