@@ -277,7 +277,7 @@ export class AgentSessionBindingService {
     renameSync(tempFile, specFile);
   }
 
-  async bindSession({ provider, providerSessionId, specId, taskId, purpose, mode, createdAt, lastSeenAt } = {}) {
+  async bindSession({ provider, providerSessionId, specId, taskId, purpose, mode, createdAt, lastSeenAt, established } = {}) {
     const identity = validateAgentIdentity({ provider, providerSessionId });
     if (!specId || typeof specId !== 'string' || !UUID_RE.test(specId)) {
       throw new AiValidationError("'specId' must be a valid canonical UUID.", { field: 'specId' });
@@ -304,6 +304,10 @@ export class AgentSessionBindingService {
       exactTaskMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
       if (purpose !== undefined) exactTaskMatch.purpose = purpose;
       if (mode !== undefined) exactTaskMatch.mode = mode;
+      if (established !== undefined) {
+        if (established === false) exactTaskMatch.established = false;
+        else delete exactTaskMatch.established;
+      }
       await this.#persistForSpec(specId, bindings);
       return structuredClone(exactTaskMatch);
     }
@@ -321,6 +325,10 @@ export class AgentSessionBindingService {
         specOnlyMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
         if (purpose !== undefined) specOnlyMatch.purpose = purpose;
         if (mode !== undefined) specOnlyMatch.mode = mode;
+        if (established !== undefined) {
+          if (established === false) specOnlyMatch.established = false;
+          else delete specOnlyMatch.established;
+        }
         await this.#persistForSpec(specId, bindings);
         return structuredClone(specOnlyMatch);
       }
@@ -337,6 +345,10 @@ export class AgentSessionBindingService {
         existingSessionMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
         if (purpose !== undefined) existingSessionMatch.purpose = purpose;
         if (mode !== undefined) existingSessionMatch.mode = mode;
+        if (established !== undefined) {
+          if (established === false) existingSessionMatch.established = false;
+          else delete existingSessionMatch.established;
+        }
         await this.#persistForSpec(specId, bindings);
         return structuredClone(existingSessionMatch);
       }
@@ -349,6 +361,7 @@ export class AgentSessionBindingService {
       ...(taskId ? { taskId } : {}),
       ...(purpose ? { purpose } : {}),
       ...(mode ? { mode } : {}),
+      ...(established === false ? { established: false } : {}),
       createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
       lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
     };
@@ -547,6 +560,51 @@ export class AgentSessionBindingService {
     const bindings = await this.#loadForSpec();
     const match = bindings.find(b => b.provider === provider && b.providerSessionId === providerSessionId);
     return match ? structuredClone(match) : null;
+  }
+
+  /**
+   * Marks a locally pre-allocated session identity (bound with `established: false`,
+   * e.g. a placeholder created by `createSession()` for a provider without its own
+   * session allocation) as confirmed once the provider has actually materialized a
+   * conversation using that exact ID. Durably clears the flag so later turns resume
+   * instead of re-attempting first-turn creation semantics.
+   */
+  async markSessionEstablished(provider, providerSessionId) {
+    validateAgentIdentity({ provider, providerSessionId });
+    const markRows = (rows) => {
+      let changed = false;
+      for (const row of rows) {
+        if (row.provider === provider && row.providerSessionId === providerSessionId && row.established === false) {
+          delete row.established;
+          changed = true;
+        }
+      }
+      return changed;
+    };
+
+    if (this.#storageFile) {
+      const bindings = await this.#loadForSpec();
+      if (markRows(bindings)) {
+        this.#cache.set('__single__', bindings);
+        await this.#persistForSpec(null, bindings);
+      }
+      return;
+    }
+
+    const all = await this.#loadForSpec();
+    const matchingSpecs = new Set(
+      all
+        .filter(b => b.provider === provider && b.providerSessionId === providerSessionId)
+        .map(b => b.specId)
+        .filter(Boolean)
+    );
+
+    for (const specId of matchingSpecs) {
+      const specBindings = await this.#loadForSpec(specId);
+      if (markRows(specBindings)) {
+        await this.#persistForSpec(specId, specBindings);
+      }
+    }
   }
 
   async unbindSession(provider, providerSessionId) {

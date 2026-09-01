@@ -135,6 +135,7 @@ export class AgentSessionService {
       : (descriptor.defaultMode || 'edit');
 
     let providerSessionId;
+    let established = true;
     if (typeof entry.provider.createSession === 'function') {
       const created = await entry.provider.createSession({
         specId: options.specId,
@@ -147,7 +148,11 @@ export class AgentSessionService {
       providerSessionId = typeof created === 'string' ? created : created?.providerSessionId;
       validateAgentIdentity({ provider, providerSessionId });
     } else {
+      // No provider-side session allocation exists yet: this ID is a locally
+      // fabricated placeholder, not a real provider conversation. It must not be
+      // treated as resumable until the provider actually confirms it on first use.
       providerSessionId = randomUUID();
+      established = false;
     }
 
     let binding;
@@ -161,6 +166,7 @@ export class AgentSessionService {
             taskId: tId,
             purpose: options.purpose || options.title || `task:${tId}`,
             mode,
+            established,
           });
         }
       } else {
@@ -171,6 +177,7 @@ export class AgentSessionService {
           taskId: undefined,
           purpose,
           mode,
+          established,
         });
       }
     } else {
@@ -491,13 +498,16 @@ export class AgentSessionService {
       validateAgentIdentity({ provider: prov, providerSessionId: sessId });
     }
 
+    // Existing-session binding, fetched once and reused for mode resolution and
+    // provider-session establishment below.
+    const sessionBinding = (sessId && this.bindingService) ? await this.getSession(prov, sessId) : null;
+
     // Mode resolution
     let effectiveMode = opts.mode;
     if (effectiveMode && sessId && this.bindingService) {
       await this.updateSessionMode(prov, sessId, effectiveMode);
-    } else if (!effectiveMode && sessId && this.bindingService) {
-      const binding = await this.getSession(prov, sessId);
-      if (binding?.mode) effectiveMode = binding.mode;
+    } else if (!effectiveMode && sessionBinding?.mode) {
+      effectiveMode = sessionBinding.mode;
     }
     if (!effectiveMode) {
       const entry = this.registry?.get?.(prov);
@@ -531,10 +541,24 @@ export class AgentSessionService {
       };
     }
 
+    // A session bound with `established: false` carries a locally fabricated
+    // providerSessionId that the provider itself has never confirmed (see
+    // createSession()'s fallback branch). Until the provider actually materializes
+    // a conversation using that exact ID, it must be treated as a fresh identity
+    // (no --resume-equivalent), not as a resumable one — otherwise the Nevo-side
+    // placeholder ID gets used as an implicit provider session ID.
+    const isSessionEstablished = sessionBinding?.established !== false;
+    if (!isSessionEstablished && this.bindingService && !onSessionEstablished) {
+      onSessionEstablished = async (allocatedSessionId) => {
+        await this.bindingService.markSessionEstablished(prov, allocatedSessionId);
+      };
+    }
+
     return this.turnRuntime.startTurn({
       ...opts,
       provider: prov,
       providerSessionId: sessId,
+      isSessionEstablished,
       message: opts.message ?? opts.prompt,
       prompt: opts.message ?? opts.prompt,
       mode: effectiveMode,

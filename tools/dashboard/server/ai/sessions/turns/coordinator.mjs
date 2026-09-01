@@ -924,18 +924,12 @@ export class TurnLifecycleCoordinator {
       return { fired: false, suppressed: 'timeout_already_requested' };
     }
 
-    if (this.hasOpenTools) {
-      this.#tracer?.record?.({
-        source: 'coordinator',
-        event: 'timeout.suppressed',
-        disposition: 'suppressed',
-        timeout: {
-          kind: 'protocol-silence',
-          suppressionReason: 'open_tools',
-        },
-      });
-      return { fired: false, suppressed: 'open_tools' };
-    }
+    // An open tool suppresses protocol silence only while healthy: every real tool
+    // start/update/completion already calls touchActivity(), so a tool that keeps
+    // reporting progress keeps resetting the deadline below. A tool that goes fully
+    // silent for the whole timeout window is no longer "healthy" and must not block
+    // an indefinite active turn — see lifecycle-diagnostics-and-timeouts.md's
+    // "long silent tool execution versus protocol-silence watchdog" race requirement.
 
     if (this.#pendingInteractionId || this.#turn.status.status === 'requiresAttention') {
       this.#tracer?.record?.({

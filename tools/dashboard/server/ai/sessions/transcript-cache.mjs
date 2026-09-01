@@ -133,7 +133,7 @@ export class SessionTranscriptCacheService {
           outcome: 'interrupted',
           initiator: 'shutdown',
           cause: 'turn_interrupted',
-          error: { message: text || 'Interrupted by server restart.' },
+          error: { code: 'AI_TURN_INTERRUPTED', message: text || 'Interrupted by server restart.' },
         };
         activeTurn.completedAt = normalizeTimestamp(createdAt, 'completedAt');
         activeTurn.updatedAt = activeTurn.completedAt;

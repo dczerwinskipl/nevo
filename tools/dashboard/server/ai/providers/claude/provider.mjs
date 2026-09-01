@@ -219,7 +219,11 @@ export class ClaudeAgentProvider {
     }
     const mode = params.mode ? validateAgentExecutionMode(params.mode) : 'edit';
 
-    const isNew = !params.providerSessionId;
+    // A providerSessionId alone does not mean Claude has ever seen this conversation:
+    // callers that only pre-allocated a local placeholder (never confirmed by Claude)
+    // must explicitly say so via isSessionEstablished === false, so the fresh identity
+    // is created (--session-id) instead of a nonexistent one being resumed (--resume).
+    const isNew = !params.providerSessionId || params.isSessionEstablished === false;
     const effectiveSessionId = params.providerSessionId || randomUUID();
     const isMaterialized = this.#materializedSessions.has(effectiveSessionId);
     const initialFlag = isNew && !isMaterialized ? '--session-id' : '--resume';

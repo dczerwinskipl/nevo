@@ -1025,14 +1025,15 @@ test('TurnLifecycleCoordinator: legal and illegal status transitions and invaria
   assert.equal(lateWork, null);
 });
 
-test('protocol silence watchdog: suppressed during long tool execution and pending interaction', async () => {
+test('protocol silence watchdog: a healthy open tool suppresses, but a fully silent one fires, and pending interaction always suppresses', async () => {
   const coordinator = new TurnLifecycleCoordinator({
     turnId: 'turn-watchdog-1',
     sessionId: 'sess-1',
     provider: 'codex',
   });
 
-  // 1. Add active tool
+  // 1. Add active tool. It just reported activity, so it is a "healthy" open tool
+  // and must still suppress the watchdog with plenty of budget left before the deadline.
   const tool = await coordinator.appendWork({
     id: 'tool-slow',
     type: 'tool',
@@ -1044,18 +1045,27 @@ test('protocol silence watchdog: suppressed during long tool execution and pendi
   assert.equal(tool.seq, 1);
   assert.equal(coordinator.hasOpenTools, true);
 
-  // Evaluate watchdog with past timestamp (e.g. 10 minutes elapsed)
-  const pastTime = Date.now() + 600_000;
-  let check = await coordinator.checkProtocolSilence(pastTime, 300_000);
+  let check = await coordinator.checkProtocolSilence(Date.now(), 300_000);
   assert.equal(check.fired, false);
-  assert.equal(check.suppressed, 'open_tools');
   assert.equal(coordinator.isTerminal, false);
 
-  // 2. Complete tool -> hasOpenTools becomes false
+  // 2. Regression guard for the production incident (Issue 2): a tool that opens and then
+  // goes fully silent (no further start/update/completion evidence at all) for the whole
+  // timeout window is no longer "healthy" and must not suppress the watchdog forever —
+  // otherwise the turn stays active indefinitely even though the provider process/tool
+  // stopped producing any evidence. See lifecycle-diagnostics-and-timeouts.md's "long
+  // silent tool execution versus protocol-silence watchdog" required race.
+  const staleTime = Date.now() + 600_000;
+  check = await coordinator.checkProtocolSilence(staleTime, 300_000);
+  assert.equal(check.fired, true);
+  assert.equal(check.cause, 'timeout/protocol-silence');
+  assert.equal(coordinator.isTerminal, false, 'checkProtocolSilence only reports; settleTerminal is a separate step');
+
+  // 3. Complete tool -> hasOpenTools becomes false
   await coordinator.updateWork('tool-slow', { status: 'completed' });
   assert.equal(coordinator.hasOpenTools, false);
 
-  // 3. Add pending interaction -> suppressed by pending_interaction
+  // 4. Add pending interaction -> suppressed by pending_interaction regardless of elapsed time
   await coordinator.appendWork({
     id: 'int-q',
     type: 'interaction',
@@ -1068,16 +1078,16 @@ test('protocol silence watchdog: suppressed during long tool execution and pendi
     interactionId: 'int-q',
   });
 
-  check = await coordinator.checkProtocolSilence(pastTime, 300_000);
+  check = await coordinator.checkProtocolSilence(staleTime, 300_000);
   assert.equal(check.fired, false);
   assert.equal(check.suppressed, 'pending_interaction');
   assert.equal(coordinator.isTerminal, false);
 
-  // 4. Resolve interaction -> now without activity, watchdog fires
+  // 5. Resolve interaction -> now without activity, watchdog fires
   await coordinator.updateWork('int-q', { status: 'resolved' });
   await coordinator.requestStatusTransition({ status: 'waiting', reason: 'provider_response' });
 
-  check = await coordinator.checkProtocolSilence(pastTime + 400_000, 300_000);
+  check = await coordinator.checkProtocolSilence(staleTime + 400_000, 300_000);
   assert.equal(check.fired, true);
   assert.equal(check.cause, 'timeout/protocol-silence');
   await coordinator.settleTerminal({ outcome: 'failed', cause: check.cause, initiator: 'runtime' });
@@ -1189,14 +1199,21 @@ test('timeout versus user cancellation race: timeout persists failed with timeou
   assert.equal(coordinator.status.cause, 'timeout/protocol-silence');
 });
 
-test('regression: long-running tool suppresses protocol silence timeout through runtime integration', async () => {
+test('regression: an actively-progressing tool suppresses protocol silence timeout through runtime integration', async () => {
   let finishTool;
   const toolHoldingProvider = {
     descriptor: { id: 'tool-holder', label: 'Tool Holder', capabilities },
-    async startTurn({ emitCommentaryDelta, emitFinalAnswerDelta, emitToolStarted, emitToolCompleted, signal }) {
+    async startTurn({ emitCommentaryDelta, emitFinalAnswerDelta, emitToolStarted, emitToolUpdated, emitToolCompleted, signal }) {
       emitCommentaryDelta('starting');
       emitToolStarted({ toolId: 't-long', toolName: 'heavyBuild' });
+      // Simulate a tool that keeps reporting progress faster than the idle interval —
+      // each update touches activity, so it must stay "healthy" and never time out
+      // no matter how long it runs in total.
+      const progressInterval = setInterval(() => {
+        emitToolUpdated({ toolId: 't-long', status: 'active', progress: 'still building' });
+      }, 5);
       await new Promise(resolve => { finishTool = resolve; });
+      clearInterval(progressInterval);
       emitToolCompleted({ toolId: 't-long', status: 'completed', durationMs: 100 });
       emitFinalAnswerDelta('finished');
     },
@@ -1216,8 +1233,9 @@ test('regression: long-running tool suppresses protocol silence timeout through 
     message: 'run',
   });
 
-  // Wait 40ms (> idleTimeoutMs 25ms) while tool is open
-  await new Promise(r => setTimeout(r, 40));
+  // Wait well past idleTimeoutMs (25ms) while the tool is open but still actively
+  // reporting progress every 5ms — the watchdog must not fire.
+  await new Promise(r => setTimeout(r, 60));
   const midSnapshot = runtime.getSnapshot(turnId);
   const midTurn = runtime.getCanonicalTurn(turnId);
   assert.equal(midSnapshot.status, 'running');
@@ -1230,6 +1248,41 @@ test('regression: long-running tool suppresses protocol silence timeout through 
   const completedTurn = runtime.getCanonicalTurn(turnId);
   assert.equal(completedSnapshot.status, 'completed');
   assert.equal(completedTurn.work.find(w => w.id === 't-long').status, 'completed');
+  runtime.shutdown();
+});
+
+test('regression (Issue 2): a tool that opens and then goes fully silent eventually fires the protocol-silence watchdog instead of leaving the turn active indefinitely', async () => {
+  const toolHoldingProvider = {
+    descriptor: { id: 'tool-holder-silent', label: 'Silent Tool Holder', capabilities },
+    async startTurn({ emitCommentaryDelta, emitToolStarted, signal }) {
+      emitCommentaryDelta('starting');
+      emitToolStarted({ toolId: 't-hung', toolName: 'hungBuild' });
+      // The underlying tool process hangs and never reports another event again —
+      // this mirrors the production incident: Antigravity's own tool execution
+      // stalled and no further raw provider evidence ever arrived.
+      await new Promise(() => {});
+    },
+    async cancelTurn() {},
+  };
+
+  const registry = createAgentProviderRegistry([toolHoldingProvider]);
+  const runtime = createAgentTurnRuntime({
+    registry,
+    idleTimeoutMs: 25,
+    idleCheckIntervalMs: 5,
+  });
+
+  const { turnId } = await runtime.startTurn({
+    provider: 'tool-holder-silent',
+    providerSessionId: 'sess-silent-tool',
+    message: 'run',
+  });
+
+  const failedSnapshot = await waitFor(() => runtime.getSnapshot(turnId), v => v.status === 'failed', 'protocol-silence timeout with an open but silent tool');
+  assert.equal(failedSnapshot.events.at(-1).error.code, 'AI_TURN_TIMEOUT');
+  const failedTurn = runtime.getCanonicalTurn(turnId);
+  assert.equal(failedTurn.status.status, 'terminal');
+  assert.equal(failedTurn.status.cause, 'timeout/protocol-silence');
   runtime.shutdown();
 });
 

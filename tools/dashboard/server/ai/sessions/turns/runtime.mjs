@@ -107,7 +107,7 @@ export class AgentTurnRuntime {
     return 'failed';
   }
 
-  async startTurn({ provider, providerSessionId, sessionId, message, prompt, mode, idempotencyKey, onSessionEstablished } = {}) {
+  async startTurn({ provider, providerSessionId, sessionId, message, prompt, mode, idempotencyKey, onSessionEstablished, isSessionEstablished = true } = {}) {
     if (this.#closed) throw new AiError('AI_RUNTIME_CLOSED', 'The AI turn runtime is shut down.', { status: 503 });
     if (sessionId !== undefined) {
       throw new AiValidationError("Property 'sessionId' is obsolete. Use 'providerSessionId' instead.");
@@ -214,6 +214,14 @@ export class AgentTurnRuntime {
         mode: validatedMode,
         idempotencyKey,
         onSessionEstablished,
+        isSessionEstablished,
+        // Distinguishes "this providerSessionId was already known when the turn started"
+        // (a caller-supplied ID, possibly still unconfirmed by the provider) from an ID
+        // the provider allocates during this very turn — only the former can receive a
+        // later provider-confirmation notification; the latter is already fully handled
+        // by the initial-binding branch below and must not be notified a second time.
+        hadInitialProviderSessionId: Boolean(providerSessionId),
+        providerConfirmed: false,
         finished: false,
         abortController: new AbortController(),
         agentProvider,
@@ -235,7 +243,9 @@ export class AgentTurnRuntime {
       }
 
       const setProviderSessionId = async (allocatedSessionId) => {
-        if (!state.providerSessionId && allocatedSessionId) {
+        if (!allocatedSessionId) return;
+
+        if (!state.providerSessionId) {
           state.coordinator.bindProviderSessionId(allocatedSessionId);
           state.providerSessionId = allocatedSessionId;
           state.identity = { provider: state.provider, providerSessionId: allocatedSessionId };
@@ -261,6 +271,26 @@ export class AgentTurnRuntime {
             }
           }
           resolveEstablished(allocatedSessionId);
+          return;
+        }
+
+        // The turn already carried a providerSessionId (e.g. a locally pre-allocated
+        // placeholder). This is the provider's first authoritative confirmation that a
+        // real conversation now exists under that exact ID — durably persist that fact
+        // (once) so later turns on this session resume instead of repeating first-turn
+        // creation semantics.
+        if (
+          state.hadInitialProviderSessionId &&
+          !state.providerConfirmed &&
+          state.providerSessionId === allocatedSessionId &&
+          state.onSessionEstablished
+        ) {
+          state.providerConfirmed = true;
+          try {
+            await state.onSessionEstablished(allocatedSessionId);
+          } catch (err) {
+            console.warn(`[ai] Failed to persist provider session confirmation for ${state.provider}:${allocatedSessionId}: ${err?.message || err}`);
+          }
         }
       };
 
@@ -311,6 +341,7 @@ export class AgentTurnRuntime {
     return {
       turnId: state.turnId,
       providerSessionId: state.providerSessionId,
+      isSessionEstablished: state.isSessionEstablished,
       identity: state.identity,
       mode: state.mode,
       signal: state.abortController.signal,
