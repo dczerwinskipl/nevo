@@ -103,6 +103,10 @@ export default async function sessionRoutes(fastify, { service, accessPolicy }) 
         title: details.title,
         createdAt: details.createdAt,
         lastActivityAt: details.lastActivityAt,
+        // Authoritative SSE replay cursor for this snapshot — the browser must resume
+        // from here, never from 0, or it will visibly replay the entire historical
+        // event stream on every load.
+        lastEventSeq: details.lastEventSeq || 0,
       },
       turns: details.turns || [],
       workSummary: details.workSummary,

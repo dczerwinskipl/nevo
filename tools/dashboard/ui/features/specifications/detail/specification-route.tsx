@@ -109,14 +109,15 @@ export function SpecificationRoute({ source: rawSource, slug }: SpecificationRou
         <CreateAgentSessionDialog
           specification={sessionSpecification}
           onClose={() => setSessionSpecification(null)}
-          onCreated={(session, initialMessage) => {
+          onCreated={(session, promptToSend, userMessage) => {
             const targetSpecification = sessionSpecification;
             setSessionSpecification(null);
-            if (initialMessage) {
+            if (promptToSend) {
               queueAgentSessionInitialDispatch({
                 provider: session.provider,
                 providerSessionId: session.providerSessionId,
-                prompt: initialMessage,
+                prompt: promptToSend,
+                userMessage,
               });
             }
             navigate({

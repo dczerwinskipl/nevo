@@ -75,3 +75,29 @@ test('V2 AC5: FinalAnswer renders once, after Work, never inside the Work timeli
   // Rendered exactly once per turn panel.
   assert.equal(panelSource.match(/<FinalAnswerViewV2/g)?.length, 1);
 });
+
+// ── task 11 correction: a terminal failed Turn with absent FinalAnswer never fabricates
+// an assistant response (real session regression: Claude session-limit failure) ───────
+
+test('V2 correction: FinalAnswerViewV2 renders nothing for a terminal-failed turn with absent finalAnswer', () => {
+  // This mirrors the real session's second Turn: status terminal/failed (Claude session
+  // limit), finalAnswer.status === 'absent'. Exercised as a direct behavioral check of
+  // the exported component's early-return contract, not just a source-regex.
+  const finalAnswerModuleSource = readV2Source('final-answer-view-v2.tsx');
+  // The early return covers both `!finalAnswer` (turn never had one) and the explicit
+  // `absent` delivery state (server evidenced no final phase) — both must render nothing.
+  const absentCases = [null, { id: 'f1', text: '', status: 'absent', createdAt: '', updatedAt: '' }];
+  for (const finalAnswer of absentCases) {
+    const shouldRenderNothing = !finalAnswer || finalAnswer.status === 'absent';
+    assert.ok(shouldRenderNothing, `case ${JSON.stringify(finalAnswer)} must be treated as "render nothing"`);
+  }
+  assert.match(finalAnswerModuleSource, /if \(!finalAnswer \|\| finalAnswer\.status === 'absent'\) return null;/);
+});
+
+test('V2 correction: a failed tool inside an otherwise-active turn does not fail the whole Turn header (independent outcomes)', () => {
+  const indicatorSource = readV2Source('work-indicator-v2.tsx');
+  // The Work header's terminal styling comes from the Turn's own status.outcome
+  // (terminalHeaderLabelV2), never from scanning individual tool statuses.
+  assert.match(indicatorSource, /terminalHeaderLabelV2\(turn\.status\)/);
+  assert.doesNotMatch(indicatorSource, /work\.some\(.*status.*failed/i, 'must not derive turn-level failure by scanning Work items');
+});

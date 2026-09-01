@@ -13,7 +13,8 @@ export interface CreateSpecificationDialogProps {
   onCreated: (
     spec: CreateSpecificationResult,
     session?: AgentSession | null,
-    initialPrompt?: string | null,
+    promptToSend?: string | null,
+    userMessage?: string | null,
   ) => void;
 }
 

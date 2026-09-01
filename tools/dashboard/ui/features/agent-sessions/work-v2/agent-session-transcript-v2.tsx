@@ -12,9 +12,20 @@ export interface AgentSessionTranscriptV2Handle {
   scrollToBottom: (behavior?: ScrollBehavior) => void;
 }
 
+function UserMessageBubble({ text }: { text: string }) {
+  return (
+    <div className="flex w-full min-w-0 justify-end">
+      <div className="w-fit max-w-[min(88%,820px)] rounded-2xl border border-[var(--border-strong)] bg-[var(--surface-raised)] px-4 py-3 text-sm leading-6 text-[var(--foreground)]">
+        <div className="whitespace-pre-wrap break-words">{text}</div>
+      </div>
+    </div>
+  );
+}
+
 export interface AgentSessionTranscriptV2Props {
   turns: CanonicalTurnV2[];
-  turnPrompts: Record<string, { text: string; createdAt: string }>;
+  /** Optimistic text for the brief POST-to-first-snapshot gap only — every materialized turn renders its own canonical `userMessage` instead. */
+  optimisticUserMessage?: string | null;
   isLoading: boolean;
   hasSessionDetails: boolean;
   loadError?: AgentSessionLoadError | null;
@@ -39,7 +50,7 @@ export const AgentSessionTranscriptV2 = forwardRef<AgentSessionTranscriptV2Handl
   function AgentSessionTranscriptV2(
     {
       turns,
-      turnPrompts,
+      optimisticUserMessage,
       isLoading,
       hasSessionDetails,
       loadError,
@@ -110,21 +121,19 @@ export const AgentSessionTranscriptV2 = forwardRef<AgentSessionTranscriptV2Handl
             </div>
           )}
 
-          {turns.map((turn) => {
-            const prompt = turnPrompts[turn.id];
-            return (
-              <div key={turn.id} className="w-full min-w-0 space-y-1.5">
-                {prompt && (
-                  <div className="flex w-full min-w-0 justify-end">
-                    <div className="w-fit max-w-[min(88%,820px)] rounded-2xl border border-[var(--border-strong)] bg-[var(--surface-raised)] px-4 py-3 text-sm leading-6 text-[var(--foreground)]">
-                      <div className="whitespace-pre-wrap break-words">{prompt.text}</div>
-                    </div>
-                  </div>
-                )}
-                <TurnWorkPanelV2 turn={turn} onRespondInteraction={onRespondInteraction} />
-              </div>
-            );
-          })}
+          {/* Chronological UserMessage -> Work -> FinalAnswer per turn, one turn after
+              another — the canonical conversation structure. `turn.userMessage` is the
+              sole source for the chat bubble; it is present on every turn (live,
+              reloaded, or migrated from legacy persistence), so this renders identically
+              regardless of how the page was loaded. */}
+          {turns.map((turn) => (
+            <div key={turn.id} className="w-full min-w-0 space-y-1.5">
+              {turn.userMessage && <UserMessageBubble text={turn.userMessage.text} />}
+              <TurnWorkPanelV2 turn={turn} onRespondInteraction={onRespondInteraction} />
+            </div>
+          ))}
+
+          {optimisticUserMessage && <UserMessageBubble text={optimisticUserMessage} />}
 
           {displayError && (
             <div

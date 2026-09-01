@@ -11,7 +11,7 @@ import type { AgentExecutionMode } from '../types.ts';
 export async function postStartTurn(
   provider: string,
   providerSessionId: string,
-  body: { message: string; idempotencyKey: string; mode?: AgentExecutionMode },
+  body: { message: string; idempotencyKey: string; mode?: AgentExecutionMode; userMessage?: string },
 ): Promise<{ turnId: string | undefined }> {
   const res = await fetch(
     `/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}/turns`,
@@ -25,6 +25,7 @@ export async function postStartTurn(
         message: body.message,
         idempotencyKey: body.idempotencyKey,
         ...(body.mode ? { mode: body.mode } : {}),
+        ...(body.userMessage ? { userMessage: body.userMessage } : {}),
       }),
     }
   );

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import { projectTranscript } from '../ui/features/agent-sessions/transcript/projection.ts';
 import { buildTimelineRowsV2 } from '../ui/features/agent-sessions/work-v2/timeline-projection-v2.ts';
@@ -424,15 +426,19 @@ test('V2 AC2: a compound tool invocation keeps its ToolActions nested, never pro
   assert.equal(rows[0].item.actions.length, 2, 'ToolActions remain nested children of the invocation');
 });
 
-test('V2 AC2: dozens of consecutive completed same-kind tools compact into one grouped row', () => {
+// Corrected direction (owner review of the initial V2 WIP): independent top-level
+// ToolInvocations must remain individually chronological — compactness comes from row
+// density, never from merging separate invocations, even dozens of the same kind in a
+// row. Grouping was removed entirely; this asserts chronology survives at any volume.
+test('V2 AC2: dozens of consecutive completed same-kind tools remain individually chronological, never merged', () => {
   const historicalWork = Array.from({ length: 40 }, (_, i) => toolV2(`t${i}`, i + 1, { kind: 'read' }));
   const rows = buildTimelineRowsV2(historicalWork);
-  assert.equal(rows.length, 1, 'a long run of the same completed kind must stay compact, not one row per operation');
-  assert.equal(rows[0].row, 'tool-group');
-  assert.equal(rows[0].items.length, 40, 'Work Details still has every individual invocation available, ungrouped data is preserved');
+  assert.equal(rows.length, 40, 'one canonical top-level WorkItem must always produce exactly one Level 2 row');
+  assert.deepEqual(rows.map(r => r.id), historicalWork.map(w => w.id), 'chronological order must be preserved exactly');
+  assert.ok(rows.every(r => r.row === 'tool'), 'no row-type ever represents more than one invocation');
 });
 
-test('V2 AC2: a different kind, a failure, or Commentary/Reasoning in between breaks the grouped run', () => {
+test('V2 AC2: repeated same-kind tools interleaved with other kinds stay in their exact original order', () => {
   const historicalWork = [
     toolV2('t1', 1, { kind: 'read' }),
     toolV2('t2', 2, { kind: 'read' }),
@@ -441,15 +447,10 @@ test('V2 AC2: a different kind, a failure, or Commentary/Reasoning in between br
     toolV2('t5', 5, { kind: 'read' }),
   ];
   const rows = buildTimelineRowsV2(historicalWork);
-  // [t1,t2 grouped] [t3 edit, own row] [t4 failed, own row — never grouped] [t5, own row — run broke at t4]
-  assert.equal(rows.length, 4);
-  assert.equal(rows[0].row, 'tool-group');
-  assert.equal(rows[0].items.length, 2);
-  assert.equal(rows[1].row, 'tool');
-  assert.equal(rows[1].item.kind, 'edit');
-  assert.equal(rows[2].row, 'tool');
-  assert.equal(rows[2].item.status, 'failed', 'a failed tool never joins a grouped row, stays individually visible');
-  assert.equal(rows[3].row, 'tool');
+  assert.equal(rows.length, 5, 'each invocation — including repeats of the same kind — is its own chronological row');
+  assert.deepEqual(rows.map(r => r.id), ['t1', 't2', 't3', 't4', 't5']);
+  assert.ok(rows.every(r => r.row === 'tool'));
+  assert.equal(rows[3].item.status, 'failed', 'a failed tool stays individually visible, in its exact chronological position');
 });
 
 test('V2 AC3: the timeline never fabricates an active item — it only ever renders exactly what historicalWork contains', () => {
@@ -462,4 +463,53 @@ test('V2 AC3: the timeline never fabricates an active item — it only ever rend
   assert.equal(rows.length, 1);
   assert.equal(rows[0].item.id, 't1');
   assert.ok(rows.every(r => r.row !== 'tool' || r.item.status !== 'active'), 'no active-status tool ever appears in Level 2 rows');
+});
+
+// ── task 11 correction: compact Commentary/Reasoning preview (Level 2 vs Level 3) ────
+
+import { previewPlainText } from '../ui/features/agent-sessions/work-v2/text-preview-v2.ts';
+
+test('V2 correction: previewPlainText collapses multi-paragraph Markdown into one compact plain-text line', () => {
+  const markdown = [
+    '# Research Report: V2 Semantic Chat Projection —',
+    'Server Wire Contract vs. Current UI Consumption',
+    '',
+    'Found the existing V2 server projection and current UI consumption gap.',
+    '',
+    '```js',
+    'const x = 1;',
+    '```',
+    '',
+    '- item one',
+    '- item two',
+  ].join('\n');
+
+  const preview = previewPlainText(markdown);
+  assert.ok(!preview.includes('\n'), 'preview must be a single line');
+  assert.ok(!preview.startsWith('#'), 'heading markers must not survive into the preview');
+  assert.ok(!preview.includes('```'), 'code fence syntax must not survive into the preview');
+  assert.ok(!preview.includes('- item'), 'list markers must not survive into the preview');
+  assert.match(preview, /^Research Report/, 'the heading text itself remains, just without the # marker');
+});
+
+test('V2 correction: previewPlainText truncates long text with an ellipsis instead of exploding the timeline row', () => {
+  const longText = 'word '.repeat(100).trim();
+  const preview = previewPlainText(longText, 140);
+  assert.ok(preview.length <= 140);
+  assert.ok(preview.endsWith('…'));
+});
+
+test('V2 correction: Work Details (Level 3) is the only surface allowed to render full Markdown for Commentary/Reasoning', () => {
+  const detailsSource = readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/work-details-sheet-v2.tsx', import.meta.url)),
+    'utf8',
+  );
+  assert.match(detailsSource, /<MarkdownContent markdown=\{item\.text\}/, 'Level 3 must render the complete, unmodified text');
+
+  const timelineSource = readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/work-timeline-v2.tsx', import.meta.url)),
+    'utf8',
+  );
+  assert.doesNotMatch(timelineSource, /MarkdownContent/, 'Level 2 must never render Markdown — only the plain-text preview');
+  assert.match(timelineSource, /previewPlainText/);
 });

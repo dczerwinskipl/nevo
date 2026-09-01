@@ -257,7 +257,7 @@ export function useAgentSessionRuntime({
 
   // 3. Send Turn
   const handleSendTurn = useCallback(
-    async (messageText: string, options?: { mode?: AgentExecutionMode; idempotencyKey?: string }) => {
+    async (messageText: string, options?: { mode?: AgentExecutionMode; idempotencyKey?: string; userMessage?: string }) => {
       const trimmed = messageText ? messageText.trim() : '';
       if (!trimmed) {
         throw new Error('Cannot start turn with an empty message.');
@@ -276,14 +276,17 @@ export function useAgentSessionRuntime({
       }
 
       const idempotencyKey = options?.idempotencyKey || createTurnIdempotencyKey();
-      const userMessage: NormalizedMessage = {
+      // The optimistic bubble shows the clean, user-visible text (never an
+      // enriched/injected prompt) — authoritative once the real Turn/message arrives.
+      const displayText = options?.userMessage?.trim() || trimmed;
+      const optimisticUserMessage: NormalizedMessage = {
         id: `user-${Date.now()}`,
         role: 'user',
-        text: trimmed,
+        text: displayText,
         createdAt: new Date().toISOString(),
       };
 
-      setMessages((prev) => [...prev, userMessage]);
+      setMessages((prev) => [...prev, optimisticUserMessage]);
       setContentRevision((r) => r + 1);
       setActivity('running');
       activityRef.current = 'running';
@@ -295,6 +298,7 @@ export function useAgentSessionRuntime({
           message: trimmed,
           idempotencyKey,
           mode: options?.mode,
+          userMessage: options?.userMessage,
         });
 
         // Race-safety check: If terminal SSE arrived before this POST response completed,

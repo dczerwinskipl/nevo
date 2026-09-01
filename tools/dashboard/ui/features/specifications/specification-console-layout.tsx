@@ -135,14 +135,15 @@ export function SpecificationConsoleLayout() {
       {createSpecOpen && (
         <CreateSpecificationDialog
           onClose={() => setCreateSpecOpen(false)}
-          onCreated={(spec, session, initialPrompt) => {
+          onCreated={(spec, session, promptToSend, userMessage) => {
             setCreateSpecOpen(false);
             if (session) {
-              if (initialPrompt) {
+              if (promptToSend) {
                 queueAgentSessionInitialDispatch({
                   provider: session.provider,
                   providerSessionId: session.providerSessionId,
-                  prompt: initialPrompt,
+                  prompt: promptToSend,
+                  userMessage,
                 });
               }
               navigate({

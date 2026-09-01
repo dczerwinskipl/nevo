@@ -15,6 +15,7 @@ import { createAgentSessionBindingService } from '../server/ai/sessions/binding-
 import { listen } from '../server/index.mjs';
 import { createDefaultAgentSessionService } from '../server/ai/routes.mjs';
 import { buildAiTestApp } from './helpers/ai-test-app.mjs';
+import { serializePublicTurn, deriveLegacyUserMessageText } from '../server/ai/model/serialization.mjs';
 
 const specId = '70609aaf-bb62-40bf-a25e-bec65c583495';
 
@@ -1974,6 +1975,94 @@ test('Task 07: CanonicalTurn session identity invariant holds across first turn 
     await turnRuntime.shutdown();
     await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
   }
+});
+
+// ── task 11 correction: canonical userMessage — the user-visible chat message, distinct
+// from `prompt` (the enriched text actually sent to the provider) ────────────────────
+
+test('V2 correction: a plain composer send has userMessage.text equal to the message, surviving reload/persistence', async () => {
+  const cacheDir = join(tmpdir(), `nevo-test-usermsg-plain-${randomUUID()}`);
+  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+  const provider = createMockAgentProvider({ specId, streamDelayMs: 1 });
+  const registry = createAgentProviderRegistry([provider]);
+  const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache });
+
+  try {
+    const { turnId, providerSessionId } = await service.startTurn('mock', null, { specId, message: 'Continue' });
+    await waitFor(service, turnId, t => t.status === 'completed');
+
+    const details = await service.getSessionDetails('mock', providerSessionId, { representation: 'v2' });
+    const publicTurn = details.turns.find(t => t.id === turnId);
+    assert.deepEqual(publicTurn.userMessage?.text, 'Continue');
+
+    await transcriptCache.flush('mock', providerSessionId);
+    const diskCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+    const persisted = await diskCache.getTranscript('mock', providerSessionId);
+    const persistedTurn = persisted.turns.find(t => t.id === turnId);
+    assert.equal(persistedTurn.userMessage.text, 'Continue', 'the clean user-visible message must be persisted on the canonical Turn');
+  } finally {
+    await turnRuntime.shutdown();
+    await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test('V2 correction: an enriched initial-dispatch prompt keeps userMessage clean while prompt carries the full enriched text sent to the provider', async () => {
+  const cacheDir = join(tmpdir(), `nevo-test-usermsg-enriched-${randomUUID()}`);
+  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+  const provider = createMockAgentProvider({ specId, streamDelayMs: 1 });
+  const registry = createAgentProviderRegistry([provider]);
+  const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache });
+
+  const enrichedPrompt = "[NEvo Context: Specification 'demo']\nTitle: \"Demo\"\nLocation: specs/active/demo/\nScope: Full specification\n\nDo the thing";
+
+  try {
+    const { turnId, providerSessionId } = await service.startTurn('mock', null, {
+      specId,
+      message: enrichedPrompt,
+      userMessage: 'Do the thing',
+    });
+    await waitFor(service, turnId, t => t.status === 'completed');
+
+    const details = await service.getSessionDetails('mock', providerSessionId, { representation: 'v2' });
+    const publicTurn = details.turns.find(t => t.id === turnId);
+    assert.equal(publicTurn.userMessage?.text, 'Do the thing', 'the chat bubble text must never contain the injected Nevo context');
+    assert.ok(!JSON.stringify(publicTurn).includes('NEvo Context'), 'the public DTO must not leak the enriched prompt anywhere');
+
+    const canonicalTurn = turnRuntime.getCanonicalTurn(turnId);
+    assert.equal(canonicalTurn.prompt, enrichedPrompt, 'the full enriched prompt actually sent to the provider is preserved separately');
+  } finally {
+    await turnRuntime.shutdown();
+    await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test('V2 correction: legacy Turns persisted before userMessage existed fall back to a cleaned userMessage derived from prompt', () => {
+  const legacyTurnWithContext = {
+    id: 'turn-legacy-1', turnId: 'turn-legacy-1', provider: 'mock', providerSessionId: 'sess-1',
+    mode: 'edit', status: { status: 'terminal', outcome: 'completed', initiator: 'provider', since: new Date().toISOString(), source: 'coordinator' },
+    work: [], activityCount: 0, finalAnswer: null,
+    prompt: "[NEvo Context: Specification 'demo']\nTitle: \"Demo\"\nLocation: specs/active/demo/\nScope: Full specification\n\nStart working on the task.",
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  };
+  const publicLegacy = serializePublicTurn(legacyTurnWithContext);
+  assert.equal(publicLegacy.userMessage.text, 'Start working on the task.');
+  assert.ok(!publicLegacy.userMessage.text.includes('NEvo Context'));
+
+  const legacyTurnPlain = { ...legacyTurnWithContext, id: 'turn-legacy-2', turnId: 'turn-legacy-2', prompt: 'Posprzątałem, masz czysto' };
+  const publicPlain = serializePublicTurn(legacyTurnPlain);
+  assert.equal(publicPlain.userMessage.text, 'Posprzątałem, masz czysto', 'a legacy prompt with no injected header passes through unchanged');
+});
+
+test('V2 correction: deriveLegacyUserMessageText only strips its own known Nevo marker, never arbitrary text', () => {
+  assert.equal(
+    deriveLegacyUserMessageText("[NEvo Context: Specification 'x']\nScope: Full specification\n\nHello there"),
+    'Hello there',
+  );
+  assert.equal(deriveLegacyUserMessageText('Context: tasks a, b\n\nDo it'), 'Do it');
+  assert.equal(deriveLegacyUserMessageText('Plain message, no header'), 'Plain message, no header');
+  assert.equal(deriveLegacyUserMessageText(''), '');
 });
 
 

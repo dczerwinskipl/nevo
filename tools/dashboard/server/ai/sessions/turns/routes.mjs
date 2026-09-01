@@ -23,6 +23,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy }) {
     console.log(`[ai] [turn:start] provider=${provider} session=new specId=${body.specId || '-'} taskId=${body.taskId || '-'}${body.mode ? ` mode=${body.mode}` : ''}`);
     const result = await service.startTurn(provider, undefined, {
       message: body.message ?? body.prompt,
+      ...(typeof body.userMessage === 'string' ? { userMessage: body.userMessage } : {}),
       specId: body.specId,
       taskId: body.taskId,
       purpose: body.purpose,
@@ -45,6 +46,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy }) {
       console.log(`[ai] [turn:start] provider=${provider} session=${sessionId}${body.mode ? ` mode=${body.mode}` : ''} prompt="${(body.message ?? body.prompt ?? '').slice(0, 60)}"`);
       const result = await service.startTurn(provider, sessionId, {
         message: body.message ?? body.prompt,
+        ...(typeof body.userMessage === 'string' ? { userMessage: body.userMessage } : {}),
         mode: body.mode,
         ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
       });

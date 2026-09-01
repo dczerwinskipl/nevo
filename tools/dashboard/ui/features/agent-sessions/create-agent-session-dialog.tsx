@@ -12,7 +12,9 @@ import type { SpecificationSummary } from '@/features/specifications/types';
 export interface CreateAgentSessionDialogProps {
   specification: SpecificationSummary;
   onClose: () => void;
-  onCreated: (session: AgentSession, initialMessage: string | null) => void;
+  /** `promptToSend` is the enriched text actually sent to the provider; `userMessage` is
+   * the clean, user-typed text alone (never Nevo-injected context) — the chat-bubble source. */
+  onCreated: (session: AgentSession, promptToSend: string | null, userMessage: string | null) => void;
 }
 
 export function CreateAgentSessionDialog({
@@ -83,7 +85,7 @@ export function CreateAgentSessionDialog({
       title: specification.title,
       tasks: specification.tasks,
     });
-    onCreated(session, promptToSend);
+    onCreated(session, promptToSend, initialMessage.trim() || null);
   };
 
   return (

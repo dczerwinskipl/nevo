@@ -13,7 +13,8 @@ export interface UseCreateSpecificationFormOptions {
   onCreated: (
     spec: CreateSpecificationResult,
     session?: AgentSession | null,
-    initialPrompt?: string | null,
+    promptToSend?: string | null,
+    userMessage?: string | null,
   ) => void;
 }
 
@@ -114,7 +115,7 @@ export function useCreateSpecificationForm({ onClose, onCreated }: UseCreateSpec
       isPlanning: true,
     });
 
-    onCreated(spec, session, promptToSend);
+    onCreated(spec, session, promptToSend, initialPrompt.trim() || null);
     onClose();
   };
 

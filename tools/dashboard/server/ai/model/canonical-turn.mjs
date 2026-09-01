@@ -105,7 +105,17 @@ export function validateCanonicalTurn(value) {
     work,
     activityCount,
     finalAnswer,
+    // `prompt` is the enriched/full text actually sent to the provider (may include
+    // Nevo-injected execution context); `userMessage` is the user-visible chat text the
+    // browser renders as the turn's chat bubble. They are equal for a plain composer
+    // send and diverge only when the caller enriches the initial-dispatch prompt.
     ...(value.prompt ? { prompt: requiredString(value.prompt, 'turn.prompt', 100_000) } : {}),
+    ...(value.userMessage ? {
+      userMessage: {
+        text: requiredString(value.userMessage.text, 'turn.userMessage.text', 100_000),
+        createdAt: normalizeTimestamp(value.userMessage.createdAt ?? now, 'turn.userMessage.createdAt'),
+      },
+    } : {}),
     ...(terminalOutcome ? { terminalOutcome } : {}),
     ...(value.usage ? {
       usage: {

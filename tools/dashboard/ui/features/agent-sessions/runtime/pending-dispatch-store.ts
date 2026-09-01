@@ -3,6 +3,8 @@ import type { AgentExecutionMode } from '../types.ts';
 export interface PendingInitialDispatch {
   sessionKey: string; // `${provider}:${sessionId}`
   prompt: string;
+  /** Clean, user-typed text alone (no Nevo-injected context) — the chat-bubble source. */
+  displayMessage: string;
   idempotencyKey: string;
   createdAt: number;
   status: 'pending' | 'in-flight' | 'failed' | 'completed';
@@ -48,8 +50,9 @@ function removeFromStorage(sessionKey: string): void {
 }
 
 export const pendingDispatchStore = {
-  setPending(provider: string, sessionId: string, prompt: string): PendingInitialDispatch {
+  setPending(provider: string, sessionId: string, prompt: string, userMessage?: string): PendingInitialDispatch {
     const trimmed = prompt.trim();
+    const trimmedDisplay = (userMessage ?? prompt).trim() || trimmed;
     const sessionKey = `${provider}:${sessionId}`;
     const existing = this.getPending(provider, sessionId);
 
@@ -61,6 +64,7 @@ export const pendingDispatchStore = {
     const record: PendingInitialDispatch = {
       sessionKey,
       prompt: trimmed,
+      displayMessage: trimmedDisplay,
       idempotencyKey,
       createdAt: existing?.createdAt || Date.now(),
       status: 'pending',
@@ -140,7 +144,10 @@ export const pendingDispatchStore = {
 
 export interface InitialDispatchAssistant {
   isReady: boolean;
-  sendTurn: (prompt: string, opts?: { mode?: AgentExecutionMode; idempotencyKey?: string }) => Promise<unknown>;
+  sendTurn: (
+    prompt: string,
+    opts?: { mode?: AgentExecutionMode; idempotencyKey?: string; userMessage?: string },
+  ) => Promise<unknown>;
 }
 
 export interface UseInitialDispatchOptions {
@@ -262,6 +269,7 @@ export class InitialDispatchController {
       await this.assistant.sendTurn(pending.prompt, {
         mode: this.currentMode,
         idempotencyKey: pending.idempotencyKey,
+        userMessage: pending.displayMessage,
       });
       pendingDispatchStore.clearPending(this.provider, this.sessionId);
       this.notify();

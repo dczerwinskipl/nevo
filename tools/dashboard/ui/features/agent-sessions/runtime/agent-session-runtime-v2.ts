@@ -81,17 +81,12 @@ export function useAgentSessionRuntimeV2({
   const [live, setLive] = useState<boolean>(true);
   const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>('unknown');
   const [contentRevision, setContentRevision] = useState<number>(0);
-  // Bridges the gap between a successful POST /turns and the first `turn.updated` SSE
-  // event for that turn — cleared as soon as any turn.updated arrives, at which point
-  // `turns` state itself is authoritative again.
-  const [optimisticallyRunning, setOptimisticallyRunning] = useState(false);
-  // The public canonical Turn DTO does not expose `prompt` (server-side scope boundary
-  // of this task — areas/work-ux-presentation.md § "Out of scope"), so the user's own
-  // message text is only recoverable from the `turn.started` SSE event's explicit
-  // `userMessage`/`userPrompt` fields, already broadcast on the same stream for V1.
-  // Turns only observed via the initial snapshot (not live) render with no user bubble
-  // rather than a fabricated one (owner-decisions.md C9, honest uncertainty).
-  const [turnPrompts, setTurnPrompts] = useState<Record<string, { text: string; createdAt: string }>>({});
+  // Bridges the gap between a successful POST /turns and the first authoritative
+  // `turn.updated` snapshot for that turn — cleared as soon as any turn.updated arrives,
+  // at which point `turns` state (and each turn's own canonical `userMessage`) is
+  // authoritative again. This is the only client-side duplicate of server state this
+  // hook keeps; it is never a substitute for the canonical per-turn `userMessage`.
+  const [optimisticPending, setOptimisticPending] = useState<{ text: string } | null>(null);
 
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
@@ -129,12 +124,16 @@ export function useAgentSessionRuntimeV2({
         if (cancelled) return;
 
         setSessionMeta(payload.session);
+        // One atomic commit for the already-materialized historical transcript — never
+        // an empty start followed by event-by-event reconstruction.
         setTurns(payload.turns || []);
         setCapabilities(payload.session.capabilities || null);
         setReadiness(payload.readiness || payload.session.readiness || null);
-        setOptimisticallyRunning(false);
-        setTurnPrompts({});
-        lastSeqRef.current = 0;
+        setOptimisticPending(null);
+        // Resume SSE from the snapshot's own cursor, never 0 — otherwise the browser
+        // replays the entire historical event stream and visibly rebuilds Work counts
+        // that were already complete in the snapshot.
+        lastSeqRef.current = payload.session.lastEventSeq || 0;
 
         setContentRevision((r) => r + 1);
         setLoadedIdentity(identity);
@@ -147,7 +146,7 @@ export function useAgentSessionRuntimeV2({
           setTurns([]);
           setCapabilities(null);
           setReadiness(null);
-          setOptimisticallyRunning(false);
+          setOptimisticPending(null);
 
           setLoadedIdentity(null);
           setLoadErrorIdentity(identity);
@@ -195,21 +194,11 @@ export function useAgentSessionRuntimeV2({
         const seq = resolveEventSeq(event);
         if (seq > lastSeqRef.current) lastSeqRef.current = seq;
 
-        if (event.type === 'turn.started' && event.turnId) {
-          const text = event.userMessage?.text || event.userPrompt;
-          if (text) {
-            const turnId = event.turnId;
-            const createdAt = event.userMessage?.createdAt || event.timestamp || new Date().toISOString();
-            setTurnPrompts((prev) => ({ ...prev, [turnId]: { text, createdAt } }));
-          }
-          return;
-        }
-
         if (event.type !== 'turn.updated' || !event.turn) return;
         const updatedTurn = event.turn;
 
         setTurns((prev) => applyTurnUpdatedV2(prev, updatedTurn));
-        setOptimisticallyRunning(false);
+        setOptimisticPending(null);
         setContentRevision((r) => r + 1);
 
         if (updatedTurn.status.status === 'terminal' && !terminalTurnIdsRef.current.has(updatedTurn.id)) {
@@ -231,7 +220,7 @@ export function useAgentSessionRuntimeV2({
 
   // 3. Send Turn
   const handleSendTurn = useCallback(
-    async (messageText: string, options?: { mode?: AgentExecutionMode; idempotencyKey?: string }) => {
+    async (messageText: string, options?: { mode?: AgentExecutionMode; idempotencyKey?: string; userMessage?: string }) => {
       const trimmed = messageText ? messageText.trim() : '';
       if (!trimmed) throw new Error('Cannot start turn with an empty message.');
       if (!provider || !providerSessionId) throw new Error('Cannot start turn without an active provider and session ID.');
@@ -244,16 +233,18 @@ export function useAgentSessionRuntimeV2({
       }
 
       const idempotencyKey = options?.idempotencyKey || createTurnIdempotencyKey();
-      setOptimisticallyRunning(true);
+      const displayText = options?.userMessage?.trim() || trimmed;
+      setOptimisticPending({ text: displayText });
 
       try {
         await postStartTurn(provider, providerSessionId, {
           message: trimmed,
           idempotencyKey,
           mode: options?.mode,
+          userMessage: options?.userMessage,
         });
       } catch (err) {
-        setOptimisticallyRunning(false);
+        setOptimisticPending(null);
         const normalized = err instanceof Error ? err : new Error(String(err));
         onErrorRef.current?.(normalized);
         throw normalized;
@@ -298,7 +289,7 @@ export function useAgentSessionRuntimeV2({
   );
 
   const baseActivity = isSnapshotLoaded ? deriveActivity(exposedTurns) : 'idle';
-  const exposedActivity: AgentSessionStatus = optimisticallyRunning && baseActivity === 'idle' ? 'running' : baseActivity;
+  const exposedActivity: AgentSessionStatus = optimisticPending && baseActivity === 'idle' ? 'running' : baseActivity;
   const exposedIsRunning = exposedActivity === 'running';
   const exposedActiveTurn = isSnapshotLoaded
     ? (() => {
@@ -336,7 +327,8 @@ export function useAgentSessionRuntimeV2({
     canStartTurn: exposedCanStartTurn,
     isSnapshotLoaded,
     loadError: exposedLoadError,
-    turnPrompts: isSnapshotLoaded ? turnPrompts : {},
+    /** Optimistic text for the brief gap between POST and the first turn.updated snapshot — never used once a real turn carries its own `userMessage`. */
+    optimisticUserMessage: isSnapshotLoaded ? optimisticPending?.text ?? null : null,
     reload,
     sendTurn: handleSendTurn,
     cancelTurn: handleCancelTurn,

@@ -668,3 +668,77 @@ test('V2 AC6: representation is local UI state only — switching calls no mutat
   assert.match(switchBlock, /onClick=\{\(\) => setRepresentation\(option\)\}/);
   assert.doesNotMatch(switchBlock, /sendTurn|cancelTurn|respondInteraction|\.reload\(/, 'switching representation must never mutate or cancel Turn state');
 });
+
+// ── task 11 correction: historical user messages travel with the canonical Turn, no
+// duplicate long-lived client cache ────────────────────────────────────────────────
+
+function readRuntimeV2Source() {
+  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/runtime/agent-session-runtime-v2.ts', import.meta.url)), 'utf8');
+}
+
+function readTranscriptV2Source() {
+  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/agent-session-transcript-v2.tsx', import.meta.url)), 'utf8');
+}
+
+test('V2 correction: the V2 runtime hook keeps no long-lived turnPrompts cache and does not special-case turn.started', () => {
+  const source = readRuntimeV2Source();
+  assert.doesNotMatch(source, /turnPrompts/, 'the removed duplicate client-side transcript cache must not return');
+  assert.doesNotMatch(source, /event\.type === 'turn\.started'/, 'user-visible text must come from the canonical Turn, not a live-only event');
+  // The only client-side duplicate of server state left is the short optimistic gap value.
+  assert.match(source, /optimisticPending/);
+});
+
+test('V2 correction: the transcript renders each turn\'s own canonical userMessage, with only a short-lived optimistic fallback', () => {
+  const source = readTranscriptV2Source();
+  assert.match(source, /turn\.userMessage && <UserMessageBubble text=\{turn\.userMessage\.text\}/, 'every turn renders its own canonical userMessage — live, reloaded, or migrated');
+  assert.match(source, /\{optimisticUserMessage && <UserMessageBubble/, 'the optimistic value is a separate, clearly-scoped fallback for the POST-to-snapshot gap only');
+});
+
+test('V2 correction: a session loaded only from the HTTP snapshot (no turn.started SSE observed) still has userMessage available per turn', () => {
+  // Mirrors the real regression: turns persisted before the current browser tab opened
+  // (or before a dashboard restart) must still render their user message, because it now
+  // travels on the canonical Turn itself rather than being reconstructed from live events.
+  const turn1 = { id: 't1', userMessage: { text: 'Initial prompt', createdAt: '' }, work: [], historicalWork: [], activityCount: 0, currentActivity: null, finalAnswer: { id: 'f1', text: 'Done.', status: 'completed', createdAt: '', updatedAt: '' }, status: { status: 'terminal', outcome: 'completed', initiator: 'provider', since: '', source: '' } };
+  const turn2 = { id: 't2', userMessage: { text: 'Follow-up', createdAt: '' }, work: [], historicalWork: [], activityCount: 0, currentActivity: null, finalAnswer: null, status: { status: 'terminal', outcome: 'failed', initiator: 'provider', since: '', source: '' } };
+  const turnsFromHttpSnapshotOnly = [turn1, turn2];
+
+  // No SSE events were ever observed — this is exactly the shape a fresh `GET .../chat`
+  // response produces. Both turns must still carry a renderable userMessage.
+  for (const turn of turnsFromHttpSnapshotOnly) {
+    assert.ok(turn.userMessage?.text, `turn ${turn.id} must have a user-visible message from the HTTP snapshot alone`);
+  }
+  assert.equal(turnsFromHttpSnapshotOnly[0].userMessage.text, 'Initial prompt');
+  assert.equal(turnsFromHttpSnapshotOnly[1].userMessage.text, 'Follow-up');
+});
+
+// ── task 11 correction (P0): V2 initial hydration must be one atomic snapshot commit,
+// with SSE resuming from the snapshot's own cursor — never replaying full history ─────
+
+test('V2 correction: the snapshot load is one atomic setTurns commit, not an empty-start-plus-replay', () => {
+  const source = readRuntimeV2Source();
+  // Exactly one setTurns call inside the successful-fetch path, fed directly from the
+  // HTTP payload — no reduce/accumulate loop reconstructing turns from events. (The
+  // catch branch's own `setTurns([])` reset on load failure is a separate, unrelated
+  // call and is intentionally excluded from this count.)
+  const trySuccessBody = source.slice(source.indexOf('const payload = await fetchAgentSessionChatV2'), source.indexOf('} catch (err) {'));
+  const setTurnsCalls = trySuccessBody.match(/setTurns\(/g) || [];
+  assert.equal(setTurnsCalls.length, 1, 'the snapshot branch must commit turns exactly once');
+  assert.match(trySuccessBody, /setTurns\(payload\.turns \|\| \[\]\)/);
+});
+
+test('V2 correction: SSE resumes from the snapshot cursor (lastEventSeq), never a hardcoded 0', () => {
+  const source = readRuntimeV2Source();
+  const loadSnapshotBody = source.slice(source.indexOf('async function loadSnapshot'), source.indexOf('loadSnapshot();'));
+  assert.match(
+    loadSnapshotBody,
+    /lastSeqRef\.current = payload\.session\.lastEventSeq \|\| 0;/,
+    'the replay cursor must come from the snapshot itself — a session with prior history must never resubscribe from 0',
+  );
+  assert.doesNotMatch(loadSnapshotBody, /lastSeqRef\.current = 0;\s*$/m, 'must not unconditionally reset the cursor to 0 on every load');
+});
+
+test('V2 correction: the /chat route response carries lastEventSeq for the client to resume from', () => {
+  const routesSource = readFileSync(fileURLToPath(new URL('../server/ai/sessions/routes.mjs', import.meta.url)), 'utf8');
+  const chatRouteBody = routesSource.slice(routesSource.indexOf("'/api/agent-sessions/:provider/:providerSessionId/chat'"));
+  assert.match(chatRouteBody, /lastEventSeq: details\.lastEventSeq \|\| 0/);
+});

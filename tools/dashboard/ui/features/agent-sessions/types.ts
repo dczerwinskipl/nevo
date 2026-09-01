@@ -293,6 +293,8 @@ export interface CanonicalTurnV2 {
   activityCount: number;
   currentActivity: CurrentActivityV2 | null;
   finalAnswer: FinalAnswerV2 | null;
+  /** The user-visible chat message — never the enriched/injected `prompt`. The sole authoritative source for the turn's chat bubble, live or reloaded. */
+  userMessage?: { text: string; createdAt: string };
   terminalOutcome?: {
     outcome: string;
     initiator: string;
@@ -341,6 +343,8 @@ export interface AgentSessionChatV2Payload {
     title?: string;
     createdAt: string;
     lastActivityAt?: string;
+    /** Authoritative SSE replay cursor for this snapshot — subscribe with `after=lastEventSeq`, never 0, or historical events replay visibly. */
+    lastEventSeq?: number;
   };
   turns: CanonicalTurnV2[];
   workSummary: WorkSummaryV2;

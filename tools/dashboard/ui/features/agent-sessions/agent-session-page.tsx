@@ -327,7 +327,7 @@ export function AgentSessionPage({
           <AgentSessionTranscriptV2
             ref={transcriptHandleRefV2}
             turns={assistantV2.turns}
-            turnPrompts={assistantV2.turnPrompts}
+            optimisticUserMessage={assistantV2.optimisticUserMessage}
             isLoading={assistantV2.isLoading}
             hasSessionDetails={Boolean(assistantV2.sessionMeta)}
             loadError={assistantV2.loadError}

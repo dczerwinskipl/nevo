@@ -107,7 +107,7 @@ export class AgentTurnRuntime {
     return 'failed';
   }
 
-  async startTurn({ provider, providerSessionId, sessionId, message, prompt, mode, idempotencyKey, onSessionEstablished, isSessionEstablished = true } = {}) {
+  async startTurn({ provider, providerSessionId, sessionId, message, prompt, userMessage, mode, idempotencyKey, onSessionEstablished, isSessionEstablished = true } = {}) {
     if (this.#closed) throw new AiError('AI_RUNTIME_CLOSED', 'The AI turn runtime is shut down.', { status: 503 });
     if (sessionId !== undefined) {
       throw new AiValidationError("Property 'sessionId' is obsolete. Use 'providerSessionId' instead.");
@@ -120,6 +120,11 @@ export class AgentTurnRuntime {
     }
     const validatedMode = mode ? validateAgentExecutionMode(mode, 'mode') : 'edit';
     const inputMessage = message ?? prompt;
+    // The user-visible chat text. Defaults to inputMessage for a plain composer send
+    // (message === displayed text); a caller-enriched prompt (e.g. injected task/spec
+    // context) supplies a separate, clean `userMessage` so the chat bubble never shows
+    // automatically injected context the user did not type.
+    const displayMessage = (typeof userMessage === 'string' && userMessage.trim()) ? userMessage : inputMessage;
     const entry = this.registry.get(provider);
     const agentProvider = entry.provider;
     if (typeof agentProvider.startTurn !== 'function') {
@@ -190,11 +195,13 @@ export class AgentTurnRuntime {
         providerSessionId: providerSessionId || null,
         mode: validatedMode,
         prompt: inputMessage,
+        userMessage: displayMessage,
         traceSink: this.traceSink,
         onTurnUpdated: (turnSnapshot, { semantic = true } = {}) => {
           const sessId = turnSnapshot.providerSessionId || state?.providerSessionId;
           if (sessId && this.transcriptCache?.recordCanonicalTurn) {
             turnSnapshot.prompt = turnSnapshot.prompt || inputMessage;
+            turnSnapshot.userMessage = turnSnapshot.userMessage || { text: displayMessage, createdAt: startedAt };
             this.transcriptCache.recordCanonicalTurn(turnSnapshot.provider, sessId, turnSnapshot);
           }
           if (state && semantic) {
@@ -255,6 +262,7 @@ export class AgentTurnRuntime {
           if (this.transcriptCache?.recordCanonicalTurn) {
             const snap = state.coordinator.getCanonicalSnapshot();
             snap.prompt = inputMessage;
+            snap.userMessage = snap.userMessage || { text: displayMessage, createdAt: startedAt };
             this.transcriptCache.recordCanonicalTurn(state.provider, allocatedSessionId, snap);
           }
           if (this.transcriptCache) {
@@ -301,11 +309,13 @@ export class AgentTurnRuntime {
       this.#notifyProviderState(state);
       this.#emit(state, 'turn.started', {
         mode: state.mode,
-        userPrompt: inputMessage,
+        // Broadcasts the clean, user-visible text — never the enriched/injected prompt
+        // actually sent to the provider (see displayMessage above).
+        userPrompt: displayMessage,
         userMessage: {
           id: `user-${turnId}`,
           role: 'user',
-          text: inputMessage,
+          text: displayMessage,
           createdAt: state.startedAt,
         },
       });

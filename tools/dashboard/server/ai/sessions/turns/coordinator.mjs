@@ -44,6 +44,7 @@ export class TurnLifecycleCoordinator {
     providerSessionId = null,
     mode = 'edit',
     prompt = null,
+    userMessage = null,
     traceSink = null,
     turn = null,
     onTurnUpdated = null,
@@ -58,6 +59,9 @@ export class TurnLifecycleCoordinator {
     });
     if (prompt && !this.#turn.prompt) {
       this.#turn.prompt = prompt;
+    }
+    if (userMessage && !this.#turn.userMessage) {
+      this.#turn.userMessage = { text: userMessage, createdAt: this.#turn.createdAt };
     }
 
     if (turn && Array.isArray(turn.work)) {
