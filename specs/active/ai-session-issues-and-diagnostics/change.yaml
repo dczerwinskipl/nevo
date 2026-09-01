@@ -179,7 +179,7 @@ tasks:
   - id: codex-neutral-mapping
     order: 9
     file: tasks/09-codex-neutral-mapping.md
-    status: implemented
+    status: verified
     depends_on:
       - lifecycle-coordinator-and-timeouts
     implementation:
