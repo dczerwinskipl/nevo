@@ -122,7 +122,7 @@ tasks:
   - id: canonical-persistence-and-server-projection
     order: 7
     file: tasks/07-canonical-persistence-and-server-projection.md
-    status: implemented
+    status: verified
     depends_on:
       - lifecycle-coordinator-and-timeouts
     implementation:
