@@ -12,7 +12,13 @@ import { cn } from '@/lib/utils';
  * here. Header state, activityCount, and currentActivity all come straight from the
  * server projection; this component only formats and lays them out.
  */
-export const WorkCurrentActivityLineV2 = memo(function WorkCurrentActivityLineV2({ turn }: { turn: CanonicalTurnV2 }) {
+export const WorkCurrentActivityLineV2 = memo(function WorkCurrentActivityLineV2({
+  turn,
+  embedded = false,
+}: {
+  turn: CanonicalTurnV2;
+  embedded?: boolean;
+}) {
   const display = describeCurrentActivityV2(turn.currentActivity);
   const elapsed = useElapsedLabel(display?.startedAt);
   if (!display) return null;
@@ -25,31 +31,36 @@ export const WorkCurrentActivityLineV2 = memo(function WorkCurrentActivityLineV2
   return (
     <div
       className={cn(
-        'flex flex-col gap-0.5 pl-1 text-xs',
+        'flex flex-col gap-0.5 text-xs',
+        embedded ? 'px-1 py-0.5' : 'pl-1',
         isAttention ? 'text-[var(--warning-strong)]' : 'text-[var(--muted)]',
       )}
       role="status"
     >
-      <div className="flex items-center gap-1.5 min-w-0">
-        {isAttention ? (
-          <AlertTriangle className="size-3.5 shrink-0 text-[var(--warning)]" />
-        ) : display.kind === 'cancelling' ? (
-          <XCircle className="size-3.5 shrink-0 text-[var(--muted)]" />
-        ) : isWaiting ? (
-          <Hourglass className="size-3.5 shrink-0 text-[var(--muted)]" />
-        ) : display.textFirst ? (
-          <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" />
-        ) : ToolIcon ? (
-          <ToolIcon className="size-3.5 shrink-0 text-[var(--accent)]" />
-        ) : (
-          <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" />
-        )}
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="relative flex size-4 shrink-0 items-center justify-center">
+          <span className="relative z-10 flex items-center justify-center bg-[var(--card,var(--background))]">
+            {isAttention ? (
+              <AlertTriangle className="size-3.5 shrink-0 text-[var(--warning)]" />
+            ) : display.kind === 'cancelling' ? (
+              <XCircle className="size-3.5 shrink-0 text-[var(--muted)]" />
+            ) : isWaiting ? (
+              <Hourglass className="size-3.5 shrink-0 text-[var(--muted)]" />
+            ) : display.textFirst ? (
+              <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" />
+            ) : ToolIcon ? (
+              <ToolIcon className="size-3.5 shrink-0 text-[var(--accent)]" />
+            ) : (
+              <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" />
+            )}
+          </span>
+        </div>
         <span className="min-w-0 flex-1 truncate font-medium text-[var(--foreground-muted)]">
           {display.label}
         </span>
       </div>
       {!isAttention && display.kind !== 'cancelling' && (detail || elapsed) && (
-        <div className="flex items-center gap-1 pl-5 text-[11px] text-[var(--muted)] min-w-0">
+        <div className="flex min-w-0 items-center gap-1 pl-6 text-[11px] text-[var(--muted)]">
           {detail && <span className="truncate">{detail}</span>}
           {detail && elapsed && <span aria-hidden="true">·</span>}
           {elapsed && <span className="shrink-0">{elapsed}</span>}

@@ -337,8 +337,8 @@ test('V2 correction: the Details action is a small icon-only secondary control t
   // Details is icon-only (no competing text label like "Szczegóły" as visible copy),
   // with an accessible name via aria-label/title instead.
   assert.doesNotMatch(source, />\s*Szczegóły\s*</, 'Details must not render a visible text label that competes with the Work header');
-  assert.match(source, /aria-label="Szczegóły Work"/);
-  assert.match(source, /<Info className="size-3\.5" \/>/);
+  assert.match(source, /aria-label="Work details"/);
+  assert.match(source, /<ListTree className="size-3\.5"/);
 
   // Details is a separate sibling button with its own onClick (openDetailsOverview) —
   // it never shares the toggle handler, so clicking it cannot also collapse/expand.

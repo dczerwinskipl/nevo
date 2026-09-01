@@ -168,93 +168,118 @@ function TextDetail({ item, onBack }: { item: CommentaryWorkItemV2 | ReasoningWo
   );
 }
 
-/** Full ungrouped Work list — every individual item in its exact original order, with rich secondary context and quiet completion status. */
+/** Full ungrouped Work list — every individual item in its exact original order, as an inspection timeline. */
 function WorkList({ work, onSelect }: { work: WorkItemV2[]; onSelect: (item: WorkItemV2) => void }) {
   return (
-    <ol className="space-y-1.5 text-xs">
-      {work.map((item) => {
-        if (item.type === 'tool') {
-          const Icon = TOOL_KIND_ICONS_V2[item.kind];
-          const duration = formatDuration(item.durationMs);
-          const subject = resolveToolSubject(item);
-          return (
-            <li key={item.id}>
-              <button
-                type="button"
-                onClick={() => onSelect(item)}
-                className="group flex w-full flex-col gap-0.5 rounded-lg border border-transparent p-2 text-left transition-colors hover:border-[var(--border)] hover:bg-white/4"
-              >
-                <div className="flex w-full items-center justify-between gap-2">
-                  <div className="flex min-w-0 items-center gap-1.5">
-                    <Icon className="size-3.5 shrink-0 text-[var(--muted)]" />
-                    <span className="truncate text-xs font-medium text-[var(--foreground)]">{item.title}</span>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {item.status === 'completed' ? (
-                      <Check className="size-3.5 text-[var(--success)]" aria-label="Zakończono pomyślnie" />
-                    ) : item.status === 'failed' ? (
-                      <span className="flex items-center gap-1 text-[10px] font-medium text-[var(--warning)]">
-                        <AlertTriangle className="size-3" />
-                        Błąd
-                      </span>
-                    ) : item.status === 'cancelled' || item.status === 'interrupted' ? (
-                      <span className="flex items-center gap-1 text-[10px] text-[var(--muted)]">
-                        <Ban className="size-3" />
-                        Przerwano
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1 text-[10px] font-medium text-[var(--accent)]">
-                        <LoaderCircle className="size-3 animate-spin" />
-                        Aktywne
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex w-full items-center justify-between gap-2 pl-5 text-[11px] text-[var(--muted)]">
-                  <span className="truncate font-mono text-[11px] text-[var(--muted-strong)]">
-                    {subject || <span className="font-sans text-[var(--muted)]">—</span>}
-                  </span>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {duration && <span>{duration}</span>}
-                    <ChevronRight className="size-3 text-[var(--muted)] transition-transform group-hover:translate-x-0.5" />
-                  </div>
-                </div>
-              </button>
-            </li>
-          );
-        }
-        if (item.type === 'commentary' || item.type === 'reasoning') {
-          const Icon = item.type === 'reasoning' ? Brain : MessageSquareText;
-          return (
-            <li key={item.id}>
-              <button
-                type="button"
-                onClick={() => onSelect(item)}
-                className="group flex w-full flex-col gap-0.5 rounded-lg border border-transparent p-2 text-left transition-colors hover:border-[var(--border)] hover:bg-white/4"
-              >
-                <div className="flex w-full items-center justify-between gap-2">
-                  <div className="flex min-w-0 items-center gap-1.5">
-                    <Icon className="size-3.5 shrink-0 text-[var(--muted)]" />
-                    <span className="truncate text-xs font-medium text-[var(--foreground)]">
-                      {item.type === 'reasoning' ? 'Thinking' : 'Commentary'}
+    <div className="relative w-full min-w-0 max-w-full pl-1">
+      {/* Central vertical rail aligned through the marker column */}
+      <div
+        className="absolute bottom-2 left-[11px] top-2 w-px bg-[var(--border)]"
+        aria-hidden="true"
+      />
+      <ol className="relative flex flex-col gap-0.5 text-xs">
+        {work.map((item) => {
+          if (item.type === 'tool') {
+            const Icon = TOOL_KIND_ICONS_V2[item.kind];
+            const duration = formatDuration(item.durationMs);
+            const subject = resolveToolSubject(item);
+            return (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(item)}
+                  className="group flex w-full gap-2 rounded px-1.5 py-1 text-left transition-colors hover:bg-white/4"
+                >
+                  <div className="relative flex size-4 shrink-0 items-center justify-center">
+                    <span className="relative z-10 flex items-center justify-center bg-[var(--card,var(--background))]">
+                      <Icon className="size-3.5 text-[var(--muted)] group-hover:text-[var(--foreground-muted)]" />
                     </span>
                   </div>
-                  <ChevronRight className="size-3 shrink-0 text-[var(--muted)] transition-transform group-hover:translate-x-0.5" />
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <div className="flex w-full items-center justify-between gap-2">
+                      <span className="truncate text-xs font-medium text-[var(--foreground)]">{item.title}</span>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {item.status === 'completed' ? (
+                          <Check className="size-3 text-[var(--muted-strong)]" aria-label="Zakończono pomyślnie" />
+                        ) : item.status === 'failed' ? (
+                          <span className="flex items-center gap-1 text-[10px] font-medium text-[var(--warning)]">
+                            <AlertTriangle className="size-3" />
+                            Błąd
+                          </span>
+                        ) : item.status === 'cancelled' || item.status === 'interrupted' ? (
+                          <span className="flex items-center gap-1 text-[10px] text-[var(--muted)]">
+                            <Ban className="size-3" />
+                            Przerwano
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-[10px] font-medium text-[var(--accent)]">
+                            <LoaderCircle className="size-3 animate-spin" />
+                            Aktywne
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex w-full items-center justify-between gap-2 text-[11px] text-[var(--muted)]">
+                      <span className="truncate font-mono text-[11px] text-[var(--muted-strong)]">
+                        {subject || <span className="font-sans text-[var(--muted)]">—</span>}
+                      </span>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {duration && <span>{duration}</span>}
+                        <ChevronRight className="size-3 text-[var(--muted)] transition-transform group-hover:translate-x-0.5" />
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              </li>
+            );
+          }
+          if (item.type === 'commentary' || item.type === 'reasoning') {
+            const isReasoning = item.type === 'reasoning';
+            return (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(item)}
+                  className="group flex w-full gap-2 rounded px-1.5 py-1 text-left transition-colors hover:bg-white/4"
+                >
+                  <div className="relative flex size-4 shrink-0 items-center justify-center">
+                    {isReasoning ? (
+                      <span className="relative z-10 size-1.5 rounded-full border border-[var(--muted-strong)] bg-[var(--card,var(--background))] ring-2 ring-[var(--card,var(--background))]" />
+                    ) : (
+                      <span className="relative z-10 size-1.5 rounded-full bg-[var(--muted)] ring-2 ring-[var(--card,var(--background))]" />
+                    )}
+                  </div>
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <div className="flex w-full items-center justify-between gap-2">
+                      <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted)]">
+                        {isReasoning ? 'Thinking' : 'Commentary'}
+                      </span>
+                      <ChevronRight className="size-3 shrink-0 text-[var(--muted)] transition-transform group-hover:translate-x-0.5" />
+                    </div>
+                    <div className={cn(
+                      'text-[11px] leading-relaxed',
+                      isReasoning ? 'italic text-[var(--muted-strong)]' : 'text-[var(--foreground-muted)]',
+                    )}>
+                      <span className="line-clamp-2">{previewPlainText(item.text, 120) || '—'}</span>
+                    </div>
+                  </div>
+                </button>
+              </li>
+            );
+          }
+          return (
+            <li key={item.id}>
+              <div className="flex w-full gap-2 px-1.5 py-1 text-xs text-[var(--muted)]">
+                <div className="relative flex size-4 shrink-0 items-center justify-center">
+                  <span className="relative z-10 size-1.5 rounded-full bg-[var(--muted)] ring-2 ring-[var(--card,var(--background))]" />
                 </div>
-                <div className="pl-5 text-[11px] text-[var(--muted-strong)]">
-                  <span className="line-clamp-2">{previewPlainText(item.text, 120) || '—'}</span>
-                </div>
-              </button>
+                <span>{item.interaction.kind} · {item.status}</span>
+              </div>
             </li>
           );
-        }
-        return (
-          <li key={item.id} className="rounded-lg p-2 text-[var(--muted)]">
-            {item.interaction.kind} · {item.status}
-          </li>
-        );
-      })}
-    </ol>
+        })}
+      </ol>
+    </div>
   );
 }
 

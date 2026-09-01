@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Info } from 'lucide-react';
+import { ListTree } from 'lucide-react';
 import { WorkIndicatorV2, WorkCurrentActivityLineV2 } from './work-indicator-v2';
 import { WorkTimelineV2 } from './work-timeline-v2';
 import { WorkDetailsSheetV2 } from './work-details-sheet-v2';
@@ -40,10 +40,9 @@ export function TurnWorkPanelV2({ turn, onRespondInteraction }: TurnWorkPanelV2P
   return (
     <div className="my-1.5 w-full min-w-0 max-w-full space-y-1.5">
       {/*
-        Interaction ownership (corrected direction): the Work header row is the primary
-        expand/collapse target (its own button, including the chevron) — it must stay
-        visually dominant. Details is a small, icon-only secondary action beside it that
-        never toggles Level 2 (separate sibling button, no shared click handler).
+        Interaction hierarchy: the Work header row is the primary expand/collapse target.
+        Work details is a dedicated secondary inspection action (ListTree icon) that
+        opens the complete Level 3 timeline sheet.
       */}
       <div className="flex items-center gap-0.5">
         <div className="min-w-0 flex-1">
@@ -53,23 +52,38 @@ export function TurnWorkPanelV2({ turn, onRespondInteraction }: TurnWorkPanelV2P
           <button
             type="button"
             onClick={openDetailsOverview}
-            aria-label="Szczegóły Work"
-            title="Szczegóły Work"
-            className="shrink-0 rounded p-1.5 text-[var(--muted)] hover:bg-white/4 hover:text-[var(--foreground)]"
+            aria-label="Work details"
+            title="Work details"
+            className="shrink-0 rounded p-1.5 text-[var(--muted)] transition-colors hover:bg-white/4 hover:text-[var(--foreground)]"
           >
-            <Info className="size-3.5" />
+            <ListTree className="size-3.5" />
           </button>
         )}
       </div>
 
-      {expanded && (
-        <WorkTimelineV2 historicalWork={turn.historicalWork} onSelectItem={openDetailsForItem} />
-      )}
-
-      {!isTerminal && (
-        <div className="pl-1">
-          <WorkCurrentActivityLineV2 turn={turn} />
+      {expanded ? (
+        <div className="relative w-full min-w-0 max-w-full pl-1">
+          <div
+            className="absolute bottom-2 left-[11px] top-2 w-px bg-[var(--border)]"
+            aria-hidden="true"
+          />
+          <div className="relative flex flex-col gap-0.5">
+            <WorkTimelineV2
+              historicalWork={turn.historicalWork}
+              onSelectItem={openDetailsForItem}
+              embedded
+            />
+            {!isTerminal && (
+              <WorkCurrentActivityLineV2 turn={turn} embedded />
+            )}
+          </div>
         </div>
+      ) : (
+        !isTerminal && (
+          <div className="pl-1">
+            <WorkCurrentActivityLineV2 turn={turn} />
+          </div>
+        )
       )}
 
       <PendingInteractionViewV2 turn={turn} onRespond={onRespondInteraction} />

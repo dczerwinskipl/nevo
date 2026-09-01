@@ -422,35 +422,32 @@ test('V2 AC2: a compound tool invocation keeps its ToolActions nested, never pro
   };
   const rows = buildTimelineRowsV2([compound]);
   assert.equal(rows.length, 1, 'one provider operation must stay one row, not one row per action');
-  assert.equal(rows[0].row, 'tool');
-  assert.equal(rows[0].item.actions.length, 2, 'ToolActions remain nested children of the invocation');
+  assert.equal(rows[0].row, 'tool_group');
+  assert.equal(rows[0].items[0].actions.length, 2, 'ToolActions remain nested children of the invocation');
 });
 
-// Corrected direction (owner review of the initial V2 WIP): independent top-level
-// ToolInvocations must remain individually chronological — compactness comes from row
-// density, never from merging separate invocations, even dozens of the same kind in a
-// row. Grouping was removed entirely; this asserts chronology survives at any volume.
-test('V2 AC2: dozens of consecutive completed same-kind tools remain individually chronological, never merged', () => {
-  const historicalWork = Array.from({ length: 40 }, (_, i) => toolV2(`t${i}`, i + 1, { kind: 'read' }));
+test('V2 AC2: dozens of consecutive completed same-kind tools compress into grouped timeline row in Level 2', () => {
+  const historicalWork = Array.from({ length: 40 }, (_, i) => toolV2(`t${i}`, i + 1, { kind: 'read', title: 'Read file' }));
   const rows = buildTimelineRowsV2(historicalWork);
-  assert.equal(rows.length, 40, 'one canonical top-level WorkItem must always produce exactly one Level 2 row');
-  assert.deepEqual(rows.map(r => r.id), historicalWork.map(w => w.id), 'chronological order must be preserved exactly');
-  assert.ok(rows.every(r => r.row === 'tool'), 'no row-type ever represents more than one invocation');
+  assert.equal(rows.length, 1, 'consecutive completed same-kind tools group into one Level 2 row');
+  assert.equal(rows[0].count, 40);
+  assert.equal(rows[0].items.length, 40, 'underlying canonical items are preserved for inspection');
 });
 
 test('V2 AC2: repeated same-kind tools interleaved with other kinds stay in their exact original order', () => {
   const historicalWork = [
-    toolV2('t1', 1, { kind: 'read' }),
-    toolV2('t2', 2, { kind: 'read' }),
-    toolV2('t3', 3, { kind: 'edit' }),
-    toolV2('t4', 4, { kind: 'read', status: 'failed' }),
-    toolV2('t5', 5, { kind: 'read' }),
+    toolV2('t1', 1, { kind: 'read', title: 'Read file' }),
+    toolV2('t2', 2, { kind: 'read', title: 'Read file' }),
+    toolV2('t3', 3, { kind: 'edit', title: 'Edit file' }),
+    toolV2('t4', 4, { kind: 'read', title: 'Read file', status: 'failed' }),
+    toolV2('t5', 5, { kind: 'read', title: 'Read file' }),
   ];
   const rows = buildTimelineRowsV2(historicalWork);
-  assert.equal(rows.length, 5, 'each invocation — including repeats of the same kind — is its own chronological row');
-  assert.deepEqual(rows.map(r => r.id), ['t1', 't2', 't3', 't4', 't5']);
-  assert.ok(rows.every(r => r.row === 'tool'));
-  assert.equal(rows[3].item.status, 'failed', 'a failed tool stays individually visible, in its exact chronological position');
+  assert.equal(rows.length, 4, 'adjacent happy-path items group, while different kinds and exceptions remain separate');
+  assert.equal(rows[0].count, 2);
+  assert.equal(rows[1].title, 'Edit file');
+  assert.equal(rows[2].status, 'failed', 'a failed tool stays individually visible, in its exact chronological position');
+  assert.equal(rows[3].count, 1);
 });
 
 test('V2 AC3: the timeline never fabricates an active item — it only ever renders exactly what historicalWork contains', () => {
@@ -461,8 +458,8 @@ test('V2 AC3: the timeline never fabricates an active item — it only ever rend
   const historicalWork = [toolV2('t1', 1, { status: 'completed' })];
   const rows = buildTimelineRowsV2(historicalWork);
   assert.equal(rows.length, 1);
-  assert.equal(rows[0].item.id, 't1');
-  assert.ok(rows.every(r => r.row !== 'tool' || r.item.status !== 'active'), 'no active-status tool ever appears in Level 2 rows');
+  assert.equal(rows[0].items[0].id, 't1');
+  assert.ok(rows.every(r => r.row !== 'tool_group' || r.status !== 'active'), 'no active-status tool ever appears in Level 2 rows');
 });
 
 // ── task 11 correction: compact Commentary/Reasoning preview (Level 2 vs Level 3) ────
