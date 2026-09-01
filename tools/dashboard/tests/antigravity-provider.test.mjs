@@ -710,7 +710,7 @@ test('Antigravity handles partial streaming prefix followed by complete final re
 
   assert.equal(result.status, 'completed');
   assert.equal(textDeltas.join(''), 'Podsumowując: wszystko wykonane pomyślnie.');
-  assert.deepEqual(textDeltas, ['Podsumowując: ', 'wszystko wykonane pomyślnie.']);
+  assert.deepEqual(textDeltas, ['Podsumowując: wszystko wykonane pomyślnie.']);
 });
 
 // Requirement 4: Terminal provider event resolves startTurn immediately, not waiting for child close.
@@ -2368,5 +2368,275 @@ test('mapAntigravityTool truncates a long run_command CommandLine well under the
 test('mapAntigravityTool leaves a short CommandLine description unchanged', () => {
   const mapped = mapAntigravityTool('run_command', { CommandLine: 'npm test' });
   assert.equal(mapped.description, 'npm test');
+});
+
+// ── Commentary vs FinalAnswer Semantics Tests ──────────────────────────────
+
+test('Antigravity semantics 1: intermediate commentary → tool → final streamed response → terminal success', async () => {
+  const lines = [
+    JSON.stringify({ event: 'init', conversation_id: 'conv-sem-1' }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'I will inspect the workspace.' } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 2, step_type: 'tool', state: 'ACTIVE', tool_name: 'view_file', tool_info: { name: 'view_file', parameters: { AbsolutePath: '/foo.ts' } } } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 2, step_type: 'tool', state: 'DONE', tool_name: 'view_file', tool_info: { output: 'content' }, duration_seconds: 0.1 } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 3, step_type: 'agent_response', state: 'ACTIVE', text_delta: '# Final Report\nAll tasks verified.' } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 3, step_type: 'agent_response', state: 'DONE' } }),
+    JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'I will inspect the workspace.\n# Final Report\nAll tasks verified.' } }),
+  ];
+
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-sem-1',
+    provider: 'antigravity',
+    providerSessionId: 'conv-sem-1',
+  });
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-sem-1',
+    providerSessionId: 'conv-sem-1',
+    message: 'Run inspection',
+    emitCommentaryDelta: (t, id) => coordinator.recordCommentaryDelta(t, id),
+    emitFinalAnswerDelta: (t, id) => coordinator.recordFinalAnswerDelta(t, id),
+    emitToolStarted: (t) => coordinator.recordToolStarted(t),
+    emitToolCompleted: (t) => coordinator.recordToolCompleted(t),
+  });
+
+  assert.equal(result.status, 'completed');
+  coordinator.settleTerminal({ outcome: 'completed' });
+
+  const snap = coordinator.getCanonicalSnapshot();
+
+  // Work must contain intermediate commentary and tool invocation
+  assert.equal(snap.work.length, 2);
+  assert.equal(snap.work[0].type, 'commentary');
+  assert.equal(snap.work[0].text, 'I will inspect the workspace.');
+  assert.equal(snap.work[1].type, 'tool');
+  assert.equal(snap.work[1].toolName, 'view_file');
+
+  // Final answer must contain the terminal response, NOT present in Work commentary
+  assert.ok(snap.finalAnswer);
+  assert.equal(snap.finalAnswer.text, '# Final Report\nAll tasks verified.');
+  assert.equal(snap.finalAnswer.status, 'completed');
+});
+
+test('Antigravity semantics 2: multiple commentary chunks before and between tools remain Commentary', async () => {
+  const lines = [
+    JSON.stringify({ event: 'init', conversation_id: 'conv-sem-2' }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Step 1: ' } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Checking git status.' } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 2, step_type: 'tool', state: 'ACTIVE', tool_name: 'run_command', tool_info: { name: 'run_command', parameters: { CommandLine: 'git status' } } } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 2, step_type: 'tool', state: 'DONE', tool_name: 'run_command', tool_info: { output: 'clean' } } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 3, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Step 2: ' } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 3, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Running tests.' } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 4, step_type: 'tool', state: 'ACTIVE', tool_name: 'run_command', tool_info: { name: 'run_command', parameters: { CommandLine: 'npm test' } } } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 4, step_type: 'tool', state: 'DONE', tool_name: 'run_command', tool_info: { output: 'PASS' } } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 5, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Everything is ready.' } }),
+    JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'Step 1: Checking git status.\nStep 2: Running tests.\nEverything is ready.' } }),
+  ];
+
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-sem-2',
+    provider: 'antigravity',
+    providerSessionId: 'conv-sem-2',
+  });
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-sem-2',
+    providerSessionId: 'conv-sem-2',
+    message: 'Check all',
+    emitCommentaryDelta: (t, id) => coordinator.recordCommentaryDelta(t, id),
+    emitFinalAnswerDelta: (t, id) => coordinator.recordFinalAnswerDelta(t, id),
+    emitToolStarted: (t) => coordinator.recordToolStarted(t),
+    emitToolCompleted: (t) => coordinator.recordToolCompleted(t),
+  });
+
+  assert.equal(result.status, 'completed');
+  coordinator.settleTerminal({ outcome: 'completed' });
+
+  const snap = coordinator.getCanonicalSnapshot();
+  assert.equal(snap.work.length, 4);
+  assert.equal(snap.work[0].type, 'commentary');
+  assert.equal(snap.work[0].text, 'Step 1: Checking git status.');
+  assert.equal(snap.work[1].type, 'tool');
+  assert.equal(snap.work[2].type, 'commentary');
+  assert.equal(snap.work[2].text, 'Step 2: Running tests.');
+  assert.equal(snap.work[3].type, 'tool');
+
+  assert.ok(snap.finalAnswer);
+  assert.equal(snap.finalAnswer.text, 'Everything is ready.');
+});
+
+test('Antigravity semantics 3: explicit terminal response in result.response sets FinalAnswer', async () => {
+  const lines = [
+    JSON.stringify({ event: 'init', conversation_id: 'conv-sem-3' }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'tool', state: 'ACTIVE', tool_name: 'run_command', tool_info: { name: 'run_command', parameters: { CommandLine: 'git diff' } } } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'tool', state: 'DONE', tool_name: 'run_command', tool_info: { output: '' } } }),
+    JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'Explicit terminal response without streaming.' } }),
+  ];
+
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-sem-3',
+    provider: 'antigravity',
+    providerSessionId: 'conv-sem-3',
+  });
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-sem-3',
+    providerSessionId: 'conv-sem-3',
+    message: 'Diff',
+    emitCommentaryDelta: (t, id) => coordinator.recordCommentaryDelta(t, id),
+    emitFinalAnswerDelta: (t, id) => coordinator.recordFinalAnswerDelta(t, id),
+    emitToolStarted: (t) => coordinator.recordToolStarted(t),
+    emitToolCompleted: (t) => coordinator.recordToolCompleted(t),
+  });
+
+  assert.equal(result.status, 'completed');
+  coordinator.settleTerminal({ outcome: 'completed' });
+
+  const snap = coordinator.getCanonicalSnapshot();
+  assert.equal(snap.work.length, 1);
+  assert.equal(snap.work[0].type, 'tool');
+
+  assert.ok(snap.finalAnswer);
+  assert.equal(snap.finalAnswer.text, 'Explicit terminal response without streaming.');
+});
+
+test('Antigravity semantics 4: successful terminal event with genuinely no final assistant output leaves FinalAnswer absent', async () => {
+  const lines = [
+    JSON.stringify({ event: 'init', conversation_id: 'conv-sem-4' }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'tool', state: 'ACTIVE', tool_name: 'run_command', tool_info: { name: 'run_command', parameters: { CommandLine: 'touch file' } } } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'tool', state: 'DONE', tool_name: 'run_command', tool_info: { output: '' } } }),
+    JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: '' } }),
+  ];
+
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-sem-4',
+    provider: 'antigravity',
+    providerSessionId: 'conv-sem-4',
+  });
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-sem-4',
+    providerSessionId: 'conv-sem-4',
+    message: 'Touch',
+    emitCommentaryDelta: (t, id) => coordinator.recordCommentaryDelta(t, id),
+    emitFinalAnswerDelta: (t, id) => coordinator.recordFinalAnswerDelta(t, id),
+    emitToolStarted: (t) => coordinator.recordToolStarted(t),
+    emitToolCompleted: (t) => coordinator.recordToolCompleted(t),
+  });
+
+  assert.equal(result.status, 'completed');
+  coordinator.settleTerminal({ outcome: 'completed' });
+
+  const snap = coordinator.getCanonicalSnapshot();
+  assert.equal(snap.work.length, 1);
+  assert.equal(snap.work[0].type, 'tool');
+  assert.equal(snap.finalAnswer, null);
+});
+
+test('Antigravity semantics 5: failed terminal event after commentary preserves Commentary in Work and fabricates no FinalAnswer', async () => {
+  const lines = [
+    JSON.stringify({ event: 'init', conversation_id: 'conv-sem-5' }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Starting build...' } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 2, step_type: 'tool', state: 'ACTIVE', tool_name: 'run_command', tool_info: { name: 'run_command', parameters: { CommandLine: 'npm build' } } } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 3, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Build failed, analyzing crash...' } }),
+    JSON.stringify({ event: 'result', result: { status: 'ERROR', error: 'Compilation error', response: '' } }),
+  ];
+
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-sem-5',
+    provider: 'antigravity',
+    providerSessionId: 'conv-sem-5',
+  });
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  await assert.rejects(
+    () => provider.startTurn({
+      turnId: 'turn-sem-5',
+      providerSessionId: 'conv-sem-5',
+      message: 'Build',
+      emitCommentaryDelta: (t, id) => coordinator.recordCommentaryDelta(t, id),
+      emitFinalAnswerDelta: (t, id) => coordinator.recordFinalAnswerDelta(t, id),
+      emitToolStarted: (t) => coordinator.recordToolStarted(t),
+      emitToolCompleted: (t) => coordinator.recordToolCompleted(t),
+    }),
+    err => {
+      coordinator.settleTerminal({ outcome: 'failed', error: { code: 'AI_PROVIDER_ERROR', message: err.message } });
+      return true;
+    }
+  );
+
+  const snap = coordinator.getCanonicalSnapshot();
+  // Commentary streamed before tool and after tool before crash must remain in Work
+  assert.equal(snap.work.length, 3);
+  assert.equal(snap.work[0].type, 'commentary');
+  assert.equal(snap.work[0].text, 'Starting build...');
+  assert.equal(snap.work[1].type, 'tool');
+  assert.equal(snap.work[2].type, 'commentary');
+  assert.equal(snap.work[2].text, 'Build failed, analyzing crash...');
+
+  // Final answer must NOT be fabricated
+  assert.equal(snap.finalAnswer, null);
+});
+
+test('Antigravity semantics 6: streaming final answer chunks preserves exact text and ordering without duplication', async () => {
+  const lines = [
+    JSON.stringify({ event: 'init', conversation_id: 'conv-sem-6' }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'tool', state: 'ACTIVE', tool_name: 'view_file', tool_info: { name: 'view_file', parameters: { AbsolutePath: '/a.ts' } } } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'tool', state: 'DONE', tool_name: 'view_file', tool_info: { output: 'a' } } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 2, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Chunk 1. ' } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 2, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Chunk 2. ' } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 2, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Chunk 3.' } }),
+    JSON.stringify({ event: 'step_update', step_update: { step_index: 2, step_type: 'agent_response', state: 'DONE' } }),
+    JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'Chunk 1. Chunk 2. Chunk 3.' } }),
+  ];
+
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-sem-6',
+    provider: 'antigravity',
+    providerSessionId: 'conv-sem-6',
+  });
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-sem-6',
+    providerSessionId: 'conv-sem-6',
+    message: 'Chunks',
+    emitCommentaryDelta: (t, id) => coordinator.recordCommentaryDelta(t, id),
+    emitFinalAnswerDelta: (t, id) => coordinator.recordFinalAnswerDelta(t, id),
+    emitToolStarted: (t) => coordinator.recordToolStarted(t),
+    emitToolCompleted: (t) => coordinator.recordToolCompleted(t),
+  });
+
+  assert.equal(result.status, 'completed');
+  coordinator.settleTerminal({ outcome: 'completed' });
+
+  const snap = coordinator.getCanonicalSnapshot();
+  assert.equal(snap.work.length, 1);
+  assert.equal(snap.work[0].type, 'tool');
+
+  assert.ok(snap.finalAnswer);
+  assert.equal(snap.finalAnswer.text, 'Chunk 1. Chunk 2. Chunk 3.');
+  assert.equal(snap.finalAnswer.status, 'completed');
 });
 

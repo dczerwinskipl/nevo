@@ -511,7 +511,6 @@ export class AntigravityAgentProvider {
     emitCommentaryDelta,
     emitReasoningDelta,
     emitFinalAnswerDelta,
-    setFinalAnswer,
     emitToolStarted,
     emitToolUpdated,
     emitToolCompleted,
@@ -529,15 +528,23 @@ export class AntigravityAgentProvider {
 
     const effectiveSessionId = providerSessionId || randomUUID();
     let isSessionEstablished = false;
-    let accumulatedCommentary = '';
-    let commentaryCounter = 0;
-    let finalAnswerEmitted = false;
+    let pendingAssistantText = '';
+    let committedCommentary = '';
+    let commentaryBlockIndex = 0;
 
-    const sendCommentaryDelta = (chunk) => {
+    const bufferAssistantText = (chunk) => {
       if (!chunk) return;
-      accumulatedCommentary += chunk;
+      pendingAssistantText += chunk;
+    };
+
+    const flushPendingAsCommentary = () => {
+      if (!pendingAssistantText) return;
+      const textToEmit = pendingAssistantText;
+      pendingAssistantText = '';
+      commentaryBlockIndex += 1;
+      committedCommentary += textToEmit;
       if (emitCommentaryDelta) {
-        emitCommentaryDelta(chunk, `commentary-${turnId}-${commentaryCounter || 1}`);
+        emitCommentaryDelta(textToEmit, `commentary-${turnId}-${commentaryBlockIndex}`);
       }
     };
 
@@ -705,6 +712,10 @@ export class AntigravityAgentProvider {
         operation.isResolved = true;
         operation.isDone = true;
 
+        if (outcome === 'failed') {
+          flushPendingAsCommentary();
+        }
+
         scheduleOwnedChildTermination();
         await this.#flushRawCaptureBounded(currentSessionId || effectiveSessionId);
 
@@ -737,6 +748,7 @@ export class AntigravityAgentProvider {
           operation.postResultTimer = null;
         }
         void terminateOwnedChild();
+        flushPendingAsCommentary();
         await this.#flushRawCaptureBounded(currentSessionId || effectiveSessionId);
         reject(err);
       };
@@ -767,7 +779,7 @@ export class AntigravityAgentProvider {
         } catch {
           // Fallback to plain streaming text if not JSON
           if (!isDone && !isResolved) {
-            sendCommentaryDelta(trimmed + '\n');
+            bufferAssistantText(trimmed + '\n');
           }
           return;
         }
@@ -789,7 +801,7 @@ export class AntigravityAgentProvider {
 
         if (eventType === 'step_update') {
           if (payload.text_delta) {
-            sendCommentaryDelta(payload.text_delta);
+            bufferAssistantText(payload.text_delta);
           }
           if (payload.thought || payload.thinking) {
             if (emitReasoningDelta) emitReasoningDelta(payload.thought || payload.thinking);
@@ -799,6 +811,7 @@ export class AntigravityAgentProvider {
             const input = payload.tool_info?.parameters || payload.input || payload.args || {};
 
             if (toolName === 'ask_question') {
+              flushPendingAsCommentary();
               if (payload.state === 'ACTIVE' && requestInteraction) {
                 const interaction = {
                   id: payload.toolId || `int-${randomUUID()}`,
@@ -821,6 +834,7 @@ export class AntigravityAgentProvider {
             const mapped = mapAntigravityTool(toolName, input);
 
             if (payload.state === 'ACTIVE') {
+              flushPendingAsCommentary();
               activeTools.set(toolId, { id: toolId, ...mapped, input });
               if (emitToolStarted) {
                 emitToolStarted({
@@ -833,6 +847,7 @@ export class AntigravityAgentProvider {
                 });
               }
             } else if (payload.state === 'DONE' || payload.state === 'ERROR' || payload.state === 'COMPLETED') {
+              flushPendingAsCommentary();
               const status = payload.state === 'ERROR' || payload.is_error ? 'failed' : 'completed';
               const output = payload.tool_info?.output
                 || (payload.tool_info?.error ? payload.tool_info.error.message : payload.output)
@@ -863,7 +878,7 @@ export class AntigravityAgentProvider {
           case 'text.delta':
           case 'content': {
             const delta = raw.text ?? raw.delta ?? raw.content ?? '';
-            if (delta) sendCommentaryDelta(delta);
+            if (delta) bufferAssistantText(delta);
             break;
           }
 
@@ -878,6 +893,7 @@ export class AntigravityAgentProvider {
           case 'tool_use':
           case 'tool.started':
           case 'call': {
+            flushPendingAsCommentary();
             const toolName = raw.toolName || raw.name || 'tool';
             const input = raw.input || raw.args || {};
 
@@ -969,6 +985,7 @@ export class AntigravityAgentProvider {
 
           case 'question':
           case 'interaction_request': {
+            flushPendingAsCommentary();
             if (requestInteraction) {
               const interaction = {
                 id: raw.interactionId || `int-${randomUUID()}`,
@@ -1007,18 +1024,36 @@ export class AntigravityAgentProvider {
               }
             }
             activeTools.clear();
+
+            const statusValue = payload?.status || raw.status;
+            const statusIndicatesError = typeof statusValue === 'string'
+              && (statusValue.toUpperCase() === 'ERROR' || statusValue.toUpperCase() === 'FAILED' || statusValue.toUpperCase() === 'TIMEOUT');
+            const explicitErrorFlag = payload?.is_error === true || raw.is_error === true;
+            const isTerminalError = statusIndicatesError || explicitErrorFlag;
+
             const finalText = extractFinalResponse(raw);
-            const hasFinalResponse = typeof finalText === 'string' && finalText.trim().length > 0;
-            if (hasFinalResponse) {
-              let textToEmit = finalText;
-              if (accumulatedCommentary && finalText.startsWith(accumulatedCommentary)) {
-                textToEmit = finalText.slice(accumulatedCommentary.length);
+            let terminalResponseText = null;
+            if (isTerminalError) {
+              if (typeof finalText === 'string' && finalText.trim().length > 0) {
+                terminalResponseText = finalText;
               }
-              if (textToEmit && emitFinalAnswerDelta) {
-                finalAnswerEmitted = true;
-                emitFinalAnswerDelta(textToEmit, 'final-answer');
+            } else {
+              if (typeof pendingAssistantText === 'string' && pendingAssistantText.trim().length > 0) {
+                if (typeof finalText === 'string' && finalText.startsWith(pendingAssistantText) && finalText.length > pendingAssistantText.length) {
+                  terminalResponseText = finalText;
+                } else {
+                  terminalResponseText = pendingAssistantText;
+                }
+              } else if (typeof finalText === 'string' && finalText.trim().length > 0) {
+                if (committedCommentary && finalText.startsWith(committedCommentary)) {
+                  terminalResponseText = finalText.slice(committedCommentary.length).trimStart();
+                } else {
+                  terminalResponseText = finalText;
+                }
               }
             }
+            const hasFinalResponse = typeof terminalResponseText === 'string' && terminalResponseText.trim().length > 0;
+
             const usageObj = payload?.usage || raw.usage;
             if (usageObj && emitUsageUpdated) {
               emitUsageUpdated({
@@ -1028,13 +1063,8 @@ export class AntigravityAgentProvider {
               });
             }
 
-            const statusValue = payload?.status || raw.status;
-            const statusIndicatesError = typeof statusValue === 'string'
-              && (statusValue.toUpperCase() === 'ERROR' || statusValue.toUpperCase() === 'FAILED' || statusValue.toUpperCase() === 'TIMEOUT');
-            const explicitErrorFlag = payload?.is_error === true || raw.is_error === true;
-            const isTerminalError = statusIndicatesError || explicitErrorFlag;
-
             if (isTerminalError && !hasFinalResponse) {
+              flushPendingAsCommentary();
               const rawErr = payload?.error ?? raw.error;
               const errorMessage = (typeof rawErr === 'string' ? rawErr : (rawErr?.message || payload?.message || raw.message)) || 'Antigravity turn failed.';
               const isTimeout = statusValue?.toUpperCase() === 'TIMEOUT' || /timeout|timed out|deadline exceeded|ETIMEDOUT/i.test(errorMessage);
@@ -1044,6 +1074,11 @@ export class AntigravityAgentProvider {
               await failAuthoritativeTerminal(errorObj);
               break;
             }
+
+            if (hasFinalResponse && emitFinalAnswerDelta) {
+              emitFinalAnswerDelta(terminalResponseText, 'final-answer');
+            }
+            pendingAssistantText = '';
 
             isDone = true;
             if (pendingInteractionPromise) {
@@ -1212,6 +1247,7 @@ export class AntigravityAgentProvider {
         activeTools.clear();
 
         if (wasCancelled) {
+          flushPendingAsCommentary();
           return failTurn(new AiError('AI_TURN_CANCELLED', 'Antigravity turn was cancelled.', { status: 409 }));
         }
 
@@ -1224,6 +1260,7 @@ export class AntigravityAgentProvider {
         }
 
         if (hadNonZeroExit) {
+          flushPendingAsCommentary();
           const detail = stderrBuffer.trim() ? `: ${stderrBuffer.trim()}` : '.';
           const isTimeout = exitCode === 124 || /timeout|timed out|deadline exceeded|ETIMEDOUT/i.test(stderrBuffer);
           if (isTimeout) {
@@ -1241,6 +1278,11 @@ export class AntigravityAgentProvider {
             ));
           }
           return failTurn(new AiError('AI_PROVIDER_EXIT_ERROR', `Antigravity process exited with non-zero code ${exitCode}${detail}`));
+        }
+
+        if (pendingAssistantText && emitFinalAnswerDelta) {
+          emitFinalAnswerDelta(pendingAssistantText, 'final-answer');
+          pendingAssistantText = '';
         }
 
         await finishTurn();
