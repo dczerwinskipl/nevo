@@ -207,7 +207,8 @@ export function useAgentSessionRuntime({
         }
 
         if (event.type === 'turn.updated' && event.turn) {
-          setTurns((prev) => applyTurnUpdatedV2(prev, event.turn));
+          const updatedTurn = event.turn;
+          setTurns((prev) => applyTurnUpdatedV2(prev, updatedTurn));
           setOptimisticPending(null);
         }
 

@@ -19,39 +19,41 @@ export const WorkCurrentActivityLineV2 = memo(function WorkCurrentActivityLineV2
 
   const ToolIcon = display.toolKind ? TOOL_KIND_ICONS_V2[display.toolKind] : null;
   const isAttention = display.kind === 'requires_attention';
+  const isWaiting = display.kind === 'waiting_for_model' || display.kind === 'waiting_for_tool';
+  const detail = display.detail || display.description;
 
   return (
     <div
       className={cn(
-        'flex items-center gap-2 pl-1 text-xs',
+        'flex flex-col gap-0.5 pl-1 text-xs',
         isAttention ? 'text-[var(--warning-strong)]' : 'text-[var(--muted)]',
       )}
       role="status"
     >
-      {isAttention ? (
-        <AlertTriangle className="size-3.5 shrink-0 text-[var(--warning)]" />
-      ) : display.kind === 'cancelling' ? (
-        <XCircle className="size-3.5 shrink-0 text-[var(--muted)]" />
-      ) : display.textFirst ? (
-        <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" />
-      ) : ToolIcon ? (
-        <ToolIcon className="size-3.5 shrink-0 text-[var(--accent)]" />
-      ) : (
-        <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" />
-      )}
-      <span className="min-w-0 flex-1 truncate">
-        {display.label}
-        {display.description ? <span className="text-[var(--muted)]"> · {display.description}</span> : null}
-      </span>
-      {!isAttention && display.kind !== 'cancelling' && (
-        <span className="flex shrink-0 items-center gap-1 text-[10px] text-[var(--muted)]" aria-hidden="true">
-          {display.kind === 'waiting_for_model' || display.kind === 'waiting_for_tool' ? (
-            <Hourglass className="size-3" />
-          ) : (
-            <LoaderCircle className="size-3 animate-spin" />
-          )}
-          {elapsed}
+      <div className="flex items-center gap-1.5 min-w-0">
+        {isAttention ? (
+          <AlertTriangle className="size-3.5 shrink-0 text-[var(--warning)]" />
+        ) : display.kind === 'cancelling' ? (
+          <XCircle className="size-3.5 shrink-0 text-[var(--muted)]" />
+        ) : isWaiting ? (
+          <Hourglass className="size-3.5 shrink-0 text-[var(--muted)]" />
+        ) : display.textFirst ? (
+          <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" />
+        ) : ToolIcon ? (
+          <ToolIcon className="size-3.5 shrink-0 text-[var(--accent)]" />
+        ) : (
+          <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" />
+        )}
+        <span className="min-w-0 flex-1 truncate font-medium text-[var(--foreground-muted)]">
+          {display.label}
         </span>
+      </div>
+      {!isAttention && display.kind !== 'cancelling' && (detail || elapsed) && (
+        <div className="flex items-center gap-1 pl-5 text-[11px] text-[var(--muted)] min-w-0">
+          {detail && <span className="truncate">{detail}</span>}
+          {detail && elapsed && <span aria-hidden="true">·</span>}
+          {elapsed && <span className="shrink-0">{elapsed}</span>}
+        </div>
       )}
     </div>
   );
@@ -68,6 +70,8 @@ export const WorkIndicatorV2 = memo(function WorkIndicatorV2({ turn, expanded, o
   const attention = turn.status.status === 'requiresAttention';
   const count = turn.activityCount;
 
+  const statusLabel = terminalLabel || (attention ? 'Requires attention' : 'In progress');
+
   const severity: 'normal' | 'warning' | 'error' = attention
     ? 'warning'
     : terminalLabel === 'Failed'
@@ -83,7 +87,7 @@ export const WorkIndicatorV2 = memo(function WorkIndicatorV2({ turn, expanded, o
         'flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-xs font-medium transition-colors hover:bg-white/4',
         severity === 'error' && 'text-[var(--danger-strong)]',
         severity === 'warning' && 'text-[var(--warning-strong)]',
-        severity === 'normal' && 'text-[var(--muted)]',
+        severity === 'normal' && 'text-[var(--foreground-muted)]',
       )}
     >
       {terminalLabel === 'Failed' ? (
@@ -98,10 +102,9 @@ export const WorkIndicatorV2 = memo(function WorkIndicatorV2({ turn, expanded, o
         <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" />
       )}
       <span className="min-w-0 flex-1 truncate">
-        Work · {count} {count === 1 ? 'action' : 'actions'}
-        {terminalLabel ? ` · ${terminalLabel}` : attention ? ' · requires attention' : ''}
+        Work · {count} {count === 1 ? 'action' : 'actions'} · {statusLabel}
       </span>
-      {expanded ? <ChevronDown className="size-3.5 shrink-0" /> : <ChevronRight className="size-3.5 shrink-0" />}
+      {expanded ? <ChevronDown className="size-3.5 shrink-0 text-[var(--muted)]" /> : <ChevronRight className="size-3.5 shrink-0 text-[var(--muted)]" />}
     </button>
   );
 });

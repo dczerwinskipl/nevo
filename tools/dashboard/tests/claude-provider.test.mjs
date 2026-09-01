@@ -974,31 +974,37 @@ test('mapClaudeTool maps tools to normalized kinds, titles, and descriptions', (
   assert.deepEqual(mapClaudeTool('Bash', { command: 'git status' }), {
     kind: 'command',
     title: 'Run command',
+    subject: 'git status',
     description: 'git status',
   });
   assert.deepEqual(mapClaudeTool('Read', { file_path: 'path/to/file.ts' }), {
     kind: 'read',
     title: 'Read file',
+    subject: 'file.ts',
     description: 'path/to/file.ts',
   });
   assert.deepEqual(mapClaudeTool('Glob', { pattern: 'specs/**/*' }), {
     kind: 'list',
     title: 'List files',
+    subject: 'specs/**/*',
     description: 'specs/**/*',
   });
   assert.deepEqual(mapClaudeTool('WebSearch', { url: 'https://example.com' }), {
     kind: 'web',
     title: 'Web search / fetch',
+    subject: 'example.com',
     description: 'https://example.com',
   });
   assert.deepEqual(mapClaudeTool('mcp__github__search_issues', { q: 'bug' }), {
     kind: 'other',
     title: 'mcp__github__search_issues',
+    subject: undefined,
     description: undefined,
   });
   assert.deepEqual(mapClaudeTool('CustomWidgetTool', { foo: 'bar' }), {
     kind: 'other',
     title: 'CustomWidgetTool',
+    subject: undefined,
     description: undefined,
   });
 });

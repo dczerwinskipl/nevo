@@ -226,6 +226,7 @@ export interface ToolInvocationWorkItemV2 extends WorkItemV2Base {
   title: string;
   status: ToolStatusV2;
   actions: ToolActionV2[];
+  subject?: string;
   description?: string;
   input?: unknown;
   output?: unknown;
@@ -271,6 +272,7 @@ export interface CurrentActivityV2 {
   kind: CurrentActivityKindV2;
   subjectId?: string;
   title: string;
+  subject?: string;
   description?: string;
   text?: string;
   toolKind?: ToolKindV2;

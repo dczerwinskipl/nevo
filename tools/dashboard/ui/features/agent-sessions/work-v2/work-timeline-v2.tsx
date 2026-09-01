@@ -4,6 +4,7 @@ import { buildTimelineRowsV2, type TimelineRowV2 } from './timeline-projection-v
 import { TOOL_KIND_ICONS_V2 } from './tool-kind-icons-v2';
 import { previewPlainText } from './text-preview-v2';
 import type { CommentaryWorkItemV2, InteractionWorkItemV2, ReasoningWorkItemV2, ToolInvocationWorkItemV2, WorkItemV2 } from '../types';
+import { cn } from '@/lib/utils';
 
 const TOOL_STATUS_ICON: Partial<Record<ToolInvocationWorkItemV2['status'], typeof XCircle>> = {
   failed: XCircle,
@@ -29,12 +30,14 @@ const ToolRowV2 = memo(function ToolRowV2({
 }) {
   const Icon = TOOL_KIND_ICONS_V2[item.kind];
   const StatusIcon = TOOL_STATUS_ICON[item.status];
+  const subject = item.subject;
+
   return (
     <button type="button" onClick={() => onSelect(item)} className={`${ROW_BUTTON_CLASSES} text-[var(--muted)]`}>
       <Icon className="size-3.5 shrink-0 text-[var(--muted)]" />
       <span className="min-w-0 flex-1 truncate">
-        <span className="font-medium text-[var(--foreground)]">{item.title}</span>
-        {item.description ? <span className="text-[var(--muted)]"> · {item.description}</span> : null}
+        <span className="font-normal text-[var(--foreground-muted)]">{item.title}</span>
+        {subject ? <span className="text-[var(--muted)]"> · {subject}</span> : null}
       </span>
       {StatusIcon && <StatusIcon className="size-3.5 shrink-0 text-[var(--warning)]" />}
     </button>
@@ -50,7 +53,7 @@ const CommentaryRowV2 = memo(function CommentaryRowV2({ item, onSelect }: { item
   const preview = previewPlainText(item.text);
   if (!preview) return null;
   return (
-    <button type="button" onClick={() => onSelect(item)} className="flex w-full min-w-0 items-start rounded py-0.5 pl-5 pr-1.5 text-left text-xs font-normal leading-relaxed text-[var(--foreground-muted)] transition-colors hover:bg-white/4 hover:text-[var(--foreground)]">
+    <button type="button" onClick={() => onSelect(item)} className="flex w-full min-w-0 items-start rounded py-0.5 pl-5 pr-1.5 text-left text-xs font-normal leading-relaxed text-[var(--muted)] transition-colors hover:bg-white/4 hover:text-[var(--foreground-muted)]">
       <span className="min-w-0 flex-1 truncate">{preview}</span>
     </button>
   );
@@ -60,7 +63,7 @@ const ReasoningRowV2 = memo(function ReasoningRowV2({ item, onSelect }: { item: 
   const preview = previewPlainText(item.text);
   if (!preview) return null;
   return (
-    <button type="button" onClick={() => onSelect(item)} className="flex w-full min-w-0 items-start rounded py-0.5 pl-5 pr-1.5 text-left text-xs font-normal leading-relaxed text-[var(--muted)] transition-colors hover:bg-white/4 hover:text-[var(--foreground)]">
+    <button type="button" onClick={() => onSelect(item)} className="flex w-full min-w-0 items-start rounded py-0.5 pl-5 pr-1.5 text-left text-xs font-normal leading-relaxed text-[var(--muted)] transition-colors hover:bg-white/4 hover:text-[var(--foreground-muted)]">
       <span className="min-w-0 flex-1 truncate">{preview}</span>
     </button>
   );
@@ -85,6 +88,28 @@ function interactionSummary(item: InteractionWorkItemV2): string {
   }
 }
 
+const InteractionRowV2 = memo(function InteractionRowV2({
+  item,
+  onSelect,
+}: {
+  item: InteractionWorkItemV2;
+  onSelect: (item: WorkItemV2) => void;
+}) {
+  const isPending = item.status === 'pending';
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(item)}
+      className={cn(
+        'flex w-full min-w-0 items-start rounded py-0.5 pl-5 pr-1.5 text-left text-xs transition-colors hover:bg-white/4',
+        isPending ? 'font-medium text-[var(--warning-strong)]' : 'font-normal text-[var(--muted)]',
+      )}
+    >
+      <span className="min-w-0 flex-1 truncate">{interactionSummary(item)}</span>
+    </button>
+  );
+});
+
 function TimelineRow({ row, onSelectItem }: { row: TimelineRowV2; onSelectItem: (item: WorkItemV2) => void }) {
   switch (row.row) {
     case 'commentary':
@@ -92,7 +117,7 @@ function TimelineRow({ row, onSelectItem }: { row: TimelineRowV2; onSelectItem: 
     case 'reasoning':
       return <ReasoningRowV2 item={row.item} onSelect={onSelectItem} />;
     case 'interaction':
-      return <div className="truncate px-1 py-px text-[11px] leading-4 text-[var(--muted)]">{interactionSummary(row.item)}</div>;
+      return <InteractionRowV2 item={row.item} onSelect={onSelectItem} />;
     case 'tool':
       return <ToolRowV2 item={row.item} onSelect={onSelectItem} />;
     default:

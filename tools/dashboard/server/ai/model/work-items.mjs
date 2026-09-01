@@ -297,6 +297,7 @@ export function validateToolInvocationWorkItem(value) {
     title,
     status,
     actions,
+    ...(value.subject != null ? { subject: optionalString(value.subject, 'tool.subject', 200) } : {}),
     ...(value.description != null ? { description: optionalString(value.description, 'tool.description', 1000) } : {}),
     ...(value.input !== undefined ? { input: structuredClone(value.input) } : {}),
     ...(value.output !== undefined ? { output: structuredClone(value.output) } : {}),

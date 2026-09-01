@@ -158,6 +158,23 @@ export function mapAntigravityTool(toolName, parameters = {}) {
   return { ...mapped, description: truncateToolDescription(mapped.description) };
 }
 
+function extractFileBasename(filePath) {
+  if (typeof filePath !== 'string' || !filePath.trim()) return undefined;
+  const normalized = filePath.trim().replace(/\\/g, '/');
+  const parts = normalized.split('/').filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : filePath.trim();
+}
+
+function extractCommandSubject(cmd, summary) {
+  if (typeof summary === 'string' && summary.trim() && summary.trim().length <= 60) {
+    return summary.trim();
+  }
+  if (typeof cmd !== 'string' || !cmd.trim()) return undefined;
+  const singleLine = cmd.trim().split('\n')[0].trim();
+  if (singleLine.length <= 40) return singleLine;
+  return `${singleLine.slice(0, 39)}…`;
+}
+
 function mapAntigravityToolRaw(toolName, parameters = {}) {
   const name = String(toolName || 'tool');
   const params = parameters && typeof parameters === 'object' ? parameters : {};
@@ -168,6 +185,7 @@ function mapAntigravityToolRaw(toolName, parameters = {}) {
         toolName: 'run_command',
         kind: 'command',
         title: 'Run command',
+        subject: extractCommandSubject(params.CommandLine || params.command, params.toolSummary),
         description: params.CommandLine || params.Cwd || undefined,
       };
     case 'view_file':
@@ -175,6 +193,7 @@ function mapAntigravityToolRaw(toolName, parameters = {}) {
         toolName: 'view_file',
         kind: 'read',
         title: 'Read file',
+        subject: extractFileBasename(params.AbsolutePath || params.file || params.path),
         description: params.AbsolutePath || undefined,
       };
     case 'write_to_file':
@@ -182,6 +201,7 @@ function mapAntigravityToolRaw(toolName, parameters = {}) {
         toolName: 'write_to_file',
         kind: 'write',
         title: 'Write file',
+        subject: extractFileBasename(params.TargetFile || params.file || params.path),
         description: params.TargetFile || undefined,
       };
     case 'replace_file_content':
@@ -189,6 +209,7 @@ function mapAntigravityToolRaw(toolName, parameters = {}) {
         toolName: 'replace_file_content',
         kind: 'edit',
         title: 'Edit file',
+        subject: extractFileBasename(params.TargetFile || params.file || params.path),
         description: params.TargetFile || undefined,
       };
     case 'find_by_name':
@@ -196,6 +217,7 @@ function mapAntigravityToolRaw(toolName, parameters = {}) {
         toolName: 'find_by_name',
         kind: 'search',
         title: 'Find files',
+        subject: params.Pattern || undefined,
         description: params.Pattern ? (params.SearchDirectory ? `${params.Pattern} in ${params.SearchDirectory}` : params.Pattern) : params.SearchDirectory || undefined,
       };
     case 'grep_search':
@@ -203,6 +225,7 @@ function mapAntigravityToolRaw(toolName, parameters = {}) {
         toolName: 'grep_search',
         kind: 'search',
         title: 'Search files',
+        subject: params.Query || undefined,
         description: params.Query ? (params.SearchPath ? `${params.Query} in ${params.SearchPath}` : params.Query) : params.SearchPath || undefined,
       };
     case 'list_dir':
@@ -210,6 +233,7 @@ function mapAntigravityToolRaw(toolName, parameters = {}) {
         toolName: 'list_dir',
         kind: 'list',
         title: 'List directory',
+        subject: extractFileBasename(params.DirectoryPath || params.path),
         description: params.DirectoryPath || undefined,
       };
     case 'read_url_content':
@@ -217,6 +241,7 @@ function mapAntigravityToolRaw(toolName, parameters = {}) {
         toolName: 'read_url_content',
         kind: 'web',
         title: 'Fetch URL',
+        subject: params.Url ? params.Url.replace(/^https?:\/\//, '').split('?')[0] : undefined,
         description: params.Url || undefined,
       };
     case 'search_web':
@@ -224,6 +249,7 @@ function mapAntigravityToolRaw(toolName, parameters = {}) {
         toolName: 'search_web',
         kind: 'web',
         title: 'Web search',
+        subject: params.query || undefined,
         description: params.query || undefined,
       };
     default:
@@ -231,6 +257,7 @@ function mapAntigravityToolRaw(toolName, parameters = {}) {
         toolName: name,
         kind: 'other',
         title: name,
+        subject: undefined,
         description: undefined,
       };
   }

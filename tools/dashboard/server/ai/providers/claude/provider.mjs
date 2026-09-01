@@ -48,58 +48,85 @@ export function mapClaudeTool(toolName = '', input = {}) {
   const name = String(toolName || '').trim();
   const lower = name.toLowerCase();
 
+function extractFileBasename(filePath) {
+  if (typeof filePath !== 'string' || !filePath.trim()) return undefined;
+  const normalized = filePath.trim().replace(/\\/g, '/');
+  const parts = normalized.split('/').filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : filePath.trim();
+}
+
+function extractCommandSubject(cmd) {
+  if (typeof cmd !== 'string' || !cmd.trim()) return undefined;
+  const singleLine = cmd.trim().split('\n')[0].trim();
+  if (singleLine.length <= 40) return singleLine;
+  return `${singleLine.slice(0, 39)}…`;
+}
+
   if (['bash', 'terminal', 'executecommand', 'command'].includes(lower)) {
     return {
       kind: 'command',
       title: 'Run command',
+      subject: extractCommandSubject(input?.command),
       description: truncateToolDescription(typeof input?.command === 'string' ? input.command : undefined),
     };
   }
 
   if (['read', 'view', 'notebookread'].includes(lower)) {
+    const rawPath = typeof input?.file_path === 'string' ? input.file_path : (typeof input?.path === 'string' ? input.path : undefined);
     return {
       kind: 'read',
       title: 'Read file',
-      description: truncateToolDescription(typeof input?.file_path === 'string' ? input.file_path : (typeof input?.path === 'string' ? input.path : undefined)),
+      subject: extractFileBasename(rawPath),
+      description: truncateToolDescription(rawPath),
     };
   }
 
   if (['write', 'createfile'].includes(lower)) {
+    const rawPath = typeof input?.file_path === 'string' ? input.file_path : (typeof input?.path === 'string' ? input.path : undefined);
     return {
       kind: 'write',
       title: 'Write file',
-      description: truncateToolDescription(typeof input?.file_path === 'string' ? input.file_path : (typeof input?.path === 'string' ? input.path : undefined)),
+      subject: extractFileBasename(rawPath),
+      description: truncateToolDescription(rawPath),
     };
   }
 
   if (['edit', 'multiedit', 'notebookedit', 'fileedit'].includes(lower)) {
+    const rawPath = typeof input?.file_path === 'string' ? input.file_path : (typeof input?.path === 'string' ? input.path : undefined);
     return {
       kind: 'edit',
       title: 'Edit file',
-      description: truncateToolDescription(typeof input?.file_path === 'string' ? input.file_path : (typeof input?.path === 'string' ? input.path : undefined)),
+      subject: extractFileBasename(rawPath),
+      description: truncateToolDescription(rawPath),
     };
   }
 
   if (['glob', 'ls', 'listdirectory', 'listfiles', 'listdir'].includes(lower)) {
+    const rawPath = typeof input?.path === 'string' ? input.path : (typeof input?.pattern === 'string' ? input.pattern : undefined);
     return {
       kind: 'list',
       title: 'List files',
-      description: truncateToolDescription(typeof input?.path === 'string' ? input.path : (typeof input?.pattern === 'string' ? input.pattern : undefined)),
+      subject: typeof input?.pattern === 'string' ? input.pattern : extractFileBasename(rawPath),
+      description: truncateToolDescription(rawPath),
     };
   }
 
   if (['grep', 'search', 'find', 'filesearch'].includes(lower)) {
+    const rawSubject = typeof input?.pattern === 'string' ? input.pattern : (typeof input?.query === 'string' ? input.query : undefined);
     return {
       kind: 'search',
       title: 'Search files',
-      description: truncateToolDescription(typeof input?.pattern === 'string' ? input.pattern : (typeof input?.query === 'string' ? input.query : (typeof input?.path === 'string' ? input.path : undefined))),
+      subject: rawSubject,
+      description: truncateToolDescription(rawSubject || (typeof input?.path === 'string' ? input.path : undefined)),
     };
   }
 
   if (['websearch', 'webfetch', 'browser', 'fetch'].includes(lower)) {
+    const rawSubject = typeof input?.query === 'string' ? input.query : (typeof input?.url === 'string' ? input.url.replace(/^https?:\/\//, '').split('?')[0] : undefined);
     return {
       kind: 'web',
       title: 'Web search / fetch',
+      subject: rawSubject,
       description: truncateToolDescription(typeof input?.url === 'string' ? input.url : (typeof input?.query === 'string' ? input.query : undefined)),
     };
   }
@@ -107,6 +134,7 @@ export function mapClaudeTool(toolName = '', input = {}) {
   return {
     kind: 'other',
     title: name || 'Tool',
+    subject: undefined,
     description: undefined,
   };
 }

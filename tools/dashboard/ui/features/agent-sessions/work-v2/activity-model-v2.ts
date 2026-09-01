@@ -17,11 +17,15 @@ export const TOOL_KIND_LABELS_V2: Record<ToolKindV2, string> = {
   other: 'Tool',
 };
 
+import { previewPlainText } from './text-preview-v2.ts';
+
 export interface CurrentActivityDisplay {
   kind: CurrentActivityKindV2;
-  /** Primary label — semantic tool title, or a truthful state label ("Waiting for model response"). */
+  /** Primary label — semantic tool title, or a truthful state label ("Waiting for model response…", "Thinking…"). */
   label: string;
-  /** Secondary detail (usually file/path/command/test name), when the server supplied one. */
+  /** Secondary detail (concise subject, reasoning preview, or brief detail), when available. */
+  detail?: string;
+  /** Backward-compatible alias for detail. */
   description?: string;
   /** Text-first (no type icon, per "Icon and text weighting") vs icon+label (tool). */
   textFirst: boolean;
@@ -42,30 +46,39 @@ export function describeCurrentActivityV2(activity: CurrentActivityV2 | null): C
       return {
         kind: activity.kind,
         label: activity.title,
+        detail: activity.description,
         description: activity.description,
         textFirst: false,
         startedAt: activity.startedAt,
       };
-    case 'tool':
+    case 'tool': {
+      const detail = activity.subject || (activity.description && activity.description.length <= 80 && !activity.description.includes('\n') ? activity.description : undefined);
       return {
         kind: activity.kind,
         label: activity.title,
-        description: activity.description,
+        detail,
+        description: detail,
         textFirst: false,
         toolKind: activity.toolKind,
         startedAt: activity.startedAt,
       };
-    case 'thinking':
+    }
+    case 'thinking': {
+      const label = activity.text?.trim() ? activity.text.trim() : 'Thinking…';
+      const detail = activity.text?.trim() ? previewPlainText(activity.text, 80) : undefined;
       return {
         kind: activity.kind,
-        label: activity.text?.trim() ? activity.text : 'Thinking…',
+        label,
+        detail,
+        description: detail,
         textFirst: true,
         startedAt: activity.startedAt,
       };
+    }
     case 'commentary':
       return {
         kind: activity.kind,
-        label: activity.text?.trim() ? activity.text : 'Generating response…',
+        label: activity.text?.trim() ? previewPlainText(activity.text, 80) : 'Generating response…',
         textFirst: true,
         startedAt: activity.startedAt,
       };
