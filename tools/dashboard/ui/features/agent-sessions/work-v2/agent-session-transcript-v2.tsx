@@ -1,9 +1,10 @@
-import { AlertTriangle, ArrowLeft, ChevronDown, LoaderCircle, RefreshCw } from 'lucide-react';
-import { forwardRef, useImperativeHandle } from 'react';
+import { AlertTriangle, ArrowLeft, ChevronDown, ChevronRight, LoaderCircle, RefreshCw } from 'lucide-react';
+import { forwardRef, useCallback, useImperativeHandle, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { TurnWorkPanelV2 } from './turn-work-panel-v2';
 import { useScrollFollow } from '../transcript/use-scroll-follow';
+import { shouldCollapseMessage } from '../transcript/message-collapse';
 import { AgentSessionLoadError } from '../runtime/agent-session-transport';
 import type { CanonicalTurnV2 } from '../types';
 import { cn } from '@/lib/utils';
@@ -13,10 +14,34 @@ export interface AgentSessionTranscriptV2Handle {
 }
 
 function UserMessageBubble({ text }: { text: string }) {
+  const isLong = shouldCollapseMessage(text);
+  const [expanded, setExpanded] = useState(false);
+  const toggleExpanded = useCallback(() => setExpanded((prev) => !prev), []);
+
   return (
     <div className="flex w-full min-w-0 justify-end">
       <div className="w-fit max-w-[min(88%,820px)] rounded-2xl border border-[var(--border-strong)] bg-[var(--surface-raised)] px-4 py-3 text-sm leading-6 text-[var(--foreground)]">
-        <div className="whitespace-pre-wrap break-words">{text}</div>
+        <div className="space-y-1.5">
+          <div
+            className={cn(
+              'whitespace-pre-wrap break-words font-normal text-[var(--foreground)]',
+              isLong && !expanded && 'line-clamp-6',
+            )}
+          >
+            {text}
+          </div>
+          {isLong && (
+            <button
+              type="button"
+              onClick={toggleExpanded}
+              aria-expanded={expanded}
+              className="flex items-center gap-1 text-xs font-medium text-[var(--accent)] hover:underline"
+            >
+              {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+              {expanded ? 'Zwiń' : 'Pokaż więcej'}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -133,7 +158,15 @@ export const AgentSessionTranscriptV2 = forwardRef<AgentSessionTranscriptV2Handl
             </div>
           ))}
 
-          {optimisticUserMessage && <UserMessageBubble text={optimisticUserMessage} />}
+          {optimisticUserMessage && (
+            <div className="w-full min-w-0 space-y-1.5">
+              <UserMessageBubble text={optimisticUserMessage} />
+              <div className="flex items-center gap-2 pl-1 text-xs text-[var(--muted)]" role="status">
+                <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" />
+                <span>Starting…</span>
+              </div>
+            </div>
+          )}
 
           {displayError && (
             <div

@@ -16,7 +16,6 @@ import {
   type AgentSessionTranscriptV2Handle,
 } from './work-v2/agent-session-transcript-v2';
 import { useAgentSessionRuntime } from './runtime/agent-session-runtime';
-import { useAgentSessionRuntimeV2 } from './runtime/agent-session-runtime-v2';
 import { useAgentProviders, useDeleteAgentSession } from './queries';
 import { AI_PROVIDERS_CONFIG_PATH } from './provider-config';
 import { useInitialDispatch } from './runtime/use-initial-dispatch';
@@ -74,7 +73,6 @@ export function AgentSessionPage({
     : `Provider '${provider}' nie jest włączony w ${AI_PROVIDERS_CONFIG_PATH}. Włącz go i uruchom dashboard ponownie.`;
 
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
-  const [runtimeErrorV2, setRuntimeErrorV2] = useState<string | null>(null);
 
   const assistant = useAgentSessionRuntime({
     provider,
@@ -84,17 +82,6 @@ export function AgentSessionPage({
     },
     onError: (err) => {
       setRuntimeError(err.message);
-    },
-  });
-
-  const assistantV2 = useAgentSessionRuntimeV2({
-    provider,
-    providerSessionId: sessionId,
-    onTurnCompleted: () => {
-      setRuntimeErrorV2(null);
-    },
-    onError: (err) => {
-      setRuntimeErrorV2(err.message);
     },
   });
 
@@ -112,13 +99,12 @@ export function AgentSessionPage({
     }, []),
   });
 
-  const displayError = initialDispatch.displayError || (representation === 'v2' ? runtimeErrorV2 : runtimeError) || null;
+  const displayError = initialDispatch.displayError || runtimeError || null;
   const canRetryInitial = initialDispatch.canRetryInitial;
 
   const handleDismissError = useCallback(() => {
     initialDispatch.handleDismissError();
     setRuntimeError(null);
-    setRuntimeErrorV2(null);
   }, [initialDispatch]);
 
   const handleRetryInitial = useCallback(async () => {
@@ -127,46 +113,27 @@ export function AgentSessionPage({
   }, [initialDispatch]);
 
   const handleCancelTurn = useCallback(async () => {
-    if (representation === 'v2') {
-      setRuntimeErrorV2(null);
-      try {
-        await assistantV2.cancelTurn();
-      } catch (err) {
-        setRuntimeErrorV2(err instanceof Error ? err.message : String(err));
-      }
-      return;
-    }
     setRuntimeError(null);
     try {
       await assistant.cancelTurn();
     } catch (err) {
       setRuntimeError(err instanceof Error ? err.message : String(err));
     }
-  }, [representation, assistant.cancelTurn, assistantV2.cancelTurn]);
+  }, [assistant.cancelTurn]);
 
   const handleRespondInteraction = useCallback(async (interactionId: string, response: unknown) => {
-    if (representation === 'v2') {
-      setRuntimeErrorV2(null);
-      try {
-        await assistantV2.respondInteraction(interactionId, response);
-      } catch (err) {
-        setRuntimeErrorV2(err instanceof Error ? err.message : String(err));
-      }
-      return;
-    }
     setRuntimeError(null);
     try {
       await assistant.respondInteraction(interactionId, response);
     } catch (err) {
       setRuntimeError(err instanceof Error ? err.message : String(err));
     }
-  }, [representation, assistant.respondInteraction, assistantV2.respondInteraction]);
+  }, [assistant.respondInteraction]);
 
   const handleReload = useCallback(async () => {
     setRuntimeError(null);
-    setRuntimeErrorV2(null);
-    await Promise.all([assistant.reload(), assistantV2.reload()]);
-  }, [assistant.reload, assistantV2.reload]);
+    await assistant.reload();
+  }, [assistant.reload]);
 
   const [isSessionDetailsOpen, setIsSessionDetailsOpen] = useState(false);
   const [inspectedTaskId, setInspectedTaskId] = useState<string | null>(null);
@@ -187,7 +154,6 @@ export function AgentSessionPage({
 
   useEffect(() => {
     setRuntimeError(null);
-    setRuntimeErrorV2(null);
   }, [provider, sessionId]);
 
   const { deleteSession, deleting } = useDeleteAgentSession();
@@ -204,27 +170,19 @@ export function AgentSessionPage({
 
   const handleComposerSubmit = useCallback(async (promptText: string) => {
     const trimmed = promptText.trim();
-    if (!trimmed || !isProviderAvailable) return;
-    if (representation === 'v2') {
-      if (!assistantV2.canStartTurn) return;
-      setRuntimeErrorV2(null);
-      transcriptHandleRefV2.current?.scrollToBottom('auto');
-      try {
-        await assistantV2.sendTurn(trimmed, { mode: currentMode });
-      } catch (err) {
-        setRuntimeErrorV2(err instanceof Error ? err.message : String(err));
-      }
-      return;
-    }
-    if (!assistant.canStartTurn) return;
+    if (!trimmed || !isProviderAvailable || !assistant.canStartTurn) return;
     setRuntimeError(null);
-    transcriptHandleRef.current?.scrollToBottom('auto');
+    if (representation === 'v2') {
+      transcriptHandleRefV2.current?.scrollToBottom('auto');
+    } else {
+      transcriptHandleRef.current?.scrollToBottom('auto');
+    }
     try {
       await assistant.sendTurn(trimmed, { mode: currentMode });
     } catch (err) {
       setRuntimeError(err instanceof Error ? err.message : String(err));
     }
-  }, [representation, assistant.canStartTurn, assistant.sendTurn, assistantV2.canStartTurn, assistantV2.sendTurn, currentMode, isProviderAvailable]);
+  }, [assistant.canStartTurn, assistant.sendTurn, currentMode, isProviderAvailable, representation]);
 
   const shellClassName = 'fixed inset-x-0 top-0 flex h-[100dvh] min-h-0 flex-col overflow-hidden overscroll-none bg-[var(--background)]';
   const shellStyle = visualViewport.height
@@ -234,26 +192,14 @@ export function AgentSessionPage({
       }
     : undefined;
 
-  // Composer/cancel/delete/session controls are driven from whichever representation's
-  // semantic readiness/Turn state is currently displayed (task 11 requirement) — both
-  // runtimes stay mounted, but only the active one's state reaches these controls.
-  const activeRuntime = representation === 'v2'
-    ? {
-        activity: assistantV2.activity,
-        isRunning: assistantV2.isRunning,
-        capabilities: assistantV2.capabilities,
-        activeTurnId: assistantV2.activeTurnId,
-        canStartTurn: assistantV2.canStartTurn,
-        loadError: assistantV2.loadError,
-      }
-    : {
-        activity: assistant.activity,
-        isRunning: assistant.isRunning,
-        capabilities: assistant.capabilities,
-        activeTurnId: assistant.activeTurnId,
-        canStartTurn: assistant.canStartTurn,
-        loadError: assistant.loadError,
-      };
+  const activeRuntime = {
+    activity: assistant.activity,
+    isRunning: assistant.isRunning,
+    capabilities: assistant.capabilities,
+    activeTurnId: assistant.activeTurnId,
+    canStartTurn: assistant.canStartTurn,
+    loadError: assistant.loadError,
+  };
 
   const headerTitle =
     session?.title?.trim() ||
@@ -326,12 +272,12 @@ export function AgentSessionPage({
         {representation === 'v2' ? (
           <AgentSessionTranscriptV2
             ref={transcriptHandleRefV2}
-            turns={assistantV2.turns}
-            optimisticUserMessage={assistantV2.optimisticUserMessage}
-            isLoading={assistantV2.isLoading}
-            hasSessionDetails={Boolean(assistantV2.sessionMeta)}
-            loadError={assistantV2.loadError}
-            contentRevision={assistantV2.contentRevision}
+            turns={assistant.turns}
+            optimisticUserMessage={assistant.optimisticUserMessage}
+            isLoading={assistant.isLoading}
+            hasSessionDetails={Boolean(assistant.sessionDetails)}
+            loadError={assistant.loadError}
+            contentRevision={assistant.contentRevision}
             displayError={displayError}
             canRetryInitial={canRetryInitial}
             onReload={() => void handleReload()}

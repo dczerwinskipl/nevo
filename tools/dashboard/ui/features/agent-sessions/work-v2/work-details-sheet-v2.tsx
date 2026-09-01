@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, Brain, ChevronRight, Clock, Code2, MessageSquareText } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Ban, Brain, Check, ChevronRight, Clock, Code2, LoaderCircle, MessageSquareText } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { MarkdownContent } from '@/shared/markdown/markdown-content';
 import { TOOL_KIND_ICONS_V2 } from './tool-kind-icons-v2';
@@ -23,11 +23,35 @@ function formatAbsolute(timestamp: string | undefined): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toLocaleString();
 }
 
+function formatDuration(durationMs?: number): string | null {
+  if (durationMs == null) return null;
+  if (durationMs < 1000) return `${durationMs} ms`;
+  return `${(durationMs / 1000).toFixed(1)} s`;
+}
+
+function resolveToolSubject(item: ToolInvocationWorkItemV2): string | null {
+  if (item.description?.trim()) return item.description.trim();
+  if (item.actions && item.actions.length > 0) {
+    const target = item.actions.find((a) => a.target)?.target;
+    if (target?.trim()) return target.trim();
+  }
+  if (item.input && typeof item.input === 'object') {
+    const inp = item.input as Record<string, unknown>;
+    for (const key of ['path', 'file', 'target', 'command', 'query', 'url']) {
+      if (typeof inp[key] === 'string' && (inp[key] as string).trim()) {
+        return (inp[key] as string).trim();
+      }
+    }
+  }
+  return null;
+}
+
 /** Full technical inspection of one ToolInvocation — every field the canonical model exposes. */
 function ToolDetail({ item, onBack }: { item: ToolInvocationWorkItemV2; onBack: () => void }) {
   const Icon = TOOL_KIND_ICONS_V2[item.kind];
   const started = formatAbsolute(item.startedAt);
   const completed = formatAbsolute(item.completedAt);
+  const duration = formatDuration(item.durationMs);
 
   return (
     <div className="space-y-3 text-xs">
@@ -59,10 +83,10 @@ function ToolDetail({ item, onBack }: { item: ToolInvocationWorkItemV2; onBack: 
             <dd className="text-[var(--muted-strong)]">{completed}</dd>
           </>
         )}
-        {item.durationMs != null && (
+        {duration && (
           <>
             <dt className="flex items-center gap-1 text-[var(--muted)]"><Clock className="size-3" /> Czas trwania</dt>
-            <dd className="text-[var(--muted-strong)]">{item.durationMs}ms</dd>
+            <dd className="text-[var(--muted-strong)]">{duration}</dd>
           </>
         )}
         {item.exitCode != null && (
@@ -144,29 +168,57 @@ function TextDetail({ item, onBack }: { item: CommentaryWorkItemV2 | ReasoningWo
   );
 }
 
-/** Full ungrouped Work list — every individual item in its exact original order, unaffected by Level 2's presentation-only compaction. */
+/** Full ungrouped Work list — every individual item in its exact original order, with rich secondary context and quiet completion status. */
 function WorkList({ work, onSelect }: { work: WorkItemV2[]; onSelect: (item: WorkItemV2) => void }) {
   return (
-    <ol className="space-y-1 text-xs">
+    <ol className="space-y-1.5 text-xs">
       {work.map((item) => {
         if (item.type === 'tool') {
           const Icon = TOOL_KIND_ICONS_V2[item.kind];
-          const started = formatAbsolute(item.startedAt);
+          const duration = formatDuration(item.durationMs);
+          const subject = resolveToolSubject(item);
           return (
             <li key={item.id}>
               <button
                 type="button"
                 onClick={() => onSelect(item)}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-white/4"
+                className="group flex w-full flex-col gap-0.5 rounded-lg border border-transparent p-2 text-left transition-colors hover:border-[var(--border)] hover:bg-white/4"
               >
-                <Icon className="size-3.5 shrink-0 text-[var(--muted)]" />
-                <span className="min-w-0 flex-1 truncate">
-                  <span className="font-medium text-[var(--foreground)]">{item.title}</span>
-                  {item.status && <span className="ml-1.5 text-[10px] text-[var(--muted)]">{item.status}</span>}
-                  {item.durationMs != null && <span className="ml-1 text-[10px] text-[var(--muted)]">· {item.durationMs}ms</span>}
-                </span>
-                {started && <span className="shrink-0 text-[10px] text-[var(--muted)]">{started}</span>}
-                <ChevronRight className="size-3.5 shrink-0 text-[var(--muted)]" />
+                <div className="flex w-full items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <Icon className="size-3.5 shrink-0 text-[var(--muted)]" />
+                    <span className="truncate text-xs font-medium text-[var(--foreground)]">{item.title}</span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {item.status === 'completed' ? (
+                      <Check className="size-3.5 text-[var(--success)]" aria-label="Zakończono pomyślnie" />
+                    ) : item.status === 'failed' ? (
+                      <span className="flex items-center gap-1 text-[10px] font-medium text-[var(--warning)]">
+                        <AlertTriangle className="size-3" />
+                        Błąd
+                      </span>
+                    ) : item.status === 'cancelled' || item.status === 'interrupted' ? (
+                      <span className="flex items-center gap-1 text-[10px] text-[var(--muted)]">
+                        <Ban className="size-3" />
+                        Przerwano
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-[10px] font-medium text-[var(--accent)]">
+                        <LoaderCircle className="size-3 animate-spin" />
+                        Aktywne
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex w-full items-center justify-between gap-2 pl-5 text-[11px] text-[var(--muted)]">
+                  <span className="truncate font-mono text-[11px] text-[var(--muted-strong)]">
+                    {subject || <span className="font-sans text-[var(--muted)]">—</span>}
+                  </span>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {duration && <span>{duration}</span>}
+                    <ChevronRight className="size-3 text-[var(--muted)] transition-transform group-hover:translate-x-0.5" />
+                  </div>
+                </div>
               </button>
             </li>
           );
@@ -178,17 +230,26 @@ function WorkList({ work, onSelect }: { work: WorkItemV2[]; onSelect: (item: Wor
               <button
                 type="button"
                 onClick={() => onSelect(item)}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-white/4"
+                className="group flex w-full flex-col gap-0.5 rounded-lg border border-transparent p-2 text-left transition-colors hover:border-[var(--border)] hover:bg-white/4"
               >
-                <Icon className="size-3.5 shrink-0 text-[var(--muted)]" />
-                <span className="min-w-0 flex-1 truncate text-[var(--muted-strong)]">{previewPlainText(item.text, 80) || '—'}</span>
-                <ChevronRight className="size-3.5 shrink-0 text-[var(--muted)]" />
+                <div className="flex w-full items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <Icon className="size-3.5 shrink-0 text-[var(--muted)]" />
+                    <span className="truncate text-xs font-medium text-[var(--foreground)]">
+                      {item.type === 'reasoning' ? 'Thinking' : 'Commentary'}
+                    </span>
+                  </div>
+                  <ChevronRight className="size-3 shrink-0 text-[var(--muted)] transition-transform group-hover:translate-x-0.5" />
+                </div>
+                <div className="pl-5 text-[11px] text-[var(--muted-strong)]">
+                  <span className="line-clamp-2">{previewPlainText(item.text, 120) || '—'}</span>
+                </div>
               </button>
             </li>
           );
         }
         return (
-          <li key={item.id} className="px-2 py-1.5 text-[var(--muted)]">
+          <li key={item.id} className="rounded-lg p-2 text-[var(--muted)]">
             {item.interaction.kind} · {item.status}
           </li>
         );

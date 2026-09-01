@@ -510,18 +510,28 @@ export function publicAiError(error) {
   return new AiError('AI_PROVIDER_ERROR', 'The AI provider operation failed.', { status: 502 });
 }
 
+const LEGACY_NEVO_CONTEXT_HEADER = /^(\[NEvo Context:|Context: tasks )/;
+
+export function deriveLegacyUserMessageText(prompt) {
+  if (typeof prompt !== 'string') return '';
+  if (!LEGACY_NEVO_CONTEXT_HEADER.test(prompt)) return prompt;
+  const separatorIndex = prompt.indexOf('\n\n');
+  return separatorIndex === -1 ? prompt : prompt.slice(separatorIndex + 2);
+}
+
 /**
  * Pure projection of canonical Turns to V1 Messages for backwards compatibility.
  */
 export function projectChatV1(turns = []) {
   const messages = [];
   for (const turn of turns) {
-    if (turn.prompt) {
+    const userText = turn.userMessage?.text || (turn.prompt ? deriveLegacyUserMessageText(turn.prompt) : '');
+    if (userText) {
       messages.push({
-        id: `user-${turn.id}`,
+        id: turn.userMessage?.id || `user-${turn.id}`,
         role: 'user',
-        text: turn.prompt,
-        createdAt: turn.startedAt || turn.createdAt || new Date().toISOString(),
+        text: userText,
+        createdAt: turn.userMessage?.createdAt || turn.startedAt || turn.createdAt || new Date().toISOString(),
       });
     }
 

@@ -5,6 +5,7 @@ import type {
   AgentSessionSnapshot,
   AgentSessionStatus,
   AgentInteraction,
+  CanonicalTurnV2,
   LiveConnectionStatus,
   NormalizedMessage,
 } from '../types.ts';
@@ -21,6 +22,7 @@ import { connectAgentEventStream, resolveEventSeq } from './agent-event-source.t
 import { classifySessionLoadError, fetchAgentSessionSnapshot, AgentSessionLoadError } from './agent-session-transport.ts';
 import { postCancelTurn, postRespondInteraction, postStartTurn } from './agent-turn-transport.ts';
 import { useAssistantUiBridge } from './assistant-ui-bridge.ts';
+import { applyTurnUpdatedV2 } from './agent-session-runtime-v2.ts';
 
 export interface UseAgentSessionRuntimeOptions {
   provider: string;
@@ -40,6 +42,7 @@ export function useAgentSessionRuntime({
   const [loadErrorIdentity, setLoadErrorIdentity] = useState<string | null>(null);
 
   const [messages, setMessages] = useState<NormalizedMessage[]>([]);
+  const [turns, setTurns] = useState<CanonicalTurnV2[]>([]);
   const [pendingInteraction, setPendingInteraction] = useState<AgentInteraction | null>(null);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
@@ -51,6 +54,7 @@ export function useAgentSessionRuntime({
   const [reloadTrigger, setReloadTrigger] = useState<number>(0);
   const [live, setLive] = useState<boolean>(true);
   const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>('unknown');
+  const [optimisticPending, setOptimisticPending] = useState<{ text: string } | null>(null);
 
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
@@ -98,8 +102,10 @@ export function useAgentSessionRuntime({
 
         setSessionDetails(snapshot);
         setMessages(snapshot.messages || []);
+        setTurns(snapshot.turns || []);
         setPendingInteraction(snapshot.pendingInteraction || null);
         setCapabilities(snapshot.capabilities || null);
+        setOptimisticPending(null);
         const seq = snapshot.lastEventSeq || 0;
         setLastEventSeq(seq);
         lastSeqRef.current = seq;
@@ -128,6 +134,7 @@ export function useAgentSessionRuntime({
           // Clear all snapshot-derived state so stale session data is never retained
           setSessionDetails(null);
           setMessages([]);
+          setTurns([]);
           setPendingInteraction(null);
           setCapabilities(null);
           setActiveTurnId(null);
@@ -136,6 +143,7 @@ export function useAgentSessionRuntime({
           activityRef.current = 'idle';
           setLastEventSeq(0);
           lastSeqRef.current = 0;
+          setOptimisticPending(null);
 
           // Do NOT set loadedIdentity on failure; record loadErrorIdentity instead
           setLoadedIdentity(null);
@@ -198,6 +206,11 @@ export function useAgentSessionRuntime({
           setContentRevision((r) => r + 1);
         }
 
+        if (event.type === 'turn.updated' && event.turn) {
+          setTurns((prev) => applyTurnUpdatedV2(prev, event.turn));
+          setOptimisticPending(null);
+        }
+
         switch (event.type) {
           case 'turn.started':
             setActivity('running');
@@ -229,6 +242,7 @@ export function useAgentSessionRuntime({
             setActiveTurnId(null);
             activeTurnIdRef.current = null;
             setPendingInteraction(null);
+            setOptimisticPending(null);
             onTurnCompletedRef.current?.();
             break;
 
@@ -241,6 +255,7 @@ export function useAgentSessionRuntime({
             setActiveTurnId(null);
             activeTurnIdRef.current = null;
             setPendingInteraction(null);
+            setOptimisticPending(null);
             if (event.error && shouldSurfaceTurnError(event.error)) {
               onErrorRef.current?.(new Error(event.error.message));
             }
@@ -279,6 +294,7 @@ export function useAgentSessionRuntime({
       // The optimistic bubble shows the clean, user-visible text (never an
       // enriched/injected prompt) — authoritative once the real Turn/message arrives.
       const displayText = options?.userMessage?.trim() || trimmed;
+      setOptimisticPending({ text: displayText });
       const optimisticUserMessage: NormalizedMessage = {
         id: `user-${Date.now()}`,
         role: 'user',
@@ -308,6 +324,7 @@ export function useAgentSessionRuntime({
           activeTurnIdRef.current = returnedTurnId;
         }
       } catch (err) {
+        setOptimisticPending(null);
         setActivity('idle');
         activityRef.current = 'idle';
         setActiveTurnId(null);
@@ -382,6 +399,7 @@ export function useAgentSessionRuntime({
   );
 
   const exposedMessages = isSnapshotLoaded ? messages : [];
+  const exposedTurns = isSnapshotLoaded ? turns : [];
   const exposedPendingInteraction = isSnapshotLoaded ? pendingInteraction : null;
   const exposedCapabilities = isSnapshotLoaded ? capabilities : null;
   const exposedActivity: AgentSessionStatus = isSnapshotLoaded ? activity : 'idle';
@@ -413,6 +431,8 @@ export function useAgentSessionRuntime({
   return {
     runtime,
     messages: exposedMessages,
+    turns: exposedTurns,
+    optimisticUserMessage: isSnapshotLoaded ? optimisticPending?.text ?? null : null,
     pendingInteraction: exposedPendingInteraction,
     capabilities: exposedCapabilities,
     sessionDetails: exposedSessionDetails,

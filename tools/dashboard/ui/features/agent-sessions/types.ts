@@ -103,6 +103,7 @@ export interface AgentSessionSnapshot extends AgentSession {
   activeTurn?: { turnId: string; startedAt: string; status?: string } | null;
   pendingInteraction?: AgentInteraction | null;
   messages: NormalizedMessage[];
+  turns?: CanonicalTurnV2[];
   lastEventSeq: number;
   updatedAt: string;
 }

@@ -415,8 +415,8 @@ test('BLOCKING: AgentSessionPage and useAgentSessionRuntime wire user-visible er
 
   // AgentSessionPage must wire onError into useAgentSessionRuntime and maintain user-visible runtimeError
   assert.match(agentSessionPageSource, /onError:\s*\(err\)\s*=>\s*\{\s*setRuntimeError\(err\.message\);\s*\}/);
-  // displayError picks the active representation's own error channel (task 11 V1/V2 switch, AC6).
-  assert.match(agentSessionPageSource, /const displayError = initialDispatch\.displayError \|\| \(representation === 'v2' \? runtimeErrorV2 : runtimeError\) \|\| null;/);
+  // displayError uses the authoritative error channel.
+  assert.match(agentSessionPageSource, /const displayError = initialDispatch\.displayError \|\| runtimeError \|\| null;/);
 
   // Behavioral test: simulate runtime error callback pipeline
   let surfacedError = null;
@@ -569,14 +569,9 @@ test('BLOCKING: Action/error lifecycle: Recovery action failing again clears old
 test('BLOCKING: Action/error lifecycle: Cancel and interaction retry clear previous runtime error on explicit attempt (C)', async () => {
   const agentSessionPageSource = readAgentSessionPageSource();
 
-  // Verify AgentSessionPage wires action wrappers that clear runtimeError before starting
-  // — each representation clears its own error channel before its own attempt (task 11
-  // V1/V2 switch, AC6): V2's branch clears runtimeErrorV2 before assistantV2.cancelTurn(),
-  // the V1 fallthrough clears runtimeError before assistant.cancelTurn().
-  assert.match(agentSessionPageSource, /const handleCancelTurn = useCallback\(async \(\) => \{[\s\S]*?setRuntimeErrorV2\(null\);[\s\S]*?await assistantV2\.cancelTurn\(\);/);
-  assert.match(agentSessionPageSource, /const handleCancelTurn = useCallback[\s\S]*?setRuntimeError\(null\);\s*try \{\s*await assistant\.cancelTurn\(\);/);
-  assert.match(agentSessionPageSource, /const handleRespondInteraction = useCallback\(async \(interactionId: string, response: unknown\) => \{[\s\S]*?setRuntimeErrorV2\(null\);[\s\S]*?await assistantV2\.respondInteraction\(/);
-  assert.match(agentSessionPageSource, /const handleRespondInteraction = useCallback[\s\S]*?setRuntimeError\(null\);\s*try \{\s*await assistant\.respondInteraction\(/);
+  // Verify AgentSessionPage wires action wrappers that clear runtimeError before starting attempt.
+  assert.match(agentSessionPageSource, /const handleCancelTurn = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);\s*try \{\s*await assistant\.cancelTurn\(\);/);
+  assert.match(agentSessionPageSource, /const handleRespondInteraction = useCallback\(async \(interactionId: string, response: unknown\) => \{\s*setRuntimeError\(null\);\s*try \{\s*await assistant\.respondInteraction\(/);
   assert.match(agentSessionPageSource, /const handleReload = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/);
   assert.match(agentSessionPageSource, /const handleRetryInitial = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/);
 
@@ -644,16 +639,13 @@ test('V2 AC6: deriveActivity maps canonical Turn status to session activity hone
   assert.equal(deriveActivity([turnV2({ status: 'requiresAttention', reason: 'permission', interactionId: 'i1' })]), 'waitingForUser');
 });
 
-test('V2 AC6: both V1 and V2 runtimes stay mounted unconditionally — the switch itself never (re)starts a runtime', () => {
+test('V2 AC6: the shared runtime stays mounted unconditionally — the switch itself never (re)starts a runtime', () => {
   const pageSource = readAgentSessionPageSource();
 
-  // Both hooks are called unconditionally at the top level, not gated behind `representation === ...`.
+  // The runtime hook is called unconditionally at the top level, not gated behind `representation === ...`.
   assert.match(pageSource, /const assistant = useAgentSessionRuntime\(\{/);
-  assert.match(pageSource, /const assistantV2 = useAgentSessionRuntimeV2\(\{/);
-  // Neither call site is behind an `if (representation` guard.
   const v1CallIndex = pageSource.indexOf('const assistant = useAgentSessionRuntime(');
-  const v2CallIndex = pageSource.indexOf('const assistantV2 = useAgentSessionRuntimeV2(');
-  const before = pageSource.slice(Math.max(0, Math.min(v1CallIndex, v2CallIndex) - 200), Math.max(v1CallIndex, v2CallIndex));
+  const before = pageSource.slice(Math.max(0, v1CallIndex - 200), v1CallIndex);
   assert.doesNotMatch(before, /if \(representation/, 'runtime hooks must not be conditionally invoked based on the representation switch');
 });
 
@@ -691,7 +683,8 @@ test('V2 correction: the V2 runtime hook keeps no long-lived turnPrompts cache a
 test('V2 correction: the transcript renders each turn\'s own canonical userMessage, with only a short-lived optimistic fallback', () => {
   const source = readTranscriptV2Source();
   assert.match(source, /turn\.userMessage && <UserMessageBubble text=\{turn\.userMessage\.text\}/, 'every turn renders its own canonical userMessage — live, reloaded, or migrated');
-  assert.match(source, /\{optimisticUserMessage && <UserMessageBubble/, 'the optimistic value is a separate, clearly-scoped fallback for the POST-to-snapshot gap only');
+  assert.match(source, /\{optimisticUserMessage && \(/, 'the optimistic value is a separate, clearly-scoped fallback for the POST-to-snapshot gap only');
+  assert.match(source, /<UserMessageBubble text=\{optimisticUserMessage\} \/>/);
 });
 
 test('V2 correction: a session loaded only from the HTTP snapshot (no turn.started SSE observed) still has userMessage available per turn', () => {

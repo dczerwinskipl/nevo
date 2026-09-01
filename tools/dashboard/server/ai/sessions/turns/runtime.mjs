@@ -176,7 +176,7 @@ export class AgentTurnRuntime {
 
       if (!isNewSession && this.transcriptCache) {
         this.transcriptCache.recordUserMessage(provider, providerSessionId, {
-          text: inputMessage,
+          text: displayMessage,
           createdAt: startedAt,
         });
       }

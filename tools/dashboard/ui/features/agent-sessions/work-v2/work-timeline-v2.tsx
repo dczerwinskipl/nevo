@@ -11,7 +11,7 @@ const TOOL_STATUS_ICON: Partial<Record<ToolInvocationWorkItemV2['status'], typeo
   interrupted: Ban,
 };
 
-const ROW_BUTTON_CLASSES = 'flex w-full min-w-0 items-center gap-1.5 rounded px-1 py-px text-left text-[11px] leading-4 hover:bg-white/4';
+const ROW_BUTTON_CLASSES = 'flex w-full min-w-0 items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-xs leading-5 transition-colors hover:bg-white/4';
 
 /**
  * One compact Level 2 row for a single tool invocation — small secondary icon, semantic
@@ -30,27 +30,27 @@ const ToolRowV2 = memo(function ToolRowV2({
   const Icon = TOOL_KIND_ICONS_V2[item.kind];
   const StatusIcon = TOOL_STATUS_ICON[item.status];
   return (
-    <button type="button" onClick={() => onSelect(item)} className={`${ROW_BUTTON_CLASSES} text-[var(--muted-strong)]`}>
-      <Icon className="size-3 shrink-0 text-[var(--muted)]" />
+    <button type="button" onClick={() => onSelect(item)} className={`${ROW_BUTTON_CLASSES} text-[var(--muted)]`}>
+      <Icon className="size-3.5 shrink-0 text-[var(--muted)]" />
       <span className="min-w-0 flex-1 truncate">
         <span className="font-medium text-[var(--foreground)]">{item.title}</span>
         {item.description ? <span className="text-[var(--muted)]"> · {item.description}</span> : null}
       </span>
-      {StatusIcon && <StatusIcon className="size-3 shrink-0 text-[var(--warning)]" />}
+      {StatusIcon && <StatusIcon className="size-3.5 shrink-0 text-[var(--warning)]" />}
     </button>
   );
 });
 
 /**
  * Compact Level 2 preview for Commentary — plain text, no type icon, whitespace/Markdown
- * collapsed to one line (previewPlainText). Selecting it opens the full Markdown in Work
- * Details; Level 2 itself never renders headings/code/lists (corrected direction).
+ * collapsed to one line (previewPlainText). Indented subtly to read as narration between
+ * operations. Selecting it opens the full Markdown in Work Details.
  */
 const CommentaryRowV2 = memo(function CommentaryRowV2({ item, onSelect }: { item: CommentaryWorkItemV2; onSelect: (item: WorkItemV2) => void }) {
   const preview = previewPlainText(item.text);
   if (!preview) return null;
   return (
-    <button type="button" onClick={() => onSelect(item)} className={`${ROW_BUTTON_CLASSES} text-[var(--foreground-muted)]`}>
+    <button type="button" onClick={() => onSelect(item)} className="flex w-full min-w-0 items-start rounded py-0.5 pl-5 pr-1.5 text-left text-xs font-normal leading-relaxed text-[var(--foreground-muted)] transition-colors hover:bg-white/4 hover:text-[var(--foreground)]">
       <span className="min-w-0 flex-1 truncate">{preview}</span>
     </button>
   );
@@ -60,7 +60,7 @@ const ReasoningRowV2 = memo(function ReasoningRowV2({ item, onSelect }: { item: 
   const preview = previewPlainText(item.text);
   if (!preview) return null;
   return (
-    <button type="button" onClick={() => onSelect(item)} className={`${ROW_BUTTON_CLASSES} text-[var(--muted)]`}>
+    <button type="button" onClick={() => onSelect(item)} className="flex w-full min-w-0 items-start rounded py-0.5 pl-5 pr-1.5 text-left text-xs font-normal leading-relaxed text-[var(--muted)] transition-colors hover:bg-white/4 hover:text-[var(--foreground)]">
       <span className="min-w-0 flex-1 truncate">{preview}</span>
     </button>
   );
