@@ -337,9 +337,10 @@ test('AgentSessionPage disables normal composer send when session cannot start t
   // submitMessage requires assistant.canStartTurn
   assert.match(agentSessionPageSource, /!assistant\.canStartTurn/);
 
-  // AgentSessionComposer has disabled and placeholder configured
-  assert.match(agentSessionPageSource, /disabled=\{!assistant\.canStartTurn \|\| !isProviderAvailable\}/);
-  assert.match(agentSessionPageSource, /placeholder=\{assistant\.activity === 'waitingForUser' \? 'Odpowiedz na pytanie powyżej…' : undefined\}/);
+  // AgentSessionComposer has disabled and placeholder configured from whichever
+  // representation (V1/V2) is currently displayed (task 11's V1/V2 switch, AC6).
+  assert.match(agentSessionPageSource, /disabled=\{!activeRuntime\.canStartTurn \|\| !isProviderAvailable\}/);
+  assert.match(agentSessionPageSource, /placeholder=\{activeRuntime\.activity === 'waitingForUser' \? 'Odpowiedz na pytanie powyżej…' : undefined\}/);
 });
 
 test('Finding 1: Runtime exposes explicit readiness contract and rejects send while loading', () => {
@@ -414,7 +415,8 @@ test('BLOCKING: AgentSessionPage and useAgentSessionRuntime wire user-visible er
 
   // AgentSessionPage must wire onError into useAgentSessionRuntime and maintain user-visible runtimeError
   assert.match(agentSessionPageSource, /onError:\s*\(err\)\s*=>\s*\{\s*setRuntimeError\(err\.message\);\s*\}/);
-  assert.match(agentSessionPageSource, /const displayError = initialDispatch\.displayError \|\| runtimeError \|\| null;/);
+  // displayError picks the active representation's own error channel (task 11 V1/V2 switch, AC6).
+  assert.match(agentSessionPageSource, /const displayError = initialDispatch\.displayError \|\| \(representation === 'v2' \? runtimeErrorV2 : runtimeError\) \|\| null;/);
 
   // Behavioral test: simulate runtime error callback pipeline
   let surfacedError = null;
@@ -568,8 +570,13 @@ test('BLOCKING: Action/error lifecycle: Cancel and interaction retry clear previ
   const agentSessionPageSource = readAgentSessionPageSource();
 
   // Verify AgentSessionPage wires action wrappers that clear runtimeError before starting
-  assert.match(agentSessionPageSource, /const handleCancelTurn = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/);
-  assert.match(agentSessionPageSource, /const handleRespondInteraction = useCallback\(async \(interactionId: string, response: unknown\) => \{\s*setRuntimeError\(null\);/);
+  // — each representation clears its own error channel before its own attempt (task 11
+  // V1/V2 switch, AC6): V2's branch clears runtimeErrorV2 before assistantV2.cancelTurn(),
+  // the V1 fallthrough clears runtimeError before assistant.cancelTurn().
+  assert.match(agentSessionPageSource, /const handleCancelTurn = useCallback\(async \(\) => \{[\s\S]*?setRuntimeErrorV2\(null\);[\s\S]*?await assistantV2\.cancelTurn\(\);/);
+  assert.match(agentSessionPageSource, /const handleCancelTurn = useCallback[\s\S]*?setRuntimeError\(null\);\s*try \{\s*await assistant\.cancelTurn\(\);/);
+  assert.match(agentSessionPageSource, /const handleRespondInteraction = useCallback\(async \(interactionId: string, response: unknown\) => \{[\s\S]*?setRuntimeErrorV2\(null\);[\s\S]*?await assistantV2\.respondInteraction\(/);
+  assert.match(agentSessionPageSource, /const handleRespondInteraction = useCallback[\s\S]*?setRuntimeError\(null\);\s*try \{\s*await assistant\.respondInteraction\(/);
   assert.match(agentSessionPageSource, /const handleReload = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/);
   assert.match(agentSessionPageSource, /const handleRetryInitial = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/);
 
@@ -618,4 +625,46 @@ test('BLOCKING: Action/error lifecycle: Cancel and interaction retry clear previ
   interactionSucceeds = true;
   await executeInteractionAttempt();
   assert.equal(runtimeError, null, 'Runtime error must not survive successful interaction response');
+});
+
+// ── task 11 (semantic Work chat V2), AC6: V1/V2 switch never mutates/cancels runtime state ──
+
+import { deriveActivity } from '../ui/features/agent-sessions/runtime/agent-session-runtime-v2.ts';
+
+function turnV2(status) {
+  return { id: 't1', status, work: [], historicalWork: [], activityCount: 0, currentActivity: null, finalAnswer: null };
+}
+
+test('V2 AC6: deriveActivity maps canonical Turn status to session activity honestly, matching V1 vocabulary', () => {
+  assert.equal(deriveActivity([]), 'idle', 'no turns at all is idle');
+  assert.equal(deriveActivity([turnV2({ status: 'terminal', outcome: 'completed' })]), 'idle', 'a terminal latest turn is idle');
+  assert.equal(deriveActivity([turnV2({ status: 'active', detail: 'processing' })]), 'running');
+  assert.equal(deriveActivity([turnV2({ status: 'waiting', reason: 'provider_response' })]), 'running');
+  assert.equal(deriveActivity([turnV2({ status: 'cancelling', initiator: 'user' })]), 'running');
+  assert.equal(deriveActivity([turnV2({ status: 'requiresAttention', reason: 'permission', interactionId: 'i1' })]), 'waitingForUser');
+});
+
+test('V2 AC6: both V1 and V2 runtimes stay mounted unconditionally — the switch itself never (re)starts a runtime', () => {
+  const pageSource = readAgentSessionPageSource();
+
+  // Both hooks are called unconditionally at the top level, not gated behind `representation === ...`.
+  assert.match(pageSource, /const assistant = useAgentSessionRuntime\(\{/);
+  assert.match(pageSource, /const assistantV2 = useAgentSessionRuntimeV2\(\{/);
+  // Neither call site is behind an `if (representation` guard.
+  const v1CallIndex = pageSource.indexOf('const assistant = useAgentSessionRuntime(');
+  const v2CallIndex = pageSource.indexOf('const assistantV2 = useAgentSessionRuntimeV2(');
+  const before = pageSource.slice(Math.max(0, Math.min(v1CallIndex, v2CallIndex) - 200), Math.max(v1CallIndex, v2CallIndex));
+  assert.doesNotMatch(before, /if \(representation/, 'runtime hooks must not be conditionally invoked based on the representation switch');
+});
+
+test('V2 AC6: representation is local UI state only — switching calls no mutation/cancel/send handler', () => {
+  const pageSource = readAgentSessionPageSource();
+
+  assert.match(pageSource, /const \[representation, setRepresentation\] = useState<'v1' \| 'v2'>\('v1'\)/);
+  // The switch buttons only ever call setRepresentation — never a send/cancel/reload/respond handler.
+  const switchBlockStart = pageSource.indexOf('role="radiogroup"');
+  const switchBlockEnd = pageSource.indexOf('</div>', pageSource.indexOf('</div>', switchBlockStart) + 1);
+  const switchBlock = pageSource.slice(switchBlockStart, switchBlockEnd);
+  assert.match(switchBlock, /onClick=\{\(\) => setRepresentation\(option\)\}/);
+  assert.doesNotMatch(switchBlock, /sendTurn|cancelTurn|respondInteraction|\.reload\(/, 'switching representation must never mutate or cancel Turn state');
 });

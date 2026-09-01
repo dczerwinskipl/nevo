@@ -233,6 +233,29 @@ test('AC8 & AC9: Mode control is located inside the composer, not in the chat he
   assert.ok(!composerSource.includes('select-model') && !composerSource.includes('usage-placeholder'));
 });
 
+// ── task 11 (semantic Work chat V2), AC4: pending interaction is actionable, ordinary waiting is not ──
+
+function readPendingInteractionV2Source() {
+  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/pending-interaction-view-v2.tsx', import.meta.url)), 'utf8');
+}
+
+test('V2 AC4: PendingInteractionViewV2 renders actionable prompts only for requiresAttention + pending', () => {
+  const source = readPendingInteractionV2Source();
+
+  // Guarded strictly on the discriminated requiresAttention status — ordinary 'waiting'/'active' never reach here.
+  assert.match(source, /turn\.status\.status !== 'requiresAttention'\) return null/, 'ordinary waiting/active must render nothing here, no attention styling/actions');
+  assert.match(source, /w\.status === 'pending'/, 'only a pending interaction is actionable — resolved ones must not re-render as actionable');
+  assert.match(source, /<PermissionPrompt/, 'permission kind must be actionable via the shared PermissionPrompt');
+  assert.match(source, /<QuestionPrompt/, 'question kind must be actionable via the shared QuestionPrompt');
+  assert.match(source, /onResolve=\{\(response\) => onRespond\(item\.id, response\)\}/, 'resolving must route back through the interaction id, not a guessed id');
+});
+
+test('V2 AC4: Work indicator distinguishes requires_attention from ordinary waiting kinds', () => {
+  const workIndicatorSource = readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/work-indicator-v2.tsx', import.meta.url)), 'utf8');
+  assert.match(workIndicatorSource, /requires_attention/, 'attention must be a materially distinct kind, not folded into waiting');
+  assert.match(workIndicatorSource, /waiting_for_model|waiting_for_tool/, 'ordinary waiting kinds must exist and stay separate from attention');
+});
+
 test('AC10: Send / stop / cancel behavior is preserved and toggles correctly when running', () => {
   const source = readComposerSource();
 

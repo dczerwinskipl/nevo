@@ -257,3 +257,61 @@ test('Finding 3: TurnWorkSummary does not independently rederive current activit
   assert.match(source, /work\.currentActivity/, 'TurnWorkSummary must consume work.currentActivity from projection');
   assert.doesNotMatch(source, /items\.find\([^)]*status === ['"]running['"]\)/, 'TurnWorkSummary must not use find(status === running)');
 });
+
+// ── task 11 (semantic Work chat V2), AC1: Level 1 Work indicator ──────────────────────
+
+import { describeCurrentActivityV2, terminalHeaderLabelV2 } from '../ui/features/agent-sessions/work-v2/activity-model-v2.ts';
+
+function workIndicatorV2Source() {
+  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/work-indicator-v2.tsx', import.meta.url)), 'utf8');
+}
+
+test('V2 AC1: describeCurrentActivityV2 truthfully labels every current-activity kind', () => {
+  const startedAt = '2026-08-30T10:00:00Z';
+
+  assert.deepEqual(describeCurrentActivityV2(null), null, 'no evidence must not fabricate a current activity');
+
+  const tool = describeCurrentActivityV2({ kind: 'tool', title: 'Read file', description: 'a.ts', toolKind: 'read', startedAt });
+  assert.equal(tool.label, 'Read file');
+  assert.equal(tool.textFirst, false, 'tool current activity is icon+label, never text-first');
+
+  const thinking = describeCurrentActivityV2({ kind: 'thinking', text: 'Comparing options', startedAt });
+  assert.equal(thinking.label, 'Comparing options');
+  assert.equal(thinking.textFirst, true, 'thinking never gets a type icon');
+
+  const thinkingNoText = describeCurrentActivityV2({ kind: 'thinking', text: '', startedAt });
+  assert.equal(thinkingNoText.label, 'Thinking…', 'silence alone must still be truthfully labeled, never blank');
+
+  const commentary = describeCurrentActivityV2({ kind: 'commentary', text: 'Here is', startedAt });
+  assert.equal(commentary.label, 'Here is');
+  assert.equal(commentary.textFirst, true);
+
+  const waitingForModel = describeCurrentActivityV2({ kind: 'waiting_for_model', startedAt });
+  assert.equal(waitingForModel.label, 'Waiting for model response');
+
+  const waitingForTool = describeCurrentActivityV2({ kind: 'waiting_for_tool', startedAt });
+  assert.equal(waitingForTool.label, 'Waiting for tool execution');
+
+  const attention = describeCurrentActivityV2({ kind: 'requires_attention', title: 'Permission required for Bash', startedAt });
+  assert.equal(attention.label, 'Permission required for Bash');
+  assert.equal(attention.textFirst, false);
+
+  const cancelling = describeCurrentActivityV2({ kind: 'cancelling', startedAt });
+  assert.equal(cancelling.label, 'Cancelling turn…');
+});
+
+test('V2 AC1: terminalHeaderLabelV2 truthfully reports completed/failed/cancelled/interrupted, null while non-terminal', () => {
+  assert.equal(terminalHeaderLabelV2({ status: 'active', detail: 'processing', since: '', source: '' }), null);
+  assert.equal(terminalHeaderLabelV2({ status: 'waiting', reason: 'provider_response', since: '', source: '' }), null);
+  assert.equal(terminalHeaderLabelV2({ status: 'terminal', outcome: 'completed', initiator: 'provider', since: '', source: '' }), 'Completed');
+  assert.equal(terminalHeaderLabelV2({ status: 'terminal', outcome: 'failed', initiator: 'provider', since: '', source: '' }), 'Failed');
+  assert.equal(terminalHeaderLabelV2({ status: 'terminal', outcome: 'cancelled', initiator: 'user', since: '', source: '' }), 'Cancelled');
+  assert.equal(terminalHeaderLabelV2({ status: 'terminal', outcome: 'interrupted', initiator: 'system', since: '', source: '' }), 'Interrupted');
+});
+
+test('V2 AC1: WorkIndicatorV2 (Level 1) never renders historical activity, only count/state/current', () => {
+  const source = workIndicatorV2Source();
+  assert.doesNotMatch(source, /historicalWork/, 'Level 1 must not read historicalWork — no historical activity at this level');
+  assert.match(source, /turn\.activityCount/, 'must show the top-level activity count');
+  assert.match(source, /describeCurrentActivityV2/, 'current activity must come from the shared formatter, not be re-derived');
+});

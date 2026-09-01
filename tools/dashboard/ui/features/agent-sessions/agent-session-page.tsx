@@ -11,7 +11,12 @@ import {
   AgentSessionTranscript,
   type AgentSessionTranscriptHandle,
 } from './transcript/agent-session-transcript';
+import {
+  AgentSessionTranscriptV2,
+  type AgentSessionTranscriptV2Handle,
+} from './work-v2/agent-session-transcript-v2';
 import { useAgentSessionRuntime } from './runtime/agent-session-runtime';
+import { useAgentSessionRuntimeV2 } from './runtime/agent-session-runtime-v2';
 import { useAgentProviders, useDeleteAgentSession } from './queries';
 import { AI_PROVIDERS_CONFIG_PATH } from './provider-config';
 import { useInitialDispatch } from './runtime/use-initial-dispatch';
@@ -40,10 +45,17 @@ export function AgentSessionPage({
 }) {
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const transcriptHandleRef = useRef<AgentSessionTranscriptHandle>(null);
+  const transcriptHandleRefV2 = useRef<AgentSessionTranscriptV2Handle>(null);
   const visualViewport = useVisualViewport();
 
   const provider = session.provider;
   const sessionId = session.providerSessionId || session.sessionId;
+
+  // Temporary Chat V1/V2 selector (task 11 / owner-decisions.md D11): purely local UI
+  // representation state, never persisted, never provider/session domain state.
+  // Switching never restarts, cancels, or mutates the Turn — both runtimes below stay
+  // mounted and read-only regardless of which one is currently displayed.
+  const [representation, setRepresentation] = useState<'v1' | 'v2'>('v1');
 
   const handleTranscriptPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement | null;
@@ -62,6 +74,7 @@ export function AgentSessionPage({
     : `Provider '${provider}' nie jest włączony w ${AI_PROVIDERS_CONFIG_PATH}. Włącz go i uruchom dashboard ponownie.`;
 
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [runtimeErrorV2, setRuntimeErrorV2] = useState<string | null>(null);
 
   const assistant = useAgentSessionRuntime({
     provider,
@@ -71,6 +84,17 @@ export function AgentSessionPage({
     },
     onError: (err) => {
       setRuntimeError(err.message);
+    },
+  });
+
+  const assistantV2 = useAgentSessionRuntimeV2({
+    provider,
+    providerSessionId: sessionId,
+    onTurnCompleted: () => {
+      setRuntimeErrorV2(null);
+    },
+    onError: (err) => {
+      setRuntimeErrorV2(err.message);
     },
   });
 
@@ -88,12 +112,13 @@ export function AgentSessionPage({
     }, []),
   });
 
-  const displayError = initialDispatch.displayError || runtimeError || null;
+  const displayError = initialDispatch.displayError || (representation === 'v2' ? runtimeErrorV2 : runtimeError) || null;
   const canRetryInitial = initialDispatch.canRetryInitial;
 
   const handleDismissError = useCallback(() => {
     initialDispatch.handleDismissError();
     setRuntimeError(null);
+    setRuntimeErrorV2(null);
   }, [initialDispatch]);
 
   const handleRetryInitial = useCallback(async () => {
@@ -102,27 +127,46 @@ export function AgentSessionPage({
   }, [initialDispatch]);
 
   const handleCancelTurn = useCallback(async () => {
+    if (representation === 'v2') {
+      setRuntimeErrorV2(null);
+      try {
+        await assistantV2.cancelTurn();
+      } catch (err) {
+        setRuntimeErrorV2(err instanceof Error ? err.message : String(err));
+      }
+      return;
+    }
     setRuntimeError(null);
     try {
       await assistant.cancelTurn();
     } catch (err) {
       setRuntimeError(err instanceof Error ? err.message : String(err));
     }
-  }, [assistant.cancelTurn]);
+  }, [representation, assistant.cancelTurn, assistantV2.cancelTurn]);
 
   const handleRespondInteraction = useCallback(async (interactionId: string, response: unknown) => {
+    if (representation === 'v2') {
+      setRuntimeErrorV2(null);
+      try {
+        await assistantV2.respondInteraction(interactionId, response);
+      } catch (err) {
+        setRuntimeErrorV2(err instanceof Error ? err.message : String(err));
+      }
+      return;
+    }
     setRuntimeError(null);
     try {
       await assistant.respondInteraction(interactionId, response);
     } catch (err) {
       setRuntimeError(err instanceof Error ? err.message : String(err));
     }
-  }, [assistant.respondInteraction]);
+  }, [representation, assistant.respondInteraction, assistantV2.respondInteraction]);
 
   const handleReload = useCallback(async () => {
     setRuntimeError(null);
-    await assistant.reload();
-  }, [assistant.reload]);
+    setRuntimeErrorV2(null);
+    await Promise.all([assistant.reload(), assistantV2.reload()]);
+  }, [assistant.reload, assistantV2.reload]);
 
   const [isSessionDetailsOpen, setIsSessionDetailsOpen] = useState(false);
   const [inspectedTaskId, setInspectedTaskId] = useState<string | null>(null);
@@ -143,6 +187,7 @@ export function AgentSessionPage({
 
   useEffect(() => {
     setRuntimeError(null);
+    setRuntimeErrorV2(null);
   }, [provider, sessionId]);
 
   const { deleteSession, deleting } = useDeleteAgentSession();
@@ -159,7 +204,19 @@ export function AgentSessionPage({
 
   const handleComposerSubmit = useCallback(async (promptText: string) => {
     const trimmed = promptText.trim();
-    if (!trimmed || !isProviderAvailable || !assistant.canStartTurn) return;
+    if (!trimmed || !isProviderAvailable) return;
+    if (representation === 'v2') {
+      if (!assistantV2.canStartTurn) return;
+      setRuntimeErrorV2(null);
+      transcriptHandleRefV2.current?.scrollToBottom('auto');
+      try {
+        await assistantV2.sendTurn(trimmed, { mode: currentMode });
+      } catch (err) {
+        setRuntimeErrorV2(err instanceof Error ? err.message : String(err));
+      }
+      return;
+    }
+    if (!assistant.canStartTurn) return;
     setRuntimeError(null);
     transcriptHandleRef.current?.scrollToBottom('auto');
     try {
@@ -167,7 +224,7 @@ export function AgentSessionPage({
     } catch (err) {
       setRuntimeError(err instanceof Error ? err.message : String(err));
     }
-  }, [assistant.canStartTurn, assistant.sendTurn, currentMode, isProviderAvailable]);
+  }, [representation, assistant.canStartTurn, assistant.sendTurn, assistantV2.canStartTurn, assistantV2.sendTurn, currentMode, isProviderAvailable]);
 
   const shellClassName = 'fixed inset-x-0 top-0 flex h-[100dvh] min-h-0 flex-col overflow-hidden overscroll-none bg-[var(--background)]';
   const shellStyle = visualViewport.height
@@ -176,6 +233,27 @@ export function AgentSessionPage({
         transform: `translateY(${visualViewport.offsetTop}px)`,
       }
     : undefined;
+
+  // Composer/cancel/delete/session controls are driven from whichever representation's
+  // semantic readiness/Turn state is currently displayed (task 11 requirement) — both
+  // runtimes stay mounted, but only the active one's state reaches these controls.
+  const activeRuntime = representation === 'v2'
+    ? {
+        activity: assistantV2.activity,
+        isRunning: assistantV2.isRunning,
+        capabilities: assistantV2.capabilities,
+        activeTurnId: assistantV2.activeTurnId,
+        canStartTurn: assistantV2.canStartTurn,
+        loadError: assistantV2.loadError,
+      }
+    : {
+        activity: assistant.activity,
+        isRunning: assistant.isRunning,
+        capabilities: assistant.capabilities,
+        activeTurnId: assistant.activeTurnId,
+        canStartTurn: assistant.canStartTurn,
+        loadError: assistant.loadError,
+      };
 
   const headerTitle =
     session?.title?.trim() ||
@@ -199,6 +277,28 @@ export function AgentSessionPage({
           onOpenDetails={() => setIsSessionDetailsOpen(true)}
         />
 
+        <div className="flex shrink-0 justify-center border-b border-[var(--border)] bg-[var(--background)] py-1">
+          <div role="radiogroup" aria-label="Wersja czatu" className="inline-flex items-center gap-0.5 rounded-full border border-[var(--border)] bg-[var(--surface)] p-0.5 text-[10px] font-medium">
+            {(['v1', 'v2'] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                role="radio"
+                aria-checked={representation === option}
+                onClick={() => setRepresentation(option)}
+                className={cn(
+                  'rounded-full px-2.5 py-0.5 uppercase tracking-wide transition-colors',
+                  representation === option
+                    ? 'bg-[var(--accent)] text-[var(--accent-foreground,white)]'
+                    : 'text-[var(--muted)] hover:text-[var(--foreground)]',
+                )}
+              >
+                Czat {option.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <AgentSessionDetailsSheet
           open={isSessionDetailsOpen}
           onOpenChange={setIsSessionDetailsOpen}
@@ -213,7 +313,7 @@ export function AgentSessionPage({
             void handleDeleteSession();
           }}
           deleting={deleting}
-          disabled={assistant.isRunning}
+          disabled={activeRuntime.isRunning}
         />
 
         {!providersQuery.loading && providersQuery.data && !isProviderAvailable && (
@@ -223,27 +323,47 @@ export function AgentSessionPage({
           />
         )}
 
-        <AgentSessionTranscript
-          ref={transcriptHandleRef}
-          messages={assistant.messages}
-          activeTurnId={assistant.activeTurnId}
-          pendingInteraction={assistant.pendingInteraction}
-          isLoading={assistant.isLoading}
-          isRunning={assistant.isRunning}
-          hasSessionDetails={Boolean(assistant.sessionDetails)}
-          loadError={assistant.loadError}
-          contentRevision={assistant.contentRevision}
-          displayError={displayError}
-          canRetryInitial={canRetryInitial}
-          keyboardOpen={visualViewport.keyboardOpen}
-          visualViewportHeight={visualViewport.height}
-          onReload={() => void handleReload()}
-          onBack={onBack}
-          onRespondInteraction={handleRespondInteraction}
-          onRetryInitial={() => void handleRetryInitial()}
-          onDismissError={handleDismissError}
-          onPointerDown={handleTranscriptPointerDown}
-        />
+        {representation === 'v2' ? (
+          <AgentSessionTranscriptV2
+            ref={transcriptHandleRefV2}
+            turns={assistantV2.turns}
+            turnPrompts={assistantV2.turnPrompts}
+            isLoading={assistantV2.isLoading}
+            hasSessionDetails={Boolean(assistantV2.sessionMeta)}
+            loadError={assistantV2.loadError}
+            contentRevision={assistantV2.contentRevision}
+            displayError={displayError}
+            canRetryInitial={canRetryInitial}
+            onReload={() => void handleReload()}
+            onBack={onBack}
+            onRespondInteraction={handleRespondInteraction}
+            onRetryInitial={() => void handleRetryInitial()}
+            onDismissError={handleDismissError}
+            onPointerDown={handleTranscriptPointerDown}
+          />
+        ) : (
+          <AgentSessionTranscript
+            ref={transcriptHandleRef}
+            messages={assistant.messages}
+            activeTurnId={assistant.activeTurnId}
+            pendingInteraction={assistant.pendingInteraction}
+            isLoading={assistant.isLoading}
+            isRunning={assistant.isRunning}
+            hasSessionDetails={Boolean(assistant.sessionDetails)}
+            loadError={assistant.loadError}
+            contentRevision={assistant.contentRevision}
+            displayError={displayError}
+            canRetryInitial={canRetryInitial}
+            keyboardOpen={visualViewport.keyboardOpen}
+            visualViewportHeight={visualViewport.height}
+            onReload={() => void handleReload()}
+            onBack={onBack}
+            onRespondInteraction={handleRespondInteraction}
+            onRetryInitial={() => void handleRetryInitial()}
+            onDismissError={handleDismissError}
+            onPointerDown={handleTranscriptPointerDown}
+          />
+        )}
 
         <footer
           className={cn(
@@ -259,12 +379,12 @@ export function AgentSessionPage({
               onModeChange={(m) => setSelectedModeOverride(m)}
               onSend={(text) => handleComposerSubmit(text)}
               onCancel={() => void handleCancelTurn()}
-              isRunning={assistant.isRunning}
-              canCancel={Boolean(assistant.capabilities?.cancelTurn && assistant.isRunning && assistant.activeTurnId)}
+              isRunning={activeRuntime.isRunning}
+              canCancel={Boolean(activeRuntime.capabilities?.cancelTurn && activeRuntime.isRunning && activeRuntime.activeTurnId)}
               isProviderAvailable={isProviderAvailable}
-              disabled={!assistant.canStartTurn || !isProviderAvailable}
-              placeholder={assistant.activity === 'waitingForUser' ? 'Odpowiedz na pytanie powyżej…' : undefined}
-              loadError={assistant.loadError}
+              disabled={!activeRuntime.canStartTurn || !isProviderAvailable}
+              placeholder={activeRuntime.activity === 'waitingForUser' ? 'Odpowiedz na pytanie powyżej…' : undefined}
+              loadError={activeRuntime.loadError}
             />
           </div>
         </footer>

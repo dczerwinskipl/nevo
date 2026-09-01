@@ -223,9 +223,11 @@ tasks:
   - id: semantic-work-chat-v2
     order: 11
     file: tasks/11-semantic-work-chat-v2.md
-    status: approved
+    status: in-implementation
     depends_on:
       - canonical-persistence-and-server-projection
+    implementation:
+      baseline_revision: b84c80b9f279243f806b4bfc056db5f717cdb3bb
 
   - id: cross-provider-lifecycle-validation
     order: 12

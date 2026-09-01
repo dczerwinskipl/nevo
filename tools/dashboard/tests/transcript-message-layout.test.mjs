@@ -46,3 +46,32 @@ test('Finding 2: Assistant messages retain full width and markdown rendering', (
   // Uses MarkdownContent for assistant text
   assert.match(source, /<MarkdownContent markdown=\{message\.text\}/);
 });
+
+// ── task 11 (semantic Work chat V2), AC5: FinalAnswer separation ──────────────────────
+
+function readV2Source(relative) {
+  return readFileSync(fileURLToPath(new URL(`../ui/features/agent-sessions/work-v2/${relative}`, import.meta.url)), 'utf8');
+}
+
+test('V2 AC5: FinalAnswerViewV2 renders nothing for absent/null — never fabricates a final answer', () => {
+  const source = readV2Source('final-answer-view-v2.tsx');
+  assert.match(source, /if \(!finalAnswer \|\| finalAnswer\.status === 'absent'\) return null;/);
+  // The only content source is `finalAnswer.text` — never a message/work item's own text.
+  assert.match(source, /finalAnswer\.text/);
+  assert.doesNotMatch(source, /message\.text|item\.text/, 'FinalAnswer must never be assembled from a Work item or message text');
+});
+
+test('V2 AC5: FinalAnswer renders once, after Work, never inside the Work timeline', () => {
+  const timelineSource = readV2Source('work-timeline-v2.tsx');
+  const panelSource = readV2Source('turn-work-panel-v2.tsx');
+
+  assert.doesNotMatch(timelineSource, /finalAnswer/i, 'Level 2 timeline must never read/render finalAnswer');
+  assert.doesNotMatch(readV2Source('work-indicator-v2.tsx'), /finalAnswer/i, 'Level 1 indicator must never read/render finalAnswer');
+
+  const timelineCallIndex = panelSource.indexOf('<WorkTimelineV2');
+  const finalAnswerCallIndex = panelSource.indexOf('<FinalAnswerViewV2');
+  assert.ok(timelineCallIndex !== -1 && finalAnswerCallIndex !== -1, 'both must be composed in the panel');
+  assert.ok(finalAnswerCallIndex > timelineCallIndex, 'FinalAnswer must render after Work, not before/inside it');
+  // Rendered exactly once per turn panel.
+  assert.equal(panelSource.match(/<FinalAnswerViewV2/g)?.length, 1);
+});

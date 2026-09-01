@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { projectTranscript } from '../ui/features/agent-sessions/transcript/projection.ts';
+import { buildTimelineRowsV2 } from '../ui/features/agent-sessions/work-v2/timeline-projection-v2.ts';
 
 function userMsg(id, text, createdAt = '2026-08-22T10:00:00Z') {
   return { id, role: 'user', text, createdAt };
@@ -386,4 +387,79 @@ test('projectTranscript selects the newest started running tool as currentActivi
   assert.equal(workByTurn[0].status, 'current');
   assert.equal(workByTurn[0].currentActivity?.toolId, 't2', 'turn currentActivity must be the newest running tool t2');
   assert.equal(currentActivity?.toolId, 't2', 'projection currentActivity must be the newest running tool t2');
+});
+
+// ── task 11 (semantic Work chat V2), AC2 & AC3: Level 2 timeline ──────────────────────
+
+function commentaryV2(id, seq, text) {
+  return { id, type: 'commentary', seq, text, status: 'completed', createdAt: '', updatedAt: '' };
+}
+function toolV2(id, seq, { kind = 'read', status = 'completed', title = `tool-${id}` } = {}) {
+  return { id, type: 'tool', seq, toolName: title, kind, title, status, actions: [], createdAt: '', updatedAt: '' };
+}
+
+test('V2 AC2: commentary/tool/commentary/tool ordering is preserved exactly in Level 2 rows', () => {
+  const historicalWork = [
+    commentaryV2('c1', 1, 'Looking at the file'),
+    toolV2('t1', 2, { kind: 'read' }),
+    commentaryV2('c2', 3, 'Now editing'),
+    toolV2('t2', 4, { kind: 'edit' }),
+  ];
+  const rows = buildTimelineRowsV2(historicalWork);
+  assert.deepEqual(rows.map(r => r.id), ['c1', 't1', 'c2', 't2'], 'row order must match acceptance order exactly, never regrouped by type');
+});
+
+test('V2 AC2: a compound tool invocation keeps its ToolActions nested, never promoted to sibling rows', () => {
+  const compound = {
+    id: 'cmd-1', type: 'tool', seq: 1, toolName: 'command', kind: 'command', title: 'Inspect specification',
+    status: 'completed', createdAt: '', updatedAt: '',
+    actions: [
+      { id: 'act-1', seq: 1, kind: 'search', title: 'Search workflow documentation' },
+      { id: 'act-2', seq: 2, kind: 'read', title: 'Read change.yaml' },
+    ],
+  };
+  const rows = buildTimelineRowsV2([compound]);
+  assert.equal(rows.length, 1, 'one provider operation must stay one row, not one row per action');
+  assert.equal(rows[0].row, 'tool');
+  assert.equal(rows[0].item.actions.length, 2, 'ToolActions remain nested children of the invocation');
+});
+
+test('V2 AC2: dozens of consecutive completed same-kind tools compact into one grouped row', () => {
+  const historicalWork = Array.from({ length: 40 }, (_, i) => toolV2(`t${i}`, i + 1, { kind: 'read' }));
+  const rows = buildTimelineRowsV2(historicalWork);
+  assert.equal(rows.length, 1, 'a long run of the same completed kind must stay compact, not one row per operation');
+  assert.equal(rows[0].row, 'tool-group');
+  assert.equal(rows[0].items.length, 40, 'Work Details still has every individual invocation available, ungrouped data is preserved');
+});
+
+test('V2 AC2: a different kind, a failure, or Commentary/Reasoning in between breaks the grouped run', () => {
+  const historicalWork = [
+    toolV2('t1', 1, { kind: 'read' }),
+    toolV2('t2', 2, { kind: 'read' }),
+    toolV2('t3', 3, { kind: 'edit' }),
+    toolV2('t4', 4, { kind: 'read', status: 'failed' }),
+    toolV2('t5', 5, { kind: 'read' }),
+  ];
+  const rows = buildTimelineRowsV2(historicalWork);
+  // [t1,t2 grouped] [t3 edit, own row] [t4 failed, own row — never grouped] [t5, own row — run broke at t4]
+  assert.equal(rows.length, 4);
+  assert.equal(rows[0].row, 'tool-group');
+  assert.equal(rows[0].items.length, 2);
+  assert.equal(rows[1].row, 'tool');
+  assert.equal(rows[1].item.kind, 'edit');
+  assert.equal(rows[2].row, 'tool');
+  assert.equal(rows[2].item.status, 'failed', 'a failed tool never joins a grouped row, stays individually visible');
+  assert.equal(rows[3].row, 'tool');
+});
+
+test('V2 AC3: the timeline never fabricates an active item — it only ever renders exactly what historicalWork contains', () => {
+  // historicalWork is server-derived to already exclude the active/streaming item (see
+  // CanonicalTurnV2.historicalWork) — this asserts the client projection does not
+  // reintroduce or duplicate anything beyond that input, satisfying "no duplicate active
+  // activity" from the UI side of the contract.
+  const historicalWork = [toolV2('t1', 1, { status: 'completed' })];
+  const rows = buildTimelineRowsV2(historicalWork);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].item.id, 't1');
+  assert.ok(rows.every(r => r.row !== 'tool' || r.item.status !== 'active'), 'no active-status tool ever appears in Level 2 rows');
 });

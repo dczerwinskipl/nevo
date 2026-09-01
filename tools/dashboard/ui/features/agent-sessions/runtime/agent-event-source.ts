@@ -14,6 +14,7 @@ export const SUPPORTED_AGENT_EVENT_TYPES = [
   'usage.updated',
   'turn.completed',
   'turn.failed',
+  'turn.updated',
 ] as const;
 
 export type SupportedAgentEventType = (typeof SUPPORTED_AGENT_EVENT_TYPES)[number];

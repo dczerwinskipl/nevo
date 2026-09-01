@@ -178,6 +178,39 @@ test('AC11: Keyboard focus management, tab order, and keydown handlers are struc
   assert.match(scrollFollowSource, /e\.key === 'PageUp' \|\| e\.key === 'Home'/);
 });
 
+// ── task 11 (semantic Work chat V2), AC8: desktop/mobile Work UX responsiveness/a11y ──
+
+function readV2Source(relative) {
+  return readSource(`features/agent-sessions/work-v2/${relative}`);
+}
+
+test('V2 AC8: Level 2 timeline rows stay one line with truncation, no horizontal scroll', () => {
+  const timelineSource = readV2Source('work-timeline-v2.tsx');
+  assert.match(timelineSource, /min-w-0 flex-1 truncate/, 'row text must truncate, not wrap/overflow horizontally');
+  assert.doesNotMatch(timelineSource, /overflow-x-auto|overflow-x-scroll/, 'Level 2 must not introduce horizontal scrolling');
+});
+
+test('V2 AC8: Work Details opens as a Sheet (portal), never expanding the chat transcript vertically', () => {
+  const detailsSource = readV2Source('work-details-sheet-v2.tsx');
+  assert.match(detailsSource, /from '@\/components\/ui\/sheet'/, 'must reuse the shared Sheet primitive, not an inline expanding panel');
+  assert.match(detailsSource, /<SheetContent side="right"/, 'reuses the same responsive side="right" variant as AgentSessionDetailsSheet (full width on mobile, max-w-md on desktop)');
+});
+
+test('V2 AC8: Level 2 never inlines full input/output/command — that stays exclusive to Work Details', () => {
+  const timelineSource = readV2Source('work-timeline-v2.tsx');
+  assert.doesNotMatch(timelineSource, /\.input\b|\.output\b|\.command\b/, 'Level 2 rows must never render raw technical payloads inline');
+  const detailsSource = readV2Source('work-details-sheet-v2.tsx');
+  assert.match(detailsSource, /item\.input/);
+  assert.match(detailsSource, /item\.output/);
+});
+
+test('V2 AC8: expand/collapse and Work Details triggers expose aria-expanded / are native buttons for keyboard/touch accessibility', () => {
+  const indicatorSource = readV2Source('work-indicator-v2.tsx');
+  const panelSource = readV2Source('turn-work-panel-v2.tsx');
+  assert.match(indicatorSource, /aria-expanded=\{expanded\}/);
+  assert.match(panelSource, /type="button"/, 'the Work Details trigger must be a native, keyboard/touch-accessible button');
+});
+
 test('AC13: Regression checks for all NFR-7 critical paths', () => {
   const composerSource = readSource('features/agent-sessions/composer/agent-session-composer.tsx');
   const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');

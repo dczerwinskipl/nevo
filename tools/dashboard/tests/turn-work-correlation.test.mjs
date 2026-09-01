@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { applyAgentEvent } from '../ui/features/agent-sessions/runtime/agent-event-reducer.ts';
 import { projectTranscript } from '../ui/features/agent-sessions/transcript/projection.ts';
 import { visibleWorkItemsWhileRunning } from '../ui/features/agent-sessions/turn-work/turn-work-visibility.ts';
+import { applyTurnUpdatedV2 } from '../ui/features/agent-sessions/runtime/agent-session-runtime-v2.ts';
 import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
 import { TurnLifecycleCoordinator } from '../server/ai/sessions/turns/coordinator.mjs';
 
@@ -274,5 +275,49 @@ test('Finding 3: with multiple running tool calls, newest running is currentActi
   assert.equal(expanded[0].toolId, 't1');
   const collapsed = visibleWorkItemsWhileRunning(projection.workByTurn[0], false);
   assert.deepEqual(collapsed, [], 'no items when collapsed');
+});
+
+// ── task 11 (semantic Work chat V2), AC2 & AC3: turn.updated snapshot correlation ─────
+
+function canonicalTurnV2(id, overrides = {}) {
+  return {
+    id, turnId: id, sessionId: 's1', provider: 'claude', providerSessionId: 's1', mode: 'agent',
+    status: { status: 'active', detail: 'processing', since: '', source: 'coordinator' },
+    work: [], historicalWork: [], activityCount: 0, currentActivity: null, finalAnswer: null,
+    createdAt: '', updatedAt: '', ...overrides,
+  };
+}
+
+test('V2: multiple turn.updated snapshots for the same turn.id correlate to exactly one entry, always the latest', () => {
+  let turns = [];
+  turns = applyTurnUpdatedV2(turns, canonicalTurnV2('turn-1', { activityCount: 0 }));
+  turns = applyTurnUpdatedV2(turns, canonicalTurnV2('turn-1', { activityCount: 1 }));
+  turns = applyTurnUpdatedV2(turns, canonicalTurnV2('turn-1', { activityCount: 2 }));
+
+  assert.equal(turns.length, 1, 'one turn.id must correlate to exactly one entry, never a growing history');
+  assert.equal(turns[0].activityCount, 2, 'the latest snapshot must win — this is a full replace, not a delta merge');
+});
+
+test('V2: turn A stays byte-identical when turn B receives a turn.updated snapshot', () => {
+  const turnA = canonicalTurnV2('turn-A', { activityCount: 3 });
+  let turns = [turnA];
+  turns = applyTurnUpdatedV2(turns, canonicalTurnV2('turn-B', { activityCount: 1 }));
+  turns = applyTurnUpdatedV2(turns, canonicalTurnV2('turn-B', {
+    activityCount: 1,
+    status: { status: 'terminal', outcome: 'completed', initiator: 'provider', since: '', source: 'coordinator' },
+  }));
+
+  assert.equal(turns.find(t => t.id === 'turn-A'), turnA, 'a terminal event for turn B must never touch turn A');
+  assert.equal(turns.find(t => t.id === 'turn-B').status.status, 'terminal');
+});
+
+test('V2: replaying the same turn.updated snapshot twice (SSE reconnect replay) is idempotent, no duplication', () => {
+  const snapshot = canonicalTurnV2('turn-1', { activityCount: 5 });
+  let turns = [];
+  turns = applyTurnUpdatedV2(turns, snapshot);
+  const afterFirst = turns;
+  turns = applyTurnUpdatedV2(turns, snapshot);
+  assert.equal(turns, afterFirst, 'replaying an identical snapshot must not produce a new array/entry');
+  assert.equal(turns.length, 1);
 });
 

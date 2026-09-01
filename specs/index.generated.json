@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-01T06:35:27.301Z",
+  "generated": "2026-09-01T11:48:23.873Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -281,10 +281,13 @@
           "id": "semantic-work-chat-v2",
           "order": 11,
           "file": "tasks/11-semantic-work-chat-v2.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "canonical-persistence-and-server-projection"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "b84c80b9f279243f806b4bfc056db5f717cdb3bb"
+          }
         },
         {
           "id": "cross-provider-lifecycle-validation",
