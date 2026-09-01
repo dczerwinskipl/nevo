@@ -202,7 +202,7 @@ tasks:
   - id: antigravity-neutral-mapping
     order: 10
     file: tasks/10-antigravity-neutral-mapping.md
-    status: implemented
+    status: verified
     depends_on:
       - lifecycle-coordinator-and-timeouts
     implementation:

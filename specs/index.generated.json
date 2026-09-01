@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-01T06:35:21.640Z",
+  "generated": "2026-09-01T06:35:27.301Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -252,7 +252,7 @@
           "id": "antigravity-neutral-mapping",
           "order": 10,
           "file": "tasks/10-antigravity-neutral-mapping.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "lifecycle-coordinator-and-timeouts"
           ],
