@@ -1744,7 +1744,7 @@ test('Antigravity dispose terminates active operations and flushes their raw dia
   }
 });
 
-test('Antigravity error result: event "result" + status "ERROR" with non-empty response completes turn successfully with response text and avoids false-positive error', async () => {
+test('Antigravity error result: event "result" + status "ERROR" with non-empty response and error fails turn and preserves providerResponse detail', async () => {
   const lines = [
     JSON.stringify({ type: 'init', conversation_id: 'conv-err-response' }),
     JSON.stringify({
@@ -1757,21 +1757,91 @@ test('Antigravity error result: event "result" + status "ERROR" with non-empty r
     }),
   ];
 
-  const textDeltas = [];
+  const finalAnswerDeltas = [];
   const provider = createAntigravityAgentProvider({
     spawnProcess: () => createMockProcess(lines),
   });
 
-  const result = await provider.startTurn({
-    turnId: 'turn-err-response',
-    providerSessionId: 'conv-err-response',
-    message: 'Do work',
-    emitCommentaryDelta: (t) => textDeltas.push(t),
-    emitFinalAnswerDelta: (t) => textDeltas.push(t),
+  await assert.rejects(
+    () => provider.startTurn({
+      turnId: 'turn-err-response',
+      providerSessionId: 'conv-err-response',
+      message: 'Do work',
+      emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
+    }),
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.message, 'Earlier tool failed');
+      assert.equal(err.details?.providerResponse, 'Odpowiedź asystenta wygenerowana mimo wcześniejszego błędu w sesji');
+      return true;
+    }
+  );
+
+  assert.equal(finalAnswerDeltas.length, 0, 'must not emit FinalAnswer on failed turn');
+});
+
+test('Antigravity error result: event "result" + status "FAILED" with non-empty response fails turn', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-failed-response' }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'FAILED',
+        response: 'Partial response before failure',
+        error: 'Task execution failed',
+      },
+    }),
+  ];
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
   });
 
-  assert.equal(result.status, 'completed');
-  assert.deepEqual(textDeltas, ['Odpowiedź asystenta wygenerowana mimo wcześniejszego błędu w sesji'], 'must preserve and emit response text without failing turn');
+  await assert.rejects(
+    () => provider.startTurn({
+      turnId: 'turn-failed-response',
+      providerSessionId: 'conv-failed-response',
+      message: 'Do work',
+    }),
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.message, 'Task execution failed');
+      assert.equal(err.details?.providerResponse, 'Partial response before failure');
+      return true;
+    }
+  );
+});
+
+test('Antigravity error result: event "result" + status "TIMEOUT" with non-empty response fails turn with AI_PROVIDER_TIMEOUT', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-timeout-response' }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'TIMEOUT',
+        response: 'Partial response before timeout occurred',
+        message: 'Command timed out after 600 seconds',
+      },
+    }),
+  ];
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  await assert.rejects(
+    () => provider.startTurn({
+      turnId: 'turn-timeout-response',
+      providerSessionId: 'conv-timeout-response',
+      message: 'Do work',
+    }),
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_TIMEOUT');
+      assert.equal(err.status, 504);
+      assert.equal(err.details?.providerResponse, 'Partial response before timeout occurred');
+      return true;
+    }
+  );
 });
 
 test('Antigravity error result: event "result" + status "ERROR" preserves usage metrics before failing', async () => {
@@ -1857,7 +1927,7 @@ test('Antigravity successful result: event "result" + status "SUCCESS" completes
   assert.equal(usages[0].tokensOut, 50);
 });
 
-test('Antigravity deduplicates already streamed text even when result event carries status ERROR', async () => {
+test('Antigravity error result: buffered assistant text before ERROR result is not promoted into a successful FinalAnswer', async () => {
   const lines = [
     JSON.stringify({ type: 'init', conversation_id: 'conv-err-streamed' }),
     JSON.stringify({ event: 'step_update', step_update: { text_delta: 'Wystreamowany tekst' } }),
@@ -1871,21 +1941,29 @@ test('Antigravity deduplicates already streamed text even when result event carr
     }),
   ];
 
-  const textDeltas = [];
+  const commentaryDeltas = [];
+  const finalAnswerDeltas = [];
   const provider = createAntigravityAgentProvider({
     spawnProcess: () => createMockProcess(lines),
   });
 
-  const result = await provider.startTurn({
-    turnId: 'turn-err-streamed',
-    providerSessionId: 'conv-err-streamed',
-    message: 'Stream and complete',
-    emitCommentaryDelta: (t) => textDeltas.push(t),
-    emitFinalAnswerDelta: (t) => textDeltas.push(t),
-  });
+  await assert.rejects(
+    () => provider.startTurn({
+      turnId: 'turn-err-streamed',
+      providerSessionId: 'conv-err-streamed',
+      message: 'Stream and fail',
+      emitCommentaryDelta: (t) => commentaryDeltas.push(t),
+      emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
+    }),
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.message, 'Błąd po wygenerowaniu tekstu');
+      return true;
+    }
+  );
 
-  assert.equal(result.status, 'completed');
-  assert.deepEqual(textDeltas, ['Wystreamowany tekst'], 'must not duplicate text that was already streamed');
+  assert.deepEqual(commentaryDeltas, ['Wystreamowany tekst'], 'buffered text must be preserved in commentary upon failure');
+  assert.equal(finalAnswerDeltas.length, 0, 'must never emit final answer on error result');
 });
 
 test('Antigravity error result: still-active tool call is resolved to failed', async () => {

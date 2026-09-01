@@ -1031,29 +1031,6 @@ export class AntigravityAgentProvider {
             const explicitErrorFlag = payload?.is_error === true || raw.is_error === true;
             const isTerminalError = statusIndicatesError || explicitErrorFlag;
 
-            const finalText = extractFinalResponse(raw);
-            let terminalResponseText = null;
-            if (isTerminalError) {
-              if (typeof finalText === 'string' && finalText.trim().length > 0) {
-                terminalResponseText = finalText;
-              }
-            } else {
-              if (typeof pendingAssistantText === 'string' && pendingAssistantText.trim().length > 0) {
-                if (typeof finalText === 'string' && finalText.startsWith(pendingAssistantText) && finalText.length > pendingAssistantText.length) {
-                  terminalResponseText = finalText;
-                } else {
-                  terminalResponseText = pendingAssistantText;
-                }
-              } else if (typeof finalText === 'string' && finalText.trim().length > 0) {
-                if (committedCommentary && finalText.startsWith(committedCommentary)) {
-                  terminalResponseText = finalText.slice(committedCommentary.length).trimStart();
-                } else {
-                  terminalResponseText = finalText;
-                }
-              }
-            }
-            const hasFinalResponse = typeof terminalResponseText === 'string' && terminalResponseText.trim().length > 0;
-
             const usageObj = payload?.usage || raw.usage;
             if (usageObj && emitUsageUpdated) {
               emitUsageUpdated({
@@ -1063,17 +1040,44 @@ export class AntigravityAgentProvider {
               });
             }
 
-            if (isTerminalError && !hasFinalResponse) {
+            if (isTerminalError) {
               flushPendingAsCommentary();
               const rawErr = payload?.error ?? raw.error;
-              const errorMessage = (typeof rawErr === 'string' ? rawErr : (rawErr?.message || payload?.message || raw.message)) || 'Antigravity turn failed.';
+              const explicitResponse = typeof raw.result?.response === 'string' && raw.result.response.trim()
+                ? raw.result.response.trim()
+                : (typeof raw.response === 'string' && raw.response.trim() ? raw.response.trim() : null);
+              const errorMessage = (typeof rawErr === 'string' ? rawErr : (rawErr?.message || payload?.message || raw.message))
+                || explicitResponse
+                || 'Antigravity turn failed.';
               const isTimeout = statusValue?.toUpperCase() === 'TIMEOUT' || /timeout|timed out|deadline exceeded|ETIMEDOUT/i.test(errorMessage);
               const errorObj = isTimeout
-                ? new AiError('AI_PROVIDER_TIMEOUT', errorMessage, { status: 504 })
-                : new AiError('AI_PROVIDER_ERROR', errorMessage);
+                ? new AiError('AI_PROVIDER_TIMEOUT', errorMessage, {
+                    status: 504,
+                    details: explicitResponse ? { providerResponse: explicitResponse } : undefined,
+                  })
+                : new AiError('AI_PROVIDER_ERROR', errorMessage, {
+                    details: explicitResponse ? { providerResponse: explicitResponse } : undefined,
+                  });
               await failAuthoritativeTerminal(errorObj);
               break;
             }
+
+            const finalText = extractFinalResponse(raw);
+            let terminalResponseText = null;
+            if (typeof pendingAssistantText === 'string' && pendingAssistantText.trim().length > 0) {
+              if (typeof finalText === 'string' && finalText.startsWith(pendingAssistantText) && finalText.length > pendingAssistantText.length) {
+                terminalResponseText = finalText;
+              } else {
+                terminalResponseText = pendingAssistantText;
+              }
+            } else if (typeof finalText === 'string' && finalText.trim().length > 0) {
+              if (committedCommentary && finalText.startsWith(committedCommentary)) {
+                terminalResponseText = finalText.slice(committedCommentary.length).trimStart();
+              } else {
+                terminalResponseText = finalText;
+              }
+            }
+            const hasFinalResponse = typeof terminalResponseText === 'string' && terminalResponseText.trim().length > 0;
 
             if (hasFinalResponse && emitFinalAnswerDelta) {
               emitFinalAnswerDelta(terminalResponseText, 'final-answer');
