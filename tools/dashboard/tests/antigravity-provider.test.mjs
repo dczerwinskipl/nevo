@@ -2144,7 +2144,16 @@ test('explicit --print-timeout argument is passed to spawned CLI process', async
 
   assert.ok(capturedArgs.includes('--print-timeout'), 'args includes --print-timeout');
   const timeoutIndex = capturedArgs.indexOf('--print-timeout');
-  assert.equal(capturedArgs[timeoutIndex + 1], '300');
+  assert.equal(capturedArgs[timeoutIndex + 1], '300s');
+});
+
+test('Antigravity print-timeout policy rejects disabled or ambiguous values', () => {
+  for (const printTimeoutSeconds of [0, -1, 1.5, Number.NaN]) {
+    assert.throws(
+      () => createAntigravityAgentProvider({ printTimeoutSeconds }),
+      /printTimeoutSeconds must be a positive integer number of seconds/,
+    );
+  }
 });
 
 test('Antigravity timeout classification: process exit with timeout error maps to AI_PROVIDER_TIMEOUT', async () => {
@@ -2170,7 +2179,13 @@ test('Antigravity timeout classification: process exit with timeout error maps t
     (err) => {
       assert.equal(err.code, 'AI_PROVIDER_TIMEOUT');
       assert.match(err.message, /timed out/i);
+      assert.match(err.message, /Antigravity CLI transport timeout/);
       assert.equal(err.status, 504);
+      assert.deepEqual(err.details, {
+        source: 'antigravity_cli',
+        timeoutKind: 'provider_transport',
+        configuredSeconds: 86400,
+      });
       return true;
     }
   );

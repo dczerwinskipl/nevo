@@ -7,7 +7,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { REPOSITORY_ROOT } from '../server/infrastructure/paths.mjs';
-import { loadAgentProvidersConfig } from '../server/ai/providers/config.mjs';
+import {
+  DEFAULT_ANTIGRAVITY_PRINT_TIMEOUT_SECONDS,
+  loadAgentProvidersConfig,
+} from '../server/ai/providers/config.mjs';
 import { createDefaultAgentSessionService } from '../server/ai/routes.mjs';
 import { listen } from '../server/index.mjs';
 import { buildAiTestApp } from './helpers/ai-test-app.mjs';
@@ -81,6 +84,7 @@ test('loadAgentProvidersConfig resolves the provider config file and Antigravity
     const config = loadAgentProvidersConfig({ repoRoot: customRoot });
     assert.equal(config.configPath, resolve(customRoot, '.nevo-ai-local', 'ai-providers.yaml'));
     assert.equal(config.providers.antigravity.rawCaptureDir, resolve(customRoot, '.nevo-ai-local', 'antigravity_raw'));
+    assert.equal(config.providers.antigravity.printTimeoutSeconds, DEFAULT_ANTIGRAVITY_PRINT_TIMEOUT_SECONDS);
 
     for (const value of [config.configPath, config.providers.antigravity.rawCaptureDir]) {
       assert.ok(!value.startsWith(REPOSITORY_ROOT), `expected '${value}' to stay under the custom root, not the real repository`);

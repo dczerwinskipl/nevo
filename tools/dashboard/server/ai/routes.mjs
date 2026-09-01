@@ -52,6 +52,7 @@ export function createDefaultAgentSessionService({ root = REPOSITORY_ROOT, dataL
         providers.push(new AntigravityAgentProvider({
           cwd: root,
           mappingFilePath: resolve(root, '.nevo-ai-local', 'antigravity-sessions.json'),
+          printTimeoutSeconds: providerConfig.providers.antigravity?.printTimeoutSeconds,
           rawCaptureEnabled: providerConfig.providers.antigravity?.rawCaptureEnabled,
           rawCaptureDir: providerConfig.providers.antigravity?.rawCaptureDir,
         }));

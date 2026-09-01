@@ -10,6 +10,7 @@ import {
   validateAgentExecutionMode,
 } from '../../contracts.mjs';
 import { terminateChildProcess } from '../process-termination.mjs';
+import { DEFAULT_ANTIGRAVITY_PRINT_TIMEOUT_SECONDS } from '../config.mjs';
 
 const WINDOWS_RESERVED_NAMES = new Set([
   'con', 'prn', 'aux', 'nul',
@@ -243,7 +244,7 @@ export class AntigravityAgentProvider {
     spawnProcess = spawn,
     cancelGraceMs = 5_000,
     forceGraceMs = 2_000,
-    printTimeoutSeconds = 600,
+    printTimeoutSeconds = DEFAULT_ANTIGRAVITY_PRINT_TIMEOUT_SECONDS,
     probeExecutable,
     materializedSessions,
     mappingFilePath = null,
@@ -256,9 +257,10 @@ export class AntigravityAgentProvider {
     this.#spawnProcess = spawnProcess;
     this.#cancelGraceMs = cancelGraceMs;
     this.#forceGraceMs = forceGraceMs;
-    this.#printTimeoutSeconds = Number.isFinite(printTimeoutSeconds) && printTimeoutSeconds > 0
-      ? printTimeoutSeconds
-      : 600;
+    if (!Number.isSafeInteger(printTimeoutSeconds) || printTimeoutSeconds <= 0) {
+      throw new AiValidationError('Antigravity printTimeoutSeconds must be a positive integer number of seconds.');
+    }
+    this.#printTimeoutSeconds = printTimeoutSeconds;
     this.#probeExecutable = probeExecutable ?? (spawnProcess !== spawn ? () => true : defaultProbeAntigravityExecutable);
     this.#mappingFilePath = mappingFilePath;
     this.#rawCaptureEnabled = Boolean(rawCaptureEnabled);
@@ -531,7 +533,7 @@ export class AntigravityAgentProvider {
       const args = [
         '--add-dir', this.#cwd,
         '--output-format', 'stream-json',
-        '--print-timeout', String(this.#printTimeoutSeconds),
+        '--print-timeout', `${this.#printTimeoutSeconds}s`,
       ];
 
       if (mode === 'ask') {
@@ -1207,7 +1209,18 @@ export class AntigravityAgentProvider {
           const detail = stderrBuffer.trim() ? `: ${stderrBuffer.trim()}` : '.';
           const isTimeout = exitCode === 124 || /timeout|timed out|deadline exceeded|ETIMEDOUT/i.test(stderrBuffer);
           if (isTimeout) {
-            return failTurn(new AiError('AI_PROVIDER_TIMEOUT', `Antigravity CLI process timed out (--print-timeout exceeded)${detail}`, { status: 504 }));
+            return failTurn(new AiError(
+              'AI_PROVIDER_TIMEOUT',
+              `Antigravity CLI transport timeout (--print-timeout ${this.#printTimeoutSeconds}s exceeded)${detail}`,
+              {
+                status: 504,
+                details: {
+                  source: 'antigravity_cli',
+                  timeoutKind: 'provider_transport',
+                  configuredSeconds: this.#printTimeoutSeconds,
+                },
+              },
+            ));
           }
           return failTurn(new AiError('AI_PROVIDER_EXIT_ERROR', `Antigravity process exited with non-zero code ${exitCode}${detail}`));
         }

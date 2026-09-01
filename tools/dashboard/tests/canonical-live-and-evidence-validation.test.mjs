@@ -978,3 +978,31 @@ test('V2 Production Path: Concurrent multi-tool CurrentActivity and historicalWo
   assert.equal(publicTurn2.historicalWork[1].id, 't-1');
   assert.equal(publicTurn2.currentActivity.subjectId, 't-2');
 });
+
+test('V2 Production Path: streaming phase activity and terminal clearing are server-owned', () => {
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-phase-activity',
+    provider: 'claude',
+    mode: 'agent',
+  });
+
+  coordinator.recordCommentaryDelta('I will inspect the implementation.', 'commentary-phase');
+  let publicTurn = serializePublicTurn(coordinator.getCanonicalSnapshot());
+  assert.equal(publicTurn.currentActivity.kind, 'commentary');
+  assert.equal(publicTurn.currentActivity.subjectId, 'commentary-phase');
+  assert.deepEqual(publicTurn.historicalWork, []);
+
+  coordinator.recordReasoningDelta('Checking the invariants.', 'reasoning-phase');
+  publicTurn = serializePublicTurn(coordinator.getCanonicalSnapshot());
+  assert.equal(publicTurn.currentActivity.kind, 'thinking');
+  assert.equal(publicTurn.currentActivity.subjectId, 'reasoning-phase');
+  assert.deepEqual(publicTurn.historicalWork.map(item => item.id), ['commentary-phase']);
+
+  coordinator.settleTerminal({ outcome: 'completed' });
+  publicTurn = serializePublicTurn(coordinator.getCanonicalSnapshot());
+  assert.equal(publicTurn.currentActivity, null);
+  assert.deepEqual(
+    publicTurn.historicalWork.map(item => item.id),
+    ['commentary-phase', 'reasoning-phase'],
+  );
+});

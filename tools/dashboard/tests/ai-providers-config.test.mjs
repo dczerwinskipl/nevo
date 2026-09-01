@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 
 import {
   DEFAULT_AI_PROVIDERS_CONFIG_PATH,
+  DEFAULT_ANTIGRAVITY_PRINT_TIMEOUT_SECONDS,
   DEFAULT_ANTIGRAVITY_RAW_DIRECTORY,
   DEFAULT_CLAUDE_RAW_DIRECTORY,
   DEFAULT_CODEX_RAW_DIRECTORY,
@@ -30,6 +31,7 @@ test('AI provider config disables every provider and raw capture when the local 
           enabled: false,
           rawCaptureEnabled: false,
           rawCaptureDir: resolve(repoRoot, DEFAULT_ANTIGRAVITY_RAW_DIRECTORY),
+          printTimeoutSeconds: DEFAULT_ANTIGRAVITY_PRINT_TIMEOUT_SECONDS,
         },
         codex: {
           enabled: false,
@@ -58,6 +60,8 @@ providers:
         directory: .nevo-ai-local/provider-raw/claude
   antigravity:
     enabled: true
+    transport:
+      print_timeout_seconds: 43200
     diagnostics:
       raw_responses:
         enabled: true
@@ -85,6 +89,7 @@ providers:
       resolve(repoRoot, '.nevo-ai-local/provider-raw/claude'),
     );
     assert.equal(config.providers.antigravity.rawCaptureEnabled, true);
+    assert.equal(config.providers.antigravity.printTimeoutSeconds, 43200);
     assert.equal(
       config.providers.antigravity.rawCaptureDir,
       resolve(repoRoot, '.nevo-ai-local/provider-raw/antigravity'),
@@ -124,6 +129,18 @@ test('AI provider config reports field-specific errors for invalid values and un
       assert.throws(
         () => loadAgentProvidersConfig({ repoRoot, filePath }),
         /providers\.codex\.enabled.*expected true or false/,
+      );
+    });
+
+    await t.test('Antigravity print timeout must be a positive integer', async () => {
+      await writeFile(filePath, `providers:
+  antigravity:
+    transport:
+      print_timeout_seconds: 0
+`, 'utf8');
+      assert.throws(
+        () => loadAgentProvidersConfig({ repoRoot, filePath }),
+        /providers\.antigravity\.transport\.print_timeout_seconds.*positive integer/,
       );
     });
 

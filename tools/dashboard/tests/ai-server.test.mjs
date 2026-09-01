@@ -1271,6 +1271,161 @@ test('Task 07: V1 and V2 can project the same session and representation switchi
   }
 });
 
+test('V2 public Turn projection is identical across HTTP, live SSE, replay, chat, and Turn list paths', async () => {
+  const cacheDir = join(tmpdir(), `nevo-public-turn-${randomUUID()}`);
+  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+  const sessionId = 'session-public-turn-projection';
+
+  let continueToTools;
+  let completeEdit;
+  let finishTurn;
+  const toolsGate = new Promise(resolve => { continueToTools = resolve; });
+  const editGate = new Promise(resolve => { completeEdit = resolve; });
+  const terminalGate = new Promise(resolve => { finishTurn = resolve; });
+
+  const provider = {
+    descriptor: {
+      id: 'projection',
+      label: 'Projection Provider',
+      capabilities: { streaming: true, toolCalls: true, cancelTurn: true },
+    },
+    async startTurn(ctx) {
+      ctx.emitCommentaryDelta('Inspecting the target files.', 'commentary-1');
+      await toolsGate;
+      ctx.emitToolStarted({
+        toolId: 'read-1',
+        toolName: 'Read',
+        kind: 'read',
+        title: 'Read source file',
+        description: 'src/input.ts',
+        input: { path: 'src/input.ts' },
+      });
+      ctx.emitToolCompleted({ toolId: 'read-1', status: 'completed', output: 'source' });
+      ctx.emitToolStarted({
+        toolId: 'edit-1',
+        toolName: 'Edit',
+        kind: 'edit',
+        title: 'Edit source file',
+        description: 'src/input.ts',
+        input: { path: 'src/input.ts' },
+      });
+      await editGate;
+      ctx.emitToolCompleted({ toolId: 'edit-1', status: 'completed', output: 'updated' });
+      await terminalGate;
+      ctx.setFinalAnswer({ id: 'answer-1', text: 'The edit is complete.', status: 'completed' });
+    },
+    async cancelTurn() {},
+  };
+
+  const registry = createAgentProviderRegistry([provider]);
+  const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache });
+  const server = await buildAiTestApp({ service });
+  const baseUrl = await listen(server, { port: 0 });
+  const liveUpdates = [];
+
+  const waitForUpdate = async (predicate, message) => {
+    for (let index = 0; index < 200; index += 1) {
+      const match = liveUpdates.findLast(predicate);
+      if (match) return match;
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    assert.fail(`Timed out waiting for ${message}.`);
+  };
+
+  const readHttpTurn = async path => {
+    const response = await fetch(`${baseUrl}${path}`);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    return body.session?.turns?.[0] ?? body.turns?.[0];
+  };
+
+  const unsubscribe = service.subscribeToSession('projection', sessionId, {
+    onEvent: event => {
+      if (event.type === 'turn.updated') liveUpdates.push(structuredClone(event.turn));
+    },
+  });
+
+  try {
+    const { turnId } = await service.startTurn('projection', sessionId, {
+      message: 'Inspect, read, and edit the source file.',
+    });
+
+    const commentaryTurn = await waitForUpdate(
+      turn => turn.currentActivity?.kind === 'commentary',
+      'streaming commentary activity',
+    );
+    assert.equal(commentaryTurn.currentActivity.subjectId, 'commentary-1');
+    assert.deepEqual(commentaryTurn.historicalWork, []);
+
+    continueToTools();
+    const activeEditSse = await waitForUpdate(
+      turn => turn.currentActivity?.subjectId === 'edit-1',
+      'active edit activity',
+    );
+    assert.deepEqual(activeEditSse.historicalWork.map(item => item.id), ['commentary-1', 'read-1']);
+    assert.equal(activeEditSse.currentActivity.kind, 'tool');
+    assert.equal(activeEditSse.currentActivity.toolKind, 'edit');
+    assert.equal(activeEditSse.currentActivity.title, 'Edit source file');
+    assert.equal(activeEditSse.currentActivity.description, 'src/input.ts');
+    assert.ok(!activeEditSse.historicalWork.some(item => item.id === 'edit-1'));
+    assert.ok(activeEditSse.work.some(item => item.id === 'edit-1'), 'full Work remains available for Work Details');
+
+    const detailsPath = `/api/agent-sessions/projection/${sessionId}?representation=v2`;
+    const activeEditHttp = await readHttpTurn(detailsPath);
+    assert.deepEqual(activeEditHttp, activeEditSse);
+
+    const activeChatTurn = await readHttpTurn(`/api/agent-sessions/projection/${sessionId}/chat`);
+    const activeListTurn = await readHttpTurn(`/api/agent-sessions/projection/${sessionId}/turns`);
+    assert.deepEqual(activeChatTurn, activeEditHttp);
+    assert.deepEqual(activeListTurn, activeEditHttp);
+
+    const replayedUpdates = [];
+    const unsubscribeReplay = service.subscribeToSession('projection', sessionId, {
+      afterSequence: 0,
+      onEvent: event => {
+        if (event.type === 'turn.updated') replayedUpdates.push(structuredClone(event.turn));
+      },
+    });
+    unsubscribeReplay();
+    const replayedActiveEdit = replayedUpdates.findLast(turn => turn.currentActivity?.subjectId === 'edit-1');
+    assert.deepEqual(replayedActiveEdit, activeEditHttp);
+
+    completeEdit();
+    const completedEditSse = await waitForUpdate(
+      turn => turn.historicalWork?.some(item => item.id === 'edit-1')
+        && turn.currentActivity?.kind === 'waiting_for_model',
+      'completed edit followed by model wait',
+    );
+    assert.deepEqual(
+      completedEditSse.historicalWork.map(item => item.id),
+      ['commentary-1', 'read-1', 'edit-1'],
+    );
+    assert.equal(completedEditSse.currentActivity.subjectId, undefined);
+    assert.deepEqual(await readHttpTurn(detailsPath), completedEditSse);
+
+    finishTurn();
+    const terminalSse = await waitForUpdate(
+      turn => turn.status?.status === 'terminal',
+      'terminal Turn projection',
+    );
+    assert.equal(terminalSse.currentActivity, null);
+    assert.equal(terminalSse.finalAnswer.text, 'The edit is complete.');
+    assert.deepEqual(await readHttpTurn(detailsPath), terminalSse);
+
+    await transcriptCache.flush('projection', sessionId);
+    const canonicalTranscript = await transcriptCache.getTranscript('projection', sessionId);
+    const canonicalTurn = canonicalTranscript.turns.find(turn => turn.id === turnId);
+    assert.equal(canonicalTurn.historicalWork, undefined, 'persistence remains canonical, not presentation-shaped');
+    assert.equal(canonicalTurn.currentActivity, undefined, 'persistence does not store derived activity');
+  } finally {
+    unsubscribe();
+    await closeServer(server);
+    await service.shutdown();
+    await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
 test('Task 07: API and SSE serialization contain no provider-private IDs or diagnostic sidecar content', async () => {
   const { service } = createStack();
   const server = await buildAiTestApp({ service });

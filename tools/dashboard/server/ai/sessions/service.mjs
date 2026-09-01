@@ -4,6 +4,7 @@ import {
   validateAgentExecutionMode,
   computeCurrentActivity,
   projectChatV1,
+  serializePublicTurn,
 } from '../contracts.mjs';
 import { compareBindingRecency } from './binding-service.mjs';
 
@@ -386,6 +387,7 @@ export class AgentSessionService {
 
     const activeOrLatestTurn = activeCanonical || (combinedTurns.length > 0 ? combinedTurns.at(-1) : null);
     const workSummary = computeWorkSummary(activeOrLatestTurn);
+    const publicTurns = combinedTurns.map(serializePublicTurn);
 
     const baseSession = {
       provider,
@@ -421,7 +423,7 @@ export class AgentSessionService {
         ...baseSession,
         readiness,
         workSummary,
-        turns: combinedTurns,
+        turns: publicTurns,
       };
     }
 
@@ -429,7 +431,7 @@ export class AgentSessionService {
       ...baseSession,
       readiness,
       workSummary,
-      turns: combinedTurns,
+      turns: publicTurns,
       messages: projectChatV1(combinedTurns),
     };
   }
@@ -461,7 +463,7 @@ export class AgentSessionService {
     validateAgentIdentity({ provider, providerSessionId });
     if (this.transcriptCache) {
       const transcript = await this.transcriptCache.getTranscript(provider, providerSessionId);
-      return transcript.turns || [];
+      return (transcript.turns || []).map(serializePublicTurn);
     }
     return [];
   }
@@ -550,7 +552,19 @@ export class AgentSessionService {
       sessId = provider.providerSessionId;
       opts = providerSessionId;
     }
-    return this.turnRuntime.subscribeToSession({ provider: prov, providerSessionId: sessId }, opts);
+    const { onEvent, ...subscriptionOptions } = opts || {};
+    if (typeof onEvent !== 'function') throw new TypeError('onEvent is required.');
+    return this.turnRuntime.subscribeToSession(
+      { provider: prov, providerSessionId: sessId },
+      {
+        ...subscriptionOptions,
+        onEvent: event => onEvent(
+          event.type === 'turn.updated' && event.turn
+            ? { ...event, turn: serializePublicTurn(event.turn) }
+            : event,
+        ),
+      },
+    );
   }
 
   getTurn(turnId) {
