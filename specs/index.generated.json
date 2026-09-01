@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-01T05:58:25.894Z",
+  "generated": "2026-09-01T05:58:43.468Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -281,7 +281,7 @@
           "id": "semantic-work-chat-v2",
           "order": 11,
           "file": "tasks/11-semantic-work-chat-v2.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "canonical-persistence-and-server-projection"
           ]

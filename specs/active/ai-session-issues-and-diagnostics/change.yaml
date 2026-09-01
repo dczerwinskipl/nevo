@@ -223,7 +223,7 @@ tasks:
   - id: semantic-work-chat-v2
     order: 11
     file: tasks/11-semantic-work-chat-v2.md
-    status: draft
+    status: approved
     depends_on:
       - canonical-persistence-and-server-projection
 
