@@ -67,7 +67,7 @@ tasks:
   - id: chat-stories-active-states
     order: 9
     file: tasks/09-chat-stories-active-states.md
-    status: draft
+    status: approved
     depends_on:
       - chat-fixture-model
 
