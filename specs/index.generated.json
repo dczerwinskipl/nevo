@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-02T16:54:12.208Z",
+  "generated": "2026-09-02T17:27:43.119Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -563,7 +563,39 @@
           "id": "storybook-infrastructure-setup",
           "order": 3,
           "file": "tasks/03-storybook-infrastructure-setup.md",
-          "status": "approved"
+          "status": "in-implementation",
+          "implementation": {
+            "baseline_revision": "3745a31bd90bd85675163bdc0d69c5f1c52ed69c",
+            "review_revision": "cb5981d99470f1d88ec748856f79bd8210a954fb",
+            "changed_paths": [
+              "tools/dashboard/.storybook/.gitignore",
+              "tools/dashboard/.storybook/main.ts",
+              "tools/dashboard/.storybook/manager-head.html",
+              "tools/dashboard/.storybook/manager.ts",
+              "tools/dashboard/.storybook/preview-head.html",
+              "tools/dashboard/.storybook/preview.tsx",
+              "tools/dashboard/package-lock.json",
+              "tools/dashboard/package.json",
+              "tools/dashboard/ui/foundations/smoke.stories.tsx",
+              "tools/dashboard/vite.config.ts"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "4ee4504cd635a2a2f48fba9caeb426655f7ac16a1e2a323fef0ebd0d841fdf81",
+            "revision": "cb5981d99470f1d88ec748856f79bd8210a954fb",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run build-storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "component-testing-infrastructure",
