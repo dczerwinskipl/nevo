@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-02T18:19:11.717Z",
+  "generated": "2026-09-02T18:25:19.554Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -647,10 +647,30 @@
           "id": "foundation-stories",
           "order": 5,
           "file": "tasks/05-foundation-stories.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "storybook-infrastructure-setup"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "34764c30d26150ab61ef8c2e229ab91f0bb4ecd3",
+            "review_revision": "31e31609fd7d9768522332d077eef087ebf4131c",
+            "changed_paths": [
+              "tools/dashboard/ui/foundations/colors.stories.tsx",
+              "tools/dashboard/ui/foundations/typography.stories.tsx"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "8ce72c3993a9724928e353419d48f152b6bee6364d24fb8e747d3c7d3c76c0e0",
+            "revision": "31e31609fd7d9768522332d077eef087ebf4131c",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run build-storybook",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "chat-fixture-model",
