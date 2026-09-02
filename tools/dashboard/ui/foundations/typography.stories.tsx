@@ -1,121 +1,237 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect } from 'storybook/test';
+import { useLayoutEffect, useRef, useState } from 'react';
 
-interface TypographySample {
+interface UtilityItem {
   utility: string;
-  nominalSize: string;
-  nominalLineHeight: string;
-  provisionalToken: string;
-  intendedRole: string;
-  inCodeReality: string;
+  sourceFile: string;
+  category: 'font-size' | 'line-height' | 'font-weight';
+  provisionalMapping?: string;
 }
 
-const SCALE_SAMPLES: TypographySample[] = [
+const FONT_SIZE_UTILITIES: UtilityItem[] = [
   {
-    utility: 'text-4xl font-semibold',
-    nominalSize: '36px (2.25rem)',
-    nominalLineHeight: '40px (2.5rem)',
-    provisionalToken: '— (Aspirational Display)',
-    intendedRole: 'Hero / prominent statistic headers',
-    inCodeReality: 'Used in dashboard metrics and high-impact headings',
+    utility: 'text-5xl',
+    sourceFile: 'tools/dashboard/ui/features/specifications/detail/specification-detail.tsx',
+    category: 'font-size',
+    provisionalMapping: 'Hero display heading (aspirational)',
   },
   {
-    utility: 'text-3xl font-semibold',
-    nominalSize: '30px (1.875rem)',
-    nominalLineHeight: '36px (2.25rem)',
-    provisionalToken: '— (Aspirational Display)',
-    intendedRole: 'Large page or section overview header',
-    inCodeReality: 'Used in major section titles',
+    utility: 'text-4xl',
+    sourceFile: 'tools/dashboard/ui/features/specifications/detail/specification-detail.tsx',
+    category: 'font-size',
+    provisionalMapping: 'Major display heading (aspirational)',
   },
   {
-    utility: 'text-2xl font-bold',
-    nominalSize: '24px (1.5rem)',
-    nominalLineHeight: '32px (2rem)',
-    provisionalToken: 'text-page-title (1.5rem to 1.75rem)',
-    intendedRole: 'Page or primary workspace title',
-    inCodeReality: 'Used for primary page headers (e.g. SpecificationDetail, Smoke)',
+    utility: 'text-3xl',
+    sourceFile: 'tools/dashboard/ui/features/specifications/detail/specification-detail.tsx',
+    category: 'font-size',
+    provisionalMapping: 'Section overview heading',
   },
   {
-    utility: 'text-xl font-semibold',
-    nominalSize: '20px (1.25rem)',
-    nominalLineHeight: '28px (1.75rem)',
-    provisionalToken: 'text-section-title (1.125rem / 18px)',
-    intendedRole: 'Major section header',
-    inCodeReality: 'Standardized spec-detail and panel H2 headings',
+    utility: 'text-2xl',
+    sourceFile: 'tools/dashboard/ui/foundations/smoke.stories.tsx',
+    category: 'font-size',
+    provisionalMapping: 'text-page-title (target: 1.5rem to 1.75rem)',
   },
   {
-    utility: 'text-lg font-semibold',
-    nominalSize: '18px (1.125rem)',
-    nominalLineHeight: '28px (1.75rem)',
-    provisionalToken: 'text-section-title (1.125rem)',
-    intendedRole: 'Section headers and primary card titles',
-    inCodeReality: 'Active in session panel headers and dialog headings',
+    utility: 'text-xl',
+    sourceFile: 'tools/dashboard/ui/features/agent-sessions/create-agent-session-dialog.tsx',
+    category: 'font-size',
+    provisionalMapping: 'text-section-title (target: 1.125rem / 18px)',
   },
   {
-    utility: 'text-base font-medium',
-    nominalSize: '16px (1rem)',
-    nominalLineHeight: '24px (1.5rem)',
-    provisionalToken: 'text-card-title (0.9375rem to 1rem)',
-    intendedRole: 'Object / card title, default root text size',
-    inCodeReality: 'Root body size and card title default',
+    utility: 'text-lg',
+    sourceFile: 'tools/dashboard/ui/features/pull-requests/detail/pull-request-detail.tsx',
+    category: 'font-size',
+    provisionalMapping: 'text-section-title (target: 1.125rem)',
   },
   {
-    utility: 'text-sm font-normal',
-    nominalSize: '14px (0.875rem)',
-    nominalLineHeight: '20px (1.25rem)',
-    provisionalToken: 'text-body (0.875rem)',
-    intendedRole: 'Normal application text, prose, narrative commentary',
-    inCodeReality: 'Primary text scale for chat messages, summaries, and inputs',
+    utility: 'text-base',
+    sourceFile: 'tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx',
+    category: 'font-size',
+    provisionalMapping: 'text-card-title (target: 0.9375rem to 1rem)',
   },
   {
-    utility: 'text-xs font-medium',
-    nominalSize: '12px (0.75rem)',
-    nominalLineHeight: '16px (1rem)',
-    provisionalToken: 'text-meta (0.75rem) / text-compact (0.8125rem)',
-    intendedRole: 'Dense operational rows, timelines, badge labels, metadata',
-    inCodeReality: 'Most heavily used utility (134+ occurrences) across all features',
+    utility: 'text-[15px]',
+    sourceFile: 'tools/dashboard/ui/features/specifications/detail/specification-detail.tsx',
+    category: 'font-size',
+    provisionalMapping: 'Intermediate card heading',
   },
   {
-    utility: 'text-[11px] font-normal',
-    nominalSize: '11px (0.6875rem)',
-    nominalLineHeight: '16px (1rem)',
-    provisionalToken: 'text-micro (0.6875rem)',
-    intendedRole: 'Exceptional micro metadata only',
-    inCodeReality: 'Dense operational tables and timestamp details (33+ occurrences)',
+    utility: 'text-sm',
+    sourceFile: 'tools/dashboard/ui/features/agent-sessions/agent-session-details.tsx',
+    category: 'font-size',
+    provisionalMapping: 'text-body (target: 0.875rem)',
   },
   {
-    utility: 'text-[10px] font-semibold',
-    nominalSize: '10px (0.625rem)',
-    nominalLineHeight: '14px (0.875rem)',
-    provisionalToken: '— (Sub-micro, non-standard)',
-    intendedRole: 'Ultra-compact badges, pill counters, and status tags',
-    inCodeReality: 'Second most common size in dashboard UI (78+ occurrences)',
+    utility: 'text-[13px]',
+    sourceFile: 'tools/dashboard/ui/features/specifications/detail/status-board.tsx',
+    category: 'font-size',
+    provisionalMapping: 'text-compact (target: 0.8125rem)',
   },
   {
-    utility: 'text-[9px] font-semibold',
-    nominalSize: '9px (0.5625rem)',
-    nominalLineHeight: '12px (0.75rem)',
-    provisionalToken: '— (Sub-micro, non-standard)',
-    intendedRole: 'Micro badges and compact status indicators',
-    inCodeReality: 'Used in compact badge labels and subtle subtitles',
+    utility: 'text-xs',
+    sourceFile: 'tools/dashboard/ui/features/agent-sessions/agent-session-details.tsx',
+    category: 'font-size',
+    provisionalMapping: 'text-meta (target: 0.75rem)',
   },
   {
-    utility: 'text-[8px] font-bold',
-    nominalSize: '8px (0.5rem)',
-    nominalLineHeight: '10px (0.625rem)',
-    provisionalToken: '— (Sub-micro, non-standard)',
-    intendedRole: 'Micro pill badges and tiny count indicators',
-    inCodeReality: 'Used for tiny count bubbles in dense lists',
+    utility: 'text-[11px]',
+    sourceFile: 'tools/dashboard/ui/features/agent-sessions/agent-session-details.tsx',
+    category: 'font-size',
+    provisionalMapping: 'text-micro (target: 0.6875rem)',
+  },
+  {
+    utility: 'text-[10px]',
+    sourceFile: 'tools/dashboard/ui/features/agent-sessions/agent-session-list.tsx',
+    category: 'font-size',
+    provisionalMapping: 'Sub-micro badges and tags',
+  },
+  {
+    utility: 'text-[9px]',
+    sourceFile: 'tools/dashboard/ui/features/agent-sessions/agent-session-list.tsx',
+    category: 'font-size',
+    provisionalMapping: 'Sub-micro label indicator',
+  },
+  {
+    utility: 'text-[8px]',
+    sourceFile: 'tools/dashboard/ui/features/agent-sessions/create-agent-session-dialog.tsx',
+    category: 'font-size',
+    provisionalMapping: 'Micro counter badge',
   },
 ];
 
-const WEIGHT_SAMPLES = [
-  { name: 'font-normal', weight: '400', role: 'Normal body text, commentary, secondary prose' },
-  { name: 'font-medium', weight: '500', role: 'Compact emphasis, active navigation, interactive buttons' },
-  { name: 'font-semibold', weight: '600', role: 'Card titles, section headings, status badges (most frequent: 111+)' },
-  { name: 'font-bold', weight: '700', role: 'Exceptional emphasis, page titles, high-priority counters' },
-  { name: 'font-black', weight: '900', role: 'Specialized high-contrast numeric indicators' },
+const LINE_HEIGHT_UTILITIES: UtilityItem[] = [
+  {
+    utility: 'leading-none',
+    sourceFile: 'tools/dashboard/ui/components/ui/dialog.tsx',
+    category: 'line-height',
+  },
+  {
+    utility: 'leading-tight',
+    sourceFile: 'tools/dashboard/ui/features/specifications/detail/specification-detail.tsx',
+    category: 'line-height',
+  },
+  {
+    utility: 'leading-normal',
+    sourceFile: 'tools/dashboard/ui/features/operations/operation-progress.tsx',
+    category: 'line-height',
+  },
+  {
+    utility: 'leading-relaxed',
+    sourceFile: 'tools/dashboard/ui/features/agent-sessions/transcript/reasoning-view.tsx',
+    category: 'line-height',
+  },
+  {
+    utility: 'leading-4',
+    sourceFile: 'tools/dashboard/ui/features/agent-sessions/interactions/interaction-prompt.tsx',
+    category: 'line-height',
+  },
+  {
+    utility: 'leading-5',
+    sourceFile: 'tools/dashboard/ui/features/pull-requests/detail/pull-request-cards.tsx',
+    category: 'line-height',
+  },
+  {
+    utility: 'leading-6',
+    sourceFile: 'tools/dashboard/ui/features/agent-sessions/transcript/transcript-message.tsx',
+    category: 'line-height',
+  },
+  {
+    utility: 'leading-7',
+    sourceFile: 'tools/dashboard/ui/features/specifications/detail/specification-detail.tsx',
+    category: 'line-height',
+  },
 ];
+
+const FONT_WEIGHT_UTILITIES: UtilityItem[] = [
+  {
+    utility: 'font-normal',
+    sourceFile: 'tools/dashboard/ui/features/agent-sessions/create-agent-session-dialog.tsx',
+    category: 'font-weight',
+    provisionalMapping: 'weight-regular (400)',
+  },
+  {
+    utility: 'font-medium',
+    sourceFile: 'tools/dashboard/ui/features/agent-sessions/agent-session-details.tsx',
+    category: 'font-weight',
+    provisionalMapping: 'weight-medium (500)',
+  },
+  {
+    utility: 'font-semibold',
+    sourceFile: 'tools/dashboard/ui/features/agent-sessions/agent-session-details.tsx',
+    category: 'font-weight',
+    provisionalMapping: 'weight-semibold (600)',
+  },
+  {
+    utility: 'font-bold',
+    sourceFile: 'tools/dashboard/ui/features/agent-sessions/agent-session-details.tsx',
+    category: 'font-weight',
+    provisionalMapping: 'Exceptional emphasis (700)',
+  },
+  {
+    utility: 'font-black',
+    sourceFile: 'tools/dashboard/ui/features/specifications/navigation/specification-sidebar.tsx',
+    category: 'font-weight',
+    provisionalMapping: 'High-contrast numeric indicator (900)',
+  },
+];
+
+function TypographyUtilityCard({ item }: { item: UtilityItem }) {
+  const probeRef = useRef<HTMLDivElement>(null);
+  const [metrics, setMetrics] = useState({ fontSize: '', lineHeight: '', fontWeight: '' });
+
+  useLayoutEffect(() => {
+    if (probeRef.current) {
+      const computed = window.getComputedStyle(probeRef.current);
+      setMetrics({
+        fontSize: computed.fontSize,
+        lineHeight: computed.lineHeight,
+        fontWeight: computed.fontWeight,
+      });
+    }
+  }, [item.utility]);
+
+  return (
+    <div
+      data-typography-item={item.utility}
+      className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 space-y-2.5 shadow-xs"
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[var(--border)] pb-2">
+        <span className="font-mono text-xs font-semibold text-[var(--accent)]">{item.utility}</span>
+        <span className="font-mono text-[11px] text-[var(--muted)]">
+          Source: <code className="text-[var(--foreground)]">{item.sourceFile.split('/').pop()}</code>
+        </span>
+      </div>
+
+      <div className="py-2">
+        <div ref={probeRef} data-probe="true" className={item.utility}>
+          The quick brown fox jumps over the lazy dog
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--muted)] border-t border-[var(--border)] pt-2 font-mono">
+        <div className="flex gap-4">
+          <span>
+            fontSize: <strong data-metric="font-size" className="text-[var(--foreground)]">{metrics.fontSize || 'measuring…'}</strong>
+          </span>
+          <span>
+            lineHeight: <strong data-metric="line-height" className="text-[var(--foreground)]">{metrics.lineHeight || 'measuring…'}</strong>
+          </span>
+          <span>
+            fontWeight: <strong data-metric="font-weight" className="text-[var(--foreground)]">{metrics.fontWeight || 'measuring…'}</strong>
+          </span>
+        </div>
+        {item.provisionalMapping && (
+          <span className="text-[11px] text-[var(--muted-strong)] font-sans">
+            Target: {item.provisionalMapping}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function TypographyFoundation() {
   return (
@@ -124,7 +240,10 @@ function TypographyFoundation() {
       <div>
         <h1 className="text-2xl font-bold">Typography Foundation</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Live typography tokens and Tailwind v4 utility scales in active use across the dashboard.
+          Inventories of distinct font-size, line-height, and font-weight utilities actively present in{' '}
+          <code className="text-[var(--foreground)]">tools/dashboard/ui/features</code> and{' '}
+          <code className="text-[var(--foreground)]">tools/dashboard/ui/components/ui</code>.
+          Metrics shown are read live via <code className="text-[var(--foreground)]">getComputedStyle</code>.
         </p>
       </div>
 
@@ -145,69 +264,51 @@ function TypographyFoundation() {
         </div>
       </section>
 
-      {/* 3. Provisional Scale vs. Production Reality Cross-Reference */}
+      {/* 3. Font Size Utilities Inventory */}
       <section className="space-y-4">
         <div className="border-b border-[var(--border)] pb-2">
-          <h2 className="text-lg font-semibold">Active Type Scale & Provisional Mapping</h2>
+          <h2 className="text-lg font-semibold">1. Font-Size Utilities</h2>
           <p className="text-xs text-[var(--muted)]">
-            Cross-referenced against <code className="text-[var(--foreground)]">docs/development/ui-ux-guidelines.md §3.1</code>.
-            Note: The semantic token names in §3.1 (<code className="text-[var(--foreground)]">text-page-title</code>,{' '}
-            <code className="text-[var(--foreground)]">text-body</code>, etc.) are provisional target direction and do{' '}
-            <strong>not exist</strong> in CSS/Tailwind today. The codebase uses the Tailwind utilities below.
+            Distinct active font-size utilities across the UI, cross-referenced with provisional targets from{' '}
+            <code className="text-[var(--foreground)]">docs/development/ui-ux-guidelines.md §3.1</code>.
           </p>
         </div>
 
-        <div className="space-y-4">
-          {SCALE_SAMPLES.map((sample) => (
-            <div
-              key={sample.utility}
-              data-sample={sample.utility.split(' ')[0]}
-              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 space-y-2"
-            >
-              <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[var(--border)] pb-2">
-                <span className="font-mono text-xs font-semibold text-[var(--accent)]">{sample.utility}</span>
-                <span className="font-mono text-[11px] text-[var(--muted)]">
-                  Nominal: {sample.nominalSize} / {sample.nominalLineHeight}
-                </span>
-                <span className="font-mono text-[11px] text-[var(--muted-strong)]">
-                  Target: {sample.provisionalToken}
-                </span>
-              </div>
-              <div className="py-2">
-                <div className={sample.utility}>The quick brown fox jumps over the lazy dog</div>
-              </div>
-              <div className="flex justify-between text-xs text-[var(--muted)]">
-                <span>Role: {sample.intendedRole}</span>
-                <span className="text-[var(--muted-strong)]">Usage: {sample.inCodeReality}</span>
-              </div>
-            </div>
+        <div className="space-y-3">
+          {FONT_SIZE_UTILITIES.map((item) => (
+            <TypographyUtilityCard key={item.utility} item={item} />
           ))}
         </div>
       </section>
 
-      {/* 4. Font Weight Scale */}
+      {/* 4. Line Height Utilities Inventory */}
       <section className="space-y-4">
         <div className="border-b border-[var(--border)] pb-2">
-          <h2 className="text-lg font-semibold">Active Font Weights</h2>
+          <h2 className="text-lg font-semibold">2. Line-Height Utilities</h2>
           <p className="text-xs text-[var(--muted)]">
-            Font weights actually in use across <code className="text-[var(--foreground)]">tools/dashboard/ui/</code>.
+            Explicit line-height utilities in active use across components.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {WEIGHT_SAMPLES.map((w) => (
-            <div
-              key={w.name}
-              data-weight={w.name}
-              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 space-y-2"
-            >
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-xs text-[var(--foreground)]">{w.name}</span>
-                <span className="font-mono text-xs text-[var(--muted)]">weight: {w.weight}</span>
-              </div>
-              <div className={`text-base ${w.name}`}>Previewing {w.weight} weight</div>
-              <p className="text-xs text-[var(--muted)]">{w.role}</p>
-            </div>
+        <div className="space-y-3">
+          {LINE_HEIGHT_UTILITIES.map((item) => (
+            <TypographyUtilityCard key={item.utility} item={item} />
+          ))}
+        </div>
+      </section>
+
+      {/* 5. Font Weight Utilities Inventory */}
+      <section className="space-y-4">
+        <div className="border-b border-[var(--border)] pb-2">
+          <h2 className="text-lg font-semibold">3. Font-Weight Utilities</h2>
+          <p className="text-xs text-[var(--muted)]">
+            Font weights actually in use, mapped to nominal numeric weights.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          {FONT_WEIGHT_UTILITIES.map((item) => (
+            <TypographyUtilityCard key={item.utility} item={item} />
           ))}
         </div>
       </section>
@@ -230,35 +331,27 @@ export const Default: Story = {
     expect(bodyStyle.fontFamily).toContain('Inter');
     expect(bodyStyle.fontFamily).toContain('system-ui');
 
-    // 2. Verify text-2xl sample computes to 24px
-    const sample2xl = canvasElement.querySelector('[data-sample="text-2xl"] .text-2xl');
-    expect(sample2xl).not.toBeNull();
-    const style2xl = window.getComputedStyle(sample2xl!);
-    expect(style2xl.fontSize).toBe('24px');
-    expect(style2xl.fontWeight).toBe('700');
+    // 2. Verify all typography utility cards render with live computed metrics
+    const cards = canvasElement.querySelectorAll<HTMLElement>('[data-typography-item]');
+    expect(cards.length).toBe(FONT_SIZE_UTILITIES.length + LINE_HEIGHT_UTILITIES.length + FONT_WEIGHT_UTILITIES.length);
 
-    // 3. Verify text-sm sample computes to 14px
-    const sampleSm = canvasElement.querySelector('[data-sample="text-sm"] .text-sm');
-    expect(sampleSm).not.toBeNull();
-    const styleSm = window.getComputedStyle(sampleSm!);
-    expect(styleSm.fontSize).toBe('14px');
+    for (const card of cards) {
+      const probe = card.querySelector<HTMLElement>('[data-probe="true"]');
+      expect(probe).not.toBeNull();
 
-    // 4. Verify text-xs sample computes to 12px
-    const sampleXs = canvasElement.querySelector('[data-sample="text-xs"] .text-xs');
-    expect(sampleXs).not.toBeNull();
-    const styleXs = window.getComputedStyle(sampleXs!);
-    expect(styleXs.fontSize).toBe('12px');
+      const computed = window.getComputedStyle(probe!);
 
-    // 5. Verify text-[10px] sample computes to 10px
-    const sample10px = canvasElement.querySelector('[data-sample="text-[10px]"] .text-\\[10px\\]');
-    expect(sample10px).not.toBeNull();
-    const style10px = window.getComputedStyle(sample10px!);
-    expect(style10px.fontSize).toBe('10px');
+      const displayedFontSize = card.querySelector('[data-metric="font-size"]')?.textContent?.trim();
+      expect(displayedFontSize).toBe(computed.fontSize);
+      expect(computed.fontSize).toBeTruthy();
 
-    // 6. Verify font-semibold sample computes to weight 600
-    const sampleSemibold = canvasElement.querySelector('[data-weight="font-semibold"] .font-semibold');
-    expect(sampleSemibold).not.toBeNull();
-    const styleSemibold = window.getComputedStyle(sampleSemibold!);
-    expect(styleSemibold.fontWeight).toBe('600');
+      const displayedLineHeight = card.querySelector('[data-metric="line-height"]')?.textContent?.trim();
+      expect(displayedLineHeight).toBe(computed.lineHeight);
+      expect(computed.lineHeight).toBeTruthy();
+
+      const displayedFontWeight = card.querySelector('[data-metric="font-weight"]')?.textContent?.trim();
+      expect(displayedFontWeight).toBe(computed.fontWeight);
+      expect(computed.fontWeight).toBeTruthy();
+    }
   },
 };

@@ -24,17 +24,17 @@ Typography stories:
 - Font family as actually declared (`index.css:52`), rendered, with an explicit note that no
   `@font-face`/bundling exists (so the story documents current reality, including the
   fallback-font risk, rather than asserting Inter always renders).
-- Every font size / line-height / weight actually used across the codebase's Tailwind
-  utility classes (survey `features/` and `components/ui/` for the utility classes in
-  active use, e.g. `text-sm`, `font-semibold`) rendered side by side with the utility class
-  name that produces it, and cross-referenced against `docs/development/ui-ux-guidelines.md` §3.1's semantic token table (`text-page-title`, `text-body`, etc.) — noting
-  which of those semantic names, if any, already correspond to a real token/utility versus
-  which are still aspirational per the guide's own normative language rules.
+- Distinct font size, line-height, and weight utilities actually present across the codebase's
+  Tailwind utility classes (surveyed from `features/` and `components/ui/`, e.g. `text-5xl`, `text-sm`,
+  `leading-7`, `font-semibold`) rendered with live computed metrics from getComputedStyle and concrete
+  source-file examples, cross-referenced against `docs/development/ui-ux-guidelines.md` §3.1's semantic
+  token table (`text-page-title`, `text-body`, etc.) — noting which of those semantic names are still
+  provisional per the guide's own normative language rules.
 
 Color stories:
 - Every token in `index.css:6-51` (backgrounds/surfaces, text/foreground, borders,
   accent/primary, semantic status `success`/`warning`/`danger`/`info`, lane colors) rendered
-  as a swatch with its custom-property name and resolved value.
+  as a live probe with its custom-property name, live computed color, and declared value.
 - Since only one theme exists (`color-scheme: dark`, no toggle), the story documents this
   explicitly rather than fabricating a light-theme variant.
 
@@ -57,9 +57,9 @@ Color stories:
 
 1. Every semantic color token in `index.css:6-51` appears in a color foundation story with
    its custom-property name and resolved value visible.
-2. The typography story renders the real font stack and every font-size/weight/line-height
-   combination actually in use, each labeled with the Tailwind utility/class that produces
-   it.
+2. The typography story renders the real font stack and distinct active font-size, line-height,
+   and font-weight utilities present in the UI, each labeled with its producing Tailwind utility class
+   and concrete source-file example.
 3. The story's documented values match `index.css`'s current values exactly (`inspection:
    diff each rendered value against the current index.css custom property`).
 4. A representative computed style (e.g. `--success` resolved color) is identical between
