@@ -153,14 +153,14 @@ tasks:
       - component-testing-infrastructure
     implementation:
       baseline_revision: 05d6541b204c1d8fb0e0c246aea32e47425d3344
-      review_revision: 77e86c3346f4ddff4dd90a52c6d624ce90b9aa61
+      review_revision: a58ca119f34d8e896572d060dd00b830b655323e
       changed_paths:
         - tools/dashboard/tests/chat-fixture-model.test.tsx
         - tools/dashboard/ui/features/agent-sessions/work-v2/__fixtures__/chat-fixtures.ts
       worktree_patch_fingerprint: null
     self_check:
       fingerprint: 87f825ed5fd169aa4d3890aecde4b9aca709263261dc10b1fd12d275e0d5b5e9
-      revision: 77e86c3346f4ddff4dd90a52c6d624ce90b9aa61
+      revision: a58ca119f34d8e896572d060dd00b830b655323e
       commands:
         - command: npm --prefix tools/dashboard run test:storybook
           exit_code: 0
@@ -220,18 +220,18 @@ tasks:
   - id: chat-stories-active-states
     order: 9
     file: tasks/09-chat-stories-active-states.md
-    status: implemented
+    status: verified
     depends_on:
       - chat-fixture-model
     implementation:
       baseline_revision: 93f3e50469d436158a7e0b8c14a3696c695639e6
-      review_revision: bf4ee578f27fc63db831f4e2e64be9291bb8ae79
+      review_revision: a58ca119f34d8e896572d060dd00b830b655323e
       changed_paths:
         - tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx
       worktree_patch_fingerprint: null
     self_check:
       fingerprint: 763a363269d70bb4cac4f2abaaea6059b547ccf106a9c51ea3163385b96537d9
-      revision: bf4ee578f27fc63db831f4e2e64be9291bb8ae79
+      revision: a58ca119f34d8e896572d060dd00b830b655323e
       commands:
         - command: npm --prefix tools/dashboard run test:storybook
           exit_code: 0
