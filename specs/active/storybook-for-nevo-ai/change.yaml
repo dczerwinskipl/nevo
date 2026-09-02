@@ -57,7 +57,7 @@ tasks:
   - id: storybook-infrastructure-setup
     order: 3
     file: tasks/03-storybook-infrastructure-setup.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: 3745a31bd90bd85675163bdc0d69c5f1c52ed69c
       review_revision: cb5981d99470f1d88ec748856f79bd8210a954fb

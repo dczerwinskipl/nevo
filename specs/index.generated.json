@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-02T17:27:43.119Z",
+  "generated": "2026-09-02T17:27:55.553Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -563,7 +563,7 @@
           "id": "storybook-infrastructure-setup",
           "order": 3,
           "file": "tasks/03-storybook-infrastructure-setup.md",
-          "status": "in-implementation",
+          "status": "verified",
           "implementation": {
             "baseline_revision": "3745a31bd90bd85675163bdc0d69c5f1c52ed69c",
             "review_revision": "cb5981d99470f1d88ec748856f79bd8210a954fb",
