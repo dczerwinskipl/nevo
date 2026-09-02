@@ -65,14 +65,14 @@ compose the existing components directly; no code changes are made in that case.
 2. If task 01 concluded no change is needed: `areas/chat-surface-boundaries.md` records that
    conclusion and no `.ts`/`.tsx` file is modified. `inspection: git diff is empty for code paths`
 3. `AgentSessionPage`'s existing production behavior is unchanged.
-   `automated: node --test tools/dashboard/tests/*.test.mjs`
+   `automated: npm --prefix tools/dashboard test`
 4. `tsc -b` (the existing build script) succeeds with no new type errors.
    `automated: npm --prefix tools/dashboard run build`
 
 ## Verification
 
 ```text
-node --test tools/dashboard/tests/*.test.mjs
+npm --prefix tools/dashboard test
 npm --prefix tools/dashboard run build
 ```
 

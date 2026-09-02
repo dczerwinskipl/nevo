@@ -56,8 +56,8 @@ test('Requirement 2 & 16: AgentSessionPage uses single unified session runtime a
   assert.equal(runtimeMatches.length, 1, 'must have exactly one runtime instance');
   assert.doesNotMatch(pageSource, /useAgentSessionRuntimeV2/, 'duplicate runtime instance must be removed');
 
-  // V2 transcript receives turns from the unified runtime
-  assert.match(pageSource, /<AgentSessionTranscriptV2[\s\S]*?turns=\{assistant\.turns\}/);
+  // V2 chat surface receives turns from the unified runtime
+  assert.match(pageSource, /<(?:AgentSessionChatSurface|AgentSessionTranscriptV2)[\s\S]*?turns=\{assistant\.turns\}/);
   assert.match(pageSource, /<AgentSessionTranscript[\s\S]*?messages=\{assistant\.messages\}/);
 
   // Composer submit sends through shared runtime
