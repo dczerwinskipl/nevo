@@ -14,7 +14,7 @@ tasks:
   - id: chat-boundary-audit
     order: 1
     file: tasks/01-chat-boundary-audit.md
-    status: draft
+    status: approved
 
   - id: chat-surface-extraction
     order: 2
