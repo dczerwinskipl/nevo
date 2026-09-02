@@ -242,7 +242,7 @@ tasks:
   - id: storybook-documentation
     order: 10
     file: tasks/10-storybook-documentation.md
-    status: implemented
+    status: verified
     depends_on:
       - chat-fixture-model
       - foundation-stories
@@ -251,16 +251,17 @@ tasks:
       - chat-stories-active-states
     implementation:
       baseline_revision: f2297cd992782c19bc98ab42e16121b5544a52b4
-      review_revision: f2297cd992782c19bc98ab42e16121b5544a52b4
+      review_revision: 28175bdc6cc8824fb94df7a2d1eb49c6e5e0af2e
       changed_paths:
         - docs/development/react-component-guidelines.md
         - docs/development/storybook.md
         - docs/index.generated.json
         - docs/index.generated.md
-      worktree_patch_fingerprint: bb82f0476cc4cc76e29494e15875938db039cb22ce1b5de6b133ba54cbe44fb7
+        - docs/routing.generated.json
+      worktree_patch_fingerprint: null
     self_check:
-      fingerprint: de61b516da0af488b0d04b5867f69828efd793ed714ebc3257ca4ab8438bec7c
-      revision: f2297cd992782c19bc98ab42e16121b5544a52b4
+      fingerprint: d1e2b03dcfb8a5f4e318ffb12c9835c363bc38bea47ce863ad63b2c240a7e93e
+      revision: 28175bdc6cc8824fb94df7a2d1eb49c6e5e0af2e
       commands:
         - command: node tools/docs.mjs validate
           exit_code: 0
