@@ -68,6 +68,8 @@ own criterion because this task does not depend on task 04.
 
 ```text
 npm --prefix tools/dashboard run build-storybook
+npm --prefix tools/dashboard run test:storybook
+npm --prefix tools/dashboard run build
 ```
 
 ## Out of scope
