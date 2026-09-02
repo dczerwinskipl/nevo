@@ -437,38 +437,66 @@ export function buildEmptyWaitingTurn(options?: Partial<CanonicalTurnV2>): Canon
 
 /** Scenario: Turn actively executing a tool with currentActivity. */
 export function buildActiveRunningTurn(options?: Partial<CanonicalTurnV2>): CanonicalTurnV2 {
-  const activeTools = (options?.work?.filter(
-    (w): w is ToolInvocationWorkItemV2 =>
-      'type' in w && w.type === 'tool' && (w.status === 'active' || w.status === 'queued')
-  ) ?? []);
+  let activeTool: ToolInvocationWorkItemV2;
+  let activeTools: ToolInvocationWorkItemV2[] = [];
 
-  const activeTool =
-    activeTools.length > 0
-      ? activeTools[activeTools.length - 1]
-      : (options?.work?.find(
-          (w): w is ToolInvocationWorkItemV2 => 'type' in w && w.type === 'tool'
-        ) ?? buildCommandTool({ status: 'active' }));
+  if (options?.work !== undefined) {
+    activeTools = options.work.filter(
+      (w): w is ToolInvocationWorkItemV2 =>
+        'type' in w && w.type === 'tool' && (w.status === 'active' || w.status === 'queued')
+    );
+    if (activeTools.length === 0) {
+      throw new Error(
+        'Cannot build active running turn: supplied work contains no tool with status "active" or "queued".'
+      );
+    }
+    activeTool = activeTools[activeTools.length - 1];
+  } else {
+    activeTool = buildCommandTool({ status: 'active' });
+    activeTools = [activeTool];
+  }
 
   const work = options?.work ?? [activeTool];
-  const activeId = options?.currentActivity?.subjectId ?? activeTool.id;
+  const activeId = activeTool.id;
 
-  const currentActivity: CurrentActivityV2 = options?.currentActivity ?? {
-    kind: 'tool',
-    subjectId: activeId,
-    title: activeTool.title,
-    ...(activeTool.subject ? { subject: activeTool.subject } : {}),
-    description: activeTool.description,
-    toolKind: activeTool.kind,
-    toolName: activeTool.toolName,
-    status: activeTool.status === 'queued' ? 'queued' : 'active',
-    activeCount: activeTools.length > 1 ? activeTools.length : 1,
-    startedAt: activeTool.startedAt ?? activeTool.createdAt ?? BASE_TIMESTAMP,
-  };
+  const currentActivity: CurrentActivityV2 = options?.currentActivity ?? (
+    activeTools.length > 1
+      ? {
+          kind: 'tool',
+          toolKind: activeTool.kind,
+          subjectId: activeId,
+          title: `${activeTools.length} tools running`,
+          ...(activeTool.subject ? { subject: activeTool.subject } : {}),
+          description: activeTool.description || activeTool.title,
+          toolName: activeTool.toolName,
+          status: 'active',
+          activeCount: activeTools.length,
+          startedAt: activeTool.startedAt ?? activeTool.createdAt ?? BASE_TIMESTAMP,
+        }
+      : {
+          kind: 'tool',
+          toolKind: activeTool.kind,
+          subjectId: activeId,
+          title: activeTool.title,
+          ...(activeTool.subject ? { subject: activeTool.subject } : {}),
+          description: activeTool.description,
+          toolName: activeTool.toolName,
+          status: activeTool.status ?? 'active',
+          activeCount: 1,
+          startedAt: activeTool.startedAt ?? activeTool.createdAt ?? BASE_TIMESTAMP,
+        }
+  );
 
   const historicalWork =
     options?.historicalWork !== undefined
       ? options.historicalWork
-      : work.filter((w) => w.id !== currentActivity.subjectId);
+      : work.filter(
+          (w) =>
+            w.id !== currentActivity.subjectId &&
+            w.status !== 'streaming' &&
+            w.status !== 'active' &&
+            w.status !== 'queued'
+        );
   const activityCount = options?.activityCount ?? work.length;
 
   return buildCanonicalTurn({
@@ -493,12 +521,28 @@ export function buildActiveRunningTurn(options?: Partial<CanonicalTurnV2>): Cano
 export function buildActiveThinkingTurn(
   options?: { item?: CommentaryWorkItemV2 | ReasoningWorkItemV2 } & Partial<CanonicalTurnV2>
 ): CanonicalTurnV2 {
+  if (options?.item && options.item.status !== 'streaming') {
+    throw new Error(
+      `Cannot build active thinking turn: supplied item must have status "streaming", but received "${options.item.status}".`
+    );
+  }
+
   const activeItem =
     options?.item ??
-    buildReasoning({
-      status: 'streaming',
-      text: 'Evaluating architectural boundaries and testing infrastructure…',
-    });
+    (options?.work?.find(
+      (w): w is CommentaryWorkItemV2 | ReasoningWorkItemV2 =>
+        (w.type === 'reasoning' || w.type === 'commentary') && w.status === 'streaming'
+    ) ??
+      buildReasoning({
+        status: 'streaming',
+        text: 'Evaluating architectural boundaries and testing infrastructure…',
+      }));
+
+  if (activeItem.status !== 'streaming') {
+    throw new Error(
+      `Cannot build active thinking turn: active item must have status "streaming", but received "${activeItem.status}".`
+    );
+  }
 
   const isReasoning = activeItem.type === 'reasoning';
   const detail: 'reasoning' | 'commentary' = isReasoning ? 'reasoning' : 'commentary';
@@ -520,7 +564,13 @@ export function buildActiveThinkingTurn(
   const historicalWork =
     options?.historicalWork !== undefined
       ? options.historicalWork
-      : work.filter((w) => w.id !== activeItem.id);
+      : work.filter(
+          (w) =>
+            w.id !== activeItem.id &&
+            w.status !== 'streaming' &&
+            w.status !== 'active' &&
+            w.status !== 'queued'
+        );
   const activityCount = options?.activityCount ?? work.length;
 
   const { item: _item, ...turnOptions } = options ?? {};

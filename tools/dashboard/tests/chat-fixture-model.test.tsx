@@ -423,6 +423,55 @@ describe('Chat Fixture Model (Task 06)', () => {
       expect(turn.activityCount).toBe(2);
     });
 
+    it('buildActiveRunningTurn rejects completed-only work with a clear error', () => {
+      const completedCommand = buildCommandTool({ status: 'completed' });
+      expect(() => buildActiveRunningTurn({ work: [completedCommand] })).toThrow(
+        /Cannot build active running turn: supplied work contains no tool with status "active" or "queued"/
+      );
+    });
+
+    it('buildActiveRunningTurn selects the most recent active/queued tool when multiple exist and matches canonical computeCurrentActivity', () => {
+      const queuedCommand = buildCommandTool({ status: 'queued', subject: 'npm run test' });
+      const activeReadTool = buildFileReadTool({ status: 'active', subject: 'app.tsx' });
+      const turn = buildActiveRunningTurn({ work: [queuedCommand, activeReadTool] });
+
+      expect(turn.currentActivity?.subjectId).toBe(activeReadTool.id);
+      expect(turn.currentActivity?.title).toBe('2 tools running');
+      expect(turn.currentActivity?.activeCount).toBe(2);
+      expect(turn.currentActivity?.subject).toBe('app.tsx');
+      expect(turn.currentActivity?.status).toBe('active');
+    });
+
+    it('buildActiveRunningTurn excludes all active, queued, and streaming items from default historicalWork while preserving completed history', () => {
+      const completedCommand = buildCommandTool({ status: 'completed', subject: 'git fetch' });
+      const streamingReasoning = buildReasoning({ status: 'streaming', text: 'thinking...' });
+      const queuedTool = buildCommandTool({ status: 'queued', subject: 'npm test' });
+      const activeTool = buildFileReadTool({ status: 'active', subject: 'main.ts' });
+
+      const turn = buildActiveRunningTurn({
+        work: [completedCommand, streamingReasoning, queuedTool, activeTool],
+      });
+
+      expect(turn.historicalWork).toEqual([completedCommand]);
+      expect(
+        turn.historicalWork.some(
+          (w) => w.status === 'active' || w.status === 'queued' || w.status === 'streaming'
+        )
+      ).toBe(false);
+    });
+
+    it('buildActiveThinkingTurn rejects non-streaming reasoning or commentary item', () => {
+      const completedReasoning = buildReasoning({ status: 'completed', text: 'done thinking' });
+      expect(() => buildActiveThinkingTurn({ item: completedReasoning })).toThrow(
+        /Cannot build active thinking turn: supplied item must have status "streaming"/
+      );
+
+      const completedCommentary = buildCommentary({ status: 'completed', text: 'done commentary' });
+      expect(() => buildActiveThinkingTurn({ item: completedCommentary })).toThrow(
+        /Cannot build active thinking turn: supplied item must have status "streaming"/
+      );
+    });
+
     it('buildFailedTurn produces a terminal failed turn with error details', () => {
       const error = { code: 'EXEC_TIMEOUT', message: 'Command timed out after 30000ms' };
       const turn = buildFailedTurn(error);

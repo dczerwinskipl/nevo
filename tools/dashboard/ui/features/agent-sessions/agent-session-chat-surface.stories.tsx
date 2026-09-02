@@ -393,27 +393,60 @@ export const ActiveTool: Story = {
     // 1. Verify user message is rendered
     expect(canvasElement.textContent).toContain('Review the story definitions');
 
-    // 2. Verify Level 1 shows running tool title and subject
-    expect(canvasElement.textContent).toContain('Read file');
-    expect(canvasElement.textContent).toContain('agent-session-chat-surface.stories.tsx');
-
-    // 3. Expand Level 2 Work details to verify running vs completed tool styling
+    // 2. Verify Work header explicitly says "In progress"
     const workHeaderButton = canvasElement.querySelector('button[aria-expanded]');
     expect(workHeaderButton).not.toBeNull();
+    expect(workHeaderButton!.textContent).toContain('In progress');
+
+    // 3. Verify running spinner is present and has active spin animation
+    const headerSpinner = workHeaderButton!.querySelector('svg');
+    expect(headerSpinner).not.toBeNull();
+    const spinnerStyle = window.getComputedStyle(headerSpinner!);
+    const animationName = spinnerStyle.animationName.toLowerCase();
+    const animation = spinnerStyle.animation.toLowerCase();
+    expect(animationName.includes('spin') || animation.includes('spin')).toBe(true);
+    expect(spinnerStyle.animationPlayState).not.toBe('paused');
+
+    // 4. Verify active file-read appears in the current-activity element with role="status"
+    const currentActivityStatusEl = canvasElement.querySelector('[role="status"]');
+    expect(currentActivityStatusEl).not.toBeNull();
+    expect(currentActivityStatusEl!.textContent).toContain('Read file');
+    expect(currentActivityStatusEl!.textContent).toContain('agent-session-chat-surface.stories.tsx');
+
+    // 5. Expand Level 2 Work details to inspect historical work
     if (workHeaderButton && workHeaderButton.getAttribute('aria-expanded') === 'false') {
       await userEvent.click(workHeaderButton);
     }
 
-    // 4. Verify completed command and active file read are both visible in timeline
-    expect(canvasElement.textContent).toContain('git status --porcelain');
-    expect(canvasElement.textContent).toContain('agent-session-chat-surface.stories.tsx');
+    // 6. Verify completed command appears as a separate historical row
+    const historicalRow = Array.from(canvasElement.querySelectorAll('button')).find(
+      (btn) =>
+        btn !== workHeaderButton &&
+        btn.textContent?.includes('git status --porcelain')
+    );
+    expect(historicalRow).toBeDefined();
+    expect(historicalRow!.textContent).toContain('Run command');
+    expect(historicalRow!.textContent).toContain('git status --porcelain');
 
-    // 5. Verify composer placeholder reflects running turn and textarea is disabled
+    // 7. Verify computed icon colors distinguish the active activity from the completed activity
+    const activeToolIcon = canvasElement.querySelector('[role="status"] svg');
+    expect(activeToolIcon).not.toBeNull();
+    const activeIconColor = window.getComputedStyle(activeToolIcon!).color;
+
+    const completedToolIcon = historicalRow!.querySelector('svg');
+    expect(completedToolIcon).not.toBeNull();
+    const completedIconColor = window.getComputedStyle(completedToolIcon!).color;
+
+    expect(activeIconColor).toBeTruthy();
+    expect(completedIconColor).toBeTruthy();
+    expect(activeIconColor).not.toBe(completedIconColor);
+
+    // 8. Verify composer placeholder reflects running turn and textarea is disabled
     const textarea = canvasElement.querySelector('textarea');
     expect(textarea?.placeholder).toBe('Turn trwa…');
     expect(textarea?.disabled).toBe(true);
 
-    // 6. Verify cancel / stop affordance is present
+    // 9. Verify cancel / stop affordance is present
     const stopButton = canvasElement.querySelector('button[aria-label="Przerwij generowanie"]');
     expect(stopButton).not.toBeNull();
   },
