@@ -3,6 +3,7 @@ import type {
   CommentaryWorkItemV2,
   CurrentActivityV2,
   FinalAnswerV2,
+  ReasoningWorkItemV2,
   ToolActionV2,
   ToolInvocationWorkItemV2,
   ToolKindV2,
@@ -19,6 +20,12 @@ let nextSeq = 1;
 export function resetFixtureSeq(start = 1): void {
   nextSeq = start;
 }
+
+/** Override options for specialized tool builders that protect builder invariants. */
+export type ToolOverrideOptions = Omit<
+  Partial<ToolInvocationWorkItemV2>,
+  'kind' | 'toolName' | 'title'
+>;
 
 // --- User Message Builder ---
 
@@ -49,7 +56,7 @@ export function buildFinalAnswer(options?: Partial<FinalAnswerV2>): FinalAnswerV
   };
 }
 
-// --- Commentary Builder ---
+// --- Commentary & Reasoning Builders ---
 
 export function buildCommentary(options?: Partial<CommentaryWorkItemV2>): CommentaryWorkItemV2 {
   const status = options?.status ?? 'completed';
@@ -58,6 +65,22 @@ export function buildCommentary(options?: Partial<CommentaryWorkItemV2>): Commen
     seq: options?.seq ?? nextSeq++,
     type: 'commentary',
     text: options?.text ?? 'Analyzing the project structure and testing configuration…',
+    status,
+    confidence: options?.confidence ?? 'high',
+    createdAt: options?.createdAt ?? BASE_TIMESTAMP,
+    updatedAt: options?.updatedAt ?? BASE_TIMESTAMP,
+    completedAt: status === 'completed' ? (options?.completedAt ?? BASE_TIMESTAMP) : undefined,
+  };
+}
+
+export function buildReasoning(options?: Partial<ReasoningWorkItemV2>): ReasoningWorkItemV2 {
+  const status = options?.status ?? 'completed';
+  return {
+    id: options?.id ?? `work-reasoning-${nextSeq++}`,
+    seq: options?.seq ?? nextSeq++,
+    type: 'reasoning',
+    representation: options?.representation ?? 'summary',
+    text: options?.text ?? 'Evaluating implementation trade-offs for active streaming states…',
     status,
     confidence: options?.confidence ?? 'high',
     createdAt: options?.createdAt ?? BASE_TIMESTAMP,
@@ -78,6 +101,20 @@ export function buildToolInvocation(
 ): ToolInvocationWorkItemV2 {
   const id = options.id ?? `tool-${options.toolName}-${nextSeq++}`;
   const status: ToolStatusV2 = options.status ?? 'completed';
+  const isTerminal =
+    status === 'completed' ||
+    status === 'failed' ||
+    status === 'cancelled' ||
+    status === 'interrupted';
+
+  const defaultDurationMs = isTerminal ? 240 : undefined;
+  const defaultCompletedAt = isTerminal ? BASE_TIMESTAMP : undefined;
+
+  let defaultExitCode: number | undefined = undefined;
+  if (options.kind === 'command' || options.kind === 'test') {
+    if (status === 'completed') defaultExitCode = 0;
+    else if (status === 'failed') defaultExitCode = 1;
+  }
 
   return {
     id,
@@ -92,10 +129,10 @@ export function buildToolInvocation(
     description: options.description,
     input: options.input,
     output: options.output,
-    exitCode: options.exitCode ?? (status === 'failed' ? 1 : status === 'completed' ? 0 : undefined),
-    durationMs: options.durationMs ?? (status === 'active' ? undefined : 240),
+    exitCode: options.exitCode !== undefined ? options.exitCode : defaultExitCode,
+    durationMs: options.durationMs !== undefined ? options.durationMs : defaultDurationMs,
     startedAt: options.startedAt ?? BASE_TIMESTAMP,
-    completedAt: status === 'completed' || status === 'failed' ? (options.completedAt ?? BASE_TIMESTAMP) : undefined,
+    completedAt: options.completedAt !== undefined ? options.completedAt : defaultCompletedAt,
     closureReason: options.closureReason,
     progress: options.progress,
     confidence: options.confidence,
@@ -106,74 +143,132 @@ export function buildToolInvocation(
 
 // --- Represented Tool Kinds Builders (Command, Read, Edit/Write, Search) ---
 
-export function buildCommandTool(options?: Partial<ToolInvocationWorkItemV2>): ToolInvocationWorkItemV2 {
+export function buildCommandTool(options?: ToolOverrideOptions): ToolInvocationWorkItemV2 {
   const status = options?.status ?? 'completed';
   const defaultCommand = 'npm --prefix tools/dashboard test';
+
+  let defaultOutput: unknown = undefined;
+  if (status === 'completed') {
+    defaultOutput = 'PASS (809 tests)';
+  } else if (status === 'failed') {
+    defaultOutput = 'Command failed with exit code 1';
+  }
+
+  const { kind: _k, toolName: _tn, title: _t, ...safeOverrides } = (options ?? {}) as any;
+
   return buildToolInvocation({
-    toolName: 'run_command',
-    kind: 'command',
-    title: 'Run command',
-    subject: options?.subject ?? 'npm test',
-    description: options?.description ?? defaultCommand,
-    input: options?.input ?? { CommandLine: defaultCommand, Cwd: 'D:/repos/git/nevo' },
-    output: options?.output ?? (status === 'completed' ? 'PASS (809 tests)' : status === 'failed' ? 'FAIL: 1 error' : undefined),
+    subject: 'npm test',
+    description: defaultCommand,
+    input: { CommandLine: defaultCommand, Cwd: 'D:/repos/git/nevo' },
+    output: defaultOutput,
     status,
-    ...options,
+    ...safeOverrides,
+    kind: 'command',
+    toolName: 'run_command',
+    title: 'Run command',
   });
 }
 
-export function buildFileReadTool(options?: Partial<ToolInvocationWorkItemV2>): ToolInvocationWorkItemV2 {
+export function buildFileReadTool(options?: ToolOverrideOptions): ToolInvocationWorkItemV2 {
+  const status = options?.status ?? 'completed';
   const targetFile = 'tools/dashboard/ui/index.css';
+
+  let defaultOutput: unknown = undefined;
+  if (status === 'completed') {
+    defaultOutput = ':root { color-scheme: dark; ... }';
+  } else if (status === 'failed') {
+    defaultOutput = 'Error: ENOENT: no such file or directory';
+  }
+
+  const { kind: _k, toolName: _tn, title: _t, ...safeOverrides } = (options ?? {}) as any;
+
   return buildToolInvocation({
-    toolName: 'view_file',
+    subject: 'index.css',
+    description: targetFile,
+    input: { AbsolutePath: `D:/repos/git/nevo/${targetFile}` },
+    output: defaultOutput,
+    status,
+    ...safeOverrides,
     kind: 'read',
+    toolName: 'view_file',
     title: 'Read file',
-    subject: options?.subject ?? 'index.css',
-    description: options?.description ?? targetFile,
-    input: options?.input ?? { AbsolutePath: `D:/repos/git/nevo/${targetFile}` },
-    output: options?.output ?? ':root { color-scheme: dark; ... }',
-    ...options,
   });
 }
 
-export function buildFileEditTool(options?: Partial<ToolInvocationWorkItemV2>): ToolInvocationWorkItemV2 {
+export function buildFileEditTool(options?: ToolOverrideOptions): ToolInvocationWorkItemV2 {
+  const status = options?.status ?? 'completed';
   const targetFile = 'tools/dashboard/ui/foundations/colors.stories.tsx';
+
+  let defaultOutput: unknown = undefined;
+  if (status === 'completed') {
+    defaultOutput = 'Replacement applied successfully.';
+  } else if (status === 'failed') {
+    defaultOutput = 'Error: target content not found in file';
+  }
+
+  const { kind: _k, toolName: _tn, title: _t, ...safeOverrides } = (options ?? {}) as any;
+
   return buildToolInvocation({
-    toolName: 'replace_file_content',
+    subject: 'colors.stories.tsx',
+    description: targetFile,
+    input: { TargetFile: `D:/repos/git/nevo/${targetFile}` },
+    output: defaultOutput,
+    status,
+    ...safeOverrides,
     kind: 'edit',
+    toolName: 'replace_file_content',
     title: 'Edit file',
-    subject: options?.subject ?? 'colors.stories.tsx',
-    description: options?.description ?? targetFile,
-    input: options?.input ?? { TargetFile: `D:/repos/git/nevo/${targetFile}` },
-    output: options?.output ?? 'Replacement applied successfully.',
-    ...options,
   });
 }
 
-export function buildFileWriteTool(options?: Partial<ToolInvocationWorkItemV2>): ToolInvocationWorkItemV2 {
+export function buildFileWriteTool(options?: ToolOverrideOptions): ToolInvocationWorkItemV2 {
+  const status = options?.status ?? 'completed';
   const targetFile = 'tools/dashboard/ui/foundations/typography.stories.tsx';
+
+  let defaultOutput: unknown = undefined;
+  if (status === 'completed') {
+    defaultOutput = 'Created file successfully.';
+  } else if (status === 'failed') {
+    defaultOutput = 'Error: permission denied writing to file';
+  }
+
+  const { kind: _k, toolName: _tn, title: _t, ...safeOverrides } = (options ?? {}) as any;
+
   return buildToolInvocation({
-    toolName: 'write_to_file',
+    subject: 'typography.stories.tsx',
+    description: targetFile,
+    input: { TargetFile: `D:/repos/git/nevo/${targetFile}` },
+    output: defaultOutput,
+    status,
+    ...safeOverrides,
     kind: 'write',
+    toolName: 'write_to_file',
     title: 'Write file',
-    subject: options?.subject ?? 'typography.stories.tsx',
-    description: options?.description ?? targetFile,
-    input: options?.input ?? { TargetFile: `D:/repos/git/nevo/${targetFile}` },
-    output: options?.output ?? 'Created file successfully.',
-    ...options,
   });
 }
 
-export function buildSearchTool(options?: Partial<ToolInvocationWorkItemV2>): ToolInvocationWorkItemV2 {
+export function buildSearchTool(options?: ToolOverrideOptions): ToolInvocationWorkItemV2 {
+  const status = options?.status ?? 'completed';
+
+  let defaultOutput: unknown = undefined;
+  if (status === 'completed') {
+    defaultOutput = 'Found 7 matches in 3 files.';
+  } else if (status === 'failed') {
+    defaultOutput = 'Error: search pattern regex syntax error';
+  }
+
+  const { kind: _k, toolName: _tn, title: _t, ...safeOverrides } = (options ?? {}) as any;
+
   return buildToolInvocation({
-    toolName: 'grep_search',
+    subject: 'text-2xl',
+    description: 'Search for "text-2xl" in tools/dashboard/ui',
+    input: { Query: 'text-2xl', SearchPath: 'tools/dashboard/ui' },
+    output: defaultOutput,
+    status,
+    ...safeOverrides,
     kind: 'search',
+    toolName: 'grep_search',
     title: 'Search code',
-    subject: options?.subject ?? 'text-2xl',
-    description: options?.description ?? 'Search for "text-2xl" in tools/dashboard/ui',
-    input: options?.input ?? { Query: 'text-2xl', SearchPath: 'tools/dashboard/ui' },
-    output: options?.output ?? 'Found 7 matches in 3 files.',
-    ...options,
   });
 }
 
@@ -181,7 +276,7 @@ export function buildSearchTool(options?: Partial<ToolInvocationWorkItemV2>): To
 
 export function buildGroupedCommandsScenario(
   count = 3,
-  baseOptions?: Partial<ToolInvocationWorkItemV2>
+  baseOptions?: ToolOverrideOptions
 ): ToolInvocationWorkItemV2[] {
   const items: ToolInvocationWorkItemV2[] = [];
   for (let i = 1; i <= count; i++) {
@@ -209,7 +304,7 @@ export const LONG_PATH_STRING =
 export const LONG_COMMENTARY_TEXT =
   'Investigating the performance metrics across all 14 active font-size scales, 8 line-height configurations, and 5 font weights. The inspection indicates that system fallbacks are functioning appropriately under headless Chromium environments, with no layout shifts detected between initial paint and hydration. Continuing to monitor streaming events for subsequent verification batches.';
 
-export function buildLongCommandTool(options?: Partial<ToolInvocationWorkItemV2>): ToolInvocationWorkItemV2 {
+export function buildLongCommandTool(options?: ToolOverrideOptions): ToolInvocationWorkItemV2 {
   return buildCommandTool({
     subject: 'very-deeply-nested-subsystem-build-process',
     description: LONG_COMMAND_STRING,
@@ -219,7 +314,7 @@ export function buildLongCommandTool(options?: Partial<ToolInvocationWorkItemV2>
   });
 }
 
-export function buildLongPathTool(options?: Partial<ToolInvocationWorkItemV2>): ToolInvocationWorkItemV2 {
+export function buildLongPathTool(options?: ToolOverrideOptions): ToolInvocationWorkItemV2 {
   return buildFileReadTool({
     subject: 'very-deeply-nested-session-transcript-inspection-view.component.tsx',
     description: LONG_PATH_STRING,
@@ -248,6 +343,18 @@ export function buildCanonicalTurn(options?: Partial<CanonicalTurnV2>): Canonica
     source: 'turn.completed',
   };
 
+  const currentActivity = options?.currentActivity ?? null;
+  const activeId = currentActivity?.subjectId;
+
+  const historicalWork =
+    options?.historicalWork !== undefined
+      ? options.historicalWork
+      : activeId
+        ? work.filter((item) => item.id !== activeId)
+        : work;
+
+  const activityCount = options?.activityCount ?? work.length;
+
   return {
     id,
     turnId: options?.turnId ?? id,
@@ -257,20 +364,30 @@ export function buildCanonicalTurn(options?: Partial<CanonicalTurnV2>): Canonica
     mode: options?.mode ?? 'agent',
     status,
     work,
-    historicalWork: options?.historicalWork ?? work,
-    activityCount: options?.activityCount ?? work.length,
-    currentActivity: options?.currentActivity ?? null,
-    finalAnswer: options?.finalAnswer ?? null,
+    historicalWork,
+    activityCount,
+    currentActivity,
+    finalAnswer: options?.finalAnswer !== undefined ? options.finalAnswer : null,
     userMessage: options?.userMessage ?? buildUserMessage(),
-    terminalOutcome: options?.terminalOutcome ?? (status.status === 'terminal' ? {
-      outcome: status.outcome,
-      initiator: status.initiator,
-      completedAt: BASE_TIMESTAMP,
-    } : undefined),
+    terminalOutcome:
+      options?.terminalOutcome !== undefined
+        ? options.terminalOutcome
+        : status.status === 'terminal'
+          ? {
+              outcome: status.outcome,
+              initiator: status.initiator,
+              error: status.error,
+              completedAt: BASE_TIMESTAMP,
+            }
+          : undefined,
     createdAt: options?.createdAt ?? BASE_TIMESTAMP,
     updatedAt: options?.updatedAt ?? BASE_TIMESTAMP,
-    completedAt: status.status === 'terminal' ? (options?.completedAt ?? BASE_TIMESTAMP) : undefined,
-    ...options,
+    completedAt:
+      options?.completedAt !== undefined
+        ? options.completedAt
+        : status.status === 'terminal'
+          ? BASE_TIMESTAMP
+          : undefined,
   };
 }
 
@@ -291,9 +408,15 @@ export function buildEmptyWaitingTurn(options?: Partial<CanonicalTurnV2>): Canon
 /** Scenario: Turn actively executing a tool with currentActivity. */
 export function buildActiveRunningTurn(options?: Partial<CanonicalTurnV2>): CanonicalTurnV2 {
   const activeTool = buildCommandTool({ status: 'active' });
-  const currentActivity: CurrentActivityV2 = {
+  const work = options?.work ?? [activeTool];
+  const activeId =
+    options?.currentActivity?.subjectId ??
+    (work.find((w) => 'status' in w && (w.status === 'active' || w.status === 'streaming'))?.id ??
+      activeTool.id);
+
+  const currentActivity: CurrentActivityV2 = options?.currentActivity ?? {
     kind: 'tool',
-    subjectId: activeTool.id,
+    subjectId: activeId,
     title: activeTool.title,
     subject: activeTool.subject,
     description: activeTool.description,
@@ -304,33 +427,112 @@ export function buildActiveRunningTurn(options?: Partial<CanonicalTurnV2>): Cano
     startedAt: BASE_TIMESTAMP,
   };
 
+  const historicalWork =
+    options?.historicalWork !== undefined
+      ? options.historicalWork
+      : work.filter((w) => w.id !== currentActivity.subjectId);
+  const activityCount = options?.activityCount ?? work.length;
+
   return buildCanonicalTurn({
     status: { status: 'active', detail: 'tool_execution', since: BASE_TIMESTAMP, source: 'tool.started' },
-    work: [activeTool],
-    historicalWork: [],
-    activityCount: 1,
-    currentActivity,
     finalAnswer: null,
     terminalOutcome: undefined,
+    ...options,
+    work,
+    historicalWork,
+    activityCount,
+    currentActivity,
+  });
+}
+
+/** Scenario: Active thinking / commentary turn (Task 09 requirement). */
+export function buildActiveThinkingTurn(
+  options?: { item?: CommentaryWorkItemV2 | ReasoningWorkItemV2 } & Partial<CanonicalTurnV2>
+): CanonicalTurnV2 {
+  const activeItem =
+    options?.item ??
+    buildReasoning({
+      status: 'streaming',
+      text: 'Evaluating architectural boundaries and testing infrastructure…',
+    });
+
+  const isReasoning = activeItem.type === 'reasoning';
+  const detail = isReasoning ? 'reasoning' : 'commentary';
+  const currentActivityKind = isReasoning ? 'thinking' : 'commentary';
+
+  const currentActivity: CurrentActivityV2 = {
+    kind: currentActivityKind,
+    subjectId: activeItem.id,
+    title: isReasoning ? 'Thinking' : 'Commentary',
+    text: activeItem.text,
+    status: 'streaming',
+    startedAt: activeItem.createdAt,
+  };
+
+  const work = options?.work ?? [activeItem];
+  const historicalWork =
+    options?.historicalWork !== undefined
+      ? options.historicalWork
+      : work.filter((w) => w.id !== activeItem.id);
+  const activityCount = options?.activityCount ?? work.length;
+
+  const { item: _item, ...turnOptions } = options ?? {};
+
+  return buildCanonicalTurn({
+    status: {
+      status: 'active',
+      detail,
+      subjectId: activeItem.id,
+      since: activeItem.createdAt,
+      source: `${activeItem.type}.started`,
+    },
+    finalAnswer: null,
+    terminalOutcome: undefined,
+    ...turnOptions,
+    work,
+    historicalWork,
+    activityCount,
+    currentActivity,
+  });
+}
+
+/** Scenario: Convenience active commentary turn. */
+export function buildActiveCommentaryTurn(options?: Partial<CanonicalTurnV2>): CanonicalTurnV2 {
+  return buildActiveThinkingTurn({
+    item: buildCommentary({
+      status: 'streaming',
+      text: 'Analyzing dependencies and configuration…',
+    }),
     ...options,
   });
 }
 
 /** Scenario: Fully completed turn with user message, commentary, tools, and final answer. */
 export function buildCompletedConversationTurn(options?: Partial<CanonicalTurnV2>): CanonicalTurnV2 {
-  const commentary = buildCommentary();
-  const fileRead = buildFileReadTool();
-  const cmd = buildCommandTool();
-  const work: WorkItemV2[] = [commentary, fileRead, cmd];
+  const defaultWork: WorkItemV2[] = [
+    buildCommentary(),
+    buildFileReadTool(),
+    buildCommandTool(),
+  ];
+
+  const work = options?.work ?? defaultWork;
+  const historicalWork = options?.historicalWork ?? work;
+  const activityCount = options?.activityCount ?? work.length;
 
   return buildCanonicalTurn({
-    status: { status: 'terminal', outcome: 'completed', initiator: 'agent', since: BASE_TIMESTAMP, source: 'turn.completed' },
-    work,
-    historicalWork: work,
-    activityCount: work.length,
+    status: {
+      status: 'terminal',
+      outcome: 'completed',
+      initiator: 'agent',
+      since: BASE_TIMESTAMP,
+      source: 'turn.completed',
+    },
     currentActivity: null,
     finalAnswer: buildFinalAnswer(),
     ...options,
+    work,
+    historicalWork,
+    activityCount,
   });
 }
 
@@ -340,12 +542,12 @@ export function buildFailedTurn(
   options?: Partial<CanonicalTurnV2>
 ): CanonicalTurnV2 {
   const failedCmd = buildCommandTool({ status: 'failed', exitCode: 1 });
+  const work = options?.work ?? [failedCmd];
+  const historicalWork = options?.historicalWork ?? work;
+  const activityCount = options?.activityCount ?? work.length;
 
   return buildCanonicalTurn({
     status: { status: 'terminal', outcome: 'failed', initiator: 'agent', error, since: BASE_TIMESTAMP, source: 'turn.failed' },
-    work: [failedCmd],
-    historicalWork: [failedCmd],
-    activityCount: 1,
     currentActivity: null,
     finalAnswer: null,
     terminalOutcome: {
@@ -355,5 +557,8 @@ export function buildFailedTurn(
       completedAt: BASE_TIMESTAMP,
     },
     ...options,
+    work,
+    historicalWork,
+    activityCount,
   });
 }
