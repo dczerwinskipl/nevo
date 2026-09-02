@@ -147,7 +147,7 @@ tasks:
   - id: chat-fixture-model
     order: 6
     file: tasks/06-chat-fixture-model.md
-    status: implemented
+    status: verified
     depends_on:
       - chat-surface-extraction
       - component-testing-infrastructure

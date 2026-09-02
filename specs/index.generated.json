@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-02T18:40:25.531Z",
+  "generated": "2026-09-02T18:40:48.375Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -684,7 +684,7 @@
           "id": "chat-fixture-model",
           "order": 6,
           "file": "tasks/06-chat-fixture-model.md",
-          "status": "in-implementation",
+          "status": "verified",
           "depends_on": [
             "chat-surface-extraction",
             "component-testing-infrastructure"
