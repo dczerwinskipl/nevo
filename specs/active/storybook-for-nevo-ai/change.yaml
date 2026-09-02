@@ -122,7 +122,7 @@ tasks:
   - id: foundation-stories
     order: 5
     file: tasks/05-foundation-stories.md
-    status: implemented
+    status: verified
     depends_on:
       - storybook-infrastructure-setup
     implementation:

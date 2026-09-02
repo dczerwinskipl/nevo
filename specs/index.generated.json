@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-02T18:25:19.554Z",
+  "generated": "2026-09-02T18:25:41.384Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -647,7 +647,7 @@
           "id": "foundation-stories",
           "order": 5,
           "file": "tasks/05-foundation-stories.md",
-          "status": "in-implementation",
+          "status": "verified",
           "depends_on": [
             "storybook-infrastructure-setup"
           ],
