@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-02T19:27:49.614Z",
+  "generated": "2026-09-02T21:09:22.136Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -691,7 +691,7 @@
           ],
           "implementation": {
             "baseline_revision": "05d6541b204c1d8fb0e0c246aea32e47425d3344",
-            "review_revision": "7fc2995c55e42834dd703e50dc0d0a421a842a3d",
+            "review_revision": "0448932e33ddf14228b47dd510d01ab71968f39e",
             "changed_paths": [
               "tools/dashboard/tests/chat-fixture-model.test.tsx",
               "tools/dashboard/ui/features/agent-sessions/work-v2/__fixtures__/chat-fixtures.ts"
@@ -700,7 +700,7 @@
           },
           "self_check": {
             "fingerprint": "87f825ed5fd169aa4d3890aecde4b9aca709263261dc10b1fd12d275e0d5b5e9",
-            "revision": "7fc2995c55e42834dd703e50dc0d0a421a842a3d",
+            "revision": "0448932e33ddf14228b47dd510d01ab71968f39e",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard run test:storybook",
@@ -720,13 +720,17 @@
           ],
           "implementation": {
             "baseline_revision": "0085095bf409d652a45398a6881e73d53ef024c0",
-            "review_revision": "a06e4d3ff27a1d02a3f8a29f28ce024a4d623381",
-            "changed_paths": [],
+            "review_revision": "0448932e33ddf14228b47dd510d01ab71968f39e",
+            "changed_paths": [
+              "tools/dashboard/tests/composer-interaction.test.mjs",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx",
+              "tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx"
+            ],
             "worktree_patch_fingerprint": null
           },
           "self_check": {
-            "fingerprint": "7a8a1827ff36b2315bf88aa739bebffcc7ce4a1423d231fe612e80fec771b698",
-            "revision": "a06e4d3ff27a1d02a3f8a29f28ce024a4d623381",
+            "fingerprint": "5b7d500f6af34da75e3aa59accc3501ef708687eb76fcb9f0845216775fa4538",
+            "revision": "0448932e33ddf14228b47dd510d01ab71968f39e",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard run test:storybook",
