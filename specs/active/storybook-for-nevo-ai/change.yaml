@@ -1,0 +1,85 @@
+# Specification manifest for storybook-for-nevo-ai
+id: storybook-for-nevo-ai
+title: "Storybook for Nevo AI"
+type: architectural
+status: draft
+priority: 10
+created: 2026-09-02
+
+branch:
+  mode: per-change
+  prefix: feature
+
+tasks:
+  - id: chat-boundary-audit
+    order: 1
+    file: tasks/01-chat-boundary-audit.md
+    status: draft
+
+  - id: chat-surface-extraction
+    order: 2
+    file: tasks/02-chat-surface-extraction.md
+    status: draft
+    depends_on:
+      - chat-boundary-audit
+
+  - id: storybook-infrastructure-setup
+    order: 3
+    file: tasks/03-storybook-infrastructure-setup.md
+    status: draft
+
+  - id: component-testing-infrastructure
+    order: 4
+    file: tasks/04-component-testing-infrastructure.md
+    status: draft
+    depends_on:
+      - storybook-infrastructure-setup
+
+  - id: foundation-stories
+    order: 5
+    file: tasks/05-foundation-stories.md
+    status: draft
+    depends_on:
+      - storybook-infrastructure-setup
+
+  - id: chat-fixture-model
+    order: 6
+    file: tasks/06-chat-fixture-model.md
+    status: draft
+    depends_on:
+      - chat-surface-extraction
+      - component-testing-infrastructure
+
+  - id: chat-stories-empty-and-waiting
+    order: 7
+    file: tasks/07-chat-stories-empty-and-waiting.md
+    status: draft
+    depends_on:
+      - chat-fixture-model
+
+  - id: chat-stories-conversation-and-work
+    order: 8
+    file: tasks/08-chat-stories-conversation-and-work.md
+    status: draft
+    depends_on:
+      - chat-fixture-model
+
+  - id: chat-stories-active-states
+    order: 9
+    file: tasks/09-chat-stories-active-states.md
+    status: draft
+    depends_on:
+      - chat-fixture-model
+
+  - id: storybook-documentation
+    order: 10
+    file: tasks/10-storybook-documentation.md
+    status: draft
+    depends_on:
+      - chat-fixture-model
+      - foundation-stories
+      - chat-stories-empty-and-waiting
+      - chat-stories-conversation-and-work
+      - chat-stories-active-states
+
+spec_id: cb8e318a-8f67-49f7-b9ed-09282c5d7bfe
