@@ -33,9 +33,26 @@ tasks:
   - id: chat-surface-extraction
     order: 2
     file: tasks/02-chat-surface-extraction.md
-    status: approved
+    status: implemented
     depends_on:
       - chat-boundary-audit
+    implementation:
+      baseline_revision: 70c2c20c9a530a8c260d52e017e9ed0efa23f34f
+      review_revision: dc05491a1989031ed961d0654a1a391ab077b301
+      changed_paths:
+        - tools/dashboard/tests/semantic-work-chat-v2-corrections.test.mjs
+        - tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.tsx
+        - tools/dashboard/ui/features/agent-sessions/agent-session-page.tsx
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 7e184003be06d86b1c1059fa7c75b04d5f404af202acf2148ef5425cb47b9302
+      revision: dc05491a1989031ed961d0654a1a391ab077b301
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+      status: passed
 
   - id: storybook-infrastructure-setup
     order: 3
