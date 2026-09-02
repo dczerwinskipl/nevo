@@ -53,7 +53,7 @@ tasks:
   - id: chat-stories-empty-and-waiting
     order: 7
     file: tasks/07-chat-stories-empty-and-waiting.md
-    status: draft
+    status: approved
     depends_on:
       - chat-fixture-model
 
