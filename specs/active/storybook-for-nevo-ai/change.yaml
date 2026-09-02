@@ -60,13 +60,12 @@ tasks:
     status: verified
     implementation:
       baseline_revision: 3745a31bd90bd85675163bdc0d69c5f1c52ed69c
-      review_revision: cb5981d99470f1d88ec748856f79bd8210a954fb
+      review_revision: b3288b94f6f7eb5467389aa36a188be4fbfd3ec3
       changed_paths:
         - tools/dashboard/.storybook/.gitignore
+        - tools/dashboard/.storybook/aliases.ts
         - tools/dashboard/.storybook/main.ts
-        - tools/dashboard/.storybook/manager-head.html
         - tools/dashboard/.storybook/manager.ts
-        - tools/dashboard/.storybook/preview-head.html
         - tools/dashboard/.storybook/preview.tsx
         - tools/dashboard/package-lock.json
         - tools/dashboard/package.json
@@ -75,7 +74,7 @@ tasks:
       worktree_patch_fingerprint: null
     self_check:
       fingerprint: 4ee4504cd635a2a2f48fba9caeb426655f7ac16a1e2a323fef0ebd0d841fdf81
-      revision: cb5981d99470f1d88ec748856f79bd8210a954fb
+      revision: b3288b94f6f7eb5467389aa36a188be4fbfd3ec3
       commands:
         - command: npm --prefix tools/dashboard run build-storybook
           exit_code: 0
@@ -91,13 +90,11 @@ tasks:
       - storybook-infrastructure-setup
     implementation:
       baseline_revision: 433b8fcd07c4cc8837e7d58b83b3d55228c10d0c
-      review_revision: 450336f34e4f825515815a29d910d0351c5ce6ff
+      review_revision: b3288b94f6f7eb5467389aa36a188be4fbfd3ec3
       changed_paths:
         - tools/dashboard/.storybook/aliases.ts
         - tools/dashboard/.storybook/main.ts
-        - tools/dashboard/.storybook/manager-head.html
         - tools/dashboard/.storybook/manager.ts
-        - tools/dashboard/.storybook/preview-head.html
         - tools/dashboard/.storybook/preview.tsx
         - tools/dashboard/.storybook/vitest.setup.ts
         - tools/dashboard/package-lock.json
@@ -112,7 +109,7 @@ tasks:
       worktree_patch_fingerprint: null
     self_check:
       fingerprint: 976c3ff0c201546137d1a6a06f3472af3dba4e689b0aac12275e2db72a041da6
-      revision: 450336f34e4f825515815a29d910d0351c5ce6ff
+      revision: b3288b94f6f7eb5467389aa36a188be4fbfd3ec3
       commands:
         - command: npm --prefix tools/dashboard run test:storybook
           exit_code: 0
