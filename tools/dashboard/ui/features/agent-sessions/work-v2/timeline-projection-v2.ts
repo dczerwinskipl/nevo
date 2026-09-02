@@ -7,6 +7,7 @@ import type {
   ToolStatusV2,
   WorkItemV2,
 } from '../types.ts';
+import { previewPlainText } from './text-preview-v2.ts';
 
 export interface ToolGroupPresentationRowV2 {
   row: 'tool_group';
@@ -23,6 +24,7 @@ export interface CommentaryPresentationRowV2 {
   row: 'commentary';
   id: string;
   item: CommentaryWorkItemV2;
+  repeatCount?: number;
 }
 
 export interface ReasoningPresentationRowV2 {
@@ -43,41 +45,88 @@ export type TimelineRowV2 =
   | ReasoningPresentationRowV2
   | InteractionPresentationRowV2;
 
+export interface ProjectedTimelineV2 {
+  allRows: TimelineRowV2[];
+  visibleRows: TimelineRowV2[];
+  hiddenCount: number;
+  hiddenRowCount: number;
+  hasMore: boolean;
+}
+
+export const DEFAULT_L2_MAX_VISIBLE_ROWS = 8;
+
+/**
+ * Normalizes commentary text for exact repeated narration comparison.
+ * Strips markdown and collapses whitespace to compare semantic narration.
+ */
+export function normalizeCommentaryText(text: string | undefined): string {
+  if (!text) return '';
+  return previewPlainText(text, 500).trim();
+}
+
 /**
  * Builds Level 2 timeline rows from `historicalWork`.
  *
- * Level 2 is a compact, chronology-preserving visual summary. It compresses adjacent,
- * equivalent happy-path ToolInvocations (same kind, same title, status === 'completed')
- * into a single summary row `title (count)`.
+ * Level 2 is a compact, chronology-preserving visual summary:
+ * 1. Adjacent equivalent happy-path ToolInvocations (same kind, same title, status === 'completed')
+ *    are compressed into a single summary row `title (count)`.
+ * 2. Conservative repeated-Commentary presentation dedupe: when the exact same normalized
+ *    narration repeats across intervening tools (e.g. waiting loops), only one commentary row
+ *    is emitted in Level 2 with an updated repeatCount, eliminating repetitive noise while
+ *    leaving canonical and Level 3 history complete.
  *
- * Group boundaries:
- * - Commentary, Reasoning, and Interactions are never grouped and strictly preserve temporal order.
- * - ToolInvocations with different kinds or titles start a new group.
- * - Any exceptional tool (status !== 'completed', e.g. failed, cancelled, interrupted) is NOT
- *   swallowed into a happy-path group; it renders as its own individual row.
- * - For count === 1, a concise `item.subject` is displayed (`title · subject`).
- * - For count > 1, subjects are not concatenated inline; the row displays `title (count)`.
- *   (If all grouped items share the exact same non-empty subject, it is preserved).
+ * Boundaries that break grouping/dedupe:
+ * - Different commentary text (meaningful narration is always preserved).
+ * - Reasoning boundaries.
+ * - Interaction boundaries.
+ * - Exceptional tools (failed, cancelled, interrupted, active).
+ * - Change of tool kind or title.
  */
 export function buildTimelineRowsV2(historicalWork: WorkItemV2[]): TimelineRowV2[] {
   const rows: TimelineRowV2[] = [];
+  let lastCommentaryText: string | null = null;
+  let lastCommentaryRow: CommentaryPresentationRowV2 | null = null;
 
   for (const item of historicalWork) {
     if (item.type === 'commentary') {
-      rows.push({ row: 'commentary', id: item.id, item });
+      const normalized = normalizeCommentaryText(item.text);
+      if (normalized && normalized === lastCommentaryText && lastCommentaryRow) {
+        // Exact repeated commentary: presentation-only dedupe in Level 2
+        lastCommentaryRow.repeatCount = (lastCommentaryRow.repeatCount || 1) + 1;
+      } else {
+        lastCommentaryText = normalized || null;
+        const commentaryRow: CommentaryPresentationRowV2 = {
+          row: 'commentary',
+          id: item.id,
+          item,
+          repeatCount: 1,
+        };
+        lastCommentaryRow = commentaryRow;
+        rows.push(commentaryRow);
+      }
       continue;
     }
+
     if (item.type === 'reasoning') {
+      lastCommentaryText = null;
+      lastCommentaryRow = null;
       rows.push({ row: 'reasoning', id: item.id, item });
       continue;
     }
+
     if (item.type === 'interaction') {
+      lastCommentaryText = null;
+      lastCommentaryRow = null;
       rows.push({ row: 'interaction', id: item.id, item });
       continue;
     }
 
     if (item.type === 'tool') {
       const isCompleted = item.status === 'completed';
+      if (!isCompleted) {
+        lastCommentaryText = null;
+        lastCommentaryRow = null;
+      }
       const prevRow = rows[rows.length - 1];
 
       if (
@@ -111,3 +160,48 @@ export function buildTimelineRowsV2(historicalWork: WorkItemV2[]): TimelineRowV2
   return rows;
 }
 
+/**
+ * Applies Stage B visible-history cap to Level 2 timeline rows.
+ *
+ * For long turns, renders only a bounded, useful chronological summary and accurately
+ * counts hidden canonical history for the "+N more in Work Details →" affordance.
+ */
+export function projectTimelineV2(
+  historicalWork: WorkItemV2[],
+  options?: { maxRows?: number },
+): ProjectedTimelineV2 {
+  const maxRows = options?.maxRows ?? DEFAULT_L2_MAX_VISIBLE_ROWS;
+  const allRows = buildTimelineRowsV2(historicalWork);
+
+  if (allRows.length <= maxRows) {
+    return {
+      allRows,
+      visibleRows: allRows,
+      hiddenCount: 0,
+      hiddenRowCount: 0,
+      hasMore: false,
+    };
+  }
+
+  const visibleRows = allRows.slice(-maxRows);
+  const hiddenRows = allRows.slice(0, allRows.length - maxRows);
+
+  let hiddenCount = 0;
+  for (const row of hiddenRows) {
+    if (row.row === 'tool_group') {
+      hiddenCount += row.count;
+    } else if (row.row === 'commentary') {
+      hiddenCount += row.repeatCount ?? 1;
+    } else {
+      hiddenCount += 1;
+    }
+  }
+
+  return {
+    allRows,
+    visibleRows,
+    hiddenCount,
+    hiddenRowCount: hiddenRows.length,
+    hasMore: true,
+  };
+}

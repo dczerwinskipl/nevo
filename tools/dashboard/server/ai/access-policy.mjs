@@ -15,10 +15,13 @@ export function assertControlRequest(request) {
   if (origin) {
     let originHost;
     try { originHost = new URL(origin).host; } catch { throw new AiError('AI_ORIGIN_REJECTED', 'Request origin is invalid.', { status: 403 }); }
-    if (originHost !== request.headers.host) {
+    // HTTP/2 uses the :authority pseudo-header; Fastify may expose it instead of host.
+    const hostHeader = request.headers.host || request.headers[':authority'];
+    if (originHost !== hostHeader) {
       throw new AiError('AI_ORIGIN_REJECTED', 'Cross-origin AI control requests are not allowed.', { status: 403 });
     }
   }
+
 }
 
 export function authorize(accessPolicy, capability, request) {

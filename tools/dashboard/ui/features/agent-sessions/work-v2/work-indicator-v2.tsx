@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Hourglass, LoaderCircle, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, LoaderCircle, XCircle } from 'lucide-react';
 import { describeCurrentActivityV2, terminalHeaderLabelV2 } from './activity-model-v2';
 import { TOOL_KIND_ICONS_V2 } from './tool-kind-icons-v2';
 import { useElapsedLabel } from './use-elapsed-label';
@@ -8,9 +8,10 @@ import { cn } from '@/lib/utils';
 
 /**
  * Level 1 — the collapsed Work indicator (areas/work-ux-presentation.md § "Level 1").
- * Answers only "what is the agent doing right now?" — no historical activity renders
- * here. Header state, activityCount, and currentActivity all come straight from the
- * server projection; this component only formats and lays them out.
+ * Answers only "what is the agent doing right now?" — handles ordinary waiting kinds
+ * (`waiting_for_model`, `waiting_for_tool`) as normal running activities, keeping them
+ * distinct from `requires_attention`. Header state, activityCount, and currentActivity all
+ * come straight from the server projection.
  */
 export const WorkCurrentActivityLineV2 = memo(function WorkCurrentActivityLineV2({
   turn,
@@ -25,47 +26,35 @@ export const WorkCurrentActivityLineV2 = memo(function WorkCurrentActivityLineV2
 
   const ToolIcon = display.toolKind ? TOOL_KIND_ICONS_V2[display.toolKind] : null;
   const isAttention = display.kind === 'requires_attention';
-  const isWaiting = display.kind === 'waiting_for_model' || display.kind === 'waiting_for_tool';
   const detail = display.detail || display.description;
 
   return (
     <div
       className={cn(
-        'flex flex-col gap-0.5 text-xs',
-        embedded ? 'px-1 py-0.5' : 'pl-1',
-        isAttention ? 'text-[var(--warning-strong)]' : 'text-[var(--muted)]',
+        'flex w-full min-w-0 items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs leading-4',
+        !embedded && 'pl-1',
+        isAttention ? 'text-[var(--warning-strong)]' : 'text-[var(--foreground)]',
       )}
       role="status"
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <div className="relative flex size-4 shrink-0 items-center justify-center">
-          <span className="relative z-10 flex items-center justify-center bg-[var(--card,var(--background))]">
-            {isAttention ? (
-              <AlertTriangle className="size-3.5 shrink-0 text-[var(--warning)]" />
-            ) : display.kind === 'cancelling' ? (
-              <XCircle className="size-3.5 shrink-0 text-[var(--muted)]" />
-            ) : isWaiting ? (
-              <Hourglass className="size-3.5 shrink-0 text-[var(--muted)]" />
-            ) : display.textFirst ? (
-              <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" />
-            ) : ToolIcon ? (
-              <ToolIcon className="size-3.5 shrink-0 text-[var(--accent)]" />
-            ) : (
-              <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" />
-            )}
-          </span>
-        </div>
-        <span className="min-w-0 flex-1 truncate font-medium text-[var(--foreground-muted)]">
-          {display.label}
+      <div className="relative flex size-4 shrink-0 items-center justify-center">
+        <span className="relative z-10 flex items-center justify-center bg-transparent">
+          {isAttention ? (
+            <AlertTriangle className="size-4 shrink-0 text-[var(--warning)]" />
+          ) : display.kind === 'cancelling' ? (
+            <XCircle className="size-4 shrink-0 text-[var(--muted)]" />
+          ) : ToolIcon ? (
+            <ToolIcon className="size-4 shrink-0 text-[var(--accent)]" />
+          ) : (
+            <LoaderCircle className="size-4 shrink-0 animate-spin text-[var(--accent)]" />
+          )}
         </span>
       </div>
-      {!isAttention && display.kind !== 'cancelling' && (detail || elapsed) && (
-        <div className="flex min-w-0 items-center gap-1 pl-6 text-[11px] text-[var(--muted)]">
-          {detail && <span className="truncate">{detail}</span>}
-          {detail && elapsed && <span aria-hidden="true">·</span>}
-          {elapsed && <span className="shrink-0">{elapsed}</span>}
-        </div>
-      )}
+      <span className="min-w-0 flex-1 truncate">
+        <span className="font-medium text-[var(--foreground)]">{display.label}</span>
+        {detail ? <span className="font-normal text-[var(--muted)]"> · {detail}</span> : null}
+        {elapsed ? <span className="font-normal text-[var(--muted)]"> ({elapsed})</span> : null}
+      </span>
     </div>
   );
 });
@@ -102,20 +91,20 @@ export const WorkIndicatorV2 = memo(function WorkIndicatorV2({ turn, expanded, o
       )}
     >
       {terminalLabel === 'Failed' ? (
-        <AlertTriangle className="size-3.5 shrink-0 text-[var(--danger)]" />
+        <AlertTriangle className="size-4 shrink-0 text-[var(--danger)]" />
       ) : terminalLabel === 'Cancelled' || terminalLabel === 'Interrupted' ? (
-        <XCircle className="size-3.5 shrink-0 text-[var(--muted)]" />
+        <XCircle className="size-4 shrink-0 text-[var(--muted)]" />
       ) : terminalLabel === 'Completed' ? (
-        <CheckCircle2 className="size-3.5 shrink-0 text-[var(--success)]" />
+        <CheckCircle2 className="size-4 shrink-0 text-[var(--success)]" />
       ) : attention ? (
-        <AlertTriangle className="size-3.5 shrink-0 text-[var(--warning)]" />
+        <AlertTriangle className="size-4 shrink-0 text-[var(--warning)]" />
       ) : (
-        <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" />
+        <LoaderCircle className="size-4 shrink-0 animate-spin text-[var(--accent)]" />
       )}
       <span className="min-w-0 flex-1 truncate">
         Work · {count} {count === 1 ? 'action' : 'actions'} · {statusLabel}
       </span>
-      {expanded ? <ChevronDown className="size-3.5 shrink-0 text-[var(--muted)]" /> : <ChevronRight className="size-3.5 shrink-0 text-[var(--muted)]" />}
+      {expanded ? <ChevronDown className="size-4 shrink-0 text-[var(--muted)]" /> : <ChevronRight className="size-4 shrink-0 text-[var(--muted)]" />}
     </button>
   );
 });

@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { ListTree } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { WorkIndicatorV2, WorkCurrentActivityLineV2 } from './work-indicator-v2';
 import { WorkTimelineV2 } from './work-timeline-v2';
 import { WorkDetailsSheetV2 } from './work-details-sheet-v2';
@@ -40,43 +40,45 @@ export function TurnWorkPanelV2({ turn, onRespondInteraction }: TurnWorkPanelV2P
   return (
     <div className="my-1.5 w-full min-w-0 max-w-full space-y-1.5">
       {/*
-        Interaction hierarchy: the Work header row is the primary expand/collapse target.
-        Work details is a dedicated secondary inspection action (ListTree icon) that
-        opens the complete Level 3 timeline sheet.
+        Level 1 — the Work header indicator is the single, full-width expand/collapse toggle.
+        Level 3 (Work Details) is accessed by selecting any row in Level 2 or via the bottom-right Details action.
       */}
-      <div className="flex items-center gap-0.5">
-        <div className="min-w-0 flex-1">
-          <WorkIndicatorV2 turn={turn} expanded={expanded} onToggle={toggleExpanded} />
-        </div>
-        {turn.activityCount > 0 && (
-          <button
-            type="button"
-            onClick={openDetailsOverview}
-            aria-label="Work details"
-            title="Work details"
-            className="shrink-0 rounded p-1.5 text-[var(--muted)] transition-colors hover:bg-white/4 hover:text-[var(--foreground)]"
-          >
-            <ListTree className="size-3.5" />
-          </button>
-        )}
-      </div>
+      <WorkIndicatorV2 turn={turn} expanded={expanded} onToggle={toggleExpanded} />
 
       {expanded ? (
-        <div className="relative w-full min-w-0 max-w-full pl-1">
-          <div
-            className="absolute bottom-2 left-[11px] top-2 w-px bg-[var(--border)]"
-            aria-hidden="true"
-          />
-          <div className="relative flex flex-col gap-0.5">
-            <WorkTimelineV2
-              historicalWork={turn.historicalWork}
-              onSelectItem={openDetailsForItem}
-              embedded
+        <div className="flex w-full min-w-0 items-end justify-between gap-2 pl-1">
+          {/* Column 1: Timeline occupying almost all free space */}
+          <div className="relative min-w-0 flex-1">
+            <div
+              className="absolute bottom-2 left-[18px] top-2 w-px -translate-x-1/2 bg-[var(--border)]"
+              aria-hidden="true"
             />
-            {!isTerminal && (
-              <WorkCurrentActivityLineV2 turn={turn} embedded />
-            )}
+            <div className="relative flex flex-col gap-0.5">
+              <WorkTimelineV2
+                historicalWork={turn.historicalWork}
+                onSelectItem={openDetailsForItem}
+                embedded
+              />
+              {!isTerminal && (
+                <WorkCurrentActivityLineV2 turn={turn} embedded />
+              )}
+            </div>
           </div>
+
+          {/* Column 2: Details button on the right, width as needed, aligned to bottom */}
+          {turn.activityCount > 0 && (
+            <div className="shrink-0 self-end pb-0.5 pr-0.5">
+              <button
+                type="button"
+                onClick={openDetailsOverview}
+                aria-label="Details"
+                className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-normal text-[var(--muted)] transition-colors hover:bg-white/4 hover:text-[var(--foreground)]"
+              >
+                <Search className="size-3" />
+                <span>Details</span>
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         !isTerminal && (

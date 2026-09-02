@@ -10,7 +10,7 @@ import { mapAntigravityTool } from '../server/ai/providers/antigravity/provider.
 import { shouldCollapseMessage } from '../ui/features/agent-sessions/transcript/message-collapse.ts';
 import { previewPlainText } from '../ui/features/agent-sessions/work-v2/text-preview-v2.ts';
 import { describeCurrentActivityV2, terminalHeaderLabelV2 } from '../ui/features/agent-sessions/work-v2/activity-model-v2.ts';
-import { buildTimelineRowsV2 } from '../ui/features/agent-sessions/work-v2/timeline-projection-v2.ts';
+import { buildTimelineRowsV2, projectTimelineV2, normalizeCommentaryText } from '../ui/features/agent-sessions/work-v2/timeline-projection-v2.ts';
 
 function readV2Source(relative) {
   return readFileSync(fileURLToPath(new URL(`../ui/features/agent-sessions/work-v2/${relative}`, import.meta.url)), 'utf8');
@@ -132,17 +132,16 @@ test('Requirement 5: Optimistic state displays neutral Starting… indicator bef
 test('Requirement 6 & 7: Level 2 renders timeline rail, compact tool titles, and readable prose commentary', () => {
   const timelineSource = readV2Source('work-timeline-v2.tsx');
 
-  // ToolGroupRow uses compact body typography with modest emphasis
-  assert.match(timelineSource, /font-normal text-\[var\(--foreground-muted\)\]/);
-  assert.match(timelineSource, /text-xs leading-5/);
+  // ToolGroupRow uses text-xs typography matching active tool with muted-strong
+  assert.match(timelineSource, /text-xs/);
+  assert.match(timelineSource, /font-normal text-\[var\(--muted-strong\)\]/);
 
-  // Timeline rail structure and marker positioning
-  assert.match(timelineSource, /absolute bottom-2 left-\[11px\] top-2 w-px bg-\[var\(--border\)\]/);
-  assert.match(timelineSource, /size-1\.5 rounded-full/);
+  // Timeline rail structure and marker positioning centered on the icon column
+  assert.match(timelineSource, /left-\[18px\] top-2 w-px -translate-x-1\/2 bg-\[var\(--border\)\]/);
 
-  // Commentary is readable prose (foreground-muted, not weak muted), no "Commentary" label
-  assert.match(timelineSource, /font-normal leading-relaxed text-\[var\(--foreground-muted\)\]/);
-  assert.doesNotMatch(timelineSource, />\s*Commentary\s*</, 'Level 2 commentary must not render a "Commentary" heading label');
+  // Commentary is clean bordered prose cardlet
+  assert.match(timelineSource, /bg-white\/\[0\.02\]/);
+  assert.match(timelineSource, /line-clamp-2/);
 
   // Reasoning has distinct "Thinking" cue
   assert.match(timelineSource, /Thinking/);
@@ -174,16 +173,16 @@ test('Requirement 9 & 10: Work Details sheet provides 2-line layout with concret
 
 // ── 11. Work Header Interaction ─────────────────────────────────────────────────────
 
-test('Requirement 11: Work header expands/collapses Level 2; ListTree icon opens Level 3 sheet', () => {
+test('Requirement 11: Work header is the single clean Level 2 toggle; Level 3 is accessed from Level 2 items', () => {
   const panelSource = readV2Source('turn-work-panel-v2.tsx');
 
-  // Primary indicator button toggles Level 2
+  // Primary indicator button is full-width toggle for Level 2
   assert.match(panelSource, /<WorkIndicatorV2 turn=\{turn\} expanded=\{expanded\} onToggle=\{toggleExpanded\}/);
 
-  // Details button uses ListTree icon and calls openDetailsOverview
-  assert.match(panelSource, /<ListTree className="size-3\.5"/);
+  // Level 3 sheet is accessed via Level 2 item selection and details action
+  assert.match(panelSource, /onSelectItem=\{openDetailsForItem\}/);
   assert.match(panelSource, /onClick=\{openDetailsOverview\}/);
-  assert.match(panelSource, /aria-label="Work details"/);
+  assert.match(panelSource, /<Search className="size-3"/);
 });
 
 // ── 14. Final Answer Separation ─────────────────────────────────────────────────────
@@ -582,5 +581,170 @@ test('16.9 Compression of 40+ consecutive items into compact grouped timeline ro
   assert.equal(l2Rows[6].title, 'Run command');
   assert.equal(l2Rows[6].count, 1);
   assert.equal(l2Rows[6].status, 'failed');
+});
+
+test('15.5 Repeated Commentary compression: identical narration is presentation-compressed in Level 2 while fully retained in Level 3', () => {
+  const repeatedNarration = 'I will wait for the test run to complete.';
+  const items = [
+    { id: 'c-1', type: 'commentary', text: repeatedNarration, status: 'completed' },
+    { id: 't-1', type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'completed', actions: [] },
+    { id: 'c-2', type: 'commentary', text: repeatedNarration, status: 'completed' },
+    { id: 't-2', type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'completed', actions: [] },
+    { id: 'c-3', type: 'commentary', text: repeatedNarration, status: 'completed' },
+    { id: 't-3', type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'completed', actions: [] },
+  ];
+
+  // Canonical/L3 keeps all 6 individual items
+  assert.equal(items.length, 6);
+
+  // L2 projection compresses repeated commentary and groups adjacent tools
+  const l2Rows = buildTimelineRowsV2(items);
+  assert.equal(l2Rows.length, 2, 'must not render multiple identical commentary rows in L2');
+
+  assert.equal(l2Rows[0].row, 'commentary');
+  assert.equal(l2Rows[0].item.text, repeatedNarration);
+  assert.equal(l2Rows[0].repeatCount, 3, 'must accurately track repetition count');
+
+  assert.equal(l2Rows[1].row, 'tool_group');
+  assert.equal(l2Rows[1].title, 'Run command');
+  assert.equal(l2Rows[1].count, 3);
+});
+
+test('15.6 Different Commentary preserved: non-identical narration rows remain distinct with no fuzzy dedupe', () => {
+  const items = [
+    { id: 'c-1', type: 'commentary', text: 'Starting test run...', status: 'completed' },
+    { id: 't-1', type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'completed', actions: [] },
+    { id: 'c-2', type: 'commentary', text: 'Tests still executing, waiting...', status: 'completed' },
+    { id: 't-2', type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'completed', actions: [] },
+    { id: 'c-3', type: 'commentary', text: 'Tests finished with 2 failures.', status: 'completed' },
+  ];
+
+  const l2Rows = buildTimelineRowsV2(items);
+  assert.equal(l2Rows.length, 5, 'all 3 distinct commentaries must remain visible');
+  assert.equal(l2Rows[0].row, 'commentary');
+  assert.equal(l2Rows[1].row, 'tool_group');
+  assert.equal(l2Rows[2].row, 'commentary');
+  assert.equal(l2Rows[3].row, 'tool_group');
+  assert.equal(l2Rows[4].row, 'commentary');
+});
+
+test('15.7 Visible history cap: projectTimelineV2 bounds visible rows and computes accurate hiddenCount', () => {
+  // Build a Turn with 15 distinct projected rows
+  const items = [];
+  for (let i = 1; i <= 15; i++) {
+    items.push({
+      id: `t-${i}`,
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: `Read file ${i}`,
+      subject: `file-${i}.ts`,
+      status: 'completed',
+      actions: [],
+    });
+  }
+
+  const projection = projectTimelineV2(items, { maxRows: 8 });
+  assert.equal(projection.allRows.length, 15);
+  assert.equal(projection.visibleRows.length, 8);
+  assert.equal(projection.hasMore, true);
+  assert.equal(projection.hiddenRowCount, 7);
+  assert.equal(projection.hiddenCount, 7, 'accurately counts 7 hidden canonical items');
+
+  // When under budget, hasMore is false and all rows visible
+  const smallProjection = projectTimelineV2(items.slice(0, 5), { maxRows: 8 });
+  assert.equal(smallProjection.visibleRows.length, 5);
+  assert.equal(smallProjection.hasMore, false);
+  assert.equal(smallProjection.hiddenCount, 0);
+});
+
+test('Antigravity tool normalization: manage_task and provider tools map to semantic public titles', () => {
+  const taskTool = mapAntigravityTool('manage_task', { Action: 'status', TaskId: 'task-123' });
+  assert.equal(taskTool.title, 'Update task');
+  assert.equal(taskTool.toolName, 'manage_task');
+  assert.doesNotMatch(taskTool.title, /manage_task/, 'raw snake_case tool name must not leak into title');
+
+  const subagentTool = mapAntigravityTool('invoke_subagent', {
+    Subagents: [{ Role: 'Codebase Researcher' }],
+    toolSummary: 'Research codebase',
+  });
+  assert.equal(subagentTool.title, 'Invoke subagent');
+  assert.equal(subagentTool.subject, 'Codebase Researcher');
+
+  const msgTool = mapAntigravityTool('send_message', { Recipient: 'agent-1', Message: 'Hello' });
+  assert.equal(msgTool.title, 'Send message');
+
+  const schedTool = mapAntigravityTool('schedule', { DurationSeconds: 300, Prompt: 'Check progress' });
+  assert.equal(schedTool.title, 'Schedule timer');
+});
+
+test('16. Visual acceptance fixture: 70+ canonical items compress into bounded L2 timeline rows with accurate disclosure', () => {
+  const items = [];
+  let seq = 1;
+
+  // 1. Read file group (4 items)
+  for (let i = 1; i <= 4; i++) {
+    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', subject: `spec-${i}.md`, status: 'completed', actions: [] });
+  }
+  // 2. List directory (1 item)
+  items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'list_dir', kind: 'list', title: 'List directory', subject: 'docs', status: 'completed', actions: [] });
+  // 3. Read file group (5 items)
+  for (let i = 1; i <= 5; i++) {
+    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', subject: `guide-${i}.md`, status: 'completed', actions: [] });
+  }
+  // 4. Edit file (1 item)
+  items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'replace_file_content', kind: 'edit', title: 'Edit file', subject: 'timeline.ts', status: 'completed', actions: [] });
+  // 5. Read file group (3 items)
+  for (let i = 1; i <= 3; i++) {
+    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', subject: `ref-${i}.ts`, status: 'completed', actions: [] });
+  }
+  // 6. Run command group (2 items)
+  for (let i = 1; i <= 2; i++) {
+    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', subject: 'npm test', status: 'completed', actions: [] });
+  }
+  // 7. Repeated Commentary (waiting) interleaved with tools (3 repeats)
+  const waitingCommentary = 'I will wait for the test run to complete.';
+  for (let i = 1; i <= 3; i++) {
+    items.push({ id: `item-${seq++}`, type: 'commentary', text: waitingCommentary, status: 'completed' });
+    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'manage_task', kind: 'other', title: 'Update task', subject: 'status', status: 'completed', actions: [] });
+  }
+  // 8. Meaningful distinct Commentary
+  items.push({ id: `item-${seq++}`, type: 'commentary', text: 'Tests completed successfully. Now verifying search results.', status: 'completed' });
+  // 9. Search files group (2 items)
+  for (let i = 1; i <= 2; i++) {
+    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'grep_search', kind: 'search', title: 'Search files', subject: `query-${i}`, status: 'completed', actions: [] });
+  }
+  // 10. Run command group (3 items)
+  for (let i = 1; i <= 3; i++) {
+    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', subject: 'git diff', status: 'completed', actions: [] });
+  }
+  // 11. Reasoning item
+  items.push({ id: `item-${seq++}`, type: 'reasoning', text: 'Verifying that all acceptance criteria are met.', status: 'completed', representation: 'summary' });
+  // 12. Alternating Read/Edit pairs (10 pairs = 20 items)
+  for (let i = 1; i <= 10; i++) {
+    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', subject: `f${i}.ts`, status: 'completed', actions: [] });
+    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'replace_file_content', kind: 'edit', title: 'Edit file', subject: `f${i}.ts`, status: 'completed', actions: [] });
+  }
+  // 13. One failed tool
+  items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', subject: 'npm run lint', status: 'failed', actions: [] });
+  // 14. Remaining read/search items to reach 75 total items
+  for (let i = 1; i <= 25; i++) {
+    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', subject: `verify-${i}.ts`, status: 'completed', actions: [] });
+  }
+
+  assert.ok(items.length >= 70, `must have at least 70 items (actual: ${items.length})`);
+
+  // Canonical / Level 3 retains every single item
+  assert.equal(items.length, 75);
+
+  // Stage A projection: groups adjacent happy-path tools and dedupes repeated commentary
+  const allL2Rows = buildTimelineRowsV2(items);
+  // Stage B projection: caps visible L2 history to default budget (8 rows)
+  const projection = projectTimelineV2(items, { maxRows: 8 });
+
+  assert.equal(projection.visibleRows.length, 8, 'must render exactly 8 rows in Level 2');
+  assert.equal(projection.hasMore, true);
+  assert.ok(projection.hiddenCount > 40, `must accurately report >40 hidden items (actual: ${projection.hiddenCount})`);
+  assert.equal(projection.hiddenCount + projection.visibleRows.reduce((sum, r) => sum + (r.row === 'tool_group' ? r.count : (r.row === 'commentary' ? (r.repeatCount || 1) : 1)), 0), items.length, 'hiddenCount + visible items must exactly equal total canonical items');
 });
 

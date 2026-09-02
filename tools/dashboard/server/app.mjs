@@ -111,7 +111,8 @@ function registerSharedOperationRuntime(app) {
  * instance directly via `app.inject()` without opening a network port.
  */
 export async function buildDashboardApp({ config = {} } = {}) {
-  const app = Fastify({ logger: false, bodyLimit: 4096, exposeHeadRoutes: false });
+  const tlsOptions = config.tls ? { http2: true, https: config.tls } : {};
+  const app = Fastify({ logger: false, bodyLimit: 4096, exposeHeadRoutes: false, ...tlsOptions });
 
   await registerGlobalHttpInfrastructure(app);
   registerSharedOperationRuntime(app);

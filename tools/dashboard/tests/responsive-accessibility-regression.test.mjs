@@ -206,9 +206,10 @@ test('V2 AC8: Level 2 never inlines full input/output/command — that stays exc
 
 test('V2 AC8: expand/collapse and Work Details triggers expose aria-expanded / are native buttons for keyboard/touch accessibility', () => {
   const indicatorSource = readV2Source('work-indicator-v2.tsx');
-  const panelSource = readV2Source('turn-work-panel-v2.tsx');
+  const timelineSource = readV2Source('work-timeline-v2.tsx');
   assert.match(indicatorSource, /aria-expanded=\{expanded\}/);
-  assert.match(panelSource, /type="button"/, 'the Work Details trigger must be a native, keyboard/touch-accessible button');
+  assert.match(indicatorSource, /type="button"/, 'the Work indicator must be a native, keyboard/touch-accessible button');
+  assert.match(timelineSource, /type="button"/, 'Level 2 timeline row triggers must be native, keyboard/touch-accessible buttons');
 });
 
 test('AC13: Regression checks for all NFR-7 critical paths', () => {

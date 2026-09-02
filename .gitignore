@@ -282,6 +282,10 @@ node_modules/
 tools/dashboard/dist/
 tools/dashboard/*.tsbuildinfo
 
+# Dashboard TLS certificates (generated locally with mkcert, never commit private keys)
+tools/dashboard/config/tls-cert.pem
+tools/dashboard/config/tls-key.pem
+
 # Local AI provider discovery and session registry evidence
 .nevo-ai-local/
 

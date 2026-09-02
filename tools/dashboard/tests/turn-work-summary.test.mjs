@@ -322,30 +322,24 @@ function turnWorkPanelV2Source() {
   return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/turn-work-panel-v2.tsx', import.meta.url)), 'utf8');
 }
 
-test('V2 correction: the Work header row (not a competing label) is the primary expand/collapse target', () => {
+test('V2 correction: the Work header row is the single full-width expand/collapse target in Level 1', () => {
   const source = turnWorkPanelV2Source();
 
   // WorkIndicatorV2 (the header, including its own chevron) receives the toggle handler
-  // and is wrapped flex-1 — it is the dominant, primary-width element of the row.
+  // and is the clean full-width header for Level 1, with no competing/interfering tiny buttons.
   assert.match(source, /<WorkIndicatorV2 turn=\{turn\} expanded=\{expanded\} onToggle=\{toggleExpanded\}/);
-  assert.match(source, /<div className="min-w-0 flex-1">\s*<WorkIndicatorV2/);
 });
 
-test('V2 correction: the Details action is a small icon-only secondary control that never toggles Level 2', () => {
+test('V2 correction: Level 3 Work Details is accessed directly from Level 2 item selection and footer action', () => {
   const source = turnWorkPanelV2Source();
 
-  // Details is icon-only (no competing text label like "Szczegóły" as visible copy),
-  // with an accessible name via aria-label/title instead.
-  assert.doesNotMatch(source, />\s*Szczegóły\s*</, 'Details must not render a visible text label that competes with the Work header');
-  assert.match(source, /aria-label="Work details"/);
-  assert.match(source, /<ListTree className="size-3\.5"/);
-
-  // Details is a separate sibling button with its own onClick (openDetailsOverview) —
-  // it never shares the toggle handler, so clicking it cannot also collapse/expand.
+  // Level 3 inspection is wired cleanly from Level 2 timeline:
+  // - onSelectItem opens the specific item in Details (openDetailsForItem)
+  // - onOpenDetails opens the full overview in Details (openDetailsOverview)
+  // - Level 1 contains no competing redundant button that interferes with expanding Level 2
+  assert.match(source, /onSelectItem=\{openDetailsForItem\}/);
   assert.match(source, /onClick=\{openDetailsOverview\}/);
-  const detailsButtonMatch = source.match(/<button[\s\S]*?onClick=\{openDetailsOverview\}[\s\S]*?<\/button>/);
-  assert.ok(detailsButtonMatch, 'Details must be its own <button>');
-  assert.doesNotMatch(detailsButtonMatch[0], /toggleExpanded/, 'Details button must not also call the expand/collapse toggle');
+  assert.match(source, /<Search className="size-3"/);
 });
 
 test('V2 correction: selecting a row in Level 2 opens Work Details without toggling Level 2 collapse state', () => {

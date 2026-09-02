@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, ArrowLeft, Ban, Brain, Check, ChevronRight, Clock, Code2, LoaderCircle, MessageSquareText } from 'lucide-react';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { AlertTriangle, ArrowLeft, Ban, Brain, Check, ChevronRight, Clock, Code2, LoaderCircle, MessageSquareText, X } from 'lucide-react';
+import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { MarkdownContent } from '@/shared/markdown/markdown-content';
 import { TOOL_KIND_ICONS_V2 } from './tool-kind-icons-v2';
 import { previewPlainText } from './text-preview-v2';
@@ -47,7 +47,7 @@ function resolveToolSubject(item: ToolInvocationWorkItemV2): string | null {
 }
 
 /** Full technical inspection of one ToolInvocation — every field the canonical model exposes. */
-function ToolDetail({ item, onBack }: { item: ToolInvocationWorkItemV2; onBack: () => void }) {
+function ToolDetail({ item }: { item: ToolInvocationWorkItemV2 }) {
   const Icon = TOOL_KIND_ICONS_V2[item.kind];
   const started = formatAbsolute(item.startedAt);
   const completed = formatAbsolute(item.completedAt);
@@ -55,10 +55,6 @@ function ToolDetail({ item, onBack }: { item: ToolInvocationWorkItemV2; onBack: 
 
   return (
     <div className="space-y-3 text-xs">
-      <button type="button" onClick={onBack} className="flex items-center gap-1 text-[var(--accent)] hover:underline">
-        <ArrowLeft className="size-3.5" /> Wszystkie działania
-      </button>
-
       <div className="flex items-center gap-2">
         <Icon className="size-4 shrink-0 text-[var(--accent)]" />
         <span className="font-semibold text-[var(--foreground)]">{item.title}</span>
@@ -150,13 +146,10 @@ function ToolDetail({ item, onBack }: { item: ToolInvocationWorkItemV2; onBack: 
  * Level 2's single-line plain-text preview (text-preview-v2.ts). This is the only
  * surface allowed to render full Markdown for these items (headings, code, lists).
  */
-function TextDetail({ item, onBack }: { item: CommentaryWorkItemV2 | ReasoningWorkItemV2; onBack: () => void }) {
+function TextDetail({ item }: { item: CommentaryWorkItemV2 | ReasoningWorkItemV2 }) {
   const isReasoning = item.type === 'reasoning';
   return (
     <div className="space-y-3 text-xs">
-      <button type="button" onClick={onBack} className="flex items-center gap-1 text-[var(--accent)] hover:underline">
-        <ArrowLeft className="size-3.5" /> Wszystkie działania
-      </button>
       <div className="flex items-center gap-2">
         {isReasoning ? <Brain className="size-4 shrink-0 text-[var(--accent)]" /> : <MessageSquareText className="size-4 shrink-0 text-[var(--accent)]" />}
         <span className="font-semibold text-[var(--foreground)]">{isReasoning ? 'Thinking' : 'Commentary'}</span>
@@ -174,13 +167,13 @@ function WorkList({ work, onSelect }: { work: WorkItemV2[]; onSelect: (item: Wor
     <div className="relative w-full min-w-0 max-w-full pl-1">
       {/* Central vertical rail aligned through the marker column */}
       <div
-        className="absolute bottom-2 left-[11px] top-2 w-px bg-[var(--border)]"
+        className="absolute bottom-3 left-[18px] top-3 w-px -translate-x-1/2 bg-[var(--border)]"
         aria-hidden="true"
       />
       <ol className="relative flex flex-col gap-0.5 text-xs">
         {work.map((item) => {
           if (item.type === 'tool') {
-            const Icon = TOOL_KIND_ICONS_V2[item.kind];
+            const Icon = TOOL_KIND_ICONS_V2[item.kind] || TOOL_KIND_ICONS_V2.other;
             const duration = formatDuration(item.durationMs);
             const subject = resolveToolSubject(item);
             return (
@@ -191,7 +184,7 @@ function WorkList({ work, onSelect }: { work: WorkItemV2[]; onSelect: (item: Wor
                   className="group flex w-full gap-2 rounded px-1.5 py-1 text-left transition-colors hover:bg-white/4"
                 >
                   <div className="relative flex size-4 shrink-0 items-center justify-center">
-                    <span className="relative z-10 flex items-center justify-center bg-[var(--card,var(--background))]">
+                    <span className="relative z-10 flex items-center justify-center bg-transparent">
                       <Icon className="size-3.5 text-[var(--muted)] group-hover:text-[var(--foreground-muted)]" />
                     </span>
                   </div>
@@ -202,8 +195,8 @@ function WorkList({ work, onSelect }: { work: WorkItemV2[]; onSelect: (item: Wor
                         {item.status === 'completed' ? (
                           <Check className="size-3 text-[var(--muted-strong)]" aria-label="Zakończono pomyślnie" />
                         ) : item.status === 'failed' ? (
-                          <span className="flex items-center gap-1 text-[10px] font-medium text-[var(--warning)]">
-                            <AlertTriangle className="size-3" />
+                          <span className="flex items-center gap-1 text-[10px] font-medium text-[var(--danger)]">
+                            <AlertTriangle className="size-3 text-[var(--danger)]" />
                             Błąd
                           </span>
                         ) : item.status === 'cancelled' || item.status === 'interrupted' ? (
@@ -244,9 +237,9 @@ function WorkList({ work, onSelect }: { work: WorkItemV2[]; onSelect: (item: Wor
                 >
                   <div className="relative flex size-4 shrink-0 items-center justify-center">
                     {isReasoning ? (
-                      <span className="relative z-10 size-1.5 rounded-full border border-[var(--muted-strong)] bg-[var(--card,var(--background))] ring-2 ring-[var(--card,var(--background))]" />
+                      <span className="relative z-10 size-1.5 rounded-full border border-[var(--muted-strong)] bg-transparent" />
                     ) : (
-                      <span className="relative z-10 size-1.5 rounded-full bg-[var(--muted)] ring-2 ring-[var(--card,var(--background))]" />
+                      <span className="relative z-10 size-1.5 rounded-full bg-[var(--muted)]" />
                     )}
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -271,7 +264,7 @@ function WorkList({ work, onSelect }: { work: WorkItemV2[]; onSelect: (item: Wor
             <li key={item.id}>
               <div className="flex w-full gap-2 px-1.5 py-1 text-xs text-[var(--muted)]">
                 <div className="relative flex size-4 shrink-0 items-center justify-center">
-                  <span className="relative z-10 size-1.5 rounded-full bg-[var(--muted)] ring-2 ring-[var(--card,var(--background))]" />
+                  <span className="relative z-10 size-1.5 rounded-full bg-[var(--muted)]" />
                 </div>
                 <span>{item.interaction.kind} · {item.status}</span>
               </div>
@@ -316,18 +309,65 @@ export function WorkDetailsSheetV2({ turn, open, onOpenChange, initialItemId = n
         else setSelectedItemId(initialItemId);
       }}
     >
-      <SheetContent side="right" className={cn('flex flex-col gap-4 overflow-y-auto')}>
-        <SheetHeader>
-          <SheetTitle>Work Details</SheetTitle>
-          {turn && <p className="text-xs text-[var(--muted)]">{turn.provider}</p>}
-        </SheetHeader>
-        {!turn ? null : selectedItem?.type === 'tool' ? (
-          <ToolDetail item={selectedItem} onBack={() => setSelectedItemId(null)} />
-        ) : selectedItem?.type === 'commentary' || selectedItem?.type === 'reasoning' ? (
-          <TextDetail item={selectedItem} onBack={() => setSelectedItemId(null)} />
-        ) : (
-          <WorkList work={turn.work} onSelect={(item) => setSelectedItemId(item.id)} />
-        )}
+      <SheetContent side="right" hideClose className={cn('flex flex-col p-0 gap-0 overflow-hidden')}>
+        {/* Pinned header with 0 gap to top */}
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 pt-[max(1.25rem,env(safe-area-inset-top))] pb-3.5 sm:px-6 sm:pt-6">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            {selectedItem && (
+              <button
+                type="button"
+                onClick={() => setSelectedItemId(null)}
+                className="shrink-0 rounded-lg p-1.5 text-[var(--muted)] opacity-70 transition-opacity hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                aria-label="Wróć do listy"
+                title="Wróć do listy"
+              >
+                <ArrowLeft className="size-4" />
+              </button>
+            )}
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate text-sm font-semibold text-[var(--foreground)]">
+                {selectedItem
+                  ? selectedItem.type === 'tool'
+                    ? selectedItem.title
+                    : selectedItem.type === 'reasoning'
+                      ? 'Thinking'
+                      : selectedItem.type === 'commentary'
+                        ? 'Commentary'
+                        : 'Interaction'
+                  : 'Work Details'}
+              </h2>
+              {turn && (
+                <p className="truncate text-xs text-[var(--muted)]">
+                  {selectedItem
+                    ? selectedItem.type === 'tool'
+                      ? selectedItem.toolName
+                      : selectedItem.type === 'reasoning'
+                        ? 'Thinking'
+                        : 'Commentary'
+                    : turn.provider}
+                </p>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            className="shrink-0 rounded-lg p-1.5 text-[var(--muted)] opacity-70 transition-opacity hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+            aria-label="Zamknij"
+            title="Zamknij"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4 sm:px-6 sm:py-5">
+          {!turn ? null : selectedItem?.type === 'tool' ? (
+            <ToolDetail item={selectedItem} />
+          ) : selectedItem?.type === 'commentary' || selectedItem?.type === 'reasoning' ? (
+            <TextDetail item={selectedItem} />
+          ) : (
+            <WorkList work={turn.work} onSelect={(item) => setSelectedItemId(item.id)} />
+          )}
+        </div>
       </SheetContent>
     </Sheet>
   );

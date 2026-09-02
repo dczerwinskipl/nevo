@@ -252,12 +252,78 @@ function mapAntigravityToolRaw(toolName, parameters = {}) {
         subject: params.query || undefined,
         description: params.query || undefined,
       };
+    case 'manage_task':
+      return {
+        toolName: 'manage_task',
+        kind: 'other',
+        title: 'Update task',
+        subject: params.Action || undefined,
+        description: params.TaskId ? `${params.Action || 'task'}: ${params.TaskId}` : params.Action || undefined,
+      };
+    case 'invoke_subagent':
+      return {
+        toolName: 'invoke_subagent',
+        kind: 'other',
+        title: 'Invoke subagent',
+        subject: Array.isArray(params.Subagents) && params.Subagents.length > 0
+          ? params.Subagents.map((s) => s.Role || s.TypeName).filter(Boolean).join(', ')
+          : undefined,
+        description: params.toolSummary || undefined,
+      };
+    case 'define_subagent':
+      return {
+        toolName: 'define_subagent',
+        kind: 'other',
+        title: 'Define subagent',
+        subject: params.name || undefined,
+        description: params.description || undefined,
+      };
+    case 'manage_subagents':
+      return {
+        toolName: 'manage_subagents',
+        kind: 'other',
+        title: 'Manage subagents',
+        subject: params.Action || undefined,
+        description: params.Action || undefined,
+      };
+    case 'send_message':
+      return {
+        toolName: 'send_message',
+        kind: 'other',
+        title: 'Send message',
+        subject: params.Recipient || undefined,
+        description: params.Message ? (params.Message.length <= 80 ? params.Message : `${params.Message.slice(0, 79)}…`) : undefined,
+      };
+    case 'schedule':
+      return {
+        toolName: 'schedule',
+        kind: 'other',
+        title: 'Schedule timer',
+        subject: params.Prompt || undefined,
+        description: params.DurationSeconds ? `${params.DurationSeconds}s` : params.CronExpression || undefined,
+      };
+    case 'ask_question':
+      return {
+        toolName: 'ask_question',
+        kind: 'other',
+        title: 'Ask question',
+        subject: params.toolSummary || undefined,
+        description: undefined,
+      };
+    case 'generate_image':
+      return {
+        toolName: 'generate_image',
+        kind: 'other',
+        title: 'Generate image',
+        subject: params.ImageName || params.Prompt || undefined,
+        description: params.Prompt || undefined,
+      };
     default:
       return {
         toolName: name,
         kind: 'other',
-        title: name,
-        subject: undefined,
+        title: (typeof params.toolAction === 'string' && params.toolAction.trim()) ? params.toolAction.trim() : name,
+        subject: typeof params.toolSummary === 'string' ? params.toolSummary.trim() : undefined,
         description: undefined,
       };
   }
