@@ -12,6 +12,7 @@ context:
 allowed_paths:
   - tools/dashboard/ui/features/agent-sessions/work-v2/__fixtures__/**
   - tools/dashboard/ui/features/agent-sessions/**/*.fixtures.ts
+  - tools/dashboard/tests/chat-fixture-model.test.tsx
 forbidden_paths:
   - tools/dashboard/ui/features/agent-sessions/types.ts
   - tools/dashboard/server/**
