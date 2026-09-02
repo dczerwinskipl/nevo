@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-02T16:04:39.546Z",
+  "generated": "2026-09-02T16:04:45.745Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -580,7 +580,7 @@
           "id": "storybook-documentation",
           "order": 10,
           "file": "tasks/10-storybook-documentation.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "chat-fixture-model",
             "foundation-stories",

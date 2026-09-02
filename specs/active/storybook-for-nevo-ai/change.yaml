@@ -74,7 +74,7 @@ tasks:
   - id: storybook-documentation
     order: 10
     file: tasks/10-storybook-documentation.md
-    status: draft
+    status: approved
     depends_on:
       - chat-fixture-model
       - foundation-stories
