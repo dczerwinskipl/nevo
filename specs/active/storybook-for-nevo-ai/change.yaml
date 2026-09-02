@@ -213,3 +213,8 @@ tasks:
       - chat-stories-active-states
 
 spec_id: cb8e318a-8f67-49f7-b9ed-09282c5d7bfe
+pull_requests:
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 42
