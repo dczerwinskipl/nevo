@@ -305,12 +305,22 @@ export const LONG_COMMENTARY_TEXT =
   'Investigating the performance metrics across all 14 active font-size scales, 8 line-height configurations, and 5 font weights. The inspection indicates that system fallbacks are functioning appropriately under headless Chromium environments, with no layout shifts detected between initial paint and hydration. Continuing to monitor streaming events for subsequent verification batches.';
 
 export function buildLongCommandTool(options?: ToolOverrideOptions): ToolInvocationWorkItemV2 {
+  const status = options?.status ?? 'completed';
+  const customOutput =
+    options?.output !== undefined
+      ? options.output
+      : status === 'completed'
+        ? `Executed command successfully:\n${LONG_COMMAND_STRING}\nOutput produced 42 artifacts.`
+        : status === 'failed'
+          ? `Command failed with error:\n${LONG_COMMAND_STRING}\nExit code 1.`
+          : undefined;
+
   return buildCommandTool({
     subject: 'very-deeply-nested-subsystem-build-process',
     description: LONG_COMMAND_STRING,
     input: { CommandLine: LONG_COMMAND_STRING, Cwd: 'D:/repos/git/nevo' },
-    output: `Executed command successfully:\n${LONG_COMMAND_STRING}\nOutput produced 42 artifacts.`,
     ...options,
+    output: customOutput,
   });
 }
 
@@ -393,12 +403,30 @@ export function buildCanonicalTurn(options?: Partial<CanonicalTurnV2>): Canonica
 
 /** Scenario: Empty turn waiting for user or initialization. */
 export function buildEmptyWaitingTurn(options?: Partial<CanonicalTurnV2>): CanonicalTurnV2 {
+  const status: TurnStatusV2 = options?.status ?? {
+    status: 'waiting',
+    reason: 'provider_response',
+    since: BASE_TIMESTAMP,
+    source: 'turn.started',
+  };
+  const startedAt = 'since' in status && status.since ? status.since : BASE_TIMESTAMP;
+
+  const currentActivity: CurrentActivityV2 | null =
+    options?.currentActivity !== undefined
+      ? options.currentActivity
+      : {
+          kind: 'waiting_for_model',
+          title: 'Waiting for model response',
+          status: 'running',
+          startedAt,
+        };
+
   return buildCanonicalTurn({
-    status: { status: 'waiting', reason: 'provider_response', since: BASE_TIMESTAMP, source: 'turn.started' },
+    status,
     work: [],
     historicalWork: [],
     activityCount: 0,
-    currentActivity: null,
+    currentActivity,
     finalAnswer: null,
     terminalOutcome: undefined,
     ...options,
@@ -407,12 +435,13 @@ export function buildEmptyWaitingTurn(options?: Partial<CanonicalTurnV2>): Canon
 
 /** Scenario: Turn actively executing a tool with currentActivity. */
 export function buildActiveRunningTurn(options?: Partial<CanonicalTurnV2>): CanonicalTurnV2 {
-  const activeTool = buildCommandTool({ status: 'active' });
+  const suppliedTool = (options?.work?.find(
+    (w): w is ToolInvocationWorkItemV2 => 'type' in w && w.type === 'tool'
+  ) ?? options?.work?.[0]) as ToolInvocationWorkItemV2 | undefined;
+
+  const activeTool = suppliedTool ?? buildCommandTool({ status: 'active' });
   const work = options?.work ?? [activeTool];
-  const activeId =
-    options?.currentActivity?.subjectId ??
-    (work.find((w) => 'status' in w && (w.status === 'active' || w.status === 'streaming'))?.id ??
-      activeTool.id);
+  const activeId = options?.currentActivity?.subjectId ?? activeTool.id;
 
   const currentActivity: CurrentActivityV2 = options?.currentActivity ?? {
     kind: 'tool',
@@ -424,7 +453,7 @@ export function buildActiveRunningTurn(options?: Partial<CanonicalTurnV2>): Cano
     toolName: activeTool.toolName,
     status: 'active',
     activeCount: 1,
-    startedAt: BASE_TIMESTAMP,
+    startedAt: activeTool.startedAt ?? BASE_TIMESTAMP,
   };
 
   const historicalWork =
@@ -434,7 +463,13 @@ export function buildActiveRunningTurn(options?: Partial<CanonicalTurnV2>): Cano
   const activityCount = options?.activityCount ?? work.length;
 
   return buildCanonicalTurn({
-    status: { status: 'active', detail: 'tool_execution', since: BASE_TIMESTAMP, source: 'tool.started' },
+    status: {
+      status: 'active',
+      detail: 'tool_execution',
+      subjectId: activeId,
+      since: activeTool.startedAt ?? BASE_TIMESTAMP,
+      source: 'tool.started',
+    },
     finalAnswer: null,
     terminalOutcome: undefined,
     ...options,
@@ -457,16 +492,19 @@ export function buildActiveThinkingTurn(
     });
 
   const isReasoning = activeItem.type === 'reasoning';
-  const detail = isReasoning ? 'reasoning' : 'commentary';
+  const detail: 'reasoning' | 'commentary' = isReasoning ? 'reasoning' : 'commentary';
   const currentActivityKind = isReasoning ? 'thinking' : 'commentary';
+  const title = isReasoning ? 'Thinking' : 'Generating response';
+
+  const itemStartedAt: string = activeItem.createdAt;
 
   const currentActivity: CurrentActivityV2 = {
     kind: currentActivityKind,
     subjectId: activeItem.id,
-    title: isReasoning ? 'Thinking' : 'Commentary',
+    title,
     text: activeItem.text,
     status: 'streaming',
-    startedAt: activeItem.createdAt,
+    startedAt: itemStartedAt,
   };
 
   const work = options?.work ?? [activeItem];
@@ -478,14 +516,16 @@ export function buildActiveThinkingTurn(
 
   const { item: _item, ...turnOptions } = options ?? {};
 
+  const status: TurnStatusV2 = {
+    status: 'active',
+    detail,
+    subjectId: activeItem.id,
+    since: itemStartedAt,
+    source: `${activeItem.type}.started`,
+  };
+
   return buildCanonicalTurn({
-    status: {
-      status: 'active',
-      detail,
-      subjectId: activeItem.id,
-      since: activeItem.createdAt,
-      source: `${activeItem.type}.started`,
-    },
+    status,
     finalAnswer: null,
     terminalOutcome: undefined,
     ...turnOptions,

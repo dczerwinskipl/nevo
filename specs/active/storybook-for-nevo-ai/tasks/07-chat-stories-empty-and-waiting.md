@@ -10,7 +10,9 @@ context:
   optional:
     - docs/development/nevo-ai-ux-guidelines.md
 allowed_paths:
-  - tools/dashboard/ui/features/agent-sessions/**/*.stories.tsx
+  - tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx
+  - tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx
+  - tools/dashboard/tests/composer-interaction.test.mjs
 forbidden_paths:
   - tools/dashboard/ui/features/agent-sessions/types.ts
   - tools/dashboard/server/**

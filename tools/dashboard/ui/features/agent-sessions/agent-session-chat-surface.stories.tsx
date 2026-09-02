@@ -46,7 +46,6 @@ export const EmptyChat: Story = {
     canCancel: false,
     isProviderAvailable: true,
     disabled: false,
-    placeholder: 'Zapytaj agenta o cokolwiek lub wpisz polecenie…',
     currentMode: 'edit',
   },
   play: async ({ canvasElement }) => {
@@ -58,9 +57,10 @@ export const EmptyChat: Story = {
     const userBubbles = canvasElement.querySelectorAll('.rounded-2xl.bg-\\[var\\(--surface-raised\\)\\]');
     expect(userBubbles.length).toBe(0);
 
-    // 3. Verify composer textarea is present and enabled
+    // 3. Verify composer textarea is present, enabled, and renders the production default placeholder
     const textarea = canvasElement.querySelector('textarea');
     expect(textarea).not.toBeNull();
+    expect(textarea?.placeholder).toBe('Napisz wiadomość…');
     expect(textarea?.disabled).toBe(false);
 
     // 4. Verify send button is present
@@ -108,17 +108,26 @@ export const WaitingForFirstActivity: Story = {
     // 1. Verify user message is rendered with exact submitted text
     expect(canvasElement.textContent).toContain('Please review the test suite and verify storybook infrastructure.');
 
-    // 2. Verify Turn Work indicator shows in progress state with 0 actions
+    // 2. Verify Turn Work indicator shows waiting for model response and does NOT show Thinking
+    expect(canvasElement.textContent).toContain('Waiting for model response');
+    expect(canvasElement.textContent).not.toContain('Thinking');
+
+    // 3. Verify Turn Work indicator shows in progress state with 0 actions
     expect(canvasElement.textContent).toContain('Work · 0 actions');
     expect(canvasElement.textContent).toContain('In progress');
 
-    // 3. Verify no commentary, tools, or final answer exist
+    // 4. Verify no commentary, tools, or final answer exist
     expect(canvasElement.textContent).not.toContain('PASS (809 tests)');
     expect(canvasElement.textContent).not.toContain('I have reviewed the test suite');
 
-    // 4. Verify cancel button is accessible while turn is running
+    // 5. Verify cancel button is accessible while turn is running
     const cancelButton = canvasElement.querySelector('button[aria-label="Przerwij generowanie"]');
     expect(cancelButton).not.toBeNull();
+
+    // 6. Verify composer textarea reflects active turn rather than claiming read-only
+    const textarea = canvasElement.querySelector('textarea');
+    expect(textarea?.placeholder).toBe('Turn trwa…');
+    expect(textarea?.disabled).toBe(true);
   },
 };
 

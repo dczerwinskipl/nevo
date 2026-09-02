@@ -232,6 +232,20 @@ describe('Chat Fixture Model (Task 06)', () => {
       expect(LONG_COMMAND_STRING.length).toBeGreaterThan(200);
       expect(tool.description).toBe(LONG_COMMAND_STRING);
       expect(tool.description!.length).toBeGreaterThan(200);
+      expect(String(tool.output)).toContain('Executed command successfully');
+    });
+
+    it('buildLongCommandTool does not retain successful output when active or failed', () => {
+      const activeTool = buildLongCommandTool({ status: 'active' });
+      expect(activeTool.status).toBe('active');
+      expect(activeTool.output).toBeUndefined();
+      expect(activeTool.completedAt).toBeUndefined();
+
+      const failedTool = buildLongCommandTool({ status: 'failed' });
+      expect(failedTool.status).toBe('failed');
+      expect(failedTool.output).toBeDefined();
+      expect(String(failedTool.output)).toContain('Command failed with error');
+      expect(String(failedTool.output)).not.toContain('Executed command successfully');
     });
 
     it('buildLongPathTool produces long path string (>100 chars)', () => {
@@ -282,7 +296,7 @@ describe('Chat Fixture Model (Task 06)', () => {
       expect(turn.terminalOutcome).toBeUndefined();
     });
 
-    it('buildActiveCommentaryTurn creates active commentary turn with canonical evidence', () => {
+    it('buildActiveCommentaryTurn creates active commentary turn with Generating response title', () => {
       const turn = buildActiveCommentaryTurn();
 
       expect(turn.status.status).toBe('active');
@@ -295,7 +309,7 @@ describe('Chat Fixture Model (Task 06)', () => {
       expect(turn.historicalWork.length).toBe(0);
 
       expect(turn.currentActivity?.kind).toBe('commentary');
-      expect(turn.currentActivity?.title).toBe('Commentary');
+      expect(turn.currentActivity?.title).toBe('Generating response');
       expect(turn.currentActivity?.status).toBe('streaming');
 
       expect(turn.finalAnswer).toBeNull();
@@ -332,14 +346,26 @@ describe('Chat Fixture Model (Task 06)', () => {
   });
 
   describe('Canonical turn scenarios', () => {
-    it('buildEmptyWaitingTurn produces a waiting turn with no work', () => {
+    it('buildEmptyWaitingTurn produces a waiting turn matching canonical server projection', () => {
       const turn = buildEmptyWaitingTurn();
       expect(turn.status.status).toBe('waiting');
+      if (turn.status.status === 'waiting') {
+        expect(turn.status.reason).toBe('provider_response');
+        expect(turn.status.since).toBeDefined();
+      }
       expect(turn.work.length).toBe(0);
+      expect(turn.historicalWork.length).toBe(0);
       expect(turn.activityCount).toBe(0);
-      expect(turn.currentActivity).toBeNull();
       expect(turn.finalAnswer).toBeNull();
       expect(turn.terminalOutcome).toBeUndefined();
+
+      // CurrentActivity must be waiting_for_model, title 'Waiting for model response', not 'Thinking'
+      expect(turn.currentActivity).not.toBeNull();
+      expect(turn.currentActivity?.kind).toBe('waiting_for_model');
+      expect(turn.currentActivity?.title).toBe('Waiting for model response');
+      expect(turn.currentActivity?.title).not.toBe('Thinking');
+      expect(turn.currentActivity?.status).toBe('running');
+      expect(turn.currentActivity?.startedAt).toBeDefined();
     });
 
     it('buildActiveRunningTurn produces an active turn with currentActivity', () => {
@@ -351,6 +377,27 @@ describe('Chat Fixture Model (Task 06)', () => {
       expect(turn.currentActivity?.status).toBe('active');
       expect(turn.historicalWork.length).toBe(0);
       expect(turn.terminalOutcome).toBeUndefined();
+    });
+
+    it('buildActiveRunningTurn derives all activity fields from supplied active tool without command/read mismatch', () => {
+      const activeReadTool = buildFileReadTool({ status: 'active' });
+      const turn = buildActiveRunningTurn({ work: [activeReadTool] });
+
+      expect(turn.currentActivity).not.toBeNull();
+      expect(turn.currentActivity?.kind).toBe('tool');
+      expect(turn.currentActivity?.toolKind).toBe('read');
+      expect(turn.currentActivity?.toolName).toBe('view_file');
+      expect(turn.currentActivity?.title).toBe('Read file');
+      expect(turn.currentActivity?.subject).toBe('index.css');
+      expect(turn.currentActivity?.description).toBe('tools/dashboard/ui/index.css');
+      expect(turn.currentActivity?.subjectId).toBe(activeReadTool.id);
+      expect(turn.currentActivity?.startedAt).toBe(activeReadTool.startedAt);
+
+      expect(turn.status.status).toBe('active');
+      if (turn.status.status === 'active') {
+        expect(turn.status.subjectId).toBe(activeReadTool.id);
+        expect(turn.status.since).toBe(activeReadTool.startedAt);
+      }
     });
 
     it('buildFailedTurn produces a terminal failed turn with error details', () => {
