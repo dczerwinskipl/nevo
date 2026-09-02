@@ -147,10 +147,24 @@ tasks:
   - id: chat-fixture-model
     order: 6
     file: tasks/06-chat-fixture-model.md
-    status: approved
+    status: implemented
     depends_on:
       - chat-surface-extraction
       - component-testing-infrastructure
+    implementation:
+      baseline_revision: 05d6541b204c1d8fb0e0c246aea32e47425d3344
+      review_revision: b325237011ca61f56640e6361a4d111522b8daf4
+      changed_paths:
+        - tools/dashboard/tests/chat-fixture-model.test.tsx
+        - tools/dashboard/ui/features/agent-sessions/work-v2/__fixtures__/chat-fixtures.ts
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 87f825ed5fd169aa4d3890aecde4b9aca709263261dc10b1fd12d275e0d5b5e9
+      revision: b325237011ca61f56640e6361a4d111522b8daf4
+      commands:
+        - command: npm --prefix tools/dashboard run test:storybook
+          exit_code: 0
+      status: passed
 
   - id: chat-stories-empty-and-waiting
     order: 7
