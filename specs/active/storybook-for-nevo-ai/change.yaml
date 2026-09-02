@@ -193,7 +193,7 @@ tasks:
   - id: chat-stories-conversation-and-work
     order: 8
     file: tasks/08-chat-stories-conversation-and-work.md
-    status: implemented
+    status: verified
     depends_on:
       - chat-fixture-model
     implementation:
