@@ -15,6 +15,7 @@ allowed_paths:
   - docs/development/react-component-guidelines.md
   - docs/index.generated.json
   - docs/index.generated.md
+  - docs/routing.generated.json
 forbidden_paths:
   - tools/dashboard/ui/**
   - tools/dashboard/server/**

@@ -371,7 +371,7 @@ Do not treat responsive layouts as a CSS afterthought. Test narrow widths, colla
 Test logic at the responsibility level where it lives:
 
 1. **Projection / View-model logic:** Pure unit tests for data transformations, event filtering, sorting, status derivation, and grouping (kept feature-local beside the projection where practical).
-2. **Visual components:** Observable behavior tests (visible content, accessibility attributes, callback invocation, expand/collapse, disabled states) using React Testing Library.
+2. **Visual components:** Observable behavior tests (visible content, accessibility attributes, callback invocation, expand/collapse, disabled states) using React Testing Library and Vitest in `tools/dashboard` (configured via `.storybook/vitest.setup.ts`, run via `npm --prefix tools/dashboard run test:storybook`, with stories and tests documented in [storybook.md](storybook.md)).
 3. **Smart / Orchestration components:** Integration tests for query/mutation contracts, error handling, and parameter routing.
 
 Avoid relying exclusively on broad, brittle snapshot tests.

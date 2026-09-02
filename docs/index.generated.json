@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-02T16:30:21.944Z",
+  "generated": "2026-09-02T22:09:18.257Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -687,6 +687,25 @@
         "development.coding-conventions",
         "development.architecture-overview",
         "development.node-tooling-guidelines"
+      ]
+    },
+    {
+      "file": "docs/development/storybook.md",
+      "id": "development.storybook",
+      "type": "development",
+      "title": "Storybook guidelines and workflows",
+      "status": "current",
+      "read_when": [
+        "creating, editing, or inspecting Storybook stories",
+        "verifying UI components visually or running component tests",
+        "working with deterministic UI fixtures or chat surface stories",
+        "changing typography, design tokens, or frontend styling foundations"
+      ],
+      "summary": "Guide to Storybook for the NEvo dashboard: running locally, static builds, story hierarchy and naming conventions, fixture and scenario reuse, state management patterns, Vitest component tests, and the mandatory agent visual verification workflow.",
+      "related": [
+        "development.react-component-guidelines",
+        "development.ui-ux-guidelines",
+        "development.nevo-ai-ux-guidelines"
       ]
     },
     {

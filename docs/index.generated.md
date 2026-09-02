@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-09-02T16:30:21.944Z_
+_Generated: 2026-09-02T22:09:18.257Z_
 
 ## Hub
 
@@ -81,6 +81,7 @@ _Generated: 2026-09-02T16:30:21.944Z_
 | `development.processing-model` | [Processing model](development/processing-model.md) | current |  |
 | `development.pull-requests` | [Pull requests](development/pull-requests.md) | current |  |
 | `development.react-component-guidelines` | [React component and module guidelines](development/react-component-guidelines.md) | current |  |
+| `development.storybook` | [Storybook guidelines and workflows](development/storybook.md) | current |  |
 | `development.testing` | [Testing strategy](development/testing-strategy.md) | current |  |
 | `development.transaction-model` | [Transaction model](development/transaction-model.md) | current |  |
 | `development.transport-development` | [Adding a transport](development/transport-development.md) | current |  |
