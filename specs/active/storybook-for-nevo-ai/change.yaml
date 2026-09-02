@@ -220,11 +220,24 @@ tasks:
   - id: chat-stories-active-states
     order: 9
     file: tasks/09-chat-stories-active-states.md
-    status: in-implementation
+    status: implemented
     depends_on:
       - chat-fixture-model
     implementation:
       baseline_revision: 93f3e50469d436158a7e0b8c14a3696c695639e6
+      review_revision: bf4ee578f27fc63db831f4e2e64be9291bb8ae79
+      changed_paths:
+        - tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 763a363269d70bb4cac4f2abaaea6059b547ccf106a9c51ea3163385b96537d9
+      revision: bf4ee578f27fc63db831f4e2e64be9291bb8ae79
+      commands:
+        - command: npm --prefix tools/dashboard run test:storybook
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build-storybook
+          exit_code: 0
+      status: passed
 
   - id: storybook-documentation
     order: 10
