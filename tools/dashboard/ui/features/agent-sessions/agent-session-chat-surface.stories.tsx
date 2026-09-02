@@ -1,7 +1,21 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect } from 'storybook/test';
+import { expect, userEvent } from 'storybook/test';
 import { AgentSessionChatSurface } from './agent-session-chat-surface';
-import { buildEmptyWaitingTurn, buildUserMessage } from './work-v2/__fixtures__/chat-fixtures';
+import {
+  buildEmptyWaitingTurn,
+  buildUserMessage,
+  buildCompletedConversationTurn,
+  buildCommentary,
+  buildFileReadTool,
+  buildFileEditTool,
+  buildFileWriteTool,
+  buildSearchTool,
+  buildGroupedCommandsScenario,
+  buildLongCommentary,
+  buildLongCommandTool,
+  buildLongPathTool,
+  buildFinalAnswer,
+} from './work-v2/__fixtures__/chat-fixtures';
 
 const meta: Meta<typeof AgentSessionChatSurface> = {
   title: 'Features/AgentSessions/ChatSurface',
@@ -136,6 +150,110 @@ export const WaitingForFirstActivity: Story = {
  */
 export const WaitingForFirstActivityMobile: Story = {
   ...WaitingForFirstActivity,
+  parameters: {
+    viewport: {
+      defaultViewport: 'mobile1',
+    },
+  },
+};
+
+/**
+ * Story 3: "Existing conversation"
+ * A representative user/assistant conversation with a populated Work timeline:
+ * - Commentary, command execution, file read, file edit, file write, search
+ * - Grouped commands (3 consecutive commands)
+ * - Long content: long commentary, long command (>200 chars), long path (>100 chars)
+ * - Completed final answer
+ * - Fully editable via Storybook Args/Controls
+ */
+export const ExistingConversation: Story = {
+  args: {
+    turns: [
+      buildCompletedConversationTurn({
+        userMessage: buildUserMessage({
+          text: 'Please analyze the design tokens and run the test suite to verify dark mode support.',
+        }),
+        work: [
+          buildLongCommentary(),
+          buildSearchTool({
+            subject: 'color-scheme',
+            description: 'Search for "color-scheme" in tools/dashboard/ui',
+          }),
+          buildFileReadTool({
+            subject: 'index.css',
+            description: 'tools/dashboard/ui/index.css',
+          }),
+          ...buildGroupedCommandsScenario(3),
+          buildFileEditTool({
+            subject: 'colors.stories.tsx',
+            description: 'tools/dashboard/ui/foundations/colors.stories.tsx',
+          }),
+          buildLongCommandTool(),
+          buildFileWriteTool({
+            subject: 'typography.stories.tsx',
+            description: 'tools/dashboard/ui/foundations/typography.stories.tsx',
+          }),
+          buildLongPathTool(),
+        ],
+        finalAnswer: buildFinalAnswer({
+          text: 'All design tokens and foundation stories have been successfully verified. Dark mode styles and typography inventories are completely covered.',
+        }),
+      }),
+    ],
+    isLoading: false,
+    hasSessionDetails: true,
+    loadError: null,
+    isRunning: false,
+    canCancel: false,
+    isProviderAvailable: true,
+    disabled: false,
+    currentMode: 'edit',
+  },
+  play: async ({ canvasElement }) => {
+    // 1. Verify user message is rendered with exact submitted text
+    expect(canvasElement.textContent).toContain('Please analyze the design tokens and run the test suite');
+
+    // 2. Verify final answer is rendered with expected text
+    expect(canvasElement.textContent).toContain('All design tokens and foundation stories have been successfully verified');
+
+    // 3. Verify Turn Work indicator shows completed status and action count (10 actions)
+    expect(canvasElement.textContent).toContain('Work · 10 actions');
+    expect(canvasElement.textContent).toContain('Completed');
+
+    // 4. Expand Level 2 Work details by clicking the work summary header
+    const workHeaderButton = canvasElement.querySelector('button[aria-expanded]');
+    expect(workHeaderButton).not.toBeNull();
+    if (workHeaderButton && workHeaderButton.getAttribute('aria-expanded') === 'false') {
+      await userEvent.click(workHeaderButton);
+    }
+
+    // 5. Verify presence of all required activity kinds in expanded timeline
+    expect(canvasElement.textContent).toContain('Investigating the performance metrics across all 14 active font-size scales');
+    expect(canvasElement.textContent).toContain('Search code');
+    expect(canvasElement.textContent).toContain('Read file');
+    expect(canvasElement.textContent).toContain('Edit file');
+    expect(canvasElement.textContent).toContain('Write file');
+    expect(canvasElement.textContent).toContain('Run command');
+
+    // 6. Verify grouped commands row reflects count (3)
+    expect(canvasElement.textContent).toContain('(3)');
+
+    // 7. Verify long content is present without layout overflow
+    expect(canvasElement.textContent).toContain('very-deeply-nested-subsystem-build-process');
+    expect(canvasElement.textContent).toContain('very-deeply-nested-session-transcript-inspection-view');
+
+    // 8. Verify composer is enabled and ready for subsequent input
+    const textarea = canvasElement.querySelector('textarea');
+    expect(textarea?.placeholder).toBe('Napisz wiadomość…');
+    expect(textarea?.disabled).toBe(false);
+  },
+};
+
+/**
+ * Story 3 (Mobile viewport): "Existing conversation" on narrow screen.
+ */
+export const ExistingConversationMobile: Story = {
+  ...ExistingConversation,
   parameters: {
     viewport: {
       defaultViewport: 'mobile1',
