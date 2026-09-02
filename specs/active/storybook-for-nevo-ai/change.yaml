@@ -169,9 +169,23 @@ tasks:
   - id: chat-stories-empty-and-waiting
     order: 7
     file: tasks/07-chat-stories-empty-and-waiting.md
-    status: approved
+    status: implemented
     depends_on:
       - chat-fixture-model
+    implementation:
+      baseline_revision: 0085095bf409d652a45398a6881e73d53ef024c0
+      review_revision: a06e4d3ff27a1d02a3f8a29f28ce024a4d623381
+      changed_paths: []
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 7a8a1827ff36b2315bf88aa739bebffcc7ce4a1423d231fe612e80fec771b698
+      revision: a06e4d3ff27a1d02a3f8a29f28ce024a4d623381
+      commands:
+        - command: npm --prefix tools/dashboard run test:storybook
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build-storybook
+          exit_code: 0
+      status: passed
 
   - id: chat-stories-conversation-and-work
     order: 8
