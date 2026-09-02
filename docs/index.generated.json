@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-31T11:47:41.073Z",
+  "generated": "2026-09-02T16:30:21.944Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -526,6 +526,48 @@
       ]
     },
     {
+      "file": "docs/development/nevo-ai-ux-guidelines.md",
+      "id": "development.nevo-ai-ux-guidelines",
+      "type": "development",
+      "title": "NEvo AI UX guidelines",
+      "status": "current",
+      "read_when": [
+        "changing the NEvo dashboard UX",
+        "changing AI chat, Work, tool activity, commentary, reasoning, or turn states",
+        "changing task, session, specification, changes, or pull-request presentation",
+        "deciding which canonical AI/session information to expose in the UI",
+        "reviewing reload, hydration, waiting, attention, error, or mobile behavior"
+      ],
+      "summary": "NEvo-specific UX rules that apply the general UI/UX guidelines to AI sessions, chat, Work, semantic state, tasks, specifications, changes, and inspection surfaces.",
+      "related": [
+        "development.ui-ux-guidelines",
+        "development.nevo-interaction-model",
+        "development.react-component-guidelines",
+        "development.ai-sessions"
+      ]
+    },
+    {
+      "file": "docs/development/nevo-interaction-model.md",
+      "id": "development.nevo-interaction-model",
+      "type": "development",
+      "title": "NEvo interaction model",
+      "status": "current",
+      "read_when": [
+        "designing navigation or screen flows in the NEvo dashboard",
+        "changing how users enter chat, sessions, task details, Work, or inspection views",
+        "changing desktop sidebar, contextual inspector, mobile drawer, or detail sheet behavior",
+        "deciding which canonical information and actions belong on a surface",
+        "changing route hierarchy, back behavior, deep links, or state preservation"
+      ],
+      "summary": "Product interaction guide for NEvo surfaces: purpose, entry points, canonical information, actions, drill-down, state preservation, and desktop versus mobile presentation.",
+      "related": [
+        "development.ui-ux-guidelines",
+        "development.nevo-ai-ux-guidelines",
+        "development.react-component-guidelines",
+        "development.ai-sessions"
+      ]
+    },
+    {
       "file": "docs/development/node-tooling-guidelines.md",
       "id": "development.node-tooling-guidelines",
       "type": "development",
@@ -696,6 +738,26 @@
       "related": [
         "development.messaging-pipeline",
         "development.extension-points"
+      ]
+    },
+    {
+      "file": "docs/development/ui-ux-guidelines.md",
+      "id": "development.ui-ux-guidelines",
+      "type": "development",
+      "title": "UI and UX guidelines",
+      "status": "current",
+      "read_when": [
+        "designing or changing frontend UI",
+        "changing visual hierarchy, typography, spacing, colors, or responsive behavior",
+        "introducing cards, rows, lists, details views, inspectors, drawers, or sheets",
+        "designing loading, active, empty, warning, error, or attention states",
+        "reviewing composed screens or dense repeated content"
+      ],
+      "summary": "Portable UI/UX rules for information hierarchy, visual weight, typography, semantic color, progressive disclosure, discovery, interaction hierarchy, responsive behavior, dense content, visual patterns, and composed-screen verification.",
+      "related": [
+        "development.react-component-guidelines",
+        "development.nevo-ai-ux-guidelines",
+        "development.nevo-interaction-model"
       ]
     },
     {

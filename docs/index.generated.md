@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-31T11:47:41.073Z_
+_Generated: 2026-09-02T16:30:21.944Z_
 
 ## Hub
 
@@ -72,6 +72,8 @@ _Generated: 2026-08-31T11:47:41.073Z_
 | `development.local-setup` | [Local setup](development/local-setup.md) | current |  |
 | `development.message-context` | [Message context](development/message-context.md) | current |  |
 | `development.messaging-pipeline` | [Messaging pipeline](development/messaging-pipeline.md) | current |  |
+| `development.nevo-ai-ux-guidelines` | [NEvo AI UX guidelines](development/nevo-ai-ux-guidelines.md) | current |  |
+| `development.nevo-interaction-model` | [NEvo interaction model](development/nevo-interaction-model.md) | current |  |
 | `development.node-tooling-guidelines` | [Node tooling guidelines](development/node-tooling-guidelines.md) | current |  |
 | `development.orchestration` | [Orchestration](development/orchestration.md) | experimental |  |
 | `development.package-boundaries` | [Package boundaries](development/package-boundaries.md) | current |  |
@@ -82,6 +84,7 @@ _Generated: 2026-08-31T11:47:41.073Z_
 | `development.testing` | [Testing strategy](development/testing-strategy.md) | current |  |
 | `development.transaction-model` | [Transaction model](development/transaction-model.md) | current |  |
 | `development.transport-development` | [Adding a transport](development/transport-development.md) | current |  |
+| `development.ui-ux-guidelines` | [UI and UX guidelines](development/ui-ux-guidelines.md) | current |  |
 
 ## Adr
 
