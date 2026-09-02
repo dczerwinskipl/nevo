@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-02T16:53:56.905Z",
+  "generated": "2026-09-02T16:54:12.208Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -529,7 +529,7 @@
           "id": "chat-surface-extraction",
           "order": 2,
           "file": "tasks/02-chat-surface-extraction.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "chat-boundary-audit"
           ],

@@ -33,7 +33,7 @@ tasks:
   - id: chat-surface-extraction
     order: 2
     file: tasks/02-chat-surface-extraction.md
-    status: implemented
+    status: verified
     depends_on:
       - chat-boundary-audit
     implementation:
