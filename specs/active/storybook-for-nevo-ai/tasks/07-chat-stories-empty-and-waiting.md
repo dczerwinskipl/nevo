@@ -63,7 +63,9 @@ both frozen, no real timers.
 ## Verification
 
 ```text
+npm --prefix tools/dashboard test
 npm --prefix tools/dashboard run test:storybook
+npm --prefix tools/dashboard run build
 npm --prefix tools/dashboard run build-storybook
 ```
 

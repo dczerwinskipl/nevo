@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-02T21:11:58.198Z",
+  "generated": "2026-09-02T21:38:19.931Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -691,7 +691,7 @@
           ],
           "implementation": {
             "baseline_revision": "05d6541b204c1d8fb0e0c246aea32e47425d3344",
-            "review_revision": "0448932e33ddf14228b47dd510d01ab71968f39e",
+            "review_revision": "77e86c3346f4ddff4dd90a52c6d624ce90b9aa61",
             "changed_paths": [
               "tools/dashboard/tests/chat-fixture-model.test.tsx",
               "tools/dashboard/ui/features/agent-sessions/work-v2/__fixtures__/chat-fixtures.ts"
@@ -700,7 +700,7 @@
           },
           "self_check": {
             "fingerprint": "87f825ed5fd169aa4d3890aecde4b9aca709263261dc10b1fd12d275e0d5b5e9",
-            "revision": "0448932e33ddf14228b47dd510d01ab71968f39e",
+            "revision": "77e86c3346f4ddff4dd90a52c6d624ce90b9aa61",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard run test:storybook",
@@ -720,20 +720,29 @@
           ],
           "implementation": {
             "baseline_revision": "0085095bf409d652a45398a6881e73d53ef024c0",
-            "review_revision": "0448932e33ddf14228b47dd510d01ab71968f39e",
+            "review_revision": "77e86c3346f4ddff4dd90a52c6d624ce90b9aa61",
             "changed_paths": [
               "tools/dashboard/tests/composer-interaction.test.mjs",
               "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx",
-              "tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx"
+              "tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx",
+              "tools/dashboard/ui/features/agent-sessions/composer/composer-sizing.ts"
             ],
             "worktree_patch_fingerprint": null
           },
           "self_check": {
-            "fingerprint": "5b7d500f6af34da75e3aa59accc3501ef708687eb76fcb9f0845216775fa4538",
-            "revision": "0448932e33ddf14228b47dd510d01ab71968f39e",
+            "fingerprint": "0e7f942e6703e2e3465a493ae8e80a25919fd0e7c852d5c4bfdb2944adc6eef7",
+            "revision": "77e86c3346f4ddff4dd90a52c6d624ce90b9aa61",
             "commands": [
               {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
                 "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
                 "exit_code": 0
               },
               {
@@ -754,7 +763,7 @@
           ],
           "implementation": {
             "baseline_revision": "a4715a309fa3bb91f038bb72d6101e3b5a17aa8f",
-            "review_revision": "5e86510abbcd4271614e2842f800764e5a7e04b2",
+            "review_revision": "77e86c3346f4ddff4dd90a52c6d624ce90b9aa61",
             "changed_paths": [
               "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx"
             ],
@@ -762,7 +771,7 @@
           },
           "self_check": {
             "fingerprint": "bcc870fd14edd2fc11b1c6ab6c7f0dc7638a8fee85cdac99f3c2087681d094c6",
-            "revision": "5e86510abbcd4271614e2842f800764e5a7e04b2",
+            "revision": "77e86c3346f4ddff4dd90a52c6d624ce90b9aa61",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard run test:storybook",
