@@ -193,9 +193,24 @@ tasks:
   - id: chat-stories-conversation-and-work
     order: 8
     file: tasks/08-chat-stories-conversation-and-work.md
-    status: approved
+    status: implemented
     depends_on:
       - chat-fixture-model
+    implementation:
+      baseline_revision: a4715a309fa3bb91f038bb72d6101e3b5a17aa8f
+      review_revision: 5e86510abbcd4271614e2842f800764e5a7e04b2
+      changed_paths:
+        - tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: bcc870fd14edd2fc11b1c6ab6c7f0dc7638a8fee85cdac99f3c2087681d094c6
+      revision: 5e86510abbcd4271614e2842f800764e5a7e04b2
+      commands:
+        - command: npm --prefix tools/dashboard run test:storybook
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build-storybook
+          exit_code: 0
+      status: passed
 
   - id: chat-stories-active-states
     order: 9
