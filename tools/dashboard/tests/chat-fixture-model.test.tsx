@@ -400,6 +400,29 @@ describe('Chat Fixture Model (Task 06)', () => {
       }
     });
 
+    it('buildActiveRunningTurn derives currentActivity from the active tool when preceded by completed tools', () => {
+      const completedCommand = buildCommandTool({ status: 'completed' });
+      const activeReadTool = buildFileReadTool({ status: 'active' });
+      const turn = buildActiveRunningTurn({ work: [completedCommand, activeReadTool] });
+
+      expect(turn.currentActivity).not.toBeNull();
+      expect(turn.currentActivity?.kind).toBe('tool');
+      expect(turn.currentActivity?.toolKind).toBe('read');
+      expect(turn.currentActivity?.toolName).toBe('view_file');
+      expect(turn.currentActivity?.title).toBe('Read file');
+      expect(turn.currentActivity?.subject).toBe('index.css');
+      expect(turn.currentActivity?.subjectId).toBe(activeReadTool.id);
+      expect(turn.currentActivity?.status).toBe('active');
+
+      // historicalWork must keep the completed command and exclude the active tool
+      expect(turn.historicalWork.length).toBe(1);
+      expect(turn.historicalWork[0].id).toBe(completedCommand.id);
+      expect(turn.historicalWork.some((w) => w.id === activeReadTool.id)).toBe(false);
+
+      expect(turn.work.length).toBe(2);
+      expect(turn.activityCount).toBe(2);
+    });
+
     it('buildFailedTurn produces a terminal failed turn with error details', () => {
       const error = { code: 'EXEC_TIMEOUT', message: 'Command timed out after 30000ms' };
       const turn = buildFailedTurn(error);

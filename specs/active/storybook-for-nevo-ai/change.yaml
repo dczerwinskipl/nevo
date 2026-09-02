@@ -179,12 +179,17 @@ tasks:
         - tools/dashboard/tests/composer-interaction.test.mjs
         - tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx
         - tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx
+        - tools/dashboard/ui/features/agent-sessions/composer/composer-sizing.ts
       worktree_patch_fingerprint: null
     self_check:
       fingerprint: 5b7d500f6af34da75e3aa59accc3501ef708687eb76fcb9f0845216775fa4538
       revision: 0448932e33ddf14228b47dd510d01ab71968f39e
       commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
         - command: npm --prefix tools/dashboard run test:storybook
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
           exit_code: 0
         - command: npm --prefix tools/dashboard run build-storybook
           exit_code: 0

@@ -12,6 +12,8 @@ import type {
   WorkItemV2,
 } from '../../types.ts';
 
+export type { WorkItemV2 };
+
 const BASE_TIMESTAMP = '2026-09-02T12:00:00.000Z';
 
 let nextSeq = 1;
@@ -435,11 +437,18 @@ export function buildEmptyWaitingTurn(options?: Partial<CanonicalTurnV2>): Canon
 
 /** Scenario: Turn actively executing a tool with currentActivity. */
 export function buildActiveRunningTurn(options?: Partial<CanonicalTurnV2>): CanonicalTurnV2 {
-  const suppliedTool = (options?.work?.find(
-    (w): w is ToolInvocationWorkItemV2 => 'type' in w && w.type === 'tool'
-  ) ?? options?.work?.[0]) as ToolInvocationWorkItemV2 | undefined;
+  const activeTools = (options?.work?.filter(
+    (w): w is ToolInvocationWorkItemV2 =>
+      'type' in w && w.type === 'tool' && (w.status === 'active' || w.status === 'queued')
+  ) ?? []);
 
-  const activeTool = suppliedTool ?? buildCommandTool({ status: 'active' });
+  const activeTool =
+    activeTools.length > 0
+      ? activeTools[activeTools.length - 1]
+      : (options?.work?.find(
+          (w): w is ToolInvocationWorkItemV2 => 'type' in w && w.type === 'tool'
+        ) ?? buildCommandTool({ status: 'active' }));
+
   const work = options?.work ?? [activeTool];
   const activeId = options?.currentActivity?.subjectId ?? activeTool.id;
 
@@ -447,13 +456,13 @@ export function buildActiveRunningTurn(options?: Partial<CanonicalTurnV2>): Cano
     kind: 'tool',
     subjectId: activeId,
     title: activeTool.title,
-    subject: activeTool.subject,
+    ...(activeTool.subject ? { subject: activeTool.subject } : {}),
     description: activeTool.description,
     toolKind: activeTool.kind,
     toolName: activeTool.toolName,
-    status: 'active',
-    activeCount: 1,
-    startedAt: activeTool.startedAt ?? BASE_TIMESTAMP,
+    status: activeTool.status === 'queued' ? 'queued' : 'active',
+    activeCount: activeTools.length > 1 ? activeTools.length : 1,
+    startedAt: activeTool.startedAt ?? activeTool.createdAt ?? BASE_TIMESTAMP,
   };
 
   const historicalWork =
@@ -467,7 +476,7 @@ export function buildActiveRunningTurn(options?: Partial<CanonicalTurnV2>): Cano
       status: 'active',
       detail: 'tool_execution',
       subjectId: activeId,
-      since: activeTool.startedAt ?? BASE_TIMESTAMP,
+      since: activeTool.startedAt ?? activeTool.createdAt ?? BASE_TIMESTAMP,
       source: 'tool.started',
     },
     finalAnswer: null,

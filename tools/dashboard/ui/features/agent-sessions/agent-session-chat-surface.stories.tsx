@@ -5,7 +5,6 @@ import {
   buildEmptyWaitingTurn,
   buildUserMessage,
   buildCompletedConversationTurn,
-  buildCommentary,
   buildFileReadTool,
   buildFileEditTool,
   buildFileWriteTool,
@@ -15,6 +14,7 @@ import {
   buildLongCommandTool,
   buildLongPathTool,
   buildFinalAnswer,
+  type WorkItemV2,
 } from './work-v2/__fixtures__/chat-fixtures';
 
 const meta: Meta<typeof AgentSessionChatSurface> = {
@@ -157,6 +157,35 @@ export const WaitingForFirstActivityMobile: Story = {
   },
 };
 
+const defaultActivities: WorkItemV2[] = [
+  buildLongCommentary(),
+  buildSearchTool({
+    subject: 'color-scheme',
+    description: 'Search for "color-scheme" in tools/dashboard/ui',
+  }),
+  buildFileReadTool({
+    subject: 'index.css',
+    description: 'tools/dashboard/ui/index.css',
+  }),
+  ...buildGroupedCommandsScenario(3),
+  buildFileEditTool({
+    subject: 'colors.stories.tsx',
+    description: 'tools/dashboard/ui/foundations/colors.stories.tsx',
+  }),
+  buildLongCommandTool(),
+  buildFileWriteTool({
+    subject: 'typography.stories.tsx',
+    description: 'tools/dashboard/ui/foundations/typography.stories.tsx',
+  }),
+  buildLongPathTool(),
+];
+
+type ExistingConversationStory = StoryObj<
+  React.ComponentProps<typeof AgentSessionChatSurface> & {
+    activities: WorkItemV2[];
+  }
+>;
+
 /**
  * Story 3: "Existing conversation"
  * A representative user/assistant conversation with a populated Work timeline:
@@ -164,42 +193,20 @@ export const WaitingForFirstActivityMobile: Story = {
  * - Grouped commands (3 consecutive commands)
  * - Long content: long commentary, long command (>200 chars), long path (>100 chars)
  * - Completed final answer
- * - Fully editable via Storybook Args/Controls
+ * - Coherent "activities" control (synchronizes work, historicalWork, and activityCount on every render)
  */
-export const ExistingConversation: Story = {
+export const ExistingConversation: ExistingConversationStory = {
+  argTypes: {
+    turns: {
+      control: false,
+    },
+    activities: {
+      control: 'object',
+      description: 'Coherent list of work activities rendered in the completed Turn timeline',
+    },
+  },
   args: {
-    turns: [
-      buildCompletedConversationTurn({
-        userMessage: buildUserMessage({
-          text: 'Please analyze the design tokens and run the test suite to verify dark mode support.',
-        }),
-        work: [
-          buildLongCommentary(),
-          buildSearchTool({
-            subject: 'color-scheme',
-            description: 'Search for "color-scheme" in tools/dashboard/ui',
-          }),
-          buildFileReadTool({
-            subject: 'index.css',
-            description: 'tools/dashboard/ui/index.css',
-          }),
-          ...buildGroupedCommandsScenario(3),
-          buildFileEditTool({
-            subject: 'colors.stories.tsx',
-            description: 'tools/dashboard/ui/foundations/colors.stories.tsx',
-          }),
-          buildLongCommandTool(),
-          buildFileWriteTool({
-            subject: 'typography.stories.tsx',
-            description: 'tools/dashboard/ui/foundations/typography.stories.tsx',
-          }),
-          buildLongPathTool(),
-        ],
-        finalAnswer: buildFinalAnswer({
-          text: 'All design tokens and foundation stories have been successfully verified. Dark mode styles and typography inventories are completely covered.',
-        }),
-      }),
-    ],
+    activities: defaultActivities,
     isLoading: false,
     hasSessionDetails: true,
     loadError: null,
@@ -208,6 +215,23 @@ export const ExistingConversation: Story = {
     isProviderAvailable: true,
     disabled: false,
     currentMode: 'edit',
+  },
+  render: (args) => {
+    const activities = args.activities ?? defaultActivities;
+    const turn = buildCompletedConversationTurn({
+      userMessage: buildUserMessage({
+        text: 'Please analyze the design tokens and run the test suite to verify dark mode support.',
+      }),
+      work: activities,
+      historicalWork: activities,
+      activityCount: activities.length,
+      finalAnswer: buildFinalAnswer({
+        text: 'All design tokens and foundation stories have been successfully verified. Dark mode styles and typography inventories are completely covered.',
+      }),
+    });
+
+    const { activities: _activities, ...surfaceProps } = args;
+    return <AgentSessionChatSurface {...surfaceProps} turns={[turn]} />;
   },
   play: async ({ canvasElement }) => {
     // 1. Verify user message is rendered with exact submitted text
@@ -252,7 +276,7 @@ export const ExistingConversation: Story = {
 /**
  * Story 3 (Mobile viewport): "Existing conversation" on narrow screen.
  */
-export const ExistingConversationMobile: Story = {
+export const ExistingConversationMobile: ExistingConversationStory = {
   ...ExistingConversation,
   parameters: {
     viewport: {

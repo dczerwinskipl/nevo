@@ -12,6 +12,7 @@ context:
 allowed_paths:
   - tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx
   - tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx
+  - tools/dashboard/ui/features/agent-sessions/composer/composer-sizing.ts
   - tools/dashboard/tests/composer-interaction.test.mjs
 forbidden_paths:
   - tools/dashboard/ui/features/agent-sessions/types.ts
