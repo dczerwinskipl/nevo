@@ -14,7 +14,7 @@ tasks:
   - id: chat-boundary-audit
     order: 1
     file: tasks/01-chat-boundary-audit.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: d1d5dc1968a0e854ea65d151676b7a0d584343f7
       review_revision: 40e8d93c1c66b490165c33100a3a763c50723a68
