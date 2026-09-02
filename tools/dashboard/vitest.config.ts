@@ -20,15 +20,16 @@ export default defineConfig({
   test: {
     projects: [
       {
+        extends: true,
         name: 'unit',
         test: {
           include: ['tests/**/*.test.tsx'],
           environment: 'jsdom',
           setupFiles: ['./.storybook/vitest.setup.ts'],
-          alias: sharedAliases,
         },
       },
       {
+        extends: true,
         name: 'storybook',
         plugins: [
           storybookTest({
@@ -42,7 +43,6 @@ export default defineConfig({
             provider: playwright(),
             instances: [{ browser: 'chromium' }],
           },
-          alias: sharedAliases,
         },
       },
     ],
