@@ -26,16 +26,8 @@ function readRuntimeSource() {
 
 // ── 1. Collapsible User Messages in V2 ──────────────────────────────────────────────
 
-test('Requirement 1: UserMessageBubble in V2 uses shouldCollapseMessage and provides line-clamp-6 toggle with accessible aria-expanded', () => {
-  const source = readV2Source('agent-session-transcript-v2.tsx');
-
-  assert.match(source, /shouldCollapseMessage\(text\)/, 'must use canonical shouldCollapseMessage helper');
-  assert.match(source, /line-clamp-6/, 'must apply line-clamp-6 when collapsed');
-  assert.match(source, /aria-expanded=\{expanded\}/, 'must provide accessible aria-expanded attribute on toggle button');
-  assert.match(source, /Pokaż więcej/, 'must provide Polish expand label');
-  assert.match(source, /Zwiń/, 'must provide Polish collapse label');
-
-  // Verify shouldCollapseMessage contract
+test('Requirement 1: shouldCollapseMessage contract for collapsible user messages', () => {
+  // (Component rendering and toggle behavior migrated to semantic-work-chat-v2-corrections.test.tsx)
   const shortText = 'Krótka wiadomość';
   assert.equal(shouldCollapseMessage(shortText), false);
 
@@ -115,14 +107,8 @@ test('Requirement 4: Runtime hydrates turns and messages atomically from snapsho
 
 // ── 5. Immediate Working Feedback After Send ────────────────────────────────────────
 
-test('Requirement 5: Optimistic state displays neutral Starting… indicator before server Turn arrives', () => {
-  const transcriptSource = readV2Source('agent-session-transcript-v2.tsx');
-
-  assert.match(transcriptSource, /\{optimisticUserMessage && \(/);
-  assert.match(transcriptSource, /<span>Starting…<\/span>/, 'must show neutral Starting… feedback, never fake Thinking');
-  assert.doesNotMatch(transcriptSource, /<span>Thinking…<\/span>/, 'must not fabricate Thinking without reasoning evidence');
-
-  // Once server turn arrives, describeCurrentActivityV2 truthfully labels waiting_for_model
+test('Requirement 5: Once server turn arrives, describeCurrentActivityV2 truthfully labels waiting_for_model', () => {
+  // (Optimistic Starting... render assertion migrated to semantic-work-chat-v2-corrections.test.tsx)
   const waitingActivity = describeCurrentActivityV2({ kind: 'waiting_for_model', startedAt: '2026-08-30T10:00:00Z' });
   assert.equal(waitingActivity.label, 'Waiting for model response');
 });

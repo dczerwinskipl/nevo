@@ -5,12 +5,8 @@ import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
-export const dashboardRoot = fileURLToPath(new URL('.', import.meta.url));
-export const uiRoot = resolve(dashboardRoot, 'ui');
-export const sharedAliases = {
-  '@': uiRoot,
-};
-export { tailwindcss };
+const dashboardRoot = fileURLToPath(new URL('.', import.meta.url));
+const uiRoot = resolve(dashboardRoot, 'ui');
 
 export default defineConfig({
   root: uiRoot,
@@ -26,7 +22,9 @@ export default defineConfig({
     tailwindcss(),
   ],
   resolve: {
-    alias: sharedAliases,
+    alias: {
+      '@': uiRoot,
+    },
   },
   server: {
     host: process.env.NEVO_DASHBOARD_HOST || '127.0.0.1',

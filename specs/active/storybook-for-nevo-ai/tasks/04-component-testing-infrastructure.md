@@ -17,6 +17,8 @@ allowed_paths:
   - tools/dashboard/package-lock.json
   - tools/dashboard/vitest.config.ts
   - tools/dashboard/.storybook/**
+  - tools/dashboard/vite.config.ts
+  - tools/dashboard/ui/foundations/smoke.stories.tsx
   - tools/dashboard/tests/turn-work-summary.test.mjs
   - tools/dashboard/tests/turn-work-summary.test.tsx
   - tools/dashboard/tests/semantic-work-chat-v2-corrections.test.mjs
@@ -69,7 +71,7 @@ workaround onto real RTL renders.
 2. Every story that exists at the time this task runs (likely none yet) renders successfully
    under `@storybook/addon-vitest`. `inspection: vacuously true if no stories exist yet; re-verify once tasks 05/07/08/09 land`
 3. `node --test tools/dashboard/tests/*.test.mjs` continues to pass for every file not
-   migrated by this task. `automated: node --test tools/dashboard/tests/*.test.mjs`
+   migrated by this task. `automated: npm --prefix tools/dashboard test`
 4. No dependency added by this task is reachable from `tools/dashboard/ui/main.tsx`.
    `inspection: grep main.tsx and its import graph for the new packages`
 
@@ -77,7 +79,7 @@ workaround onto real RTL renders.
 
 ```text
 npm --prefix tools/dashboard run test:storybook
-node --test tools/dashboard/tests/*.test.mjs
+npm --prefix tools/dashboard test
 ```
 
 ## Out of scope

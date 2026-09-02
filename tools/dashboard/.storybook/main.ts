@@ -1,6 +1,7 @@
 import type { StorybookConfig } from '@storybook/react-vite';
 import { mergeConfig } from 'vite';
-import { sharedAliases, tailwindcss } from '../vite.config.ts';
+import tailwindcss from '@tailwindcss/vite';
+import { sharedAliases } from './aliases.ts';
 
 const config: StorybookConfig = {
   stories: [
@@ -8,6 +9,7 @@ const config: StorybookConfig = {
   ],
   addons: [
     '@storybook/addon-docs',
+    '@storybook/addon-vitest',
   ],
   framework: {
     name: '@storybook/react-vite',
