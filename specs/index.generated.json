@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-02T16:04:02.138Z",
+  "generated": "2026-09-02T16:04:08.424Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -525,7 +525,7 @@
           "id": "component-testing-infrastructure",
           "order": 4,
           "file": "tasks/04-component-testing-infrastructure.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "storybook-infrastructure-setup"
           ]

@@ -31,7 +31,7 @@ tasks:
   - id: component-testing-infrastructure
     order: 4
     file: tasks/04-component-testing-infrastructure.md
-    status: draft
+    status: approved
     depends_on:
       - storybook-infrastructure-setup
 
