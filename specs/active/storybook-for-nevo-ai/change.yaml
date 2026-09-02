@@ -19,7 +19,7 @@ tasks:
   - id: chat-surface-extraction
     order: 2
     file: tasks/02-chat-surface-extraction.md
-    status: draft
+    status: approved
     depends_on:
       - chat-boundary-audit
 
