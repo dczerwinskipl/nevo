@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-02T16:04:27.874Z",
+  "generated": "2026-09-02T16:04:33.565Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -562,7 +562,7 @@
           "id": "chat-stories-conversation-and-work",
           "order": 8,
           "file": "tasks/08-chat-stories-conversation-and-work.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "chat-fixture-model"
           ]
