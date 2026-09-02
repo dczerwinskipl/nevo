@@ -3,8 +3,12 @@ import { expect, userEvent } from 'storybook/test';
 import { AgentSessionChatSurface } from './agent-session-chat-surface';
 import {
   buildEmptyWaitingTurn,
+  buildActiveThinkingTurn,
+  buildActiveRunningTurn,
   buildUserMessage,
   buildCompletedConversationTurn,
+  buildReasoning,
+  buildCommandTool,
   buildFileReadTool,
   buildFileEditTool,
   buildFileWriteTool,
@@ -278,6 +282,148 @@ export const ExistingConversation: ExistingConversationStory = {
  */
 export const ExistingConversationMobile: ExistingConversationStory = {
   ...ExistingConversation,
+  parameters: {
+    viewport: {
+      defaultViewport: 'mobile1',
+    },
+  },
+};
+
+/**
+ * Story 4: "Active thinking"
+ * Active thinking / commentary currently active, frozen for visual inspection.
+ * - Genuine reasoning work item with status 'streaming'
+ * - Active turn with currentActivity kind 'thinking'
+ * - Composer displays 'Turn trwa…' and textarea is disabled
+ * - Stop / Cancel button is available (canCancel: true)
+ */
+export const ActiveThinking: Story = {
+  args: {
+    turns: [
+      buildActiveThinkingTurn({
+        userMessage: buildUserMessage({
+          text: 'Analyze our performance telemetry and summarize recent execution trends.',
+        }),
+        item: buildReasoning({
+          status: 'streaming',
+          text: 'Evaluating architectural boundaries, performance metrics, and testing infrastructure…',
+        }),
+      }),
+    ],
+    isLoading: false,
+    hasSessionDetails: true,
+    loadError: null,
+    isRunning: true,
+    canCancel: true,
+    isProviderAvailable: true,
+    disabled: false,
+    currentMode: 'agent',
+  },
+  play: async ({ canvasElement }) => {
+    // 1. Verify user message is rendered
+    expect(canvasElement.textContent).toContain('Analyze our performance telemetry');
+
+    // 2. Verify active thinking state is visible with genuine reasoning evidence
+    expect(canvasElement.textContent).toContain('Evaluating architectural boundaries');
+    expect(canvasElement.textContent).toContain('In progress');
+
+    // 3. Verify composer placeholder reflects running turn and textarea is disabled
+    const textarea = canvasElement.querySelector('textarea');
+    expect(textarea?.placeholder).toBe('Turn trwa…');
+    expect(textarea?.disabled).toBe(true);
+
+    // 4. Verify cancel / stop affordance is present
+    const stopButton = canvasElement.querySelector('button[aria-label="Przerwij generowanie"]');
+    expect(stopButton).not.toBeNull();
+  },
+};
+
+/**
+ * Story 4 (Mobile viewport): "Active thinking" on narrow screen.
+ */
+export const ActiveThinkingMobile: Story = {
+  ...ActiveThinking,
+  parameters: {
+    viewport: {
+      defaultViewport: 'mobile1',
+    },
+  },
+};
+
+/**
+ * Story 5: "Active tool"
+ * A tool currently running with running indicator / intermediate styling,
+ * visually distinguishable from a completed tool.
+ * - Completed historical command tool followed by an active file-read tool
+ * - Level 1 reflects running state and active activity title
+ * - Composer displays 'Turn trwa…' and textarea is disabled
+ * - Stop / Cancel button is available (canCancel: true)
+ */
+export const ActiveTool: Story = {
+  args: {
+    turns: [
+      buildActiveRunningTurn({
+        userMessage: buildUserMessage({
+          text: 'Review the story definitions and verify all active states.',
+        }),
+        work: [
+          buildCommandTool({
+            status: 'completed',
+            subject: 'git status --porcelain',
+            description: 'Check working tree status before running build',
+          }),
+          buildFileReadTool({
+            status: 'active',
+            subject: 'agent-session-chat-surface.stories.tsx',
+            description: 'tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx',
+          }),
+        ],
+      }),
+    ],
+    isLoading: false,
+    hasSessionDetails: true,
+    loadError: null,
+    isRunning: true,
+    canCancel: true,
+    isProviderAvailable: true,
+    disabled: false,
+    currentMode: 'agent',
+  },
+  play: async ({ canvasElement }) => {
+    // 1. Verify user message is rendered
+    expect(canvasElement.textContent).toContain('Review the story definitions');
+
+    // 2. Verify Level 1 shows running tool title and subject
+    expect(canvasElement.textContent).toContain('Read file');
+    expect(canvasElement.textContent).toContain('agent-session-chat-surface.stories.tsx');
+
+    // 3. Expand Level 2 Work details to verify running vs completed tool styling
+    const workHeaderButton = canvasElement.querySelector('button[aria-expanded]');
+    expect(workHeaderButton).not.toBeNull();
+    if (workHeaderButton && workHeaderButton.getAttribute('aria-expanded') === 'false') {
+      await userEvent.click(workHeaderButton);
+    }
+
+    // 4. Verify completed command and active file read are both visible in timeline
+    expect(canvasElement.textContent).toContain('git status --porcelain');
+    expect(canvasElement.textContent).toContain('agent-session-chat-surface.stories.tsx');
+
+    // 5. Verify composer placeholder reflects running turn and textarea is disabled
+    const textarea = canvasElement.querySelector('textarea');
+    expect(textarea?.placeholder).toBe('Turn trwa…');
+    expect(textarea?.disabled).toBe(true);
+
+    // 6. Verify cancel / stop affordance is present
+    const stopButton = canvasElement.querySelector('button[aria-label="Przerwij generowanie"]');
+    expect(stopButton).not.toBeNull();
+  },
+};
+
+/**
+ * Story 5 (Mobile viewport): "Active tool" on narrow screen.
+ */
+export const ActiveToolMobile: Story = {
+  ...ActiveTool,
   parameters: {
     viewport: {
       defaultViewport: 'mobile1',

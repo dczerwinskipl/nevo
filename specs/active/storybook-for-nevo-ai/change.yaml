@@ -220,9 +220,11 @@ tasks:
   - id: chat-stories-active-states
     order: 9
     file: tasks/09-chat-stories-active-states.md
-    status: approved
+    status: in-implementation
     depends_on:
       - chat-fixture-model
+    implementation:
+      baseline_revision: 93f3e50469d436158a7e0b8c14a3696c695639e6
 
   - id: storybook-documentation
     order: 10
