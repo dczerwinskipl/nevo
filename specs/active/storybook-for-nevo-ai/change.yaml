@@ -127,14 +127,14 @@ tasks:
       - storybook-infrastructure-setup
     implementation:
       baseline_revision: 34764c30d26150ab61ef8c2e229ab91f0bb4ecd3
-      review_revision: 31e31609fd7d9768522332d077eef087ebf4131c
+      review_revision: 47f21f2ab3ff14736d4fa6702332db1ba7242da8
       changed_paths:
         - tools/dashboard/ui/foundations/colors.stories.tsx
         - tools/dashboard/ui/foundations/typography.stories.tsx
       worktree_patch_fingerprint: null
     self_check:
-      fingerprint: 8ce72c3993a9724928e353419d48f152b6bee6364d24fb8e747d3c7d3c76c0e0
-      revision: 31e31609fd7d9768522332d077eef087ebf4131c
+      fingerprint: f6cc459c30fa2d205e9731e5395f544d3225a3eede44d09c03f87f7d08c7ebee
+      revision: 47f21f2ab3ff14736d4fa6702332db1ba7242da8
       commands:
         - command: npm --prefix tools/dashboard run build-storybook
           exit_code: 0
