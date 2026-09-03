@@ -2,29 +2,67 @@
 
 ## Responsibility
 
-Create one central status/tone presentation module implementing the canonical semantic
-contract (D2: **7 `StatusTone` values plus 1 separate `action-destructive` action
-role** — not a "9-state" contract; `status-active`/`status-neutral` are `@theme inline`
-aliases that *implement* 2 of the 7 `StatusTone` values, not additional states beyond
-them), and migrate every currently-scattered severity/status-to-color mapping to
-consume it instead of deciding locally. Also the **sole owner** of
-`shared/ui/status-label.tsx` (see § Requirements — Task 04 does not touch this file,
-correcting the original spec's accidental dual ownership).
+Create one central status/tone presentation module (`StatusTone` type + focused
+presentation recipes) implementing the canonical semantic contract (D2: **7
+`StatusTone` values plus 1 separate `action-destructive` action role** — not a
+"9-state" contract; `status-active`/`status-neutral` are `@theme static inline` aliases that
+*implement* 2 of the 7 `StatusTone` values, not additional states beyond them). This
+module owns **only** the `StatusTone`-to-presentation direction — it is not a central
+switch over every domain status in the product (see D2's second clarification). Two
+genuinely separate domain-state → `StatusTone` projections consume it:
+`transcript/projection.ts`'s legacy `TurnWork` severity, and a new Work-V2-local
+projection this area also creates. Also the **sole owner** of `shared/ui/status-label.tsx`
+(Task 04 does not touch this file, correcting the original spec's accidental dual
+ownership).
 
 ## Current state
 
-Status/severity presentation is decided independently in at least these places:
+**Correction (found during `/nevo-ai:spec-review`): the previous draft of this area
+wrongly described `transcript/projection.ts` as the owner of the `requiresAttention`
+mis-mapping. It is not — that mapping lives entirely in Work V2, a separate system.**
+Verified directly from source:
 
-- `tools/dashboard/ui/features/agent-sessions/transcript/projection.ts:34,43-54` — the
-  **real owner** of the severity mapping: `PresentationSeverity` type and
-  `computePresentationSeverity()`. `work-indicator-v2.tsx:70-91` and
-  `turn-work-summary.tsx:67` are *consumers* of this mapping, not independent
-  implementations (correction to earlier discovery, which cited the two consumer files
-  as if they owned the mapping themselves). `requiresAttention` → `severity: 'warning'`
-  → `text-[var(--warning-strong)]` is the confirmed mis-mapping the change request calls
-  out: attention must be visually distinct from warning.
+- `tools/dashboard/ui/features/agent-sessions/transcript/projection.ts:34,43-54` —
+  `PresentationSeverity = 'normal' | 'warning' | 'error'` and
+  `computePresentationSeverity(items: WorkItem[], turnError)`. This is the **legacy**
+  `TurnWork` projection's severity — its only inputs are per-tool-item `status` and a
+  turn's `turnError`. **It has no input that could carry `requiresAttention`** (that
+  concept doesn't exist in the legacy `WorkItem`/`TurnWork`/`NormalizedMessage` model at
+  all) — so it structurally cannot produce an "attention" outcome, and must not be
+  described as needing to. Its sole consumer is
+  `tools/dashboard/ui/features/agent-sessions/turn-work/turn-work-summary.tsx`
+  (**path correction**: not `work-v2/turn-work-summary.tsx` — that path does not exist;
+  the real file lives in a sibling `turn-work/` directory, not `work-v2/`), which
+  imports `PresentationSeverity`/`TurnWork`/`WorkItem`/`isGenuineTurnError` from it
+  directly (`turn-work-summary.tsx:6`).
+- `tools/dashboard/ui/features/agent-sessions/work-v2/work-indicator-v2.tsx` is a
+  **completely separate system** operating on `CanonicalTurnV2`/`TurnStatusV2` (a
+  different canonical type than the legacy `NormalizedMessage`-derived model). It does
+  **not** import anything from `transcript/projection.ts`. It computes attention/severity
+  **inline, twice, independently**:
+  - `WorkCurrentActivityLineV2` (lines 16-60): `const isAttention = display.kind ===
+    'requires_attention'` (line 28), sourced from `describeCurrentActivityV2()`
+    (`activity-model-v2.ts`, which has its own `case 'requires_attention':` branch at
+    line 45) — renders `text-[var(--warning-strong)]` when attention (line 36).
+  - `WorkIndicatorV2` (lines 68-110): `const attention = turn.status.status ===
+    'requiresAttention'` (line 70) → `severity: 'normal'|'warning'|'error' = attention ?
+    'warning' : …` (lines 75-79) → renders `text-[var(--warning-strong)]` (line 89).
+    **This second inline computation is the confirmed mis-mapping** the change request
+    calls out — attention rendering as warning.
+  - `tools/dashboard/ui/features/agent-sessions/work-v2/pending-interaction-view-v2.tsx:18`
+    also checks `turn.status.status !== 'requiresAttention'` directly, independently of
+    the two computations above.
+  None of Work V2's three `requiresAttention`-adjacent call sites share one projection
+  today — this is exactly the "scattered per component" problem D2 exists to fix, but
+  the fix belongs entirely inside Work V2 (a new, Work-V2-local projection this area
+  creates), not inside the legacy `transcript/projection.ts`.
 - `tools/dashboard/ui/components/ui/status-card.tsx` — its own error-banner
-  `color-mix` recipe (see `areas/shared-ui-primitives.md`).
+  `color-mix` recipe (see `areas/shared-ui-primitives.md`); `StatusCard` keeps its own
+  constrained `variant`/`size` `cva()` visual API (migrated in
+  `areas/shared-ui-primitives.md`) and consumes semantic status tokens directly — it
+  does **not** need to import `shared/status-tone.ts` (D2's second clarification: not
+  every status-bearing component must import the shared module's specific recipes, only
+  the domain-state → tone projection upstream of it must resolve to `StatusTone`).
 - `tools/dashboard/ui/shared/ui/status-label.tsx:19-40` — `statusTone(status: string)`,
   a generic shared status-label helper that converts a **raw domain-status string**
   directly into Tailwind classes itself. Reused by `specification-detail.tsx:146` and
@@ -68,26 +106,42 @@ classes" — each caller re-derives its own subset of the mapping.
   foreground color) and a surface recipe (`statusSurfaceTone({ tone })`, for consumers
   like banners/cards that need `border`/`bg`/`text` together) — both `cva()`-based with
   `VariantProps`. **Do not create one universal recipe that always emits
-  background+border+text classes to every consumer** — a text-only consumer forced to
-  accept unused surface classes is exactly the "hidden boolean/unused-variant" smell the
-  class-composition contract's inspection checklist exists to catch.
-  This module is the source of truth for the 7 `StatusTone` values plus the
-  `status-active`/`status-neutral` aliasing already defined in `@theme inline` (those are
-  2 of the 7 values, not additional states). Include whatever "completed historical work
-  → normally neutral" and "waiting/inactive/cancelled/unremarkable → status-neutral"
-  rules the change request states.
+  background+border+text classes to every consumer.** This module owns presentation
+  only — it must not grow into a switch over domain statuses (session status, spec
+  status, PR state, Turn status, …); those projections live in their owning features and
+  only their *output* (a `StatusTone` value) reaches this module.
 - **Do not export `action-destructive` from this module.** It is intentionally not a
   `StatusTone` — it is a separate, one-off action-classification role (D2), not an
   ongoing-state tone. Its own theme token (`--color-action-destructive`) is consumed
   directly by the relevant destructive component variant (e.g. a `Button` `variant:
   'destructive'` entry in `button.tsx`'s own `cva()` recipe, migrated in
   `areas/shared-ui-primitives.md`) — never routed through `shared/status-tone.ts`.
-- Migrate `projection.ts`'s `PresentationSeverity`/`computePresentationSeverity()` — the
-  real owner of the mapping `work-indicator-v2.tsx`/`turn-work-summary.tsx` render
-  through — so `requiresAttention` resolves to `status-attention`, not `status-warning`
-  (the concrete fix for the confirmed mis-mapping). Replace `PresentationSeverity` with
-  `StatusTone` (or make it a direct alias) rather than keeping two parallel taxonomies
-  for the same concept.
+- **Legacy `TurnWork` projection** (`transcript/projection.ts`): migrate
+  `PresentationSeverity`/`computePresentationSeverity()` to produce `StatusTone` values
+  from **only the subset it can honestly represent** — `'normal'` → `'neutral'` (or
+  `'success'`, whichever the change request's "completed historical work → normally
+  neutral" rule implies for this legacy model — decide based on what
+  `turn-work-summary.tsx` actually needs, don't guess), `'warning'` → `'warning'`,
+  `'error'` → `'error'`. **Do not add `requiresAttention` as an artificial parameter to
+  this function merely to preserve prior wording about a unified fix** — this legacy
+  projection has no such input and must not be given one just to look consistent with
+  Work V2. Update `turn-work-summary.tsx` (real path: `features/agent-sessions/turn-work/
+  turn-work-summary.tsx`) to consume the migrated output.
+- **New Work-V2-local projection** (this area creates it — suggested location: extend
+  `work-v2/activity-model-v2.ts`, which already classifies `requires_attention` as an
+  activity kind, or a new small sibling module in `work-v2/` if that fits the existing
+  file's cohesion better — implementer's judgment, not a fixed file name): a pure
+  function mapping `CanonicalTurnV2`/`TurnStatusV2` (and the current-activity `kind`
+  where relevant) to `StatusTone`, explicitly including `requiresAttention` →
+  `'attention'`. Migrate all three known Work V2 call sites to consume it instead of
+  each computing/checking independently:
+  - `work-indicator-v2.tsx`'s `WorkCurrentActivityLineV2` (`isAttention`, line 28).
+  - `work-indicator-v2.tsx`'s `WorkIndicatorV2` (`attention`/`severity`, lines 70-79) —
+    this is the confirmed mis-mapping fix.
+  - `pending-interaction-view-v2.tsx:18`'s direct `turn.status.status !==
+    'requiresAttention'` check (only if it needs a tone for rendering, not merely a
+    boolean gate — inspect before changing; a pure boolean guard with no color output
+    doesn't need to go through `StatusTone` at all).
 - **Redesign `status-label.tsx`**: its exported component/prop contract changes from
   "receives a raw domain-status string and derives classes itself" to "receives a typed
   `tone: StatusTone` prop and renders via this area's text-tone recipe." The
@@ -100,9 +154,7 @@ classes" — each caller re-derives its own subset of the mapping.
   conversion, this area's task must also touch those two specific call sites (narrow,
   surgical — the `StatusLabel` usage only, not the rest of either file) so no
   intermediate task is left with a broken build; see `tasks/05-*`'s `allowed_paths` for
-  the exact narrow carve-out and `areas/agent-sessions-and-work.md`/
-  `areas/specs-lanes-and-remaining-ui.md` for confirmation that `tasks/06-*`/`tasks/07-*`
-  do not need to re-touch this specific call site.
+  the exact narrow carve-out.
 - Design the module's exported shape so `pull-requests/changes/status.ts`'s
   `stateTone()` (a third, independent status→class mapping, migrated separately in
   `areas/specs-lanes-and-remaining-ui.md`) can consume the shared `StatusTone` type and
@@ -123,31 +175,50 @@ classes" — each caller re-derives its own subset of the mapping.
   a separate, 1-member action role, not a member of this 7-value union — the contract as
   a whole is "7 tones + 1 action role," never described as "9 states."
 - `status-label.tsx` is edited **only** here, not in `tasks/04-*`.
+- Do not merge the legacy `TurnWork` projection and the new Work-V2-local projection
+  into one function — they have genuinely different inputs (the legacy model cannot
+  express `requiresAttention`) and must stay two separate, correctly-scoped projections
+  that both happen to produce `StatusTone` as their output type.
+- Not every status-bearing visual component needs to import this module directly —
+  `StatusCard` is a confirmed example that keeps its own `cva()` API and consumes
+  semantic tokens directly (D2's second clarification).
 
 ## Interfaces and boundaries
 
 - Consumes: `--color-status-*`/`--color-status-active`/`--color-status-neutral` tokens
   from `areas/theme-foundation.md` (not `--color-action-destructive` — see Requirements).
-- Produces: the status-tone module every status-bearing consumer (Areas 4-5, and
-  `lane-presentation.ts` in Area 5) imports instead of writing its own mapping, and the
-  redesigned `status-label.tsx` (typed `tone` prop) its two known callers now depend on.
+- Produces: the `StatusTone` type and presentation recipes that any domain-state
+  projection may target and any visual component may consume (directly, or via its own
+  constrained `cva()` API) — not a mandatory import for every status-bearing component.
+  Also produces the redesigned `status-label.tsx` (typed `tone` prop) its two known
+  callers now depend on, and the new Work-V2-local projection Work V2's own consumers
+  depend on.
 
 ## Area-specific acceptance criteria
 
 1. The new status-tone module exports exactly `StatusTone` (7 values) plus focused
    presentation recipes (at least a text-only and a surface recipe — not one universal
-   recipe) — `action-destructive` is **not** exported from it.
-2. `requiresAttention` in `work-indicator-v2.tsx` renders with `status-attention`
-   classes, visually distinct from `status-warning` (different hue, not just a shade).
-3. `turn-work-summary.tsx` and `status-label.tsx` consume the new module — no local
+   recipe) — `action-destructive` is **not** exported from it, and the module contains
+   no domain-status switch (session/spec/PR/Turn status names do not appear in it).
+2. `transcript/projection.ts`'s migrated severity function has no `requiresAttention`
+   parameter and no attention-producing branch — verified by source review, confirming
+   it was not artificially extended to match Work V2's wording.
+3. A new Work-V2-local projection exists, is the single source Work V2's three named
+   call sites (`WorkCurrentActivityLineV2`, `WorkIndicatorV2`,
+   `pending-interaction-view-v2.tsx` where applicable) consume, and maps
+   `requiresAttention` to `'attention'`.
+4. `WorkIndicatorV2` renders `requiresAttention` with `status-attention` classes,
+   visually distinct from `status-warning` (different hue, not just a shade) — the
+   confirmed mis-mapping fix. `inspection: computed-style comparison or Storybook test`
+5. `turn-work-summary.tsx` (real path:
+   `features/agent-sessions/turn-work/turn-work-summary.tsx`) and `status-label.tsx`
+   consume their respective (different) migrated projections — no local
    severity-to-class mapping remains duplicated in either file.
-4. `status-label.tsx` receives a typed `tone: StatusTone` prop; it no longer converts a
+6. `status-label.tsx` receives a typed `tone: StatusTone` prop; it no longer converts a
    raw domain-status string to classes itself. `agent-session-list.tsx` and
    `specification-detail.tsx` each compute their own tone from their own domain status
-   before calling it — verified by source review, not by the component's own behavior
-   (a component can correctly render a tone while still being handed a raw string by a
-   caller that didn't migrate; both sides must be checked).
-5. `npm --prefix tools/dashboard test` and `npm --prefix tools/dashboard run build`
+   before calling it — verified by source review, not by the component's own behavior.
+7. `npm --prefix tools/dashboard test` and `npm --prefix tools/dashboard run build`
    pass.
 
 ## Dependencies
@@ -161,8 +232,11 @@ parallel with it.
 
 - Workflow lane presentation (`lane-presentation.ts`, `status-board.tsx`) —
   `areas/specs-lanes-and-remaining-ui.md`.
-- Any other content of `agent-session-list.tsx`/`specification-detail.tsx` beyond the
-  `StatusLabel` call site itself — the rest of those files' migration is `tasks/06-*`/
-  `tasks/07-*`.
+- Any other content of `agent-session-list.tsx`/`specification-detail.tsx`/
+  `work-indicator-v2.tsx`/`pending-interaction-view-v2.tsx` beyond the specific call
+  sites named above — the rest of those files' migration is `tasks/06-*`/`tasks/07-*`.
 - The `action-destructive` token's actual consumer (`Button`'s destructive variant) —
   `areas/shared-ui-primitives.md`.
+- `work-details-sheet-v2.tsx`/`work-timeline-v2.tsx` — confirmed to have no
+  attention/severity logic of their own (only the unrelated `--foreground-muted` fix,
+  which is `tasks/06-*`'s job).

@@ -25,7 +25,9 @@ agent. They are recorded here verbatim in substance so later commands (`spec-ref
   problem (none was found — the current values already meet contrast targets except the
   one flagged case, D4).
 - **Consequences:** Governs `areas/theme-foundation.md` and the token contract every
-  other area consumes. No new primitive/scale tokens may be introduced by any task.
+  other area consumes. No new primitive/scale tokens may be introduced by any task. See
+  D10 for a later correction to the `@theme inline` mechanism named here — the alias
+  block actually needs `@theme static inline`, not plain `@theme inline`.
 - **Date:** 2026-09-03
 - **Affected artifacts:** `overview.md`, `areas/theme-foundation.md`, `tasks/03-theme-contract.md`.
 
@@ -47,19 +49,35 @@ agent. They are recorded here verbatim in substance so later commands (`spec-ref
   mis-mapping at `work-indicator-v2.tsx:70-91`).
 - **Clarification (added during `/nevo-ai:spec-review`):** this is **7 `StatusTone`
   values plus 1 separate `action-destructive` action role** — `status-active` and
-  `status-neutral` are `@theme inline` aliases that *implement* 2 of those 7 values, not
+  `status-neutral` are `@theme static inline` aliases that *implement* 2 of those 7 values, not
   additional states, and `action-destructive` is not a `StatusTone` member at all (it is
   a one-off component-variant concern, e.g. a destructive Button variant, never routed
   through the shared status-tone module). Earlier drafts of this spec described this as
   a "9-state contract," which double-counted the aliases and miscategorized
   `action-destructive` as a status. See D9 for how this affects the module's exported
   shape.
+- **Second clarification (added during `/nevo-ai:spec-review`):** "all status-bearing
+  components consume [the contract]" means every **domain-state → tone projection**
+  must resolve to a `StatusTone` value — it does not mean every visual component must
+  literally `import` `shared/status-tone.ts` and call its specific recipe functions. A
+  component with its own constrained visual API (e.g. `StatusCard`'s `cva()` recipe) may
+  consume the resulting semantic tokens/classes directly, as long as the domain-state
+  decision upstream of it went through `StatusTone` first. Also: `transcript/projection.ts`'s
+  legacy `PresentationSeverity` (`normal|warning|error`, no attention concept — it has
+  no input that could carry `requiresAttention`) and Work V2's own
+  `CanonicalTurnV2`/`TurnStatusV2` → tone projection (which does carry
+  `requiresAttention`) are two genuinely separate domain projections, not one shared
+  pipeline — see the correction to `areas/status-tone-contract.md` for the exact
+  boundary.
 - **Rationale:** Owner-stated: attention (user action required) and warning (recoverable
   tool/local failure) are semantically different signals and must be visually distinct;
   scattering the decision per component is how the current mis-mapping happened.
-- **Consequences:** Governs `areas/status-tone-contract.md`; every task touching a
-  status/severity mapping (work-v2 severity logic, `turn-work-summary.tsx`, workflow
-  lanes, `StatusCard`) must consume this one contract rather than deciding locally.
+- **Consequences:** Governs `areas/status-tone-contract.md`; every domain-state →
+  presentation projection (Work V2's own severity/attention logic, the legacy
+  `turn-work/turn-work-summary.tsx` projection, workflow lanes) must resolve to
+  `StatusTone` rather than deciding locally — but not every visual component must
+  literally import `shared/status-tone.ts` itself (second clarification above);
+  `StatusCard` is the confirmed example that doesn't need to.
 - **Date:** 2026-09-03
 - **Affected artifacts:** `areas/status-tone-contract.md`, `tasks/05-status-tone-contract.md`, `tasks/06-agent-sessions-and-work.md`, `tasks/07-specs-lanes-and-remaining-ui.md`.
 
@@ -301,25 +319,37 @@ agent. They are recorded here verbatim in substance so later commands (`spec-ref
   - A — Plain `@theme { … }` (as originally specified) and hope product usage keeps
     every token detected; add no explicit guarantee.
   - B — Use `@theme static { … }` for the direct-value contract (forces every declared
-    variable into compiled CSS regardless of detected usage), keep `@theme inline` for
-    the two alias entries (`status-active`/`status-neutral`, which must stay
-    reference-based since they alias other variables), and add a Storybook test that
-    actively asserts every catalogued token resolves to a non-empty computed value.
-- **Decision:** Option B.
+    variable into compiled CSS regardless of detected usage), keep the two alias entries
+    (`status-active`/`status-neutral`) in a plain `@theme inline` block, and add a
+    Storybook test that actively asserts every catalogued token resolves to a non-empty
+    computed value.
+  - C (**correction, added in a later `/nevo-ai:spec-review` pass**) — same as B, except
+    the alias block itself also needs `static`: `@theme static inline { … }`, not plain
+    `@theme inline`. `static` and `inline` are orthogonal Tailwind 4 modifiers with
+    different jobs — `inline` controls whether the generated utility substitutes the
+    variable's *value* directly or keeps a `var(--...)` reference (required here, since
+    these two entries alias another theme variable rather than holding a literal value);
+    `static` controls whether the variable is emitted into compiled CSS regardless of
+    detected usage. A plain `@theme inline` block is subject to the exact same
+    usage-detection gap this decision exists to close — `status-active`/`status-neutral`
+    would silently be missing from compiled CSS under the same conditions that motivated
+    `static` for the direct-value block in the first place, defeating the point of B for
+    those two tokens specifically.
+- **Decision:** Option C.
 - **Rationale:** The Colors story exists specifically to be a token catalog independent
   of product usage (`overview.md`'s Storybook requirements already say the story "must
   not depend on incidental usage elsewhere in the product," carried over from the
   original change request) — relying on Tailwind's own default usage-detection
-  contradicts that goal directly. `static` is the mechanism Tailwind 4 provides for
-  exactly this case; the test is the story's own guard against a future regression (a
-  future PR renaming a token in `@theme static` but not the story, or a Tailwind
-  upgrade changing `static`'s behavior) going unnoticed.
+  contradicts that goal directly, for the aliases exactly as much as for the direct
+  values. `static` and `inline` both need to apply to the alias block simultaneously —
+  they are not alternatives to each other.
 - **Consequences:** `tasks/03-*` (`areas/theme-foundation.md`) uses `@theme static` for
-  the direct-value block, `@theme inline` unchanged for aliases; implementation must
-  first verify the installed `tailwindcss@^4.3.3` actually supports `static` and
-  escalate if not (an assumption this spec cannot verify without running the toolchain).
-  `tasks/08-*` (`areas/storybook-and-documentation.md`) adds the token-presence
-  Storybook test.
+  the direct-value block and `@theme static inline` for the two alias entries;
+  implementation must first verify the installed `tailwindcss@^4.3.3` actually supports
+  both `static` and `static inline` and escalate if not (an assumption this spec cannot
+  verify without running the toolchain). `tasks/08-*`
+  (`areas/storybook-and-documentation.md`) adds the token-presence Storybook test,
+  covering both alias tokens as well as the direct-value tokens.
 - **Date:** 2026-09-03
 - **Affected artifacts:** `areas/theme-foundation.md`, `areas/storybook-and-documentation.md`,
   `tasks/03`, `tasks/08`.

@@ -28,14 +28,39 @@ central status/tone module, fix the dangling `--foreground-muted` reference, and
   text recipe in `create-agent-session-dialog.tsx:262` and `provider-unavailable-banner.tsx:18`.
 - `agent-session-list.tsx:119` — `focus-visible:ring-2 focus-visible:ring-[var(--accent)]`.
 - `agent-session-page.tsx:238` — `text-[var(--accent-foreground,white)]`.
-- `work-v2/work-indicator-v2.tsx` and `work-v2/turn-work-summary.tsx`'s severity mappings
-  are migrated by `areas/status-tone-contract.md`, not this area — this area's job for
-  those two files is limited to any remaining non-severity `-[var(--…)]` usage (e.g. the
-  `--foreground-muted` fix above) once Area 3 has landed.
+- `work-v2/work-indicator-v2.tsx`, `work-v2/pending-interaction-view-v2.tsx`, and
+  `features/agent-sessions/turn-work/turn-work-summary.tsx` (**path correction**: this
+  file lives under a sibling `turn-work/` directory, not `work-v2/`) have their
+  severity/attention-mapping logic migrated by `areas/status-tone-contract.md` (both the
+  legacy `transcript/projection.ts` severity and the separate Work-V2-local
+  `requiresAttention` projection — these are two different systems, not one shared
+  pipeline; see that area's Current state for the full correction). By the time this
+  area's task runs, that logic is already migrated — do not re-derive or duplicate it.
+  These three files may still have **other, non-severity** `-[var(--…)]` usage (e.g.
+  icon colors unrelated to severity/attention state) left for this area's normal sweep
+  to catch — inspect each file rather than assuming it's fully done.
 - `create-agent-session-dialog.tsx:155-156,190` — `hover:border-white/20` raw white
   usage; other stray white/black occurrences may exist elsewhere in this feature per the
   27-file, 59-occurrence count in `overview.md` — sweep the whole feature directory, not
   just the cited lines.
+- **Destructive-action audit (item 5):** `agent-session-details.tsx:120-144` has a real
+  irreversible-delete action — "Usuń sesję z dysku" (delete session from disk),
+  currently `<Button variant="ghost">` plus ~7 manual `border-[var(--danger-border)]
+  bg-[var(--danger-muted)] text-[var(--danger)] hover:bg-[color-mix(...)]
+  hover:text-[var(--danger-strong)] focus-visible:ring-[var(--danger)]` overrides. This
+  is the confirmed real consumer that justifies `areas/shared-ui-primitives.md` adding a
+  `destructive` Button variant — migrate this button to `variant="destructive"`.
+  Separately, `composer/agent-session-composer.tsx:159-173` has a **different, smaller**
+  action — "Przerwij" (stop/cancel the active turn), currently `variant="secondary"`
+  plus a light `text-[var(--danger)] hover:bg-[var(--danger-muted)]
+  hover:text-[var(--danger-strong)]` override. This is **not** a destructive action in
+  D2's sense (interrupting in-progress generation is recoverable, not an irreversible
+  delete) — migrate its raw `var()` usages to semantic tokens (e.g. `text-status-error
+  hover:bg-status-error/10 hover:text-status-error`) but keep it visually lighter than
+  the delete button and do **not** give it `variant="destructive"`. No other genuine
+  destructive action was found elsewhere in this feature, or in `features/specifications/**`/
+  `features/pull-requests/**` (checked by grep for delete/remove/destructive button
+  patterns — none found there).
 
 ## Requirements
 
@@ -88,6 +113,13 @@ central status/tone module, fix the dangling `--foreground-muted` reference, and
 7. Durable Storybook tests for chat/agent-session components pass, covering the two
    explicitly allowed changes under Constraints (D9) as intentional and correct, not a
    claimed pixel-identical baseline.
+8. `agent-session-details.tsx`'s delete-session button uses `<Button
+   variant="destructive">` with no manual `--danger*` class overrides remaining on it.
+   `inspection: source reviewed`
+9. `agent-session-composer.tsx`'s "Przerwij" (stop/cancel) button uses semantic status
+   tokens (not raw `--danger*` vars) but does **not** use `variant="destructive"` and
+   remains visually lighter than the delete button.
+   `inspection: source reviewed, visual distinction confirmed`
 
 ## Dependencies
 
@@ -95,7 +127,7 @@ central status/tone module, fix the dangling `--foreground-muted` reference, and
 
 ## Out of scope
 
-- `work-indicator-v2.tsx`/`turn-work-summary.tsx`'s severity-mapping logic itself —
-  `areas/status-tone-contract.md`.
+- `work-indicator-v2.tsx`/`pending-interaction-view-v2.tsx`/`turn-work/turn-work-summary.tsx`'s
+  severity/attention-mapping logic itself — `areas/status-tone-contract.md`.
 - Any `features/specifications/**`, `features/pull-requests/**`,
   `features/operations/**` file — `areas/specs-lanes-and-remaining-ui.md`.

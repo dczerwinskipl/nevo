@@ -50,9 +50,12 @@ and rename `ProviderBadge`'s `cat-1`/`cat-2` usage to `provider-claude`/
   `create-agent-session-dialog.tsx:153,189` and `interaction-prompt.tsx:99,139`;
   warning-strong-80/90%-muted-text at `create-agent-session-dialog.tsx:262` and
   `provider-unavailable-banner.tsx:18`) into opacity-modifier utilities.
-- `work-indicator-v2.tsx`/`turn-work-summary.tsx`: touch only their non-severity
-  `-[var(--…)]` usages (e.g. `--foreground-muted`) — their severity-mapping logic
-  already changed in `status-tone-contract`; do not re-touch or re-derive it here.
+- `work-indicator-v2.tsx`/`pending-interaction-view-v2.tsx`/
+  `turn-work/turn-work-summary.tsx` (**path correction**: `turn-work-summary.tsx` lives
+  under a sibling `turn-work/` directory, not `work-v2/`): touch only their
+  non-severity/non-attention `-[var(--…)]` usages (e.g. `--foreground-muted`, icon
+  colors) — their severity/attention-mapping logic already changed in
+  `status-tone-contract`; do not re-touch or re-derive it here.
 - `ProviderBadge`: rename token consumption only — Claude/Antigravity colors stay
   numerically identical (`#fb923c`/`#60a5fa`), this is a naming fix, not a repaint.
 - Verify each of the 4 `--foreground-muted` sites renders sensibly now that the
@@ -62,6 +65,15 @@ and rename `ProviderBadge`'s `cat-1`/`cat-2` usage to `provider-claude`/
   that select whole pre-written class strings into `cn()`-based conditional
   composition, per the class-composition contract (D8) — do not leave raw
   string-literal ternaries as the composition mechanism.
+- **Destructive-action migration (item 5 audit):** `agent-session-details.tsx:120-144`'s
+  "Usuń sesję z dysku" (delete session) button is a confirmed real, irreversible
+  destructive action — migrate it from `variant="ghost"` plus ~7 manual `--danger*`
+  class overrides to `<Button variant="destructive">` (added in `tasks/04-*`), removing
+  the manual overrides entirely. `composer/agent-session-composer.tsx:159-173`'s
+  "Przerwij" (stop/cancel active turn) button is a **different, non-destructive** action
+  — migrate its raw `--danger*` `var()` usage to semantic status tokens, but keep it
+  visually lighter than the delete button and do **not** apply
+  `variant="destructive"` to it; the two must not share the same visual contract.
 - Apply the "required inspection when touching a component" checklist
   (`react-component-guidelines.md` §11/§12) to every component this task changes.
 
@@ -88,8 +100,15 @@ and rename `ProviderBadge`'s `cat-1`/`cat-2` usage to `provider-claude`/
    `inspection: reviewed for legibility and recorded`
 8. `create-agent-session-dialog.tsx`'s two ternary-based class selections use `cn()`.
    `inspection: source reviewed`
-9. The "required inspection when touching a component" checklist was applied.
-   `inspection: checklist applied and recorded per component`
+9. `agent-session-details.tsx`'s delete-session button uses `variant="destructive"`
+   with zero manual `--danger*` overrides remaining.
+   `automated: ! grep -q -- "danger" tools/dashboard/ui/features/agent-sessions/agent-session-details.tsx`
+10. `agent-session-composer.tsx`'s stop/cancel button uses semantic status tokens, does
+    not use `variant="destructive"`, and remains visually distinguishable (lighter)
+    from the delete button.
+    `inspection: source and rendered comparison reviewed`
+11. The "required inspection when touching a component" checklist was applied.
+    `inspection: checklist applied and recorded per component`
 
 ## Verification
 
@@ -105,7 +124,8 @@ None yet — `tasks/08-storybook-and-documentation.md`.
 
 ## Out of scope
 
-- `work-indicator-v2.tsx`/`turn-work-summary.tsx` severity-mapping logic —
+- `work-indicator-v2.tsx`/`pending-interaction-view-v2.tsx`/
+  `turn-work/turn-work-summary.tsx` severity/attention-mapping logic —
   `tasks/05-status-tone-contract.md` (already done by the time this task runs).
 - `features/specifications/**`, `features/pull-requests/**`, `features/operations/**` —
   `tasks/07-specs-lanes-and-remaining-ui.md`.

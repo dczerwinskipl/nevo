@@ -80,6 +80,11 @@ them).
   composition, per the class-composition contract (D8).
 - Apply the "required inspection when touching a component" checklist
   (`react-component-guidelines.md` §11/§12) to every component this task changes.
+- **Destructive-action audit (item 5):** confirmed by grep — no delete/remove/destructive
+  button pattern exists under `features/specifications/**` or `features/pull-requests/**`
+  (the only real destructive action in this change is agent-sessions' delete-session
+  button, migrated in `tasks/06-*`). No action needed here; do not introduce a
+  destructive-variant usage without a genuine consumer.
 - Do not touch `index.css`, `components/ui/**`, `shared/status-tone.ts`, or
   `features/agent-sessions/**`.
 

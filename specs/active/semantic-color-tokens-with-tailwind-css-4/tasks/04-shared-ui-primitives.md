@@ -58,10 +58,13 @@ follow the class-composition contract from the start).
 
 - `button.tsx`'s filled/primary variant: `bg-accent-solid text-fg-on-accent` (not
   `bg-accent`) — the change request's explicit filled-control rule.
-- `button.tsx`: add (or confirm) a `destructive` variant entry in its own `cva()` recipe
-  that consumes `--color-action-destructive` directly (e.g. `bg-action-destructive
+- `button.tsx`: add a `destructive` variant entry in its own `cva()` recipe that
+  consumes `--color-action-destructive` directly (e.g. `bg-action-destructive
   text-fg-on-accent` or the project's established destructive-button treatment) — this
-  is the token's only consumer; it is never routed through `shared/status-tone.ts`
+  is not a speculative/catalog-only addition: `tasks/06-*` migrates a confirmed real
+  consumer, `agent-session-details.tsx`'s "Usuń sesję z dysku" (delete session) button
+  (currently `variant="ghost"` plus ~7 manual `--danger*` class overrides), to this
+  variant. `--color-action-destructive` is never routed through `shared/status-tone.ts`
   (that module doesn't export it — see `tasks/05-*`).
 - `status-card.tsx:27` hover: replace `hover:text-[var(--accent-strong)]` — do not
   reintroduce `accent-solid`/`accent-strong` as a text color; keep `text-accent`

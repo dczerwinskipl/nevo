@@ -49,10 +49,12 @@ documentation to the final contract.
 - Add a Storybook test (via the existing `test:storybook`/Vitest-browser infrastructure)
   asserting that every token catalogued in the story resolves to a non-empty computed
   color value (`getComputedStyle(...).color`/`.backgroundColor` etc. is not `""`,
-  `"rgba(0, 0, 0, 0)"`, or otherwise empty) — this is the story's own proof that
-  `@theme static` (`tasks/03-*`, D10) actually did its job; a story that silently
-  renders blank swatches for undetected tokens is the exact failure mode `static` exists
-  to prevent, so the story must actively check for it, not just visually assume it.
+  `"rgba(0, 0, 0, 0)"`, or otherwise empty) — including the two `@theme static inline`
+  alias tokens (`status-active`, `status-neutral`), not just the direct-value tokens.
+  This is the story's own proof that `@theme static`/`@theme static inline`
+  (`tasks/03-*`, D10) actually did their job; a story that silently renders blank
+  swatches for undetected tokens is the exact failure mode `static` exists to prevent,
+  so the story must actively check for it, not just visually assume it.
 - First run `node tools/docs.mjs find --scope <dashboard/UI-relevant scope>` (or
   equivalent) to determine whether a UX color-role doc already exists under
   `docs/development/`; update it if found, create the minimal doc if genuinely absent —

@@ -88,14 +88,20 @@ separate change from PR #42 and does not modify or merge that PR.
   `VariantProps`) are the only current variant-composition convention.
   `class-variance-authority`/`clsx`/`tailwind-merge` are already direct `dependencies`
   (`package.json:32-33,42`). `StatusCard` (`status-card.tsx:52-53,88-104`) has a real
-  `variant`/`size` API implemented by hand instead of `cva()`. Three independent
-  status→class-string mapping helpers already exist:
-  `status-label.tsx:19-40`'s `statusTone()`,
-  `transcript/projection.ts:34,43-54`'s `PresentationSeverity`/
-  `computePresentationSeverity()` (the actual owner of the severity mapping
-  `work-indicator-v2.tsx`/`turn-work-summary.tsx` render through — not those two files
-  themselves), and `pull-requests/changes/status.ts:10-15`'s `stateTone()` (a third,
-  independently-discovered PR-state mapping). No banned interpolated-class construction
+  `variant`/`size` API implemented by hand instead of `cva()`. At least three
+  independent status→class-string mapping systems already exist and are **not** the
+  same pipeline (confirmed by reading the actual source, correcting an earlier draft of
+  this spec): `status-label.tsx:19-40`'s `statusTone()`;
+  `transcript/projection.ts:34,43-54`'s legacy `PresentationSeverity`/
+  `computePresentationSeverity()`, consumed only by
+  `features/agent-sessions/turn-work/turn-work-summary.tsx` (not under `work-v2/`) and
+  structurally unable to represent `requiresAttention` (its inputs are only per-tool
+  status and `turnError`); and Work V2's own, separate, currently-triplicated inline
+  `=== 'requiresAttention'` logic in `work-v2/work-indicator-v2.tsx` (twice) and
+  `work-v2/pending-interaction-view-v2.tsx:18` (once), which does not import from
+  `transcript/projection.ts` at all. Plus `pull-requests/changes/status.ts:10-15`'s
+  `stateTone()` (a fourth, independently-discovered PR-state mapping). No banned
+  interpolated-class construction
   (`` `text-status-${x}` ``) exists today; a related pattern — ternary expressions
   selecting whole pre-written class strings instead of `cn()` — exists at 5 call sites
   already targeted for the `color-mix` cleanup in `tasks/06`/`07`.
@@ -186,7 +192,7 @@ D7), and a documentation-only Tailwind class-composition contract added to
 D8) — both must exist before any semantic/component edit lands, per C7/C8. Then add the
 exact `@theme` contract given in the change request (namespace `--color-*`,
 neutral/foreground/interaction/canonical-status/action/provider/workflow groups, one
-`@theme inline` block for `status-active`/`status-neutral` aliases) alongside the
+`@theme static inline` block for `status-active`/`status-neutral` aliases — D10) alongside the
 existing `:root` block so computed colors are unchanged while the new utilities become
 available (`areas/theme-foundation.md`). Migrate consumers in dependency order: shared UI
 primitives and the new central status/tone contract next (independent of each other,

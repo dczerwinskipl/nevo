@@ -60,8 +60,13 @@ list). No `@theme` block exists anywhere in the repo (grep confirmed zero matche
     `--color-workflow-design` (new token, value from the change request, `#8b5cf6`).
   - `--color-backdrop` (new token for `bg-black/70`-style overlays, value
     `rgb(0 0 0 / 70%)` from the change request).
-  - `@theme inline { --color-status-active: var(--color-accent); --color-status-neutral:
-    var(--color-fg-muted); }` exactly as given.
+  - A separate `@theme static inline { --color-status-active: var(--color-accent);
+    --color-status-neutral: var(--color-fg-muted); }` block (**not** plain `@theme
+    inline` — `static` and `inline` are orthogonal and both required here: `inline`
+    keeps these two entries reference-based in generated utilities since they alias
+    another theme variable rather than holding a literal value, `static` guarantees they
+    are still emitted into compiled CSS with zero consumers yet, the same reason the
+    direct-value block needs it — D10).
 - Do **not** remove or edit the existing `:root` block in this task — old and new
   co-exist until `areas/cleanup-and-enforcement.md`.
 - Do not add a primitive/50-950 scale, light-theme variant, or any token not listed
@@ -73,11 +78,13 @@ list). No `@theme` block exists anywhere in the repo (grep confirmed zero matche
 - `--color-*: initial` is explicitly out of scope for this task (see Requirements) —
   adding it here would visibly change every currently-rendered page that still uses a
   default-palette utility.
-- The direct-value token block uses `@theme static`, not plain `@theme` — verify the
-  installed Tailwind version (`^4.3.3`) actually supports the `static` keyword before
+- The direct-value token block uses `@theme static`, and the alias block uses `@theme
+  static inline` (not plain `@theme`/`@theme inline`) — verify the installed Tailwind
+  version (`^4.3.3`) actually supports both `static` and `static inline` before
   implementation; if it doesn't, escalate rather than silently falling back to plain
-  `@theme` (D10 exists specifically because plain `@theme`'s usage-detection is not
-  reliable enough for a token catalog story).
+  `@theme`/`@theme inline` (D10 exists specifically because plain usage-detection is not
+  reliable enough for a token catalog story, for aliases exactly as much as direct
+  values).
 - No new npm dependency.
 
 ## Interfaces and boundaries
@@ -91,17 +98,19 @@ list). No `@theme` block exists anywhere in the repo (grep confirmed zero matche
 ## Area-specific acceptance criteria
 
 1. `index.css` contains the `@theme static` block with every token listed above and the
-   separate `@theme inline` alias block, `automated: grep for each --color-* name in index.css`.
+   separate `@theme static inline` alias block (both aliases), `automated: grep for each --color-* name in index.css`.
 2. With this task's changes alone (no consumer migrated yet), `npm --prefix
    tools/dashboard run build` succeeds. **No manual screenshot comparison is required at
    this point** — nothing consumes the new tokens yet, so there is nothing for a visual
    diff to meaningfully catch; a manual screenshot pass here would be redundant with the
    one final representative review in `tasks/09-*` (D9). Instead, verify via the
    compiled output: every declared `--color-*` custom property (including every token
-   listed in Requirements) is present with its exact expected value in the built CSS
-   (`npm --prefix tools/dashboard run build`'s output, or an equivalent dev-server
-   compiled-stylesheet check) — this is also the proof that `@theme static` is doing its
-   job (D10). `automated: build + compiled-CSS assertion per token`
+   listed in Requirements, and **both** `@theme static inline` alias tokens,
+   `--color-status-active` and `--color-status-neutral`) is present with its exact
+   expected value in the built CSS (`npm --prefix tools/dashboard run build`'s output,
+   or an equivalent dev-server compiled-stylesheet check) — this is also the proof that
+   `@theme static`/`@theme static inline` are doing their job (D10).
+   `automated: build + compiled-CSS assertion per token, including both aliases`
 3. A computed-style spot check on the *already-rendered, not-yet-migrated* page (still
    using the old `:root` variables for actual rendering) confirms the page itself is
    unchanged — since this task adds tokens without wiring any consumer, this is a

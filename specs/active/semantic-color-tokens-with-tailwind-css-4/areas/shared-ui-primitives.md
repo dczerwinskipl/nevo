@@ -32,7 +32,18 @@ ownership was a planning error).
   `bg-white/5` skeleton loaders.
 - `button.tsx` has no `destructive` variant today (confirmed: only `default`/
   `secondary`/`ghost`) — one must be added, consuming `--color-action-destructive`
-  directly (D2/D8: that token is never routed through `shared/status-tone.ts`).
+  directly (D2/D8: that token is never routed through `shared/status-tone.ts`). This is
+  justified by a confirmed real consumer (not catalog-only, per the class-composition
+  contract's "don't create an unused variant" rule): `agent-session-details.tsx`'s
+  "Usuń sesję z dysku" delete-session button (lines 129-142) currently uses
+  `variant="ghost"` plus ~7 manual `border-[var(--danger-border)] bg-[var(--danger-muted)]
+  text-[var(--danger)] hover:...` overrides — migrated to `variant="destructive"` in
+  `areas/agent-sessions-and-work.md`'s task. Confirmed by audit: no other genuine
+  irreversible-delete action exists elsewhere in `features/specifications/**` or
+  `features/pull-requests/**`. The composer's "Przerwij" (stop/cancel active turn)
+  button is a *different*, non-destructive action (interrupting in-progress generation,
+  not irreversible deletion) — it keeps its own, lighter treatment and does **not**
+  adopt this variant (see `areas/agent-sessions-and-work.md`).
 
 ## Requirements
 

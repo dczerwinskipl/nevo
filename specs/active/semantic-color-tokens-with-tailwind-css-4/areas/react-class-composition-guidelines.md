@@ -33,20 +33,24 @@ begins.
   (`tools/dashboard/package.json:32-33,42`); exactly two existing `cva()` recipes —
   `button.tsx:7` (`variant`, `size`) and `sheet.tsx:29` (`side`) — both already derive
   props via `VariantProps`.
-- Three independent status/tone-mapping helpers already exist, confirmed by inspection —
-  evidence this repo already needs the "keep close to the feature, promote only when
-  genuinely shared" rule stated explicitly:
+- At least four independent status/tone-mapping systems already exist, confirmed by
+  inspection — evidence this repo already needs the "keep close to the feature, promote
+  only when genuinely shared" rule stated explicitly:
   - `tools/dashboard/ui/shared/ui/status-label.tsx:19-40`'s `statusTone()`
     (consumed by `specification-detail.tsx:146` and `agent-session-list.tsx:139`);
   - `tools/dashboard/ui/features/agent-sessions/transcript/projection.ts:34,43-54`'s
-    `PresentationSeverity` type and `computePresentationSeverity()` (the real source
-    consumed by `work-indicator-v2.tsx`/`turn-work-summary.tsx`'s severity mapping — not
-    those two files themselves, correcting the assumption in
-    `areas/status-tone-contract.md`'s original discovery note);
+    legacy `PresentationSeverity` type and `computePresentationSeverity()`, consumed
+    only by `features/agent-sessions/turn-work/turn-work-summary.tsx` (**not**
+    `work-v2/turn-work-summary.tsx` — that path doesn't exist) — this legacy projection
+    has no input that could carry `requiresAttention` and is a genuinely different
+    system from the next item, not a shared pipeline;
+  - Work V2's own, currently-triplicated inline `=== 'requiresAttention'` logic in
+    `work-v2/work-indicator-v2.tsx` (twice) and `work-v2/pending-interaction-view-v2.tsx`
+    (once) — does not import from `transcript/projection.ts` at all;
   - `tools/dashboard/ui/features/pull-requests/changes/status.ts:10-15`'s `stateTone()`
-    (a third, newly-discovered, independent PR-state → full-Tailwind-class-string
-    mapping, feature-local to `pull-requests`, not previously identified by this
-    change's discovery).
+    (a fourth, independently-discovered PR-state → full-Tailwind-class-string mapping,
+    feature-local to `pull-requests`, not previously identified by this change's
+    discovery).
 - `StatusCard` (`components/ui/status-card.tsx:52-53`) has a real variant API
   (`variant: 'error'|'warning'|'info'`, `size: 'sm'|'default'`) implemented by hand via
   `cn()` + boolean ternaries (`status-card.tsx:88-104`), **not** `cva()` — a concrete,

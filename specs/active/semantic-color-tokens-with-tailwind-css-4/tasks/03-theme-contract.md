@@ -28,12 +28,15 @@ semantic_references:
 
 ## Goal
 
-Add the `@theme static { … }` block (and its separate `@theme inline` alias block)
-specified in `overview.md` § Current architecture / `areas/theme-foundation.md` to
-`tools/dashboard/ui/index.css`, without removing the existing `:root` block and without
-adding `--color-*: initial` yet, so every currently-rendered page is pixel-identical
-after this task. `static` guarantees every token compiles into CSS even with zero
-consumers yet (D10) — plain `@theme` would not.
+Add the `@theme static { … }` block (and a separate `@theme static inline` alias
+block — **not** plain `@theme inline`) specified in `overview.md` § Current
+architecture / `areas/theme-foundation.md` to `tools/dashboard/ui/index.css`, without
+removing the existing `:root` block and without adding `--color-*: initial` yet, so
+every currently-rendered page is pixel-identical after this task. `static` guarantees
+every token — direct-value and alias alike — compiles into CSS even with zero consumers
+yet (D10); `inline` (needed only on the alias block) keeps those two entries
+reference-based rather than substituting a literal value. Both modifiers apply to the
+alias block simultaneously — they are not alternatives.
 
 ## Dependencies
 
@@ -44,9 +47,12 @@ diff is pure semantic change).
 
 - Insert the `@theme static { … }` block after the existing `@import "tailwindcss";`
   line and before or after the `:root` block (either position is fine — do not
-  interleave them). Verify `tailwindcss@^4.3.3` actually supports the `static` keyword
-  before implementation; if unsupported, stop and escalate rather than silently
-  reverting to plain `@theme` (D10).
+  interleave them). Write the two alias entries as their own separate `@theme static
+  inline { --color-status-active: var(--color-accent); --color-status-neutral:
+  var(--color-fg-muted); }` block, not inside the direct-value block and not as plain
+  `@theme inline`. Verify `tailwindcss@^4.3.3` actually supports both `static` and
+  `static inline` before implementation; if either is unsupported, stop and escalate
+  rather than silently reverting to plain `@theme`/`@theme inline` (D10).
 - Copy neutral/foreground/accent-fill token values from the current `:root` values
   exactly (`--background`→`--color-background`, etc. — full mapping in
   `areas/theme-foundation.md` § Requirements). Do not "improve" any value beyond what
@@ -62,17 +68,19 @@ diff is pure semantic change).
 ## Acceptance criteria
 
 1. Every token listed in `areas/theme-foundation.md` § Requirements exists in the new
-   `@theme static`/`@theme inline` blocks with the specified value.
+   `@theme static`/`@theme static inline` blocks with the specified value.
    `automated: grep -c "  --color-" tools/dashboard/ui/index.css` (expect the full count)
 2. `--color-fg-secondary` (from `--muted-strong`) and `--color-fg-muted` (from `--muted`)
    each meet ≥4.5:1 contrast against `--color-surface` and `--color-background` — check
    the actual current values, do not assume the copy is already compliant.
    `inspection: contrast ratio computed for both pairs and recorded`
 3. `npm --prefix tools/dashboard run build` succeeds, and **every** declared
-   `--color-*` custom property is present with its exact expected value in the compiled
-   CSS output — this is the direct evidence `@theme static` is emitting the full token
-   catalog with zero consumers, which the Storybook Colors story (`tasks/08-*`) will
-   later depend on. `automated: build + per-token compiled-CSS value assertion`
+   `--color-*` custom property — including both `@theme static inline` aliases
+   (`--color-status-active`, `--color-status-neutral`) — is present with its exact
+   expected value in the compiled CSS output — this is the direct evidence
+   `@theme static`/`@theme static inline` are emitting the full token catalog with zero
+   consumers, which the Storybook Colors story (`tasks/08-*`) will later depend on.
+   `automated: build + per-token compiled-CSS value assertion, including both aliases`
 4. No manual screenshot comparison is required here — nothing consumes the new tokens
    yet, so a visual diff has nothing meaningful to catch; that check happens once, in
    `tasks/09-*` (D9). A quick computed-style spot check of the *existing, unaffected*
