@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-03T05:49:37.577Z",
+  "generated": "2026-09-03T06:58:02.972Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -489,373 +489,6 @@
             "concrete-action-commit-and-push",
             "step-orchestration-and-next-step-service"
           ]
-        }
-      ]
-    },
-    {
-      "id": "storybook-for-nevo-ai",
-      "specId": "cb8e318a-8f67-49f7-b9ed-09282c5d7bfe",
-      "title": "Storybook for Nevo AI",
-      "status": "draft",
-      "priority": 10,
-      "created": "2026-09-02",
-      "tasks": [
-        {
-          "id": "chat-boundary-audit",
-          "order": 1,
-          "file": "tasks/01-chat-boundary-audit.md",
-          "status": "verified",
-          "implementation": {
-            "baseline_revision": "d1d5dc1968a0e854ea65d151676b7a0d584343f7",
-            "review_revision": "40e8d93c1c66b490165c33100a3a763c50723a68",
-            "changed_paths": [
-              "specs/active/storybook-for-nevo-ai/areas/chat-surface-boundaries.md"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "284a0c56a6f1f70dab3dee6a319aeba832556a9cb9ab425415fddf51cd98c503",
-            "revision": "40e8d93c1c66b490165c33100a3a763c50723a68",
-            "commands": [
-              {
-                "command": "git diff --name-only -- specs/active/storybook-for-nevo-ai/areas/chat-surface-boundaries.md",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "chat-surface-extraction",
-          "order": 2,
-          "file": "tasks/02-chat-surface-extraction.md",
-          "status": "verified",
-          "depends_on": [
-            "chat-boundary-audit"
-          ],
-          "implementation": {
-            "baseline_revision": "70c2c20c9a530a8c260d52e017e9ed0efa23f34f",
-            "review_revision": "dc05491a1989031ed961d0654a1a391ab077b301",
-            "changed_paths": [
-              "tools/dashboard/tests/semantic-work-chat-v2-corrections.test.mjs",
-              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.tsx",
-              "tools/dashboard/ui/features/agent-sessions/agent-session-page.tsx"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "7e184003be06d86b1c1059fa7c75b04d5f404af202acf2148ef5425cb47b9302",
-            "revision": "dc05491a1989031ed961d0654a1a391ab077b301",
-            "commands": [
-              {
-                "command": "npm --prefix tools/dashboard test",
-                "exit_code": 0
-              },
-              {
-                "command": "npm --prefix tools/dashboard run build",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "storybook-infrastructure-setup",
-          "order": 3,
-          "file": "tasks/03-storybook-infrastructure-setup.md",
-          "status": "verified",
-          "implementation": {
-            "baseline_revision": "3745a31bd90bd85675163bdc0d69c5f1c52ed69c",
-            "review_revision": "b3288b9fe4167f41fb622d0b8bdca92ca5193cb1",
-            "changed_paths": [
-              "tools/dashboard/.storybook/.gitignore",
-              "tools/dashboard/.storybook/aliases.ts",
-              "tools/dashboard/.storybook/main.ts",
-              "tools/dashboard/.storybook/manager.ts",
-              "tools/dashboard/.storybook/preview.tsx",
-              "tools/dashboard/package-lock.json",
-              "tools/dashboard/package.json",
-              "tools/dashboard/ui/foundations/smoke.stories.tsx",
-              "tools/dashboard/vite.config.ts"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "4ee4504cd635a2a2f48fba9caeb426655f7ac16a1e2a323fef0ebd0d841fdf81",
-            "revision": "b3288b9fe4167f41fb622d0b8bdca92ca5193cb1",
-            "commands": [
-              {
-                "command": "npm --prefix tools/dashboard run build-storybook",
-                "exit_code": 0
-              },
-              {
-                "command": "npm --prefix tools/dashboard run build",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "component-testing-infrastructure",
-          "order": 4,
-          "file": "tasks/04-component-testing-infrastructure.md",
-          "status": "verified",
-          "depends_on": [
-            "storybook-infrastructure-setup"
-          ],
-          "implementation": {
-            "baseline_revision": "433b8fcd07c4cc8837e7d58b83b3d55228c10d0c",
-            "review_revision": "b3288b9fe4167f41fb622d0b8bdca92ca5193cb1",
-            "changed_paths": [
-              "tools/dashboard/.storybook/aliases.ts",
-              "tools/dashboard/.storybook/main.ts",
-              "tools/dashboard/.storybook/manager-head.html",
-              "tools/dashboard/.storybook/manager.ts",
-              "tools/dashboard/.storybook/preview-head.html",
-              "tools/dashboard/.storybook/preview.tsx",
-              "tools/dashboard/.storybook/vitest.setup.ts",
-              "tools/dashboard/package-lock.json",
-              "tools/dashboard/package.json",
-              "tools/dashboard/tests/semantic-work-chat-v2-corrections.test.mjs",
-              "tools/dashboard/tests/semantic-work-chat-v2-corrections.test.tsx",
-              "tools/dashboard/tests/turn-work-summary.test.mjs",
-              "tools/dashboard/tests/turn-work-summary.test.tsx",
-              "tools/dashboard/ui/foundations/smoke.stories.tsx",
-              "tools/dashboard/vite.config.ts",
-              "tools/dashboard/vitest.config.ts"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "976c3ff0c201546137d1a6a06f3472af3dba4e689b0aac12275e2db72a041da6",
-            "revision": "b3288b9fe4167f41fb622d0b8bdca92ca5193cb1",
-            "commands": [
-              {
-                "command": "npm --prefix tools/dashboard run test:storybook",
-                "exit_code": 0
-              },
-              {
-                "command": "npm --prefix tools/dashboard test",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "foundation-stories",
-          "order": 5,
-          "file": "tasks/05-foundation-stories.md",
-          "status": "verified",
-          "depends_on": [
-            "storybook-infrastructure-setup"
-          ],
-          "implementation": {
-            "baseline_revision": "34764c30d26150ab61ef8c2e229ab91f0bb4ecd3",
-            "review_revision": "139f82e24816fb49323bd9333677613b1c35ea7b",
-            "changed_paths": [
-              "tools/dashboard/ui/foundations/colors.stories.tsx",
-              "tools/dashboard/ui/foundations/typography.stories.tsx"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "61f552affe57067da68466cc6ab943efb22e205094f798b00fd1834d1e2f5b8e",
-            "revision": "139f82e24816fb49323bd9333677613b1c35ea7b",
-            "commands": [
-              {
-                "command": "npm --prefix tools/dashboard run build-storybook",
-                "exit_code": 0
-              },
-              {
-                "command": "npm --prefix tools/dashboard run test:storybook",
-                "exit_code": 0
-              },
-              {
-                "command": "npm --prefix tools/dashboard run build",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "chat-fixture-model",
-          "order": 6,
-          "file": "tasks/06-chat-fixture-model.md",
-          "status": "verified",
-          "depends_on": [
-            "chat-surface-extraction",
-            "component-testing-infrastructure"
-          ],
-          "implementation": {
-            "baseline_revision": "05d6541b204c1d8fb0e0c246aea32e47425d3344",
-            "review_revision": "b6225038b04f05a8748f4f19edf6780b06c3f3b4",
-            "changed_paths": [
-              "tools/dashboard/tests/chat-fixture-model.test.tsx",
-              "tools/dashboard/ui/features/agent-sessions/work-v2/__fixtures__/chat-fixtures.ts"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "87f825ed5fd169aa4d3890aecde4b9aca709263261dc10b1fd12d275e0d5b5e9",
-            "revision": "b6225038b04f05a8748f4f19edf6780b06c3f3b4",
-            "commands": [
-              {
-                "command": "npm --prefix tools/dashboard run test:storybook",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "chat-stories-empty-and-waiting",
-          "order": 7,
-          "file": "tasks/07-chat-stories-empty-and-waiting.md",
-          "status": "verified",
-          "depends_on": [
-            "chat-fixture-model"
-          ],
-          "implementation": {
-            "baseline_revision": "0085095bf409d652a45398a6881e73d53ef024c0",
-            "review_revision": "77e86c3346f4ddff4dd90a52c6d624ce90b9aa61",
-            "changed_paths": [
-              "tools/dashboard/tests/composer-interaction.test.mjs",
-              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx",
-              "tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx",
-              "tools/dashboard/ui/features/agent-sessions/composer/composer-sizing.ts"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "0e7f942e6703e2e3465a493ae8e80a25919fd0e7c852d5c4bfdb2944adc6eef7",
-            "revision": "77e86c3346f4ddff4dd90a52c6d624ce90b9aa61",
-            "commands": [
-              {
-                "command": "npm --prefix tools/dashboard test",
-                "exit_code": 0
-              },
-              {
-                "command": "npm --prefix tools/dashboard run test:storybook",
-                "exit_code": 0
-              },
-              {
-                "command": "npm --prefix tools/dashboard run build",
-                "exit_code": 0
-              },
-              {
-                "command": "npm --prefix tools/dashboard run build-storybook",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "chat-stories-conversation-and-work",
-          "order": 8,
-          "file": "tasks/08-chat-stories-conversation-and-work.md",
-          "status": "verified",
-          "depends_on": [
-            "chat-fixture-model"
-          ],
-          "implementation": {
-            "baseline_revision": "a4715a309fa3bb91f038bb72d6101e3b5a17aa8f",
-            "review_revision": "77e86c3346f4ddff4dd90a52c6d624ce90b9aa61",
-            "changed_paths": [
-              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "bcc870fd14edd2fc11b1c6ab6c7f0dc7638a8fee85cdac99f3c2087681d094c6",
-            "revision": "77e86c3346f4ddff4dd90a52c6d624ce90b9aa61",
-            "commands": [
-              {
-                "command": "npm --prefix tools/dashboard run test:storybook",
-                "exit_code": 0
-              },
-              {
-                "command": "npm --prefix tools/dashboard run build-storybook",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "chat-stories-active-states",
-          "order": 9,
-          "file": "tasks/09-chat-stories-active-states.md",
-          "status": "verified",
-          "depends_on": [
-            "chat-fixture-model"
-          ],
-          "implementation": {
-            "baseline_revision": "93f3e50469d436158a7e0b8c14a3696c695639e6",
-            "review_revision": "a58ca119f34d8e896572d060dd00b830b655323e",
-            "changed_paths": [
-              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "763a363269d70bb4cac4f2abaaea6059b547ccf106a9c51ea3163385b96537d9",
-            "revision": "a58ca119f34d8e896572d060dd00b830b655323e",
-            "commands": [
-              {
-                "command": "npm --prefix tools/dashboard run test:storybook",
-                "exit_code": 0
-              },
-              {
-                "command": "npm --prefix tools/dashboard run build-storybook",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "storybook-documentation",
-          "order": 10,
-          "file": "tasks/10-storybook-documentation.md",
-          "status": "verified",
-          "depends_on": [
-            "chat-fixture-model",
-            "foundation-stories",
-            "chat-stories-empty-and-waiting",
-            "chat-stories-conversation-and-work",
-            "chat-stories-active-states"
-          ],
-          "implementation": {
-            "baseline_revision": "f2297cd992782c19bc98ab42e16121b5544a52b4",
-            "review_revision": "b6225038b04f05a8748f4f19edf6780b06c3f3b4",
-            "changed_paths": [
-              "docs/development/react-component-guidelines.md",
-              "docs/development/storybook.md",
-              "docs/index.generated.json",
-              "docs/index.generated.md",
-              "docs/routing.generated.json"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "d1e2b03dcfb8a5f4e318ffb12c9835c363bc38bea47ce863ad63b2c240a7e93e",
-            "revision": "b6225038b04f05a8748f4f19edf6780b06c3f3b4",
-            "commands": [
-              {
-                "command": "node tools/docs.mjs validate",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/docs.mjs check",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
         }
       ]
     },
@@ -5862,6 +5495,373 @@
               },
               {
                 "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        }
+      ]
+    },
+    {
+      "id": "storybook-for-nevo-ai",
+      "specId": "cb8e318a-8f67-49f7-b9ed-09282c5d7bfe",
+      "title": "Storybook for Nevo AI",
+      "status": "archived",
+      "priority": 10,
+      "created": "2026-09-02",
+      "tasks": [
+        {
+          "id": "chat-boundary-audit",
+          "order": 1,
+          "file": "tasks/01-chat-boundary-audit.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "d1d5dc1968a0e854ea65d151676b7a0d584343f7",
+            "review_revision": "40e8d93c1c66b490165c33100a3a763c50723a68",
+            "changed_paths": [
+              "specs/active/storybook-for-nevo-ai/areas/chat-surface-boundaries.md"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "284a0c56a6f1f70dab3dee6a319aeba832556a9cb9ab425415fddf51cd98c503",
+            "revision": "40e8d93c1c66b490165c33100a3a763c50723a68",
+            "commands": [
+              {
+                "command": "git diff --name-only -- specs/active/storybook-for-nevo-ai/areas/chat-surface-boundaries.md",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "chat-surface-extraction",
+          "order": 2,
+          "file": "tasks/02-chat-surface-extraction.md",
+          "status": "verified",
+          "depends_on": [
+            "chat-boundary-audit"
+          ],
+          "implementation": {
+            "baseline_revision": "70c2c20c9a530a8c260d52e017e9ed0efa23f34f",
+            "review_revision": "dc05491a1989031ed961d0654a1a391ab077b301",
+            "changed_paths": [
+              "tools/dashboard/tests/semantic-work-chat-v2-corrections.test.mjs",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-page.tsx"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "7e184003be06d86b1c1059fa7c75b04d5f404af202acf2148ef5425cb47b9302",
+            "revision": "dc05491a1989031ed961d0654a1a391ab077b301",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "storybook-infrastructure-setup",
+          "order": 3,
+          "file": "tasks/03-storybook-infrastructure-setup.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "3745a31bd90bd85675163bdc0d69c5f1c52ed69c",
+            "review_revision": "b3288b9fe4167f41fb622d0b8bdca92ca5193cb1",
+            "changed_paths": [
+              "tools/dashboard/.storybook/.gitignore",
+              "tools/dashboard/.storybook/aliases.ts",
+              "tools/dashboard/.storybook/main.ts",
+              "tools/dashboard/.storybook/manager.ts",
+              "tools/dashboard/.storybook/preview.tsx",
+              "tools/dashboard/package-lock.json",
+              "tools/dashboard/package.json",
+              "tools/dashboard/ui/foundations/smoke.stories.tsx",
+              "tools/dashboard/vite.config.ts"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "4ee4504cd635a2a2f48fba9caeb426655f7ac16a1e2a323fef0ebd0d841fdf81",
+            "revision": "b3288b9fe4167f41fb622d0b8bdca92ca5193cb1",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run build-storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "component-testing-infrastructure",
+          "order": 4,
+          "file": "tasks/04-component-testing-infrastructure.md",
+          "status": "verified",
+          "depends_on": [
+            "storybook-infrastructure-setup"
+          ],
+          "implementation": {
+            "baseline_revision": "433b8fcd07c4cc8837e7d58b83b3d55228c10d0c",
+            "review_revision": "b3288b9fe4167f41fb622d0b8bdca92ca5193cb1",
+            "changed_paths": [
+              "tools/dashboard/.storybook/aliases.ts",
+              "tools/dashboard/.storybook/main.ts",
+              "tools/dashboard/.storybook/manager-head.html",
+              "tools/dashboard/.storybook/manager.ts",
+              "tools/dashboard/.storybook/preview-head.html",
+              "tools/dashboard/.storybook/preview.tsx",
+              "tools/dashboard/.storybook/vitest.setup.ts",
+              "tools/dashboard/package-lock.json",
+              "tools/dashboard/package.json",
+              "tools/dashboard/tests/semantic-work-chat-v2-corrections.test.mjs",
+              "tools/dashboard/tests/semantic-work-chat-v2-corrections.test.tsx",
+              "tools/dashboard/tests/turn-work-summary.test.mjs",
+              "tools/dashboard/tests/turn-work-summary.test.tsx",
+              "tools/dashboard/ui/foundations/smoke.stories.tsx",
+              "tools/dashboard/vite.config.ts",
+              "tools/dashboard/vitest.config.ts"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "976c3ff0c201546137d1a6a06f3472af3dba4e689b0aac12275e2db72a041da6",
+            "revision": "b3288b9fe4167f41fb622d0b8bdca92ca5193cb1",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "foundation-stories",
+          "order": 5,
+          "file": "tasks/05-foundation-stories.md",
+          "status": "verified",
+          "depends_on": [
+            "storybook-infrastructure-setup"
+          ],
+          "implementation": {
+            "baseline_revision": "34764c30d26150ab61ef8c2e229ab91f0bb4ecd3",
+            "review_revision": "139f82e24816fb49323bd9333677613b1c35ea7b",
+            "changed_paths": [
+              "tools/dashboard/ui/foundations/colors.stories.tsx",
+              "tools/dashboard/ui/foundations/typography.stories.tsx"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "61f552affe57067da68466cc6ab943efb22e205094f798b00fd1834d1e2f5b8e",
+            "revision": "139f82e24816fb49323bd9333677613b1c35ea7b",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run build-storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "chat-fixture-model",
+          "order": 6,
+          "file": "tasks/06-chat-fixture-model.md",
+          "status": "verified",
+          "depends_on": [
+            "chat-surface-extraction",
+            "component-testing-infrastructure"
+          ],
+          "implementation": {
+            "baseline_revision": "05d6541b204c1d8fb0e0c246aea32e47425d3344",
+            "review_revision": "b6225038b04f05a8748f4f19edf6780b06c3f3b4",
+            "changed_paths": [
+              "tools/dashboard/tests/chat-fixture-model.test.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/__fixtures__/chat-fixtures.ts"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "87f825ed5fd169aa4d3890aecde4b9aca709263261dc10b1fd12d275e0d5b5e9",
+            "revision": "b6225038b04f05a8748f4f19edf6780b06c3f3b4",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "chat-stories-empty-and-waiting",
+          "order": 7,
+          "file": "tasks/07-chat-stories-empty-and-waiting.md",
+          "status": "verified",
+          "depends_on": [
+            "chat-fixture-model"
+          ],
+          "implementation": {
+            "baseline_revision": "0085095bf409d652a45398a6881e73d53ef024c0",
+            "review_revision": "77e86c3346f4ddff4dd90a52c6d624ce90b9aa61",
+            "changed_paths": [
+              "tools/dashboard/tests/composer-interaction.test.mjs",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx",
+              "tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx",
+              "tools/dashboard/ui/features/agent-sessions/composer/composer-sizing.ts"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "0e7f942e6703e2e3465a493ae8e80a25919fd0e7c852d5c4bfdb2944adc6eef7",
+            "revision": "77e86c3346f4ddff4dd90a52c6d624ce90b9aa61",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build-storybook",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "chat-stories-conversation-and-work",
+          "order": 8,
+          "file": "tasks/08-chat-stories-conversation-and-work.md",
+          "status": "verified",
+          "depends_on": [
+            "chat-fixture-model"
+          ],
+          "implementation": {
+            "baseline_revision": "a4715a309fa3bb91f038bb72d6101e3b5a17aa8f",
+            "review_revision": "77e86c3346f4ddff4dd90a52c6d624ce90b9aa61",
+            "changed_paths": [
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "bcc870fd14edd2fc11b1c6ab6c7f0dc7638a8fee85cdac99f3c2087681d094c6",
+            "revision": "77e86c3346f4ddff4dd90a52c6d624ce90b9aa61",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build-storybook",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "chat-stories-active-states",
+          "order": 9,
+          "file": "tasks/09-chat-stories-active-states.md",
+          "status": "verified",
+          "depends_on": [
+            "chat-fixture-model"
+          ],
+          "implementation": {
+            "baseline_revision": "93f3e50469d436158a7e0b8c14a3696c695639e6",
+            "review_revision": "a58ca119f34d8e896572d060dd00b830b655323e",
+            "changed_paths": [
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "763a363269d70bb4cac4f2abaaea6059b547ccf106a9c51ea3163385b96537d9",
+            "revision": "a58ca119f34d8e896572d060dd00b830b655323e",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build-storybook",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "storybook-documentation",
+          "order": 10,
+          "file": "tasks/10-storybook-documentation.md",
+          "status": "verified",
+          "depends_on": [
+            "chat-fixture-model",
+            "foundation-stories",
+            "chat-stories-empty-and-waiting",
+            "chat-stories-conversation-and-work",
+            "chat-stories-active-states"
+          ],
+          "implementation": {
+            "baseline_revision": "f2297cd992782c19bc98ab42e16121b5544a52b4",
+            "review_revision": "b6225038b04f05a8748f4f19edf6780b06c3f3b4",
+            "changed_paths": [
+              "docs/development/react-component-guidelines.md",
+              "docs/development/storybook.md",
+              "docs/index.generated.json",
+              "docs/index.generated.md",
+              "docs/routing.generated.json"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "d1e2b03dcfb8a5f4e318ffb12c9835c363bc38bea47ce863ad63b2c240a7e93e",
+            "revision": "b6225038b04f05a8748f4f19edf6780b06c3f3b4",
+            "commands": [
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
                 "exit_code": 0
               }
             ],
