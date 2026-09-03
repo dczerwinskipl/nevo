@@ -14,7 +14,7 @@ tasks:
   - id: frontend-formatter-baseline
     order: 1
     file: tasks/01-frontend-formatter-baseline.md
-    status: draft
+    status: approved
 
   - id: react-class-composition-guidelines
     order: 2

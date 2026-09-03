@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-03T20:55:12.064Z",
+  "generated": "2026-09-03T21:02:57.773Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -504,7 +504,7 @@
           "id": "frontend-formatter-baseline",
           "order": 1,
           "file": "tasks/01-frontend-formatter-baseline.md",
-          "status": "draft"
+          "status": "approved"
         },
         {
           "id": "react-class-composition-guidelines",
