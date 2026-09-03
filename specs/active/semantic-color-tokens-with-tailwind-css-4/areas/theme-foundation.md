@@ -86,7 +86,9 @@ list). No `@theme` block exists anywhere in the repo (grep confirmed zero matche
    comparison performed and recorded`
 ## Dependencies
 
-None. This is the first area; every other area depends on it.
+`areas/frontend-formatter-baseline.md` (must start from the formatted baseline).
+Independent of `areas/react-class-composition-guidelines.md` — this area touches only
+`index.css`, not React components. Every consumer area depends on this one.
 
 ## Out of scope
 

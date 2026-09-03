@@ -80,6 +80,25 @@ separate change from PR #42 and does not modify or merge that PR.
   `tools/dashboard` today. The closest repo precedent for a lightweight guard is the
   existing `node --test`, regex-over-source-text style used by
   `tools/dashboard/tests/*.test.mjs` (e.g. `composer-interaction.test.mjs:246`).
+- No Prettier config is declared anywhere in the repo; `prettier@3.9.6` is present only
+  transitively (required by `@tanstack/router-generator`,
+  `tools/dashboard/package-lock.json:9056`), not a direct dependency.
+- `cn()` (`tools/dashboard/ui/lib/utils.ts:4`, `clsx` + `tailwind-merge`) and exactly two
+  `cva()` recipes (`button.tsx:7`: `variant`/`size`; `sheet.tsx:29`: `side`, both with
+  `VariantProps`) are the only current variant-composition convention.
+  `class-variance-authority`/`clsx`/`tailwind-merge` are already direct `dependencies`
+  (`package.json:32-33,42`). `StatusCard` (`status-card.tsx:52-53,88-104`) has a real
+  `variant`/`size` API implemented by hand instead of `cva()`. Three independent
+  status→class-string mapping helpers already exist:
+  `status-label.tsx:19-40`'s `statusTone()`,
+  `transcript/projection.ts:34,43-54`'s `PresentationSeverity`/
+  `computePresentationSeverity()` (the actual owner of the severity mapping
+  `work-indicator-v2.tsx`/`turn-work-summary.tsx` render through — not those two files
+  themselves), and `pull-requests/changes/status.ts:10-15`'s `stateTone()` (a third,
+  independently-discovered PR-state mapping). No banned interpolated-class construction
+  (`` `text-status-${x}` ``) exists today; a related pattern — ternary expressions
+  selecting whole pre-written class strings instead of `cn()` — exists at 5 call sites
+  already targeted for the `color-mix` cleanup in `tasks/06`/`07`.
 
 ## Problem
 
@@ -111,12 +130,22 @@ a new arbitrary-value or raw-palette utility from being added tomorrow.
 - **C6.** `--color-*: initial` and the architecture check must not be enabled until
   every consuming area has migrated (D5) — enabling either earlier would fail the build
   or the check against legitimately not-yet-migrated code.
+- **C7.** The Prettier formatting baseline (`areas/frontend-formatter-baseline.md`) must
+  land, as its own mechanical commit, before any task edits `index.css` or any
+  `tools/dashboard/ui/**` source file for token/component migration — no task's diff may
+  mix formatting changes with semantic changes (D7).
+- **C8.** No new styling, variants, or component-composition library is introduced;
+  reuse `class-variance-authority`/`clsx`/`tailwind-merge` and Nevo-owned Radix wrappers
+  (D8).
 
 ## Affected modules
 
-`tools/dashboard/ui/index.css` (theme), `tools/dashboard/ui/index.html` (theme-color
-meta), `tools/dashboard/ui/components/ui/*` (shared primitives), a new shared
-status/tone module, `tools/dashboard/ui/features/agent-sessions/**`,
+`tools/dashboard/package.json`/`prettier.config.mjs`/`.prettierignore` (formatter
+baseline), `docs/development/react-component-guidelines.md`/`docs/ai/task-routing.md`
+(class-composition contract), `tools/dashboard/ui/index.css` (theme),
+`tools/dashboard/ui/index.html` (theme-color meta), `tools/dashboard/ui/components/ui/*`
+(shared primitives), a new shared status/tone module
+(`tools/dashboard/ui/shared/status-tone.ts`), `tools/dashboard/ui/features/agent-sessions/**`,
 `tools/dashboard/ui/features/specifications/**`, `tools/dashboard/ui/features/pull-requests/**`,
 `tools/dashboard/ui/features/operations/**`, `tools/dashboard/ui/foundations/colors.stories.tsx`,
 `docs/development/*` (UX/color guideline doc), a new `tools/dashboard/tests/*` or
@@ -125,49 +154,68 @@ status/tone module, `tools/dashboard/ui/features/agent-sessions/**`,
 ## Options and trade-offs
 
 The architectural shape (direct-value `@theme`, no primitive layer, canonical status
-contract, static lane/provider mapping) was specified by the owner, not chosen among
-agent-proposed alternatives — see `owner-decisions.md` D1-D4 for the two-option
-comparisons the owner was given and decided between. The only agent-decided trade-off is
-the enforcement mechanism (plain source-text check vs. introducing ESLint): plain check
-chosen to avoid a new external dependency and match existing repo precedent (D5,
-`AGENTS.md` "New external dependencies" gate).
+contract, static lane/provider mapping, Prettier over Biome, a documented class-
+composition contract reusing the existing `cva()`/`cn()` stack) was specified by the
+owner, not chosen among agent-proposed alternatives — see `owner-decisions.md` D1-D4 and
+D7-D8 for the two-option comparisons the owner was given and decided between. The only
+agent-decided trade-offs are: the enforcement mechanism (plain source-text check vs.
+introducing ESLint — plain check chosen to avoid a new external dependency and match
+existing repo precedent, D5/C4, `AGENTS.md` "New external dependencies" gate), and the
+exact task/area decomposition of D7/D8's requirements (numbering, which task touches
+which file) — an implementation detail within the owner's already-decided architecture.
 
 ## Owner decisions
 
 See `owner-decisions.md` — D1 (theme contract shape), D2 (status/tone contract), D3
 (lane/provider naming and static mapping), D4 (accent contrast fix), D5 (migration and
-enforcement sequencing), D6 (base branch).
+enforcement sequencing), D6 (base branch), D7 (Prettier + `prettier-plugin-tailwindcss`,
+not Biome, applied as a standalone mechanical baseline), D8 (durable Tailwind
+class-composition contract in `react-component-guidelines.md`).
 
 ## Proposed architecture
 
-Add the exact `@theme` contract given in the change request (namespace `--color-*`,
+Land two independent prerequisite areas first: a Prettier + `prettier-plugin-tailwindcss`
+formatting baseline, applied as its own mechanical commit (`areas/frontend-formatter-baseline.md`,
+D7), and a documentation-only Tailwind class-composition contract added to
+`react-component-guidelines.md`/`task-routing.md` (`areas/react-class-composition-guidelines.md`,
+D8) — both must exist before any semantic/component edit lands, per C7/C8. Then add the
+exact `@theme` contract given in the change request (namespace `--color-*`,
 neutral/foreground/interaction/canonical-status/action/provider/workflow groups, one
 `@theme inline` block for `status-active`/`status-neutral` aliases) alongside the
 existing `:root` block so computed colors are unchanged while the new utilities become
 available (`areas/theme-foundation.md`). Migrate consumers in dependency order: shared UI
-primitives and the new central status/tone contract first (independent of each other,
-both depend only on the theme contract), then the two large feature sweeps (agent
-sessions/Work, and specifications/lanes/PRs/operations/remaining UI) which depend on
-both, then Storybook/docs, then a final area that removes the old `:root` variables and
-now-dead token variants, enables `--color-*: initial`, fixes the `theme-color` meta
-value, and adds the architecture-check guardrail. See `owner-decisions.md` D5 for why
-cleanup and enforcement are ordered last.
+primitives and the new central status/tone contract next (independent of each other,
+both depend only on the theme contract plus the two prerequisite areas), then the two
+large feature sweeps (agent sessions/Work, and specifications/lanes/PRs/operations/
+remaining UI) which depend on both, then Storybook/docs, then a final area that removes
+the old `:root` variables and now-dead token variants, enables `--color-*: initial`,
+fixes the `theme-color` meta value, and adds the architecture-check guardrail. See
+`owner-decisions.md` D5 for why cleanup and enforcement are ordered last, D7 for why
+formatting is ordered first.
 
 ## Areas
 
+- `areas/frontend-formatter-baseline.md` — Prettier + `prettier-plugin-tailwindcss`,
+  applied once as a standalone mechanical commit.
+- `areas/react-class-composition-guidelines.md` — the durable Tailwind
+  class-composition contract in `react-component-guidelines.md`/`task-routing.md`.
 - `areas/theme-foundation.md` — the `@theme` contract and its computed-color parity
   guarantee.
-- `areas/shared-ui-primitives.md` — Button, Badge, Card, Dialog, Sheet, StatusCard,
-  shared status-label, and their own raw white/black cleanup.
-- `areas/status-tone-contract.md` — the central status/tone presentation module and its
-  first consumers (severity mappings currently scattered per component).
+- `areas/shared-ui-primitives.md` — Button, Badge, Card, Dialog, Sheet, StatusCard
+  (incl. its `cva()` conversion), shared status-label, and their own raw white/black
+  cleanup.
+- `areas/status-tone-contract.md` — the central `StatusTone` presentation module and its
+  first consumers (severity mappings currently scattered per component, incl. the real
+  `transcript/projection.ts` owner).
 - `areas/agent-sessions-and-work.md` — agent-session feature components, Work V2
   presentation, `--foreground-muted` fix, provider badge rename.
 - `areas/specs-lanes-and-remaining-ui.md` — specifications feature (incl. workflow lane
-  static mapping), pull-requests, operations, and any remaining stray usages.
+  static mapping), pull-requests (incl. `status.ts`'s `StatusTone` consumption),
+  operations, and any remaining stray usages.
 - `areas/storybook-and-documentation.md` — live-value Colors story and UX guideline doc.
 - `areas/cleanup-and-enforcement.md` — old-variable/dead-token removal,
-  `--color-*: initial`, `theme-color` meta fix, and the architecture check.
+  `--color-*: initial`, `theme-color` meta fix, and the architecture check (incl. the
+  interpolated-class-construction ban).
 
 ## Change-wide acceptance criteria
 
@@ -190,9 +238,23 @@ cleanup and enforcement are ordered last.
   the given static lane mapping replace the `--lane-accent` runtime indirection.
 - The Storybook Colors story reads live computed `--color-*` values, not a duplicated
   TypeScript palette.
+- `prettier`/`prettier-plugin-tailwindcss` are direct devDependencies; the formatting
+  baseline landed as its own mechanical commit, separate from every semantic/token
+  commit in this change.
+- `react-component-guidelines.md` documents the Tailwind class-composition contract
+  (incl. the `StatusTone` type and the required-inspection checklist) and
+  `task-routing.md` routes future `tools/dashboard/ui/**` work through it.
+- Every component this change touches was reviewed against the "required inspection
+  when touching a component" checklist; components with a stable variant API
+  (`StatusCard`) expose it via `cva()`; no interpolated Tailwind class construction was
+  introduced; the 3 pre-existing independent status-mapping helpers
+  (`status-label.tsx`, `transcript/projection.ts`, `pull-requests/changes/status.ts`)
+  all consume the shared `StatusTone` type/recipe.
 - `npm --prefix tools/dashboard test`, `npm --prefix tools/dashboard run test:storybook`,
-  `npm --prefix tools/dashboard run build`, and
-  `npm --prefix tools/dashboard run build-storybook` all pass.
+  `npm --prefix tools/dashboard run build`, `npm --prefix tools/dashboard run
+  build-storybook`, and `npm --prefix tools/dashboard run format:check` all pass.
+- `node tools/docs.mjs validate`, `node tools/docs.mjs check`, `node tools/specs.mjs
+  validate`, and `node tools/specs.mjs check` all pass.
 
 ## Verification strategy
 
@@ -200,7 +262,24 @@ Each task runs its own scoped verification (see `tasks/*.md`); the change-wide c
 above are re-checked in full by the final `cleanup-and-enforcement` task, which is also
 where representative Storybook stories are compared before/after (screenshot or computed
 styles) to confirm neutral surfaces, typography, spacing, and non-targeted states did not
-change.
+change. The final review additionally includes a focused audit of every React component
+this specification modified against the class-composition rules in
+`react-component-guidelines.md` §12 and its review checklist (§11) — recorded per
+component, not just asserted in aggregate.
+
+Record, at minimum, the results of:
+
+```text
+npm --prefix tools/dashboard run format:check
+npm --prefix tools/dashboard test
+npm --prefix tools/dashboard run test:storybook
+npm --prefix tools/dashboard run build
+npm --prefix tools/dashboard run build-storybook
+node tools/docs.mjs validate
+node tools/docs.mjs check
+node tools/specs.mjs validate
+node tools/specs.mjs check
+```
 
 ## Out of scope
 

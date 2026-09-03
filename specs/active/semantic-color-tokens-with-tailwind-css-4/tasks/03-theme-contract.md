@@ -17,9 +17,11 @@ forbidden_paths:
   - tools/dashboard/ui/foundations/**
   - tools/dashboard/ui/index.html
   - src/**
+depends_on:
+  - frontend-formatter-baseline
 semantic_references:
-  decisions: [D1, D4, D5]
-  constraints: [C5, C6]
+  decisions: [D1, D4, D5, D7]
+  constraints: [C5, C6, C7]
 ---
 
 # Task: Add the Tailwind 4 `@theme` semantic color contract
@@ -34,7 +36,8 @@ after this task.
 
 ## Dependencies
 
-None.
+`frontend-formatter-baseline` (must start from the formatted baseline so this task's
+diff is pure semantic change).
 
 ## Implementation constraints
 
@@ -84,10 +87,10 @@ pre-task baseline.
 
 ## Documentation impact
 
-None — the token contract is documented live by `tasks/06-storybook-and-documentation.md`
+None — the token contract is documented live by `tasks/08-storybook-and-documentation.md`
 once real consumers exist.
 
 ## Out of scope
 
 - Any consumer migration.
-- `--color-*: initial`, old-variable removal — `tasks/07-*`.
+- `--color-*: initial`, old-variable removal — `tasks/09-*`.

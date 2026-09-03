@@ -27,7 +27,7 @@ agent. They are recorded here verbatim in substance so later commands (`spec-ref
 - **Consequences:** Governs `areas/theme-foundation.md` and the token contract every
   other area consumes. No new primitive/scale tokens may be introduced by any task.
 - **Date:** 2026-09-03
-- **Affected artifacts:** `overview.md`, `areas/theme-foundation.md`, `tasks/01-theme-contract.md`.
+- **Affected artifacts:** `overview.md`, `areas/theme-foundation.md`, `tasks/03-theme-contract.md`.
 
 ## D2: Canonical status/tone semantic contract
 
@@ -52,7 +52,7 @@ agent. They are recorded here verbatim in substance so later commands (`spec-ref
   status/severity mapping (work-v2 severity logic, `turn-work-summary.tsx`, workflow
   lanes, `StatusCard`) must consume this one contract rather than deciding locally.
 - **Date:** 2026-09-03
-- **Affected artifacts:** `areas/status-tone-contract.md`, `tasks/03-status-tone-contract.md`, `tasks/04-agent-sessions-and-work.md`, `tasks/05-specs-lanes-and-remaining-ui.md`.
+- **Affected artifacts:** `areas/status-tone-contract.md`, `tasks/05-status-tone-contract.md`, `tasks/06-agent-sessions-and-work.md`, `tasks/07-specs-lanes-and-remaining-ui.md`.
 
 ## D3: Workflow lane and provider color naming, remove `--lane-accent` runtime indirection
 
@@ -80,7 +80,7 @@ agent. They are recorded here verbatim in substance so later commands (`spec-ref
   return shape changes from a CSS-var string to something consumable by static
   className logic.
 - **Date:** 2026-09-03
-- **Affected artifacts:** `areas/specs-lanes-and-remaining-ui.md`, `areas/agent-sessions-and-work.md`, `tasks/04-agent-sessions-and-work.md`, `tasks/05-specs-lanes-and-remaining-ui.md`.
+- **Affected artifacts:** `areas/specs-lanes-and-remaining-ui.md`, `areas/agent-sessions-and-work.md`, `tasks/06-agent-sessions-and-work.md`, `tasks/07-specs-lanes-and-remaining-ui.md`.
 
 ## D4: Accent contrast fix — `accent-solid` is fill-only, never text-on-dark-surface
 
@@ -113,7 +113,7 @@ agent. They are recorded here verbatim in substance so later commands (`spec-ref
   exact modifier; this is an implementation detail within the constraint above, not a
   new open decision (`AGENTS.md` gates don't cover internal component hover styling).
 - **Date:** 2026-09-03
-- **Affected artifacts:** `areas/theme-foundation.md`, `areas/shared-ui-primitives.md`, `areas/agent-sessions-and-work.md`, `tasks/01-theme-contract.md`, `tasks/02-shared-ui-primitives.md`, `tasks/04-agent-sessions-and-work.md`.
+- **Affected artifacts:** `areas/theme-foundation.md`, `areas/shared-ui-primitives.md`, `areas/agent-sessions-and-work.md`, `tasks/03-theme-contract.md`, `tasks/04-shared-ui-primitives.md`, `tasks/06-agent-sessions-and-work.md`.
 
 ## D5: Migration order, cleanup, and enforcement sequencing
 
@@ -164,3 +164,73 @@ agent. They are recorded here verbatim in substance so later commands (`spec-ref
   `feature/ai-session-issues-and-diagnostics`, mirroring PR #42's own base, not `main`.
 - **Date:** 2026-09-03
 - **Affected artifacts:** `change.yaml` (branch config), `overview.md` § Constraints.
+
+## D7: Adopt Prettier + `prettier-plugin-tailwindcss`, not Biome, as a directly-declared dependency
+
+- **Question:** Should `tools/dashboard` gain a frontend formatter/Tailwind-class-sorter,
+  and if so, which tool — and how should its adoption be separated from this change's
+  semantic edits?
+- **Options considered:** (owner-supplied, not agent-generated)
+  - A — No formatter; rely on the transitive `prettier@3.9.6` already pulled in by
+    `@tanstack/router-generator` (confirmed present but undeclared,
+    `tools/dashboard/package-lock.json:9056`).
+  - B — Adopt Biome as a combined formatter/linter platform.
+  - C — Directly declare `prettier` + `prettier-plugin-tailwindcss` as devDependencies,
+    with the exact config given, applied once as a standalone mechanical commit before
+    any semantic edit.
+- **Decision:** Option C, exactly as specified (config, scripts, `.prettierignore`
+  content given verbatim in the change request).
+- **Rationale:** Owner-stated: this change requires formatting and Tailwind class
+  sorting, not adoption of a new combined formatter/linter platform (ruling out B); a
+  transitive, undeclared dependency (A) is not something the project can rely on being
+  present or stable in version.
+- **Consequences:** Governs `areas/frontend-formatter-baseline.md`/`tasks/01-*`, and
+  reorders the task graph — every task that edits `tools/dashboard` source must start
+  from this task's completed, formatted baseline. No ESLint/Biome is introduced anywhere
+  in this change (consistent with C4/the architecture-check's own "no new dependency"
+  constraint).
+- **Date:** 2026-09-03
+- **Affected artifacts:** `overview.md`, `areas/frontend-formatter-baseline.md`,
+  `tasks/01-frontend-formatter-baseline.md`, `change.yaml` (task graph/ordering).
+
+## D8: Durable Tailwind class-composition contract in `react-component-guidelines.md`
+
+- **Question:** Should this migration's component work follow an ad hoc, per-component
+  approach to Tailwind class composition (as today — inconsistent `cva()` adoption:
+  only `button.tsx`/`sheet.tsx` use it, `status-card.tsx` has a real variant API but
+  implements it by hand; three independent status→class-string mapping helpers already
+  exist: `status-label.tsx`'s `statusTone()`, `transcript/projection.ts`'s
+  `computePresentationSeverity()`, and the newly-found `pull-requests/changes/status.ts`'s
+  `stateTone()`), or should a durable, documented contract govern it from the start of
+  this change?
+- **Options considered:** (owner-supplied)
+  - A — No new durable rule; each task decides class-composition approach locally
+    (current, inconsistent state).
+  - B — Add a documented Tailwind class-composition contract to
+    `react-component-guidelines.md` (local-layout vs. `cva()`-variant vs.
+    domain-state→tone→variant→utility→token projection vs. native DOM/ARIA state vs.
+    `cn()` discipline vs. banned interpolated classes vs. multi-slot recipes vs.
+    `@apply` scope, plus a required-inspection checklist), applied to every component
+    this change touches, and route `docs/ai/task-routing.md` through it.
+- **Decision:** Option B, exactly as specified, including the literal `StatusTone` union
+  type (`neutral | active | success | warning | error | attention | info`) and the
+  7-item "required inspection when touching a component" checklist.
+- **Rationale:** Owner-stated: reuse the existing stack
+  (`class-variance-authority`/`clsx`/`tailwind-merge`, already direct dependencies —
+  confirmed — plus Nevo-owned Radix wrappers), do not add another styling/variants
+  library; the in-repo evidence (inconsistent `cva()` adoption, three independent status
+  mapping helpers, `StatusCard`'s hand-rolled variant branching) is exactly the kind of
+  drift the contract exists to prevent going forward, and this migration is the natural
+  point to establish it since it's already touching every one of those call sites.
+- **Consequences:** Governs `areas/react-class-composition-guidelines.md`/`tasks/02-*`
+  (the documentation itself) and adds concrete requirements to `tasks/04`, `05`, `06`,
+  `07` (StatusCard → `cva()`; `projection.ts` as the real severity-mapping owner,
+  renamed/aligned to `StatusTone`; `pull-requests/changes/status.ts` consuming the
+  shared type/recipe rather than its own class strings; 5 ternary-based class
+  selections converted to `cn()`) and `tasks/10-*` (interpolated-class-construction
+  becomes a 5th banned pattern in the architecture-enforcement check).
+- **Date:** 2026-09-03
+- **Affected artifacts:** `overview.md`, `areas/react-class-composition-guidelines.md`,
+  `areas/status-tone-contract.md`, `areas/shared-ui-primitives.md`,
+  `areas/specs-lanes-and-remaining-ui.md`, `areas/cleanup-and-enforcement.md`,
+  `tasks/02`, `04`, `05`, `06`, `07`, `10`.

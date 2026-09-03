@@ -60,6 +60,11 @@ correct tokens automatically.
   `bg-fg-primary/8`, `bg-fg-primary/5` — pick whichever existing token reproduces the
   current visual weight most closely; these are decorative skeleton/track fills, not
   text, so exact token choice is an implementation detail, not a new decision).
+- `status-card.tsx:52-53,88-104`'s hand-rolled `variant`/`size` `cn()` + boolean-ternary
+  branching becomes a `cva()` recipe with `VariantProps`-derived props, per
+  `areas/react-class-composition-guidelines.md` (D8) — matching the existing
+  `button.tsx`/`sheet.tsx` pattern. `StatusCard`'s `variant` axis (`error`/`warning`/
+  `info`) is this component's own visual API, not the shared `StatusTone` contract.
 - No component-local `color-mix(...)` recipe may remain in these files after migration.
 
 ## Constraints
@@ -86,13 +91,17 @@ correct tokens automatically.
    `npm --prefix tools/dashboard run test:storybook` all pass.
 5. A Storybook screenshot/computed-style comparison of Button, Badge, Card, Dialog,
    Sheet, StatusCard stories before/after shows no unintended visual change.
+6. `StatusCard` exposes `variant`/`size` via a `cva()` recipe with `VariantProps`-derived
+   props, consistent with `button.tsx`/`sheet.tsx`.
 
 ## Dependencies
 
-`areas/theme-foundation.md`. Independent of `areas/status-tone-contract.md` — may run in
-parallel with it; if `status-card.tsx`'s status-surface migration needs a token name
-Area 3 hasn't finalized yet, use the raw `--color-status-*` token directly here and treat
-final wiring as Area 3's job (see Requirements).
+`areas/theme-foundation.md`, `areas/frontend-formatter-baseline.md`,
+`areas/react-class-composition-guidelines.md`. Independent of
+`areas/status-tone-contract.md` — may run in parallel with it; if `status-card.tsx`'s
+status-surface migration needs a token name that area hasn't finalized yet, use the raw
+`--color-status-*` token directly here and treat final wiring as that area's job (see
+Requirements).
 
 ## Out of scope
 

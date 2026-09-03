@@ -23,8 +23,8 @@ depends_on:
   - shared-ui-primitives
   - status-tone-contract
 semantic_references:
-  decisions: [D2, D3]
-  constraints: [C5]
+  decisions: [D2, D3, D8]
+  constraints: [C5, C7, C8]
 ---
 
 # Task: Migrate agent-sessions feature and Work V2 to semantic utilities
@@ -58,6 +58,12 @@ and rename `ProviderBadge`'s `cat-1`/`cat-2` usage to `provider-claude`/
 - Verify each of the 4 `--foreground-muted` sites renders sensibly now that the
   reference actually resolves (it was previously a silent no-op) — this may be the
   first time text becomes visible there; confirm it's an intended, legible state.
+- `create-agent-session-dialog.tsx:151-157,187-191`: convert the ternary expressions
+  that select whole pre-written class strings into `cn()`-based conditional
+  composition, per the class-composition contract (D8) — do not leave raw
+  string-literal ternaries as the composition mechanism.
+- Apply the "required inspection when touching a component" checklist
+  (`react-component-guidelines.md` §11/§12) to every component this task changes.
 
 ## Acceptance criteria
 
@@ -79,6 +85,10 @@ and rename `ProviderBadge`'s `cat-1`/`cat-2` usage to `provider-claude`/
    pre-task baseline, except the `--foreground-muted` fix becoming visible where it was
    previously a silent no-op — recorded via screenshot comparison.
    `inspection: before/after screenshot comparison performed and recorded`
+8. `create-agent-session-dialog.tsx`'s two ternary-based class selections use `cn()`.
+   `inspection: source reviewed`
+9. The "required inspection when touching a component" checklist was applied.
+   `inspection: checklist applied and recorded per component`
 
 ## Verification
 
@@ -90,11 +100,11 @@ npm --prefix tools/dashboard run test:storybook
 
 ## Documentation impact
 
-None yet — `tasks/06-storybook-and-documentation.md`.
+None yet — `tasks/08-storybook-and-documentation.md`.
 
 ## Out of scope
 
 - `work-indicator-v2.tsx`/`turn-work-summary.tsx` severity-mapping logic —
-  `tasks/03-status-tone-contract.md` (already done by the time this task runs).
+  `tasks/05-status-tone-contract.md` (already done by the time this task runs).
 - `features/specifications/**`, `features/pull-requests/**`, `features/operations/**` —
-  `tasks/05-specs-lanes-and-remaining-ui.md`.
+  `tasks/07-specs-lanes-and-remaining-ui.md`.

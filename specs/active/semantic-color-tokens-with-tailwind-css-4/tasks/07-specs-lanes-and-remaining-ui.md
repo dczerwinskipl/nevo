@@ -24,8 +24,8 @@ depends_on:
   - status-tone-contract
   - agent-sessions-and-work
 semantic_references:
-  decisions: [D2, D3, D4]
-  constraints: [C5]
+  decisions: [D2, D3, D4, D8]
+  constraints: [C5, C7, C8]
 ---
 
 # Task: Migrate specifications/lanes/PRs/operations and sweep remaining UI
@@ -53,15 +53,26 @@ them).
   inline-style assignment (lines 119, 125, 129) and the `bg-[var(--lane-accent)]`
   consumption — use the static classes directly.
 - `specification-list.tsx:66`: same hover-contrast fix as `status-card.tsx` in
-  `tasks/02-*` (stop using `accent-strong`/`accent-solid` as hover text color).
+  `tasks/04-*` (stop using `accent-strong`/`accent-solid` as hover text color).
 - Resolve the error-banner, warning-banner, selected-pill, and muted-warning-text
-  `color-mix` recipe families the same way `tasks/04-*` resolved them in
+  `color-mix` recipe families the same way `tasks/06-*` resolved them in
   `create-agent-session-dialog.tsx`/`interaction-prompt.tsx`/`provider-unavailable-banner.tsx`
   — consistent opacity-modifier naming across both tasks.
 - After the named directories are migrated, grep the rest of `tools/dashboard/ui`
   (excluding `*.stories.tsx`, `tests/`, `__fixtures__/`) for `-[var(--`, raw
   white/black, and `color-mix(` and fix any remaining occurrence — this is the last
-  consumer-migration task before `tasks/07-*` removes the old variables.
+  consumer-migration task before `tasks/09-*` removes the old variables.
+- `pull-requests/changes/status.ts:10-15`'s `stateTone()`: keep its own PR-state→tone
+  mapping feature-local (per D8 — PR state is a different canonical domain than
+  Turn/tool status), but change it to consume the shared `StatusTone` type and the
+  `shared/status-tone.ts` tone-rendering recipe from `tasks/05-*` instead of returning
+  independently-invented full class strings.
+- `specification-metadata-fields.tsx:92-96` and
+  `specification-ai-planning-section.tsx:83-89,120-124`: convert the ternary
+  expressions that select whole pre-written class strings into `cn()`-based conditional
+  composition, per the class-composition contract (D8).
+- Apply the "required inspection when touching a component" checklist
+  (`react-component-guidelines.md` §11/§12) to every component this task changes.
 - Do not touch `index.css`, `components/ui/**`, `shared/status-tone.ts`, or
   `features/agent-sessions/**`.
 
@@ -85,6 +96,11 @@ them).
    (screenshot comparison), except the deliberate `specification-list.tsx` hover fix and
    any lane-color changes verified as parity in `areas/specs-lanes-and-remaining-ui.md`
    acceptance criterion 5.
+8. `pull-requests/changes/status.ts` consumes the shared `StatusTone` type/recipe; its
+   own PR-state→tone mapping stays feature-local. `inspection: source reviewed`
+9. The two named ternary-based class selections use `cn()`. `inspection: source reviewed`
+10. The "required inspection when touching a component" checklist was applied.
+    `inspection: checklist applied and recorded per component`
 
 ## Verification
 
@@ -96,9 +112,9 @@ npm --prefix tools/dashboard run test:storybook
 
 ## Documentation impact
 
-None yet — `tasks/06-storybook-and-documentation.md`.
+None yet — `tasks/08-storybook-and-documentation.md`.
 
 ## Out of scope
 
 - Removing old `:root` variables, `--color-*: initial`, `theme-color` meta fix, the
-  architecture check — `tasks/07-*`, `tasks/08-*`.
+  architecture check — `tasks/09-*`, `tasks/10-*`.

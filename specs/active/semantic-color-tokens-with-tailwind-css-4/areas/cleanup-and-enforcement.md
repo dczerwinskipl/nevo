@@ -21,7 +21,7 @@ regressions from reintroducing arbitrary-value color utilities or raw palette us
 
 ## Requirements
 
-**Sweep and removal (first task, `tasks/07-*`):**
+**Sweep and removal (first task, `tasks/09-*`):**
 - Run a final repo-wide grep across `tools/dashboard/ui` (excluding
   `*.stories.tsx`/`tests/`/`__fixtures__/`) for `-[var(--`, raw white/black utilities,
   and `color-mix(` to confirm Areas 2-6 left zero occurrences; fix any straggler found.
@@ -37,7 +37,7 @@ regressions from reintroducing arbitrary-value color utilities or raw palette us
   before/after Storybook comparison for representative stories (neutral surfaces,
   typography, spacing, non-targeted states unchanged).
 
-**Enforcement (second task, `tasks/08-*`):**
+**Enforcement (second task, `tasks/10-*`):**
 - Add a lightweight, dependency-free check (plain Node script or `node --test` file,
   matching the existing `tools/dashboard/tests/*.test.mjs` precedent — no new npm
   package, per the change-wide constraint against new external dependencies) that scans

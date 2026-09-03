@@ -47,6 +47,12 @@ request.
   by discovery) — this area's task is responsible for sweeping every remaining
   occurrence anywhere in `tools/dashboard/ui` once Areas 2-4 are done, since it is the
   last consumer-migration area before cleanup.
+- `features/pull-requests/changes/status.ts:10-15` — `stateTone()`, a third,
+  independent status→class mapping (PR draft/merged/closed/open), not identified by the
+  original discovery. Its own PR-state→tone mapping logic stays feature-local (per D8 —
+  a different canonical domain than Turn/tool status), but it must consume the shared
+  `StatusTone` type/recipe from `areas/status-tone-contract.md` rather than inventing its
+  own class strings.
 
 ## Requirements
 

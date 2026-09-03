@@ -28,9 +28,11 @@ forbidden_paths:
   - src/**
 depends_on:
   - theme-contract
+  - frontend-formatter-baseline
+  - react-class-composition-guidelines
 semantic_references:
-  decisions: [D1, D4]
-  constraints: [C5]
+  decisions: [D1, D4, D8]
+  constraints: [C5, C7, C8]
 ---
 
 # Task: Migrate shared UI primitives to semantic utilities
@@ -41,11 +43,14 @@ Migrate Button, Badge, Card, Dialog, Sheet, StatusCard, `status-label.tsx`, and
 `loading-screen.tsx` from `-[var(--…)]` arbitrary utilities and raw white/black
 utilities to the generated semantic Tailwind utilities from
 `areas/theme-foundation.md`, applying the D4 contrast fix to `status-card.tsx`'s
-hover-icon treatment.
+hover-icon treatment, and converting `StatusCard`'s hand-rolled variant/size branching
+to a `cva()` recipe per the class-composition contract (D8).
 
 ## Dependencies
 
-`theme-contract` (needs the `--color-*` tokens to exist).
+`theme-contract` (needs the `--color-*` tokens to exist), `frontend-formatter-baseline`
+(must start from the formatted baseline), `react-class-composition-guidelines` (must
+follow the class-composition contract from the start).
 
 ## Implementation constraints
 
@@ -63,6 +68,18 @@ hover-icon treatment.
   `border-status-error/25 bg-status-error/10` (or the raw `--color-status-error` token
   if `areas/status-tone-contract.md` hasn't finalized its own naming yet — do not block
   this task on that area).
+- `status-card.tsx:52-53,88-104`: convert the hand-rolled `variant`/`size` `cn()` +
+  boolean-ternary branching into a `cva()` recipe (`variant: 'error'|'warning'|'info'`,
+  `size: 'sm'|'default'`), deriving props via `VariantProps`, matching the pattern
+  already used by `button.tsx`/`sheet.tsx` — per the class-composition contract's
+  "reusable component variants" rule (D8). Do not fold the `error`/`warning`/`info`
+  variant axis into the `StatusTone` type itself — `StatusCard`'s `variant` is this
+  component's own visual API, not a re-declaration of the shared tone contract, even
+  though the names overlap.
+- Apply the class-composition contract generally: no interpolated Tailwind class
+  construction, DOM/ARIA state (e.g. `disabled:`, `data-[state=open]:`) via native
+  Tailwind variants rather than new booleans, `cn()` used for conditional
+  inclusion/override only.
 - Do not touch `index.css` or any `features/**` file.
 
 ## Acceptance criteria
@@ -83,6 +100,12 @@ hover-icon treatment.
    change versus the pre-task baseline (screenshot comparison), except the deliberate
    `status-card.tsx` hover-contrast fix.
    `inspection: before/after screenshot comparison performed and recorded`
+7. `StatusCard` exposes its `variant`/`size` API via a `cva()` recipe with
+   `VariantProps`-derived props, matching `button.tsx`/`sheet.tsx`'s existing pattern.
+   `inspection: source reviewed`
+8. The 7-item "required inspection when touching a component" checklist
+   (`react-component-guidelines.md` §11/§12) was applied to every component touched by
+   this task. `inspection: checklist applied and recorded per component`
 
 ## Verification
 
@@ -98,9 +121,9 @@ before and after.
 
 ## Documentation impact
 
-None yet — covered by `tasks/06-storybook-and-documentation.md`.
+None yet — covered by `tasks/08-storybook-and-documentation.md`.
 
 ## Out of scope
 
 - Any `features/**` file.
-- The central status/tone module itself — `tasks/03-status-tone-contract.md`.
+- The central status/tone module itself — `tasks/05-status-tone-contract.md`.

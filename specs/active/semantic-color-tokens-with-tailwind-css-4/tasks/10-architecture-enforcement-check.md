@@ -19,8 +19,8 @@ forbidden_paths:
 depends_on:
   - cleanup-and-token-removal
 semantic_references:
-  decisions: [D5]
-  constraints: [C4, C6]
+  decisions: [D5, D8]
+  constraints: [C4, C6, C8]
 ---
 
 # Task: Add the color-token architecture enforcement check
@@ -30,8 +30,10 @@ semantic_references:
 Add a lightweight, dependency-free check that scans production UI sources under
 `tools/dashboard/ui` (excluding stories, tests, fixtures, generated files) and fails on:
 color-bearing arbitrary-value utilities (`bg-[var(--...)]` etc.), direct Tailwind
-default-palette utilities, undeclared color-variable references, and component-local
-literal/`color-mix(...)` semantic colors — wired into the existing test command.
+default-palette utilities, undeclared color-variable references, component-local
+literal/`color-mix(...)` semantic colors, and interpolated Tailwind class construction
+(e.g. `` `text-status-${tone}` ``, per the class-composition contract's "Tailwind source
+detection" rule, D8) — wired into the existing test command.
 
 ## Dependencies
 
@@ -66,23 +68,26 @@ would fail immediately against legitimate remaining work).
    `automated: fixture-based test`
 4. A synthetic fixture containing a repeated `color-mix(...)` recipe fails the check.
    `automated: fixture-based test`
-5. The check passes against the real, fully-migrated `tools/dashboard/ui` tree.
+5. A synthetic fixture containing an interpolated Tailwind class (e.g.
+   `` `text-status-${tone}` ``) fails the check. `automated: fixture-based test`
+6. The check passes against the real, fully-migrated `tools/dashboard/ui` tree.
    `automated: the check itself, run against tools/dashboard/ui`
-6. The check runs as part of `npm --prefix tools/dashboard test` (or an equivalently
+7. The check runs as part of `npm --prefix tools/dashboard test` (or an equivalently
    discoverable script named in `package.json`).
    `automated: npm --prefix tools/dashboard test`
-7. No new npm dependency was added.
+8. No new npm dependency was added.
    `inspection: package.json diff reviewed`
 
 ## Verification
 
 ```text
 npm --prefix tools/dashboard test
+npm --prefix tools/dashboard run format:check
 ```
 
 ## Documentation impact
 
-None required, but a one-line mention in the UX/color doc (from `tasks/06-*`) noting the
+None required, but a one-line mention in the UX/color doc (from `tasks/08-*`) noting the
 check exists is reasonable if that doc already lists related tooling.
 
 ## Out of scope

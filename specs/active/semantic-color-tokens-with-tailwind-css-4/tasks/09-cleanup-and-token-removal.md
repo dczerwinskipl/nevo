@@ -86,8 +86,8 @@ npm --prefix tools/dashboard run build-storybook
 
 ## Documentation impact
 
-None beyond what `tasks/06-*` already updated.
+None beyond what `tasks/08-*` already updated.
 
 ## Out of scope
 
-- The architecture-check itself — `tasks/08-architecture-enforcement-check.md`.
+- The architecture-check itself — `tasks/10-architecture-enforcement-check.md`.
