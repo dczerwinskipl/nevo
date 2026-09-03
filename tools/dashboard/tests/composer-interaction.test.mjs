@@ -264,3 +264,40 @@ test('AC10: Send / stop / cancel behavior is preserved and toggles correctly whe
   assert.match(source, /Przerwij/);
   assert.match(source, /Wyślij/);
 });
+
+test('Task 07 / Composer status precedence: loadError > provider unavailable > isRunning > disabled > normal', async () => {
+  const { resolveComposerPlaceholder } = await import('../ui/features/agent-sessions/composer/composer-sizing.ts');
+
+  // 1. Normal state
+  assert.equal(resolveComposerPlaceholder({}), 'Napisz wiadomość…');
+
+  // 2. Genuinely read-only/disabled session
+  assert.equal(resolveComposerPlaceholder({ disabled: true }), 'Ta sesja jest tylko do odczytu');
+
+  // 3. Active Turn precedence: when both isRunning and disabled are true, must show active turn, not read-only
+  assert.equal(
+    resolveComposerPlaceholder({ isRunning: true, disabled: true }),
+    'Turn trwa…',
+    'Active turn must take precedence over disabled, describing the running turn instead of claiming read-only'
+  );
+
+  // 4. Provider unavailable takes precedence over running / disabled
+  assert.equal(
+    resolveComposerPlaceholder({ isProviderAvailable: false, isRunning: true, disabled: true }),
+    'Provider CLI niedostępny (brak w PATH)'
+  );
+
+  // 5. Load error takes top precedence
+  assert.equal(
+    resolveComposerPlaceholder({ loadError: { message: 'Server down' }, isProviderAvailable: false, isRunning: true, disabled: true }),
+    'Serwer dashboardu jest niedostępny...'
+  );
+
+  // 6. Custom placeholder overrides defaults
+  assert.equal(resolveComposerPlaceholder({ placeholder: 'Custom input' }), 'Custom input');
+
+  // 7. Verify source enforces disabled={isDisabled} where isDisabled includes isRunning
+  const source = readComposerSource();
+  assert.match(source, /const isDisabled = disabled \|\| !isProviderAvailable \|\| Boolean\(loadError\) \|\| isRunning/);
+  assert.match(source, /disabled=\{isDisabled\}/);
+});

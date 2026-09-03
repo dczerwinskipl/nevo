@@ -10,7 +10,10 @@ context:
   optional:
     - docs/development/nevo-ai-ux-guidelines.md
 allowed_paths:
-  - tools/dashboard/ui/features/agent-sessions/**/*.stories.tsx
+  - tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx
+  - tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx
+  - tools/dashboard/ui/features/agent-sessions/composer/composer-sizing.ts
+  - tools/dashboard/tests/composer-interaction.test.mjs
 forbidden_paths:
   - tools/dashboard/ui/features/agent-sessions/types.ts
   - tools/dashboard/server/**
@@ -60,7 +63,9 @@ both frozen, no real timers.
 ## Verification
 
 ```text
+npm --prefix tools/dashboard test
 npm --prefix tools/dashboard run test:storybook
+npm --prefix tools/dashboard run build
 npm --prefix tools/dashboard run build-storybook
 ```
 

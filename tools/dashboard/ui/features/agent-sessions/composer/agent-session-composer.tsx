@@ -9,7 +9,11 @@ import {
   getComposerLayoutState,
   adjustComposerTextareaElement,
   resolveComposerKeyAction,
+  resolveComposerPlaceholder,
+  type ResolveComposerPlaceholderOptions,
 } from './composer-sizing';
+
+export { resolveComposerPlaceholder, type ResolveComposerPlaceholderOptions };
 
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
@@ -63,19 +67,15 @@ export function AgentSessionComposer({
     adjustHeight();
   }, [draft, isFocused, adjustHeight]);
 
-  const isDisabled = disabled || !isProviderAvailable || Boolean(loadError);
+  const isDisabled = disabled || !isProviderAvailable || Boolean(loadError) || isRunning;
 
-  const defaultPlaceholder = loadError
-    ? ('kind' in (loadError as any) && (loadError as any).kind === 'not_found'
-        ? 'Sesja nie została znaleziona...'
-        : 'Serwer dashboardu jest niedostępny...')
-    : !isProviderAvailable
-    ? 'Provider CLI niedostępny (brak w PATH)'
-    : disabled
-    ? 'Ta sesja jest tylko do odczytu'
-    : isRunning
-    ? 'Turn trwa…'
-    : 'Napisz wiadomość…';
+  const resolvedPlaceholder = resolveComposerPlaceholder({
+    loadError,
+    isProviderAvailable,
+    isRunning,
+    disabled,
+    placeholder,
+  });
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const action = resolveComposerKeyAction({
@@ -124,7 +124,7 @@ export function AgentSessionComposer({
             onBlur={() => setIsFocused(false)}
             onKeyDown={handleKeyDown}
             disabled={isDisabled}
-            placeholder={placeholder || defaultPlaceholder}
+            placeholder={resolvedPlaceholder}
             className={cn(
               'w-full resize-none bg-transparent px-4 pt-3 pb-2 text-base sm:text-sm outline-none placeholder:text-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-60 transition-all duration-150',
               layoutState.className

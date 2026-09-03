@@ -96,3 +96,40 @@ export function resolveComposerKeyAction({
   return 'newline';
 }
 
+export interface ResolveComposerPlaceholderOptions {
+  loadError?: unknown;
+  isProviderAvailable?: boolean;
+  isRunning?: boolean;
+  disabled?: boolean;
+  placeholder?: string;
+}
+
+/**
+ * Resolves composer placeholder text based on strict status precedence:
+ * 1. Explicit custom placeholder (if provided)
+ * 2. Load error (session not found / server unreachable)
+ * 3. Provider CLI unavailable
+ * 4. Active Turn running ("Turn trwa…")
+ * 5. Genuinely read-only/disabled session ("Ta sesja jest tylko do odczytu")
+ * 6. Normal composer ready state ("Napisz wiadomość…")
+ */
+export function resolveComposerPlaceholder({
+  loadError,
+  isProviderAvailable = true,
+  isRunning = false,
+  disabled = false,
+  placeholder,
+}: ResolveComposerPlaceholderOptions): string {
+  if (placeholder) return placeholder;
+  if (loadError) {
+    return 'kind' in (loadError as any) && (loadError as any).kind === 'not_found'
+      ? 'Sesja nie została znaleziona...'
+      : 'Serwer dashboardu jest niedostępny...';
+  }
+  if (!isProviderAvailable) return 'Provider CLI niedostępny (brak w PATH)';
+  if (isRunning) return 'Turn trwa…';
+  if (disabled) return 'Ta sesja jest tylko do odczytu';
+  return 'Napisz wiadomość…';
+}
+
+

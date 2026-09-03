@@ -12,9 +12,9 @@ import {
   type AgentSessionTranscriptHandle,
 } from './transcript/agent-session-transcript';
 import {
-  AgentSessionTranscriptV2,
-  type AgentSessionTranscriptV2Handle,
-} from './work-v2/agent-session-transcript-v2';
+  AgentSessionChatSurface,
+  type AgentSessionChatSurfaceHandle,
+} from './agent-session-chat-surface';
 import { useAgentSessionRuntime } from './runtime/agent-session-runtime';
 import { useAgentProviders, useDeleteAgentSession } from './queries';
 import { AI_PROVIDERS_CONFIG_PATH } from './provider-config';
@@ -44,7 +44,7 @@ export function AgentSessionPage({
 }) {
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const transcriptHandleRef = useRef<AgentSessionTranscriptHandle>(null);
-  const transcriptHandleRefV2 = useRef<AgentSessionTranscriptV2Handle>(null);
+  const chatSurfaceRef = useRef<AgentSessionChatSurfaceHandle>(null);
   const visualViewport = useVisualViewport();
 
   const provider = session.provider;
@@ -173,7 +173,7 @@ export function AgentSessionPage({
     if (!trimmed || !isProviderAvailable || !assistant.canStartTurn) return;
     setRuntimeError(null);
     if (representation === 'v2') {
-      transcriptHandleRefV2.current?.scrollToBottom('auto');
+      chatSurfaceRef.current?.scrollToBottom('auto');
     } else {
       transcriptHandleRef.current?.scrollToBottom('auto');
     }
@@ -270,8 +270,9 @@ export function AgentSessionPage({
         )}
 
         {representation === 'v2' ? (
-          <AgentSessionTranscriptV2
-            ref={transcriptHandleRefV2}
+          <AgentSessionChatSurface
+            key={sessionId}
+            ref={chatSurfaceRef}
             turns={assistant.turns}
             optimisticUserMessage={assistant.optimisticUserMessage}
             isLoading={assistant.isLoading}
@@ -280,60 +281,71 @@ export function AgentSessionPage({
             contentRevision={assistant.contentRevision}
             displayError={displayError}
             canRetryInitial={canRetryInitial}
+            currentMode={currentMode}
+            onModeChange={(m) => setSelectedModeOverride(m)}
+            onSend={(text) => handleComposerSubmit(text)}
+            onCancel={() => void handleCancelTurn()}
+            isRunning={activeRuntime.isRunning}
+            canCancel={Boolean(activeRuntime.capabilities?.cancelTurn && activeRuntime.isRunning && activeRuntime.activeTurnId)}
+            isProviderAvailable={isProviderAvailable}
+            disabled={!activeRuntime.canStartTurn || !isProviderAvailable}
+            placeholder={activeRuntime.activity === 'waitingForUser' ? 'Odpowiedz na pytanie powyżej…' : undefined}
+            keyboardOpen={visualViewport.keyboardOpen}
             onReload={() => void handleReload()}
             onBack={onBack}
             onRespondInteraction={handleRespondInteraction}
             onRetryInitial={() => void handleRetryInitial()}
             onDismissError={handleDismissError}
-            onPointerDown={handleTranscriptPointerDown}
           />
         ) : (
-          <AgentSessionTranscript
-            ref={transcriptHandleRef}
-            messages={assistant.messages}
-            activeTurnId={assistant.activeTurnId}
-            pendingInteraction={assistant.pendingInteraction}
-            isLoading={assistant.isLoading}
-            isRunning={assistant.isRunning}
-            hasSessionDetails={Boolean(assistant.sessionDetails)}
-            loadError={assistant.loadError}
-            contentRevision={assistant.contentRevision}
-            displayError={displayError}
-            canRetryInitial={canRetryInitial}
-            keyboardOpen={visualViewport.keyboardOpen}
-            visualViewportHeight={visualViewport.height}
-            onReload={() => void handleReload()}
-            onBack={onBack}
-            onRespondInteraction={handleRespondInteraction}
-            onRetryInitial={() => void handleRetryInitial()}
-            onDismissError={handleDismissError}
-            onPointerDown={handleTranscriptPointerDown}
-          />
-        )}
-
-        <footer
-          className={cn(
-            'shrink-0 border-t border-[var(--border)] bg-[var(--background)] px-3 pt-2 sm:px-6',
-            visualViewport.keyboardOpen ? 'pb-2' : 'pb-[max(0.5rem,env(safe-area-inset-bottom))]',
-          )}
-        >
-          <div className="mx-auto max-w-4xl">
-            <AgentSessionComposer
-              key={sessionId}
-              textareaRef={composerTextareaRef}
-              currentMode={currentMode}
-              onModeChange={(m) => setSelectedModeOverride(m)}
-              onSend={(text) => handleComposerSubmit(text)}
-              onCancel={() => void handleCancelTurn()}
-              isRunning={activeRuntime.isRunning}
-              canCancel={Boolean(activeRuntime.capabilities?.cancelTurn && activeRuntime.isRunning && activeRuntime.activeTurnId)}
-              isProviderAvailable={isProviderAvailable}
-              disabled={!activeRuntime.canStartTurn || !isProviderAvailable}
-              placeholder={activeRuntime.activity === 'waitingForUser' ? 'Odpowiedz na pytanie powyżej…' : undefined}
-              loadError={activeRuntime.loadError}
+          <>
+            <AgentSessionTranscript
+              ref={transcriptHandleRef}
+              messages={assistant.messages}
+              activeTurnId={assistant.activeTurnId}
+              pendingInteraction={assistant.pendingInteraction}
+              isLoading={assistant.isLoading}
+              isRunning={assistant.isRunning}
+              hasSessionDetails={Boolean(assistant.sessionDetails)}
+              loadError={assistant.loadError}
+              contentRevision={assistant.contentRevision}
+              displayError={displayError}
+              canRetryInitial={canRetryInitial}
+              keyboardOpen={visualViewport.keyboardOpen}
+              visualViewportHeight={visualViewport.height}
+              onReload={() => void handleReload()}
+              onBack={onBack}
+              onRespondInteraction={handleRespondInteraction}
+              onRetryInitial={() => void handleRetryInitial()}
+              onDismissError={handleDismissError}
+              onPointerDown={handleTranscriptPointerDown}
             />
-          </div>
-        </footer>
+
+            <footer
+              className={cn(
+                'shrink-0 border-t border-[var(--border)] bg-[var(--background)] px-3 pt-2 sm:px-6',
+                visualViewport.keyboardOpen ? 'pb-2' : 'pb-[max(0.5rem,env(safe-area-inset-bottom))]',
+              )}
+            >
+              <div className="mx-auto max-w-4xl">
+                <AgentSessionComposer
+                  key={sessionId}
+                  textareaRef={composerTextareaRef}
+                  currentMode={currentMode}
+                  onModeChange={(m) => setSelectedModeOverride(m)}
+                  onSend={(text) => handleComposerSubmit(text)}
+                  onCancel={() => void handleCancelTurn()}
+                  isRunning={activeRuntime.isRunning}
+                  canCancel={Boolean(activeRuntime.capabilities?.cancelTurn && activeRuntime.isRunning && activeRuntime.activeTurnId)}
+                  isProviderAvailable={isProviderAvailable}
+                  disabled={!activeRuntime.canStartTurn || !isProviderAvailable}
+                  placeholder={activeRuntime.activity === 'waitingForUser' ? 'Odpowiedz na pytanie powyżej…' : undefined}
+                  loadError={activeRuntime.loadError}
+                />
+              </div>
+            </footer>
+          </>
+        )}
 
         {inspectedTaskId && spec && (
           <TaskDialog

@@ -49,9 +49,10 @@ color tokens from `tools/dashboard/ui/index.css` — no aspirational or parallel
 
 1. Every semantic color token in `index.css:6-51` appears in a color story with its
    custom-property name and resolved value. `inspection: enumerate index.css custom properties and confirm each appears`
-2. The typography story renders the real font stack and every font-size/weight/line-height
-   combination actually in use across `features/`/`components/ui/`, each labeled with its
-   producing Tailwind utility class. `inspection: cross-check against a grep of text-*/font-* utility usage`
+2. The typography story renders the real font stack and distinct active font-size, line-height,
+   and font-weight utilities present across `features/` and `components/ui/`, each labeled with
+   its producing Tailwind utility class and a concrete source-file example.
+   `inspection: cross-check against a grep of text-*/leading-*/font-* utility usage`
 3. Documented values match `index.css`'s current values exactly.
    `inspection: diff each rendered value against index.css`
 4. A representative computed style (`--success` resolved color) is identical between the
@@ -67,6 +68,8 @@ own criterion because this task does not depend on task 04.
 
 ```text
 npm --prefix tools/dashboard run build-storybook
+npm --prefix tools/dashboard run test:storybook
+npm --prefix tools/dashboard run build
 ```
 
 ## Out of scope

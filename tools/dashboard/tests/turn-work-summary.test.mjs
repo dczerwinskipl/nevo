@@ -12,9 +12,6 @@ import {
 import { activityLabelFor } from '../ui/features/agent-sessions/turn-work/tool-activity-labels.ts';
 import { projectTranscript } from '../ui/features/agent-sessions/transcript/projection.ts';
 
-function readWorkSummarySource() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/turn-work/turn-work-summary.tsx', import.meta.url)), 'utf8');
-}
 
 function item(id, status, overrides = {}) {
   return { toolId: id, toolName: `tool-${id}`, input: {}, status, ...overrides };
@@ -133,11 +130,8 @@ test('B: eight successful actions collapse to one Work summary, no cards while c
 });
 
 // Required coverage D (follow-up review, Finding 3): current activity uses Task 04's
-// human-readable normalization, never the raw provider tool name. `turn-work-summary.tsx`
-// cannot be imported into this test runner (JSX, no loader for it here — see G below),
-// so this combines (1) proving the normalization itself never renders a raw tool name
-// for a realistic running item, with (2) a source check that `WorkCurrentActivity`
-// actually calls the normalization function rather than rendering `item.toolName`.
+// human-readable normalization, never the raw provider tool name. (Render assertion
+// migrated to turn-work-summary.test.tsx via React Testing Library).
 test('D: current activity label uses Task 04 normalization, not the raw tool name', () => {
   const runningItem = activityLabelFor('Read', { path: 'specs/active/chat-ux-improvements-pt1/foo.md' });
   assert.notEqual(runningItem.label, 'Read', 'must not render the raw provider tool name');
@@ -145,12 +139,6 @@ test('D: current activity label uses Task 04 normalization, not the raw tool nam
 
   const bashItem = activityLabelFor('Bash', { command: 'node tools/specs.mjs validate' });
   assert.equal(bashItem.label, 'Running: node tools/specs.mjs validate');
-
-  const source = readWorkSummarySource();
-  const currentActivityMatch = source.match(/const WorkCurrentActivity[\s\S]*?\n\}\);/);
-  assert.ok(currentActivityMatch, 'WorkCurrentActivity must exist in turn-work-summary.tsx');
-  assert.match(currentActivityMatch[0], /activityLabelFor\(/, 'must call the Task 04 normalization function');
-  assert.doesNotMatch(currentActivityMatch[0], />\{item\.toolName\}</, 'must not render the raw tool name directly');
 });
 
 // Required coverage F (follow-up review, Findings 5/8): a Work-only turn (no assistant
@@ -168,22 +156,7 @@ test('F: a Work-only assistant message renders (has Work), an empty one does not
   const userMessage = { role: 'user', text: '', reasoning: undefined };
   assert.equal(shouldRenderTranscriptMessage(userMessage, false), true, 'a user message always renders');
 });
-
-// Required coverage G (follow-up review, Finding 6): collapsed Work renders as a
-// lightweight transcript row, not a card/bubble container. `turn-work-summary.tsx` cannot be
-// rendered in this test runner (no jsdom/RTL, and Node's loader does not transform
-// JSX), so this asserts the component-structure invariant the way it exists here: the
-// collapsed row's own class list carries no card chrome (border/rounded-xl/background),
-// only a hover affordance — a structural check on the source, not a pixel comparison.
-test('G: the collapsed Work row source carries no card container styling', () => {
-  const source = readWorkSummarySource();
-  const collapsedSummaryMatch = source.match(/const WorkCollapsedSummary[\s\S]*?\n\}\);/);
-  assert.ok(collapsedSummaryMatch, 'WorkCollapsedSummary must exist in turn-work-summary.tsx');
-  const collapsedSummarySource = collapsedSummaryMatch[0];
-  assert.doesNotMatch(collapsedSummarySource, /rounded-xl/, 'no large rounded card container');
-  assert.doesNotMatch(collapsedSummarySource, /\bborder\b/, 'no prominent border');
-  assert.match(collapsedSummarySource, /hover:bg-white\/4/, 'reads as a lightweight row with only a hover affordance');
-});
+// (Required coverage G migrated to turn-work-summary.test.tsx via React Testing Library render)
 // ── New required scenarios (PR #35 review, Issue 2) ───────────────────────────────────
 
 // When Work reports 'requires attention' solely because of a turnError (no failed tools),
@@ -224,18 +197,7 @@ test('L: failed tool + turnError are independently inspectable in Work projectio
   // Turn error is independently present.
   assert.deepEqual(workByTurn[0].turnError, { code: 'AI_PROVIDER_EXIT_ERROR', message: 'Process exited with code 1' });
 });
-
-// Source check: TurnErrorRow must exist in turn-work-summary.tsx and must render the turnError
-// fields, not a string-matched hardcoded message.
-test('L: turn-work-summary.tsx source contains TurnErrorRow that renders turnError fields', () => {
-  const source = readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/turn-work/turn-work-summary.tsx', import.meta.url)), 'utf8');
-  assert.match(source, /const TurnErrorRow/, 'TurnErrorRow component must exist');
-  assert.match(source, /turnError\.message/, 'must render turnError.message');
-  assert.match(source, /turnError\.code/, 'must render turnError.code as secondary info');
-  // Must NOT use string matching on session-limit text or similar heuristics.
-  assert.doesNotMatch(source, /session.limit/i, 'must not use string-matching heuristics');
-  assert.doesNotMatch(source, /includes\s*\(/, 'must not classify error text with includes()');
-});
+// (TurnErrorRow render assertion migrated to turn-work-summary.test.tsx via React Testing Library)
 
 test('Finding 3: visibleWorkItemsWhileRunning retains older running tools when multiple are running', () => {
   const work = {
