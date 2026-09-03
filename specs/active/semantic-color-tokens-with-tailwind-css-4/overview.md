@@ -1,0 +1,209 @@
+---
+id: spec.semantic-color-tokens-with-tailwind-css-4
+type: change
+title: "Semantic Color Tokens with Tailwind CSS 4"
+status: draft
+change: semantic-color-tokens-with-tailwind-css-4
+---
+
+# Semantic Color Tokens with Tailwind CSS 4
+
+## Context
+
+`tools/dashboard` (Storybook baseline landed via PR #42, merged into
+`feature/ai-session-issues-and-diagnostics`, audited revision `c9d7e26`) styles its
+entire UI through a flat collection of `:root` CSS custom properties consumed almost
+exclusively via Tailwind arbitrary-value utilities (`bg-[var(--…)]`, etc.) instead of
+Tailwind 4's native `@theme` token mechanism. This is an API/architecture migration to
+generated semantic utilities (`bg-surface`, `text-fg-muted`, `border-border`), not a
+visual redesign — see D1 in `owner-decisions.md`. It is intentionally chartered as a
+separate change from PR #42 and does not modify or merge that PR.
+
+## Current architecture
+
+- Theme file: `tools/dashboard/ui/index.css:1` — `@import "tailwindcss";` followed by a
+  plain `:root { … }` block (lines 3-55, no `@theme` block anywhere in the repo).
+- **39** color custom properties under `:root` (exact count, `index.css:6-51`): neutral
+  (`--background`, `--surface`, `--surface-raised`, `--surface-hover`, `--border`,
+  `--border-strong`, `--foreground`, `--muted`, `--muted-strong`), accent
+  (`--accent`, `--accent-strong`, `--accent-foreground`, `--accent-muted`,
+  `--accent-border`), four status families × 4 variants each
+  (`--success*`, `--warning*`, `--danger*`, `--info*`), 7 lane vars
+  (`--lane-new` … `--lane-danger`), and `--cat-1`/`--cat-2`.
+- **1003** arbitrary-value occurrences of `-[var(--…]` across 58 files under
+  `tools/dashboard/ui` (694 distinct lines — some lines carry more than one). Highest
+  density: `features/specifications/navigation/specification-sidebar.tsx` (~44),
+  `features/agent-sessions/create-agent-session-dialog.tsx` (~50),
+  `features/agent-sessions/agent-session-details.tsx` (~44),
+  `features/specifications/actions/spec-actions.tsx` (~38).
+- **59** raw `bg/text/border-white|black[/opacity]` occurrences across 27 files (e.g.
+  `dialog.tsx:19`/`sheet.tsx:20` `bg-black/70` overlays, `loading-screen.tsx:4-6`
+  `bg-white/8` skeletons, `progress.tsx:7` `bg-white/7` track).
+- `accent` (180 occurrences / 49 files) is overloaded: filled-button surface
+  (`button.tsx:12`), active nav item (`specification-sidebar.tsx:51,60`), link/icon
+  color with a darker hover (`specification-list.tsx:66`, `status-card.tsx:27`), focus
+  ring (`specification-sidebar.tsx:218`, `agent-session-list.tsx:119`), and section
+  labels/avatars — one variable serving five distinct semantic roles.
+- `--foreground-muted` is referenced 5 times in 4 files under `features/agent-sessions`
+  (`work-indicator-v2.tsx:90`, `work-details-sheet-v2.tsx:188,254`,
+  `work-timeline-v2.tsx:49`, `transcript-message.tsx:59`) but is **not defined anywhere**
+  — confirmed dangling. Older sibling files in the same feature use `--muted`/
+  `--muted-strong` instead, so this is inferred to be a "v2" rewrite artifact, not an
+  intentional rename.
+- `--cat-1: #fb923c` / `--cat-2: #60a5fa` (`index.css:50-51`) are documented generically
+  ("Category 1/2 accent", `colors.stories.tsx:93-94`) but their one real consumer,
+  `ProviderBadge` in `agent-session-list.tsx:49-68`, maps them to Claude and Antigravity
+  respectively.
+- `--success-strong`, `--info`, `--info-strong`, `--info-muted`, `--info-border` are
+  defined (`index.css:25,36-39`) but have **zero component consumers** — only their own
+  definitions and the token-catalog Storybook story reference them (`--info` is also
+  consumed internally by `--lane-ready`).
+- `requiresAttention` (`work-indicator-v2.tsx:70`) maps to `severity: 'warning'`
+  (line 75-79) and renders with `text-[var(--warning-strong)]` (line 86-91) — no
+  distinct "attention" treatment exists despite the documented attention role.
+- `--accent: #3882f6`, `--accent-strong: #1d4ed8`, `--accent-foreground: #f8fafc`
+  (`index.css:17-19`) confirmed exactly. `--accent-foreground` on `--accent` is the
+  filled-button pair (contrast concern, D4). `--accent-strong` is also used as a
+  **text** color on dark surfaces at `specification-list.tsx:66` and
+  `status-card.tsx:27` (also D4).
+- Workflow lanes resolve through a two-step runtime indirection:
+  `lane-presentation.ts:7-14` maps each `StageId` to `{ accent: 'var(--lane-X)' }`, then
+  `status-board.tsx:119,125,129` sets an inline `style={{ '--lane-accent': … }}` per
+  render and consumes it via `bg-[var(--lane-accent)]`.
+- `index.html:6`'s `<meta name="theme-color" content="#090b10">` does not match
+  `index.css:6`'s `--background: #090a0d` — a pre-existing, unrelated one-hex-digit
+  drift to fix per stage 9.
+- Tailwind confirmed at `^4.3.3` with `@tailwindcss/vite` `^4.3.3`
+  (`tools/dashboard/package.json:49,65`), CSS-first (`index.css:1`), no
+  `tailwind.config.*` in the repo.
+- No ESLint or other lint/architecture-check infrastructure exists under
+  `tools/dashboard` today. The closest repo precedent for a lightweight guard is the
+  existing `node --test`, regex-over-source-text style used by
+  `tools/dashboard/tests/*.test.mjs` (e.g. `composer-interaction.test.mjs:246`).
+
+## Problem
+
+The current model has no compile-time or lint-time contract between "a color exists"
+and "a component uses it correctly": any component can reach for any CSS variable via an
+arbitrary-value escape hatch, `accent` silently carries five unrelated meanings, one
+dangling variable (`--foreground-muted`) and five dead token variants ship unnoticed,
+generic names (`cat-1`/`cat-2`) hide real semantics (provider identity), status
+presentation is decided per-component instead of once (causing the confirmed
+`requiresAttention` → warning mis-mapping), and there is no accessible mechanism to stop
+a new arbitrary-value or raw-palette utility from being added tomorrow.
+
+## Constraints
+
+- **C1.** Do not upgrade Tailwind, add a `ThemeProvider`, add light mode, introduce a
+  generic 50–950 palette, or extract a shared monorepo package (change-wide,
+  owner-stated).
+- **C2.** Do not modify or merge PR #42.
+- **C3.** Base branch is `feature/ai-session-issues-and-diagnostics`, not `main` — see
+  D6. `main` does not yet contain the Storybook baseline this spec depends on.
+- **C4.** No new runtime npm dependency may be introduced for the architecture-check
+  (`AGENTS.md` gates new external dependencies for owner approval; a plain
+  `node --test`-based source-text check follows existing repo precedent and needs no new
+  package — see `areas/cleanup-and-enforcement.md`).
+- **C5.** Preserve current computed neutral-surface colors exactly; only change values
+  where the change request identifies a concrete defect (accent-on-dark contrast,
+  missing attention distinction, `--foreground-muted`/`cat-1`/`cat-2` naming, dead
+  tokens).
+- **C6.** `--color-*: initial` and the architecture check must not be enabled until
+  every consuming area has migrated (D5) — enabling either earlier would fail the build
+  or the check against legitimately not-yet-migrated code.
+
+## Affected modules
+
+`tools/dashboard/ui/index.css` (theme), `tools/dashboard/ui/index.html` (theme-color
+meta), `tools/dashboard/ui/components/ui/*` (shared primitives), a new shared
+status/tone module, `tools/dashboard/ui/features/agent-sessions/**`,
+`tools/dashboard/ui/features/specifications/**`, `tools/dashboard/ui/features/pull-requests/**`,
+`tools/dashboard/ui/features/operations/**`, `tools/dashboard/ui/foundations/colors.stories.tsx`,
+`docs/development/*` (UX/color guideline doc), a new `tools/dashboard/tests/*` or
+`tools/dashboard/scripts/*` architecture-check.
+
+## Options and trade-offs
+
+The architectural shape (direct-value `@theme`, no primitive layer, canonical status
+contract, static lane/provider mapping) was specified by the owner, not chosen among
+agent-proposed alternatives — see `owner-decisions.md` D1-D4 for the two-option
+comparisons the owner was given and decided between. The only agent-decided trade-off is
+the enforcement mechanism (plain source-text check vs. introducing ESLint): plain check
+chosen to avoid a new external dependency and match existing repo precedent (D5,
+`AGENTS.md` "New external dependencies" gate).
+
+## Owner decisions
+
+See `owner-decisions.md` — D1 (theme contract shape), D2 (status/tone contract), D3
+(lane/provider naming and static mapping), D4 (accent contrast fix), D5 (migration and
+enforcement sequencing), D6 (base branch).
+
+## Proposed architecture
+
+Add the exact `@theme` contract given in the change request (namespace `--color-*`,
+neutral/foreground/interaction/canonical-status/action/provider/workflow groups, one
+`@theme inline` block for `status-active`/`status-neutral` aliases) alongside the
+existing `:root` block so computed colors are unchanged while the new utilities become
+available (`areas/theme-foundation.md`). Migrate consumers in dependency order: shared UI
+primitives and the new central status/tone contract first (independent of each other,
+both depend only on the theme contract), then the two large feature sweeps (agent
+sessions/Work, and specifications/lanes/PRs/operations/remaining UI) which depend on
+both, then Storybook/docs, then a final area that removes the old `:root` variables and
+now-dead token variants, enables `--color-*: initial`, fixes the `theme-color` meta
+value, and adds the architecture-check guardrail. See `owner-decisions.md` D5 for why
+cleanup and enforcement are ordered last.
+
+## Areas
+
+- `areas/theme-foundation.md` — the `@theme` contract and its computed-color parity
+  guarantee.
+- `areas/shared-ui-primitives.md` — Button, Badge, Card, Dialog, Sheet, StatusCard,
+  shared status-label, and their own raw white/black cleanup.
+- `areas/status-tone-contract.md` — the central status/tone presentation module and its
+  first consumers (severity mappings currently scattered per component).
+- `areas/agent-sessions-and-work.md` — agent-session feature components, Work V2
+  presentation, `--foreground-muted` fix, provider badge rename.
+- `areas/specs-lanes-and-remaining-ui.md` — specifications feature (incl. workflow lane
+  static mapping), pull-requests, operations, and any remaining stray usages.
+- `areas/storybook-and-documentation.md` — live-value Colors story and UX guideline doc.
+- `areas/cleanup-and-enforcement.md` — old-variable/dead-token removal,
+  `--color-*: initial`, `theme-color` meta fix, and the architecture check.
+
+## Change-wide acceptance criteria
+
+- Zero occurrences of `bg-[var(--`, `text-[var(--`, `border-[var(--` (or equivalent
+  color-bearing arbitrary-value utility) remain under `tools/dashboard/ui`, excluding
+  Storybook stories/tests/fixtures and any explicitly documented exception.
+- Zero undefined color-variable references (no `--foreground-muted`-style dangling var).
+- The old `:root` color variable block is removed from `index.css`; no component
+  references a pre-migration variable name.
+- `--color-*: initial` is present in `@theme` and no product UI renders a default
+  Tailwind palette color (`bg-white`, `text-blue-500`, etc.) outside documented
+  exceptions.
+- `status-error` and `action-destructive` remain distinct roles in the token API even
+  though they may share a value.
+- `requiresAttention` renders visually distinct from `warning`.
+- `bg-accent-solid text-fg-on-accent` (filled primary control) and every other
+  foreground/background pair actually rendered by migrated components meets ≥4.5:1
+  (normal text) / ≥3:1 (large text, non-text UI indicators, focus boundaries).
+- `provider-claude`/`provider-antigravity` replace `cat-1`/`cat-2`; `workflow-design` and
+  the given static lane mapping replace the `--lane-accent` runtime indirection.
+- The Storybook Colors story reads live computed `--color-*` values, not a duplicated
+  TypeScript palette.
+- `npm --prefix tools/dashboard test`, `npm --prefix tools/dashboard run test:storybook`,
+  `npm --prefix tools/dashboard run build`, and
+  `npm --prefix tools/dashboard run build-storybook` all pass.
+
+## Verification strategy
+
+Each task runs its own scoped verification (see `tasks/*.md`); the change-wide criteria
+above are re-checked in full by the final `cleanup-and-enforcement` task, which is also
+where representative Storybook stories are compared before/after (screenshot or computed
+styles) to confirm neutral surfaces, typography, spacing, and non-targeted states did not
+change.
+
+## Out of scope
+
+Light mode, a `ThemeProvider`, a Tailwind upgrade, a generic 50–950 palette, a shared
+monorepo package, typography/spacing/radii/shadow/layout redesign, a visual-regression
+SaaS, OKLCH conversion, and any modification to or merge of PR #42.
