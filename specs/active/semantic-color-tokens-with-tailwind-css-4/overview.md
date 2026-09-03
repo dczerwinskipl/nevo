@@ -166,11 +166,16 @@ which file) — an implementation detail within the owner's already-decided arch
 
 ## Owner decisions
 
-See `owner-decisions.md` — D1 (theme contract shape), D2 (status/tone contract), D3
-(lane/provider naming and static mapping), D4 (accent contrast fix), D5 (migration and
-enforcement sequencing), D6 (base branch), D7 (Prettier + `prettier-plugin-tailwindcss`,
-not Biome, applied as a standalone mechanical baseline), D8 (durable Tailwind
-class-composition contract in `react-component-guidelines.md`).
+See `owner-decisions.md` — D1 (theme contract shape), D2 (status/tone contract — **7
+`StatusTone` values + 1 separate `action-destructive` action role**, not a "9-state"
+contract), D3 (lane/provider naming and static mapping), D4 (accent contrast fix), D5
+(migration and enforcement sequencing), D6 (base branch), D7 (Prettier +
+`prettier-plugin-tailwindcss`, not Biome, applied as a standalone mechanical baseline),
+D8 (durable Tailwind class-composition contract in `react-component-guidelines.md`), D9
+(visual-parity claims reframed as intentional semantic normalization, verified for
+contrast/legibility, not pixel identity — added during `/nevo-ai:spec-review`), D10
+(`@theme static` for the direct-value token contract, plus a Storybook token-presence
+test — added during `/nevo-ai:spec-review`).
 
 ## Proposed architecture
 
@@ -258,13 +263,18 @@ formatting is ordered first.
 
 ## Verification strategy
 
-Each task runs its own scoped verification (see `tasks/*.md`); the change-wide criteria
-above are re-checked in full by the final `cleanup-and-enforcement` task, which is also
-where representative Storybook stories are compared before/after (screenshot or computed
-styles) to confirm neutral surfaces, typography, spacing, and non-targeted states did not
-change. The final review additionally includes a focused audit of every React component
-this specification modified against the class-composition rules in
-`react-component-guidelines.md` §12 and its review checklist (§11) — recorded per
+Each task runs its own scoped verification (see `tasks/*.md`) via durable Storybook
+tests, not per-task manual screenshots. The **one** representative final visual review
+happens in the final `cleanup-and-enforcement` task (`tasks/09-*`), comparing
+representative Storybook stories before/after (screenshot or computed styles) to
+confirm neutral surfaces, typography, spacing, and non-targeted states are unchanged,
+and that every intentional color-recipe change catalogued in D9 (StatusCard's
+20/8%→25/10% recipe, sRGB `color-mix`→OKLab-mixed opacity modifiers, `warning-strong`→
+`status-warning`, white-alpha→semantic-foreground opacity, the accent contrast fix)
+reads correctly for contrast/legibility — none of these are claimed pixel-identical to
+the pre-migration state. The final review additionally includes a focused audit of
+every React component this specification modified against the class-composition rules
+in `react-component-guidelines.md` §12 and its review checklist (§11) — recorded per
 component, not just asserted in aggregate.
 
 Record, at minimum, the results of:

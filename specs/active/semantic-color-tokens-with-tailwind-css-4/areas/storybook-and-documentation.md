@@ -3,8 +3,10 @@
 ## Responsibility
 
 Update the Colors foundation Storybook story to read live production `--color-*`
-values (no duplicated TypeScript palette), and update the UX/color guideline
-documentation from provisional color roles to the final semantic contract.
+values (no duplicated TypeScript palette), prove every catalogued token actually
+resolves to a real value (guarding against `@theme static` regressing to plain
+`@theme`'s usage-detection gaps, D10), and update the UX/color guideline documentation
+from provisional color roles to the final semantic contract.
 
 ## Current state
 
@@ -30,7 +32,10 @@ documentation from provisional color roles to the final semantic contract.
 - Show representative foreground/background combinations actually used by product
   components (not just isolated swatches) — at minimum: `fg-primary` on `background`,
   `fg-secondary`/`fg-muted` on `surface`, and the primary filled-button pair.
-- Show all canonical status tones (`status-active` … `action-destructive`).
+- Show all 7 `StatusTone` values (`status-active`, `status-success`, `status-warning`,
+  `status-error`, `status-attention`, `status-info`, `status-neutral`), plus
+  `action-destructive` shown separately in its real consumer context (a destructive
+  Button variant), not grouped in as an 8th status tone.
 - Include the primary filled-button contrast pair (`bg-accent-solid text-fg-on-accent`)
   with its computed contrast ratio displayed or computable from the story.
 - Remove the old `cat-1`/`cat-2`/`info-*`/`success-strong` entries; replace with
@@ -39,6 +44,9 @@ documentation from provisional color roles to the final semantic contract.
 - Update (or create, if none exists) the UX color-role documentation to describe the
   final semantic contract by role/name, not by hex value — production CSS remains the
   value source of truth, the doc must not need to be updated every time a value changes.
+- Add a Storybook test asserting every catalogued token resolves to a non-empty computed
+  color — this is the story's own guard against silently rendering blank swatches if
+  `@theme static` isn't actually emitting a token (D10).
 - Do not refactor typography or any unrelated Storybook story.
 
 ## Constraints
@@ -69,6 +77,8 @@ documentation from provisional color roles to the final semantic contract.
 6. `npm --prefix tools/dashboard run test:storybook` and
    `npm --prefix tools/dashboard run build-storybook` pass.
 7. `node tools/docs.mjs validate` passes if any `docs/` file was touched.
+8. A durable Storybook test confirms every catalogued token resolves to a non-empty
+   computed color.
 
 ## Dependencies
 

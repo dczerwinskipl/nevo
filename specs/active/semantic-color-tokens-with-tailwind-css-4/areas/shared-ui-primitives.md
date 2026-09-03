@@ -2,11 +2,13 @@
 
 ## Responsibility
 
-Migrate the dashboard's shared UI primitives — Button, Badge, Card, Dialog, Sheet,
-StatusCard, and the shared status-label component — from `-[var(--…)]` arbitrary
-utilities to generated semantic Tailwind utilities, including their own raw
-white/black usages, so every feature area built on top of them (Areas 4-5) inherits
-correct tokens automatically.
+Migrate the dashboard's shared UI primitives — Button, Badge, Card, Dialog, Sheet, and
+StatusCard — from `-[var(--…)]` arbitrary utilities to generated semantic Tailwind
+utilities, including their own raw white/black usages, so every feature area built on
+top of them (Areas 4-5) inherits correct tokens automatically. **`status-label.tsx` is
+not this area's responsibility** — it is `areas/status-tone-contract.md`'s sole
+migration owner (see that area's Current state for why the original spec's dual
+ownership was a planning error).
 
 ## Current state
 
@@ -26,15 +28,11 @@ correct tokens automatically.
   `pull-request-detail.tsx` — those call sites are Area 5's concern, this task only
   fixes `status-card.tsx`'s own copy).
 - `tools/dashboard/ui/components/ui/progress.tsx:7` — `bg-white/7` track.
-- `tools/dashboard/ui/shared/ui/status-label.tsx` — the shared status-label component
-  referenced by the change request; exact current token usage to be confirmed during
-  implementation (not individually profiled by discovery) — treat it as in-scope for
-  migration to the new tokens, and to the status/tone contract once
-  `areas/status-tone-contract.md` exists (this area migrates its raw-token usage only;
-  wiring it to the central contract is `areas/status-tone-contract.md`'s job if
-  `status-label.tsx` is one of that area's target consumers).
 - `tools/dashboard/ui/shared/ui/loading-screen.tsx:4-6` — `bg-white/8`, `bg-white/8`,
   `bg-white/5` skeleton loaders.
+- `button.tsx` has no `destructive` variant today (confirmed: only `default`/
+  `secondary`/`ghost`) — one must be added, consuming `--color-action-destructive`
+  directly (D2/D8: that token is never routed through `shared/status-tone.ts`).
 
 ## Requirements
 
@@ -69,9 +67,13 @@ correct tokens automatically.
 
 ## Constraints
 
-- Zero visual change except the one explicitly required contrast fix (D4's hover
-  treatment on `status-card.tsx`).
+- Neutral surfaces, typography, and spacing stay unchanged. The `status-card.tsx`
+  hover-contrast fix (D4), the `StatusCard` → `cva()` conversion's resulting class
+  names (D8), and the new `destructive` Button variant are intentional, prescribed
+  changes — verified for contrast/legibility and correct token usage, not claimed as
+  pixel-identical to the pre-migration state (D9).
 - Do not touch any file under `features/**` — that's Areas 4-5.
+- Do not touch `status-label.tsx` — `areas/status-tone-contract.md`.
 
 ## Interfaces and boundaries
 
@@ -82,17 +84,20 @@ correct tokens automatically.
 
 ## Area-specific acceptance criteria
 
-1. Zero `-[var(--` occurrences remain in `components/ui/**` and `shared/ui/status-label.tsx`,
+1. Zero `-[var(--` occurrences remain in `components/ui/**` and
    `shared/ui/loading-screen.tsx`.
 2. Zero `bg-black`/`bg-white`/`text-black`/`text-white`/`border-black`/`border-white`
    occurrences remain in the files listed under Current state.
 3. `status-card.tsx`'s hover-icon foreground/background pair meets ≥4.5:1.
 4. `npm --prefix tools/dashboard test`, `npm --prefix tools/dashboard run build`, and
    `npm --prefix tools/dashboard run test:storybook` all pass.
-5. A Storybook screenshot/computed-style comparison of Button, Badge, Card, Dialog,
-   Sheet, StatusCard stories before/after shows no unintended visual change.
+5. Durable Storybook tests cover Button/Badge/Card/Dialog/Sheet/StatusCard's default and
+   key variant states and pass — the intentional changes (D4 hover fix, `cva()`
+   conversion, new destructive variant) are reviewed for correctness, not required to be
+   pixel-identical to the pre-migration state (D9).
 6. `StatusCard` exposes `variant`/`size` via a `cva()` recipe with `VariantProps`-derived
    props, consistent with `button.tsx`/`sheet.tsx`.
+7. `Button`'s `destructive` variant consumes `--color-action-destructive` directly.
 
 ## Dependencies
 
@@ -106,4 +111,5 @@ Requirements).
 ## Out of scope
 
 - Any `features/**` component — Areas 4-5.
-- The central status/tone contract module itself — `areas/status-tone-contract.md`.
+- `status-label.tsx` and the central status/tone contract module —
+  `areas/status-tone-contract.md`.

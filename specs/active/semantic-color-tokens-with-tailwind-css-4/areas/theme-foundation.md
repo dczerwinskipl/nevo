@@ -4,7 +4,11 @@
 
 Add the final Tailwind 4 `@theme` semantic color contract to
 `tools/dashboard/ui/index.css` while every currently-computed color stays pixel-identical
-— this area only adds the new token surface, it does not migrate any consumer.
+— this area only adds the new token surface, it does not migrate any consumer. Use
+`@theme static` for the direct-value contract (not plain `@theme`) so every declared
+token is guaranteed to appear in compiled CSS regardless of whether Tailwind's
+usage-detection sees it referenced yet — this matters immediately, since at the point
+this area lands, nothing consumes the new tokens.
 
 ## Current state
 
@@ -17,8 +21,13 @@ list). No `@theme` block exists anywhere in the repo (grep confirmed zero matche
 
 ## Requirements
 
-- Add an `@theme { … }` block to `index.css`, using the exact structure and values given
-  in the change request (D1), **except** `--color-*: initial` — that line is deliberately
+- Add an `@theme static { … }` block to `index.css` (Tailwind 4's `static` keyword
+  forces every declared theme variable into compiled CSS even if nothing references it
+  yet at build time — plain `@theme` only emits variables Tailwind detects as used, which
+  the Storybook Colors story cannot rely on since it must read every documented token
+  independent of incidental product usage, D10), using the exact structure and values
+  given in the change request (D1), **except** `--color-*: initial` — that line is
+  deliberately
   deferred to `areas/cleanup-and-enforcement.md` (D5). Adding it now would immediately
   stop Tailwind generating *any* default-palette utility (`bg-white`, `bg-black`,
   `text-blue-*`, …) repo-wide, silently unstyling the 59 not-yet-migrated raw white/black
@@ -64,6 +73,11 @@ list). No `@theme` block exists anywhere in the repo (grep confirmed zero matche
 - `--color-*: initial` is explicitly out of scope for this task (see Requirements) —
   adding it here would visibly change every currently-rendered page that still uses a
   default-palette utility.
+- The direct-value token block uses `@theme static`, not plain `@theme` — verify the
+  installed Tailwind version (`^4.3.3`) actually supports the `static` keyword before
+  implementation; if it doesn't, escalate rather than silently falling back to plain
+  `@theme` (D10 exists specifically because plain `@theme`'s usage-detection is not
+  reliable enough for a token catalog story).
 - No new npm dependency.
 
 ## Interfaces and boundaries
@@ -76,14 +90,25 @@ list). No `@theme` block exists anywhere in the repo (grep confirmed zero matche
 
 ## Area-specific acceptance criteria
 
-1. `index.css` contains the `@theme` block with every token listed above and the
-   `@theme inline` alias block, `automated: grep for each --color-* name in index.css`.
+1. `index.css` contains the `@theme static` block with every token listed above and the
+   separate `@theme inline` alias block, `automated: grep for each --color-* name in index.css`.
 2. With this task's changes alone (no consumer migrated yet), `npm --prefix
-   tools/dashboard run build` succeeds and a visual/computed-style spot check of the
-   running dashboard shows **zero** difference from the pre-task baseline — confirmed
-   via the `mcp__playwright__*` tools (computed styles + screenshot on at least: the
-   sidebar, a filled button, a status badge). `inspection: computed-style + screenshot
-   comparison performed and recorded`
+   tools/dashboard run build` succeeds. **No manual screenshot comparison is required at
+   this point** — nothing consumes the new tokens yet, so there is nothing for a visual
+   diff to meaningfully catch; a manual screenshot pass here would be redundant with the
+   one final representative review in `tasks/09-*` (D9). Instead, verify via the
+   compiled output: every declared `--color-*` custom property (including every token
+   listed in Requirements) is present with its exact expected value in the built CSS
+   (`npm --prefix tools/dashboard run build`'s output, or an equivalent dev-server
+   compiled-stylesheet check) — this is also the proof that `@theme static` is doing its
+   job (D10). `automated: build + compiled-CSS assertion per token`
+3. A computed-style spot check on the *already-rendered, not-yet-migrated* page (still
+   using the old `:root` variables for actual rendering) confirms the page itself is
+   unchanged — since this task adds tokens without wiring any consumer, this is a
+   sanity check that adding the `@theme static` block had no side effect on existing
+   rendering, not a claim about the new tokens' own visual output (which has no
+   consumer to render yet). `inspection: computed-style spot check performed and recorded`
+
 ## Dependencies
 
 `areas/frontend-formatter-baseline.md` (must start from the formatted baseline).

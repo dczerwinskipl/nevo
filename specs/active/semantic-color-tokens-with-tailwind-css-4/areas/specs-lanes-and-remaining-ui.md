@@ -74,10 +74,16 @@ request.
   selected-pill, muted-warning-text) into opacity-modifier utilities consistent with how
   Areas 2 and 4 resolved the same families — do not invent a third convention for the
   same recipe.
-- After this task, run one repo-wide sweep grep for `-[var(--`, raw white/black, and
-  `color-mix(` across all of `tools/dashboard/ui` (not just the features named above) and
-  fix any remaining occurrence found — this area is the last consumer-migration area
-  before `areas/cleanup-and-enforcement.md`'s final verification.
+- After this task, run one sweep grep for `-[var(--`, raw white/black, and `color-mix(`
+  across all of `tools/dashboard/ui/**/*.{ts,tsx}` (not just the features named above)
+  and fix any remaining occurrence found — this area is the last TS/TSX
+  consumer-migration area before `areas/cleanup-and-enforcement.md`'s final
+  verification. **This sweep never includes `index.css` or any other `.css` file** —
+  this area is forbidden from editing `index.css` (see the task's own
+  `forbidden_paths`), and `index.css` still legitimately contains `color-mix(...)` at
+  this point (old `:root` token definitions, plus two selector-oriented exceptions the
+  class-composition contract already allows). `areas/cleanup-and-enforcement.md`
+  explicitly owns migrating or documenting the preservation of that global CSS.
 
 ## Constraints
 
@@ -108,13 +114,17 @@ request.
 5. Each of the 6 lane states renders with the exact token specified in the change
    request's mapping table, verified against the previous rendered color for parity
    where the mapping implies no change.
-6. A repo-wide sweep (`grep -r -- "-\[var(--" tools/dashboard/ui`, equivalent for
+6. A sweep (`grep -r -- "-\[var(--" tools/dashboard/ui/**/*.{ts,tsx}`, equivalent for
    white/black and `color-mix`) returns zero results outside Storybook
-   stories/tests/fixtures and any explicitly documented exception.
+   stories/tests/fixtures and any explicitly documented exception — `index.css` and
+   other `.css` files are out of scope for this sweep (owned by
+   `areas/cleanup-and-enforcement.md`).
 7. `npm --prefix tools/dashboard test`, `npm --prefix tools/dashboard run build`,
    `npm --prefix tools/dashboard run test:storybook` all pass.
-8. Specifications/PR/operations Storybook stories show no unintended visual change
-   (screenshot comparison), except the explicit `specification-list.tsx` hover fix.
+8. Durable Storybook tests for Specifications/PR/operations components pass, covering
+   the explicit `specification-list.tsx` hover fix and each of the 6 lane states — these
+   are the intentional, expected changes (D9), verified for correctness rather than
+   claimed pixel-identical as a blanket statement.
 
 ## Dependencies
 

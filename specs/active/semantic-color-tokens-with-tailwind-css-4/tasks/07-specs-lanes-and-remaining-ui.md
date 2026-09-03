@@ -24,7 +24,7 @@ depends_on:
   - status-tone-contract
   - agent-sessions-and-work
 semantic_references:
-  decisions: [D2, D3, D4, D8]
+  decisions: [D2, D3, D4, D8, D9]
   constraints: [C5, C7, C8]
 ---
 
@@ -58,10 +58,17 @@ them).
   `color-mix` recipe families the same way `tasks/06-*` resolved them in
   `create-agent-session-dialog.tsx`/`interaction-prompt.tsx`/`provider-unavailable-banner.tsx`
   — consistent opacity-modifier naming across both tasks.
-- After the named directories are migrated, grep the rest of `tools/dashboard/ui`
-  (excluding `*.stories.tsx`, `tests/`, `__fixtures__/`) for `-[var(--`, raw
-  white/black, and `color-mix(` and fix any remaining occurrence — this is the last
-  consumer-migration task before `tasks/09-*` removes the old variables.
+- After the named directories are migrated, grep the rest of
+  `tools/dashboard/ui/**/*.{ts,tsx}` (excluding `*.stories.tsx`, `tests/`,
+  `__fixtures__/`) for `-[var(--`, raw white/black, and `color-mix(` and fix any
+  remaining occurrence — this is the last TS/TSX consumer-migration task before
+  `tasks/09-*` removes the old CSS variables. **This sweep excludes `index.css` and
+  every other `.css` file entirely** — `index.css` is forbidden to this task (see
+  `forbidden_paths`) and still legitimately contains `color-mix(...)` at this point (the
+  old `:root` token definitions, plus the two selector-oriented exceptions in
+  `::selection`/`.markdown-body blockquote` the class-composition contract already
+  allows for global CSS). Migrating or preserving those is `tasks/09-*`'s job, not this
+  task's — do not attempt it and do not let this task's sweep report them as a failure.
 - `pull-requests/changes/status.ts:10-15`'s `stateTone()`: keep its own PR-state→tone
   mapping feature-local (per D8 — PR state is a different canonical domain than
   Turn/tool status), but change it to consume the shared `StatusTone` type and the
@@ -87,15 +94,17 @@ them).
    `automated: ! grep -rq "color-mix" tools/dashboard/ui/features/specifications tools/dashboard/ui/features/pull-requests tools/dashboard/ui/features/operations`
 4. `lane-presentation.ts` contains no `var(--lane-*)` string; `status-board.tsx`
    contains no `'--lane-accent'`. `automated: ! grep -q -- "--lane-accent" tools/dashboard/ui/features/specifications/detail/status-board.tsx`
-5. A repo-wide sweep of `tools/dashboard/ui` (excluding `*.stories.tsx`, `tests/`,
-   `__fixtures__/`) for `-[var(--`, raw white/black, and `color-mix(` returns zero
-   results. `automated: repo-wide grep across tools/dashboard/ui with the story/test/fixture exclusions`
+5. A sweep of `tools/dashboard/ui/**/*.{ts,tsx}` (excluding `*.stories.tsx`, `tests/`,
+   `__fixtures__/`, and — not applicable to this extension anyway — `index.css`) for
+   `-[var(--`, raw white/black, and `color-mix(` returns zero results.
+   `automated: repo-wide grep across tools/dashboard/ui/**/*.{ts,tsx} with the story/test/fixture exclusions`
 6. `npm --prefix tools/dashboard test`, `npm --prefix tools/dashboard run build`,
    `npm --prefix tools/dashboard run test:storybook` pass.
-7. Specifications/PR/operations Storybook stories show no unintended visual change
-   (screenshot comparison), except the deliberate `specification-list.tsx` hover fix and
-   any lane-color changes verified as parity in `areas/specs-lanes-and-remaining-ui.md`
-   acceptance criterion 5.
+7. Durable Storybook tests for Specifications/PR/operations components pass, covering
+   the deliberate `specification-list.tsx` hover fix and each of the 6 lane states — the
+   lane-color changes are verified for parity against
+   `areas/specs-lanes-and-remaining-ui.md` acceptance criterion 5's per-lane check, not
+   claimed pixel-identical as a blanket statement (D9).
 8. `pull-requests/changes/status.ts` consumes the shared `StatusTone` type/recipe; its
    own PR-state→tone mapping stays feature-local. `inspection: source reviewed`
 9. The two named ternary-based class selections use `cn()`. `inspection: source reviewed`

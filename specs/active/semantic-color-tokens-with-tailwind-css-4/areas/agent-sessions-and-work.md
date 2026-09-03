@@ -85,8 +85,9 @@ central status/tone module, fix the dangling `--foreground-muted` reference, and
    longer appear under `features/agent-sessions/**`.
 6. `npm --prefix tools/dashboard test`, `npm --prefix tools/dashboard run build`,
    `npm --prefix tools/dashboard run test:storybook` all pass.
-7. Chat/agent-session Storybook stories show no unintended visual change (screenshot
-   comparison), except the two explicitly allowed changes under Constraints.
+7. Durable Storybook tests for chat/agent-session components pass, covering the two
+   explicitly allowed changes under Constraints (D9) as intentional and correct, not a
+   claimed pixel-identical baseline.
 
 ## Dependencies
 

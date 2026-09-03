@@ -23,7 +23,7 @@ depends_on:
   - shared-ui-primitives
   - status-tone-contract
 semantic_references:
-  decisions: [D2, D3, D8]
+  decisions: [D2, D3, D8, D9]
   constraints: [C5, C7, C8]
 ---
 
@@ -81,10 +81,11 @@ and rename `ProviderBadge`'s `cat-1`/`cat-2` usage to `provider-claude`/
 6. `npm --prefix tools/dashboard test`, `npm --prefix tools/dashboard run build`, and
    `npm --prefix tools/dashboard run test:storybook` pass.
    `automated: each command`
-7. Chat/agent-session Storybook stories show no unintended visual change versus the
-   pre-task baseline, except the `--foreground-muted` fix becoming visible where it was
-   previously a silent no-op — recorded via screenshot comparison.
-   `inspection: before/after screenshot comparison performed and recorded`
+7. Durable Storybook tests for chat/agent-session components pass. The
+   `--foreground-muted` fix becoming visible (previously a silent no-op) is an
+   intentional, expected change (D9), reviewed for legibility — not required to be
+   pixel-identical to the pre-task baseline.
+   `inspection: reviewed for legibility and recorded`
 8. `create-agent-session-dialog.tsx`'s two ternary-based class selections use `cn()`.
    `inspection: source reviewed`
 9. The "required inspection when touching a component" checklist was applied.

@@ -45,6 +45,15 @@ agent. They are recorded here verbatim in substance so later commands (`spec-ref
 - **Decision:** Option B, exactly as specified, including giving `requiresAttention` its
   own `status-attention` token distinct from `status-warning` (fixes the confirmed
   mis-mapping at `work-indicator-v2.tsx:70-91`).
+- **Clarification (added during `/nevo-ai:spec-review`):** this is **7 `StatusTone`
+  values plus 1 separate `action-destructive` action role** — `status-active` and
+  `status-neutral` are `@theme inline` aliases that *implement* 2 of those 7 values, not
+  additional states, and `action-destructive` is not a `StatusTone` member at all (it is
+  a one-off component-variant concern, e.g. a destructive Button variant, never routed
+  through the shared status-tone module). Earlier drafts of this spec described this as
+  a "9-state contract," which double-counted the aliases and miscategorized
+  `action-destructive` as a status. See D9 for how this affects the module's exported
+  shape.
 - **Rationale:** Owner-stated: attention (user action required) and warning (recoverable
   tool/local failure) are semantically different signals and must be visually distinct;
   scattering the decision per component is how the current mis-mapping happened.
@@ -234,3 +243,83 @@ agent. They are recorded here verbatim in substance so later commands (`spec-ref
   `areas/status-tone-contract.md`, `areas/shared-ui-primitives.md`,
   `areas/specs-lanes-and-remaining-ui.md`, `areas/cleanup-and-enforcement.md`,
   `tasks/02`, `04`, `05`, `06`, `07`, `10`.
+
+## D9: Visual-parity claims — intentional semantic normalization, not pixel identity
+
+- **Question (raised during `/nevo-ai:spec-review`):** Several places in this spec
+  claimed "zero visual change" / "pixel-identical" outcomes while simultaneously
+  prescribing changes that cannot produce a pixel-identical result: `StatusCard`'s
+  error-banner recipe changing from 20%/8% `color-mix` mixes to 25%/10% opacity
+  modifiers (a numeric change); every `color-mix(in srgb, …)` (sRGB) recipe converting
+  to a Tailwind opacity modifier, which Tailwind 4 compiles via OKLab mixing (a
+  different color space, not merely a syntax change); `warning-strong` text becoming
+  base `status-warning`; white-alpha decorative fills becoming semantic-foreground
+  opacity; and the filled-accent background's own required contrast fix (D4). Should
+  the spec keep claiming pixel parity for these, or reframe them accurately?
+- **Options considered:**
+  - A — Keep the "pixel-identical"/"zero visual change" framing as a blanket claim and
+    treat any of the above as an undocumented violation of it.
+  - B — Reframe these specific, owner-prescribed recipe changes as intentional
+    semantic-system normalization — verified for contrast/legibility and correctness of
+    token usage, not claimed as pixel-identical — while keeping a strict, literal
+    pixel-parity requirement for what genuinely doesn't change: neutral surface base
+    tokens (`background`/`surface`/`surface-raised`/`surface-hover`/`border`/
+    `border-strong`), typography, spacing, and any state not named in this list.
+- **Decision:** Option B.
+- **Rationale:** A spec cannot honestly claim both "we are converting sRGB `color-mix`
+  to OKLab-mixed opacity modifiers" and "the result is pixel-identical" — those are in
+  tension by construction. The owner's original migration request already prescribes
+  every one of these changes explicitly (opacity-modifier convention, the D4 contrast
+  fix, the `StatusCard` numeric-recipe change); the fix is to describe them honestly,
+  not to avoid them.
+- **Consequences:** Every task/area acceptance criterion that previously said "zero
+  visual change" or required a per-task manual screenshot diff now instead: (a) requires
+  neutral-surface/typography/spacing parity to hold exactly, (b) names the specific
+  intentional color-recipe changes and requires they be verified for contrast/legibility
+  and correct token usage rather than pixel identity, and (c) relies on durable
+  Storybook tests during each task, with **one** representative final visual review
+  consolidated into `tasks/09-*` rather than a screenshot pass repeated in every task.
+  `tasks/03-*`'s screenshot requirement is removed outright (no consumer exists yet at
+  that point in the graph, so there is nothing for a visual diff to catch — a
+  build + compiled-CSS-value assertion replaces it).
+- **Date:** 2026-09-03
+- **Affected artifacts:** `areas/theme-foundation.md`, `areas/shared-ui-primitives.md`,
+  `areas/specs-lanes-and-remaining-ui.md`, `areas/cleanup-and-enforcement.md`,
+  `tasks/03`, `04`, `07`, `09`.
+
+## D10: `@theme static` for the direct-value token contract; Storybook must self-verify
+
+- **Question (raised during `/nevo-ai:spec-review`):** Tailwind 4 only emits a `@theme`
+  variable into compiled CSS when its own usage-detection sees the variable referenced
+  somewhere it scans. The Colors foundation Storybook story (`tasks/08-*`) must display
+  every documented token — including ones with no product consumer yet, or whose only
+  consumer is itself dynamically constructed in a way Tailwind's detector might miss.
+  Relying on incidental usage elsewhere in the product to keep a token "alive" in
+  compiled CSS is fragile. How should the spec guarantee every catalogued token is
+  actually present in compiled CSS?
+- **Options considered:**
+  - A — Plain `@theme { … }` (as originally specified) and hope product usage keeps
+    every token detected; add no explicit guarantee.
+  - B — Use `@theme static { … }` for the direct-value contract (forces every declared
+    variable into compiled CSS regardless of detected usage), keep `@theme inline` for
+    the two alias entries (`status-active`/`status-neutral`, which must stay
+    reference-based since they alias other variables), and add a Storybook test that
+    actively asserts every catalogued token resolves to a non-empty computed value.
+- **Decision:** Option B.
+- **Rationale:** The Colors story exists specifically to be a token catalog independent
+  of product usage (`overview.md`'s Storybook requirements already say the story "must
+  not depend on incidental usage elsewhere in the product," carried over from the
+  original change request) — relying on Tailwind's own default usage-detection
+  contradicts that goal directly. `static` is the mechanism Tailwind 4 provides for
+  exactly this case; the test is the story's own guard against a future regression (a
+  future PR renaming a token in `@theme static` but not the story, or a Tailwind
+  upgrade changing `static`'s behavior) going unnoticed.
+- **Consequences:** `tasks/03-*` (`areas/theme-foundation.md`) uses `@theme static` for
+  the direct-value block, `@theme inline` unchanged for aliases; implementation must
+  first verify the installed `tailwindcss@^4.3.3` actually supports `static` and
+  escalate if not (an assumption this spec cannot verify without running the toolchain).
+  `tasks/08-*` (`areas/storybook-and-documentation.md`) adds the token-presence
+  Storybook test.
+- **Date:** 2026-09-03
+- **Affected artifacts:** `areas/theme-foundation.md`, `areas/storybook-and-documentation.md`,
+  `tasks/03`, `tasks/08`.

@@ -25,7 +25,7 @@ depends_on:
   - shared-ui-primitives
   - status-tone-contract
 semantic_references:
-  decisions: [D1, D2, D3]
+  decisions: [D1, D2, D3, D10]
   constraints: [C5]
 ---
 
@@ -46,6 +46,13 @@ documentation to the final contract.
 
 - No hardcoded hex value may appear in `colors.stories.tsx` for any token also defined
   in `index.css` — read via computed styles.
+- Add a Storybook test (via the existing `test:storybook`/Vitest-browser infrastructure)
+  asserting that every token catalogued in the story resolves to a non-empty computed
+  color value (`getComputedStyle(...).color`/`.backgroundColor` etc. is not `""`,
+  `"rgba(0, 0, 0, 0)"`, or otherwise empty) — this is the story's own proof that
+  `@theme static` (`tasks/03-*`, D10) actually did its job; a story that silently
+  renders blank swatches for undetected tokens is the exact failure mode `static` exists
+  to prevent, so the story must actively check for it, not just visually assume it.
 - First run `node tools/docs.mjs find --scope <dashboard/UI-relevant scope>` (or
   equivalent) to determine whether a UX color-role doc already exists under
   `docs/development/`; update it if found, create the minimal doc if genuinely absent —
@@ -63,13 +70,18 @@ documentation to the final contract.
    verifiable ≥4.5:1 contrast ratio. `inspection: contrast ratio computed and recorded`
 4. `cat-1`/`cat-2`/`info-strong`/`info-muted`/`info-border`/`success-strong` no longer
    appear in the story. `automated: ! grep -qE "cat-1|cat-2|info-strong|info-muted|info-border|success-strong" tools/dashboard/ui/foundations/colors.stories.tsx`
-5. All 9 canonical status tones are represented.
+5. All 7 `StatusTone` values are represented, plus `action-destructive` shown
+   separately in its actual consumer context (a destructive Button variant) — not
+   listed as an 8th status tone.
 6. UX documentation reflects the final role/name contract, not the provisional one.
 7. `npm --prefix tools/dashboard run test:storybook` and
    `npm --prefix tools/dashboard run build-storybook` pass.
    `automated: both commands`
 8. `node tools/docs.mjs validate` passes if `docs/` was touched.
    `automated: node tools/docs.mjs validate`
+9. The new token-presence test fails if run against a story deliberately reading a
+   non-existent token (sanity-checked during implementation), and passes against the
+   real, final token catalog. `automated: part of test:storybook`
 
 ## Verification
 
