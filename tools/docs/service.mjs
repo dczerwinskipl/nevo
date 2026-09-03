@@ -25,7 +25,7 @@ export const REQUIRED_FIELDS = {
 };
 
 const GENERATED_NOTICE = '<!-- GENERATED FILE — do not edit. Run: node tools/docs.mjs generate -->\n\n';
-const TIMESTAMP_LINE_RE = /^_Generated: .*_\n\n/m;
+const TIMESTAMP_LINE_RE = /^_Generated: .*_\r?\n\r?\n/m;
 
 // ── Scanning ────────────────────────────────────────────────────────────────
 
@@ -148,8 +148,8 @@ export function checkDocsIndexes(docs) {
   if (!existsSync(INDEX_MD)) {
     problems.push('missing: docs/index.generated.md');
   } else {
-    const existingBody = readUtf8(INDEX_MD).replace(TIMESTAMP_LINE_RE, '');
-    const expectedBody = built.mdHeader + built.mdBody;
+    const existingBody = readUtf8(INDEX_MD).replace(/\r\n/g, '\n').replace(TIMESTAMP_LINE_RE, '');
+    const expectedBody = (built.mdHeader + built.mdBody).replace(/\r\n/g, '\n');
     if (existingBody !== expectedBody) {
       problems.push('stale: docs/index.generated.md');
     }
