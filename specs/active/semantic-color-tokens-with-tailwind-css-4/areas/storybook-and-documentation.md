@@ -44,6 +44,11 @@ from provisional color roles to the final semantic contract.
 - Update (or create, if none exists) the UX color-role documentation to describe the
   final semantic contract by role/name, not by hex value — production CSS remains the
   value source of truth, the doc must not need to be updated every time a value changes.
+- After any `docs/development/**` content change, run `node tools/docs.mjs generate` to
+  refresh the generated doc indexes (`docs/index.generated.json`,
+  `docs/index.generated.md`, `docs/routing.generated.json` — all three are this task's
+  own tool-written output, included in its `allowed_paths`), then `node tools/docs.mjs
+  validate` and `node tools/docs.mjs check`.
 - Add a Storybook test asserting every catalogued token resolves to a non-empty computed
   color — this is the story's own guard against silently rendering blank swatches if
   `@theme static` isn't actually emitting a token (D10).
@@ -76,7 +81,8 @@ from provisional color roles to the final semantic contract.
    final contract by role/name.
 6. `npm --prefix tools/dashboard run test:storybook` and
    `npm --prefix tools/dashboard run build-storybook` pass.
-7. `node tools/docs.mjs validate` passes if any `docs/` file was touched.
+7. `node tools/docs.mjs generate` was run after any `docs/development/**` change, and
+   `node tools/docs.mjs validate`/`node tools/docs.mjs check` both pass.
 8. A durable Storybook test confirms every catalogued token resolves to a non-empty
    computed color.
 

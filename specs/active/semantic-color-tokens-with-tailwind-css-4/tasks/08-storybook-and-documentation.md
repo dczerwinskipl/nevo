@@ -15,6 +15,9 @@ context:
 allowed_paths:
   - tools/dashboard/ui/foundations/colors.stories.tsx
   - docs/development/**
+  - docs/index.generated.json
+  - docs/index.generated.md
+  - docs/routing.generated.json
 forbidden_paths:
   - tools/dashboard/ui/index.css
   - tools/dashboard/ui/components/ui/**
@@ -59,6 +62,11 @@ documentation to the final contract.
   equivalent) to determine whether a UX color-role doc already exists under
   `docs/development/`; update it if found, create the minimal doc if genuinely absent —
   do not create a duplicate doc if one exists.
+- After changing any `docs/development/**` content, run `node tools/docs.mjs generate`
+  to refresh `docs/index.generated.json`/`docs/index.generated.md`/
+  `docs/routing.generated.json` (all three are in `allowed_paths` specifically for this
+  — they are the deterministic, tool-written output of this step, not hand-edited), then
+  `node tools/docs.mjs validate` and `node tools/docs.mjs check`.
 - Do not touch `typography.stories.tsx` or any other unrelated story.
 - Do not touch `index.css`, `components/ui/**`, or any `features/**` file.
 
@@ -79,8 +87,9 @@ documentation to the final contract.
 7. `npm --prefix tools/dashboard run test:storybook` and
    `npm --prefix tools/dashboard run build-storybook` pass.
    `automated: both commands`
-8. `node tools/docs.mjs validate` passes if `docs/` was touched.
-   `automated: node tools/docs.mjs validate`
+8. `node tools/docs.mjs generate` was run after any `docs/development/**` content
+   change, and `node tools/docs.mjs validate` and `node tools/docs.mjs check` both pass.
+   `automated: all three commands, in that order`
 9. The new token-presence test fails if run against a story deliberately reading a
    non-existent token (sanity-checked during implementation), and passes against the
    real, final token catalog. `automated: part of test:storybook`
@@ -90,7 +99,9 @@ documentation to the final contract.
 ```text
 npm --prefix tools/dashboard run test:storybook
 npm --prefix tools/dashboard run build-storybook
+node tools/docs.mjs generate
 node tools/docs.mjs validate
+node tools/docs.mjs check
 ```
 
 ## Documentation impact

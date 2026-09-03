@@ -127,14 +127,15 @@ classes" — each caller re-derives its own subset of the mapping.
   projection has no such input and must not be given one just to look consistent with
   Work V2. Update `turn-work-summary.tsx` (real path: `features/agent-sessions/turn-work/
   turn-work-summary.tsx`) to consume the migrated output.
-- **New Work-V2-local projection** (this area creates it — suggested location: extend
-  `work-v2/activity-model-v2.ts`, which already classifies `requires_attention` as an
-  activity kind, or a new small sibling module in `work-v2/` if that fits the existing
-  file's cohesion better — implementer's judgment, not a fixed file name): a pure
-  function mapping `CanonicalTurnV2`/`TurnStatusV2` (and the current-activity `kind`
-  where relevant) to `StatusTone`, explicitly including `requiresAttention` →
-  `'attention'`. Migrate all three known Work V2 call sites to consume it instead of
-  each computing/checking independently:
+- **New Work-V2-local projection** (this area creates it — fixed path:
+  `tools/dashboard/ui/features/agent-sessions/work-v2/turn-status-tone-v2.ts`, a new
+  file; do not extend `activity-model-v2.ts` in place of creating it, though
+  `activity-model-v2.ts`'s existing `requires_attention` activity-kind classification
+  stays useful read-only context for this new module's own logic): a pure function
+  mapping `CanonicalTurnV2`/`TurnStatusV2` (and the current-activity `kind` where
+  relevant) to `StatusTone`, explicitly including `requiresAttention` → `'attention'`.
+  Migrate all three known Work V2 call sites to consume it instead of each
+  computing/checking independently:
   - `work-indicator-v2.tsx`'s `WorkCurrentActivityLineV2` (`isAttention`, line 28).
   - `work-indicator-v2.tsx`'s `WorkIndicatorV2` (`attention`/`severity`, lines 70-79) —
     this is the confirmed mis-mapping fix.
@@ -203,7 +204,7 @@ classes" — each caller re-derives its own subset of the mapping.
 2. `transcript/projection.ts`'s migrated severity function has no `requiresAttention`
    parameter and no attention-producing branch — verified by source review, confirming
    it was not artificially extended to match Work V2's wording.
-3. A new Work-V2-local projection exists, is the single source Work V2's three named
+3. `work-v2/turn-status-tone-v2.ts` exists, is the single source Work V2's three named
    call sites (`WorkCurrentActivityLineV2`, `WorkIndicatorV2`,
    `pending-interaction-view-v2.tsx` where applicable) consume, and maps
    `requiresAttention` to `'attention'`.

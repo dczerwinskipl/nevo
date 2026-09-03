@@ -52,6 +52,16 @@ ownership was a planning error).
   `bg-accent`, `text-[var(--accent-foreground)]` → `text-fg-on-accent`).
 - Button's filled/primary variant becomes `bg-accent-solid text-fg-on-accent` per the
   change request's explicit filled-control rule — not `bg-accent`.
+- Button's new `destructive` variant does **not** use a filled `bg-action-destructive
+  text-fg-on-accent` pair — `#f8fafc` on `#ef4444` is only ≈3.60:1, below the ≥4.5:1
+  requirement. Use an outline/tinted treatment instead, matching the shape of the
+  delete-session button's existing (manual) styling above: `text-action-destructive`
+  foreground, a low-opacity `action-destructive` border/background via Tailwind
+  opacity modifiers (e.g. `border-action-destructive/40 bg-action-destructive/10`), and
+  an `action-destructive` focus ring. Verify default- and hover-state
+  foreground/background pairs both meet ≥4.5:1 against their actual composited
+  rendering. No new theme token unless the opacity-modifier approach demonstrably can't
+  clear contrast.
 - `status-card.tsx:27`'s hover treatment stops referencing `accent-strong`/
   `accent-solid` as text color (D4) — keep `text-accent` on hover (no darkening), or use
   an opacity modifier on `accent` if a hover affordance is still wanted; verify the
@@ -108,7 +118,11 @@ ownership was a planning error).
    pixel-identical to the pre-migration state (D9).
 6. `StatusCard` exposes `variant`/`size` via a `cva()` recipe with `VariantProps`-derived
    props, consistent with `button.tsx`/`sheet.tsx`.
-7. `Button`'s `destructive` variant consumes `--color-action-destructive` directly.
+7. `Button`'s `destructive` variant consumes `--color-action-destructive` directly, via
+   an outline/tinted treatment (text + low-opacity border/background + focus ring),
+   never a filled `bg-action-destructive text-fg-on-accent` pair.
+8. The destructive variant's default-state and hover-state foreground/background pairs
+   both meet ≥4.5:1 against their actual rendered (composited) colors.
 
 ## Dependencies
 

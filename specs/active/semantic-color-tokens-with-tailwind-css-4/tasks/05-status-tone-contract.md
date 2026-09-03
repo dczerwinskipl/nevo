@@ -25,7 +25,7 @@ allowed_paths:
   - tools/dashboard/ui/features/agent-sessions/transcript/projection.ts
   - tools/dashboard/ui/features/agent-sessions/turn-work/turn-work-summary.tsx
   - tools/dashboard/ui/features/agent-sessions/work-v2/work-indicator-v2.tsx
-  - tools/dashboard/ui/features/agent-sessions/work-v2/activity-model-v2.ts
+  - tools/dashboard/ui/features/agent-sessions/work-v2/turn-status-tone-v2.ts
   - tools/dashboard/ui/features/agent-sessions/work-v2/pending-interaction-view-v2.tsx
   - tools/dashboard/ui/features/agent-sessions/agent-session-list.tsx
   - tools/dashboard/ui/features/specifications/detail/specification-detail.tsx
@@ -55,9 +55,9 @@ Create a single status-tone module (`StatusTone` type + focused presentation rec
 **legacy** `TurnWork` severity (`transcript/projection.ts`, consumed by
 `turn-work/turn-work-summary.tsx`) to a restricted subset of `StatusTone` — it has no
 input that could carry `requiresAttention` and must not be given one artificially.
-Separately, create a **new, Work-V2-local** projection from `CanonicalTurnV2`/
-`TurnStatusV2` to `StatusTone` that does map `requiresAttention` → `'attention'`, and
-wire it into Work V2's three independent inline computations
+Separately, create `work-v2/turn-status-tone-v2.ts`, a new Work-V2-local projection from
+`CanonicalTurnV2`/`TurnStatusV2` to `StatusTone` that does map `requiresAttention` →
+`'attention'`, and wire it into Work V2's three independent inline computations
 (`work-indicator-v2.tsx`'s two, `pending-interaction-view-v2.tsx`'s one) — this is the
 actual fix for the confirmed mis-mapping. Also redesign `status-label.tsx` to receive a
 typed `tone` prop instead of converting a raw domain-status string itself, and update
@@ -87,10 +87,12 @@ touches it.**
     `'normal'` maps to `'neutral'` or `'success'` based on what
     `turn-work-summary.tsx`'s actual rendering needs — inspect before choosing, don't
     guess). No `requiresAttention` parameter is added to this function.
-  - Work V2: a new pure function (suggested: extend `activity-model-v2.ts`, which
-    already classifies `requires_attention` as an activity kind, or add a small sibling
-    module in `work-v2/` if that's a cleaner fit — implementer's call) mapping
-    `CanonicalTurnV2`/`TurnStatusV2` to `StatusTone`, explicitly including
+  - Work V2: a new pure function in a **new file**,
+    `tools/dashboard/ui/features/agent-sessions/work-v2/turn-status-tone-v2.ts`
+    (fixed path — do not extend `activity-model-v2.ts` in place of creating this file;
+    `activity-model-v2.ts` stays read-only context for its existing `requires_attention`
+    activity-kind classification, which this new module's own logic may reference),
+    mapping `CanonicalTurnV2`/`TurnStatusV2` to `StatusTone`, explicitly including
     `requiresAttention` → `'attention'`. Wire it into:
     - `work-indicator-v2.tsx`'s `WorkCurrentActivityLineV2` (`isAttention`, line 28).
     - `work-indicator-v2.tsx`'s `WorkIndicatorV2` (`attention`/`severity`, lines 70-79)
@@ -142,7 +144,7 @@ touches it.**
    `inspection: module reviewed against D2 and D8`
 2. The legacy `transcript/projection.ts` severity function has no `requiresAttention`
    parameter and no attention-producing branch. `inspection: source reviewed`
-3. A new Work-V2-local projection exists and is the single source
+3. `work-v2/turn-status-tone-v2.ts` exists and is the single source
    `work-indicator-v2.tsx`'s two computations and (where applicable)
    `pending-interaction-view-v2.tsx` consume — no duplicated inline
    `=== 'requiresAttention'` logic remains across those files.

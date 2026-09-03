@@ -59,13 +59,27 @@ follow the class-composition contract from the start).
 - `button.tsx`'s filled/primary variant: `bg-accent-solid text-fg-on-accent` (not
   `bg-accent`) — the change request's explicit filled-control rule.
 - `button.tsx`: add a `destructive` variant entry in its own `cva()` recipe that
-  consumes `--color-action-destructive` directly (e.g. `bg-action-destructive
-  text-fg-on-accent` or the project's established destructive-button treatment) — this
-  is not a speculative/catalog-only addition: `tasks/06-*` migrates a confirmed real
-  consumer, `agent-session-details.tsx`'s "Usuń sesję z dysku" (delete session) button
-  (currently `variant="ghost"` plus ~7 manual `--danger*` class overrides), to this
-  variant. `--color-action-destructive` is never routed through `shared/status-tone.ts`
-  (that module doesn't export it — see `tasks/05-*`).
+  consumes `--color-action-destructive` directly. **Do not use a filled pair**
+  (`bg-action-destructive text-fg-on-accent`) — with the contract's actual values,
+  `#f8fafc` on `#ef4444` is only ≈3.60:1, below the change-wide ≥4.5:1 normal-text
+  requirement. Use a semantic outline/tinted treatment instead, matching the shape of
+  the existing delete-session button's own (currently manual) styling:
+  `text-action-destructive` foreground, a low-opacity `action-destructive`
+  border/background via Tailwind opacity modifiers (e.g.
+  `border-action-destructive/40 bg-action-destructive/10`), and an
+  `action-destructive` focus ring (`focus-visible:ring-action-destructive`). Verify the
+  default-state `text-action-destructive`-on-`bg-action-destructive/10` pair and the
+  hover-state pair both meet ≥4.5:1 against their actual rendered background (the
+  low-opacity fill composited over the button's surrounding surface, not the raw token
+  alone) — adjust the opacity values if the first attempt doesn't clear the bar. Do not
+  introduce a new theme token (e.g. an `action-destructive-muted`/`-border` variant)
+  unless implementation proves the opacity-modifier approach genuinely can't meet
+  contrast — that would be a new finding to report, not something to add speculatively
+  now. This is not a speculative/catalog-only addition: `tasks/06-*` migrates a
+  confirmed real consumer, `agent-session-details.tsx`'s "Usuń sesję z dysku" (delete
+  session) button (currently `variant="ghost"` plus ~7 manual `--danger*` class
+  overrides), to this variant. `--color-action-destructive` is never routed through
+  `shared/status-tone.ts` (that module doesn't export it — see `tasks/05-*`).
 - `status-card.tsx:27` hover: replace `hover:text-[var(--accent-strong)]` — do not
   reintroduce `accent-solid`/`accent-strong` as a text color; keep `text-accent`
   unchanged on hover, or apply an opacity modifier, whichever verifiably meets ≥4.5:1
@@ -116,11 +130,17 @@ follow the class-composition contract from the start).
    `VariantProps`-derived props, matching `button.tsx`/`sheet.tsx`'s existing pattern.
    `inspection: source reviewed`
 8. `Button`'s destructive variant renders with `--color-action-destructive`, sourced
-   directly from the theme token, not from `shared/status-tone.ts`.
+   directly from the theme token, not from `shared/status-tone.ts`; it uses an
+   outline/tinted treatment (text + low-opacity border/background + focus ring), never
+   a filled `bg-action-destructive text-fg-on-accent` pair.
    `inspection: source reviewed`
-9. The 7-item "required inspection when touching a component" checklist
-   (`react-component-guidelines.md` §11/§12) was applied to every component touched by
-   this task. `inspection: checklist applied and recorded per component`
+9. The destructive variant's default-state and hover-state foreground/background
+   pairs both meet ≥4.5:1, verified against the actual rendered (composited) colors,
+   not the raw token value alone.
+   `inspection: contrast ratio computed for both states and recorded`
+10. The 7-item "required inspection when touching a component" checklist
+    (`react-component-guidelines.md` §11/§12) was applied to every component touched by
+    this task. `inspection: checklist applied and recorded per component`
 
 ## Verification
 
