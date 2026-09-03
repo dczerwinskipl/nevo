@@ -90,3 +90,8 @@ tasks:
       - cleanup-and-token-removal
 
 spec_id: dc05983f-45d1-43a1-a2e2-4a6a12425d13
+pull_requests:
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 43
