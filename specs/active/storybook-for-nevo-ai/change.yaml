@@ -153,14 +153,14 @@ tasks:
       - component-testing-infrastructure
     implementation:
       baseline_revision: 05d6541b204c1d8fb0e0c246aea32e47425d3344
-      review_revision: a58ca119f34d8e896572d060dd00b830b655323e
+      review_revision: b6225038b04f05a8748f4f19edf6780b06c3f3b4
       changed_paths:
         - tools/dashboard/tests/chat-fixture-model.test.tsx
         - tools/dashboard/ui/features/agent-sessions/work-v2/__fixtures__/chat-fixtures.ts
       worktree_patch_fingerprint: null
     self_check:
       fingerprint: 87f825ed5fd169aa4d3890aecde4b9aca709263261dc10b1fd12d275e0d5b5e9
-      revision: a58ca119f34d8e896572d060dd00b830b655323e
+      revision: b6225038b04f05a8748f4f19edf6780b06c3f3b4
       commands:
         - command: npm --prefix tools/dashboard run test:storybook
           exit_code: 0
@@ -251,7 +251,7 @@ tasks:
       - chat-stories-active-states
     implementation:
       baseline_revision: f2297cd992782c19bc98ab42e16121b5544a52b4
-      review_revision: 28175bdc6cc8824fb94df7a2d1eb49c6e5e0af2e
+      review_revision: b6225038b04f05a8748f4f19edf6780b06c3f3b4
       changed_paths:
         - docs/development/react-component-guidelines.md
         - docs/development/storybook.md
@@ -261,7 +261,7 @@ tasks:
       worktree_patch_fingerprint: null
     self_check:
       fingerprint: d1e2b03dcfb8a5f4e318ffb12c9835c363bc38bea47ce863ad63b2c240a7e93e
-      revision: 28175bdc6cc8824fb94df7a2d1eb49c6e5e0af2e
+      revision: b6225038b04f05a8748f4f19edf6780b06c3f3b4
       commands:
         - command: node tools/docs.mjs validate
           exit_code: 0
