@@ -521,27 +521,60 @@ export function buildActiveRunningTurn(options?: Partial<CanonicalTurnV2>): Cano
 export function buildActiveThinkingTurn(
   options?: { item?: CommentaryWorkItemV2 | ReasoningWorkItemV2 } & Partial<CanonicalTurnV2>
 ): CanonicalTurnV2 {
-  if (options?.item && options.item.status !== 'streaming') {
-    throw new Error(
-      `Cannot build active thinking turn: supplied item must have status "streaming", but received "${options.item.status}".`
-    );
-  }
+  let activeItem: CommentaryWorkItemV2 | ReasoningWorkItemV2;
+  let work: WorkItemV2[];
 
-  const activeItem =
-    options?.item ??
-    (options?.work?.find(
-      (w): w is CommentaryWorkItemV2 | ReasoningWorkItemV2 =>
-        (w.type === 'reasoning' || w.type === 'commentary') && w.status === 'streaming'
-    ) ??
-      buildReasoning({
-        status: 'streaming',
-        text: 'Evaluating architectural boundaries and testing infrastructure…',
-      }));
-
-  if (activeItem.status !== 'streaming') {
-    throw new Error(
-      `Cannot build active thinking turn: active item must have status "streaming", but received "${activeItem.status}".`
+  if (options?.work !== undefined) {
+    // 1. Select canonical evidence from supplied work array matching production precedence:
+    // streaming reasoning first, then streaming commentary.
+    const activeReasoning = options.work.find(
+      (w): w is ReasoningWorkItemV2 => w.type === 'reasoning' && w.status === 'streaming'
     );
+    const activeCommentary = options.work.find(
+      (w): w is CommentaryWorkItemV2 => w.type === 'commentary' && w.status === 'streaming'
+    );
+    const canonicalItem = activeReasoning ?? activeCommentary;
+
+    // 3. Throw a clear error when "work" contains no streaming reasoning or commentary.
+    if (!canonicalItem) {
+      throw new Error(
+        'Cannot build active thinking turn: supplied work contains no reasoning or commentary with status "streaming".'
+      );
+    }
+
+    // 5. Reject simultaneous "item" and "work" inputs unless the API explicitly verifies
+    // that the item belongs to "work" and is the same item selected by canonical precedence.
+    if (options.item !== undefined) {
+      if (options.item.id !== canonicalItem.id || !options.work.some((w) => w.id === options.item!.id)) {
+        throw new Error(
+          'Cannot build active thinking turn: simultaneous "item" and "work" input is ambiguous or inconsistent; supplied item must belong to work and match canonical precedence.'
+        );
+      }
+    }
+
+    // 4. Never create a synthetic active item that is absent from the supplied "work".
+    activeItem = canonicalItem;
+    work = options.work;
+  } else if (options?.item !== undefined) {
+    if (options.item.status !== 'streaming') {
+      throw new Error(
+        `Cannot build active thinking turn: supplied item must have status "streaming", but received "${options.item.status}".`
+      );
+    }
+    if (options.item.type !== 'reasoning' && options.item.type !== 'commentary') {
+      throw new Error(
+        `Cannot build active thinking turn: supplied item must have type "reasoning" or "commentary", but received "${(options.item as any).type}".`
+      );
+    }
+    activeItem = options.item;
+    work = [activeItem];
+  } else {
+    // When neither "work" nor "item" is supplied, retain the default streaming reasoning scenario.
+    activeItem = buildReasoning({
+      status: 'streaming',
+      text: 'Evaluating architectural boundaries and testing infrastructure…',
+    });
+    work = [activeItem];
   }
 
   const isReasoning = activeItem.type === 'reasoning';
@@ -560,7 +593,6 @@ export function buildActiveThinkingTurn(
     startedAt: itemStartedAt,
   };
 
-  const work = options?.work ?? [activeItem];
   const historicalWork =
     options?.historicalWork !== undefined
       ? options.historicalWork
@@ -597,11 +629,33 @@ export function buildActiveThinkingTurn(
 
 /** Scenario: Convenience active commentary turn. */
 export function buildActiveCommentaryTurn(options?: Partial<CanonicalTurnV2>): CanonicalTurnV2 {
-  return buildActiveThinkingTurn({
-    item: buildCommentary({
+  if (options?.work !== undefined) {
+    const existingStreamingCommentary = options.work.find(
+      (w): w is CommentaryWorkItemV2 => w.type === 'commentary' && w.status === 'streaming'
+    );
+    if (existingStreamingCommentary) {
+      return buildActiveThinkingTurn({
+        ...options,
+        work: options.work,
+      });
+    }
+    const defaultCommentary = buildCommentary({
       status: 'streaming',
       text: 'Analyzing dependencies and configuration…',
-    }),
+    });
+    return buildActiveThinkingTurn({
+      ...options,
+      work: [...options.work, defaultCommentary],
+    });
+  }
+
+  const defaultCommentary = buildCommentary({
+    status: 'streaming',
+    text: 'Analyzing dependencies and configuration…',
+  });
+  return buildActiveThinkingTurn({
+    item: defaultCommentary,
+    work: [defaultCommentary],
     ...options,
   });
 }

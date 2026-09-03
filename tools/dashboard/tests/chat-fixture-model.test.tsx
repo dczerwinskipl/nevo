@@ -472,6 +472,102 @@ describe('Chat Fixture Model (Task 06)', () => {
       );
     });
 
+    it('buildActiveThinkingTurn rejects supplied work without streaming evidence', () => {
+      const completedCommand = buildCommandTool({ status: 'completed' });
+      const completedCommentary = buildCommentary({ status: 'completed', text: 'previous comment' });
+
+      expect(() =>
+        buildActiveThinkingTurn({
+          work: [completedCommand, completedCommentary],
+        })
+      ).toThrow(
+        /Cannot build active thinking turn: supplied work contains no reasoning or commentary with status "streaming"/
+      );
+    });
+
+    it('buildActiveThinkingTurn selects streaming commentary in supplied work', () => {
+      const completedCommand = buildCommandTool({ status: 'completed' });
+      const streamingCommentary = buildCommentary({ status: 'streaming', text: 'Generating response...' });
+
+      const turn = buildActiveThinkingTurn({
+        work: [completedCommand, streamingCommentary],
+      });
+
+      expect(turn.currentActivity?.kind).toBe('commentary');
+      expect(turn.currentActivity?.title).toBe('Generating response');
+      expect(turn.currentActivity?.subjectId).toBe(streamingCommentary.id);
+      expect(turn.currentActivity?.status).toBe('streaming');
+      expect(turn.work).toEqual([completedCommand, streamingCommentary]);
+      expect(turn.historicalWork).toEqual([completedCommand]);
+    });
+
+    it('buildActiveThinkingTurn gives streaming reasoning precedence over streaming commentary in supplied work', () => {
+      const streamingCommentary = buildCommentary({ status: 'streaming', text: 'commentary text' });
+      const streamingReasoning = buildReasoning({ status: 'streaming', text: 'reasoning text' });
+
+      const turn = buildActiveThinkingTurn({
+        work: [streamingCommentary, streamingReasoning],
+      });
+
+      expect(turn.currentActivity?.kind).toBe('thinking');
+      expect(turn.currentActivity?.title).toBe('Thinking');
+      expect(turn.currentActivity?.subjectId).toBe(streamingReasoning.id);
+      expect(turn.currentActivity?.text).toBe('reasoning text');
+    });
+
+    it('buildActiveThinkingTurn ensures currentActivity.subjectId always references an item present in work', () => {
+      // Default scenario (no work, no item)
+      const defaultTurn = buildActiveThinkingTurn();
+      expect(defaultTurn.work.some((w) => w.id === defaultTurn.currentActivity?.subjectId)).toBe(true);
+
+      // Item-only scenario
+      const itemReasoning = buildReasoning({ status: 'streaming', text: 'isolated item' });
+      const itemTurn = buildActiveThinkingTurn({ item: itemReasoning });
+      expect(itemTurn.work.some((w) => w.id === itemTurn.currentActivity?.subjectId)).toBe(true);
+
+      // Work scenario
+      const commentary = buildCommentary({ status: 'streaming', text: 'in work' });
+      const workTurn = buildActiveThinkingTurn({ work: [commentary] });
+      expect(workTurn.work.some((w) => w.id === workTurn.currentActivity?.subjectId)).toBe(true);
+
+      // buildActiveCommentaryTurn scenario
+      const commentaryTurn = buildActiveCommentaryTurn();
+      expect(commentaryTurn.work.some((w) => w.id === commentaryTurn.currentActivity?.subjectId)).toBe(true);
+    });
+
+    it('buildActiveThinkingTurn rejects ambiguous or inconsistent simultaneous item and work input', () => {
+      const reasoningA = buildReasoning({ status: 'streaming', text: 'reasoning A' });
+      const commentaryB = buildCommentary({ status: 'streaming', text: 'commentary B' });
+      const externalReasoning = buildReasoning({ status: 'streaming', text: 'external reasoning' });
+
+      // Item does not belong to work
+      expect(() =>
+        buildActiveThinkingTurn({
+          item: externalReasoning,
+          work: [reasoningA],
+        })
+      ).toThrow(
+        /Cannot build active thinking turn: simultaneous "item" and "work" input is ambiguous or inconsistent/
+      );
+
+      // Item belongs to work but violates canonical precedence (reasoning takes precedence over commentary)
+      expect(() =>
+        buildActiveThinkingTurn({
+          item: commentaryB,
+          work: [reasoningA, commentaryB],
+        })
+      ).toThrow(
+        /Cannot build active thinking turn: simultaneous "item" and "work" input is ambiguous or inconsistent/
+      );
+
+      // When item belongs to work and matches canonical precedence, it is accepted
+      const validTurn = buildActiveThinkingTurn({
+        item: reasoningA,
+        work: [reasoningA, commentaryB],
+      });
+      expect(validTurn.currentActivity?.subjectId).toBe(reasoningA.id);
+    });
+
     it('buildFailedTurn produces a terminal failed turn with error details', () => {
       const error = { code: 'EXEC_TIMEOUT', message: 'Command timed out after 30000ms' };
       const turn = buildFailedTurn(error);
