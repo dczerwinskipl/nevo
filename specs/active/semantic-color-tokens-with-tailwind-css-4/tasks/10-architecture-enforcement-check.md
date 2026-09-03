@@ -19,7 +19,7 @@ forbidden_paths:
 depends_on:
   - cleanup-and-token-removal
 semantic_references:
-  decisions: [D5, D8]
+  decisions: [D4, D5, D8]
   constraints: [C4, C6, C8]
 ---
 

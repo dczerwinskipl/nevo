@@ -20,7 +20,7 @@ forbidden_paths:
 depends_on:
   - frontend-formatter-baseline
 semantic_references:
-  decisions: [D1, D4, D5, D7, D10]
+  decisions: [D1, D2, D4, D5, D7, D9, D10]
   constraints: [C5, C6, C7]
 ---
 
