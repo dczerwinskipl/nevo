@@ -327,7 +327,7 @@ tasks:
       - react-class-composition-guidelines
     implementation:
       baseline_revision: aaa5334c86d35f8089d71a3b2d9307132f26ee57
-      review_revision: 85592c8210f8fb0c2ce73346ac22c1a5c4a79e39
+      review_revision: 10e0916ef9118cf728062d5e75483b01ac4268b2
       changed_paths:
         - tools/dashboard/ui/components/ui/badge.tsx
         - tools/dashboard/ui/components/ui/button.tsx
@@ -342,7 +342,7 @@ tasks:
       worktree_patch_fingerprint: null
     self_check:
       fingerprint: 4b6f3cba0565a32576ded816aeb03cfe54be1322b9f56410e1536f89da90f024
-      revision: 85592c8210f8fb0c2ce73346ac22c1a5c4a79e39
+      revision: 10e0916ef9118cf728062d5e75483b01ac4268b2
       commands:
         - command: npm --prefix tools/dashboard run format:check
           exit_code: 0
