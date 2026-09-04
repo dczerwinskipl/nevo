@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T11:20:04.493Z",
+  "generated": "2026-09-04T11:20:27.271Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -758,7 +758,7 @@
           "id": "react-class-composition-guidelines",
           "order": 2,
           "file": "tasks/02-react-class-composition-guidelines.md",
-          "status": "draft"
+          "status": "approved"
         },
         {
           "id": "theme-contract",
