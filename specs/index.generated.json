@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T15:03:23.677Z",
+  "generated": "2026-09-04T15:18:17.439Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -847,12 +847,50 @@
           "id": "shared-ui-primitives",
           "order": 4,
           "file": "tasks/04-shared-ui-primitives.md",
-          "status": "draft",
+          "status": "implemented",
           "depends_on": [
             "theme-contract",
             "frontend-formatter-baseline",
             "react-class-composition-guidelines"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "aaa5334c86d35f8089d71a3b2d9307132f26ee57",
+            "review_revision": "d5de44a01492c93f246a21849aec3e15b3af5103",
+            "changed_paths": [
+              "tools/dashboard/ui/components/ui/badge.tsx",
+              "tools/dashboard/ui/components/ui/button.tsx",
+              "tools/dashboard/ui/components/ui/card.tsx",
+              "tools/dashboard/ui/components/ui/dialog.tsx",
+              "tools/dashboard/ui/components/ui/progress.tsx",
+              "tools/dashboard/ui/components/ui/sheet.tsx",
+              "tools/dashboard/ui/components/ui/status-card.tsx",
+              "tools/dashboard/ui/shared/ui/loading-screen.tsx"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "610c6ca597151259a06395ad6e1beb538656c2d6952188978ae2b3bcd16efd38",
+            "revision": "d5de44a01492c93f246a21849aec3e15b3af5103",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build-storybook",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "status-tone-contract",
