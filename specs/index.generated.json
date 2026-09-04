@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T22:06:49.618Z",
+  "generated": "2026-09-04T22:34:53.544Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -902,14 +902,40 @@
           "id": "status-tone-contract",
           "order": 5,
           "file": "tasks/05-status-tone-contract.md",
-          "status": "in-implementation",
+          "status": "verified",
           "depends_on": [
             "theme-contract",
             "frontend-formatter-baseline",
             "react-class-composition-guidelines"
           ],
           "implementation": {
-            "baseline_revision": "f3726746d1bd151097547ad213c02ea4dd44b07d"
+            "baseline_revision": "f3726746d1bd151097547ad213c02ea4dd44b07d",
+            "review_revision": "407ec03de0d51127d83cd31f4067000459df9f83",
+            "changed_paths": [
+              "tools/dashboard/ui/features/agent-sessions/agent-session-list.tsx",
+              "tools/dashboard/ui/features/agent-sessions/turn-work/turn-work-summary.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/turn-status-tone-v2.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-indicator-v2.tsx",
+              "tools/dashboard/ui/features/specifications/detail/specification-detail.tsx",
+              "tools/dashboard/ui/shared/status-tone.ts",
+              "tools/dashboard/ui/shared/ui/status-label.tsx"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "31598d8dcccee4bd930c8696238cd675604bf51d6eafc9ef21d38b02c69411d6",
+            "revision": "407ec03de0d51127d83cd31f4067000459df9f83",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
           }
         },
         {
