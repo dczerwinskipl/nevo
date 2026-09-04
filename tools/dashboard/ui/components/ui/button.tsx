@@ -14,7 +14,7 @@ const buttonVariants = cva(
           'border border-border bg-surface-raised text-fg-primary hover:border-border-strong hover:bg-surface-hover',
         ghost: 'text-fg-muted hover:bg-surface-hover hover:text-fg-primary',
         destructive:
-          'border border-action-destructive/40 bg-action-destructive/5 text-action-destructive hover:border-action-destructive/60 hover:bg-action-destructive/10 focus-visible:ring-action-destructive',
+          'border border-action-destructive/40 bg-transparent text-action-destructive hover:border-action-destructive/60 hover:bg-action-destructive/5 focus-visible:ring-action-destructive',
       },
       size: {
         default: 'h-10 px-4 py-2',
