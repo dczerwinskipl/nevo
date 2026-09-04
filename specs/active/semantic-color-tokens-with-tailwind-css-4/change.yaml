@@ -359,7 +359,7 @@ tasks:
   - id: status-tone-contract
     order: 5
     file: tasks/05-status-tone-contract.md
-    status: draft
+    status: approved
     depends_on:
       - theme-contract
       - frontend-formatter-baseline
