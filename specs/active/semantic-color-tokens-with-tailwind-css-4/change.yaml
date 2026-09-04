@@ -320,7 +320,7 @@ tasks:
   - id: shared-ui-primitives
     order: 4
     file: tasks/04-shared-ui-primitives.md
-    status: implemented
+    status: verified
     depends_on:
       - theme-contract
       - frontend-formatter-baseline
