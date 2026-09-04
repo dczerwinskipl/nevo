@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T13:24:29.527Z",
+  "generated": "2026-09-04T13:39:07.777Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -761,7 +761,7 @@
           "status": "implemented",
           "implementation": {
             "baseline_revision": "d1dc9de8ed76b08f4ce905269cfe2770cfedad05",
-            "review_revision": "1d44bcd82f9903c518b2d39fb1903c63f7d267ae",
+            "review_revision": "6374dcd68310df1b945620a3cdc5a957c2fbcd16",
             "changed_paths": [
               "docs/ai/change-impact-map.md",
               "docs/ai/how-to-navigate.md",
@@ -781,11 +781,11 @@
               "tools/tests/docs-discovery.test.mjs",
               "tools/tests/docs-routing.test.mjs"
             ],
-            "worktree_patch_fingerprint": "921622adbcf06815c4445c2ec32a8453cf68ee36951f5268792ee45cde9642e5"
+            "worktree_patch_fingerprint": null
           },
           "self_check": {
             "fingerprint": "af300e8a99487acf08a64d44a96055e79cea49dd1e513f3f8b957e878837e55d",
-            "revision": "1d44bcd82f9903c518b2d39fb1903c63f7d267ae",
+            "revision": "6374dcd68310df1b945620a3cdc5a957c2fbcd16",
             "commands": [
               {
                 "command": "node tools/docs.mjs generate",
