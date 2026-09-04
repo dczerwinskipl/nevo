@@ -255,7 +255,7 @@ tasks:
   - id: react-class-composition-guidelines
     order: 2
     file: tasks/02-react-class-composition-guidelines.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: d1dc9de8ed76b08f4ce905269cfe2770cfedad05
       review_revision: 6374dcd68310df1b945620a3cdc5a957c2fbcd16
