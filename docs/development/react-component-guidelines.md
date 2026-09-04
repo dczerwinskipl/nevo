@@ -463,8 +463,8 @@ Every possible Tailwind utility class must exist in source code as a complete, s
 - **Banned pattern:** Never construct class names using dynamic string interpolation or concatenation:
   ```tsx
   // BANNED: Tailwind compiler cannot detect interpolated dynamic classes
-  const className = `button-${variant}`;
-  const badgeClass = `badge-${size}`;
+  const className = `bg-${color}-500`;
+  const gridClass = `grid-cols-${columns}`;
   ```
 - **Required pattern:** Use a typed static map or `cva()` where every class appears as a complete, searchable string literal:
   ```tsx

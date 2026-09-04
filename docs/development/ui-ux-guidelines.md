@@ -103,7 +103,7 @@ The host surface is the primary user task that must remain visually dominant.
 
 Examples:
 
-- chat is the host surface for Work inside a Turn;
+- conversation view is the host surface for inline activity or sub-tasks;
 - task details are the host surface for embedded task Markdown;
 - changes are the host surface for file inspection.
 
@@ -269,9 +269,9 @@ This document is the authoritative owner of the canonical semantic status presen
 | `active` | Currently progressing operation or active selection | Indicates truthful ongoing work. Never use without evidence of progress. |
 | `success` | Successful completion when success needs emphasis | Use sparingly. Happy-path historical items should lose color and become visually quiet. |
 | `warning` | Recoverable or non-fatal issue; local problem | The primary process, parent task, or containing operation may still proceed or succeed. A local or recoverable failure inside a sub-step is a warning, not a failure of the overall operation. |
-| `error` | Primary operation, task, or turn failed | Indicates terminal or primary failure requiring diagnosis. Distinct from local recoverable warnings. |
+| `error` | Primary operation, process, or task failed | Indicates terminal or primary failure requiring diagnosis. Distinct from local recoverable warnings. |
 | `attention` | Explicit user intervention or action is required | Strictly reserved for required user input/interaction. **MUST NOT** be used for waiting or long-running latency. |
-| `info` | Supplemental informational state, neutral note, or contextual hint | Supplemental information indicating neither progress, failure, nor required action. Unlike `neutral` (the default resting baseline for idle, waiting, or unremarkable elements), `info` represents an explicit informational callout or advisory note without demanding action or signaling degradation. |
+| `info` | Supplemental informational state or contextual hint | Explicit informational callout that indicates neither progress, degradation nor required action. Distinct from the default resting or unremarkable presentation of `neutral`. |
 | `action-destructive` | Destructive user action or confirmation | User control role (e.g. delete, discard, cancel). Distinct from system failure (`error`) even when sharing palette hue. |
 
 `status-error` and `action-destructive` are distinct semantic roles even if their default theme palettes initially share a red hue. System error states must not be conflated with intentional destructive user actions.

@@ -164,6 +164,12 @@ describe('normalizeTerm', () => {
     assert.equal(normalizeTerm('guideline'), 'guideline');
     assert.equal(normalizeTerm('policies'), 'policy');
     assert.equal(normalizeTerm('processes'), 'process');
+    assert.equal(normalizeTerm('case'), 'case');
+    assert.equal(normalizeTerm('cases'), 'case');
+    assert.notEqual(normalizeTerm('case'), 'cas');
+    assert.notEqual(normalizeTerm('cases'), 'cas');
+    assert.equal(normalizeTerm('use'), 'use');
+    assert.equal(normalizeTerm('uses'), 'use');
   });
 });
 
@@ -309,6 +315,34 @@ describe('findDocs', () => {
       assert.equal(results[1].term_coverage, 0.25);
       assert.deepEqual(results[1].matched_terms, ['semantic']);
     });
+
+    test('"app" does not match "approval" and short substrings do not count as complete matched terms', () => {
+      const docs = [
+        {
+          id: 'development.approval-process',
+          type: 'development',
+          title: 'Approval process and review workflows',
+          status: 'current',
+          summary: 'Guidelines for spec approval and reviewer sign-off.',
+          read_when: ['requesting approval for a change', 'evaluating whether an approach is safe'],
+          file: 'docs/development/approval-process.md',
+        },
+        {
+          id: 'development.app-service',
+          type: 'development',
+          title: 'App service architecture',
+          status: 'current',
+          summary: 'Core runtime for the web app.',
+          file: 'docs/development/app-service.md',
+        },
+      ];
+
+      const results = findDocs(docs, { query: 'app' });
+      assert.equal(results.length, 1);
+      assert.equal(results[0].id, 'development.app-service');
+      assert.deepEqual(results[0].matched_terms, ['app']);
+      assert.equal(results[0].term_coverage, 1);
+    });
   });
 
   describe('path discovery', () => {
@@ -407,6 +441,21 @@ describe('acceptance query and CLI integration', () => {
     const failureDoc = results.find(r => r.id === 'development.failure-semantics');
     if (failureDoc) {
       assert.ok(first.score > failureDoc.score);
+    }
+  });
+
+  test('acceptance query for "app" does not treat words such as "approval" as matches', () => {
+    const stdout = execSync(
+      'node tools/docs.mjs find --query "app" --type development --format json',
+      { cwd: ROOT, encoding: 'utf8' }
+    );
+    const results = JSON.parse(stdout);
+    const matchedIds = results.map(r => r.id);
+    assert.ok(!matchedIds.includes('development.testing'));
+    assert.ok(!matchedIds.includes('development.extension-points'));
+    assert.ok(!matchedIds.includes('development.local-setup'));
+    for (const r of results) {
+      assert.ok(r.matched_terms.includes('app'));
     }
   });
 

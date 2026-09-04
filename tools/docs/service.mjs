@@ -227,6 +227,10 @@ export function pathMatchesRule(inputPath, pathGlob) {
   return false;
 }
 
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export function normalizeTerm(term) {
   if (!term || typeof term !== 'string') return '';
   let t = term.toLowerCase().trim();
@@ -239,10 +243,10 @@ export function normalizeTerm(term) {
   if (t.endsWith('ies') && t.length > 4) {
     return t.slice(0, -3) + 'y';
   }
-  if (t.endsWith('ses') && t.length > 4) {
+  if (t.endsWith('sses')) {
     return t.slice(0, -2);
   }
-  if (t.endsWith('xes') || t.endsWith('zes') || t.endsWith('ches') || t.endsWith('shes')) {
+  if (t.endsWith('shes') || t.endsWith('ches') || t.endsWith('xes') || t.endsWith('zes')) {
     return t.slice(0, -2);
   }
   if (t.endsWith('s') && !t.endsWith('ss') && !t.endsWith('us') && !t.endsWith('is')) {
@@ -276,29 +280,42 @@ function scoreDoc(doc, rawQueryNorm, uniqueTokens) {
   const relatedStr = Array.isArray(doc.related) ? doc.related.map(r => String(r).toLowerCase()).join(' ') : '';
 
   let phraseScore = 0;
+  const matchedFieldsSet = new Set();
 
-  // 1. Exact ID or Title match
+  // 1. Exact full ID or exact Title match (strongest signals)
   if (idLower === rawQueryNorm) {
     phraseScore += 100000;
-  } else if (idLower.includes(rawQueryNorm)) {
-    phraseScore += 50000;
+    matchedFieldsSet.add('id');
   }
-
   if (titleLower === rawQueryNorm) {
     phraseScore += 80000;
-  } else if (titleLower.includes(rawQueryNorm)) {
-    phraseScore += 40000;
+    matchedFieldsSet.add('title');
   }
 
-  // Full-phrase match in other metadata fields
-  if (rawQueryNorm.length >= 3) {
-    if (readWhenStr.includes(rawQueryNorm)) phraseScore += 20000;
-    if (summaryLower.includes(rawQueryNorm)) phraseScore += 10000;
-    if (fileLower.includes(rawQueryNorm)) phraseScore += 5000;
-    if (relatedStr.includes(rawQueryNorm)) phraseScore += 2000;
+  // Exact normalized multi-word phrase match
+  if (uniqueTokens.length > 1) {
+    const normPhrase = uniqueTokens.join(' ');
+    const phraseRe = new RegExp(`(?:^|\\s)${escapeRegExp(normPhrase)}(?:$|\\s)`);
+
+    const phraseCandidates = [
+      { name: 'id', text: idLower, weight: 50000 },
+      { name: 'title', text: titleLower, weight: 40000 },
+      { name: 'read_when', text: readWhenStr, weight: 20000 },
+      { name: 'summary', text: summaryLower, weight: 10000 },
+      { name: 'file', text: fileLower, weight: 5000 },
+      { name: 'related', text: relatedStr, weight: 2000 },
+    ];
+
+    for (const cand of phraseCandidates) {
+      const fieldWords = cand.text.split(/[^a-z0-9]+/).filter(Boolean).map(normalizeTerm).join(' ');
+      if (phraseRe.test(fieldWords)) {
+        phraseScore += cand.weight;
+        matchedFieldsSet.add(cand.name);
+      }
+    }
   }
 
-  // Field relevance hierarchy
+  // Field relevance hierarchy for complete word matches
   const fieldData = [
     { name: 'id', text: idLower, weight: 50 },
     { name: 'title', text: titleLower, weight: 40 },
@@ -309,7 +326,6 @@ function scoreDoc(doc, rawQueryNorm, uniqueTokens) {
   ];
 
   const matchedTermsSet = new Set();
-  const matchedFieldsSet = new Set();
   let fieldRelevanceScore = 0;
 
   for (const field of fieldData) {
@@ -319,11 +335,9 @@ function scoreDoc(doc, rawQueryNorm, uniqueTokens) {
 
     let fieldMatchedAny = false;
     for (const token of uniqueTokens) {
-      const matchesField = wordSet.has(token) ||
-        normalizedWords.some(w => w.includes(token)) ||
-        (token.length >= 3 && field.text.includes(token));
-
-      if (matchesField) {
+      // Conservative word matching: count distinct-term coverage only for complete normalized words.
+      // Arbitrary substrings such as "app" inside "approval" must NOT match.
+      if (wordSet.has(token)) {
         matchedTermsSet.add(token);
         fieldMatchedAny = true;
         fieldRelevanceScore += field.weight;
@@ -335,12 +349,22 @@ function scoreDoc(doc, rawQueryNorm, uniqueTokens) {
     }
   }
 
-  if (phraseScore > 0) {
-    if (idLower.includes(rawQueryNorm)) matchedFieldsSet.add('id');
-    if (titleLower.includes(rawQueryNorm)) matchedFieldsSet.add('title');
-    if (readWhenStr.includes(rawQueryNorm)) matchedFieldsSet.add('read_when');
-    if (summaryLower.includes(rawQueryNorm)) matchedFieldsSet.add('summary');
-    if (fileLower.includes(rawQueryNorm)) matchedFieldsSet.add('file');
+  // If no complete query terms matched and no exact/phrase match, do not match
+  if (matchedTermsSet.size === 0 && phraseScore === 0) {
+    return {
+      score: 0,
+      matched_terms: [],
+      matched_fields: [],
+      term_coverage: 0,
+    };
+  }
+
+  // Partial ID or path discovery as a separate lower-priority signal
+  // Does not grant term coverage or add to matchedTermsSet
+  let partialDiscoveryScore = 0;
+  if (rawQueryNorm.length >= 3) {
+    if (idLower.includes(rawQueryNorm)) partialDiscoveryScore += 20;
+    if (fileLower.includes(rawQueryNorm)) partialDiscoveryScore += 10;
   }
 
   const termCoverage = uniqueTokens.length > 0 ? (matchedTermsSet.size / uniqueTokens.length) : 0;
@@ -348,8 +372,7 @@ function scoreDoc(doc, rawQueryNorm, uniqueTokens) {
   const distinctTermScore = matchedTermsSet.size * 1000;
   const allTermsBonus = (uniqueTokens.length > 1 && matchedTermsSet.size === uniqueTokens.length) ? 500 : 0;
 
-  // Total score prioritizes phrase match, then distinct term coverage, then field relevance
-  const totalScore = phraseScore + distinctTermScore + allTermsBonus + fieldRelevanceScore;
+  const totalScore = phraseScore + distinctTermScore + allTermsBonus + fieldRelevanceScore + partialDiscoveryScore;
 
   return {
     score: totalScore,
