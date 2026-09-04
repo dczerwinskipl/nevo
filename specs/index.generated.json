@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T15:18:17.439Z",
+  "generated": "2026-09-04T15:34:39.991Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -855,13 +855,14 @@
           ],
           "implementation": {
             "baseline_revision": "aaa5334c86d35f8089d71a3b2d9307132f26ee57",
-            "review_revision": "d5de44a01492c93f246a21849aec3e15b3af5103",
+            "review_revision": "0fd4e3bad579f4b9cc373f220b3ef46ae6ab2e08",
             "changed_paths": [
               "tools/dashboard/ui/components/ui/badge.tsx",
               "tools/dashboard/ui/components/ui/button.tsx",
               "tools/dashboard/ui/components/ui/card.tsx",
               "tools/dashboard/ui/components/ui/dialog.tsx",
               "tools/dashboard/ui/components/ui/progress.tsx",
+              "tools/dashboard/ui/components/ui/shared-primitives.stories.tsx",
               "tools/dashboard/ui/components/ui/sheet.tsx",
               "tools/dashboard/ui/components/ui/status-card.tsx",
               "tools/dashboard/ui/shared/ui/loading-screen.tsx"
@@ -869,9 +870,13 @@
             "worktree_patch_fingerprint": null
           },
           "self_check": {
-            "fingerprint": "610c6ca597151259a06395ad6e1beb538656c2d6952188978ae2b3bcd16efd38",
-            "revision": "d5de44a01492c93f246a21849aec3e15b3af5103",
+            "fingerprint": "c477c8eb8841793284aa58667a4fc1e163b78defc34dec12eed08187f8e9ea42",
+            "revision": "0fd4e3bad579f4b9cc373f220b3ef46ae6ab2e08",
             "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run format:check",
+                "exit_code": 0
+              },
               {
                 "command": "npm --prefix tools/dashboard test",
                 "exit_code": 0
