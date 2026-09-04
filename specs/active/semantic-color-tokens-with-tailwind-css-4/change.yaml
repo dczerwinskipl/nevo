@@ -14,7 +14,7 @@ tasks:
   - id: frontend-formatter-baseline
     order: 1
     file: tasks/01-frontend-formatter-baseline.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: 2a2663ce96e6a60cc0930106133416da4eb02453
       review_revision: 709c61f6edb29b8fe9cd2895677b64dbee24a451
