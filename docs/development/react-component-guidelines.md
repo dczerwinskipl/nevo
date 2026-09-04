@@ -394,3 +394,134 @@ When creating or reviewing React UI code, verify:
 - [ ] Is state owned at the narrowest sensible level without duplicating derived state?
 - [ ] Are effects used strictly for synchronization with external systems?
 - [ ] Are tests focused at the level of responsibility they verify?
+- [ ] **Existing-primitive check:** Does an existing design token, Radix primitive, or shared UI component wrapper already cover this element or interaction before creating custom markup?
+- [ ] **Existing-variant check:** Does an existing `cva()` variant or semantic tone already express this visual style before adding a new prop or variant branch?
+- [ ] **Classification check:** Are classes cleanly separated into one-off local layout (inline in JSX), reusable visual API (`cva()`), or domain status projection (canonical domain state → `StatusTone` → component variant)?
+- [ ] **Visual-vs-orchestration check:** Does the visual component remain pure and decoupled from data-fetching, session lifecycle, or workflow mutations?
+- [ ] **Hidden-boolean-variant check:** Are multiple ad-hoc boolean styling props (e.g. `isError`, `isWarning`, `requiresAttention`) avoided in favor of a single explicit `variant` or `tone` prop?
+- [ ] **Existing-Storybook-coverage check:** Has existing Storybook coverage under `tools/dashboard/ui` been inspected for the component being touched?
+- [ ] **Additional-story / behavior-test-need check:** Are new or modified variants, interaction states, and accessibility contracts covered by new or updated stories and behavior tests?
+
+---
+
+# 12. Tailwind class composition
+
+This section defines the durable contract for composing Tailwind CSS classes in React components across `tools/dashboard/ui/**`.
+
+## 12.1 Local static layout
+
+One-off structural classes (margins, padding, flexbox/grid layouts, alignment, dimensions, positioning, and gap spacing) stay inline in JSX.
+
+A long but static, cohesive class list is not automatically an architectural problem or an extraction reason. Do not extract a class string into a constant or helper solely to shorten JSX or hide CSS classes outside the component. Keep styling co-located with the JSX element it shapes unless it forms a reusable visual variant API.
+
+## 12.2 Reusable component variants
+
+Use `cva()` (Class Variance Authority) whenever a component has a stable visual API with multiple visual options (`variant`, `tone`, `size`, `emphasis`, `density`).
+
+- **Recipe co-location:** Keep the `cva()` recipe beside the component in the same module (or in a sibling module when the primitive is large).
+- **Type derivation:** Derive component props directly via `VariantProps<typeof componentVariants>`.
+- **Compound variants discipline:** Use `compoundVariants` only for genuine cross-axis interactions (e.g., when a specific combination of `variant` and `size` requires special padding or font sizing). Treat a large compound variant matrix as a signal to inspect whether the component is mixing unrelated responsibilities or whether domain state has leaked into its visual API.
+
+## 12.3 Domain state and presentation tone
+
+Domain state must **never** directly select Tailwind classes in JSX.
+
+The required presentation pipeline flows through explicit architectural stages:
+
+$$\text{Canonical domain state} \longrightarrow \text{Semantic presentation tone} \longrightarrow \text{Component variant} \longrightarrow \text{Tailwind utility} \longrightarrow \text{Theme token}$$
+
+### Canonical `StatusTone` type
+
+All status and severity presentations standardize on the following canonical union type:
+
+```ts
+type StatusTone =
+  | 'neutral'
+  | 'active'
+  | 'success'
+  | 'warning'
+  | 'error'
+  | 'attention'
+  | 'info';
+```
+
+### Tone projection rules
+
+- A visual presentation component receives `tone: StatusTone` (or a component variant derived from it), never raw backend/provider status strings (e.g. `'running'`, `'failed'`, `'completed'`) or ad-hoc booleans like `isError`, `isWarning`, or `requiresAttention`.
+- Keep canonical-status-to-tone mappings feature-local by default. Generalize or promote to shared code only when multiple independent features genuinely share the exact same canonical contract. For example, the codebase intentionally maintains focused feature-local mappings:
+  - `tools/dashboard/ui/shared/ui/status-label.tsx`'s `statusTone()` for specification and session list items;
+  - `tools/dashboard/ui/features/agent-sessions/transcript/projection.ts`'s `computePresentationSeverity()` for session transcript turn work;
+  - `tools/dashboard/ui/features/agent-sessions/work-v2/`'s attention projection for Work V2 indicators;
+  - `tools/dashboard/ui/features/pull-requests/changes/status.ts`'s `stateTone()` for pull-request file changes.
+
+## 12.4 DOM and interaction state
+
+Use native Tailwind variant modifiers (`hover:`, `focus-visible:`, `disabled:`, `aria-selected:`, `data-[state=open]:`, `group-*`, `peer-*`) for states already owned by the browser DOM element or behavior primitive (such as Radix UI).
+
+Do not introduce a React boolean state or prop solely to reproduce interaction or accessibility states that are already exposed via native HTML attributes, ARIA states, or Radix `data-*` attributes.
+
+## 12.5 Conditional composition
+
+Use `cn()` (`clsx` + `tailwind-merge`) as the standard utility for conditional inclusion and consumer className overrides:
+
+```tsx
+cn(componentVariants({ tone, size }), className)
+```
+
+- `cn()` resolves Tailwind utility conflicts and merges custom classes passed by consumers.
+- `cn()` is **not** a substitute for a component variant model (`cva()`) or a domain-state-to-tone projection.
+- Do not accumulate large collections of unrelated boolean ternary class expressions inside `cn()`. When branching logic grows, express it through a `cva()` recipe or a typed mapping dictionary.
+
+## 12.6 Tailwind source detection
+
+Every possible Tailwind utility class must exist in source code as a complete, static string literal so that Tailwind's static analysis scanner can discover and generate the required CSS.
+
+- **Banned pattern:** Never construct class names using dynamic string interpolation or concatenation:
+  ```tsx
+  // BANNED: Tailwind compiler cannot detect interpolated dynamic classes
+  const className = `text-status-${tone}`;
+  const badgeClass = `bg-${color}-500`;
+  ```
+- **Required pattern:** Use a typed static map or `cva()` where every class appears as a complete, searchable string literal:
+  ```tsx
+  const toneClasses: Record<StatusTone, string> = {
+    neutral: 'text-status-neutral',
+    active: 'text-status-active',
+    success: 'text-status-success',
+    warning: 'text-status-warning',
+    error: 'text-status-error',
+    attention: 'text-status-attention',
+    info: 'text-status-info',
+  };
+  ```
+
+## 12.7 Multi-slot components
+
+For compound components with multiple internal sub-elements (e.g., `root`, `icon`, `title`, `description`, `actions`):
+
+- Keep a small, typed slot recipe local to the component, using one focused `cva()` recipe per slot where readable.
+- Avoid duplicating domain-status or tone decisions across individual slots. The parent component should resolve the presentation tone once and pass it down or apply the corresponding slot classes.
+- Do not introduce a heavy external multi-slot/variants library unless repeated multi-slot complexity across several independent primitives demonstrates a real need.
+
+## 12.8 CSS and `@apply`
+
+Reserve custom CSS rules and `@apply` directives exclusively for selector-oriented or non-React-boundary requirements:
+
+- Rendered Markdown and prose content (`.markdown-content` styling);
+- Third-party library markup, overlays, or injected DOM outside direct React component control;
+- Global pseudo-elements and browser scrollbars;
+- Document-level root styling and browser reset behaviors.
+
+Never move ordinary component variants or layout rules into global CSS or `@apply` blocks merely to shorten JSX class lists.
+
+## 12.9 Required inspection when touching a component
+
+Whenever introducing or modifying a React component under `tools/dashboard/ui/**`, apply this 7-item inspection sequence:
+
+1. **Existing-primitive check:** Verify whether an existing design token, Radix primitive, or shared UI wrapper (`tools/dashboard/ui/components/ui/*`) already provides the required element or interaction before creating custom markup.
+2. **Existing-variant check:** Verify whether an existing `cva()` variant or semantic tone already expresses the needed presentation before introducing a new variant prop or branch.
+3. **Local-layout vs. recipe vs. domain-mapping classification:** Clearly classify every styling concern into one-off local layout (kept inline in JSX), reusable visual variant APIs (managed via `cva()`), or domain status derivations (projected via canonical state → `StatusTone`).
+4. **Visual-vs-orchestration check:** Ensure visual presentation components remain pure and decoupled from data orchestration, network queries, and lifecycle side effects.
+5. **Hidden-boolean-variant check:** Avoid introducing ad-hoc boolean styling props (e.g., `isError`, `isWarning`, `requiresAttention`); express visual state through explicit `variant` or `tone` properties.
+6. **Existing-Storybook-coverage check:** Review existing Storybook stories under `tools/dashboard/ui` to determine current visual coverage and prevent regressions.
+7. **Additional-story / behavior-test-need check:** Determine whether new stories or behavior tests are required to document and verify new variants, interaction states, or accessibility behavior.

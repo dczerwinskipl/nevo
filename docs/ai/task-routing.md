@@ -114,6 +114,7 @@ Note: These tools currently live in this repository for end-to-end integration t
   - Capability / vertical feature ownership: feature-specific hooks, view-models, projections, and dialogs remain feature-local unless real cross-feature reuse is demonstrated.
   - Components maintain clear separation between visual presentation and orchestration.
   - Semantic Tailwind tokens and accessible Radix UI primitives are used for UI consistency.
+  - Tailwind classes follow the documented composition contract: `cva()` for reusable variant APIs, domain-state → tone → variant → utility → token for status/severity presentation, no interpolated class construction.
 - **Tests:** `npm --prefix tools/dashboard test`, `npm --prefix tools/dashboard run build`.
 
 ---
