@@ -1,5 +1,6 @@
 import React, { forwardRef, type ButtonHTMLAttributes } from 'react';
 import { AlertCircle, AlertTriangle, Info, RefreshCw } from 'lucide-react';
+import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
@@ -24,7 +25,7 @@ export const RetryButton = forwardRef<HTMLButtonElement, RetryButtonProps>(funct
         disabled={disabled || loading}
         aria-label={label}
         title={label}
-        className={cn('size-8 shrink-0 rounded-lg text-[var(--accent)] hover:text-[var(--accent-strong)]', className)}
+        className={cn('size-8 shrink-0 rounded-lg text-accent hover:text-accent', className)}
         {...props}
       >
         <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
@@ -48,9 +49,53 @@ export const RetryButton = forwardRef<HTMLButtonElement, RetryButtonProps>(funct
   );
 });
 
-export interface StatusCardProps {
-  variant?: 'error' | 'warning' | 'info';
-  size?: 'sm' | 'default';
+const statusCardVariants = cva(
+  'group relative flex min-w-0 items-center justify-between gap-4 rounded-xl border transition-colors',
+  {
+    variants: {
+      variant: {
+        error: 'border-status-error/25 bg-status-error/5 text-status-error',
+        warning: 'border-status-warning/25 bg-status-warning/5 text-status-warning',
+        info: 'border-border bg-surface text-fg-primary',
+      },
+      size: {
+        default: 'p-4 text-sm sm:p-5',
+        sm: 'p-3 text-xs',
+      },
+    },
+    defaultVariants: {
+      variant: 'error',
+      size: 'default',
+    },
+  },
+);
+
+const iconBadgeVariants = cva('flex size-8 shrink-0 items-center justify-center rounded-lg border', {
+  variants: {
+    variant: {
+      error: 'border-status-error/25 bg-status-error/10',
+      warning: 'border-status-warning/25 bg-status-warning/10',
+      info: 'border-border bg-surface-raised',
+    },
+  },
+  defaultVariants: {
+    variant: 'error',
+  },
+});
+
+const iconMap = {
+  error: AlertCircle,
+  warning: AlertTriangle,
+  info: Info,
+} as const;
+
+const iconColorMap = {
+  error: 'text-status-error',
+  warning: 'text-status-warning',
+  info: 'text-accent',
+} as const;
+
+export interface StatusCardProps extends VariantProps<typeof statusCardVariants> {
   title: string;
   description?: string | null;
   onRetry?: () => void | Promise<void>;
@@ -80,43 +125,20 @@ export function StatusCard({
   className,
   children,
 }: StatusCardProps) {
-  const isError = variant === 'error';
-  const isWarning = variant === 'warning';
-
+  const activeVariant = variant ?? 'error';
+  const Icon = iconMap[activeVariant];
   const friendlyDesc = normalizeErrorMessage(description);
 
-  const containerStyles = cn(
-    'group relative flex min-w-0 items-center justify-between gap-4 rounded-xl border transition-colors',
-    isError &&
-      'border-[color-mix(in_srgb,var(--danger)_20%,transparent)] bg-[color-mix(in_srgb,var(--danger)_5%,transparent)] text-[var(--danger)]',
-    isWarning &&
-      'border-[color-mix(in_srgb,var(--warning)_20%,transparent)] bg-[color-mix(in_srgb,var(--warning)_5%,transparent)] text-[var(--warning)]',
-    variant === 'info' && 'border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]',
-    size === 'sm' ? 'p-3 text-xs' : 'p-4 text-sm sm:p-5',
-    className,
-  );
-
-  const Icon = isError ? AlertCircle : isWarning ? AlertTriangle : Info;
-  const iconColor = isError ? 'text-[var(--danger)]' : isWarning ? 'text-[var(--warning)]' : 'text-[var(--accent)]';
-  const iconBadgeStyles = cn(
-    'flex size-8 shrink-0 items-center justify-center rounded-lg border',
-    isError &&
-      'border-[color-mix(in_srgb,var(--danger)_20%,transparent)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)]',
-    isWarning &&
-      'border-[color-mix(in_srgb,var(--warning)_20%,transparent)] bg-[color-mix(in_srgb,var(--warning)_10%,transparent)]',
-    variant === 'info' && 'border-[var(--border)] bg-[var(--surface-raised)]',
-  );
-
   return (
-    <div className={containerStyles}>
+    <div className={cn(statusCardVariants({ variant, size }), className)}>
       <div className="flex min-w-0 flex-1 items-center gap-3">
-        <div className={iconBadgeStyles}>
-          <Icon className={cn('size-4 shrink-0', iconColor)} />
+        <div className={iconBadgeVariants({ variant })}>
+          <Icon className={cn('size-4 shrink-0', iconColorMap[activeVariant])} />
         </div>
         <div className="min-w-0 flex-1 space-y-0.5">
-          <p className="truncate text-xs font-semibold text-[var(--foreground)] sm:text-sm">{title}</p>
+          <p className="truncate text-xs font-semibold text-fg-primary sm:text-sm">{title}</p>
           {friendlyDesc && (
-            <p className="line-clamp-2 text-[11px] leading-relaxed text-[var(--muted)] sm:text-xs">{friendlyDesc}</p>
+            <p className="line-clamp-2 text-[11px] leading-relaxed text-fg-muted sm:text-xs">{friendlyDesc}</p>
           )}
           {children}
         </div>

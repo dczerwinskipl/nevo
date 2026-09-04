@@ -5,14 +5,16 @@ import { forwardRef, type ButtonHTMLAttributes } from 'react';
 import { cn } from '@/lib/utils';
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center rounded-lg text-sm font-semibold whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)] disabled:pointer-events-none disabled:opacity-50',
+  'inline-flex items-center justify-center rounded-lg text-sm font-semibold whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50',
   {
     variants: {
       variant: {
-        default: 'bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-strong)]',
+        default: 'bg-accent-solid text-fg-on-accent hover:bg-accent-solid/90',
         secondary:
-          'border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--foreground)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]',
-        ghost: 'text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]',
+          'border border-border bg-surface-raised text-fg-primary hover:border-border-strong hover:bg-surface-hover',
+        ghost: 'text-fg-muted hover:bg-surface-hover hover:text-fg-primary',
+        destructive:
+          'border border-action-destructive/40 bg-action-destructive/5 text-action-destructive hover:border-action-destructive/60 hover:bg-action-destructive/10 focus-visible:ring-action-destructive',
       },
       size: {
         default: 'h-10 px-4 py-2',
