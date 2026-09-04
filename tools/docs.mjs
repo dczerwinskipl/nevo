@@ -222,13 +222,16 @@ export function handleCheck() {
   console.log('Indexes are current.');
 }
 
-export function handleFind({ scope, type, format }) {
+export function handleFind({ query, path, scope, type, format }) {
   const docs = scanDocs();
-  const results = findDocs(docs, { scope, type });
+  const results = findDocs(docs, { query, path, scope, type });
   if (format === 'json') {
     console.log(JSON.stringify(results, null, 2));
   } else {
-    for (const doc of results) console.log(`${doc.id}  ${doc.file}`);
+    for (const doc of results) {
+      const extra = doc.match_reason ? `  (${doc.match_reason})` : '';
+      console.log(`${doc.id}  ${doc.file}${extra}`);
+    }
   }
 }
 
@@ -254,7 +257,9 @@ export function buildProgram() {
     .action(handleCheck);
 
   program.command('find')
-    .description('Find documents by scope and/or type')
+    .description('Find documents by query, path, scope, and/or type')
+    .option('--query <query>', 'search across id, title, summary, read_when, file, and related')
+    .option('--path <path>', 'find documents governing a file or directory path via routing rules')
     .option('--scope <scope>', 'filter by scope')
     .option('--type <type>', 'filter by document type')
     .option('--format <format>', 'output format: text or json', 'text')

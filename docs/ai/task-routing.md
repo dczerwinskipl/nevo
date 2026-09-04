@@ -3,6 +3,10 @@ id: ai.task-routing
 type: ai
 title: Framework task routing
 status: current
+read_when:
+  - routing framework, tooling, or dashboard tasks to relevant documentation
+  - determining which architectural invariants to preserve and tests to run
+  - updating documentation routing rules for repository paths
 summary: >
   For a given kind of framework or tooling change, which documents to read, which invariants to
   preserve, and which tests to run. Distinct from how-to-navigate.md, which routes the
@@ -115,7 +119,7 @@ Note: These tools currently live in this repository for end-to-end integration t
   - Components maintain clear separation between visual presentation and orchestration.
   - Semantic Tailwind tokens and accessible Radix UI primitives are used for UI consistency.
   - Tailwind classes follow the documented composition contract: `cva()` for reusable variant APIs, domain-state → tone → variant → utility → token for status/severity presentation, no interpolated class construction.
-- **Tests:** `npm --prefix tools/dashboard test`, `npm --prefix tools/dashboard run build`.
+- **Tests:** `npm --prefix tools/dashboard test`, `npm --prefix tools/dashboard run build`, and `npm --prefix tools/dashboard run test:storybook` (for visual, presentation, or Storybook component changes).
 
 ---
 
@@ -145,3 +149,14 @@ combined.
 | RT-14 | tools/specs/** | docs/development/node-tooling-guidelines.md |
 | RT-15 | tools/dashboard/server/** | docs/development/node-tooling-guidelines.md |
 | RT-16 | tools/dashboard/ui/** | docs/development/react-component-guidelines.md |
+| RT-17 | tools/dashboard/ui/** | docs/development/ui-ux-guidelines.md |
+| RT-18 | tools/dashboard/ui/features/** | docs/development/nevo-ai-ux-guidelines.md |
+| RT-19 | tools/dashboard/ui/features/** | docs/development/nevo-interaction-model.md |
+| RT-20 | tools/dashboard/ui/foundations/** | docs/development/storybook.md |
+| RT-21 | tools/dashboard/ui/foundations/** | docs/development/ui-ux-guidelines.md |
+| RT-22 | tools/dashboard/ui/components/ui/** | docs/development/storybook.md |
+| RT-23 | tools/dashboard/ui/shared/** | docs/development/storybook.md |
+| RT-24 | tools/dashboard/.storybook/** | docs/development/storybook.md |
+| RT-25 | tools/dashboard/ui/**/*.stories.* | docs/development/storybook.md |
+| RT-26 | tools/dashboard/tests/** | docs/development/node-tooling-guidelines.md |
+| RT-27 | tools/docs/** | docs/development/node-tooling-guidelines.md |

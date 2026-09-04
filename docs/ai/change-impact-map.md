@@ -3,6 +3,10 @@ id: ai.change-impact-map
 type: ai
 title: Change impact map
 status: current
+read_when:
+  - mapping src/ packages to reference and maintainer documentation
+  - determining doc impact for package changes across src/
+  - checking package boundaries and known issues before code modification
 summary: >
   Maps src/<Package>/ directories to the documentation that describes them, so an
   agent can find the minimum relevant doc set for a given source change.

@@ -20,6 +20,8 @@ related:
   - development.coding-conventions
   - development.architecture-overview
   - development.node-tooling-guidelines
+  - development.ui-ux-guidelines
+  - development.storybook
 ---
 
 # React Component and Module Guidelines
@@ -396,7 +398,7 @@ When creating or reviewing React UI code, verify:
 - [ ] Are tests focused at the level of responsibility they verify?
 - [ ] **Existing-primitive check:** Does an existing design token, Radix primitive, or shared UI component wrapper already cover this element or interaction before creating custom markup?
 - [ ] **Existing-variant check:** Does an existing `cva()` variant or semantic tone already express this visual style before adding a new prop or variant branch?
-- [ ] **Classification check:** Are classes cleanly separated into one-off local layout (inline in JSX), reusable visual API (`cva()`), or domain status projection (canonical domain state → `StatusTone` → component variant)?
+- [ ] **Classification check:** Are classes cleanly separated into one-off local layout (inline in JSX), reusable visual API (`cva()`), or domain status projection (canonical domain state → semantic tone / role → component variant)?
 - [ ] **Visual-vs-orchestration check:** Does the visual component remain pure and decoupled from data-fetching, session lifecycle, or workflow mutations?
 - [ ] **Hidden-boolean-variant check:** Are multiple ad-hoc boolean styling props (e.g. `isError`, `isWarning`, `requiresAttention`) avoided in favor of a single explicit `variant` or `tone` prop?
 - [ ] **Existing-Storybook-coverage check:** Has existing Storybook coverage under `tools/dashboard/ui` been inspected for the component being touched?
@@ -406,7 +408,7 @@ When creating or reviewing React UI code, verify:
 
 # 12. Tailwind class composition
 
-This section defines the durable contract for composing Tailwind CSS classes in React components across `tools/dashboard/ui/**`.
+This section defines the portable contract for composing Tailwind CSS classes in React components.
 
 ## 12.1 Local static layout
 
@@ -428,31 +430,13 @@ Domain state must **never** directly select Tailwind classes in JSX.
 
 The required presentation pipeline flows through explicit architectural stages:
 
-$$\text{Canonical domain state} \longrightarrow \text{Semantic presentation tone} \longrightarrow \text{Component variant} \longrightarrow \text{Tailwind utility} \longrightarrow \text{Theme token}$$
+$$\text{Domain state} \longrightarrow \text{Semantic presentation tone} \longrightarrow \text{Component variant} \longrightarrow \text{Tailwind utility} \longrightarrow \text{Design token}$$
 
-### Canonical `StatusTone` type
+### Architectural pipeline rules
 
-All status and severity presentations standardize on the following canonical union type:
-
-```ts
-type StatusTone =
-  | 'neutral'
-  | 'active'
-  | 'success'
-  | 'warning'
-  | 'error'
-  | 'attention'
-  | 'info';
-```
-
-### Tone projection rules
-
-- A visual presentation component receives `tone: StatusTone` (or a component variant derived from it), never raw backend/provider status strings (e.g. `'running'`, `'failed'`, `'completed'`) or ad-hoc booleans like `isError`, `isWarning`, or `requiresAttention`.
-- Keep canonical-status-to-tone mappings feature-local by default. Generalize or promote to shared code only when multiple independent features genuinely share the exact same canonical contract. For example, the codebase intentionally maintains focused feature-local mappings:
-  - `tools/dashboard/ui/shared/ui/status-label.tsx`'s `statusTone()` for specification and session list items;
-  - `tools/dashboard/ui/features/agent-sessions/transcript/projection.ts`'s `computePresentationSeverity()` for session transcript turn work;
-  - `tools/dashboard/ui/features/agent-sessions/work-v2/`'s attention projection for Work V2 indicators;
-  - `tools/dashboard/ui/features/pull-requests/changes/status.ts`'s `stateTone()` for pull-request file changes.
+1. **Separation of domain state and presentation:** A visual presentation component receives a semantic `tone` or `variant` prop, never raw backend/provider domain status strings (such as `'running'`, `'failed'`, `'completed'`) or ad-hoc booleans like `isError`, `isWarning`, or `requiresAttention`.
+2. **Semantic vocabulary ownership:** The semantic presentation vocabulary and meanings are defined and owned by [ui-ux-guidelines.md](ui-ux-guidelines.md). Product-specific domain-to-tone mappings (such as AI session/turn statuses) belong in domain UX guides such as [nevo-ai-ux-guidelines.md](nevo-ai-ux-guidelines.md).
+3. **Feature-local projection:** Projections mapping domain state to semantic tones belong close to the feature consuming them (feature-local view-models or selectors). Generalize or promote to shared code only when multiple independent features genuinely share the exact same domain-to-tone projection contract.
 
 ## 12.4 DOM and interaction state
 
@@ -484,7 +468,9 @@ Every possible Tailwind utility class must exist in source code as a complete, s
   ```
 - **Required pattern:** Use a typed static map or `cva()` where every class appears as a complete, searchable string literal:
   ```tsx
-  const toneClasses: Record<StatusTone, string> = {
+  type PresentationTone = 'neutral' | 'active' | 'success' | 'warning' | 'error' | 'attention' | 'info';
+
+  const toneClasses: Record<PresentationTone, string> = {
     neutral: 'text-status-neutral',
     active: 'text-status-active',
     success: 'text-status-success',
@@ -514,14 +500,14 @@ Reserve custom CSS rules and `@apply` directives exclusively for selector-orient
 
 Never move ordinary component variants or layout rules into global CSS or `@apply` blocks merely to shorten JSX class lists.
 
-## 12.9 Required inspection when touching a component
+## 12.9 Component inspection checklist
 
-Whenever introducing or modifying a React component under `tools/dashboard/ui/**`, apply this 7-item inspection sequence:
+Whenever introducing or modifying a React component, apply the canonical checklist in [§11 Review checklist](#11-review-checklist) before finalizing changes:
 
-1. **Existing-primitive check:** Verify whether an existing design token, Radix primitive, or shared UI wrapper (`tools/dashboard/ui/components/ui/*`) already provides the required element or interaction before creating custom markup.
-2. **Existing-variant check:** Verify whether an existing `cva()` variant or semantic tone already expresses the needed presentation before introducing a new variant prop or branch.
-3. **Local-layout vs. recipe vs. domain-mapping classification:** Clearly classify every styling concern into one-off local layout (kept inline in JSX), reusable visual variant APIs (managed via `cva()`), or domain status derivations (projected via canonical state → `StatusTone`).
-4. **Visual-vs-orchestration check:** Ensure visual presentation components remain pure and decoupled from data orchestration, network queries, and lifecycle side effects.
-5. **Hidden-boolean-variant check:** Avoid introducing ad-hoc boolean styling props (e.g., `isError`, `isWarning`, `requiresAttention`); express visual state through explicit `variant` or `tone` properties.
-6. **Existing-Storybook-coverage check:** Review existing Storybook stories under `tools/dashboard/ui` to determine current visual coverage and prevent regressions.
-7. **Additional-story / behavior-test-need check:** Determine whether new stories or behavior tests are required to document and verify new variants, interaction states, or accessibility behavior.
+- **Existing-primitive check** (§4.2, §11)
+- **Existing-variant check** (§12.2, §11)
+- **Local-layout vs. recipe vs. domain-mapping classification** (§12.1–§12.3, §11)
+- **Visual-vs-orchestration check** (§5.1–§5.3, §11)
+- **Hidden-boolean-variant check** (§1.2, §12.3, §11)
+- **Existing-Storybook-coverage check** (§10, [storybook.md](storybook.md), §11)
+- **Additional-story / behavior-test-need check** (§10, [storybook.md](storybook.md), §11)

@@ -9,6 +9,8 @@ context:
     - specs/active/semantic-color-tokens-with-tailwind-css-4/areas/cleanup-and-enforcement.md
     - tools/dashboard/tests/composer-interaction.test.mjs
     - tools/dashboard/package.json
+  optional:
+    - docs/development/node-tooling-guidelines.md
 allowed_paths:
   - tools/dashboard/tests/**
   - tools/dashboard/scripts/**
