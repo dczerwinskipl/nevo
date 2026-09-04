@@ -16,8 +16,21 @@ import type { SpecificationTask } from '@/features/specifications/types';
 import { cn, formatDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { StatusCard } from '@/components/ui/status-card';
-import { StatusLabel, formatSessionStatus, statusTone } from '@/shared/ui/status-label';
+import { StatusLabel, formatSessionStatus } from '@/shared/ui/status-label';
+import { statusTextTone, type StatusTone } from '@/shared/status-tone';
 import { useAgentProviders, useDeleteAgentSession } from './queries';
+
+function sessionStatusTone(status?: 'idle' | 'running' | 'waitingForUser' | string | null): StatusTone {
+  switch (status) {
+    case 'running':
+      return 'active';
+    case 'waitingForUser':
+      return 'warning';
+    case 'idle':
+    default:
+      return 'neutral';
+  }
+}
 
 function sessionTitle(session: AgentSession) {
   if (session.title?.trim()) return session.title.trim();
@@ -132,10 +145,11 @@ export function AgentSessionRow({
               session.status === 'running' && 'bg-[var(--accent-muted)]',
               session.status === 'waitingForUser' && 'bg-[var(--warning-muted)]',
               session.status !== 'running' && session.status !== 'waitingForUser' && 'bg-white/6',
-              statusTone(session.status),
+              statusTextTone({ tone: sessionStatusTone(session.status) }),
             )}
           >
-            <StatusLabel kind="session" status={session.status} />
+            {/* <StatusLabel kind="session" status={session.status} /> */}
+            <StatusLabel kind="session" status={session.status} tone={sessionStatusTone(session.status)} />
           </span>
         </button>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--muted)]">

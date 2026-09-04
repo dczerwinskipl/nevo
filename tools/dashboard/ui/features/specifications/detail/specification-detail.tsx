@@ -9,10 +9,33 @@ import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { FinalizeDialog, RepositoryActionsCard } from '../actions/spec-actions';
 import { TaskDialog } from '../tasks/task-dialog';
-import { OperationModal } from '@/features/operations/operation-modal';
 import { StageProgress } from '../stage-progress';
-import { statusTone } from '@/shared/ui/status-label';
+import { OperationModal } from '@/features/operations/operation-modal';
+import { StatusLabel } from '@/shared/ui/status-label';
+import { statusTextTone, type StatusTone } from '@/shared/status-tone';
 import { useAgentSessions } from '@/features/agent-sessions/queries';
+
+function specStatusTone(status?: string | null): StatusTone {
+  switch (status) {
+    case 'approved':
+    case 'verified':
+    case 'archived':
+    case 'completed':
+      return 'success';
+    case 'implemented':
+    case 'review':
+    case 'warning':
+      return 'warning';
+    case 'in-implementation':
+    case 'running':
+      return 'active';
+    case 'failed':
+    case 'error':
+      return 'error';
+    default:
+      return 'neutral';
+  }
+}
 import { Link } from '@tanstack/react-router';
 
 import { useSpecificationActions, useSpecificationManifest } from './spec-detail-queries';
@@ -140,11 +163,11 @@ export function SpecificationDetail({
                 specification.status === 'implemented' && 'border-[var(--warning-border)] bg-[var(--warning-muted)]',
                 specification.status === 'in-implementation' &&
                   'border-[var(--accent-border)] bg-[var(--accent-muted)]',
-                statusTone(specification.status),
+                statusTextTone({ tone: specStatusTone(specification.status) }),
               )}
             >
               <span className="mr-1.5 size-1.5 rounded-full bg-current" />
-              {formatStatus(specification.status)}
+              <StatusLabel kind="stage" status={specification.status} tone={specStatusTone(specification.status)} />
             </Badge>
             {specification.priority !== null && <Badge>Priorytet {specification.priority}</Badge>}
             <Badge>{specification.source === 'active' ? 'Aktualna' : 'Archiwalna'}</Badge>

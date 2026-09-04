@@ -1,4 +1,5 @@
 import { cn, formatStatus } from '@/lib/utils';
+import { statusTextTone, type StatusTone } from '@/shared/status-tone';
 
 // A generic shared status-label component (used for spec stages, tasks, and
 // Agent Session status alike) — the session status literals are inlined here
@@ -16,6 +17,10 @@ export function formatSessionStatus(status?: 'idle' | 'running' | 'waitingForUse
   }
 }
 
+/**
+ * @deprecated Legacy domain-status to class mapping preserved for backward compatibility.
+ * Use typed StatusTone and statusTextTone instead.
+ */
 export function statusTone(status?: string | null): string {
   switch (status) {
     case 'approved':
@@ -41,12 +46,13 @@ export function statusTone(status?: string | null): string {
 
 export interface StatusLabelProps {
   status?: string;
+  tone?: StatusTone;
   kind?: 'stage' | 'session' | 'task' | 'raw';
   children?: React.ReactNode;
   className?: string;
 }
 
-export function StatusLabel({ status, kind = 'raw', children, className }: StatusLabelProps) {
+export function StatusLabel({ status, tone, kind = 'raw', children, className }: StatusLabelProps) {
   let content: React.ReactNode = children;
   if (!content && status !== undefined) {
     if (kind === 'session') {
@@ -58,7 +64,17 @@ export function StatusLabel({ status, kind = 'raw', children, className }: Statu
     }
   }
 
-  return <span className={cn('text-[10px] font-bold tracking-[0.1em] uppercase', className)}>{content}</span>;
+  return (
+    <span
+      className={cn(
+        'text-[10px] font-bold tracking-[0.1em] uppercase',
+        tone !== undefined && statusTextTone({ tone }),
+        className,
+      )}
+    >
+      {content}
+    </span>
+  );
 }
 
 export { formatStatus };

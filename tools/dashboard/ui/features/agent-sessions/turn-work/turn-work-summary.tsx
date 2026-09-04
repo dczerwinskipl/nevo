@@ -4,6 +4,7 @@ import { ToolCallView } from './tool-call-view';
 import { visibleWorkItemsWhenTerminal, visibleWorkItemsWhileRunning } from './turn-work-visibility';
 import { activityLabelFor } from './tool-activity-labels';
 import { isGenuineTurnError, type PresentationSeverity, type TurnWork, type WorkItem } from '../transcript/projection';
+import { statusTextTone, type StatusTone } from '@/shared/status-tone';
 import type { AgentToolCall } from '../types';
 import { cn } from '@/lib/utils';
 
@@ -32,8 +33,8 @@ const WorkCurrentActivity = memo(function WorkCurrentActivity({ item }: { item: 
   if (!item) return null;
   const { label } = activityLabelFor(item.toolName, item.input);
   return (
-    <div className="flex items-center gap-2 pl-1 text-xs text-[var(--muted)]" role="status">
-      <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" />
+    <div className="flex items-center gap-2 pl-1 text-xs text-fg-muted" role="status">
+      <LoaderCircle className="size-3.5 shrink-0 animate-spin text-accent" />
       <span className="truncate">{label}</span>
     </div>
   );
@@ -57,6 +58,8 @@ const WorkCollapsedSummary = memo(function WorkCollapsedSummary({
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const tone: StatusTone = severity === 'error' ? 'error' : severity === 'warning' ? 'warning' : 'neutral';
+
   return (
     <button
       type="button"
@@ -64,17 +67,15 @@ const WorkCollapsedSummary = memo(function WorkCollapsedSummary({
       aria-expanded={expanded}
       className={cn(
         'flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-xs font-medium transition-colors hover:bg-white/4',
-        severity === 'error' && 'text-[var(--danger-strong)]',
-        severity === 'warning' && 'text-[var(--warning-strong)]',
-        severity === 'normal' && 'text-[var(--muted)]',
+        statusTextTone({ tone }),
       )}
     >
       {severity === 'error' ? (
-        <AlertTriangle className="size-3.5 shrink-0 text-[var(--danger)]" />
+        <AlertTriangle className="size-3.5 shrink-0 text-status-error" />
       ) : severity === 'warning' ? (
-        <AlertTriangle className="size-3.5 shrink-0 text-[var(--warning)]" />
+        <AlertTriangle className="size-3.5 shrink-0 text-status-warning" />
       ) : (
-        <CheckCircle2 className="size-3.5 shrink-0 text-[var(--success)]" />
+        <CheckCircle2 className="size-3.5 shrink-0 text-status-success" />
       )}
       <span className="min-w-0 flex-1 truncate">
         Work · {count} {count === 1 ? 'action' : 'actions'}
@@ -95,20 +96,12 @@ const WorkCollapsedSummary = memo(function WorkCollapsedSummary({
 const TurnErrorRow = memo(function TurnErrorRow({ turnError }: { turnError: { code: string; message: string } }) {
   if (!isGenuineTurnError(turnError)) return null;
   return (
-    <div className="flex items-start gap-2 rounded-md px-1 py-1.5 text-xs text-[var(--danger-strong)]" role="alert">
-      <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--danger)]" />
+    <div className="flex items-start gap-2 rounded-md px-1 py-1.5 text-xs text-status-error" role="alert">
+      <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-status-error" />
       <div className="min-w-0 flex-1">
         <span className="font-medium">Turn failed</span>
-        {turnError.message && (
-          <span className="ml-1 text-[color-mix(in_srgb,var(--danger-strong)_80%,transparent)]">
-            {turnError.message}
-          </span>
-        )}
-        {turnError.code && (
-          <span className="ml-1 font-mono text-[10px] text-[color-mix(in_srgb,var(--danger-strong)_50%,transparent)]">
-            ({turnError.code})
-          </span>
-        )}
+        {turnError.message && <span className="ml-1 text-status-error/80">{turnError.message}</span>}
+        {turnError.code && <span className="ml-1 font-mono text-[10px] text-status-error/50">({turnError.code})</span>}
       </div>
     </div>
   );
