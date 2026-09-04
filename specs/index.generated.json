@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T22:34:53.544Z",
+  "generated": "2026-09-04T22:36:12.218Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -942,11 +942,14 @@
           "id": "agent-sessions-and-work",
           "order": 6,
           "file": "tasks/06-agent-sessions-and-work.md",
-          "status": "draft",
+          "status": "in-implementation",
           "depends_on": [
             "shared-ui-primitives",
             "status-tone-contract"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "b2bfd58b382fcac11891c68426665ac65a224df3"
+          }
         },
         {
           "id": "specs-lanes-and-remaining-ui",

@@ -15,7 +15,7 @@ task_fingerprints:
   theme-contract: c470e30c0eaa6512eeccd5411a85ef3f84b6a6a31c89a047667d5fc512ee3dc1
   shared-ui-primitives: 610c6ca597151259a06395ad6e1beb538656c2d6952188978ae2b3bcd16efd38
   status-tone-contract: 31598d8dcccee4bd930c8696238cd675604bf51d6eafc9ef21d38b02c69411d6
-  agent-sessions-and-work: ccd647d1b0b9d2923e4cfdba302ade2ad44dc8e7fcd52914ed6f35cc30917308
+  agent-sessions-and-work: 4a6e27600955630f026907949c8bfd30ae3e9333d8397ace3f019b4929f4de18
   specs-lanes-and-remaining-ui: d247d56cdb83f480e39fd439a6684d6212f534da84a930a797e2d621809cf7bc
   storybook-and-documentation: b0afd6c6aaec253df896be5c98622582f7d4f04078fe7ac3b1017007abc32018
   cleanup-and-token-removal: fc6f2b111befad5532ca0e6a5d2be85bc3604e2190e978325c53b5b5a0bca887
