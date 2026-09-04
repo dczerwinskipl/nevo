@@ -6,7 +6,12 @@ import { invalidateSpecificationQueries } from '../queries';
 import { invalidatePullRequestQueries } from '@/features/pull-requests/queries';
 import { waitForOperationTerminal } from '@/features/operations/wait-for-operation-terminal';
 import type { useSpecificationActions } from '../detail/spec-detail-queries';
-import { describeBatchStopReason, runBatchTaskAction, runDirectTaskAction, runFinalizeAction } from './spec-workflow-actions';
+import {
+  describeBatchStopReason,
+  runBatchTaskAction,
+  runDirectTaskAction,
+  runFinalizeAction,
+} from './spec-workflow-actions';
 
 type ActionsQuery = ReturnType<typeof useSpecificationActions>;
 
@@ -38,29 +43,32 @@ function readSessionStorage(key: string): string | null {
 export function useSpecWorkflowActions(specification: SpecificationSummary, actionsQuery: ActionsQuery) {
   const queryClient = useQueryClient();
 
-  const [activeOperationId, setActiveOperationId] = useState<string | null>(() => (
-    readSessionStorage(activeOperationStorageKey(specification.slug))
-  ));
-  const [operationTitle, setOperationTitle] = useState<string>(() => (
-    readSessionStorage(activeOperationTitleStorageKey(specification.slug)) || 'Przebieg operacji'
-  ));
+  const [activeOperationId, setActiveOperationId] = useState<string | null>(() =>
+    readSessionStorage(activeOperationStorageKey(specification.slug)),
+  );
+  const [operationTitle, setOperationTitle] = useState<string>(
+    () => readSessionStorage(activeOperationTitleStorageKey(specification.slug)) || 'Przebieg operacji',
+  );
   const [finalizeOpen, setFinalizeOpen] = useState(false);
 
-  const updateActiveOperation = useCallback((opId: string | null, title?: string) => {
-    setActiveOperationId(opId);
-    if (title) setOperationTitle(title);
-    try {
-      if (typeof sessionStorage !== 'undefined') {
-        if (opId) {
-          sessionStorage.setItem(activeOperationStorageKey(specification.slug), opId);
-          if (title) sessionStorage.setItem(activeOperationTitleStorageKey(specification.slug), title);
-        } else {
-          sessionStorage.removeItem(activeOperationStorageKey(specification.slug));
-          sessionStorage.removeItem(activeOperationTitleStorageKey(specification.slug));
+  const updateActiveOperation = useCallback(
+    (opId: string | null, title?: string) => {
+      setActiveOperationId(opId);
+      if (title) setOperationTitle(title);
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          if (opId) {
+            sessionStorage.setItem(activeOperationStorageKey(specification.slug), opId);
+            if (title) sessionStorage.setItem(activeOperationTitleStorageKey(specification.slug), title);
+          } else {
+            sessionStorage.removeItem(activeOperationStorageKey(specification.slug));
+            sessionStorage.removeItem(activeOperationTitleStorageKey(specification.slug));
+          }
         }
-      }
-    } catch {}
-  }, [specification.slug]);
+      } catch {}
+    },
+    [specification.slug],
+  );
 
   // Restore this specification's own persisted operation (if any) whenever the page switches
   // to a different spec — never carry a previous spec's active operation across.
@@ -71,44 +79,46 @@ export function useSpecWorkflowActions(specification: SpecificationSummary, acti
   }, [specification.slug]);
 
   const handleOperationTerminal = useCallback(async () => {
-    await Promise.all([
-      invalidateSpecificationQueries(queryClient),
-      invalidatePullRequestQueries(queryClient),
-    ]);
+    await Promise.all([invalidateSpecificationQueries(queryClient), invalidatePullRequestQueries(queryClient)]);
   }, [queryClient]);
 
-  const executeDirectTaskAction = useCallback((task: SpecificationTask, actionName: SpecificationOwnerAction) => (
-    runDirectTaskAction(
-      { execute: actionsQuery.execute, onOperationStarted: updateActiveOperation },
-      task,
-      actionName,
-    )
-  ), [actionsQuery, updateActiveOperation]);
+  const executeDirectTaskAction = useCallback(
+    (task: SpecificationTask, actionName: SpecificationOwnerAction) =>
+      runDirectTaskAction(
+        { execute: actionsQuery.execute, onOperationStarted: updateActiveOperation },
+        task,
+        actionName,
+      ),
+    [actionsQuery, updateActiveOperation],
+  );
 
-  const executeBatchTaskAction = useCallback((tasks: SpecificationTask[], actionName: SpecificationOwnerAction) => (
-    runBatchTaskAction(
-      {
-        execute: actionsQuery.execute,
-        onOperationStarted: updateActiveOperation,
-        waitForTerminal: waitForOperationTerminal,
-        // Surfaced through the same OperationModal already showing this task's own
-        // operation — reusing the existing progress UI (kept open, on that exact
-        // operation) rather than adding a new one.
-        onBatchStopped: ({ operationId, title, outcome }) => {
-          updateActiveOperation(operationId, `${title} — ${describeBatchStopReason(outcome)}`);
+  const executeBatchTaskAction = useCallback(
+    (tasks: SpecificationTask[], actionName: SpecificationOwnerAction) =>
+      runBatchTaskAction(
+        {
+          execute: actionsQuery.execute,
+          onOperationStarted: updateActiveOperation,
+          waitForTerminal: waitForOperationTerminal,
+          // Surfaced through the same OperationModal already showing this task's own
+          // operation — reusing the existing progress UI (kept open, on that exact
+          // operation) rather than adding a new one.
+          onBatchStopped: ({ operationId, title, outcome }) => {
+            updateActiveOperation(operationId, `${title} — ${describeBatchStopReason(outcome)}`);
+          },
         },
-      },
-      tasks,
-      actionName,
-    )
-  ), [actionsQuery, updateActiveOperation]);
+        tasks,
+        actionName,
+      ),
+    [actionsQuery, updateActiveOperation],
+  );
 
-  const executeFinalize = useCallback(() => (
-    runFinalizeAction(
-      { execute: actionsQuery.execute, onOperationStarted: updateActiveOperation },
-      () => setFinalizeOpen(false),
-    )
-  ), [actionsQuery, updateActiveOperation]);
+  const executeFinalize = useCallback(
+    () =>
+      runFinalizeAction({ execute: actionsQuery.execute, onOperationStarted: updateActiveOperation }, () =>
+        setFinalizeOpen(false),
+      ),
+    [actionsQuery, updateActiveOperation],
+  );
 
   const openFinalize = useCallback(() => {
     actionsQuery.resetExecution();

@@ -1,11 +1,4 @@
-import {
-  Archive,
-  FileText,
-  LayoutDashboard,
-  Plus,
-  Search,
-  X,
-} from 'lucide-react';
+import { Archive, FileText, LayoutDashboard, Plus, Search, X } from 'lucide-react';
 
 import type { SpecificationSummary, SpecificationSource } from '../types';
 import { cn, formatDate, formatStatus, pluralizeTasks } from '@/lib/utils';
@@ -64,11 +57,11 @@ function SpecNavigationItem({
           <FileText className="size-3.5" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="line-clamp-2 text-sm font-semibold leading-5 text-[var(--foreground)]">
-            {specification.title}
-          </p>
+          <p className="line-clamp-2 text-sm leading-5 font-semibold text-[var(--foreground)]">{specification.title}</p>
           <div className="mt-1.5 flex items-center gap-2 text-[11px] text-[var(--muted)]">
-            <span>{specification.metrics.total} {pluralizeTasks(specification.metrics.total)}</span>
+            <span>
+              {specification.metrics.total} {pluralizeTasks(specification.metrics.total)}
+            </span>
             {specification.source === 'active' && (
               <>
                 <span aria-hidden="true">·</span>
@@ -78,7 +71,7 @@ function SpecNavigationItem({
           </div>
           <div className="mt-3 flex items-center gap-2">
             <StageProgress specification={specification} className="flex-1" />
-            <span className="text-[10px] font-bold tabular-nums text-[var(--muted)]">
+            <span className="text-[10px] font-bold text-[var(--muted)] tabular-nums">
               {specification.metrics.progress}%
             </span>
           </div>
@@ -136,7 +129,7 @@ export function SpecificationSidebar({
               </div>
               <div>
                 <p className="text-xs font-semibold text-[var(--foreground)]">NEvo Flow</p>
-                <p className="text-[9px] uppercase tracking-[0.14em] text-[var(--muted)]">Specification console</p>
+                <p className="text-[9px] tracking-[0.14em] text-[var(--muted)] uppercase">Specification console</p>
               </div>
             </Link>
             <Button
@@ -186,9 +179,7 @@ export function SpecificationSidebar({
               >
                 <LayoutDashboard className="size-3.5 text-[var(--accent)]" />
                 <span>W toku</span>
-                <Badge className="border-transparent bg-black/20 px-1.5 py-0 text-[10px]">
-                  {active.length}
-                </Badge>
+                <Badge className="border-transparent bg-black/20 px-1.5 py-0 text-[10px]">{active.length}</Badge>
               </Link>
               <Link
                 to="/archive"
@@ -202,20 +193,18 @@ export function SpecificationSidebar({
               >
                 <Archive className="size-3.5 text-[var(--accent)]" />
                 <span>Archiwum</span>
-                <Badge className="border-transparent bg-black/20 px-1.5 py-0 text-[10px]">
-                  {archive.length}
-                </Badge>
+                <Badge className="border-transparent bg-black/20 px-1.5 py-0 text-[10px]">{archive.length}</Badge>
               </Link>
             </div>
 
             <label className="relative mt-3 block">
               <span className="sr-only">Szukaj specyfikacji</span>
-              <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[var(--accent)]" />
+              <Search className="absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-[var(--accent)]" />
               <input
                 value={search}
-                onChange={event => onSearchChange(event.target.value)}
+                onChange={(event) => onSearchChange(event.target.value)}
                 placeholder={mode === 'active' ? 'Szukaj aktualnych…' : 'Szukaj w archiwum…'}
-                className="h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] pl-9 pr-3 text-xs text-[var(--foreground)] outline-none placeholder:text-[var(--muted)] focus:border-[color-mix(in_srgb,var(--accent)_45%,transparent)]"
+                className="h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] pr-3 pl-9 text-xs text-[var(--foreground)] outline-none placeholder:text-[var(--muted)] focus:border-[color-mix(in_srgb,var(--accent)_45%,transparent)]"
               />
             </label>
           </div>
@@ -223,13 +212,13 @@ export function SpecificationSidebar({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
           <div className="mb-2 flex items-center justify-between px-2">
-            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--muted)]">
+            <span className="text-[10px] font-bold tracking-[0.16em] text-[var(--muted)] uppercase">
               {mode === 'active' ? 'W toku' : 'Zakończone'}
             </span>
             <span className="text-[10px] text-[var(--muted)]">{visible.length}</span>
           </div>
           <div className="divide-y divide-[var(--border)]">
-            {visible.map(spec => (
+            {visible.map((spec) => (
               <div key={`${spec.source}:${spec.slug}`} className="py-1.5 first:pt-0 last:pb-0">
                 <SpecNavigationItem
                   specification={spec}

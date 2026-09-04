@@ -38,7 +38,7 @@ export function TurnWorkPanelV2({ turn, onRespondInteraction }: TurnWorkPanelV2P
   const isTerminal = turn.status.status === 'terminal';
 
   return (
-    <div className="my-1.5 w-full min-w-0 max-w-full space-y-1.5">
+    <div className="my-1.5 w-full max-w-full min-w-0 space-y-1.5">
       {/*
         Level 1 — the Work header indicator is the single, full-width expand/collapse toggle.
         Level 3 (Work Details) is accessed by selecting any row in Level 2 or via the bottom-right Details action.
@@ -50,24 +50,18 @@ export function TurnWorkPanelV2({ turn, onRespondInteraction }: TurnWorkPanelV2P
           {/* Column 1: Timeline occupying almost all free space */}
           <div className="relative min-w-0 flex-1">
             <div
-              className="absolute bottom-2 left-[18px] top-2 w-px -translate-x-1/2 bg-[var(--border)]"
+              className="absolute top-2 bottom-2 left-[18px] w-px -translate-x-1/2 bg-[var(--border)]"
               aria-hidden="true"
             />
             <div className="relative flex flex-col gap-0.5">
-              <WorkTimelineV2
-                historicalWork={turn.historicalWork}
-                onSelectItem={openDetailsForItem}
-                embedded
-              />
-              {!isTerminal && (
-                <WorkCurrentActivityLineV2 turn={turn} embedded />
-              )}
+              <WorkTimelineV2 historicalWork={turn.historicalWork} onSelectItem={openDetailsForItem} embedded />
+              {!isTerminal && <WorkCurrentActivityLineV2 turn={turn} embedded />}
             </div>
           </div>
 
           {/* Column 2: Details button on the right, width as needed, aligned to bottom */}
           {turn.activityCount > 0 && (
-            <div className="shrink-0 self-end pb-0.5 pr-0.5">
+            <div className="shrink-0 self-end pr-0.5 pb-0.5">
               <button
                 type="button"
                 onClick={openDetailsOverview}
@@ -92,12 +86,7 @@ export function TurnWorkPanelV2({ turn, onRespondInteraction }: TurnWorkPanelV2P
 
       <FinalAnswerViewV2 finalAnswer={turn.finalAnswer} />
 
-      <WorkDetailsSheetV2
-        turn={turn}
-        open={detailsOpen}
-        onOpenChange={setDetailsOpen}
-        initialItemId={selectedItemId}
-      />
+      <WorkDetailsSheetV2 turn={turn} open={detailsOpen} onOpenChange={setDetailsOpen} initialItemId={selectedItemId} />
     </div>
   );
 }

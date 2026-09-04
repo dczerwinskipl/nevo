@@ -75,17 +75,21 @@ export function computeWorkSummary(turn) {
   const activityCount = workItems.length;
   const currentActivity = computeCurrentActivity(turn);
 
-  const openTools = workItems.filter(w => w.type === 'tool' && (w.status === 'active' || w.status === 'queued'));
+  const openTools = workItems.filter((w) => w.type === 'tool' && (w.status === 'active' || w.status === 'queued'));
   const activeToolCount = openTools.length;
 
   let attention = null;
-  const pendingInteraction = workItems.find(w => w.type === 'interaction' && w.status === 'pending');
+  const pendingInteraction = workItems.find((w) => w.type === 'interaction' && w.status === 'pending');
   if (pendingInteraction) {
     attention = {
       required: true,
       kind: pendingInteraction.interaction?.kind || 'permission',
       interactionId: pendingInteraction.id,
-      title: pendingInteraction.interaction?.title || (pendingInteraction.interaction?.kind === 'question' ? 'Question needs answer' : 'Permission approval required'),
+      title:
+        pendingInteraction.interaction?.title ||
+        (pendingInteraction.interaction?.kind === 'question'
+          ? 'Question needs answer'
+          : 'Permission approval required'),
     };
   }
 
@@ -93,7 +97,11 @@ export function computeWorkSummary(turn) {
   if (turn.status) {
     if (turn.status.status === 'requiresAttention') {
       status = 'waitingForUser';
-    } else if (turn.status.status === 'active' || turn.status.status === 'waiting' || turn.status.status === 'cancelling') {
+    } else if (
+      turn.status.status === 'active' ||
+      turn.status.status === 'waiting' ||
+      turn.status.status === 'cancelling'
+    ) {
       status = 'running';
     } else if (turn.status.status === 'terminal') {
       status = turn.status.outcome === 'completed' ? 'completed' : 'failed';
@@ -127,12 +135,12 @@ export class AgentSessionService {
     const descriptor = entry.descriptor;
     const taskIds = Array.isArray(options.taskIds)
       ? options.taskIds.filter(Boolean)
-      : (options.taskId ? [options.taskId] : []);
+      : options.taskId
+        ? [options.taskId]
+        : [];
     const primaryTaskId = options.taskId || (taskIds.length > 0 ? taskIds[0] : undefined);
     const purpose = options.purpose || options.title || (primaryTaskId ? `task:${primaryTaskId}` : 'interactive');
-    const mode = options.mode
-      ? validateAgentExecutionMode(options.mode, 'mode')
-      : (descriptor.defaultMode || 'edit');
+    const mode = options.mode ? validateAgentExecutionMode(options.mode, 'mode') : descriptor.defaultMode || 'edit';
 
     let providerSessionId;
     let established = true;
@@ -204,13 +212,20 @@ export class AgentSessionService {
 
   async attachSession(provider, { providerSessionId, specId, taskId, taskIds, purpose, mode } = {}) {
     validateAgentIdentity({ provider, providerSessionId });
-    const resolvedTaskIds = Array.isArray(taskIds) ? taskIds.filter(Boolean) : (taskId ? [taskId] : []);
+    const resolvedTaskIds = Array.isArray(taskIds) ? taskIds.filter(Boolean) : taskId ? [taskId] : [];
 
     let binding;
     if (this.bindingService) {
       if (resolvedTaskIds.length > 0) {
         for (const tId of resolvedTaskIds) {
-          binding = await this.bindingService.bindSession({ provider, providerSessionId, specId, taskId: tId, purpose, mode });
+          binding = await this.bindingService.bindSession({
+            provider,
+            providerSessionId,
+            specId,
+            taskId: tId,
+            purpose,
+            mode,
+          });
         }
       } else {
         binding = await this.bindingService.bindSession({ provider, providerSessionId, specId, taskId, purpose, mode });
@@ -219,7 +234,7 @@ export class AgentSessionService {
       binding = { provider, providerSessionId, specId, taskId, mode };
     }
 
-    return { ...binding, taskIds: resolvedTaskIds, taskId: taskId || (resolvedTaskIds[0] || undefined) };
+    return { ...binding, taskIds: resolvedTaskIds, taskId: taskId || resolvedTaskIds[0] || undefined };
   }
 
   async listSessions(filters = {}) {
@@ -242,23 +257,23 @@ export class AgentSessionService {
 
     const logicalSessions = [];
     for (const rows of groups.values()) {
-      if (filters.taskId && !rows.some(r => r.taskId === filters.taskId)) {
+      if (filters.taskId && !rows.some((r) => r.taskId === filters.taskId)) {
         continue;
       }
       const sortedRows = rows.slice().sort(compareBindingRecency);
       const representative = sortedRows[0];
-      const taskIds = Array.from(new Set(rows.map(r => r.taskId).filter(Boolean)));
+      const taskIds = Array.from(new Set(rows.map((r) => r.taskId).filter(Boolean)));
 
       logicalSessions.push({
         ...representative,
         sessionId: representative.providerSessionId,
-        taskId: representative.taskId || (taskIds[0] || undefined),
+        taskId: representative.taskId || taskIds[0] || undefined,
         taskIds,
       });
     }
 
     if (!this.transcriptCache) {
-      return logicalSessions.map(session => ({
+      return logicalSessions.map((session) => ({
         ...session,
         status: 'idle',
         activeTurn: null,
@@ -266,10 +281,33 @@ export class AgentSessionService {
       }));
     }
 
-    return Promise.all(logicalSessions.map(async (session) => {
-      try {
-        const transcript = await this.transcriptCache.getTranscript(session.provider, session.providerSessionId);
-        if (transcript?.health === 'corrupt') {
+    return Promise.all(
+      logicalSessions.map(async (session) => {
+        try {
+          const transcript = await this.transcriptCache.getTranscript(session.provider, session.providerSessionId);
+          if (transcript?.health === 'corrupt') {
+            return {
+              ...session,
+              status: 'unavailable',
+              activeTurn: null,
+              pendingInteraction: null,
+            };
+          }
+          const { status, activeTurn, pendingInteraction } = this.resolveSessionActivity(transcript);
+          const hasRecordedActivity = Boolean(
+            transcript?.turns?.length ||
+            transcript?.messages?.length ||
+            transcript?.lastEventSeq ||
+            transcript?.activeTurn,
+          );
+          return {
+            ...session,
+            lastActivityAt: (hasRecordedActivity && transcript?.updatedAt) || session.lastSeenAt,
+            status,
+            activeTurn,
+            pendingInteraction,
+          };
+        } catch {
           return {
             ...session,
             status: 'unavailable',
@@ -277,24 +315,8 @@ export class AgentSessionService {
             pendingInteraction: null,
           };
         }
-        const { status, activeTurn, pendingInteraction } = this.resolveSessionActivity(transcript);
-        const hasRecordedActivity = Boolean(transcript?.turns?.length || transcript?.messages?.length || transcript?.lastEventSeq || transcript?.activeTurn);
-        return {
-          ...session,
-          lastActivityAt: (hasRecordedActivity && transcript?.updatedAt) || session.lastSeenAt,
-          status,
-          activeTurn,
-          pendingInteraction,
-        };
-      } catch {
-        return {
-          ...session,
-          status: 'unavailable',
-          activeTurn: null,
-          pendingInteraction: null,
-        };
-      }
-    }));
+      }),
+    );
   }
 
   resolveSessionActivity(transcript) {
@@ -321,9 +343,7 @@ export class AgentSessionService {
       }
     }
 
-    const status = activeTurn
-      ? (activeTurn.status === 'waitingForUser' ? 'waitingForUser' : 'running')
-      : 'idle';
+    const status = activeTurn ? (activeTurn.status === 'waitingForUser' ? 'waitingForUser' : 'running') : 'idle';
 
     return { status, activeTurn, pendingInteraction };
   }
@@ -339,7 +359,7 @@ export class AgentSessionService {
       }
       if (typeof this.bindingService.listBindings === 'function') {
         const list = await this.bindingService.listBindings({ provider, providerSessionId });
-        return list?.find(b => b.provider === provider && b.providerSessionId === providerSessionId) || null;
+        return list?.find((b) => b.provider === provider && b.providerSessionId === providerSessionId) || null;
       }
     }
     return null;
@@ -357,9 +377,7 @@ export class AgentSessionService {
   async getSessionDetails(provider, providerSessionId, options = {}) {
     validateAgentIdentity({ provider, providerSessionId });
 
-    const descriptor = this.registry?.has(provider)
-      ? this.registry.get(provider).descriptor
-      : undefined;
+    const descriptor = this.registry?.has(provider) ? this.registry.get(provider).descriptor : undefined;
     const capabilities = descriptor?.capabilities || {};
 
     const binding = await this.getSession(provider, providerSessionId);
@@ -387,8 +405,8 @@ export class AgentSessionService {
 
     const turns = Array.isArray(transcript?.turns) ? transcript.turns : [];
     const activeCanonical = activeTurn?.turnId ? this.getCanonicalTurn(activeTurn.turnId) : null;
-    const combinedTurns = turns.map(t => (t.id === activeTurn?.turnId && activeCanonical ? activeCanonical : t));
-    if (activeTurn?.turnId && activeCanonical && !combinedTurns.some(t => t.id === activeTurn.turnId)) {
+    const combinedTurns = turns.map((t) => (t.id === activeTurn?.turnId && activeCanonical ? activeCanonical : t));
+    if (activeTurn?.turnId && activeCanonical && !combinedTurns.some((t) => t.id === activeTurn.turnId)) {
       combinedTurns.push(activeCanonical);
     }
 
@@ -500,7 +518,7 @@ export class AgentSessionService {
 
     // Existing-session binding, fetched once and reused for mode resolution and
     // provider-session establishment below.
-    const sessionBinding = (sessId && this.bindingService) ? await this.getSession(prov, sessId) : null;
+    const sessionBinding = sessId && this.bindingService ? await this.getSession(prov, sessId) : null;
 
     // Mode resolution
     let effectiveMode = opts.mode;
@@ -582,11 +600,10 @@ export class AgentSessionService {
       { provider: prov, providerSessionId: sessId },
       {
         ...subscriptionOptions,
-        onEvent: event => onEvent(
-          event.type === 'turn.updated' && event.turn
-            ? { ...event, turn: serializePublicTurn(event.turn) }
-            : event,
-        ),
+        onEvent: (event) =>
+          onEvent(
+            event.type === 'turn.updated' && event.turn ? { ...event, turn: serializePublicTurn(event.turn) } : event,
+          ),
       },
     );
   }

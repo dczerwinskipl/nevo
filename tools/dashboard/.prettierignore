@@ -1,0 +1,9 @@
+node_modules
+dist
+.storybook/dist
+coverage
+ui/routeTree.gen.ts
+package-lock.json
+*.tsbuildinfo
+.nevo-ai-local
+tests/fixtures/claude/*.json

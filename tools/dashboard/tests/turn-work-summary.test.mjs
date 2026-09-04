@@ -12,7 +12,6 @@ import {
 import { activityLabelFor } from '../ui/features/agent-sessions/turn-work/tool-activity-labels.ts';
 import { projectTranscript } from '../ui/features/agent-sessions/transcript/projection.ts';
 
-
 function item(id, status, overrides = {}) {
   return { toolId: id, toolName: `tool-${id}`, input: {}, status, ...overrides };
 }
@@ -65,7 +64,7 @@ test('visibleWorkItemsWhenTerminal never exposes historical actions — failed o
 
   const expanded = visibleWorkItemsWhenTerminal(work, true);
   assert.equal(expanded.length, 3);
-  assert.equal(expanded.find(i => i.toolId === 't2').status, 'failed');
+  assert.equal(expanded.find((i) => i.toolId === 't2').status, 'failed');
 });
 
 test('visibleWorkItemsWhileRunning never duplicates the current running item, only prior ones once expanded', () => {
@@ -106,8 +105,22 @@ test('a new tool call becomes the sole currentActivity, replacing the previous o
 // owner-decisions.md, AC6: Work from unrelated turns is not merged.
 test('two sequential turns each with tool calls produce two separate Work groups', () => {
   const messages = [
-    { id: 'm1', role: 'assistant', text: '', turnId: 'turn-1', createdAt: '2026-08-22T10:00:00Z', toolCalls: [{ id: 't1', name: 'Read', input: {}, status: 'completed' }] },
-    { id: 'm2', role: 'assistant', text: '', turnId: 'turn-2', createdAt: '2026-08-22T10:01:00Z', toolCalls: [{ id: 't2', name: 'Bash', input: {}, status: 'completed' }] },
+    {
+      id: 'm1',
+      role: 'assistant',
+      text: '',
+      turnId: 'turn-1',
+      createdAt: '2026-08-22T10:00:00Z',
+      toolCalls: [{ id: 't1', name: 'Read', input: {}, status: 'completed' }],
+    },
+    {
+      id: 'm2',
+      role: 'assistant',
+      text: '',
+      turnId: 'turn-2',
+      createdAt: '2026-08-22T10:01:00Z',
+      toolCalls: [{ id: 't2', name: 'Bash', input: {}, status: 'completed' }],
+    },
   ];
   const { workByTurn } = projectTranscript(messages);
   assert.equal(workByTurn.length, 2);
@@ -148,7 +161,11 @@ test('F: a Work-only assistant message renders (has Work), an empty one does not
   const workOnlyMessage = { role: 'assistant', text: '', reasoning: undefined };
   assert.equal(hasVisibleProse(workOnlyMessage), false);
   assert.equal(shouldRenderTranscriptMessage(workOnlyMessage, true), true, 'Work alone is enough to render');
-  assert.equal(shouldRenderTranscriptMessage(workOnlyMessage, false), false, 'no prose and no Work renders nothing — no empty placeholder');
+  assert.equal(
+    shouldRenderTranscriptMessage(workOnlyMessage, false),
+    false,
+    'no prose and no Work renders nothing — no empty placeholder',
+  );
 
   const proseMessage = { role: 'assistant', text: 'Hello', reasoning: undefined };
   assert.equal(shouldRenderTranscriptMessage(proseMessage, false), true, 'prose alone is enough to render');
@@ -164,9 +181,15 @@ test('F: a Work-only assistant message renders (has Work), an empty one does not
 // no visible reason.
 test('L: a turnError-only Work group — no failed tools — surfaces turnError via hasFailures', () => {
   const messages = [
-    { id: 'm1', role: 'assistant', text: '', turnId: 'turn-1', createdAt: '2026-08-22T10:00:00Z',
+    {
+      id: 'm1',
+      role: 'assistant',
+      text: '',
+      turnId: 'turn-1',
+      createdAt: '2026-08-22T10:00:00Z',
       toolCalls: [{ id: 't1', name: 'Read', input: { path: 'a.ts' }, output: 'ok', status: 'completed' }],
-      turnError: { code: 'AI_SESSION_LIMIT', message: "You've hit your session limit" } },
+      turnError: { code: 'AI_SESSION_LIMIT', message: "You've hit your session limit" },
+    },
   ];
   const { workByTurn } = projectTranscript(messages, { activeTurnId: null });
   assert.equal(workByTurn.length, 1, 'Work exists');
@@ -181,19 +204,25 @@ test('L: a turnError-only Work group — no failed tools — surfaces turnError 
 // A failed tool AND a turnError are independently inspectable — neither overwrites the other.
 test('L: failed tool + turnError are independently inspectable in Work projection', () => {
   const messages = [
-    { id: 'm1', role: 'assistant', text: '', turnId: 'turn-1', createdAt: '2026-08-22T10:00:00Z',
+    {
+      id: 'm1',
+      role: 'assistant',
+      text: '',
+      turnId: 'turn-1',
+      createdAt: '2026-08-22T10:00:00Z',
       toolCalls: [
         { id: 't1', name: 'Read', input: { path: 'a.ts' }, output: 'ok', status: 'completed' },
         { id: 't2', name: 'Bash', input: { command: 'bad' }, status: 'failed' },
       ],
-      turnError: { code: 'AI_PROVIDER_EXIT_ERROR', message: 'Process exited with code 1' } },
+      turnError: { code: 'AI_PROVIDER_EXIT_ERROR', message: 'Process exited with code 1' },
+    },
   ];
   const { workByTurn } = projectTranscript(messages, { activeTurnId: null });
   assert.equal(workByTurn[0].hasFailures, true);
   // Each tool retains its own status — the failed tool is still failed,
   // the completed tool is still completed.
-  assert.equal(workByTurn[0].items.find(i => i.toolId === 't1')?.status, 'completed');
-  assert.equal(workByTurn[0].items.find(i => i.toolId === 't2')?.status, 'failed');
+  assert.equal(workByTurn[0].items.find((i) => i.toolId === 't1')?.status, 'completed');
+  assert.equal(workByTurn[0].items.find((i) => i.toolId === 't2')?.status, 'failed');
   // Turn error is independently present.
   assert.deepEqual(workByTurn[0].turnError, { code: 'AI_PROVIDER_EXIT_ERROR', message: 'Process exited with code 1' });
 });
@@ -215,17 +244,30 @@ test('Finding 3: visibleWorkItemsWhileRunning retains older running tools when m
 });
 
 test('Finding 3: TurnWorkSummary does not independently rederive current activity with find', () => {
-  const source = readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/turn-work/turn-work-summary.tsx', import.meta.url)), 'utf8');
+  const source = readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/turn-work/turn-work-summary.tsx', import.meta.url)),
+    'utf8',
+  );
   assert.match(source, /work\.currentActivity/, 'TurnWorkSummary must consume work.currentActivity from projection');
-  assert.doesNotMatch(source, /items\.find\([^)]*status === ['"]running['"]\)/, 'TurnWorkSummary must not use find(status === running)');
+  assert.doesNotMatch(
+    source,
+    /items\.find\([^)]*status === ['"]running['"]\)/,
+    'TurnWorkSummary must not use find(status === running)',
+  );
 });
 
 // ── task 11 (semantic Work chat V2), AC1: Level 1 Work indicator ──────────────────────
 
-import { describeCurrentActivityV2, terminalHeaderLabelV2 } from '../ui/features/agent-sessions/work-v2/activity-model-v2.ts';
+import {
+  describeCurrentActivityV2,
+  terminalHeaderLabelV2,
+} from '../ui/features/agent-sessions/work-v2/activity-model-v2.ts';
 
 function workIndicatorV2Source() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/work-indicator-v2.tsx', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/work-indicator-v2.tsx', import.meta.url)),
+    'utf8',
+  );
 }
 
 test('V2 AC1: describeCurrentActivityV2 truthfully labels every current-activity kind', () => {
@@ -233,7 +275,13 @@ test('V2 AC1: describeCurrentActivityV2 truthfully labels every current-activity
 
   assert.deepEqual(describeCurrentActivityV2(null), null, 'no evidence must not fabricate a current activity');
 
-  const tool = describeCurrentActivityV2({ kind: 'tool', title: 'Read file', description: 'a.ts', toolKind: 'read', startedAt });
+  const tool = describeCurrentActivityV2({
+    kind: 'tool',
+    title: 'Read file',
+    description: 'a.ts',
+    toolKind: 'read',
+    startedAt,
+  });
   assert.equal(tool.label, 'Read file');
   assert.equal(tool.textFirst, false, 'tool current activity is icon+label, never text-first');
 
@@ -254,7 +302,11 @@ test('V2 AC1: describeCurrentActivityV2 truthfully labels every current-activity
   const waitingForTool = describeCurrentActivityV2({ kind: 'waiting_for_tool', startedAt });
   assert.equal(waitingForTool.label, 'Waiting for tool execution');
 
-  const attention = describeCurrentActivityV2({ kind: 'requires_attention', title: 'Permission required for Bash', startedAt });
+  const attention = describeCurrentActivityV2({
+    kind: 'requires_attention',
+    title: 'Permission required for Bash',
+    startedAt,
+  });
   assert.equal(attention.label, 'Permission required for Bash');
   assert.equal(attention.textFirst, false);
 
@@ -265,23 +317,46 @@ test('V2 AC1: describeCurrentActivityV2 truthfully labels every current-activity
 test('V2 AC1: terminalHeaderLabelV2 truthfully reports completed/failed/cancelled/interrupted, null while non-terminal', () => {
   assert.equal(terminalHeaderLabelV2({ status: 'active', detail: 'processing', since: '', source: '' }), null);
   assert.equal(terminalHeaderLabelV2({ status: 'waiting', reason: 'provider_response', since: '', source: '' }), null);
-  assert.equal(terminalHeaderLabelV2({ status: 'terminal', outcome: 'completed', initiator: 'provider', since: '', source: '' }), 'Completed');
-  assert.equal(terminalHeaderLabelV2({ status: 'terminal', outcome: 'failed', initiator: 'provider', since: '', source: '' }), 'Failed');
-  assert.equal(terminalHeaderLabelV2({ status: 'terminal', outcome: 'cancelled', initiator: 'user', since: '', source: '' }), 'Cancelled');
-  assert.equal(terminalHeaderLabelV2({ status: 'terminal', outcome: 'interrupted', initiator: 'system', since: '', source: '' }), 'Interrupted');
+  assert.equal(
+    terminalHeaderLabelV2({ status: 'terminal', outcome: 'completed', initiator: 'provider', since: '', source: '' }),
+    'Completed',
+  );
+  assert.equal(
+    terminalHeaderLabelV2({ status: 'terminal', outcome: 'failed', initiator: 'provider', since: '', source: '' }),
+    'Failed',
+  );
+  assert.equal(
+    terminalHeaderLabelV2({ status: 'terminal', outcome: 'cancelled', initiator: 'user', since: '', source: '' }),
+    'Cancelled',
+  );
+  assert.equal(
+    terminalHeaderLabelV2({ status: 'terminal', outcome: 'interrupted', initiator: 'system', since: '', source: '' }),
+    'Interrupted',
+  );
 });
 
 test('V2 AC1: WorkIndicatorV2 (Level 1) never renders historical activity, only count/state/current', () => {
   const source = workIndicatorV2Source();
-  assert.doesNotMatch(source, /historicalWork/, 'Level 1 must not read historicalWork — no historical activity at this level');
+  assert.doesNotMatch(
+    source,
+    /historicalWork/,
+    'Level 1 must not read historicalWork — no historical activity at this level',
+  );
   assert.match(source, /turn\.activityCount/, 'must show the top-level activity count');
-  assert.match(source, /describeCurrentActivityV2/, 'current activity must come from the shared formatter, not be re-derived');
+  assert.match(
+    source,
+    /describeCurrentActivityV2/,
+    'current activity must come from the shared formatter, not be re-derived',
+  );
 });
 
 // ── task 11 correction: Work header interaction ownership ─────────────────────────────
 
 function turnWorkPanelV2Source() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/turn-work-panel-v2.tsx', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/turn-work-panel-v2.tsx', import.meta.url)),
+    'utf8',
+  );
 }
 
 test('V2 correction: the Work header row is the single full-width expand/collapse target in Level 1', () => {

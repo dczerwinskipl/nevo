@@ -196,7 +196,7 @@ function TypographyUtilityCard({ item }: { item: UtilityItem }) {
   return (
     <div
       data-typography-item={item.utility}
-      className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 space-y-2.5 shadow-xs"
+      className="space-y-2.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-xs"
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[var(--border)] pb-2">
         <span className="font-mono text-xs font-semibold text-[var(--accent)]">{item.utility}</span>
@@ -211,22 +211,29 @@ function TypographyUtilityCard({ item }: { item: UtilityItem }) {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--muted)] border-t border-[var(--border)] pt-2 font-mono">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-2 font-mono text-xs text-[var(--muted)]">
         <div className="flex gap-4">
           <span>
-            fontSize: <strong data-metric="font-size" className="text-[var(--foreground)]">{metrics.fontSize || 'measuring…'}</strong>
+            fontSize:{' '}
+            <strong data-metric="font-size" className="text-[var(--foreground)]">
+              {metrics.fontSize || 'measuring…'}
+            </strong>
           </span>
           <span>
-            lineHeight: <strong data-metric="line-height" className="text-[var(--foreground)]">{metrics.lineHeight || 'measuring…'}</strong>
+            lineHeight:{' '}
+            <strong data-metric="line-height" className="text-[var(--foreground)]">
+              {metrics.lineHeight || 'measuring…'}
+            </strong>
           </span>
           <span>
-            fontWeight: <strong data-metric="font-weight" className="text-[var(--foreground)]">{metrics.fontWeight || 'measuring…'}</strong>
+            fontWeight:{' '}
+            <strong data-metric="font-weight" className="text-[var(--foreground)]">
+              {metrics.fontWeight || 'measuring…'}
+            </strong>
           </span>
         </div>
         {item.provisionalMapping && (
-          <span className="text-[11px] text-[var(--muted-strong)] font-sans">
-            Target: {item.provisionalMapping}
-          </span>
+          <span className="font-sans text-[11px] text-[var(--muted-strong)]">Target: {item.provisionalMapping}</span>
         )}
       </div>
     </div>
@@ -242,24 +249,27 @@ function TypographyFoundation() {
         <p className="mt-1 text-sm text-[var(--muted)]">
           Inventories of distinct font-size, line-height, and font-weight utilities actively present in{' '}
           <code className="text-[var(--foreground)]">tools/dashboard/ui/features</code> and{' '}
-          <code className="text-[var(--foreground)]">tools/dashboard/ui/components/ui</code>.
-          Metrics shown are read live via <code className="text-[var(--foreground)]">getComputedStyle</code>.
+          <code className="text-[var(--foreground)]">tools/dashboard/ui/components/ui</code>. Metrics shown are read
+          live via <code className="text-[var(--foreground)]">getComputedStyle</code>.
         </p>
       </div>
 
       {/* 2. Font Family Reality & Fallback Notice */}
-      <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 space-y-3">
+      <section className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
         <h2 className="text-lg font-semibold">Font Family & Stack</h2>
         <div className="rounded-md border border-[var(--border-strong)] bg-[var(--background)] p-3 font-mono text-xs">
-          <code>Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif</code>
+          <code>
+            Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif
+          </code>
         </div>
-        <div className="rounded-md border border-amber-900/40 bg-amber-950/20 p-3 text-xs text-amber-200/90 space-y-1">
+        <div className="space-y-1 rounded-md border border-amber-900/40 bg-amber-950/20 p-3 text-xs text-amber-200/90">
           <p className="font-semibold text-amber-300">Implementation Reality & Fallback Risk Notice:</p>
           <p>
             Declared in <code className="text-amber-100">tools/dashboard/ui/index.css:52</code>. There is currently{' '}
-            <strong>no bundled @font-face or webfont loader</strong> for &quot;Inter&quot; in the application.
-            If &quot;Inter&quot; is not installed locally on the client OS, the browser immediately falls back to the system font stack
-            (<code className="text-amber-100">system-ui</code>, Segoe UI, etc.). This story documents reality rather than assuming Inter is always rendered.
+            <strong>no bundled @font-face or webfont loader</strong> for &quot;Inter&quot; in the application. If
+            &quot;Inter&quot; is not installed locally on the client OS, the browser immediately falls back to the
+            system font stack (<code className="text-amber-100">system-ui</code>, Segoe UI, etc.). This story documents
+            reality rather than assuming Inter is always rendered.
           </p>
         </div>
       </section>
@@ -285,9 +295,7 @@ function TypographyFoundation() {
       <section className="space-y-4">
         <div className="border-b border-[var(--border)] pb-2">
           <h2 className="text-lg font-semibold">2. Line-Height Utilities</h2>
-          <p className="text-xs text-[var(--muted)]">
-            Explicit line-height utilities in active use across components.
-          </p>
+          <p className="text-xs text-[var(--muted)]">Explicit line-height utilities in active use across components.</p>
         </div>
 
         <div className="space-y-3">

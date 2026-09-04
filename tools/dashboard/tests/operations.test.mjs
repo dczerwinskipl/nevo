@@ -27,41 +27,45 @@ function fixture() {
   const changeDir = join(activeDir, 'sample-change');
   mkdirSync(join(changeDir, 'tasks'), { recursive: true });
   mkdirSync(join(changeDir, 'reviews'), { recursive: true });
-  writeFileSync(join(changeDir, 'change.yaml'), [
-    'id: sample-change',
-    'title: Sample',
-    'status: draft',
-    'tasks:',
-    '  - id: design-it',
-    '    order: 1',
-    '    file: tasks/01-design.md',
-    '    status: draft',
-    '',
-  ].join('\n'));
+  writeFileSync(
+    join(changeDir, 'change.yaml'),
+    [
+      'id: sample-change',
+      'title: Sample',
+      'status: draft',
+      'tasks:',
+      '  - id: design-it',
+      '    order: 1',
+      '    file: tasks/01-design.md',
+      '    status: draft',
+      '',
+    ].join('\n'),
+  );
   writeFileSync(join(changeDir, 'overview.md'), '# Overview\n\nSample goal');
   writeFileSync(join(changeDir, 'tasks', '01-design.md'), '# Design\n\nContent');
 
   const changeObj = {
     _dir: changeDir,
-    tasks: [
-      { id: 'design-it', file: 'tasks/01-design.md', status: 'draft' },
-    ],
+    tasks: [{ id: 'design-it', file: 'tasks/01-design.md', status: 'draft' }],
   };
   const fingerprint = computeChangeFingerprint(changeObj);
   const taskFingerprint = computeTaskFingerprint(changeObj, 'design-it');
-  writeFileSync(join(changeDir, 'reviews', 'spec.md'), [
-    '---',
-    'verdict: ready-for-approval',
-    `spec_fingerprint: ${fingerprint}`,
-    'unresolved_required_fixes: 0',
-    'unresolved_owner_decisions: 0',
-    'unresolved_needs_clarification: 0',
-    'task_fingerprints:',
-    `  design-it: ${taskFingerprint}`,
-    '---',
-    '',
-    '# Spec Review',
-  ].join('\n'));
+  writeFileSync(
+    join(changeDir, 'reviews', 'spec.md'),
+    [
+      '---',
+      'verdict: ready-for-approval',
+      `spec_fingerprint: ${fingerprint}`,
+      'unresolved_required_fixes: 0',
+      'unresolved_owner_decisions: 0',
+      'unresolved_needs_clarification: 0',
+      'task_fingerprints:',
+      `  design-it: ${taskFingerprint}`,
+      '---',
+      '',
+      '# Spec Review',
+    ].join('\n'),
+  );
 
   return { root, activeDir, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
@@ -162,7 +166,7 @@ test('OperationRuntime — lifecycle, snapshots, and SSE subscriptions', async (
     const receivedMid = [];
     const unsubscribeMid = runtime.subscribe(opId, {
       afterSequence: 0,
-      onEvent: e => receivedMid.push(e),
+      onEvent: (e) => receivedMid.push(e),
     });
 
     assert.equal(receivedMid.length, 3); // started (1), step.started (2), step.completed (3)
@@ -183,54 +187,57 @@ test('OperationRuntime — lifecycle, snapshots, and SSE subscriptions', async (
     const receivedLate = [];
     runtime.subscribe(opId, {
       afterSequence: 3,
-      onEvent: e => receivedLate.push(e),
+      onEvent: (e) => receivedLate.push(e),
     });
     assert.equal(receivedLate.length, 2); // events 4 and 5 (afterSequence 3)
   });
 
-  await t.test('failOperation only transitions running step to failed; completed remain completed and pending remain pending', () => {
-    const runtime = createOperationRuntime({ idFactory: () => 'multi-step-op' });
-    const opId = runtime.createOperation({
-      type: 'finalize',
-      steps: [
-        { id: 's1', label: 'Step 1' },
-        { id: 's2', label: 'Step 2' },
-        { id: 's3', label: 'Step 3' },
-        { id: 's4', label: 'Step 4' },
-      ],
-    });
+  await t.test(
+    'failOperation only transitions running step to failed; completed remain completed and pending remain pending',
+    () => {
+      const runtime = createOperationRuntime({ idFactory: () => 'multi-step-op' });
+      const opId = runtime.createOperation({
+        type: 'finalize',
+        steps: [
+          { id: 's1', label: 'Step 1' },
+          { id: 's2', label: 'Step 2' },
+          { id: 's3', label: 'Step 3' },
+          { id: 's4', label: 'Step 4' },
+        ],
+      });
 
-    // 1. Step 1 completed
-    runtime.recordEvent(opId, { type: 'operation.step.started', id: 's1' });
-    runtime.recordEvent(opId, { type: 'operation.step.completed', id: 's1' });
+      // 1. Step 1 completed
+      runtime.recordEvent(opId, { type: 'operation.step.started', id: 's1' });
+      runtime.recordEvent(opId, { type: 'operation.step.completed', id: 's1' });
 
-    // 2. Step 2 running
-    runtime.recordEvent(opId, { type: 'operation.step.started', id: 's2' });
+      // 2. Step 2 running
+      runtime.recordEvent(opId, { type: 'operation.step.started', id: 's2' });
 
-    // 3. Step 3 & 4 remain pending
+      // 3. Step 3 & 4 remain pending
 
-    // 4. Operation fails
-    runtime.failOperation(opId, { message: 'Step 2 crashed' });
+      // 4. Operation fails
+      runtime.failOperation(opId, { message: 'Step 2 crashed' });
 
-    const snapshot = runtime.getSnapshot(opId);
-    assert.equal(snapshot.status, 'failed');
-    assert.equal(snapshot.steps.length, 4);
+      const snapshot = runtime.getSnapshot(opId);
+      assert.equal(snapshot.status, 'failed');
+      assert.equal(snapshot.steps.length, 4);
 
-    // 1. Step 1 remains completed
-    assert.equal(snapshot.steps[0].id, 's1');
-    assert.equal(snapshot.steps[0].status, 'completed');
+      // 1. Step 1 remains completed
+      assert.equal(snapshot.steps[0].id, 's1');
+      assert.equal(snapshot.steps[0].status, 'completed');
 
-    // 2. Step 2 transitioned from running -> failed
-    assert.equal(snapshot.steps[1].id, 's2');
-    assert.equal(snapshot.steps[1].status, 'failed');
-    assert.equal(snapshot.steps[1].error.message, 'Step 2 crashed');
+      // 2. Step 2 transitioned from running -> failed
+      assert.equal(snapshot.steps[1].id, 's2');
+      assert.equal(snapshot.steps[1].status, 'failed');
+      assert.equal(snapshot.steps[1].error.message, 'Step 2 crashed');
 
-    // 3. Step 3 & 4 remain pending
-    assert.equal(snapshot.steps[2].id, 's3');
-    assert.equal(snapshot.steps[2].status, 'pending');
-    assert.equal(snapshot.steps[3].id, 's4');
-    assert.equal(snapshot.steps[3].status, 'pending');
-  });
+      // 3. Step 3 & 4 remain pending
+      assert.equal(snapshot.steps[2].id, 's3');
+      assert.equal(snapshot.steps[2].status, 'pending');
+      assert.equal(snapshot.steps[3].id, 's4');
+      assert.equal(snapshot.steps[3].status, 'pending');
+    },
+  );
 
   await t.test('shutdown marks running operations as failed with 503 error on new operations', () => {
     const runtime = createOperationRuntime({ idFactory: () => 'shut-op' });
@@ -242,54 +249,64 @@ test('OperationRuntime — lifecycle, snapshots, and SSE subscriptions', async (
     assert.equal(snapshot.status, 'failed');
     assert.equal(snapshot.error.code, 'OPERATION_INTERRUPTED');
 
-    assert.throws(() => runtime.createOperation(), err => err.status === 503);
+    assert.throws(
+      () => runtime.createOperation(),
+      (err) => err.status === 503,
+    );
   });
 });
 
 test('executeSpecificationAction — in-process single execution runner', async (t) => {
-  await t.test('AC1 & AC10: returns operationId immediately, executes in-process and completes in OperationRuntime', async () => {
-    const sample = fixture();
-    try {
-      const runtime = createOperationRuntime({ idFactory: () => 'op-123' });
-      let resolveDone;
-      const donePromise = new Promise(resolve => { resolveDone = resolve; });
+  await t.test(
+    'AC1 & AC10: returns operationId immediately, executes in-process and completes in OperationRuntime',
+    async () => {
+      const sample = fixture();
+      try {
+        const runtime = createOperationRuntime({ idFactory: () => 'op-123' });
+        let resolveDone;
+        const donePromise = new Promise((resolve) => {
+          resolveDone = resolve;
+        });
 
-      const result = executeSpecificationAction({
-        slug: 'sample-change',
-        action: 'approve',
-        taskId: 'design-it',
-        activeDir: sample.activeDir,
-        root: sample.root,
-        git: false,
-        operationRuntime: runtime,
-        onFinished: resolveDone,
-      });
+        const result = executeSpecificationAction({
+          slug: 'sample-change',
+          action: 'approve',
+          taskId: 'design-it',
+          activeDir: sample.activeDir,
+          root: sample.root,
+          git: false,
+          operationRuntime: runtime,
+          onFinished: resolveDone,
+        });
 
-      assert.equal(result.ok, true);
-      assert.equal(result.operationId, 'op-op-123');
-      assert.equal(result.action, 'approve');
-      assert.equal(result.taskId, 'design-it');
+        assert.equal(result.ok, true);
+        assert.equal(result.operationId, 'op-op-123');
+        assert.equal(result.action, 'approve');
+        assert.equal(result.taskId, 'design-it');
 
-      await donePromise;
+        await donePromise;
 
-      const snapshot = runtime.getSnapshot('op-op-123');
-      assert.equal(snapshot.status, 'completed');
-      assert.ok(snapshot.steps.length > 0);
-      assert.equal(snapshot.steps[0].id, 'validate-approval');
-      assert.equal(snapshot.steps[0].status, 'completed');
-      assert.equal(snapshot.result.ok, true);
-      assert.ok(snapshot.result.summary);
-    } finally {
-      sample.cleanup();
-    }
-  });
+        const snapshot = runtime.getSnapshot('op-op-123');
+        assert.equal(snapshot.status, 'completed');
+        assert.ok(snapshot.steps.length > 0);
+        assert.equal(snapshot.steps[0].id, 'validate-approval');
+        assert.equal(snapshot.steps[0].status, 'completed');
+        assert.equal(snapshot.result.ok, true);
+        assert.ok(snapshot.result.summary);
+      } finally {
+        sample.cleanup();
+      }
+    },
+  );
 
   await t.test('OperationRuntime receives complete domain result on successful action', async () => {
     const sample = fixture();
     try {
       const runtime = createOperationRuntime({ idFactory: () => 'op-domain-result' });
       let resolveDone;
-      const donePromise = new Promise(resolve => { resolveDone = resolve; });
+      const donePromise = new Promise((resolve) => {
+        resolveDone = resolve;
+      });
 
       executeSpecificationAction({
         slug: 'sample-change',
@@ -320,7 +337,9 @@ test('executeSpecificationAction — in-process single execution runner', async 
     try {
       const runtime = createOperationRuntime({ idFactory: () => 'op-step-failure' });
       let resolveDone;
-      const donePromise = new Promise(resolve => { resolveDone = resolve; });
+      const donePromise = new Promise((resolve) => {
+        resolveDone = resolve;
+      });
 
       executeSpecificationAction({
         slug: 'sample-change',
@@ -379,32 +398,35 @@ test('Dashboard server — action concurrency & /api/operations routes', async (
     sample.cleanup();
   });
 
-  await t.test('runningActions lock is held for the entire lifecycle of the action, returning 409 on concurrent request and unlocking on completion', async () => {
-    // 1. Trigger first action
-    const firstRes = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/actions`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-nevo-dashboard-action': '1',
-      },
-      body: JSON.stringify({ action: 'verify', taskId: 'shared-specs-workflow-operations' }),
-    });
-    assert.equal(firstRes.status, 200);
-    const firstBody = await firstRes.json();
-    assert.equal(firstBody.ok, true);
+  await t.test(
+    'runningActions lock is held for the entire lifecycle of the action, returning 409 on concurrent request and unlocking on completion',
+    async () => {
+      // 1. Trigger first action
+      const firstRes = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/actions`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-nevo-dashboard-action': '1',
+        },
+        body: JSON.stringify({ action: 'verify', taskId: 'shared-specs-workflow-operations' }),
+      });
+      assert.equal(firstRes.status, 200);
+      const firstBody = await firstRes.json();
+      assert.equal(firstBody.ok, true);
 
-    // 2. Second action while first action is still in flight -> rejected with 409 Conflict if active
-    const secondRes = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/actions`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-nevo-dashboard-action': '1',
-      },
-      body: JSON.stringify({ action: 'verify', taskId: 'shared-specs-workflow-operations' }),
-    });
-    // If microtask already finished, it returns 200; if in-flight, returns 409
-    assert.ok(secondRes.status === 200 || secondRes.status === 409);
-  });
+      // 2. Second action while first action is still in flight -> rejected with 409 Conflict if active
+      const secondRes = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/actions`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-nevo-dashboard-action': '1',
+        },
+        body: JSON.stringify({ action: 'verify', taskId: 'shared-specs-workflow-operations' }),
+      });
+      // If microtask already finished, it returns 200; if in-flight, returns 409
+      assert.ok(secondRes.status === 200 || secondRes.status === 409);
+    },
+  );
 
   await t.test('GET /api/operations/:id returns 404 for unknown operation', async () => {
     const res = await fetch(`${baseUrl}/api/operations/non-existent`);
@@ -478,7 +500,11 @@ test('Dashboard server — action concurrency & /api/operations routes', async (
       const { value, done } = await readerCursor.read();
       if (done || !value) break;
       textCursor += decoder.decode(value);
-      if (textCursor.includes('event: operation.step.completed') && textCursor.includes('event: operation.step.started')) break;
+      if (
+        textCursor.includes('event: operation.step.completed') &&
+        textCursor.includes('event: operation.step.started')
+      )
+        break;
     }
     assert.ok(textCursor.includes('event: snapshot'));
     assert.ok(textCursor.includes('Step 1'));
@@ -545,8 +571,13 @@ test('operation SSE route lifecycle guarantees (deterministic verification)', as
     let activeSubscribers = 0;
     const mockRuntime = {
       getSnapshot: (id) => ({
-        id, type: 'test-op', status: 'running', steps: [], lastEventId: 0,
-        startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        id,
+        type: 'test-op',
+        status: 'running',
+        steps: [],
+        lastEventId: 0,
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       }),
       subscribe: () => {
         subscribeCallCount++;
@@ -573,7 +604,7 @@ test('operation SSE route lifecycle guarantees (deterministic verification)', as
       assert.equal(activeSubscribers, 1);
 
       controller.abort();
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 50));
       assert.equal(unsubscribeCallCount, 1, 'cleanup/unsubscribe occurs exactly once');
       assert.equal(activeSubscribers, 0, 'no listener/subscription remains after connection termination');
     } finally {
@@ -588,8 +619,13 @@ test('operation SSE route lifecycle guarantees (deterministic verification)', as
     let capturedOnEvent = null;
     const runtimeWithCallback = {
       getSnapshot: (id) => ({
-        id, type: 'test-op', status: 'running', steps: [], lastEventId: 0,
-        startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        id,
+        type: 'test-op',
+        status: 'running',
+        steps: [],
+        lastEventId: 0,
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       }),
       subscribe: (id, { onEvent }) => {
         subscribeCallCount++;
@@ -621,7 +657,9 @@ test('operation SSE route lifecycle guarantees (deterministic verification)', as
       })();
       await Promise.race([
         drainPromise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for terminal stream completion')), 5000)),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Timed out waiting for terminal stream completion')), 5000),
+        ),
       ]);
       assert.equal(unsubscribeCallCount, 1, 'terminal completion triggers unsubscribe');
       assert.equal(activeSubscribers, 0);
@@ -635,8 +673,13 @@ test('operation SSE route lifecycle guarantees (deterministic verification)', as
     let subscribeCallCount = 0;
     const completedRuntime = {
       getSnapshot: (id) => ({
-        id, type: 'test-op', status: 'completed', steps: [], lastEventId: 5,
-        startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        id,
+        type: 'test-op',
+        status: 'completed',
+        steps: [],
+        lastEventId: 5,
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       }),
       subscribe: () => {
         subscribeCallCount++;
@@ -657,7 +700,9 @@ test('operation SSE route lifecycle guarantees (deterministic verification)', as
       })();
       await Promise.race([
         drainPromise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for replay stream completion')), 5000)),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Timed out waiting for replay stream completion')), 5000),
+        ),
       ]);
       assert.equal(subscribeCallCount, 0, 'terminal replay with up-to-date cursor does not register subscription');
     } finally {

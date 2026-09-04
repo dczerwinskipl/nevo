@@ -34,9 +34,12 @@ export const PULL_REQUEST_FULL_DIFF_QUERY_KEY = ['nevo-spec-pull-request-full-di
 const PULL_REQUEST_SAFETY_REFRESH_MS = 5 * 60_000;
 
 async function fetchPullRequests(specification: SpecificationSummary) {
-  const response = await fetch(`/api/specs/${specification.source}/${encodeURIComponent(specification.slug)}/pull-requests`, {
-    cache: 'no-store',
-  });
+  const response = await fetch(
+    `/api/specs/${specification.source}/${encodeURIComponent(specification.slug)}/pull-requests`,
+    {
+      cache: 'no-store',
+    },
+  );
   if (!response.ok) throw new Error(`Pull request API: ${response.status}`);
   return (await response.json()) as PullRequestsPayload;
 }
@@ -78,9 +81,19 @@ async function fetchPullRequestFiles(specification: SpecificationSummary, number
 // isn't headSha-scoped) — a new PR version simply gets a fresh cache entry,
 // so "re-open the same PR at the same headSha costs nothing" holds without
 // any extra invalidation wiring (area pull-request-file-and-diff-loading).
-export function usePullRequestFiles(specification: SpecificationSummary, pullRequest: AvailablePullRequest, enabled = true) {
+export function usePullRequestFiles(
+  specification: SpecificationSummary,
+  pullRequest: AvailablePullRequest,
+  enabled = true,
+) {
   const query = useQuery({
-    queryKey: [...PULL_REQUEST_FILES_QUERY_KEY, specification.source, specification.slug, pullRequest.number, pullRequest.headSha],
+    queryKey: [
+      ...PULL_REQUEST_FILES_QUERY_KEY,
+      specification.source,
+      specification.slug,
+      pullRequest.number,
+      pullRequest.headSha,
+    ],
     queryFn: () => fetchPullRequestFiles(specification, pullRequest.number),
     enabled,
     staleTime: Infinity,
@@ -96,7 +109,12 @@ export function usePullRequestFiles(specification: SpecificationSummary, pullReq
   };
 }
 
-async function fetchFileDiffsBatch(specification: SpecificationSummary, number: number, paths: string[], headSha: string | null) {
+async function fetchFileDiffsBatch(
+  specification: SpecificationSummary,
+  number: number,
+  paths: string[],
+  headSha: string | null,
+) {
   const response = await fetch(
     `/api/specs/${specification.source}/${encodeURIComponent(specification.slug)}/pull-requests/${number}/file-diffs`,
     {
@@ -204,9 +222,7 @@ export function useProgressiveDiffPreload(
         const chunk = requests.slice(i, i + batchSize);
         preload(chunk);
         // Wait for all items in the current chunk to settle before scheduling next chunk
-        await Promise.allSettled(
-          chunk.map((req) => load(req).catch(() => {})),
-        );
+        await Promise.allSettled(chunk.map((req) => load(req).catch(() => {})));
       }
     }
 

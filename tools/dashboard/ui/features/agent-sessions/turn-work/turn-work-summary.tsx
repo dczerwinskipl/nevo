@@ -78,11 +78,7 @@ const WorkCollapsedSummary = memo(function WorkCollapsedSummary({
       )}
       <span className="min-w-0 flex-1 truncate">
         Work · {count} {count === 1 ? 'action' : 'actions'}
-        {severity === 'error'
-          ? ' · turn failed'
-          : severity === 'warning'
-            ? ' · requires attention'
-            : ''}
+        {severity === 'error' ? ' · turn failed' : severity === 'warning' ? ' · requires attention' : ''}
       </span>
       {expanded ? <ChevronDown className="size-3.5 shrink-0" /> : <ChevronRight className="size-3.5 shrink-0" />}
     </button>
@@ -96,11 +92,7 @@ const WorkCollapsedSummary = memo(function WorkCollapsedSummary({
  * statuses (successful tools stay successful) and is never hidden inside raw event
  * details. No card chrome — just a compact inline row consistent with the rest of Work.
  */
-const TurnErrorRow = memo(function TurnErrorRow({
-  turnError,
-}: {
-  turnError: { code: string; message: string };
-}) {
+const TurnErrorRow = memo(function TurnErrorRow({ turnError }: { turnError: { code: string; message: string } }) {
   if (!isGenuineTurnError(turnError)) return null;
   return (
     <div className="flex items-start gap-2 rounded-md px-1 py-1.5 text-xs text-[var(--danger-strong)]" role="alert">
@@ -108,10 +100,14 @@ const TurnErrorRow = memo(function TurnErrorRow({
       <div className="min-w-0 flex-1">
         <span className="font-medium">Turn failed</span>
         {turnError.message && (
-          <span className="ml-1 text-[color-mix(in_srgb,var(--danger-strong)_80%,transparent)]">{turnError.message}</span>
+          <span className="ml-1 text-[color-mix(in_srgb,var(--danger-strong)_80%,transparent)]">
+            {turnError.message}
+          </span>
         )}
         {turnError.code && (
-          <span className="ml-1 font-mono text-[10px] text-[color-mix(in_srgb,var(--danger-strong)_50%,transparent)]">({turnError.code})</span>
+          <span className="ml-1 font-mono text-[10px] text-[color-mix(in_srgb,var(--danger-strong)_50%,transparent)]">
+            ({turnError.code})
+          </span>
         )}
       </div>
     </div>
@@ -133,12 +129,12 @@ export function TurnWorkSummary({ work }: TurnWorkSummaryProps) {
   // when only work.items' object identity changed but count/severity/expanded did
   // not (react-component-guidelines.md §9.1) — an inline arrow here would defeat that
   // memo on every streamed token.
-  const toggleExpanded = useCallback(() => setExpanded(prev => !prev), []);
+  const toggleExpanded = useCallback(() => setExpanded((prev) => !prev), []);
 
   const currentItem = work.currentActivity ?? null;
   const priorCount = useMemo(
-    () => (currentItem ? work.items.filter(item => item.toolId !== currentItem.toolId).length : work.items.length),
-    [work.items, currentItem]
+    () => (currentItem ? work.items.filter((item) => item.toolId !== currentItem.toolId).length : work.items.length),
+    [work.items, currentItem],
   );
 
   if (work.status === 'current') {
@@ -147,19 +143,24 @@ export function TurnWorkSummary({ work }: TurnWorkSummaryProps) {
     // independent, so `severity` is surfaced here even while still 'current'.
     const visibleItems = visibleWorkItemsWhileRunning(work, expanded);
     return (
-      <div className="my-1.5 w-full min-w-0 max-w-full space-y-1">
+      <div className="my-1.5 w-full max-w-full min-w-0 space-y-1">
         {priorCount > 0 && (
-          <WorkCollapsedSummary count={priorCount} severity={work.severity} expanded={expanded} onToggle={toggleExpanded} />
+          <WorkCollapsedSummary
+            count={priorCount}
+            severity={work.severity}
+            expanded={expanded}
+            onToggle={toggleExpanded}
+          />
         )}
         {visibleItems.length > 0 && (
-          <div className="w-full min-w-0 max-w-full space-y-1.5 pl-1">
-            {visibleItems.map(item => <ToolCallView key={item.toolId} toolCall={toToolCall(item)} />)}
+          <div className="w-full max-w-full min-w-0 space-y-1.5 pl-1">
+            {visibleItems.map((item) => (
+              <ToolCallView key={item.toolId} toolCall={toToolCall(item)} />
+            ))}
           </div>
         )}
         {/* Turn-level error exposed separately when expanded — successful tools stay successful. */}
-        {expanded && work.turnError && (
-          <TurnErrorRow turnError={work.turnError} />
-        )}
+        {expanded && work.turnError && <TurnErrorRow turnError={work.turnError} />}
         <WorkCurrentActivity item={currentItem} />
       </div>
     );
@@ -171,17 +172,22 @@ export function TurnWorkSummary({ work }: TurnWorkSummaryProps) {
   const visibleItems = visibleWorkItemsWhenTerminal(work, expanded);
 
   return (
-    <div className="my-1.5 w-full min-w-0 max-w-full space-y-1">
-      <WorkCollapsedSummary count={work.items.length} severity={work.severity} expanded={expanded} onToggle={toggleExpanded} />
+    <div className="my-1.5 w-full max-w-full min-w-0 space-y-1">
+      <WorkCollapsedSummary
+        count={work.items.length}
+        severity={work.severity}
+        expanded={expanded}
+        onToggle={toggleExpanded}
+      />
       {visibleItems.length > 0 && (
-        <div className="w-full min-w-0 max-w-full space-y-1.5 pl-1">
-          {visibleItems.map(item => <ToolCallView key={item.toolId} toolCall={toToolCall(item)} />)}
+        <div className="w-full max-w-full min-w-0 space-y-1.5 pl-1">
+          {visibleItems.map((item) => (
+            <ToolCallView key={item.toolId} toolCall={toToolCall(item)} />
+          ))}
         </div>
       )}
       {/* Turn-level error exposed separately when expanded — successful tools stay successful. */}
-      {expanded && work.turnError && (
-        <TurnErrorRow turnError={work.turnError} />
-      )}
+      {expanded && work.turnError && <TurnErrorRow turnError={work.turnError} />}
     </div>
   );
 }

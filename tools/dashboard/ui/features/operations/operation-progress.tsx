@@ -1,11 +1,5 @@
 import React from 'react';
-import {
-  AlertCircle,
-  AlertTriangle,
-  CheckCircle2,
-  Circle,
-  LoaderCircle,
-} from 'lucide-react';
+import { AlertCircle, AlertTriangle, CheckCircle2, Circle, LoaderCircle } from 'lucide-react';
 
 import type { OperationSnapshot, OperationStep, OperationStepStatus } from './types';
 import { Button } from '@/components/ui/button';
@@ -14,14 +8,14 @@ import { cn } from '@/lib/utils';
 export function StepStatusIcon({ status }: { status: OperationStepStatus }) {
   switch (status) {
     case 'completed':
-      return <CheckCircle2 className="size-4 text-[var(--success)] shrink-0" />;
+      return <CheckCircle2 className="size-4 shrink-0 text-[var(--success)]" />;
     case 'running':
-      return <LoaderCircle className="size-4 text-[var(--accent)] animate-spin shrink-0" />;
+      return <LoaderCircle className="size-4 shrink-0 animate-spin text-[var(--accent)]" />;
     case 'failed':
-      return <AlertCircle className="size-4 text-[var(--danger)] shrink-0" />;
+      return <AlertCircle className="size-4 shrink-0 text-[var(--danger)]" />;
     case 'pending':
     default:
-      return <Circle className="size-3.5 text-[var(--muted)] shrink-0 opacity-50" />;
+      return <Circle className="size-3.5 shrink-0 text-[var(--muted)] opacity-50" />;
   }
 }
 
@@ -29,10 +23,11 @@ export function OperationStepRow({ step }: { step: OperationStep }) {
   return (
     <li
       className={cn(
-        'flex items-start gap-3 rounded-lg px-3 py-2.5 transition-colors text-xs',
-        step.status === 'running' && 'bg-[var(--accent-muted)] border border-[var(--accent-border)]',
-        step.status === 'failed' && 'bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] border border-[color-mix(in_srgb,var(--danger)_20%,transparent)]',
-        step.status === 'completed' && 'bg-[var(--surface-raised)] border border-[var(--border)]',
+        'flex items-start gap-3 rounded-lg px-3 py-2.5 text-xs transition-colors',
+        step.status === 'running' && 'border border-[var(--accent-border)] bg-[var(--accent-muted)]',
+        step.status === 'failed' &&
+          'border border-[color-mix(in_srgb,var(--danger)_20%,transparent)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)]',
+        step.status === 'completed' && 'border border-[var(--border)] bg-[var(--surface-raised)]',
         step.status === 'pending' && 'opacity-60',
       )}
     >
@@ -43,9 +38,9 @@ export function OperationStepRow({ step }: { step: OperationStep }) {
         <div className="flex items-center justify-between gap-2">
           <span
             className={cn(
-              'font-medium truncate',
-              step.status === 'running' && 'text-[var(--accent)] font-semibold',
-              step.status === 'failed' && 'text-[var(--danger-strong)] font-semibold',
+              'truncate font-medium',
+              step.status === 'running' && 'font-semibold text-[var(--accent)]',
+              step.status === 'failed' && 'font-semibold text-[var(--danger-strong)]',
               step.status === 'completed' && 'text-[var(--muted-strong)]',
               step.status === 'pending' && 'text-[var(--muted)]',
             )}
@@ -53,18 +48,16 @@ export function OperationStepRow({ step }: { step: OperationStep }) {
             {step.label}
           </span>
           {typeof step.current === 'number' && typeof step.total === 'number' && (
-            <span className="text-[10px] font-mono text-[var(--muted)]">
+            <span className="font-mono text-[10px] text-[var(--muted)]">
               {step.current}/{step.total}
             </span>
           )}
         </div>
         {step.detail && (
-          <p className="mt-0.5 text-[11px] text-[var(--muted)] leading-relaxed break-words">
-            {step.detail}
-          </p>
+          <p className="mt-0.5 text-[11px] leading-relaxed break-words text-[var(--muted)]">{step.detail}</p>
         )}
         {step.error && (
-          <p className="mt-1 text-[11px] text-[var(--danger)] font-mono bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] border border-[color-mix(in_srgb,var(--danger)_30%,transparent)] rounded px-2 py-1 leading-normal">
+          <p className="mt-1 rounded border border-[color-mix(in_srgb,var(--danger)_30%,transparent)] bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] px-2 py-1 font-mono text-[11px] leading-normal text-[var(--danger)]">
             {step.error.message}
           </p>
         )}
@@ -103,7 +96,7 @@ export function OperationProgressView({
 }) {
   if (loading && !snapshot) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 text-center space-y-3" role="status">
+      <div className="flex flex-col items-center justify-center space-y-3 p-8 text-center" role="status">
         <LoaderCircle className="size-6 animate-spin text-[var(--accent)]" />
         <p className="text-xs text-[var(--muted)]">Inicjalizacja operacji…</p>
       </div>
@@ -112,8 +105,8 @@ export function OperationProgressView({
 
   if (error && !snapshot) {
     return (
-      <div className="p-6 space-y-4">
-        <div className="flex items-center gap-2.5 text-[var(--danger)] bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] border border-[color-mix(in_srgb,var(--danger)_30%,transparent)] rounded-lg p-3 text-xs">
+      <div className="space-y-4 p-6">
+        <div className="flex items-center gap-2.5 rounded-lg border border-[color-mix(in_srgb,var(--danger)_30%,transparent)] bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] p-3 text-xs text-[var(--danger)]">
           <AlertTriangle className="size-4 shrink-0" />
           <span>{error}</span>
         </div>
@@ -133,14 +126,15 @@ export function OperationProgressView({
   const isCompleted = snapshot.status === 'completed';
   const isFailed = snapshot.status === 'failed';
   const isRunning = snapshot.status === 'running';
-  const resultSummary = typeof (snapshot.result as { summary?: string })?.summary === 'string'
-    ? (snapshot.result as { summary: string }).summary
-    : null;
+  const resultSummary =
+    typeof (snapshot.result as { summary?: string })?.summary === 'string'
+      ? (snapshot.result as { summary: string }).summary
+      : null;
 
   return (
-    <div className="space-y-4 p-5 sm:p-6 text-xs">
+    <div className="space-y-4 p-5 text-xs sm:p-6">
       {snapshot.steps.length > 0 && (
-        <ul className="space-y-1.5 max-h-[360px] overflow-y-auto pr-1">
+        <ul className="max-h-[360px] space-y-1.5 overflow-y-auto pr-1">
           {snapshot.steps.map((step) => (
             <OperationStepRow key={step.id} step={step} />
           ))}
@@ -148,29 +142,19 @@ export function OperationProgressView({
       )}
 
       {isFailed && snapshot.error && (
-        <div className="rounded-lg border border-[color-mix(in_srgb,var(--danger)_30%,transparent)] bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] p-3 text-[var(--danger-strong)] space-y-1">
-          <p className="font-semibold text-xs flex items-center gap-1.5">
+        <div className="space-y-1 rounded-lg border border-[color-mix(in_srgb,var(--danger)_30%,transparent)] bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] p-3 text-[var(--danger-strong)]">
+          <p className="flex items-center gap-1.5 text-xs font-semibold">
             <AlertTriangle className="size-3.5 text-[var(--danger)]" /> Operacja nie powiodła się
           </p>
-          <p className="text-[11px] leading-relaxed font-mono text-[var(--danger)]">
-            {snapshot.error.message}
-          </p>
+          <p className="font-mono text-[11px] leading-relaxed text-[var(--danger)]">{snapshot.error.message}</p>
         </div>
       )}
 
-      {isCompleted && resultSummary && (
-        <p className="text-[11px] text-[var(--muted)] italic px-1">
-          {resultSummary}
-        </p>
-      )}
+      {isCompleted && resultSummary && <p className="px-1 text-[11px] text-[var(--muted)] italic">{resultSummary}</p>}
 
       {onDismiss && !isRunning && (
-        <div className="flex justify-end pt-2 border-t border-[var(--border)]">
-          <Button
-            size="sm"
-            variant={isCompleted ? 'default' : 'secondary'}
-            onClick={onDismiss}
-          >
+        <div className="flex justify-end border-t border-[var(--border)] pt-2">
+          <Button size="sm" variant={isCompleted ? 'default' : 'secondary'} onClick={onDismiss}>
             Zamknij
           </Button>
         </div>

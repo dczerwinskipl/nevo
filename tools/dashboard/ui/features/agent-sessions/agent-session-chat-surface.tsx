@@ -1,10 +1,7 @@
 import { forwardRef, useCallback, useImperativeHandle, useRef } from 'react';
 
 import { AgentSessionComposer } from './composer/agent-session-composer';
-import {
-  AgentSessionTranscriptV2,
-  type AgentSessionTranscriptV2Handle,
-} from './work-v2/agent-session-transcript-v2';
+import { AgentSessionTranscriptV2, type AgentSessionTranscriptV2Handle } from './work-v2/agent-session-transcript-v2';
 import type { AgentSessionLoadError } from './runtime/agent-session-transport';
 import type { AgentExecutionMode, CanonicalTurnV2 } from './types';
 import { cn } from '@/lib/utils';

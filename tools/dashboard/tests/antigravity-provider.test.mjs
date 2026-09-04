@@ -27,7 +27,9 @@ function createAntigravityAgentProvider(options = {}) {
 function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5, events = null } = {}) {
   const child = new EventEmitter();
   child.stdin = new Writable({
-    write(chunk, encoding, callback) { callback(); },
+    write(chunk, encoding, callback) {
+      callback();
+    },
   });
   child.stdout = new Readable({
     read() {},
@@ -51,13 +53,13 @@ function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5, events
         } else {
           child.stdout.push(`${ev.line}\n`);
         }
-        if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+        if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
       }
     } else {
       for (const line of stdoutLines) {
         if (child.killed) break;
         child.stdout.push(`${line}\n`);
-        if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+        if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
       }
     }
     child.stdout.push(null);
@@ -76,7 +78,11 @@ function createHangingMockProcess({ ignoreSignal = false } = {}) {
   child.exitCode = null;
   child.signalCode = null;
   child.killCalls = [];
-  child.stdin = new Writable({ write(chunk, encoding, callback) { callback(); } });
+  child.stdin = new Writable({
+    write(chunk, encoding, callback) {
+      callback();
+    },
+  });
   child.stdout = new Readable({ read() {} });
   child.stderr = new Readable({ read() {} });
 
@@ -117,12 +123,12 @@ test('AntigravityAgentProvider throws CapabilityNotSupportedError for permission
   const provider = createAntigravityAgentProvider();
   await assert.rejects(
     () => provider.respondInteraction('sess-1', 'int-1', { kind: 'permission', decision: 'allow' }),
-    err => {
+    (err) => {
       assert.ok(err instanceof CapabilityNotSupportedError);
       assert.equal(err.provider, 'antigravity');
       assert.equal(err.capability, 'interactivePermissions');
       return true;
-    }
+    },
   );
 });
 
@@ -147,7 +153,9 @@ test('new conversation spawns with stream-json input format and sets providerSes
   const result = await provider.startTurn({
     turnId: 'turn-1',
     message: 'Hello',
-    setProviderSessionId: (id) => { allocatedSessionId = id; },
+    setProviderSessionId: (id) => {
+      allocatedSessionId = id;
+    },
     emitCommentaryDelta: (d) => deltas.push(d),
     emitFinalAnswerDelta: (d) => deltas.push(d),
   });
@@ -215,7 +223,9 @@ test('multi-turn continuation maps dashboard session ID to agy conversation ID a
     turnId: 'turn-1',
     providerSessionId: 'dashboard-uuid-111',
     message: 'First turn',
-    setProviderSessionId: (id) => { allocatedId = id; },
+    setProviderSessionId: (id) => {
+      allocatedId = id;
+    },
   });
 
   assert.equal(allocatedId, 'agy-allocated-999');
@@ -261,7 +271,9 @@ test('maps reasoning, tool calls, and usage events', async () => {
     emitToolCompleted: (t) => toolsCompleted.push(t),
     emitCommentaryDelta: (t) => texts.push(t),
     emitFinalAnswerDelta: (t) => texts.push(t),
-    emitUsageUpdated: (u) => { usage = u; },
+    emitUsageUpdated: (u) => {
+      usage = u;
+    },
   });
 
   assert.deepEqual(reasonings, ['Thinking step 1']);
@@ -291,7 +303,7 @@ test('supports turn cancellation via cancelTurn', async () => {
   assert.equal(cancelResult.cancelled, true);
   assert.deepEqual(child.killCalls, ['SIGINT']);
 
-  await assert.rejects(turnPromise, err => err.code === 'AI_TURN_CANCELLED');
+  await assert.rejects(turnPromise, (err) => err.code === 'AI_TURN_CANCELLED');
 });
 
 test('cancelTurn escalates to a forceful SIGKILL when SIGINT is ignored past the grace period', async () => {
@@ -308,11 +320,14 @@ test('cancelTurn escalates to a forceful SIGKILL when SIGINT is ignored past the
     message: 'Long query',
   });
 
-  const cancelResult = await provider.cancelTurn({ turnId: 'turn-cancel-escalate', providerSessionId: 'sess-escalate' });
+  const cancelResult = await provider.cancelTurn({
+    turnId: 'turn-cancel-escalate',
+    providerSessionId: 'sess-escalate',
+  });
   assert.equal(cancelResult.cancelled, true);
   assert.deepEqual(child.killCalls, ['SIGINT', 'SIGKILL']);
 
-  await assert.rejects(turnPromise, err => err.code === 'AI_TURN_CANCELLED');
+  await assert.rejects(turnPromise, (err) => err.code === 'AI_TURN_CANCELLED');
 });
 
 test('can be registered and retrieved in AgentProviderRegistry', () => {
@@ -458,7 +473,11 @@ test('Antigravity cancelTurn retains active operation in state until cancellatio
   child.exitCode = null;
   child.signalCode = null;
   child.killCalls = [];
-  child.stdin = new Writable({ write(chunk, encoding, cb) { cb(); } });
+  child.stdin = new Writable({
+    write(chunk, encoding, cb) {
+      cb();
+    },
+  });
   child.stdout = new Readable({ read() {} });
   child.stderr = new Readable({ read() {} });
 
@@ -478,15 +497,17 @@ test('Antigravity cancelTurn retains active operation in state until cancellatio
     providerSessionId: 'sess-hold',
     message: 'hello',
   });
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
 
   let cancelCompleted = false;
-  const cancelPromise = provider.cancelTurn({ turnId: 'turn-cancel-hold', providerSessionId: 'sess-hold' }).then(res => {
-    cancelCompleted = true;
-    return res;
-  });
+  const cancelPromise = provider
+    .cancelTurn({ turnId: 'turn-cancel-hold', providerSessionId: 'sess-hold' })
+    .then((res) => {
+      cancelCompleted = true;
+      return res;
+    });
 
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(cancelCompleted, false, 'cancelTurn must not report completion before process exits');
 
   // Trigger process exit
@@ -506,7 +527,11 @@ test('Antigravity cancelTurn bounded cancellation fails cleanly when child ignor
   child.exitCode = null;
   child.signalCode = null;
   child.killCalls = [];
-  child.stdin = new Writable({ write(chunk, encoding, cb) { cb(); } });
+  child.stdin = new Writable({
+    write(chunk, encoding, cb) {
+      cb();
+    },
+  });
   child.stdout = new Readable({ read() {} });
   child.stderr = new Readable({ read() {} });
   child.kill = (signal) => {
@@ -525,11 +550,11 @@ test('Antigravity cancelTurn bounded cancellation fails cleanly when child ignor
     providerSessionId: 'sess-unresponsive',
     message: 'hello',
   });
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
 
   await assert.rejects(
     () => provider.cancelTurn({ turnId: 'turn-cancel-unresponsive-agy', providerSessionId: 'sess-unresponsive' }),
-    err => err.code === 'AI_PROCESS_TERMINATION_FAILED'
+    (err) => err.code === 'AI_PROCESS_TERMINATION_FAILED',
   );
   assert.deepEqual(child.killCalls, ['SIGINT', 'SIGKILL']);
 });
@@ -551,7 +576,7 @@ test('Antigravity non-zero process exit resolves a still-active tool call to fai
       message: 'go',
       emitToolCompleted: (t) => toolsCompleted.push(t),
     }),
-    err => err.code === 'AI_PROVIDER_EXIT_ERROR',
+    (err) => err.code === 'AI_PROVIDER_EXIT_ERROR',
   );
 
   assert.equal(toolsCompleted.length, 1);
@@ -565,7 +590,11 @@ test('Antigravity cancellation resolves a still-active tool call to failed only 
   child.exitCode = null;
   child.signalCode = null;
   child.killCalls = [];
-  child.stdin = new Writable({ write(chunk, encoding, cb) { cb(); } });
+  child.stdin = new Writable({
+    write(chunk, encoding, cb) {
+      cb();
+    },
+  });
   child.stdout = new Readable({ read() {} });
   child.stderr = new Readable({ read() {} });
   let finishSignal = null;
@@ -587,19 +616,27 @@ test('Antigravity cancellation resolves a still-active tool call to failed only 
     message: 'long query',
     emitToolCompleted: (t) => toolsCompleted.push(t),
   });
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
 
-  child.stdout.push(`${JSON.stringify({ type: 'tool.started', toolId: 'tool-cancel', toolName: 'Bash', input: { command: 'long-running' } })}\n`);
-  await new Promise(resolve => setImmediate(resolve));
+  child.stdout.push(
+    `${JSON.stringify({ type: 'tool.started', toolId: 'tool-cancel', toolName: 'Bash', input: { command: 'long-running' } })}\n`,
+  );
+  await new Promise((resolve) => setImmediate(resolve));
 
   let cancelCompleted = false;
-  const cancelPromise = provider.cancelTurn({ turnId: 'turn-cancel-tool', providerSessionId: 'sess-cancel-tool' }).then(res => {
-    cancelCompleted = true;
-    return res;
-  });
-  await new Promise(resolve => setImmediate(resolve));
+  const cancelPromise = provider
+    .cancelTurn({ turnId: 'turn-cancel-tool', providerSessionId: 'sess-cancel-tool' })
+    .then((res) => {
+      cancelCompleted = true;
+      return res;
+    });
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(cancelCompleted, false, 'cancelTurn must not report completion before the process exits');
-  assert.equal(toolsCompleted.length, 0, 'no tool.completed must be emitted before the close handler evaluates cancellation');
+  assert.equal(
+    toolsCompleted.length,
+    0,
+    'no tool.completed must be emitted before the close handler evaluates cancellation',
+  );
 
   child.exitCode = 0;
   child.signalCode = finishSignal;
@@ -608,7 +645,7 @@ test('Antigravity cancellation resolves a still-active tool call to failed only 
 
   const cancelResult = await cancelPromise;
   assert.equal(cancelResult.cancelled, true);
-  await assert.rejects(startPromise, err => err.code === 'AI_TURN_CANCELLED');
+  await assert.rejects(startPromise, (err) => err.code === 'AI_TURN_CANCELLED');
 
   assert.equal(toolsCompleted.length, 1);
   assert.equal(toolsCompleted[0].toolId, 'tool-cancel');
@@ -719,7 +756,11 @@ test('Antigravity turn completes immediately upon authoritative result event eve
   child.exitCode = null;
   child.signalCode = null;
   child.killCalls = [];
-  child.stdin = new Writable({ write(chunk, encoding, cb) { cb(); } });
+  child.stdin = new Writable({
+    write(chunk, encoding, cb) {
+      cb();
+    },
+  });
   child.stdout = new Readable({ read() {} });
   child.stderr = new Readable({ read() {} });
 
@@ -741,13 +782,19 @@ test('Antigravity turn completes immediately upon authoritative result event eve
   child.stdout.push(`${JSON.stringify({ event: 'result', result: { response: 'Turn finished immediately' } })}\n`);
 
   // Allow microtasks/promises to process
-  await new Promise(resolve => setTimeout(resolve, 20));
+  await new Promise((resolve) => setTimeout(resolve, 20));
 
   // startPromise must resolve NOW without child emitting 'close'
   let resolved = false;
-  startPromise.then(() => { resolved = true; });
-  await new Promise(resolve => setTimeout(resolve, 20));
-  assert.equal(resolved, true, 'startTurn must resolve upon authoritative result event without waiting for process close');
+  startPromise.then(() => {
+    resolved = true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(
+    resolved,
+    true,
+    'startTurn must resolve upon authoritative result event without waiting for process close',
+  );
   assert.deepEqual(textDeltas, ['Turn finished immediately']);
 
   // Emitting close later must not throw or cause duplicate completion
@@ -789,14 +836,21 @@ test('Antigravity preserves final assistant response even when an earlier tool i
   assert.equal(result.status, 'completed');
   assert.equal(toolsCompleted.length, 1);
   assert.equal(toolsCompleted[0].status, 'failed', 'tool remains failed');
-  assert.deepEqual(textDeltas, ['Plik nie istnieje, ale znalazłem plik zastępczy.'], 'final assistant message must be preserved');
+  assert.deepEqual(
+    textDeltas,
+    ['Plik nie istnieje, ale znalazłem plik zastępczy.'],
+    'final assistant message must be preserved',
+  );
 });
 
 test('extractFinalResponse supports only proven provider shapes and rejects arbitrary property guesses', () => {
   // Proven shapes
   assert.equal(extractFinalResponse({ result: 'plain string result' }), 'plain string result');
   assert.equal(extractFinalResponse({ type: 'done', result: 'done result' }), 'done result');
-  assert.equal(extractFinalResponse({ event: 'result', result: { response: 'object result response' } }), 'object result response');
+  assert.equal(
+    extractFinalResponse({ event: 'result', result: { response: 'object result response' } }),
+    'object result response',
+  );
   assert.equal(extractFinalResponse({ response: 'direct response' }), 'direct response');
 
   // Unproven / generic metadata fields that must NOT be treated as assistant prose
@@ -819,7 +873,11 @@ test('Antigravity lifecycle: authoritative terminal result resolves immediately,
   child.exitCode = null;
   child.signalCode = null;
   child.killCalls = [];
-  child.stdin = new Writable({ write(chunk, encoding, cb) { cb(); } });
+  child.stdin = new Writable({
+    write(chunk, encoding, cb) {
+      cb();
+    },
+  });
   child.stdout = new Readable({ read() {} });
   child.stderr = new Readable({ read() {} });
   child.kill = (signal) => {
@@ -847,7 +905,9 @@ test('Antigravity lifecycle: authoritative terminal result resolves immediately,
     emitToolStarted: (t) => toolsStarted.push(t),
     emitReasoningDelta: (r) => reasonings.push(r),
     emitUsageUpdated: (u) => usages.push(u),
-    setOperation: (op) => { capturedOperation = op; },
+    setOperation: (op) => {
+      capturedOperation = op;
+    },
   });
 
   // 1. Child emits init
@@ -857,12 +917,14 @@ test('Antigravity lifecycle: authoritative terminal result resolves immediately,
   child.stdout.push(`${JSON.stringify({ event: 'result', result: { response: 'done' } })}\n`);
 
   // Allow microtasks to resolve turn
-  await new Promise(resolve => setTimeout(resolve, 20));
+  await new Promise((resolve) => setTimeout(resolve, 20));
 
   // Assert: startTurn resolves immediately at result
   let resolved = false;
-  startPromise.then(() => { resolved = true; });
-  await new Promise(resolve => setTimeout(resolve, 20));
+  startPromise.then(() => {
+    resolved = true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(resolved, true, 'startTurn must resolve immediately upon result');
   assert.deepEqual(textDeltas, ['done'], '"done" must be emitted exactly once');
 
@@ -873,7 +935,9 @@ test('Antigravity lifecycle: authoritative terminal result resolves immediately,
 
   // 3. Child emits trailing stdout events while still alive
   child.stdout.push(`${JSON.stringify({ type: 'text.delta', delta: 'trailing text after done' })}\n`);
-  child.stdout.push(`${JSON.stringify({ type: 'tool.started', toolId: 'tool-trailing', toolName: 'Bash', input: { cmd: 'ls' } })}\n`);
+  child.stdout.push(
+    `${JSON.stringify({ type: 'tool.started', toolId: 'tool-trailing', toolName: 'Bash', input: { cmd: 'ls' } })}\n`,
+  );
   child.stdout.push(`${JSON.stringify({ type: 'reasoning.delta', reasoning: 'trailing thought' })}\n`);
   child.stdout.push(`${JSON.stringify({ type: 'usage', tokensIn: 500, tokensOut: 500 })}\n`);
 
@@ -886,13 +950,16 @@ test('Antigravity lifecycle: authoritative terminal result resolves immediately,
   assert.equal(textDeltas.length, 1);
 });
 
-
 test('Antigravity bounded graceful termination terminates child process if it remains alive indefinitely after result', async () => {
   const child = new EventEmitter();
   child.exitCode = null;
   child.signalCode = null;
   child.killCalls = [];
-  child.stdin = new Writable({ write(chunk, encoding, cb) { cb(); } });
+  child.stdin = new Writable({
+    write(chunk, encoding, cb) {
+      cb();
+    },
+  });
   child.stdout = new Readable({ read() {} });
   child.stderr = new Readable({ read() {} });
   child.kill = (signal) => {
@@ -921,7 +988,7 @@ test('Antigravity bounded graceful termination terminates child process if it re
   assert.equal(result.status, 'completed');
 
   // Wait for post-result timeout to fire
-  await new Promise(resolve => setTimeout(resolve, 80));
+  await new Promise((resolve) => setTimeout(resolve, 80));
 
   assert.ok(child.killCalls.includes('SIGINT'), 'post-result timer must trigger bounded graceful termination');
 });
@@ -931,7 +998,11 @@ test('Antigravity bounded graceful termination terminates child process if it re
   child.exitCode = null;
   child.signalCode = null;
   child.killCalls = [];
-  child.stdin = new Writable({ write(chunk, encoding, cb) { cb(); } });
+  child.stdin = new Writable({
+    write(chunk, encoding, cb) {
+      cb();
+    },
+  });
   child.stdout = new Readable({ read() {} });
   child.stderr = new Readable({ read() {} });
   child.kill = (signal) => {
@@ -952,21 +1023,22 @@ test('Antigravity bounded graceful termination terminates child process if it re
     turnId: 'turn-hanging-error',
     providerSessionId: 'sess-hanging-error',
     message: 'trigger error',
-    setOperation: (op) => { capturedOperation = op; },
+    setOperation: (op) => {
+      capturedOperation = op;
+    },
   });
 
   child.stdout.push(`${JSON.stringify({ type: 'init', conversation_id: 'sess-hanging-error' })}\n`);
-  child.stdout.push(`${JSON.stringify({ event: 'result', result: { status: 'ERROR', response: '', error: 'Provider terminal failure' } })}\n`);
+  child.stdout.push(
+    `${JSON.stringify({ event: 'result', result: { status: 'ERROR', response: '', error: 'Provider terminal failure' } })}\n`,
+  );
 
   // 1. Assert: startTurn rejects promptly with AI_PROVIDER_ERROR
-  await assert.rejects(
-    turnPromise,
-    (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_ERROR');
-      assert.equal(err.message, 'Provider terminal failure');
-      return true;
-    }
-  );
+  await assert.rejects(turnPromise, (err) => {
+    assert.equal(err.code, 'AI_PROVIDER_ERROR');
+    assert.equal(err.message, 'Provider terminal failure');
+    return true;
+  });
 
   // 2. Assert: child is still owned and postResultTimer is active
   assert.ok(capturedOperation, 'operation must remain tracked after terminal ERROR result');
@@ -974,9 +1046,12 @@ test('Antigravity bounded graceful termination terminates child process if it re
   assert.ok(capturedOperation.postResultTimer, 'postResultTimer must be scheduled on terminal ERROR');
 
   // 3. Wait for post-result timeout to fire
-  await new Promise(resolve => setTimeout(resolve, 80));
+  await new Promise((resolve) => setTimeout(resolve, 80));
 
-  assert.ok(child.killCalls.includes('SIGINT'), 'post-result timer must trigger bounded graceful termination for hanging ERROR process');
+  assert.ok(
+    child.killCalls.includes('SIGINT'),
+    'post-result timer must trigger bounded graceful termination for hanging ERROR process',
+  );
 });
 
 test('Antigravity raw capture: known JSON events persist exact payload with envelope metadata and turnId', async () => {
@@ -988,7 +1063,7 @@ test('Antigravity raw capture: known JSON events persist exact payload with enve
       { event: 'step_update', step_type: 'tool', tool_name: 'bash', state: 'DONE', output: 'Tests passed' },
       { event: 'result', result: { response: 'All good' } },
     ];
-    const stdoutLines = rawEvents.map(e => JSON.stringify(e));
+    const stdoutLines = rawEvents.map((e) => JSON.stringify(e));
 
     const child = createMockProcess(stdoutLines);
     const provider = createAntigravityAgentProvider({
@@ -1013,7 +1088,11 @@ test('Antigravity raw capture: known JSON events persist exact payload with enve
     assert.equal(captureFile, join(tmpDir, 'conv-json-test', 'raw.ndjson'));
 
     const content = await readFile(captureFile, 'utf8');
-    const lines = content.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+    const lines = content
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
 
     assert.equal(lines.length, rawEvents.length);
     for (let i = 0; i < rawEvents.length; i++) {
@@ -1064,7 +1143,11 @@ test('Antigravity raw capture: unknown or malformed non-JSON lines are preserved
 
     const captureFile = provider.getRawCapturePath('conv-malformed');
     const content = await readFile(captureFile, 'utf8');
-    const lines = content.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+    const lines = content
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
 
     assert.equal(lines.length, 4);
     assert.equal(lines[0].stream, 'stdout');
@@ -1112,7 +1195,11 @@ test('Antigravity raw capture: stderr is preserved and distinguishable from stdo
 
     const captureFile = provider.getRawCapturePath('conv-stderr-test');
     const content = await readFile(captureFile, 'utf8');
-    const lines = content.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+    const lines = content
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
 
     assert.equal(lines.length, 4);
     assert.equal(lines[0].stream, 'stdout');
@@ -1170,8 +1257,14 @@ test('Antigravity raw capture: strictly preserves chronological ordering across 
       { stream: 'stdout', line: JSON.stringify({ type: 'init', conversation_id: 'conv-order-test', seq: 1 }) },
       { stream: 'stdout', line: JSON.stringify({ event: 'step_update', thought: 'Checking environment', seq: 2 }) },
       { stream: 'stderr', line: '[diagnostic warning seq: 3]' },
-      { stream: 'stdout', line: JSON.stringify({ event: 'step_update', step_type: 'tool', tool_name: 'bash', state: 'ACTIVE', seq: 4 }) },
-      { stream: 'stdout', line: JSON.stringify({ event: 'step_update', step_type: 'tool', tool_name: 'bash', state: 'DONE', seq: 5 }) },
+      {
+        stream: 'stdout',
+        line: JSON.stringify({ event: 'step_update', step_type: 'tool', tool_name: 'bash', state: 'ACTIVE', seq: 4 }),
+      },
+      {
+        stream: 'stdout',
+        line: JSON.stringify({ event: 'step_update', step_type: 'tool', tool_name: 'bash', state: 'DONE', seq: 5 }),
+      },
       { stream: 'stdout', line: JSON.stringify({ event: 'step_update', thought: 'Fixing error', seq: 6 }) },
       { stream: 'stderr', line: '[diagnostic warning seq: 7]' },
       { stream: 'stdout', line: JSON.stringify({ event: 'result', response: 'Done', seq: 8 }) },
@@ -1196,7 +1289,11 @@ test('Antigravity raw capture: strictly preserves chronological ordering across 
 
     const captureFile = provider.getRawCapturePath('conv-order-test');
     const content = await readFile(captureFile, 'utf8');
-    const lines = content.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+    const lines = content
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
 
     assert.equal(lines.length, 8);
     assert.equal(lines[0].raw.seq, 1);
@@ -1218,10 +1315,16 @@ test('Antigravity raw capture: captures trailing events, raw text, and unclosed 
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-agy-post-result-'));
   try {
     const child = new EventEmitter();
-    child.stdin = new Writable({ write(chunk, enc, cb) { cb(); } });
+    child.stdin = new Writable({
+      write(chunk, enc, cb) {
+        cb();
+      },
+    });
     child.stdout = new Readable({ read() {} });
     child.stderr = new Readable({ read() {} });
-    child.kill = () => { child.killed = true; };
+    child.kill = () => {
+      child.killed = true;
+    };
 
     const provider = createAntigravityAgentProvider({
       spawnProcess: () => child,
@@ -1240,8 +1343,12 @@ test('Antigravity raw capture: captures trailing events, raw text, and unclosed 
 
     // 1. Initial conversation and tool events
     child.stdout.push(JSON.stringify({ type: 'init', conversation_id: 'conv-post-result' }) + '\n');
-    child.stdout.push(JSON.stringify({ event: 'step_update', step_type: 'tool', tool_name: 'read_file', state: 'ACTIVE' }) + '\n');
-    child.stdout.push(JSON.stringify({ event: 'step_update', step_type: 'tool', tool_name: 'read_file', state: 'DONE' }) + '\n');
+    child.stdout.push(
+      JSON.stringify({ event: 'step_update', step_type: 'tool', tool_name: 'read_file', state: 'ACTIVE' }) + '\n',
+    );
+    child.stdout.push(
+      JSON.stringify({ event: 'step_update', step_type: 'tool', tool_name: 'read_file', state: 'DONE' }) + '\n',
+    );
 
     // 2. Authoritative result event
     child.stdout.push(JSON.stringify({ event: 'result', response: 'Authoritative completion' }) + '\n');
@@ -1267,7 +1374,11 @@ test('Antigravity raw capture: captures trailing events, raw text, and unclosed 
     // Verify raw.ndjson content
     const captureFile = provider.getRawCapturePath('conv-post-result');
     const rawContent = await readFile(captureFile, 'utf8');
-    const rawLines = rawContent.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+    const rawLines = rawContent
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
 
     assert.equal(rawLines.length, 7, 'All 7 items must be captured in raw.ndjson');
     assert.equal(rawLines[0].raw.type, 'init');
@@ -1327,12 +1438,7 @@ test('Antigravity raw capture: rawCaptureSessionDirectory hybrid strategy preser
   const tmpBase = join('C:', 'test', 'raw_capture');
 
   // 1. Safe IDs remain exactly unchanged
-  const safeIds = [
-    '468ea2f9-9d0f-43e0-960c-feff8cc2bf6a',
-    'conv-12345',
-    'SESSION_01_alpha-BETA',
-    '1234567890',
-  ];
+  const safeIds = ['468ea2f9-9d0f-43e0-960c-feff8cc2bf6a', 'conv-12345', 'SESSION_01_alpha-BETA', '1234567890'];
   for (const id of safeIds) {
     assert.equal(rawCaptureSessionDirectory(id), id, `Safe ID '${id}' must return unchanged`);
   }
@@ -1427,12 +1533,20 @@ test('Antigravity raw capture: case collision simulation prevents cross-session 
 
     // Verify content isolation
     const content1 = await readFile(path1, 'utf8');
-    const lines1 = content1.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+    const lines1 = content1
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
     assert.equal(lines1.length, 2, 'Session 1 capture must contain only its own 2 records');
     assert.equal(lines1[0].providerSessionId, 'SessionABC');
 
     const content2 = await readFile(path2, 'utf8');
-    const lines2 = content2.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+    const lines2 = content2
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
     assert.equal(lines2.length, 2, 'Session 2 capture must contain only its own 2 records');
     assert.equal(lines2[0].providerSessionId, 'sessionabc');
 
@@ -1496,7 +1610,7 @@ test('Antigravity raw capture: provisional new session migrates to allocated con
     await provider.flushRawCapture('allocated-agy-9876');
 
     // 1. Verify logging: only the allocated session capture path was logged, not the provisional UUID
-    const rawCaptureLogs = loggedLines.filter(l => l.includes('Antigravity raw capture:'));
+    const rawCaptureLogs = loggedLines.filter((l) => l.includes('Antigravity raw capture:'));
     assert.equal(rawCaptureLogs.length, 1, 'Exactly one raw capture log must be emitted');
     assert.ok(rawCaptureLogs[0].includes('allocated-agy-9876'), 'Logged path must be the final allocated session');
 
@@ -1504,7 +1618,11 @@ test('Antigravity raw capture: provisional new session migrates to allocated con
     const finalDir = join(tmpDir, 'allocated-agy-9876');
     const captureFile = join(finalDir, 'raw.ndjson');
     const content = await readFile(captureFile, 'utf8');
-    const lines = content.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+    const lines = content
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
 
     assert.equal(lines.length, 3, 'All 3 lines (including init) must be migrated to the allocated session file');
     // Ensure every record has the canonical allocated providerSessionId in the envelope
@@ -1512,7 +1630,7 @@ test('Antigravity raw capture: provisional new session migrates to allocated con
       assert.equal(
         lines[i].providerSessionId,
         'allocated-agy-9876',
-        `Record ${i} must have canonical providerSessionId after migration`
+        `Record ${i} must have canonical providerSessionId after migration`,
       );
     }
     // Ensure the raw provider payload was NOT altered or corrupted
@@ -1563,7 +1681,7 @@ test('Antigravity error result: event "result" + status "ERROR" + empty response
       assert.equal(err.code, 'AI_PROVIDER_ERROR');
       assert.equal(err.message, 'ContentOffset 22500 exceeds line range size 1792');
       return true;
-    }
+    },
   );
 
   assert.equal(textDeltas.length, 0, 'must not emit any text delta for empty response on error');
@@ -1603,15 +1721,16 @@ test('Antigravity error result: streamed waiting text plus active run_command pl
   });
 
   await assert.rejects(
-    () => provider.startTurn({
-      turnId: 'turn-waiting-error',
-      providerSessionId: 'conv-waiting-error',
-      message: 'Run verification',
-      emitCommentaryDelta: delta => textDeltas.push(delta),
-      emitFinalAnswerDelta: delta => textDeltas.push(delta),
-      emitToolCompleted: tool => toolsCompleted.push(tool),
-    }),
-    err => {
+    () =>
+      provider.startTurn({
+        turnId: 'turn-waiting-error',
+        providerSessionId: 'conv-waiting-error',
+        message: 'Run verification',
+        emitCommentaryDelta: (delta) => textDeltas.push(delta),
+        emitFinalAnswerDelta: (delta) => textDeltas.push(delta),
+        emitToolCompleted: (tool) => toolsCompleted.push(tool),
+      }),
+    (err) => {
       assert.equal(err.code, 'AI_PROVIDER_ERROR');
       assert.equal(err.message, 'Verification operation ended without a terminal result');
       return true;
@@ -1660,17 +1779,17 @@ test('Antigravity raw capture: terminal settlement flushes canonical session and
         .trim()
         .split('\n')
         .filter(Boolean)
-        .map(line => JSON.parse(line));
+        .map((line) => JSON.parse(line));
       assert.equal(records.length, 2);
-      assert.ok(records.every(record => record.providerSessionId === session.sessionId));
-      assert.ok(records.every(record => record.turnId === session.turnId));
+      assert.ok(records.every((record) => record.providerSessionId === session.sessionId));
+      assert.ok(records.every((record) => record.turnId === session.turnId));
 
       const metadata = JSON.parse(await readFile(join(dirname(capturePath), 'session.json'), 'utf8'));
       assert.equal(metadata.providerSessionId, session.sessionId);
     }
 
-    const sessionARecords = (await readFile(provider.getRawCapturePath('canonical-session-a'), 'utf8'));
-    const sessionBRecords = (await readFile(provider.getRawCapturePath('canonical-session-b'), 'utf8'));
+    const sessionARecords = await readFile(provider.getRawCapturePath('canonical-session-a'), 'utf8');
+    const sessionBRecords = await readFile(provider.getRawCapturePath('canonical-session-b'), 'utf8');
     assert.doesNotMatch(sessionARecords, /canonical-session-b|nevo-turn-b/);
     assert.doesNotMatch(sessionBRecords, /canonical-session-a|nevo-turn-a/);
   } finally {
@@ -1691,16 +1810,18 @@ test('Antigravity generic provider error retains process ownership and terminate
     turnId: 'turn-generic-provider-error',
     providerSessionId: 'session-generic-provider-error',
     message: 'Fail from an error event',
-    setOperation: value => { operation = value; },
+    setOperation: (value) => {
+      operation = value;
+    },
   });
   child.stdout.push(`${JSON.stringify({ type: 'error', message: 'Provider stream failed' })}\n`);
 
-  await assert.rejects(turnPromise, err => {
+  await assert.rejects(turnPromise, (err) => {
     assert.equal(err.code, 'AI_PROVIDER_ERROR');
     assert.equal(err.message, 'Provider stream failed');
     return true;
   });
-  await new Promise(resolve => setTimeout(resolve, 30));
+  await new Promise((resolve) => setTimeout(resolve, 30));
 
   assert.ok(operation, 'operation remains owned until the child closes');
   assert.equal(operation.isResolved, true);
@@ -1728,14 +1849,14 @@ test('Antigravity dispose terminates active operations and flushes their raw dia
     child.stdout.push(`${JSON.stringify({ type: 'init', conversation_id: 'session-dispose-raw' })}\n`);
 
     await registry.dispose();
-    await assert.rejects(turnPromise, err => err.code === 'AI_TURN_CANCELLED');
+    await assert.rejects(turnPromise, (err) => err.code === 'AI_TURN_CANCELLED');
 
     assert.ok(child.killCalls.includes('SIGINT'));
     const records = (await readFile(provider.getRawCapturePath('session-dispose-raw'), 'utf8'))
       .trim()
       .split('\n')
       .filter(Boolean)
-      .map(line => JSON.parse(line));
+      .map((line) => JSON.parse(line));
     assert.equal(records.length, 1);
     assert.equal(records[0].providerSessionId, 'session-dispose-raw');
     assert.equal(records[0].turnId, 'turn-dispose-raw');
@@ -1763,18 +1884,19 @@ test('Antigravity error result: event "result" + status "ERROR" with non-empty r
   });
 
   await assert.rejects(
-    () => provider.startTurn({
-      turnId: 'turn-err-response',
-      providerSessionId: 'conv-err-response',
-      message: 'Do work',
-      emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
-    }),
+    () =>
+      provider.startTurn({
+        turnId: 'turn-err-response',
+        providerSessionId: 'conv-err-response',
+        message: 'Do work',
+        emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
+      }),
     (err) => {
       assert.equal(err.code, 'AI_PROVIDER_ERROR');
       assert.equal(err.message, 'Earlier tool failed');
       assert.equal(err.details?.providerResponse, 'Odpowiedź asystenta wygenerowana mimo wcześniejszego błędu w sesji');
       return true;
-    }
+    },
   );
 
   assert.equal(finalAnswerDeltas.length, 0, 'must not emit FinalAnswer on failed turn');
@@ -1798,17 +1920,18 @@ test('Antigravity error result: event "result" + status "FAILED" with non-empty 
   });
 
   await assert.rejects(
-    () => provider.startTurn({
-      turnId: 'turn-failed-response',
-      providerSessionId: 'conv-failed-response',
-      message: 'Do work',
-    }),
+    () =>
+      provider.startTurn({
+        turnId: 'turn-failed-response',
+        providerSessionId: 'conv-failed-response',
+        message: 'Do work',
+      }),
     (err) => {
       assert.equal(err.code, 'AI_PROVIDER_ERROR');
       assert.equal(err.message, 'Task execution failed');
       assert.equal(err.details?.providerResponse, 'Partial response before failure');
       return true;
-    }
+    },
   );
 });
 
@@ -1830,17 +1953,18 @@ test('Antigravity error result: event "result" + status "TIMEOUT" with non-empty
   });
 
   await assert.rejects(
-    () => provider.startTurn({
-      turnId: 'turn-timeout-response',
-      providerSessionId: 'conv-timeout-response',
-      message: 'Do work',
-    }),
+    () =>
+      provider.startTurn({
+        turnId: 'turn-timeout-response',
+        providerSessionId: 'conv-timeout-response',
+        message: 'Do work',
+      }),
     (err) => {
       assert.equal(err.code, 'AI_PROVIDER_TIMEOUT');
       assert.equal(err.status, 504);
       assert.equal(err.details?.providerResponse, 'Partial response before timeout occurred');
       return true;
-    }
+    },
   );
 });
 
@@ -1880,7 +2004,7 @@ test('Antigravity error result: event "result" + status "ERROR" preserves usage 
       assert.equal(err.code, 'AI_PROVIDER_ERROR');
       assert.equal(err.message, 'Rate limit hit');
       return true;
-    }
+    },
   );
 
   assert.equal(usages.length, 1);
@@ -1948,21 +2072,26 @@ test('Antigravity error result: buffered assistant text before ERROR result is n
   });
 
   await assert.rejects(
-    () => provider.startTurn({
-      turnId: 'turn-err-streamed',
-      providerSessionId: 'conv-err-streamed',
-      message: 'Stream and fail',
-      emitCommentaryDelta: (t) => commentaryDeltas.push(t),
-      emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
-    }),
+    () =>
+      provider.startTurn({
+        turnId: 'turn-err-streamed',
+        providerSessionId: 'conv-err-streamed',
+        message: 'Stream and fail',
+        emitCommentaryDelta: (t) => commentaryDeltas.push(t),
+        emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
+      }),
     (err) => {
       assert.equal(err.code, 'AI_PROVIDER_ERROR');
       assert.equal(err.message, 'Błąd po wygenerowaniu tekstu');
       return true;
-    }
+    },
   );
 
-  assert.deepEqual(commentaryDeltas, ['Wystreamowany tekst'], 'buffered text must be preserved in commentary upon failure');
+  assert.deepEqual(
+    commentaryDeltas,
+    ['Wystreamowany tekst'],
+    'buffered text must be preserved in commentary upon failure',
+  );
   assert.equal(finalAnswerDeltas.length, 0, 'must never emit final answer on error result');
 });
 
@@ -1998,7 +2127,7 @@ test('Antigravity error result: still-active tool call is resolved to failed', a
       assert.equal(err.code, 'AI_PROVIDER_ERROR');
       assert.equal(err.message, 'Execution failed');
       return true;
-    }
+    },
   );
 
   assert.equal(toolsCompleted.length, 1);
@@ -2033,7 +2162,7 @@ test('Antigravity terminal status & is_error matrix: status "FAILED" with empty 
       assert.equal(err.code, 'AI_PROVIDER_ERROR');
       assert.equal(err.message, 'Execution failed completely');
       return true;
-    }
+    },
   );
 });
 
@@ -2064,7 +2193,7 @@ test('Antigravity terminal status & is_error matrix: is_error true without statu
       assert.equal(err.code, 'AI_PROVIDER_ERROR');
       assert.equal(err.message, 'Flagged as error without status string');
       return true;
-    }
+    },
   );
 });
 
@@ -2096,7 +2225,7 @@ test('Antigravity terminal status & is_error matrix: status "SUCCESS" + is_error
       assert.equal(err.code, 'AI_PROVIDER_ERROR');
       assert.equal(err.message, 'Conflicting status but explicit is_error true');
       return true;
-    }
+    },
   );
 });
 
@@ -2125,7 +2254,7 @@ test('Antigravity terminal status & is_error matrix: type "done" with top-level 
       assert.equal(err.code, 'AI_PROVIDER_ERROR');
       assert.equal(err.message, 'Done envelope failed');
       return true;
-    }
+    },
   );
 });
 
@@ -2238,9 +2367,7 @@ test('Antigravity timeout classification: process exit with timeout error maps t
   const spawnMock = () => {
     return createMockProcess([], {
       exitCode: 124,
-      events: [
-        { stream: 'stderr', line: 'Command timed out after 600 seconds' },
-      ],
+      events: [{ stream: 'stderr', line: 'Command timed out after 600 seconds' }],
     });
   };
 
@@ -2265,7 +2392,7 @@ test('Antigravity timeout classification: process exit with timeout error maps t
         configuredSeconds: 86400,
       });
       return true;
-    }
+    },
   );
 });
 
@@ -2327,8 +2454,8 @@ test('Antigravity independent active tool tracking: parallel tools do not overwr
     turnId: 'turn-parallel-tools',
     providerSessionId: 'conv-parallel-tools',
     message: 'read both',
-    emitToolStarted: tool => toolsStarted.push(tool),
-    emitToolCompleted: tool => toolsCompleted.push(tool),
+    emitToolStarted: (tool) => toolsStarted.push(tool),
+    emitToolCompleted: (tool) => toolsCompleted.push(tool),
   });
 
   assert.equal(toolsStarted.length, 2);
@@ -2366,7 +2493,7 @@ test('Antigravity evidence replay: maps full protocol capture from fixture to ca
   const usages = [];
 
   const provider = createAntigravityAgentProvider({
-    spawnProcess: () => createMockProcess(evidence.rawEvents.map(e => JSON.stringify(e))),
+    spawnProcess: () => createMockProcess(evidence.rawEvents.map((e) => JSON.stringify(e))),
   });
 
   await provider.startTurn({
@@ -2382,19 +2509,19 @@ test('Antigravity evidence replay: maps full protocol capture from fixture to ca
       textDeltas.push(text);
       coordinator.recordFinalAnswerDelta(text, id);
     },
-    emitReasoningDelta: text => {
+    emitReasoningDelta: (text) => {
       reasoningDeltas.push(text);
       coordinator.recordReasoningDelta(text);
     },
-    emitToolStarted: tool => {
+    emitToolStarted: (tool) => {
       toolsStarted.push(tool);
       coordinator.recordToolStarted(tool);
     },
-    emitToolCompleted: tool => {
+    emitToolCompleted: (tool) => {
       toolsCompleted.push(tool);
       coordinator.recordToolCompleted(tool);
     },
-    emitUsageUpdated: usage => {
+    emitUsageUpdated: (usage) => {
       usages.push(usage);
     },
   });
@@ -2424,7 +2551,10 @@ test('Antigravity evidence replay: maps full protocol capture from fixture to ca
   assert.equal(toolsCompleted[1].durationMs, 20);
 
   // Verify final response streamed
-  assert.ok(textDeltas.some(t => t.includes('Working tree is clean')), 'Final response contains clean working tree message');
+  assert.ok(
+    textDeltas.some((t) => t.includes('Working tree is clean')),
+    'Final response contains clean working tree message',
+  );
 
   // Verify no raw payloads or private IDs leak in serialized model
   const serialized = JSON.stringify(snapshot);
@@ -2453,12 +2583,53 @@ test('mapAntigravityTool leaves a short CommandLine description unchanged', () =
 test('Antigravity semantics 1: intermediate commentary → tool → final streamed response → terminal success', async () => {
   const lines = [
     JSON.stringify({ event: 'init', conversation_id: 'conv-sem-1' }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'I will inspect the workspace.' } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 2, step_type: 'tool', state: 'ACTIVE', tool_name: 'view_file', tool_info: { name: 'view_file', parameters: { AbsolutePath: '/foo.ts' } } } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 2, step_type: 'tool', state: 'DONE', tool_name: 'view_file', tool_info: { output: 'content' }, duration_seconds: 0.1 } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 3, step_type: 'agent_response', state: 'ACTIVE', text_delta: '# Final Report\nAll tasks verified.' } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 3, step_type: 'agent_response', state: 'DONE' } }),
-    JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'I will inspect the workspace.\n# Final Report\nAll tasks verified.' } }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 1,
+        step_type: 'agent_response',
+        state: 'ACTIVE',
+        text_delta: 'I will inspect the workspace.',
+      },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 2,
+        step_type: 'tool',
+        state: 'ACTIVE',
+        tool_name: 'view_file',
+        tool_info: { name: 'view_file', parameters: { AbsolutePath: '/foo.ts' } },
+      },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 2,
+        step_type: 'tool',
+        state: 'DONE',
+        tool_name: 'view_file',
+        tool_info: { output: 'content' },
+        duration_seconds: 0.1,
+      },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 3,
+        step_type: 'agent_response',
+        state: 'ACTIVE',
+        text_delta: '# Final Report\nAll tasks verified.',
+      },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: { step_index: 3, step_type: 'agent_response', state: 'DONE' },
+    }),
+    JSON.stringify({
+      event: 'result',
+      result: { status: 'SUCCESS', response: 'I will inspect the workspace.\n# Final Report\nAll tasks verified.' },
+    }),
   ];
 
   const coordinator = new TurnLifecycleCoordinator({
@@ -2502,16 +2673,73 @@ test('Antigravity semantics 1: intermediate commentary → tool → final stream
 test('Antigravity semantics 2: multiple commentary chunks before and between tools remain Commentary', async () => {
   const lines = [
     JSON.stringify({ event: 'init', conversation_id: 'conv-sem-2' }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Step 1: ' } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Checking git status.' } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 2, step_type: 'tool', state: 'ACTIVE', tool_name: 'run_command', tool_info: { name: 'run_command', parameters: { CommandLine: 'git status' } } } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 2, step_type: 'tool', state: 'DONE', tool_name: 'run_command', tool_info: { output: 'clean' } } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 3, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Step 2: ' } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 3, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Running tests.' } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 4, step_type: 'tool', state: 'ACTIVE', tool_name: 'run_command', tool_info: { name: 'run_command', parameters: { CommandLine: 'npm test' } } } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 4, step_type: 'tool', state: 'DONE', tool_name: 'run_command', tool_info: { output: 'PASS' } } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 5, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Everything is ready.' } }),
-    JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'Step 1: Checking git status.\nStep 2: Running tests.\nEverything is ready.' } }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: { step_index: 1, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Step 1: ' },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: { step_index: 1, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Checking git status.' },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 2,
+        step_type: 'tool',
+        state: 'ACTIVE',
+        tool_name: 'run_command',
+        tool_info: { name: 'run_command', parameters: { CommandLine: 'git status' } },
+      },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 2,
+        step_type: 'tool',
+        state: 'DONE',
+        tool_name: 'run_command',
+        tool_info: { output: 'clean' },
+      },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: { step_index: 3, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Step 2: ' },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: { step_index: 3, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Running tests.' },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 4,
+        step_type: 'tool',
+        state: 'ACTIVE',
+        tool_name: 'run_command',
+        tool_info: { name: 'run_command', parameters: { CommandLine: 'npm test' } },
+      },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 4,
+        step_type: 'tool',
+        state: 'DONE',
+        tool_name: 'run_command',
+        tool_info: { output: 'PASS' },
+      },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: { step_index: 5, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Everything is ready.' },
+    }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'SUCCESS',
+        response: 'Step 1: Checking git status.\nStep 2: Running tests.\nEverything is ready.',
+      },
+    }),
   ];
 
   const coordinator = new TurnLifecycleCoordinator({
@@ -2553,9 +2781,30 @@ test('Antigravity semantics 2: multiple commentary chunks before and between too
 test('Antigravity semantics 3: explicit terminal response in result.response sets FinalAnswer', async () => {
   const lines = [
     JSON.stringify({ event: 'init', conversation_id: 'conv-sem-3' }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'tool', state: 'ACTIVE', tool_name: 'run_command', tool_info: { name: 'run_command', parameters: { CommandLine: 'git diff' } } } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'tool', state: 'DONE', tool_name: 'run_command', tool_info: { output: '' } } }),
-    JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'Explicit terminal response without streaming.' } }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 1,
+        step_type: 'tool',
+        state: 'ACTIVE',
+        tool_name: 'run_command',
+        tool_info: { name: 'run_command', parameters: { CommandLine: 'git diff' } },
+      },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 1,
+        step_type: 'tool',
+        state: 'DONE',
+        tool_name: 'run_command',
+        tool_info: { output: '' },
+      },
+    }),
+    JSON.stringify({
+      event: 'result',
+      result: { status: 'SUCCESS', response: 'Explicit terminal response without streaming.' },
+    }),
   ];
 
   const coordinator = new TurnLifecycleCoordinator({
@@ -2592,8 +2841,26 @@ test('Antigravity semantics 3: explicit terminal response in result.response set
 test('Antigravity semantics 4: successful terminal event with genuinely no final assistant output leaves FinalAnswer absent', async () => {
   const lines = [
     JSON.stringify({ event: 'init', conversation_id: 'conv-sem-4' }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'tool', state: 'ACTIVE', tool_name: 'run_command', tool_info: { name: 'run_command', parameters: { CommandLine: 'touch file' } } } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'tool', state: 'DONE', tool_name: 'run_command', tool_info: { output: '' } } }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 1,
+        step_type: 'tool',
+        state: 'ACTIVE',
+        tool_name: 'run_command',
+        tool_info: { name: 'run_command', parameters: { CommandLine: 'touch file' } },
+      },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 1,
+        step_type: 'tool',
+        state: 'DONE',
+        tool_name: 'run_command',
+        tool_info: { output: '' },
+      },
+    }),
     JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: '' } }),
   ];
 
@@ -2629,9 +2896,29 @@ test('Antigravity semantics 4: successful terminal event with genuinely no final
 test('Antigravity semantics 5: failed terminal event after commentary preserves Commentary in Work and fabricates no FinalAnswer', async () => {
   const lines = [
     JSON.stringify({ event: 'init', conversation_id: 'conv-sem-5' }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Starting build...' } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 2, step_type: 'tool', state: 'ACTIVE', tool_name: 'run_command', tool_info: { name: 'run_command', parameters: { CommandLine: 'npm build' } } } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 3, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Build failed, analyzing crash...' } }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: { step_index: 1, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Starting build...' },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 2,
+        step_type: 'tool',
+        state: 'ACTIVE',
+        tool_name: 'run_command',
+        tool_info: { name: 'run_command', parameters: { CommandLine: 'npm build' } },
+      },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 3,
+        step_type: 'agent_response',
+        state: 'ACTIVE',
+        text_delta: 'Build failed, analyzing crash...',
+      },
+    }),
     JSON.stringify({ event: 'result', result: { status: 'ERROR', error: 'Compilation error', response: '' } }),
   ];
 
@@ -2646,19 +2933,20 @@ test('Antigravity semantics 5: failed terminal event after commentary preserves 
   });
 
   await assert.rejects(
-    () => provider.startTurn({
-      turnId: 'turn-sem-5',
-      providerSessionId: 'conv-sem-5',
-      message: 'Build',
-      emitCommentaryDelta: (t, id) => coordinator.recordCommentaryDelta(t, id),
-      emitFinalAnswerDelta: (t, id) => coordinator.recordFinalAnswerDelta(t, id),
-      emitToolStarted: (t) => coordinator.recordToolStarted(t),
-      emitToolCompleted: (t) => coordinator.recordToolCompleted(t),
-    }),
-    err => {
+    () =>
+      provider.startTurn({
+        turnId: 'turn-sem-5',
+        providerSessionId: 'conv-sem-5',
+        message: 'Build',
+        emitCommentaryDelta: (t, id) => coordinator.recordCommentaryDelta(t, id),
+        emitFinalAnswerDelta: (t, id) => coordinator.recordFinalAnswerDelta(t, id),
+        emitToolStarted: (t) => coordinator.recordToolStarted(t),
+        emitToolCompleted: (t) => coordinator.recordToolCompleted(t),
+      }),
+    (err) => {
       coordinator.settleTerminal({ outcome: 'failed', error: { code: 'AI_PROVIDER_ERROR', message: err.message } });
       return true;
-    }
+    },
   );
 
   const snap = coordinator.getCanonicalSnapshot();
@@ -2677,12 +2965,42 @@ test('Antigravity semantics 5: failed terminal event after commentary preserves 
 test('Antigravity semantics 6: streaming final answer chunks preserves exact text and ordering without duplication', async () => {
   const lines = [
     JSON.stringify({ event: 'init', conversation_id: 'conv-sem-6' }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'tool', state: 'ACTIVE', tool_name: 'view_file', tool_info: { name: 'view_file', parameters: { AbsolutePath: '/a.ts' } } } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 1, step_type: 'tool', state: 'DONE', tool_name: 'view_file', tool_info: { output: 'a' } } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 2, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Chunk 1. ' } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 2, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Chunk 2. ' } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 2, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Chunk 3.' } }),
-    JSON.stringify({ event: 'step_update', step_update: { step_index: 2, step_type: 'agent_response', state: 'DONE' } }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 1,
+        step_type: 'tool',
+        state: 'ACTIVE',
+        tool_name: 'view_file',
+        tool_info: { name: 'view_file', parameters: { AbsolutePath: '/a.ts' } },
+      },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 1,
+        step_type: 'tool',
+        state: 'DONE',
+        tool_name: 'view_file',
+        tool_info: { output: 'a' },
+      },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: { step_index: 2, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Chunk 1. ' },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: { step_index: 2, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Chunk 2. ' },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: { step_index: 2, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Chunk 3.' },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: { step_index: 2, step_type: 'agent_response', state: 'DONE' },
+    }),
     JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'Chunk 1. Chunk 2. Chunk 3.' } }),
   ];
 
@@ -2717,4 +3035,3 @@ test('Antigravity semantics 6: streaming final answer chunks preserves exact tex
   assert.equal(snap.finalAnswer.text, 'Chunk 1. Chunk 2. Chunk 3.');
   assert.equal(snap.finalAnswer.status, 'completed');
 });
-

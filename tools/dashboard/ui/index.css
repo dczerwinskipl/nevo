@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 :root {
   color-scheme: dark;
@@ -49,7 +49,14 @@
 
   --cat-1: #fb923c;
   --cat-2: #60a5fa;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -71,8 +78,7 @@ body {
   margin: 0;
   background:
     radial-gradient(circle at 22% -10%, rgba(255, 255, 255, 0.025), transparent 28rem),
-    radial-gradient(circle at 80% 115%, rgba(255, 255, 255, 0.018), transparent 32rem),
-    var(--background);
+    radial-gradient(circle at 80% 115%, rgba(255, 255, 255, 0.018), transparent 32rem), var(--background);
   color: var(--foreground);
 }
 
@@ -85,7 +91,7 @@ body::before {
     linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
   background-size: 42px 42px;
   mask-image: linear-gradient(to bottom, black, transparent 70%);
-  content: "";
+  content: '';
   pointer-events: none;
 }
 
@@ -113,8 +119,12 @@ button {
   overflow-wrap: anywhere;
 }
 
-.markdown-body > :first-child { margin-top: 0; }
-.markdown-body > :last-child { margin-bottom: 0; }
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+.markdown-body > :last-child {
+  margin-bottom: 0;
+}
 .markdown-body h1,
 .markdown-body h2,
 .markdown-body h3,
@@ -125,23 +135,50 @@ button {
   line-height: 1.25;
   letter-spacing: -0.02em;
 }
-.markdown-body h1 { font-size: 1.75rem; }
-.markdown-body h2 { border-bottom: 1px solid var(--border); padding-bottom: 0.45rem; font-size: 1.3rem; }
-.markdown-body h3 { font-size: 1.08rem; }
-.markdown-body h4 { font-size: 0.95rem; }
+.markdown-body h1 {
+  font-size: 1.75rem;
+}
+.markdown-body h2 {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.45rem;
+  font-size: 1.3rem;
+}
+.markdown-body h3 {
+  font-size: 1.08rem;
+}
+.markdown-body h4 {
+  font-size: 0.95rem;
+}
 .markdown-body p,
 .markdown-body ul,
 .markdown-body ol,
 .markdown-body blockquote,
 .markdown-body pre,
-.markdown-body table { margin: 0.9rem 0; }
+.markdown-body table {
+  margin: 0.9rem 0;
+}
 .markdown-body ul,
-.markdown-body ol { padding-left: 1.5rem; }
-.markdown-body ul { list-style: disc; }
-.markdown-body ol { list-style: decimal; }
-.markdown-body li + li { margin-top: 0.25rem; }
-.markdown-body a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
-.markdown-body strong { color: var(--foreground); font-weight: 650; }
+.markdown-body ol {
+  padding-left: 1.5rem;
+}
+.markdown-body ul {
+  list-style: disc;
+}
+.markdown-body ol {
+  list-style: decimal;
+}
+.markdown-body li + li {
+  margin-top: 0.25rem;
+}
+.markdown-body a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.markdown-body strong {
+  color: var(--foreground);
+  font-weight: 650;
+}
 .markdown-body blockquote {
   border-left: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
   padding-left: 1rem;
@@ -153,7 +190,7 @@ button {
   background: var(--background);
   padding: 0.12rem 0.35rem;
   color: var(--muted-strong);
-  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-family: 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
   font-size: 0.84em;
 }
 .markdown-body pre {
@@ -164,14 +201,43 @@ button {
   background: var(--background);
   padding: 1rem;
 }
-.markdown-body pre code { border: 0; background: transparent; padding: 0; color: inherit; }
-.markdown-body .contains-task-list { list-style: none; padding-left: 0; }
-.markdown-body input[type="checkbox"] { margin-right: 0.5rem; accent-color: var(--accent); }
-.markdown-body table { display: block; width: max-content; min-width: 100%; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.markdown-body pre code {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+.markdown-body .contains-task-list {
+  list-style: none;
+  padding-left: 0;
+}
+.markdown-body input[type='checkbox'] {
+  margin-right: 0.5rem;
+  accent-color: var(--accent);
+}
+.markdown-body table {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
 .markdown-body th,
-.markdown-body td { border: 1px solid var(--border); padding: 0.55rem 0.75rem; text-align: left; }
-.markdown-body th { background: var(--surface-raised); color: var(--foreground); }
-.markdown-body hr { margin: 1.8rem 0; border: 0; border-top: 1px solid var(--border); }
+.markdown-body td {
+  border: 1px solid var(--border);
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+}
+.markdown-body th {
+  background: var(--surface-raised);
+  color: var(--foreground);
+}
+.markdown-body hr {
+  margin: 1.8rem 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
 
 .nevo-diff-view {
   scrollbar-color: var(--border-strong) var(--background);
@@ -181,10 +247,10 @@ button {
 .nevo-diff-view .diff-tailwindcss-wrapper {
   min-width: 680px;
   background: var(--surface);
-  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-family: 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
 }
 
-.nevo-diff-view [data-mode="old"],
-.nevo-diff-view [data-mode="new"] {
+.nevo-diff-view [data-mode='old'],
+.nevo-diff-view [data-mode='new'] {
   min-width: 0;
 }

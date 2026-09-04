@@ -8,9 +8,12 @@ export function stateLabel(pullRequest: AvailablePullRequest) {
 }
 
 export function stateTone(pullRequest: AvailablePullRequest) {
-  if (pullRequest.draft) return 'border-[color-mix(in_srgb,var(--muted)_20%,transparent)] bg-[color-mix(in_srgb,var(--muted)_8%,transparent)] text-[var(--muted-strong)]';
-  if (pullRequest.state === 'merged') return 'border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]';
-  if (pullRequest.state === 'closed') return 'border-[var(--border)] bg-[var(--surface-raised)] text-[var(--muted-strong)]';
+  if (pullRequest.draft)
+    return 'border-[color-mix(in_srgb,var(--muted)_20%,transparent)] bg-[color-mix(in_srgb,var(--muted)_8%,transparent)] text-[var(--muted-strong)]';
+  if (pullRequest.state === 'merged')
+    return 'border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]';
+  if (pullRequest.state === 'closed')
+    return 'border-[var(--border)] bg-[var(--surface-raised)] text-[var(--muted-strong)]';
   return 'border-[color-mix(in_srgb,var(--accent)_25%,transparent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] text-[var(--accent)]';
 }
 

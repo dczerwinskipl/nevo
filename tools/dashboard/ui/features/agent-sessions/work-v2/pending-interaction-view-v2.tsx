@@ -1,5 +1,10 @@
 import { PermissionPrompt, QuestionPrompt } from '../interactions/interaction-prompt';
-import type { AgentPermissionInteraction, AgentQuestionInteraction, CanonicalTurnV2, InteractionWorkItemV2 } from '../types';
+import type {
+  AgentPermissionInteraction,
+  AgentQuestionInteraction,
+  CanonicalTurnV2,
+  InteractionWorkItemV2,
+} from '../types';
 
 export interface PendingInteractionViewV2Props {
   turn: CanonicalTurnV2;

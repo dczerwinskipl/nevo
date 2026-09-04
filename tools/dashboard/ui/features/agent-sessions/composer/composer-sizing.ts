@@ -46,7 +46,7 @@ export interface TextareaAdjustmentResult {
  */
 export function adjustComposerTextareaElement(
   element: HTMLTextAreaElement | { style: { height: string; overflowY?: string }; scrollHeight: number } | null,
-  isFocused: boolean
+  isFocused: boolean,
 ): TextareaAdjustmentResult {
   if (!element) {
     return { height: '', overflowY: isFocused ? 'auto' : 'hidden', isCompact: !isFocused, scrollHeight: 0 };
@@ -131,5 +131,3 @@ export function resolveComposerPlaceholder({
   if (disabled) return 'Ta sesja jest tylko do odczytu';
   return 'Napisz wiadomość…';
 }
-
-

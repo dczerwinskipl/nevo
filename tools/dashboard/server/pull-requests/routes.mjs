@@ -111,7 +111,7 @@ export default async function pullRequestRoutes(fastify, { config = {}, provider
       return;
     }
     try {
-      const paths = body.paths.filter(path => typeof path === 'string');
+      const paths = body.paths.filter((path) => typeof path === 'string');
       const headSha = typeof body.headSha === 'string' ? body.headSha : null;
       const diffs = await service.loadFileDiffs({ source: request.params.source, slug, number, paths, headSha });
       if (!diffs) {
@@ -120,7 +120,12 @@ export default async function pullRequestRoutes(fastify, { config = {}, provider
       }
       reply.code(200).header('cache-control', 'no-store').send(diffs);
     } catch (error) {
-      const status = typeof error?.status === 'number' ? error.status : (typeof error?.statusCode === 'number' ? error.statusCode : 502);
+      const status =
+        typeof error?.status === 'number'
+          ? error.status
+          : typeof error?.statusCode === 'number'
+            ? error.statusCode
+            : 502;
       reply.code(status).send({ error: error?.message || 'Unable to load pull request file diffs.' });
     }
   });

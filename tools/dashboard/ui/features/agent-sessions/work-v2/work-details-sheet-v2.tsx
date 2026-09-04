@@ -1,10 +1,28 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, ArrowLeft, Ban, Brain, Check, ChevronRight, Clock, Code2, LoaderCircle, MessageSquareText, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Ban,
+  Brain,
+  Check,
+  ChevronRight,
+  Clock,
+  Code2,
+  LoaderCircle,
+  MessageSquareText,
+  X,
+} from 'lucide-react';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { MarkdownContent } from '@/shared/markdown/markdown-content';
 import { TOOL_KIND_ICONS_V2 } from './tool-kind-icons-v2';
 import { previewPlainText } from './text-preview-v2';
-import type { CanonicalTurnV2, CommentaryWorkItemV2, ReasoningWorkItemV2, ToolInvocationWorkItemV2, WorkItemV2 } from '../types';
+import type {
+  CanonicalTurnV2,
+  CommentaryWorkItemV2,
+  ReasoningWorkItemV2,
+  ToolInvocationWorkItemV2,
+  WorkItemV2,
+} from '../types';
 import { cn } from '@/lib/utils';
 
 function formatPayload(value: unknown): string {
@@ -81,7 +99,9 @@ function ToolDetail({ item }: { item: ToolInvocationWorkItemV2 }) {
         )}
         {duration && (
           <>
-            <dt className="flex items-center gap-1 text-[var(--muted)]"><Clock className="size-3" /> Czas trwania</dt>
+            <dt className="flex items-center gap-1 text-[var(--muted)]">
+              <Clock className="size-3" /> Czas trwania
+            </dt>
             <dd className="text-[var(--muted-strong)]">{duration}</dd>
           </>
         )}
@@ -103,7 +123,7 @@ function ToolDetail({ item }: { item: ToolInvocationWorkItemV2 }) {
 
       {item.actions.length > 0 && (
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">ToolActions</p>
+          <p className="text-[10px] font-semibold tracking-wider text-[var(--muted)] uppercase">ToolActions</p>
           <ol className="mt-1 space-y-1">
             {item.actions.map((action) => (
               <li key={action.id} className="rounded border border-[var(--border)] px-2 py-1">
@@ -118,10 +138,10 @@ function ToolDetail({ item }: { item: ToolInvocationWorkItemV2 }) {
 
       {item.input != null && (
         <div className="min-w-0">
-          <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+          <p className="flex items-center gap-1 text-[10px] font-semibold tracking-wider text-[var(--muted)] uppercase">
             <Code2 className="size-3" /> Wejście
           </p>
-          <pre className="mt-1 max-h-48 overflow-auto rounded-lg border border-[var(--border)] bg-black/25 p-2 font-mono text-[10px] leading-relaxed text-[var(--foreground)] whitespace-pre">
+          <pre className="mt-1 max-h-48 overflow-auto rounded-lg border border-[var(--border)] bg-black/25 p-2 font-mono text-[10px] leading-relaxed whitespace-pre text-[var(--foreground)]">
             {formatPayload(item.input)}
           </pre>
         </div>
@@ -129,10 +149,10 @@ function ToolDetail({ item }: { item: ToolInvocationWorkItemV2 }) {
 
       {item.output != null && (
         <div className="min-w-0">
-          <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+          <p className="flex items-center gap-1 text-[10px] font-semibold tracking-wider text-[var(--muted)] uppercase">
             <Code2 className="size-3" /> Wynik
           </p>
-          <pre className="mt-1 max-h-48 overflow-auto rounded-lg border border-[var(--border)] bg-black/25 p-2 font-mono text-[10px] leading-relaxed text-[var(--foreground)] whitespace-pre">
+          <pre className="mt-1 max-h-48 overflow-auto rounded-lg border border-[var(--border)] bg-black/25 p-2 font-mono text-[10px] leading-relaxed whitespace-pre text-[var(--foreground)]">
             {formatPayload(item.output)}
           </pre>
         </div>
@@ -151,7 +171,11 @@ function TextDetail({ item }: { item: CommentaryWorkItemV2 | ReasoningWorkItemV2
   return (
     <div className="space-y-3 text-xs">
       <div className="flex items-center gap-2">
-        {isReasoning ? <Brain className="size-4 shrink-0 text-[var(--accent)]" /> : <MessageSquareText className="size-4 shrink-0 text-[var(--accent)]" />}
+        {isReasoning ? (
+          <Brain className="size-4 shrink-0 text-[var(--accent)]" />
+        ) : (
+          <MessageSquareText className="size-4 shrink-0 text-[var(--accent)]" />
+        )}
         <span className="font-semibold text-[var(--foreground)]">{isReasoning ? 'Thinking' : 'Commentary'}</span>
       </div>
       <div className="rounded-lg border border-[var(--border)] bg-black/10 p-3">
@@ -164,10 +188,10 @@ function TextDetail({ item }: { item: CommentaryWorkItemV2 | ReasoningWorkItemV2
 /** Full ungrouped Work list — every individual item in its exact original order, as an inspection timeline. */
 function WorkList({ work, onSelect }: { work: WorkItemV2[]; onSelect: (item: WorkItemV2) => void }) {
   return (
-    <div className="relative w-full min-w-0 max-w-full pl-1">
+    <div className="relative w-full max-w-full min-w-0 pl-1">
       {/* Central vertical rail aligned through the marker column */}
       <div
-        className="absolute bottom-3 left-[18px] top-3 w-px -translate-x-1/2 bg-[var(--border)]"
+        className="absolute top-3 bottom-3 left-[18px] w-px -translate-x-1/2 bg-[var(--border)]"
         aria-hidden="true"
       />
       <ol className="relative flex flex-col gap-0.5 text-xs">
@@ -244,15 +268,17 @@ function WorkList({ work, onSelect }: { work: WorkItemV2[]; onSelect: (item: Wor
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <div className="flex w-full items-center justify-between gap-2">
-                      <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted)]">
+                      <span className="text-[10px] font-medium tracking-wider text-[var(--muted)] uppercase">
                         {isReasoning ? 'Thinking' : 'Commentary'}
                       </span>
                       <ChevronRight className="size-3 shrink-0 text-[var(--muted)] transition-transform group-hover:translate-x-0.5" />
                     </div>
-                    <div className={cn(
-                      'text-[11px] leading-relaxed',
-                      isReasoning ? 'italic text-[var(--muted-strong)]' : 'text-[var(--foreground-muted)]',
-                    )}>
+                    <div
+                      className={cn(
+                        'text-[11px] leading-relaxed',
+                        isReasoning ? 'text-[var(--muted-strong)] italic' : 'text-[var(--foreground-muted)]',
+                      )}
+                    >
                       <span className="line-clamp-2">{previewPlainText(item.text, 120) || '—'}</span>
                     </div>
                   </div>
@@ -266,7 +292,9 @@ function WorkList({ work, onSelect }: { work: WorkItemV2[]; onSelect: (item: Wor
                 <div className="relative flex size-4 shrink-0 items-center justify-center">
                   <span className="relative z-10 size-1.5 rounded-full bg-[var(--muted)]" />
                 </div>
-                <span>{item.interaction.kind} · {item.status}</span>
+                <span>
+                  {item.interaction.kind} · {item.status}
+                </span>
               </div>
             </li>
           );
@@ -309,7 +337,7 @@ export function WorkDetailsSheetV2({ turn, open, onOpenChange, initialItemId = n
         else setSelectedItemId(initialItemId);
       }}
     >
-      <SheetContent side="right" hideClose className={cn('flex flex-col p-0 gap-0 overflow-hidden')}>
+      <SheetContent side="right" hideClose className={cn('flex flex-col gap-0 overflow-hidden p-0')}>
         {/* Pinned header with 0 gap to top */}
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 pt-[max(1.25rem,env(safe-area-inset-top))] pb-3.5 sm:px-6 sm:pt-6">
           <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -317,7 +345,7 @@ export function WorkDetailsSheetV2({ turn, open, onOpenChange, initialItemId = n
               <button
                 type="button"
                 onClick={() => setSelectedItemId(null)}
-                className="shrink-0 rounded-lg p-1.5 text-[var(--muted)] opacity-70 transition-opacity hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                className="shrink-0 rounded-lg p-1.5 text-[var(--muted)] opacity-70 transition-opacity hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] hover:opacity-100 focus:ring-2 focus:ring-[var(--accent)] focus:outline-none"
                 aria-label="Wróć do listy"
                 title="Wróć do listy"
               >
@@ -352,7 +380,7 @@ export function WorkDetailsSheetV2({ turn, open, onOpenChange, initialItemId = n
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="shrink-0 rounded-lg p-1.5 text-[var(--muted)] opacity-70 transition-opacity hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+            className="shrink-0 rounded-lg p-1.5 text-[var(--muted)] opacity-70 transition-opacity hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] hover:opacity-100 focus:ring-2 focus:ring-[var(--accent)] focus:outline-none"
             aria-label="Zamknij"
             title="Zamknij"
           >

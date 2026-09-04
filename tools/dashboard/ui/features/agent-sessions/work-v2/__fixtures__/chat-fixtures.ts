@@ -24,10 +24,7 @@ export function resetFixtureSeq(start = 1): void {
 }
 
 /** Override options for specialized tool builders that protect builder invariants. */
-export type ToolOverrideOptions = Omit<
-  Partial<ToolInvocationWorkItemV2>,
-  'kind' | 'toolName' | 'title'
->;
+export type ToolOverrideOptions = Omit<Partial<ToolInvocationWorkItemV2>, 'kind' | 'toolName' | 'title'>;
 
 // --- User Message Builder ---
 
@@ -99,15 +96,12 @@ export function buildToolInvocation(
     kind: ToolKindV2;
     title: string;
     status?: ToolStatusV2;
-  }
+  },
 ): ToolInvocationWorkItemV2 {
   const id = options.id ?? `tool-${options.toolName}-${nextSeq++}`;
   const status: ToolStatusV2 = options.status ?? 'completed';
   const isTerminal =
-    status === 'completed' ||
-    status === 'failed' ||
-    status === 'cancelled' ||
-    status === 'interrupted';
+    status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'interrupted';
 
   const defaultDurationMs = isTerminal ? 240 : undefined;
   const defaultCompletedAt = isTerminal ? BASE_TIMESTAMP : undefined;
@@ -276,10 +270,7 @@ export function buildSearchTool(options?: ToolOverrideOptions): ToolInvocationWo
 
 // --- Grouped Commands Scenario Builder ---
 
-export function buildGroupedCommandsScenario(
-  count = 3,
-  baseOptions?: ToolOverrideOptions
-): ToolInvocationWorkItemV2[] {
+export function buildGroupedCommandsScenario(count = 3, baseOptions?: ToolOverrideOptions): ToolInvocationWorkItemV2[] {
   const items: ToolInvocationWorkItemV2[] = [];
   for (let i = 1; i <= count; i++) {
     items.push(
@@ -289,7 +280,7 @@ export function buildGroupedCommandsScenario(
         description: `npm --prefix tools/dashboard run step-${i}`,
         status: 'completed',
         ...baseOptions,
-      })
+      }),
     );
   }
   return items;
@@ -443,11 +434,11 @@ export function buildActiveRunningTurn(options?: Partial<CanonicalTurnV2>): Cano
   if (options?.work !== undefined) {
     activeTools = options.work.filter(
       (w): w is ToolInvocationWorkItemV2 =>
-        'type' in w && w.type === 'tool' && (w.status === 'active' || w.status === 'queued')
+        'type' in w && w.type === 'tool' && (w.status === 'active' || w.status === 'queued'),
     );
     if (activeTools.length === 0) {
       throw new Error(
-        'Cannot build active running turn: supplied work contains no tool with status "active" or "queued".'
+        'Cannot build active running turn: supplied work contains no tool with status "active" or "queued".',
       );
     }
     activeTool = activeTools[activeTools.length - 1];
@@ -459,8 +450,9 @@ export function buildActiveRunningTurn(options?: Partial<CanonicalTurnV2>): Cano
   const work = options?.work ?? [activeTool];
   const activeId = activeTool.id;
 
-  const currentActivity: CurrentActivityV2 = options?.currentActivity ?? (
-    activeTools.length > 1
+  const currentActivity: CurrentActivityV2 =
+    options?.currentActivity ??
+    (activeTools.length > 1
       ? {
           kind: 'tool',
           toolKind: activeTool.kind,
@@ -484,8 +476,7 @@ export function buildActiveRunningTurn(options?: Partial<CanonicalTurnV2>): Cano
           status: activeTool.status ?? 'active',
           activeCount: 1,
           startedAt: activeTool.startedAt ?? activeTool.createdAt ?? BASE_TIMESTAMP,
-        }
-  );
+        });
 
   const historicalWork =
     options?.historicalWork !== undefined
@@ -495,7 +486,7 @@ export function buildActiveRunningTurn(options?: Partial<CanonicalTurnV2>): Cano
             w.id !== currentActivity.subjectId &&
             w.status !== 'streaming' &&
             w.status !== 'active' &&
-            w.status !== 'queued'
+            w.status !== 'queued',
         );
   const activityCount = options?.activityCount ?? work.length;
 
@@ -519,7 +510,7 @@ export function buildActiveRunningTurn(options?: Partial<CanonicalTurnV2>): Cano
 
 /** Scenario: Active thinking / commentary turn (Task 09 requirement). */
 export function buildActiveThinkingTurn(
-  options?: { item?: CommentaryWorkItemV2 | ReasoningWorkItemV2 } & Partial<CanonicalTurnV2>
+  options?: { item?: CommentaryWorkItemV2 | ReasoningWorkItemV2 } & Partial<CanonicalTurnV2>,
 ): CanonicalTurnV2 {
   let activeItem: CommentaryWorkItemV2 | ReasoningWorkItemV2;
   let work: WorkItemV2[];
@@ -528,17 +519,17 @@ export function buildActiveThinkingTurn(
     // 1. Select canonical evidence from supplied work array matching production precedence:
     // streaming reasoning first, then streaming commentary.
     const activeReasoning = options.work.find(
-      (w): w is ReasoningWorkItemV2 => w.type === 'reasoning' && w.status === 'streaming'
+      (w): w is ReasoningWorkItemV2 => w.type === 'reasoning' && w.status === 'streaming',
     );
     const activeCommentary = options.work.find(
-      (w): w is CommentaryWorkItemV2 => w.type === 'commentary' && w.status === 'streaming'
+      (w): w is CommentaryWorkItemV2 => w.type === 'commentary' && w.status === 'streaming',
     );
     const canonicalItem = activeReasoning ?? activeCommentary;
 
     // 3. Throw a clear error when "work" contains no streaming reasoning or commentary.
     if (!canonicalItem) {
       throw new Error(
-        'Cannot build active thinking turn: supplied work contains no reasoning or commentary with status "streaming".'
+        'Cannot build active thinking turn: supplied work contains no reasoning or commentary with status "streaming".',
       );
     }
 
@@ -547,7 +538,7 @@ export function buildActiveThinkingTurn(
     if (options.item !== undefined) {
       if (options.item.id !== canonicalItem.id || !options.work.some((w) => w.id === options.item!.id)) {
         throw new Error(
-          'Cannot build active thinking turn: simultaneous "item" and "work" input is ambiguous or inconsistent; supplied item must belong to work and match canonical precedence.'
+          'Cannot build active thinking turn: simultaneous "item" and "work" input is ambiguous or inconsistent; supplied item must belong to work and match canonical precedence.',
         );
       }
     }
@@ -558,12 +549,12 @@ export function buildActiveThinkingTurn(
   } else if (options?.item !== undefined) {
     if (options.item.status !== 'streaming') {
       throw new Error(
-        `Cannot build active thinking turn: supplied item must have status "streaming", but received "${options.item.status}".`
+        `Cannot build active thinking turn: supplied item must have status "streaming", but received "${options.item.status}".`,
       );
     }
     if (options.item.type !== 'reasoning' && options.item.type !== 'commentary') {
       throw new Error(
-        `Cannot build active thinking turn: supplied item must have type "reasoning" or "commentary", but received "${(options.item as any).type}".`
+        `Cannot build active thinking turn: supplied item must have type "reasoning" or "commentary", but received "${(options.item as any).type}".`,
       );
     }
     activeItem = options.item;
@@ -597,11 +588,7 @@ export function buildActiveThinkingTurn(
     options?.historicalWork !== undefined
       ? options.historicalWork
       : work.filter(
-          (w) =>
-            w.id !== activeItem.id &&
-            w.status !== 'streaming' &&
-            w.status !== 'active' &&
-            w.status !== 'queued'
+          (w) => w.id !== activeItem.id && w.status !== 'streaming' && w.status !== 'active' && w.status !== 'queued',
         );
   const activityCount = options?.activityCount ?? work.length;
 
@@ -631,7 +618,7 @@ export function buildActiveThinkingTurn(
 export function buildActiveCommentaryTurn(options?: Partial<CanonicalTurnV2>): CanonicalTurnV2 {
   if (options?.work !== undefined) {
     const existingStreamingCommentary = options.work.find(
-      (w): w is CommentaryWorkItemV2 => w.type === 'commentary' && w.status === 'streaming'
+      (w): w is CommentaryWorkItemV2 => w.type === 'commentary' && w.status === 'streaming',
     );
     if (existingStreamingCommentary) {
       return buildActiveThinkingTurn({
@@ -662,11 +649,7 @@ export function buildActiveCommentaryTurn(options?: Partial<CanonicalTurnV2>): C
 
 /** Scenario: Fully completed turn with user message, commentary, tools, and final answer. */
 export function buildCompletedConversationTurn(options?: Partial<CanonicalTurnV2>): CanonicalTurnV2 {
-  const defaultWork: WorkItemV2[] = [
-    buildCommentary(),
-    buildFileReadTool(),
-    buildCommandTool(),
-  ];
+  const defaultWork: WorkItemV2[] = [buildCommentary(), buildFileReadTool(), buildCommandTool()];
 
   const work = options?.work ?? defaultWork;
   const historicalWork = options?.historicalWork ?? work;
@@ -692,7 +675,7 @@ export function buildCompletedConversationTurn(options?: Partial<CanonicalTurnV2
 /** Scenario: Turn that failed with a terminal error. */
 export function buildFailedTurn(
   error = { code: 'COMMAND_EXIT_NONZERO', message: 'Build command failed with exit code 1' },
-  options?: Partial<CanonicalTurnV2>
+  options?: Partial<CanonicalTurnV2>,
 ): CanonicalTurnV2 {
   const failedCmd = buildCommandTool({ status: 'failed', exitCode: 1 });
   const work = options?.work ?? [failedCmd];
@@ -700,7 +683,14 @@ export function buildFailedTurn(
   const activityCount = options?.activityCount ?? work.length;
 
   return buildCanonicalTurn({
-    status: { status: 'terminal', outcome: 'failed', initiator: 'agent', error, since: BASE_TIMESTAMP, source: 'turn.failed' },
+    status: {
+      status: 'terminal',
+      outcome: 'failed',
+      initiator: 'agent',
+      error,
+      since: BASE_TIMESTAMP,
+      source: 'turn.failed',
+    },
     currentActivity: null,
     finalAnswer: null,
     terminalOutcome: {

@@ -33,19 +33,17 @@ export function slugifyTitle(title: string): string {
  *
  * Never silently or automatically escalate to 'agent' mode.
  */
-export function resolveDefaultPlanningMode(provider?: {
-  supportedModes?: AgentExecutionMode[];
-  defaultMode?: AgentExecutionMode;
-} | null): AgentExecutionMode {
+export function resolveDefaultPlanningMode(
+  provider?: {
+    supportedModes?: AgentExecutionMode[];
+    defaultMode?: AgentExecutionMode;
+  } | null,
+): AgentExecutionMode {
   const supported = provider?.supportedModes || ['ask', 'edit', 'agent'];
   if (supported.includes('ask')) {
     return 'ask';
   }
-  if (
-    provider?.defaultMode &&
-    supported.includes(provider.defaultMode) &&
-    provider.defaultMode !== 'agent'
-  ) {
+  if (provider?.defaultMode && supported.includes(provider.defaultMode) && provider.defaultMode !== 'agent') {
     return provider.defaultMode;
   }
   if (supported.includes('edit')) {

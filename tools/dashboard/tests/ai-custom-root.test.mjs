@@ -7,10 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { REPOSITORY_ROOT } from '../server/infrastructure/paths.mjs';
-import {
-  DEFAULT_ANTIGRAVITY_PRINT_TIMEOUT_SECONDS,
-  loadAgentProvidersConfig,
-} from '../server/ai/providers/config.mjs';
+import { DEFAULT_ANTIGRAVITY_PRINT_TIMEOUT_SECONDS, loadAgentProvidersConfig } from '../server/ai/providers/config.mjs';
 import { createDefaultAgentSessionService } from '../server/ai/routes.mjs';
 import { listen } from '../server/index.mjs';
 import { buildAiTestApp } from './helpers/ai-test-app.mjs';
@@ -60,7 +57,7 @@ async function waitForTurn(service, turnId, predicate) {
   for (let index = 0; index < 100; index += 1) {
     const turn = service.getTurn(turnId);
     if (predicate(turn)) return turn;
-    await new Promise(r => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 5));
   }
   assert.fail('Timed out waiting for turn.');
 }
@@ -87,7 +84,10 @@ test('loadAgentProvidersConfig resolves the provider config file and Antigravity
     assert.equal(config.providers.antigravity.printTimeoutSeconds, DEFAULT_ANTIGRAVITY_PRINT_TIMEOUT_SECONDS);
 
     for (const value of [config.configPath, config.providers.antigravity.rawCaptureDir]) {
-      assert.ok(!value.startsWith(REPOSITORY_ROOT), `expected '${value}' to stay under the custom root, not the real repository`);
+      assert.ok(
+        !value.startsWith(REPOSITORY_ROOT),
+        `expected '${value}' to stay under the custom root, not the real repository`,
+      );
     }
   } finally {
     await rm(customRoot, { recursive: true, force: true });
@@ -112,7 +112,7 @@ test('createDefaultAgentSessionService derives provider construction and local-d
         message: 'hello from a custom root',
         specId,
       });
-      await waitForTurn(service, turnId, turn => turn.status === 'completed');
+      await waitForTurn(service, turnId, (turn) => turn.status === 'completed');
 
       // Transcript cache must have written under <customRoot>/.nevo-ai-local/transcripts,
       // never the real repository's own .nevo-ai-local/transcripts.
@@ -143,29 +143,43 @@ test('aiRoutes(fastify, { config: { root } }) threads the custom root through th
     const baseUrl = await listen(server, { port: 0 });
     try {
       const providers = await (await fetch(`${baseUrl}/api/agent-providers`)).json();
-      assert.deepEqual(providers.providers.map(p => p.id), ['mock']);
+      assert.deepEqual(
+        providers.providers.map((p) => p.id),
+        ['mock'],
+      );
 
       const realRepoSnapshot = snapshotRealRepoTranscript('mock-session-001');
 
-      const started = await (await fetch(`${baseUrl}/api/agent-sessions/turns`, control({
-        provider: 'mock',
-        specId,
-        message: 'hello via HTTP with a custom root',
-      }))).json();
+      const started = await (
+        await fetch(
+          `${baseUrl}/api/agent-sessions/turns`,
+          control({
+            provider: 'mock',
+            specId,
+            message: 'hello via HTTP with a custom root',
+          }),
+        )
+      ).json();
 
       for (let index = 0; index < 100; index += 1) {
         const check = await fetch(`${baseUrl}/api/agent-sessions/mock/${started.providerSessionId}`);
         const body = (await check.json()).session;
         if (body.status === 'idle' && body.messages?.length >= 2) break;
-        await new Promise(r => setTimeout(r, 5));
+        await new Promise((r) => setTimeout(r, 5));
       }
 
-      const transcriptPath = join(customRoot, '.nevo-ai-local', 'transcripts', 'mock', `${started.providerSessionId}.json`);
+      const transcriptPath = join(
+        customRoot,
+        '.nevo-ai-local',
+        'transcripts',
+        'mock',
+        `${started.providerSessionId}.json`,
+      );
       assert.ok(existsSync(transcriptPath), `expected transcript at '${transcriptPath}'`);
       assertRealRepoTranscriptUntouched(realRepoSnapshot);
     } finally {
       server.closeAllConnections?.();
-      await new Promise(resolve => server.close(resolve));
+      await new Promise((resolve) => server.close(resolve));
     }
   } finally {
     await rm(customRoot, { recursive: true, force: true });

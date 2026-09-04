@@ -55,10 +55,17 @@ test('connectAgentEventStream wires onOpen/onError and forwards named events to 
     '/api/agent-sessions/claude/sess-1/events?after=0',
     {
       onEvent: (event) => events.push(event),
-      onOpen: () => { openCount += 1; },
-      onError: () => { errorCount += 1; },
+      onOpen: () => {
+        openCount += 1;
+      },
+      onError: () => {
+        errorCount += 1;
+      },
     },
-    (url) => { created = new MockEventSource(url); return created; },
+    (url) => {
+      created = new MockEventSource(url);
+      return created;
+    },
   );
 
   assert.equal(created.url, '/api/agent-sessions/claude/sess-1/events?after=0');
@@ -84,7 +91,10 @@ test('connectAgentEventStream cleanup detaches listeners so a stale source canno
   const disconnect = connectAgentEventStream(
     '/api/agent-sessions/claude/sess-1/events?after=0',
     { onEvent: (event) => events.push(event) },
-    (url) => { created = new MockEventSource(url); return created; },
+    (url) => {
+      created = new MockEventSource(url);
+      return created;
+    },
   );
 
   created.dispatchEvent('turn.started', { type: 'turn.started', seq: 1 });

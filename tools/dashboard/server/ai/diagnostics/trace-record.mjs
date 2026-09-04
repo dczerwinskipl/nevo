@@ -13,21 +13,9 @@ export const TRACE_SOURCES = Object.freeze([
   'sse',
 ]);
 
-export const TRACE_DISPOSITIONS = Object.freeze([
-  'accepted',
-  'suppressed',
-  'ignored',
-  'late',
-]);
+export const TRACE_DISPOSITIONS = Object.freeze(['accepted', 'suppressed', 'ignored', 'late']);
 
-export const TIMEOUT_KINDS = Object.freeze([
-  'startup',
-  'protocol-silence',
-  'tool',
-  'max-turn',
-  'cleanup',
-  'flush',
-]);
+export const TIMEOUT_KINDS = Object.freeze(['startup', 'protocol-silence', 'tool', 'max-turn', 'cleanup', 'flush']);
 
 export const PROCESS_STATES = Object.freeze([
   'spawned',
@@ -66,8 +54,8 @@ export function sanitizeTraceMetadata(value, depth = 0) {
   if (value == null || typeof value !== 'object' || depth > 4) return undefined;
   if (Array.isArray(value)) {
     return value
-      .map(v => (typeof v === 'object' ? sanitizeTraceMetadata(v, depth + 1) : v))
-      .filter(v => v !== undefined);
+      .map((v) => (typeof v === 'object' ? sanitizeTraceMetadata(v, depth + 1) : v))
+      .filter((v) => v !== undefined);
   }
 
   const sanitized = {};
@@ -94,14 +82,17 @@ export function validateTraceRecord(record) {
   }
 
   if (record.schemaVersion !== TRACE_SCHEMA_VERSION) {
-    throw new AiValidationError(
-      `LifecycleTraceRecord schemaVersion must be ${TRACE_SCHEMA_VERSION}.`,
-      { field: 'schemaVersion', value: record.schemaVersion },
-    );
+    throw new AiValidationError(`LifecycleTraceRecord schemaVersion must be ${TRACE_SCHEMA_VERSION}.`, {
+      field: 'schemaVersion',
+      value: record.schemaVersion,
+    });
   }
 
   if (!Number.isSafeInteger(record.seq) || record.seq < 1) {
-    throw new AiValidationError("LifecycleTraceRecord 'seq' must be a positive integer >= 1.", { field: 'seq', value: record.seq });
+    throw new AiValidationError("LifecycleTraceRecord 'seq' must be a positive integer >= 1.", {
+      field: 'seq',
+      value: record.seq,
+    });
   }
 
   const timestamp = normalizeTimestamp(record.timestamp, 'timestamp');

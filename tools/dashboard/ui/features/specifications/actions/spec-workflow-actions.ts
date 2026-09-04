@@ -1,8 +1,4 @@
-import type {
-  SpecificationTask,
-  SpecificationActionResult,
-  SpecificationOwnerAction,
-} from '../types';
+import type { SpecificationTask, SpecificationActionResult, SpecificationOwnerAction } from '../types';
 import type { OperationWaitOutcome } from '@/features/operations/wait-for-operation-terminal';
 
 /**
@@ -13,7 +9,11 @@ import type { OperationWaitOutcome } from '@/features/operations/wait-for-operat
  * spec-detail-and-workflow-feature-slice, task 05).
  */
 export interface WorkflowActionDeps {
-  execute: (input: { action: SpecificationOwnerAction; taskId?: string; confirmed?: boolean }) => Promise<SpecificationActionResult | undefined>;
+  execute: (input: {
+    action: SpecificationOwnerAction;
+    taskId?: string;
+    confirmed?: boolean;
+  }) => Promise<SpecificationActionResult | undefined>;
   onOperationStarted: (operationId: string, title: string) => void;
   /** Resolves to an explicit, discriminated outcome once waiting for the operation ends — see `OperationWaitOutcome`. */
   waitForTerminal: (operationId: string) => Promise<OperationWaitOutcome>;
@@ -21,7 +21,12 @@ export interface WorkflowActionDeps {
    * Reports why a batch stopped before running every task — called only for the one
    * task whose wait did not resolve `'completed'`, so `outcome` is never that variant.
    */
-  onBatchStopped?: (info: { taskId: string; operationId: string; title: string; outcome: Exclude<OperationWaitOutcome, { kind: 'completed' }> }) => void;
+  onBatchStopped?: (info: {
+    taskId: string;
+    operationId: string;
+    title: string;
+    outcome: Exclude<OperationWaitOutcome, { kind: 'completed' }>;
+  }) => void;
 }
 
 /** Short, user-facing explanation of a non-'completed' wait outcome, for the existing operation-progress UI. */
@@ -47,7 +52,7 @@ export async function runDirectTaskAction(
     if (res?.operationId) {
       deps.onOperationStarted(
         res.operationId,
-        actionName === 'approve' ? `Zatwierdzanie zadania: ${taskId}` : `Weryfikacja zadania: ${taskId}`
+        actionName === 'approve' ? `Zatwierdzanie zadania: ${taskId}` : `Weryfikacja zadania: ${taskId}`,
       );
     }
   } catch {
@@ -74,9 +79,10 @@ export async function runBatchTaskAction(
       const taskId = task.id;
       const res = await deps.execute({ action: actionName, taskId });
       if (res?.operationId) {
-        const title = actionName === 'approve'
-          ? `Zatwierdzanie zadania (${i + 1}/${tasks.length}): ${taskId}`
-          : `Weryfikacja zadania (${i + 1}/${tasks.length}): ${taskId}`;
+        const title =
+          actionName === 'approve'
+            ? `Zatwierdzanie zadania (${i + 1}/${tasks.length}): ${taskId}`
+            : `Weryfikacja zadania (${i + 1}/${tasks.length}): ${taskId}`;
         deps.onOperationStarted(res.operationId, title);
 
         const outcome = await deps.waitForTerminal(res.operationId);

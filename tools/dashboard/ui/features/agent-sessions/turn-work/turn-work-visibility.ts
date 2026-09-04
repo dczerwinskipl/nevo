@@ -10,10 +10,10 @@ import type { NormalizedMessage } from '../types';
  */
 export function visibleWorkItemsWhileRunning(work: TurnWork, expanded: boolean): WorkItem[] {
   if (!expanded) return [];
-  const runningItems = work.items.filter(item => item.status === 'running');
+  const runningItems = work.items.filter((item) => item.status === 'running');
   const current = work.currentActivity ?? (runningItems.length > 0 ? runningItems[runningItems.length - 1] : null);
   if (!current) return work.items;
-  return work.items.filter(item => item.toolId !== current.toolId);
+  return work.items.filter((item) => item.toolId !== current.toolId);
 }
 
 /**
@@ -32,7 +32,11 @@ export function visibleWorkItemsWhenTerminal(work: TurnWork, expanded: boolean):
 
 /** Whether a message has any visible prose (assistant text, reasoning, or timeline commentary) to render. */
 export function hasVisibleProse(message: Pick<NormalizedMessage, 'text' | 'reasoning' | 'activityTimeline'>): boolean {
-  return Boolean(message.text) || Boolean(message.reasoning) || (message.activityTimeline?.some(item => item.type === 'commentary' && Boolean(item.text)) ?? false);
+  return (
+    Boolean(message.text) ||
+    Boolean(message.reasoning) ||
+    (message.activityTimeline?.some((item) => item.type === 'commentary' && Boolean(item.text)) ?? false)
+  );
 }
 
 /**

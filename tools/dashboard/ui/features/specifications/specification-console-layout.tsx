@@ -1,10 +1,4 @@
-import {
-  Outlet,
-  Link,
-  useNavigate,
-  useLocation,
-  useMatches,
-} from '@tanstack/react-router';
+import { Outlet, Link, useNavigate, useLocation, useMatches } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 import { Menu } from 'lucide-react';
 
@@ -28,9 +22,7 @@ export function SpecificationConsoleLayout() {
   const matches = useMatches();
 
   const mode: SpecificationSource = useMemo(() => {
-    const specMatch = matches.find((m) =>
-      m.routeId.includes('specs/$source/$slug')
-    );
+    const specMatch = matches.find((m) => m.routeId.includes('specs/$source/$slug'));
     if (specMatch) {
       const source = (specMatch.params as { source?: string }).source;
       return source === 'archive' ? 'archive' : 'active';
@@ -42,9 +34,7 @@ export function SpecificationConsoleLayout() {
   }, [location.pathname, matches]);
 
   const selectedSlug = useMemo(() => {
-    const specMatch = matches.find((m) =>
-      m.routeId.includes('specs/$source/$slug')
-    );
+    const specMatch = matches.find((m) => m.routeId.includes('specs/$source/$slug'));
     return specMatch ? ((specMatch.params as { slug?: string }).slug ?? null) : null;
   }, [matches]);
 
@@ -53,10 +43,7 @@ export function SpecificationConsoleLayout() {
     const source = mode === 'active' ? data.active : data.archive;
     const query = search.trim().toLocaleLowerCase('pl');
     return source.filter(
-      (spec) =>
-        !query ||
-        spec.title.toLocaleLowerCase('pl').includes(query) ||
-        spec.slug.includes(query)
+      (spec) => !query || spec.title.toLocaleLowerCase('pl').includes(query) || spec.slug.includes(query),
     );
   }, [data, mode, search]);
 
@@ -75,7 +62,7 @@ export function SpecificationConsoleLayout() {
           </Button>
           <Link
             to="/"
-            className="flex items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded-lg cursor-pointer"
+            className="flex cursor-pointer items-center gap-3 rounded-lg text-left focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:outline-none"
             title="Przejdź do listy specyfikacji"
           >
             <div className="flex size-8 items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-black text-[var(--accent-foreground)]">
@@ -83,11 +70,16 @@ export function SpecificationConsoleLayout() {
             </div>
             <div>
               <p className="text-xs font-semibold text-[var(--foreground)]">NEvo Flow</p>
-              <p className="text-[9px] uppercase tracking-[0.14em] text-[var(--muted)]">Specification console</p>
+              <p className="text-[9px] tracking-[0.14em] text-[var(--muted)] uppercase">Specification console</p>
             </div>
           </Link>
         </div>
-        <SpecificationLiveControls live={live} status={connectionStatus} refreshing={refreshing} onRefresh={() => void refresh()} />
+        <SpecificationLiveControls
+          live={live}
+          status={connectionStatus}
+          refreshing={refreshing}
+          onRefresh={() => void refresh()}
+        />
       </header>
 
       <SpecificationLiveControls
@@ -95,7 +87,7 @@ export function SpecificationConsoleLayout() {
         status={connectionStatus}
         refreshing={refreshing}
         onRefresh={() => void refresh()}
-        className="fixed right-4 top-3 z-40 hidden rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_92%,transparent)] p-1 shadow-[0_12px_32px_rgba(0,0,0,0.28)] backdrop-blur-xl lg:flex"
+        className="fixed top-3 right-4 z-40 hidden rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_92%,transparent)] p-1 shadow-[0_12px_32px_rgba(0,0,0,0.28)] backdrop-blur-xl lg:flex"
       />
 
       <main>

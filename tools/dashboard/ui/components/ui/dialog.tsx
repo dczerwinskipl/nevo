@@ -16,8 +16,8 @@ export const DialogOverlay = React.forwardRef<
     <DialogPrimitive.Overlay
       ref={ref}
       className={cn(
-        'fixed inset-0 z-50 bg-black/70 backdrop-blur-xs transition-opacity duration-200 ease-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
-        className
+        'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/70 backdrop-blur-xs transition-opacity duration-200 ease-out',
+        className,
       )}
       {...props}
     />
@@ -35,15 +35,15 @@ export const DialogContent = React.forwardRef<
       <DialogPrimitive.Content
         ref={ref}
         className={cn(
-          'fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border border-[var(--border)] bg-[var(--surface)] p-6 shadow-2xl duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:rounded-2xl',
-          className
+          'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border border-[var(--border)] bg-[var(--surface)] p-6 shadow-2xl duration-200 sm:rounded-2xl',
+          className,
         )}
         {...props}
       >
         {children}
         {!hideClose && (
           <DialogPrimitive.Close
-            className="absolute right-4 top-4 rounded-lg p-1 text-[var(--muted)] opacity-70 transition-opacity hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+            className="absolute top-4 right-4 rounded-lg p-1 text-[var(--muted)] opacity-70 transition-opacity hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] hover:opacity-100 focus:ring-2 focus:ring-[var(--accent)] focus:outline-none"
             aria-label="Zamknij"
           >
             <X className="size-4" />
@@ -61,12 +61,7 @@ export function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLD
 DialogHeader.displayName = 'DialogHeader';
 
 export function DialogFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div
-      className={cn('flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2', className)}
-      {...props}
-    />
-  );
+  return <div className={cn('flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2', className)} {...props} />;
 }
 DialogFooter.displayName = 'DialogFooter';
 
@@ -77,7 +72,7 @@ export const DialogTitle = React.forwardRef<
   return (
     <DialogPrimitive.Title
       ref={ref}
-      className={cn('text-base font-semibold leading-none tracking-tight text-[var(--foreground)]', className)}
+      className={cn('text-base leading-none font-semibold tracking-tight text-[var(--foreground)]', className)}
       {...props}
     />
   );
@@ -88,12 +83,6 @@ export const DialogDescription = React.forwardRef<
   React.ComponentRef<typeof DialogPrimitive.Description>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
 >(function DialogDescription({ className, ...props }, ref) {
-  return (
-    <DialogPrimitive.Description
-      ref={ref}
-      className={cn('text-xs text-[var(--muted)]', className)}
-      {...props}
-    />
-  );
+  return <DialogPrimitive.Description ref={ref} className={cn('text-xs text-[var(--muted)]', className)} {...props} />;
 });
 DialogDescription.displayName = DialogPrimitive.Description.displayName;

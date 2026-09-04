@@ -44,15 +44,14 @@ export function serializePublicTurn(turn) {
   const validated = validateCanonicalTurn(turn);
   const clean = stripProviderPrivateFields(validated);
   const currentActivity = computeCurrentActivity(turn);
-  const userMessage = clean.userMessage
-    || (clean.prompt ? { text: deriveLegacyUserMessageText(clean.prompt), createdAt: clean.createdAt } : undefined);
+  const userMessage =
+    clean.userMessage ||
+    (clean.prompt ? { text: deriveLegacyUserMessageText(clean.prompt), createdAt: clean.createdAt } : undefined);
 
   // Exclude active/streaming work items from compact historical timeline so UI never duplicates current activity
-  const activeSubjectIds = new Set(
-    currentActivity?.subjectId ? [currentActivity.subjectId] : []
-  );
+  const activeSubjectIds = new Set(currentActivity?.subjectId ? [currentActivity.subjectId] : []);
   const historicalWork = clean.work.filter(
-    w => !activeSubjectIds.has(w.id) && w.status !== 'streaming' && w.status !== 'active' && w.status !== 'queued'
+    (w) => !activeSubjectIds.has(w.id) && w.status !== 'streaming' && w.status !== 'active' && w.status !== 'queued',
   );
 
   // Return strictly validated public turn DTO

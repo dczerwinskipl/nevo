@@ -61,11 +61,7 @@ export function CreateSpecificationErrorBanner({
               disabled={isSubmitting}
               className="h-8 gap-1.5 text-xs font-semibold"
             >
-              {isSubmitting ? (
-                <LoaderCircle className="size-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="size-3.5" />
-              )}
+              {isSubmitting ? <LoaderCircle className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
               Spróbuj ponownie
             </Button>
           </div>

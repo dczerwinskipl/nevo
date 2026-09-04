@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { createCanonicalTurn, appendWorkItem, addToolAction, setFinalAnswer, setTurnStatus, validateCanonicalTurn } from './canonical-turn.mjs';
+import {
+  createCanonicalTurn,
+  appendWorkItem,
+  addToolAction,
+  setFinalAnswer,
+  setTurnStatus,
+  validateCanonicalTurn,
+} from './canonical-turn.mjs';
 import { createTurnStatus } from './turn-status.mjs';
 
 export function createMockCanonicalTurn({
@@ -74,7 +81,10 @@ export function buildClaudeScenarioTurn({ id = `turn-claude-${randomUUID()}`, se
   });
 
   // 5. Completed terminal status
-  setTurnStatus(turn, createTurnStatus('terminal', { outcome: 'completed', initiator: 'provider', finishReason: 'end_turn' }));
+  setTurnStatus(
+    turn,
+    createTurnStatus('terminal', { outcome: 'completed', initiator: 'provider', finishReason: 'end_turn' }),
+  );
 
   return turn;
 }
@@ -143,7 +153,10 @@ export function buildCodexScenarioTurn({ id = `turn-codex-${randomUUID()}`, sess
     confidence: 'authoritative',
   });
 
-  setTurnStatus(turn, createTurnStatus('terminal', { outcome: 'completed', initiator: 'provider', finishReason: 'turn_completed' }));
+  setTurnStatus(
+    turn,
+    createTurnStatus('terminal', { outcome: 'completed', initiator: 'provider', finishReason: 'turn_completed' }),
+  );
 
   return turn;
 }
@@ -194,7 +207,10 @@ export function buildAntigravityScenarioTurn({ id = `turn-ag-${randomUUID()}`, s
     confidence: 'derived',
   });
 
-  setTurnStatus(turn, createTurnStatus('terminal', { outcome: 'completed', initiator: 'provider', finishReason: 'done' }));
+  setTurnStatus(
+    turn,
+    createTurnStatus('terminal', { outcome: 'completed', initiator: 'provider', finishReason: 'done' }),
+  );
 
   return turn;
 }
@@ -229,7 +245,10 @@ export function assertWorkOrderIntegrity(turnOrWork) {
     const item = work[i];
     assert.equal(item.seq, i + 1, `Work item at index ${i} must have seq ${i + 1}`);
     assert.ok(item.id, `Work item at index ${i} must have non-empty id`);
-    assert.ok(['commentary', 'reasoning', 'tool', 'interaction'].includes(item.type), `Work item ${item.id} has invalid type: ${item.type}`);
+    assert.ok(
+      ['commentary', 'reasoning', 'tool', 'interaction'].includes(item.type),
+      `Work item ${item.id} has invalid type: ${item.type}`,
+    );
 
     if (item.type === 'tool') {
       assertToolActionHierarchy(item);

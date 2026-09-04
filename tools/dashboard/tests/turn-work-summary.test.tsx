@@ -66,9 +66,7 @@ describe('TurnWorkSummary component (RTL renders)', () => {
         code: 'AI_SESSION_LIMIT',
         message: "You've hit your session limit",
       },
-      items: [
-        { toolId: 't1', toolName: 'Read', input: { path: 'a.ts' }, status: 'completed' },
-      ],
+      items: [{ toolId: 't1', toolName: 'Read', input: { path: 'a.ts' }, status: 'completed' }],
     };
 
     render(<TurnWorkSummary work={work} />);

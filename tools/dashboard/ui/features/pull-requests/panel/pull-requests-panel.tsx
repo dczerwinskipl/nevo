@@ -14,14 +14,19 @@ import { pullRequestKey } from '../changes/status';
 
 function DiffModeControl({ mode, onChange }: { mode: DiffViewMode; onChange: (mode: DiffViewMode) => void }) {
   return (
-    <div className="inline-flex rounded-lg border border-[var(--border)] bg-[var(--background)] p-0.5" aria-label="Układ diffu">
-      {(['split', 'unified'] as const).map(option => (
+    <div
+      className="inline-flex rounded-lg border border-[var(--border)] bg-[var(--background)] p-0.5"
+      aria-label="Układ diffu"
+    >
+      {(['split', 'unified'] as const).map((option) => (
         <button
           key={option}
           type="button"
           className={cn(
             'rounded-md px-2.5 py-1 text-[10px] font-semibold transition-colors',
-            mode === option ? 'bg-[var(--surface-hover)] text-[var(--foreground)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]',
+            mode === option
+              ? 'bg-[var(--surface-hover)] text-[var(--foreground)]'
+              : 'text-[var(--muted)] hover:text-[var(--foreground)]',
           )}
           aria-pressed={mode === option}
           onClick={() => onChange(option)}
@@ -35,15 +40,17 @@ function DiffModeControl({ mode, onChange }: { mode: DiffViewMode; onChange: (mo
 
 export function PullRequestsPanel({ specification }: { specification: SpecificationSummary }) {
   const query = usePullRequests(specification, true);
-  const [mode, setMode] = useState<DiffViewMode>(() => (
-    typeof window !== 'undefined' && window.matchMedia('(min-width: 1100px)').matches ? 'split' : 'unified'
-  ));
+  const [mode, setMode] = useState<DiffViewMode>(() =>
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 1100px)').matches ? 'split' : 'unified',
+  );
   const [modeOverridden, setModeOverridden] = useState(false);
   const [selectedPullRequestKey, setSelectedPullRequestKey] = useState<string | null>(null);
 
   useEffect(() => {
     const media = window.matchMedia('(min-width: 1100px)');
-    const update = () => { if (!modeOverridden) setMode(media.matches ? 'split' : 'unified'); };
+    const update = () => {
+      if (!modeOverridden) setMode(media.matches ? 'split' : 'unified');
+    };
     media.addEventListener('change', update);
     return () => media.removeEventListener('change', update);
   }, [modeOverridden]);
@@ -80,7 +87,9 @@ export function PullRequestsPanel({ specification }: { specification: Specificat
         <GitPullRequest className="size-7 text-[var(--accent)]" />
         <h2 className="mt-4 text-sm font-semibold text-[var(--foreground)]">Brak przypiętych pull requestów</h2>
         <p className="mt-2 max-w-lg text-xs leading-5 text-[var(--muted)]">
-          Przypnij istniejący PR poleceniem <code className="rounded bg-[var(--background)] px-1.5 py-0.5">node tools/specs.mjs pull-request-add</code>, aby zobaczyć jego zmiany.
+          Przypnij istniejący PR poleceniem{' '}
+          <code className="rounded bg-[var(--background)] px-1.5 py-0.5">node tools/specs.mjs pull-request-add</code>,
+          aby zobaczyć jego zmiany.
         </p>
       </Card>
     );
@@ -89,7 +98,7 @@ export function PullRequestsPanel({ specification }: { specification: Specificat
   const pullRequests = query.data.pullRequests;
   const hasPullRequestList = pullRequests.length > 1;
   const selectedPullRequest = hasPullRequestList
-    ? pullRequests.find(result => pullRequestKey(result) === selectedPullRequestKey) || null
+    ? pullRequests.find((result) => pullRequestKey(result) === selectedPullRequestKey) || null
     : pullRequests[0];
 
   if (hasPullRequestList && !selectedPullRequest) {
@@ -97,19 +106,30 @@ export function PullRequestsPanel({ specification }: { specification: Specificat
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Pull requests</p>
+            <p className="text-[10px] font-bold tracking-[0.18em] text-[var(--accent)] uppercase">Pull requests</p>
             <h2 className="mt-1 text-lg font-semibold text-[var(--foreground)]">{pullRequests.length} pull requesty</h2>
             <p className="mt-1 text-xs text-[var(--muted)]">Wybierz pull request, aby zobaczyć jego pliki i zmiany.</p>
           </div>
-          <RetryButton size="icon" onClick={() => void query.refresh()} loading={query.refreshing} label="Odśwież pull requesty" />
+          <RetryButton
+            size="icon"
+            onClick={() => void query.refresh()}
+            loading={query.refreshing}
+            label="Odśwież pull requesty"
+          />
         </div>
 
         <div className="space-y-3">
-          {pullRequests.map(result => (
-            result.availability === 'available'
-              ? <PullRequestSummaryCard key={pullRequestKey(result)} pullRequest={result} onOpen={() => setSelectedPullRequestKey(pullRequestKey(result))} />
-              : <UnavailableCard key={pullRequestKey(result)} result={result} />
-          ))}
+          {pullRequests.map((result) =>
+            result.availability === 'available' ? (
+              <PullRequestSummaryCard
+                key={pullRequestKey(result)}
+                pullRequest={result}
+                onOpen={() => setSelectedPullRequestKey(pullRequestKey(result))}
+              />
+            ) : (
+              <UnavailableCard key={pullRequestKey(result)} result={result} />
+            ),
+          )}
         </div>
       </div>
     );
@@ -126,21 +146,34 @@ export function PullRequestsPanel({ specification }: { specification: Specificat
           </Button>
         ) : (
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Pull request</p>
+            <p className="text-[10px] font-bold tracking-[0.18em] text-[var(--accent)] uppercase">Pull request</p>
             <h2 className="mt-1 text-lg font-semibold text-[var(--foreground)]">Zestaw zmian</h2>
           </div>
         )}
         <div className="flex items-center gap-2">
           {detailPullRequest.availability === 'available' && (
-            <DiffModeControl mode={mode} onChange={nextMode => { setModeOverridden(true); setMode(nextMode); }} />
+            <DiffModeControl
+              mode={mode}
+              onChange={(nextMode) => {
+                setModeOverridden(true);
+                setMode(nextMode);
+              }}
+            />
           )}
-          <RetryButton size="icon" onClick={() => void query.refresh()} loading={query.refreshing} label="Odśwież pull requesty" />
+          <RetryButton
+            size="icon"
+            onClick={() => void query.refresh()}
+            loading={query.refreshing}
+            label="Odśwież pull requesty"
+          />
         </div>
       </div>
 
-      {detailPullRequest.availability === 'available'
-        ? <PullRequestCard specification={specification} pullRequest={detailPullRequest} mode={mode} />
-        : <UnavailableCard result={detailPullRequest} />}
+      {detailPullRequest.availability === 'available' ? (
+        <PullRequestCard specification={specification} pullRequest={detailPullRequest} mode={mode} />
+      ) : (
+        <UnavailableCard result={detailPullRequest} />
+      )}
     </div>
   );
 }

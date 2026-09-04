@@ -8,11 +8,7 @@ export interface ReasoningViewProps {
   defaultExpanded?: boolean;
 }
 
-export function ReasoningView({
-  reasoning,
-  isStreaming = false,
-  defaultExpanded = false,
-}: ReasoningViewProps) {
+export function ReasoningView({ reasoning, isStreaming = false, defaultExpanded = false }: ReasoningViewProps) {
   const [expanded, setExpanded] = useState(defaultExpanded || isStreaming);
 
   if (!reasoning && !isStreaming) return null;
@@ -34,8 +30,8 @@ export function ReasoningView({
       </button>
 
       {expanded && (
-        <div className="border-t border-[var(--border)] px-3 py-2.5 font-mono text-[11px] leading-relaxed text-[var(--muted-strong)] whitespace-pre-wrap">
-          {reasoning || <span className="italic text-[var(--muted)]">Analizowanie kontekstu…</span>}
+        <div className="border-t border-[var(--border)] px-3 py-2.5 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-[var(--muted-strong)]">
+          {reasoning || <span className="text-[var(--muted)] italic">Analizowanie kontekstu…</span>}
         </div>
       )}
     </div>

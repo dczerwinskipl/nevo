@@ -5,16 +5,8 @@
     "platform": "windows"
   },
   "methods": {
-    "clientRequests": [
-      "initialize",
-      "thread/start",
-      "thread/resume",
-      "turn/start",
-      "turn/interrupt"
-    ],
-    "clientNotifications": [
-      "initialized"
-    ],
+    "clientRequests": ["initialize", "thread/start", "thread/resume", "turn/start", "turn/interrupt"],
+    "clientNotifications": ["initialized"],
     "serverNotifications": [
       "error",
       "thread/status/changed",
@@ -43,9 +35,25 @@
     "v1/InitializeParams.json": ["clientInfo"],
     "v1/InitializeResponse.json": ["codexHome", "platformFamily", "platformOs", "userAgent"],
     "v2/ThreadStartParams.json": [],
-    "v2/ThreadStartResponse.json": ["approvalPolicy", "approvalsReviewer", "cwd", "model", "modelProvider", "sandbox", "thread"],
+    "v2/ThreadStartResponse.json": [
+      "approvalPolicy",
+      "approvalsReviewer",
+      "cwd",
+      "model",
+      "modelProvider",
+      "sandbox",
+      "thread"
+    ],
     "v2/ThreadResumeParams.json": ["threadId"],
-    "v2/ThreadResumeResponse.json": ["approvalPolicy", "approvalsReviewer", "cwd", "model", "modelProvider", "sandbox", "thread"],
+    "v2/ThreadResumeResponse.json": [
+      "approvalPolicy",
+      "approvalsReviewer",
+      "cwd",
+      "model",
+      "modelProvider",
+      "sandbox",
+      "thread"
+    ],
     "v2/TurnStartParams.json": ["input", "threadId"],
     "v2/TurnStartResponse.json": ["turn"],
     "v2/TurnInterruptParams.json": ["threadId", "turnId"],

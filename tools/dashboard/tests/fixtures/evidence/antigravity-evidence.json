@@ -6,7 +6,11 @@
     {
       "event": "init",
       "conversation_id": "17a80412-9fd3-41c9-b1fd-02fab295be53",
-      "init": { "cwd": "D:\\repos\\git\\nevo", "tools": ["run_command", "find_by_name", "view_file"], "permission_mode": "always-proceed" }
+      "init": {
+        "cwd": "D:\\repos\\git\\nevo",
+        "tools": ["run_command", "find_by_name", "view_file"],
+        "permission_mode": "always-proceed"
+      }
     },
     {
       "event": "step_update",
@@ -40,7 +44,11 @@
         "step_type": "tool",
         "tool_name": "run_command",
         "duration_seconds": 0.25,
-        "tool_info": { "name": "run_command", "parameters": { "CommandLine": "git status" }, "output": "nothing to commit, working tree clean\n" }
+        "tool_info": {
+          "name": "run_command",
+          "parameters": { "CommandLine": "git status" },
+          "output": "nothing to commit, working tree clean\n"
+        }
       }
     },
     {
@@ -71,7 +79,11 @@
         "step_type": "tool",
         "tool_name": "find_by_name",
         "duration_seconds": 0.02,
-        "tool_info": { "name": "find_by_name", "parameters": { "Pattern": "*", "SearchDirectory": "specs/active" }, "output": "ai-session-issues-and-diagnostics\n" }
+        "tool_info": {
+          "name": "find_by_name",
+          "parameters": { "Pattern": "*", "SearchDirectory": "specs/active" },
+          "output": "ai-session-issues-and-diagnostics\n"
+        }
       }
     },
     {

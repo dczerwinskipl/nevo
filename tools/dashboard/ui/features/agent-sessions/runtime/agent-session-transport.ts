@@ -16,11 +16,7 @@ export class AgentSessionLoadError extends Error {
   }
 }
 
-export function classifySessionLoadError(
-  err: unknown,
-  provider?: string,
-  sessionId?: string,
-): AgentSessionLoadError {
+export function classifySessionLoadError(err: unknown, provider?: string, sessionId?: string): AgentSessionLoadError {
   if (err instanceof AgentSessionLoadError) {
     return err;
   }
@@ -56,14 +52,11 @@ export function classifySessionLoadError(
         },
       );
     }
-    return new AgentSessionLoadError(
-      msg || `Serwer dashboardu zwrócił błąd HTTP ${status}.`,
-      {
-        kind: 'http',
-        status,
-        title: `Błąd serwera (${status})`,
-      },
-    );
+    return new AgentSessionLoadError(msg || `Serwer dashboardu zwrócił błąd HTTP ${status}.`, {
+      kind: 'http',
+      status,
+      title: `Błąd serwera (${status})`,
+    });
   }
 
   const message = err instanceof Error ? err.message : String(err);
@@ -78,13 +71,10 @@ export function classifySessionLoadError(
     );
   }
 
-  return new AgentSessionLoadError(
-    message || 'Wystąpił nieoczekiwany błąd podczas wczytywania sesji.',
-    {
-      kind: 'http',
-      title: 'Błąd wczytywania sesji',
-    },
-  );
+  return new AgentSessionLoadError(message || 'Wystąpił nieoczekiwany błąd podczas wczytywania sesji.', {
+    kind: 'http',
+    title: 'Błąd wczytywania sesji',
+  });
 }
 
 export async function fetchAgentSessionSnapshot(
@@ -110,7 +100,8 @@ export async function fetchAgentSessionSnapshot(
 
     if (res.status === 404) {
       throw new AgentSessionLoadError(
-        errorMsg || `Sesja "${providerSessionId}" dla providera "${provider}" nie została znaleziona lub została usunięta.`,
+        errorMsg ||
+          `Sesja "${providerSessionId}" dla providera "${provider}" nie została znaleziona lub została usunięta.`,
         {
           kind: 'not_found',
           status: 404,
@@ -119,14 +110,11 @@ export async function fetchAgentSessionSnapshot(
       );
     }
 
-    throw new AgentSessionLoadError(
-      errorMsg || `Serwer dashboardu zwrócił błąd: ${res.status} ${res.statusText}`,
-      {
-        kind: 'http',
-        status: res.status,
-        title: `Błąd serwera (${res.status})`,
-      },
-    );
+    throw new AgentSessionLoadError(errorMsg || `Serwer dashboardu zwrócił błąd: ${res.status} ${res.statusText}`, {
+      kind: 'http',
+      status: res.status,
+      title: `Błąd serwera (${res.status})`,
+    });
   }
 
   const data = await res.json();

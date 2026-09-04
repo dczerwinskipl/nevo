@@ -1,19 +1,8 @@
-import {
-  ArrowLeft,
-  Boxes,
-  ChevronRight,
-  ClipboardCheck,
-  FileCode2,
-  Folder,
-  LoaderCircle,
-} from 'lucide-react';
+import { ArrowLeft, Boxes, ChevronRight, ClipboardCheck, FileCode2, Folder, LoaderCircle } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { useEffect, useRef, useState } from 'react';
 
-import type {
-  SpecificationSummary,
-  SpecificationManifestDirectorySection,
-} from '../types';
+import type { SpecificationSummary, SpecificationManifestDirectorySection } from '../types';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { StatusCard } from '@/components/ui/status-card';
@@ -27,7 +16,7 @@ function ContentLoading() {
         <LoaderCircle className="size-4 animate-spin text-[var(--accent)]" />
         Wczytywanie treści dokumentu…
       </div>
-      <div className="mt-7 space-y-3 animate-pulse">
+      <div className="mt-7 animate-pulse space-y-3">
         <div className="h-7 w-2/5 rounded bg-white/8" />
         <div className="h-3 w-full rounded bg-white/5" />
         <div className="h-3 w-5/6 rounded bg-white/5" />
@@ -88,9 +77,7 @@ export function DirectorySectionPanel({
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const triggerIdRef = useRef<string | null>(null);
 
-  const selectedDoc = selectedDocId
-    ? section.documents.find(doc => doc.docId === selectedDocId) ?? null
-    : null;
+  const selectedDoc = selectedDocId ? (section.documents.find((doc) => doc.docId === selectedDocId) ?? null) : null;
 
   const documentQuery = useSpecificationDocument(
     specification,
@@ -99,7 +86,7 @@ export function DirectorySectionPanel({
   );
 
   useEffect(() => {
-    if (selectedDocId && !section.documents.some(doc => doc.docId === selectedDocId)) {
+    if (selectedDocId && !section.documents.some((doc) => doc.docId === selectedDocId)) {
       setSelectedDocId(null);
     }
   }, [section.documents, selectedDocId]);
@@ -117,7 +104,7 @@ export function DirectorySectionPanel({
 
   if (selectedDoc) {
     return (
-      <div className="w-full min-w-0 max-w-full">
+      <div className="w-full max-w-full min-w-0">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <Button
             variant="ghost"
@@ -133,9 +120,7 @@ export function DirectorySectionPanel({
           >
             <ArrowLeft className="mr-2 size-3.5" /> Wróć do: {section.label.toLowerCase()}
           </Button>
-          <span className="max-w-full truncate text-[10px] text-[var(--muted)] sm:max-w-[60%]">
-            {selectedDoc.path}
-          </span>
+          <span className="max-w-full truncate text-[10px] text-[var(--muted)] sm:max-w-[60%]">{selectedDoc.path}</span>
         </div>
 
         {documentQuery.loading ? (
@@ -143,16 +128,14 @@ export function DirectorySectionPanel({
         ) : documentQuery.error ? (
           <ContentError message={documentQuery.error} onRetry={() => void documentQuery.refresh()} />
         ) : (
-          <Card className="w-full min-w-0 max-w-full overflow-hidden">
+          <Card className="w-full max-w-full min-w-0 overflow-hidden">
             <div className="border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 py-4 sm:px-8">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">
+              <p className="text-[10px] font-bold tracking-[0.18em] text-[var(--accent)] uppercase">
                 {section.singularLabel || section.label}
               </p>
-              <h2 className="mt-2 text-lg font-semibold text-[var(--foreground)] sm:text-xl">
-                {selectedDoc.title}
-              </h2>
+              <h2 className="mt-2 text-lg font-semibold text-[var(--foreground)] sm:text-xl">{selectedDoc.title}</h2>
             </div>
-            <article className="w-full min-w-0 max-w-full px-5 py-7 sm:px-8 sm:py-9">
+            <article className="w-full max-w-full min-w-0 px-5 py-7 sm:px-8 sm:py-9">
               <MarkdownContent markdown={documentQuery.data?.markdown ?? ''} />
             </article>
           </Card>
@@ -166,17 +149,13 @@ export function DirectorySectionPanel({
   return (
     <div>
       <div className="mb-4">
-        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">
-          {section.label}
-        </p>
+        <p className="text-[10px] font-bold tracking-[0.18em] text-[var(--accent)] uppercase">{section.label}</p>
         <h2 className="mt-1 text-lg font-semibold text-[var(--foreground)]">{countLabel}</h2>
-        <p className="mt-1 text-xs text-[var(--muted)]">
-          Wybierz pozycję, aby otworzyć jej dokument.
-        </p>
+        <p className="mt-1 text-xs text-[var(--muted)]">Wybierz pozycję, aby otworzyć jej dokument.</p>
       </div>
 
       <div className="space-y-3">
-        {section.documents.map(doc => {
+        {section.documents.map((doc) => {
           const triggerId = `section-${section.id}-trigger-${doc.id}`;
           return (
             <Card
@@ -196,14 +175,8 @@ export function DirectorySectionPanel({
                   <IconComponent className="size-4" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-sm font-semibold leading-5 text-[var(--foreground)] sm:text-base">
-                    {doc.title}
-                  </h3>
-                  {doc.path && (
-                    <p className="mt-2 truncate font-mono text-[10px] text-[var(--muted)]">
-                      {doc.path}
-                    </p>
-                  )}
+                  <h3 className="text-sm leading-5 font-semibold text-[var(--foreground)] sm:text-base">{doc.title}</h3>
+                  {doc.path && <p className="mt-2 truncate font-mono text-[10px] text-[var(--muted)]">{doc.path}</p>}
                 </div>
                 <ChevronRight className="size-4 shrink-0 text-[var(--accent)]" />
               </button>

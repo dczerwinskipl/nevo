@@ -1,8 +1,5 @@
 import { useState, useEffect } from 'react';
-import {
-  useCreateSpecification,
-  type CreateSpecificationResult,
-} from '../queries';
+import { useCreateSpecification, type CreateSpecificationResult } from '../queries';
 import { useAgentProviders, useCreateAgentSession } from '@/features/agent-sessions/queries';
 import { slugifyTitle, resolveDefaultPlanningMode } from './create-specification-helpers';
 import { initialPromptWithTaskContext } from '@/features/agent-sessions/create-agent-session-helpers';
@@ -23,21 +20,17 @@ export function useCreateSpecificationForm({ onClose, onCreated }: UseCreateSpec
   const specMutation = useCreateSpecification();
   const createAiSession = useCreateAgentSession();
 
-  const enabledProviders = (providers.data?.providers.filter((p) => p.enabled) ?? []).sort(
-    (a, b) => {
-      if (a.id === 'mock') return 1;
-      if (b.id === 'mock') return -1;
-      return 0;
-    },
-  );
+  const enabledProviders = (providers.data?.providers.filter((p) => p.enabled) ?? []).sort((a, b) => {
+    if (a.id === 'mock') return 1;
+    if (b.id === 'mock') return -1;
+    return 0;
+  });
   const availableProviders = enabledProviders.filter((p) => p.available !== false);
 
   const [title, setTitle] = useState('');
   const [slug, setSlug] = useState('');
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
-  const [type, setType] = useState<'standard' | 'architectural' | 'small' | 'exploratory'>(
-    'standard',
-  );
+  const [type, setType] = useState<'standard' | 'architectural' | 'small' | 'exploratory'>('standard');
   const [goal, setGoal] = useState('');
 
   // AI planning state

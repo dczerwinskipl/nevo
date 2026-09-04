@@ -3,7 +3,7 @@ import { expect } from 'storybook/test';
 
 function SmokeFoundation() {
   return (
-    <div className="p-8 space-y-4">
+    <div className="space-y-4 p-8">
       <h1 className="text-2xl font-bold text-[var(--foreground)]">Storybook Smoke Verification</h1>
       <p className="text-[var(--muted)]">Testing typography, theme tokens, and Tailwind v4 compilation.</p>
       <div className="flex items-center gap-3">

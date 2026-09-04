@@ -19,11 +19,11 @@ export function SpecificationList({
 }) {
   const archive = mode === 'archive';
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 pb-16 pt-12 sm:px-8 lg:pt-20">
+    <div className="mx-auto w-full max-w-5xl px-4 pt-12 pb-16 sm:px-8 lg:pt-20">
       <div className="flex size-12 items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--surface)] text-[var(--accent)]">
         {archive ? <Archive className="size-5" /> : <FileStack className="size-5" />}
       </div>
-      <p className="mt-7 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--accent)]">
+      <p className="mt-7 text-[10px] font-bold tracking-[0.22em] text-[var(--accent)] uppercase">
         {archive ? 'Historia zmian' : 'Aktualny przepływ'}
       </p>
       <h1 className="mt-2 text-3xl font-semibold tracking-[-0.035em] text-[var(--foreground)] sm:text-5xl">
@@ -36,7 +36,7 @@ export function SpecificationList({
       </p>
 
       <div className="mt-10 space-y-2">
-        {specifications.map(specification => {
+        {specifications.map((specification) => {
           return (
             <Link
               key={specification.slug}
@@ -57,7 +57,9 @@ export function SpecificationList({
                     </div>
                     <p className="mt-2 line-clamp-2 text-xs leading-5 text-[var(--muted)]">{specification.summary}</p>
                     <div className="mt-4 flex flex-wrap items-center gap-3 text-[10px] text-[var(--muted)]">
-                      <span>{specification.metrics.total} {pluralizeTasks(specification.metrics.total)}</span>
+                      <span>
+                        {specification.metrics.total} {pluralizeTasks(specification.metrics.total)}
+                      </span>
                       <span>Aktualizacja: {formatDate(specification.updatedAt)}</span>
                       <StageProgress specification={specification} className="w-28" />
                       <span className="font-semibold tabular-nums">{specification.metrics.progress}%</span>
@@ -74,7 +76,9 @@ export function SpecificationList({
           <div className="rounded-2xl border border-dashed border-[var(--border)] py-20 text-center">
             <Inbox className="mx-auto size-7 text-[var(--accent)]" />
             <p className="mt-4 text-sm font-semibold text-[var(--foreground)]">Tutaj jest pusto</p>
-            <p className="mt-1 text-xs text-[var(--muted)]">Dashboard pokaże pozycje, gdy pojawią się w plikach repozytorium.</p>
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              Dashboard pokaże pozycje, gdy pojawią się w plikach repozytorium.
+            </p>
           </div>
         )}
       </div>

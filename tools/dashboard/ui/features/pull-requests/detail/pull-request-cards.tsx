@@ -25,18 +25,34 @@ export function PullRequestSummaryCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <Badge className={stateTone(pullRequest)}>{stateLabel(pullRequest)}</Badge>
-            <span className="text-[11px] text-[var(--muted)]">{pullRequest.providerLabel} #{pullRequest.number}</span>
+            <span className="text-[11px] text-[var(--muted)]">
+              {pullRequest.providerLabel} #{pullRequest.number}
+            </span>
           </div>
-          <h3 className="mt-2 text-sm font-semibold leading-5 text-[var(--foreground)] sm:text-base">{pullRequest.title}</h3>
+          <h3 className="mt-2 text-sm leading-5 font-semibold text-[var(--foreground)] sm:text-base">
+            {pullRequest.title}
+          </h3>
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] text-[var(--muted)]">
-            {pullRequest.author && <span className="inline-flex items-center gap-1.5"><UserRound className="size-3.5" />{pullRequest.author.login}</span>}
+            {pullRequest.author && (
+              <span className="inline-flex items-center gap-1.5">
+                <UserRound className="size-3.5" />
+                {pullRequest.author.login}
+              </span>
+            )}
             <span className="inline-flex min-w-0 items-center gap-1.5">
               <GitBranch className="size-3.5 shrink-0" />
-              <span className="max-w-40 truncate font-mono">{pullRequest.head.name || pullRequest.head.label || 'head'}</span>
+              <span className="max-w-40 truncate font-mono">
+                {pullRequest.head.name || pullRequest.head.label || 'head'}
+              </span>
               <span>→</span>
-              <span className="max-w-40 truncate font-mono">{pullRequest.base.name || pullRequest.base.label || 'base'}</span>
+              <span className="max-w-40 truncate font-mono">
+                {pullRequest.base.name || pullRequest.base.label || 'base'}
+              </span>
             </span>
-            <span className="inline-flex items-center gap-1.5"><Files className="size-3.5" />{pullRequest.stats.changedFiles} plików</span>
+            <span className="inline-flex items-center gap-1.5">
+              <Files className="size-3.5" />
+              {pullRequest.stats.changedFiles} plików
+            </span>
             <span className="font-semibold text-[var(--success)]">+{pullRequest.stats.additions}</span>
             <span className="font-semibold text-[var(--danger)]">−{pullRequest.stats.deletions}</span>
           </div>
@@ -57,7 +73,9 @@ export function UnavailableCard({ result }: { result: UnavailablePullRequest }) 
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge>{result.reference.provider}</Badge>
-            <span className="text-[11px] text-[var(--muted)]">{result.reference.repository} #{result.reference.number}</span>
+            <span className="text-[11px] text-[var(--muted)]">
+              {result.reference.repository} #{result.reference.number}
+            </span>
           </div>
           <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">{result.message}</p>
         </div>

@@ -24,7 +24,7 @@ function UserMessageBubble({ text }: { text: string }) {
         <div className="space-y-1.5">
           <div
             className={cn(
-              'whitespace-pre-wrap break-words font-normal text-[var(--foreground)]',
+              'font-normal break-words whitespace-pre-wrap text-[var(--foreground)]',
               isLong && !expanded && 'line-clamp-6',
             )}
           >
@@ -97,7 +97,9 @@ export const AgentSessionTranscriptV2 = forwardRef<AgentSessionTranscriptV2Handl
       contentKey: scrollContentKey,
     });
 
-    useImperativeHandle(ref, () => ({ scrollToBottom: (behavior?: ScrollBehavior) => scrollToBottom(behavior) }), [scrollToBottom]);
+    useImperativeHandle(ref, () => ({ scrollToBottom: (behavior?: ScrollBehavior) => scrollToBottom(behavior) }), [
+      scrollToBottom,
+    ]);
 
     return (
       <div
@@ -187,12 +189,14 @@ export const AgentSessionTranscriptV2 = forwardRef<AgentSessionTranscriptV2Handl
                 <p
                   className={cn(
                     'font-semibold',
-                    displayError.toLowerCase().includes('cancelled') ? 'text-[var(--foreground)]' : 'text-[var(--danger-strong)]',
+                    displayError.toLowerCase().includes('cancelled')
+                      ? 'text-[var(--foreground)]'
+                      : 'text-[var(--danger-strong)]',
                   )}
                 >
                   {displayError.toLowerCase().includes('cancelled') ? 'Generowanie przerwane' : 'Komunikat agenta'}
                 </p>
-                <p className="mt-1 whitespace-pre-wrap font-mono text-[11px] opacity-90">{displayError}</p>
+                <p className="mt-1 font-mono text-[11px] whitespace-pre-wrap opacity-90">{displayError}</p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 {canRetryInitial && onRetryInitial && (

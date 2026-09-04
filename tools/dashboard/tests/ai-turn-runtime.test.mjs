@@ -13,7 +13,6 @@ import { AntigravityAgentProvider } from '../server/ai/providers/antigravity/pro
 import { TurnLifecycleCoordinator } from '../server/ai/sessions/turns/coordinator.mjs';
 import { LifecycleTraceSink } from '../server/ai/diagnostics/index.mjs';
 
-
 const capabilities = Object.freeze({
   interactivePermissions: true,
   interactiveQuestions: true,
@@ -28,14 +27,29 @@ const capabilities = Object.freeze({
 });
 
 function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = {}) {
-  const cache = transcriptCache ?? createTranscriptCacheService({ baseDir: join(tmpdir(), `nevo-test-cache-${randomUUID()}`) });
+  const cache =
+    transcriptCache ?? createTranscriptCacheService({ baseDir: join(tmpdir(), `nevo-test-cache-${randomUUID()}`) });
   let starts = 0;
   let cancels = 0;
   let continuations = 0;
   let releasePersistentTurn;
   const provider = {
     descriptor: { id: 'fake', label: 'Fake', capabilities },
-    async startTurn({ providerSessionId, setProviderSessionId, message, setOperation, emitCommentaryDelta, emitFinalAnswerDelta, emitReasoningDelta, emitToolStarted, emitToolCompleted, emitUsageUpdated, emitEvent, requestInteraction, signal }) {
+    async startTurn({
+      providerSessionId,
+      setProviderSessionId,
+      message,
+      setOperation,
+      emitCommentaryDelta,
+      emitFinalAnswerDelta,
+      emitReasoningDelta,
+      emitToolStarted,
+      emitToolCompleted,
+      emitUsageUpdated,
+      emitEvent,
+      requestInteraction,
+      signal,
+    }) {
       if (!providerSessionId && setProviderSessionId) {
         setProviderSessionId('sess-auto-allocated');
       }
@@ -47,12 +61,24 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
       if (message === 'permission') {
         return {
           isDeferred: true,
-          interaction: { id: `int-perm-${starts}`, kind: 'permission', toolName: 'Shell', input: { command: 'npm test' } },
+          interaction: {
+            id: `int-perm-${starts}`,
+            kind: 'permission',
+            toolName: 'Shell',
+            input: { command: 'npm test' },
+          },
         };
       } else if (message === 'question') {
         return {
           isDeferred: true,
-          interaction: { id: `int-q-${starts}`, kind: 'question', questions: [{ id: 'q-1', question: 'Same?' }, { id: 'q-2', question: 'Same?' }] },
+          interaction: {
+            id: `int-q-${starts}`,
+            kind: 'question',
+            questions: [
+              { id: 'q-1', question: 'Same?' },
+              { id: 'q-2', question: 'Same?' },
+            ],
+          },
         };
       } else if (message === 'tools-and-reasoning') {
         emitReasoningDelta('thinking...');
@@ -74,7 +100,9 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
         emitToolStarted({ toolId: 't1', toolName: 'Bash', input: { command: 'boom' } });
         throw new Error('provider failure mid-tool');
       } else if (message === 'hang') {
-        await new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
+        await new Promise((resolve, reject) =>
+          signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }),
+        );
       } else if (message === 'persistent-interaction') {
         requestInteraction(
           { kind: 'permission', toolName: 'PersistentShell', input: { command: 'npm test' } },
@@ -86,7 +114,7 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
         });
       } else if (message === 'slow-drip') {
         for (let i = 0; i < 4; i += 1) {
-          await new Promise(resolve => setTimeout(resolve, 15));
+          await new Promise((resolve) => setTimeout(resolve, 15));
           emitFinalAnswerDelta?.(`chunk${i} `);
         }
       }
@@ -97,12 +125,14 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
       if (interaction?.kind === 'permission') {
         emitFinalAnswerDelta?.(response.decision);
       } else if (interaction?.kind === 'question') {
-        emitFinalAnswerDelta?.(response.answers.map(a => a.value).join(','));
+        emitFinalAnswerDelta?.(response.answers.map((a) => a.value).join(','));
       }
       emitFinalAnswerDelta?.('two');
       if (interaction?.toolName === 'PersistentShell') return { continuesTurn: true };
     },
-    async cancelTurn() { cancels += 1; },
+    async cancelTurn() {
+      cancels += 1;
+    },
   };
   let id = 0;
   const registry = createAgentProviderRegistry([provider]);
@@ -110,7 +140,10 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
     registry,
     transcriptCache: cache,
     idFactory: () => String(++id),
-    clock: (() => { let tick = 0; return () => new Date(Date.UTC(2026, 7, 15, 10, 0, tick++)); })(),
+    clock: (() => {
+      let tick = 0;
+      return () => new Date(Date.UTC(2026, 7, 15, 10, 0, tick++));
+    })(),
     idleTimeoutMs: 0,
     ...runtimeOptions,
   });
@@ -118,19 +151,26 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
     runtime,
     transcriptCache: cache,
     registry,
-    get starts() { return starts; },
-    get cancels() { return cancels; },
-    get continuations() { return continuations; },
-    releasePersistentTurn() { releasePersistentTurn?.(); },
+    get starts() {
+      return starts;
+    },
+    get cancels() {
+      return cancels;
+    },
+    get continuations() {
+      return continuations;
+    },
+    releasePersistentTurn() {
+      releasePersistentTurn?.();
+    },
   };
 }
-
 
 async function waitFor(read, predicate, message = 'condition') {
   for (let index = 0; index < 100; index += 1) {
     const value = read();
     if (predicate(value)) return value;
-    await new Promise(resolve => setTimeout(resolve, 2));
+    await new Promise((resolve) => setTimeout(resolve, 2));
   }
   assert.fail(`Timed out waiting for ${message}.`);
 }
@@ -138,9 +178,19 @@ async function waitFor(read, predicate, message = 'condition') {
 test('turns stream ordered deltas (text.delta) and complete with terminal snapshot', async () => {
   const fixture = createFixture();
   const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 's1', message: 'normal' });
-  const snapshot = await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'completed', 'completion');
-  assert.deepEqual(snapshot.events.map(event => event.type), ['turn.started', 'turn.updated', 'text.delta', 'text.delta', 'turn.updated', 'turn.completed']);
-  assert.deepEqual(snapshot.events.map(event => event.id), [1, 2, 3, 4, 5, 6]);
+  const snapshot = await waitFor(
+    () => fixture.runtime.getSnapshot(turnId),
+    (value) => value.status === 'completed',
+    'completion',
+  );
+  assert.deepEqual(
+    snapshot.events.map((event) => event.type),
+    ['turn.started', 'turn.updated', 'text.delta', 'text.delta', 'turn.updated', 'turn.completed'],
+  );
+  assert.deepEqual(
+    snapshot.events.map((event) => event.id),
+    [1, 2, 3, 4, 5, 6],
+  );
   assert.equal(snapshot.providerSessionId, 's1');
   assert.equal(snapshot.sessionId, undefined);
 });
@@ -151,24 +201,33 @@ test('progress.delta remains ordered provider-neutral activity and never becomes
     const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
     const fixture = createFixture({ transcriptCache });
     const { turnId } = await fixture.runtime.startTurn({
-      provider: 'fake', providerSessionId: 'progress-session', message: 'progress-only',
+      provider: 'fake',
+      providerSessionId: 'progress-session',
+      message: 'progress-only',
     });
-    const snapshot = await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'completed');
-    assert.deepEqual(snapshot.events.map(event => event.type), [
-      'turn.started', 'turn.updated', 'text.delta', 'progress.delta', 'text.delta', 'turn.updated', 'turn.completed',
-    ]);
-    const progress = snapshot.events.find(event => event.type === 'progress.delta');
+    const snapshot = await waitFor(
+      () => fixture.runtime.getSnapshot(turnId),
+      (value) => value.status === 'completed',
+    );
+    assert.deepEqual(
+      snapshot.events.map((event) => event.type),
+      ['turn.started', 'turn.updated', 'text.delta', 'progress.delta', 'text.delta', 'turn.updated', 'turn.completed'],
+    );
+    const progress = snapshot.events.find((event) => event.type === 'progress.delta');
     assert.equal(progress.id, 4);
     assert.equal(progress.seq, 4);
     assert.equal(progress.turnId, turnId);
     assert.equal(progress.progressId, 'progress-1');
     assert.equal(progress.text, 'checking...');
     const transcript = await transcriptCache.getTranscript('fake', 'progress-session');
-    const assistantText = transcript.messages.filter(message => message.role === 'assistant').map(message => message.text).join('');
+    const assistantText = transcript.messages
+      .filter((message) => message.role === 'assistant')
+      .map((message) => message.text)
+      .join('');
     assert.equal(assistantText, 'one two');
     assert.equal(assistantText.includes('checking'), false);
   } finally {
-    await new Promise(resolve => setTimeout(resolve, 25));
+    await new Promise((resolve) => setTimeout(resolve, 25));
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
@@ -183,25 +242,59 @@ test('runtime rejects legacy sessionId and enforces canonical providerSessionId'
 
 test('permission and question interactions pause, resolve by stable IDs, and continue the same turn', async () => {
   const fixture = createFixture();
-  const permission = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'permission', message: 'permission' });
-  const paused = await waitFor(() => fixture.runtime.getSnapshot(permission.turnId), value => value.pendingInteraction, 'permission');
+  const permission = await fixture.runtime.startTurn({
+    provider: 'fake',
+    providerSessionId: 'permission',
+    message: 'permission',
+  });
+  const paused = await waitFor(
+    () => fixture.runtime.getSnapshot(permission.turnId),
+    (value) => value.pendingInteraction,
+    'permission',
+  );
   assert.equal(paused.status, 'waitingForUser');
   await fixture.runtime.resolveInteraction(permission.turnId, paused.pendingInteraction.id, { decision: 'allow' });
-  const completed = await waitFor(() => fixture.runtime.getSnapshot(permission.turnId), value => value.status === 'completed', 'permission completion');
-  assert.equal(completed.events.filter(event => event.type === 'turn.started').length, 1);
+  const completed = await waitFor(
+    () => fixture.runtime.getSnapshot(permission.turnId),
+    (value) => value.status === 'completed',
+    'permission completion',
+  );
+  assert.equal(completed.events.filter((event) => event.type === 'turn.started').length, 1);
   assert.equal(fixture.continuations, 1);
 
-  const question = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'question', message: 'question' });
-  const asked = await waitFor(() => fixture.runtime.getSnapshot(question.turnId), value => value.pendingInteraction, 'question');
+  const question = await fixture.runtime.startTurn({
+    provider: 'fake',
+    providerSessionId: 'question',
+    message: 'question',
+  });
+  const asked = await waitFor(
+    () => fixture.runtime.getSnapshot(question.turnId),
+    (value) => value.pendingInteraction,
+    'question',
+  );
   const [first, second] = asked.pendingInteraction.questions;
   assert.notEqual(first.id, second.id);
-  await assert.rejects(() => fixture.runtime.resolveInteraction(question.turnId, asked.pendingInteraction.id, {
-    answers: [{ questionId: first.id, value: 'A' }, { questionId: 'Same?', value: 'B' }],
-  }), { name: 'AiValidationError' });
+  await assert.rejects(
+    () =>
+      fixture.runtime.resolveInteraction(question.turnId, asked.pendingInteraction.id, {
+        answers: [
+          { questionId: first.id, value: 'A' },
+          { questionId: 'Same?', value: 'B' },
+        ],
+      }),
+    { name: 'AiValidationError' },
+  );
   await fixture.runtime.resolveInteraction(question.turnId, asked.pendingInteraction.id, {
-    answers: [{ questionId: first.id, value: 'A' }, { questionId: second.id, value: 'B' }],
+    answers: [
+      { questionId: first.id, value: 'A' },
+      { questionId: second.id, value: 'B' },
+    ],
   });
-  await waitFor(() => fixture.runtime.getSnapshot(question.turnId), value => value.status === 'completed', 'question completion');
+  await waitFor(
+    () => fixture.runtime.getSnapshot(question.turnId),
+    (value) => value.status === 'completed',
+    'question completion',
+  );
   assert.equal(fixture.continuations, 2);
 });
 
@@ -212,35 +305,76 @@ test('a persistent provider interaction continues until the original turn lifecy
     providerSessionId: 'persistent-session',
     message: 'persistent-interaction',
   });
-  const pending = await waitFor(() => fixture.runtime.getSnapshot(turn.turnId), value => value.pendingInteraction, 'persistent interaction');
+  const pending = await waitFor(
+    () => fixture.runtime.getSnapshot(turn.turnId),
+    (value) => value.pendingInteraction,
+    'persistent interaction',
+  );
   await fixture.runtime.resolveInteraction(turn.turnId, pending.pendingInteraction.id, { decision: 'allow' });
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
 
   const continuing = fixture.runtime.getSnapshot(turn.turnId);
   assert.equal(continuing.status, 'running');
-  assert.equal(continuing.events.some(event => event.type === 'turn.completed'), false);
+  assert.equal(
+    continuing.events.some((event) => event.type === 'turn.completed'),
+    false,
+  );
 
   fixture.releasePersistentTurn();
-  const completed = await waitFor(() => fixture.runtime.getSnapshot(turn.turnId), value => value.status === 'completed', 'provider completion');
-  assert.equal(completed.events.filter(event => event.type === 'turn.completed').length, 1);
+  const completed = await waitFor(
+    () => fixture.runtime.getSnapshot(turn.turnId),
+    (value) => value.status === 'completed',
+    'provider completion',
+  );
+  assert.equal(completed.events.filter((event) => event.type === 'turn.completed').length, 1);
 });
 
 test('duplicate, unknown, and cross-turn responses cannot resolve another request', async () => {
   const fixture = createFixture();
-  const first = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'first', message: 'permission' });
-  const second = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'second', message: 'permission' });
-  const one = await waitFor(() => fixture.runtime.getSnapshot(first.turnId), value => value.pendingInteraction, 'first pending');
-  const two = await waitFor(() => fixture.runtime.getSnapshot(second.turnId), value => value.pendingInteraction, 'second pending');
-  await assert.rejects(() => fixture.runtime.resolveInteraction(first.turnId, two.pendingInteraction.id, { decision: 'allow' }), { name: 'AiNotFoundError' });
+  const first = await fixture.runtime.startTurn({
+    provider: 'fake',
+    providerSessionId: 'first',
+    message: 'permission',
+  });
+  const second = await fixture.runtime.startTurn({
+    provider: 'fake',
+    providerSessionId: 'second',
+    message: 'permission',
+  });
+  const one = await waitFor(
+    () => fixture.runtime.getSnapshot(first.turnId),
+    (value) => value.pendingInteraction,
+    'first pending',
+  );
+  const two = await waitFor(
+    () => fixture.runtime.getSnapshot(second.turnId),
+    (value) => value.pendingInteraction,
+    'second pending',
+  );
+  await assert.rejects(
+    () => fixture.runtime.resolveInteraction(first.turnId, two.pendingInteraction.id, { decision: 'allow' }),
+    { name: 'AiNotFoundError' },
+  );
   await fixture.runtime.resolveInteraction(first.turnId, one.pendingInteraction.id, { decision: 'deny' });
-  await assert.rejects(() => fixture.runtime.resolveInteraction(first.turnId, one.pendingInteraction.id, { decision: 'deny' }), { name: 'AiNotFoundError' });
+  await assert.rejects(
+    () => fixture.runtime.resolveInteraction(first.turnId, one.pendingInteraction.id, { decision: 'deny' }),
+    { name: 'AiNotFoundError' },
+  );
   fixture.runtime.shutdown();
 });
 
 test('reconstitutes pending interaction from transcript cache across runtime restart with session correlation', async () => {
   const fixture = createFixture();
-  const turn = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'restart-session', message: 'permission' });
-  const pending = await waitFor(() => fixture.runtime.getSnapshot(turn.turnId), v => v.pendingInteraction, 'pending before restart');
+  const turn = await fixture.runtime.startTurn({
+    provider: 'fake',
+    providerSessionId: 'restart-session',
+    message: 'permission',
+  });
+  const pending = await waitFor(
+    () => fixture.runtime.getSnapshot(turn.turnId),
+    (v) => v.pendingInteraction,
+    'pending before restart',
+  );
   assert.equal(pending.status, 'waitingForUser');
   assert.equal(pending.pendingInteraction.resumePolicy, 'restart');
 
@@ -253,19 +387,40 @@ test('reconstitutes pending interaction from transcript cache across runtime res
 
   // 1. Cross-session resolution attempt is rejected
   await assert.rejects(
-    () => runtime2.resolveInteraction(turn.turnId, pending.pendingInteraction.id, { decision: 'allow' }, { provider: 'fake', providerSessionId: 'other-session' }),
+    () =>
+      runtime2.resolveInteraction(
+        turn.turnId,
+        pending.pendingInteraction.id,
+        { decision: 'allow' },
+        { provider: 'fake', providerSessionId: 'other-session' },
+      ),
     { name: 'AiNotFoundError' },
   );
 
   // 2. Wrong interaction ID is rejected
   await assert.rejects(
-    () => runtime2.resolveInteraction(turn.turnId, 'wrong-interaction-id', { decision: 'allow' }, { provider: 'fake', providerSessionId: 'restart-session' }),
+    () =>
+      runtime2.resolveInteraction(
+        turn.turnId,
+        'wrong-interaction-id',
+        { decision: 'allow' },
+        { provider: 'fake', providerSessionId: 'restart-session' },
+      ),
     { name: 'AiNotFoundError' },
   );
 
   // 3. Valid resolution reconstitutes turn and completes
-  await runtime2.resolveInteraction(turn.turnId, pending.pendingInteraction.id, { decision: 'allow' }, { provider: 'fake', providerSessionId: 'restart-session' });
-  const completed = await waitFor(() => runtime2.getSnapshot(turn.turnId), v => v.status === 'completed', 'completion after restart');
+  await runtime2.resolveInteraction(
+    turn.turnId,
+    pending.pendingInteraction.id,
+    { decision: 'allow' },
+    { provider: 'fake', providerSessionId: 'restart-session' },
+  );
+  const completed = await waitFor(
+    () => runtime2.getSnapshot(turn.turnId),
+    (v) => v.status === 'completed',
+    'completion after restart',
+  );
   assert.equal(completed.status, 'completed');
   runtime2.shutdown();
 });
@@ -276,13 +431,25 @@ test('session-wide monotonic sequence numbering across multiple turns', async ()
 
   // Turn 1
   const turn1 = await fixture.runtime.startTurn({ ...sessionIdentity, message: 'normal' });
-  const snap1 = await waitFor(() => fixture.runtime.getSnapshot(turn1.turnId), v => v.status === 'completed');
-  assert.deepEqual(snap1.events.map(e => e.seq), [1, 2, 3, 4, 5, 6]);
+  const snap1 = await waitFor(
+    () => fixture.runtime.getSnapshot(turn1.turnId),
+    (v) => v.status === 'completed',
+  );
+  assert.deepEqual(
+    snap1.events.map((e) => e.seq),
+    [1, 2, 3, 4, 5, 6],
+  );
 
   // Turn 2
   const turn2 = await fixture.runtime.startTurn({ ...sessionIdentity, message: 'normal' });
-  const snap2 = await waitFor(() => fixture.runtime.getSnapshot(turn2.turnId), v => v.status === 'completed');
-  assert.deepEqual(snap2.events.map(e => e.seq), [7, 8, 9, 10, 11, 12]);
+  const snap2 = await waitFor(
+    () => fixture.runtime.getSnapshot(turn2.turnId),
+    (v) => v.status === 'completed',
+  );
+  assert.deepEqual(
+    snap2.events.map((e) => e.seq),
+    [7, 8, 9, 10, 11, 12],
+  );
 });
 
 test('session-scoped subscription receives events across turns with monotonic sequence', async () => {
@@ -291,17 +458,26 @@ test('session-scoped subscription receives events across turns with monotonic se
   const sessionEvents = [];
 
   const unsub = fixture.runtime.subscribeToSession(sessionIdentity, {
-    onEvent: ev => sessionEvents.push(ev),
+    onEvent: (ev) => sessionEvents.push(ev),
   });
 
   const turn1 = await fixture.runtime.startTurn({ ...sessionIdentity, message: 'normal' });
-  await waitFor(() => fixture.runtime.getSnapshot(turn1.turnId), v => v.status === 'completed');
+  await waitFor(
+    () => fixture.runtime.getSnapshot(turn1.turnId),
+    (v) => v.status === 'completed',
+  );
 
   const turn2 = await fixture.runtime.startTurn({ ...sessionIdentity, message: 'normal' });
-  await waitFor(() => fixture.runtime.getSnapshot(turn2.turnId), v => v.status === 'completed');
+  await waitFor(
+    () => fixture.runtime.getSnapshot(turn2.turnId),
+    (v) => v.status === 'completed',
+  );
 
   assert.equal(sessionEvents.length, 12);
-  assert.deepEqual(sessionEvents.map(e => e.seq), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  assert.deepEqual(
+    sessionEvents.map((e) => e.seq),
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  );
   unsub();
 });
 
@@ -312,8 +488,15 @@ test('reconstruction after restart preserves session sequence from transcript ca
     const fixture1 = createFixture({ transcriptCache });
 
     // Run turn 1 on runtime 1
-    const turn1 = await fixture1.runtime.startTurn({ provider: 'fake', providerSessionId: 'sess-restart', message: 'normal' });
-    await waitFor(() => fixture1.runtime.getSnapshot(turn1.turnId), v => v.status === 'completed');
+    const turn1 = await fixture1.runtime.startTurn({
+      provider: 'fake',
+      providerSessionId: 'sess-restart',
+      message: 'normal',
+    });
+    await waitFor(
+      () => fixture1.runtime.getSnapshot(turn1.turnId),
+      (v) => v.status === 'completed',
+    );
     await transcriptCache.flush('fake', 'sess-restart');
 
     const transcript = await transcriptCache.getTranscript('fake', 'sess-restart');
@@ -321,11 +504,21 @@ test('reconstruction after restart preserves session sequence from transcript ca
 
     // Reconstruct runtime 2 (simulating server restart)
     const fixture2 = createFixture({ transcriptCache });
-    const turn2 = await fixture2.runtime.startTurn({ provider: 'fake', providerSessionId: 'sess-restart', message: 'normal' });
-    const snap2 = await waitFor(() => fixture2.runtime.getSnapshot(turn2.turnId), v => v.status === 'completed');
+    const turn2 = await fixture2.runtime.startTurn({
+      provider: 'fake',
+      providerSessionId: 'sess-restart',
+      message: 'normal',
+    });
+    const snap2 = await waitFor(
+      () => fixture2.runtime.getSnapshot(turn2.turnId),
+      (v) => v.status === 'completed',
+    );
 
     // Sequence must continue at 7, 8, 9, 10, 11, 12
-    assert.deepEqual(snap2.events.map(e => e.seq), [7, 8, 9, 10, 11, 12]);
+    assert.deepEqual(
+      snap2.events.map((e) => e.seq),
+      [7, 8, 9, 10, 11, 12],
+    );
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
@@ -333,8 +526,15 @@ test('reconstruction after restart preserves session sequence from transcript ca
 
 test('cancellation while in waitingForUser transitions to failed without process kill', async () => {
   const fixture = createFixture();
-  const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'cancel-waiting', message: 'permission' });
-  await waitFor(() => fixture.runtime.getSnapshot(turnId), v => v.status === 'waitingForUser');
+  const { turnId } = await fixture.runtime.startTurn({
+    provider: 'fake',
+    providerSessionId: 'cancel-waiting',
+    message: 'permission',
+  });
+  await waitFor(
+    () => fixture.runtime.getSnapshot(turnId),
+    (v) => v.status === 'waitingForUser',
+  );
 
   const snap = await fixture.runtime.cancelTurn(turnId);
   assert.equal(snap.status, 'failed');
@@ -349,30 +549,49 @@ test('cancellation while waiting invokes provider cancellation when a live opera
     providerSessionId: 'persistent-cancel',
     message: 'persistent-interaction',
   });
-  await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'waitingForUser');
+  await waitFor(
+    () => fixture.runtime.getSnapshot(turnId),
+    (value) => value.status === 'waitingForUser',
+  );
 
   const snapshot = await fixture.runtime.cancelTurn(turnId);
   assert.equal(fixture.cancels, 1);
   assert.equal(snapshot.status, 'failed');
   assert.equal(snapshot.pendingInteraction, null);
-  assert.equal(snapshot.events.filter(event => event.type === 'turn.failed').length, 1);
+  assert.equal(snapshot.events.filter((event) => event.type === 'turn.failed').length, 1);
 });
 
 test('explicit cancellation of running turn is capability-aware and produces one terminal event', async () => {
   const fixture = createFixture();
-  const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'cancel', message: 'hang' });
-  await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.events.length >= 2, 'started turn');
+  const { turnId } = await fixture.runtime.startTurn({
+    provider: 'fake',
+    providerSessionId: 'cancel',
+    message: 'hang',
+  });
+  await waitFor(
+    () => fixture.runtime.getSnapshot(turnId),
+    (value) => value.events.length >= 2,
+    'started turn',
+  );
   const snapshot = await fixture.runtime.cancelTurn(turnId);
   assert.equal(fixture.cancels, 1);
-  assert.equal(snapshot.events.filter(event => event.type === 'turn.failed').length, 1);
+  assert.equal(snapshot.events.filter((event) => event.type === 'turn.failed').length, 1);
   await fixture.runtime.cancelTurn(turnId);
   assert.equal(fixture.cancels, 1);
 });
 
 test('shutdown interrupts active turns without losing session identity', async () => {
   const fixture = createFixture();
-  const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'shutdown', message: 'hang' });
-  await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.events.length >= 2, 'running turn');
+  const { turnId } = await fixture.runtime.startTurn({
+    provider: 'fake',
+    providerSessionId: 'shutdown',
+    message: 'hang',
+  });
+  await waitFor(
+    () => fixture.runtime.getSnapshot(turnId),
+    (value) => value.events.length >= 2,
+    'running turn',
+  );
   fixture.runtime.shutdown();
   const snapshot = fixture.runtime.getSnapshot(turnId);
   assert.equal(snapshot.status, 'failed');
@@ -392,7 +611,11 @@ test('graceful shutdown terminalizes a live-operation interaction before provide
       providerSessionId: 'live-shutdown',
       message: 'persistent-interaction',
     });
-    const waiting = await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.pendingInteraction, 'live interaction');
+    const waiting = await waitFor(
+      () => fixture.runtime.getSnapshot(turnId),
+      (value) => value.pendingInteraction,
+      'live interaction',
+    );
     assert.equal(waiting.pendingInteraction.resumePolicy, 'live-operation');
 
     await fixture.runtime.shutdown();
@@ -415,7 +638,9 @@ test('shutdown disposes persistent providers exactly once', async () => {
     descriptor: { id: 'disposable', label: 'Disposable', capabilities },
     async startTurn() {},
     async cancelTurn() {},
-    async dispose() { disposals += 1; },
+    async dispose() {
+      disposals += 1;
+    },
   };
   const runtime = createAgentTurnRuntime({ registry: createAgentProviderRegistry([provider]), idleTimeoutMs: 0 });
   await Promise.all([runtime.shutdown(), runtime.shutdown()]);
@@ -424,34 +649,65 @@ test('shutdown disposes persistent providers exactly once', async () => {
 
 test('single-active-turn invariant rejects duplicates and honors a matching idempotency retry', async () => {
   const fixture = createFixture();
-  const first = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'locked', message: 'hang', idempotencyKey: 'request-1' });
-  const retry = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'locked', message: 'hang', idempotencyKey: 'request-1' });
-  assert.deepEqual(retry, { turnId: first.turnId, idempotent: true });
-  await assert.rejects(() => fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'locked', message: 'hang', idempotencyKey: 'request-2' }), error => {
-    assert.equal(error.code, 'AI_TURN_CONFLICT');
-    assert.equal(error.turnId, first.turnId);
-    return true;
+  const first = await fixture.runtime.startTurn({
+    provider: 'fake',
+    providerSessionId: 'locked',
+    message: 'hang',
+    idempotencyKey: 'request-1',
   });
+  const retry = await fixture.runtime.startTurn({
+    provider: 'fake',
+    providerSessionId: 'locked',
+    message: 'hang',
+    idempotencyKey: 'request-1',
+  });
+  assert.deepEqual(retry, { turnId: first.turnId, idempotent: true });
+  await assert.rejects(
+    () =>
+      fixture.runtime.startTurn({
+        provider: 'fake',
+        providerSessionId: 'locked',
+        message: 'hang',
+        idempotencyKey: 'request-2',
+      }),
+    (error) => {
+      assert.equal(error.code, 'AI_TURN_CONFLICT');
+      assert.equal(error.turnId, first.turnId);
+      return true;
+    },
+  );
   assert.equal(fixture.starts, 1);
   fixture.runtime.shutdown();
 });
 
 test('concurrent starts for one session invoke the provider only once', async () => {
   let releaseLookup;
-  const sessionLookupGate = new Promise(resolve => { releaseLookup = resolve; });
+  const sessionLookupGate = new Promise((resolve) => {
+    releaseLookup = resolve;
+  });
   const fixture = createFixture({ sessionLookupGate });
   const starts = [
-    fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'concurrent', message: 'hang', idempotencyKey: 'request-1' }),
-    fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'concurrent', message: 'hang', idempotencyKey: 'request-2' }),
+    fixture.runtime.startTurn({
+      provider: 'fake',
+      providerSessionId: 'concurrent',
+      message: 'hang',
+      idempotencyKey: 'request-1',
+    }),
+    fixture.runtime.startTurn({
+      provider: 'fake',
+      providerSessionId: 'concurrent',
+      message: 'hang',
+      idempotencyKey: 'request-2',
+    }),
   ];
   const allSettledPromise = Promise.allSettled(starts);
 
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   releaseLookup();
   const results = await allSettledPromise;
 
-  const fulfilled = results.filter(result => result.status === 'fulfilled');
-  const rejected = results.filter(result => result.status === 'rejected');
+  const fulfilled = results.filter((result) => result.status === 'fulfilled');
+  const rejected = results.filter((result) => result.status === 'rejected');
   assert.equal(fulfilled.length, 1);
   assert.equal(rejected.length, 1);
   assert.equal(rejected[0].reason.code, 'AI_TURN_CONFLICT');
@@ -472,7 +728,11 @@ test('transcript caching persists messages, tool invocations, reasoning, and pre
       message: 'tools-and-reasoning',
     });
 
-    await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'completed', 'turn completion');
+    await waitFor(
+      () => fixture.runtime.getSnapshot(turnId),
+      (value) => value.status === 'completed',
+      'turn completion',
+    );
 
     const transcript = await transcriptCache.getTranscript('fake', 'sess-cache-test');
     assert.equal(transcript.provider, 'fake');
@@ -496,7 +756,7 @@ test('transcript caching persists messages, tool invocations, reasoning, and pre
     assert.equal(transcript.lastEventSeq > 0, true);
     assert.equal(transcript.lastEventSeq, snapshot.lastEventId);
   } finally {
-    await new Promise(r => setTimeout(r, 25));
+    await new Promise((r) => setTimeout(r, 25));
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
@@ -518,13 +778,17 @@ test('a tool still running when its turn reaches normal turn.completed resolves 
       message: 'lingering-tool',
     });
 
-    const snapshot = await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'completed', 'turn completion');
+    const snapshot = await waitFor(
+      () => fixture.runtime.getSnapshot(turnId),
+      (value) => value.status === 'completed',
+      'turn completion',
+    );
     assert.equal(snapshot.status, 'completed', 'the turn itself succeeds even though one tool lingers');
 
     const transcript = await transcriptCache.getTranscript('fake', 'sess-lingering-tool');
-    const assistantMsg = transcript.messages.find(m => m.role === 'assistant');
-    const t1 = assistantMsg.toolCalls.find(t => t.id === 't1');
-    const t2 = assistantMsg.toolCalls.find(t => t.id === 't2');
+    const assistantMsg = transcript.messages.find((m) => m.role === 'assistant');
+    const t1 = assistantMsg.toolCalls.find((t) => t.id === 't1');
+    const t2 = assistantMsg.toolCalls.find((t) => t.id === 't2');
     assert.equal(t1.status, 'completed', 'the tool that received a real terminal signal stays completed');
     assert.equal(t2.status, 'failed', 'the lingering tool resolves to failed, never completed, on reload');
 
@@ -532,10 +796,10 @@ test('a tool still running when its turn reaches normal turn.completed resolves 
     await transcriptCache.flush('fake', 'sess-lingering-tool');
     const reloadedCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
     const reloaded = await reloadedCache.getTranscript('fake', 'sess-lingering-tool');
-    const reloadedMsg = reloaded.messages.find(m => m.role === 'assistant');
-    assert.equal(reloadedMsg.toolCalls.find(t => t.id === 't2').status, 'failed');
+    const reloadedMsg = reloaded.messages.find((m) => m.role === 'assistant');
+    assert.equal(reloadedMsg.toolCalls.find((t) => t.id === 't2').status, 'failed');
   } finally {
-    await new Promise(r => setTimeout(r, 25));
+    await new Promise((r) => setTimeout(r, 25));
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
@@ -554,50 +818,91 @@ test('a tool still running when its turn fails resolves to failed', async () => 
       message: 'fail-with-tool',
     });
 
-    const snapshot = await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'failed', 'turn failure');
+    const snapshot = await waitFor(
+      () => fixture.runtime.getSnapshot(turnId),
+      (value) => value.status === 'failed',
+      'turn failure',
+    );
     assert.equal(snapshot.status, 'failed');
 
     const transcript = await transcriptCache.getTranscript('fake', 'sess-fail-with-tool');
-    const assistantMsg = transcript.messages.find(m => m.role === 'assistant');
-    assert.equal(assistantMsg.toolCalls.find(t => t.id === 't1').status, 'failed');
+    const assistantMsg = transcript.messages.find((m) => m.role === 'assistant');
+    assert.equal(assistantMsg.toolCalls.find((t) => t.id === 't1').status, 'failed');
     // owner-decisions.md D6/D9: the turn's raw terminal error is plumbed onto the message
     // in a reload-safe way so Task 09 can later classify Turn/Work Outcome from it.
     assert.ok(assistantMsg.turnError?.code, 'turn.failed error.code must survive onto the persisted message');
   } finally {
-    await new Promise(r => setTimeout(r, 25));
+    await new Promise((r) => setTimeout(r, 25));
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
 
 test('idle watchdog fails a silent turn via the provider cancel path with AI_TURN_TIMEOUT', async () => {
-  const fixture = createFixture({ runtimeOptions: { idleTimeoutMs: 30, idleCheckIntervalMs: 5, clock: () => new Date() } });
-  const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'idle-timeout', message: 'hang' });
-  await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.events.length >= 2, 'started turn');
+  const fixture = createFixture({
+    runtimeOptions: { idleTimeoutMs: 30, idleCheckIntervalMs: 5, clock: () => new Date() },
+  });
+  const { turnId } = await fixture.runtime.startTurn({
+    provider: 'fake',
+    providerSessionId: 'idle-timeout',
+    message: 'hang',
+  });
+  await waitFor(
+    () => fixture.runtime.getSnapshot(turnId),
+    (value) => value.events.length >= 2,
+    'started turn',
+  );
 
-  const snapshot = await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'failed', 'idle timeout');
-  assert.equal(snapshot.events.filter(event => event.type === 'turn.failed').length, 1);
+  const snapshot = await waitFor(
+    () => fixture.runtime.getSnapshot(turnId),
+    (value) => value.status === 'failed',
+    'idle timeout',
+  );
+  assert.equal(snapshot.events.filter((event) => event.type === 'turn.failed').length, 1);
   assert.equal(snapshot.events.at(-1).error.code, 'AI_TURN_TIMEOUT');
   assert.equal(fixture.cancels, 1);
   fixture.runtime.shutdown();
 });
 
 test('idle watchdog never fires while a turn keeps emitting activity', async () => {
-  const fixture = createFixture({ runtimeOptions: { idleTimeoutMs: 40, idleCheckIntervalMs: 5, clock: () => new Date() } });
-  const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'idle-reset', message: 'slow-drip' });
+  const fixture = createFixture({
+    runtimeOptions: { idleTimeoutMs: 40, idleCheckIntervalMs: 5, clock: () => new Date() },
+  });
+  const { turnId } = await fixture.runtime.startTurn({
+    provider: 'fake',
+    providerSessionId: 'idle-reset',
+    message: 'slow-drip',
+  });
 
-  const snapshot = await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'completed', 'completion despite long total duration');
-  assert.equal(snapshot.events.some(event => event.type === 'turn.failed'), false);
+  const snapshot = await waitFor(
+    () => fixture.runtime.getSnapshot(turnId),
+    (value) => value.status === 'completed',
+    'completion despite long total duration',
+  );
+  assert.equal(
+    snapshot.events.some((event) => event.type === 'turn.failed'),
+    false,
+  );
   assert.equal(fixture.cancels, 0);
   fixture.runtime.shutdown();
 });
 
 test('idle watchdog exempts turns waitingForUser', async () => {
-  const fixture = createFixture({ runtimeOptions: { idleTimeoutMs: 20, idleCheckIntervalMs: 5, clock: () => new Date() } });
-  const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'idle-waiting', message: 'permission' });
-  await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.pendingInteraction, 'pending interaction');
+  const fixture = createFixture({
+    runtimeOptions: { idleTimeoutMs: 20, idleCheckIntervalMs: 5, clock: () => new Date() },
+  });
+  const { turnId } = await fixture.runtime.startTurn({
+    provider: 'fake',
+    providerSessionId: 'idle-waiting',
+    message: 'permission',
+  });
+  await waitFor(
+    () => fixture.runtime.getSnapshot(turnId),
+    (value) => value.pendingInteraction,
+    'pending interaction',
+  );
 
   // Wait well past the idle window; a waitingForUser turn must never be timed out.
-  await new Promise(resolve => setTimeout(resolve, 80));
+  await new Promise((resolve) => setTimeout(resolve, 80));
   const snapshot = fixture.runtime.getSnapshot(turnId);
   assert.equal(snapshot.status, 'waitingForUser');
   assert.equal(fixture.cancels, 0);
@@ -609,8 +914,16 @@ test('boot reconciliation finalizes an orphaned persisted activeTurn as AI_TURN_
   try {
     const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
     const orphan = createFixture({ transcriptCache });
-    const { turnId } = await orphan.runtime.startTurn({ provider: 'fake', providerSessionId: 'orphan-session', message: 'hang' });
-    await waitFor(() => orphan.runtime.getSnapshot(turnId), value => value.events.length >= 2, 'started turn');
+    const { turnId } = await orphan.runtime.startTurn({
+      provider: 'fake',
+      providerSessionId: 'orphan-session',
+      message: 'hang',
+    });
+    await waitFor(
+      () => orphan.runtime.getSnapshot(turnId),
+      (value) => value.events.length >= 2,
+      'started turn',
+    );
     // Simulate an ungraceful process exit: the in-memory runtime is discarded without
     // ever finishing the turn, but the persisted transcript still has `activeTurn` set.
     await transcriptCache.flush('fake', 'orphan-session');
@@ -624,7 +937,7 @@ test('boot reconciliation finalizes an orphaned persisted activeTurn as AI_TURN_
     assert.equal(transcript.messages.at(-1).text, 'Interrupted by server restart.');
     fresh.runtime.shutdown();
   } finally {
-    await new Promise(r => setTimeout(r, 25));
+    await new Promise((r) => setTimeout(r, 25));
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
@@ -640,19 +953,24 @@ test('a stale live-operation interaction is not reconstructed and fails with int
       providerSessionId: 'live-restart',
       message: 'persistent-interaction',
     });
-    const pending = await waitFor(() => original.runtime.getSnapshot(turnId), value => value.pendingInteraction, 'live interaction');
+    const pending = await waitFor(
+      () => original.runtime.getSnapshot(turnId),
+      (value) => value.pendingInteraction,
+      'live interaction',
+    );
     await originalCache.flush('fake', 'live-restart');
 
     const restartedCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
     const restarted = createFixture({ transcriptCache: restartedCache });
     await assert.rejects(
-      () => restarted.runtime.resolveInteraction(
-        turnId,
-        pending.pendingInteraction.id,
-        { decision: 'allow' },
-        { provider: 'fake', providerSessionId: 'live-restart' },
-      ),
-      error => error.code === 'AI_TURN_INTERRUPTED',
+      () =>
+        restarted.runtime.resolveInteraction(
+          turnId,
+          pending.pendingInteraction.id,
+          { decision: 'allow' },
+          { provider: 'fake', providerSessionId: 'live-restart' },
+        ),
+      (error) => error.code === 'AI_TURN_INTERRUPTED',
     );
     assert.equal(restarted.continuations, 0);
     const transcript = await restartedCache.getTranscript('fake', 'live-restart');
@@ -676,7 +994,11 @@ test('boot reconciliation interrupts a stale live-operation interaction', async 
       providerSessionId: 'live-pending-session',
       message: 'persistent-interaction',
     });
-    await waitFor(() => original.runtime.getSnapshot(turnId), value => value.pendingInteraction, 'live interaction');
+    await waitFor(
+      () => original.runtime.getSnapshot(turnId),
+      (value) => value.pendingInteraction,
+      'live interaction',
+    );
     await originalCache.flush('fake', 'live-pending-session');
 
     const restartedCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
@@ -700,8 +1022,16 @@ test('boot reconciliation leaves a waitingForUser session (pendingInteraction) u
   try {
     const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
     const original = createFixture({ transcriptCache });
-    const { turnId } = await original.runtime.startTurn({ provider: 'fake', providerSessionId: 'pending-session', message: 'permission' });
-    const pending = await waitFor(() => original.runtime.getSnapshot(turnId), value => value.pendingInteraction, 'pending interaction');
+    const { turnId } = await original.runtime.startTurn({
+      provider: 'fake',
+      providerSessionId: 'pending-session',
+      message: 'permission',
+    });
+    const pending = await waitFor(
+      () => original.runtime.getSnapshot(turnId),
+      (value) => value.pendingInteraction,
+      'pending interaction',
+    );
     assert.equal(pending.pendingInteraction.resumePolicy, 'restart');
     await transcriptCache.flush('fake', 'pending-session');
 
@@ -714,14 +1044,18 @@ test('boot reconciliation leaves a waitingForUser session (pendingInteraction) u
     assert.ok(transcript.activeTurn);
     fresh.runtime.shutdown();
   } finally {
-    await new Promise(r => setTimeout(r, 25));
+    await new Promise((r) => setTimeout(r, 25));
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
 
 function createMockAgyProcess(stdoutLines = [], { exitCode = 0, delayMs = 5 } = {}) {
   const child = new EventEmitter();
-  child.stdin = new Writable({ write(chunk, encoding, cb) { cb(); } });
+  child.stdin = new Writable({
+    write(chunk, encoding, cb) {
+      cb();
+    },
+  });
   child.stdout = new Readable({ read() {} });
   child.stderr = new Readable({ read() {} });
   child.kill = (signal) => {
@@ -733,7 +1067,7 @@ function createMockAgyProcess(stdoutLines = [], { exitCode = 0, delayMs = 5 } = 
     for (const line of stdoutLines) {
       if (child.killed) break;
       child.stdout.push(`${line}\n`);
-      if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+      if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
     }
     child.stdout.push(null);
     child.emit('close', exitCode);
@@ -769,7 +1103,7 @@ test('Antigravity full path: tools -> result.response summary -> normalized even
     const collectedEvents = [];
     const unsubscribe = runtime.subscribeToSession(
       { provider: 'antigravity', providerSessionId: 'sess-agy-full' },
-      { onEvent: (ev) => collectedEvents.push(ev) }
+      { onEvent: (ev) => collectedEvents.push(ev) },
     );
 
     const { turnId } = await runtime.startTurn({
@@ -779,15 +1113,19 @@ test('Antigravity full path: tools -> result.response summary -> normalized even
     });
 
     // Wait until turn reaches terminal state
-    await waitFor(() => runtime.getSnapshot(turnId), snap => snap && snap.status === 'completed', 'turn completed');
+    await waitFor(
+      () => runtime.getSnapshot(turnId),
+      (snap) => snap && snap.status === 'completed',
+      'turn completed',
+    );
     await transcriptCache.flush('antigravity', 'sess-agy-full');
     unsubscribe();
 
     // 1. Verify normalized events
-    const textEvents = collectedEvents.filter(e => e.type === 'text.delta');
+    const textEvents = collectedEvents.filter((e) => e.type === 'text.delta');
     assert.equal(textEvents.length, 1, 'exactly one text.delta event');
     assert.equal(textEvents[0].text, 'Podsumowując, wszystkie testy przeszły pomyślnie.');
-    const turnCompletedEvents = collectedEvents.filter(e => e.type === 'turn.completed');
+    const turnCompletedEvents = collectedEvents.filter((e) => e.type === 'turn.completed');
     assert.equal(turnCompletedEvents.length, 1, 'turn.completed emitted');
 
     // 2. Verify runtime state has left running
@@ -798,7 +1136,7 @@ test('Antigravity full path: tools -> result.response summary -> normalized even
     // 3. Verify transcript cache on disk and reload
     const reloadedCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
     const transcript = await reloadedCache.getTranscript('antigravity', 'sess-agy-full');
-    const assistantMsg = transcript.messages.find(m => m.role === 'assistant');
+    const assistantMsg = transcript.messages.find((m) => m.role === 'assistant');
     assert.ok(assistantMsg, 'assistant message exists in transcript');
     assert.equal(assistantMsg.text, 'Podsumowując, wszystkie testy przeszły pomyślnie.');
     assert.equal(assistantMsg.toolCalls.length, 2);
@@ -807,7 +1145,7 @@ test('Antigravity full path: tools -> result.response summary -> normalized even
 
     runtime.shutdown();
   } finally {
-    await new Promise(r => setTimeout(r, 25));
+    await new Promise((r) => setTimeout(r, 25));
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
@@ -838,7 +1176,7 @@ test('Antigravity full path: error result with empty response -> turn.failed, no
     const collectedEvents = [];
     const unsubscribe = runtime.subscribeToSession(
       { provider: 'antigravity', providerSessionId: 'sess-agy-err-empty' },
-      { onEvent: (ev) => collectedEvents.push(ev) }
+      { onEvent: (ev) => collectedEvents.push(ev) },
     );
 
     const { turnId } = await runtime.startTurn({
@@ -848,16 +1186,20 @@ test('Antigravity full path: error result with empty response -> turn.failed, no
     });
 
     // Wait until turn reaches terminal failed state
-    await waitFor(() => runtime.getSnapshot(turnId), snap => snap && snap.status === 'failed', 'turn failed');
+    await waitFor(
+      () => runtime.getSnapshot(turnId),
+      (snap) => snap && snap.status === 'failed',
+      'turn failed',
+    );
     await transcriptCache.flush('antigravity', 'sess-agy-err-empty');
     unsubscribe();
 
     // 1. Verify normalized events: no text.delta, no turn.completed, exactly one turn.failed
-    const textEvents = collectedEvents.filter(e => e.type === 'text.delta');
+    const textEvents = collectedEvents.filter((e) => e.type === 'text.delta');
     assert.equal(textEvents.length, 0, 'must not emit text.delta for empty error response');
-    const turnCompletedEvents = collectedEvents.filter(e => e.type === 'turn.completed');
+    const turnCompletedEvents = collectedEvents.filter((e) => e.type === 'turn.completed');
     assert.equal(turnCompletedEvents.length, 0, 'must not emit turn.completed');
-    const turnFailedEvents = collectedEvents.filter(e => e.type === 'turn.failed');
+    const turnFailedEvents = collectedEvents.filter((e) => e.type === 'turn.failed');
     assert.equal(turnFailedEvents.length, 1, 'turn.failed emitted');
     assert.equal(turnFailedEvents[0].error.message, 'ContentOffset 22500 exceeds line range size 1792');
 
@@ -869,7 +1211,7 @@ test('Antigravity full path: error result with empty response -> turn.failed, no
     // 3. Verify transcript cache on disk and reload
     const reloadedCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
     const transcript = await reloadedCache.getTranscript('antigravity', 'sess-agy-err-empty');
-    const assistantMsg = transcript.messages.find(m => m.role === 'assistant');
+    const assistantMsg = transcript.messages.find((m) => m.role === 'assistant');
     if (assistantMsg) {
       assert.equal(assistantMsg.text, '', 'assistant message must not contain placeholder prose');
       assert.deepEqual(assistantMsg.turnError, {
@@ -880,7 +1222,7 @@ test('Antigravity full path: error result with empty response -> turn.failed, no
 
     runtime.shutdown();
   } finally {
-    await new Promise(r => setTimeout(r, 25));
+    await new Promise((r) => setTimeout(r, 25));
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
@@ -911,7 +1253,7 @@ test('Antigravity full path: error result with non-empty response -> turn.failed
     const collectedEvents = [];
     const unsubscribe = runtime.subscribeToSession(
       { provider: 'antigravity', providerSessionId: 'sess-agy-err-prose' },
-      { onEvent: (ev) => collectedEvents.push(ev) }
+      { onEvent: (ev) => collectedEvents.push(ev) },
     );
 
     const { turnId } = await runtime.startTurn({
@@ -921,14 +1263,18 @@ test('Antigravity full path: error result with non-empty response -> turn.failed
     });
 
     // Wait until turn reaches terminal failed state
-    await waitFor(() => runtime.getSnapshot(turnId), snap => snap && snap.status === 'failed', 'turn failed');
+    await waitFor(
+      () => runtime.getSnapshot(turnId),
+      (snap) => snap && snap.status === 'failed',
+      'turn failed',
+    );
     await transcriptCache.flush('antigravity', 'sess-agy-err-prose');
     unsubscribe();
 
     // 1. Verify normalized events: turn.failed emitted, no turn.completed
-    const turnFailedEvents = collectedEvents.filter(e => e.type === 'turn.failed');
+    const turnFailedEvents = collectedEvents.filter((e) => e.type === 'turn.failed');
     assert.equal(turnFailedEvents.length, 1, 'must emit turn.failed');
-    const turnCompletedEvents = collectedEvents.filter(e => e.type === 'turn.completed');
+    const turnCompletedEvents = collectedEvents.filter((e) => e.type === 'turn.completed');
     assert.equal(turnCompletedEvents.length, 0, 'must not emit turn.completed');
 
     // 2. Verify snapshot
@@ -938,14 +1284,14 @@ test('Antigravity full path: error result with non-empty response -> turn.failed
     // 3. Verify transcript cache on disk and reload
     const reloadedCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
     const transcript = await reloadedCache.getTranscript('antigravity', 'sess-agy-err-prose');
-    const assistantMsg = transcript.messages.find(m => m.role === 'assistant');
+    const assistantMsg = transcript.messages.find((m) => m.role === 'assistant');
     assert.ok(assistantMsg);
     assert.ok(assistantMsg.turnError, 'must attach turnError on failure');
     assert.equal(assistantMsg.turnError.message, 'Process crashed mid-execution');
 
     runtime.shutdown();
   } finally {
-    await new Promise(r => setTimeout(r, 25));
+    await new Promise((r) => setTimeout(r, 25));
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
@@ -1200,7 +1546,14 @@ test('regression: an actively-progressing tool suppresses protocol silence timeo
   let finishTool;
   const toolHoldingProvider = {
     descriptor: { id: 'tool-holder', label: 'Tool Holder', capabilities },
-    async startTurn({ emitCommentaryDelta, emitFinalAnswerDelta, emitToolStarted, emitToolUpdated, emitToolCompleted, signal }) {
+    async startTurn({
+      emitCommentaryDelta,
+      emitFinalAnswerDelta,
+      emitToolStarted,
+      emitToolUpdated,
+      emitToolCompleted,
+      signal,
+    }) {
       emitCommentaryDelta('starting');
       emitToolStarted({ toolId: 't-long', toolName: 'heavyBuild' });
       // Simulate a tool that keeps reporting progress faster than the idle interval —
@@ -1209,7 +1562,9 @@ test('regression: an actively-progressing tool suppresses protocol silence timeo
       const progressInterval = setInterval(() => {
         emitToolUpdated({ toolId: 't-long', status: 'active', progress: 'still building' });
       }, 5);
-      await new Promise(resolve => { finishTool = resolve; });
+      await new Promise((resolve) => {
+        finishTool = resolve;
+      });
       clearInterval(progressInterval);
       emitToolCompleted({ toolId: 't-long', status: 'completed', durationMs: 100 });
       emitFinalAnswerDelta('finished');
@@ -1232,7 +1587,7 @@ test('regression: an actively-progressing tool suppresses protocol silence timeo
 
   // Wait well past idleTimeoutMs (25ms) while the tool is open but still actively
   // reporting progress every 5ms — the watchdog must not fire.
-  await new Promise(r => setTimeout(r, 60));
+  await new Promise((r) => setTimeout(r, 60));
   const midSnapshot = runtime.getSnapshot(turnId);
   const midTurn = runtime.getCanonicalTurn(turnId);
   assert.equal(midSnapshot.status, 'running');
@@ -1241,10 +1596,14 @@ test('regression: an actively-progressing tool suppresses protocol silence timeo
 
   // Complete tool
   finishTool();
-  const completedSnapshot = await waitFor(() => runtime.getSnapshot(turnId), v => v.status === 'completed', 'tool finish');
+  const completedSnapshot = await waitFor(
+    () => runtime.getSnapshot(turnId),
+    (v) => v.status === 'completed',
+    'tool finish',
+  );
   const completedTurn = runtime.getCanonicalTurn(turnId);
   assert.equal(completedSnapshot.status, 'completed');
-  assert.equal(completedTurn.work.find(w => w.id === 't-long').status, 'completed');
+  assert.equal(completedTurn.work.find((w) => w.id === 't-long').status, 'completed');
   runtime.shutdown();
 });
 
@@ -1275,7 +1634,11 @@ test('regression (Issue 2): a tool that opens and then goes fully silent eventua
     message: 'run',
   });
 
-  const failedSnapshot = await waitFor(() => runtime.getSnapshot(turnId), v => v.status === 'failed', 'protocol-silence timeout with an open but silent tool');
+  const failedSnapshot = await waitFor(
+    () => runtime.getSnapshot(turnId),
+    (v) => v.status === 'failed',
+    'protocol-silence timeout with an open but silent tool',
+  );
   assert.equal(failedSnapshot.events.at(-1).error.code, 'AI_TURN_TIMEOUT');
   const failedTurn = runtime.getCanonicalTurn(turnId);
   assert.equal(failedTurn.status.status, 'terminal');
@@ -1361,7 +1724,7 @@ test('regression: cancel followed by late tool result preserves cancelled outcom
   assert.equal(coordinator.status.outcome, 'cancelled');
   assert.equal(coordinator.hasOpenTools, false);
 
-  const toolItem = coordinator.turn.work.find(w => w.id === 't-active');
+  const toolItem = coordinator.turn.work.find((w) => w.id === 't-active');
   assert.equal(toolItem.status, 'cancelled');
   assert.equal(toolItem.closureReason, 'turn_cancelled');
 
@@ -1398,10 +1761,7 @@ test('regression: provider session identity late binding and re-bind prevention'
   assert.equal(coordinator.turn.providerSessionId, 'provider-thread-999');
 
   // Re-binding different ID throws AiValidationError
-  assert.throws(
-    () => coordinator.bindProviderSessionId('different-thread-888'),
-    { name: 'AiValidationError' },
-  );
+  assert.throws(() => coordinator.bindProviderSessionId('different-thread-888'), { name: 'AiValidationError' });
 });
 
 test('regression: dangling tool closure preserves truthful closure reasons across all terminal variants', async () => {
@@ -1426,7 +1786,7 @@ test('regression: dangling tool closure preserves truthful closure reasons acros
     coordinator.settleTerminal({ outcome, cause });
     assert.equal(coordinator.hasOpenTools, false);
 
-    const tool = coordinator.turn.work.find(w => w.id === 'tool-dangling');
+    const tool = coordinator.turn.work.find((w) => w.id === 'tool-dangling');
     assert.equal(tool.status, expectedToolStatus, `status mismatch for outcome ${outcome}`);
     assert.equal(tool.closureReason, expectedReason, `closureReason mismatch for outcome ${outcome}`);
   }
@@ -1440,7 +1800,11 @@ test('regression: resolving interaction after turn cancellation throws AiNotFoun
     message: 'permission',
   });
 
-  const waiting = await waitFor(() => fixture.runtime.getSnapshot(turnId), v => v.pendingInteraction, 'waiting');
+  const waiting = await waitFor(
+    () => fixture.runtime.getSnapshot(turnId),
+    (v) => v.pendingInteraction,
+    'waiting',
+  );
   const interactionId = waiting.pendingInteraction.id;
 
   // Cancel turn
@@ -1450,17 +1814,22 @@ test('regression: resolving interaction after turn cancellation throws AiNotFoun
   assert.equal(cancelled.pendingInteraction, null);
 
   // Late resolution attempt
-  await assert.rejects(
-    () => fixture.runtime.resolveInteraction(turnId, interactionId, { decision: 'allow' }),
-    { name: 'AiNotFoundError' },
-  );
+  await assert.rejects(() => fixture.runtime.resolveInteraction(turnId, interactionId, { decision: 'allow' }), {
+    name: 'AiNotFoundError',
+  });
   fixture.runtime.shutdown();
 });
 
 test('regression: Antigravity transitional tool statuses (running, in_progress, success, error) normalized without validation errors', async () => {
   const agyMockProvider = {
     descriptor: { id: 'agy-mock', label: 'Antigravity Mock', capabilities },
-    async startTurn({ emitCommentaryDelta, emitFinalAnswerDelta, emitToolStarted, emitToolUpdated, emitToolCompleted }) {
+    async startTurn({
+      emitCommentaryDelta,
+      emitFinalAnswerDelta,
+      emitToolStarted,
+      emitToolUpdated,
+      emitToolCompleted,
+    }) {
       emitCommentaryDelta('Starting task...');
       // Antigravity emits status: 'running' on updates
       emitToolStarted({ toolId: 'tool-agy-1', toolName: 'run_command', input: { command: 'npm test' } });
@@ -1480,10 +1849,14 @@ test('regression: Antigravity transitional tool statuses (running, in_progress, 
     message: 'run test',
   });
 
-  const snapshot = await waitFor(() => runtime.getSnapshot(turnId), v => v.status === 'completed', 'completed turn');
+  const snapshot = await waitFor(
+    () => runtime.getSnapshot(turnId),
+    (v) => v.status === 'completed',
+    'completed turn',
+  );
   assert.equal(snapshot.status, 'completed');
   const turn = runtime.getCanonicalTurn(turnId);
-  const tool = turn.work.find(w => w.id === 'tool-agy-1');
+  const tool = turn.work.find((w) => w.id === 'tool-agy-1');
   assert.equal(tool.status, 'completed');
   assert.equal(tool.toolName, 'run_command');
   runtime.shutdown();
@@ -1514,7 +1887,7 @@ test('regression: terminal arbitration: cancellation intent prevails over concur
   assert.equal(coordinator.status.outcome, 'cancelled');
 
   // 4. Open tools closed with turn_cancelled
-  const tool = coordinator.turn.work.find(w => w.id === 'tool-1');
+  const tool = coordinator.turn.work.find((w) => w.id === 'tool-1');
   assert.equal(tool.status, 'cancelled');
   assert.equal(tool.closureReason, 'turn_cancelled');
 });
@@ -1591,17 +1964,11 @@ test('regression: complete terminal Work immutability: all terminal statuses can
 
   // 1. Tool in 'interrupted' status cannot transition back to 'active' or 'queued'
   coordinator.appendWork({ id: 'tool-int', type: 'tool', toolName: 't', status: 'interrupted' });
-  assert.throws(
-    () => coordinator.updateWork('tool-int', { status: 'active' }),
-    { name: 'AiValidationError' },
-  );
+  assert.throws(() => coordinator.updateWork('tool-int', { status: 'active' }), { name: 'AiValidationError' });
 
   // 2. Tool in 'unknown' status cannot transition back to 'active'
   coordinator.appendWork({ id: 'tool-unk', type: 'tool', toolName: 't', status: 'unknown' });
-  assert.throws(
-    () => coordinator.updateWork('tool-unk', { status: 'active' }),
-    { name: 'AiValidationError' },
-  );
+  assert.throws(() => coordinator.updateWork('tool-unk', { status: 'active' }), { name: 'AiValidationError' });
 
   // 3. Interaction in 'rejected' status cannot transition back to 'pending'
   coordinator.appendWork({
@@ -1610,10 +1977,7 @@ test('regression: complete terminal Work immutability: all terminal statuses can
     status: 'rejected',
     interaction: { id: 'int-rej', kind: 'permission', toolName: 'bash' },
   });
-  assert.throws(
-    () => coordinator.updateWork('int-rej', { status: 'pending' }),
-    { name: 'AiValidationError' },
-  );
+  assert.throws(() => coordinator.updateWork('int-rej', { status: 'pending' }), { name: 'AiValidationError' });
 
   // 4. Interaction in 'expired' status cannot transition back to 'pending'
   coordinator.appendWork({
@@ -1622,10 +1986,7 @@ test('regression: complete terminal Work immutability: all terminal statuses can
     status: 'expired',
     interaction: { id: 'int-exp', kind: 'question', questions: [{ id: 'q', question: 'ok?' }] },
   });
-  assert.throws(
-    () => coordinator.updateWork('int-exp', { status: 'pending' }),
-    { name: 'AiValidationError' },
-  );
+  assert.throws(() => coordinator.updateWork('int-exp', { status: 'pending' }), { name: 'AiValidationError' });
 
   // 5. Valid non-terminal updates are allowed
   const validTool = coordinator.appendWork({ id: 'tool-valid', type: 'tool', toolName: 't', status: 'queued' });
@@ -1653,7 +2014,7 @@ test('regression: late tool update on terminal turn is ignored by coordinator', 
   const result = coordinator.recordToolUpdated({ toolId: 'tool-finished', output: 'late rogue output' });
   assert.equal(result, null);
 
-  const tool = coordinator.turn.work.find(w => w.id === 'tool-finished');
+  const tool = coordinator.turn.work.find((w) => w.id === 'tool-finished');
   assert.equal(tool.output, 'ok');
 });
 
@@ -1661,7 +2022,15 @@ test('regression: cross-provider smoke test for Claude, Codex, and Antigravity e
   const eventsCaptured = [];
   const multiProvider = {
     descriptor: { id: 'multi-test', label: 'Multi Provider', capabilities },
-    async startTurn({ emitCommentaryDelta, emitFinalAnswerDelta, emitReasoningDelta, emitToolStarted, emitToolUpdated, emitToolCompleted, emitUsageUpdated }) {
+    async startTurn({
+      emitCommentaryDelta,
+      emitFinalAnswerDelta,
+      emitReasoningDelta,
+      emitToolStarted,
+      emitToolUpdated,
+      emitToolCompleted,
+      emitUsageUpdated,
+    }) {
       emitReasoningDelta('Thinking about architecture...');
       emitCommentaryDelta('Analyzing files...');
       emitCommentaryDelta('Here is the plan.');
@@ -1683,7 +2052,11 @@ test('regression: cross-provider smoke test for Claude, Codex, and Antigravity e
     message: 'perform multi test',
   });
 
-  const snapshot = await waitFor(() => runtime.getSnapshot(turnId), v => v.status === 'completed', 'completed');
+  const snapshot = await waitFor(
+    () => runtime.getSnapshot(turnId),
+    (v) => v.status === 'completed',
+    'completed',
+  );
   assert.equal(snapshot.status, 'completed');
   const turn = runtime.getCanonicalTurn(turnId);
   assert.equal(turn.work.length >= 3, true);
@@ -1691,7 +2064,3 @@ test('regression: cross-provider smoke test for Claude, Codex, and Antigravity e
   assert.equal(turn.status.outcome, 'completed');
   runtime.shutdown();
 });
-
-
-
-

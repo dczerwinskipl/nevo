@@ -4,13 +4,8 @@ import tailwindcss from '@tailwindcss/vite';
 import { sharedAliases } from './aliases.ts';
 
 const config: StorybookConfig = {
-  stories: [
-    '../ui/**/*.stories.@(js|jsx|mjs|ts|tsx)',
-  ],
-  addons: [
-    '@storybook/addon-docs',
-    '@storybook/addon-vitest',
-  ],
+  stories: ['../ui/**/*.stories.@(js|jsx|mjs|ts|tsx)'],
+  addons: ['@storybook/addon-docs', '@storybook/addon-vitest'],
   framework: {
     name: '@storybook/react-vite',
     options: {},
@@ -20,9 +15,7 @@ const config: StorybookConfig = {
       resolve: {
         alias: sharedAliases,
       },
-      plugins: [
-        tailwindcss(),
-      ],
+      plugins: [tailwindcss()],
     });
   },
 };

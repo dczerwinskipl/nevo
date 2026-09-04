@@ -49,9 +49,9 @@ test('desktop shell removes the full-width brand header and keeps floating utili
   const appLayout = readSource('features/specifications/specification-console-layout.tsx');
 
   assert.ok(appLayout.includes('backdrop-blur-xl sm:px-7 lg:hidden'));
-  assert.ok(appLayout.includes('fixed right-4 top-3 z-40 hidden rounded-xl'));
+  assert.ok(appLayout.includes('fixed top-3 right-4 z-40 hidden rounded-xl'));
   assert.ok(appLayout.includes('backdrop-blur-xl lg:flex'));
-  assert.ok(appLayout.includes('<SpecificationLiveControls live={live}') || appLayout.includes('<ConnectivityControls live={live}'));
+  assert.match(appLayout, /<SpecificationLiveControls\s+live=\{live\}|<ConnectivityControls\s+live=\{live\}/);
 });
 
 test('workflow and session states follow the semantic color contract', () => {
@@ -68,8 +68,8 @@ test('workflow and session states follow the semantic color contract', () => {
   assert.ok(board.includes('bg-[var(--lane-accent)]'));
   assert.ok(progress.includes("{ id: 'done', label: 'Gotowe', color: 'bg-[var(--success)]' }"));
   assert.ok(progress.includes("{ id: 'implementation', label: 'Implementacja', color: 'bg-[var(--accent)]' }"));
-  assert.ok(progress.includes("style={{ width: `${(count / total) * 100}%` }}"));
-  assert.ok(progress.includes("key={stage.id}"));
+  assert.ok(progress.includes('style={{ width: `${(count / total) * 100}%` }}'));
+  assert.ok(progress.includes('key={stage.id}'));
   assert.match(labels, /case 'approved':[\s\S]*return 'text-\[var\(--success\)\]'/);
   assert.ok(tools.includes('isFailed && <AlertTriangle className="size-3.5 text-[var(--warning)]"'));
   assert.ok(sessions.includes("session.status === 'waitingForUser' && 'bg-[var(--warning-muted)]'"));
@@ -101,6 +101,6 @@ test('overview avoids duplicate metric cards and board lanes use neutral surface
   assert.ok(board.includes('border border-[var(--border)] bg-[var(--surface)]'));
   assert.ok(board.includes("lane.tasks.length === 0 && 'hidden sm:block'"));
   assert.doesNotMatch(board, /border-dashed|tone\.tint|tone\.line/);
-  assert.ok(board.includes('<StatusLabel kind="task" status={task.status} className="truncate text-[9px]'));
+  assert.match(board, /<StatusLabel\s+kind="task"\s+status=\{task\.status\}\s+className="truncate text-\[9px\]/);
   assert.doesNotMatch(board, /import \{ Badge \}/);
 });

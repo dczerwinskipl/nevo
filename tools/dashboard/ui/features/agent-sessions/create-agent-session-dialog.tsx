@@ -17,11 +17,7 @@ export interface CreateAgentSessionDialogProps {
   onCreated: (session: AgentSession, promptToSend: string | null, userMessage: string | null) => void;
 }
 
-export function CreateAgentSessionDialog({
-  specification,
-  onClose,
-  onCreated,
-}: CreateAgentSessionDialogProps) {
+export function CreateAgentSessionDialog({ specification, onClose, onCreated }: CreateAgentSessionDialogProps) {
   const providers = useAgentProviders();
   const createSession = useCreateAgentSession();
   const enabledProviders = providers.data?.providers.filter((p) => p.enabled) ?? [];
@@ -101,7 +97,7 @@ export function CreateAgentSessionDialog({
       >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">
+            <p className="text-[10px] font-bold tracking-[0.18em] text-[var(--accent)] uppercase">
               {specification.title}
             </p>
             <h2 className="mt-2 text-xl font-semibold">Nowa sesja AI</h2>
@@ -134,9 +130,7 @@ export function CreateAgentSessionDialog({
         ) : (
           <>
             <fieldset className="mt-6">
-              <legend className="text-xs font-semibold text-[var(--foreground)]">
-                Provider
-              </legend>
+              <legend className="text-xs font-semibold text-[var(--foreground)]">Provider</legend>
               <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {enabledProviders.map((p) => {
                   const selected = provider === p.id;
@@ -147,26 +141,24 @@ export function CreateAgentSessionDialog({
                       type="button"
                       aria-pressed={selected}
                       onClick={() => setProvider(p.id)}
-                      title={!isAvail ? (p.unavailableReason || 'Brak CLI w systemie') : undefined}
+                      title={!isAvail ? p.unavailableReason || 'Brak CLI w systemie' : undefined}
                       className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition-all ${
                         selected
                           ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] ring-1 ring-[var(--accent)]'
                           : !isAvail
-                          ? 'border-dashed border-[var(--border)] bg-black/10 opacity-60 hover:opacity-100 hover:border-[var(--warning-border)]'
-                          : 'border-[var(--border)] bg-[var(--surface)] hover:border-white/20'
+                            ? 'border-dashed border-[var(--border)] bg-black/10 opacity-60 hover:border-[var(--warning-border)] hover:opacity-100'
+                            : 'border-[var(--border)] bg-[var(--surface)] hover:border-white/20'
                       }`}
                     >
                       <div className="flex w-full items-center justify-between gap-1">
                         <ProviderBadge provider={p.id} />
                         {!isAvail && (
-                          <span className="rounded bg-[var(--warning-muted)] px-1 py-0.2 text-[8px] font-bold uppercase tracking-wider text-[var(--warning)]">
+                          <span className="py-0.2 rounded bg-[var(--warning-muted)] px-1 text-[8px] font-bold tracking-wider text-[var(--warning)] uppercase">
                             Brak CLI
                           </span>
                         )}
                       </div>
-                      <span className="mt-1 text-xs font-semibold text-[var(--foreground)]">
-                        {p.label}
-                      </span>
+                      <span className="mt-1 text-xs font-semibold text-[var(--foreground)]">{p.label}</span>
                     </button>
                   );
                 })}
@@ -174,9 +166,7 @@ export function CreateAgentSessionDialog({
             </fieldset>
 
             <fieldset className="mt-4">
-              <legend className="text-xs font-semibold text-[var(--foreground)]">
-                Tryb wykonania
-              </legend>
+              <legend className="text-xs font-semibold text-[var(--foreground)]">Tryb wykonania</legend>
               <div className="mt-2 grid grid-cols-3 gap-2">
                 {AI_MODES.map((item) => (
                   <button
@@ -225,9 +215,7 @@ export function CreateAgentSessionDialog({
                           type="checkbox"
                           checked={checked}
                           onChange={() =>
-                            setTaskIds((prev) =>
-                              checked ? prev.filter((id) => id !== task.id) : [...prev, task.id]
-                            )
+                            setTaskIds((prev) => (checked ? prev.filter((id) => id !== task.id) : [...prev, task.id]))
                           }
                           className="rounded border-[var(--border)] text-[var(--accent)] focus:ring-0"
                         />
@@ -238,7 +226,7 @@ export function CreateAgentSessionDialog({
                   })}
                 </div>
                 {taskIds.length > 0 && (
-                  <code className="mt-2 block break-words rounded-lg border border-[var(--border)] bg-black/20 p-2 text-[10px] text-[var(--muted-strong)]">
+                  <code className="mt-2 block rounded-lg border border-[var(--border)] bg-black/20 p-2 text-[10px] break-words text-[var(--muted-strong)]">
                     Context: tasks {taskIds.join(', ')}
                   </code>
                 )}
@@ -260,14 +248,13 @@ export function CreateAgentSessionDialog({
               <div className="mt-3 rounded-xl border border-[var(--warning-border)] bg-[var(--warning-muted)] p-3 text-xs text-[var(--warning-strong)]">
                 <p className="font-semibold">Provider niedostępny w systemie</p>
                 <p className="mt-0.5 text-[11px] text-[color-mix(in_srgb,var(--warning-strong)_80%,transparent)]">
-                  {selectedProviderObj.unavailableReason || 'Brak wymaganego narzędzia CLI w zmiennej środowiskowej PATH.'}
+                  {selectedProviderObj.unavailableReason ||
+                    'Brak wymaganego narzędzia CLI w zmiennej środowiskowej PATH.'}
                 </p>
               </div>
             )}
 
-            {createSession.error && (
-              <p className="mt-3 text-xs text-[var(--danger-strong)]">{createSession.error}</p>
-            )}
+            {createSession.error && <p className="mt-3 text-xs text-[var(--danger-strong)]">{createSession.error}</p>}
 
             <Button
               className="mt-6 w-full"

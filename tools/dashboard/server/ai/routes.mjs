@@ -34,41 +34,58 @@ import { aiErrorHandler } from './sessions/http.mjs';
 export function createDefaultAgentSessionService({ root = REPOSITORY_ROOT, dataLoader, providerConfigPath } = {}) {
   const providerConfig = loadAgentProvidersConfig({ repoRoot: root, filePath: providerConfigPath });
   const data = dataLoader ? dataLoader() : {};
-  const demonstration = data.active?.find(specification => specification.slug === 'multi-provider-agent-sessions' && specification.specId)
-    || data.active?.find(specification => specification.slug === 'ai-sessions-live-chat-integration' && specification.specId)
-    || data.active?.find(specification => specification.specId);
+  const demonstration =
+    data.active?.find(
+      (specification) => specification.slug === 'multi-provider-agent-sessions' && specification.specId,
+    ) ||
+    data.active?.find(
+      (specification) => specification.slug === 'ai-sessions-live-chat-integration' && specification.specId,
+    ) ||
+    data.active?.find((specification) => specification.specId);
   const providers = [];
   for (const providerId of providerConfig.providerOrder) {
     if (!providerConfig.providers[providerId].enabled) continue;
     switch (providerId) {
       case 'claude':
-        providers.push(new ClaudeAgentProvider({
-          cwd: root,
-          rawCaptureEnabled: providerConfig.providers.claude?.rawCaptureEnabled,
-          rawCaptureDir: providerConfig.providers.claude?.rawCaptureDir,
-        }));
+        providers.push(
+          new ClaudeAgentProvider({
+            cwd: root,
+            rawCaptureEnabled: providerConfig.providers.claude?.rawCaptureEnabled,
+            rawCaptureDir: providerConfig.providers.claude?.rawCaptureDir,
+          }),
+        );
         break;
       case 'antigravity':
-        providers.push(new AntigravityAgentProvider({
-          cwd: root,
-          mappingFilePath: resolve(root, '.nevo-ai-local', 'antigravity-sessions.json'),
-          printTimeoutSeconds: providerConfig.providers.antigravity?.printTimeoutSeconds,
-          rawCaptureEnabled: providerConfig.providers.antigravity?.rawCaptureEnabled,
-          rawCaptureDir: providerConfig.providers.antigravity?.rawCaptureDir,
-        }));
+        providers.push(
+          new AntigravityAgentProvider({
+            cwd: root,
+            mappingFilePath: resolve(root, '.nevo-ai-local', 'antigravity-sessions.json'),
+            printTimeoutSeconds: providerConfig.providers.antigravity?.printTimeoutSeconds,
+            rawCaptureEnabled: providerConfig.providers.antigravity?.rawCaptureEnabled,
+            rawCaptureDir: providerConfig.providers.antigravity?.rawCaptureDir,
+          }),
+        );
         break;
       case 'codex':
-        providers.push(new CodexAgentProvider({
-          cwd: root,
-          rawCaptureEnabled: providerConfig.providers.codex?.rawCaptureEnabled,
-          rawCaptureDir: providerConfig.providers.codex?.rawCaptureDir,
-        }));
+        providers.push(
+          new CodexAgentProvider({
+            cwd: root,
+            rawCaptureEnabled: providerConfig.providers.codex?.rawCaptureEnabled,
+            rawCaptureDir: providerConfig.providers.codex?.rawCaptureDir,
+          }),
+        );
         break;
       case 'mock':
-        providers.push(createMockAgentProvider(demonstration ? {
-          specId: demonstration.specId,
-          taskIds: demonstration.tasks?.map(task => task.id) || [],
-        } : {}));
+        providers.push(
+          createMockAgentProvider(
+            demonstration
+              ? {
+                  specId: demonstration.specId,
+                  taskIds: demonstration.tasks?.map((task) => task.id) || [],
+                }
+              : {},
+          ),
+        );
         break;
     }
   }
@@ -93,7 +110,10 @@ export function createDefaultAgentSessionService({ root = REPOSITORY_ROOT, dataL
  * routed through `buildDashboardApp()`'s `config`; real usage never passes
  * them, so the real defaults below always apply.
  */
-export default async function aiRoutes(fastify, { config = {}, service: serviceOverride, accessPolicy: accessPolicyOverride } = {}) {
+export default async function aiRoutes(
+  fastify,
+  { config = {}, service: serviceOverride, accessPolicy: accessPolicyOverride } = {},
+) {
   const root = config.root ?? REPOSITORY_ROOT;
   const service = serviceOverride ?? createDefaultAgentSessionService({ root });
   const accessPolicy = accessPolicyOverride ?? createTrustedNetworkAiAccessPolicy();
@@ -101,7 +121,7 @@ export default async function aiRoutes(fastify, { config = {}, service: serviceO
   let reconciliationPromise = null;
   const ensureReconciled = () => {
     if (!reconciliationPromise) {
-      reconciliationPromise = Promise.resolve(service.turnRuntime?.reconcileOrphanedTurns?.()).catch(err => {
+      reconciliationPromise = Promise.resolve(service.turnRuntime?.reconcileOrphanedTurns?.()).catch((err) => {
         console.error(`[ai] [reconcile] boot-time turn reconciliation failed: ${err.message}`);
       });
     }

@@ -21,7 +21,7 @@ function sourceDirectory(source, activeDir, archiveDir) {
 
 /** Find one change's own `pull_requests` reference by number, or `null`. */
 function findPullRequestReference(change, number) {
-  return (change.pull_requests || []).find(reference => Number(reference.number) === Number(number)) || null;
+  return (change.pull_requests || []).find((reference) => Number(reference.number) === Number(number)) || null;
 }
 
 function resolvePullRequestLookup({ source, slug, number, activeDir, archiveDir }) {
@@ -68,24 +68,26 @@ export function createPullRequestService({
   const resolvedArchiveDir = archiveDir ?? resolve(resolvedSpecsDir, 'archive');
 
   async function resolveReferences(references) {
-    return Promise.all(references.map(async (reference) => {
-      if (reference.provider !== provider.id) {
-        return {
-          availability: 'unsupported',
-          reference: publicReference(reference),
-          message: `Provider '${reference.provider}' is not supported yet.`,
-        };
-      }
-      try {
-        return await provider.load(resolvedRoot, reference);
-      } catch {
-        return {
-          availability: 'error',
-          reference: publicReference(reference),
-          message: 'Unable to load pull request details.',
-        };
-      }
-    }));
+    return Promise.all(
+      references.map(async (reference) => {
+        if (reference.provider !== provider.id) {
+          return {
+            availability: 'unsupported',
+            reference: publicReference(reference),
+            message: `Provider '${reference.provider}' is not supported yet.`,
+          };
+        }
+        try {
+          return await provider.load(resolvedRoot, reference);
+        } catch {
+          return {
+            availability: 'error',
+            reference: publicReference(reference),
+            message: 'Unable to load pull request details.',
+          };
+        }
+      }),
+    );
   }
 
   async function loadPullRequests({ source, slug }) {
@@ -117,7 +119,13 @@ export function createPullRequestService({
   }
 
   async function loadFiles({ source, slug, number }) {
-    const lookup = resolvePullRequestLookup({ source, slug, number, activeDir: resolvedActiveDir, archiveDir: resolvedArchiveDir });
+    const lookup = resolvePullRequestLookup({
+      source,
+      slug,
+      number,
+      activeDir: resolvedActiveDir,
+      archiveDir: resolvedArchiveDir,
+    });
     if (!lookup || lookup.reference.provider !== provider.id) return null;
 
     const { changeView, generatedFiles } = loadChangeViewConfig({ repoRoot: resolvedRoot });
@@ -126,7 +134,13 @@ export function createPullRequestService({
   }
 
   async function loadFileDiffs({ source, slug, number, paths, headSha }) {
-    const lookup = resolvePullRequestLookup({ source, slug, number, activeDir: resolvedActiveDir, archiveDir: resolvedArchiveDir });
+    const lookup = resolvePullRequestLookup({
+      source,
+      slug,
+      number,
+      activeDir: resolvedActiveDir,
+      archiveDir: resolvedArchiveDir,
+    });
     if (!lookup || lookup.reference.provider !== provider.id) return null;
 
     const diffs = await provider.loadFileDiffs(resolvedRoot, lookup.reference, paths, headSha);
@@ -134,7 +148,13 @@ export function createPullRequestService({
   }
 
   async function loadFullDiff({ source, slug, number }) {
-    const lookup = resolvePullRequestLookup({ source, slug, number, activeDir: resolvedActiveDir, archiveDir: resolvedArchiveDir });
+    const lookup = resolvePullRequestLookup({
+      source,
+      slug,
+      number,
+      activeDir: resolvedActiveDir,
+      archiveDir: resolvedArchiveDir,
+    });
     if (!lookup || lookup.reference.provider !== provider.id) return null;
 
     const result = await provider.loadFullDiff(resolvedRoot, lookup.reference);

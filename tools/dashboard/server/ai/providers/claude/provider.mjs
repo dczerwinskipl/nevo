@@ -4,11 +4,7 @@ import { writeFileSync, unlinkSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
-import {
-  AiError,
-  AiValidationError,
-  validateAgentExecutionMode,
-} from '../../contracts.mjs';
+import { AiError, AiValidationError, validateAgentExecutionMode } from '../../contracts.mjs';
 import { createClaudeContinuationStore } from './continuation-store.mjs';
 import { terminateChildProcess } from '../process-termination.mjs';
 import { RawCaptureRecorder, rawCaptureSessionDirectory } from '../raw-capture.mjs';
@@ -39,28 +35,26 @@ const MAX_TOOL_DESCRIPTION_LENGTH = 300;
 
 function truncateToolDescription(value) {
   if (typeof value !== 'string') return undefined;
-  return value.length > MAX_TOOL_DESCRIPTION_LENGTH
-    ? `${value.slice(0, MAX_TOOL_DESCRIPTION_LENGTH - 1)}…`
-    : value;
+  return value.length > MAX_TOOL_DESCRIPTION_LENGTH ? `${value.slice(0, MAX_TOOL_DESCRIPTION_LENGTH - 1)}…` : value;
 }
 
 export function mapClaudeTool(toolName = '', input = {}) {
   const name = String(toolName || '').trim();
   const lower = name.toLowerCase();
 
-function extractFileBasename(filePath) {
-  if (typeof filePath !== 'string' || !filePath.trim()) return undefined;
-  const normalized = filePath.trim().replace(/\\/g, '/');
-  const parts = normalized.split('/').filter(Boolean);
-  return parts.length > 0 ? parts[parts.length - 1] : filePath.trim();
-}
+  function extractFileBasename(filePath) {
+    if (typeof filePath !== 'string' || !filePath.trim()) return undefined;
+    const normalized = filePath.trim().replace(/\\/g, '/');
+    const parts = normalized.split('/').filter(Boolean);
+    return parts.length > 0 ? parts[parts.length - 1] : filePath.trim();
+  }
 
-function extractCommandSubject(cmd) {
-  if (typeof cmd !== 'string' || !cmd.trim()) return undefined;
-  const singleLine = cmd.trim().split('\n')[0].trim();
-  if (singleLine.length <= 40) return singleLine;
-  return `${singleLine.slice(0, 39)}…`;
-}
+  function extractCommandSubject(cmd) {
+    if (typeof cmd !== 'string' || !cmd.trim()) return undefined;
+    const singleLine = cmd.trim().split('\n')[0].trim();
+    if (singleLine.length <= 40) return singleLine;
+    return `${singleLine.slice(0, 39)}…`;
+  }
 
   if (['bash', 'terminal', 'executecommand', 'command'].includes(lower)) {
     return {
@@ -72,7 +66,8 @@ function extractCommandSubject(cmd) {
   }
 
   if (['read', 'view', 'notebookread'].includes(lower)) {
-    const rawPath = typeof input?.file_path === 'string' ? input.file_path : (typeof input?.path === 'string' ? input.path : undefined);
+    const rawPath =
+      typeof input?.file_path === 'string' ? input.file_path : typeof input?.path === 'string' ? input.path : undefined;
     return {
       kind: 'read',
       title: 'Read file',
@@ -82,7 +77,8 @@ function extractCommandSubject(cmd) {
   }
 
   if (['write', 'createfile'].includes(lower)) {
-    const rawPath = typeof input?.file_path === 'string' ? input.file_path : (typeof input?.path === 'string' ? input.path : undefined);
+    const rawPath =
+      typeof input?.file_path === 'string' ? input.file_path : typeof input?.path === 'string' ? input.path : undefined;
     return {
       kind: 'write',
       title: 'Write file',
@@ -92,7 +88,8 @@ function extractCommandSubject(cmd) {
   }
 
   if (['edit', 'multiedit', 'notebookedit', 'fileedit'].includes(lower)) {
-    const rawPath = typeof input?.file_path === 'string' ? input.file_path : (typeof input?.path === 'string' ? input.path : undefined);
+    const rawPath =
+      typeof input?.file_path === 'string' ? input.file_path : typeof input?.path === 'string' ? input.path : undefined;
     return {
       kind: 'edit',
       title: 'Edit file',
@@ -102,7 +99,8 @@ function extractCommandSubject(cmd) {
   }
 
   if (['glob', 'ls', 'listdirectory', 'listfiles', 'listdir'].includes(lower)) {
-    const rawPath = typeof input?.path === 'string' ? input.path : (typeof input?.pattern === 'string' ? input.pattern : undefined);
+    const rawPath =
+      typeof input?.path === 'string' ? input.path : typeof input?.pattern === 'string' ? input.pattern : undefined;
     return {
       kind: 'list',
       title: 'List files',
@@ -112,7 +110,8 @@ function extractCommandSubject(cmd) {
   }
 
   if (['grep', 'search', 'find', 'filesearch'].includes(lower)) {
-    const rawSubject = typeof input?.pattern === 'string' ? input.pattern : (typeof input?.query === 'string' ? input.query : undefined);
+    const rawSubject =
+      typeof input?.pattern === 'string' ? input.pattern : typeof input?.query === 'string' ? input.query : undefined;
     return {
       kind: 'search',
       title: 'Search files',
@@ -122,12 +121,19 @@ function extractCommandSubject(cmd) {
   }
 
   if (['websearch', 'webfetch', 'browser', 'fetch'].includes(lower)) {
-    const rawSubject = typeof input?.query === 'string' ? input.query : (typeof input?.url === 'string' ? input.url.replace(/^https?:\/\//, '').split('?')[0] : undefined);
+    const rawSubject =
+      typeof input?.query === 'string'
+        ? input.query
+        : typeof input?.url === 'string'
+          ? input.url.replace(/^https?:\/\//, '').split('?')[0]
+          : undefined;
     return {
       kind: 'web',
       title: 'Web search / fetch',
       subject: rawSubject,
-      description: truncateToolDescription(typeof input?.url === 'string' ? input.url : (typeof input?.query === 'string' ? input.query : undefined)),
+      description: truncateToolDescription(
+        typeof input?.url === 'string' ? input.url : typeof input?.query === 'string' ? input.query : undefined,
+      ),
     };
   }
 
@@ -166,7 +172,9 @@ export class ClaudeAgentProvider {
     executable = 'claude',
     cwd = process.cwd(),
     spawnProcess = spawn,
-    continuationStore = createClaudeContinuationStore({ baseDir: join(cwd, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') }),
+    continuationStore = createClaudeContinuationStore({
+      baseDir: join(cwd, '.nevo-ai-local', 'transcripts', 'claude', 'continuations'),
+    }),
     hookScriptPath = HOOK_SCRIPT_PATH,
     cancelGraceMs = 5_000,
     forceGraceMs = 2_000,
@@ -186,8 +194,10 @@ export class ClaudeAgentProvider {
     this.#rawCapture = new RawCaptureRecorder({
       providerId: 'claude',
       rawCaptureDir: rawCaptureEnabled
-        ? (rawCaptureDir || resolve(this.#cwd, '.nevo-ai-local', 'claude_raw'))
-        : (rawCaptureDir ? resolve(rawCaptureDir) : null),
+        ? rawCaptureDir || resolve(this.#cwd, '.nevo-ai-local', 'claude_raw')
+        : rawCaptureDir
+          ? resolve(rawCaptureDir)
+          : null,
       rawCaptureEnabled,
       rawFlushTimeoutMs,
     });
@@ -211,7 +221,7 @@ export class ClaudeAgentProvider {
 
   isAvailable({ ttlMs = 30_000 } = {}) {
     const now = Date.now();
-    if (this.#availabilityCache.result && (now - this.#availabilityCache.checkedAt < ttlMs)) {
+    if (this.#availabilityCache.result && now - this.#availabilityCache.checkedAt < ttlMs) {
       return this.#availabilityCache.result;
     }
     let available = false;
@@ -222,7 +232,10 @@ export class ClaudeAgentProvider {
     }
     const result = available
       ? { available: true }
-      : { available: false, unavailableReason: `Claude Code CLI ('${this.#executable}') is not found in PATH. Install Claude Code CLI to enable this provider.` };
+      : {
+          available: false,
+          unavailableReason: `Claude Code CLI ('${this.#executable}') is not found in PATH. Install Claude Code CLI to enable this provider.`,
+        };
     this.#availabilityCache = { checkedAt: now, result };
     return result;
   }
@@ -276,64 +289,70 @@ export class ClaudeAgentProvider {
       const isSessionNotFound =
         err instanceof AiError &&
         (err.message.includes('No conversation found with session ID') ||
-         err.message.includes('not match any session'));
+          err.message.includes('not match any session'));
 
       if (initialFlag === '--resume' && isSessionNotFound) {
         console.warn(`[claude] session ${effectiveSessionId} not found in Claude CLI DB, retrying with --session-id`);
         this.#materializedSessions.delete(effectiveSessionId);
-        return await this.#startTurnWithSession({ ...params, mode }, { effectiveSessionId, sessionFlag: '--session-id' });
+        return await this.#startTurnWithSession(
+          { ...params, mode },
+          { effectiveSessionId, sessionFlag: '--session-id' },
+        );
       }
       throw err;
     }
   }
 
-  async #startTurnWithSession({
-    turnId,
-    providerSessionId,
-    setProviderSessionId,
-    identity,
-    message,
-    prompt,
-    mode = 'edit',
-    signal,
-    setOperation,
-    emitCommentaryDelta,
-    emitReasoningDelta,
-    emitFinalAnswerDelta,
-    setFinalAnswer,
-    emitToolStarted,
-    emitToolUpdated,
-    emitToolCompleted,
-    addToolAction,
-    emitUsageUpdated,
-    emitEvent,
-    requestInteraction,
-  } = {}, { effectiveSessionId, sessionFlag }) {
+  async #startTurnWithSession(
+    {
+      turnId,
+      providerSessionId,
+      setProviderSessionId,
+      identity,
+      message,
+      prompt,
+      mode = 'edit',
+      signal,
+      setOperation,
+      emitCommentaryDelta,
+      emitReasoningDelta,
+      emitFinalAnswerDelta,
+      setFinalAnswer,
+      emitToolStarted,
+      emitToolUpdated,
+      emitToolCompleted,
+      addToolAction,
+      emitUsageUpdated,
+      emitEvent,
+      requestInteraction,
+    } = {},
+    { effectiveSessionId, sessionFlag },
+  ) {
     const commentaryDelta = emitCommentaryDelta;
     const finalAnswerDelta = emitFinalAnswerDelta;
     const userPrompt = message ?? prompt;
     const settingsPath = this.#createSettingsFile();
-    const permissionMode =
-      mode === 'ask'
-        ? 'plan'
-        : mode === 'agent'
-          ? 'bypassPermissions'
-          : 'acceptEdits';
+    const permissionMode = mode === 'ask' ? 'plan' : mode === 'agent' ? 'bypassPermissions' : 'acceptEdits';
 
     const args = [
       '-p',
       '--verbose',
-      '--output-format', 'stream-json',
-      '--input-format', 'stream-json',
-      '--settings', settingsPath,
-      sessionFlag, effectiveSessionId,
-      '--permission-mode', permissionMode,
+      '--output-format',
+      'stream-json',
+      '--input-format',
+      'stream-json',
+      '--settings',
+      settingsPath,
+      sessionFlag,
+      effectiveSessionId,
+      '--permission-mode',
+      permissionMode,
     ];
 
-      console.log(`[claude] spawning CLI: ${this.#executable} ${args.join(' ')}`);
-      this.#rawCapture.logCapturePathOnce(effectiveSessionId);
-      return new Promise((resolve, reject) => {
-        let child;
+    console.log(`[claude] spawning CLI: ${this.#executable} ${args.join(' ')}`);
+    this.#rawCapture.logCapturePathOnce(effectiveSessionId);
+    return new Promise((resolve, reject) => {
+      let child;
       try {
         child = this.#spawnProcess(this.#executable, args, {
           cwd: this.#cwd,
@@ -342,23 +361,31 @@ export class ClaudeAgentProvider {
         });
       } catch (err) {
         console.error(`[claude] spawn failed: ${err.message}`);
-        try { unlinkSync(settingsPath); } catch {}
-        return reject(new AiError('AI_PROVIDER_SPAWN_ERROR', `Failed to spawn claude CLI: ${err.message}`, { cause: err }));
+        try {
+          unlinkSync(settingsPath);
+        } catch {}
+        return reject(
+          new AiError('AI_PROVIDER_SPAWN_ERROR', `Failed to spawn claude CLI: ${err.message}`, { cause: err }),
+        );
       }
 
       const operation = { childProcess: child, cancelled: false };
       if (setOperation) setOperation(operation);
 
       if (signal) {
-        signal.addEventListener('abort', () => {
-          operation.cancelled = true;
-          if (child) {
-            terminateChildProcess(child, {
-              graceMs: this.#cancelGraceMs,
-              forceGraceMs: this.#forceGraceMs,
-            }).catch(() => {});
-          }
-        }, { once: true });
+        signal.addEventListener(
+          'abort',
+          () => {
+            operation.cancelled = true;
+            if (child) {
+              terminateChildProcess(child, {
+                graceMs: this.#cancelGraceMs,
+                forceGraceMs: this.#forceGraceMs,
+              }).catch(() => {});
+            }
+          },
+          { once: true },
+        );
       }
 
       let lineBuffer = '';
@@ -383,7 +410,9 @@ export class ClaudeAgentProvider {
       };
 
       const cleanupSettings = () => {
-        try { unlinkSync(settingsPath); } catch {}
+        try {
+          unlinkSync(settingsPath);
+        } catch {}
       };
 
       const maybeConfirmSession = async (event) => {
@@ -394,7 +423,9 @@ export class ClaudeAgentProvider {
             try {
               await setProviderSessionId(effectiveSessionId);
             } catch (bindingErr) {
-              try { child.kill('SIGINT'); } catch {}
+              try {
+                child.kill('SIGINT');
+              } catch {}
               cleanupSettings();
               reject(bindingErr);
             }
@@ -402,7 +433,7 @@ export class ClaudeAgentProvider {
         }
       };
 
-      const processLine = async line => {
+      const processLine = async (line) => {
         const trimmed = line.trim();
         if (!trimmed) return;
         let event;
@@ -420,9 +451,11 @@ export class ClaudeAgentProvider {
           case 'assistant': {
             const contentBlocks = Array.isArray(event.content)
               ? event.content
-              : (Array.isArray(event.message?.content) ? event.message.content : []);
+              : Array.isArray(event.message?.content)
+                ? event.message.content
+                : [];
 
-            const containsToolUse = contentBlocks.some(b => b.type === 'tool_use');
+            const containsToolUse = contentBlocks.some((b) => b.type === 'tool_use');
             if (containsToolUse) {
               hasExecutedTools = true;
               flushPendingCommentary();
@@ -484,7 +517,8 @@ export class ClaudeAgentProvider {
               if (event.content_block.text) {
                 if (activeTools.size > 0) {
                   flushPendingCommentary();
-                  if (commentaryDelta) commentaryDelta(event.content_block.text, `commentary-${turnId}-${++commentaryCounter}`);
+                  if (commentaryDelta)
+                    commentaryDelta(event.content_block.text, `commentary-${turnId}-${++commentaryCounter}`);
                 } else {
                   if (pendingCommentary) {
                     pendingCommentary.chunks.push(event.content_block.text);
@@ -503,7 +537,15 @@ export class ClaudeAgentProvider {
               const toolName = event.content_block.name;
               const input = event.content_block.input || {};
               const { kind, title, description } = mapClaudeTool(toolName, input);
-              activeTools.set(toolId, { id: toolId, name: toolName, kind, title, description, input, index: event.index });
+              activeTools.set(toolId, {
+                id: toolId,
+                name: toolName,
+                kind,
+                title,
+                description,
+                input,
+                index: event.index,
+              });
               if (emitToolStarted) {
                 emitToolStarted({
                   toolId,
@@ -527,7 +569,8 @@ export class ClaudeAgentProvider {
               if (event.delta.text) {
                 if (activeTools.size > 0) {
                   flushPendingCommentary();
-                  if (commentaryDelta) commentaryDelta(event.delta.text, `commentary-${turnId}-${commentaryCounter || 1}`);
+                  if (commentaryDelta)
+                    commentaryDelta(event.delta.text, `commentary-${turnId}-${commentaryCounter || 1}`);
                 } else {
                   if (pendingCommentary) {
                     pendingCommentary.chunks.push(event.delta.text);
@@ -565,7 +608,10 @@ export class ClaudeAgentProvider {
           case 'message_delta': {
             if (event.delta?.stop_reason === 'tool_deferred') {
               isDeferred = true;
-              deferredPayload = event.deferred_tool_use || event.delta?.deferred_tool_use || (activeTools.size > 0 ? Array.from(activeTools.values())[0] : null);
+              deferredPayload =
+                event.deferred_tool_use ||
+                event.delta?.deferred_tool_use ||
+                (activeTools.size > 0 ? Array.from(activeTools.values())[0] : null);
             }
             if (event.usage && emitUsageUpdated) {
               emitUsageUpdated({
@@ -578,7 +624,9 @@ export class ClaudeAgentProvider {
           case 'user': {
             const userContent = Array.isArray(event.content)
               ? event.content
-              : (Array.isArray(event.message?.content) ? event.message.content : []);
+              : Array.isArray(event.message?.content)
+                ? event.message.content
+                : [];
 
             for (const block of userContent) {
               if (block.type === 'tool_result' && block.tool_use_id) {
@@ -586,8 +634,15 @@ export class ClaudeAgentProvider {
                 const isError = Boolean(block.is_error);
                 const status = isError ? 'failed' : 'completed';
                 const durationMs = block.tool_use_result?.durationMs ?? event.tool_use_result?.durationMs ?? undefined;
-                const output = event.tool_use_result?.stdout
-                  || (typeof block.content === 'string' ? block.content : (block.content !== undefined ? JSON.stringify(block.content) : (isError ? 'Tool execution failed' : 'executed')));
+                const output =
+                  event.tool_use_result?.stdout ||
+                  (typeof block.content === 'string'
+                    ? block.content
+                    : block.content !== undefined
+                      ? JSON.stringify(block.content)
+                      : isError
+                        ? 'Tool execution failed'
+                        : 'executed');
 
                 if (emitToolCompleted) {
                   emitToolCompleted({
@@ -654,7 +709,7 @@ export class ClaudeAgentProvider {
 
       let processingQueue = Promise.resolve();
 
-      child.stdout?.on('data', chunk => {
+      child.stdout?.on('data', (chunk) => {
         lineBuffer += chunk.toString();
         const lines = lineBuffer.split('\n');
         lineBuffer = lines.pop() || '';
@@ -665,15 +720,17 @@ export class ClaudeAgentProvider {
             stream: 'stdout',
             line,
           });
-          processingQueue = processingQueue.then(() => processLine(line)).catch(err => {
-            cleanupSettings();
-            reject(err);
-          });
+          processingQueue = processingQueue
+            .then(() => processLine(line))
+            .catch((err) => {
+              cleanupSettings();
+              reject(err);
+            });
         }
       });
 
       let stderrOutput = '';
-      child.stderr?.on('data', chunk => {
+      child.stderr?.on('data', (chunk) => {
         const text = chunk.toString();
         stderrOutput += text;
         this.#rawCapture.recordRawEvent({
@@ -685,13 +742,13 @@ export class ClaudeAgentProvider {
         console.warn(`[claude] [stderr] ${text.trim()}`);
       });
 
-      child.on('error', err => {
+      child.on('error', (err) => {
         console.error(`[claude] [process-error] ${err.message}`);
         cleanupSettings();
         reject(new AiError('AI_PROVIDER_PROCESS_ERROR', `Claude process error: ${err.message}`, { cause: err }));
       });
 
-      child.on('close', async exitCode => {
+      child.on('close', async (exitCode) => {
         console.log(`[claude] process exited code=${exitCode} isDeferred=${isDeferred}`);
         try {
           await processingQueue;
@@ -707,7 +764,11 @@ export class ClaudeAgentProvider {
             stream: 'stdout',
             line: lineBuffer,
           });
-          try { await processLine(lineBuffer); } catch (e) { return reject(e); }
+          try {
+            await processLine(lineBuffer);
+          } catch (e) {
+            return reject(e);
+          }
         }
 
         for (const [toolId, tool] of activeTools.entries()) {
@@ -737,20 +798,22 @@ export class ClaudeAgentProvider {
 
         if (isDeferred && deferredPayload) {
           const publicInteractionId = `int-${randomUUID()}`;
-          const isQuestion = deferredPayload.name === 'AskUserQuestion' || Array.isArray(deferredPayload.input?.questions);
+          const isQuestion =
+            deferredPayload.name === 'AskUserQuestion' || Array.isArray(deferredPayload.input?.questions);
 
           let interaction;
           if (isQuestion) {
             interaction = {
               id: publicInteractionId,
               kind: 'question',
-              questions: deferredPayload.input?.questions?.map((q, idx) => ({
-                id: `q-${idx + 1}`,
-                question: q.question,
-                header: q.header,
-                options: q.options,
-                multiSelect: Boolean(q.multiSelect),
-              })) || [],
+              questions:
+                deferredPayload.input?.questions?.map((q, idx) => ({
+                  id: `q-${idx + 1}`,
+                  question: q.question,
+                  header: q.header,
+                  options: q.options,
+                  multiSelect: Boolean(q.multiSelect),
+                })) || [],
             };
           } else {
             interaction = {
@@ -758,7 +821,9 @@ export class ClaudeAgentProvider {
               kind: 'permission',
               toolName: deferredPayload.name || 'tool',
               input: deferredPayload.input || {},
-              ...(deferredPayload.input?.command ? { details: `Execute command: ${deferredPayload.input.command}` } : {}),
+              ...(deferredPayload.input?.command
+                ? { details: `Execute command: ${deferredPayload.input.command}` }
+                : {}),
             };
           }
 
@@ -790,7 +855,9 @@ export class ClaudeAgentProvider {
 
         if (exitCode !== 0 && !isDeferred) {
           const detail = stderrOutput.trim() || 'Process ended unexpectedly (check server logs for details)';
-          return reject(new AiError('AI_PROVIDER_EXIT_ERROR', `Claude process exited with code ${exitCode}: ${detail}`));
+          return reject(
+            new AiError('AI_PROVIDER_EXIT_ERROR', `Claude process exited with code ${exitCode}: ${detail}`),
+          );
         }
 
         this.#materializedSessions.add(effectiveSessionId);
@@ -891,7 +958,11 @@ export class ClaudeAgentProvider {
       forceGraceMs: this.#forceGraceMs,
     });
     if (!result.terminated) {
-      throw new AiError('AI_PROCESS_TERMINATION_FAILED', 'Failed to terminate Claude CLI process within bounded timeout.', { status: 500 });
+      throw new AiError(
+        'AI_PROCESS_TERMINATION_FAILED',
+        'Failed to terminate Claude CLI process within bounded timeout.',
+        { status: 500 },
+      );
     }
   }
 

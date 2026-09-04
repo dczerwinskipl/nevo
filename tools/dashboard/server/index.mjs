@@ -64,7 +64,9 @@ function startHttpRedirectServer({ httpsUrl, host, redirectPort }) {
     });
     server.on('error', (err) => {
       if (err.code === 'EACCES') {
-        console.warn(`[server] HTTP redirect: port ${redirectPort} requires elevated privileges — skipped. Access the dashboard directly at ${httpsUrl}`);
+        console.warn(
+          `[server] HTTP redirect: port ${redirectPort} requires elevated privileges — skipped. Access the dashboard directly at ${httpsUrl}`,
+        );
       } else if (err.code === 'EADDRINUSE') {
         console.warn(`[server] HTTP redirect: port ${redirectPort} already in use — skipped.`);
       } else {
@@ -75,8 +77,7 @@ function startHttpRedirectServer({ httpsUrl, host, redirectPort }) {
   });
 }
 
-const isDirectRun = process.argv[1]
-  && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
+const isDirectRun = process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
 
 if (isDirectRun) {
   const { host, port } = dashboardNetworkConfig();
@@ -92,4 +93,3 @@ if (isDirectRun) {
   }
   console.warn('AI access mode: trusted network (VPN boundary); requests are not identity-authenticated.');
 }
-

@@ -22,12 +22,7 @@ export interface AgentSessionRouteProps {
  * query — AgentSession belongs to / is attached to a Specification) and the
  * session itself, then hands off to `AgentSessionPage`.
  */
-export function AgentSessionRoute({
-  source: rawSource,
-  slug,
-  provider,
-  providerSessionId,
-}: AgentSessionRouteProps) {
+export function AgentSessionRoute({ source: rawSource, slug, provider, providerSessionId }: AgentSessionRouteProps) {
   const source: 'active' | 'archive' = rawSource === 'archive' ? 'archive' : 'active';
 
   const { data, loading: dataLoading, error: dataError } = useSpecificationIndex();
@@ -72,15 +67,18 @@ export function AgentSessionRoute({
   });
 
   const session = useMemo(() => {
-    return sessionsQuery.sessions.find(
-      (s) => s.provider === provider && s.providerSessionId === providerSessionId
-    ) ?? null;
+    return (
+      sessionsQuery.sessions.find((s) => s.provider === provider && s.providerSessionId === providerSessionId) ?? null
+    );
   }, [sessionsQuery.sessions, provider, providerSessionId]);
 
   const router = useRouter();
 
   const handleBack = useCallback(() => {
-    if (router.history.canGoBack?.() || (router.history.length > 1 && typeof (router.history as any).canGoBack !== 'function')) {
+    if (
+      router.history.canGoBack?.() ||
+      (router.history.length > 1 && typeof (router.history as any).canGoBack !== 'function')
+    ) {
       router.history.back();
     } else {
       navigate({
@@ -104,7 +102,7 @@ export function AgentSessionRoute({
         replace: true,
       });
     },
-    [navigate, slug, effectiveSource]
+    [navigate, slug, effectiveSource],
   );
 
   if (dataLoading && !data) return <LoadingScreen />;

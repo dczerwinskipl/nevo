@@ -83,9 +83,7 @@ export interface SpecificationManifestDirectorySection {
   documents: SpecificationManifestDocument[];
 }
 
-export type SpecificationManifestSection =
-  | SpecificationManifestDocumentSection
-  | SpecificationManifestDirectorySection;
+export type SpecificationManifestSection = SpecificationManifestDocumentSection | SpecificationManifestDirectorySection;
 
 // Manifest entries carry no markdown body (area dashboard-data-loading-contracts:
 // "which documents exist ... but not their bodies") — only enough to render

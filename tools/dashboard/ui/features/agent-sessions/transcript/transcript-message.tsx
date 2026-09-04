@@ -29,7 +29,7 @@ export function TranscriptMessage({ message, work, isStreaming = false }: Transc
   const hasProse = hasVisibleProse(message);
   const isLong = user && shouldCollapseMessage(message.text);
   const [expanded, setExpanded] = useState(false);
-  const toggleExpanded = useCallback(() => setExpanded(previous => !previous), []);
+  const toggleExpanded = useCallback(() => setExpanded((previous) => !previous), []);
 
   // Nothing to show yet (no prose, no Work) — e.g. the brief moment a turn has started
   // but no content has streamed in — render nothing rather than an empty bubble/circle;
@@ -38,25 +38,27 @@ export function TranscriptMessage({ message, work, isStreaming = false }: Transc
 
   return (
     <div className={cn('flex w-full min-w-0', user ? 'justify-end' : 'justify-start')}>
-      <div className={cn('w-full min-w-0 space-y-1.5 flex flex-col', user ? 'items-end' : 'items-start')}>
+      <div className={cn('flex w-full min-w-0 flex-col space-y-1.5', user ? 'items-end' : 'items-start')}>
         {/* Work is a flat transcript row, never nested inside the prose card below —
             a turn with no prose renders Work directly with no card around it at all. */}
         {work && (
-          <div className="w-full min-w-0 max-w-full">
+          <div className="w-full max-w-full min-w-0">
             <TurnWorkSummary work={work} />
           </div>
         )}
         {hasProse && (
-          <div className={cn(
-            'rounded-2xl px-4 py-3 text-sm leading-6',
-            user
-              ? 'w-fit max-w-[min(88%,820px)] border border-[var(--border-strong)] bg-[var(--surface-raised)] text-[var(--foreground)]'
-              : 'w-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]'
-          )}>
-            {message.activityTimeline?.map(item => {
+          <div
+            className={cn(
+              'rounded-2xl px-4 py-3 text-sm leading-6',
+              user
+                ? 'w-fit max-w-[min(88%,820px)] border border-[var(--border-strong)] bg-[var(--surface-raised)] text-[var(--foreground)]'
+                : 'w-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]',
+            )}
+          >
+            {message.activityTimeline?.map((item) => {
               if (item.type === 'commentary' && item.text) {
                 return (
-                  <div key={item.id} className="text-sm text-[var(--foreground-muted)] mb-2 last:mb-0">
+                  <div key={item.id} className="mb-2 text-sm text-[var(--foreground-muted)] last:mb-0">
                     <MarkdownContent markdown={item.text} className="text-[var(--foreground)]" />
                   </div>
                 );
@@ -66,15 +68,17 @@ export function TranscriptMessage({ message, work, isStreaming = false }: Transc
             {message.reasoning && (
               <ReasoningView reasoning={message.reasoning} isStreaming={isStreaming && !message.text} />
             )}
-            {message.text && (
-              user ? (
+            {message.text &&
+              (user ? (
                 <div className="space-y-1.5">
-                  <div className={cn(
-                    'whitespace-pre-wrap break-words font-normal text-[var(--foreground)]',
-                    // Must match message-collapse.ts's COLLAPSED_LINE_LIMIT — Tailwind's
-                    // scanner needs a literal class, not an interpolated variable.
-                    isLong && !expanded && 'line-clamp-6'
-                  )}>
+                  <div
+                    className={cn(
+                      'font-normal break-words whitespace-pre-wrap text-[var(--foreground)]',
+                      // Must match message-collapse.ts's COLLAPSED_LINE_LIMIT — Tailwind's
+                      // scanner needs a literal class, not an interpolated variable.
+                      isLong && !expanded && 'line-clamp-6',
+                    )}
+                  >
                     {message.text}
                   </div>
                   {isLong && (
@@ -91,8 +95,7 @@ export function TranscriptMessage({ message, work, isStreaming = false }: Transc
                 </div>
               ) : (
                 <MarkdownContent markdown={message.text} className="text-[var(--foreground)]" />
-              )
-            )}
+              ))}
           </div>
         )}
       </div>

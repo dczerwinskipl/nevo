@@ -104,7 +104,11 @@ export const WorkIndicatorV2 = memo(function WorkIndicatorV2({ turn, expanded, o
       <span className="min-w-0 flex-1 truncate">
         Work · {count} {count === 1 ? 'action' : 'actions'} · {statusLabel}
       </span>
-      {expanded ? <ChevronDown className="size-4 shrink-0 text-[var(--muted)]" /> : <ChevronRight className="size-4 shrink-0 text-[var(--muted)]" />}
+      {expanded ? (
+        <ChevronDown className="size-4 shrink-0 text-[var(--muted)]" />
+      ) : (
+        <ChevronRight className="size-4 shrink-0 text-[var(--muted)]" />
+      )}
     </button>
   );
 });

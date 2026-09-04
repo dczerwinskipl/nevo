@@ -242,7 +242,9 @@ export const ExistingConversation: ExistingConversationStory = {
     expect(canvasElement.textContent).toContain('Please analyze the design tokens and run the test suite');
 
     // 2. Verify final answer is rendered with expected text
-    expect(canvasElement.textContent).toContain('All design tokens and foundation stories have been successfully verified');
+    expect(canvasElement.textContent).toContain(
+      'All design tokens and foundation stories have been successfully verified',
+    );
 
     // 3. Verify Turn Work indicator shows completed status and action count (10 actions)
     expect(canvasElement.textContent).toContain('Work · 10 actions');
@@ -256,7 +258,9 @@ export const ExistingConversation: ExistingConversationStory = {
     }
 
     // 5. Verify presence of all required activity kinds in expanded timeline
-    expect(canvasElement.textContent).toContain('Investigating the performance metrics across all 14 active font-size scales');
+    expect(canvasElement.textContent).toContain(
+      'Investigating the performance metrics across all 14 active font-size scales',
+    );
     expect(canvasElement.textContent).toContain('Search code');
     expect(canvasElement.textContent).toContain('Read file');
     expect(canvasElement.textContent).toContain('Edit file');
@@ -420,9 +424,7 @@ export const ActiveTool: Story = {
 
     // 6. Verify completed command appears as a separate historical row
     const historicalRow = Array.from(canvasElement.querySelectorAll('button')).find(
-      (btn) =>
-        btn !== workHeaderButton &&
-        btn.textContent?.includes('git status --porcelain')
+      (btn) => btn !== workHeaderButton && btn.textContent?.includes('git status --porcelain'),
     );
     expect(historicalRow).toBeDefined();
     expect(historicalRow!.textContent).toContain('Run command');

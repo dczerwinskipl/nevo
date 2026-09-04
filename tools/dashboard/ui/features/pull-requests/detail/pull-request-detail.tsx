@@ -1,4 +1,17 @@
-import { AlertTriangle, ChevronDown, Eye, EyeOff, ExternalLink, Files, GitBranch, GitCommitHorizontal, Layers, List, LoaderCircle, UserRound } from 'lucide-react';
+import {
+  AlertTriangle,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  ExternalLink,
+  Files,
+  GitBranch,
+  GitCommitHorizontal,
+  Layers,
+  List,
+  LoaderCircle,
+  UserRound,
+} from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 
 import type { AvailablePullRequest, PullRequestFileManifestEntry } from '../types';
@@ -47,7 +60,15 @@ function IncompleteDiffIndicator({
   );
 }
 
-export function PullRequestCard({ specification, pullRequest, mode }: { specification: SpecificationSummary; pullRequest: AvailablePullRequest; mode: DiffViewMode }) {
+export function PullRequestCard({
+  specification,
+  pullRequest,
+  mode,
+}: {
+  specification: SpecificationSummary;
+  pullRequest: AvailablePullRequest;
+  mode: DiffViewMode;
+}) {
   const [open, setOpen] = useState(true);
   const [groupMode, setGroupMode] = useState<GroupByMode>('area');
   const [hideGenerated, setHideGenerated] = useState(true);
@@ -159,7 +180,7 @@ export function PullRequestCard({ specification, pullRequest, mode }: { specific
                 {pullRequest.providerLabel} #{pullRequest.number}
               </span>
             </div>
-            <h2 className="mt-2 text-base font-semibold leading-6 text-[var(--foreground)] sm:text-lg">
+            <h2 className="mt-2 text-base leading-6 font-semibold text-[var(--foreground)] sm:text-lg">
               {pullRequest.title}
             </h2>
           </div>
@@ -180,9 +201,13 @@ export function PullRequestCard({ specification, pullRequest, mode }: { specific
           )}
           <span className="inline-flex min-w-0 items-center gap-1.5">
             <GitBranch className="size-3.5 shrink-0" />
-            <span className="max-w-44 truncate font-mono">{pullRequest.head.name || pullRequest.head.label || 'head'}</span>
+            <span className="max-w-44 truncate font-mono">
+              {pullRequest.head.name || pullRequest.head.label || 'head'}
+            </span>
             <span>→</span>
-            <span className="max-w-44 truncate font-mono">{pullRequest.base.name || pullRequest.base.label || 'base'}</span>
+            <span className="max-w-44 truncate font-mono">
+              {pullRequest.base.name || pullRequest.base.label || 'base'}
+            </span>
           </span>
           <span className="inline-flex items-center gap-1.5">
             <GitCommitHorizontal className="size-3.5" />
@@ -201,13 +226,18 @@ export function PullRequestCard({ specification, pullRequest, mode }: { specific
               </span>
               <span className="font-semibold text-[var(--success)]">+{pullRequest.stats.additions}</span>
               <span className="font-semibold text-[var(--danger)]">−{pullRequest.stats.deletions}</span>
-              {collapseFilesInitially && <span className="text-[var(--muted)]">Duży PR — pliki domyślnie zwinięte</span>}
+              {collapseFilesInitially && (
+                <span className="text-[var(--muted)]">Duży PR — pliki domyślnie zwinięte</span>
+              )}
             </div>
           </div>
 
           {files.length > 0 && (
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <div className="inline-flex rounded-lg border border-[var(--border)] bg-[var(--background)] p-0.5" aria-label="Grupowanie plików">
+              <div
+                className="inline-flex rounded-lg border border-[var(--border)] bg-[var(--background)] p-0.5"
+                aria-label="Grupowanie plików"
+              >
                 {GROUP_MODE_OPTIONS.map((option) => {
                   const Icon = option.icon;
                   return (
@@ -284,23 +314,29 @@ export function PullRequestCard({ specification, pullRequest, mode }: { specific
                 }
 
                 return (
-                  <div key={group.name} className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)]">
+                  <div
+                    key={group.name}
+                    className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)]"
+                  >
                     <button
                       type="button"
                       className="flex w-full items-center justify-between gap-3 bg-[var(--surface-raised)] px-4 py-3 text-left transition-colors hover:bg-[var(--surface-hover)]"
                       aria-expanded={isGroupOpen}
                       onClick={() => toggleGroup(group.name)}
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="flex min-w-0 items-center gap-2.5">
                         <ChevronDown
-                          className={cn('size-3.5 shrink-0 text-[var(--accent)] transition-transform', !isGroupOpen && '-rotate-90')}
+                          className={cn(
+                            'size-3.5 shrink-0 text-[var(--accent)] transition-transform',
+                            !isGroupOpen && '-rotate-90',
+                          )}
                         />
-                        <span className="font-semibold text-xs text-[var(--foreground)] truncate">{group.name}</span>
-                        <span className="text-[10px] text-[var(--muted)] font-mono">
+                        <span className="truncate text-xs font-semibold text-[var(--foreground)]">{group.name}</span>
+                        <span className="font-mono text-[10px] text-[var(--muted)]">
                           {group.paths.length} {group.paths.length === 1 ? 'plik' : 'plików'}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2.5 text-[10px] shrink-0 font-semibold">
+                      <div className="flex shrink-0 items-center gap-2.5 text-[10px] font-semibold">
                         <span className="text-[var(--success)]">+{st.additions}</span>
                         <span className="text-[var(--danger)]">−{st.deletions}</span>
                       </div>
@@ -308,7 +344,7 @@ export function PullRequestCard({ specification, pullRequest, mode }: { specific
 
                     {/* Do not render FileChange / DiffView for collapsed groups */}
                     {isGroupOpen && (
-                      <div className="space-y-3 p-3 sm:p-4 border-t border-[var(--border)]">
+                      <div className="space-y-3 border-t border-[var(--border)] p-3 sm:p-4">
                         {group.paths.map((path) => {
                           const file = filesByPath.get(path);
                           if (!file) return null;
@@ -332,14 +368,17 @@ export function PullRequestCard({ specification, pullRequest, mode }: { specific
             </div>
           ) : (
             <div className="rounded-xl border border-dashed border-[var(--border)] px-5 py-10 text-center text-xs text-[var(--muted)]">
-              {files.length ? 'Wszystkie pliki są ukryte — wyłącz filtr, aby je zobaczyć.' : 'Provider nie zwrócił listy zmienionych plików.'}
+              {files.length
+                ? 'Wszystkie pliki są ukryte — wyłącz filtr, aby je zobaczyć.'
+                : 'Provider nie zwrócił listy zmienionych plików.'}
             </div>
           )}
 
           <details
             className="mt-4 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)]"
             onToggle={(event) => {
-              if (event.currentTarget.open && !fullDiffQuery.loaded && !fullDiffQuery.loading) void fullDiffQuery.load();
+              if (event.currentTarget.open && !fullDiffQuery.loaded && !fullDiffQuery.loading)
+                void fullDiffQuery.load();
             }}
           >
             <summary className="cursor-pointer bg-[var(--surface-raised)] px-4 py-3 text-[11px] font-semibold text-[var(--foreground)]">
@@ -350,7 +389,9 @@ export function PullRequestCard({ specification, pullRequest, mode }: { specific
                 <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" /> Wczytywanie pełnego diffu…
               </div>
             ) : fullDiffQuery.error ? (
-              <div className="border-t border-[var(--border)] px-4 py-6 text-xs text-[var(--danger-strong)]">{fullDiffQuery.error}</div>
+              <div className="border-t border-[var(--border)] px-4 py-6 text-xs text-[var(--danger-strong)]">
+                {fullDiffQuery.error}
+              </div>
             ) : fullDiffQuery.data ? (
               <pre className="max-h-[70vh] overflow-auto border-t border-[var(--border)] p-4 font-mono text-[11px] leading-5 text-[var(--muted-strong)]">
                 {fullDiffQuery.data.diffAvailable ? fullDiffQuery.data.diff : 'Provider nie zwrócił pełnego diffu.'}

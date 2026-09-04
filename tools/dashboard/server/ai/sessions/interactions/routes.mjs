@@ -1,10 +1,4 @@
-import {
-  PROVIDER_PATTERN,
-  TURN_PATTERN,
-  assertBodyObject,
-  validatedSegment,
-  validatedSessionId,
-} from '../http.mjs';
+import { PROVIDER_PATTERN, TURN_PATTERN, assertBodyObject, validatedSegment, validatedSessionId } from '../http.mjs';
 import { authorize } from '../../access-policy.mjs';
 
 const RESPOND_BODY_LIMIT = 16_384;
@@ -21,7 +15,9 @@ export default async function interactionRoutes(fastify, { service, accessPolicy
       const body = assertBodyObject(request.body);
 
       const turnId = body.turnId ? validatedSegment(body.turnId, TURN_PATTERN, 'turn ID') : undefined;
-      console.log(`[ai] [interaction:resolve] provider=${provider} session=${providerSessionId} interaction=${interactionId}${turnId ? ` turnId=${turnId}` : ''}`);
+      console.log(
+        `[ai] [interaction:resolve] provider=${provider} session=${providerSessionId} interaction=${interactionId}${turnId ? ` turnId=${turnId}` : ''}`,
+      );
 
       const turn = await service.resolveInteraction(turnId, interactionId, body, { provider, providerSessionId });
       reply.send({ turn });

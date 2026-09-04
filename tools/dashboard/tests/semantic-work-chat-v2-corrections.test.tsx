@@ -23,14 +23,7 @@ describe('V2 Chat Surface Component Tests (RTL renders)', () => {
       },
     ];
 
-    render(
-      <AgentSessionTranscriptV2
-        turns={turns}
-        isLoading={false}
-        hasSessionDetails={true}
-        contentRevision={1}
-      />,
-    );
+    render(<AgentSessionTranscriptV2 turns={turns} isLoading={false} hasSessionDetails={true} contentRevision={1} />);
 
     const toggleButton = screen.getByRole('button', { name: /pokaż więcej/i });
     expect(toggleButton).toBeInTheDocument();

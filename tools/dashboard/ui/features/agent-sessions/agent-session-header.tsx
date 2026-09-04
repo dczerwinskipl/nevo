@@ -80,7 +80,7 @@ export function AgentSessionHeader({
                       : 'SSE: Stan nieznany (brak aktywnego połączenia)'
               }
               className={cn(
-                'flex size-8 items-center justify-center rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] cursor-default lg:hidden',
+                'flex size-8 cursor-default items-center justify-center rounded-lg border transition-colors focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:outline-none lg:hidden',
                 isConnected && 'border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]',
                 isReconnecting && 'border-[var(--warning-border)] bg-[var(--warning-muted)] text-[var(--warning)]',
                 isDisconnected && 'border-[var(--danger-border)] bg-[var(--danger-muted)] text-[var(--danger)]',
@@ -92,7 +92,7 @@ export function AgentSessionHeader({
                 <span
                   className={cn(
                     'absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-current',
-                    isReconnecting && 'animate-ping'
+                    isReconnecting && 'animate-ping',
                   )}
                 />
               </span>

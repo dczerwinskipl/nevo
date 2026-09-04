@@ -61,10 +61,7 @@ function registerStaticAssets(app, distDir) {
     // raw `http.ServerResponse`) as the first argument — use `reply.header`,
     // not `res.setHeader`.
     setHeaders: (reply, path) => {
-      reply.header(
-        'cache-control',
-        path.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable',
-      );
+      reply.header('cache-control', path.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable');
     },
   });
 }

@@ -12,7 +12,7 @@ function ContentLoading() {
         <LoaderCircle className="size-4 animate-spin text-[var(--accent)]" />
         Wczytywanie treści dokumentu…
       </div>
-      <div className="mt-7 space-y-3 animate-pulse">
+      <div className="mt-7 animate-pulse space-y-3">
         <div className="h-7 w-2/5 rounded bg-white/8" />
         <div className="h-3 w-full rounded bg-white/5" />
         <div className="h-3 w-5/6 rounded bg-white/5" />
@@ -76,11 +76,11 @@ export function DocumentSectionPanel({
   }
 
   return (
-    <Card className="w-full min-w-0 max-w-full overflow-hidden">
+    <Card className="w-full max-w-full min-w-0 overflow-hidden">
       <div className="border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 py-3 text-[10px] text-[var(--muted)] sm:px-8">
         {documentQuery.data.path || fallbackPath || docId}
       </div>
-      <article className="w-full min-w-0 max-w-full px-5 py-7 sm:px-8 sm:py-9">
+      <article className="w-full max-w-full min-w-0 px-5 py-7 sm:px-8 sm:py-9">
         <MarkdownContent markdown={documentQuery.data.markdown} />
       </article>
     </Card>

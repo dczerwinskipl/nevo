@@ -1,8 +1,4 @@
-import {
-  PROVIDER_PATTERN,
-  validatedSegment,
-  validatedSessionId,
-} from '../http.mjs';
+import { PROVIDER_PATTERN, validatedSegment, validatedSessionId } from '../http.mjs';
 import { authorize } from '../../access-policy.mjs';
 import { AiValidationError } from '../../contracts.mjs';
 
@@ -47,7 +43,7 @@ export default async function aiEventRoutes(fastify, { service, accessPolicy }) 
     let sendQueue = Promise.resolve();
     const unsubscribe = service.subscribeToSession(provider, providerSessionId, {
       afterSequence,
-      onEvent: event => {
+      onEvent: (event) => {
         sendQueue = sendQueue.then(() =>
           reply.sse.send({ id: event.seq ?? event.id, event: event.type, data: event }).catch(() => {}),
         );
@@ -58,7 +54,9 @@ export default async function aiEventRoutes(fastify, { service, accessPolicy }) 
 
   fastify.addHook('preClose', async () => {
     for (const sse of Array.from(activeConnections)) {
-      try { sse.close(); } catch {}
+      try {
+        sse.close();
+      } catch {}
     }
     activeConnections.clear();
   });

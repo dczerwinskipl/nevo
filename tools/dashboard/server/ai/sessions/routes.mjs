@@ -40,7 +40,11 @@ export default async function sessionRoutes(fastify, { service, accessPolicy }) 
     if (body.providerSessionId) {
       const providerSessionId = validatedSessionId(body.providerSessionId);
       if (body.taskId && !TURN_PATTERN.test(body.taskId)) throw new AiValidationError('Invalid task ID.');
-      if (body.taskIds !== undefined && (!Array.isArray(body.taskIds) || body.taskIds.some(taskId => typeof taskId !== 'string' || !TURN_PATTERN.test(taskId)))) {
+      if (
+        body.taskIds !== undefined &&
+        (!Array.isArray(body.taskIds) ||
+          body.taskIds.some((taskId) => typeof taskId !== 'string' || !TURN_PATTERN.test(taskId)))
+      ) {
         throw new AiValidationError('Task IDs must be an array of stable IDs.');
       }
       const session = await service.attachSession(provider, {
@@ -55,14 +59,20 @@ export default async function sessionRoutes(fastify, { service, accessPolicy }) 
       return;
     }
 
-    if (body.taskIds !== undefined && (!Array.isArray(body.taskIds) || body.taskIds.some(taskId => typeof taskId !== 'string' || !TURN_PATTERN.test(taskId)))) {
+    if (
+      body.taskIds !== undefined &&
+      (!Array.isArray(body.taskIds) ||
+        body.taskIds.some((taskId) => typeof taskId !== 'string' || !TURN_PATTERN.test(taskId)))
+    ) {
       throw new AiValidationError('Task IDs must be an array of stable IDs.');
     }
     if (body.taskId !== undefined && !TURN_PATTERN.test(body.taskId)) {
       throw new AiValidationError('Invalid task ID.');
     }
 
-    console.log(`[ai] [session:create] provider=${provider} specId=${body.specId} taskId=${body.taskId || '-'}${body.mode ? ` mode=${body.mode}` : ''}`);
+    console.log(
+      `[ai] [session:create] provider=${provider} specId=${body.specId} taskId=${body.taskId || '-'}${body.mode ? ` mode=${body.mode}` : ''}`,
+    );
     const session = await service.createSession(provider, {
       specId: body.specId,
       taskId: body.taskId,
@@ -122,18 +132,22 @@ export default async function sessionRoutes(fastify, { service, accessPolicy }) 
     reply.send({ turns });
   });
 
-  fastify.patch('/api/agent-sessions/:provider/:providerSessionId', { bodyLimit: SESSION_PATCH_BODY_LIMIT }, async (request, reply) => {
-    const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
-    const providerSessionId = validatedSessionId(request.params.providerSessionId);
-    authorize(accessPolicy, 'control', request);
-    const body = assertBodyObject(request.body);
-    if (body.mode) {
-      const session = await service.updateSessionMode(provider, providerSessionId, body.mode);
-      reply.send({ session });
-      return;
-    }
-    reply.send({ ok: true });
-  });
+  fastify.patch(
+    '/api/agent-sessions/:provider/:providerSessionId',
+    { bodyLimit: SESSION_PATCH_BODY_LIMIT },
+    async (request, reply) => {
+      const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
+      const providerSessionId = validatedSessionId(request.params.providerSessionId);
+      authorize(accessPolicy, 'control', request);
+      const body = assertBodyObject(request.body);
+      if (body.mode) {
+        const session = await service.updateSessionMode(provider, providerSessionId, body.mode);
+        reply.send({ session });
+        return;
+      }
+      reply.send({ ok: true });
+    },
+  );
 
   fastify.delete('/api/agent-sessions/:provider/:providerSessionId', async (request, reply) => {
     const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');

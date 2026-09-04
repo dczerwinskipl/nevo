@@ -56,14 +56,7 @@ export class ClaudeContinuationStore {
     renameSync(tempPath, path);
   }
 
-  saveDeferred({
-    providerSessionId,
-    interactionId,
-    toolUseId,
-    toolName,
-    toolInput,
-    kind = 'question',
-  }) {
+  saveDeferred({ providerSessionId, interactionId, toolUseId, toolName, toolInput, kind = 'question' }) {
     if (!providerSessionId || !interactionId) {
       throw new AiValidationError('providerSessionId and interactionId are required to persist continuation.');
     }
@@ -90,7 +83,10 @@ export class ClaudeContinuationStore {
   resolveResponse({ providerSessionId, interactionId, userResponse }) {
     const existing = this.getContinuation(providerSessionId, interactionId);
     if (!existing) {
-      throw new AiError('AI_CONTINUATION_NOT_FOUND', `Continuation for ${providerSessionId}/${interactionId} not found.`);
+      throw new AiError(
+        'AI_CONTINUATION_NOT_FOUND',
+        `Continuation for ${providerSessionId}/${interactionId} not found.`,
+      );
     }
     existing.state = 'resolved';
     existing.response = userResponse;
@@ -135,10 +131,7 @@ export class ClaudeContinuationStore {
         if (record.state !== 'resolved' && record.state !== 'delivered') continue;
 
         const fingerprint = canonicalToolFingerprint(toolName, toolInput);
-        const matches = toolUseId
-          ? record.toolUseId === toolUseId
-          : record.toolFingerprint === fingerprint;
-
+        const matches = toolUseId ? record.toolUseId === toolUseId : record.toolFingerprint === fingerprint;
 
         if (matches) {
           return record;

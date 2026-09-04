@@ -13,9 +13,28 @@ import { terminateChildProcess } from '../process-termination.mjs';
 import { DEFAULT_ANTIGRAVITY_PRINT_TIMEOUT_SECONDS } from '../config.mjs';
 
 const WINDOWS_RESERVED_NAMES = new Set([
-  'con', 'prn', 'aux', 'nul',
-  'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
-  'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9',
+  'con',
+  'prn',
+  'aux',
+  'nul',
+  'com1',
+  'com2',
+  'com3',
+  'com4',
+  'com5',
+  'com6',
+  'com7',
+  'com8',
+  'com9',
+  'lpt1',
+  'lpt2',
+  'lpt3',
+  'lpt4',
+  'lpt5',
+  'lpt6',
+  'lpt7',
+  'lpt8',
+  'lpt9',
 ]);
 
 /**
@@ -30,11 +49,12 @@ export function rawCaptureSessionDirectory(providerSessionId, rawCaptureDir = nu
   if (!providerSessionId || typeof providerSessionId !== 'string') {
     throw new TypeError('providerSessionId must be a non-empty string');
   }
-  const isSafeCandidate = /^[a-zA-Z0-9_-]+$/.test(providerSessionId)
-    && providerSessionId !== '.'
-    && providerSessionId !== '..'
-    && providerSessionId.length <= 128
-    && !WINDOWS_RESERVED_NAMES.has(providerSessionId.toLowerCase());
+  const isSafeCandidate =
+    /^[a-zA-Z0-9_-]+$/.test(providerSessionId) &&
+    providerSessionId !== '.' &&
+    providerSessionId !== '..' &&
+    providerSessionId.length <= 128 &&
+    !WINDOWS_RESERVED_NAMES.has(providerSessionId.toLowerCase());
 
   if (isSafeCandidate) {
     if (!rawCaptureDir) {
@@ -65,10 +85,11 @@ export function rawCaptureSessionDirectory(providerSessionId, rawCaptureDir = nu
     // If directory exists on disk for a different session or different case-variant, fall back to hash
   }
 
-  const safePrefix = providerSessionId
-    .replace(/[^a-zA-Z0-9_-]/g, '_')
-    .slice(0, 32)
-    .replace(/^_+|_+$/g, '') || 'session';
+  const safePrefix =
+    providerSessionId
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .slice(0, 32)
+      .replace(/^_+|_+$/g, '') || 'session';
   const hash = createHash('sha256').update(providerSessionId, 'utf8').digest('hex').slice(0, 16);
   return `${safePrefix}-${hash}`;
 }
@@ -100,7 +121,8 @@ const FAILED_TOOL_WITHOUT_OUTPUT = 'Antigravity reported a tool failure without 
 function resolveAgyExecutable(name) {
   if (!name || name === 'agy') {
     if (process.platform === 'win32') {
-      const localAppData = process.env.LOCALAPPDATA || (process.env.USERPROFILE ? `${process.env.USERPROFILE}\\AppData\\Local` : null);
+      const localAppData =
+        process.env.LOCALAPPDATA || (process.env.USERPROFILE ? `${process.env.USERPROFILE}\\AppData\\Local` : null);
       if (localAppData) {
         const standardPath = `${localAppData}\\agy\\bin\\agy.exe`;
         if (existsSync(standardPath)) {
@@ -148,9 +170,7 @@ const MAX_TOOL_DESCRIPTION_LENGTH = 300;
 
 function truncateToolDescription(value) {
   if (typeof value !== 'string') return undefined;
-  return value.length > MAX_TOOL_DESCRIPTION_LENGTH
-    ? `${value.slice(0, MAX_TOOL_DESCRIPTION_LENGTH - 1)}…`
-    : value;
+  return value.length > MAX_TOOL_DESCRIPTION_LENGTH ? `${value.slice(0, MAX_TOOL_DESCRIPTION_LENGTH - 1)}…` : value;
 }
 
 export function mapAntigravityTool(toolName, parameters = {}) {
@@ -218,7 +238,11 @@ function mapAntigravityToolRaw(toolName, parameters = {}) {
         kind: 'search',
         title: 'Find files',
         subject: params.Pattern || undefined,
-        description: params.Pattern ? (params.SearchDirectory ? `${params.Pattern} in ${params.SearchDirectory}` : params.Pattern) : params.SearchDirectory || undefined,
+        description: params.Pattern
+          ? params.SearchDirectory
+            ? `${params.Pattern} in ${params.SearchDirectory}`
+            : params.Pattern
+          : params.SearchDirectory || undefined,
       };
     case 'grep_search':
       return {
@@ -226,7 +250,11 @@ function mapAntigravityToolRaw(toolName, parameters = {}) {
         kind: 'search',
         title: 'Search files',
         subject: params.Query || undefined,
-        description: params.Query ? (params.SearchPath ? `${params.Query} in ${params.SearchPath}` : params.Query) : params.SearchPath || undefined,
+        description: params.Query
+          ? params.SearchPath
+            ? `${params.Query} in ${params.SearchPath}`
+            : params.Query
+          : params.SearchPath || undefined,
       };
     case 'list_dir':
       return {
@@ -265,9 +293,12 @@ function mapAntigravityToolRaw(toolName, parameters = {}) {
         toolName: 'invoke_subagent',
         kind: 'other',
         title: 'Invoke subagent',
-        subject: Array.isArray(params.Subagents) && params.Subagents.length > 0
-          ? params.Subagents.map((s) => s.Role || s.TypeName).filter(Boolean).join(', ')
-          : undefined,
+        subject:
+          Array.isArray(params.Subagents) && params.Subagents.length > 0
+            ? params.Subagents.map((s) => s.Role || s.TypeName)
+                .filter(Boolean)
+                .join(', ')
+            : undefined,
         description: params.toolSummary || undefined,
       };
     case 'define_subagent':
@@ -292,7 +323,11 @@ function mapAntigravityToolRaw(toolName, parameters = {}) {
         kind: 'other',
         title: 'Send message',
         subject: params.Recipient || undefined,
-        description: params.Message ? (params.Message.length <= 80 ? params.Message : `${params.Message.slice(0, 79)}…`) : undefined,
+        description: params.Message
+          ? params.Message.length <= 80
+            ? params.Message
+            : `${params.Message.slice(0, 79)}…`
+          : undefined,
       };
     case 'schedule':
       return {
@@ -322,7 +357,7 @@ function mapAntigravityToolRaw(toolName, parameters = {}) {
       return {
         toolName: name,
         kind: 'other',
-        title: (typeof params.toolAction === 'string' && params.toolAction.trim()) ? params.toolAction.trim() : name,
+        title: typeof params.toolAction === 'string' && params.toolAction.trim() ? params.toolAction.trim() : name,
         subject: typeof params.toolSummary === 'string' ? params.toolSummary.trim() : undefined,
         description: undefined,
       };
@@ -372,15 +407,16 @@ export class AntigravityAgentProvider {
       throw new AiValidationError('Antigravity printTimeoutSeconds must be a positive integer number of seconds.');
     }
     this.#printTimeoutSeconds = printTimeoutSeconds;
-    this.#probeExecutable = probeExecutable ?? (spawnProcess !== spawn ? () => true : defaultProbeAntigravityExecutable);
+    this.#probeExecutable =
+      probeExecutable ?? (spawnProcess !== spawn ? () => true : defaultProbeAntigravityExecutable);
     this.#mappingFilePath = mappingFilePath;
     this.#rawCaptureEnabled = Boolean(rawCaptureEnabled);
-    this.#rawFlushTimeoutMs = Number.isFinite(rawFlushTimeoutMs) && rawFlushTimeoutMs >= 0
-      ? rawFlushTimeoutMs
-      : 2_000;
+    this.#rawFlushTimeoutMs = Number.isFinite(rawFlushTimeoutMs) && rawFlushTimeoutMs >= 0 ? rawFlushTimeoutMs : 2_000;
     this.#rawCaptureDir = this.#rawCaptureEnabled
-      ? (rawCaptureDir || resolve(this.#cwd, '.nevo-ai-local', 'antigravity_raw'))
-      : (rawCaptureDir ? resolve(rawCaptureDir) : null);
+      ? rawCaptureDir || resolve(this.#cwd, '.nevo-ai-local', 'antigravity_raw')
+      : rawCaptureDir
+        ? resolve(rawCaptureDir)
+        : null;
     if (Array.isArray(materializedSessions)) {
       this.#materializedSessions = new Set(materializedSessions);
     }
@@ -403,10 +439,11 @@ export class AntigravityAgentProvider {
       }
 
       if (hasInMemoryCaseCollision) {
-        const safePrefix = sessionId
-          .replace(/[^a-zA-Z0-9_-]/g, '_')
-          .slice(0, 32)
-          .replace(/^_+|_+$/g, '') || 'session';
+        const safePrefix =
+          sessionId
+            .replace(/[^a-zA-Z0-9_-]/g, '_')
+            .slice(0, 32)
+            .replace(/^_+|_+$/g, '') || 'session';
         const hash = createHash('sha256').update(sessionId, 'utf8').digest('hex').slice(0, 16);
         dirName = `${safePrefix}-${hash}`;
       } else {
@@ -440,7 +477,7 @@ export class AntigravityAgentProvider {
     let timedOut = false;
     await Promise.race([
       Promise.resolve(queue),
-      new Promise(resolveTimeout => {
+      new Promise((resolveTimeout) => {
         timer = setTimeout(() => {
           timedOut = true;
           resolveTimeout();
@@ -449,16 +486,15 @@ export class AntigravityAgentProvider {
     ]);
     if (timer) clearTimeout(timer);
     if (timedOut) {
-      console.warn(`[antigravity] [raw-capture] Timed out after ${this.#rawFlushTimeoutMs}ms while flushing ${label}; queued writes continue in the background.`);
+      console.warn(
+        `[antigravity] [raw-capture] Timed out after ${this.#rawFlushTimeoutMs}ms while flushing ${label}; queued writes continue in the background.`,
+      );
     }
   }
 
   async #flushRawCaptureBounded(sessionId) {
     if (!sessionId) return;
-    await this.#awaitRawCaptureBoundary(
-      this.#sessionWriteQueues.get(sessionId),
-      `session ${sessionId}`,
-    );
+    await this.#awaitRawCaptureBoundary(this.#sessionWriteQueues.get(sessionId), `session ${sessionId}`);
   }
 
   async #flushAllRawCapture() {
@@ -526,18 +562,24 @@ export class AntigravityAgentProvider {
           }
           const sessionMetadataPath = join(sessionDir, 'session.json');
           if (!existsSync(sessionMetadataPath)) {
-            const metadata = JSON.stringify({
-              provider: 'antigravity',
-              providerSessionId: sessionId,
-            }, null, 2);
+            const metadata = JSON.stringify(
+              {
+                provider: 'antigravity',
+                providerSessionId: sessionId,
+              },
+              null,
+              2,
+            );
             await writeFile(sessionMetadataPath, metadata, 'utf8');
           }
           await appendFile(filePath, ndjsonLine, 'utf8');
         } catch (err) {
-          console.warn(`[antigravity] [raw-capture] Failed to append raw event for session ${sessionId}: ${err?.message || err}`);
+          console.warn(
+            `[antigravity] [raw-capture] Failed to append raw event for session ${sessionId}: ${err?.message || err}`,
+          );
         }
       })
-      .catch(err => {
+      .catch((err) => {
         console.warn(`[antigravity] [raw-capture] Unexpected error in raw capture queue: ${err?.message || err}`);
       });
     this.#sessionWriteQueues.set(sessionId, queue);
@@ -577,7 +619,7 @@ export class AntigravityAgentProvider {
 
   isAvailable({ ttlMs = 30_000 } = {}) {
     const now = Date.now();
-    if (this.#availabilityCache.result && (now - this.#availabilityCache.checkedAt < ttlMs)) {
+    if (this.#availabilityCache.result && now - this.#availabilityCache.checkedAt < ttlMs) {
       return this.#availabilityCache.result;
     }
     let available = false;
@@ -588,7 +630,10 @@ export class AntigravityAgentProvider {
     }
     const result = available
       ? { available: true }
-      : { available: false, unavailableReason: `Antigravity CLI ('${this.#executable}') is not found in PATH. Install Antigravity CLI ('agy') to enable this provider.` };
+      : {
+          available: false,
+          unavailableReason: `Antigravity CLI ('${this.#executable}') is not found in PATH. Install Antigravity CLI ('agy') to enable this provider.`,
+        };
     this.#availabilityCache = { checkedAt: now, result };
     return result;
   }
@@ -649,9 +694,12 @@ export class AntigravityAgentProvider {
       let pendingInteractionPromise = null;
 
       const args = [
-        '--add-dir', this.#cwd,
-        '--output-format', 'stream-json',
-        '--print-timeout', `${this.#printTimeoutSeconds}s`,
+        '--add-dir',
+        this.#cwd,
+        '--output-format',
+        'stream-json',
+        '--print-timeout',
+        `${this.#printTimeoutSeconds}s`,
       ];
 
       if (mode === 'ask') {
@@ -663,7 +711,8 @@ export class AntigravityAgentProvider {
       }
 
       const targetConversationId = providerSessionId
-        ? (this.#sessionAliases.get(providerSessionId) || (this.#materializedSessions.has(providerSessionId) ? providerSessionId : null))
+        ? this.#sessionAliases.get(providerSessionId) ||
+          (this.#materializedSessions.has(providerSessionId) ? providerSessionId : null)
         : null;
 
       if (targetConversationId) {
@@ -696,7 +745,12 @@ export class AntigravityAgentProvider {
           if (providerSessionId) {
             this.#saveSessionAlias(providerSessionId, allocatedId);
           }
-          if (this.#rawCaptureEnabled && this.#rawCaptureDir && allocatedId !== effectiveSessionId && !isRawCaptureMigrated) {
+          if (
+            this.#rawCaptureEnabled &&
+            this.#rawCaptureDir &&
+            allocatedId !== effectiveSessionId &&
+            !isRawCaptureMigrated
+          ) {
             isRawCaptureMigrated = true;
             // Migrate any raw records already written under effectiveSessionId to allocatedId
             const oldDirName = this.#resolveSessionDirName(effectiveSessionId);
@@ -710,34 +764,41 @@ export class AntigravityAgentProvider {
                   if (!existsSync(newDir)) await mkdir(newDir, { recursive: true });
                   const newFile = join(newDir, 'raw.ndjson');
                   const content = await readFile(oldFile, 'utf8');
-                  const rewritten = content
-                    .trim()
-                    .split('\n')
-                    .filter(Boolean)
-                    .map(line => {
-                      try {
-                        const parsed = JSON.parse(line);
-                        parsed.providerSessionId = allocatedId;
-                        return JSON.stringify(parsed);
-                      } catch {
-                        return line;
-                      }
-                    })
-                    .join('\n') + '\n';
+                  const rewritten =
+                    content
+                      .trim()
+                      .split('\n')
+                      .filter(Boolean)
+                      .map((line) => {
+                        try {
+                          const parsed = JSON.parse(line);
+                          parsed.providerSessionId = allocatedId;
+                          return JSON.stringify(parsed);
+                        } catch {
+                          return line;
+                        }
+                      })
+                      .join('\n') + '\n';
                   await appendFile(newFile, rewritten, 'utf8');
 
                   // Write updated session.json for allocatedId
                   const sessionMetadataPath = join(newDir, 'session.json');
-                  const metadata = JSON.stringify({
-                    provider: 'antigravity',
-                    providerSessionId: allocatedId,
-                  }, null, 2);
+                  const metadata = JSON.stringify(
+                    {
+                      provider: 'antigravity',
+                      providerSessionId: allocatedId,
+                    },
+                    null,
+                    2,
+                  );
                   await writeFile(sessionMetadataPath, metadata, 'utf8');
 
                   await rm(join(this.#rawCaptureDir, oldDirName), { recursive: true, force: true });
                 }
               } catch (err) {
-                console.warn(`[antigravity] [raw-capture] Failed to migrate initial session capture: ${err?.message || err}`);
+                console.warn(
+                  `[antigravity] [raw-capture] Failed to migrate initial session capture: ${err?.message || err}`,
+                );
               }
             });
             this.#sessionWriteQueues.set(allocatedId, migrationQueue);
@@ -771,15 +832,14 @@ export class AntigravityAgentProvider {
         operation.child = child;
       } catch (err) {
         this.#activeOperations.delete(turnId);
-        const msg = err.code === 'ENOENT'
-          ? `Antigravity CLI ('${this.#executable}') not found. Ensure Antigravity CLI ('agy') is installed and available in PATH.`
-          : `Failed to spawn Antigravity CLI: ${err.message}`;
+        const msg =
+          err.code === 'ENOENT'
+            ? `Antigravity CLI ('${this.#executable}') not found. Ensure Antigravity CLI ('agy') is installed and available in PATH.`
+            : `Failed to spawn Antigravity CLI: ${err.message}`;
         return reject(new AiError('AI_PROVIDER_SPAWN_ERROR', msg, { cause: err }));
       }
 
-      const childMayBeAlive = () => child
-        && child.exitCode == null
-        && child.signalCode == null;
+      const childMayBeAlive = () => child && child.exitCode == null && child.signalCode == null;
 
       const terminateOwnedChild = () => {
         if (!childMayBeAlive()) return operation.terminationPromise || Promise.resolve();
@@ -847,16 +907,20 @@ export class AntigravityAgentProvider {
       };
 
       if (signal) {
-        signal.addEventListener('abort', () => {
-          operation.cancelled = true;
-          if (operation.postResultTimer) {
-            clearTimeout(operation.postResultTimer);
-            operation.postResultTimer = null;
-          }
-          if (child) {
-            void terminateOwnedChild();
-          }
-        }, { once: true });
+        signal.addEventListener(
+          'abort',
+          () => {
+            operation.cancelled = true;
+            if (operation.postResultTimer) {
+              clearTimeout(operation.postResultTimer);
+              operation.postResultTimer = null;
+            }
+            if (child) {
+              void terminateOwnedChild();
+            }
+          },
+          { once: true },
+        );
       }
 
       const processLine = async (line) => {
@@ -879,7 +943,13 @@ export class AntigravityAgentProvider {
 
         const eventType = raw.event || raw.type;
         const payload = raw.step_update || raw.result || raw.init || raw;
-        const sessId = raw.conversation_id || raw.conversationId || payload.conversation_id || payload.conversationId || raw.session_id || raw.sessionId;
+        const sessId =
+          raw.conversation_id ||
+          raw.conversationId ||
+          payload.conversation_id ||
+          payload.conversationId ||
+          raw.session_id ||
+          raw.sessionId;
         if (sessId) {
           this.#saveSessionAlias(effectiveSessionId, sessId);
           if (providerSessionId) {
@@ -910,13 +980,15 @@ export class AntigravityAgentProvider {
                   id: payload.toolId || `int-${randomUUID()}`,
                   kind: 'question',
                   prompt: input.prompt || input.question || 'Antigravity requested input',
-                  questions: input.questions || [{
-                    id: input.questionId || 'q1',
-                    question: input.prompt || input.question || 'Antigravity requested input',
-                    header: input.header || 'Pytanie',
-                    options: input.options || [],
-                    isMultiSelect: Boolean(input.isMultiSelect),
-                  }],
+                  questions: input.questions || [
+                    {
+                      id: input.questionId || 'q1',
+                      question: input.prompt || input.question || 'Antigravity requested input',
+                      header: input.header || 'Pytanie',
+                      options: input.options || [],
+                      isMultiSelect: Boolean(input.isMultiSelect),
+                    },
+                  ],
                 };
                 pendingInteractionPromise = requestInteraction(interaction);
               }
@@ -942,9 +1014,10 @@ export class AntigravityAgentProvider {
             } else if (payload.state === 'DONE' || payload.state === 'ERROR' || payload.state === 'COMPLETED') {
               flushPendingAsCommentary();
               const status = payload.state === 'ERROR' || payload.is_error ? 'failed' : 'completed';
-              const output = payload.tool_info?.output
-                || (payload.tool_info?.error ? payload.tool_info.error.message : payload.output)
-                || (status === 'failed' ? FAILED_TOOL_WITHOUT_OUTPUT : COMPLETED_TOOL_WITHOUT_OUTPUT);
+              const output =
+                payload.tool_info?.output ||
+                (payload.tool_info?.error ? payload.tool_info.error.message : payload.output) ||
+                (status === 'failed' ? FAILED_TOOL_WITHOUT_OUTPUT : COMPLETED_TOOL_WITHOUT_OUTPUT);
               if (emitToolCompleted) {
                 emitToolCompleted({
                   toolId,
@@ -996,13 +1069,15 @@ export class AntigravityAgentProvider {
                   id: raw.toolId || raw.id || `int-${randomUUID()}`,
                   kind: 'question',
                   prompt: input.prompt || input.question || 'Antigravity requested input',
-                  questions: input.questions || [{
-                    id: input.questionId || 'q1',
-                    question: input.prompt || input.question || 'Antigravity requested input',
-                    header: input.header || 'Pytanie',
-                    options: input.options || [],
-                    isMultiSelect: Boolean(input.isMultiSelect),
-                  }],
+                  questions: input.questions || [
+                    {
+                      id: input.questionId || 'q1',
+                      question: input.prompt || input.question || 'Antigravity requested input',
+                      header: input.header || 'Pytanie',
+                      options: input.options || [],
+                      isMultiSelect: Boolean(input.isMultiSelect),
+                    },
+                  ],
                 };
                 pendingInteractionPromise = requestInteraction(interaction);
               }
@@ -1032,7 +1107,9 @@ export class AntigravityAgentProvider {
                 if (activeTools.size === 1) {
                   targetToolId = activeTools.keys().next().value;
                 } else if (activeTools.size > 1) {
-                  console.warn('[antigravity] Diagnostic ambiguity: tool.updated received without toolId while multiple tools are active.');
+                  console.warn(
+                    '[antigravity] Diagnostic ambiguity: tool.updated received without toolId while multiple tools are active.',
+                  );
                 }
               }
               if (targetToolId) {
@@ -1054,14 +1131,17 @@ export class AntigravityAgentProvider {
               if (activeTools.size === 1) {
                 targetToolId = activeTools.keys().next().value;
               } else if (activeTools.size > 1) {
-                console.warn('[antigravity] Diagnostic ambiguity: tool_result received without toolId while multiple tools are active.');
+                console.warn(
+                  '[antigravity] Diagnostic ambiguity: tool_result received without toolId while multiple tools are active.',
+                );
               }
             }
             const status = raw.is_error || raw.status === 'failed' ? 'failed' : 'completed';
-            const output = raw.output
-              ?? raw.content
-              ?? raw.result
-              ?? (status === 'failed' ? FAILED_TOOL_WITHOUT_OUTPUT : COMPLETED_TOOL_WITHOUT_OUTPUT);
+            const output =
+              raw.output ??
+              raw.content ??
+              raw.result ??
+              (status === 'failed' ? FAILED_TOOL_WITHOUT_OUTPUT : COMPLETED_TOOL_WITHOUT_OUTPUT);
             if (targetToolId && emitToolCompleted) {
               emitToolCompleted({
                 toolId: targetToolId,
@@ -1084,13 +1164,15 @@ export class AntigravityAgentProvider {
                 id: raw.interactionId || `int-${randomUUID()}`,
                 kind: 'question',
                 prompt: raw.question || raw.prompt || 'Antigravity requested input',
-                questions: raw.questions || [{
-                  id: raw.questionId || 'q1',
-                  question: raw.question || raw.prompt || 'Antigravity requested input',
-                  header: raw.header || 'Pytanie',
-                  options: raw.options || [],
-                  isMultiSelect: Boolean(raw.isMultiSelect),
-                }],
+                questions: raw.questions || [
+                  {
+                    id: raw.questionId || 'q1',
+                    question: raw.question || raw.prompt || 'Antigravity requested input',
+                    header: raw.header || 'Pytanie',
+                    options: raw.options || [],
+                    isMultiSelect: Boolean(raw.isMultiSelect),
+                  },
+                ],
               };
               pendingInteractionPromise = requestInteraction(interaction);
             }
@@ -1119,8 +1201,11 @@ export class AntigravityAgentProvider {
             activeTools.clear();
 
             const statusValue = payload?.status || raw.status;
-            const statusIndicatesError = typeof statusValue === 'string'
-              && (statusValue.toUpperCase() === 'ERROR' || statusValue.toUpperCase() === 'FAILED' || statusValue.toUpperCase() === 'TIMEOUT');
+            const statusIndicatesError =
+              typeof statusValue === 'string' &&
+              (statusValue.toUpperCase() === 'ERROR' ||
+                statusValue.toUpperCase() === 'FAILED' ||
+                statusValue.toUpperCase() === 'TIMEOUT');
             const explicitErrorFlag = payload?.is_error === true || raw.is_error === true;
             const isTerminalError = statusIndicatesError || explicitErrorFlag;
 
@@ -1136,13 +1221,19 @@ export class AntigravityAgentProvider {
             if (isTerminalError) {
               flushPendingAsCommentary();
               const rawErr = payload?.error ?? raw.error;
-              const explicitResponse = typeof raw.result?.response === 'string' && raw.result.response.trim()
-                ? raw.result.response.trim()
-                : (typeof raw.response === 'string' && raw.response.trim() ? raw.response.trim() : null);
-              const errorMessage = (typeof rawErr === 'string' ? rawErr : (rawErr?.message || payload?.message || raw.message))
-                || explicitResponse
-                || 'Antigravity turn failed.';
-              const isTimeout = statusValue?.toUpperCase() === 'TIMEOUT' || /timeout|timed out|deadline exceeded|ETIMEDOUT/i.test(errorMessage);
+              const explicitResponse =
+                typeof raw.result?.response === 'string' && raw.result.response.trim()
+                  ? raw.result.response.trim()
+                  : typeof raw.response === 'string' && raw.response.trim()
+                    ? raw.response.trim()
+                    : null;
+              const errorMessage =
+                (typeof rawErr === 'string' ? rawErr : rawErr?.message || payload?.message || raw.message) ||
+                explicitResponse ||
+                'Antigravity turn failed.';
+              const isTimeout =
+                statusValue?.toUpperCase() === 'TIMEOUT' ||
+                /timeout|timed out|deadline exceeded|ETIMEDOUT/i.test(errorMessage);
               const errorObj = isTimeout
                 ? new AiError('AI_PROVIDER_TIMEOUT', errorMessage, {
                     status: 504,
@@ -1158,7 +1249,11 @@ export class AntigravityAgentProvider {
             const finalText = extractFinalResponse(raw);
             let terminalResponseText = null;
             if (typeof pendingAssistantText === 'string' && pendingAssistantText.trim().length > 0) {
-              if (typeof finalText === 'string' && finalText.startsWith(pendingAssistantText) && finalText.length > pendingAssistantText.length) {
+              if (
+                typeof finalText === 'string' &&
+                finalText.startsWith(pendingAssistantText) &&
+                finalText.length > pendingAssistantText.length
+              ) {
                 terminalResponseText = finalText;
               } else {
                 terminalResponseText = pendingAssistantText;
@@ -1179,7 +1274,7 @@ export class AntigravityAgentProvider {
 
             isDone = true;
             if (pendingInteractionPromise) {
-              pendingInteractionPromise.then(() => finishTurn()).catch(err => failTurn(err));
+              pendingInteractionPromise.then(() => finishTurn()).catch((err) => failTurn(err));
             } else {
               await finishTurn();
             }
@@ -1206,7 +1301,7 @@ export class AntigravityAgentProvider {
       let stderrBuffer = '';
       let stderrLineBuffer = '';
 
-      child.stdout?.on('data', chunk => {
+      child.stdout?.on('data', (chunk) => {
         lineBuffer += chunk.toString();
         const lines = lineBuffer.split('\n');
         lineBuffer = lines.pop() || '';
@@ -1220,17 +1315,19 @@ export class AntigravityAgentProvider {
             suppressConsoleLog: isProvisional && !isSessionEstablished,
           });
           if (!isDone && !isResolved) {
-            processingQueue = processingQueue.then(() => {
-              if (isDone || isResolved) return;
-              return processLine(line);
-            }).catch(err => {
-              void failTurn(err);
-            });
+            processingQueue = processingQueue
+              .then(() => {
+                if (isDone || isResolved) return;
+                return processLine(line);
+              })
+              .catch((err) => {
+                void failTurn(err);
+              });
           }
         }
       });
 
-      child.stderr?.on('data', chunk => {
+      child.stderr?.on('data', (chunk) => {
         const text = chunk.toString();
         stderrBuffer += text;
         stderrLineBuffer += text;
@@ -1249,7 +1346,7 @@ export class AntigravityAgentProvider {
         console.warn(`[antigravity] [stderr] ${text.trim()}`);
       });
 
-      child.on('error', async err => {
+      child.on('error', async (err) => {
         if (operation.postResultTimer) {
           clearTimeout(operation.postResultTimer);
           operation.postResultTimer = null;
@@ -1260,13 +1357,14 @@ export class AntigravityAgentProvider {
           this.#activeOperations.delete(turnId);
           return;
         }
-        const msg = err.code === 'ENOENT'
-          ? `Antigravity CLI ('${this.#executable}') not found. Ensure Antigravity CLI ('agy') is installed and available in PATH.`
-          : `Antigravity process error: ${err.message}`;
+        const msg =
+          err.code === 'ENOENT'
+            ? `Antigravity CLI ('${this.#executable}') not found. Ensure Antigravity CLI ('agy') is installed and available in PATH.`
+            : `Antigravity process error: ${err.message}`;
         await failTurn(new AiError('AI_PROVIDER_PROCESS_ERROR', msg, { cause: err }));
       });
 
-      child.on('close', async exitCode => {
+      child.on('close', async (exitCode) => {
         if (operation.postResultTimer) {
           clearTimeout(operation.postResultTimer);
           operation.postResultTimer = null;
@@ -1361,20 +1459,24 @@ export class AntigravityAgentProvider {
           const detail = stderrBuffer.trim() ? `: ${stderrBuffer.trim()}` : '.';
           const isTimeout = exitCode === 124 || /timeout|timed out|deadline exceeded|ETIMEDOUT/i.test(stderrBuffer);
           if (isTimeout) {
-            return failTurn(new AiError(
-              'AI_PROVIDER_TIMEOUT',
-              `Antigravity CLI transport timeout (--print-timeout ${this.#printTimeoutSeconds}s exceeded)${detail}`,
-              {
-                status: 504,
-                details: {
-                  source: 'antigravity_cli',
-                  timeoutKind: 'provider_transport',
-                  configuredSeconds: this.#printTimeoutSeconds,
+            return failTurn(
+              new AiError(
+                'AI_PROVIDER_TIMEOUT',
+                `Antigravity CLI transport timeout (--print-timeout ${this.#printTimeoutSeconds}s exceeded)${detail}`,
+                {
+                  status: 504,
+                  details: {
+                    source: 'antigravity_cli',
+                    timeoutKind: 'provider_transport',
+                    configuredSeconds: this.#printTimeoutSeconds,
+                  },
                 },
-              },
-            ));
+              ),
+            );
           }
-          return failTurn(new AiError('AI_PROVIDER_EXIT_ERROR', `Antigravity process exited with non-zero code ${exitCode}${detail}`));
+          return failTurn(
+            new AiError('AI_PROVIDER_EXIT_ERROR', `Antigravity process exited with non-zero code ${exitCode}${detail}`),
+          );
         }
 
         if (pendingAssistantText && emitFinalAnswerDelta) {
@@ -1398,7 +1500,11 @@ export class AntigravityAgentProvider {
         child.stdin.write(payload + '\n');
         child.stdin.end();
       } catch (err) {
-        void failTurn(new AiError('AI_PROVIDER_WRITE_ERROR', `Failed to write to Antigravity stdin: ${err.message}`, { cause: err }));
+        void failTurn(
+          new AiError('AI_PROVIDER_WRITE_ERROR', `Failed to write to Antigravity stdin: ${err.message}`, {
+            cause: err,
+          }),
+        );
       }
     });
   }
@@ -1419,7 +1525,11 @@ export class AntigravityAgentProvider {
             forceGraceMs: this.#forceGraceMs,
           });
           if (!result.terminated) {
-            throw new AiError('AI_PROCESS_TERMINATION_FAILED', 'Failed to terminate Antigravity CLI process within bounded timeout.', { status: 500 });
+            throw new AiError(
+              'AI_PROCESS_TERMINATION_FAILED',
+              'Failed to terminate Antigravity CLI process within bounded timeout.',
+              { status: 500 },
+            );
           }
         } finally {
           if (turnId) {
@@ -1437,20 +1547,22 @@ export class AntigravityAgentProvider {
 
   async dispose() {
     const operations = [...this.#activeOperations.values()];
-    await Promise.allSettled(operations.map(async operation => {
-      operation.cancelled = true;
-      if (operation.postResultTimer) {
-        clearTimeout(operation.postResultTimer);
-        operation.postResultTimer = null;
-      }
-      const child = operation.child;
-      if (!child) return;
-      operation.terminationPromise ??= terminateChildProcess(child, {
-        graceMs: this.#cancelGraceMs,
-        forceGraceMs: this.#forceGraceMs,
-      });
-      await operation.terminationPromise;
-    }));
+    await Promise.allSettled(
+      operations.map(async (operation) => {
+        operation.cancelled = true;
+        if (operation.postResultTimer) {
+          clearTimeout(operation.postResultTimer);
+          operation.postResultTimer = null;
+        }
+        const child = operation.child;
+        if (!child) return;
+        operation.terminationPromise ??= terminateChildProcess(child, {
+          graceMs: this.#cancelGraceMs,
+          forceGraceMs: this.#forceGraceMs,
+        });
+        await operation.terminationPromise;
+      }),
+    );
     await this.#flushAllRawCapture();
   }
 

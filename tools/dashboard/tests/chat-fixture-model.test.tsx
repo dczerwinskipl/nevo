@@ -426,7 +426,7 @@ describe('Chat Fixture Model (Task 06)', () => {
     it('buildActiveRunningTurn rejects completed-only work with a clear error', () => {
       const completedCommand = buildCommandTool({ status: 'completed' });
       expect(() => buildActiveRunningTurn({ work: [completedCommand] })).toThrow(
-        /Cannot build active running turn: supplied work contains no tool with status "active" or "queued"/
+        /Cannot build active running turn: supplied work contains no tool with status "active" or "queued"/,
       );
     });
 
@@ -454,21 +454,19 @@ describe('Chat Fixture Model (Task 06)', () => {
 
       expect(turn.historicalWork).toEqual([completedCommand]);
       expect(
-        turn.historicalWork.some(
-          (w) => w.status === 'active' || w.status === 'queued' || w.status === 'streaming'
-        )
+        turn.historicalWork.some((w) => w.status === 'active' || w.status === 'queued' || w.status === 'streaming'),
       ).toBe(false);
     });
 
     it('buildActiveThinkingTurn rejects non-streaming reasoning or commentary item', () => {
       const completedReasoning = buildReasoning({ status: 'completed', text: 'done thinking' });
       expect(() => buildActiveThinkingTurn({ item: completedReasoning })).toThrow(
-        /Cannot build active thinking turn: supplied item must have status "streaming"/
+        /Cannot build active thinking turn: supplied item must have status "streaming"/,
       );
 
       const completedCommentary = buildCommentary({ status: 'completed', text: 'done commentary' });
       expect(() => buildActiveThinkingTurn({ item: completedCommentary })).toThrow(
-        /Cannot build active thinking turn: supplied item must have status "streaming"/
+        /Cannot build active thinking turn: supplied item must have status "streaming"/,
       );
     });
 
@@ -479,9 +477,9 @@ describe('Chat Fixture Model (Task 06)', () => {
       expect(() =>
         buildActiveThinkingTurn({
           work: [completedCommand, completedCommentary],
-        })
+        }),
       ).toThrow(
-        /Cannot build active thinking turn: supplied work contains no reasoning or commentary with status "streaming"/
+        /Cannot build active thinking turn: supplied work contains no reasoning or commentary with status "streaming"/,
       );
     });
 
@@ -545,20 +543,16 @@ describe('Chat Fixture Model (Task 06)', () => {
         buildActiveThinkingTurn({
           item: externalReasoning,
           work: [reasoningA],
-        })
-      ).toThrow(
-        /Cannot build active thinking turn: simultaneous "item" and "work" input is ambiguous or inconsistent/
-      );
+        }),
+      ).toThrow(/Cannot build active thinking turn: simultaneous "item" and "work" input is ambiguous or inconsistent/);
 
       // Item belongs to work but violates canonical precedence (reasoning takes precedence over commentary)
       expect(() =>
         buildActiveThinkingTurn({
           item: commentaryB,
           work: [reasoningA, commentaryB],
-        })
-      ).toThrow(
-        /Cannot build active thinking turn: simultaneous "item" and "work" input is ambiguous or inconsistent/
-      );
+        }),
+      ).toThrow(/Cannot build active thinking turn: simultaneous "item" and "work" input is ambiguous or inconsistent/);
 
       // When item belongs to work and matches canonical precedence, it is accepted
       const validTurn = buildActiveThinkingTurn({

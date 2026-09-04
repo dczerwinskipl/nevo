@@ -5,24 +5,9 @@ import {
   INTERACTION_RESUME_POLICIES,
 } from '../contracts.mjs';
 
-export const WORK_ITEM_TYPES = Object.freeze([
-  'commentary',
-  'reasoning',
-  'tool',
-  'interaction',
-]);
+export const WORK_ITEM_TYPES = Object.freeze(['commentary', 'reasoning', 'tool', 'interaction']);
 
-export const TOOL_KINDS = Object.freeze([
-  'read',
-  'edit',
-  'write',
-  'list',
-  'search',
-  'command',
-  'test',
-  'web',
-  'other',
-]);
+export const TOOL_KINDS = Object.freeze(['read', 'edit', 'write', 'list', 'search', 'command', 'test', 'web', 'other']);
 
 export const TOOL_STATUSES = Object.freeze([
   'queued',
@@ -45,11 +30,7 @@ export const TOOL_ACTION_KINDS = Object.freeze([
   'other',
 ]);
 
-export const TOOL_ACTION_STATUSES = Object.freeze([
-  'active',
-  'completed',
-  'failed',
-]);
+export const TOOL_ACTION_STATUSES = Object.freeze(['active', 'completed', 'failed']);
 
 export const TOOL_CLOSURE_REASONS = Object.freeze([
   'turn_cancelled',
@@ -61,11 +42,7 @@ export const TOOL_CLOSURE_REASONS = Object.freeze([
   'unknown',
 ]);
 
-export const REASONING_REPRESENTATIONS = Object.freeze([
-  'summary',
-  'raw_text',
-  'provider_defined',
-]);
+export const REASONING_REPRESENTATIONS = Object.freeze(['summary', 'raw_text', 'provider_defined']);
 
 export const INTERACTION_WORK_STATUSES = Object.freeze([
   'pending',
@@ -139,7 +116,9 @@ export function normalizeTransitionalToolStatus(status, fallback = 'active') {
 function rejectProviderFields(value, path = 'item') {
   for (const [key, child] of Object.entries(value || {})) {
     if (/provider.*(?:request|event|payload).*id|providerRequestId|rawPayload/i.test(key)) {
-      throw new AiValidationError(`Provider-private field '${key}' is not allowed in neutral model.`, { field: `${path}.${key}` });
+      throw new AiValidationError(`Provider-private field '${key}' is not allowed in neutral model.`, {
+        field: `${path}.${key}`,
+      });
     }
     if (child && typeof child === 'object' && !Array.isArray(child)) {
       rejectProviderFields(child, `${path}.${key}`);
@@ -176,16 +155,22 @@ export function validateToolAction(value, index = 0) {
   rejectProviderFields(value, `actions[${index}]`);
 
   const id = requiredString(value.id, `actions[${index}].id`, { max: 100 });
-  const seq = validateSeq(value.seq ?? (index + 1), `actions[${index}].seq`);
+  const seq = validateSeq(value.seq ?? index + 1, `actions[${index}].seq`);
   const kind = value.kind ?? 'other';
   if (!TOOL_ACTION_KINDS.includes(kind)) {
-    throw new AiValidationError(`ToolAction 'kind' must be one of: ${TOOL_ACTION_KINDS.join(', ')}.`, { field: `actions[${index}].kind`, value: kind });
+    throw new AiValidationError(`ToolAction 'kind' must be one of: ${TOOL_ACTION_KINDS.join(', ')}.`, {
+      field: `actions[${index}].kind`,
+      value: kind,
+    });
   }
   const title = requiredString(value.title, `actions[${index}].title`, { max: 200 });
   let status = undefined;
   if (value.status != null) {
     if (!TOOL_ACTION_STATUSES.includes(value.status)) {
-      throw new AiValidationError(`ToolAction 'status' must be one of: ${TOOL_ACTION_STATUSES.join(', ')}.`, { field: `actions[${index}].status`, value: value.status });
+      throw new AiValidationError(`ToolAction 'status' must be one of: ${TOOL_ACTION_STATUSES.join(', ')}.`, {
+        field: `actions[${index}].status`,
+        value: value.status,
+      });
     }
     status = value.status;
   }
@@ -195,11 +180,15 @@ export function validateToolAction(value, index = 0) {
     seq,
     kind,
     title,
-    ...(value.description != null ? { description: optionalString(value.description, `actions[${index}].description`, 1000) } : {}),
+    ...(value.description != null
+      ? { description: optionalString(value.description, `actions[${index}].description`, 1000) }
+      : {}),
     ...(value.target != null ? { target: optionalString(value.target, `actions[${index}].target`, 1000) } : {}),
     ...(status != null ? { status } : {}),
     ...(value.startedAt ? { startedAt: normalizeTimestamp(value.startedAt, `actions[${index}].startedAt`) } : {}),
-    ...(value.completedAt ? { completedAt: normalizeTimestamp(value.completedAt, `actions[${index}].completedAt`) } : {}),
+    ...(value.completedAt
+      ? { completedAt: normalizeTimestamp(value.completedAt, `actions[${index}].completedAt`) }
+      : {}),
   };
 }
 
@@ -212,7 +201,10 @@ export function validateCommentaryWorkItem(value) {
   const text = typeof value.text === 'string' ? value.text : '';
   const status = value.status ?? 'completed';
   if (status !== 'streaming' && status !== 'completed') {
-    throw new AiValidationError("Commentary 'status' must be 'streaming' or 'completed'.", { field: 'commentary.status', value: status });
+    throw new AiValidationError("Commentary 'status' must be 'streaming' or 'completed'.", {
+      field: 'commentary.status',
+      value: status,
+    });
   }
 
   return {
@@ -237,11 +229,17 @@ export function validateReasoningWorkItem(value) {
   const text = typeof value.text === 'string' ? value.text : '';
   const representation = value.representation ?? 'summary';
   if (!REASONING_REPRESENTATIONS.includes(representation)) {
-    throw new AiValidationError(`Reasoning 'representation' must be one of: ${REASONING_REPRESENTATIONS.join(', ')}.`, { field: 'reasoning.representation', value: representation });
+    throw new AiValidationError(`Reasoning 'representation' must be one of: ${REASONING_REPRESENTATIONS.join(', ')}.`, {
+      field: 'reasoning.representation',
+      value: representation,
+    });
   }
   const status = value.status ?? 'completed';
   if (status !== 'streaming' && status !== 'completed') {
-    throw new AiValidationError("Reasoning 'status' must be 'streaming' or 'completed'.", { field: 'reasoning.status', value: status });
+    throw new AiValidationError("Reasoning 'status' must be 'streaming' or 'completed'.", {
+      field: 'reasoning.status',
+      value: status,
+    });
   }
 
   return {
@@ -268,22 +266,29 @@ export function validateToolInvocationWorkItem(value) {
   const title = requiredString(value.title ?? toolName, 'tool.title', { max: 200 });
   const kind = value.kind ?? 'other';
   if (!TOOL_KINDS.includes(kind)) {
-    throw new AiValidationError(`ToolInvocation 'kind' must be one of: ${TOOL_KINDS.join(', ')}.`, { field: 'tool.kind', value: kind });
+    throw new AiValidationError(`ToolInvocation 'kind' must be one of: ${TOOL_KINDS.join(', ')}.`, {
+      field: 'tool.kind',
+      value: kind,
+    });
   }
 
   const status = value.status ?? 'active';
   if (!TOOL_STATUSES.includes(status)) {
-    throw new AiValidationError(`ToolInvocation 'status' must be one of: ${TOOL_STATUSES.join(', ')}.`, { field: 'tool.status', value: status });
+    throw new AiValidationError(`ToolInvocation 'status' must be one of: ${TOOL_STATUSES.join(', ')}.`, {
+      field: 'tool.status',
+      value: status,
+    });
   }
 
-  const actions = Array.isArray(value.actions)
-    ? value.actions.map((act, i) => validateToolAction(act, i))
-    : [];
+  const actions = Array.isArray(value.actions) ? value.actions.map((act, i) => validateToolAction(act, i)) : [];
 
   let closureReason = undefined;
   if (value.closureReason != null) {
     if (!TOOL_CLOSURE_REASONS.includes(value.closureReason)) {
-      throw new AiValidationError(`ToolInvocation 'closureReason' must be one of: ${TOOL_CLOSURE_REASONS.join(', ')}.`, { field: 'tool.closureReason', value: value.closureReason });
+      throw new AiValidationError(
+        `ToolInvocation 'closureReason' must be one of: ${TOOL_CLOSURE_REASONS.join(', ')}.`,
+        { field: 'tool.closureReason', value: value.closureReason },
+      );
     }
     closureReason = value.closureReason;
   }
@@ -322,7 +327,10 @@ export function validateInteractionWorkItem(value) {
   const interaction = normalizeInteraction(value.interaction);
   const status = value.status ?? 'pending';
   if (!INTERACTION_WORK_STATUSES.includes(status)) {
-    throw new AiValidationError(`InteractionWorkItem 'status' must be one of: ${INTERACTION_WORK_STATUSES.join(', ')}.`, { field: 'interaction.status', value: status });
+    throw new AiValidationError(
+      `InteractionWorkItem 'status' must be one of: ${INTERACTION_WORK_STATUSES.join(', ')}.`,
+      { field: 'interaction.status', value: status },
+    );
   }
 
   return {
@@ -353,9 +361,9 @@ export function validateWorkItem(value) {
     case 'interaction':
       return validateInteractionWorkItem(value);
     default:
-      throw new AiValidationError(
-        `WorkItem 'type' must be one of: ${WORK_ITEM_TYPES.join(', ')}.`,
-        { field: 'type', value: value.type },
-      );
+      throw new AiValidationError(`WorkItem 'type' must be one of: ${WORK_ITEM_TYPES.join(', ')}.`, {
+        field: 'type',
+        value: value.type,
+      });
   }
 }

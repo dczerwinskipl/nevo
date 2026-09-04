@@ -9,53 +9,19 @@ export const TURN_STATUSES = Object.freeze([
   'unknown',
 ]);
 
-export const ACTIVE_DETAILS = Object.freeze([
-  'startup',
-  'processing',
-  'commentary',
-  'reasoning',
-  'tool_execution',
-]);
+export const ACTIVE_DETAILS = Object.freeze(['startup', 'processing', 'commentary', 'reasoning', 'tool_execution']);
 
-export const WAITING_REASONS = Object.freeze([
-  'provider_response',
-  'tool_result',
-]);
+export const WAITING_REASONS = Object.freeze(['provider_response', 'tool_result']);
 
-export const ATTENTION_REASONS = Object.freeze([
-  'permission',
-  'question',
-  'confirmation',
-]);
+export const ATTENTION_REASONS = Object.freeze(['permission', 'question', 'confirmation']);
 
-export const TERMINAL_OUTCOMES = Object.freeze([
-  'completed',
-  'failed',
-  'cancelled',
-  'interrupted',
-]);
+export const TERMINAL_OUTCOMES = Object.freeze(['completed', 'failed', 'cancelled', 'interrupted']);
 
-export const TERMINAL_INITIATORS = Object.freeze([
-  'user',
-  'provider',
-  'runtime',
-  'system',
-  'shutdown',
-  'restart',
-]);
+export const TERMINAL_INITIATORS = Object.freeze(['user', 'provider', 'runtime', 'system', 'shutdown', 'restart']);
 
-export const CANCELLING_INITIATORS = Object.freeze([
-  'user',
-  'runtime',
-  'system',
-  'shutdown',
-]);
+export const CANCELLING_INITIATORS = Object.freeze(['user', 'runtime', 'system', 'shutdown']);
 
-export const MAPPING_CONFIDENCES = Object.freeze([
-  'authoritative',
-  'derived',
-  'unknown',
-]);
+export const MAPPING_CONFIDENCES = Object.freeze(['authoritative', 'derived', 'unknown']);
 
 function requiredString(value, field, max = 256) {
   if (typeof value !== 'string' || value.trim().length === 0 || value.length > max) {
@@ -78,10 +44,10 @@ export function validateTurnStatus(value) {
   }
 
   if (!TURN_STATUSES.includes(value.status)) {
-    throw new AiValidationError(
-      `TurnStatus 'status' must be one of: ${TURN_STATUSES.join(', ')}.`,
-      { field: 'status', value: value.status },
-    );
+    throw new AiValidationError(`TurnStatus 'status' must be one of: ${TURN_STATUSES.join(', ')}.`, {
+      field: 'status',
+      value: value.status,
+    });
   }
 
   const since = normalizeTimestamp(value.since ?? new Date().toISOString(), 'since');
@@ -89,9 +55,7 @@ export function validateTurnStatus(value) {
 
   switch (value.status) {
     case 'active': {
-      const detail = value.detail !== undefined
-        ? requiredString(value.detail, 'status.detail', 100)
-        : 'processing';
+      const detail = value.detail !== undefined ? requiredString(value.detail, 'status.detail', 100) : 'processing';
       return {
         status: 'active',
         detail,
@@ -138,10 +102,10 @@ export function validateTurnStatus(value) {
 
     case 'terminal': {
       if (!TERMINAL_OUTCOMES.includes(value.outcome)) {
-        throw new AiValidationError(
-          `Terminal TurnStatus 'outcome' must be one of: ${TERMINAL_OUTCOMES.join(', ')}.`,
-          { field: 'status.outcome', value: value.outcome },
-        );
+        throw new AiValidationError(`Terminal TurnStatus 'outcome' must be one of: ${TERMINAL_OUTCOMES.join(', ')}.`, {
+          field: 'status.outcome',
+          value: value.outcome,
+        });
       }
       const initiator = requiredString(value.initiator ?? 'provider', 'status.initiator', 100);
       return {
@@ -150,12 +114,14 @@ export function validateTurnStatus(value) {
         initiator,
         ...(value.cause ? { cause: requiredString(value.cause, 'status.cause', 200) } : {}),
         ...(value.finishReason ? { finishReason: optionalString(value.finishReason, 'status.finishReason', 100) } : {}),
-        ...(value.error ? {
-          error: {
-            code: requiredString(value.error.code, 'status.error.code', 100),
-            message: requiredString(value.error.message, 'status.error.message', 2000),
-          },
-        } : {}),
+        ...(value.error
+          ? {
+              error: {
+                code: requiredString(value.error.code, 'status.error.code', 100),
+                message: requiredString(value.error.message, 'status.error.message', 2000),
+              },
+            }
+          : {}),
         since,
         source,
       };

@@ -39,7 +39,7 @@ export function CreateSpecificationDialog({ onClose, onCreated }: CreateSpecific
               <FilePlus2 className="size-5" />
             </div>
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">
+              <p className="text-[10px] font-bold tracking-[0.18em] text-[var(--accent)] uppercase">
                 Workflow Specyfikacji
               </p>
               <h2 className="mt-1 text-xl font-semibold">Nowa specyfikacja</h2>

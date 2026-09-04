@@ -11,7 +11,7 @@ function parsePort(value, name) {
 }
 
 function parseFlags(argv) {
-  if (argv.length > 0 && argv.every(argument => !argument.startsWith('--'))) {
+  if (argv.length > 0 && argv.every((argument) => !argument.startsWith('--'))) {
     if (argv.length > 3) throw new Error('Dashboard accepts at most three positional values: host, port, api-port.');
     const [host, port, apiPort] = argv;
     return {
@@ -32,7 +32,7 @@ function parseFlags(argv) {
     const name = argument.slice(2, separator === -1 ? undefined : separator);
     if (!supported.has(name)) throw new Error(`Unknown dashboard option '--${name}'.`);
 
-    const value = separator === -1 ? argv[index += 1] : argument.slice(separator + 1);
+    const value = separator === -1 ? argv[(index += 1)] : argument.slice(separator + 1);
     if (!value || value.startsWith('--')) throw new Error(`Dashboard option '--${name}' requires a value.`);
     result[name] = value;
   }

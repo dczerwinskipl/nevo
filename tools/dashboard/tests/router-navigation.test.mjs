@@ -17,7 +17,10 @@ test('1. Route tree: Nevo declares all expected public file routes without globa
   assert.ok(sourceExists('routes/_spec-layout/index.tsx'), 'index.tsx exists');
   assert.ok(sourceExists('routes/_spec-layout/archive.tsx'), 'archive.tsx exists');
   assert.ok(sourceExists('routes/_spec-layout/specs.$source.$slug.tsx'), 'specs.$source.$slug.tsx exists');
-  assert.ok(sourceExists('routes/specs.$source.$slug.sessions.$provider.$providerSessionId.tsx'), 'session route exists');
+  assert.ok(
+    sourceExists('routes/specs.$source.$slug.sessions.$provider.$providerSessionId.tsx'),
+    'session route exists',
+  );
 
   // Verify no obsolete or global ad-hoc chat routes exist in routes/
   assert.equal(sourceExists('routes/ai.sessions.$provider.$sessionId.tsx'), false, 'No /ai/sessions route');
@@ -32,17 +35,26 @@ test('2. Layout hierarchy: Specification routes are nested under _spec-layout wh
   const agentSessionRouteSource = readSource('routes/specs.$source.$slug.sessions.$provider.$providerSessionId.tsx');
 
   // _spec-layout binds to SpecificationConsoleLayout
-  assert.ok(specLayoutRouteSource.includes('SpecificationConsoleLayout'), '_spec-layout renders SpecificationConsoleLayout');
+  assert.ok(
+    specLayoutRouteSource.includes('SpecificationConsoleLayout'),
+    '_spec-layout renders SpecificationConsoleLayout',
+  );
   assert.ok(specLayoutRouteSource.includes('/_spec-layout'), '_spec-layout is configured as pathless layout');
 
   // Specification console pages are placed in _spec-layout/ and bind to their feature components
   assert.ok(indexRouteSource.includes('ActiveSpecificationsRoute'), 'Index route binds to ActiveSpecificationsRoute');
-  assert.ok(archiveRouteSource.includes('ArchiveSpecificationsRoute'), 'Archive route binds to ArchiveSpecificationsRoute');
+  assert.ok(
+    archiveRouteSource.includes('ArchiveSpecificationsRoute'),
+    'Archive route binds to ArchiveSpecificationsRoute',
+  );
   assert.ok(specDetailRouteSource.includes('SpecificationRoute'), 'Spec detail route binds to SpecificationRoute');
 
   // Agent Session route is placed at top-level routes/ (outside _spec-layout/) and binds to AgentSessionRoute
   assert.ok(agentSessionRouteSource.includes('AgentSessionRoute'), 'Agent session route binds to AgentSessionRoute');
-  assert.ok(!agentSessionRouteSource.includes('SpecificationConsoleLayout'), 'Agent session route does not reference console layout');
+  assert.ok(
+    !agentSessionRouteSource.includes('SpecificationConsoleLayout'),
+    'Agent session route does not reference console layout',
+  );
 });
 
 test('3. Route param typing: file routes pass typed Route.useParams() to feature route components', () => {
@@ -56,11 +68,23 @@ test('3. Route param typing: file routes pass typed Route.useParams() to feature
   assert.ok(agentSessionRouteSource.includes('Route.useParams()'), 'Agent session route uses Route.useParams()');
 
   // Feature components accept explicit props and do not use non-strict useParams
-  assert.ok(specificationRouteSource.includes('export interface SpecificationRouteProps'), 'SpecificationRoute declares explicit props');
-  assert.ok(!specificationRouteSource.includes('useParams({ strict: false })'), 'SpecificationRoute does not use non-strict useParams');
+  assert.ok(
+    specificationRouteSource.includes('export interface SpecificationRouteProps'),
+    'SpecificationRoute declares explicit props',
+  );
+  assert.ok(
+    !specificationRouteSource.includes('useParams({ strict: false })'),
+    'SpecificationRoute does not use non-strict useParams',
+  );
 
-  assert.ok(agentSessionComponentSource.includes('export interface AgentSessionRouteProps'), 'AgentSessionRoute declares explicit props');
-  assert.ok(!agentSessionComponentSource.includes('useParams({ strict: false })'), 'AgentSessionRoute does not use non-strict useParams');
+  assert.ok(
+    agentSessionComponentSource.includes('export interface AgentSessionRouteProps'),
+    'AgentSessionRoute declares explicit props',
+  );
+  assert.ok(
+    !agentSessionComponentSource.includes('useParams({ strict: false })'),
+    'AgentSessionRoute does not use non-strict useParams',
+  );
 });
 
 test('4. Router bootstrap: app/router.ts creates router from generated routeTree with no manual route stitching', () => {
@@ -85,7 +109,7 @@ test('5. Open session from spec: spec X -> session A parameters structure', () =
   assert.equal(
     expectedPath,
     '/specs/active/spec-x/sessions/claude/provider-sess-xyz',
-    'Session path matches route pattern with provider and providerSessionId'
+    'Session path matches route pattern with provider and providerSessionId',
   );
 });
 
@@ -98,7 +122,7 @@ test('6. Direct/deep chat load: route resolves spec X and looks up session in X 
   const targetProvider = 'gemini';
   const targetProviderSessionId = 'prov-2';
   const found = specSessions.find(
-    (s) => s.provider === targetProvider && s.providerSessionId === targetProviderSessionId
+    (s) => s.provider === targetProvider && s.providerSessionId === targetProviderSessionId,
   );
 
   assert.ok(found, 'Session found in spec sessions');
@@ -107,14 +131,12 @@ test('6. Direct/deep chat load: route resolves spec X and looks up session in X 
 });
 
 test('7. Session belongs to another spec: opening /specs/X/sessions/A when A is under Y results in Session Not Found', () => {
-  const sessionsOfX = [
-    { provider: 'claude', providerSessionId: 'sess-x1', specId: 'spec-x-id', taskIds: [] },
-  ];
+  const sessionsOfX = [{ provider: 'claude', providerSessionId: 'sess-x1', specId: 'spec-x-id', taskIds: [] }];
 
   const requestedProvider = 'claude';
   const requestedProviderSessionId = 'sess-y1';
   const foundInX = sessionsOfX.find(
-    (s) => s.provider === requestedProvider && s.providerSessionId === requestedProviderSessionId
+    (s) => s.provider === requestedProvider && s.providerSessionId === requestedProviderSessionId,
   );
 
   assert.equal(foundInX, undefined, 'Session must not be resolved under spec X');
@@ -135,7 +157,10 @@ test('9. No global session fetch: SpecificationConsoleLayout and SpecificationSi
   const appLayoutSource = readSource('features/specifications/specification-console-layout.tsx');
   const sidebarSource = readSource('features/specifications/navigation/specification-sidebar.tsx');
 
-  assert.ok(!appLayoutSource.includes('useAgentSessions({ enabled: Boolean(data) })'), 'SpecificationConsoleLayout must not query all AI sessions globally');
+  assert.ok(
+    !appLayoutSource.includes('useAgentSessions({ enabled: Boolean(data) })'),
+    'SpecificationConsoleLayout must not query all AI sessions globally',
+  );
   assert.ok(!sidebarSource.includes('Ostatnie sesje'), 'SpecificationSidebar must not render global session list');
 });
 
@@ -143,14 +168,20 @@ test('10. No reverse spec resolution: AgentSessionPage receives spec directly, w
   const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');
 
   assert.ok(agentSessionPageSource.includes('spec: SpecificationSummary'), 'AgentSessionPage receives spec directly');
-  assert.ok(!agentSessionPageSource.includes('changes: SpecificationSummary[]'), 'AgentSessionPage must not receive changes array to reverse search');
+  assert.ok(
+    !agentSessionPageSource.includes('changes: SpecificationSummary[]'),
+    'AgentSessionPage must not receive changes array to reverse search',
+  );
   assert.ok(!agentSessionPageSource.includes('resolveSessionDestination'), 'No resolveSessionDestination helper');
 });
 
 test('11. AgentSessionRoute: Fatal initial load error blocks with StatusCard; background refresh error retains active chat', () => {
   const routerSource = readSource('features/agent-sessions/agent-session-route.tsx');
 
-  assert.ok(routerSource.includes('if (sessionsQuery.error && !sessionsQuery.data) {'), 'Fatal error requires error && !data');
+  assert.ok(
+    routerSource.includes('if (sessionsQuery.error && !sessionsQuery.data) {'),
+    'Fatal error requires error && !data',
+  );
   assert.ok(routerSource.includes('Nie udało się wczytać sesji specyfikacji'), 'Error card title present');
   assert.ok(routerSource.includes('sessionsQuery.refresh()'), 'Retry calls sessionsQuery.refresh');
   assert.ok(routerSource.includes('router.history.canGoBack?.()'), 'Safe in-app history back check');
@@ -174,7 +205,7 @@ test('12. Session switching: Switching sessions inside same spec uses replace to
 
   assert.ok(
     routerSource.includes('handleSwitchSession') && routerSource.includes('replace: true'),
-    'handleSwitchSession must navigate with replace: true'
+    'handleSwitchSession must navigate with replace: true',
   );
 });
 
@@ -182,23 +213,33 @@ test('13. Fallback routing: Archived spec accessed via /specs/active/... or acti
   const specificationRouteSource = readSource('features/specifications/detail/specification-route.tsx');
   const agentSessionRouteSource = readSource('features/agent-sessions/agent-session-route.tsx');
 
-  assert.ok(specificationRouteSource.includes('const fallbackSpec = useMemo('), 'SpecificationRoute defines fallbackSpec lookup');
-  assert.ok(specificationRouteSource.includes('oppositeSource'), 'SpecificationRoute uses alternate source for fallback');
+  assert.ok(
+    specificationRouteSource.includes('const fallbackSpec = useMemo('),
+    'SpecificationRoute defines fallbackSpec lookup',
+  );
+  assert.ok(
+    specificationRouteSource.includes('oppositeSource'),
+    'SpecificationRoute uses alternate source for fallback',
+  );
   assert.ok(specificationRouteSource.includes('effectiveSpec'), 'SpecificationRoute renders effectiveSpec');
 
-  assert.ok(agentSessionRouteSource.includes('effectiveSource = effectiveSpec?.source || source'), 'AgentSessionRoute derives effectiveSource from effectiveSpec');
+  assert.ok(
+    agentSessionRouteSource.includes('effectiveSource = effectiveSpec?.source || source'),
+    'AgentSessionRoute derives effectiveSource from effectiveSpec',
+  );
 });
 
 test('14. Archived spec sessions: specification-detail and task-dialog enable useAgentSessions for archived specs with specId', () => {
   const specificationDetailSource = readSource('features/specifications/detail/specification-detail.tsx');
   const taskDialogSource = readSource('features/specifications/tasks/task-dialog.tsx');
 
-  assert.ok(
-    specificationDetailSource.includes("useAgentSessions({ specId: specification.specId || undefined, enabled: Boolean(specification.specId) })"),
-    'SpecificationDetail must not restrict useAgentSessions to specification.source === active'
+  assert.match(
+    specificationDetailSource,
+    /useAgentSessions\({\s*specId:\s*specification\.specId \|\| undefined,\s*enabled:\s*Boolean\(specification\.specId\),?\s*}\)/,
+    'SpecificationDetail must not restrict useAgentSessions to specification.source === active',
   );
   assert.ok(
-    taskDialogSource.includes("enabled: Boolean(specification.specId)"),
-    'TaskDialog must not restrict useAgentSessions to specification.source === active'
+    taskDialogSource.includes('enabled: Boolean(specification.specId)'),
+    'TaskDialog must not restrict useAgentSessions to specification.source === active',
   );
 });

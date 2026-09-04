@@ -58,11 +58,7 @@ export function StatusLabel({ status, kind = 'raw', children, className }: Statu
     }
   }
 
-  return (
-    <span className={cn('text-[10px] font-bold uppercase tracking-[0.1em]', className)}>
-      {content}
-    </span>
-  );
+  return <span className={cn('text-[10px] font-bold tracking-[0.1em] uppercase', className)}>{content}</span>;
 }
 
 export { formatStatus };

@@ -84,8 +84,8 @@ export function SpecificationAiPlanningSection({
                         !isAvailable
                           ? 'cursor-not-allowed border-[var(--border)] bg-[var(--surface)] opacity-40'
                           : isSelected
-                          ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] ring-1 ring-[var(--accent)]'
-                          : 'border-[var(--border)] bg-[var(--surface)] hover:border-white/20'
+                            ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] ring-1 ring-[var(--accent)]'
+                            : 'border-[var(--border)] bg-[var(--surface)] hover:border-white/20'
                       }`}
                     >
                       <div className="flex w-full items-center justify-between gap-1">

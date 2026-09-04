@@ -46,7 +46,7 @@ export class AgentProviderRegistry {
   }
 
   descriptors() {
-    return [...this.#providers.values()].map(entry => {
+    return [...this.#providers.values()].map((entry) => {
       let desc = entry.descriptor;
       if (typeof entry.provider.isAvailable === 'function') {
         const avail = entry.provider.isAvailable();

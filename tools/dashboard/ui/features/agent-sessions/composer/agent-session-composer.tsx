@@ -105,8 +105,8 @@ export function AgentSessionComposer({
       className={cn(
         'relative rounded-2xl border bg-[var(--surface)] transition-all duration-200 ease-out',
         isFocused
-          ? 'border-[var(--accent)] ring-1 ring-[var(--accent)] shadow-lg'
-          : 'border-[var(--border)] hover:border-[var(--border-strong)]'
+          ? 'border-[var(--accent)] shadow-lg ring-1 ring-[var(--accent)]'
+          : 'border-[var(--border)] hover:border-[var(--border-strong)]',
       )}
     >
       <div className="flex flex-col">
@@ -126,8 +126,8 @@ export function AgentSessionComposer({
             disabled={isDisabled}
             placeholder={resolvedPlaceholder}
             className={cn(
-              'w-full resize-none bg-transparent px-4 pt-3 pb-2 text-base sm:text-sm outline-none placeholder:text-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-60 transition-all duration-150',
-              layoutState.className
+              'w-full resize-none bg-transparent px-4 pt-3 pb-2 text-base transition-all duration-150 outline-none placeholder:text-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm',
+              layoutState.className,
             )}
           />
         </label>
@@ -142,10 +142,10 @@ export function AgentSessionComposer({
                 type="button"
                 onClick={() => onModeChange(modeMeta.id)}
                 className={cn(
-                  'rounded px-2 py-1 font-semibold uppercase tracking-wider text-[9px] transition-colors',
+                  'rounded px-2 py-1 text-[9px] font-semibold tracking-wider uppercase transition-colors',
                   currentMode === modeMeta.id
                     ? 'bg-[var(--accent)] text-[var(--accent-foreground)]'
-                    : 'text-[var(--muted)] hover:text-[var(--foreground)]'
+                    : 'text-[var(--muted)] hover:text-[var(--foreground)]',
                 )}
                 title={`${modeMeta.label} - ${modeMeta.description}`}
                 aria-label={`${modeMeta.label}: ${modeMeta.description}`}

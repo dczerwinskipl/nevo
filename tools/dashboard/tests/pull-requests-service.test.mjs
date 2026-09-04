@@ -10,7 +10,12 @@ import {
   getPullRequestFilesWithPatches,
   getPullRequestMetadata,
 } from '../../lib/github.mjs';
-import { classifyUpstreamError, createGitHubPullRequestProvider, mapGitHubFileManifest, mapGitHubPullRequest } from '../server/pull-requests/github.mjs';
+import {
+  classifyUpstreamError,
+  createGitHubPullRequestProvider,
+  mapGitHubFileManifest,
+  mapGitHubPullRequest,
+} from '../server/pull-requests/github.mjs';
 import { createPullRequestService } from '../server/pull-requests/service.mjs';
 
 const githubReference = {
@@ -44,12 +49,22 @@ function githubMetadata() {
 function githubFilesWithPatches() {
   return [
     {
-      filename: 'src/new.js', status: 'added', additions: 20, deletions: 0, changes: 20,
-      patch: '@@ -0,0 +1 @@\n+export const value = 1;', raw_url: 'https://raw.example/new', blob_url: 'https://blob.example/new',
+      filename: 'src/new.js',
+      status: 'added',
+      additions: 20,
+      deletions: 0,
+      changes: 20,
+      patch: '@@ -0,0 +1 @@\n+export const value = 1;',
+      raw_url: 'https://raw.example/new',
+      blob_url: 'https://blob.example/new',
     },
     {
-      filename: 'assets/logo.png', previous_filename: 'assets/old.png', status: 'renamed',
-      additions: 1, deletions: 8, changes: 9,
+      filename: 'assets/logo.png',
+      previous_filename: 'assets/old.png',
+      status: 'renamed',
+      additions: 1,
+      deletions: 8,
+      changes: 9,
     },
   ];
 }
@@ -78,7 +93,7 @@ test('getPullRequestMetadata issues exactly one REST call, no files/diff', () =>
   const metadata = getPullRequestMetadata('fixture-root', githubReference, execute);
   assert.equal(metadata.number, 42);
   assert.equal(calls.length, 1);
-  assert.ok(!calls[0].some(a => a.includes('/files') || a.includes('vnd.github.diff')));
+  assert.ok(!calls[0].some((a) => a.includes('/files') || a.includes('vnd.github.diff')));
 });
 
 test('maps a GraphQL file-manifest response with no patch field', () => {
@@ -86,38 +101,60 @@ test('maps a GraphQL file-manifest response with no patch field', () => {
     { path: 'src/new.js', additions: 20, deletions: 0, changeType: 'ADDED' },
     { path: 'assets/logo.png', additions: 1, deletions: 8, changeType: 'RENAMED' },
   ]);
-  assert.deepEqual(manifest.map(f => f.path), ['src/new.js', 'assets/logo.png']);
+  assert.deepEqual(
+    manifest.map((f) => f.path),
+    ['src/new.js', 'assets/logo.png'],
+  );
   assert.equal(manifest[0].status, 'added');
   assert.equal(manifest[1].status, 'renamed');
-  assert.ok(manifest.every(f => !('patch' in f)));
+  assert.ok(manifest.every((f) => !('patch' in f)));
 });
 
 test('getPullRequestFiles paginates GraphQL without ever requesting patch content', () => {
   const calls = [];
   const execute = (_root, args) => {
     calls.push(args);
-    const after = args.find(a => a.startsWith('after='));
+    const after = args.find((a) => a.startsWith('after='));
     if (!after) {
-      return JSON.stringify({ data: { repository: { pullRequest: { files: {
-        pageInfo: { hasNextPage: true, endCursor: 'cursor-1' },
-        nodes: [{ path: 'a.js', additions: 1, deletions: 0, changeType: 'ADDED' }],
-      } } } } });
+      return JSON.stringify({
+        data: {
+          repository: {
+            pullRequest: {
+              files: {
+                pageInfo: { hasNextPage: true, endCursor: 'cursor-1' },
+                nodes: [{ path: 'a.js', additions: 1, deletions: 0, changeType: 'ADDED' }],
+              },
+            },
+          },
+        },
+      });
     }
-    return JSON.stringify({ data: { repository: { pullRequest: { files: {
-      pageInfo: { hasNextPage: false, endCursor: null },
-      nodes: [{ path: 'b.js', additions: 2, deletions: 1, changeType: 'MODIFIED' }],
-    } } } } });
+    return JSON.stringify({
+      data: {
+        repository: {
+          pullRequest: {
+            files: {
+              pageInfo: { hasNextPage: false, endCursor: null },
+              nodes: [{ path: 'b.js', additions: 2, deletions: 1, changeType: 'MODIFIED' }],
+            },
+          },
+        },
+      },
+    });
   };
 
   const files = getPullRequestFiles('fixture-root', githubReference, execute);
-  assert.deepEqual(files.map(f => f.path), ['a.js', 'b.js']);
+  assert.deepEqual(
+    files.map((f) => f.path),
+    ['a.js', 'b.js'],
+  );
   assert.equal(calls.length, 2);
-  assert.ok(calls.every(args => !JSON.stringify(args).includes('patch')));
+  assert.ok(calls.every((args) => !JSON.stringify(args).includes('patch')));
 });
 
 test('getPullRequestFilesWithPatches fetches the REST files listing, patches included', () => {
   const execute = (_root, args) => {
-    assert.ok(args.some(v => v.includes('/files?per_page=100')));
+    assert.ok(args.some((v) => v.includes('/files?per_page=100')));
     return JSON.stringify([githubFilesWithPatches()]);
   };
   const files = getPullRequestFilesWithPatches('fixture-root', githubReference, execute);
@@ -133,7 +170,9 @@ test('getFullDiff swallows only an oversized-diff rejection', () => {
   };
   assert.equal(getFullDiff('fixture-root', githubReference, oversized), '');
 
-  const unrelated = () => { throw new Error('authentication failed'); };
+  const unrelated = () => {
+    throw new Error('authentication failed');
+  };
   assert.throws(() => getFullDiff('fixture-root', githubReference, unrelated), /authentication failed/);
 });
 
@@ -142,25 +181,28 @@ test('pull-requests service isolates success, unsupported providers, and sanitiz
   const activeDir = join(root, 'active');
   const archiveDir = join(root, 'archive');
   mkdirSync(join(activeDir, 'mixed-pr'), { recursive: true });
-  writeFileSync(join(activeDir, 'mixed-pr', 'change.yaml'), [
-    'id: mixed-pr',
-    'title: Mixed PR',
-    'pull_requests:',
-    '  - provider: github',
-    '    base_url: https://github.example.com',
-    '    repository: owner/repo',
-    '    number: 42',
-    '  - provider: gitlab',
-    '    base_url: https://github.example.com',
-    '    repository: owner/repo',
-    '    number: 7',
-    '  - provider: github',
-    '    base_url: https://github.example.com',
-    '    repository: owner/repo',
-    '    number: 99',
-    'tasks: []',
-    '',
-  ].join('\n'));
+  writeFileSync(
+    join(activeDir, 'mixed-pr', 'change.yaml'),
+    [
+      'id: mixed-pr',
+      'title: Mixed PR',
+      'pull_requests:',
+      '  - provider: github',
+      '    base_url: https://github.example.com',
+      '    repository: owner/repo',
+      '    number: 42',
+      '  - provider: gitlab',
+      '    base_url: https://github.example.com',
+      '    repository: owner/repo',
+      '    number: 7',
+      '  - provider: github',
+      '    base_url: https://github.example.com',
+      '    repository: owner/repo',
+      '    number: 99',
+      'tasks: []',
+      '',
+    ].join('\n'),
+  );
 
   try {
     const provider = createGitHubPullRequestProvider({
@@ -174,7 +216,10 @@ test('pull-requests service isolates success, unsupported providers, and sanitiz
     const changes = await service.loadPullRequests({ source: 'active', slug: 'mixed-pr' });
     const results = changes.pullRequests;
 
-    assert.deepEqual(results.map(result => result.availability), ['available', 'unsupported', 'error']);
+    assert.deepEqual(
+      results.map((result) => result.availability),
+      ['available', 'unsupported', 'error'],
+    );
     assert.match(results[1].message, /not supported/);
     assert.equal(results[2].message, 'Unable to load pull request details.');
     assert.doesNotMatch(JSON.stringify(results), /ghp_secret|D:\\\\private/);
@@ -220,7 +265,10 @@ test('loadFullDiff is never invoked by loadFiles/load', async () => {
   const provider = createGitHubPullRequestProvider({
     fetchMetadata: async () => githubMetadata(),
     fetchFiles: async () => [{ path: 'a.js', additions: 1, deletions: 0, changeType: 'ADDED' }],
-    fetchFullDiff: async () => { fullDiffCalls += 1; return 'diff --git a/a.js b/a.js\n'; },
+    fetchFullDiff: async () => {
+      fullDiffCalls += 1;
+      return 'diff --git a/a.js b/a.js\n';
+    },
   });
   await provider.load('fixture-root', githubReference);
   await provider.loadFiles('fixture-root', githubReference);
@@ -236,11 +284,20 @@ test('loads exact active and archived changes and skips the provider for empty r
   const archiveDir = join(root, 'archive');
   mkdirSync(join(activeDir, 'with-pr'), { recursive: true });
   mkdirSync(join(archiveDir, 'without-pr'), { recursive: true });
-  writeFileSync(join(activeDir, 'with-pr', 'change.yaml'), `id: with-pr\ntitle: With PR\npull_requests:\n  - provider: github\n    base_url: https://github.com\n    repository: owner/repo\n    number: 42\ntasks: []\n`);
+  writeFileSync(
+    join(activeDir, 'with-pr', 'change.yaml'),
+    `id: with-pr\ntitle: With PR\npull_requests:\n  - provider: github\n    base_url: https://github.com\n    repository: owner/repo\n    number: 42\ntasks: []\n`,
+  );
   writeFileSync(join(archiveDir, 'without-pr', 'change.yaml'), 'id: without-pr\ntitle: Without PR\ntasks: []\n');
   let calls = 0;
   const service = createPullRequestService({
-    provider: { id: 'github', load: async (_repoRoot, reference) => { calls += 1; return { availability: 'available', reference: { number: reference.number } }; } },
+    provider: {
+      id: 'github',
+      load: async (_repoRoot, reference) => {
+        calls += 1;
+        return { availability: 'available', reference: { number: reference.number } };
+      },
+    },
     activeDir,
     archiveDir,
     root,
@@ -268,14 +325,17 @@ test('loads a PR sub-resource (files/file-diffs/full-diff) by number, resolved f
   const activeDir = join(root, 'active');
   const archiveDir = join(root, 'archive');
   mkdirSync(join(activeDir, 'with-pr'), { recursive: true });
-  writeFileSync(join(activeDir, 'with-pr', 'change.yaml'), `id: with-pr\ntitle: With PR\npull_requests:\n  - provider: github\n    base_url: https://github.com\n    repository: owner/repo\n    number: 42\ntasks: []\n`);
+  writeFileSync(
+    join(activeDir, 'with-pr', 'change.yaml'),
+    `id: with-pr\ntitle: With PR\npull_requests:\n  - provider: github\n    base_url: https://github.com\n    repository: owner/repo\n    number: 42\ntasks: []\n`,
+  );
 
   const service = createPullRequestService({
     provider: {
       id: 'github',
       load: async () => ({ availability: 'available' }),
       loadFiles: async () => [{ path: 'a.js', additions: 1, deletions: 0, changes: 1 }],
-      loadFileDiffs: async (_root, _reference, paths, headSha) => paths.map(path => ({ path, headSha, patch: 'x' })),
+      loadFileDiffs: async (_root, _reference, paths, headSha) => paths.map((path) => ({ path, headSha, patch: 'x' })),
       loadFullDiff: async () => ({ diff: 'diff', diffAvailable: true }),
     },
     activeDir,
@@ -289,7 +349,13 @@ test('loads a PR sub-resource (files/file-diffs/full-diff) by number, resolved f
     assert.ok(files.changeView.groups.length > 0);
     assert.ok(files.generatedFiles.rules.length > 0);
 
-    const diffs = await service.loadFileDiffs({ source: 'active', slug: 'with-pr', number: '42', paths: ['a.js'], headSha: 'sha-1' });
+    const diffs = await service.loadFileDiffs({
+      source: 'active',
+      slug: 'with-pr',
+      number: '42',
+      paths: ['a.js'],
+      headSha: 'sha-1',
+    });
     assert.equal(diffs.number, 42);
     assert.equal(diffs.headSha, 'sha-1');
     assert.deepEqual(diffs.diffs, [{ path: 'a.js', headSha: 'sha-1', patch: 'x' }]);
@@ -309,7 +375,7 @@ test('two concurrent cold diff requests share the same in-flight Promise and exe
   const provider = createGitHubPullRequestProvider({
     fetchFilesWithPatches: async () => {
       fetchCount++;
-      await new Promise(r => setTimeout(r, 20));
+      await new Promise((r) => setTimeout(r, 20));
       return githubFilesWithPatches();
     },
   });

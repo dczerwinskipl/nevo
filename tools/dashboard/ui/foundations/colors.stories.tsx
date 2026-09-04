@@ -124,9 +124,7 @@ function ColorTokenCard({ token }: { token: ColorTokenMeta }) {
           style={{ backgroundColor: `var(${token.name})` }}
         />
         <div className="min-w-0 flex-1">
-          <div className="truncate font-mono font-medium text-[var(--foreground)]">
-            {token.name}
-          </div>
+          <div className="truncate font-mono font-medium text-[var(--foreground)]">{token.name}</div>
           <div data-computed-color="true" className="truncate font-mono text-[11px] text-[var(--muted-strong)]">
             {computedColor || 'resolving…'}
           </div>
@@ -151,8 +149,9 @@ function ColorPaletteFoundation() {
         <h1 className="text-2xl font-bold">Color Foundation Tokens</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Live tokens declared in <code className="text-[var(--foreground)]">tools/dashboard/ui/index.css:6-51</code>.
-          Values shown are read live via <code className="text-[var(--foreground)]">getComputedStyle</code> from rendered probes and CSS declarations.
-          The dashboard is exclusively dark-mode (<code className="text-[var(--foreground)]">color-scheme: dark</code>). No alternate light theme exists.
+          Values shown are read live via <code className="text-[var(--foreground)]">getComputedStyle</code> from
+          rendered probes and CSS declarations. The dashboard is exclusively dark-mode (
+          <code className="text-[var(--foreground)]">color-scheme: dark</code>). No alternate light theme exists.
         </p>
       </div>
 

@@ -8,12 +8,7 @@ import {
 } from './timeline-projection-v2';
 import { TOOL_KIND_ICONS_V2 } from './tool-kind-icons-v2';
 import { previewPlainText } from './text-preview-v2';
-import type {
-  InteractionWorkItemV2,
-  ReasoningWorkItemV2,
-  ToolStatusV2,
-  WorkItemV2,
-} from '../types';
+import type { InteractionWorkItemV2, ReasoningWorkItemV2, ToolStatusV2, WorkItemV2 } from '../types';
 import { cn } from '@/lib/utils';
 
 const TOOL_STATUS_ICON: Partial<Record<ToolStatusV2, typeof XCircle>> = {
@@ -111,8 +106,8 @@ const ReasoningRowV2 = memo(function ReasoningRowV2({
       <div className="relative flex size-4 shrink-0 items-center justify-center">
         <span className="relative z-10 size-1.5 rounded-full border border-[var(--muted-strong)] bg-transparent" />
       </div>
-      <span className="min-w-0 flex-1 truncate italic text-[var(--muted)] group-hover:text-[var(--muted-strong)]">
-        <span className="font-medium not-italic text-[var(--muted-strong)]">Thinking</span>
+      <span className="min-w-0 flex-1 truncate text-[var(--muted)] italic group-hover:text-[var(--muted-strong)]">
+        <span className="font-medium text-[var(--muted-strong)] not-italic">Thinking</span>
         {preview ? <span> · {preview}</span> : null}
       </span>
     </button>
@@ -157,10 +152,7 @@ const InteractionRowV2 = memo(function InteractionRowV2({
     >
       <div className="relative flex size-4 shrink-0 items-center justify-center">
         <span
-          className={cn(
-            'relative z-10 size-1.5 rounded-full',
-            isPending ? 'bg-[var(--warning)]' : 'bg-[var(--muted)]',
-          )}
+          className={cn('relative z-10 size-1.5 rounded-full', isPending ? 'bg-[var(--warning)]' : 'bg-[var(--muted)]')}
         />
       </div>
       <span className="min-w-0 flex-1 truncate">{interactionSummary(item)}</span>
@@ -172,19 +164,13 @@ const InteractionRowV2 = memo(function InteractionRowV2({
  * Older history disclosure indicator rendered at the TOP of Level 2 history.
  * Non-interactive, quiet indicator showing (+N hidden).
  */
-const OlderHistoryRowV2 = memo(function OlderHistoryRowV2({
-  hiddenCount,
-}: {
-  hiddenCount: number;
-}) {
+const OlderHistoryRowV2 = memo(function OlderHistoryRowV2({ hiddenCount }: { hiddenCount: number }) {
   return (
     <div className="flex w-full min-w-0 items-center gap-2 px-1.5 py-0.5 text-xs text-[var(--muted)]">
       <div className="relative flex size-4 shrink-0 items-center justify-center">
         <span className="relative z-10 size-1.5 rounded-full bg-[var(--muted)]" />
       </div>
-      <span className="min-w-0 flex-1 truncate font-normal">
-        (+{hiddenCount} hidden)
-      </span>
+      <span className="min-w-0 flex-1 truncate font-normal">(+{hiddenCount} hidden)</span>
     </div>
   );
 });
@@ -228,9 +214,7 @@ export const WorkTimelineV2 = memo(function WorkTimelineV2({
 
   const content = (
     <>
-      {projection.hasMore && (
-        <OlderHistoryRowV2 hiddenCount={projection.hiddenCount} />
-      )}
+      {projection.hasMore && <OlderHistoryRowV2 hiddenCount={projection.hiddenCount} />}
       {projection.visibleRows.map((row) => (
         <TimelineRow key={row.id} row={row} onSelectItem={onSelectItem} />
       ))}
@@ -242,9 +226,9 @@ export const WorkTimelineV2 = memo(function WorkTimelineV2({
   }
 
   return (
-    <div className="relative w-full min-w-0 max-w-full pl-1">
+    <div className="relative w-full max-w-full min-w-0 pl-1">
       <div
-        className="absolute bottom-2 left-[18px] top-2 w-px -translate-x-1/2 bg-[var(--border)]"
+        className="absolute top-2 bottom-2 left-[18px] w-px -translate-x-1/2 bg-[var(--border)]"
         aria-hidden="true"
       />
       <div className="relative flex flex-col gap-0.5">{content}</div>

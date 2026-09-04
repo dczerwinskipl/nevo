@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { MessagesSquare, LoaderCircle, X, AlertCircle } from 'lucide-react';
-import type {
-  SpecificationSummary,
-  SpecificationTaskDocument,
-} from '../types';
+import type { SpecificationSummary, SpecificationTaskDocument } from '../types';
 import type { AgentSession, TaskNavigationTarget } from '@/features/agent-sessions/types';
 import { formatStatus } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -47,7 +44,7 @@ export function TaskDialog({
     enabled: Boolean(specification.specId),
   });
   const actionsQuery = useSpecificationActions(specification, specification.source === 'active');
-  const actionGate = taskId && actionsQuery.data?.tasks ? actionsQuery.data.tasks[taskId] ?? null : null;
+  const actionGate = taskId && actionsQuery.data?.tasks ? (actionsQuery.data.tasks[taskId] ?? null) : null;
 
   const executeTaskAction = useCallback(async () => {
     if (!actionGate || !task) return;
@@ -58,7 +55,7 @@ export function TaskDialog({
       if (res?.operationId && onOperationStarted) {
         onOperationStarted(
           res.operationId,
-          actionName === 'approve' ? `Zatwierdzanie zadania: ${task.id}` : `Weryfikacja zadania: ${task.id}`
+          actionName === 'approve' ? `Zatwierdzanie zadania: ${task.id}` : `Weryfikacja zadania: ${task.id}`,
         );
       }
     } catch {
@@ -80,8 +77,8 @@ export function TaskDialog({
       if (event.key !== 'Tab' || !dialogRef.current) return;
       const focusable = Array.from(
         dialogRef.current.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        )
+          'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
       );
       if (!focusable.length) return;
       const first = focusable[0];
@@ -104,7 +101,7 @@ export function TaskDialog({
   if (!task) return null;
 
   const filteredSessions = sessionsQuery.sessions.filter(
-    (session) => (session.taskIds && session.taskIds.includes(task.id)) || session.taskId === task.id
+    (session) => (session.taskIds && session.taskIds.includes(task.id)) || session.taskId === task.id,
   );
 
   return (
@@ -132,7 +129,13 @@ export function TaskDialog({
             </h2>
             {task.file && <p className="mt-1 truncate text-[10px] text-[var(--muted)]">{task.file}</p>}
           </div>
-          <Button ref={closeButtonRef} variant="ghost" size="icon" onClick={onClose} aria-label="Zamknij szczegóły zadania">
+          <Button
+            ref={closeButtonRef}
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            aria-label="Zamknij szczegóły zadania"
+          >
             <X className="size-4" />
           </Button>
         </div>
@@ -176,7 +179,9 @@ export function TaskDialog({
                 <AlertCircle className="size-4 text-[var(--danger)]" />
                 <span>Nie udało się wczytać treści zadania</span>
               </div>
-              <p className="mt-1 text-[11px] text-[color-mix(in_srgb,var(--danger-strong)_80%,transparent)]">{taskDocumentQuery.error}</p>
+              <p className="mt-1 text-[11px] text-[color-mix(in_srgb,var(--danger-strong)_80%,transparent)]">
+                {taskDocumentQuery.error}
+              </p>
               <Button size="sm" variant="secondary" onClick={() => void taskDocumentQuery.refresh()} className="mt-3">
                 Spróbuj ponownie
               </Button>

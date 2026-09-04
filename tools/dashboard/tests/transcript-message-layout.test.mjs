@@ -4,7 +4,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 function readTranscriptMessageSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/transcript/transcript-message.tsx', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/transcript/transcript-message.tsx', import.meta.url)),
+    'utf8',
+  );
 }
 
 test('Finding 2: Intermediate user wrapper is full-width (w-full) ensuring stable containing block for percentage sizing', () => {
@@ -15,7 +18,10 @@ test('Finding 2: Intermediate user wrapper is full-width (w-full) ensuring stabl
 
   // Intermediate wrapper must be explicitly full-width (w-full), NOT shrink-to-fit,
   // so that child percentage max-widths resolve against the full transcript width.
-  assert.match(source, /className=\{cn\('w-full min-w-0 space-y-1\.5 flex flex-col',\s*user \? 'items-end' : 'items-start'\)\}/);
+  assert.match(
+    source,
+    /className=\{cn\('flex w-full min-w-0 flex-col space-y-1\.5',\s*user \? 'items-end' : 'items-start'\)\}/,
+  );
 });
 
 test('Finding 2: User message bubble uses w-fit with exactly one max-w constraint for content-sized presentation', () => {
@@ -33,7 +39,8 @@ test('Finding 2: Text wrapping uses break-words to preserve normal word boundari
   const source = readTranscriptMessageSource();
 
   // Uses standard break-words with whitespace-pre-wrap
-  assert.match(source, /whitespace-pre-wrap break-words/);
+  assert.match(source, /break-words/);
+  assert.match(source, /whitespace-pre-wrap/);
   // overflow-wrap:anywhere is intentionally NOT used because it permits breaking ordinary words
   assert.ok(!source.includes('[overflow-wrap:anywhere]'), 'Must not use overflow-wrap:anywhere as default text style');
 });
@@ -50,7 +57,10 @@ test('Finding 2: Assistant messages retain full width and markdown rendering', (
 // ── task 11 (semantic Work chat V2), AC5: FinalAnswer separation ──────────────────────
 
 function readV2Source(relative) {
-  return readFileSync(fileURLToPath(new URL(`../ui/features/agent-sessions/work-v2/${relative}`, import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL(`../ui/features/agent-sessions/work-v2/${relative}`, import.meta.url)),
+    'utf8',
+  );
 }
 
 test('V2 AC5: FinalAnswerViewV2 renders nothing for absent/null — never fabricates a final answer', () => {
@@ -58,7 +68,11 @@ test('V2 AC5: FinalAnswerViewV2 renders nothing for absent/null — never fabric
   assert.match(source, /if \(!finalAnswer \|\| finalAnswer\.status === 'absent'\) return null;/);
   // The only content source is `finalAnswer.text` — never a message/work item's own text.
   assert.match(source, /finalAnswer\.text/);
-  assert.doesNotMatch(source, /message\.text|item\.text/, 'FinalAnswer must never be assembled from a Work item or message text');
+  assert.doesNotMatch(
+    source,
+    /message\.text|item\.text/,
+    'FinalAnswer must never be assembled from a Work item or message text',
+  );
 });
 
 test('V2 AC5: FinalAnswer renders once, after Work, never inside the Work timeline', () => {
@@ -66,7 +80,11 @@ test('V2 AC5: FinalAnswer renders once, after Work, never inside the Work timeli
   const panelSource = readV2Source('turn-work-panel-v2.tsx');
 
   assert.doesNotMatch(timelineSource, /finalAnswer/i, 'Level 2 timeline must never read/render finalAnswer');
-  assert.doesNotMatch(readV2Source('work-indicator-v2.tsx'), /finalAnswer/i, 'Level 1 indicator must never read/render finalAnswer');
+  assert.doesNotMatch(
+    readV2Source('work-indicator-v2.tsx'),
+    /finalAnswer/i,
+    'Level 1 indicator must never read/render finalAnswer',
+  );
 
   const timelineCallIndex = panelSource.indexOf('<WorkTimelineV2');
   const finalAnswerCallIndex = panelSource.indexOf('<FinalAnswerViewV2');
@@ -99,5 +117,9 @@ test('V2 correction: a failed tool inside an otherwise-active turn does not fail
   // The Work header's terminal styling comes from the Turn's own status.outcome
   // (terminalHeaderLabelV2), never from scanning individual tool statuses.
   assert.match(indicatorSource, /terminalHeaderLabelV2\(turn\.status\)/);
-  assert.doesNotMatch(indicatorSource, /work\.some\(.*status.*failed/i, 'must not derive turn-level failure by scanning Work items');
+  assert.doesNotMatch(
+    indicatorSource,
+    /work\.some\(.*status.*failed/i,
+    'must not derive turn-level failure by scanning Work items',
+  );
 });

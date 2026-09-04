@@ -17,11 +17,17 @@ import {
 } from '../ui/features/agent-sessions/runtime/pending-dispatch-store.ts';
 
 function readRuntimeSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/runtime/agent-session-runtime.ts', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/runtime/agent-session-runtime.ts', import.meta.url)),
+    'utf8',
+  );
 }
 
 function readAgentSessionPageSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)),
+    'utf8',
+  );
 }
 
 test('Issue 1: resolveSnapshotActivity extracts authoritative activity and preserves waitingForUser across reload', () => {
@@ -83,14 +89,26 @@ test('Issue 2: eventModifiesTranscriptContent catches tool output changes while 
   assert.equal(eventModifiesTranscriptContent(toolUpdatedEvent), true, 'Tool output update triggers content revision');
 
   // tool.started, tool.completed, text.delta
-  assert.equal(eventModifiesTranscriptContent({ id: 2, seq: 2, type: 'tool.started', toolId: 't2', timestamp: '' }), true);
-  assert.equal(eventModifiesTranscriptContent({ id: 3, seq: 3, type: 'tool.completed', toolId: 't2', timestamp: '' }), true);
-  assert.equal(eventModifiesTranscriptContent({ id: 4, seq: 4, type: 'text.delta', delta: 'Hello', timestamp: '' }), true);
+  assert.equal(
+    eventModifiesTranscriptContent({ id: 2, seq: 2, type: 'tool.started', toolId: 't2', timestamp: '' }),
+    true,
+  );
+  assert.equal(
+    eventModifiesTranscriptContent({ id: 3, seq: 3, type: 'tool.completed', toolId: 't2', timestamp: '' }),
+    true,
+  );
+  assert.equal(
+    eventModifiesTranscriptContent({ id: 4, seq: 4, type: 'text.delta', delta: 'Hello', timestamp: '' }),
+    true,
+  );
   assert.equal(eventModifiesTranscriptContent({ id: 5, seq: 5, type: 'interaction.requested', timestamp: '' }), true);
   assert.equal(eventModifiesTranscriptContent({ id: 6, seq: 6, type: 'interaction.resolved', timestamp: '' }), true);
 
   // Telemetry (usage.updated) does NOT increment content revision
-  assert.equal(eventModifiesTranscriptContent({ id: 7, seq: 7, type: 'usage.updated', tokensIn: 100, timestamp: '' }), false);
+  assert.equal(
+    eventModifiesTranscriptContent({ id: 7, seq: 7, type: 'usage.updated', tokensIn: 100, timestamp: '' }),
+    false,
+  );
 });
 
 test('Issue 2: applyAgentEvent updates earlier assistant messages by turnId fallback without losing content', () => {
@@ -319,7 +337,7 @@ test('Cancel Turn: shouldSurfaceCancelError behaviorally suppresses late network
   assert.equal(
     shouldSurfaceCancelError(turnId, terminalTurnIds),
     true,
-    'Error must be surfaced while turn is still active/running'
+    'Error must be surfaced while turn is still active/running',
   );
 
   // Scenario 2: terminal SSE arrives before fetch rejects -> error must be suppressed
@@ -327,7 +345,7 @@ test('Cancel Turn: shouldSurfaceCancelError behaviorally suppresses late network
   assert.equal(
     shouldSurfaceCancelError(turnId, terminalTurnIds),
     false,
-    'Late error must be suppressed when turn is already terminal'
+    'Late error must be suppressed when turn is already terminal',
   );
 });
 
@@ -340,14 +358,21 @@ test('AgentSessionPage disables normal composer send when session cannot start t
   // AgentSessionComposer has disabled and placeholder configured from whichever
   // representation (V1/V2) is currently displayed (task 11's V1/V2 switch, AC6).
   assert.match(agentSessionPageSource, /disabled=\{!activeRuntime\.canStartTurn \|\| !isProviderAvailable\}/);
-  assert.match(agentSessionPageSource, /placeholder=\{activeRuntime\.activity === 'waitingForUser' \? 'Odpowiedz na pytanie powyżej…' : undefined\}/);
+  assert.match(
+    agentSessionPageSource,
+    /placeholder=\{activeRuntime\.activity === 'waitingForUser' \? 'Odpowiedz na pytanie powyżej…' : undefined\}/,
+  );
 });
 
 test('Finding 1: Runtime exposes explicit readiness contract and rejects send while loading', () => {
   const runtimeSource = readRuntimeSource();
 
   // Exposes isReady and canStartTurn derived state
-  assert.ok(runtimeSource.includes('const exposedIsReady = Boolean(isSnapshotLoaded && !exposedLoadError && activity === \'idle\');'));
+  assert.ok(
+    runtimeSource.includes(
+      "const exposedIsReady = Boolean(isSnapshotLoaded && !exposedLoadError && activity === 'idle');",
+    ),
+  );
   assert.ok(runtimeSource.includes('isReady: exposedIsReady'));
   assert.ok(runtimeSource.includes('canStartTurn: exposedCanStartTurn'));
 
@@ -358,7 +383,10 @@ test('Finding 1: Runtime exposes explicit readiness contract and rejects send wh
 
 test('Finding 1: Initial prompt delivery waits for session readiness, delivers exactly once, and handles failures', () => {
   const agentSessionPageSource = readAgentSessionPageSource();
-  const initialDispatchSource = readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/runtime/pending-dispatch-store.ts', import.meta.url)), 'utf8');
+  const initialDispatchSource = readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/runtime/pending-dispatch-store.ts', import.meta.url)),
+    'utf8',
+  );
 
   // AgentSessionPage uses useInitialDispatch
   assert.match(agentSessionPageSource, /useInitialDispatch/);
@@ -381,28 +409,28 @@ test('Cancel Turn: shouldSurfaceTurnError suppresses user-facing onError for exp
   assert.equal(
     shouldSurfaceTurnError({ code: 'AI_TURN_CANCELLED', message: 'The turn was cancelled.' }),
     false,
-    'AI_TURN_CANCELLED must NOT surface as an error toast to the user'
+    'AI_TURN_CANCELLED must NOT surface as an error toast to the user',
   );
 
   // B. Real provider failure -> onError called
   assert.equal(
     shouldSurfaceTurnError({ code: 'AI_PROVIDER_ERROR', message: 'Model overloaded' }),
     true,
-    'AI_PROVIDER_ERROR must surface to user'
+    'AI_PROVIDER_ERROR must surface to user',
   );
 
   // C. Turn timeout -> onError called
   assert.equal(
     shouldSurfaceTurnError({ code: 'AI_TURN_TIMEOUT', message: 'Turn timed out after 300000ms' }),
     true,
-    'AI_TURN_TIMEOUT must surface to user'
+    'AI_TURN_TIMEOUT must surface to user',
   );
 
   // D. Turn interrupted or protocol error -> onError called
   assert.equal(
     shouldSurfaceTurnError({ code: 'AI_TURN_INTERRUPTED', message: 'Interrupted unexpectedly' }),
     true,
-    'AI_TURN_INTERRUPTED must surface to user'
+    'AI_TURN_INTERRUPTED must surface to user',
   );
 
   // E. Null / undefined error -> no error
@@ -416,7 +444,10 @@ test('BLOCKING: AgentSessionPage and useAgentSessionRuntime wire user-visible er
   // AgentSessionPage must wire onError into useAgentSessionRuntime and maintain user-visible runtimeError
   assert.match(agentSessionPageSource, /onError:\s*\(err\)\s*=>\s*\{\s*setRuntimeError\(err\.message\);\s*\}/);
   // displayError uses the authoritative error channel.
-  assert.match(agentSessionPageSource, /const displayError = initialDispatch\.displayError \|\| runtimeError \|\| null;/);
+  assert.match(
+    agentSessionPageSource,
+    /const displayError = initialDispatch\.displayError \|\| runtimeError \|\| null;/,
+  );
 
   // Behavioral test: simulate runtime error callback pipeline
   let surfacedError = null;
@@ -527,7 +558,7 @@ test('BLOCKING: Action/error lifecycle: Recovery action failing again clears old
   const mockAssistant = {
     isReady: true,
     sendTurn: async (_prompt, _opts) => {
-      clearedAtStart = (runtimeError === null);
+      clearedAtStart = runtimeError === null;
       await new Promise((r) => setTimeout(r, 5));
       runtimeError = currentErrorMessage;
       throw new Error(currentErrorMessage);
@@ -570,10 +601,19 @@ test('BLOCKING: Action/error lifecycle: Cancel and interaction retry clear previ
   const agentSessionPageSource = readAgentSessionPageSource();
 
   // Verify AgentSessionPage wires action wrappers that clear runtimeError before starting attempt.
-  assert.match(agentSessionPageSource, /const handleCancelTurn = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);\s*try \{\s*await assistant\.cancelTurn\(\);/);
-  assert.match(agentSessionPageSource, /const handleRespondInteraction = useCallback\(async \(interactionId: string, response: unknown\) => \{\s*setRuntimeError\(null\);\s*try \{\s*await assistant\.respondInteraction\(/);
+  assert.match(
+    agentSessionPageSource,
+    /const handleCancelTurn = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);\s*try \{\s*await assistant\.cancelTurn\(\);/,
+  );
+  assert.match(
+    agentSessionPageSource,
+    /const handleRespondInteraction = useCallback\(\s*async \(interactionId: string, response: unknown\) => \{\s*setRuntimeError\(null\);\s*try \{\s*await assistant\.respondInteraction\(/,
+  );
   assert.match(agentSessionPageSource, /const handleReload = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/);
-  assert.match(agentSessionPageSource, /const handleRetryInitial = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/);
+  assert.match(
+    agentSessionPageSource,
+    /const handleRetryInitial = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/,
+  );
 
   // Behavioral test for cancel recovery:
   let runtimeError = 'Cancel failed: 500 Internal Server Error';
@@ -632,11 +672,18 @@ function turnV2(status) {
 
 test('V2 AC6: deriveActivity maps canonical Turn status to session activity honestly, matching V1 vocabulary', () => {
   assert.equal(deriveActivity([]), 'idle', 'no turns at all is idle');
-  assert.equal(deriveActivity([turnV2({ status: 'terminal', outcome: 'completed' })]), 'idle', 'a terminal latest turn is idle');
+  assert.equal(
+    deriveActivity([turnV2({ status: 'terminal', outcome: 'completed' })]),
+    'idle',
+    'a terminal latest turn is idle',
+  );
   assert.equal(deriveActivity([turnV2({ status: 'active', detail: 'processing' })]), 'running');
   assert.equal(deriveActivity([turnV2({ status: 'waiting', reason: 'provider_response' })]), 'running');
   assert.equal(deriveActivity([turnV2({ status: 'cancelling', initiator: 'user' })]), 'running');
-  assert.equal(deriveActivity([turnV2({ status: 'requiresAttention', reason: 'permission', interactionId: 'i1' })]), 'waitingForUser');
+  assert.equal(
+    deriveActivity([turnV2({ status: 'requiresAttention', reason: 'permission', interactionId: 'i1' })]),
+    'waitingForUser',
+  );
 });
 
 test('V2 AC6: the shared runtime stays mounted unconditionally — the switch itself never (re)starts a runtime', () => {
@@ -646,7 +693,11 @@ test('V2 AC6: the shared runtime stays mounted unconditionally — the switch it
   assert.match(pageSource, /const assistant = useAgentSessionRuntime\(\{/);
   const v1CallIndex = pageSource.indexOf('const assistant = useAgentSessionRuntime(');
   const before = pageSource.slice(Math.max(0, v1CallIndex - 200), v1CallIndex);
-  assert.doesNotMatch(before, /if \(representation/, 'runtime hooks must not be conditionally invoked based on the representation switch');
+  assert.doesNotMatch(
+    before,
+    /if \(representation/,
+    'runtime hooks must not be conditionally invoked based on the representation switch',
+  );
 });
 
 test('V2 AC6: representation is local UI state only — switching calls no mutation/cancel/send handler', () => {
@@ -658,32 +709,54 @@ test('V2 AC6: representation is local UI state only — switching calls no mutat
   const switchBlockEnd = pageSource.indexOf('</div>', pageSource.indexOf('</div>', switchBlockStart) + 1);
   const switchBlock = pageSource.slice(switchBlockStart, switchBlockEnd);
   assert.match(switchBlock, /onClick=\{\(\) => setRepresentation\(option\)\}/);
-  assert.doesNotMatch(switchBlock, /sendTurn|cancelTurn|respondInteraction|\.reload\(/, 'switching representation must never mutate or cancel Turn state');
+  assert.doesNotMatch(
+    switchBlock,
+    /sendTurn|cancelTurn|respondInteraction|\.reload\(/,
+    'switching representation must never mutate or cancel Turn state',
+  );
 });
 
 // ── task 11 correction: historical user messages travel with the canonical Turn, no
 // duplicate long-lived client cache ────────────────────────────────────────────────
 
 function readRuntimeV2Source() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/runtime/agent-session-runtime-v2.ts', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/runtime/agent-session-runtime-v2.ts', import.meta.url)),
+    'utf8',
+  );
 }
 
 function readTranscriptV2Source() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/agent-session-transcript-v2.tsx', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/agent-session-transcript-v2.tsx', import.meta.url)),
+    'utf8',
+  );
 }
 
 test('V2 correction: the V2 runtime hook keeps no long-lived turnPrompts cache and does not special-case turn.started', () => {
   const source = readRuntimeV2Source();
   assert.doesNotMatch(source, /turnPrompts/, 'the removed duplicate client-side transcript cache must not return');
-  assert.doesNotMatch(source, /event\.type === 'turn\.started'/, 'user-visible text must come from the canonical Turn, not a live-only event');
+  assert.doesNotMatch(
+    source,
+    /event\.type === 'turn\.started'/,
+    'user-visible text must come from the canonical Turn, not a live-only event',
+  );
   // The only client-side duplicate of server state left is the short optimistic gap value.
   assert.match(source, /optimisticPending/);
 });
 
-test('V2 correction: the transcript renders each turn\'s own canonical userMessage, with only a short-lived optimistic fallback', () => {
+test("V2 correction: the transcript renders each turn's own canonical userMessage, with only a short-lived optimistic fallback", () => {
   const source = readTranscriptV2Source();
-  assert.match(source, /turn\.userMessage && <UserMessageBubble text=\{turn\.userMessage\.text\}/, 'every turn renders its own canonical userMessage — live, reloaded, or migrated');
-  assert.match(source, /\{optimisticUserMessage && \(/, 'the optimistic value is a separate, clearly-scoped fallback for the POST-to-snapshot gap only');
+  assert.match(
+    source,
+    /turn\.userMessage && <UserMessageBubble text=\{turn\.userMessage\.text\}/,
+    'every turn renders its own canonical userMessage — live, reloaded, or migrated',
+  );
+  assert.match(
+    source,
+    /\{optimisticUserMessage && \(/,
+    'the optimistic value is a separate, clearly-scoped fallback for the POST-to-snapshot gap only',
+  );
   assert.match(source, /<UserMessageBubble text=\{optimisticUserMessage\} \/>/);
 });
 
@@ -691,8 +764,26 @@ test('V2 correction: a session loaded only from the HTTP snapshot (no turn.start
   // Mirrors the real regression: turns persisted before the current browser tab opened
   // (or before a dashboard restart) must still render their user message, because it now
   // travels on the canonical Turn itself rather than being reconstructed from live events.
-  const turn1 = { id: 't1', userMessage: { text: 'Initial prompt', createdAt: '' }, work: [], historicalWork: [], activityCount: 0, currentActivity: null, finalAnswer: { id: 'f1', text: 'Done.', status: 'completed', createdAt: '', updatedAt: '' }, status: { status: 'terminal', outcome: 'completed', initiator: 'provider', since: '', source: '' } };
-  const turn2 = { id: 't2', userMessage: { text: 'Follow-up', createdAt: '' }, work: [], historicalWork: [], activityCount: 0, currentActivity: null, finalAnswer: null, status: { status: 'terminal', outcome: 'failed', initiator: 'provider', since: '', source: '' } };
+  const turn1 = {
+    id: 't1',
+    userMessage: { text: 'Initial prompt', createdAt: '' },
+    work: [],
+    historicalWork: [],
+    activityCount: 0,
+    currentActivity: null,
+    finalAnswer: { id: 'f1', text: 'Done.', status: 'completed', createdAt: '', updatedAt: '' },
+    status: { status: 'terminal', outcome: 'completed', initiator: 'provider', since: '', source: '' },
+  };
+  const turn2 = {
+    id: 't2',
+    userMessage: { text: 'Follow-up', createdAt: '' },
+    work: [],
+    historicalWork: [],
+    activityCount: 0,
+    currentActivity: null,
+    finalAnswer: null,
+    status: { status: 'terminal', outcome: 'failed', initiator: 'provider', since: '', source: '' },
+  };
   const turnsFromHttpSnapshotOnly = [turn1, turn2];
 
   // No SSE events were ever observed — this is exactly the shape a fresh `GET .../chat`
@@ -713,7 +804,10 @@ test('V2 correction: the snapshot load is one atomic setTurns commit, not an emp
   // HTTP payload — no reduce/accumulate loop reconstructing turns from events. (The
   // catch branch's own `setTurns([])` reset on load failure is a separate, unrelated
   // call and is intentionally excluded from this count.)
-  const trySuccessBody = source.slice(source.indexOf('const payload = await fetchAgentSessionChatV2'), source.indexOf('} catch (err) {'));
+  const trySuccessBody = source.slice(
+    source.indexOf('const payload = await fetchAgentSessionChatV2'),
+    source.indexOf('} catch (err) {'),
+  );
   const setTurnsCalls = trySuccessBody.match(/setTurns\(/g) || [];
   assert.equal(setTurnsCalls.length, 1, 'the snapshot branch must commit turns exactly once');
   assert.match(trySuccessBody, /setTurns\(payload\.turns \|\| \[\]\)/);
@@ -721,17 +815,29 @@ test('V2 correction: the snapshot load is one atomic setTurns commit, not an emp
 
 test('V2 correction: SSE resumes from the snapshot cursor (lastEventSeq), never a hardcoded 0', () => {
   const source = readRuntimeV2Source();
-  const loadSnapshotBody = source.slice(source.indexOf('async function loadSnapshot'), source.indexOf('loadSnapshot();'));
+  const loadSnapshotBody = source.slice(
+    source.indexOf('async function loadSnapshot'),
+    source.indexOf('loadSnapshot();'),
+  );
   assert.match(
     loadSnapshotBody,
     /lastSeqRef\.current = payload\.session\.lastEventSeq \|\| 0;/,
     'the replay cursor must come from the snapshot itself — a session with prior history must never resubscribe from 0',
   );
-  assert.doesNotMatch(loadSnapshotBody, /lastSeqRef\.current = 0;\s*$/m, 'must not unconditionally reset the cursor to 0 on every load');
+  assert.doesNotMatch(
+    loadSnapshotBody,
+    /lastSeqRef\.current = 0;\s*$/m,
+    'must not unconditionally reset the cursor to 0 on every load',
+  );
 });
 
 test('V2 correction: the /chat route response carries lastEventSeq for the client to resume from', () => {
-  const routesSource = readFileSync(fileURLToPath(new URL('../server/ai/sessions/routes.mjs', import.meta.url)), 'utf8');
-  const chatRouteBody = routesSource.slice(routesSource.indexOf("'/api/agent-sessions/:provider/:providerSessionId/chat'"));
+  const routesSource = readFileSync(
+    fileURLToPath(new URL('../server/ai/sessions/routes.mjs', import.meta.url)),
+    'utf8',
+  );
+  const chatRouteBody = routesSource.slice(
+    routesSource.indexOf("'/api/agent-sessions/:provider/:providerSessionId/chat'"),
+  );
   assert.match(chatRouteBody, /lastEventSeq: details\.lastEventSeq \|\| 0/);
 });

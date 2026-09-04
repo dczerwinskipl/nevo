@@ -10,10 +10,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
-import type {
-  SpecificationActionsPayload,
-  SpecificationTaskActionGate,
-} from '../types';
+import type { SpecificationActionsPayload, SpecificationTaskActionGate } from '../types';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -66,28 +63,53 @@ export function RepositoryActionsCard({
     <Card className="p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--muted)]">Workflow</p>
+          <p className="text-[10px] font-bold tracking-[0.18em] text-[var(--muted)] uppercase">Workflow</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <Badge className={worktree.clean
-              ? 'border-[color-mix(in_srgb,var(--success)_20%,transparent)] bg-[color-mix(in_srgb,var(--success)_8%,transparent)] text-[var(--success)]'
-              : 'border-[color-mix(in_srgb,var(--warning)_20%,transparent)] bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] text-[var(--warning)]'}>
+            <Badge
+              className={
+                worktree.clean
+                  ? 'border-[color-mix(in_srgb,var(--success)_20%,transparent)] bg-[color-mix(in_srgb,var(--success)_8%,transparent)] text-[var(--success)]'
+                  : 'border-[color-mix(in_srgb,var(--warning)_20%,transparent)] bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] text-[var(--warning)]'
+              }
+            >
               {worktree.clean ? 'Worktree czysty' : `${worktree.total} zmian bez commita`}
             </Badge>
-            <Badge className={synchronized ? 'text-[var(--muted-strong)]' : 'border-[color-mix(in_srgb,var(--warning)_20%,transparent)] text-[var(--warning)]'}>
+            <Badge
+              className={
+                synchronized
+                  ? 'text-[var(--muted-strong)]'
+                  : 'border-[color-mix(in_srgb,var(--warning)_20%,transparent)] text-[var(--warning)]'
+              }
+            >
               {synchronized ? 'Branch zsynchronizowany' : 'Git wymaga uwagi'}
             </Badge>
           </div>
         </div>
-        <RetryButton size="icon" onClick={onRefresh} loading={refreshing || executing} label="Odśwież bramki workflow" />
+        <RetryButton
+          size="icon"
+          onClick={onRefresh}
+          loading={refreshing || executing}
+          label="Odśwież bramki workflow"
+        />
       </div>
 
       <div className="mt-4 space-y-2 text-[10px] leading-5 text-[var(--muted)]">
-        <p className="flex items-center gap-2"><GitBranch className="size-3.5 text-[var(--accent)]" /><span className="truncate font-mono">{worktree.branch}</span></p>
+        <p className="flex items-center gap-2">
+          <GitBranch className="size-3.5 text-[var(--accent)]" />
+          <span className="truncate font-mono">{worktree.branch}</span>
+        </p>
         {!worktree.clean && (
-          <p><span className="text-[var(--muted-strong)]">Staged:</span> {worktree.staged} · <span className="text-[var(--muted-strong)]">unstaged:</span> {worktree.unstaged} · <span className="text-[var(--muted-strong)]">untracked:</span> {worktree.untracked}</p>
+          <p>
+            <span className="text-[var(--muted-strong)]">Staged:</span> {worktree.staged} ·{' '}
+            <span className="text-[var(--muted-strong)]">unstaged:</span> {worktree.unstaged} ·{' '}
+            <span className="text-[var(--muted-strong)]">untracked:</span> {worktree.untracked}
+          </p>
         )}
         {worktree.hasUpstream ? (
-          <p className="flex items-center gap-2"><GitCommitHorizontal className="size-3.5" />Ahead {worktree.ahead ?? 0} · behind {worktree.behind ?? 0}</p>
+          <p className="flex items-center gap-2">
+            <GitCommitHorizontal className="size-3.5" />
+            Ahead {worktree.ahead ?? 0} · behind {worktree.behind ?? 0}
+          </p>
         ) : (
           <p className="text-[color-mix(in_srgb,var(--warning-strong)_80%,transparent)]">Branch nie ma upstreamu.</p>
         )}
@@ -95,21 +117,26 @@ export function RepositoryActionsCard({
 
       {!worktree.clean && worktree.files.length > 0 && (
         <details className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2">
-          <summary className="cursor-pointer text-[10px] font-semibold text-[var(--muted-strong)]">Pokaż zmienione pliki</summary>
+          <summary className="cursor-pointer text-[10px] font-semibold text-[var(--muted-strong)]">
+            Pokaż zmienione pliki
+          </summary>
           <ul className="mt-2 space-y-1 font-mono text-[9px] leading-4 text-[var(--muted)]">
-            {worktree.files.slice(0, 8).map(file => <li key={`${file.status}:${file.path}`} className="break-all">{file.status} {file.path}</li>)}
+            {worktree.files.slice(0, 8).map((file) => (
+              <li key={`${file.status}:${file.path}`} className="break-all">
+                {file.status} {file.path}
+              </li>
+            ))}
             {worktree.files.length > 8 && <li>…i {worktree.files.length - 8} więcej</li>}
           </ul>
         </details>
       )}
 
-      <Button
-        className="mt-4 w-full"
-        size="sm"
-        disabled={!data.finalize.enabled || executing}
-        onClick={onFinalize}
-      >
-        {executing ? <LoaderCircle className="mr-2 size-3.5 animate-spin" /> : <ShieldCheck className="mr-2 size-3.5" />}
+      <Button className="mt-4 w-full" size="sm" disabled={!data.finalize.enabled || executing} onClick={onFinalize}>
+        {executing ? (
+          <LoaderCircle className="mr-2 size-3.5 animate-spin" />
+        ) : (
+          <ShieldCheck className="mr-2 size-3.5" />
+        )}
         Finalizuj specyfikację
       </Button>
       {!data.finalize.enabled && data.finalize.reason && (
@@ -151,7 +178,11 @@ export function TaskActionFooter({
         </p>
       </div>
       <Button size="sm" disabled={!gate.enabled || executing} onClick={onExecute}>
-        {executing ? <LoaderCircle className="mr-2 size-3.5 animate-spin" /> : <CheckCircle2 className="mr-2 size-3.5" />}
+        {executing ? (
+          <LoaderCircle className="mr-2 size-3.5 animate-spin" />
+        ) : (
+          <CheckCircle2 className="mr-2 size-3.5" />
+        )}
         {label}
       </Button>
     </div>
@@ -191,14 +222,37 @@ export function FinalizeDialog({
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/75 p-0 backdrop-blur-sm sm:items-center sm:p-6" onMouseDown={event => { if (event.target === event.currentTarget && !executing) onClose(); }}>
-      <div ref={dialogRef} role="alertdialog" aria-modal="true" aria-labelledby="finalize-dialog-title" className="w-full max-w-lg overflow-hidden rounded-t-2xl border border-[var(--border)] bg-[var(--background)] shadow-2xl sm:rounded-2xl">
+    <div
+      className="fixed inset-0 z-[60] flex items-end justify-center bg-black/75 p-0 backdrop-blur-sm sm:items-center sm:p-6"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !executing) onClose();
+      }}
+    >
+      <div
+        ref={dialogRef}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="finalize-dialog-title"
+        className="w-full max-w-lg overflow-hidden rounded-t-2xl border border-[var(--border)] bg-[var(--background)] shadow-2xl sm:rounded-2xl"
+      >
         <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface)] px-5 py-4 sm:px-6">
           <div>
-            <Badge className="border-[color-mix(in_srgb,var(--warning)_20%,transparent)] bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] text-[var(--warning)]">Operacja końcowa</Badge>
-            <h2 id="finalize-dialog-title" className="mt-3 text-lg font-semibold text-[var(--foreground)]">Finalizować specyfikację?</h2>
+            <Badge className="border-[color-mix(in_srgb,var(--warning)_20%,transparent)] bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] text-[var(--warning)]">
+              Operacja końcowa
+            </Badge>
+            <h2 id="finalize-dialog-title" className="mt-3 text-lg font-semibold text-[var(--foreground)]">
+              Finalizować specyfikację?
+            </h2>
           </div>
-          <Button variant="ghost" size="icon" disabled={executing} onClick={onClose} aria-label="Zamknij dialog finalizacji"><X className="size-4" /></Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            disabled={executing}
+            onClick={onClose}
+            aria-label="Zamknij dialog finalizacji"
+          >
+            <X className="size-4" />
+          </Button>
         </div>
         <div className="px-5 py-5 text-xs leading-6 text-[var(--muted-strong)] sm:px-6">
           <p>Dashboard uruchomi istniejący flow NEvo bez zmian jego semantyki:</p>
@@ -209,12 +263,23 @@ export function FinalizeDialog({
             <li>scali pull request,</li>
             <li>uruchomi kontrolę po merge i posprząta branch.</li>
           </ol>
-          {error && <div className="mt-4 flex gap-2 rounded-lg border border-[color-mix(in_srgb,var(--danger)_20%,transparent)] bg-[color-mix(in_srgb,var(--danger)_8%,transparent)] px-3 py-2 text-[var(--danger-strong)]"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{error}</div>}
+          {error && (
+            <div className="mt-4 flex gap-2 rounded-lg border border-[color-mix(in_srgb,var(--danger)_20%,transparent)] bg-[color-mix(in_srgb,var(--danger)_8%,transparent)] px-3 py-2 text-[var(--danger-strong)]">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+              {error}
+            </div>
+          )}
         </div>
         <div className="flex justify-end gap-2 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-4 sm:px-6">
-          <Button ref={cancelRef} variant="secondary" size="sm" disabled={executing} onClick={onClose}>Anuluj</Button>
+          <Button ref={cancelRef} variant="secondary" size="sm" disabled={executing} onClick={onClose}>
+            Anuluj
+          </Button>
           <Button size="sm" disabled={executing} onClick={onConfirm}>
-            {executing ? <LoaderCircle className="mr-2 size-3.5 animate-spin" /> : <ShieldCheck className="mr-2 size-3.5" />}
+            {executing ? (
+              <LoaderCircle className="mr-2 size-3.5 animate-spin" />
+            ) : (
+              <ShieldCheck className="mr-2 size-3.5" />
+            )}
             {executing ? 'Finalizowanie…' : 'Finalizuj i wypchnij'}
           </Button>
         </div>

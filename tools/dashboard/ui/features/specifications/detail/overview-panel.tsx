@@ -1,8 +1,4 @@
-import {
-  ArrowUpRight,
-  Layers3,
-  MessageSquarePlus,
-} from 'lucide-react';
+import { ArrowUpRight, Layers3, MessageSquarePlus } from 'lucide-react';
 
 import type {
   SpecificationSummary,
@@ -49,8 +45,29 @@ export function OverviewPanel({
   return (
     <>
       <section className="mb-9" aria-label="Ostatnie sesje specyfikacji">
-        <div className="mb-4 flex items-end justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Sesje AI</p><h2 className="mt-1 text-xl font-semibold text-[var(--foreground)]">Ostatnie rozmowy</h2></div>{specification.source === 'active' && specification.specId && <Button size="sm" onClick={onCreateSession}><MessageSquarePlus className="mr-1.5 size-3.5" />Nowa sesja</Button>}</div>
-        <AgentSessionList sessions={sessions} tasks={specification.tasks} loading={sessionsLoading} error={sessionsError} onRetry={onSessionsRetry} onOpen={onOpenSession} onOpenTask={onOpenTask} limit={8} emptyLabel="Brak sesji dla tej specyfikacji." />
+        <div className="mb-4 flex items-end justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-bold tracking-[0.18em] text-[var(--accent)] uppercase">Sesje AI</p>
+            <h2 className="mt-1 text-xl font-semibold text-[var(--foreground)]">Ostatnie rozmowy</h2>
+          </div>
+          {specification.source === 'active' && specification.specId && (
+            <Button size="sm" onClick={onCreateSession}>
+              <MessageSquarePlus className="mr-1.5 size-3.5" />
+              Nowa sesja
+            </Button>
+          )}
+        </div>
+        <AgentSessionList
+          sessions={sessions}
+          tasks={specification.tasks}
+          loading={sessionsLoading}
+          error={sessionsError}
+          onRetry={onSessionsRetry}
+          onOpen={onOpenSession}
+          onOpenTask={onOpenTask}
+          limit={8}
+          emptyLabel="Brak sesji dla tej specyfikacji."
+        />
       </section>
       {actions}
 
@@ -61,8 +78,10 @@ export function OverviewPanel({
               <ArrowUpRight className="size-4" />
             </div>
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--muted)]">
-                {specification.nextTask.status === 'in-implementation' ? 'Aktualnie realizowane' : 'Następne gotowe zadanie'}
+              <p className="text-[10px] font-bold tracking-[0.16em] text-[var(--muted)] uppercase">
+                {specification.nextTask.status === 'in-implementation'
+                  ? 'Aktualnie realizowane'
+                  : 'Następne gotowe zadanie'}
               </p>
               <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">{specification.nextTask.title}</p>
             </div>

@@ -40,10 +40,7 @@ export interface InteractionPresentationRowV2 {
 }
 
 export type TimelineRowV2 =
-  | ToolGroupPresentationRowV2
-  | CommentaryPresentationRowV2
-  | ReasoningPresentationRowV2
-  | InteractionPresentationRowV2;
+  ToolGroupPresentationRowV2 | CommentaryPresentationRowV2 | ReasoningPresentationRowV2 | InteractionPresentationRowV2;
 
 export interface ProjectedTimelineV2 {
   allRows: TimelineRowV2[];
@@ -166,10 +163,7 @@ export function buildTimelineRowsV2(historicalWork: WorkItemV2[]): TimelineRowV2
  * For long turns, renders only a bounded, useful chronological summary and accurately
  * counts hidden canonical history for the "+N more in Work Details →" affordance.
  */
-export function projectTimelineV2(
-  historicalWork: WorkItemV2[],
-  options?: { maxRows?: number },
-): ProjectedTimelineV2 {
+export function projectTimelineV2(historicalWork: WorkItemV2[], options?: { maxRows?: number }): ProjectedTimelineV2 {
   const maxRows = options?.maxRows ?? DEFAULT_L2_MAX_VISIBLE_ROWS;
   const allRows = buildTimelineRowsV2(historicalWork);
 

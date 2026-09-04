@@ -16,14 +16,17 @@ export function FinalAnswerViewV2({ finalAnswer }: FinalAnswerViewV2Props) {
   if (!finalAnswer || finalAnswer.status === 'absent') return null;
 
   return (
-    <div className="w-full min-w-0 max-w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm leading-6 text-[var(--foreground)]">
+    <div className="w-full max-w-full min-w-0 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm leading-6 text-[var(--foreground)]">
       {finalAnswer.status === 'pending' ? (
-        <span className="italic text-[var(--muted)]">Oczekiwanie na odpowiedź końcową…</span>
+        <span className="text-[var(--muted)] italic">Oczekiwanie na odpowiedź końcową…</span>
       ) : (
         <MarkdownContent markdown={finalAnswer.text} className="text-[var(--foreground)]" />
       )}
       {finalAnswer.status === 'streaming' && (
-        <LoaderCircle className="ml-1.5 inline size-3.5 animate-spin align-middle text-[var(--accent)]" aria-label="Generowanie w toku" />
+        <LoaderCircle
+          className="ml-1.5 inline size-3.5 animate-spin align-middle text-[var(--accent)]"
+          aria-label="Generowanie w toku"
+        />
       )}
     </div>
   );

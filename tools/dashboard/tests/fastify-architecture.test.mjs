@@ -35,14 +35,14 @@ function listMjsFiles(dir) {
 // construction, not by name.
 function discoverCapabilityDirs() {
   return readdirSync(serverDir, { withFileTypes: true })
-    .filter(entry => entry.isDirectory())
-    .map(entry => entry.name)
-    .filter(name => existsSync(join(serverDir, name, 'routes.mjs')))
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((name) => existsSync(join(serverDir, name, 'routes.mjs')))
     .sort();
 }
 
 const CAPABILITY_DIRS = discoverCapabilityDirs();
-const capabilityFiles = CAPABILITY_DIRS.flatMap(dir => listMjsFiles(join(serverDir, dir)));
+const capabilityFiles = CAPABILITY_DIRS.flatMap((dir) => listMjsFiles(join(serverDir, dir)));
 
 // Files where `reply.hijack()`/`reply.raw` is legitimate: genuine SSE
 // streaming boundaries, not a substitute for Fastify's own routing. (No
@@ -124,9 +124,21 @@ test('the AI capability has no second, internal URL router (no pathname regex/pr
 });
 
 test('the retired handwritten AI dispatcher no longer exists', () => {
-  assert.equal(existsSync(join(serverDir, 'ai-routes.mjs')), false, 'ai-routes.mjs (the old pathname-dispatch HTTP router) should have been removed, not just unused.');
-  assert.equal(existsSync(join(serverDir, 'routes')), false, 'server/routes/ (the old central routing directory) should have been removed in favor of sibling vertical-slice capability folders.');
-  assert.equal(existsSync(join(serverDir, 'ai', 'routes.mjs')), true, 'ai/routes.mjs (the real Fastify-route AI capability entry point) should exist.');
+  assert.equal(
+    existsSync(join(serverDir, 'ai-routes.mjs')),
+    false,
+    'ai-routes.mjs (the old pathname-dispatch HTTP router) should have been removed, not just unused.',
+  );
+  assert.equal(
+    existsSync(join(serverDir, 'routes')),
+    false,
+    'server/routes/ (the old central routing directory) should have been removed in favor of sibling vertical-slice capability folders.',
+  );
+  assert.equal(
+    existsSync(join(serverDir, 'ai', 'routes.mjs')),
+    true,
+    'ai/routes.mjs (the real Fastify-route AI capability entry point) should exist.',
+  );
 });
 
 test('every discovered capability uses the same "routes.mjs" entry-point name', () => {
@@ -141,21 +153,27 @@ test('every discovered capability uses the same "routes.mjs" entry-point name', 
 
 test('the old readJsonBody/sendJson transport helpers have no remaining callers', () => {
   const source = readFileSync(join(serverDir, 'specs', 'http-utils.mjs'), 'utf8');
-  assert.ok(!/readJsonBody/.test(source), 'readJsonBody should have been removed once every route moved to Fastify\'s own body parsing.');
-  assert.ok(!/sendJson/.test(source), 'sendJson should have been removed once every route moved to Fastify\'s own reply API.');
+  assert.ok(
+    !/readJsonBody/.test(source),
+    "readJsonBody should have been removed once every route moved to Fastify's own body parsing.",
+  );
+  assert.ok(
+    !/sendJson/.test(source),
+    "sendJson should have been removed once every route moved to Fastify's own reply API.",
+  );
 });
 
 test('app.mjs only owns the lifecycle hook for the one genuinely shared resource it constructs (operationRuntime), never a preClose', () => {
   const appSource = readFileSync(join(serverDir, 'app.mjs'), 'utf8');
   assert.ok(
     !/addHook\s*\(\s*['"]preClose['"]/.test(appSource),
-    'app.mjs registers a preClose hook — connection-draining/request-lifecycle concerns belong inside a capability\'s own routes.mjs, not the composition root.',
+    "app.mjs registers a preClose hook — connection-draining/request-lifecycle concerns belong inside a capability's own routes.mjs, not the composition root.",
   );
   const onCloseMatches = appSource.match(/addHook\s*\(\s*['"]onClose['"]/g) || [];
   assert.equal(
     onCloseMatches.length,
     1,
-    'app.mjs should register exactly one onClose hook — for the shared operationRuntime it constructs (see its own comment). Any other capability\'s shutdown belongs inside that capability\'s own routes.mjs.',
+    "app.mjs should register exactly one onClose hook — for the shared operationRuntime it constructs (see its own comment). Any other capability's shutdown belongs inside that capability's own routes.mjs.",
   );
 });
 
@@ -206,6 +224,6 @@ test('the removed global permissive JSON parser has no remaining trace', () => {
   const source = readFileSync(join(serverDir, 'infrastructure', 'http.mjs'), 'utf8');
   assert.ok(
     !/removeAllContentTypeParsers|addContentTypeParser/.test(source),
-    'infrastructure/http.mjs still registers a custom content-type parser — Fastify\'s own application/json parsing should be used instead (see its own comment).',
+    "infrastructure/http.mjs still registers a custom content-type parser — Fastify's own application/json parsing should be used instead (see its own comment).",
   );
 });

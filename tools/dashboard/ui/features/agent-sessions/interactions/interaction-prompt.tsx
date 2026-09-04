@@ -22,29 +22,18 @@ export function PermissionPrompt({
           <p className="text-sm font-semibold text-[var(--foreground)]">
             Wymagana zgoda: <span className="font-mono text-[var(--accent)]">{interaction.toolName}</span>
           </p>
-          {interaction.details && (
-            <p className="mt-1 text-xs text-[var(--muted)]">{interaction.details}</p>
-          )}
+          {interaction.details && <p className="mt-1 text-xs text-[var(--muted)]">{interaction.details}</p>}
           {interaction.input && (
             <pre className="mt-3 max-h-40 overflow-auto rounded-lg border border-[var(--border)] bg-black/30 p-3 font-mono text-[10px] text-[var(--muted-strong)]">
               {JSON.stringify(interaction.input, null, 2)}
             </pre>
           )}
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              disabled={disabled}
-              onClick={() => onResolve({ decision: 'allow' })}
-            >
+            <Button size="sm" disabled={disabled} onClick={() => onResolve({ decision: 'allow' })}>
               <Check className="mr-1.5 size-3.5" />
               Zezwól
             </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={disabled}
-              onClick={() => onResolve({ decision: 'deny' })}
-            >
+            <Button size="sm" variant="secondary" disabled={disabled} onClick={() => onResolve({ decision: 'deny' })}>
               <X className="mr-1.5 size-3.5" />
               Odmów
             </Button>
@@ -86,9 +75,7 @@ export function QuestionPrompt({
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 {question.options.map((option) => {
                   const current = answers[question.id];
-                  const checked = Array.isArray(current)
-                    ? current.includes(option.label)
-                    : current === option.label;
+                  const checked = Array.isArray(current) ? current.includes(option.label) : current === option.label;
 
                   return (
                     <label
@@ -97,7 +84,7 @@ export function QuestionPrompt({
                         'flex cursor-pointer gap-2 rounded-lg border p-3 text-xs transition-colors',
                         checked
                           ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] text-[var(--foreground)]'
-                          : 'border-[var(--border)] text-[var(--muted-strong)] hover:border-white/20'
+                          : 'border-[var(--border)] text-[var(--muted-strong)] hover:border-white/20',
                       )}
                     >
                       <input
@@ -108,9 +95,7 @@ export function QuestionPrompt({
                           setCustomAnswers((prev) => ({ ...prev, [question.id]: '' }));
                           setAnswers((prev) => {
                             if (!question.multiSelect) return { ...prev, [question.id]: option.label };
-                            const values = Array.isArray(prev[question.id])
-                              ? (prev[question.id] as string[])
-                              : [];
+                            const values = Array.isArray(prev[question.id]) ? (prev[question.id] as string[]) : [];
                             return {
                               ...prev,
                               [question.id]: checked
@@ -137,7 +122,7 @@ export function QuestionPrompt({
                     'rounded-lg border p-3 text-xs sm:col-span-2',
                     customAnswers[question.id]
                       ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]'
-                      : 'border-[var(--border)]'
+                      : 'border-[var(--border)]',
                   )}
                 >
                   <span className="font-semibold text-[var(--foreground)]">Inna odpowiedź</span>
@@ -150,11 +135,7 @@ export function QuestionPrompt({
                       setCustomAnswers((prev) => ({ ...prev, [question.id]: value }));
                       setAnswers((prev) => ({
                         ...prev,
-                        [question.id]: question.multiSelect
-                          ? value.trim()
-                            ? [value]
-                            : []
-                          : value,
+                        [question.id]: question.multiSelect ? (value.trim() ? [value] : []) : value,
                       }));
                     }}
                   />
@@ -164,9 +145,7 @@ export function QuestionPrompt({
               <input
                 className="mt-2 h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-base outline-none focus:border-[var(--accent)] sm:text-sm"
                 value={typeof answers[question.id] === 'string' ? (answers[question.id] as string) : ''}
-                onChange={(event) =>
-                  setAnswers((prev) => ({ ...prev, [question.id]: event.target.value }))
-                }
+                onChange={(event) => setAnswers((prev) => ({ ...prev, [question.id]: event.target.value }))}
               />
             )}
           </fieldset>

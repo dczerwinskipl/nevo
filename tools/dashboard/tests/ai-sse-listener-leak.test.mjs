@@ -48,7 +48,7 @@ async function waitFor(read, predicate, message = 'condition') {
   for (let i = 0; i < 200; i += 1) {
     const value = await read();
     if (predicate(value)) return value;
-    await new Promise(resolve => setTimeout(resolve, 5));
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
   assert.fail(`Timed out waiting for: ${message}`);
 }
@@ -57,7 +57,9 @@ test('SSE replay burst never lets ServerResponse drain/error listeners exceed a 
   const DELTA_COUNT = 60; // comfortably more than Node's default maxListeners (10)
   const provider = createChattyProvider(DELTA_COUNT);
   const registry = createAgentProviderRegistry([provider]);
-  const transcriptCache = createTranscriptCacheService({ baseDir: join(tmpdir(), `nevo-ai-sse-leak-test-${randomUUID()}`) });
+  const transcriptCache = createTranscriptCacheService({
+    baseDir: join(tmpdir(), `nevo-ai-sse-leak-test-${randomUUID()}`),
+  });
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
   const service = createAgentSessionService({ registry, turnRuntime, transcriptCache });
 
@@ -96,7 +98,8 @@ test('SSE replay burst never lets ServerResponse drain/error listeners exceed a 
       if (event !== 'drain' && event !== 'error') return originalOnce(event, listener);
       const wrapped = (...args) => {
         wrapperByListener.delete(listener);
-        if (event === 'drain') pendingOnceDrain -= 1; else pendingOnceError -= 1;
+        if (event === 'drain') pendingOnceDrain -= 1;
+        else pendingOnceError -= 1;
         return listener(...args);
       };
       wrapperByListener.set(listener, wrapped);
@@ -114,7 +117,8 @@ test('SSE replay burst never lets ServerResponse drain/error listeners exceed a 
       const wrapped = wrapperByListener.get(listener);
       if (wrapped) {
         wrapperByListener.delete(listener);
-        if (event === 'drain') pendingOnceDrain -= 1; else pendingOnceError -= 1;
+        if (event === 'drain') pendingOnceDrain -= 1;
+        else pendingOnceError -= 1;
         return originalOff(event, wrapped);
       }
       return originalOff(event, listener);
@@ -126,7 +130,11 @@ test('SSE replay burst never lets ServerResponse drain/error listeners exceed a 
   try {
     const providerSessionId = 'chatty-session-1';
     const { turnId } = await service.startTurn('chatty', providerSessionId, { message: 'go' });
-    await waitFor(() => service.getTurn(turnId), snap => snap.status === 'completed', 'turn completion');
+    await waitFor(
+      () => service.getTurn(turnId),
+      (snap) => snap.status === 'completed',
+      'turn completion',
+    );
 
     // Reconnect with after=0: subscribeToSession() replays every buffered event for
     // this session synchronously in one tight loop — the exact reconnect-with-backlog
@@ -140,7 +148,7 @@ test('SSE replay burst never lets ServerResponse drain/error listeners exceed a 
 
     // Give the serialized send queue a chance to actually attempt writes (each write
     // is forced into the backpressure branch above).
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     controller.abort();
     await response.body?.cancel?.().catch(() => {});

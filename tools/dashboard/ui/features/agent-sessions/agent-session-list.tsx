@@ -93,11 +93,7 @@ export function AgentSessionRow({
   const isAvailable = providerInfo?.available !== false;
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const taskList = session.taskIds?.length
-    ? session.taskIds
-    : session.taskId
-    ? [session.taskId]
-    : [];
+  const taskList = session.taskIds?.length ? session.taskIds : session.taskId ? [session.taskId] : [];
   const timeStr = session.lastActivityAt || session.lastSeenAt || session.createdAt;
 
   return (
@@ -109,14 +105,14 @@ export function AgentSessionRow({
         }
       }}
       className={cn(
-        'group relative flex min-w-0 w-full items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-left transition-colors hover:border-[color-mix(in_srgb,var(--accent)_38%,var(--border))] hover:bg-[var(--surface-raised)] cursor-pointer',
-        compact ? 'p-3' : 'p-4'
+        'group relative flex w-full min-w-0 cursor-pointer items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-left transition-colors hover:border-[color-mix(in_srgb,var(--accent)_38%,var(--border))] hover:bg-[var(--surface-raised)]',
+        compact ? 'p-3' : 'p-4',
       )}
     >
       <button
         type="button"
         onClick={() => onOpen(session)}
-        className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--accent)] transition-colors hover:border-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+        className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--accent)] transition-colors hover:border-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:outline-none"
         aria-label={`Otwórz sesję: ${sessionTitle(session)}`}
       >
         <MessagesSquare className="size-4" />
@@ -125,9 +121,9 @@ export function AgentSessionRow({
         <button
           type="button"
           onClick={() => onOpen(session)}
-          className="flex w-full items-start justify-between gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
+          className="flex w-full items-start justify-between gap-2 rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
         >
-          <p className="truncate text-sm font-semibold text-[var(--foreground)] hover:text-[var(--accent)] transition-colors">
+          <p className="truncate text-sm font-semibold text-[var(--foreground)] transition-colors hover:text-[var(--accent)]">
             {sessionTitle(session)}
           </p>
           <span
@@ -168,7 +164,7 @@ export function AgentSessionRow({
                       key={taskId}
                       type="button"
                       onClick={() => onOpenTask({ taskId })}
-                      className="inline-flex max-w-[240px] items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground)] transition-colors hover:border-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] hover:text-[var(--accent)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] cursor-pointer"
+                      className="inline-flex max-w-[240px] cursor-pointer items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground)] transition-colors hover:border-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] hover:text-[var(--accent)] focus-visible:ring-1 focus-visible:ring-[var(--accent)] focus-visible:outline-none"
                       title={`Otwórz szczegóły zadania: ${label}`}
                     >
                       <CheckSquare className="size-2.5 shrink-0 text-[var(--accent)]" />
@@ -206,7 +202,7 @@ export function AgentSessionRow({
             }
           }}
           disabled={isDeleting}
-          className="absolute right-1 top-1 flex size-11 items-center justify-center rounded-lg text-[var(--muted)] opacity-70 transition-all hover:bg-[var(--danger-muted)] hover:text-[var(--danger)] hover:opacity-100 focus:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--danger)] disabled:opacity-30"
+          className="absolute top-1 right-1 flex size-11 items-center justify-center rounded-lg text-[var(--muted)] opacity-70 transition-all hover:bg-[var(--danger-muted)] hover:text-[var(--danger)] hover:opacity-100 focus:opacity-100 focus-visible:ring-2 focus-visible:ring-[var(--danger)] focus-visible:outline-none disabled:opacity-30"
         >
           {isDeleting ? <LoaderCircle className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
         </button>
@@ -241,12 +237,14 @@ export function AgentSessionList({
   const [showAll, setShowAll] = useState(false);
   const deleteMutation = useDeleteAgentSession();
 
-  const handleDelete = onDelete || (async (session: AgentSession) => {
-    await deleteMutation.deleteSession({
-      provider: session.provider,
-      sessionId: session.providerSessionId || session.sessionId,
+  const handleDelete =
+    onDelete ||
+    (async (session: AgentSession) => {
+      await deleteMutation.deleteSession({
+        provider: session.provider,
+        sessionId: session.providerSessionId || session.sessionId,
+      });
     });
-  });
 
   if (loading)
     return (
@@ -257,12 +255,7 @@ export function AgentSessionList({
     );
   if (error)
     return (
-      <StatusCard
-        variant="warning"
-        title="Nie udało się wczytać sesji AI"
-        description={error}
-        onRetry={onRetry}
-      />
+      <StatusCard variant="warning" title="Nie udało się wczytać sesji AI" description={error} onRetry={onRetry} />
     );
   if (!sessions.length)
     return (
@@ -288,12 +281,7 @@ export function AgentSessionList({
       </div>
       {limit && sorted.length > limit && (
         <div className="pt-1">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setShowAll((prev) => !prev)}
-            className="text-xs"
-          >
+          <Button variant="secondary" size="sm" onClick={() => setShowAll((prev) => !prev)} className="text-xs">
             {showAll ? (
               <>
                 <ChevronUp className="mr-1.5 size-3.5" />
