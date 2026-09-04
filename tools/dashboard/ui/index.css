@@ -1,5 +1,48 @@
 @import 'tailwindcss';
 
+@theme static {
+  /* Neutral foundation */
+  --color-background: #090a0d;
+  --color-surface: #0f1116;
+  --color-surface-raised: #14171d;
+  --color-surface-hover: #191d24;
+  --color-border: #252a33;
+  --color-border-strong: #343b47;
+
+  /* Foreground hierarchy */
+  --color-fg-primary: #f1f3f5;
+  --color-fg-secondary: #c7cdd6;
+  --color-fg-muted: #929baa;
+  --color-fg-on-accent: #f8fafc;
+
+  /* Interaction */
+  --color-accent: #3882f6;
+  --color-accent-solid: #1d4ed8;
+
+  /* Canonical status */
+  --color-status-success: #35c76f;
+  --color-status-warning: #f59e0b;
+  --color-status-error: #ef4444;
+  --color-status-attention: #a78bfa;
+  --color-status-info: #06b6d4;
+
+  /* Action role */
+  --color-action-destructive: #ef4444;
+
+  /* Provider / workflow */
+  --color-provider-claude: #fb923c;
+  --color-provider-antigravity: #60a5fa;
+  --color-workflow-design: #8b5cf6;
+
+  /* Overlay */
+  --color-backdrop: rgb(0 0 0 / 70%);
+}
+
+@theme static inline {
+  --color-status-active: var(--color-accent);
+  --color-status-neutral: var(--color-fg-muted);
+}
+
 :root {
   color-scheme: dark;
   /* Neutral foundation. These values must never be derived from --accent. */
