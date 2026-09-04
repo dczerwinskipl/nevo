@@ -22,7 +22,7 @@ function parseFlags(argv) {
   }
 
   const result = {};
-  const supported = new Set(['host', 'port', 'api-port']);
+  const supported = new Set(['host', 'port', 'http-port', 'api-port', 'https-port']);
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -47,10 +47,32 @@ export function dashboardNetworkConfig({ argv = process.argv.slice(2), env = pro
     throw new Error(`Dashboard host must be an IP address or hostname without a protocol, got '${host}'.`);
   }
 
+  // `--http-port` / NEVO_DASHBOARD_HTTP_PORT is an alias for `--port` /
+  // NEVO_DASHBOARD_PORT — same meaning (the plain-HTTP port, or the only
+  // port when no TLS cert is configured), added so it can read symmetrically
+  // next to `--https-port`. Neither is deprecated; existing scripts using
+  // `--port` keep working unchanged.
+  const port = parsePort(
+    flags['http-port'] ||
+      flags.port ||
+      env.NEVO_DASHBOARD_HTTP_PORT ||
+      env.NEVO_DASHBOARD_PORT ||
+      env.PORT ||
+      DEFAULT_UI_PORT,
+    'Dashboard port',
+  );
+
   return {
     host,
-    port: parsePort(flags.port || env.NEVO_DASHBOARD_PORT || env.PORT || DEFAULT_UI_PORT, 'Dashboard port'),
+    port,
     apiPort: parsePort(flags['api-port'] || env.NEVO_DASHBOARD_API_PORT || DEFAULT_API_PORT, 'Dashboard API port'),
+    // Only consulted when a TLS cert is configured (see server/index.mjs):
+    // the dashboard then serves HTTPS on this port and turns `port` (the
+    // one already bookmarked from before TLS was set up) into a plain-HTTP
+    // redirect to it — the same "legacy HTTP port stays, HTTPS gets a new
+    // one" shape ASP.NET Core's Kestrel uses by default. Defaults to
+    // `port + 1` so most setups need no extra configuration.
+    httpsPort: parsePort(flags['https-port'] || env.NEVO_DASHBOARD_HTTPS_PORT || port + 1, 'Dashboard HTTPS port'),
   };
 }
 

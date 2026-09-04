@@ -92,12 +92,22 @@ npm run dashboard:dev -- --host 100.117.54.81 --port 5317 --api-port 5318
 ```
 
 The equivalent environment variables are `NEVO_DASHBOARD_HOST`,
-`NEVO_DASHBOARD_PORT`, and `NEVO_DASHBOARD_API_PORT`. Command arguments take
+`NEVO_DASHBOARD_PORT` (alias: `NEVO_DASHBOARD_HTTP_PORT` / `--http-port`, for
+symmetry with `--https-port` below), and `NEVO_DASHBOARD_API_PORT`. Command arguments take
 precedence over environment variables. Without overrides, the dashboard remains
 bound to `127.0.0.1` on UI port `4317`; development API port `4318` stays internal.
 In a production-style run, the UI and JSON API share the selected UI
 port and the API is available at `/api/dashboard`. Startup output prints links
 using the configured host and actual ports.
+
+When `tools/dashboard/config/tls-cert.pem` and `tls-key.pem` are both present (generate
+them once with `mkcert -key-file config/tls-key.pem -cert-file config/tls-cert.pem <host>
+localhost 127.0.0.1`), a production-style run (`dashboard:start`) serves HTTPS instead of
+HTTP. HTTPS moves to a new port — `port + 1` by default, or `--https-port` /
+`NEVO_DASHBOARD_HTTPS_PORT` to pick a specific one — while the original `port` keeps
+working as a plain-HTTP redirect to it, so an existing bookmark or firewall rule for that
+port doesn't break. Without a cert, the dashboard falls back to plain HTTP on `port`
+exactly as before, with no https port involved.
 
 The reproducible browser assets are generated under `tools/dashboard/dist/` and are
 ignored by Git. That directory, together with `tools/dashboard/server/`, is the future
