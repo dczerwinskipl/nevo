@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T13:59:49.275Z",
+  "generated": "2026-09-04T14:23:52.931Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -815,10 +815,33 @@
           "id": "theme-contract",
           "order": 3,
           "file": "tasks/03-theme-contract.md",
-          "status": "draft",
+          "status": "implemented",
           "depends_on": [
             "frontend-formatter-baseline"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "51b2599896ebec83241cdde64b5963fb213200b3",
+            "review_revision": "fc27375e2e7636f2e2cc068b357f61423c9766d3",
+            "changed_paths": [
+              "tools/dashboard/ui/index.css"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "c470e30c0eaa6512eeccd5411a85ef3f84b6a6a31c89a047667d5fc512ee3dc1",
+            "revision": "fc27375e2e7636f2e2cc068b357f61423c9766d3",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "shared-ui-primitives",
