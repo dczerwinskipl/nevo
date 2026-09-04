@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, userEvent, within } from 'storybook/test';
+import { expect, userEvent, waitFor, within } from 'storybook/test';
 import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
 
@@ -11,101 +11,15 @@ import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle, SheetDescri
 import { StatusCard, RetryButton } from './status-card';
 import { Progress } from './progress';
 import { LoadingScreen } from '@/shared/ui/loading-screen';
-
-// --- Color & Contrast Utilities ---
-
-function parseColorToRgba(str: string): [number, number, number, number] {
-  // If rgba / rgb format:
-  const rgbMatch = str.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
-  if (rgbMatch) {
-    return [
-      parseInt(rgbMatch[1], 10),
-      parseInt(rgbMatch[2], 10),
-      parseInt(rgbMatch[3], 10),
-      rgbMatch[4] !== undefined ? parseFloat(rgbMatch[4]) : 1,
-    ];
-  }
-
-  // If oklab format: oklab(L a b / alpha) or oklab(L a b)
-  const oklabMatch = str.match(/oklab\(([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)(?:\s*\/\s*([\d.]+%?))?\)/);
-  if (oklabMatch) {
-    const L = parseFloat(oklabMatch[1]);
-    const a = parseFloat(oklabMatch[2]);
-    const b = parseFloat(oklabMatch[3]);
-    let alpha = 1;
-    if (oklabMatch[4]) {
-      alpha = oklabMatch[4].endsWith('%') ? parseFloat(oklabMatch[4]) / 100 : parseFloat(oklabMatch[4]);
-    }
-    const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
-    const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
-    const s_ = L - 0.0894841775 * a - 1.291485548 * b;
-    const l = l_ * l_ * l_;
-    const m = m_ * m_ * m_;
-    const s = s_ * s_ * s_;
-    let r = +4.0767439362 * l - 3.3077115913 * m + 0.2309699292 * s;
-    let g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
-    let bl = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s;
-    r = r <= 0.0031308 ? 12.92 * r : 1.055 * Math.pow(r, 1 / 2.4) - 0.055;
-    g = g <= 0.0031308 ? 12.92 * g : 1.055 * Math.pow(g, 1 / 2.4) - 0.055;
-    bl = bl <= 0.0031308 ? 12.92 * bl : 1.055 * Math.pow(bl, 1 / 2.4) - 0.055;
-    return [
-      Math.round(Math.max(0, Math.min(255, r * 255))),
-      Math.round(Math.max(0, Math.min(255, g * 255))),
-      Math.round(Math.max(0, Math.min(255, bl * 255))),
-      alpha,
-    ];
-  }
-
-  return [0, 0, 0, 1];
-}
-
-function srgbToLinear(c: number): number {
-  const s = c / 255;
-  return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-}
-
-function relLuminance(rgb: [number, number, number]): number {
-  return 0.2126 * srgbToLinear(rgb[0]) + 0.7152 * srgbToLinear(rgb[1]) + 0.0722 * srgbToLinear(rgb[2]);
-}
-
-function contrastRatio(rgb1: [number, number, number], rgb2: [number, number, number]): number {
-  const l1 = relLuminance(rgb1);
-  const l2 = relLuminance(rgb2);
-  const lighter = Math.max(l1, l2);
-  const darker = Math.min(l1, l2);
-  return (lighter + 0.05) / (darker + 0.05);
-}
-
-function compositeOver(
-  fg: [number, number, number, number],
-  bg: [number, number, number, number],
-): [number, number, number, number] {
-  const alphaOut = fg[3] + bg[3] * (1 - fg[3]);
-  if (alphaOut === 0) return [0, 0, 0, 0];
-  const r = (fg[0] * fg[3] + bg[0] * bg[3] * (1 - fg[3])) / alphaOut;
-  const g = (fg[1] * fg[3] + bg[1] * bg[3] * (1 - fg[3])) / alphaOut;
-  const b = (fg[2] * fg[3] + bg[2] * bg[3] * (1 - fg[3])) / alphaOut;
-  return [Math.round(r), Math.round(g), Math.round(b), alphaOut];
-}
-
-function getEffectiveBackgroundColor(el: HTMLElement): [number, number, number] {
-  const stack: [number, number, number, number][] = [];
-  let curr: HTMLElement | null = el;
-  while (curr && curr !== document.documentElement) {
-    const bg = window.getComputedStyle(curr).backgroundColor;
-    if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') {
-      stack.unshift(parseColorToRgba(bg));
-    }
-    curr = curr.parentElement;
-  }
-  let comp: [number, number, number, number] = [9, 10, 13, 1]; // #090a0d base background
-  for (const layer of stack) {
-    comp = compositeOver(layer, comp);
-  }
-  return [comp[0], comp[1], comp[2]];
-}
-
-// --- Meta ---
+import {
+  resolveLiveTokenComputed,
+  resolveLiveTokenRgba,
+  parseCssColor,
+  contrastRatio,
+  getEffectiveBackgroundColor,
+  hoverWithNoTransition,
+  unhoverWithNoTransition,
+} from './storybook-test-helpers';
 
 const meta: Meta = {
   title: 'Components/UI/SharedPrimitives',
@@ -155,43 +69,50 @@ export const Buttons: Story = {
     // 1. Default button: filled accent-solid with fg-on-accent text
     const btnDefault = canvas.getByTestId('btn-default');
     const styleDefault = window.getComputedStyle(btnDefault);
-    expect(styleDefault.backgroundColor).toBe('rgb(29, 78, 216)'); // --color-accent-solid
-    expect(styleDefault.color).toBe('rgb(248, 250, 252)'); // --color-fg-on-accent
+    expect(styleDefault.backgroundColor).toBe(resolveLiveTokenComputed('--color-accent-solid'));
+    expect(styleDefault.color).toBe(resolveLiveTokenComputed('--color-fg-on-accent'));
 
     // 2. Secondary button: surface-raised with border and fg-primary
     const btnSecondary = canvas.getByTestId('btn-secondary');
     const styleSecondary = window.getComputedStyle(btnSecondary);
-    expect(styleSecondary.backgroundColor).toBe('rgb(20, 23, 29)'); // --color-surface-raised
-    expect(styleSecondary.borderColor).toBe('rgb(37, 42, 51)'); // --color-border
-    expect(styleSecondary.color).toBe('rgb(241, 243, 245)'); // --color-fg-primary
+    expect(styleSecondary.backgroundColor).toBe(resolveLiveTokenComputed('--color-surface-raised'));
+    expect(styleSecondary.borderColor).toBe(resolveLiveTokenComputed('--color-border'));
+    expect(styleSecondary.color).toBe(resolveLiveTokenComputed('--color-fg-primary'));
 
     // 3. Ghost button: muted text, transparent background
     const btnGhost = canvas.getByTestId('btn-ghost');
     const styleGhost = window.getComputedStyle(btnGhost);
-    expect(styleGhost.color).toBe('rgb(146, 155, 170)'); // --color-fg-muted
+    expect(styleGhost.color).toBe(resolveLiveTokenComputed('--color-fg-muted'));
 
     // 4. Disabled button: opacity 50%
     const btnDisabled = canvas.getByTestId('btn-disabled');
     const styleDisabled = window.getComputedStyle(btnDisabled);
     expect(styleDisabled.opacity).toBe('0.5');
 
-    // 5. Destructive button: contrast in default and hover state
+    // 5. Destructive button: outline with text-action-destructive and hover fill
     const btnDestructive = canvas.getByTestId('btn-destructive');
     const styleDestructive = window.getComputedStyle(btnDestructive);
-    expect(styleDestructive.color).toBe('rgb(239, 68, 68)'); // --color-action-destructive
+    expect(styleDestructive.color).toBe(resolveLiveTokenComputed('--color-action-destructive'));
 
-    // Check default contrast against effective background (transparent over surface-raised #14171d)
-    const fgDestructive: [number, number, number] = [239, 68, 68];
+    const destructiveRgba = resolveLiveTokenRgba('--color-action-destructive');
+    const fgDestructive: [number, number, number] = [destructiveRgba[0], destructiveRgba[1], destructiveRgba[2]];
+
+    // Default contrast against effective background
     const defaultBg = getEffectiveBackgroundColor(btnDestructive);
     const defaultContrast = contrastRatio(fgDestructive, defaultBg);
     expect(defaultContrast).toBeGreaterThanOrEqual(4.5);
 
-    // Hover destructive button
-    await userEvent.hover(btnDestructive);
+    // Deterministic hover contrast assertion
+    await hoverWithNoTransition(btnDestructive);
+    await waitFor(() => {
+      const currentBg = window.getComputedStyle(btnDestructive).backgroundColor;
+      expect(currentBg).not.toBe('transparent');
+      expect(currentBg).not.toBe('rgba(0, 0, 0, 0)');
+    });
     const hoverBg = getEffectiveBackgroundColor(btnDestructive);
     const hoverContrast = contrastRatio(fgDestructive, hoverBg);
     expect(hoverContrast).toBeGreaterThanOrEqual(4.5);
-    await userEvent.unhover(btnDestructive);
+    await unhoverWithNoTransition(btnDestructive);
   },
 };
 
@@ -224,21 +145,27 @@ export const DeleteSessionContext: Story = {
     const canvas = within(canvasElement);
     const btn = canvas.getByTestId('delete-session-btn');
     const styleBtn = window.getComputedStyle(btn);
-    expect(styleBtn.color).toBe('rgb(239, 68, 68)'); // --color-action-destructive
+    expect(styleBtn.color).toBe(resolveLiveTokenComputed('--color-action-destructive'));
 
-    const fg: [number, number, number] = [239, 68, 68];
+    const destructiveRgba = resolveLiveTokenRgba('--color-action-destructive');
+    const fgDestructive: [number, number, number] = [destructiveRgba[0], destructiveRgba[1], destructiveRgba[2]];
 
-    // Default state contrast in realistic container
+    // Default state contrast in realistic delete-session container
     const defaultBg = getEffectiveBackgroundColor(btn);
-    const defaultContrast = contrastRatio(fg, defaultBg);
+    const defaultContrast = contrastRatio(fgDestructive, defaultBg);
     expect(defaultContrast).toBeGreaterThanOrEqual(4.5);
 
-    // Hover state contrast in realistic container
-    await userEvent.hover(btn);
+    // Deterministic hover state contrast in realistic container
+    await hoverWithNoTransition(btn);
+    await waitFor(() => {
+      const currentBg = window.getComputedStyle(btn).backgroundColor;
+      expect(currentBg).not.toBe('transparent');
+      expect(currentBg).not.toBe('rgba(0, 0, 0, 0)');
+    });
     const hoverBg = getEffectiveBackgroundColor(btn);
-    const hoverContrast = contrastRatio(fg, hoverBg);
+    const hoverContrast = contrastRatio(fgDestructive, hoverBg);
     expect(hoverContrast).toBeGreaterThanOrEqual(4.5);
-    await userEvent.unhover(btn);
+    await unhoverWithNoTransition(btn);
   },
 };
 
@@ -259,14 +186,14 @@ export const BadgeAndCard: Story = {
 
     const badge = canvas.getByTestId('test-badge');
     const badgeStyle = window.getComputedStyle(badge);
-    expect(badgeStyle.color).toBe('rgb(146, 155, 170)'); // --color-fg-muted
-    expect(badgeStyle.backgroundColor).toBe('rgb(20, 23, 29)'); // --color-surface-raised
-    expect(badgeStyle.borderColor).toBe('rgb(37, 42, 51)'); // --color-border
+    expect(badgeStyle.color).toBe(resolveLiveTokenComputed('--color-fg-muted'));
+    expect(badgeStyle.backgroundColor).toBe(resolveLiveTokenComputed('--color-surface-raised'));
+    expect(badgeStyle.borderColor).toBe(resolveLiveTokenComputed('--color-border'));
 
     const card = canvas.getByTestId('test-card');
     const cardStyle = window.getComputedStyle(card);
-    expect(cardStyle.backgroundColor).toBe('rgb(15, 17, 22)'); // --color-surface
-    expect(cardStyle.borderColor).toBe('rgb(37, 42, 51)'); // --color-border
+    expect(cardStyle.backgroundColor).toBe(resolveLiveTokenComputed('--color-surface'));
+    expect(cardStyle.borderColor).toBe(resolveLiveTokenComputed('--color-border'));
   },
 };
 
@@ -307,26 +234,31 @@ export const DialogInteractive: Story = {
     const content = await within(document.body).findByTestId('dialog-content');
     expect(content).not.toBeNull();
 
-    // 3. Verify overlay token is semantic backdrop: rgba(0, 0, 0, 0.7)
-    const overlay = document.querySelector('.bg-backdrop') as HTMLElement;
+    // 3. Scoped portal selectors for overlay token
+    const portalContainer = content.parentElement;
+    expect(portalContainer).not.toBeNull();
+    const overlay = portalContainer!.querySelector('.bg-backdrop') as HTMLElement;
     expect(overlay).not.toBeNull();
-    const overlayColor = parseColorToRgba(window.getComputedStyle(overlay).backgroundColor);
-    expect(overlayColor[0]).toBe(0);
-    expect(overlayColor[1]).toBe(0);
-    expect(overlayColor[2]).toBe(0);
-    expect(overlayColor[3]).toBeCloseTo(0.7, 1);
+    const overlayColor = parseCssColor(window.getComputedStyle(overlay).backgroundColor);
+    const expectedBackdrop = resolveLiveTokenRgba('--color-backdrop');
+    expect(overlayColor[0]).toBe(expectedBackdrop[0]);
+    expect(overlayColor[1]).toBe(expectedBackdrop[1]);
+    expect(overlayColor[2]).toBe(expectedBackdrop[2]);
+    expect(overlayColor[3]).toBeCloseTo(expectedBackdrop[3], 2);
 
-    // 4. Verify title and description colors
-    const title = within(document.body).getByTestId('dialog-title');
-    expect(window.getComputedStyle(title).color).toBe('rgb(241, 243, 245)'); // --color-fg-primary
+    // 4. Scoped title and description colors
+    const title = within(content).getByTestId('dialog-title');
+    expect(window.getComputedStyle(title).color).toBe(resolveLiveTokenComputed('--color-fg-primary'));
 
-    const desc = within(document.body).getByTestId('dialog-desc');
-    expect(window.getComputedStyle(desc).color).toBe('rgb(146, 155, 170)'); // --color-fg-muted
+    const desc = within(content).getByTestId('dialog-desc');
+    expect(window.getComputedStyle(desc).color).toBe(resolveLiveTokenComputed('--color-fg-muted'));
 
-    // 5. Close dialog
-    const closeBtn = document.querySelector('button[aria-label="Zamknij"]') as HTMLButtonElement;
-    expect(closeBtn).not.toBeNull();
+    // 5. Close dialog and assert content is removed from DOM
+    const closeBtn = within(content).getByRole('button', { name: 'Zamknij' });
     await userEvent.click(closeBtn);
+    await waitFor(() => {
+      expect(document.querySelector('[data-testid="dialog-content"]')).toBeNull();
+    });
   },
 };
 
@@ -365,23 +297,28 @@ export const SheetInteractive: Story = {
     const content = await within(document.body).findByTestId('sheet-content');
     expect(content).not.toBeNull();
 
-    // 3. Verify overlay token
-    const overlay = document.querySelector('.bg-backdrop') as HTMLElement;
+    // 3. Scoped portal selectors for overlay token
+    const portalContainer = content.parentElement;
+    expect(portalContainer).not.toBeNull();
+    const overlay = portalContainer!.querySelector('.bg-backdrop') as HTMLElement;
     expect(overlay).not.toBeNull();
-    const overlayColor = parseColorToRgba(window.getComputedStyle(overlay).backgroundColor);
-    expect(overlayColor[0]).toBe(0);
-    expect(overlayColor[1]).toBe(0);
-    expect(overlayColor[2]).toBe(0);
-    expect(overlayColor[3]).toBeCloseTo(0.7, 1);
+    const overlayColor = parseCssColor(window.getComputedStyle(overlay).backgroundColor);
+    const expectedBackdrop = resolveLiveTokenRgba('--color-backdrop');
+    expect(overlayColor[0]).toBe(expectedBackdrop[0]);
+    expect(overlayColor[1]).toBe(expectedBackdrop[1]);
+    expect(overlayColor[2]).toBe(expectedBackdrop[2]);
+    expect(overlayColor[3]).toBeCloseTo(expectedBackdrop[3], 2);
 
     // 4. Verify sheet content uses surface-raised
     const contentStyle = window.getComputedStyle(content);
-    expect(contentStyle.backgroundColor).toBe('rgb(20, 23, 29)'); // --color-surface-raised
+    expect(contentStyle.backgroundColor).toBe(resolveLiveTokenComputed('--color-surface-raised'));
 
-    // 5. Close sheet
-    const closeBtn = document.querySelector('button[aria-label="Zamknij"]') as HTMLButtonElement;
-    expect(closeBtn).not.toBeNull();
+    // 5. Close sheet and assert content is removed from DOM
+    const closeBtn = within(content).getByRole('button', { name: 'Zamknij' });
     await userEvent.click(closeBtn);
+    await waitFor(() => {
+      expect(document.querySelector('[data-testid="sheet-content"]')).toBeNull();
+    });
   },
 };
 
@@ -419,21 +356,92 @@ export const StatusCards: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    // 1. Icon hover contrast on RetryButton (D4 fix)
+    // 1. Error variant assertions
+    const cardError = canvas.getByTestId('card-error');
+    const styleError = window.getComputedStyle(cardError);
+    expect(styleError.color).toBe(resolveLiveTokenComputed('--color-status-error'));
+    const errorRgb = resolveLiveTokenRgba('--color-status-error');
+    const errorBg = parseCssColor(styleError.backgroundColor);
+    expect(errorBg[3]).toBeCloseTo(0.05, 2);
+    expect([errorBg[0], errorBg[1], errorBg[2]]).toEqual([errorRgb[0], errorRgb[1], errorRgb[2]]);
+    const errorBorder = parseCssColor(styleError.borderColor);
+    expect(errorBorder[3]).toBeCloseTo(0.25, 2);
+    expect([errorBorder[0], errorBorder[1], errorBorder[2]]).toEqual([errorRgb[0], errorRgb[1], errorRgb[2]]);
+
+    const errorIconBadge = cardError.querySelector('.shrink-0.rounded-lg') as HTMLElement;
+    expect(errorIconBadge).not.toBeNull();
+    const errorIconStyle = window.getComputedStyle(errorIconBadge);
+    expect(errorIconStyle.color).toBe(resolveLiveTokenComputed('--color-status-error'));
+    const errorIconBg = parseCssColor(errorIconStyle.backgroundColor);
+    expect(errorIconBg[3]).toBeCloseTo(0.1, 2);
+    expect([errorIconBg[0], errorIconBg[1], errorIconBg[2]]).toEqual([errorRgb[0], errorRgb[1], errorRgb[2]]);
+
+    // 2. Warning variant assertions
+    const cardWarning = canvas.getByTestId('card-warning');
+    const styleWarning = window.getComputedStyle(cardWarning);
+    expect(styleWarning.color).toBe(resolveLiveTokenComputed('--color-status-warning'));
+    const warningRgb = resolveLiveTokenRgba('--color-status-warning');
+    const warningBg = parseCssColor(styleWarning.backgroundColor);
+    expect(warningBg[3]).toBeCloseTo(0.05, 2);
+    expect([warningBg[0], warningBg[1], warningBg[2]]).toEqual([warningRgb[0], warningRgb[1], warningRgb[2]]);
+    const warningBorder = parseCssColor(styleWarning.borderColor);
+    expect(warningBorder[3]).toBeCloseTo(0.25, 2);
+    expect([warningBorder[0], warningBorder[1], warningBorder[2]]).toEqual([
+      warningRgb[0],
+      warningRgb[1],
+      warningRgb[2],
+    ]);
+
+    const warningIconBadge = cardWarning.querySelector('.shrink-0.rounded-lg') as HTMLElement;
+    expect(warningIconBadge).not.toBeNull();
+    const warningIconStyle = window.getComputedStyle(warningIconBadge);
+    expect(warningIconStyle.color).toBe(resolveLiveTokenComputed('--color-status-warning'));
+    const warningIconBg = parseCssColor(warningIconStyle.backgroundColor);
+    expect(warningIconBg[3]).toBeCloseTo(0.1, 2);
+    expect([warningIconBg[0], warningIconBg[1], warningIconBg[2]]).toEqual([
+      warningRgb[0],
+      warningRgb[1],
+      warningRgb[2],
+    ]);
+
+    // 3. Info variant assertions
+    const cardInfo = canvas.getByTestId('card-info');
+    const styleInfo = window.getComputedStyle(cardInfo);
+    expect(styleInfo.color).toBe(resolveLiveTokenComputed('--color-fg-primary'));
+    expect(styleInfo.backgroundColor).toBe(resolveLiveTokenComputed('--color-surface'));
+    expect(styleInfo.borderColor).toBe(resolveLiveTokenComputed('--color-border'));
+
+    const infoIconBadge = cardInfo.querySelector('.shrink-0.rounded-lg') as HTMLElement;
+    expect(infoIconBadge).not.toBeNull();
+    const infoIconStyle = window.getComputedStyle(infoIconBadge);
+    expect(infoIconStyle.backgroundColor).toBe(resolveLiveTokenComputed('--color-surface-raised'));
+    expect(infoIconStyle.borderColor).toBe(resolveLiveTokenComputed('--color-border'));
+    const infoIconSvg = infoIconBadge.querySelector('svg') as SVGElement;
+    expect(infoIconSvg).not.toBeNull();
+    expect(window.getComputedStyle(infoIconSvg).color).toBe(resolveLiveTokenComputed('--color-accent'));
+
+    // 4. RetryButton icon contrast (default & deterministic hover)
     const iconBtn = canvas.getByTestId('retry-btn-icon');
     const iconStyle = window.getComputedStyle(iconBtn);
-    expect(iconStyle.color).toBe('rgb(56, 130, 246)'); // --color-accent
+    expect(iconStyle.color).toBe(resolveLiveTokenComputed('--color-accent'));
 
-    const fgAccent: [number, number, number] = [56, 130, 246];
+    const accentRgb = resolveLiveTokenRgba('--color-accent');
+    const fgAccent: [number, number, number] = [accentRgb[0], accentRgb[1], accentRgb[2]];
+
     const defaultBg = getEffectiveBackgroundColor(iconBtn);
     expect(contrastRatio(fgAccent, defaultBg)).toBeGreaterThanOrEqual(4.5);
 
-    await userEvent.hover(iconBtn);
+    await hoverWithNoTransition(iconBtn);
+    await waitFor(() => {
+      const currentBg = window.getComputedStyle(iconBtn).backgroundColor;
+      expect(currentBg).not.toBe('transparent');
+      expect(currentBg).not.toBe('rgba(0, 0, 0, 0)');
+    });
     const hoverBg = getEffectiveBackgroundColor(iconBtn);
     expect(contrastRatio(fgAccent, hoverBg)).toBeGreaterThanOrEqual(4.5);
-    await userEvent.unhover(iconBtn);
+    await unhoverWithNoTransition(iconBtn);
 
-    // 2. Loading state icon rotation
+    // 5. Loading state icon rotation
     const loadingBtn = canvas.getByTestId('retry-btn-loading');
     const spinIcon = loadingBtn.querySelector('.animate-spin');
     expect(spinIcon).not.toBeNull();
@@ -461,16 +469,17 @@ export const ProgressAndLoading: Story = {
     const progressBar = progressWrapper.querySelector('[role="progressbar"]') as HTMLElement;
     expect(progressBar).not.toBeNull();
     const trackStyle = window.getComputedStyle(progressBar);
-    const trackColor = parseColorToRgba(trackStyle.backgroundColor);
-    expect(trackColor[0]).toBe(241);
-    expect(trackColor[1]).toBe(243);
-    expect(trackColor[2]).toBe(245);
+    const trackColor = parseCssColor(trackStyle.backgroundColor);
+    const fgPrimaryRgb = resolveLiveTokenRgba('--color-fg-primary');
+    expect(trackColor[0]).toBe(fgPrimaryRgb[0]);
+    expect(trackColor[1]).toBe(fgPrimaryRgb[1]);
+    expect(trackColor[2]).toBe(fgPrimaryRgb[2]);
     expect(trackColor[3]).toBeCloseTo(0.07, 2);
 
     const indicator = progressBar.firstElementChild as HTMLElement;
     expect(indicator).not.toBeNull();
     const indicatorStyle = window.getComputedStyle(indicator);
-    expect(indicatorStyle.backgroundColor).toBe('rgb(56, 130, 246)'); // --color-accent
+    expect(indicatorStyle.backgroundColor).toBe(resolveLiveTokenComputed('--color-accent'));
 
     // 2. LoadingScreen skeleton elements
     const loadingWrapper = canvas.getByTestId('loading-screen-wrapper');

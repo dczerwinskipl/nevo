@@ -95,7 +95,7 @@ const iconColorMap = {
   info: 'text-accent',
 } as const;
 
-export interface StatusCardProps extends VariantProps<typeof statusCardVariants> {
+export interface StatusCardProps extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof statusCardVariants> {
   title: string;
   description?: string | null;
   onRetry?: () => void | Promise<void>;
@@ -124,13 +124,14 @@ export function StatusCard({
   retryLabel = 'Ponów',
   className,
   children,
+  ...props
 }: StatusCardProps) {
   const activeVariant = variant ?? 'error';
   const Icon = iconMap[activeVariant];
   const friendlyDesc = normalizeErrorMessage(description);
 
   return (
-    <div className={cn(statusCardVariants({ variant, size }), className)}>
+    <div className={cn(statusCardVariants({ variant, size }), className)} {...props}>
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <div className={iconBadgeVariants({ variant })}>
           <Icon className={cn('size-4 shrink-0', iconColorMap[activeVariant])} />
