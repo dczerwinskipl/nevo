@@ -1,12 +1,5 @@
 import { userEvent } from 'storybook/test';
 
-export interface RgbaColor {
-  r: number;
-  g: number;
-  b: number;
-  a: number;
-}
-
 export type ColorTuple = [number, number, number, number];
 
 let probeEl: HTMLDivElement | null = null;
@@ -27,7 +20,7 @@ function getProbeElement(): HTMLDivElement {
 
 /**
  * Resolve a CSS custom property from document.documentElement.
- * Recursively resolves if the property value is another var(--...).
+ * Verifies that the custom property exists on document.documentElement.
  */
 export function resolveLiveToken(tokenName: string): string {
   const rootStyle = window.getComputedStyle(document.documentElement);
@@ -35,18 +28,16 @@ export function resolveLiveToken(tokenName: string): string {
   if (!rawValue) {
     throw new Error(`CSS token "${tokenName}" is not defined on document.documentElement`);
   }
-  const varMatch = rawValue.match(/^var\((--[\w-]+)\)$/);
-  if (varMatch) {
-    return resolveLiveToken(varMatch[1]);
-  }
   return rawValue;
 }
 
 /**
  * Resolves a CSS token into the browser's computed color string
  * (e.g. "rgb(29, 78, 216)").
+ * Verifies that the custom property exists first; throws explicitly if missing.
  */
 export function resolveLiveTokenComputed(tokenName: string): string {
+  resolveLiveToken(tokenName);
   const probe = getProbeElement();
   probe.style.color = `var(${tokenName})`;
   return window.getComputedStyle(probe).color;
@@ -60,17 +51,38 @@ export function resolveLiveTokenRgba(tokenName: string): ColorTuple {
   return parseCssColor(computed);
 }
 
+let canvasCtx: CanvasRenderingContext2D | null = null;
+
+function getCanvasContext(): CanvasRenderingContext2D {
+  if (!canvasCtx) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    canvasCtx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!canvasCtx) {
+      throw new Error('Canvas 2D context not supported');
+    }
+  }
+  return canvasCtx;
+}
+
 /**
- * Parses any valid CSS color string (rgb, rgba, oklab, hex, transparent) into [r, g, b, a].
+ * Parses any valid CSS color string into [r, g, b, a] using the browser's 2D canvas.
+ * Validates syntax using CSS.supports before rasterizing.
  * Throws if the syntax is unsupported or invalid (never silently falls back to black).
  */
 export function parseCssColor(colorStr: string): ColorTuple {
+  if (!colorStr || typeof colorStr !== 'string') {
+    throw new Error(`Invalid color value: ${String(colorStr)}`);
+  }
   const str = colorStr.trim();
+  if (!str) {
+    throw new Error('Color string cannot be empty');
+  }
 
-  // Validate syntax using browser CSS engine if available
   if (typeof CSS !== 'undefined' && typeof CSS.supports === 'function') {
     if (!CSS.supports('color', str)) {
-      throw new Error(`Unsupported CSS color syntax: "${colorStr}"`);
+      throw new Error(`Unsupported or invalid CSS color syntax: "${str}"`);
     }
   }
 
@@ -78,102 +90,33 @@ export function parseCssColor(colorStr: string): ColorTuple {
     return [0, 0, 0, 0];
   }
 
-  // Comma-separated: rgb(r, g, b) / rgba(r, g, b, a)
-  const rgbCommaMatch = str.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+%?))?\s*\)$/i);
-  if (rgbCommaMatch) {
-    const r = Math.round(parseFloat(rgbCommaMatch[1]));
-    const g = Math.round(parseFloat(rgbCommaMatch[2]));
-    const b = Math.round(parseFloat(rgbCommaMatch[3]));
-    let a = 1;
-    if (rgbCommaMatch[4] !== undefined) {
-      a = rgbCommaMatch[4].endsWith('%') ? parseFloat(rgbCommaMatch[4]) / 100 : parseFloat(rgbCommaMatch[4]);
-    }
-    return [r, g, b, a];
+  const ctx = getCanvasContext();
+  ctx.clearRect(0, 0, 1, 1);
+  ctx.fillStyle = str;
+  ctx.fillRect(0, 0, 1, 1);
+  const data = ctx.getImageData(0, 0, 1, 1).data;
+  const alpha = Number((data[3] / 255).toFixed(4));
+
+  if (alpha === 0) {
+    return [0, 0, 0, 0];
   }
 
-  // Slash syntax: rgb(r g b / a) / rgba(r g b / a)
-  const rgbSlashMatch = str.match(/^rgba?\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+%?))?\s*\)$/i);
-  if (rgbSlashMatch) {
-    const r = Math.round(parseFloat(rgbSlashMatch[1]));
-    const g = Math.round(parseFloat(rgbSlashMatch[2]));
-    const b = Math.round(parseFloat(rgbSlashMatch[3]));
-    let a = 1;
-    if (rgbSlashMatch[4] !== undefined) {
-      a = rgbSlashMatch[4].endsWith('%') ? parseFloat(rgbSlashMatch[4]) / 100 : parseFloat(rgbSlashMatch[4]);
-    }
-    return [r, g, b, a];
+  if (alpha >= 0.999) {
+    return [data[0], data[1], data[2], 1];
   }
 
-  // Hex syntax: #rgb, #rgba, #rrggbb, #rrggbbaa
-  const hexMatch = str.match(/^#([0-9a-f]{3,8})$/i);
-  if (hexMatch) {
-    const hex = hexMatch[1];
-    if (hex.length === 3) {
-      return [parseInt(hex[0] + hex[0], 16), parseInt(hex[1] + hex[1], 16), parseInt(hex[2] + hex[2], 16), 1];
-    }
-    if (hex.length === 4) {
-      return [
-        parseInt(hex[0] + hex[0], 16),
-        parseInt(hex[1] + hex[1], 16),
-        parseInt(hex[2] + hex[2], 16),
-        parseInt(hex[3] + hex[3], 16) / 255,
-      ];
-    }
-    if (hex.length === 6) {
-      return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16), 1];
-    }
-    if (hex.length === 8) {
-      return [
-        parseInt(hex.slice(0, 2), 16),
-        parseInt(hex.slice(2, 4), 16),
-        parseInt(hex.slice(4, 6), 16),
-        parseInt(hex.slice(6, 8), 16) / 255,
-      ];
-    }
+  // For translucent colors, use browser CSS relative color syntax if available
+  // to avoid 8-bit premultiplied alpha quantization in canvas backing store.
+  const relColor = `rgb(from ${str} r g b / 1)`;
+  if (typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('color', relColor)) {
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = relColor;
+    ctx.fillRect(0, 0, 1, 1);
+    const opaqueData = ctx.getImageData(0, 0, 1, 1).data;
+    return [opaqueData[0], opaqueData[1], opaqueData[2], alpha];
   }
 
-  // OKLab syntax: oklab(L a b / alpha) or oklab(L a b)
-  const oklabMatch = str.match(/^oklab\(([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)(?:\s*\/\s*([\d.]+%?))?\)$/i);
-  if (oklabMatch) {
-    const L = parseFloat(oklabMatch[1]);
-    const a = parseFloat(oklabMatch[2]);
-    const b = parseFloat(oklabMatch[3]);
-    let alpha = 1;
-    if (oklabMatch[4]) {
-      alpha = oklabMatch[4].endsWith('%') ? parseFloat(oklabMatch[4]) / 100 : parseFloat(oklabMatch[4]);
-    }
-    const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
-    const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
-    const s_ = L - 0.0894841775 * a - 1.291485548 * b;
-    const l = l_ * l_ * l_;
-    const m = m_ * m_ * m_;
-    const s = s_ * s_ * s_;
-    let r = +4.0767439362 * l - 3.3077115913 * m + 0.2309699292 * s;
-    let g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
-    let bl = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s;
-    r = r <= 0.0031308 ? 12.92 * r : 1.055 * Math.pow(r, 1 / 2.4) - 0.055;
-    g = g <= 0.0031308 ? 12.92 * g : 1.055 * Math.pow(g, 1 / 2.4) - 0.055;
-    bl = bl <= 0.0031308 ? 12.92 * bl : 1.055 * Math.pow(bl, 1 / 2.4) - 0.055;
-    return [
-      Math.round(Math.max(0, Math.min(255, r * 255))),
-      Math.round(Math.max(0, Math.min(255, g * 255))),
-      Math.round(Math.max(0, Math.min(255, bl * 255))),
-      alpha,
-    ];
-  }
-
-  // If it's a CSS variable or complex function, resolve it via DOM probe
-  const probe = getProbeElement();
-  probe.style.color = '';
-  probe.style.color = str;
-  if (probe.style.color) {
-    const computed = window.getComputedStyle(probe).color;
-    if (computed && computed !== str) {
-      return parseCssColor(computed);
-    }
-  }
-
-  throw new Error(`Unsupported or unparseable CSS color syntax: "${colorStr}"`);
+  return [data[0], data[1], data[2], alpha];
 }
 
 /**

@@ -486,3 +486,42 @@ export const ProgressAndLoading: Story = {
     expect(loadingWrapper.querySelector('.animate-pulse')).not.toBeNull();
   },
 };
+
+// --- Story 8: Live Token Resolution and Color Parser ---
+
+export const LiveTokenResolver: Story = {
+  render: () => (
+    <div className="space-y-2 p-4">
+      <div data-testid="token-resolver-probe" className="rounded bg-surface p-3 text-fg-primary">
+        Live Token and Browser Canvas Parser Verification
+      </div>
+    </div>
+  ),
+  play: async () => {
+    // 1. Resolving a nonexistent token throws explicitly
+    expect(() => resolveLiveTokenComputed('--color-nonexistent')).toThrow(
+      'CSS token "--color-nonexistent" is not defined on document.documentElement',
+    );
+
+    // 2. A live opaque semantic token resolves correctly
+    const accentRgba = resolveLiveTokenRgba('--color-accent');
+    expect(accentRgba).toEqual([56, 130, 246, 1]);
+    expect(resolveLiveTokenComputed('--color-accent')).toBe('rgb(56, 130, 246)');
+
+    // 3. The backdrop token preserves alpha fidelity
+    const backdropRgba = resolveLiveTokenRgba('--color-backdrop');
+    expect(backdropRgba[0]).toBe(0);
+    expect(backdropRgba[1]).toBe(0);
+    expect(backdropRgba[2]).toBe(0);
+    expect(backdropRgba[3]).toBeCloseTo(0.7, 1);
+
+    // 4. The browser-backed resolver handles representative modern computed color (such as oklab(...))
+    const oklabRgba = parseCssColor('oklab(0.636841 0.187884 0.0889429)');
+    expect(oklabRgba).toEqual([239, 68, 68, 1]);
+
+    // 5. Unsupported or invalid CSS color syntax throws explicitly instead of defaulting to black
+    expect(() => parseCssColor('not-a-valid-css-color')).toThrow(
+      'Unsupported or invalid CSS color syntax: "not-a-valid-css-color"',
+    );
+  },
+};
