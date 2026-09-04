@@ -255,7 +255,43 @@ tasks:
   - id: react-class-composition-guidelines
     order: 2
     file: tasks/02-react-class-composition-guidelines.md
-    status: approved
+    status: implemented
+    implementation:
+      baseline_revision: d1dc9de8ed76b08f4ce905269cfe2770cfedad05
+      review_revision: 5c403627a169c15afa18b1d8f36df87f854ab32d
+      changed_paths:
+        - docs/ai/change-impact-map.md
+        - docs/ai/how-to-navigate.md
+        - docs/ai/task-routing.md
+        - docs/development/nevo-ai-ux-guidelines.md
+        - docs/development/react-component-guidelines.md
+        - docs/development/ui-ux-guidelines.md
+        - docs/index.generated.json
+        - docs/index.generated.md
+        - docs/routing.generated.json
+        - specs/active/semantic-color-tokens-with-tailwind-css-4/change.yaml
+        - specs/active/semantic-color-tokens-with-tailwind-css-4/tasks/10-architecture-enforcement-check.md
+        - specs/index.generated.json
+        - tools/docs.mjs
+        - tools/docs/service.mjs
+        - tools/tests/docs-discovery.test.mjs
+      worktree_patch_fingerprint: 74182137bd95996aef5c26bae9f5ee2fabe9ab66447ec981a91fc8f7bff540ef
+    self_check:
+      fingerprint: d04044309dd2ebd444b688da541bb6d565279f72c062fc612e1bdcac168524bf
+      revision: 5c403627a169c15afa18b1d8f36df87f854ab32d
+      commands:
+        - command: node tools/docs.mjs generate
+          exit_code: 0
+        - command: node tools/docs.mjs validate
+          exit_code: 0
+        - command: node tools/docs.mjs check
+          exit_code: 0
+        - command: node --test tools/tests/docs-routing.test.mjs
+            tools/tests/docs-discovery.test.mjs
+          exit_code: 0
+        - command: npm test
+          exit_code: 0
+      status: passed
 
   - id: theme-contract
     order: 3
