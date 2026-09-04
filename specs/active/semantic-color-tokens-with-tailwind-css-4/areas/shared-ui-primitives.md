@@ -63,9 +63,9 @@ ownership was a planning error).
   compounds red luminance and causes `#ef4444` text to fail normal contrast (yielding
   ~4.14:1 default and ~3.90:1 hover). Even on plain `surface-raised` (`#14171d`),
   `hover:bg-action-destructive/10` drops to ~4.34:1. To guarantee ≥4.5:1 across all
-  contexts, `Button` uses `bg-transparent` in default state (4.77:1 on `surface-raised`,
-  5.02:1 on `surface`) and `hover:bg-action-destructive/5` on hover (4.59:1 on
-  `surface-raised`, 4.82:1 on `surface`), and the planned surrounding-container
+  contexts, `Button` uses `bg-transparent` in default state (~4.87:1 on `surface-raised`,
+  ~5.12:1 on `surface`) and `hover:bg-action-destructive/5` on hover (~4.59:1 on
+  `surface-raised`, ~4.82:1 on `surface`), and the planned surrounding-container
   contract for Area 4 (`agent-session-details.tsx`) is updated to use a neutral dark
   surface (`border border-action-destructive/30 bg-surface`) rather than a red-tinted fill.
 - `status-card.tsx:27`'s hover treatment stops referencing `accent-strong`/
