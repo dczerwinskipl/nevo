@@ -9,6 +9,7 @@ read_when:
   - introducing cards, rows, lists, details views, inspectors, drawers, or sheets
   - designing loading, active, empty, warning, error, or attention states
   - reviewing composed screens or dense repeated content
+  - defining, auditing, or changing semantic color tokens, status tokens, or presentation tones
 summary: >
   Portable UI/UX rules for information hierarchy, visual weight, typography, semantic color,
   progressive disclosure, discovery, interaction hierarchy, responsive behavior, dense content,
@@ -267,10 +268,10 @@ This document is the authoritative owner of the canonical semantic status presen
 | `neutral` | Waiting, inactive, historical, or unremarkable state | Default baseline. Does not draw active attention. Prevents visual clutter across dense history. |
 | `active` | Currently progressing operation or active selection | Indicates truthful ongoing work. Never use without evidence of progress. |
 | `success` | Successful completion when success needs emphasis | Use sparingly. Happy-path historical items should lose color and become visually quiet. |
-| `warning` | Recoverable or non-fatal issue; local problem | The primary process or parent task may still succeed. A tool failure in a turn is a warning, not a turn error. |
+| `warning` | Recoverable or non-fatal issue; local problem | The primary process, parent task, or containing operation may still proceed or succeed. A local or recoverable failure inside a sub-step is a warning, not a failure of the overall operation. |
 | `error` | Primary operation, task, or turn failed | Indicates terminal or primary failure requiring diagnosis. Distinct from local recoverable warnings. |
 | `attention` | Explicit user intervention or action is required | Strictly reserved for required user input/interaction. **MUST NOT** be used for waiting or long-running latency. |
-| `info` | Informational state, neutral note, or hint | Neutral context. Never indicates failure, warning, or required action. |
+| `info` | Supplemental informational state, neutral note, or contextual hint | Supplemental information indicating neither progress, failure, nor required action. Unlike `neutral` (the default resting baseline for idle, waiting, or unremarkable elements), `info` represents an explicit informational callout or advisory note without demanding action or signaling degradation. |
 | `action-destructive` | Destructive user action or confirmation | User control role (e.g. delete, discard, cancel). Distinct from system failure (`error`) even when sharing palette hue. |
 
 `status-error` and `action-destructive` are distinct semantic roles even if their default theme palettes initially share a red hue. System error states must not be conflated with intentional destructive user actions.

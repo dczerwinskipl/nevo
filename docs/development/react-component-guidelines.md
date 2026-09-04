@@ -463,21 +463,17 @@ Every possible Tailwind utility class must exist in source code as a complete, s
 - **Banned pattern:** Never construct class names using dynamic string interpolation or concatenation:
   ```tsx
   // BANNED: Tailwind compiler cannot detect interpolated dynamic classes
-  const className = `text-status-${tone}`;
-  const badgeClass = `bg-${color}-500`;
+  const className = `button-${variant}`;
+  const badgeClass = `badge-${size}`;
   ```
 - **Required pattern:** Use a typed static map or `cva()` where every class appears as a complete, searchable string literal:
   ```tsx
-  type PresentationTone = 'neutral' | 'active' | 'success' | 'warning' | 'error' | 'attention' | 'info';
+  type ButtonVariant = 'solid' | 'outline' | 'ghost';
 
-  const toneClasses: Record<PresentationTone, string> = {
-    neutral: 'text-status-neutral',
-    active: 'text-status-active',
-    success: 'text-status-success',
-    warning: 'text-status-warning',
-    error: 'text-status-error',
-    attention: 'text-status-attention',
-    info: 'text-status-info',
+  const variantClasses: Record<ButtonVariant, string> = {
+    solid: 'bg-primary text-primary-foreground hover:bg-primary/90',
+    outline: 'border border-input bg-background hover:bg-accent',
+    ghost: 'hover:bg-accent hover:text-accent-foreground',
   };
   ```
 

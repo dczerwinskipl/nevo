@@ -4,6 +4,9 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { execSync } from 'node:child_process';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   scanDocs,
@@ -11,8 +14,11 @@ import {
   buildDocsIndexes,
   findDocs,
   pathMatchesRule,
+  normalizeTerm,
   REQUIRED_FIELDS,
 } from '../docs/service.mjs';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 describe('validateDocs read_when enforcement', () => {
   const baseDoc = {
@@ -143,6 +149,24 @@ describe('pathMatchesRule', () => {
   });
 });
 
+describe('normalizeTerm', () => {
+  test('normalizes case, separators, and singular/plural variants', () => {
+    assert.equal(normalizeTerm('Tokens'), 'token');
+    assert.equal(normalizeTerm('tokens'), 'token');
+    assert.equal(normalizeTerm('token'), 'token');
+    assert.equal(normalizeTerm('Statuses'), 'status');
+    assert.equal(normalizeTerm('statuses'), 'status');
+    assert.equal(normalizeTerm('status'), 'status');
+    assert.equal(normalizeTerm('Colors'), 'color');
+    assert.equal(normalizeTerm('colors'), 'color');
+    assert.equal(normalizeTerm('color'), 'color');
+    assert.equal(normalizeTerm('guidelines'), 'guideline');
+    assert.equal(normalizeTerm('guideline'), 'guideline');
+    assert.equal(normalizeTerm('policies'), 'policy');
+    assert.equal(normalizeTerm('processes'), 'process');
+  });
+});
+
 describe('findDocs', () => {
   const sampleDocs = [
     {
@@ -255,6 +279,36 @@ describe('findDocs', () => {
       const results = findDocs(sampleDocs, { query: 'nonexistent-term-xyz-123' });
       assert.equal(results.length, 0);
     });
+
+    test('prioritizes distinct query term coverage over repeated occurrences of one term', () => {
+      const syntheticDocs = [
+        {
+          id: 'development.single-term-heavy',
+          type: 'development',
+          title: 'Semantic pipeline and semantic semantics',
+          status: 'current',
+          summary: 'Semantic dispatch and semantic outbox semantics.',
+          file: 'docs/development/single-term-heavy.md',
+        },
+        {
+          id: 'development.multi-term-broad',
+          type: 'development',
+          title: 'Color tokens and status guidelines',
+          status: 'current',
+          summary: 'Rules for semantic color tokens and status representation.',
+          file: 'docs/development/multi-term-broad.md',
+        },
+      ];
+
+      const results = findDocs(syntheticDocs, { query: 'semantic color status tokens' });
+      assert.equal(results[0].id, 'development.multi-term-broad');
+      assert.equal(results[0].term_coverage, 1);
+      assert.deepEqual(results[0].matched_terms, ['semantic', 'color', 'status', 'token']);
+      assert.ok(results[0].matched_fields.includes('summary'));
+      assert.equal(results[1].id, 'development.single-term-heavy');
+      assert.equal(results[1].term_coverage, 0.25);
+      assert.deepEqual(results[1].matched_terms, ['semantic']);
+    });
   });
 
   describe('path discovery', () => {
@@ -330,5 +384,41 @@ describe('findDocs', () => {
       const parsed = JSON.parse(json);
       assert.equal(parsed[0].id, doc.id);
     });
+  });
+});
+
+describe('acceptance query and CLI integration', () => {
+  test('ranks development.ui-ux-guidelines first for "semantic color status tokens" with structured evidence', () => {
+    const stdout = execSync(
+      'node tools/docs.mjs find --query "semantic color status tokens" --type development --format json',
+      { cwd: ROOT, encoding: 'utf8' }
+    );
+    const results = JSON.parse(stdout);
+    assert.ok(Array.isArray(results) && results.length > 0);
+
+    const first = results[0];
+    assert.equal(first.id, 'development.ui-ux-guidelines');
+    assert.deepEqual(first.matched_terms, ['semantic', 'color', 'status', 'token']);
+    assert.ok(first.matched_fields.includes('read_when'));
+    assert.ok(first.matched_fields.includes('summary'));
+    assert.equal(first.term_coverage, 1);
+    assert.ok(typeof first.score === 'number' && first.score > 0);
+
+    const failureDoc = results.find(r => r.id === 'development.failure-semantics');
+    if (failureDoc) {
+      assert.ok(first.score > failureDoc.score);
+    }
+  });
+
+  test('rejects invalid --format option with non-zero exit code', () => {
+    assert.throws(
+      () => execSync('node tools/docs.mjs find --format yaml', { cwd: ROOT, stdio: 'pipe' }),
+      (err) => {
+        assert.equal(err.status, 1);
+        const stderr = err.stderr.toString();
+        assert.match(stderr, /Allowed choices are text, json/);
+        return true;
+      }
+    );
   });
 });

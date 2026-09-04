@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T12:51:11.658Z",
+  "generated": "2026-09-04T13:23:54.018Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -772,7 +772,8 @@
         "changing visual hierarchy, typography, spacing, colors, or responsive behavior",
         "introducing cards, rows, lists, details views, inspectors, drawers, or sheets",
         "designing loading, active, empty, warning, error, or attention states",
-        "reviewing composed screens or dense repeated content"
+        "reviewing composed screens or dense repeated content",
+        "defining, auditing, or changing semantic color tokens, status tokens, or presentation tones"
       ],
       "summary": "Portable UI/UX rules for information hierarchy, visual weight, typography, semantic color, progressive disclosure, discovery, interaction hierarchy, responsive behavior, dense content, visual patterns, and composed-screen verification.",
       "related": [

@@ -180,8 +180,11 @@ This document is the authoritative owner of NEvo AI and session domain state map
 | User interaction requested / input required | `attention` | Explicit user action required to continue. |
 | Recoverable tool invocation failure | `warning` | Tool error inside a turn; agent may retry or adapt. |
 | Failed turn / session fatal error | `error` | Primary operation or turn failed terminally. |
-| Completed turn / successful tool execution | `success` / `neutral` | Completed items lose emphasis over time. |
-| Cancelled or interrupted turn | `neutral` / `warning` | Interrupted by user or timeout. |
+| Active or newly completed turn (current success) | `success` | Immediate feedback for successful completion that warrants momentary emphasis. |
+| Historical completed turn / successful tool execution | `neutral` | Quiet resting state; happy-path history loses color to prevent visual noise. |
+| User-cancelled turn / aborted action | `neutral` | Intentional user termination; unremarkable resting state that does not signal defect or failure. |
+| Unexpected interruption / timeout (sub-step recovered) | `warning` | Non-fatal interruption or tool timeout where containing turn continues or adapts. |
+| Unexpected interruption / timeout (primary turn failed) | `error` | Terminal timeout or interruption causing the primary turn or operation to fail. |
 
 ## 3.2 Tool failure vs Turn failure
 

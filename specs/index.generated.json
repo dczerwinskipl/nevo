@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T12:55:38.612Z",
+  "generated": "2026-09-04T13:24:29.527Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -761,7 +761,7 @@
           "status": "implemented",
           "implementation": {
             "baseline_revision": "d1dc9de8ed76b08f4ce905269cfe2770cfedad05",
-            "review_revision": "5c403627a169c15afa18b1d8f36df87f854ab32d",
+            "review_revision": "1d44bcd82f9903c518b2d39fb1903c63f7d267ae",
             "changed_paths": [
               "docs/ai/change-impact-map.md",
               "docs/ai/how-to-navigate.md",
@@ -773,17 +773,19 @@
               "docs/index.generated.md",
               "docs/routing.generated.json",
               "specs/active/semantic-color-tokens-with-tailwind-css-4/change.yaml",
+              "specs/active/semantic-color-tokens-with-tailwind-css-4/tasks/02-react-class-composition-guidelines.md",
               "specs/active/semantic-color-tokens-with-tailwind-css-4/tasks/10-architecture-enforcement-check.md",
               "specs/index.generated.json",
               "tools/docs.mjs",
               "tools/docs/service.mjs",
-              "tools/tests/docs-discovery.test.mjs"
+              "tools/tests/docs-discovery.test.mjs",
+              "tools/tests/docs-routing.test.mjs"
             ],
-            "worktree_patch_fingerprint": "74182137bd95996aef5c26bae9f5ee2fabe9ab66447ec981a91fc8f7bff540ef"
+            "worktree_patch_fingerprint": "921622adbcf06815c4445c2ec32a8453cf68ee36951f5268792ee45cde9642e5"
           },
           "self_check": {
-            "fingerprint": "d04044309dd2ebd444b688da541bb6d565279f72c062fc612e1bdcac168524bf",
-            "revision": "5c403627a169c15afa18b1d8f36df87f854ab32d",
+            "fingerprint": "af300e8a99487acf08a64d44a96055e79cea49dd1e513f3f8b957e878837e55d",
+            "revision": "1d44bcd82f9903c518b2d39fb1903c63f7d267ae",
             "commands": [
               {
                 "command": "node tools/docs.mjs generate",

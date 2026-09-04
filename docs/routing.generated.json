@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T12:51:11.660Z",
+  "generated": "2026-09-04T13:23:54.020Z",
   "rules": [
     {
       "rule_id": "CIM-01",
@@ -183,60 +183,78 @@
     },
     {
       "rule_id": "RT-18",
-      "path_glob": "tools/dashboard/ui/features/**",
+      "path_glob": "tools/dashboard/ui/features/agent-sessions/**",
       "doc_ref": "docs/development/nevo-ai-ux-guidelines.md",
       "source": "docs/ai/task-routing.md"
     },
     {
       "rule_id": "RT-19",
-      "path_glob": "tools/dashboard/ui/features/**",
+      "path_glob": "tools/dashboard/ui/features/agent-sessions/**",
       "doc_ref": "docs/development/nevo-interaction-model.md",
       "source": "docs/ai/task-routing.md"
     },
     {
       "rule_id": "RT-20",
-      "path_glob": "tools/dashboard/ui/foundations/**",
-      "doc_ref": "docs/development/storybook.md",
+      "path_glob": "tools/dashboard/ui/features/specifications/**",
+      "doc_ref": "docs/development/nevo-ai-ux-guidelines.md",
       "source": "docs/ai/task-routing.md"
     },
     {
       "rule_id": "RT-21",
-      "path_glob": "tools/dashboard/ui/foundations/**",
-      "doc_ref": "docs/development/ui-ux-guidelines.md",
+      "path_glob": "tools/dashboard/ui/features/specifications/**",
+      "doc_ref": "docs/development/nevo-interaction-model.md",
       "source": "docs/ai/task-routing.md"
     },
     {
       "rule_id": "RT-22",
-      "path_glob": "tools/dashboard/ui/components/ui/**",
-      "doc_ref": "docs/development/storybook.md",
+      "path_glob": "tools/dashboard/ui/features/pull-requests/**",
+      "doc_ref": "docs/development/nevo-ai-ux-guidelines.md",
       "source": "docs/ai/task-routing.md"
     },
     {
       "rule_id": "RT-23",
-      "path_glob": "tools/dashboard/ui/shared/**",
-      "doc_ref": "docs/development/storybook.md",
+      "path_glob": "tools/dashboard/ui/features/pull-requests/**",
+      "doc_ref": "docs/development/nevo-interaction-model.md",
       "source": "docs/ai/task-routing.md"
     },
     {
       "rule_id": "RT-24",
-      "path_glob": "tools/dashboard/.storybook/**",
+      "path_glob": "tools/dashboard/ui/foundations/**",
       "doc_ref": "docs/development/storybook.md",
       "source": "docs/ai/task-routing.md"
     },
     {
       "rule_id": "RT-25",
-      "path_glob": "tools/dashboard/ui/**/*.stories.*",
+      "path_glob": "tools/dashboard/ui/components/ui/**",
       "doc_ref": "docs/development/storybook.md",
       "source": "docs/ai/task-routing.md"
     },
     {
       "rule_id": "RT-26",
+      "path_glob": "tools/dashboard/ui/shared/ui/**",
+      "doc_ref": "docs/development/storybook.md",
+      "source": "docs/ai/task-routing.md"
+    },
+    {
+      "rule_id": "RT-27",
+      "path_glob": "tools/dashboard/.storybook/**",
+      "doc_ref": "docs/development/storybook.md",
+      "source": "docs/ai/task-routing.md"
+    },
+    {
+      "rule_id": "RT-28",
+      "path_glob": "tools/dashboard/ui/**/*.stories.*",
+      "doc_ref": "docs/development/storybook.md",
+      "source": "docs/ai/task-routing.md"
+    },
+    {
+      "rule_id": "RT-29",
       "path_glob": "tools/dashboard/tests/**",
       "doc_ref": "docs/development/node-tooling-guidelines.md",
       "source": "docs/ai/task-routing.md"
     },
     {
-      "rule_id": "RT-27",
+      "rule_id": "RT-30",
       "path_glob": "tools/docs/**",
       "doc_ref": "docs/development/node-tooling-guidelines.md",
       "source": "docs/ai/task-routing.md"

@@ -113,7 +113,9 @@ Note: These tools currently live in this repository for end-to-end integration t
 
 ## Developing React UI and Dashboard frontend
 
-- **Read:** `docs/development/react-component-guidelines.md`.
+- **Read:** `docs/development/react-component-guidelines.md` and `docs/development/ui-ux-guidelines.md`. Additionally:
+  - Read `docs/development/storybook.md` when introducing or modifying visual components, primitives, foundations, or stories.
+  - Read `docs/development/nevo-ai-ux-guidelines.md` and `docs/development/nevo-interaction-model.md` when working on agent sessions, chat, Work/activity display, specifications, or pull requests.
 - **Invariants to preserve:**
   - Capability / vertical feature ownership: feature-specific hooks, view-models, projections, and dialogs remain feature-local unless real cross-feature reuse is demonstrated.
   - Components maintain clear separation between visual presentation and orchestration.
@@ -150,13 +152,16 @@ combined.
 | RT-15 | tools/dashboard/server/** | docs/development/node-tooling-guidelines.md |
 | RT-16 | tools/dashboard/ui/** | docs/development/react-component-guidelines.md |
 | RT-17 | tools/dashboard/ui/** | docs/development/ui-ux-guidelines.md |
-| RT-18 | tools/dashboard/ui/features/** | docs/development/nevo-ai-ux-guidelines.md |
-| RT-19 | tools/dashboard/ui/features/** | docs/development/nevo-interaction-model.md |
-| RT-20 | tools/dashboard/ui/foundations/** | docs/development/storybook.md |
-| RT-21 | tools/dashboard/ui/foundations/** | docs/development/ui-ux-guidelines.md |
-| RT-22 | tools/dashboard/ui/components/ui/** | docs/development/storybook.md |
-| RT-23 | tools/dashboard/ui/shared/** | docs/development/storybook.md |
-| RT-24 | tools/dashboard/.storybook/** | docs/development/storybook.md |
-| RT-25 | tools/dashboard/ui/**/*.stories.* | docs/development/storybook.md |
-| RT-26 | tools/dashboard/tests/** | docs/development/node-tooling-guidelines.md |
-| RT-27 | tools/docs/** | docs/development/node-tooling-guidelines.md |
+| RT-18 | tools/dashboard/ui/features/agent-sessions/** | docs/development/nevo-ai-ux-guidelines.md |
+| RT-19 | tools/dashboard/ui/features/agent-sessions/** | docs/development/nevo-interaction-model.md |
+| RT-20 | tools/dashboard/ui/features/specifications/** | docs/development/nevo-ai-ux-guidelines.md |
+| RT-21 | tools/dashboard/ui/features/specifications/** | docs/development/nevo-interaction-model.md |
+| RT-22 | tools/dashboard/ui/features/pull-requests/** | docs/development/nevo-ai-ux-guidelines.md |
+| RT-23 | tools/dashboard/ui/features/pull-requests/** | docs/development/nevo-interaction-model.md |
+| RT-24 | tools/dashboard/ui/foundations/** | docs/development/storybook.md |
+| RT-25 | tools/dashboard/ui/components/ui/** | docs/development/storybook.md |
+| RT-26 | tools/dashboard/ui/shared/ui/** | docs/development/storybook.md |
+| RT-27 | tools/dashboard/.storybook/** | docs/development/storybook.md |
+| RT-28 | tools/dashboard/ui/**/*.stories.* | docs/development/storybook.md |
+| RT-29 | tools/dashboard/tests/** | docs/development/node-tooling-guidelines.md |
+| RT-30 | tools/docs/** | docs/development/node-tooling-guidelines.md |

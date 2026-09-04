@@ -15,6 +15,7 @@ context:
     - docs/ai/task-routing.md
     - docs/ai/how-to-navigate.md
     - docs/ai/change-impact-map.md
+    - docs/development/node-tooling-guidelines.md
     - tools/docs.mjs
     - tools/docs/service.mjs
 allowed_paths:

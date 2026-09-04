@@ -227,54 +227,136 @@ export function pathMatchesRule(inputPath, pathGlob) {
   return false;
 }
 
-export function loadRoutingRules(indexFile = ROUTING_INDEX_FILE) {
-  if (!existsSync(indexFile)) return [];
-  try {
-    const data = JSON.parse(readUtf8(indexFile));
-    return Array.isArray(data?.rules) ? data.rules : [];
-  } catch {
-    return [];
+export function normalizeTerm(term) {
+  if (!term || typeof term !== 'string') return '';
+  let t = term.toLowerCase().trim();
+  t = t.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
+  if (!t) return '';
+
+  if (t === 'statuses' || t === 'status') {
+    return 'status';
   }
+  if (t.endsWith('ies') && t.length > 4) {
+    return t.slice(0, -3) + 'y';
+  }
+  if (t.endsWith('ses') && t.length > 4) {
+    return t.slice(0, -2);
+  }
+  if (t.endsWith('xes') || t.endsWith('zes') || t.endsWith('ches') || t.endsWith('shes')) {
+    return t.slice(0, -2);
+  }
+  if (t.endsWith('s') && !t.endsWith('ss') && !t.endsWith('us') && !t.endsWith('is')) {
+    return t.slice(0, -1);
+  }
+  return t;
 }
 
-function scoreDoc(doc, normQuery, tokens) {
-  const id = (doc.id || '').toLowerCase();
-  const title = (doc.title || '').toLowerCase();
-  const summary = (doc.summary || '').toLowerCase();
-  const readWhen = Array.isArray(doc.read_when) ? doc.read_when.map(r => String(r).toLowerCase()).join(' ') : '';
-  const file = (doc.file || '').toLowerCase();
-  const related = Array.isArray(doc.related) ? doc.related.map(r => String(r).toLowerCase()).join(' ') : '';
+export function loadRoutingRules(indexFile = ROUTING_INDEX_FILE) {
+  if (!existsSync(indexFile)) {
+    throw new Error(`Missing routing index '${indexFile}'. Run: node tools/docs.mjs generate`);
+  }
+  let data;
+  try {
+    data = JSON.parse(readUtf8(indexFile));
+  } catch (err) {
+    throw new Error(`Malformed routing index '${indexFile}': ${err.message}. Run: node tools/docs.mjs generate`);
+  }
+  if (!data || typeof data !== 'object' || !Array.isArray(data.rules)) {
+    throw new Error(`Invalid routing index '${indexFile}': missing 'rules' array. Run: node tools/docs.mjs generate`);
+  }
+  return data.rules;
+}
 
-  let score = 0;
+function scoreDoc(doc, rawQueryNorm, uniqueTokens) {
+  const idLower = (doc.id || '').toLowerCase();
+  const titleLower = (doc.title || '').toLowerCase();
+  const summaryLower = (doc.summary || '').toLowerCase();
+  const readWhenStr = Array.isArray(doc.read_when) ? doc.read_when.map(r => String(r).toLowerCase()).join(' ') : '';
+  const fileLower = (doc.file || '').toLowerCase();
+  const relatedStr = Array.isArray(doc.related) ? doc.related.map(r => String(r).toLowerCase()).join(' ') : '';
 
-  // Exact phrase matches
-  if (id === normQuery) score += 200;
-  else if (id.includes(normQuery)) score += 100;
+  let phraseScore = 0;
 
-  if (title === normQuery) score += 150;
-  else if (title.includes(normQuery)) score += 80;
-
-  if (readWhen.includes(normQuery)) score += 60;
-  if (summary.includes(normQuery)) score += 40;
-  if (file.includes(normQuery)) score += 30;
-  if (related.includes(normQuery)) score += 20;
-
-  // Token matches
-  let allTokensMatch = tokens.length > 1;
-  for (const token of tokens) {
-    let tokenMatched = false;
-    if (id.includes(token)) { score += 15; tokenMatched = true; }
-    if (title.includes(token)) { score += 12; tokenMatched = true; }
-    if (readWhen.includes(token)) { score += 10; tokenMatched = true; }
-    if (summary.includes(token)) { score += 6; tokenMatched = true; }
-    if (file.includes(token)) { score += 4; tokenMatched = true; }
-    if (related.includes(token)) { score += 3; tokenMatched = true; }
-    if (!tokenMatched) allTokensMatch = false;
+  // 1. Exact ID or Title match
+  if (idLower === rawQueryNorm) {
+    phraseScore += 100000;
+  } else if (idLower.includes(rawQueryNorm)) {
+    phraseScore += 50000;
   }
 
-  if (allTokensMatch) score += 25;
+  if (titleLower === rawQueryNorm) {
+    phraseScore += 80000;
+  } else if (titleLower.includes(rawQueryNorm)) {
+    phraseScore += 40000;
+  }
 
-  return score;
+  // Full-phrase match in other metadata fields
+  if (rawQueryNorm.length >= 3) {
+    if (readWhenStr.includes(rawQueryNorm)) phraseScore += 20000;
+    if (summaryLower.includes(rawQueryNorm)) phraseScore += 10000;
+    if (fileLower.includes(rawQueryNorm)) phraseScore += 5000;
+    if (relatedStr.includes(rawQueryNorm)) phraseScore += 2000;
+  }
+
+  // Field relevance hierarchy
+  const fieldData = [
+    { name: 'id', text: idLower, weight: 50 },
+    { name: 'title', text: titleLower, weight: 40 },
+    { name: 'read_when', text: readWhenStr, weight: 30 },
+    { name: 'summary', text: summaryLower, weight: 20 },
+    { name: 'file', text: fileLower, weight: 10 },
+    { name: 'related', text: relatedStr, weight: 5 },
+  ];
+
+  const matchedTermsSet = new Set();
+  const matchedFieldsSet = new Set();
+  let fieldRelevanceScore = 0;
+
+  for (const field of fieldData) {
+    const words = field.text.split(/[^a-z0-9]+/).filter(Boolean);
+    const normalizedWords = words.map(normalizeTerm);
+    const wordSet = new Set(normalizedWords);
+
+    let fieldMatchedAny = false;
+    for (const token of uniqueTokens) {
+      const matchesField = wordSet.has(token) ||
+        normalizedWords.some(w => w.includes(token)) ||
+        (token.length >= 3 && field.text.includes(token));
+
+      if (matchesField) {
+        matchedTermsSet.add(token);
+        fieldMatchedAny = true;
+        fieldRelevanceScore += field.weight;
+      }
+    }
+
+    if (fieldMatchedAny) {
+      matchedFieldsSet.add(field.name);
+    }
+  }
+
+  if (phraseScore > 0) {
+    if (idLower.includes(rawQueryNorm)) matchedFieldsSet.add('id');
+    if (titleLower.includes(rawQueryNorm)) matchedFieldsSet.add('title');
+    if (readWhenStr.includes(rawQueryNorm)) matchedFieldsSet.add('read_when');
+    if (summaryLower.includes(rawQueryNorm)) matchedFieldsSet.add('summary');
+    if (fileLower.includes(rawQueryNorm)) matchedFieldsSet.add('file');
+  }
+
+  const termCoverage = uniqueTokens.length > 0 ? (matchedTermsSet.size / uniqueTokens.length) : 0;
+  // 2. Distinct normalized query term coverage
+  const distinctTermScore = matchedTermsSet.size * 1000;
+  const allTermsBonus = (uniqueTokens.length > 1 && matchedTermsSet.size === uniqueTokens.length) ? 500 : 0;
+
+  // Total score prioritizes phrase match, then distinct term coverage, then field relevance
+  const totalScore = phraseScore + distinctTermScore + allTermsBonus + fieldRelevanceScore;
+
+  return {
+    score: totalScore,
+    matched_terms: uniqueTokens.filter(t => matchedTermsSet.has(t)),
+    matched_fields: Array.from(matchedFieldsSet),
+    term_coverage: termCoverage,
+  };
 }
 
 // ── Find ───────────────────────────────────────────────────────────────────
@@ -320,13 +402,24 @@ export function findDocs(docs, { scope, type, query, path, routingRules } = {}) 
   }
 
   if (query && query.trim()) {
-    const normQuery = query.toLowerCase().trim();
-    const tokens = normQuery.split(/\s+/).filter(Boolean);
+    const rawQueryNorm = query.toLowerCase().trim();
+    const rawTokens = rawQueryNorm.split(/[^a-z0-9]+/).filter(Boolean);
+    const uniqueTokens = [...new Set(rawTokens.map(normalizeTerm).filter(Boolean))];
+
     results = results
-      .map(d => ({ doc: d, score: scoreDoc(d, normQuery, tokens) }))
+      .map(d => {
+        const evidence = scoreDoc(d, rawQueryNorm, uniqueTokens);
+        return { doc: d, ...evidence };
+      })
       .filter(({ score }) => score > 0)
       .sort((a, b) => (b.score - a.score) || a.doc.id.localeCompare(b.doc.id))
-      .map(({ doc, score }) => ({ ...doc, score }));
+      .map(({ doc, score, matched_terms, matched_fields, term_coverage }) => ({
+        ...doc,
+        score,
+        matched_terms,
+        matched_fields,
+        term_coverage,
+      }));
   } else {
     results.sort((a, b) => a.id.localeCompare(b.id));
   }
