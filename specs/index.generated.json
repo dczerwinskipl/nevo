@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T14:23:52.931Z",
+  "generated": "2026-09-04T15:03:23.677Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -815,7 +815,7 @@
           "id": "theme-contract",
           "order": 3,
           "file": "tasks/03-theme-contract.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "frontend-formatter-baseline"
           ],

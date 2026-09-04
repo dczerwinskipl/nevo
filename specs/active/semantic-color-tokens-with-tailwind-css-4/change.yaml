@@ -298,7 +298,7 @@ tasks:
   - id: theme-contract
     order: 3
     file: tasks/03-theme-contract.md
-    status: implemented
+    status: verified
     depends_on:
       - frontend-formatter-baseline
     implementation:
