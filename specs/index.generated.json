@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T12:24:43.325Z",
+  "generated": "2026-09-04T12:46:41.366Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -758,34 +758,7 @@
           "id": "react-class-composition-guidelines",
           "order": 2,
           "file": "tasks/02-react-class-composition-guidelines.md",
-          "status": "implemented",
-          "implementation": {
-            "baseline_revision": "aea0550d2bf37ae16196b71351cb1948552123aa",
-            "review_revision": "bbc9d7226dfafcebaa677bb3443aa2163013f6a8",
-            "changed_paths": [
-              "docs/ai/task-routing.md",
-              "docs/development/react-component-guidelines.md",
-              "docs/index.generated.json",
-              "docs/index.generated.md",
-              "docs/routing.generated.json"
-            ],
-            "worktree_patch_fingerprint": null
-          },
-          "self_check": {
-            "fingerprint": "e4c9c49d7321506626b99b76bcd8b060aa4f30ca86bb6f69f735918be082e427",
-            "revision": "bbc9d7226dfafcebaa677bb3443aa2163013f6a8",
-            "commands": [
-              {
-                "command": "node tools/docs.mjs validate",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/docs.mjs check",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
+          "status": "approved"
         },
         {
           "id": "theme-contract",

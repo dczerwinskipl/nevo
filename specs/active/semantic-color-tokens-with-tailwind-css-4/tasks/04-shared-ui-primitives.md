@@ -7,6 +7,9 @@ context:
     - specs/active/semantic-color-tokens-with-tailwind-css-4/overview.md
     - specs/active/semantic-color-tokens-with-tailwind-css-4/owner-decisions.md
     - specs/active/semantic-color-tokens-with-tailwind-css-4/areas/shared-ui-primitives.md
+    - docs/development/react-component-guidelines.md
+    - docs/development/ui-ux-guidelines.md
+    - docs/development/storybook.md
     - tools/dashboard/ui/index.css
     - tools/dashboard/ui/components/ui/button.tsx
     - tools/dashboard/ui/components/ui/badge.tsx

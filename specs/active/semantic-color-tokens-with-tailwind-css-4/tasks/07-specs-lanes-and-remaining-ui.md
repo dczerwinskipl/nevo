@@ -7,6 +7,11 @@ context:
     - specs/active/semantic-color-tokens-with-tailwind-css-4/overview.md
     - specs/active/semantic-color-tokens-with-tailwind-css-4/owner-decisions.md
     - specs/active/semantic-color-tokens-with-tailwind-css-4/areas/specs-lanes-and-remaining-ui.md
+    - docs/development/react-component-guidelines.md
+    - docs/development/ui-ux-guidelines.md
+    - docs/development/nevo-ai-ux-guidelines.md
+    - docs/development/nevo-interaction-model.md
+    - docs/development/storybook.md
     - tools/dashboard/ui/index.css
     - tools/dashboard/ui/shared/status-tone.ts
     - tools/dashboard/ui/features/specifications/detail/lane-presentation.ts

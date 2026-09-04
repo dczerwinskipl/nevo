@@ -7,9 +7,12 @@ context:
     - specs/active/semantic-color-tokens-with-tailwind-css-4/overview.md
     - specs/active/semantic-color-tokens-with-tailwind-css-4/owner-decisions.md
     - specs/active/semantic-color-tokens-with-tailwind-css-4/areas/storybook-and-documentation.md
+    - docs/development/ui-ux-guidelines.md
+    - docs/development/storybook.md
     - tools/dashboard/ui/index.css
     - tools/dashboard/ui/foundations/colors.stories.tsx
   optional:
+    - docs/development/react-component-guidelines.md
     - tools/dashboard/ui/components/ui/button.tsx
     - tools/dashboard/ui/shared/status-tone.ts
 allowed_paths:
@@ -58,10 +61,17 @@ documentation to the final contract.
   (`tasks/03-*`, D10) actually did their job; a story that silently renders blank
   swatches for undetected tokens is the exact failure mode `static` exists to prevent,
   so the story must actively check for it, not just visually assume it.
-- First run `node tools/docs.mjs find --scope <dashboard/UI-relevant scope>` (or
-  equivalent) to determine whether a UX color-role doc already exists under
-  `docs/development/`; update it if found, create the minimal doc if genuinely absent —
-  do not create a duplicate doc if one exists.
+- First run:
+  ```text
+  node tools/docs.mjs find --query "semantic color status tokens" --type development
+  ```
+  and:
+  ```text
+  node tools/docs.mjs find --path tools/dashboard/ui/foundations/colors.stories.tsx
+  ```
+  to identify existing documentation owners under `docs/development/` (specifically
+  `ui-ux-guidelines.md`); update the existing owner and do not create a duplicate
+  design-system document.
 - After changing any `docs/development/**` content, run `node tools/docs.mjs generate`
   to refresh `docs/index.generated.json`/`docs/index.generated.md`/
   `docs/routing.generated.json` (all three are in `allowed_paths` specifically for this
