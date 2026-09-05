@@ -1,7 +1,7 @@
 import { Archive, ArrowRight, FileStack, Inbox } from 'lucide-react';
 
 import type { SpecificationSummary, SpecificationSource } from '../types';
-import { formatDate, formatStatus, pluralizeTasks } from '@/lib/utils';
+import { formatDate, formatStatus, pluralizeTasks } from '@/shared/lib/utils';
 import { Badge } from '@/shared/ui/badge';
 import { Card } from '@/shared/ui/card';
 import { StageProgress } from '../stage-progress';

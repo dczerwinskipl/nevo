@@ -1,7 +1,7 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 
 export function MarkdownContent({ markdown, className }: { markdown: string; className?: string }) {
   return (

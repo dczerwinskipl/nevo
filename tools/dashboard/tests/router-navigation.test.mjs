@@ -42,25 +42,18 @@ test('2. Layout hierarchy: Specification routes are nested under _spec-layout wh
   assert.ok(specLayoutRouteSource.includes('/_spec-layout'), '_spec-layout is configured as pathless layout');
 
   // Specification console pages are placed in _spec-layout/ and bind to their feature components
+  assert.ok(indexRouteSource.includes('ActiveSpecificationsPage'), 'Index route binds to ActiveSpecificationsPage');
   assert.ok(
-    indexRouteSource.includes('ActiveSpecificationsScreen') || indexRouteSource.includes('ActiveSpecificationsRoute'),
-    'Index route binds to ActiveSpecificationsScreen',
+    archiveRouteSource.includes('ArchiveSpecificationsPage'),
+    'Archive route binds to ArchiveSpecificationsPage',
   );
   assert.ok(
-    archiveRouteSource.includes('ArchiveSpecificationsScreen') ||
-      archiveRouteSource.includes('ArchiveSpecificationsRoute'),
-    'Archive route binds to ArchiveSpecificationsScreen',
-  );
-  assert.ok(
-    specDetailRouteSource.includes('SpecificationDetailScreen') || specDetailRouteSource.includes('SpecificationRoute'),
+    specDetailRouteSource.includes('SpecificationDetailScreen'),
     'Spec detail route binds to SpecificationDetailScreen',
   );
 
-  // Agent Session route is placed at top-level routes/ (outside _spec-layout/) and binds to AgentSessionRoute
-  assert.ok(
-    agentSessionRouteSource.includes('AgentSessionScreen') || agentSessionRouteSource.includes('AgentSessionRoute'),
-    'Agent session route binds to AgentSessionScreen',
-  );
+  // Agent Session route is placed at top-level routes/ (outside _spec-layout/) and binds to AgentSessionScreen
+  assert.ok(agentSessionRouteSource.includes('AgentSessionScreen'), 'Agent session route binds to AgentSessionScreen');
   assert.ok(
     !agentSessionRouteSource.includes('SpecificationConsoleLayout'),
     'Agent session route does not reference console layout',
@@ -70,8 +63,8 @@ test('2. Layout hierarchy: Specification routes are nested under _spec-layout wh
 test('3. Route param typing: file routes pass typed Route.useParams() to feature route components', () => {
   const specDetailRouteSource = readSource('routes/_spec-layout/specs.$source.$slug.tsx');
   const agentSessionRouteSource = readSource('routes/specs.$source.$slug.sessions.$provider.$providerSessionId.tsx');
-  const specificationRouteSource = readSource('screens/specification-detail-screen.tsx');
-  const agentSessionComponentSource = readSource('screens/agent-session-screen.tsx');
+  const specificationRouteSource = readSource('screens/specification-detail/specification-detail-screen.tsx');
+  const agentSessionComponentSource = readSource('screens/agent-session/agent-session-screen.tsx');
 
   // Route files extract typed params via Route.useParams()
   assert.ok(specDetailRouteSource.includes('Route.useParams()'), 'Specification route uses Route.useParams()');
@@ -79,21 +72,21 @@ test('3. Route param typing: file routes pass typed Route.useParams() to feature
 
   // Feature components accept explicit props and do not use non-strict useParams
   assert.ok(
-    specificationRouteSource.includes('export interface SpecificationRouteProps'),
-    'SpecificationRoute declares explicit props',
+    specificationRouteSource.includes('export interface SpecificationDetailScreenProps'),
+    'SpecificationDetailScreen declares explicit props',
   );
   assert.ok(
     !specificationRouteSource.includes('useParams({ strict: false })'),
-    'SpecificationRoute does not use non-strict useParams',
+    'SpecificationDetailScreen does not use non-strict useParams',
   );
 
   assert.ok(
-    agentSessionComponentSource.includes('export interface AgentSessionRouteProps'),
-    'AgentSessionRoute declares explicit props',
+    agentSessionComponentSource.includes('export interface AgentSessionScreenProps'),
+    'AgentSessionScreen declares explicit props',
   );
   assert.ok(
     !agentSessionComponentSource.includes('useParams({ strict: false })'),
-    'AgentSessionRoute does not use non-strict useParams',
+    'AgentSessionScreen does not use non-strict useParams',
   );
 });
 
@@ -177,7 +170,11 @@ test('9. No global session fetch: SpecificationConsoleLayout and SpecificationSi
 test('10. No reverse spec resolution: AgentSessionPage receives spec directly, without searching all specs', () => {
   const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');
 
-  assert.ok(agentSessionPageSource.includes('spec: SpecificationSummary'), 'AgentSessionPage receives spec directly');
+  assert.ok(
+    agentSessionPageSource.includes('spec?: AgentSessionPageSpecContext') ||
+      agentSessionPageSource.includes('spec: AgentSessionPageSpecContext'),
+    'AgentSessionPage receives spec directly',
+  );
   assert.ok(
     !agentSessionPageSource.includes('changes: SpecificationSummary[]'),
     'AgentSessionPage must not receive changes array to reverse search',
@@ -186,7 +183,7 @@ test('10. No reverse spec resolution: AgentSessionPage receives spec directly, w
 });
 
 test('11. AgentSessionRoute: Fatal initial load error blocks with StatusCard; background refresh error retains active chat', () => {
-  const routerSource = readSource('screens/agent-session-screen.tsx');
+  const routerSource = readSource('screens/agent-session/agent-session-screen.tsx');
 
   assert.ok(
     routerSource.includes('if (sessionsQuery.error && !sessionsQuery.data) {'),
@@ -211,7 +208,7 @@ test('11. AgentSessionRoute: Fatal initial load error blocks with StatusCard; ba
 });
 
 test('12. Session switching: Switching sessions inside same spec uses replace to preserve Spec -> Session history hierarchy', () => {
-  const routerSource = readSource('screens/agent-session-screen.tsx');
+  const routerSource = readSource('screens/agent-session/agent-session-screen.tsx');
 
   assert.ok(
     routerSource.includes('handleSwitchSession') && routerSource.includes('replace: true'),
@@ -220,8 +217,8 @@ test('12. Session switching: Switching sessions inside same spec uses replace to
 });
 
 test('13. Fallback routing: Archived spec accessed via /specs/active/... or active spec via /specs/archive/... resolves fallback without 404', () => {
-  const specificationRouteSource = readSource('screens/specification-detail-screen.tsx');
-  const agentSessionRouteSource = readSource('screens/agent-session-screen.tsx');
+  const specificationRouteSource = readSource('screens/specification-detail/specification-detail-screen.tsx');
+  const agentSessionRouteSource = readSource('screens/agent-session/agent-session-screen.tsx');
 
   assert.ok(
     specificationRouteSource.includes('const fallbackSpec = useMemo('),
@@ -239,17 +236,17 @@ test('13. Fallback routing: Archived spec accessed via /specs/active/... or acti
   );
 });
 
-test('14. Archived spec sessions: specification-detail and task-dialog enable useAgentSessions for archived specs with specId', () => {
-  const specificationDetailSource = readSource('features/specifications/detail/specification-detail.tsx');
+test('14. Archived spec sessions: specification-detail-screen enables useAgentSessions for specs with specId', () => {
+  const specificationScreenSource = readSource('screens/specification-detail/specification-detail-screen.tsx');
   const taskDialogSource = readSource('features/specifications/tasks/task-dialog.tsx');
 
   assert.match(
-    specificationDetailSource,
-    /useAgentSessions\({\s*specId:\s*specification\.specId \|\| undefined,\s*enabled:\s*Boolean\(specification\.specId\),?\s*}\)/,
-    'SpecificationDetail must not restrict useAgentSessions to specification.source === active',
+    specificationScreenSource,
+    /useAgentSessions\({\s*specId:\s*effectiveSpec\?\.specId \|\| undefined,\s*enabled:\s*Boolean\(effectiveSpec\?\.specId\),?\s*}\)/,
+    'SpecificationDetailScreen must not restrict useAgentSessions to active specifications',
   );
   assert.ok(
-    taskDialogSource.includes('enabled: Boolean(specification.specId)'),
-    'TaskDialog must not restrict useAgentSessions to specification.source === active',
+    taskDialogSource.includes('sessionsContent?: React.ReactNode'),
+    'TaskDialog accepts injected sessionsContent instead of tightly coupling to useAgentSessions',
   );
 });

@@ -5,15 +5,15 @@ import type {
   SpecificationTask,
   SpecificationOwnerAction,
   SpecificationTaskActionGate,
-} from '../types';
+} from '@/features/specifications/types';
 import type { AgentSession, TaskNavigationTarget } from '@/features/agent-sessions/types';
-import { formatStatus } from '@/lib/utils';
+import { formatStatus } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { AgentSessionList } from '@/features/agent-sessions/agent-session-list';
-import { StatusBoard } from './status-board';
+import { StatusBoard } from '@/features/specifications/detail/status-board';
 
-export function OverviewPanel({
+export function SpecificationOverview({
   specification,
   onTaskSelect,
   sessions,

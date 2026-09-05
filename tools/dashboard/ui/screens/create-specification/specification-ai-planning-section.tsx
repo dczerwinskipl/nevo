@@ -1,5 +1,5 @@
 import { LoaderCircle, Sparkles } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 import { ProviderBadge } from '@/features/agent-sessions/agent-session-list';
 import type { AgentExecutionMode, AgentProviderDescriptor } from '@/features/agent-sessions/types';
 import { AI_PROVIDERS_ENABLE_MESSAGE } from '@/features/agent-sessions/provider-config';

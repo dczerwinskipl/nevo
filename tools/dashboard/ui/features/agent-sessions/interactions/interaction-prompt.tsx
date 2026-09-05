@@ -3,7 +3,7 @@ import { Check, ShieldAlert, X } from 'lucide-react';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import type { AgentInteraction, AgentPermissionInteraction, AgentQuestionInteraction } from '../types';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 
 export function PermissionPrompt({
   interaction,

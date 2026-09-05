@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { ActiveSpecificationsScreen } from '@/screens/active-specifications-screen';
+import { ActiveSpecificationsPage } from '@/features/specifications/list/active-specifications-page';
 
 export const Route = createFileRoute('/_spec-layout/')({
-  component: ActiveSpecificationsScreen,
+  component: ActiveSpecificationsPage,
 });

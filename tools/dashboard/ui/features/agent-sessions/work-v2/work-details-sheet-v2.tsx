@@ -23,7 +23,7 @@ import type {
   ToolInvocationWorkItemV2,
   WorkItemV2,
 } from '../types';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 
 function formatPayload(value: unknown): string {
   if (value === undefined || value === null) return '';

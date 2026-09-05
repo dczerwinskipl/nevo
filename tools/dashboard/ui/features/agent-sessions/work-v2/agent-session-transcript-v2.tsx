@@ -7,7 +7,7 @@ import { useScrollFollow } from '../transcript/use-scroll-follow';
 import { shouldCollapseMessage } from '../transcript/message-collapse';
 import { AgentSessionLoadError } from '../runtime/agent-session-transport';
 import type { CanonicalTurnV2 } from '../types';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 
 export interface AgentSessionTranscriptV2Handle {
   scrollToBottom: (behavior?: ScrollBehavior) => void;

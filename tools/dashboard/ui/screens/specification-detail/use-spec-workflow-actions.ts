@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
-import type { SpecificationSummary, SpecificationTask, SpecificationOwnerAction } from '../types';
-import { invalidateSpecificationQueries } from '../queries';
+import type {
+  SpecificationSummary,
+  SpecificationTask,
+  SpecificationOwnerAction,
+} from '@/features/specifications/types';
+import { invalidateSpecificationQueries } from '@/features/specifications/queries';
 import { invalidatePullRequestQueries } from '@/features/pull-requests/queries';
 import { waitForOperationTerminal } from '@/features/operations/wait-for-operation-terminal';
-import type { useSpecificationActions } from '../detail/spec-detail-queries';
+import type { useSpecificationActions } from '@/features/specifications/detail/spec-detail-queries';
 import {
   describeBatchStopReason,
   runBatchTaskAction,

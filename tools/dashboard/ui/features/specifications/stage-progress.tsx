@@ -1,5 +1,5 @@
 import type { SpecificationSummary, StageId } from './types';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 
 const visibleStages: Array<{ id: StageId; label: string; color: string }> = [
   { id: 'done', label: 'Gotowe', color: 'bg-status-success' },

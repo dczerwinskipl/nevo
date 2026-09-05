@@ -6,7 +6,7 @@ import type {
   SpecificationOwnerAction,
   SpecificationTaskActionGate,
 } from '../types';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 import { lanePresentation } from './lane-presentation';
 import { Button } from '@/shared/ui/button';
 import { StatusLabel } from '@/shared/ui/status-label';

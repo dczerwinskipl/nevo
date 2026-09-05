@@ -1,5 +1,5 @@
 import { RefreshCw } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 import { SPEC_TYPES_OPTIONS, slugifyTitle } from './create-specification-helpers';
 
 export interface SpecificationMetadataFieldsProps {

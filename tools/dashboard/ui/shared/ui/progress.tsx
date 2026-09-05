@@ -1,4 +1,4 @@
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 
 export function Progress({ value, className }: { value: number; className?: string }) {
   const safeValue = Math.max(0, Math.min(100, value));

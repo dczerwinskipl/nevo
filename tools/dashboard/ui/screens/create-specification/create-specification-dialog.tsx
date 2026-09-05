@@ -1,6 +1,6 @@
 import { Bot, FilePlus2, LoaderCircle, X } from 'lucide-react';
 import { Button } from '@/shared/ui/button';
-import type { CreateSpecificationResult } from '../queries';
+import type { CreateSpecificationResult } from '@/features/specifications/queries';
 import type { AgentSession } from '@/features/agent-sessions/types';
 
 import { useCreateSpecificationForm } from './use-create-specification-form';

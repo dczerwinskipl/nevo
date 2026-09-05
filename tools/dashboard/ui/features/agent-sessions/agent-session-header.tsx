@@ -2,7 +2,7 @@ import { ArrowLeft, Info, Radio } from 'lucide-react';
 import { Button } from '@/shared/ui/button';
 import { StatusLabel } from '@/shared/ui/status-label';
 import { statusSurfaceTone, type StatusTone } from '@/shared/status-tone';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 
 import type { LiveConnectionStatus } from './types';
 import { sessionStatusTone } from './status';

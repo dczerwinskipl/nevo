@@ -2,12 +2,16 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { AgentSessionDetails } from './agent-session-details';
 import type { SessionTaskItem } from './session-tasks';
 import type { AgentExecutionMode, AgentSession, TaskNavigationTarget } from './types';
-import type { SpecificationSummary } from '@/features/specifications/types';
+
+export interface AgentSessionSpecContext {
+  title?: string;
+  slug?: string;
+}
 
 export interface AgentSessionDetailsSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  spec?: SpecificationSummary | null;
+  spec?: AgentSessionSpecContext | null;
   session?: AgentSession | null;
   tasks: SessionTaskItem[];
   provider: string;

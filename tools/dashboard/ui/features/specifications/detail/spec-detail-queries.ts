@@ -9,7 +9,6 @@ import type {
   SpecificationOwnerAction,
 } from '../types';
 import { ACTIONS_QUERY_KEY, DOCUMENT_QUERY_KEY, invalidateSpecificationQueries, MANIFEST_QUERY_KEY } from '../queries';
-import { invalidatePullRequestQueries } from '@/features/pull-requests/queries';
 
 async function fetchSpecificationManifest(specification: SpecificationSummary) {
   const response = await fetch(`/api/specs/${specification.source}/${encodeURIComponent(specification.slug)}/content`, {
@@ -102,7 +101,11 @@ async function executeSpecificationAction(
   return payload as SpecificationActionResult;
 }
 
-export function useSpecificationActions(specification: SpecificationSummary, enabled = true) {
+export function useSpecificationActions(
+  specification: SpecificationSummary,
+  enabled = true,
+  onSyncSuccess?: () => Promise<unknown> | void,
+) {
   const queryClient = useQueryClient();
   const active = enabled && specification.source === 'active';
   const query = useQuery({
@@ -122,7 +125,7 @@ export function useSpecificationActions(specification: SpecificationSummary, ena
       // until the operation reaches terminal status (operation.completed / operation.failed).
       // If no operationId was returned (direct synchronous legacy), invalidate immediately.
       if (!result?.operationId) {
-        await Promise.all([invalidateSpecificationQueries(queryClient), invalidatePullRequestQueries(queryClient)]);
+        await Promise.all([invalidateSpecificationQueries(queryClient), onSyncSuccess?.()]);
       }
     },
   });

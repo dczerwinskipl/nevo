@@ -11,9 +11,8 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
-import type { AgentSession, TaskNavigationTarget } from './types';
-import type { SpecificationTask } from '@/features/specifications/types';
-import { cn, formatDate } from '@/lib/utils';
+import type { AgentSession, TaskNavigationTarget, AgentSessionTaskRef } from './types';
+import { cn, formatDate } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/button';
 import { StatusCard } from '@/shared/ui/status-card';
 import { StatusLabel } from '@/shared/ui/status-label';
@@ -82,7 +81,7 @@ export function AgentSessionRow({
   showDelete = true,
 }: {
   session: AgentSession;
-  tasks?: SpecificationTask[];
+  tasks?: AgentSessionTaskRef[];
   onOpen: (session: AgentSession) => void;
   onDelete?: (session: AgentSession) => void | Promise<void>;
   onOpenTask?: (target: TaskNavigationTarget | string) => void;
@@ -226,7 +225,7 @@ export function AgentSessionList({
   limit,
 }: {
   sessions: AgentSession[];
-  tasks?: SpecificationTask[];
+  tasks?: AgentSessionTaskRef[];
   loading: boolean;
   error: string | null;
   onRetry: () => void;

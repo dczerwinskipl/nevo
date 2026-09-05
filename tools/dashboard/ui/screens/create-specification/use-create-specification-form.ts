@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useCreateSpecification, type CreateSpecificationResult } from '../queries';
+import { useCreateSpecification, type CreateSpecificationResult } from '@/features/specifications/queries';
 import { useAgentProviders, useCreateAgentSession } from '@/features/agent-sessions/queries';
 import { slugifyTitle, resolveDefaultPlanningMode } from './create-specification-helpers';
 import { initialPromptWithTaskContext } from '@/features/agent-sessions/create-agent-session-helpers';

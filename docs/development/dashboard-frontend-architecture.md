@@ -61,9 +61,7 @@ The NEvo dashboard (`tools/dashboard/ui`) is a developer console and AI orchestr
 
 ## 2. Layer Responsibilities and Dependency Rules
 
-The dashboard frontend is organized into five production hierarchical layers, with design system foundations and Storybook acting as catalog and test consumers:
-
-$$\text{App} \longrightarrow \text{Routes} \longrightarrow \text{Screens} \longrightarrow \text{Features} \longrightarrow \text{Shared}$$
+The dashboard frontend is organized into hierarchical layers where screens act as an optional multi-feature composition layer:
 
 ```text
 ┌────────────────────────────────────────────────────────┐
@@ -73,30 +71,24 @@ $$\text{App} \longrightarrow \text{Routes} \longrightarrow \text{Screens} \longr
                             ▼
 ┌────────────────────────────────────────────────────────┐
 │ Route Entry Points (ui/routes/)                        │
-└───────────────────────────┬────────────────────────────┘
-                            │ imports
-                            ▼
+└─────────────┬────────────────────────────┬─────────────┘
+              │ (multi-feature)            │ (single-feature)
+              ▼                            ▼
+┌──────────────────────────────────┐ ┌──────────────────────────────────┐
+│ Screen Composition (ui/screens/) │ │ Feature Views (ui/features/)     │
+│ - specification-console-layout   │ │ - active-specifications-page     │
+│ - screens/specification-detail/  │ │ - archive-specifications-page    │
+│ - screens/agent-session/         │ └──────────────────────────────────┘
+│ - screens/create-specification/  │               ▲
+└──────────────────┬───────────────┘               │
+                   │ imports                       │
+                   └───────────────────────────────┘
+                                   │ imports
+                                   ▼
 ┌────────────────────────────────────────────────────────┐
-│ Screen Composition Layer (ui/screens/)                 │
-│ - specification-console-layout                         │
-│ - specification-detail-screen                          │
-│ - agent-session-screen                                 │
-│ - active-specifications-screen                         │
-│ - archive-specifications-screen                        │
-└───────────────────────────┬────────────────────────────┘
-                            │ imports
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│ Feature Verticals (ui/features/<domain>/)              │
-│ - agent-sessions  - specifications                     │
-│ - pull-requests   - operations                         │
-└───────────────────────────┬────────────────────────────┘
-                            │ imports
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│ Shared UI & Utilities (ui/shared/ui/, ui/shared/)      │
-│ - badge, button, card, dialog, progress, sheet, etc.   │
-│ - markdown, status-tone, lib/utils                     │
+│ Shared UI & Utilities (ui/shared/)                     │
+│ - ui/ (badge, button, card, dialog, sheet, etc.)       │
+│ - lib/utils (cn, formatters), markdown/, status-tone   │
 └────────────────────────────────────────────────────────┘
 
 Catalog & Testing Consumers:
@@ -109,18 +101,19 @@ ui/foundations/ (design system catalog & verification stories)
 | Layer | Directory | Responsibilities | Permitted Imports |
 |---|---|---|---|
 | **App** | `ui/app/`, `ui/App.tsx`, `ui/main.tsx` | Global bootstrap, root providers (`QueryClientProvider`, TanStack Router setup), root layout frame. | `routes`, `screens`, `features`, `shared` |
-| **Routes** | `ui/routes/` | File-system routing definitions. Thin parameter extractors that read typed params via `Route.useParams()` and delegate directly to corresponding screens. | `screens`, `@tanstack/react-router` |
-| **Screens** | `ui/screens/` | Screen-level composition layer. Assembles multiple domain features into unified page views (e.g. connecting spec details, session creation, PR changes, and operations). | `features`, `shared`, `@tanstack/react-router` |
-| **Features** | `ui/features/<domain>/` | Vertical slices owning single-domain views, components, local UI state, queries, mutations, projections, and co-located stories. | `shared`, own feature internals |
-| **Shared** | `ui/shared/ui/`, `ui/shared/` | Reusable, domain-independent UI primitives (`Button`, `Card`, `Dialog`, `Sheet`, `Badge`, `Progress`, `StatusCard`, `StatusLabel`, `LoadingScreen`), markdown renderers, token contracts (`status-tone.ts`), and utilities (`cn`). | External libraries (Radix, Lucide) |
+| **Routes** | `ui/routes/` | File-system routing definitions. Thin parameter extractors that read typed params via `Route.useParams()` and delegate either to a composite screen (when multi-feature coordination is needed) or directly to a single-feature view (when no cross-feature composition is required). | `screens`, `features`, `@tanstack/react-router` |
+| **Screens** | `ui/screens/` | Multi-feature composition layer (optional hop, used where multiple domain features converge). Coordinates specifications, agent sessions, pull requests, and operations without cross-coupling inside feature folders. | `features`, `shared`, `@tanstack/react-router` |
+| **Features** | `ui/features/<domain>/` | Vertical slices owning single-domain views, components, local UI state, queries, mutations, projections, and co-located stories. Features never import from sibling features. | `shared`, own feature internals |
+| **Shared** | `ui/shared/ui/`, `ui/shared/` | Reusable, domain-independent UI primitives (`Button`, `Card`, `Dialog`, `Sheet`, `Badge`, `Progress`, `StatusCard`, `StatusLabel`, `LoadingScreen`), markdown renderers, token contracts (`status-tone.ts`), and utilities (`cn`, formatters in `shared/lib/utils.ts`). | External libraries (Radix, Lucide) |
 | **Foundations & Testing** | `ui/foundations/`, `.storybook/` | Catalog stories, typography inventories, color palettes, and browser test infrastructure. Catalog and test verification only; not imported by production UI components. | `shared`, `@storybook-test-utils` |
 | **Production Styling** | `ui/index.css` | Production CSS entry point imported by `main.tsx`. Declares Tailwind CSS 4 theme (`@theme static`) and legacy CSS custom property bridge in `:root`. | `@tailwindcss` |
 
 ### Dependency Rules
 
-- **Downward-Only Flow:** Upper layers import from lower layers (`App -> Routes -> Screens -> Features -> Shared`). Lower layers never import from upper layers.
-- **Shared Layer Isolation:** Modules under `ui/shared/` must never import from `features/`, `screens/`, `routes/`, or `app/`.
-- **Feature Layer Focus:** Features focus on their own domain models, components, state, and queries. Multi-feature orchestration belongs in `ui/screens/`.
+- **Strict Sibling Feature Isolation:** Features under `ui/features/<domain>/` must never import from sibling feature folders. Cross-feature integration happens exclusively in `ui/screens/`.
+- **Flexible Route Delegation:** Routes delegate directly to single-feature pages (e.g. `ActiveSpecificationsPage`) when only a single feature is involved, or to a screen when multiple features interact. Screens are never forced as empty passthroughs.
+- **Shared Layer Purity:** Modules under `ui/shared/` must never import from `features/`, `screens/`, `routes/`, or `app/`.
+- **Screen Purity:** Modules under `ui/screens/` must never import from `routes/`.
 - **Foundations Consumer Isolation:** `ui/foundations/` and `.storybook/` exist for documentation and testing. Production components never import from `ui/foundations/` or `.storybook/`.
 
 ---
@@ -185,12 +178,12 @@ tools/dashboard/ui/features/
 - **Key Files:** `agent-session-page.tsx`, `agent-session-header.tsx`, `agent-session-list.tsx`, `work-v2/`, `runtime/`, `transcript/`.
 
 ### 2. Specifications (`features/specifications`)
-- **Responsibilities:** Specification presentation, status board (workflow lanes: `new`, `design`, `ready`, `implementation`, `review`, `done`), task dialogs, metadata views, spec action dispatchers, document section panels, directory section panels, and spec creation workflows.
-- **Key Files:** `detail/specification-detail.tsx`, `detail/status-board.tsx`, `detail/documentation-panel.tsx`, `tasks/task-dialog.tsx`, `actions/spec-actions.tsx`.
+- **Responsibilities:** Specification presentation, status board (workflow lanes: `new`, `design`, `ready`, `implementation`, `review`, `done`), task dialogs, metadata views, spec action dispatchers, document section panels, directory section panels, and specification list pages.
+- **Key Files:** `list/active-specifications-page.tsx`, `list/archive-specifications-page.tsx`, `detail/status-board.tsx`, `detail/documentation-panel.tsx`, `tasks/task-dialog.tsx`, `actions/spec-actions.tsx`.
 
 ### 3. Pull Requests (`features/pull-requests`)
 - **Responsibilities:** Pull request summary cards, detail view, file change diffs, diff statistics (`diff-addition`, `diff-deletion`), review state cards, and PR query hooks.
-- **Key Files:** `panel/pull-requests-panel.tsx`, `detail/pull-request-detail.tsx`, `changes/file-change.tsx`.
+- **Key Files:** `pull-requests-panel.tsx`, `detail/pull-request-detail.tsx`, `changes/file-change.tsx`.
 
 ### 4. Operations (`features/operations`)
 - **Responsibilities:** Background long-running operations (spec creation, branch creation, migrations), modal progress dialogs (`OperationModal`), step progress rows, snapshot queries, and terminal state waiting coordination.
@@ -198,13 +191,14 @@ tools/dashboard/ui/features/
 
 ### Screen Composition Layer (`ui/screens/`)
 
-Rather than having individual features deeply import and orchestrate sibling features, screen-level composition is consolidated in `ui/screens/`:
+Rather than having individual features deeply import and orchestrate sibling features, multi-feature screen composition is consolidated in `ui/screens/`:
 
-- **`specification-console-layout.tsx`:** Coordinates the specification sidebar, live connectivity controls, navigation mode (active/archive), search filtering, and the specification creation flow.
-- **`specification-detail-screen.tsx`:** Resolves specification by route parameters, handles active/archive fallback redirects, hosts the specification detail view, and orchestrates agent session creation.
-- **`agent-session-screen.tsx`:** Resolves the owning specification and session instance, manages back navigation and in-spec session switching, and mounts `AgentSessionPage`.
-- **`active-specifications-screen.tsx`:** Connects the active specifications query to the specification list view.
-- **`archive-specifications-screen.tsx`:** Connects the archive specifications query to the specification list view.
+- **`specification-console-layout.tsx`:** Coordinates the specification sidebar, live connectivity controls, navigation mode (active/archive), search filtering, and embeds the specification creation dialog.
+- **`screens/specification-detail/`:** Screen folder housing `specification-detail-screen.tsx`, `specification-overview.tsx`, and workflow action hooks (`use-spec-workflow-actions.ts`, `spec-workflow-actions.ts`). Orchestrates specification details, tabs, task inspection with injected `AgentSessionList`, PR panel invalidation, and operation progress modals.
+- **`screens/agent-session/`:** Screen folder housing `agent-session-screen.tsx`. Resolves owning specification and session instance, manages in-spec session switching with history preservation, and injects `TaskDialog` into `AgentSessionPage`.
+- **`screens/create-specification/`:** Screen folder housing `create-specification-dialog.tsx`, metadata inputs, and AI planning sections.
+
+Single-feature pages (e.g. `ActiveSpecificationsPage`, `ArchiveSpecificationsPage`) are routed directly without artificial screen wrappers.
 
 ---
 
@@ -216,29 +210,39 @@ Rather than having individual features deeply import and orchestrate sibling fea
 - **No Wildcard Re-Exports:** Catch-all barrel files using `export * from '...'` are prohibited. Explicit named exports ensure clear symbol provenance and avoid circular dependency risks.
 - **Relative vs. Root-Relative Imports:**
   - Within the same feature or directory: use relative paths (`../status`, `./types`).
-  - Across architectural layers: use the `@/` path alias (`@/shared/ui/button`, `@/screens/specification-detail-screen`, `@/features/specifications/queries`).
+  - Across architectural layers: use the `@/` path alias (`@/shared/ui/button`, `@/screens/specification-detail/specification-detail-screen`, `@/features/specifications/queries`).
 
 ---
 
-## 6. Consolidated Shared UI (`ui/shared/ui/`)
+## 6. Consolidated Shared Layer (`ui/shared/`)
 
-All domain-independent UI primitives reside in a single, unified directory: `tools/dashboard/ui/shared/ui/`.
+All domain-independent UI primitives and shared utilities reside under `tools/dashboard/ui/shared/`:
 
 ```text
-tools/dashboard/ui/shared/ui/
-├── badge.tsx & badge.stories.tsx
-├── button.tsx & button.stories.tsx
-├── card.tsx & card.stories.tsx
-├── dialog.tsx & dialog.stories.tsx
-├── loading-screen.tsx & loading-screen.stories.tsx
-├── progress.tsx & progress.stories.tsx
-├── sheet.tsx & sheet.stories.tsx
-├── status-card.tsx & status-card.stories.tsx
-└── status-label.tsx
+tools/dashboard/ui/shared/
+├── ui/                                  # Consolidated UI primitives
+│   ├── badge.tsx & badge.stories.tsx
+│   ├── button.tsx & button.stories.tsx
+│   ├── card.tsx & card.stories.tsx
+│   ├── dialog.tsx & dialog.stories.tsx
+│   ├── loading-screen.tsx & loading-screen.stories.tsx
+│   ├── progress.tsx & progress.stories.tsx
+│   ├── sheet.tsx & sheet.stories.tsx
+│   ├── status-card.tsx & status-card.stories.tsx
+│   └── status-label.tsx
+├── lib/
+│   └── utils.ts                         # cn utility, date/status formatters
+├── markdown/                            # Markdown rendering components
+└── status-tone.ts                       # Canonical StatusTone contract
 ```
 
-- **Tooling Alignment:** The shadcn CLI configuration (`tools/dashboard/components.json`) configures `"ui": "@/shared/ui"` and `"components": "@/shared/ui"`.
-- **Elimination of `ui/components/ui/`:** The historical `ui/components/ui/` scaffolding directory has been eliminated. All callers import shared primitives from `@/shared/ui/<primitive>`.
+- **Tooling Alignment:** The shadcn CLI configuration (`tools/dashboard/components.json`) configures:
+  - `"components": "@/shared"`
+  - `"ui": "@/shared/ui"`
+  - `"utils": "@/shared/lib/utils"`
+  - `"lib": "@/shared/lib"`
+  - `"hooks": "@/shared/hooks"`
+- **Elimination of Legacy Aliases:** The historical `ui/components/` and `ui/lib/` directories have been deleted. All callers import shared utilities from `@/shared/lib/utils` and UI primitives from `@/shared/ui/<primitive>`.
 
 ---
 
@@ -340,10 +344,10 @@ When creating or placing a frontend file, follow this decision matrix:
 |---|---|---|
 | **1. Is this a route entry point for TanStack Router?** | `tools/dashboard/ui/routes/` | Proceed to question 2 |
 | **2. Is this an application root bootstrap or router configuration?** | `tools/dashboard/ui/app/` (or `App.tsx`) | Proceed to question 3 |
-| **3. Is this a page-level screen that composes multiple domain features?** | `tools/dashboard/ui/screens/` | Proceed to question 4 |
-| **4. Does this component implement logic, views, or queries for a specific feature (`agent-sessions`, `specifications`, `pull-requests`, `operations`)?** | `tools/dashboard/ui/features/<domain>/` | Proceed to question 5 |
+| **3. Is this a composite screen coordinating multiple domain features?** | `tools/dashboard/ui/screens/<feature-area>/` | Proceed to question 4 |
+| **4. Does this component implement logic, views, pages, or queries for a single domain (`agent-sessions`, `specifications`, `pull-requests`, `operations`)?** | `tools/dashboard/ui/features/<domain>/` | Proceed to question 5 |
 | **5. Is this component a domain-agnostic UI primitive (button, card, dialog, badge, sheet, status-card)?** | `tools/dashboard/ui/shared/ui/` | Proceed to question 6 |
-| **6. Is this a domain-agnostic composite (markdown renderer, utility hook)?** | `tools/dashboard/ui/shared/<area>/` | Proceed to question 7 |
+| **6. Is this a domain-agnostic composite (markdown renderer, utility hook, helper function)?** | `tools/dashboard/ui/shared/<area>/` | Proceed to question 7 |
 | **7. Is this a design token verification story or design system catalog?** | `tools/dashboard/ui/foundations/` | Re-evaluate component scope |
 
 ---
@@ -361,7 +365,7 @@ tools/dashboard/
 │   │   └── index.ts
 │   ├── main.ts
 │   └── preview.tsx
-├── components.json                      # shadcn config (aliases "ui" to @/shared/ui)
+├── components.json                      # shadcn config (aliases "@/shared/ui", "@/shared/lib/utils")
 ├── ui/
 │   ├── app/                             # Application router setup
 │   │   └── router.ts
@@ -369,20 +373,30 @@ tools/dashboard/
 │   │   ├── __root.tsx
 │   │   ├── _spec-layout.tsx
 │   │   ├── _spec-layout/
-│   │   │   ├── index.tsx
-│   │   │   ├── archive.tsx
-│   │   │   └── specs.$source.$slug.tsx
-│   │   └── specs.$source.$slug.sessions.$provider.$providerSessionId.tsx
+│   │   │   ├── index.tsx                # Delegates directly to ActiveSpecificationsPage
+│   │   │   ├── archive.tsx              # Delegates directly to ArchiveSpecificationsPage
+│   │   │   └── specs.$source.$slug.tsx  # Delegates to SpecificationDetailScreen
+│   │   └── specs.$source.$slug.sessions.$provider.$providerSessionId.tsx # Delegates to AgentSessionScreen
 │   ├── screens/                         # Multi-feature page composition layer
-│   │   ├── active-specifications-screen.tsx
-│   │   ├── agent-session-screen.tsx
-│   │   ├── archive-specifications-screen.tsx
-│   │   ├── specification-console-layout.tsx
-│   │   └── specification-detail-screen.tsx
-│   ├── features/                        # Single-domain vertical slices
+│   │   ├── agent-session/
+│   │   │   └── agent-session-screen.tsx
+│   │   ├── create-specification/
+│   │   │   ├── create-specification-dialog.tsx
+│   │   │   ├── create-specification-error-banner.tsx
+│   │   │   ├── create-specification-helpers.ts
+│   │   │   ├── specification-ai-planning-section.tsx
+│   │   │   ├── specification-metadata-fields.tsx
+│   │   │   └── use-create-specification-form.ts
+│   │   ├── specification-detail/
+│   │   │   ├── spec-workflow-actions.ts
+│   │   │   ├── specification-detail-screen.tsx
+│   │   │   ├── specification-overview.tsx
+│   │   │   └── use-spec-workflow-actions.ts
+│   │   └── specification-console-layout.tsx
+│   ├── features/                        # Single-domain vertical slices (zero sibling imports)
 │   │   ├── agent-sessions/              # AI sessions, chat surface, Work V2 timeline
-│   │   ├── specifications/              # Specification status board, tasks, docs
-│   │   ├── pull-requests/               # Pull request cards, diff inspection
+│   │   ├── specifications/              # Spec status board, tasks, docs, list pages
+│   │   ├── pull-requests/               # Pull request panel, diff inspection
 │   │   └── operations/                  # Background operation progress & modal
 │   ├── shared/                          # Domain-agnostic shared layer
 │   │   ├── ui/                          # Consolidated UI primitives
@@ -395,6 +409,8 @@ tools/dashboard/
 │   │   │   ├── sheet.tsx & sheet.stories.tsx
 │   │   │   ├── status-card.tsx & status-card.stories.tsx
 │   │   │   └── status-label.tsx
+│   │   ├── lib/
+│   │   │   └── utils.ts                 # cn utility and status/date formatters
 │   │   ├── markdown/                    # Markdown rendering components
 │   │   └── status-tone.ts               # Canonical StatusTone contract
 │   ├── foundations/                     # Design system catalog stories
@@ -402,8 +418,6 @@ tools/dashboard/
 │   │   ├── smoke.stories.tsx
 │   │   ├── token-resolver.stories.tsx
 │   │   └── typography.stories.tsx
-│   ├── lib/
-│   │   └── utils.ts                     # cn utility and date/status formatters
 │   ├── App.tsx                          # Root application component
 │   ├── index.css                        # Tailwind 4 theme & legacy CSS bridge
 │   ├── index.html                       # HTML entry point

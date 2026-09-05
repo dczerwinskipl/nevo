@@ -16,7 +16,7 @@ import type { ComponentType } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
 import type { SpecificationSummary, SpecificationManifest } from '../types';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 import { Card } from '@/shared/ui/card';
 import { StatusCard } from '@/shared/ui/status-card';
 import { MarkdownContent } from '@/shared/markdown/markdown-content';

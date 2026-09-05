@@ -1,7 +1,7 @@
 import { Archive, FileText, LayoutDashboard, Plus, Search, X } from 'lucide-react';
 
 import type { SpecificationSummary, SpecificationSource } from '../types';
-import { cn, formatDate, formatStatus, pluralizeTasks } from '@/lib/utils';
+import { cn, formatDate, formatStatus, pluralizeTasks } from '@/shared/lib/utils';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { StageProgress } from '../stage-progress';

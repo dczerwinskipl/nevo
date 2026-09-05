@@ -1,34 +1,29 @@
 import { useNavigate, useRouter } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/shared/ui/button';
 import { StatusCard } from '@/shared/ui/status-card';
 import { LoadingScreen } from '@/shared/ui/loading-screen';
 import { useSpecificationIndex } from '@/features/specifications/queries';
-import type { AgentSession } from '@/features/agent-sessions/types';
+import type { AgentSession, TaskNavigationTarget } from '@/features/agent-sessions/types';
 import { useAgentSessions } from '@/features/agent-sessions/queries';
 import { AgentSessionPage } from '@/features/agent-sessions/agent-session-page';
+import { AgentSessionList } from '@/features/agent-sessions/agent-session-list';
+import { TaskDialog } from '@/features/specifications/tasks/task-dialog';
 
-export interface AgentSessionRouteProps {
+export interface AgentSessionScreenProps {
   source: string;
   slug: string;
   provider: string;
   providerSessionId: string;
 }
 
-export type AgentSessionScreenProps = AgentSessionRouteProps;
-
-/**
- * Agent Session screen (`/specs/:source/:slug/sessions/:provider/:providerSessionId`):
- * resolves the owning specification (via the Specifications feature's own index
- * query — AgentSession belongs to / is attached to a Specification) and the
- * session itself, then hands off to `AgentSessionPage`.
- */
 export function AgentSessionScreen({ source: rawSource, slug, provider, providerSessionId }: AgentSessionScreenProps) {
   const source: 'active' | 'archive' = rawSource === 'archive' ? 'archive' : 'active';
 
   const { data, loading: dataLoading, error: dataError } = useSpecificationIndex();
   const navigate = useNavigate();
+  const [inspectedTaskId, setInspectedTaskId] = useState<string | null>(null);
 
   const selectedSpec = useMemo(() => {
     if (!data) return null;
@@ -112,7 +107,6 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
     return <div className="flex min-h-screen items-center justify-center text-sm text-status-error">{dataError}</div>;
   }
 
-  // Spec Not Found in either collection
   if (data && !effectiveSpec) {
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6">
@@ -130,7 +124,6 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
 
   if (sessionsQuery.loading && !sessionsQuery.data) return <LoadingScreen />;
 
-  // Fatal initial Sessions Query Error (error && !data)
   if (sessionsQuery.error && !sessionsQuery.data) {
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6">
@@ -157,7 +150,6 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
     );
   }
 
-  // Session Not Found in this spec
   if (sessionsQuery.data && !session) {
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6">
@@ -185,8 +177,39 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
       onBack={handleBack}
       backLabel="Wróć do specyfikacji"
       onSwitchSession={handleSwitchSession}
+      onInspectTask={(target) => {
+        const taskId = typeof target === 'string' ? target : target.taskId;
+        setInspectedTaskId(taskId);
+      }}
+      taskOverlay={
+        inspectedTaskId && effectiveSpec ? (
+          <TaskDialog
+            specification={effectiveSpec}
+            taskId={inspectedTaskId}
+            onClose={() => setInspectedTaskId(null)}
+            sessionsContent={
+              <AgentSessionList
+                sessions={sessionsQuery.sessions.filter(
+                  (s) => (s.taskIds && s.taskIds.includes(inspectedTaskId)) || s.taskId === inspectedTaskId,
+                )}
+                tasks={effectiveSpec.tasks}
+                loading={sessionsQuery.loading}
+                error={sessionsQuery.error}
+                onRetry={() => void sessionsQuery.refresh()}
+                onOpen={(s) => {
+                  handleSwitchSession(s);
+                  setInspectedTaskId(null);
+                }}
+                onOpenTask={(target) => {
+                  const nextTaskId = typeof target === 'string' ? target : target.taskId;
+                  setInspectedTaskId(nextTaskId);
+                }}
+                emptyLabel="To zadanie nie ma jeszcze powiązanych sesji."
+              />
+            }
+          />
+        ) : null
+      }
     />
   );
 }
-
-export const AgentSessionRoute = AgentSessionScreen;

@@ -9,7 +9,7 @@ import {
 import { TOOL_KIND_ICONS_V2 } from './tool-kind-icons-v2';
 import { previewPlainText } from './text-preview-v2';
 import type { InteractionWorkItemV2, ReasoningWorkItemV2, ToolStatusV2, WorkItemV2 } from '../types';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 
 const TOOL_STATUS_ICON: Partial<Record<ToolStatusV2, typeof XCircle>> = {
   failed: XCircle,

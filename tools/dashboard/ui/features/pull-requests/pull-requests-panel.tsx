@@ -1,16 +1,16 @@
 import { ArrowLeft, GitPullRequest, LoaderCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import type { SpecificationSummary } from '@/features/specifications/types';
-import { cn } from '@/lib/utils';
+import type { PullRequestScope } from './types';
+import { cn } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { StatusCard, RetryButton } from '@/shared/ui/status-card';
-import { usePullRequests } from '../queries';
-import type { DiffViewMode } from '../changes/file-change';
-import { PullRequestCard } from '../detail/pull-request-detail';
-import { PullRequestSummaryCard, UnavailableCard } from '../detail/pull-request-cards';
-import { pullRequestKey } from '../changes/status';
+import { usePullRequests } from './queries';
+import type { DiffViewMode } from './changes/file-change';
+import { PullRequestCard } from './detail/pull-request-detail';
+import { PullRequestSummaryCard, UnavailableCard } from './detail/pull-request-cards';
+import { pullRequestKey } from './changes/status';
 
 function DiffModeControl({ mode, onChange }: { mode: DiffViewMode; onChange: (mode: DiffViewMode) => void }) {
   return (
@@ -33,8 +33,18 @@ function DiffModeControl({ mode, onChange }: { mode: DiffViewMode; onChange: (mo
   );
 }
 
-export function PullRequestsPanel({ specification }: { specification: SpecificationSummary }) {
-  const query = usePullRequests(specification, true);
+export function PullRequestsPanel({
+  scope,
+  specification,
+}: {
+  scope?: PullRequestScope;
+  specification?: PullRequestScope;
+}) {
+  const effectiveScope = scope || specification;
+  if (!effectiveScope) {
+    throw new Error('PullRequestsPanel requires a scope or specification prop');
+  }
+  const query = usePullRequests(effectiveScope, true);
   const [mode, setMode] = useState<DiffViewMode>(() =>
     typeof window !== 'undefined' && window.matchMedia('(min-width: 1100px)').matches ? 'split' : 'unified',
   );
@@ -52,7 +62,7 @@ export function PullRequestsPanel({ specification }: { specification: Specificat
 
   useEffect(() => {
     setSelectedPullRequestKey(null);
-  }, [specification.id, specification.source]);
+  }, [effectiveScope.slug, effectiveScope.source]);
 
   if (query.loading) {
     return (
@@ -165,7 +175,7 @@ export function PullRequestsPanel({ specification }: { specification: Specificat
       </div>
 
       {detailPullRequest.availability === 'available' ? (
-        <PullRequestCard specification={specification} pullRequest={detailPullRequest} mode={mode} />
+        <PullRequestCard scope={effectiveScope} pullRequest={detailPullRequest} mode={mode} />
       ) : (
         <UnavailableCard result={detailPullRequest} />
       )}

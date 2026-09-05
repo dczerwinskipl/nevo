@@ -8,7 +8,7 @@ import { StatusCard } from '@/shared/ui/status-card';
 import { SpecificationSidebar } from '@/features/specifications/navigation/specification-sidebar';
 import { SpecificationLiveControls } from '@/features/specifications/navigation/specification-live-controls';
 import { useSpecificationIndex } from '@/features/specifications/queries';
-import { CreateSpecificationDialog } from '@/features/specifications/create/create-specification-dialog';
+import { CreateSpecificationDialog } from './create-specification/create-specification-dialog';
 import type { SpecificationSource } from '@/features/specifications/types';
 import { queueAgentSessionInitialDispatch } from '@/features/agent-sessions/initial-dispatch';
 

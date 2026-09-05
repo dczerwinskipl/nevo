@@ -14,10 +14,24 @@ import { useAgentProviders, useDeleteAgentSession } from './queries';
 import { AI_PROVIDERS_CONFIG_PATH } from './provider-config';
 import { useInitialDispatch } from './runtime/use-initial-dispatch';
 import { useVisualViewport } from './transcript/use-visual-viewport';
-import { TaskDialog } from '@/features/specifications/tasks/task-dialog';
-import type { AgentExecutionMode, AgentSession, TaskNavigationTarget } from './types';
-import type { SpecificationSummary } from '@/features/specifications/types';
-import { cn } from '@/lib/utils';
+import type { AgentExecutionMode, AgentSession, TaskNavigationTarget, AgentSessionTaskRef } from './types';
+import { cn } from '@/shared/lib/utils';
+
+export interface AgentSessionPageSpecContext {
+  title?: string;
+  slug?: string;
+  tasks?: AgentSessionTaskRef[];
+}
+
+export interface AgentSessionPageProps {
+  spec?: AgentSessionPageSpecContext | null;
+  session: AgentSession;
+  onBack: () => void;
+  backLabel?: string;
+  onSwitchSession: (session: AgentSession) => void;
+  onInspectTask?: (target: TaskNavigationTarget | string) => void;
+  taskOverlay?: React.ReactNode;
+}
 
 export function AgentSessionPage({
   spec,
@@ -25,13 +39,9 @@ export function AgentSessionPage({
   onBack,
   backLabel = 'Wróć do specyfikacji',
   onSwitchSession,
-}: {
-  spec: SpecificationSummary;
-  session: AgentSession;
-  onBack: () => void;
-  backLabel?: string;
-  onSwitchSession: (session: AgentSession) => void;
-}) {
+  onInspectTask,
+  taskOverlay,
+}: AgentSessionPageProps) {
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const transcriptHandleRef = useRef<AgentSessionTranscriptHandle>(null);
   const chatSurfaceRef = useRef<AgentSessionChatSurfaceHandle>(null);
@@ -132,18 +142,12 @@ export function AgentSessionPage({
   }, [assistant.reload]);
 
   const [isSessionDetailsOpen, setIsSessionDetailsOpen] = useState(false);
-  const [inspectedTaskId, setInspectedTaskId] = useState<string | null>(null);
-
   const handleInspectTask = useCallback(
     (target: TaskNavigationTarget | string) => {
-      const taskId = typeof target === 'string' ? target : target.taskId;
-      const task = spec?.tasks?.find((t) => t.id === taskId);
-      if (task) {
-        setIsSessionDetailsOpen(false);
-        setInspectedTaskId(taskId);
-      }
+      setIsSessionDetailsOpen(false);
+      onInspectTask?.(target);
     },
-    [spec?.tasks],
+    [onInspectTask],
   );
 
   const sessionTaskItems = useMemo(
@@ -359,25 +363,7 @@ export function AgentSessionPage({
           </>
         )}
 
-        {inspectedTaskId && spec && (
-          <TaskDialog
-            specification={spec}
-            taskId={inspectedTaskId}
-            onOpenSession={(s) => {
-              try {
-                onSwitchSession(s);
-                setInspectedTaskId(null);
-              } catch (err) {
-                setRuntimeError(err instanceof Error ? err.message : String(err));
-              }
-            }}
-            onOpenTask={(target) => {
-              const nextTaskId = typeof target === 'string' ? target : target.taskId;
-              setInspectedTaskId(nextTaskId);
-            }}
-            onClose={() => setInspectedTaskId(null)}
-          />
-        )}
+        {taskOverlay}
       </div>
     </AssistantRuntimeProvider>
   );

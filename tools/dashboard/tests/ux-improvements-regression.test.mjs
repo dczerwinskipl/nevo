@@ -75,34 +75,33 @@ test('Item 2B & 2C (Task 07): AgentSessionDetails and AgentSessionPage resolve t
   assert.ok(agentSessionPageSource.includes('tasks={sessionTaskItems}'));
 });
 
-test('Item 2C, 2D & Item 9B/9C: Reusable TaskDialog component is mounted from both SpecificationDetail and AgentSessionPage without leaveChat()', () => {
+test('Item 2C, 2D & Item 9B/9C: Reusable TaskDialog component is mounted from both SpecificationDetail and AgentSessionScreen without leaveChat()', () => {
   const taskDialogSource = readSource('features/specifications/tasks/task-dialog.tsx');
-  const specDetailSource = readSource('features/specifications/detail/specification-detail.tsx');
-  const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');
+  const specDetailSource = readSource('screens/specification-detail/specification-detail-screen.tsx');
+  const agentSessionScreenSource = readSource('screens/agent-session/agent-session-screen.tsx');
 
   // TaskDialog is a reusable component in features/specifications/tasks/task-dialog.tsx
   assert.ok(taskDialogSource.includes('export function TaskDialog('));
   assert.ok(taskDialogSource.includes('export interface TaskDialogProps'));
   assert.ok(taskDialogSource.includes('useSpecificationDocument('));
   assert.ok(taskDialogSource.includes('useSpecificationActions('));
-  assert.ok(taskDialogSource.includes('useAgentSessions('));
 
   // SpecificationDetail imports and mounts TaskDialog
-  assert.ok(specDetailSource.includes("import { TaskDialog } from '../tasks/task-dialog';"));
+  assert.ok(specDetailSource.includes("import { TaskDialog } from '@/features/specifications/tasks/task-dialog';"));
   assert.ok(specDetailSource.includes('<TaskDialog'));
   assert.ok(specDetailSource.includes('taskId={selectedTask.id}'));
 
-  // AgentSessionPage imports and mounts TaskDialog locally as an overlay without calling leaveChat()
+  // AgentSessionScreen imports and mounts TaskDialog locally as an overlay without calling leaveChat()
   assert.ok(
-    agentSessionPageSource.includes("import { TaskDialog } from '@/features/specifications/tasks/task-dialog';"),
+    agentSessionScreenSource.includes("import { TaskDialog } from '@/features/specifications/tasks/task-dialog';"),
   );
   assert.ok(
-    agentSessionPageSource.includes('const [inspectedTaskId, setInspectedTaskId] = useState<string | null>(null);'),
+    agentSessionScreenSource.includes('const [inspectedTaskId, setInspectedTaskId] = useState<string | null>(null);'),
   );
-  assert.ok(agentSessionPageSource.includes('setInspectedTaskId(taskId);'));
-  assert.ok(agentSessionPageSource.includes('<TaskDialog'));
-  assert.ok(agentSessionPageSource.includes('taskId={inspectedTaskId}'));
-  assert.ok(agentSessionPageSource.includes('onClose={() => setInspectedTaskId(null)}'));
+  assert.ok(agentSessionScreenSource.includes('setInspectedTaskId(taskId);'));
+  assert.ok(agentSessionScreenSource.includes('<TaskDialog'));
+  assert.ok(agentSessionScreenSource.includes('taskId={inspectedTaskId}'));
+  assert.ok(agentSessionScreenSource.includes('onClose={() => setInspectedTaskId(null)}'));
 });
 
 test('Item 4 (Task 12): Compact icon-only connectivity indicator uses semantic state', () => {
@@ -256,7 +255,7 @@ test('Item 8: Shared StatusLabel primitive and feature status projections', () =
 });
 
 test('Item 9 (Task 19): Standardize H2 scale on spec-detail to text-xl', () => {
-  const specDetailSource = readSource('features/specifications/detail/overview-panel.tsx');
+  const specDetailSource = readSource('screens/specification-detail/specification-overview.tsx');
   const statusBoardSource = readSource('features/specifications/detail/status-board.tsx');
 
   // Both section h2 headings use text-xl

@@ -3,7 +3,7 @@ import { AlertCircle, AlertTriangle, CheckCircle2, Circle, LoaderCircle } from '
 
 import type { OperationSnapshot, OperationStep, OperationStepStatus } from './types';
 import { Button } from '@/shared/ui/button';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 
 export function StepStatusIcon({ status }: { status: OperationStepStatus }) {
   switch (status) {

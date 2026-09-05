@@ -6,7 +6,7 @@ import { activityLabelFor } from './tool-activity-labels';
 import { isGenuineTurnError, type PresentationSeverity, type TurnWork, type WorkItem } from '../transcript/projection';
 import { statusTextTone, type StatusTone } from '@/shared/status-tone';
 import type { AgentToolCall } from '../types';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 
 export interface TurnWorkSummaryProps {
   work: TurnWork;

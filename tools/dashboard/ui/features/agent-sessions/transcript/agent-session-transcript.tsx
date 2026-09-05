@@ -13,7 +13,7 @@ import type {
   AgentQuestionInteraction,
   NormalizedMessage,
 } from '../types';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 
 export interface AgentSessionTranscriptHandle {
   scrollToBottom: (behavior?: ScrollBehavior) => void;

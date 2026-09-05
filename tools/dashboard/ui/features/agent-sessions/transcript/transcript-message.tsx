@@ -8,7 +8,7 @@ import { hasVisibleProse, shouldRenderTranscriptMessage } from '../turn-work/tur
 import { shouldCollapseMessage } from './message-collapse';
 import type { TurnWork } from './projection';
 import type { NormalizedMessage } from '../types';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 
 export interface TranscriptMessageProps {
   message: NormalizedMessage;

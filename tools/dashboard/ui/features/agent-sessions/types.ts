@@ -81,6 +81,11 @@ export interface TaskNavigationTarget {
   specSlug?: string | null;
 }
 
+export interface AgentSessionTaskRef {
+  id: string;
+  title?: string;
+}
+
 export interface AgentSession {
   provider: string;
   providerSessionId: string;

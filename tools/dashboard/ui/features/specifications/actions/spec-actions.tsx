@@ -11,7 +11,7 @@ import {
 import { useEffect, useRef } from 'react';
 
 import type { SpecificationActionsPayload, SpecificationTaskActionGate } from '../types';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';

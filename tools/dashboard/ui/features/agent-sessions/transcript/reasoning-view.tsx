@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Brain, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 
 export interface ReasoningViewProps {
   reasoning: string;

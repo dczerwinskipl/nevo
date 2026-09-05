@@ -4,7 +4,7 @@ import { useMediaQuery } from 'usehooks-ts';
 import { Button } from '@/shared/ui/button';
 import type { AgentExecutionMode } from '../types';
 import { AI_MODES, getModeMeta } from '../mode-meta';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 import {
   getComposerLayoutState,
   adjustComposerTextareaElement,

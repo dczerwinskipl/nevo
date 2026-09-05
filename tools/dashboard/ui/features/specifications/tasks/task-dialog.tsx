@@ -1,36 +1,22 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { MessagesSquare, LoaderCircle, X, AlertCircle } from 'lucide-react';
 import type { SpecificationSummary, SpecificationTaskDocument } from '../types';
-import type { AgentSession, TaskNavigationTarget } from '@/features/agent-sessions/types';
-import { formatStatus } from '@/lib/utils';
+import { formatStatus } from '@/shared/lib/utils';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { MarkdownContent } from '@/shared/markdown/markdown-content';
 import { TaskActionFooter } from '../actions/spec-actions';
-import { AgentSessionList } from '@/features/agent-sessions/agent-session-list';
-// Imported directly from the detail feature's own module, not through
-// specification-detail.tsx — that component imports TaskDialog itself, and
-// going through it here would create a circular module import.
 import { useSpecificationDocument, useSpecificationActions } from '../detail/spec-detail-queries';
-import { useAgentSessions } from '@/features/agent-sessions/queries';
 
 export interface TaskDialogProps {
   specification: SpecificationSummary;
   taskId: string;
   onClose: () => void;
-  onOpenSession?: (session: AgentSession, taskId?: string | null) => void;
-  onOpenTask?: (target: TaskNavigationTarget | string) => void;
   onOperationStarted?: (operationId: string, label: string) => void;
+  sessionsContent?: React.ReactNode;
 }
 
-export function TaskDialog({
-  specification,
-  taskId,
-  onClose,
-  onOpenSession,
-  onOpenTask,
-  onOperationStarted,
-}: TaskDialogProps) {
+export function TaskDialog({ specification, taskId, onClose, onOperationStarted, sessionsContent }: TaskDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -39,10 +25,6 @@ export function TaskDialog({
   const taskDocumentQuery = useSpecificationDocument(specification, taskDocId, Boolean(taskId));
   const taskDocument = taskId ? (taskDocumentQuery.data as SpecificationTaskDocument | null) : null;
 
-  const sessionsQuery = useAgentSessions({
-    specId: specification.specId || undefined,
-    enabled: Boolean(specification.specId),
-  });
   const actionsQuery = useSpecificationActions(specification, specification.source === 'active');
   const actionGate = taskId && actionsQuery.data?.tasks ? (actionsQuery.data.tasks[taskId] ?? null) : null;
 
@@ -100,10 +82,6 @@ export function TaskDialog({
 
   if (!task) return null;
 
-  const filteredSessions = sessionsQuery.sessions.filter(
-    (session) => (session.taskIds && session.taskIds.includes(task.id)) || session.taskId === task.id,
-  );
-
   return (
     <div
       className="fixed inset-0 z-[70] flex items-end justify-center bg-backdrop p-0 backdrop-blur-sm sm:items-center sm:p-6"
@@ -152,22 +130,15 @@ export function TaskDialog({
             )}
           </div>
 
-          <section className="mb-7" aria-label="Sesje powiązane z zadaniem">
-            <div className="mb-3 flex items-center gap-2">
-              <MessagesSquare className="size-4 text-accent" />
-              <h3 className="text-sm font-semibold text-fg-primary">Powiązane sesje</h3>
-            </div>
-            <AgentSessionList
-              sessions={filteredSessions}
-              tasks={specification.tasks}
-              loading={sessionsQuery.loading}
-              error={sessionsQuery.error}
-              onRetry={() => void sessionsQuery.refresh()}
-              onOpen={(session) => onOpenSession?.(session, task.id)}
-              onOpenTask={onOpenTask}
-              emptyLabel="To zadanie nie ma jeszcze powiązanych sesji."
-            />
-          </section>
+          {sessionsContent && (
+            <section className="mb-7" aria-label="Sesje powiązane z zadaniem">
+              <div className="mb-3 flex items-center gap-2">
+                <MessagesSquare className="size-4 text-accent" />
+                <h3 className="text-sm font-semibold text-fg-primary">Powiązane sesje</h3>
+              </div>
+              {sessionsContent}
+            </section>
+          )}
 
           {taskDocumentQuery.loading ? (
             <div className="flex items-center gap-3 py-12 text-sm text-fg-muted" role="status">

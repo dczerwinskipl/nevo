@@ -100,7 +100,7 @@ test('sidebar hierarchy and mode switch stay neutral with a clear primary select
 });
 
 test('overview avoids duplicate metric cards and board lanes use neutral surfaces', () => {
-  const overview = readSource('features/specifications/detail/overview-panel.tsx');
+  const overview = readSource('screens/specification-detail/specification-overview.tsx');
   const board = readSource('features/specifications/detail/status-board.tsx');
 
   assert.doesNotMatch(overview, /function MetricCard|aria-label="Podsumowanie specyfikacji"/);

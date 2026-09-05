@@ -1,7 +1,7 @@
 import React, { forwardRef, type ButtonHTMLAttributes } from 'react';
 import { AlertCircle, AlertTriangle, Info, RefreshCw } from 'lucide-react';
 import { cva, type VariantProps } from 'class-variance-authority';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/button';
 
 export interface RetryButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {

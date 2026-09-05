@@ -6,12 +6,18 @@ import { useAgentProviders, useCreateAgentSession } from './queries';
 import { initialPromptWithTaskContext } from './create-agent-session-helpers';
 import { AI_MODES } from './mode-meta';
 import { AI_PROVIDERS_ENABLE_MESSAGE } from './provider-config';
-import type { AgentSession, AgentExecutionMode } from './types';
-import type { SpecificationSummary } from '@/features/specifications/types';
-import { cn } from '@/lib/utils';
+import type { AgentSession, AgentExecutionMode, AgentSessionTaskRef } from './types';
+import { cn } from '@/shared/lib/utils';
+
+export interface CreateAgentSessionTarget {
+  specId?: string | null;
+  slug: string;
+  title?: string;
+  tasks?: AgentSessionTaskRef[];
+}
 
 export interface CreateAgentSessionDialogProps {
-  specification: SpecificationSummary;
+  specification: CreateAgentSessionTarget;
   onClose: () => void;
   /** `promptToSend` is the enriched text actually sent to the provider; `userMessage` is
    * the clean, user-typed text alone (never Nevo-injected context) — the chat-bubble source. */

@@ -1,5 +1,5 @@
 import type { StatusTone } from '@/shared/status-tone';
-import { formatStatus } from '../../lib/utils.ts';
+import { formatStatus } from '@/shared/lib/utils';
 
 export function specStatusTone(status?: string | null): StatusTone {
   switch (status) {

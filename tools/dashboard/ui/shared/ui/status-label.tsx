@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 import { statusTextTone, type StatusTone } from '@/shared/status-tone';
 
 export interface StatusLabelProps {

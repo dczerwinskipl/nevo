@@ -288,7 +288,7 @@ test('Finding 2b (Behavioral): Persisted in-flight state -> reload/new runtime -
 test('Finding 1: Source inspection confirms prompt text is removed from ChatSearch and URL schemas', () => {
   const routeTreeSource = readSource('routeTree.gen.ts');
   const appLayoutSource = readSource('screens/specification-console-layout.tsx');
-  const specificationRouteSource = readSource('screens/specification-detail-screen.tsx');
+  const specificationRouteSource = readSource('screens/specification-detail/specification-detail-screen.tsx');
   const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');
   const pendingDispatchStoreSource = readSource('features/agent-sessions/runtime/pending-dispatch-store.ts');
 

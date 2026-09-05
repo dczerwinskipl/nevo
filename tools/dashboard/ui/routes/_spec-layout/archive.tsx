@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { ArchiveSpecificationsScreen } from '@/screens/archive-specifications-screen';
+import { ArchiveSpecificationsPage } from '@/features/specifications/list/archive-specifications-page';
 
 export const Route = createFileRoute('/_spec-layout/archive')({
-  component: ArchiveSpecificationsScreen,
+  component: ArchiveSpecificationsPage,
 });

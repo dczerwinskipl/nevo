@@ -15,8 +15,8 @@ import {
 import { useCallback, useMemo, useState } from 'react';
 
 import type { AvailablePullRequest, PullRequestFileManifestEntry } from '../types';
-import type { SpecificationSummary } from '@/features/specifications/types';
-import { cn } from '@/lib/utils';
+import type { PullRequestScope } from '../types';
+import { cn } from '@/shared/lib/utils';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
@@ -61,11 +61,11 @@ function IncompleteDiffIndicator({
 }
 
 export function PullRequestCard({
-  specification,
+  scope,
   pullRequest,
   mode,
 }: {
-  specification: SpecificationSummary;
+  scope: PullRequestScope;
   pullRequest: AvailablePullRequest;
   mode: DiffViewMode;
 }) {
@@ -73,7 +73,7 @@ export function PullRequestCard({
   const [groupMode, setGroupMode] = useState<GroupByMode>('area');
   const [hideGenerated, setHideGenerated] = useState(true);
   const [openGroupNames, setOpenGroupNames] = useState<Set<string>>(() => new Set());
-  const filesQuery = usePullRequestFiles(specification, pullRequest, open);
+  const filesQuery = usePullRequestFiles(scope, pullRequest, open);
   const files = filesQuery.data?.files ?? [];
   const filesByPath = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
 
@@ -117,7 +117,7 @@ export function PullRequestCard({
     return stats;
   }, [groups, filesByPath]);
 
-  const diffHandle = usePullRequestFileDiffs(specification, pullRequest);
+  const diffHandle = usePullRequestFileDiffs(scope, pullRequest);
 
   // Derive the FileDiffRequest for a manifest entry.
   const toRequest = useCallback(
@@ -157,7 +157,7 @@ export function PullRequestCard({
 
   useProgressiveDiffPreload(open, activePreloadRequests, diffHandle);
 
-  const fullDiffQuery = useFullDiff(specification, pullRequest);
+  const fullDiffQuery = useFullDiff(scope, pullRequest);
   const collapseFilesInitially = files.length > 50;
 
   return (

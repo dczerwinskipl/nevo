@@ -6,7 +6,7 @@ import { useElapsedLabel } from './use-elapsed-label';
 import { turnStatusToneV2, currentActivityToneV2 } from './turn-status-tone-v2';
 import { statusTextTone } from '@/shared/status-tone';
 import type { CanonicalTurnV2 } from '../types';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 
 /**
  * Level 1 — the collapsed Work indicator (areas/work-ux-presentation.md § "Level 1").

@@ -1,4 +1,8 @@
-import type { SpecificationTask, SpecificationActionResult, SpecificationOwnerAction } from '../types';
+import type {
+  SpecificationTask,
+  SpecificationActionResult,
+  SpecificationOwnerAction,
+} from '@/features/specifications/types';
 import type { OperationWaitOutcome } from '@/features/operations/wait-for-operation-terminal';
 
 /**

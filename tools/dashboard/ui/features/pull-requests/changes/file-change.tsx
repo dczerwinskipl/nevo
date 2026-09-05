@@ -5,7 +5,7 @@ import { ChevronDown, FileDiff, LoaderCircle, Minus, Plus } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import type { PullRequestFile, PullRequestFileManifestEntry } from '../types';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 import { Badge } from '@/shared/ui/badge';
 import { usePullRequestFileDiffs } from '../queries';
 import type { FileDiffRequest } from '../queries';
