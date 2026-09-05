@@ -439,7 +439,7 @@ tasks:
   - id: specs-lanes-and-remaining-ui
     order: 7
     file: tasks/07-specs-lanes-and-remaining-ui.md
-    status: implemented
+    status: verified
     depends_on:
       - shared-ui-primitives
       - status-tone-contract

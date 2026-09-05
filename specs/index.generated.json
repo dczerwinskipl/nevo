@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-05T09:09:32.033Z",
+  "generated": "2026-09-05T09:10:42.613Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -1004,7 +1004,7 @@
           "id": "specs-lanes-and-remaining-ui",
           "order": 7,
           "file": "tasks/07-specs-lanes-and-remaining-ui.md",
-          "status": "in-implementation",
+          "status": "verified",
           "depends_on": [
             "shared-ui-primitives",
             "status-tone-contract",
