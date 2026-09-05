@@ -3,11 +3,12 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo } from 'react';
 
 import { Button } from '@/shared/ui/button';
 import { TranscriptMessage } from './transcript-message';
-import { PermissionPrompt, QuestionPrompt } from '../interactions/interaction-prompt';
+import { ConfirmationPrompt, PermissionPrompt, QuestionPrompt } from '../interactions/interaction-prompt';
 import { projectTranscript } from './projection';
 import { useScrollFollow } from './use-scroll-follow';
 import { AgentSessionLoadError } from '../runtime/agent-session-transport';
 import type {
+  AgentConfirmationInteraction,
   AgentInteraction,
   AgentPermissionInteraction,
   AgentQuestionInteraction,
@@ -153,6 +154,14 @@ export const AgentSessionTranscript = forwardRef<AgentSessionTranscriptHandle, A
           {pendingInteraction?.kind === 'question' && (
             <QuestionPrompt
               interaction={pendingInteraction as AgentQuestionInteraction}
+              disabled={false}
+              onResolve={(response) => void onRespondInteraction(pendingInteraction.id, response)}
+            />
+          )}
+
+          {pendingInteraction?.kind === 'confirmation' && (
+            <ConfirmationPrompt
+              interaction={pendingInteraction as AgentConfirmationInteraction}
               disabled={false}
               onResolve={(response) => void onRespondInteraction(pendingInteraction.id, response)}
             />

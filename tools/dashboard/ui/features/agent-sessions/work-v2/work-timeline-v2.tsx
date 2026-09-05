@@ -8,7 +8,7 @@ import {
 } from './timeline-projection-v2';
 import { TOOL_KIND_ICONS_V2 } from './tool-kind-icons-v2';
 import { previewPlainText } from './text-preview-v2';
-import type { InteractionWorkItemV2, ReasoningWorkItemV2, ToolStatusV2, WorkItemV2 } from '../types';
+import type { InteractionWorkItemV2, ReasoningWorkItemV2, ToolKindV2, ToolStatusV2, WorkItemV2 } from '../types';
 import { cn } from '@/shared/lib/utils';
 
 const TOOL_STATUS_ICON: Partial<Record<ToolStatusV2, typeof XCircle>> = {
@@ -19,7 +19,8 @@ const TOOL_STATUS_ICON: Partial<Record<ToolStatusV2, typeof XCircle>> = {
 
 /**
  * One compact Level 2 row for a tool or grouped tool action.
- * Pure Tailwind: 12px text (text-xs leading-4), 16px icon (size-4).
+ * Pure Tailwind: 12px text (text-xs leading-4), visually smaller icons than Level 1.
+ * Compound actions remain nested under their ToolInvocation.
  */
 const ToolGroupRowV2 = memo(function ToolGroupRowV2({
   row,
@@ -32,33 +33,63 @@ const ToolGroupRowV2 = memo(function ToolGroupRowV2({
   const StatusIcon = TOOL_STATUS_ICON[row.status];
   const countSuffix = row.count > 1 ? ` (${row.count})` : '';
   const primaryItem = row.items[0];
+  const hasActions = Boolean(row.count === 1 && primaryItem.actions && primaryItem.actions.length > 0);
 
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(primaryItem)}
-      className="group flex w-full min-w-0 items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs leading-4 transition-colors hover:bg-fg-primary/4"
-    >
-      <div className="relative flex size-4 shrink-0 items-center justify-center">
-        <span className="relative z-10 flex items-center justify-center bg-transparent">
-          <Icon className="size-4 text-fg-muted group-hover:text-fg-muted" />
+    <div className="w-full min-w-0">
+      <button
+        type="button"
+        onClick={() => onSelect(primaryItem)}
+        className="group flex w-full min-w-0 items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs leading-4 transition-colors hover:bg-fg-primary/4"
+      >
+        <div className="relative flex size-4 shrink-0 items-center justify-center">
+          <span className="relative z-10 flex items-center justify-center bg-transparent">
+            <Icon className="size-3.5 text-fg-muted group-hover:text-fg-muted" />
+          </span>
+        </div>
+        <span className="min-w-0 flex-1 truncate">
+          <span className="font-normal text-fg-secondary group-hover:text-fg-primary">
+            {row.title}
+            {countSuffix}
+          </span>
+          {row.subject ? <span className="font-normal text-fg-muted"> · {row.subject}</span> : null}
         </span>
-      </div>
-      <span className="min-w-0 flex-1 truncate">
-        <span className="font-normal text-fg-secondary group-hover:text-fg-primary">
-          {row.title}
-          {countSuffix}
-        </span>
-        {row.subject ? <span className="font-normal text-fg-muted"> · {row.subject}</span> : null}
-      </span>
-      {StatusIcon && <StatusIcon className="size-4 shrink-0 text-status-warning" />}
-    </button>
+        {StatusIcon && <StatusIcon className="size-3.5 shrink-0 text-status-warning" />}
+      </button>
+
+      {hasActions && (
+        <div className="flex flex-col gap-0.5 pr-1 pl-6">
+          {primaryItem.actions.map((action) => {
+            const ActionIcon = TOOL_KIND_ICONS_V2[action.kind as ToolKindV2] || null;
+            return (
+              <button
+                key={action.id}
+                type="button"
+                onClick={() => onSelect(primaryItem)}
+                className="group/action flex w-full min-w-0 items-center gap-1.5 rounded py-0.5 text-left text-[11px] leading-3.5 text-fg-muted transition-colors hover:text-fg-secondary"
+              >
+                <span className="relative flex size-3 shrink-0 items-center justify-center">
+                  {ActionIcon ? (
+                    <ActionIcon className="size-2.5 text-fg-muted" />
+                  ) : (
+                    <span className="size-1 rounded-full bg-fg-muted/60" />
+                  )}
+                </span>
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="text-fg-secondary group-hover/action:text-fg-primary">{action.title}</span>
+                  {action.target ? <span className="text-fg-muted"> · {action.target}</span> : null}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 });
 
 /**
- * Level 2 preview for Commentary — clean bordered cardlet with pure text,
- * no icon or redundant label.
+ * Level 2 preview for Commentary — text-first, compact, no bordered card, normally one line.
  */
 const CommentaryRowV2 = memo(function CommentaryRowV2({
   row,
@@ -67,7 +98,7 @@ const CommentaryRowV2 = memo(function CommentaryRowV2({
   row: CommentaryPresentationRowV2;
   onSelect: (item: WorkItemV2) => void;
 }) {
-  const preview = previewPlainText(row.item.text, 180);
+  const preview = previewPlainText(row.item.text, 120);
   if (!preview) return null;
   const repeatSuffix = row.repeatCount && row.repeatCount > 1 ? ` (×${row.repeatCount})` : '';
 
@@ -75,12 +106,15 @@ const CommentaryRowV2 = memo(function CommentaryRowV2({
     <button
       type="button"
       onClick={() => onSelect(row.item)}
-      className="group my-0.5 flex w-full min-w-0 rounded border border-border/40 bg-fg-primary/[0.02] px-2.5 py-1.5 text-left text-xs leading-relaxed text-fg-secondary transition-colors hover:border-border hover:bg-fg-primary/[0.04] hover:text-fg-primary"
+      className="group flex w-full min-w-0 items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs leading-4 transition-colors hover:bg-fg-primary/4"
     >
-      <p className="line-clamp-2">
-        {preview}
+      <div className="relative flex size-4 shrink-0 items-center justify-center">
+        <span className="relative z-10 size-1 rounded-full bg-fg-muted" />
+      </div>
+      <span className="min-w-0 flex-1 truncate text-fg-secondary group-hover:text-fg-primary">
+        <span>{preview}</span>
         {repeatSuffix ? <span className="text-xs text-fg-muted"> {repeatSuffix}</span> : null}
-      </p>
+      </span>
     </button>
   );
 });

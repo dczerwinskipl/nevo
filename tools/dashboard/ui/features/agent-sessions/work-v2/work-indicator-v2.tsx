@@ -1,5 +1,13 @@
 import { memo } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, LoaderCircle, XCircle } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  HelpCircle,
+  LoaderCircle,
+  XCircle,
+} from 'lucide-react';
 import { describeCurrentActivityV2, terminalHeaderLabelV2 } from './activity-model-v2';
 import { TOOL_KIND_ICONS_V2 } from './tool-kind-icons-v2';
 import { useElapsedLabel } from './use-elapsed-label';
@@ -74,7 +82,11 @@ export const WorkIndicatorV2 = memo(function WorkIndicatorV2({ turn, expanded, o
   const attention = tone === 'attention';
   const count = turn.activityCount;
 
-  const statusLabel = terminalLabel || (attention ? 'Requires attention' : 'In progress');
+  const isCancelling = turn.status.status === 'cancelling';
+  const isUnknown = turn.status.status === 'unknown';
+  const statusLabel =
+    terminalLabel ||
+    (isCancelling ? 'Cancelling…' : isUnknown ? 'Unknown' : attention ? 'Requires attention' : 'In progress');
 
   return (
     <button
@@ -91,10 +103,12 @@ export const WorkIndicatorV2 = memo(function WorkIndicatorV2({ turn, expanded, o
     >
       {terminalLabel === 'Failed' ? (
         <AlertTriangle className="size-4 shrink-0 text-status-error" />
-      ) : terminalLabel === 'Cancelled' || terminalLabel === 'Interrupted' ? (
+      ) : terminalLabel === 'Cancelled' || terminalLabel === 'Interrupted' || isCancelling ? (
         <XCircle className="size-4 shrink-0 text-fg-muted" />
       ) : terminalLabel === 'Completed' ? (
         <CheckCircle2 className="size-4 shrink-0 text-status-success" />
+      ) : isUnknown ? (
+        <HelpCircle className="size-4 shrink-0 text-fg-muted" />
       ) : attention ? (
         <AlertTriangle className="size-4 shrink-0 text-status-attention" />
       ) : (

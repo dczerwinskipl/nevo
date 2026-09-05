@@ -83,7 +83,16 @@ export function TurnWorkPanelV2({ turn, onRespondInteraction }: TurnWorkPanelV2P
 
       <FinalAnswerViewV2 finalAnswer={turn.finalAnswer} />
 
-      <WorkDetailsSheetV2 turn={turn} open={detailsOpen} onOpenChange={setDetailsOpen} initialItemId={selectedItemId} />
+      <WorkDetailsSheetV2
+        turn={turn}
+        open={detailsOpen}
+        onOpenChange={(next) => {
+          setDetailsOpen(next);
+          if (!next) setSelectedItemId(null);
+        }}
+        selectedItemId={selectedItemId}
+        onSelectItemId={setSelectedItemId}
+      />
     </div>
   );
 }

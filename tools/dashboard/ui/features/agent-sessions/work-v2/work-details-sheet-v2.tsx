@@ -1,17 +1,5 @@
-import { useMemo, useState } from 'react';
-import {
-  AlertTriangle,
-  ArrowLeft,
-  Ban,
-  Brain,
-  Check,
-  ChevronRight,
-  Clock,
-  Code2,
-  LoaderCircle,
-  MessageSquareText,
-  X,
-} from 'lucide-react';
+import { useMemo, useState, useCallback } from 'react';
+import { AlertTriangle, ArrowLeft, Ban, Check, ChevronRight, Clock, Code2, LoaderCircle, X } from 'lucide-react';
 import { Sheet, SheetContent } from '@/shared/ui/sheet';
 import { MarkdownContent } from '@/shared/markdown/markdown-content';
 import { TOOL_KIND_ICONS_V2 } from './tool-kind-icons-v2';
@@ -121,7 +109,7 @@ function ToolDetail({ item }: { item: ToolInvocationWorkItemV2 }) {
 
       {item.description && <p className="text-fg-secondary">{item.description}</p>}
 
-      {item.actions.length > 0 && (
+      {Boolean(item.actions && item.actions.length > 0) && (
         <div>
           <p className="text-[10px] font-semibold tracking-wider text-fg-muted uppercase">ToolActions</p>
           <ol className="mt-1 space-y-1">
@@ -171,11 +159,6 @@ function TextDetail({ item }: { item: CommentaryWorkItemV2 | ReasoningWorkItemV2
   return (
     <div className="space-y-3 text-xs">
       <div className="flex items-center gap-2">
-        {isReasoning ? (
-          <Brain className="size-4 shrink-0 text-accent" />
-        ) : (
-          <MessageSquareText className="size-4 shrink-0 text-accent" />
-        )}
         <span className="font-semibold text-fg-primary">{isReasoning ? 'Thinking' : 'Commentary'}</span>
       </div>
       <div className="rounded-lg border border-border bg-surface-raised p-3">
@@ -300,11 +283,12 @@ function WorkList({ work, onSelect }: { work: WorkItemV2[]; onSelect: (item: Wor
     </div>
   );
 }
-
 export interface WorkDetailsSheetV2Props {
   turn: CanonicalTurnV2 | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  selectedItemId?: string | null;
+  onSelectItemId?: (id: string | null) => void;
   initialItemId?: string | null;
 }
 
@@ -317,21 +301,43 @@ export interface WorkDetailsSheetV2Props {
  * Markdown. Richer per-row metadata than Level 2 on purpose — Level 2 scans, this
  * inspects exactly what happened.
  */
-export function WorkDetailsSheetV2({ turn, open, onOpenChange, initialItemId = null }: WorkDetailsSheetV2Props) {
-  const [selectedItemId, setSelectedItemId] = useState<string | null>(initialItemId);
+export function WorkDetailsSheetV2({
+  turn,
+  open,
+  onOpenChange,
+  selectedItemId: controlledSelectedItemId,
+  onSelectItemId,
+  initialItemId = null,
+}: WorkDetailsSheetV2Props) {
+  const [uncontrolledSelectedItemId, setUncontrolledSelectedItemId] = useState<string | null>(initialItemId);
+
+  const isControlled = controlledSelectedItemId !== undefined;
+  const currentSelectedItemId = isControlled ? controlledSelectedItemId : uncontrolledSelectedItemId;
+
+  const handleSelectItem = useCallback(
+    (id: string | null) => {
+      if (isControlled) {
+        onSelectItemId?.(id);
+      } else {
+        setUncontrolledSelectedItemId(id);
+      }
+    },
+    [isControlled, onSelectItemId],
+  );
 
   const selectedItem = useMemo(() => {
-    if (!turn || !selectedItemId) return null;
-    return turn.work.find((item) => item.id === selectedItemId) ?? null;
-  }, [turn, selectedItemId]);
+    if (!turn || !currentSelectedItemId) return null;
+    return turn.work.find((item) => item.id === currentSelectedItemId) ?? null;
+  }, [turn, currentSelectedItemId]);
 
   return (
     <Sheet
       open={open}
       onOpenChange={(next) => {
         onOpenChange(next);
-        if (!next) setSelectedItemId(null);
-        else setSelectedItemId(initialItemId);
+        if (!next) {
+          handleSelectItem(null);
+        }
       }}
     >
       <SheetContent side="right" hideClose className={cn('flex flex-col gap-0 overflow-hidden p-0')}>
@@ -341,7 +347,7 @@ export function WorkDetailsSheetV2({ turn, open, onOpenChange, initialItemId = n
             {selectedItem && (
               <button
                 type="button"
-                onClick={() => setSelectedItemId(null)}
+                onClick={() => handleSelectItem(null)}
                 className="shrink-0 rounded-lg p-1.5 text-fg-muted opacity-70 transition-opacity hover:bg-surface-hover hover:text-fg-primary hover:opacity-100 focus:ring-2 focus:ring-accent focus:outline-none"
                 aria-label="Wróć do listy"
                 title="Wróć do listy"
@@ -361,17 +367,17 @@ export function WorkDetailsSheetV2({ turn, open, onOpenChange, initialItemId = n
                         : 'Interaction'
                   : 'Work Details'}
               </h2>
-              {turn && (
-                <p className="truncate text-xs text-fg-muted">
-                  {selectedItem
-                    ? selectedItem.type === 'tool'
-                      ? selectedItem.toolName
-                      : selectedItem.type === 'reasoning'
-                        ? 'Thinking'
-                        : 'Commentary'
-                    : turn.provider}
-                </p>
-              )}
+              <p className="truncate text-[11px] text-fg-muted">
+                {selectedItem
+                  ? selectedItem.type === 'tool'
+                    ? selectedItem.toolName
+                    : selectedItem.type === 'reasoning'
+                      ? 'Reasoning inspection'
+                      : selectedItem.type === 'commentary'
+                        ? 'Narration inspection'
+                        : selectedItem.interaction.kind
+                  : `${turn?.activityCount || 0} actions in this turn`}
+              </p>
             </div>
           </div>
           <button
@@ -390,7 +396,7 @@ export function WorkDetailsSheetV2({ turn, open, onOpenChange, initialItemId = n
           ) : selectedItem?.type === 'commentary' || selectedItem?.type === 'reasoning' ? (
             <TextDetail item={selectedItem} />
           ) : (
-            <WorkList work={turn.work} onSelect={(item) => setSelectedItemId(item.id)} />
+            <WorkList work={turn.work} onSelect={(item) => handleSelectItem(item.id)} />
           )}
         </div>
       </SheetContent>

@@ -1,8 +1,13 @@
 import { useState } from 'react';
-import { Check, ShieldAlert, X } from 'lucide-react';
+import { Check, HelpCircle, ShieldAlert, X } from 'lucide-react';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
-import type { AgentInteraction, AgentPermissionInteraction, AgentQuestionInteraction } from '../types';
+import type {
+  AgentConfirmationInteraction,
+  AgentInteraction,
+  AgentPermissionInteraction,
+  AgentQuestionInteraction,
+} from '../types';
 import { cn } from '@/shared/lib/utils';
 
 export function PermissionPrompt({
@@ -162,6 +167,51 @@ export function QuestionPrompt({
       >
         Wyślij odpowiedzi
       </Button>
+    </Card>
+  );
+}
+
+export function ConfirmationPrompt({
+  interaction,
+  disabled = false,
+  onResolve,
+}: {
+  interaction: AgentConfirmationInteraction | Extract<AgentInteraction, { kind: 'confirmation' }>;
+  disabled?: boolean;
+  onResolve: (response: unknown) => void;
+}) {
+  return (
+    <Card className="border-accent/25 bg-surface-raised p-4 shadow-sm">
+      <div className="flex gap-3">
+        <HelpCircle className="mt-0.5 size-5 shrink-0 text-accent" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-fg-primary">{interaction.title || 'Wymagane potwierdzenie'}</p>
+          {interaction.message && <p className="mt-1 text-xs text-fg-secondary">{interaction.message}</p>}
+          {interaction.details && <p className="mt-1 text-xs text-fg-muted">{interaction.details}</p>}
+          {interaction.payload !== undefined && (
+            <pre className="mt-3 max-h-40 overflow-auto rounded-lg border border-border bg-background p-3 font-mono text-[10px] text-fg-secondary">
+              {typeof interaction.payload === 'string'
+                ? interaction.payload
+                : JSON.stringify(interaction.payload, null, 2)}
+            </pre>
+          )}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button size="sm" disabled={disabled} onClick={() => onResolve({ confirmed: true, decision: 'confirm' })}>
+              <Check className="mr-1.5 size-3.5" />
+              Potwierdź
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={disabled}
+              onClick={() => onResolve({ confirmed: false, decision: 'cancel' })}
+            >
+              <X className="mr-1.5 size-3.5" />
+              Anuluj
+            </Button>
+          </div>
+        </div>
+      </div>
     </Card>
   );
 }

@@ -86,6 +86,14 @@ export interface AgentSessionTaskRef {
   title?: string;
 }
 
+export type SessionReadinessStatusV2 = 'ready' | 'busy' | 'requiresAttention' | 'readOnly' | 'unavailable';
+
+export interface SessionReadinessV2 {
+  status: SessionReadinessStatusV2;
+  reason: string;
+  details?: Record<string, unknown>;
+}
+
 export interface AgentSession {
   provider: string;
   providerSessionId: string;
@@ -97,6 +105,7 @@ export interface AgentSession {
   mode?: AgentExecutionMode;
   title?: string;
   status: AgentSessionStatus;
+  readiness?: SessionReadinessV2;
   createdAt: string;
   lastActivityAt?: string;
   lastSeenAt?: string;
@@ -146,9 +155,20 @@ export interface AgentQuestionInteraction {
   questions: AgentQuestion[];
 }
 
+export interface AgentConfirmationInteraction {
+  id: string;
+  kind: 'confirmation';
+  resumePolicy: 'restart' | 'live-operation';
+  title?: string;
+  message: string;
+  details?: string;
+  payload?: unknown;
+}
+
 export type AgentInteraction =
   | AgentPermissionInteraction
   | AgentQuestionInteraction
+  | AgentConfirmationInteraction
   | {
       id: string;
       kind: string;
@@ -335,14 +355,6 @@ export interface WorkSummaryV2 {
   activeToolCount: number;
   attention: { required: boolean; kind: string; interactionId: string; title: string } | null;
   expandable: boolean;
-}
-
-export type SessionReadinessStatusV2 = 'ready' | 'busy' | 'requiresAttention' | 'readOnly' | 'unavailable';
-
-export interface SessionReadinessV2 {
-  status: SessionReadinessStatusV2;
-  reason: string;
-  details?: Record<string, unknown>;
 }
 
 export interface AgentSessionChatV2Payload {

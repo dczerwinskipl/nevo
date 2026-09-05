@@ -199,12 +199,21 @@ export function AgentSessionPage({
       }
     : undefined;
 
+  const isTurnBusyOrAttention = Boolean(
+    assistant.hasActiveTurn ||
+    assistant.isRunning ||
+    assistant.readiness?.status === 'busy' ||
+    assistant.readiness?.status === 'requiresAttention',
+  );
+
   const activeRuntime = {
     activity: assistant.activity,
     isRunning: assistant.isRunning,
     capabilities: assistant.capabilities,
     activeTurnId: assistant.activeTurnId,
     canStartTurn: assistant.canStartTurn,
+    canCancelTurn: assistant.canCancelTurn,
+    readiness: assistant.readiness,
     loadError: assistant.loadError,
   };
 
@@ -269,7 +278,7 @@ export function AgentSessionPage({
             void handleDeleteSession();
           }}
           deleting={deleting}
-          disabled={activeRuntime.isRunning}
+          disabled={isTurnBusyOrAttention}
         />
 
         {!providersQuery.loading && providersQuery.data && !isProviderAvailable && (
@@ -296,12 +305,14 @@ export function AgentSessionPage({
             onSend={(text) => handleComposerSubmit(text)}
             onCancel={() => void handleCancelTurn()}
             isRunning={activeRuntime.isRunning}
-            canCancel={Boolean(
-              activeRuntime.capabilities?.cancelTurn && activeRuntime.isRunning && activeRuntime.activeTurnId,
-            )}
+            canCancel={activeRuntime.canCancelTurn}
             isProviderAvailable={isProviderAvailable}
             disabled={!activeRuntime.canStartTurn || !isProviderAvailable}
-            placeholder={activeRuntime.activity === 'waitingForUser' ? 'Odpowiedz na pytanie powyżej…' : undefined}
+            placeholder={
+              activeRuntime.readiness?.status === 'requiresAttention' || activeRuntime.activity === 'waitingForUser'
+                ? 'Odpowiedz na pytanie powyżej…'
+                : undefined
+            }
             keyboardOpen={visualViewport.keyboardOpen}
             onReload={() => void handleReload()}
             onBack={onBack}
@@ -348,13 +359,14 @@ export function AgentSessionPage({
                   onSend={(text) => handleComposerSubmit(text)}
                   onCancel={() => void handleCancelTurn()}
                   isRunning={activeRuntime.isRunning}
-                  canCancel={Boolean(
-                    activeRuntime.capabilities?.cancelTurn && activeRuntime.isRunning && activeRuntime.activeTurnId,
-                  )}
+                  canCancel={activeRuntime.canCancelTurn}
                   isProviderAvailable={isProviderAvailable}
                   disabled={!activeRuntime.canStartTurn || !isProviderAvailable}
                   placeholder={
-                    activeRuntime.activity === 'waitingForUser' ? 'Odpowiedz na pytanie powyżej…' : undefined
+                    activeRuntime.readiness?.status === 'requiresAttention' ||
+                    activeRuntime.activity === 'waitingForUser'
+                      ? 'Odpowiedz na pytanie powyżej…'
+                      : undefined
                   }
                   loadError={activeRuntime.loadError}
                 />

@@ -360,21 +360,22 @@ test('AgentSessionPage disables normal composer send when session cannot start t
   assert.match(agentSessionPageSource, /disabled=\{!activeRuntime\.canStartTurn \|\| !isProviderAvailable\}/);
   assert.match(
     agentSessionPageSource,
-    /placeholder=\{activeRuntime\.activity === 'waitingForUser' \? 'Odpowiedz na pytanie powyżej…' : undefined\}/,
+    /activeRuntime\.readiness\?\.status === 'requiresAttention' \|\|[\s\S]*?activeRuntime\.activity === 'waitingForUser'[\s\S]*?\? 'Odpowiedz na pytanie powyżej…'/,
   );
 });
 
 test('Finding 1: Runtime exposes explicit readiness contract and rejects send while loading', () => {
   const runtimeSource = readRuntimeSource();
 
-  // Exposes isReady and canStartTurn derived state
+  // Exposes isReady, canStartTurn, and readiness derived state
   assert.ok(
     runtimeSource.includes(
-      "const exposedIsReady = Boolean(isSnapshotLoaded && !exposedLoadError && activity === 'idle');",
+      "const exposedIsReady = Boolean(isSnapshotLoaded && !exposedLoadError && exposedReadiness?.status === 'ready');",
     ),
   );
   assert.ok(runtimeSource.includes('isReady: exposedIsReady'));
   assert.ok(runtimeSource.includes('canStartTurn: exposedCanStartTurn'));
+  assert.ok(runtimeSource.includes('readiness: exposedReadiness'));
 
   // handleSendTurn explicitly throws if snapshot is still loading
   assert.ok(runtimeSource.includes('Cannot start turn while the session snapshot is loading.'));

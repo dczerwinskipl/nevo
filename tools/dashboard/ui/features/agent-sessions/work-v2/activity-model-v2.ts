@@ -68,13 +68,11 @@ export function describeCurrentActivityV2(activity: CurrentActivityV2 | null): C
       };
     }
     case 'thinking': {
-      const label = activity.text?.trim() ? activity.text.trim() : 'Thinking…';
-      const detail = activity.text?.trim() ? previewPlainText(activity.text, 80) : undefined;
+      const trimmed = activity.text?.trim();
+      const label = trimmed ? previewPlainText(trimmed, 80) : 'Thinking…';
       return {
         kind: activity.kind,
         label,
-        detail,
-        description: detail,
         textFirst: true,
         startedAt: activity.startedAt,
       };

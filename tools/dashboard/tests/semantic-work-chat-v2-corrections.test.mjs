@@ -145,9 +145,9 @@ test('Requirement 6 & 7: Level 2 renders timeline rail, compact tool titles, and
   // Timeline rail structure and marker positioning centered on the icon column
   assert.match(timelineSource, /top-2 bottom-2 left-\[18px\] w-px -translate-x-1\/2 bg-border/);
 
-  // Commentary is clean bordered prose cardlet
-  assert.match(timelineSource, /bg-fg-primary\/\[0\.02\]/);
-  assert.match(timelineSource, /line-clamp-2/);
+  // Commentary is text-first compact row
+  assert.match(timelineSource, /truncate text-fg-secondary/);
+  assert.match(timelineSource, /rounded-full bg-fg-muted/);
 
   // Reasoning has distinct "Thinking" cue
   assert.match(timelineSource, /Thinking/);
@@ -861,9 +861,23 @@ test('16.9 Compression of 40+ consecutive items into compact grouped timeline ro
   assert.equal(l2Rows[6].status, 'failed');
 });
 
-test('15.5 Repeated Commentary compression: identical narration is presentation-compressed in Level 2 while fully retained in Level 3', () => {
+test('15.5 Repeated Commentary compression: immediately adjacent narration compresses with repeatCount; intervening tools preserve strict chronology', () => {
   const repeatedNarration = 'I will wait for the test run to complete.';
-  const items = [
+  const consecutiveCommentary = [
+    { id: 'c-1', type: 'commentary', text: repeatedNarration, status: 'completed' },
+    { id: 'c-2', type: 'commentary', text: repeatedNarration, status: 'completed' },
+    { id: 'c-3', type: 'commentary', text: repeatedNarration, status: 'completed' },
+  ];
+
+  // Immediately adjacent identical commentary compresses to 1 row with repeatCount: 3
+  const compressedRows = buildTimelineRowsV2(consecutiveCommentary);
+  assert.equal(compressedRows.length, 1);
+  assert.equal(compressedRows[0].row, 'commentary');
+  assert.equal(compressedRows[0].item.text, repeatedNarration);
+  assert.equal(compressedRows[0].repeatCount, 3);
+
+  // Interleaved commentary and tools: intervening tools break grouping to preserve exact chronology
+  const interleavedItems = [
     { id: 'c-1', type: 'commentary', text: repeatedNarration, status: 'completed' },
     {
       id: 't-1',
@@ -897,19 +911,17 @@ test('15.5 Repeated Commentary compression: identical narration is presentation-
   ];
 
   // Canonical/L3 keeps all 6 individual items
-  assert.equal(items.length, 6);
+  assert.equal(interleavedItems.length, 6);
 
-  // L2 projection compresses repeated commentary and groups adjacent tools
-  const l2Rows = buildTimelineRowsV2(items);
-  assert.equal(l2Rows.length, 2, 'must not render multiple identical commentary rows in L2');
-
+  // L2 projection preserves chronological ordering without global regrouping across tools
+  const l2Rows = buildTimelineRowsV2(interleavedItems);
+  assert.equal(l2Rows.length, 6, 'must not reorder or group commentary across intervening tools');
   assert.equal(l2Rows[0].row, 'commentary');
-  assert.equal(l2Rows[0].item.text, repeatedNarration);
-  assert.equal(l2Rows[0].repeatCount, 3, 'must accurately track repetition count');
-
   assert.equal(l2Rows[1].row, 'tool_group');
-  assert.equal(l2Rows[1].title, 'Run command');
-  assert.equal(l2Rows[1].count, 3);
+  assert.equal(l2Rows[2].row, 'commentary');
+  assert.equal(l2Rows[3].row, 'tool_group');
+  assert.equal(l2Rows[4].row, 'commentary');
+  assert.equal(l2Rows[5].row, 'tool_group');
 });
 
 test('15.6 Different Commentary preserved: non-identical narration rows remain distinct with no fuzzy dedupe', () => {

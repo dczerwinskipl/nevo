@@ -1,5 +1,6 @@
-import { PermissionPrompt, QuestionPrompt } from '../interactions/interaction-prompt';
+import { ConfirmationPrompt, PermissionPrompt, QuestionPrompt } from '../interactions/interaction-prompt';
 import type {
+  AgentConfirmationInteraction,
   AgentPermissionInteraction,
   AgentQuestionInteraction,
   CanonicalTurnV2,
@@ -12,7 +13,7 @@ export interface PendingInteractionViewV2Props {
 }
 
 /**
- * Renders the Turn's pending permission/question actionably at its chronological
+ * Renders the Turn's pending permission/question/confirmation actionably at its chronological
  * position (areas/canonical-turn-work-model.md § "Interaction";
  * areas/chat-migration-and-validation.md § "Requires attention"). A pending Interaction
  * is the Turn's `currentActivity` while `requiresAttention` — it is excluded from
@@ -41,6 +42,14 @@ export function PendingInteractionViewV2({ turn, onRespond }: PendingInteraction
     return (
       <QuestionPrompt
         interaction={item.interaction as AgentQuestionInteraction}
+        onResolve={(response) => onRespond(item.id, response)}
+      />
+    );
+  }
+  if (item.interaction.kind === 'confirmation') {
+    return (
+      <ConfirmationPrompt
+        interaction={item.interaction as AgentConfirmationInteraction}
         onResolve={(response) => onRespond(item.id, response)}
       />
     );

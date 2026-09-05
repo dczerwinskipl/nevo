@@ -81,53 +81,53 @@ export function normalizeCommentaryText(text: string | undefined): string {
  */
 export function buildTimelineRowsV2(historicalWork: WorkItemV2[]): TimelineRowV2[] {
   const rows: TimelineRowV2[] = [];
-  let lastCommentaryText: string | null = null;
-  let lastCommentaryRow: CommentaryPresentationRowV2 | null = null;
 
   for (const item of historicalWork) {
     if (item.type === 'commentary') {
       const normalized = normalizeCommentaryText(item.text);
-      if (normalized && normalized === lastCommentaryText && lastCommentaryRow) {
-        // Exact repeated commentary: presentation-only dedupe in Level 2
-        lastCommentaryRow.repeatCount = (lastCommentaryRow.repeatCount || 1) + 1;
+      const prevRow = rows[rows.length - 1];
+      if (
+        normalized &&
+        prevRow &&
+        prevRow.row === 'commentary' &&
+        normalizeCommentaryText(prevRow.item.text) === normalized
+      ) {
+        // Genuinely consecutive identical commentary: presentation-only compaction
+        prevRow.repeatCount = (prevRow.repeatCount || 1) + 1;
       } else {
-        lastCommentaryText = normalized || null;
         const commentaryRow: CommentaryPresentationRowV2 = {
           row: 'commentary',
           id: item.id,
           item,
           repeatCount: 1,
         };
-        lastCommentaryRow = commentaryRow;
         rows.push(commentaryRow);
       }
       continue;
     }
 
     if (item.type === 'reasoning') {
-      lastCommentaryText = null;
-      lastCommentaryRow = null;
       rows.push({ row: 'reasoning', id: item.id, item });
       continue;
     }
 
     if (item.type === 'interaction') {
-      lastCommentaryText = null;
-      lastCommentaryRow = null;
       rows.push({ row: 'interaction', id: item.id, item });
       continue;
     }
 
     if (item.type === 'tool') {
       const isCompleted = item.status === 'completed';
-      if (!isCompleted) {
-        lastCommentaryText = null;
-        lastCommentaryRow = null;
-      }
+      const hasActions = Boolean(item.actions && item.actions.length > 0);
       const prevRow = rows[rows.length - 1];
+      const prevHasActions = Boolean(
+        prevRow && prevRow.row === 'tool_group' && prevRow.items.some((i) => i.actions && i.actions.length > 0),
+      );
 
       if (
         isCompleted &&
+        !hasActions &&
+        !prevHasActions &&
         prevRow &&
         prevRow.row === 'tool_group' &&
         prevRow.status === 'completed' &&

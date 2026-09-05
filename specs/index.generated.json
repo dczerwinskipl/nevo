@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-05T16:30:39.138Z",
+  "generated": "2026-09-05T16:55:32.865Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -48,7 +48,7 @@
           ],
           "implementation": {
             "baseline_revision": "bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8",
-            "review_revision": "bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8",
+            "review_revision": "62b1cd625221cedf58e45409e9baa2e16bffafbb",
             "changed_paths": [
               "tools/dashboard/server/ai/contracts.mjs",
               "tools/dashboard/server/ai/model/canonical-turn.mjs",
@@ -58,13 +58,14 @@
               "tools/dashboard/server/ai/model/serialization.mjs",
               "tools/dashboard/server/ai/model/turn-status.mjs",
               "tools/dashboard/server/ai/model/work-items.mjs",
+              "tools/dashboard/tests/ai-contract-drift.test.mjs",
               "tools/dashboard/tests/ai-contracts.test.mjs"
             ],
-            "worktree_patch_fingerprint": "d0216f6daca236151a37df3b37456f54016cc822bf0000b5491bae54c34a1b4d"
+            "worktree_patch_fingerprint": null
           },
           "self_check": {
             "fingerprint": "c4f0a777a7d95f56fb9a72d8f481ea7cbe03096a040257bf2b1020e51be605f4",
-            "revision": "bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8",
+            "revision": "62b1cd625221cedf58e45409e9baa2e16bffafbb",
             "commands": [
               {
                 "command": "node --test tools/dashboard/tests/ai-contracts.test.mjs tools/dashboard/tests/ai-contract-drift.test.mjs",
@@ -84,20 +85,24 @@
           ],
           "implementation": {
             "baseline_revision": "bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8",
-            "review_revision": "bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8",
+            "review_revision": "62b1cd625221cedf58e45409e9baa2e16bffafbb",
             "changed_paths": [
               "tools/dashboard/server/ai/contracts.mjs",
               "tools/dashboard/server/ai/diagnostics/index.mjs",
               "tools/dashboard/server/ai/diagnostics/trace-record.mjs",
               "tools/dashboard/server/ai/diagnostics/trace-sink.mjs",
+              "tools/dashboard/server/ai/sessions/turns/coordinator.mjs",
+              "tools/dashboard/server/ai/sessions/turns/routes.mjs",
               "tools/dashboard/server/ai/sessions/turns/runtime.mjs",
+              "tools/dashboard/server/ai/sessions/turns/turn-event-stream.mjs",
+              "tools/dashboard/server/ai/sessions/turns/turn-recovery.mjs",
               "tools/dashboard/tests/ai-lifecycle-diagnostics.test.mjs"
             ],
-            "worktree_patch_fingerprint": "a6f120228e106449c4988f99f5661fab6ab3b666d769649aeea5ce03c31edcd9"
+            "worktree_patch_fingerprint": null
           },
           "self_check": {
             "fingerprint": "c5bfafb2ef6ca5f80b88f96336c84c83adb9614e00f4038f1542a4e13578f488",
-            "revision": "bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8",
+            "revision": "62b1cd625221cedf58e45409e9baa2e16bffafbb",
             "commands": [
               {
                 "command": "node --test tools/dashboard/tests/ai-lifecycle-diagnostics.test.mjs",
@@ -281,12 +286,93 @@
           "id": "semantic-work-chat-v2",
           "order": 11,
           "file": "tasks/11-semantic-work-chat-v2.md",
-          "status": "in-implementation",
+          "status": "verified",
           "depends_on": [
             "canonical-persistence-and-server-projection"
           ],
           "implementation": {
-            "baseline_revision": "b84c80b9f279243f806b4bfc056db5f717cdb3bb"
+            "baseline_revision": "b84c80b9f279243f806b4bfc056db5f717cdb3bb",
+            "review_revision": "62b1cd625221cedf58e45409e9baa2e16bffafbb",
+            "changed_paths": [
+              "tools/dashboard/tests/agent-session-header.test.mjs",
+              "tools/dashboard/tests/agent-session-runtime-state.test.mjs",
+              "tools/dashboard/tests/agent-turn-transport.test.mjs",
+              "tools/dashboard/tests/composer-interaction.test.mjs",
+              "tools/dashboard/tests/responsive-accessibility-regression.test.mjs",
+              "tools/dashboard/tests/session-details.test.mjs",
+              "tools/dashboard/tests/transcript-message-layout.test.mjs",
+              "tools/dashboard/tests/transcript-projection.test.mjs",
+              "tools/dashboard/tests/turn-work-correlation.test.mjs",
+              "tools/dashboard/tests/turn-work-summary.test.mjs",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-details-sheet.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-details.stories.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-details.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-header.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-list.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-page.tsx",
+              "tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx",
+              "tools/dashboard/ui/features/agent-sessions/composer/composer-sizing.ts",
+              "tools/dashboard/ui/features/agent-sessions/create-agent-session-dialog.tsx",
+              "tools/dashboard/ui/features/agent-sessions/create-agent-session-helpers.ts",
+              "tools/dashboard/ui/features/agent-sessions/initial-dispatch.ts",
+              "tools/dashboard/ui/features/agent-sessions/interactions/interaction-prompt.tsx",
+              "tools/dashboard/ui/features/agent-sessions/provider-config.ts",
+              "tools/dashboard/ui/features/agent-sessions/provider-unavailable-banner.tsx",
+              "tools/dashboard/ui/features/agent-sessions/queries.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-event-reducer.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-event-source.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-session-runtime-v2.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-session-runtime.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-session-transport.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-session-v2-transport.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-turn-transport.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/pending-dispatch-store.ts",
+              "tools/dashboard/ui/features/agent-sessions/session-tasks.ts",
+              "tools/dashboard/ui/features/agent-sessions/status.ts",
+              "tools/dashboard/ui/features/agent-sessions/transcript/agent-session-transcript.tsx",
+              "tools/dashboard/ui/features/agent-sessions/transcript/message-collapse.ts",
+              "tools/dashboard/ui/features/agent-sessions/transcript/projection.ts",
+              "tools/dashboard/ui/features/agent-sessions/transcript/reasoning-view.tsx",
+              "tools/dashboard/ui/features/agent-sessions/transcript/transcript-message.tsx",
+              "tools/dashboard/ui/features/agent-sessions/transcript/use-scroll-follow.ts",
+              "tools/dashboard/ui/features/agent-sessions/transcript/use-visual-viewport.ts",
+              "tools/dashboard/ui/features/agent-sessions/turn-work/tool-call-view.tsx",
+              "tools/dashboard/ui/features/agent-sessions/turn-work/turn-work-summary.tsx",
+              "tools/dashboard/ui/features/agent-sessions/turn-work/turn-work-visibility.ts",
+              "tools/dashboard/ui/features/agent-sessions/types.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/__fixtures__/chat-fixtures.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/activity-model-v2.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/agent-session-transcript-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/final-answer-view-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/pending-interaction-view-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/text-preview-v2.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/timeline-projection-v2.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/tool-kind-icons-v2.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/turn-status-tone-v2.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/turn-work-panel-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/use-elapsed-label.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-details-sheet-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-indicator-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-timeline-v2.tsx"
+            ],
+            "worktree_patch_fingerprint": "9247cadb5d1c5e808025581f99fc48228414e45d188e5164f1527c7df19bcfd3"
+          },
+          "self_check": {
+            "fingerprint": "5ccb913dfaad067966427b03f6e778e15ee155c602aebc12e7bd80d349e8e8e7",
+            "revision": "62b1cd625221cedf58e45409e9baa2e16bffafbb",
+            "commands": [
+              {
+                "command": "node --experimental-strip-types --test tools/dashboard/tests/turn-work-summary.test.mjs tools/dashboard/tests/transcript-projection.test.mjs tools/dashboard/tests/turn-work-correlation.test.mjs tools/dashboard/tests/composer-interaction.test.mjs tools/dashboard/tests/transcript-message-layout.test.mjs tools/dashboard/tests/agent-session-runtime-state.test.mjs tools/dashboard/tests/responsive-accessibility-regression.test.mjs tools/dashboard/tests/semantic-work-chat-v2-corrections.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
           }
         },
         {
