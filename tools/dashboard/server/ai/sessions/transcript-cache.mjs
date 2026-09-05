@@ -1,30 +1,45 @@
 import { mkdir, readdir, readFile, rm, unlink, writeFile, rename } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import {
-  normalizeTimestamp,
-  validateAgentIdentity,
-  validateAiEvent,
-  AiValidationError,
-} from '../contracts.mjs';
+import { normalizeTimestamp, validateAgentIdentity, validateAiEvent, projectChatV1 } from '../contracts.mjs';
 
 function sanitizeFilename(value) {
-  return encodeURIComponent(value).replace(/[*~]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return encodeURIComponent(value).replace(/[*~]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
 /**
- * Resolves a still-`running` tool call to `'failed'` when its turn ends without a real
- * successful terminal signal (owner-decisions.md D6). Scoped strictly to `turnId` — a
- * terminal event for one turn must never mutate a different turn's still-running tools
- * (the single-active-turn invariant means only one turn can be non-terminal at a time in
- * practice, but this scoping makes that safety explicit rather than implicit).
+ * Closes unresolved tools in canonical Turn aggregate with explicit closure reason.
  */
-function completeRunningToolCalls(state, turnId) {
-  for (const msg of state.messages) {
-    if (turnId && msg.turnId !== turnId) continue;
-    if (!msg.toolCalls) continue;
-    for (const tool of msg.toolCalls) {
-      if (tool.status === 'running') tool.status = 'failed';
+function closeDanglingTurnWork(turn, outcome = 'failed', cause = null) {
+  if (!turn || !Array.isArray(turn.work)) return;
+  let closureReason = 'turn_failed';
+  let toolStatus = 'failed';
+
+  if (outcome === 'completed') {
+    closureReason = 'turn_completed';
+    toolStatus = 'failed';
+  } else if (outcome === 'cancelled') {
+    closureReason = 'turn_cancelled';
+    toolStatus = 'cancelled';
+  } else if (outcome === 'interrupted') {
+    closureReason = 'turn_interrupted';
+    toolStatus = 'interrupted';
+  } else if (cause === 'timeout/protocol-silence' || cause === 'AI_TURN_TIMEOUT') {
+    closureReason = 'timeout';
+    toolStatus = 'failed';
+  } else if (cause === 'process_exit') {
+    closureReason = 'process_exit';
+    toolStatus = 'failed';
+  }
+
+  for (const item of turn.work) {
+    if (item.type === 'tool' && (item.status === 'active' || item.status === 'queued')) {
+      item.status = toolStatus;
+      item.closureReason = closureReason;
+      item.updatedAt = new Date().toISOString();
+    } else if (item.type === 'interaction' && item.status === 'pending') {
+      item.status = outcome === 'cancelled' ? 'cancelled' : 'denied';
+      item.updatedAt = new Date().toISOString();
     }
   }
 }
@@ -34,6 +49,7 @@ export class SessionTranscriptCacheService {
   #inMemory = new Map();
   #dirty = new Set();
   #flushTimers = new Map();
+  #writeQueues = new Map();
   #flushDebounceMs;
 
   constructor({ baseDir = resolve(process.cwd(), '.nevo-ai-local/transcripts'), flushDebounceMs = 50 } = {}) {
@@ -58,10 +74,7 @@ export class SessionTranscriptCacheService {
   }
 
   /**
-   * Lists every session with a persisted transcript file on disk, including ones never
-   * loaded into the in-memory cache yet (e.g. right after a process restart). Used by
-   * boot-time orphaned-turn reconciliation, which otherwise has nothing to scan since
-   * `entries()` only sees what's already been loaded.
+   * Lists every session with a persisted transcript file on disk.
    */
   async listPersistedSessions() {
     const results = [];
@@ -92,11 +105,8 @@ export class SessionTranscriptCacheService {
   }
 
   /**
-   * Finalizes an orphaned `activeTurn` left behind by a session whose owning turn was
-   * never terminated (e.g. an ungraceful server restart) — clears the ghost `activeTurn`,
-   * completes any still-`running` tool calls, and appends a visible message so the next
-   * read reflects reality instead of a stale "running" state. Requires the transcript to
-   * already be loaded (via `getTranscript`); a no-op if there is no `activeTurn` to clear.
+   * Finalizes an orphaned activeTurn left behind by a session whose owning turn was
+   * never terminated (e.g. ungraceful server restart).
    */
   markTurnInterrupted(provider, providerSessionId, { text, createdAt = new Date().toISOString() } = {}) {
     validateAgentIdentity({ provider, providerSessionId });
@@ -107,48 +117,158 @@ export class SessionTranscriptCacheService {
     const interruptedTurnId = state.activeTurn.turnId;
     delete state.activeTurn;
     delete state.pendingInteraction;
-    completeRunningToolCalls(state, interruptedTurnId);
-    state.lastEventSeq = (state.lastEventSeq || 0) + 1;
 
-    const msg = {
-      id: `system-${randomUUID()}`,
-      role: 'assistant',
-      text: typeof text === 'string' ? text : '',
-      createdAt: normalizeTimestamp(createdAt, 'createdAt'),
-    };
-    state.messages.push(msg);
-    state.updatedAt = msg.createdAt;
+    // Reconcile canonical Turn in state.turns
+    if (Array.isArray(state.turns)) {
+      const activeTurn = state.turns.find((t) => t.id === interruptedTurnId);
+      if (activeTurn) {
+        closeDanglingTurnWork(activeTurn, 'interrupted', 'turn_interrupted');
+        activeTurn.status = {
+          status: 'terminal',
+          outcome: 'interrupted',
+          initiator: 'shutdown',
+          cause: 'turn_interrupted',
+          error: { code: 'AI_TURN_INTERRUPTED', message: text || 'Interrupted by server restart.' },
+        };
+        activeTurn.completedAt = normalizeTimestamp(createdAt, 'completedAt');
+        activeTurn.updatedAt = activeTurn.completedAt;
+      }
+    }
+
+    state.lastEventSeq = (state.lastEventSeq || 0) + 1;
+    state.updatedAt = normalizeTimestamp(createdAt, 'updatedAt');
     this.#markDirty(provider, providerSessionId);
-    return msg;
+    return { id: `interrupted-${interruptedTurnId}`, turnId: interruptedTurnId };
+  }
+
+  /**
+   * Record or update a full canonical Turn aggregate in persistence directly from TurnLifecycleCoordinator.
+   */
+  recordCanonicalTurn(provider, providerSessionId, turn) {
+    validateAgentIdentity({ provider, providerSessionId });
+    const key = this.#key(provider, providerSessionId);
+    let state = this.#inMemory.get(key);
+    if (!state) {
+      state = {
+        schemaVersion: 2,
+        provider,
+        providerSessionId,
+        turns: [],
+        lastEventSeq: 0,
+        health: 'healthy',
+        updatedAt: turn.updatedAt || new Date().toISOString(),
+      };
+      this.#inMemory.set(key, state);
+    }
+
+    if (!Array.isArray(state.turns)) state.turns = [];
+    const index = state.turns.findIndex((t) => t.id === turn.id);
+    const cloned = structuredClone(turn);
+    if (index >= 0) {
+      state.turns[index] = cloned;
+    } else {
+      state.turns.push(cloned);
+    }
+
+    if (cloned.status?.status !== 'terminal') {
+      state.activeTurn = {
+        turnId: cloned.id,
+        startedAt: cloned.startedAt,
+        mode: cloned.mode,
+      };
+      if (cloned.status?.status === 'requiresAttention') {
+        const pendingItem = cloned.work?.find((w) => w.type === 'interaction' && w.status === 'pending');
+        state.pendingInteraction = pendingItem?.interaction ? structuredClone(pendingItem.interaction) : null;
+      } else {
+        delete state.pendingInteraction;
+      }
+    } else {
+      delete state.activeTurn;
+      delete state.pendingInteraction;
+    }
+
+    state.updatedAt = cloned.updatedAt || cloned.completedAt || cloned.startedAt || new Date().toISOString();
+    this.#markDirty(provider, providerSessionId);
   }
 
   async getTranscript(provider, providerSessionId) {
     validateAgentIdentity({ provider, providerSessionId });
     const key = this.#key(provider, providerSessionId);
+    let state;
     if (this.#inMemory.has(key)) {
-      return structuredClone(this.#inMemory.get(key));
+      state = this.#inMemory.get(key);
+    } else {
+      const filePath = this.#getFilePath(provider, providerSessionId);
+      try {
+        const data = await readFile(filePath, 'utf-8');
+        const parsed = JSON.parse(data);
+
+        // Explicit canonical schema and version validation
+        const isUnsupportedSchema = parsed?.schemaVersion !== 2;
+        const isMalformedStructure =
+          typeof parsed !== 'object' ||
+          parsed === null ||
+          typeof parsed.provider !== 'string' ||
+          typeof parsed.providerSessionId !== 'string' ||
+          (parsed.turns !== undefined && !Array.isArray(parsed.turns));
+
+        if (isUnsupportedSchema || isMalformedStructure) {
+          const reason = isUnsupportedSchema
+            ? `Unsupported schema version: ${parsed?.schemaVersion}`
+            : 'Malformed canonical transcript structure';
+          const invalidState = {
+            schemaVersion: parsed?.schemaVersion ?? 2,
+            provider,
+            providerSessionId,
+            turns: [],
+            lastEventSeq: 0,
+            health: 'corrupt',
+            error: reason,
+            updatedAt: new Date().toISOString(),
+          };
+          this.#inMemory.set(key, invalidState);
+          return structuredClone(invalidState);
+        }
+
+        if (!Array.isArray(parsed.turns)) parsed.turns = [];
+        parsed.health = parsed.health || 'healthy';
+        this.#inMemory.set(key, parsed);
+        state = parsed;
+      } catch (err) {
+        if (err.code !== 'ENOENT') {
+          // File is corrupt or unreadable -> do not synthesize empty ready session
+          const corruptState = {
+            schemaVersion: 2,
+            provider,
+            providerSessionId,
+            turns: [],
+            lastEventSeq: 0,
+            health: 'corrupt',
+            error: err.message,
+            updatedAt: new Date().toISOString(),
+          };
+          this.#inMemory.set(key, corruptState);
+          return structuredClone(corruptState);
+        }
+        const initial = {
+          schemaVersion: 2,
+          provider,
+          providerSessionId,
+          turns: [],
+          lastEventSeq: 0,
+          health: 'healthy',
+          updatedAt: new Date().toISOString(),
+        };
+        this.#inMemory.set(key, initial);
+        state = initial;
+      }
     }
 
-    const filePath = this.#getFilePath(provider, providerSessionId);
-    try {
-      const data = await readFile(filePath, 'utf-8');
-      const parsed = JSON.parse(data);
-      this.#inMemory.set(key, parsed);
-      return structuredClone(parsed);
-    } catch (err) {
-      if (err.code !== 'ENOENT') {
-        // file corruption or other error
-      }
-      const initial = {
-        provider,
-        providerSessionId,
-        messages: [],
-        lastEventSeq: 0,
-        updatedAt: new Date().toISOString(),
-      };
-      this.#inMemory.set(key, initial);
-      return structuredClone(initial);
+    const cloned = structuredClone(state);
+    if (!Array.isArray(cloned.messages)) {
+      cloned.messages = Array.isArray(cloned.turns) ? projectChatV1(cloned.turns) : [];
     }
+    return cloned;
   }
 
   recordUserMessage(provider, providerSessionId, { text, messageId, createdAt = new Date().toISOString() } = {}) {
@@ -157,32 +277,20 @@ export class SessionTranscriptCacheService {
     let state = this.#inMemory.get(key);
     if (!state) {
       state = {
+        schemaVersion: 2,
         provider,
         providerSessionId,
-        messages: [],
+        turns: [],
         lastEventSeq: 0,
+        health: 'healthy',
         updatedAt: createdAt,
       };
       this.#inMemory.set(key, state);
     }
 
-    const id = messageId || `user-${randomUUID()}`;
-    const existingIndex = state.messages.findIndex(m => m.id === id);
-    const userMsg = {
-      id,
-      role: 'user',
-      text: typeof text === 'string' ? text : '',
-      createdAt: normalizeTimestamp(createdAt, 'createdAt'),
-    };
-
-    if (existingIndex >= 0) {
-      state.messages[existingIndex] = userMsg;
-    } else {
-      state.messages.push(userMsg);
-    }
-    state.updatedAt = userMsg.createdAt;
+    state.updatedAt = normalizeTimestamp(createdAt, 'createdAt');
     this.#markDirty(provider, providerSessionId);
-    return userMsg;
+    return { id: messageId || `user-${randomUUID()}`, role: 'user', text, createdAt: state.updatedAt };
   }
 
   applyEvent(provider, providerSessionId, rawEvent, { flush = false } = {}) {
@@ -192,10 +300,12 @@ export class SessionTranscriptCacheService {
     let state = this.#inMemory.get(key);
     if (!state) {
       state = {
+        schemaVersion: 2,
         provider,
         providerSessionId,
-        messages: [],
+        turns: [],
         lastEventSeq: 0,
+        health: 'healthy',
         updatedAt: event.timestamp,
       };
       this.#inMemory.set(key, state);
@@ -207,162 +317,11 @@ export class SessionTranscriptCacheService {
     }
     state.updatedAt = event.timestamp;
 
-    const getOrCreateAssistantMsg = (explicitMsgId) => {
-      let msg = null;
-      if (explicitMsgId) {
-        // Explicit messageId takes priority — preserves distinct message identity within a turn.
-        // If the event carries an explicit messageId but it isn't in the list yet, create a new
-        // message with that ID (do NOT fall through to the turnId fallback, which would merge
-        // two distinct messages sharing only a turnId).
-        msg = state.messages.find(m => m.id === explicitMsgId);
-      } else if (event.turnId) {
-        // turnId fallback — for events that carry a turnId but no explicit messageId
-        // (e.g. tool events, or reasoning without an explicit messageId).
-        msg = state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant');
-      }
-      if (!msg) {
-        msg = {
-          id: explicitMsgId || (event.turnId ? `message-${event.turnId}` : `msg-${randomUUID()}`),
-          role: 'assistant',
-          text: '',
-          turnId: event.turnId,
-          createdAt: event.timestamp,
-        };
-        state.messages.push(msg);
-      }
-      return msg;
-    };
-
-    switch (event.type) {
-      case 'turn.started': {
-        state.activeTurn = {
-          turnId: event.turnId,
-          startedAt: event.timestamp,
-          ...(event.mode ? { mode: event.mode } : {}),
-        };
-        break;
-      }
-      case 'message.started': {
-        const msgId = event.messageId || (event.turnId ? `message-${event.turnId}` : `msg-${randomUUID()}`);
-        let msg = state.messages.find(m => m.id === msgId);
-        if (!msg) {
-          msg = {
-            id: msgId,
-            role: event.role || 'assistant',
-            text: '',
-            turnId: event.turnId,
-            createdAt: event.timestamp,
-          };
-          state.messages.push(msg);
-        }
-        break;
-      }
-      case 'text.delta': {
-        const msg = getOrCreateAssistantMsg(event.messageId);
-        const delta = event.text || '';
-        msg.text += delta;
-        break;
-      }
-      case 'reasoning.delta': {
-        const msg = getOrCreateAssistantMsg(event.messageId);
-        msg.reasoning = (msg.reasoning || '') + (event.text || '');
-        break;
-      }
-      case 'tool.started': {
-        const msg = (event.messageId && state.messages.find(m => m.id === event.messageId))
-          || (event.turnId && state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant'))
-          || getOrCreateAssistantMsg(event.messageId);
-        if (!msg.toolCalls) msg.toolCalls = [];
-        const existingTool = msg.toolCalls.find(t => t.id === event.toolId);
-        if (!existingTool) {
-          msg.toolCalls.push({
-            id: event.toolId,
-            name: event.toolName,
-            input: event.input,
-            status: 'running',
-          });
-        }
-        break;
-      }
-      case 'tool.updated': {
-        const msg = (event.toolId && state.messages.find(m => m.toolCalls?.some(t => t.id === event.toolId)))
-          || (event.messageId && state.messages.find(m => m.id === event.messageId))
-          || (event.turnId && state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant'))
-          || getOrCreateAssistantMsg(event.messageId);
-        if (msg.toolCalls) {
-          const tool = msg.toolCalls.find(t => t.id === event.toolId);
-          if (tool) {
-            if (event.output !== undefined) tool.output = event.output;
-            if (event.input !== undefined) tool.input = event.input;
-            if (event.status === 'running' || event.status === 'completed' || event.status === 'failed') {
-              tool.status = event.status;
-            }
-          }
-        }
-        break;
-      }
-      case 'tool.completed': {
-        const msg = (event.toolId && state.messages.find(m => m.toolCalls?.some(t => t.id === event.toolId)))
-          || (event.messageId && state.messages.find(m => m.id === event.messageId))
-          || (event.turnId && state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant'))
-          || getOrCreateAssistantMsg(event.messageId);
-        if (!msg.toolCalls) msg.toolCalls = [];
-        let tool = msg.toolCalls.find(t => t.id === event.toolId);
-        const resolvedStatus = (event.status === 'completed' || event.status === 'failed') ? event.status : 'failed';
-        if (!tool) {
-          tool = { id: event.toolId, name: event.toolName || 'tool', status: resolvedStatus };
-          msg.toolCalls.push(tool);
-        }
-        if (event.output !== undefined) tool.output = event.output;
-        tool.status = resolvedStatus;
-        if (typeof event.durationMs === 'number') tool.durationMs = event.durationMs;
-        break;
-      }
-      case 'interaction.requested': {
-        state.pendingInteraction = structuredClone(event.interaction);
-        const msg = (event.messageId && state.messages.find(m => m.id === event.messageId))
-          || (event.turnId && state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant'))
-          || getOrCreateAssistantMsg(event.messageId);
-        msg.interaction = structuredClone(event.interaction);
-        break;
-      }
-      case 'interaction.resolved': {
-        delete state.pendingInteraction;
-        const msg = (event.messageId && state.messages.find(m => m.id === event.messageId))
-          || (event.turnId && state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant'))
-          || state.messages.find(m => m.interaction && m.interaction.id === event.interactionId);
-        if (msg && msg.interaction && msg.interaction.id === event.interactionId) {
-          if (event.response !== undefined) {
-            msg.interaction.response = structuredClone(event.response);
-          }
-        }
-        break;
-      }
-      case 'turn.completed': {
-        delete state.activeTurn;
-        completeRunningToolCalls(state, event.turnId);
-        break;
-      }
-      case 'turn.failed': {
-        delete state.activeTurn;
-        delete state.pendingInteraction;
-        completeRunningToolCalls(state, event.turnId);
-        if (event.error) {
-          // Reload-safe home for the turn's terminal error.code (owner-decisions.md D6/D9)
-          // so Task 09 can distinguish Turn/Work Outcome without needing backend access.
-          const msg = (event.messageId && state.messages.find(m => m.id === event.messageId))
-            || (event.turnId && state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant'))
-            || getOrCreateAssistantMsg(event.messageId);
-          msg.turnError = { code: event.error.code, message: event.error.message };
-        }
-        break;
-      }
-      default:
-        break;
+    if (event.type === 'turn.updated' && event.turn) {
+      this.recordCanonicalTurn(provider, providerSessionId, event.turn);
+    } else {
+      this.#markDirty(provider, providerSessionId);
     }
-
-
-    this.#markDirty(provider, providerSessionId);
 
     if (flush) {
       return this.flush(provider, providerSessionId);
@@ -383,7 +342,7 @@ export class SessionTranscriptCacheService {
     }
   }
 
-  async flush(provider, providerSessionId) {
+  flush(provider, providerSessionId) {
     const key = this.#key(provider, providerSessionId);
     const timer = this.#flushTimers.get(key);
     if (timer) {
@@ -391,43 +350,77 @@ export class SessionTranscriptCacheService {
       this.#flushTimers.delete(key);
     }
 
-    const state = this.#inMemory.get(key);
-    if (!state) return;
+    const previousPromise = this.#writeQueues.get(key) || Promise.resolve();
+    const currentPromise = previousPromise
+      .catch(() => {})
+      .then(async () => {
+        const state = this.#inMemory.get(key);
+        if (!state) return;
 
-    this.#dirty.delete(key);
+        this.#dirty.delete(key);
 
-    const filePath = this.#getFilePath(provider, providerSessionId);
-    await mkdir(dirname(filePath), { recursive: true });
-
-    const content = JSON.stringify(state, null, 2);
-    const tempPath = `${filePath}.${randomUUID()}.tmp`;
-    await writeFile(tempPath, content, 'utf-8');
-    try {
-      await rename(tempPath, filePath);
-    } catch (renameErr) {
-      if (process.platform === 'win32') {
-        await new Promise(r => setTimeout(r, 10));
+        const filePath = this.#getFilePath(provider, providerSessionId);
+        const tempPath = `${filePath}.${randomUUID()}.tmp`;
         try {
-          await rename(tempPath, filePath);
-        } catch {
-          await writeFile(filePath, content, 'utf-8');
+          await mkdir(dirname(filePath), { recursive: true });
+
+          const content = JSON.stringify(state, null, 2);
+          await writeFile(tempPath, content, 'utf-8');
+          try {
+            await rename(tempPath, filePath);
+          } catch (renameErr) {
+            if (process.platform === 'win32') {
+              await new Promise((r) => setTimeout(r, 10));
+              try {
+                await rename(tempPath, filePath);
+              } catch {
+                await writeFile(filePath, content, 'utf-8');
+                await unlink(tempPath).catch(() => {});
+              }
+            } else {
+              throw renameErr;
+            }
+          }
+
+          if (state.health === 'unhealthy') {
+            state.health = 'healthy';
+            delete state.error;
+            delete state.persistenceError;
+          }
+        } catch (writeErr) {
           await unlink(tempPath).catch(() => {});
+          state.health = 'unhealthy';
+          state.error = `Write failure: ${writeErr.message}`;
+          state.persistenceError = {
+            code: writeErr.code || 'EWRITE',
+            message: writeErr.message,
+            at: new Date().toISOString(),
+          };
+          this.#dirty.add(key);
+          throw writeErr;
         }
-      } else {
-        throw renameErr;
-      }
-    }
+      })
+      .finally(() => {
+        if (this.#writeQueues.get(key) === currentPromise) {
+          this.#writeQueues.delete(key);
+        }
+      });
+
+    this.#writeQueues.set(key, currentPromise);
+    return currentPromise;
   }
 
   async flushAll() {
     const entries = [...this.#dirty];
     for (const key of entries) {
       const [provider, providerSessionId] = key.split('\u0000');
-      await this.flush(provider, providerSessionId);
+      this.flush(provider, providerSessionId);
     }
+    const pendingWrites = [...this.#writeQueues.values()];
+    await Promise.all(pendingWrites);
   }
 
-  async deleteTranscript(provider, providerSessionId) {
+  deleteTranscript(provider, providerSessionId) {
     const key = this.#key(provider, providerSessionId);
     const timer = this.#flushTimers.get(key);
     if (timer) {
@@ -437,10 +430,25 @@ export class SessionTranscriptCacheService {
     this.#inMemory.delete(key);
     this.#dirty.delete(key);
 
-    const filePath = this.#getFilePath(provider, providerSessionId);
-    try {
-      await rm(filePath, { force: true });
-    } catch {}
+    const previousPromise = this.#writeQueues.get(key) || Promise.resolve();
+    const currentPromise = previousPromise
+      .catch(() => {})
+      .then(async () => {
+        this.#inMemory.delete(key);
+        this.#dirty.delete(key);
+        const filePath = this.#getFilePath(provider, providerSessionId);
+        try {
+          await rm(filePath, { force: true });
+        } catch {}
+      })
+      .finally(() => {
+        if (this.#writeQueues.get(key) === currentPromise) {
+          this.#writeQueues.delete(key);
+        }
+      });
+
+    this.#writeQueues.set(key, currentPromise);
+    return currentPromise;
   }
 }
 

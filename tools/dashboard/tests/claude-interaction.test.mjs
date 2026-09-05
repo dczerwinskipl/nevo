@@ -54,7 +54,7 @@ function createStreamProcess(lines = [], { exitCode = 0, delayMs = 2, onStdin, s
         } catch {}
       }
       child.stdout.push(`${line}\n`);
-      if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+      if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
     }
     child.stdout.push(null);
     child.emit('close', exitCode);
@@ -72,7 +72,9 @@ test('AskUserQuestion PreToolUse/defer pauses, saves continuation, and resumed t
 
   const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-claude-test-'));
   try {
-    const store = createClaudeContinuationStore({ baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') });
+    const store = createClaudeContinuationStore({
+      baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations'),
+    });
 
     let spawnCount = 0;
     const provider = createClaudeAgentProvider({
@@ -94,8 +96,8 @@ test('AskUserQuestion PreToolUse/defer pauses, saves continuation, and resumed t
       turnId: 'turn-q-1',
       providerSessionId: 'sess-q-1',
       message: 'Architecture advice',
-      emitReasoningDelta: text => reasoningDeltas.push(text),
-      emitToolStarted: tool => toolCalls.push(tool),
+      emitReasoningDelta: (text) => reasoningDeltas.push(text),
+      emitToolStarted: (tool) => toolCalls.push(tool),
     });
 
     assert.equal(spawnCount, 1);
@@ -119,11 +121,11 @@ test('AskUserQuestion PreToolUse/defer pauses, saves continuation, and resumed t
       interactionId: firstTurn.interaction.id,
       interaction: firstTurn.interaction,
       response: { answers: [{ questionId: 'q-1', value: 'PostgreSQL' }] },
-      emitTextDelta: text => textDeltas.push(text),
+      emitFinalAnswerDelta: (text) => textDeltas.push(text),
     });
 
     assert.equal(spawnCount, 2);
-    assert.ok(textDeltas.some(t => t.includes('PostgreSQL')));
+    assert.ok(textDeltas.some((t) => t.includes('PostgreSQL')));
 
     // Continuation completed and cleaned up after successful resume
     assert.equal(store.getContinuation('sess-q-1', firstTurn.interaction.id), null);
@@ -138,7 +140,9 @@ test('private Claude continuation survives provider reconstruction across restar
 
   const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-claude-restart-'));
   try {
-    const store1 = createClaudeContinuationStore({ baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') });
+    const store1 = createClaudeContinuationStore({
+      baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations'),
+    });
 
     // Instance 1 runs first turn and defers
     const provider1 = createClaudeAgentProvider({
@@ -160,7 +164,9 @@ test('private Claude continuation survives provider reconstruction across restar
     const interactionId = firstTurn.interaction.id;
 
     // Simulate backend restart: create new store and new provider instance pointing to same storage
-    const store2 = createClaudeContinuationStore({ baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') });
+    const store2 = createClaudeContinuationStore({
+      baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations'),
+    });
     const provider2 = createClaudeAgentProvider({
       cwd: tmpBase,
       continuationStore: store2,
@@ -189,7 +195,9 @@ test('private Claude continuation survives provider reconstruction across restar
 test('Crash after user response but before resume execution: resolution remains and retry succeeds', async () => {
   const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-claude-crash-'));
   try {
-    const store = createClaudeContinuationStore({ baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') });
+    const store = createClaudeContinuationStore({
+      baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations'),
+    });
     store.saveDeferred({
       providerSessionId: 'sess-crash-test',
       interactionId: 'int-crash-1',
@@ -213,13 +221,14 @@ test('Crash after user response but before resume execution: resolution remains 
 
     // Attempt 1 fails during resume
     await assert.rejects(
-      () => provider.respondInteraction({
-        turnId: 'turn-crash-1',
-        providerSessionId: 'sess-crash-test',
-        interactionId: 'int-crash-1',
-        interaction: { id: 'int-crash-1', kind: 'question' },
-        response: { answers: [{ questionId: 'q-1', value: 'Dev' }] },
-      }),
+      () =>
+        provider.respondInteraction({
+          turnId: 'turn-crash-1',
+          providerSessionId: 'sess-crash-test',
+          interactionId: 'int-crash-1',
+          interaction: { id: 'int-crash-1', kind: 'question' },
+          response: { answers: [{ questionId: 'q-1', value: 'Dev' }] },
+        }),
       { name: 'AiError' },
     );
 
@@ -249,7 +258,6 @@ test('parallel tool calls emit multiple tool events and complete turn without de
   const batchContent = await readFile(join(FIXTURES_DIR, 'parallel-tool-calls.json'), 'utf-8');
   const batchLines = batchContent.split('\n').filter(Boolean);
 
-
   const provider = createClaudeAgentProvider({
     spawnProcess: (exec, args) => {
       const sIdx = args.indexOf('--session-id') !== -1 ? args.indexOf('--session-id') : args.indexOf('--resume');
@@ -262,7 +270,7 @@ test('parallel tool calls emit multiple tool events and complete turn without de
     turnId: 'turn-batch-1',
     providerSessionId: 'sess-batch-1',
     message: 'Parallel test',
-    emitToolStarted: tool => toolsStarted.push(tool),
+    emitToolStarted: (tool) => toolsStarted.push(tool),
   });
 
   assert.equal(toolsStarted.length, 2);
@@ -272,11 +280,12 @@ test('parallel tool calls emit multiple tool events and complete turn without de
   assert.equal(turnResult.interaction, undefined);
 });
 
-
 test('Full integration: provider -> generated settings -> real hook.mjs subprocess execution', async () => {
   const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-claude-full-bridge-'));
   try {
-    const store = createClaudeContinuationStore({ baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') });
+    const store = createClaudeContinuationStore({
+      baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations'),
+    });
 
     let spawnCount = 0;
     let executedHookOutput = null;
@@ -294,7 +303,6 @@ test('Full integration: provider -> generated settings -> real hook.mjs subproce
 
         if (spawnCount === 1) {
           const deferLines = [
-
             JSON.stringify({
               type: 'content_block_start',
               index: 0,
@@ -303,9 +311,7 @@ test('Full integration: provider -> generated settings -> real hook.mjs subproce
                 id: 'toolu_real_bridge_01',
                 name: 'AskUserQuestion',
                 input: {
-                  questions: [
-                    { question: 'Which framework?', header: 'FW', options: ['React', 'Vue'] },
-                  ],
+                  questions: [{ question: 'Which framework?', header: 'FW', options: ['React', 'Vue'] }],
                 },
               },
             }),
@@ -316,9 +322,7 @@ test('Full integration: provider -> generated settings -> real hook.mjs subproce
                 id: 'toolu_real_bridge_01',
                 name: 'AskUserQuestion',
                 input: {
-                  questions: [
-                    { question: 'Which framework?', header: 'FW', options: ['React', 'Vue'] },
-                  ],
+                  questions: [{ question: 'Which framework?', header: 'FW', options: ['React', 'Vue'] }],
                 },
               },
             }),
@@ -329,15 +333,12 @@ test('Full integration: provider -> generated settings -> real hook.mjs subproce
                 id: 'toolu_real_bridge_01',
                 name: 'AskUserQuestion',
                 input: {
-                  questions: [
-                    { question: 'Which framework?', header: 'FW', options: ['React', 'Vue'] },
-                  ],
+                  questions: [{ question: 'Which framework?', header: 'FW', options: ['React', 'Vue'] }],
                 },
               },
             }),
           ];
           return createStreamProcess(deferLines, { sessionId: sid });
-
         } else {
           // Fake Claude reads settings file generated by provider
           const settingsJson = JSON.parse(readFileSync(settingsPath, 'utf-8'));
@@ -345,45 +346,60 @@ test('Full integration: provider -> generated settings -> real hook.mjs subproce
 
           // Fake Claude spawns the command configured in settings as a real OS subprocess
           const child = new EventEmitter();
-          child.stdin = new Writable({ write(c, e, cb) { cb(); } });
+          child.stdin = new Writable({
+            write(c, e, cb) {
+              cb();
+            },
+          });
           child.stdout = new Readable({ read() {} });
           child.stderr = new Readable({ read() {} });
-          child.kill = () => { child.emit('close', 0); };
+          child.kill = () => {
+            child.emit('close', 0);
+          };
 
           setImmediate(async () => {
             // Execute real hook subprocess configured in settings
-            const parts = hookCmd.match(/(?:[^\s"]+|"[^"]*")+/g).map(p => p.replace(/^"|"$/g, ''));
+            const parts = hookCmd.match(/(?:[^\s"]+|"[^"]*")+/g).map((p) => p.replace(/^"|"$/g, ''));
             const hookProcess = spawn(parts[0], parts.slice(1), { stdio: ['pipe', 'pipe', 'pipe'], cwd: tmpBase });
             let hookStdout = '';
 
-            hookProcess.stdout.on('data', d => { hookStdout += d.toString(); });
-            hookProcess.stdin.end(JSON.stringify({
-              session_id: sid,
-              hook_event_name: 'PreToolUse',
-              tool_name: 'AskUserQuestion',
-              tool_use_id: 'toolu_real_bridge_01',
-              tool_input: {
-                questions: [
-                  { question: 'Which framework?', header: 'FW', options: ['React', 'Vue'] },
-                ],
-              },
-            }) + '\n');
+            hookProcess.stdout.on('data', (d) => {
+              hookStdout += d.toString();
+            });
+            hookProcess.stdin.end(
+              JSON.stringify({
+                session_id: sid,
+                hook_event_name: 'PreToolUse',
+                tool_name: 'AskUserQuestion',
+                tool_use_id: 'toolu_real_bridge_01',
+                tool_input: {
+                  questions: [{ question: 'Which framework?', header: 'FW', options: ['React', 'Vue'] }],
+                },
+              }) + '\n',
+            );
 
-            await new Promise(r => hookProcess.on('close', r));
+            await new Promise((r) => hookProcess.on('close', r));
             executedHookOutput = JSON.parse(hookStdout.trim());
 
             // Resumed turn produces output based on hook's decision
-            child.stdout.push(`${JSON.stringify({
-              type: 'content_block_start',
-              index: 0,
-              content_block: { type: 'text', text: `Selected: ${executedHookOutput.hookSpecificOutput?.updatedInput?.answers?.['Which framework?']}` },
-              session_id: sid,
-            })}\n`);
-            child.stdout.push(`${JSON.stringify({
-              type: 'message_delta',
-              delta: { stop_reason: 'end_turn' },
-              session_id: sid,
-            })}\n`);
+            child.stdout.push(
+              `${JSON.stringify({
+                type: 'content_block_start',
+                index: 0,
+                content_block: {
+                  type: 'text',
+                  text: `Selected: ${executedHookOutput.hookSpecificOutput?.updatedInput?.answers?.['Which framework?']}`,
+                },
+                session_id: sid,
+              })}\n`,
+            );
+            child.stdout.push(
+              `${JSON.stringify({
+                type: 'message_delta',
+                delta: { stop_reason: 'end_turn' },
+                session_id: sid,
+              })}\n`,
+            );
             child.stdout.push(null);
             child.emit('close', 0);
           });
@@ -411,7 +427,7 @@ test('Full integration: provider -> generated settings -> real hook.mjs subproce
       interactionId: firstTurn.interaction.id,
       interaction: firstTurn.interaction,
       response: { answers: [{ questionId: 'q-1', value: 'React' }] },
-      emitTextDelta: text => textDeltas.push(text),
+      emitFinalAnswerDelta: (text) => textDeltas.push(text),
     });
 
     // Verify hook subprocess was executed via settings command and delivered decision
@@ -420,7 +436,7 @@ test('Full integration: provider -> generated settings -> real hook.mjs subproce
     assert.deepEqual(executedHookOutput.hookSpecificOutput?.updatedInput?.answers, {
       'Which framework?': 'React',
     });
-    assert.ok(textDeltas.some(t => t.includes('React')));
+    assert.ok(textDeltas.some((t) => t.includes('React')));
 
     // Continuation completed and deleted after successful execution
     assert.equal(store.getContinuation('sess-bridge-1', firstTurn.interaction.id), null);
@@ -433,7 +449,7 @@ async function waitForCondition(read, predicate, message = 'condition') {
   for (let index = 0; index < 100; index += 1) {
     const value = read();
     if (predicate(value)) return value;
-    await new Promise(resolve => setTimeout(resolve, 5));
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error(`Timed out waiting for ${message}.`);
 }
@@ -443,7 +459,9 @@ for (const mode of ['ask', 'edit', 'agent']) {
     const expectedFlag = mode === 'ask' ? 'plan' : mode === 'edit' ? 'acceptEdits' : 'bypassPermissions';
     const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-claude-turn-mode-'));
     try {
-      const store = createClaudeContinuationStore({ baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') });
+      const store = createClaudeContinuationStore({
+        baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations'),
+      });
       const capturedCalls = [];
 
       const deferredLines1 = [
@@ -520,7 +538,11 @@ for (const mode of ['ask', 'edit', 'agent']) {
       });
 
       // 2. Wait for first deferral
-      const snap1 = await waitForCondition(() => runtime.getSnapshot(turnId), v => v.pendingInteraction, 'first deferral');
+      const snap1 = await waitForCondition(
+        () => runtime.getSnapshot(turnId),
+        (v) => v.pendingInteraction,
+        'first deferral',
+      );
       assert.equal(snap1.status, 'waitingForUser');
       assert.equal(capturedCalls.length, 1);
       assert.equal(capturedCalls[0].args[capturedCalls[0].args.indexOf('--permission-mode') + 1], expectedFlag);
@@ -530,7 +552,11 @@ for (const mode of ['ask', 'edit', 'agent']) {
         answers: [{ questionId: snap1.pendingInteraction.questions[0].id, value: 'Answer 1' }],
       });
 
-      const snap2 = await waitForCondition(() => runtime.getSnapshot(turnId), v => v.pendingInteraction, 'second deferral');
+      const snap2 = await waitForCondition(
+        () => runtime.getSnapshot(turnId),
+        (v) => v.pendingInteraction,
+        'second deferral',
+      );
       assert.equal(snap2.status, 'waitingForUser');
       assert.equal(capturedCalls.length, 2);
       assert.equal(capturedCalls[1].args[capturedCalls[1].args.indexOf('--permission-mode') + 1], expectedFlag);
@@ -540,7 +566,11 @@ for (const mode of ['ask', 'edit', 'agent']) {
         answers: [{ questionId: snap2.pendingInteraction.questions[0].id, value: 'Answer 2' }],
       });
 
-      const snap3 = await waitForCondition(() => runtime.getSnapshot(turnId), v => v.status === 'completed', 'completion');
+      const snap3 = await waitForCondition(
+        () => runtime.getSnapshot(turnId),
+        (v) => v.status === 'completed',
+        'completion',
+      );
       assert.equal(snap3.status, 'completed');
       assert.equal(capturedCalls.length, 3);
       assert.equal(capturedCalls[2].args[capturedCalls[2].args.indexOf('--permission-mode') + 1], expectedFlag);
@@ -608,7 +638,12 @@ for (const [turnMode, updatedSessionPref, expectedResumedFlag] of [
       const bindingService = createAgentSessionBindingService({ storageDir: bindingDir });
       const registry1 = createAgentProviderRegistry([provider1]);
       const runtime1 = createAgentTurnRuntime({ registry: registry1, transcriptCache, idleTimeoutMs: 0 });
-      const service1 = createAgentSessionService({ registry: registry1, turnRuntime: runtime1, transcriptCache, bindingService });
+      const service1 = createAgentSessionService({
+        registry: registry1,
+        turnRuntime: runtime1,
+        transcriptCache,
+        bindingService,
+      });
 
       const specId = randomUUID();
       const session = await service1.createSession('claude', { title: 'Test', mode: turnMode, specId });
@@ -621,11 +656,18 @@ for (const [turnMode, updatedSessionPref, expectedResumedFlag] of [
       });
 
       // Wait for deferral
-      const pendingSnap = await waitForCondition(() => service1.getTurn(turnId), v => v.pendingInteraction, 'initial deferral');
+      const pendingSnap = await waitForCondition(
+        () => service1.getTurn(turnId),
+        (v) => v.pendingInteraction,
+        'initial deferral',
+      );
       assert.equal(pendingSnap.status, 'waitingForUser');
       assert.equal(capturedCalls.length, 1);
       const initialPermissionFlag = turnMode === 'agent' ? 'bypassPermissions' : 'plan';
-      assert.equal(capturedCalls[0].args[capturedCalls[0].args.indexOf('--permission-mode') + 1], initialPermissionFlag);
+      assert.equal(
+        capturedCalls[0].args[capturedCalls[0].args.indexOf('--permission-mode') + 1],
+        initialPermissionFlag,
+      );
 
       // Persist transcript state to disk
       await transcriptCache.flushAll();
@@ -648,8 +690,17 @@ for (const [turnMode, updatedSessionPref, expectedResumedFlag] of [
       const registry2 = createAgentProviderRegistry([provider2]);
       const freshTranscriptCache = createTranscriptCacheService({ baseDir: transcriptDir });
       const freshBindingService = createAgentSessionBindingService({ storageDir: bindingDir });
-      const runtime2 = createAgentTurnRuntime({ registry: registry2, transcriptCache: freshTranscriptCache, idleTimeoutMs: 0 });
-      const service2 = createAgentSessionService({ registry: registry2, turnRuntime: runtime2, transcriptCache: freshTranscriptCache, bindingService: freshBindingService });
+      const runtime2 = createAgentTurnRuntime({
+        registry: registry2,
+        transcriptCache: freshTranscriptCache,
+        idleTimeoutMs: 0,
+      });
+      const service2 = createAgentSessionService({
+        registry: registry2,
+        turnRuntime: runtime2,
+        transcriptCache: freshTranscriptCache,
+        bindingService: freshBindingService,
+      });
 
       // Optionally change session preference in binding service
       await service2.updateSessionMode('claude', sessionId, updatedSessionPref);
@@ -657,11 +708,20 @@ for (const [turnMode, updatedSessionPref, expectedResumedFlag] of [
       assert.equal(sessionDetail.mode, updatedSessionPref);
 
       // Resolve pending interaction on restored turn
-      await service2.resolveInteraction(turnId, pendingSnap.pendingInteraction.id, {
-        answers: [{ questionId: pendingSnap.pendingInteraction.questions[0].id, value: 'Confirmed' }],
-      }, { provider: 'claude', providerSessionId: sessionId });
+      await service2.resolveInteraction(
+        turnId,
+        pendingSnap.pendingInteraction.id,
+        {
+          answers: [{ questionId: pendingSnap.pendingInteraction.questions[0].id, value: 'Confirmed' }],
+        },
+        { provider: 'claude', providerSessionId: sessionId },
+      );
 
-      const finalSnap = await waitForCondition(() => service2.getTurn(turnId), v => v.status === 'completed', 'resumed completion');
+      const finalSnap = await waitForCondition(
+        () => service2.getTurn(turnId),
+        (v) => v.status === 'completed',
+        'resumed completion',
+      );
       assert.equal(finalSnap.status, 'completed');
 
       // Verify resumed Claude invocation used the ORIGINAL turn mode (expectedResumedFlag), NOT updatedSessionPref
@@ -672,4 +732,3 @@ for (const [turnMode, updatedSessionPref, expectedResumedFlag] of [
     }
   });
 }
-

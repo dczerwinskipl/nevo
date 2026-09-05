@@ -16,7 +16,11 @@ test('old fragmented Agent Session directories no longer exist under ui/componen
     'components/session-details',
     'components/work',
   ]) {
-    assert.equal(existsSync(uiPath(dir)), false, `${dir} must no longer exist — content moved to features/agent-sessions/`);
+    assert.equal(
+      existsSync(uiPath(dir)),
+      false,
+      `${dir} must no longer exist — content moved to features/agent-sessions/`,
+    );
   }
 });
 
@@ -57,6 +61,10 @@ test('the agent-sessions feature does not reintroduce horizontal buckets', () =>
     'features/agent-sessions/helpers',
     'features/agent-sessions/services',
   ]) {
-    assert.equal(existsSync(uiPath(bucket)), false, `${bucket} must not exist — no horizontal buckets inside the feature`);
+    assert.equal(
+      existsSync(uiPath(bucket)),
+      false,
+      `${bucket} must not exist — no horizontal buckets inside the feature`,
+    );
   }
 });

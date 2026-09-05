@@ -5,8 +5,10 @@ import type {
   AgentSessionSnapshot,
   AgentSessionStatus,
   AgentInteraction,
+  CanonicalTurnV2,
   LiveConnectionStatus,
   NormalizedMessage,
+  SessionReadinessV2,
 } from '../types.ts';
 import {
   applyAgentEvent,
@@ -18,9 +20,14 @@ import {
   shouldSurfaceTurnError,
 } from './agent-event-reducer.ts';
 import { connectAgentEventStream, resolveEventSeq } from './agent-event-source.ts';
-import { classifySessionLoadError, fetchAgentSessionSnapshot, AgentSessionLoadError } from './agent-session-transport.ts';
+import {
+  classifySessionLoadError,
+  fetchAgentSessionSnapshot,
+  AgentSessionLoadError,
+} from './agent-session-transport.ts';
 import { postCancelTurn, postRespondInteraction, postStartTurn } from './agent-turn-transport.ts';
 import { useAssistantUiBridge } from './assistant-ui-bridge.ts';
+import { applyTurnUpdatedV2 } from './agent-session-runtime-v2.ts';
 
 export interface UseAgentSessionRuntimeOptions {
   provider: string;
@@ -40,9 +47,11 @@ export function useAgentSessionRuntime({
   const [loadErrorIdentity, setLoadErrorIdentity] = useState<string | null>(null);
 
   const [messages, setMessages] = useState<NormalizedMessage[]>([]);
+  const [turns, setTurns] = useState<CanonicalTurnV2[]>([]);
   const [pendingInteraction, setPendingInteraction] = useState<AgentInteraction | null>(null);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
+  const [readiness, setReadiness] = useState<SessionReadinessV2 | null>(null);
   const [activity, setActivity] = useState<AgentSessionStatus>('idle');
   const [contentRevision, setContentRevision] = useState<number>(0);
   const [lastEventSeq, setLastEventSeq] = useState<number>(0);
@@ -51,6 +60,7 @@ export function useAgentSessionRuntime({
   const [reloadTrigger, setReloadTrigger] = useState<number>(0);
   const [live, setLive] = useState<boolean>(true);
   const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>('unknown');
+  const [optimisticPending, setOptimisticPending] = useState<{ text: string } | null>(null);
 
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
@@ -98,8 +108,10 @@ export function useAgentSessionRuntime({
 
         setSessionDetails(snapshot);
         setMessages(snapshot.messages || []);
+        setTurns(snapshot.turns || []);
         setPendingInteraction(snapshot.pendingInteraction || null);
         setCapabilities(snapshot.capabilities || null);
+        setOptimisticPending(null);
         const seq = snapshot.lastEventSeq || 0;
         setLastEventSeq(seq);
         lastSeqRef.current = seq;
@@ -109,6 +121,22 @@ export function useAgentSessionRuntime({
 
         setActivity(snapshotActivity);
         activityRef.current = snapshotActivity;
+
+        const resolvedReadiness: SessionReadinessV2 = snapshot.readiness || {
+          status:
+            snapshotActivity === 'waitingForUser'
+              ? 'requiresAttention'
+              : snapshotActivity === 'running'
+                ? 'busy'
+                : 'ready',
+          reason:
+            snapshotActivity === 'waitingForUser'
+              ? 'interaction_required'
+              : snapshotActivity === 'running'
+                ? 'turn_in_progress'
+                : 'idle',
+        };
+        setReadiness(resolvedReadiness);
 
         if (snapshot.activeTurn) {
           setActiveTurnId(snapshot.activeTurn.turnId);
@@ -128,14 +156,17 @@ export function useAgentSessionRuntime({
           // Clear all snapshot-derived state so stale session data is never retained
           setSessionDetails(null);
           setMessages([]);
+          setTurns([]);
           setPendingInteraction(null);
           setCapabilities(null);
+          setReadiness(null);
           setActiveTurnId(null);
           activeTurnIdRef.current = null;
           setActivity('idle');
           activityRef.current = 'idle';
           setLastEventSeq(0);
           lastSeqRef.current = 0;
+          setOptimisticPending(null);
 
           // Do NOT set loadedIdentity on failure; record loadErrorIdentity instead
           setLoadedIdentity(null);
@@ -198,6 +229,28 @@ export function useAgentSessionRuntime({
           setContentRevision((r) => r + 1);
         }
 
+        if (event.type === 'turn.updated' && event.turn) {
+          const updatedTurn = event.turn;
+          setTurns((prev) => applyTurnUpdatedV2(prev, updatedTurn));
+          setOptimisticPending(null);
+          const tStatus = updatedTurn.status;
+          if (tStatus.status === 'requiresAttention') {
+            setReadiness({
+              status: 'requiresAttention',
+              reason: `${tStatus.reason}_required`,
+              details: { interactionId: tStatus.interactionId, kind: tStatus.reason },
+            });
+          } else if (tStatus.status === 'active' || tStatus.status === 'waiting') {
+            setReadiness({ status: 'busy', reason: 'turn_in_progress', details: { turnId: updatedTurn.id } });
+          } else if (tStatus.status === 'cancelling') {
+            setReadiness({ status: 'busy', reason: 'cancelling', details: { turnId: updatedTurn.id } });
+          } else if (tStatus.status === 'terminal') {
+            setReadiness({ status: 'ready', reason: 'idle' });
+          } else if (tStatus.status === 'unknown') {
+            setReadiness({ status: 'unavailable', reason: tStatus.reason || 'unknown' });
+          }
+        }
+
         switch (event.type) {
           case 'turn.started':
             setActivity('running');
@@ -206,18 +259,32 @@ export function useAgentSessionRuntime({
               setActiveTurnId(event.turnId);
               activeTurnIdRef.current = event.turnId;
             }
+            setReadiness({ status: 'busy', reason: 'turn_in_progress', details: { turnId: event.turnId } });
             break;
 
-          case 'interaction.requested':
+          case 'interaction.requested': {
             setPendingInteraction(event.interaction || null);
             setActivity('waitingForUser');
             activityRef.current = 'waitingForUser';
+            const kind = event.interaction?.kind;
+            setReadiness({
+              status: 'requiresAttention',
+              reason:
+                kind === 'question'
+                  ? 'question_required'
+                  : kind === 'confirmation'
+                    ? 'confirmation_required'
+                    : 'permission_required',
+              details: { interactionId: event.interaction?.id, kind },
+            });
             break;
+          }
 
           case 'interaction.resolved':
             setPendingInteraction(null);
             setActivity('running');
             activityRef.current = 'running';
+            setReadiness({ status: 'busy', reason: 'turn_in_progress' });
             break;
 
           case 'turn.completed':
@@ -229,6 +296,8 @@ export function useAgentSessionRuntime({
             setActiveTurnId(null);
             activeTurnIdRef.current = null;
             setPendingInteraction(null);
+            setOptimisticPending(null);
+            setReadiness({ status: 'ready', reason: 'idle' });
             onTurnCompletedRef.current?.();
             break;
 
@@ -241,6 +310,8 @@ export function useAgentSessionRuntime({
             setActiveTurnId(null);
             activeTurnIdRef.current = null;
             setPendingInteraction(null);
+            setOptimisticPending(null);
+            setReadiness({ status: 'ready', reason: 'idle' });
             if (event.error && shouldSurfaceTurnError(event.error)) {
               onErrorRef.current?.(new Error(event.error.message));
             }
@@ -257,7 +328,10 @@ export function useAgentSessionRuntime({
 
   // 3. Send Turn
   const handleSendTurn = useCallback(
-    async (messageText: string, options?: { mode?: AgentExecutionMode; idempotencyKey?: string }) => {
+    async (
+      messageText: string,
+      options?: { mode?: AgentExecutionMode; idempotencyKey?: string; userMessage?: string },
+    ) => {
       const trimmed = messageText ? messageText.trim() : '';
       if (!trimmed) {
         throw new Error('Cannot start turn with an empty message.');
@@ -271,22 +345,30 @@ export function useAgentSessionRuntime({
       if (loadError) {
         throw new Error('Cannot start turn on a session with a load error.');
       }
+      if (readiness?.status && readiness.status !== 'ready') {
+        throw new Error(`Cannot start turn while session is ${readiness.status}.`);
+      }
       if (activityRef.current !== 'idle') {
         throw new Error(`Cannot start turn while session is ${activityRef.current}.`);
       }
 
       const idempotencyKey = options?.idempotencyKey || createTurnIdempotencyKey();
-      const userMessage: NormalizedMessage = {
+      // The optimistic bubble shows the clean, user-visible text (never an
+      // enriched/injected prompt) — authoritative once the real Turn/message arrives.
+      const displayText = options?.userMessage?.trim() || trimmed;
+      setOptimisticPending({ text: displayText });
+      const optimisticUserMessage: NormalizedMessage = {
         id: `user-${Date.now()}`,
         role: 'user',
-        text: trimmed,
+        text: displayText,
         createdAt: new Date().toISOString(),
       };
 
-      setMessages((prev) => [...prev, userMessage]);
+      setMessages((prev) => [...prev, optimisticUserMessage]);
       setContentRevision((r) => r + 1);
       setActivity('running');
       activityRef.current = 'running';
+      setReadiness({ status: 'busy', reason: 'turn_in_progress' });
       setActiveTurnId(null);
       activeTurnIdRef.current = null;
 
@@ -295,6 +377,7 @@ export function useAgentSessionRuntime({
           message: trimmed,
           idempotencyKey,
           mode: options?.mode,
+          userMessage: options?.userMessage,
         });
 
         // Race-safety check: If terminal SSE arrived before this POST response completed,
@@ -304,8 +387,10 @@ export function useAgentSessionRuntime({
           activeTurnIdRef.current = returnedTurnId;
         }
       } catch (err) {
+        setOptimisticPending(null);
         setActivity('idle');
         activityRef.current = 'idle';
+        setReadiness({ status: 'ready', reason: 'idle' });
         setActiveTurnId(null);
         activeTurnIdRef.current = null;
         const normalized = err instanceof Error ? err : new Error(String(err));
@@ -313,16 +398,18 @@ export function useAgentSessionRuntime({
         throw normalized;
       }
     },
-    [provider, providerSessionId, isSnapshotLoaded, loadedIdentity, loadError]
+    [provider, providerSessionId, isSnapshotLoaded, loadedIdentity, loadError, readiness],
   );
 
   // 4. Cancel Turn
   const handleCancelTurn = useCallback(async () => {
     const turnId = activeTurnIdRef.current;
-    if (!turnId || activityRef.current !== 'running' || !provider || !providerSessionId) return;
+    if (!turnId || !provider || !providerSessionId) return;
     if (loadedIdentity !== `${provider}:${providerSessionId}`) return;
+    if (readiness?.status === 'ready' || readiness?.status === 'unavailable') return;
 
     try {
+      setReadiness({ status: 'busy', reason: 'cancelling' });
       const { response, errorData } = await postCancelTurn(provider, providerSessionId, turnId);
       const result = applyCancelTurnResponse({
         turnId,
@@ -345,6 +432,9 @@ export function useAgentSessionRuntime({
         setActiveTurnId(result.nextActiveTurnId);
         activeTurnIdRef.current = result.nextActiveTurnId;
       }
+      if (result.nextActivity === 'idle') {
+        setReadiness({ status: 'ready', reason: 'idle' });
+      }
       setContentRevision((r) => r + 1);
     } catch (err) {
       // If the turn already became terminal (e.g. via SSE) while fetch was in flight or rejected,
@@ -356,7 +446,7 @@ export function useAgentSessionRuntime({
       // The turn remains running and cancellation remains retryable.
       onError?.(err instanceof Error ? err : new Error(String(err)));
     }
-  }, [provider, providerSessionId, loadedIdentity, onError]);
+  }, [provider, providerSessionId, loadedIdentity, readiness, onError]);
 
   // 5. Respond Interaction
   const handleRespondInteraction = useCallback(
@@ -370,33 +460,64 @@ export function useAgentSessionRuntime({
         setContentRevision((r) => r + 1);
         setActivity('running');
         activityRef.current = 'running';
+        setReadiness({ status: 'busy', reason: 'turn_in_progress' });
       } catch (err) {
         onError?.(err instanceof Error ? err : new Error(String(err)));
       }
     },
-    [provider, providerSessionId, loadedIdentity, onError]
+    [provider, providerSessionId, loadedIdentity, onError],
   );
 
   const exposedMessages = isSnapshotLoaded ? messages : [];
+  const exposedTurns = isSnapshotLoaded ? turns : [];
   const exposedPendingInteraction = isSnapshotLoaded ? pendingInteraction : null;
   const exposedCapabilities = isSnapshotLoaded ? capabilities : null;
   const exposedActivity: AgentSessionStatus = isSnapshotLoaded ? activity : 'idle';
-  const exposedIsRunning = isSnapshotLoaded ? (activity === 'running') : false;
+  const exposedIsRunning = isSnapshotLoaded ? activity === 'running' : false;
   const exposedActiveTurnId = isSnapshotLoaded ? activeTurnId : null;
   const exposedContentRevision = isSnapshotLoaded ? contentRevision : 0;
-  const exposedSessionDetails = isSnapshotLoaded && sessionDetails
-    ? { ...sessionDetails, status: exposedActivity }
-    : null;
+  const exposedSessionDetails =
+    isSnapshotLoaded && sessionDetails ? { ...sessionDetails, status: exposedActivity } : null;
   const exposedLoadError = isErrorForCurrentIdentity ? loadError : null;
-  const exposedConnectionStatus: LiveConnectionStatus = isSnapshotLoaded && !exposedLoadError
-    ? connectionStatus
-    : exposedLoadError
-      ? 'disconnected'
-      : 'unknown';
+  const exposedConnectionStatus: LiveConnectionStatus =
+    isSnapshotLoaded && !exposedLoadError ? connectionStatus : exposedLoadError ? 'disconnected' : 'unknown';
   const exposedLive = exposedConnectionStatus === 'connected';
   const exposedIsLoading = isSnapshotLoaded ? false : Boolean(provider && providerSessionId && !exposedLoadError);
-  const exposedIsReady = Boolean(isSnapshotLoaded && !exposedLoadError && activity === 'idle');
+
+  const fallbackReadiness: SessionReadinessV2 =
+    exposedActivity === 'waitingForUser'
+      ? { status: 'requiresAttention', reason: 'interaction_required' }
+      : exposedActivity === 'running'
+        ? { status: 'busy', reason: 'turn_in_progress' }
+        : { status: 'ready', reason: 'idle' };
+
+  const exposedReadiness: SessionReadinessV2 | null = isSnapshotLoaded
+    ? readiness || fallbackReadiness
+    : exposedLoadError
+      ? { status: 'unavailable', reason: exposedLoadError.kind }
+      : null;
+
+  // Semantic readiness directly drives whether a new turn can start
+  const exposedIsReady = Boolean(isSnapshotLoaded && !exposedLoadError && exposedReadiness?.status === 'ready');
   const exposedCanStartTurn = exposedIsReady;
+
+  // Canonical non-terminal turn tracking:
+  const latestTurn = exposedTurns.length > 0 ? exposedTurns[exposedTurns.length - 1] : null;
+  const hasNonTerminalTurn = Boolean(
+    (latestTurn && latestTurn.status.status !== 'terminal') ||
+    exposedActiveTurnId ||
+    exposedActivity === 'running' ||
+    exposedActivity === 'waitingForUser' ||
+    exposedReadiness?.status === 'busy' ||
+    exposedReadiness?.status === 'requiresAttention',
+  );
+
+  const exposedCanCancelTurn = Boolean(
+    exposedCapabilities?.cancelTurn &&
+    hasNonTerminalTurn &&
+    latestTurn?.status.status !== 'cancelling' &&
+    exposedReadiness?.status !== 'unavailable',
+  );
 
   // 6. Bind to @assistant-ui/react — sole responsibility of useAssistantUiBridge.
   const runtime = useAssistantUiBridge({
@@ -409,6 +530,8 @@ export function useAgentSessionRuntime({
   return {
     runtime,
     messages: exposedMessages,
+    turns: exposedTurns,
+    optimisticUserMessage: isSnapshotLoaded ? (optimisticPending?.text ?? null) : null,
     pendingInteraction: exposedPendingInteraction,
     capabilities: exposedCapabilities,
     sessionDetails: exposedSessionDetails,
@@ -419,8 +542,11 @@ export function useAgentSessionRuntime({
     isLoading: exposedIsLoading,
     live: exposedLive,
     connectionStatus: exposedConnectionStatus,
+    readiness: exposedReadiness,
     isReady: exposedIsReady,
     canStartTurn: exposedCanStartTurn,
+    canCancelTurn: exposedCanCancelTurn,
+    hasActiveTurn: hasNonTerminalTurn,
     isSnapshotLoaded,
     loadError: exposedLoadError,
     reload,

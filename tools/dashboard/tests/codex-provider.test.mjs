@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
@@ -9,11 +9,14 @@ import {
   CODEX_CAPABILITIES,
   CodexAgentProvider,
   createCodexAgentProvider,
+  mapCodexCommandActions,
+  toolDescription,
 } from '../server/ai/providers/codex/provider.mjs';
+import { TurnLifecycleCoordinator } from '../server/ai/sessions/turns/coordinator.mjs';
 import { createDefaultAgentSessionService } from '../server/ai/routes.mjs';
 
 function tick() {
-  return new Promise(resolve => setImmediate(resolve));
+  return new Promise((resolve) => setImmediate(resolve));
 }
 
 async function waitFor(read, predicate, label = 'condition') {
@@ -95,7 +98,15 @@ class FakeCodexClient {
     };
     const handler = [...this.serverRequests][0];
     const completion = Promise.resolve(handler(request));
-    return { completion, get response() { return response; }, get answered() { return answered; } };
+    return {
+      completion,
+      get response() {
+        return response;
+      },
+      get answered() {
+        return answered;
+      },
+    };
   }
 
   fail(error = Object.assign(new Error('client failed'), { code: 'AI_PROVIDER_PROCESS_ERROR' })) {
@@ -122,7 +133,16 @@ function standardClient({ threadId = 'thread-1', turnId = 'codex-turn-1', overri
 
 function directTurn(provider, values = {}) {
   const emitted = {
-    text: [], progress: [], reasoning: [], started: [], updated: [], completed: [], usage: [], events: [], interactions: [], timeline: [],
+    text: [],
+    progress: [],
+    reasoning: [],
+    started: [],
+    updated: [],
+    completed: [],
+    usage: [],
+    events: [],
+    interactions: [],
+    timeline: [],
   };
   let operation;
   const promise = provider.startTurn({
@@ -131,23 +151,34 @@ function directTurn(provider, values = {}) {
     message: values.message ?? 'Hello',
     mode: values.mode ?? 'edit',
     setProviderSessionId: values.setProviderSessionId,
-    setOperation: value => { operation = value; },
-    emitTextDelta: (text, messageId) => {
-      emitted.text.push({ text, messageId });
-      emitted.timeline.push({ type: 'text.delta', text, id: messageId });
+    setOperation: (value) => {
+      operation = value;
     },
-    emitProgressDelta: (text, progressId) => {
-      emitted.progress.push({ text, progressId });
-      emitted.timeline.push({ type: 'progress.delta', text, id: progressId });
+    emitCommentaryDelta: (text, commentaryId) => {
+      emitted.progress.push({ text, progressId: commentaryId });
+      emitted.timeline.push({ type: 'progress.delta', text, id: commentaryId });
+    },
+    emitFinalAnswerDelta: (text, finalAnswerId) => {
+      emitted.text.push({ text, messageId: finalAnswerId });
+      emitted.timeline.push({ type: 'text.delta', text, id: finalAnswerId });
     },
     emitReasoningDelta: (text, messageId) => {
       emitted.reasoning.push({ text, messageId });
       emitted.timeline.push({ type: 'reasoning.delta', text, id: messageId });
     },
-    emitToolStarted: value => emitted.started.push(value),
-    emitToolUpdated: value => emitted.updated.push(value),
-    emitToolCompleted: value => emitted.completed.push(value),
-    emitUsageUpdated: value => emitted.usage.push(value),
+    emitToolStarted: (value) => {
+      emitted.started.push(value);
+      values.emitToolStarted?.(value);
+    },
+    emitToolUpdated: (value) => {
+      emitted.updated.push(value);
+      values.emitToolUpdated?.(value);
+    },
+    emitToolCompleted: (value) => {
+      emitted.completed.push(value);
+      values.emitToolCompleted?.(value);
+    },
+    emitUsageUpdated: (value) => emitted.usage.push(value),
     emitEvent: (type, value) => {
       emitted.events.push({ type, ...value });
       emitted.timeline.push({ type, ...value });
@@ -157,15 +188,26 @@ function directTurn(provider, values = {}) {
         ...value,
         resumePolicy: options.resumePolicy ?? 'restart',
         id: `interaction-${emitted.interactions.length + 1}`,
-        ...(value.questions ? {
-          questions: value.questions.map((question, index) => ({ ...question, id: `neutral-question-${index + 1}` })),
-        } : {}),
+        ...(value.questions
+          ? {
+              questions: value.questions.map((question, index) => ({
+                ...question,
+                id: `neutral-question-${index + 1}`,
+              })),
+            }
+          : {}),
       };
       emitted.interactions.push(interaction);
       return interaction;
     },
   });
-  return { promise, emitted, get operation() { return operation; } };
+  return {
+    promise,
+    emitted,
+    get operation() {
+      return operation;
+    },
+  };
 }
 
 async function completeTurn(client, threadId = 'thread-1', turnId = 'codex-turn-1', status = 'completed') {
@@ -179,10 +221,21 @@ test('declares the exact honest descriptor, mode metadata, and availability', ()
   const provider = new CodexAgentProvider({ client: standardClient(), probeExecutable: () => true });
   assert.equal(provider.descriptor.id, 'codex');
   assert.equal(provider.descriptor.label, 'OpenAI Codex');
-  assert.deepEqual(Object.keys(provider.descriptor.capabilities).sort(), [
-    'cancelTurn', 'interactiveConfirmations', 'interactivePermissions', 'interactiveQuestions',
-    'planUpdates', 'reasoning', 'resumeSession', 'steerTurn', 'toolCalls', 'usage',
-  ].sort());
+  assert.deepEqual(
+    Object.keys(provider.descriptor.capabilities).sort(),
+    [
+      'cancelTurn',
+      'interactiveConfirmations',
+      'interactivePermissions',
+      'interactiveQuestions',
+      'planUpdates',
+      'reasoning',
+      'resumeSession',
+      'steerTurn',
+      'toolCalls',
+      'usage',
+    ].sort(),
+  );
   assert.deepEqual(provider.descriptor.capabilities, CODEX_CAPABILITIES);
   assert.equal(provider.descriptor.capabilities.steerTurn, false);
   assert.equal(provider.descriptor.capabilities.planUpdates, false);
@@ -204,7 +257,7 @@ test('createSession binds only authoritative thread.id and maps safe mode settin
     const client = standardClient({ threadId: `thread-${mode}` });
     const provider = createCodexAgentProvider({ client });
     assert.deepEqual(await provider.createSession({ mode }), { providerSessionId: `thread-${mode}` });
-    const call = client.calls.find(value => value.method === 'thread/start');
+    const call = client.calls.find((value) => value.method === 'thread/start');
     assert.equal(call.params.approvalPolicy, approvalPolicy);
     assert.equal(call.params.sandbox, sandbox);
     assert.ok(!Object.hasOwn(call.params, 'sessionId'));
@@ -217,12 +270,21 @@ test('atomic first turn publishes thread.id before turn/start and uses generated
   let established;
   const turn = directTurn(provider, {
     mode: 'ask',
-    setProviderSessionId: async id => { established = id; },
+    setProviderSessionId: async (id) => {
+      established = id;
+    },
   });
-  await waitFor(() => client.calls, calls => calls.some(call => call.method === 'turn/start'), 'turn/start');
+  await waitFor(
+    () => client.calls,
+    (calls) => calls.some((call) => call.method === 'turn/start'),
+    'turn/start',
+  );
 
   assert.equal(established, 'thread-1');
-  assert.deepEqual(client.calls.map(call => call.method), ['thread/start', 'turn/start']);
+  assert.deepEqual(
+    client.calls.map((call) => call.method),
+    ['thread/start', 'turn/start'],
+  );
   const start = client.calls[1].params;
   assert.equal(start.threadId, 'thread-1');
   assert.deepEqual(start.input, [{ type: 'text', text: 'Hello' }]);
@@ -234,20 +296,22 @@ test('atomic first turn publishes thread.id before turn/start and uses generated
 });
 
 test('turn/start rejects an identity that conflicts with an earlier turn/started notification', async () => {
-  const client = standardClient({ overrides: {
-    'turn/start': async (params, currentClient) => {
-      await currentClient.emitNotification('turn/started', {
-        threadId: params.threadId,
-        turn: { id: 'notification-turn', status: 'inProgress', items: [] },
-      });
-      return { turn: { id: 'response-turn', status: 'inProgress', items: [] } };
+  const client = standardClient({
+    overrides: {
+      'turn/start': async (params, currentClient) => {
+        await currentClient.emitNotification('turn/started', {
+          threadId: params.threadId,
+          turn: { id: 'notification-turn', status: 'inProgress', items: [] },
+        });
+        return { turn: { id: 'response-turn', status: 'inProgress', items: [] } };
+      },
     },
-  } });
+  });
   const provider = createCodexAgentProvider({ client });
 
   await assert.rejects(
     directTurn(provider, { providerSessionId: 'thread-1' }).promise,
-    error => error.code === 'AI_PROVIDER_PROTOCOL_ERROR' && /identity/.test(error.message),
+    (error) => error.code === 'AI_PROVIDER_PROTOCOL_ERROR' && /identity/.test(error.message),
   );
 });
 
@@ -256,22 +320,35 @@ test('recorded sessions resume once per client and failed resume never creates r
   const provider = createCodexAgentProvider({ client });
 
   const first = directTurn(provider, { providerSessionId: 'existing-thread' });
-  await waitFor(() => client.calls, calls => calls.some(call => call.method === 'turn/start'));
+  await waitFor(
+    () => client.calls,
+    (calls) => calls.some((call) => call.method === 'turn/start'),
+  );
   await completeTurn(client, 'existing-thread');
   await first.promise;
 
   const second = directTurn(provider, { providerSessionId: 'existing-thread', turnId: 'nevo-turn-2' });
-  await waitFor(() => client.calls.filter(call => call.method === 'turn/start').length, count => count === 2);
+  await waitFor(
+    () => client.calls.filter((call) => call.method === 'turn/start').length,
+    (count) => count === 2,
+  );
   await completeTurn(client, 'existing-thread');
   await second.promise;
-  assert.equal(client.calls.filter(call => call.method === 'thread/resume').length, 1);
+  assert.equal(client.calls.filter((call) => call.method === 'thread/resume').length, 1);
 
-  const failedClient = standardClient({ overrides: {
-    'thread/resume': async () => { throw Object.assign(new Error('missing thread'), { code: 'AI_PROVIDER_REQUEST_ERROR' }); },
-  } });
+  const failedClient = standardClient({
+    overrides: {
+      'thread/resume': async () => {
+        throw Object.assign(new Error('missing thread'), { code: 'AI_PROVIDER_REQUEST_ERROR' });
+      },
+    },
+  });
   const failedProvider = createCodexAgentProvider({ client: failedClient });
   await assert.rejects(directTurn(failedProvider, { providerSessionId: 'missing-thread' }).promise, /missing thread/);
-  assert.deepEqual(failedClient.calls.map(call => call.method), ['thread/resume']);
+  assert.deepEqual(
+    failedClient.calls.map((call) => call.method),
+    ['thread/resume'],
+  );
 });
 
 test('maps input, assistant, reasoning, tools, usage, and authoritative completion without private IDs', async () => {
@@ -279,61 +356,111 @@ test('maps input, assistant, reasoning, tools, usage, and authoritative completi
   const provider = createCodexAgentProvider({ client });
   const turn = directTurn(provider, { providerSessionId: 'thread-1' });
   await waitFor(() => turn.operation, Boolean, 'operation');
-  await waitFor(() => client.calls, calls => calls.some(call => call.method === 'turn/start'));
+  await waitFor(
+    () => client.calls,
+    (calls) => calls.some((call) => call.method === 'turn/start'),
+  );
 
   await client.emitNotification('remoteControl/status/changed', { status: 'disconnected' });
   await client.emitNotification('item/started', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 1,
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    startedAtMs: 1,
     item: { id: 'private-user', type: 'userMessage', content: [{ type: 'text', text: 'Hello' }] },
   });
   await client.emitNotification('item/completed', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', completedAtMs: 2,
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    completedAtMs: 2,
     item: { id: 'private-user', type: 'userMessage', content: [{ type: 'text', text: 'Hello' }] },
   });
   await client.emitNotification('item/started', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 3,
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    startedAtMs: 3,
     item: { id: 'private-message', type: 'agentMessage', text: '', phase: 'final_answer' },
   });
   await client.emitNotification('item/agentMessage/delta', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'private-message', delta: 'Hello ',
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    itemId: 'private-message',
+    delta: 'Hello ',
   });
   await client.emitNotification('item/completed', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', completedAtMs: 4,
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    completedAtMs: 4,
     item: { id: 'private-message', type: 'agentMessage', text: 'Hello world', phase: 'final_answer' },
   });
   await client.emitNotification('item/started', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 5,
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    startedAtMs: 5,
     item: { id: 'private-reasoning', type: 'reasoning', summary: [], content: [] },
   });
   await client.emitNotification('item/reasoning/summaryTextDelta', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'private-reasoning', summaryIndex: 0, delta: 'Thinking',
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    itemId: 'private-reasoning',
+    summaryIndex: 0,
+    delta: 'Thinking',
   });
   await client.emitNotification('item/completed', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', completedAtMs: 6,
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    completedAtMs: 6,
     item: { id: 'private-reasoning', type: 'reasoning', summary: ['Thinking'], content: [] },
   });
   await client.emitNotification('item/started', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 7,
-    item: { id: 'private-tool', type: 'commandExecution', command: 'npm test', cwd: 'D:\\repo', commandActions: [], status: 'inProgress' },
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    startedAtMs: 7,
+    item: {
+      id: 'private-tool',
+      type: 'commandExecution',
+      command: 'npm test',
+      cwd: 'D:\\repo',
+      commandActions: [],
+      status: 'inProgress',
+    },
   });
   await client.emitNotification('item/completed', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', completedAtMs: 8,
-    item: { id: 'private-tool', type: 'commandExecution', command: 'npm test', cwd: 'D:\\repo', commandActions: [], status: 'completed', aggregatedOutput: 'ok', exitCode: 0, durationMs: 12 },
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    completedAtMs: 8,
+    item: {
+      id: 'private-tool',
+      type: 'commandExecution',
+      command: 'npm test',
+      cwd: 'D:\\repo',
+      commandActions: [],
+      status: 'completed',
+      aggregatedOutput: 'ok',
+      exitCode: 0,
+      durationMs: 12,
+    },
   });
   await client.emitNotification('thread/tokenUsage/updated', {
-    threadId: 'thread-1', turnId: 'codex-turn-1',
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
     tokenUsage: { last: { inputTokens: 12, outputTokens: 5 }, total: { inputTokens: 12, outputTokens: 5 } },
   });
   await completeTurn(client);
   await turn.promise;
 
-  assert.deepEqual(turn.emitted.text.map(value => value.text), ['Hello ', 'world']);
+  assert.deepEqual(
+    turn.emitted.text.map((value) => value.text),
+    ['Hello ', 'world'],
+  );
   assert.deepEqual(turn.emitted.progress, []);
-  assert.deepEqual(turn.emitted.reasoning.map(value => value.text), ['Thinking']);
+  assert.deepEqual(
+    turn.emitted.reasoning.map((value) => value.text),
+    ['Thinking'],
+  );
   assert.equal(turn.emitted.started.length, 1);
   assert.equal(turn.emitted.completed[0].status, 'completed');
   assert.deepEqual(turn.emitted.usage, [{ tokensIn: 12, tokensOut: 5 }]);
-  assert.equal(turn.emitted.events.filter(event => event.type === 'message.started').length, 1);
+  assert.equal(turn.emitted.events.filter((event) => event.type === 'message.started').length, 1);
   assert.equal(JSON.stringify(turn.emitted).includes('private-message'), false);
   assert.equal(JSON.stringify(turn.emitted).includes('private-tool'), false);
 });
@@ -345,52 +472,89 @@ test('maps commentary and reasoning separately and preserves final_answer after 
   await waitFor(() => turn.operation, Boolean);
 
   await client.emitNotification('item/started', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 1,
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    startedAtMs: 1,
     item: { id: 'commentary', type: 'agentMessage', text: '', phase: 'commentary' },
   });
   await client.emitNotification('item/agentMessage/delta', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'commentary', delta: "I'll inspect...",
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    itemId: 'commentary',
+    delta: "I'll inspect...",
   });
   await client.emitNotification('item/completed', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', completedAtMs: 2,
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    completedAtMs: 2,
     item: { id: 'commentary', type: 'agentMessage', text: "I'll inspect...", phase: 'commentary' },
   });
   await client.emitNotification('item/started', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 3,
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    startedAtMs: 3,
     item: { id: 'reasoning', type: 'reasoning', summary: [], content: [] },
   });
   await client.emitNotification('item/reasoning/summaryTextDelta', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'reasoning', summaryIndex: 0, delta: 'Deep analysis',
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    itemId: 'reasoning',
+    summaryIndex: 0,
+    delta: 'Deep analysis',
   });
   await client.emitNotification('item/reasoning/textDelta', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'reasoning', contentIndex: 0, delta: ' continues',
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    itemId: 'reasoning',
+    contentIndex: 0,
+    delta: ' continues',
   });
   await client.emitNotification('item/completed', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', completedAtMs: 4,
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    completedAtMs: 4,
     item: { id: 'reasoning', type: 'reasoning', summary: ['Deep analysis'], content: [' continues'] },
   });
   await client.emitNotification('item/started', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 5,
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    startedAtMs: 5,
     item: { id: 'final', type: 'agentMessage', text: '' },
   });
   await client.emitNotification('item/agentMessage/delta', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'final', delta: 'Done',
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    itemId: 'final',
+    delta: 'Done',
   });
   await client.emitNotification('item/completed', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', completedAtMs: 6,
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    completedAtMs: 6,
     item: { id: 'final', type: 'agentMessage', text: 'Done.', phase: 'final_answer' },
   });
   await completeTurn(client);
   await turn.promise;
 
-  assert.deepEqual(turn.emitted.progress.map(value => value.text), ["I'll inspect..."]);
-  assert.deepEqual(turn.emitted.reasoning.map(value => value.text), ['Deep analysis', ' continues']);
-  assert.deepEqual(turn.emitted.text.map(value => value.text), ['Done.']);
   assert.deepEqual(
-    turn.emitted.timeline.filter(event => ['progress.delta', 'reasoning.delta', 'text.delta'].includes(event.type)).map(event => event.type),
+    turn.emitted.progress.map((value) => value.text),
+    ["I'll inspect..."],
+  );
+  assert.deepEqual(
+    turn.emitted.reasoning.map((value) => value.text),
+    ['Deep analysis', ' continues'],
+  );
+  assert.deepEqual(
+    turn.emitted.text.map((value) => value.text),
+    ['Done.'],
+  );
+  assert.deepEqual(
+    turn.emitted.timeline
+      .filter((event) => ['progress.delta', 'reasoning.delta', 'text.delta'].includes(event.type))
+      .map((event) => event.type),
     ['progress.delta', 'reasoning.delta', 'reasoning.delta', 'text.delta'],
   );
-  assert.equal(turn.emitted.events.filter(event => event.type === 'message.started').length, 1);
+  assert.equal(turn.emitted.events.filter((event) => event.type === 'message.started').length, 1);
 });
 
 test('uses a deterministic legacy fallback when agentMessage phase is absent', async () => {
@@ -399,25 +563,41 @@ test('uses a deterministic legacy fallback when agentMessage phase is absent', a
   const turn = directTurn(provider, { providerSessionId: 'thread-1' });
   await waitFor(() => turn.operation, Boolean);
 
-  for (const [id, text, startedAtMs] of [['legacy-progress', 'Checking', 1], ['legacy-final', 'Finished', 3]]) {
+  for (const [id, text, startedAtMs] of [
+    ['legacy-progress', 'Checking', 1],
+    ['legacy-final', 'Finished', 3],
+  ]) {
     await client.emitNotification('item/started', {
-      threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs,
+      threadId: 'thread-1',
+      turnId: 'codex-turn-1',
+      startedAtMs,
       item: { id, type: 'agentMessage', text: '' },
     });
     await client.emitNotification('item/agentMessage/delta', {
-      threadId: 'thread-1', turnId: 'codex-turn-1', itemId: id, delta: text,
+      threadId: 'thread-1',
+      turnId: 'codex-turn-1',
+      itemId: id,
+      delta: text,
     });
     await client.emitNotification('item/completed', {
-      threadId: 'thread-1', turnId: 'codex-turn-1', completedAtMs: startedAtMs + 1,
+      threadId: 'thread-1',
+      turnId: 'codex-turn-1',
+      completedAtMs: startedAtMs + 1,
       item: { id, type: 'agentMessage', text },
     });
   }
   await completeTurn(client);
   await turn.promise;
 
-  assert.deepEqual(turn.emitted.progress.map(value => value.text), ['Checking']);
-  assert.deepEqual(turn.emitted.text.map(value => value.text), ['Finished']);
-  assert.equal(turn.emitted.events.filter(event => event.type === 'message.started').length, 1);
+  assert.deepEqual(
+    turn.emitted.progress.map((value) => value.text),
+    ['Checking'],
+  );
+  assert.deepEqual(
+    turn.emitted.text.map((value) => value.text),
+    ['Finished'],
+  );
+  assert.equal(turn.emitted.events.filter((event) => event.type === 'message.started').length, 1);
 });
 
 test('fails closed with diagnostic details when a successful turn has an unfinished final answer', async () => {
@@ -426,14 +606,19 @@ test('fails closed with diagnostic details when a successful turn has an unfinis
   const turn = directTurn(provider, { providerSessionId: 'thread-1' });
   await waitFor(() => turn.operation, Boolean);
   await client.emitNotification('item/started', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 1,
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    startedAtMs: 1,
     item: { id: 'private-final', type: 'agentMessage', text: '', phase: 'final_answer' },
   });
   await client.emitNotification('item/agentMessage/delta', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'private-final', delta: 'partial',
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    itemId: 'private-final',
+    delta: 'partial',
   });
   await completeTurn(client);
-  await assert.rejects(turn.promise, error => {
+  await assert.rejects(turn.promise, (error) => {
     assert.equal(error.code, 'AI_PROVIDER_PROTOCOL_ERROR');
     assert.match(error.message, /private-final/);
     assert.deepEqual(error.details, {
@@ -453,20 +638,34 @@ test('fails closed when the final legacy agent message lacks authoritative compl
   const turn = directTurn(provider, { providerSessionId: 'thread-1' });
   await waitFor(() => turn.operation, Boolean);
   await client.emitNotification('item/started', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 1,
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    startedAtMs: 1,
     item: { id: 'legacy-final', type: 'agentMessage', text: '' },
   });
   await completeTurn(client);
-  await assert.rejects(turn.promise, error => (
-    error.code === 'AI_PROVIDER_PROTOCOL_ERROR'
-    && error.details?.itemId === 'legacy-final'
-    && error.details?.agentMessagePhase === null
-  ));
+  await assert.rejects(
+    turn.promise,
+    (error) =>
+      error.code === 'AI_PROVIDER_PROTOCOL_ERROR' &&
+      error.details?.itemId === 'legacy-final' &&
+      error.details?.agentMessagePhase === null,
+  );
 });
 
 for (const [label, item, deltaMethod, delta] of [
-  ['reasoning', { id: 'informational', type: 'reasoning', summary: [], content: [] }, 'item/reasoning/summaryTextDelta', { summaryIndex: 0, delta: 'partial' }],
-  ['commentary', { id: 'informational', type: 'agentMessage', text: '', phase: 'commentary' }, 'item/agentMessage/delta', { delta: 'partial' }],
+  [
+    'reasoning',
+    { id: 'informational', type: 'reasoning', summary: [], content: [] },
+    'item/reasoning/summaryTextDelta',
+    { summaryIndex: 0, delta: 'partial' },
+  ],
+  [
+    'commentary',
+    { id: 'informational', type: 'agentMessage', text: '', phase: 'commentary' },
+    'item/agentMessage/delta',
+    { delta: 'partial' },
+  ],
 ]) {
   test(`successful turn tolerates unfinished ${label} activity`, async () => {
     const client = standardClient();
@@ -474,14 +673,23 @@ for (const [label, item, deltaMethod, delta] of [
     const turn = directTurn(provider, { providerSessionId: 'thread-1' });
     await waitFor(() => turn.operation, Boolean);
     await client.emitNotification('item/started', {
-      threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 1, item,
+      threadId: 'thread-1',
+      turnId: 'codex-turn-1',
+      startedAtMs: 1,
+      item,
     });
     await client.emitNotification(deltaMethod, {
-      threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'informational', ...delta,
+      threadId: 'thread-1',
+      turnId: 'codex-turn-1',
+      itemId: 'informational',
+      ...delta,
     });
     await completeTurn(client);
     await turn.promise;
-    assert.equal(turn.emitted.events.some(event => event.type === 'turn.failed'), false);
+    assert.equal(
+      turn.emitted.events.some((event) => event.type === 'turn.failed'),
+      false,
+    );
   });
 }
 
@@ -491,27 +699,52 @@ test('ignores unrelated correlated events and fails closed on conflicting final 
   const turn = directTurn(provider, { providerSessionId: 'thread-1' });
   await waitFor(() => turn.operation, Boolean);
   await client.emitNotification('item/started', {
-    threadId: 'other-thread', turnId: 'other-turn', item: { id: 'x', type: 'agentMessage', text: '' }, startedAtMs: 1,
+    threadId: 'other-thread',
+    turnId: 'other-turn',
+    item: { id: 'x', type: 'agentMessage', text: '' },
+    startedAtMs: 1,
   });
   assert.equal(turn.emitted.events.length, 0);
 
   await client.emitNotification('item/started', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', item: { id: 'm', type: 'agentMessage', text: '' }, startedAtMs: 1,
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    item: { id: 'm', type: 'agentMessage', text: '' },
+    startedAtMs: 1,
   });
   await client.emitNotification('item/agentMessage/delta', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'm', delta: 'alpha',
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    itemId: 'm',
+    delta: 'alpha',
   });
-  await assert.rejects(client.emitNotification('item/completed', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', item: { id: 'm', type: 'agentMessage', text: 'different' }, completedAtMs: 2,
-  }), error => error.code === 'AI_PROVIDER_PROTOCOL_ERROR');
+  await assert.rejects(
+    client.emitNotification('item/completed', {
+      threadId: 'thread-1',
+      turnId: 'codex-turn-1',
+      item: { id: 'm', type: 'agentMessage', text: 'different' },
+      completedAtMs: 2,
+    }),
+    (error) => error.code === 'AI_PROVIDER_PROTOCOL_ERROR',
+  );
   client.fail(Object.assign(new Error('protocol failed'), { code: 'AI_PROVIDER_PROTOCOL_ERROR' }));
-  await assert.rejects(turn.promise, error => error.code === 'AI_PROVIDER_PROTOCOL_ERROR');
+  await assert.rejects(turn.promise, (error) => error.code === 'AI_PROVIDER_PROTOCOL_ERROR');
 });
 
 for (const [method, params, response, expected] of [
-  ['item/commandExecution/requestApproval', { command: 'npm test', cwd: 'D:\\repo' }, { decision: 'allow' }, { decision: 'accept' }],
+  [
+    'item/commandExecution/requestApproval',
+    { command: 'npm test', cwd: 'D:\\repo' },
+    { decision: 'allow' },
+    { decision: 'accept' },
+  ],
   ['item/fileChange/requestApproval', { reason: 'edit files' }, { decision: 'deny' }, { decision: 'decline' }],
-  ['item/permissions/requestApproval', { cwd: 'D:\\repo', permissions: { network: { enabled: true } } }, { decision: 'allow' }, { permissions: { network: { enabled: true } }, scope: 'turn' }],
+  [
+    'item/permissions/requestApproval',
+    { cwd: 'D:\\repo', permissions: { network: { enabled: true } } },
+    { decision: 'allow' },
+    { permissions: { network: { enabled: true } }, scope: 'turn' },
+  ],
 ]) {
   test(`${method} stays private, responds once, and keeps the original turn running`, async () => {
     const client = standardClient();
@@ -519,12 +752,19 @@ for (const [method, params, response, expected] of [
     const turn = directTurn(provider, { providerSessionId: 'thread-1' });
     await waitFor(() => turn.operation, Boolean);
     const server = client.emitServerRequest(method, {
-      ...params, threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'private-item', startedAtMs: 1,
+      ...params,
+      threadId: 'thread-1',
+      turnId: 'codex-turn-1',
+      itemId: 'private-item',
+      startedAtMs: 1,
     });
     const interaction = await waitFor(() => turn.emitted.interactions[0], Boolean, 'interaction');
     assert.equal(JSON.stringify(interaction).includes('private-request'), false);
     const result = await provider.respondInteraction({
-      turnId: 'nevo-turn-1', providerSessionId: 'thread-1', interactionId: interaction.id, response,
+      turnId: 'nevo-turn-1',
+      providerSessionId: 'thread-1',
+      interactionId: interaction.id,
+      response,
     });
     assert.equal(result.continuesTurn, true);
     await server.completion;
@@ -542,20 +782,35 @@ test('user-input questions map neutral IDs back to private answer keys exactly o
   const turn = directTurn(provider, { providerSessionId: 'thread-1' });
   await waitFor(() => turn.operation, Boolean);
   const server = client.emitServerRequest('item/tool/requestUserInput', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'private-item', isBlocking: true,
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    itemId: 'private-item',
+    isBlocking: true,
     questions: [
-      { id: 'private-q-1', question: 'Style?', header: 'Style', options: [{ label: 'Focused', description: 'Small diff' }] },
+      {
+        id: 'private-q-1',
+        question: 'Style?',
+        header: 'Style',
+        options: [{ label: 'Focused', description: 'Small diff' }],
+      },
       { id: 'private-q-2', question: 'Tests?', header: 'Tests', options: null },
     ],
   });
   const interaction = await waitFor(() => turn.emitted.interactions[0], Boolean, 'question');
-  assert.deepEqual(interaction.questions.map(question => question.id), ['neutral-question-1', 'neutral-question-2']);
+  assert.deepEqual(
+    interaction.questions.map((question) => question.id),
+    ['neutral-question-1', 'neutral-question-2'],
+  );
   await provider.respondInteraction({
-    turnId: 'nevo-turn-1', providerSessionId: 'thread-1', interactionId: interaction.id,
-    response: { answers: [
-      { questionId: 'neutral-question-1', value: 'Focused' },
-      { questionId: 'neutral-question-2', value: ['Unit', 'Integration'] },
-    ] },
+    turnId: 'nevo-turn-1',
+    providerSessionId: 'thread-1',
+    interactionId: interaction.id,
+    response: {
+      answers: [
+        { questionId: 'neutral-question-1', value: 'Focused' },
+        { questionId: 'neutral-question-2', value: ['Unit', 'Integration'] },
+      ],
+    },
   });
   await server.completion;
   assert.deepEqual(server.response.result, {
@@ -574,23 +829,36 @@ test('cancellation while waiting declines the request, interrupts provider turn,
   const turn = directTurn(provider, { providerSessionId: 'thread-1' });
   await waitFor(() => turn.operation, Boolean);
   const server = client.emitServerRequest('item/commandExecution/requestApproval', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'item', startedAtMs: 1, command: 'npm test', cwd: 'D:\\repo',
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    itemId: 'item',
+    startedAtMs: 1,
+    command: 'npm test',
+    cwd: 'D:\\repo',
   });
   const interaction = await waitFor(() => turn.emitted.interactions[0], Boolean);
   await provider.cancelTurn({ operation: turn.operation });
   await server.completion;
   assert.deepEqual(server.response.result, { decision: 'decline' });
-  assert.ok(client.calls.some(call => call.method === 'turn/interrupt'));
-  await assert.rejects(provider.respondInteraction({
-    turnId: 'nevo-turn-1', providerSessionId: 'thread-1', interactionId: interaction.id, response: { decision: 'allow' },
-  }), error => error.code === 'AI_NOT_FOUND');
+  assert.ok(client.calls.some((call) => call.method === 'turn/interrupt'));
+  await assert.rejects(
+    provider.respondInteraction({
+      turnId: 'nevo-turn-1',
+      providerSessionId: 'thread-1',
+      interactionId: interaction.id,
+      response: { decision: 'allow' },
+    }),
+    (error) => error.code === 'AI_NOT_FOUND',
+  );
   await completeTurn(client, 'thread-1', 'codex-turn-1', 'interrupted');
-  await assert.rejects(turn.promise, error => ['AI_TURN_CANCELLED', 'AI_TURN_INTERRUPTED'].includes(error.code));
+  await assert.rejects(turn.promise, (error) => ['AI_TURN_CANCELLED', 'AI_TURN_INTERRUPTED'].includes(error.code));
 });
 
 test('cancellation requested during turn/start waits for the Codex turn id and then interrupts it', async () => {
   let releaseStart;
-  const startResult = new Promise(resolve => { releaseStart = resolve; });
+  const startResult = new Promise((resolve) => {
+    releaseStart = resolve;
+  });
   const client = standardClient({ overrides: { 'turn/start': async () => startResult } });
   const provider = createCodexAgentProvider({ client });
   const turn = directTurn(provider, { providerSessionId: 'thread-1' });
@@ -598,14 +866,18 @@ test('cancellation requested during turn/start waits for the Codex turn id and t
 
   const cancellation = provider.cancelTurn({ operation: turn.operation });
   await tick();
-  assert.equal(client.calls.some(call => call.method === 'turn/interrupt'), false);
+  assert.equal(
+    client.calls.some((call) => call.method === 'turn/interrupt'),
+    false,
+  );
   releaseStart({ turn: { id: 'codex-turn-1', status: 'inProgress', items: [] } });
   await cancellation;
-  assert.deepEqual(client.calls.find(call => call.method === 'turn/interrupt').params, {
-    threadId: 'thread-1', turnId: 'codex-turn-1',
+  assert.deepEqual(client.calls.find((call) => call.method === 'turn/interrupt').params, {
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
   });
   await completeTurn(client, 'thread-1', 'codex-turn-1', 'interrupted');
-  await assert.rejects(turn.promise, error => error.code === 'AI_TURN_CANCELLED');
+  await assert.rejects(turn.promise, (error) => error.code === 'AI_TURN_CANCELLED');
 });
 
 test('runtime integration keeps a persistent Codex interaction waiting until real completion', async () => {
@@ -614,19 +886,34 @@ test('runtime integration keeps a persistent Codex interaction waiting until rea
   const registry = createAgentProviderRegistry([provider]);
   const runtime = createAgentTurnRuntime({ registry, idleTimeoutMs: 0 });
   const started = await runtime.startTurn({ provider: 'codex', providerSessionId: 'thread-1', message: 'Run tests' });
-  await waitFor(() => client.calls, calls => calls.some(call => call.method === 'turn/start'), 'adapter turn/start');
+  await waitFor(
+    () => client.calls,
+    (calls) => calls.some((call) => call.method === 'turn/start'),
+    'adapter turn/start',
+  );
   const server = client.emitServerRequest('item/fileChange/requestApproval', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'item', startedAtMs: 1, reason: 'edit',
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    itemId: 'item',
+    startedAtMs: 1,
+    reason: 'edit',
   });
-  const waiting = await waitFor(() => runtime.getSnapshot(started.turnId), value => value.pendingInteraction, 'runtime interaction');
+  const waiting = await waitFor(
+    () => runtime.getSnapshot(started.turnId),
+    (value) => value.pendingInteraction,
+    'runtime interaction',
+  );
   assert.equal(waiting.pendingInteraction.resumePolicy, 'live-operation');
   await runtime.resolveInteraction(started.turnId, waiting.pendingInteraction.id, { decision: 'allow' });
   await server.completion;
   await tick();
   assert.equal(runtime.getSnapshot(started.turnId).status, 'running');
   await completeTurn(client);
-  const completed = await waitFor(() => runtime.getSnapshot(started.turnId), value => value.status === 'completed');
-  assert.equal(completed.events.filter(event => event.type === 'turn.completed').length, 1);
+  const completed = await waitFor(
+    () => runtime.getSnapshot(started.turnId),
+    (value) => value.status === 'completed',
+  );
+  assert.equal(completed.events.filter((event) => event.type === 'turn.completed').length, 1);
   await runtime.shutdown();
 });
 
@@ -664,19 +951,27 @@ for (const scenario of [
       mode: 'agent',
       message: `Run ${scenario.label}`,
     });
-    await waitFor(() => client.calls, calls => calls.some(call => call.method === 'turn/start'), 'AGENT turn/start');
+    await waitFor(
+      () => client.calls,
+      (calls) => calls.some((call) => call.method === 'turn/start'),
+      'AGENT turn/start',
+    );
 
-    const resume = client.calls.find(call => call.method === 'thread/resume');
+    const resume = client.calls.find((call) => call.method === 'thread/resume');
     assert.equal(resume.params.approvalPolicy, 'on-request');
     assert.equal(resume.params.sandbox, 'workspace-write');
-    const turnStart = client.calls.find(call => call.method === 'turn/start');
+    const turnStart = client.calls.find((call) => call.method === 'turn/start');
     assert.equal(turnStart.params.approvalPolicy, 'on-request');
     assert.deepEqual(turnStart.params.sandboxPolicy, {
-      type: 'workspaceWrite', writableRoots: [process.cwd()], networkAccess: false,
+      type: 'workspaceWrite',
+      writableRoots: [process.cwd()],
+      networkAccess: false,
     });
 
     await client.emitNotification('item/started', {
-      threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 1,
+      threadId: 'thread-1',
+      turnId: 'codex-turn-1',
+      startedAtMs: 1,
       item: {
         id: 'private-command',
         type: 'commandExecution',
@@ -686,19 +981,23 @@ for (const scenario of [
         status: 'inProgress',
       },
     });
-    const server = client.emitServerRequest('item/commandExecution/requestApproval', {
-      threadId: 'thread-1',
-      turnId: 'codex-turn-1',
-      itemId: 'private-command',
-      startedAtMs: 1,
-      command: scenario.command,
-      cwd: process.cwd(),
-      reason: `Workspace sandbox blocked ${scenario.label}`,
-    }, `private-${scenario.decision}-request`);
+    const server = client.emitServerRequest(
+      'item/commandExecution/requestApproval',
+      {
+        threadId: 'thread-1',
+        turnId: 'codex-turn-1',
+        itemId: 'private-command',
+        startedAtMs: 1,
+        command: scenario.command,
+        cwd: process.cwd(),
+        reason: `Workspace sandbox blocked ${scenario.label}`,
+      },
+      `private-${scenario.decision}-request`,
+    );
 
     const waiting = await waitFor(
       () => runtime.getSnapshot(started.turnId),
-      snapshot => snapshot.pendingInteraction,
+      (snapshot) => snapshot.pendingInteraction,
       'AGENT approval interaction',
     );
     assert.equal(waiting.status, 'waitingForUser');
@@ -707,11 +1006,7 @@ for (const scenario of [
     assert.equal(JSON.stringify(waiting.pendingInteraction).includes('private-command'), false);
     assert.equal(JSON.stringify(waiting.pendingInteraction).includes(`private-${scenario.decision}-request`), false);
 
-    await runtime.resolveInteraction(
-      started.turnId,
-      waiting.pendingInteraction.id,
-      { decision: scenario.decision },
-    );
+    await runtime.resolveInteraction(started.turnId, waiting.pendingInteraction.id, { decision: scenario.decision });
     await server.completion;
     assert.deepEqual(server.response, {
       id: `private-${scenario.decision}-request`,
@@ -720,7 +1015,9 @@ for (const scenario of [
     assert.equal(runtime.getSnapshot(started.turnId).status, 'running');
 
     await client.emitNotification('item/completed', {
-      threadId: 'thread-1', turnId: 'codex-turn-1', completedAtMs: 2,
+      threadId: 'thread-1',
+      turnId: 'codex-turn-1',
+      completedAtMs: 2,
       item: {
         id: 'private-command',
         type: 'commandExecution',
@@ -735,13 +1032,13 @@ for (const scenario of [
     await completeTurn(client);
     const completed = await waitFor(
       () => runtime.getSnapshot(started.turnId),
-      snapshot => snapshot.status === 'completed',
+      (snapshot) => snapshot.status === 'completed',
       'AGENT completion after approval',
     );
     assert.equal(completed.pendingInteraction, null);
-    assert.equal(completed.events.filter(event => event.type === 'interaction.requested').length, 1);
-    assert.equal(completed.events.filter(event => event.type === 'interaction.resolved').length, 1);
-    assert.equal(completed.events.filter(event => event.type === 'turn.completed').length, 1);
+    assert.equal(completed.events.filter((event) => event.type === 'interaction.requested').length, 1);
+    assert.equal(completed.events.filter((event) => event.type === 'interaction.resolved').length, 1);
+    assert.equal(completed.events.filter((event) => event.type === 'turn.completed').length, 1);
     await runtime.shutdown();
   });
 }
@@ -761,16 +1058,20 @@ test('failed/interrupted turns, unfinished tools, client failure, and disposal n
   const unfinished = directTurn(unfinishedProvider, { providerSessionId: 'thread-1' });
   await waitFor(() => unfinished.operation, Boolean);
   await unfinishedClient.emitNotification('item/started', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 1,
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    startedAtMs: 1,
     item: { id: 'tool', type: 'fileChange', changes: [], status: 'inProgress' },
   });
   await completeTurn(unfinishedClient);
-  await assert.rejects(unfinished.promise, error => (
-    error.code === 'AI_PROVIDER_PROTOCOL_ERROR'
-    && error.details?.itemId === 'tool'
-    && error.details?.itemType === 'fileChange'
-    && error.details?.turnStatus === 'completed'
-  ));
+  await assert.rejects(
+    unfinished.promise,
+    (error) =>
+      error.code === 'AI_PROVIDER_PROTOCOL_ERROR' &&
+      error.details?.itemId === 'tool' &&
+      error.details?.itemType === 'fileChange' &&
+      error.details?.turnStatus === 'completed',
+  );
   assert.equal(unfinished.emitted.completed[0].status, 'failed');
 
   const failedClient = standardClient();
@@ -778,14 +1079,14 @@ test('failed/interrupted turns, unfinished tools, client failure, and disposal n
   const failed = directTurn(failedProvider, { providerSessionId: 'thread-1' });
   await waitFor(() => failed.operation, Boolean);
   failedClient.fail(Object.assign(new Error('process exited'), { code: 'AI_PROVIDER_EXIT_ERROR' }));
-  await assert.rejects(failed.promise, error => error.code === 'AI_PROVIDER_EXIT_ERROR');
+  await assert.rejects(failed.promise, (error) => error.code === 'AI_PROVIDER_EXIT_ERROR');
 
   const disposedClient = standardClient();
   const disposedProvider = createCodexAgentProvider({ client: disposedClient });
   const disposed = directTurn(disposedProvider, { providerSessionId: 'thread-1' });
   await waitFor(() => disposed.operation, Boolean);
   await Promise.all([disposedProvider.dispose(), disposedProvider.dispose()]);
-  await assert.rejects(disposed.promise, error => error.code === 'AI_PROVIDER_DISPOSED');
+  await assert.rejects(disposed.promise, (error) => error.code === 'AI_PROVIDER_DISPOSED');
   assert.equal(disposedClient.disposals, 1);
 });
 
@@ -796,11 +1097,22 @@ for (const status of ['interrupted', 'failed']) {
     const turn = directTurn(provider, { providerSessionId: 'thread-1' });
     await waitFor(() => turn.operation, Boolean);
     await client.emitNotification('item/started', {
-      threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 1,
-      item: { id: 'unfinished-dynamic', type: 'dynamicToolCall', tool: 'host-command', arguments: {}, status: 'inProgress' },
+      threadId: 'thread-1',
+      turnId: 'codex-turn-1',
+      startedAtMs: 1,
+      item: {
+        id: 'unfinished-dynamic',
+        type: 'dynamicToolCall',
+        tool: 'host-command',
+        arguments: {},
+        status: 'inProgress',
+      },
     });
     await completeTurn(client, 'thread-1', 'codex-turn-1', status);
-    await assert.rejects(turn.promise, error => error.code === (status === 'interrupted' ? 'AI_TURN_INTERRUPTED' : 'AI_PROVIDER_ERROR'));
+    await assert.rejects(
+      turn.promise,
+      (error) => error.code === (status === 'interrupted' ? 'AI_TURN_INTERRUPTED' : 'AI_PROVIDER_ERROR'),
+    );
     assert.equal(turn.emitted.completed[0].status, 'failed');
   });
 }
@@ -811,19 +1123,32 @@ test('requested cancellation stays cancelled with an unfinished tool', async () 
   const turn = directTurn(provider, { providerSessionId: 'thread-1' });
   await waitFor(() => turn.operation, Boolean);
   await client.emitNotification('item/started', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 1,
-    item: { id: 'unfinished-command', type: 'commandExecution', command: 'npm test', cwd: 'D:\\repo', commandActions: [], status: 'inProgress' },
+    threadId: 'thread-1',
+    turnId: 'codex-turn-1',
+    startedAtMs: 1,
+    item: {
+      id: 'unfinished-command',
+      type: 'commandExecution',
+      command: 'npm test',
+      cwd: 'D:\\repo',
+      commandActions: [],
+      status: 'inProgress',
+    },
   });
   await provider.cancelTurn({ operation: turn.operation });
   await completeTurn(client, 'thread-1', 'codex-turn-1', 'interrupted');
-  await assert.rejects(turn.promise, error => error.code === 'AI_TURN_CANCELLED');
+  await assert.rejects(turn.promise, (error) => error.code === 'AI_TURN_CANCELLED');
   assert.equal(turn.emitted.completed[0].status, 'failed');
 });
 
 test('default dashboard service registers Codex without starting a live app-server', async () => {
   const configDir = await mkdtemp(join(tmpdir(), 'nevo-codex-test-'));
   const providerConfigPath = join(configDir, 'ai-providers.yaml');
-  await writeFile(providerConfigPath, 'version: 1\nproviders:\n  claude:\n    enabled: true\n  antigravity:\n    enabled: true\n  codex:\n    enabled: true\n  mock:\n    enabled: true\n', 'utf8');
+  await writeFile(
+    providerConfigPath,
+    'version: 1\nproviders:\n  claude:\n    enabled: true\n  antigravity:\n    enabled: true\n  codex:\n    enabled: true\n  mock:\n    enabled: true\n',
+    'utf8',
+  );
   try {
     const service = createDefaultAgentSessionService({ dataLoader: () => ({ active: [] }), providerConfigPath });
     assert.deepEqual(service.registry.list(), ['claude', 'antigravity', 'codex', 'mock']);
@@ -856,9 +1181,246 @@ test('Codex raw capture: returns resolved capture path when enabled and null whe
 test('Codex raw capture: CodexAgentProvider.dispose flushes raw diagnostics and disposes client', async () => {
   const client = standardClient();
   let clientDisposed = false;
-  client.dispose = async () => { clientDisposed = true; };
+  client.dispose = async () => {
+    clientDisposed = true;
+  };
 
   const provider = createCodexAgentProvider({ client, rawCaptureEnabled: true });
   await provider.dispose();
   assert.equal(clientDisposed, true);
+});
+
+test('mapCodexCommandActions maps structured actions to normalized kinds, titles, and targets', () => {
+  const input = [
+    { type: 'read', path: 'src/index.ts', title: 'Read entrypoint' },
+    { type: 'write', path: 'dist/bundle.js', title: 'Write bundle' },
+    { type: 'edit', path: 'package.json', title: 'Edit package manifest' },
+    { type: 'list', path: 'specs/active', title: 'List specs' },
+    { type: 'search', pattern: 'TurnLifecycle', title: 'Search coordinator' },
+    { type: 'execute', command: 'git status', title: 'Check git status' },
+    { type: 'fetch', url: 'https://example.com', title: 'Fetch URL' },
+    { type: 'unknown', command: 'node tools/specs.mjs next' },
+  ];
+
+  const mapped = mapCodexCommandActions(input);
+  assert.equal(mapped.length, 8);
+  assert.equal(mapped[0].kind, 'read');
+  assert.equal(mapped[0].target, 'src/index.ts');
+  assert.equal(mapped[1].kind, 'write');
+  assert.equal(mapped[1].target, 'dist/bundle.js');
+  assert.equal(mapped[2].kind, 'edit');
+  assert.equal(mapped[2].target, 'package.json');
+  assert.equal(mapped[3].kind, 'list');
+  assert.equal(mapped[3].target, 'specs/active');
+  assert.equal(mapped[4].kind, 'search');
+  assert.equal(mapped[4].target, 'TurnLifecycle');
+  assert.equal(mapped[5].kind, 'execute');
+  assert.equal(mapped[5].target, 'git status');
+  assert.equal(mapped[6].kind, 'fetch');
+  assert.equal(mapped[6].target, 'https://example.com');
+  assert.equal(mapped[7].kind, 'other');
+  assert.equal(mapped[7].title, 'node tools/specs.mjs next');
+});
+
+test('compound Codex commandExecution produces one ToolInvocation with ordered nested ToolActions', async () => {
+  const client = standardClient();
+  const provider = createCodexAgentProvider({ client });
+
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-compound-1',
+    provider: 'codex',
+    providerSessionId: 'thread-compound-1',
+    mode: 'edit',
+  });
+
+  const toolsStarted = [];
+  const toolsCompleted = [];
+
+  const turn = directTurn(provider, {
+    turnId: 'turn-compound-1',
+    providerSessionId: 'thread-compound-1',
+    emitToolStarted: (tool) => {
+      toolsStarted.push(tool);
+      coordinator.recordToolStarted(tool);
+    },
+    emitToolCompleted: (tool) => {
+      toolsCompleted.push(tool);
+      coordinator.recordToolCompleted(tool);
+    },
+  });
+
+  await waitFor(() => turn.operation, Boolean);
+
+  await client.emitNotification('item/started', {
+    threadId: 'thread-compound-1',
+    turnId: 'codex-turn-1',
+    startedAtMs: 100,
+    item: {
+      id: 'cmd-01',
+      type: 'commandExecution',
+      command: 'node tools/specs.mjs check',
+      cwd: 'D:\\repos\\git\\nevo',
+      commandActions: [
+        { type: 'list', path: 'specs/active', title: 'List active changes' },
+        { type: 'read', path: 'specs/active/ai-session-issues-and-diagnostics/change.yaml', title: 'Read manifest' },
+      ],
+      status: 'inProgress',
+    },
+  });
+
+  await client.emitNotification('item/completed', {
+    threadId: 'thread-compound-1',
+    turnId: 'codex-turn-1',
+    completedAtMs: 450,
+    item: {
+      id: 'cmd-01',
+      type: 'commandExecution',
+      command: 'node tools/specs.mjs check',
+      cwd: 'D:\\repos\\git\\nevo',
+      commandActions: [
+        { type: 'list', path: 'specs/active', title: 'List active changes', status: 'completed' },
+        {
+          type: 'read',
+          path: 'specs/active/ai-session-issues-and-diagnostics/change.yaml',
+          title: 'Read manifest',
+          status: 'completed',
+        },
+      ],
+      status: 'completed',
+      aggregatedOutput: 'Validated 21 changes',
+      exitCode: 0,
+      durationMs: 350,
+    },
+  });
+
+  await completeTurn(client, 'thread-compound-1', 'codex-turn-1');
+  await turn.promise;
+
+  assert.equal(toolsStarted.length, 1);
+  assert.equal(toolsStarted[0].kind, 'command');
+  assert.equal(toolsStarted[0].actions.length, 2);
+  assert.equal(toolsStarted[0].actions[0].kind, 'list');
+  assert.equal(toolsStarted[0].actions[1].kind, 'read');
+
+  assert.equal(toolsCompleted.length, 1);
+  assert.equal(toolsCompleted[0].status, 'completed');
+  assert.equal(toolsCompleted[0].durationMs, 350);
+  assert.equal(toolsCompleted[0].output.output, 'Validated 21 changes');
+  assert.equal(toolsCompleted[0].output.actions.length, 2);
+});
+
+test('Codex evidence replay: maps full diagnostic turn with reasoning, commentary, command, and final answer', async () => {
+  const evidencePath = new URL('./fixtures/evidence/codex-evidence.json', import.meta.url);
+  const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
+
+  const client = standardClient({ threadId: evidence.sessionId, turnId: evidence.turnId });
+  const provider = createCodexAgentProvider({ client });
+
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-codex-evidence',
+    provider: 'codex',
+    providerSessionId: evidence.sessionId,
+    mode: 'edit',
+  });
+
+  const emitted = {
+    text: [],
+    progress: [],
+    reasoning: [],
+    toolsStarted: [],
+    toolsCompleted: [],
+  };
+
+  const turn = provider.startTurn({
+    turnId: 'turn-codex-evidence',
+    providerSessionId: evidence.sessionId,
+    message: 'Run diagnostic check',
+    mode: 'edit',
+    emitCommentaryDelta: (text, commentaryId) => {
+      emitted.progress.push({ text, progressId: commentaryId });
+      coordinator.recordCommentaryDelta(text, commentaryId);
+    },
+    emitFinalAnswerDelta: (text, finalAnswerId) => {
+      emitted.text.push({ text, messageId: finalAnswerId });
+      coordinator.recordFinalAnswerDelta(text, finalAnswerId);
+    },
+    emitReasoningDelta: (text, messageId) => {
+      emitted.reasoning.push({ text, messageId });
+      coordinator.recordReasoningDelta(text, messageId);
+    },
+    emitToolStarted: (tool) => {
+      emitted.toolsStarted.push(tool);
+      coordinator.recordToolStarted(tool);
+    },
+    emitToolCompleted: (tool) => {
+      emitted.toolsCompleted.push(tool);
+      coordinator.recordToolCompleted(tool);
+    },
+  });
+
+  await waitFor(
+    () => client.calls,
+    (calls) => calls.some((c) => c.method === 'turn/start'),
+    'turn/start',
+  );
+
+  // Playback all raw events from captured fixture
+  for (const event of evidence.rawEvents) {
+    await client.emitNotification(event.method, event.params);
+  }
+
+  await turn;
+  coordinator.settleTerminal({ outcome: 'completed' });
+  const snapshot = coordinator.getCanonicalSnapshot();
+
+  assert.equal(snapshot.provider, 'codex');
+  assert.equal(snapshot.status.status, 'terminal');
+  assert.equal(snapshot.status.outcome, 'completed');
+
+  // Check that tools were mapped as independent invocations with correct outcomes
+  assert.equal(emitted.toolsStarted.length, 2);
+  assert.equal(emitted.toolsCompleted.length, 2);
+  assert.equal(emitted.toolsCompleted[0].status, 'failed'); // exec-01 failed with exit code 1
+  assert.equal(emitted.toolsCompleted[0].durationMs, 1200);
+  assert.equal(emitted.toolsCompleted[1].status, 'completed'); // exec-02 succeeded
+  assert.equal(emitted.toolsCompleted[1].durationMs, 350);
+
+  // Check that commentary and final answer were recorded in Work
+  const commentaryItems = snapshot.work.filter((w) => w.type === 'commentary');
+  assert.ok(commentaryItems.length >= 2, 'Expected commentary items before each tool execution');
+
+  // Verify no private Codex IDs or raw payloads leaked in public model
+  const serialized = JSON.stringify(snapshot);
+  assert.ok(!serialized.includes('rawPayload'));
+  assert.ok(!serialized.includes('providerRequestId'));
+});
+
+// Regression: commandExecution.command was mapped into ToolInvocation.description with
+// no length bound; the canonical model caps it at 1000 chars, so a long command failed
+// the entire Turn's validation instead of just the label. The full command remains
+// available separately, unbounded, in `input.command`.
+test('toolDescription truncates a long commandExecution.command well under the canonical 1000-char limit', () => {
+  const longCommand = 'echo hi && '.repeat(200);
+  const mapped = toolDescription({ type: 'commandExecution', command: longCommand, cwd: '/repo' });
+  assert.equal(mapped.kind, 'command');
+  assert.ok(mapped.description.length <= 300);
+  assert.ok(mapped.description.length < longCommand.length);
+  assert.equal(mapped.input.command, longCommand, 'the full command remains available in input');
+});
+
+test('toolDescription: a truncated commandExecution description always validates against the canonical model', async () => {
+  const { validateToolInvocationWorkItem } = await import('../server/ai/model/work-items.mjs');
+  const longCommand = 'x'.repeat(5000);
+  const mapped = toolDescription({ type: 'commandExecution', command: longCommand, cwd: '/repo' });
+  const validated = validateToolInvocationWorkItem({
+    id: 't1',
+    seq: 1,
+    toolName: mapped.toolName,
+    kind: mapped.kind,
+    title: mapped.title,
+    description: mapped.description,
+    input: mapped.input,
+    status: 'active',
+  });
+  assert.equal(validated.description, mapped.description);
 });

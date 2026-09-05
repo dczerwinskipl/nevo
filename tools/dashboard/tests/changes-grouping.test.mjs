@@ -27,13 +27,12 @@ test('grouping is deterministic and first-match-wins (AC1)', () => {
   assert.equal(assignGroup('tools/dashboard/server/index.mjs', changeView), 'Tools');
   assert.equal(assignGroup('README.md', changeView), 'Other');
   // Same input, computed twice, produces the same result.
-  assert.equal(assignGroup('specs/active/x/change.yaml', changeView), assignGroup('specs/active/x/change.yaml', changeView));
-
-  const groups = groupFiles(
-    ['specs/a.md', 'tools/b.mjs', 'specs/c.md', 'README.md'],
-    'area',
-    changeView,
+  assert.equal(
+    assignGroup('specs/active/x/change.yaml', changeView),
+    assignGroup('specs/active/x/change.yaml', changeView),
   );
+
+  const groups = groupFiles(['specs/a.md', 'tools/b.mjs', 'specs/c.md', 'README.md'], 'area', changeView);
   assert.deepEqual(groups, [
     { name: 'Specs', paths: ['specs/a.md', 'specs/c.md'] },
     { name: 'Tools', paths: ['tools/b.mjs'] },
@@ -95,16 +94,16 @@ test('hidden generated files get zero background diff-hydration requests until e
   // The background hydration queue (preload) only ever receives the currently-visible
   // set — hidden files must not appear in it. This is a pure derivation check:
   // PullRequestCard passes `visibleFiles.map(toRequest)` to preload(), never allFiles.
-  const preloadRequests = visiblePaths.map(path => ({ path }));
-  const preloadPaths = preloadRequests.map(r => r.path);
+  const preloadRequests = visiblePaths.map((path) => ({ path }));
+  const preloadPaths = preloadRequests.map((r) => r.path);
   assert.deepEqual(preloadPaths, ['tools/index.mjs']);
   for (const hidden of hiddenPaths) assert.ok(!preloadPaths.includes(hidden));
 
   // An explicit load() for a previously hidden file (now revealed) is always safe —
   // TanStack Query deduplicates it against any concurrent preload for the same path.
   const revealedVisiblePaths = [...visiblePaths, 'tools/index.generated.md'];
-  const revealedPreloadRequests = revealedVisiblePaths.map(path => ({ path }));
-  assert.ok(revealedPreloadRequests.some(r => r.path === 'tools/index.generated.md'));
+  const revealedPreloadRequests = revealedVisiblePaths.map((path) => ({ path }));
+  assert.ok(revealedPreloadRequests.some((r) => r.path === 'tools/index.generated.md'));
 });
 
 test('an empty/missing config never throws — directory/flat/area all degrade gracefully', () => {

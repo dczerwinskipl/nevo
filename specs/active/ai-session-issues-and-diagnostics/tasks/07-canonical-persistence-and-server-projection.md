@@ -63,11 +63,11 @@ temporary V1/V2 chat projection boundary without introducing a second runtime or
 1. Live application and fresh reload produce semantically equal Turn status, ordered Work,
    ToolAction hierarchy, Interaction, and FinalAnswer. `automated: node --test tools/dashboard/tests/ai-server.test.mjs`
 2. Commentary/tool/commentary/tool/final ordering and compound invocation grouping survive
-   persistence and SSE replay exactly. `automated: node --test tools/dashboard/tests/transcript-projection.test.mjs`
+   persistence and SSE replay exactly. `automated: node --experimental-strip-types --test tools/dashboard/tests/transcript-projection.test.mjs`
 3. Server workSummary supplies activity count/current activity/wait/attention; tests need no provider
    identity or command parsing. `automated: node --test tools/dashboard/tests/ai-server.test.mjs`
 4. Corrupt/unreadable/reconciliation-failed state does not become empty ready/idle.
-   `automated: node --test tools/dashboard/tests/session-readiness.test.mjs`
+   `automated: node --experimental-strip-types --test tools/dashboard/tests/session-readiness.test.mjs`
 5. V1 and V2 can project the same session and switching representation has no lifecycle write or
    provider effect. `automated: node --test tools/dashboard/tests/ai-server.test.mjs`
 6. API/SSE serialization contains no provider-private IDs/raw payloads/diagnostic content.
@@ -76,5 +76,5 @@ temporary V1/V2 chat projection boundary without introducing a second runtime or
 ## Verification
 
 ```text
-node --test tools/dashboard/tests/ai-server.test.mjs tools/dashboard/tests/session-states-integration.test.mjs tools/dashboard/tests/session-readiness.test.mjs tools/dashboard/tests/transcript-projection.test.mjs
+node --experimental-strip-types --test tools/dashboard/tests/ai-server.test.mjs tools/dashboard/tests/session-states-integration.test.mjs tools/dashboard/tests/session-readiness.test.mjs tools/dashboard/tests/transcript-projection.test.mjs
 ```

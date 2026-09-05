@@ -22,8 +22,8 @@ export function createTurnIdempotencyKey({
     if (typeof cryptoSource?.randomUUID === 'function') return `ui-${cryptoSource.randomUUID()}`;
     const values = new Uint32Array(4);
     cryptoSource?.getRandomValues?.(values);
-    const entropy = [...values].map(value => value.toString(36)).join('-');
-    if (entropy && values.some(value => value !== 0)) return `ui-${now().toString(36)}-${entropy}`;
+    const entropy = [...values].map((value) => value.toString(36)).join('-');
+    if (entropy && values.some((value) => value !== 0)) return `ui-${now().toString(36)}-${entropy}`;
   } catch {
     // Non-secure HTTP origins may expose crypto without usable random APIs.
   }
@@ -91,7 +91,7 @@ export function composeTranscriptMessages(
   optimisticUser: string | null,
   liveDeltas: Readonly<Record<string, string>>,
 ) {
-  const persistedIds = new Set(persisted.map(message => message.id));
+  const persistedIds = new Set(persisted.map((message) => message.id));
   return [
     ...persisted,
     ...(optimisticUser ? [{ id: 'optimistic-user', role: 'user' as const, text: optimisticUser }] : []),

@@ -18,73 +18,24 @@ visual hierarchy, and manage local expand/collapse state. They must not:
 - derive waiting/attention from event absence; or
 - select the active invocation by scanning provider-shaped data.
 
-## Collapsed Work
+## Work UX presentation
 
-Collapsed Work communicates:
-
-- overall state: in progress, waiting, requires attention, completed, failed, cancelled,
-  interrupted, or unknown as supplied by projection;
-- top-level activity count;
-- current/latest meaningful semantic activity;
-- whether user action is required and a short attention summary; and
-- whether details can expand.
-
-Examples are directional, not hardcoded copy:
-
-```text
-Work - 12 activities - In progress
-1 active tool - Inspecting specification
-
-Work - Waiting
-Waiting for model response
-
-Work - Requires attention
-Permission required to run command
-```
-
-Do not turn the header into a dashboard of all available counters. Nested ToolActions do not inflate
-the activity count.
-
-## Expanded Work
-
-Expanded Work renders the chronological top-level sequence. A ToolInvocation may expand its nested
-actions and technical details without moving those actions to top level.
-
-```text
-Commentary
-  Checking adapter specifications...
-
-Tool
-  Inspect specification
-    completed  Search workflow docs
-    completed  Read overview.md
-    active     Read change.yaml
-
-Commentary
-  The contract loses command action semantics.
-
-Reasoning summary
-  Analysing provider differences...
-
-Waiting (transient current state)
-  Waiting for model response...
-```
-
-Only active/relevant items receive strong emphasis. Completed historical Work is quieter. Raw
-command/input/output/details are expandable and secondary.
+The collapsed indicator, expanded timeline, and Work Details surface rendered inside this switch are
+defined in full by `areas/work-ux-presentation.md` (three-level model, current-activity projection,
+no-duplication invariant, mobile requirements, icon vocabulary). Both V1 and V2 host that presentation;
+V1 may use its existing simpler rendering, but V2 must implement the three-level model exactly —
+switching representations must never change which canonical data is available, only how it is shown.
 
 ## Requires attention
 
-A pending Interaction renders at its chronological position and remains clearly actionable:
-
-```text
-Requires attention
-Permission required to run PowerShell command.
-[Allow] [Deny]
-```
-
-Question and confirmation controls follow the same semantic model. Interaction controls use the
-server-provided allowed actions/correlation and cannot be confused with ordinary waiting.
+Interaction rendering (permission/question/confirmation) follows `areas/work-ux-presentation.md`
+§ "Level 1 — Work indicator" and its chronological placement in the Level 2 timeline. Both V1 and V2
+must present the same pending Interaction consistently, using the server-provided allowed
+actions/correlation, so switching representations never loses or misrepresents a blocking action.
+Crucially, an `Interaction` is strictly created from structured provider protocol events (such as
+Claude `AskUserQuestion`, Antigravity `ask_question`, or Codex `requestUserInput`), never inferred
+from question marks or prose punctuation in normal assistant text. A normal conversational question
+ending a Turn remains standard assistant output (FinalAnswer).
 
 ## Final answer
 

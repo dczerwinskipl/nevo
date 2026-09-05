@@ -11,7 +11,7 @@ import type { AgentExecutionMode } from '../types.ts';
 export async function postStartTurn(
   provider: string,
   providerSessionId: string,
-  body: { message: string; idempotencyKey: string; mode?: AgentExecutionMode },
+  body: { message: string; idempotencyKey: string; mode?: AgentExecutionMode; userMessage?: string },
 ): Promise<{ turnId: string | undefined }> {
   const res = await fetch(
     `/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}/turns`,
@@ -25,8 +25,9 @@ export async function postStartTurn(
         message: body.message,
         idempotencyKey: body.idempotencyKey,
         ...(body.mode ? { mode: body.mode } : {}),
+        ...(body.userMessage ? { userMessage: body.userMessage } : {}),
       }),
-    }
+    },
   );
 
   if (!res.ok) {
@@ -43,7 +44,10 @@ export async function postCancelTurn(
   provider: string,
   providerSessionId: string,
   turnId: string,
-): Promise<{ response: { ok: boolean; status?: number }; errorData: { error?: { message?: string }; message?: string } | null }> {
+): Promise<{
+  response: { ok: boolean; status?: number };
+  errorData: { error?: { message?: string }; message?: string } | null;
+}> {
   const res = await fetch(
     `/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}/turns/${encodeURIComponent(turnId)}/cancel`,
     {
@@ -53,7 +57,7 @@ export async function postCancelTurn(
         'x-nevo-dashboard-action': '1',
       },
       body: JSON.stringify({}),
-    }
+    },
   );
 
   const errorData = !res.ok ? await res.json().catch(() => ({})) : null;
@@ -75,7 +79,7 @@ export async function postRespondInteraction(
         'x-nevo-dashboard-action': '1',
       },
       body: JSON.stringify(responsePayload),
-    }
+    },
   );
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}));

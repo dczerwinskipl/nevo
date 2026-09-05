@@ -161,7 +161,11 @@ test('BLOCKING Fix (Behavioral): Failed dispatch survives remount/navigation -> 
   });
 
   // Crucial test: Fresh mount sees the failed state and exposes the retry affordance!
-  assert.equal(remountedController.displayError, '500 Internal Server Error', 'Remounted page MUST expose the failure error message');
+  assert.equal(
+    remountedController.displayError,
+    '500 Internal Server Error',
+    'Remounted page MUST expose the failure error message',
+  );
   assert.equal(remountedController.canRetryInitial, true, 'Remounted page MUST expose the retry affordance');
 
   // 3. Automatic mount effect runs on remounted page: MUST NOT automatically redispatch!
@@ -176,8 +180,16 @@ test('BLOCKING Fix (Behavioral): Failed dispatch survives remount/navigation -> 
 
   // Exactly two attempts total, reusing the exact same idempotency key
   assert.equal(dispatchedTurns.length, 2, 'Exactly two attempts total after explicit retry');
-  assert.equal(dispatchedTurns[0].opts.idempotencyKey, dispatchedTurns[1].opts.idempotencyKey, 'Retry MUST reuse the identical idempotency key');
-  assert.equal(pendingDispatchStore.getPending(provider, sessionId), null, 'Cleared from store upon successful delivery');
+  assert.equal(
+    dispatchedTurns[0].opts.idempotencyKey,
+    dispatchedTurns[1].opts.idempotencyKey,
+    'Retry MUST reuse the identical idempotency key',
+  );
+  assert.equal(
+    pendingDispatchStore.getPending(provider, sessionId),
+    null,
+    'Cleared from store upon successful delivery',
+  );
   assert.equal(remountedController.displayError, null, 'Error cleared after successful retry');
   assert.equal(remountedController.canRetryInitial, false, 'Retry affordance hidden after successful retry');
 });
@@ -216,7 +228,11 @@ test('Sensible Dismiss Semantics: Dismissing failed error banner explicitly clea
 
   assert.equal(controller.displayError, null, 'Display error cleared');
   assert.equal(controller.canRetryInitial, false, 'Retry affordance removed');
-  assert.equal(pendingDispatchStore.getPending(provider, sessionId), null, 'Pending store cleared, no stranded record left');
+  assert.equal(
+    pendingDispatchStore.getPending(provider, sessionId),
+    null,
+    'Pending store cleared, no stranded record left',
+  );
 });
 
 test('Finding 2b (Behavioral): Persisted in-flight state -> reload/new runtime -> recovers to pending and dispatches exactly once', async () => {
@@ -237,7 +253,11 @@ test('Finding 2b (Behavioral): Persisted in-flight state -> reload/new runtime -
   // 3. New runtime loads pending dispatch for session
   const recovered = pendingDispatchStore.getPending(provider, sessionId);
   assert.ok(recovered, 'Must recover persisted dispatch');
-  assert.equal(recovered?.status, 'pending', 'Must safely transition persisted in-flight state to pending upon new runtime initialization');
+  assert.equal(
+    recovered?.status,
+    'pending',
+    'Must safely transition persisted in-flight state to pending upon new runtime initialization',
+  );
   assert.equal(recovered?.idempotencyKey, record.idempotencyKey, 'Must preserve original idempotency key');
 
   // 4. New runtime dispatch lifecycle runs
@@ -267,19 +287,19 @@ test('Finding 2b (Behavioral): Persisted in-flight state -> reload/new runtime -
 
 test('Finding 1: Source inspection confirms prompt text is removed from ChatSearch and URL schemas', () => {
   const routeTreeSource = readSource('routeTree.gen.ts');
-  const appLayoutSource = readSource('features/specifications/specification-console-layout.tsx');
-  const specificationRouteSource = readSource('features/specifications/detail/specification-route.tsx');
+  const appLayoutSource = readSource('screens/specification-console/specification-console-layout.tsx');
+  const specificationContentSource = readSource('screens/specification-detail/specification-detail-content.tsx');
   const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');
   const pendingDispatchStoreSource = readSource('features/agent-sessions/runtime/pending-dispatch-store.ts');
 
   // routeTree.gen.ts does not declare initialPrompt in route search schemas
   assert.ok(!routeTreeSource.includes('initialPrompt?: string;'), 'initialPrompt must be removed from ChatSearch');
 
-  // specification-console-layout.tsx and specification-route.tsx use queueAgentSessionInitialDispatch and do not pass initialPrompt in search
+  // specification-console-layout.tsx and specification-detail-content.tsx use queueAgentSessionInitialDispatch and do not pass initialPrompt in search
   assert.ok(appLayoutSource.includes('queueAgentSessionInitialDispatch'));
-  assert.ok(specificationRouteSource.includes('queueAgentSessionInitialDispatch'));
+  assert.ok(specificationContentSource.includes('queueAgentSessionInitialDispatch'));
   assert.ok(!appLayoutSource.includes('initialPrompt: initialPrompt'));
-  assert.ok(!specificationRouteSource.includes('initialPrompt: initialPrompt'));
+  assert.ok(!specificationContentSource.includes('initialPrompt: initialPrompt'));
 
   // agent-session-page.tsx and pending-dispatch-store.ts enforce explicit pending status and production retry
   assert.ok(agentSessionPageSource.includes('useInitialDispatch'));
@@ -294,11 +314,11 @@ test('Finding 3: Tool card layout and pre blocks are constrained to chat width a
   const transcriptMessageSource = readSource('features/agent-sessions/transcript/transcript-message.tsx');
 
   // ToolCallView is constrained with min-w-0 max-w-full and pre blocks use overflow-auto whitespace-pre
-  assert.ok(toolCallViewSource.includes('w-full min-w-0 max-w-full'));
+  assert.ok(toolCallViewSource.includes('w-full max-w-full min-w-0'));
   assert.ok(toolCallViewSource.includes('overflow-auto'));
   assert.ok(toolCallViewSource.includes('whitespace-pre'));
 
   // TurnWorkSummary and TranscriptMessage containers allow flex shrinking with min-w-0 max-w-full
-  assert.ok(turnWorkSummarySource.includes('w-full min-w-0 max-w-full'));
-  assert.ok(transcriptMessageSource.includes('w-full min-w-0 max-w-full'));
+  assert.ok(turnWorkSummarySource.includes('w-full max-w-full min-w-0'));
+  assert.ok(transcriptMessageSource.includes('w-full max-w-full min-w-0'));
 });

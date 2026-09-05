@@ -4,11 +4,14 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 function readSheetSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/components/ui/sheet.tsx', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/shared/ui/sheet.tsx', import.meta.url)), 'utf8');
 }
 
 function readSessionDetailsSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-details.tsx', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-details.tsx', import.meta.url)),
+    'utf8',
+  );
 }
 
 test('Finding 3: Sheet primitive is safe-area aware on mobile while preserving desktop spacing', () => {
@@ -25,8 +28,8 @@ test('Finding 3: Sheet primitive is safe-area aware on mobile while preserving d
   assert.match(source, /right-\[max\(1rem,env\(safe-area-inset-right\)\)\]/);
 
   // Desktop breakpoints preserve clean desktop layout
-  assert.match(source, /sm:pt-6 sm:pb-6 sm:pl-6 sm:pr-6/);
-  assert.match(source, /sm:right-4 sm:top-4/);
+  assert.match(source, /sm:pt-6 sm:pr-6 sm:pb-6 sm:pl-6/);
+  assert.match(source, /sm:top-4 sm:right-4/);
 });
 
 test('Task 06: AgentSessionDetails component exposes context, tasks, provider, mode, and delete confirmation', () => {
@@ -66,9 +69,7 @@ test('resolveSessionTaskItems correctly maps taskIds and single taskId against s
 
   // Single taskId fallback
   const items2 = resolveSessionTaskItems({ taskId: 'task-2' }, specTasks);
-  assert.deepEqual(items2, [
-    { id: 'task-2', title: 'Second Task', isClickable: true },
-  ]);
+  assert.deepEqual(items2, [{ id: 'task-2', title: 'Second Task', isClickable: true }]);
 
   // Empty / null session
   assert.deepEqual(resolveSessionTaskItems(null, specTasks), []);

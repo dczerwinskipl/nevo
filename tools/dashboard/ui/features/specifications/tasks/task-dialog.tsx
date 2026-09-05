@@ -1,39 +1,22 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { MessagesSquare, LoaderCircle, X, AlertCircle } from 'lucide-react';
-import type {
-  SpecificationSummary,
-  SpecificationTaskDocument,
-} from '../types';
-import type { AgentSession, TaskNavigationTarget } from '@/features/agent-sessions/types';
-import { formatStatus } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import type { SpecificationSummary, SpecificationTaskDocument } from '../types';
+import { formatStatus } from '@/shared/lib/utils';
+import { Badge } from '@/shared/ui/badge';
+import { Button } from '@/shared/ui/button';
 import { MarkdownContent } from '@/shared/markdown/markdown-content';
 import { TaskActionFooter } from '../actions/spec-actions';
-import { AgentSessionList } from '@/features/agent-sessions/agent-session-list';
-// Imported directly from the detail feature's own module, not through
-// specification-detail.tsx — that component imports TaskDialog itself, and
-// going through it here would create a circular module import.
 import { useSpecificationDocument, useSpecificationActions } from '../detail/spec-detail-queries';
-import { useAgentSessions } from '@/features/agent-sessions/queries';
 
 export interface TaskDialogProps {
   specification: SpecificationSummary;
   taskId: string;
   onClose: () => void;
-  onOpenSession?: (session: AgentSession, taskId?: string | null) => void;
-  onOpenTask?: (target: TaskNavigationTarget | string) => void;
   onOperationStarted?: (operationId: string, label: string) => void;
+  sessionsContent?: React.ReactNode;
 }
 
-export function TaskDialog({
-  specification,
-  taskId,
-  onClose,
-  onOpenSession,
-  onOpenTask,
-  onOperationStarted,
-}: TaskDialogProps) {
+export function TaskDialog({ specification, taskId, onClose, onOperationStarted, sessionsContent }: TaskDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -42,12 +25,8 @@ export function TaskDialog({
   const taskDocumentQuery = useSpecificationDocument(specification, taskDocId, Boolean(taskId));
   const taskDocument = taskId ? (taskDocumentQuery.data as SpecificationTaskDocument | null) : null;
 
-  const sessionsQuery = useAgentSessions({
-    specId: specification.specId || undefined,
-    enabled: Boolean(specification.specId),
-  });
   const actionsQuery = useSpecificationActions(specification, specification.source === 'active');
-  const actionGate = taskId && actionsQuery.data?.tasks ? actionsQuery.data.tasks[taskId] ?? null : null;
+  const actionGate = taskId && actionsQuery.data?.tasks ? (actionsQuery.data.tasks[taskId] ?? null) : null;
 
   const executeTaskAction = useCallback(async () => {
     if (!actionGate || !task) return;
@@ -58,7 +37,7 @@ export function TaskDialog({
       if (res?.operationId && onOperationStarted) {
         onOperationStarted(
           res.operationId,
-          actionName === 'approve' ? `Zatwierdzanie zadania: ${task.id}` : `Weryfikacja zadania: ${task.id}`
+          actionName === 'approve' ? `Zatwierdzanie zadania: ${task.id}` : `Weryfikacja zadania: ${task.id}`,
         );
       }
     } catch {
@@ -80,8 +59,8 @@ export function TaskDialog({
       if (event.key !== 'Tab' || !dialogRef.current) return;
       const focusable = Array.from(
         dialogRef.current.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        )
+          'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
       );
       if (!focusable.length) return;
       const first = focusable[0];
@@ -103,13 +82,9 @@ export function TaskDialog({
 
   if (!task) return null;
 
-  const filteredSessions = sessionsQuery.sessions.filter(
-    (session) => (session.taskIds && session.taskIds.includes(task.id)) || session.taskId === task.id
-  );
-
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-6"
+      className="fixed inset-0 z-[70] flex items-end justify-center bg-backdrop p-0 backdrop-blur-sm sm:items-center sm:p-6"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -119,64 +94,63 @@ export function TaskDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="task-dialog-title"
-        className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-t-2xl border border-[var(--border)] bg-[var(--background)] shadow-2xl sm:rounded-2xl"
+        className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-t-2xl border border-border bg-background shadow-2xl sm:rounded-2xl"
       >
-        <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface)] px-5 py-4 sm:px-7">
+        <div className="flex items-start justify-between gap-4 border-b border-border bg-surface px-5 py-4 sm:px-7">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <Badge>{formatStatus(task.status)}</Badge>
-              <span className="text-[10px] text-[var(--muted)]">#{String(task.order ?? '—').padStart(2, '0')}</span>
+              <span className="text-[10px] text-fg-muted">#{String(task.order ?? '—').padStart(2, '0')}</span>
             </div>
-            <h2 id="task-dialog-title" className="mt-3 text-lg font-semibold text-[var(--foreground)] sm:text-xl">
+            <h2 id="task-dialog-title" className="mt-3 text-lg font-semibold text-fg-primary sm:text-xl">
               {task.title}
             </h2>
-            {task.file && <p className="mt-1 truncate text-[10px] text-[var(--muted)]">{task.file}</p>}
+            {task.file && <p className="mt-1 truncate text-[10px] text-fg-muted">{task.file}</p>}
           </div>
-          <Button ref={closeButtonRef} variant="ghost" size="icon" onClick={onClose} aria-label="Zamknij szczegóły zadania">
+          <Button
+            ref={closeButtonRef}
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            aria-label="Zamknij szczegóły zadania"
+          >
             <X className="size-4" />
           </Button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-6 sm:px-7 sm:py-7">
           <div className="mb-7 flex flex-wrap items-center gap-2 text-xs">
-            <span className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-[var(--muted-strong)]">
+            <span className="rounded-md border border-border bg-surface px-2.5 py-1 text-fg-secondary">
               Zależności: {task.dependsOn.length ? task.dependsOn.join(', ') : 'brak'}
             </span>
             {task.blockedBy.length > 0 && (
-              <span className="rounded-md border border-[var(--warning-border)] bg-[var(--warning-muted)] px-2.5 py-1 text-[var(--warning-strong)]">
+              <span className="rounded-md border border-status-warning/25 bg-status-warning/10 px-2.5 py-1 text-status-warning">
                 Blokowane przez: {task.blockedBy.join(', ')}
               </span>
             )}
           </div>
 
-          <section className="mb-7" aria-label="Sesje powiązane z zadaniem">
-            <div className="mb-3 flex items-center gap-2">
-              <MessagesSquare className="size-4 text-[var(--accent)]" />
-              <h3 className="text-sm font-semibold text-[var(--foreground)]">Powiązane sesje</h3>
-            </div>
-            <AgentSessionList
-              sessions={filteredSessions}
-              tasks={specification.tasks}
-              loading={sessionsQuery.loading}
-              error={sessionsQuery.error}
-              onRetry={() => void sessionsQuery.refresh()}
-              onOpen={(session) => onOpenSession?.(session, task.id)}
-              onOpenTask={onOpenTask}
-              emptyLabel="To zadanie nie ma jeszcze powiązanych sesji."
-            />
-          </section>
+          {sessionsContent && (
+            <section className="mb-7" aria-label="Sesje powiązane z zadaniem">
+              <div className="mb-3 flex items-center gap-2">
+                <MessagesSquare className="size-4 text-accent" />
+                <h3 className="text-sm font-semibold text-fg-primary">Powiązane sesje</h3>
+              </div>
+              {sessionsContent}
+            </section>
+          )}
 
           {taskDocumentQuery.loading ? (
-            <div className="flex items-center gap-3 py-12 text-sm text-[var(--muted)]" role="status">
-              <LoaderCircle className="size-4 animate-spin text-[var(--accent)]" /> Wczytywanie opisu zadania…
+            <div className="flex items-center gap-3 py-12 text-sm text-fg-muted" role="status">
+              <LoaderCircle className="size-4 animate-spin text-accent" /> Wczytywanie opisu zadania…
             </div>
           ) : taskDocumentQuery.error ? (
-            <div className="rounded-xl border border-[var(--danger-border)] bg-[var(--danger-muted)] p-4 text-xs text-[var(--danger-strong)]">
+            <div className="rounded-xl border border-status-error/25 bg-status-error/10 p-4 text-xs text-status-error">
               <div className="flex items-center gap-2 font-semibold">
-                <AlertCircle className="size-4 text-[var(--danger)]" />
+                <AlertCircle className="size-4 text-status-error" />
                 <span>Nie udało się wczytać treści zadania</span>
               </div>
-              <p className="mt-1 text-[11px] text-[color-mix(in_srgb,var(--danger-strong)_80%,transparent)]">{taskDocumentQuery.error}</p>
+              <p className="mt-1 text-[11px] text-status-error/80">{taskDocumentQuery.error}</p>
               <Button size="sm" variant="secondary" onClick={() => void taskDocumentQuery.refresh()} className="mt-3">
                 Spróbuj ponownie
               </Button>
@@ -184,8 +158,8 @@ export function TaskDialog({
           ) : taskDocument?.available ? (
             <MarkdownContent markdown={taskDocument.markdown} />
           ) : (
-            <div className="rounded-xl border border-dashed border-[var(--border)] p-6 text-center text-xs text-[var(--muted)]">
-              <p className="font-semibold text-[var(--foreground)]">Brak treści zadania</p>
+            <div className="rounded-xl border border-dashed border-border p-6 text-center text-xs text-fg-muted">
+              <p className="font-semibold text-fg-primary">Brak treści zadania</p>
               <p className="mt-1">Plik zadania nie jest obecnie dostępny w specyfikacji.</p>
             </div>
           )}

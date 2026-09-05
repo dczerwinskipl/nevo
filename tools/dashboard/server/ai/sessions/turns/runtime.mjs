@@ -10,8 +10,11 @@ import {
   validateAgentIdentity,
   validateAgentExecutionMode,
   validateInteractionResponse,
+  getGlobalTraceSink,
+  normalizeTransitionalToolStatus,
 } from '../../contracts.mjs';
 import { createTranscriptCacheService } from '../transcript-cache.mjs';
+import { TurnLifecycleCoordinator } from './coordinator.mjs';
 import { TurnEventStream, sessionKey } from './turn-event-stream.mjs';
 import {
   findPersistedActiveTurn,
@@ -27,20 +30,23 @@ function publicFailure(error) {
 }
 
 const TURN_ACTIVITY_EVENT_TYPES = new Set([
+  'commentary.delta',
+  'final_answer.delta',
   'text.delta',
   'progress.delta',
   'reasoning.delta',
   'tool.started',
   'tool.updated',
   'tool.completed',
+  'tool.action.added',
   'usage.updated',
 ]);
 
 /**
  * Main application-facing Agent Turn runtime facade.
  * Coordinates turn lifecycle admission, provider turn orchestration,
- * interaction state transitions, cancellation/timeout policy, and delegates
- * event streaming and recovery to focused collaborators.
+ * process termination, and delegates semantic lifecycle ownership
+ * exclusively to TurnLifecycleCoordinator.
  */
 export class AgentTurnRuntime {
   #turns = new Map();
@@ -61,9 +67,11 @@ export class AgentTurnRuntime {
     clock = () => new Date(),
     idleTimeoutMs = 5 * 60 * 1000,
     idleCheckIntervalMs = Math.min(idleTimeoutMs > 0 ? idleTimeoutMs : 30_000, 30_000),
+    traceSink = null,
   } = {}) {
     this.registry = registry;
     this.transcriptCache = transcriptCache ?? createTranscriptCacheService();
+    this.traceSink = traceSink ?? getGlobalTraceSink();
     this.maxEventsPerTurn = maxEventsPerTurn;
     this.maxRetainedTurns = maxRetainedTurns;
     this.idFactory = idFactory;
@@ -82,7 +90,35 @@ export class AgentTurnRuntime {
     }
   }
 
-  async startTurn({ provider, providerSessionId, sessionId, message, prompt, mode, idempotencyKey, onSessionEstablished } = {}) {
+  getTrace(turnId) {
+    return this.traceSink?.getTrace(turnId) ?? [];
+  }
+
+  exportTrace(turnId) {
+    return this.traceSink?.exportTrace(turnId) ?? { turnId, recordCount: 0, records: [] };
+  }
+
+  #mapLegacyStatus(canonicalStatus) {
+    if (!canonicalStatus) return 'running';
+    const s = canonicalStatus.status;
+    if (s === 'requiresAttention') return 'waitingForUser';
+    if (s === 'active' || s === 'waiting' || s === 'cancelling') return 'running';
+    if (s === 'terminal') return canonicalStatus.outcome === 'completed' ? 'completed' : 'failed';
+    return 'failed';
+  }
+
+  async startTurn({
+    provider,
+    providerSessionId,
+    sessionId,
+    message,
+    prompt,
+    userMessage,
+    mode,
+    idempotencyKey,
+    onSessionEstablished,
+    isSessionEstablished = true,
+  } = {}) {
     if (this.#closed) throw new AiError('AI_RUNTIME_CLOSED', 'The AI turn runtime is shut down.', { status: 503 });
     if (sessionId !== undefined) {
       throw new AiValidationError("Property 'sessionId' is obsolete. Use 'providerSessionId' instead.");
@@ -95,6 +131,11 @@ export class AgentTurnRuntime {
     }
     const validatedMode = mode ? validateAgentExecutionMode(mode, 'mode') : 'edit';
     const inputMessage = message ?? prompt;
+    // The user-visible chat text. Defaults to inputMessage for a plain composer send
+    // (message === displayed text); a caller-enriched prompt (e.g. injected task/spec
+    // context) supplies a separate, clean `userMessage` so the chat bubble never shows
+    // automatically injected context the user did not type.
+    const displayMessage = typeof userMessage === 'string' && userMessage.trim() ? userMessage : inputMessage;
     const entry = this.registry.get(provider);
     const agentProvider = entry.provider;
     if (typeof agentProvider.startTurn !== 'function') {
@@ -122,7 +163,10 @@ export class AgentTurnRuntime {
       if (typeof inputMessage !== 'string' || inputMessage.trim().length === 0 || inputMessage.length > 100_000) {
         throw new AiError('AI_VALIDATION_ERROR', 'A non-empty message is required.', { status: 400 });
       }
-      if (idempotencyKey !== undefined && (typeof idempotencyKey !== 'string' || idempotencyKey.length === 0 || idempotencyKey.length > 200)) {
+      if (
+        idempotencyKey !== undefined &&
+        (typeof idempotencyKey !== 'string' || idempotencyKey.length === 0 || idempotencyKey.length > 200)
+      ) {
         throw new AiError('AI_VALIDATION_ERROR', 'The idempotency key is invalid.', { status: 400 });
       }
 
@@ -146,7 +190,7 @@ export class AgentTurnRuntime {
 
       if (!isNewSession && this.transcriptCache) {
         this.transcriptCache.recordUserMessage(provider, providerSessionId, {
-          text: inputMessage,
+          text: displayMessage,
           createdAt: startedAt,
         });
       }
@@ -158,8 +202,32 @@ export class AgentTurnRuntime {
         initialSequence: initialSeq,
       });
 
+      const coordinator = new TurnLifecycleCoordinator({
+        turnId,
+        sessionId: providerSessionId || null,
+        provider,
+        providerSessionId: providerSessionId || null,
+        mode: validatedMode,
+        prompt: inputMessage,
+        userMessage: displayMessage,
+        traceSink: this.traceSink,
+        onTurnUpdated: (turnSnapshot, { semantic = true } = {}) => {
+          const sessId = turnSnapshot.providerSessionId || state?.providerSessionId;
+          if (sessId && this.transcriptCache?.recordCanonicalTurn) {
+            turnSnapshot.prompt = turnSnapshot.prompt || inputMessage;
+            turnSnapshot.userMessage = turnSnapshot.userMessage || { text: displayMessage, createdAt: startedAt };
+            this.transcriptCache.recordCanonicalTurn(turnSnapshot.provider, sessId, turnSnapshot);
+          }
+          if (state && semantic) {
+            this.#emit(state, 'turn.updated', { turn: turnSnapshot });
+          }
+        },
+      });
+      coordinator.touchActivity(this.clock().getTime());
+
       const state = {
         turnId,
+        coordinator,
         provider,
         providerSessionId: providerSessionId || undefined,
         identity: providerSessionId ? { provider, providerSessionId } : undefined,
@@ -167,8 +235,15 @@ export class AgentTurnRuntime {
         mode: validatedMode,
         idempotencyKey,
         onSessionEstablished,
-        status: 'running',
-        pendingInteraction: null,
+        isSessionEstablished,
+        // Distinguishes "this providerSessionId was already known when the turn started"
+        // (a caller-supplied ID, possibly still unconfirmed by the provider) from an ID
+        // the provider allocates during this very turn — only the former can receive a
+        // later provider-confirmation notification; the latter is already fully handled
+        // by the initial-binding branch below and must not be notified a second time.
+        hadInitialProviderSessionId: Boolean(providerSessionId),
+        providerConfirmed: false,
+        finished: false,
         abortController: new AbortController(),
         agentProvider,
         privateOperation: undefined,
@@ -189,17 +264,25 @@ export class AgentTurnRuntime {
       }
 
       const setProviderSessionId = async (allocatedSessionId) => {
-        if (!state.providerSessionId && allocatedSessionId) {
+        if (!allocatedSessionId) return;
+
+        if (!state.providerSessionId) {
+          state.coordinator.bindProviderSessionId(allocatedSessionId);
           state.providerSessionId = allocatedSessionId;
           state.identity = { provider: state.provider, providerSessionId: allocatedSessionId };
           state.key = sessionKey(state.provider, allocatedSessionId);
           this.#activeBySession.set(state.key, state.turnId);
-          this.#eventStream.bindSession(state.turnId, { provider: state.provider, providerSessionId: allocatedSessionId });
+          this.#eventStream.bindSession(state.turnId, {
+            provider: state.provider,
+            providerSessionId: allocatedSessionId,
+          });
+          if (this.transcriptCache?.recordCanonicalTurn) {
+            const snap = state.coordinator.getCanonicalSnapshot();
+            snap.prompt = inputMessage;
+            snap.userMessage = snap.userMessage || { text: displayMessage, createdAt: startedAt };
+            this.transcriptCache.recordCanonicalTurn(state.provider, allocatedSessionId, snap);
+          }
           if (this.transcriptCache) {
-            this.transcriptCache.recordUserMessage(state.provider, allocatedSessionId, {
-              text: inputMessage,
-              createdAt: state.startedAt,
-            });
             for (const ev of this.#eventStream.getTurnEvents(state.turnId, 0)) {
               this.transcriptCache.applyEvent(state.provider, allocatedSessionId, ev).catch(() => {});
             }
@@ -213,6 +296,28 @@ export class AgentTurnRuntime {
             }
           }
           resolveEstablished(allocatedSessionId);
+          return;
+        }
+
+        // The turn already carried a providerSessionId (e.g. a locally pre-allocated
+        // placeholder). This is the provider's first authoritative confirmation that a
+        // real conversation now exists under that exact ID — durably persist that fact
+        // (once) so later turns on this session resume instead of repeating first-turn
+        // creation semantics.
+        if (
+          state.hadInitialProviderSessionId &&
+          !state.providerConfirmed &&
+          state.providerSessionId === allocatedSessionId &&
+          state.onSessionEstablished
+        ) {
+          state.providerConfirmed = true;
+          try {
+            await state.onSessionEstablished(allocatedSessionId);
+          } catch (err) {
+            console.warn(
+              `[ai] Failed to persist provider session confirmation for ${state.provider}:${allocatedSessionId}: ${err?.message || err}`,
+            );
+          }
         }
       };
 
@@ -223,11 +328,13 @@ export class AgentTurnRuntime {
       this.#notifyProviderState(state);
       this.#emit(state, 'turn.started', {
         mode: state.mode,
-        userPrompt: inputMessage,
+        // Broadcasts the clean, user-visible text — never the enriched/injected prompt
+        // actually sent to the provider (see displayMessage above).
+        userPrompt: displayMessage,
         userMessage: {
           id: `user-${turnId}`,
           role: 'user',
-          text: inputMessage,
+          text: displayMessage,
           createdAt: state.startedAt,
         },
       });
@@ -249,7 +356,9 @@ export class AgentTurnRuntime {
   async #acquireStartLock(key) {
     const previous = this.#startQueueBySession.get(key) ?? Promise.resolve();
     let release;
-    const current = new Promise(resolve => { release = resolve; });
+    const current = new Promise((resolve) => {
+      release = resolve;
+    });
     const tail = previous.then(() => current);
     this.#startQueueBySession.set(key, tail);
     await previous;
@@ -263,18 +372,24 @@ export class AgentTurnRuntime {
     return {
       turnId: state.turnId,
       providerSessionId: state.providerSessionId,
+      isSessionEstablished: state.isSessionEstablished,
       identity: state.identity,
       mode: state.mode,
       signal: state.abortController.signal,
-      setOperation: operation => { state.privateOperation = operation; },
-      emitDelta: (delta, messageId) => this.#emitDelta(state, delta, messageId),
-      emitTextDelta: (text, messageId) => this.#emitTextDelta(state, text, messageId),
-      emitProgressDelta: (text, progressId) => this.#emitProgressDelta(state, text, progressId),
-      emitReasoningDelta: (text, messageId) => this.#emitReasoningDelta(state, text, messageId),
-      emitToolStarted: tool => this.#emitToolStarted(state, tool),
-      emitToolUpdated: tool => this.#emitToolUpdated(state, tool),
-      emitToolCompleted: tool => this.#emitToolCompleted(state, tool),
-      emitUsageUpdated: usage => this.#emitUsageUpdated(state, usage),
+      setOperation: (operation) => {
+        state.privateOperation = operation;
+      },
+      emitCommentaryDelta: (text, commentaryId) => this.#emitCommentaryDelta(state, text, commentaryId),
+      emitReasoningDelta: (text, reasoningId, representation) =>
+        this.#emitReasoningDelta(state, text, reasoningId, representation),
+      emitFinalAnswerDelta: (text, finalAnswerId, confidence) =>
+        this.#emitFinalAnswerDelta(state, text, finalAnswerId, confidence),
+      setFinalAnswer: (finalAnswerData) => this.#setFinalAnswer(state, finalAnswerData),
+      emitToolStarted: (tool) => this.#emitToolStarted(state, tool),
+      emitToolUpdated: (tool) => this.#emitToolUpdated(state, tool),
+      emitToolCompleted: (tool) => this.#emitToolCompleted(state, tool),
+      addToolAction: (toolId, action) => this.#addToolAction(state, toolId, action),
+      emitUsageUpdated: (usage) => this.#emitUsageUpdated(state, usage),
       emitEvent: (type, data) => this.#emit(state, type, data),
       ...extra,
     };
@@ -288,7 +403,7 @@ export class AgentTurnRuntime {
           message,
           prompt: message,
           requestInteraction: (interaction, options) => this.#requestInteraction(state, interaction, options),
-        })
+        }),
       );
 
       let result;
@@ -310,8 +425,7 @@ export class AgentTurnRuntime {
           ...result.interaction,
           resumePolicy: result.resumePolicy ?? result.interaction?.resumePolicy ?? 'restart',
         });
-        state.status = 'waitingForUser';
-        state.pendingInteraction = interaction;
+        state.coordinator.recordInteractionRequested({ interaction });
         state.privateOperation = null;
         this.#notifyProviderState(state);
         this.#emit(state, 'interaction.requested', { interaction });
@@ -321,7 +435,9 @@ export class AgentTurnRuntime {
       if (!this.#isTerminal(state)) this.#finish(state, 'turn.completed');
     } catch (error) {
       if (rejectEstablished) {
-        try { rejectEstablished(error); } catch {}
+        try {
+          rejectEstablished(error);
+        } catch {}
       }
       if (!this.#isTerminal(state)) this.#finish(state, 'turn.failed', error);
     }
@@ -336,7 +452,7 @@ export class AgentTurnRuntime {
             interactionId,
             interaction,
             response,
-          })
+          }),
         );
       }
 
@@ -345,8 +461,7 @@ export class AgentTurnRuntime {
           ...result.interaction,
           resumePolicy: result.resumePolicy ?? result.interaction?.resumePolicy ?? 'restart',
         });
-        state.status = 'waitingForUser';
-        state.pendingInteraction = nextInteraction;
+        state.coordinator.recordInteractionRequested({ interaction: nextInteraction });
         state.privateOperation = null;
         this.#notifyProviderState(state);
         this.#emit(state, 'interaction.requested', { interaction: nextInteraction });
@@ -361,75 +476,115 @@ export class AgentTurnRuntime {
     }
   }
 
-  #emitDelta(state, delta, messageId = `message-${state.turnId}`) {
-    if (this.#isTerminal(state)) return;
-    if (typeof delta !== 'string' || delta.length === 0 || delta.length > 50_000) {
-      throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid message delta.', { status: 502 });
-    }
-    this.#emit(state, 'text.delta', { messageId, text: delta, delta });
-  }
-
-  #emitTextDelta(state, text, messageId = `message-${state.turnId}`) {
+  #emitCommentaryDelta(state, text, commentaryId = `commentary-${state.turnId}`) {
     if (this.#isTerminal(state)) return;
     if (typeof text !== 'string' || text.length === 0 || text.length > 50_000) {
-      throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid text delta.', { status: 502 });
+      throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid commentary delta.', { status: 502 });
     }
-    this.#emit(state, 'text.delta', { messageId, text, delta: text });
+    state.coordinator.recordCommentaryDelta(text, commentaryId);
+    this.#emit(state, 'text.delta', { messageId: commentaryId, text, delta: text });
   }
 
-  #emitProgressDelta(state, text, progressId = `progress-${state.turnId}`) {
+  #emitFinalAnswerDelta(state, text, finalAnswerId = 'final-answer', confidence = undefined) {
     if (this.#isTerminal(state)) return;
     if (typeof text !== 'string' || text.length === 0 || text.length > 50_000) {
-      throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid progress delta.', { status: 502 });
+      throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid final answer delta.', {
+        status: 502,
+      });
     }
-    this.#emit(state, 'progress.delta', { progressId, text });
+    state.coordinator.recordFinalAnswerDelta(text, finalAnswerId, confidence);
+    this.#emit(state, 'text.delta', { messageId: finalAnswerId, text, delta: text });
   }
 
-  #emitReasoningDelta(state, text, messageId = `message-${state.turnId}`) {
+  #setFinalAnswer(state, finalAnswerData) {
+    if (this.#isTerminal(state)) return null;
+    return state.coordinator.setFinalAnswer(finalAnswerData);
+  }
+
+  #emitReasoningDelta(state, text, messageId = `reasoning-${state.turnId}`, representation = 'raw_text') {
     if (this.#isTerminal(state)) return;
     if (typeof text !== 'string' || text.length === 0 || text.length > 50_000) {
       throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid reasoning delta.', { status: 502 });
     }
+    state.coordinator.recordReasoningDelta(text, messageId, representation);
     this.#emit(state, 'reasoning.delta', { messageId, text });
   }
 
-  #emitToolStarted(state, { toolId, toolName, input } = {}) {
+  #emitToolStarted(state, { toolId, toolName, input, kind, title, description, actions, status } = {}) {
     if (this.#isTerminal(state)) return;
-    this.#emit(state, 'tool.started', { toolId, toolName, input });
+    const normalizedStatus = normalizeTransitionalToolStatus(status, 'active');
+    state.coordinator.recordToolStarted({
+      toolId,
+      toolName,
+      input,
+      kind,
+      title,
+      description,
+      actions,
+      status: normalizedStatus,
+    });
+    this.#emit(state, 'tool.started', { toolId, toolName, input: input === undefined ? {} : input });
   }
 
-  #emitToolUpdated(state, { toolId, output, status } = {}) {
+  #emitToolUpdated(state, { toolId, output, status, progress, durationMs, exitCode, actions } = {}) {
     if (this.#isTerminal(state)) return;
-    this.#emit(state, 'tool.updated', { toolId, output, status });
+    const normalizedStatus = normalizeTransitionalToolStatus(status, 'active');
+    state.coordinator.recordToolUpdated({
+      toolId,
+      output,
+      status: normalizedStatus,
+      progress,
+      durationMs,
+      exitCode,
+      actions,
+    });
+    this.#emit(state, 'tool.updated', { toolId, output, status: normalizedStatus });
   }
 
-  #emitToolCompleted(state, { toolId, output, durationMs, status } = {}) {
+  #emitToolCompleted(state, { toolId, output, durationMs, status, exitCode, actions, closureReason } = {}) {
     if (this.#isTerminal(state)) return;
-    this.#emit(state, 'tool.completed', { toolId, output, durationMs, status });
+    const normalizedStatus = normalizeTransitionalToolStatus(status, 'completed');
+    state.coordinator.recordToolCompleted({
+      toolId,
+      output,
+      durationMs,
+      status: normalizedStatus,
+      exitCode,
+      actions,
+      closureReason,
+    });
+    this.#emit(state, 'tool.completed', { toolId, output, durationMs, status: normalizedStatus });
+  }
+
+  #addToolAction(state, toolId, actionData) {
+    if (this.#isTerminal(state)) return null;
+    return state.coordinator.addToolAction(toolId, actionData);
   }
 
   #emitUsageUpdated(state, { tokensIn, tokensOut, cost } = {}) {
     if (this.#isTerminal(state)) return;
+    state.coordinator.touchActivity(this.clock().getTime());
     this.#emit(state, 'usage.updated', { tokensIn, tokensOut, cost });
   }
 
   #requestInteraction(state, value, { resumePolicy = 'restart' } = {}) {
-    if (this.#isTerminal(state)) throw new AiError('AI_TURN_TERMINAL', 'The turn is already terminal.', { status: 409 });
-    if (state.pendingInteraction) throw new AiError('AI_INTERACTION_PENDING', 'The turn already has a pending interaction.', { status: 409 });
+    if (this.#isTerminal(state))
+      throw new AiError('AI_TURN_TERMINAL', 'The turn is already terminal.', { status: 409 });
+    if (state.coordinator.pendingInteraction)
+      throw new AiError('AI_INTERACTION_PENDING', 'The turn already has a pending interaction.', { status: 409 });
     const neutral = {
       ...value,
       id: undefined,
       resumePolicy,
       ...(Array.isArray(value?.questions)
-        ? { questions: value.questions.map(question => ({ ...question, id: undefined })) }
+        ? { questions: value.questions.map((question) => ({ ...question, id: undefined })) }
         : {}),
     };
     const interaction = normalizeInteraction(neutral, {
       assignIds: true,
       idFactory: () => this.idFactory(),
     });
-    state.status = 'waitingForUser';
-    state.pendingInteraction = interaction;
+    state.coordinator.recordInteractionRequested({ interaction });
     this.#notifyProviderState(state);
     this.#emit(state, 'interaction.requested', { interaction });
     return interaction;
@@ -457,6 +612,7 @@ export class AgentTurnRuntime {
       cached,
       registry: this.registry,
       clock: this.clock,
+      transcriptCache: this.transcriptCache,
     });
 
     this.#eventStream.registerTurn({
@@ -505,7 +661,11 @@ export class AgentTurnRuntime {
 
     if (!state) {
       if (!turnId) {
-        throw new AiNotFoundError('No active turn found for this session.', { provider, providerSessionId, interactionId });
+        throw new AiNotFoundError('No active turn found for this session.', {
+          provider,
+          providerSessionId,
+          interactionId,
+        });
       }
       state = this.#get(turnId);
     }
@@ -520,14 +680,21 @@ export class AgentTurnRuntime {
       }
     }
 
-    const pending = state.pendingInteraction;
+    if (this.#isTerminal(state) || state.coordinator.isCancelling) {
+      throw new AiNotFoundError('The turn is already cancelling or terminal.', { turnId: state.turnId, interactionId });
+    }
+
+    const pending = state.coordinator.pendingInteraction;
     if (!pending || pending.id !== interactionId) {
-      throw new AiNotFoundError('The pending interaction was not found for this turn.', { turnId: state.turnId, interactionId });
+      throw new AiNotFoundError('The pending interaction was not found for this turn.', {
+        turnId: state.turnId,
+        interactionId,
+      });
     }
     const normalized = validateInteractionResponse(pending, response);
-    const interaction = state.pendingInteraction;
-    state.pendingInteraction = null;
-    state.status = 'running';
+    const interaction = structuredClone(pending);
+
+    state.coordinator.recordInteractionResolved({ interactionId, response: normalized });
     state.lastActivityAt = this.clock().getTime();
     this.#notifyProviderState(state);
     this.#emit(state, 'interaction.resolved', { interactionId, response: normalized });
@@ -559,15 +726,21 @@ export class AgentTurnRuntime {
       }
     }
     if (this.#isTerminal(state)) return this.getSnapshot(turnId);
-    if (state.status === 'waitingForUser') {
+
+    const isWaiting = state.coordinator.status.status === 'requiresAttention' || state.coordinator.pendingInteraction;
+    const accepted = state.coordinator.requestCancellation({ initiator: 'user' });
+    if (!accepted) return this.getSnapshot(turnId);
+
+    if (isWaiting) {
       const error = new AiError('AI_TURN_CANCELLED', 'The turn was cancelled.', { status: 409 });
       if (state.privateOperation) {
         await this.#cancelRunningTurn(state, error);
       } else {
-        this.#finish(state, 'turn.failed', error);
+        this.#finish(state, 'turn.failed', error, { outcome: 'cancelled', initiator: 'user' });
       }
       return this.getSnapshot(turnId);
     }
+
     await this.#cancelRunningTurn(state, new AiError('AI_TURN_CANCELLED', 'The turn was cancelled.', { status: 409 }));
     return this.getSnapshot(turnId);
   }
@@ -575,9 +748,11 @@ export class AgentTurnRuntime {
   /**
    * Explicit-cancel termination path — mirrors the pre-watchdog `cancelTurn` behavior
    * exactly: the provider must declare `cancelTurn` capability (throws
-   * `CapabilityNotSupportedError` otherwise, before anything is aborted/finished).
+   * `CapabilityNotSupportedError` when missing), and provider-level cancellation errors
+   * bubble directly to the caller.
    */
   async #cancelRunningTurn(state, error) {
+    state.abortController.abort();
     const agentProvider = this.registry.require(state.provider, 'cancelTurn', 'cancelTurn');
     if (state.privateOperation) {
       await agentProvider.cancelTurn({
@@ -587,8 +762,7 @@ export class AgentTurnRuntime {
         operation: state.privateOperation,
       });
     }
-    state.abortController.abort();
-    this.#finish(state, 'turn.failed', error);
+    this.#finish(state, 'turn.failed', error, { outcome: 'cancelled', initiator: 'user' });
   }
 
   /**
@@ -597,7 +771,12 @@ export class AgentTurnRuntime {
    * provider-level cancellation itself fails.
    */
   async #timeoutRunningTurn(state, error) {
-    if (this.#isTerminal(state)) return;
+    if (state.finished) return;
+    const accepted = state.coordinator.requestTimeoutIntent({
+      cause: 'timeout/protocol-silence',
+      initiator: 'runtime',
+    });
+    if (!accepted) return;
     const entry = this.registry.get(state.provider);
     if (state.privateOperation && entry?.provider?.cancelTurn) {
       try {
@@ -610,21 +789,24 @@ export class AgentTurnRuntime {
       } catch {}
     }
     state.abortController.abort();
-    this.#finish(state, 'turn.failed', error);
+    await this.#finish(state, 'turn.failed', error, {
+      outcome: 'failed',
+      initiator: 'runtime',
+      cause: 'timeout/protocol-silence',
+    });
   }
 
   #checkIdleTurns() {
     if (this.idleTimeoutMs <= 0) return;
     const now = this.clock().getTime();
     for (const state of this.#turns.values()) {
-      if (state.status !== 'running') continue;
-      const lastActivityAt = state.lastActivityAt ?? (state.startedAt ? new Date(state.startedAt).getTime() : now);
-      if (now - lastActivityAt >= this.idleTimeoutMs) {
-        void this.#timeoutRunningTurn(state, new AiError(
-          'AI_TURN_TIMEOUT',
-          'The turn was cancelled because it stopped responding.',
-          { status: 504 },
-        ));
+      if (state.finished) continue;
+      const check = state.coordinator.checkProtocolSilence(now, this.idleTimeoutMs);
+      if (check.fired) {
+        void this.#timeoutRunningTurn(
+          state,
+          new AiError('AI_TURN_TIMEOUT', 'The turn was cancelled because it stopped responding.', { status: 504 }),
+        );
       }
     }
   }
@@ -656,14 +838,33 @@ export class AgentTurnRuntime {
     return {
       turnId: state.turnId,
       provider: state.provider,
-      providerSessionId: state.providerSessionId,
-      status: state.status,
+      providerSessionId: state.coordinator?.turn?.providerSessionId || state.providerSessionId,
+      status: this.#mapLegacyStatus(state.coordinator?.status),
       startedAt: state.startedAt,
       ...(state.completedAt ? { completedAt: state.completedAt } : {}),
       lastEventId: this.#eventStream.getTurnSequence(state.turnId),
-      pendingInteraction: state.pendingInteraction ? structuredClone(state.pendingInteraction) : null,
+      pendingInteraction: state.coordinator?.pendingInteraction
+        ? structuredClone(state.coordinator.pendingInteraction)
+        : null,
       events: this.#eventStream.getTurnEvents(state.turnId, 0),
     };
+  }
+
+  getCanonicalTurn(turnId) {
+    const state = this.#turns.get(turnId);
+    return state?.coordinator?.turn ?? null;
+  }
+
+  setFinalAnswer(turnId, finalAnswerData) {
+    const state = this.#get(turnId);
+    const answer = state.coordinator.setFinalAnswer(finalAnswerData);
+    this.#notifyProviderState(state);
+    return answer;
+  }
+
+  getCoordinator(turnId) {
+    const state = this.#turns.get(turnId);
+    return state?.coordinator ?? null;
   }
 
   getEvents(turnId, afterSequence = 0) {
@@ -692,24 +893,86 @@ export class AgentTurnRuntime {
     }
     const transcriptFlushes = [];
     for (const state of this.#turns.values()) {
-      if (this.#isTerminal(state)) continue;
-      if (state.status === 'waitingForUser' && state.pendingInteraction?.resumePolicy !== 'live-operation') continue;
+      if (this.#isTerminal(state)) {
+        if (state.provider && state.providerSessionId && this.transcriptCache) {
+          transcriptFlushes.push(this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {}));
+        }
+        continue;
+      }
+      if (
+        state.coordinator.status.status === 'requiresAttention' &&
+        state.coordinator.pendingInteraction?.resumePolicy !== 'live-operation'
+      ) {
+        if (state.provider && state.providerSessionId && this.transcriptCache) {
+          transcriptFlushes.push(this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {}));
+        }
+        continue;
+      }
       state.abortController.abort();
-      transcriptFlushes.push(this.#finish(state, 'turn.failed', new AiError('AI_TURN_INTERRUPTED', 'The server stopped before the turn completed.', { status: 503 })));
+      transcriptFlushes.push(
+        this.#finish(
+          state,
+          'turn.failed',
+          new AiError('AI_TURN_INTERRUPTED', 'The server stopped before the turn completed.', { status: 503 }),
+          { outcome: 'interrupted', initiator: 'shutdown' },
+        ),
+      );
+    }
+    if (this.transcriptCache?.flushAll) {
+      transcriptFlushes.push(this.transcriptCache.flushAll().catch(() => {}));
     }
     this.#shutdownPromise = Promise.all(transcriptFlushes).then(() => this.registry?.dispose?.());
     return this.#shutdownPromise;
   }
 
-  #finish(state, type, error) {
-    if (this.#isTerminal(state)) return Promise.resolve();
-    state.pendingInteraction = null;
-    state.status = type === 'turn.completed' ? 'completed' : 'failed';
+  #finish(state, type, error, options = {}) {
+    if (state.finished) return Promise.resolve();
+    state.finished = true;
+
+    const outcome = options.outcome ?? (type === 'turn.completed' ? 'completed' : 'failed');
+    const cause = options.cause ?? error?.code;
+    const terminalStatus = state.coordinator.settleTerminal({
+      outcome,
+      initiator: options.initiator ?? 'provider',
+      cause,
+      error: error ? publicFailure(error) : undefined,
+    });
+
     state.completedAt = this.#timestamp();
     this.#activeBySession.delete(state.key);
     this.#notifyProviderState(state);
-    console.log(`[ai] [turn:${type}] turnId=${state.turnId} provider=${state.provider} session=${state.providerSessionId}${error ? ` error="${error.message}"` : ''}`);
-    this.#emit(state, type, error ? { error: publicFailure(error) } : {});
+
+    // Authoritative external event derivation from accepted canonical outcome
+    let effectiveEventType = 'turn.completed';
+    let eventData = {};
+
+    if (terminalStatus.outcome === 'completed') {
+      effectiveEventType = 'turn.completed';
+      eventData = {};
+    } else {
+      effectiveEventType = 'turn.failed';
+      const terminalErr = terminalStatus.error;
+      const status =
+        terminalErr?.code === 'AI_TURN_TIMEOUT'
+          ? 504
+          : terminalErr?.code === 'AI_TURN_CANCELLED'
+            ? 409
+            : error?.status || 500;
+      eventData = {
+        error: publicFailure(
+          terminalErr
+            ? new AiError(terminalErr.code, terminalErr.message, { status })
+            : (error ?? new AiError('AI_TURN_FAILED', 'The turn failed.', { status: 500 })),
+        ),
+      };
+    }
+
+    console.log(
+      `[ai] [turn:${effectiveEventType}] turnId=${state.turnId} provider=${state.provider} session=${state.providerSessionId}${
+        eventData.error ? ` error="${eventData.error.message}"` : ''
+      }`,
+    );
+    this.#emit(state, effectiveEventType, eventData);
     this.#eventStream.clearTurnSubscribers(state.turnId);
     this.#terminalOrder.push(state.turnId);
     while (this.#terminalOrder.length > this.maxRetainedTurns) {
@@ -717,16 +980,20 @@ export class AgentTurnRuntime {
       this.#turns.delete(evicted);
       this.#eventStream.releaseTurn(evicted);
     }
+    let flushPromise = Promise.resolve();
     if (this.transcriptCache && state.provider && state.providerSessionId) {
-      return this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {});
+      flushPromise = this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {});
     }
-    return Promise.resolve();
+    const tracePromise = state.coordinator.flushTrace().catch(() => {});
+    return Promise.all([flushPromise, tracePromise]).then(() => {});
   }
 
   #emit(state, type, data = {}) {
     const event = this.#eventStream.emit(state.turnId, type, data);
     if (TURN_ACTIVITY_EVENT_TYPES.has(type)) {
-      state.lastActivityAt = this.clock().getTime();
+      const now = this.clock().getTime();
+      state.lastActivityAt = now;
+      state.coordinator.touchActivity(now);
     }
     return event;
   }
@@ -736,7 +1003,8 @@ export class AgentTurnRuntime {
       turnId: state.turnId,
       provider: state.provider,
       providerSessionId: state.providerSessionId,
-      status: state.status,
+      status: this.#mapLegacyStatus(state.coordinator?.status),
+      canonicalStatus: state.coordinator?.status,
       timestamp: this.#timestamp(),
     });
   }
@@ -753,7 +1021,7 @@ export class AgentTurnRuntime {
   }
 
   #isTerminal(state) {
-    return state.status === 'completed' || state.status === 'failed';
+    return state?.finished || state?.coordinator?.isTerminal;
   }
 }
 

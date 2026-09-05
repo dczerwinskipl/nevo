@@ -11,58 +11,52 @@ import {
 import { useAgentSessionRuntime } from '../ui/features/agent-sessions/runtime/agent-session-runtime.ts';
 
 test('turn idempotency keys work when randomUUID is unavailable on an HTTP VPN origin', () => {
-  assert.equal(createTurnIdempotencyKey({
-    cryptoSource: {},
-    now: () => 1234,
-    random: () => 0.5,
-  }), 'ui-ya-i');
+  assert.equal(
+    createTurnIdempotencyKey({
+      cryptoSource: {},
+      now: () => 1234,
+      random: () => 0.5,
+    }),
+    'ui-ya-i',
+  );
 
-  assert.equal(createTurnIdempotencyKey({
-    cryptoSource: { randomUUID: () => 'stable-uuid' },
-  }), 'ui-stable-uuid');
+  assert.equal(
+    createTurnIdempotencyKey({
+      cryptoSource: { randomUUID: () => 'stable-uuid' },
+    }),
+    'ui-stable-uuid',
+  );
 });
 
 test('selected stable task IDs and specification context are prepended to the initial prompt', () => {
   assert.equal(
     initialPromptWithTaskContext(' Review these tasks. ', ['task-a', 'task-b']),
-    'Context: tasks task-a, task-b\n\nReview these tasks.'
+    'Context: tasks task-a, task-b\n\nReview these tasks.',
   );
   assert.equal(initialPromptWithTaskContext(' General review. ', []), 'General review.');
   assert.equal(initialPromptWithTaskContext('   ', ['task-a']), null);
 
-  const specPrompt = initialPromptWithTaskContext(
-    'Please analyze this task.',
-    ['task-1'],
-    {
-      slug: 'my-feature',
-      title: 'My Feature',
-      tasks: [{ id: 'task-1', title: 'First Task' }],
-    }
-  );
+  const specPrompt = initialPromptWithTaskContext('Please analyze this task.', ['task-1'], {
+    slug: 'my-feature',
+    title: 'My Feature',
+    tasks: [{ id: 'task-1', title: 'First Task' }],
+  });
   assert.ok(specPrompt?.includes("[NEvo Context: Specification 'my-feature']"));
   assert.ok(specPrompt?.includes('Title: "My Feature"'));
   assert.ok(specPrompt?.includes('Location: specs/active/my-feature/'));
   assert.ok(specPrompt?.includes('Focus Tasks: task-1 ("First Task")'));
   assert.ok(specPrompt?.includes('Please analyze this task.'));
 
-  const emptyMsgSpecPrompt = initialPromptWithTaskContext(
-    '',
-    [],
-    { slug: 'my-feature', title: 'My Feature' }
-  );
+  const emptyMsgSpecPrompt = initialPromptWithTaskContext('', [], { slug: 'my-feature', title: 'My Feature' });
   assert.ok(emptyMsgSpecPrompt?.includes("[NEvo Context: Specification 'my-feature']"));
   assert.ok(emptyMsgSpecPrompt?.includes('Scope: Full specification'));
 
-  const planningPrompt = initialPromptWithTaskContext(
-    '',
-    [],
-    {
-      slug: 'my-feature',
-      title: 'My Feature',
-      goal: 'Build awesome things',
-      isPlanning: true,
-    }
-  );
+  const planningPrompt = initialPromptWithTaskContext('', [], {
+    slug: 'my-feature',
+    title: 'My Feature',
+    goal: 'Build awesome things',
+    isPlanning: true,
+  });
   assert.ok(planningPrompt?.includes("[NEvo Context: Specification 'my-feature']"));
   assert.ok(planningPrompt?.includes('Status: draft (skeleton created: change.yaml, overview.md)'));
   assert.ok(planningPrompt?.includes('Goal: Build awesome things'));
@@ -70,22 +64,26 @@ test('selected stable task IDs and specification context are prepended to the in
 });
 
 test('persisted assistant messages replace their streamed version by stable message ID', () => {
-  assert.deepEqual(composeTranscriptMessages(
-    [{ id: 'assistant-1', role: 'assistant', text: 'Complete response.' }],
-    'Pending question',
-    {
-      'assistant-1': 'Complete response',
-      'assistant-2': 'Still streaming',
-    },
-  ), [
-    { id: 'assistant-1', role: 'assistant', text: 'Complete response.' },
-    { id: 'optimistic-user', role: 'user', text: 'Pending question' },
-    { id: 'assistant-2', role: 'assistant', text: 'Still streaming' },
-  ]);
+  assert.deepEqual(
+    composeTranscriptMessages(
+      [{ id: 'assistant-1', role: 'assistant', text: 'Complete response.' }],
+      'Pending question',
+      {
+        'assistant-1': 'Complete response',
+        'assistant-2': 'Still streaming',
+      },
+    ),
+    [
+      { id: 'assistant-1', role: 'assistant', text: 'Complete response.' },
+      { id: 'optimistic-user', role: 'user', text: 'Pending question' },
+      { id: 'assistant-2', role: 'assistant', text: 'Still streaming' },
+    ],
+  );
 });
 
 test('browser EventSource dispatches named SSE events only to addEventListener, not onmessage', async () => {
-  const { subscribeAgentEventSource, SUPPORTED_AGENT_EVENT_TYPES } = await import('../ui/features/agent-sessions/runtime/agent-event-source.ts');
+  const { subscribeAgentEventSource, SUPPORTED_AGENT_EVENT_TYPES } =
+    await import('../ui/features/agent-sessions/runtime/agent-event-source.ts');
   const { applyAgentEvent } = await import('../ui/features/agent-sessions/runtime/agent-event-reducer.ts');
 
   // Minimal standard-compliant EventTarget mock for browser EventSource
@@ -125,7 +123,9 @@ test('browser EventSource dispatches named SSE events only to addEventListener, 
   // 1. Verify that onmessage-only does NOT catch named SSE events (proving the regression)
   const buggySource = new MockEventSource();
   let buggyReceived = false;
-  buggySource.onmessage = () => { buggyReceived = true; };
+  buggySource.onmessage = () => {
+    buggyReceived = true;
+  };
   buggySource.dispatchEvent('text.delta', { type: 'text.delta', seq: 1, text: 'hello' });
   assert.equal(buggyReceived, false, 'onmessage must not receive named SSE event text.delta');
 
@@ -141,18 +141,65 @@ test('browser EventSource dispatches named SSE events only to addEventListener, 
   }
 
   assert.equal(receivedEvents.length, SUPPORTED_AGENT_EVENT_TYPES.length);
-  assert.deepEqual(receivedEvents.map(e => e.type), Array.from(SUPPORTED_AGENT_EVENT_TYPES));
+  assert.deepEqual(
+    receivedEvents.map((e) => e.type),
+    Array.from(SUPPORTED_AGENT_EVENT_TYPES),
+  );
 
   // 3. Verify applyAgentEvent state reduction — every event for one turn carries the
   // same turnId (the real, current-schema wire shape: contracts.mjs requires turnId on
   // every event), which is what correlates text/reasoning/tool activity into one message.
   let messages = [];
-  messages = applyAgentEvent(messages, { id: 1, seq: 1, type: 'text.delta', turnId: '1', messageId: 'msg-1', text: 'Hello ' });
-  messages = applyAgentEvent(messages, { id: 2, seq: 2, type: 'text.delta', turnId: '1', messageId: 'msg-1', text: 'World' });
-  messages = applyAgentEvent(messages, { id: 3, seq: 3, type: 'reasoning.delta', turnId: '1', messageId: 'msg-1', text: 'Deep thought' });
-  messages = applyAgentEvent(messages, { id: 4, seq: 4, type: 'progress.delta', turnId: '1', progressId: 'progress-1', text: 'Checking files' });
-  messages = applyAgentEvent(messages, { id: 5, seq: 5, type: 'tool.started', turnId: '1', toolId: 'tool-a', toolName: 'test_tool', input: { a: 1 } });
-  messages = applyAgentEvent(messages, { id: 6, seq: 6, type: 'tool.completed', turnId: '1', toolId: 'tool-a', output: { success: true }, status: 'completed' });
+  messages = applyAgentEvent(messages, {
+    id: 1,
+    seq: 1,
+    type: 'text.delta',
+    turnId: '1',
+    messageId: 'msg-1',
+    text: 'Hello ',
+  });
+  messages = applyAgentEvent(messages, {
+    id: 2,
+    seq: 2,
+    type: 'text.delta',
+    turnId: '1',
+    messageId: 'msg-1',
+    text: 'World',
+  });
+  messages = applyAgentEvent(messages, {
+    id: 3,
+    seq: 3,
+    type: 'reasoning.delta',
+    turnId: '1',
+    messageId: 'msg-1',
+    text: 'Deep thought',
+  });
+  messages = applyAgentEvent(messages, {
+    id: 4,
+    seq: 4,
+    type: 'progress.delta',
+    turnId: '1',
+    progressId: 'progress-1',
+    text: 'Checking files',
+  });
+  messages = applyAgentEvent(messages, {
+    id: 5,
+    seq: 5,
+    type: 'tool.started',
+    turnId: '1',
+    toolId: 'tool-a',
+    toolName: 'test_tool',
+    input: { a: 1 },
+  });
+  messages = applyAgentEvent(messages, {
+    id: 6,
+    seq: 6,
+    type: 'tool.completed',
+    turnId: '1',
+    toolId: 'tool-a',
+    output: { success: true },
+    status: 'completed',
+  });
 
   assert.equal(messages[0].text, 'Hello World');
   assert.equal(messages[0].text.includes('Checking files'), false);
@@ -167,7 +214,8 @@ test('browser EventSource dispatches named SSE events only to addEventListener, 
 });
 
 test('classifySessionLoadError distinguishes network, 404 not found, and general HTTP failures', async () => {
-  const { classifySessionLoadError, AgentSessionLoadError } = await import('../ui/features/agent-sessions/runtime/agent-session-transport.ts');
+  const { classifySessionLoadError, AgentSessionLoadError } =
+    await import('../ui/features/agent-sessions/runtime/agent-session-transport.ts');
 
   // 1. Network / fetch failures
   const netErr1 = classifySessionLoadError(new TypeError('Failed to fetch'), 'claude', 'sess-1');
@@ -196,7 +244,8 @@ test('classifySessionLoadError distinguishes network, 404 not found, and general
 });
 
 test('fetchAgentSessionSnapshot parses snapshots and wraps HTTP and network errors with exact classification', async () => {
-  const { fetchAgentSessionSnapshot } = await import('../ui/features/agent-sessions/runtime/agent-session-transport.ts');
+  const { fetchAgentSessionSnapshot } =
+    await import('../ui/features/agent-sessions/runtime/agent-session-transport.ts');
 
   // 1. Successful snapshot
   const mockFetchSuccess = async (url) => {
@@ -236,7 +285,7 @@ test('fetchAgentSessionSnapshot parses snapshots and wraps HTTP and network erro
       assert.equal(err.title, 'Sesja nie znaleziona');
       assert.ok(err.message.includes('sess-404'));
       return true;
-    }
+    },
   );
 
   // 3. 500 Internal Server Error
@@ -255,7 +304,7 @@ test('fetchAgentSessionSnapshot parses snapshots and wraps HTTP and network erro
       assert.equal(err.title, 'Błąd serwera (500)');
       assert.equal(err.message, 'Database failure');
       return true;
-    }
+    },
   );
 
   // 4. Network fetch rejection
@@ -269,7 +318,7 @@ test('fetchAgentSessionSnapshot parses snapshots and wraps HTTP and network erro
       assert.equal(err.kind, 'network');
       assert.equal(err.title, 'Nie można połączyć z dashboardem');
       return true;
-    }
+    },
   );
 });
 
@@ -292,7 +341,9 @@ function createHookHarness() {
         namespaceURI: 'http://www.w3.org/1999/xhtml',
         setAttribute: () => {},
         removeAttribute: () => {},
-        appendChild: (c) => { c.parentNode = el; },
+        appendChild: (c) => {
+          c.parentNode = el;
+        },
         removeChild: () => {},
         insertBefore: () => {},
         addEventListener: () => {},
@@ -421,7 +472,9 @@ test('real useAgentSessionRuntime mounting: EventSource lifecycle during snapsho
 
   // 2. Trigger retry while snapshot fetch is in-flight
   failSnapshot = false;
-  blockFetchPromise = new Promise((resolve) => { resolveInflightFetch = resolve; });
+  blockFetchPromise = new Promise((resolve) => {
+    resolveInflightFetch = resolve;
+  });
 
   const retryPromise = harness.act(async () => {
     void harness.result.reload();
@@ -545,7 +598,9 @@ test('real useAgentSessionRuntime mounting: error domain separation between snap
   const harness = createHookHarness();
 
   globalThis.EventSource = class MockEventSource {
-    constructor(url) { this.url = url; }
+    constructor(url) {
+      this.url = url;
+    }
     addEventListener() {}
     removeEventListener() {}
     close() {}

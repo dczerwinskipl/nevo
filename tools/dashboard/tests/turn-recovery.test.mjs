@@ -42,22 +42,26 @@ test('turn-recovery: reconstructTurnState builds canonical in-memory waiting tur
   assert.equal(state.turnId, 'turn-cached-1');
   assert.equal(state.provider, 'fake');
   assert.equal(state.providerSessionId, 'sess-recon');
-  assert.equal(state.status, 'waitingForUser');
+  assert.equal(state.coordinator.status.status, 'requiresAttention');
   assert.equal(state.mode, 'edit');
   assert.equal(state.events, undefined, 'Runtime state must not contain events array');
   assert.equal(state.subscribers, undefined, 'Runtime state must not contain subscribers Set');
-  assert.deepEqual(state.pendingInteraction, cached.pendingInteraction);
+  assert.equal(state.coordinator.pendingInteraction?.id, cached.pendingInteraction.id);
+  assert.equal(state.coordinator.pendingInteraction?.kind, cached.pendingInteraction.kind);
   assert.ok(state.abortController);
 });
 
 test('turn-recovery: findPersistedActiveTurn matches by session and interactionId', async () => {
   const transcripts = new Map([
-    ['fake\u0000sess-1', {
-      provider: 'fake',
-      providerSessionId: 'sess-1',
-      activeTurn: { turnId: 'turn-1', mode: 'edit' },
-      pendingInteraction: { id: 'inter-1' },
-    }],
+    [
+      'fake\u0000sess-1',
+      {
+        provider: 'fake',
+        providerSessionId: 'sess-1',
+        activeTurn: { turnId: 'turn-1', mode: 'edit' },
+        pendingInteraction: { id: 'inter-1' },
+      },
+    ],
   ]);
 
   const mockCache = {
@@ -117,7 +121,7 @@ test('turn-recovery: interruptStaleLiveInteraction marks turn interrupted and th
       assert.equal(err.code, 'AI_TURN_INTERRUPTED');
       assert.equal(err.status, 409);
       return true;
-    }
+    },
   );
 
   assert.ok(markCalled);
@@ -174,19 +178,22 @@ test('turn-recovery: reconcileOrphanedTurns marks orphan turns interrupted while
 
 test('turn-recovery: getPersistedTurnSnapshot extracts snapshot from cache when turn not in memory', () => {
   const transcripts = new Map([
-    ['fake\u0000sess-snap', {
-      provider: 'fake',
-      providerSessionId: 'sess-snap',
-      lastEventSeq: 7,
-      activeTurn: {
-        turnId: 'turn-snap-1',
-        startedAt: '2026-08-31T05:10:00.000Z',
+    [
+      'fake\u0000sess-snap',
+      {
+        provider: 'fake',
+        providerSessionId: 'sess-snap',
+        lastEventSeq: 7,
+        activeTurn: {
+          turnId: 'turn-snap-1',
+          startedAt: '2026-08-31T05:10:00.000Z',
+        },
+        pendingInteraction: {
+          id: 'inter-snap',
+          prompt: 'Confirm action',
+        },
       },
-      pendingInteraction: {
-        id: 'inter-snap',
-        prompt: 'Confirm action',
-      },
-    }],
+    ],
   ]);
 
   const mockCache = {

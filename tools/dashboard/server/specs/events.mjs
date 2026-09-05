@@ -20,12 +20,14 @@ import { createSpecChangeWatcher } from './watcher.mjs';
  * `createSpecChangeWatcher()` runs against the resolved directories.
  */
 export default async function specEventRoutes(fastify, { paths, watcher } = {}) {
-  const hub = watcher ?? createSpecChangeWatcher({
-    roots: [
-      { path: paths.activeDir, prefix: 'specs/active' },
-      { path: paths.archiveDir, prefix: 'specs/archive' },
-    ],
-  });
+  const hub =
+    watcher ??
+    createSpecChangeWatcher({
+      roots: [
+        { path: paths.activeDir, prefix: 'specs/active' },
+        { path: paths.archiveDir, prefix: 'specs/archive' },
+      ],
+    });
   const activeConnections = new Set();
 
   fastify.get('/api/events', { sse: 'only' }, async (request, reply) => {
@@ -35,7 +37,7 @@ export default async function specEventRoutes(fastify, { paths, watcher } = {}) 
 
     await reply.sse.send({ event: 'connected', data: { at: new Date().toISOString() } });
 
-    const unsubscribe = hub.subscribe(event => {
+    const unsubscribe = hub.subscribe((event) => {
       reply.sse.send({ event: 'specs-changed', data: event }).catch(() => {});
     });
     reply.sse.onClose(() => unsubscribe());
@@ -47,7 +49,9 @@ export default async function specEventRoutes(fastify, { paths, watcher } = {}) 
   // in-flight requests finishing before any `onClose` hook would run).
   fastify.addHook('preClose', async () => {
     for (const sse of Array.from(activeConnections)) {
-      try { sse.close(); } catch {}
+      try {
+        sse.close();
+      } catch {}
     }
     activeConnections.clear();
   });

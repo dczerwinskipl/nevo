@@ -4,9 +4,7 @@ import { AiValidationError } from '../../contracts.mjs';
 
 export function buildAskUserQuestionUpdatedInput(record) {
   const userAnswers = record.response?.answers || record.response?.value || [];
-  const answersByQuestionId = new Map(
-    userAnswers.map(x => [x.questionId, x.value])
-  );
+  const answersByQuestionId = new Map(userAnswers.map((x) => [x.questionId, x.value]));
 
   const originalQuestions = record.toolInput?.questions || [];
   const answers = {};
@@ -68,7 +66,8 @@ export async function handlePreToolUse(input, { store = createClaudeContinuation
     }
 
     // Permission decisions
-    const isAllow = record.response?.decision === 'allow' || record.response?.confirmed === true || record.response?.type === 'allow';
+    const isAllow =
+      record.response?.decision === 'allow' || record.response?.confirmed === true || record.response?.type === 'allow';
     if (isAllow) {
       return {
         hookSpecificOutput: {
@@ -125,7 +124,7 @@ async function main() {
 }
 
 if (process.argv[1] && process.argv[1].endsWith('hook.mjs')) {
-  main().catch(error => {
+  main().catch((error) => {
     process.stderr.write(`${error.stack ?? error}\n`);
     process.exit(1);
   });

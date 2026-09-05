@@ -1,9 +1,4 @@
-import {
-  loadDashboardData,
-  loadSpecificationManifest,
-  loadSpecificationDocument,
-  loadTaskStatuses,
-} from './data.mjs';
+import { loadDashboardData, loadSpecificationManifest, loadSpecificationDocument, loadTaskStatuses } from './data.mjs';
 import { createSpecActionsCapability } from './actions.mjs';
 import { createSpecification } from '../../../specs/identity.mjs';
 
@@ -37,14 +32,15 @@ export function createSpecsCapability({
 
   return {
     getDashboardData: () => loadDashboardData(dataContext),
-    createSpecification: (input) => createSpecification({
-      ...input,
-      activeDir,
-      archiveDir,
-      activeIndexMd,
-      archiveIndexMd,
-      indexJson,
-    }),
+    createSpecification: (input) =>
+      createSpecification({
+        ...input,
+        activeDir,
+        archiveDir,
+        activeIndexMd,
+        archiveIndexMd,
+        indexJson,
+      }),
     getManifest: ({ source, slug }) => loadSpecificationManifest({ source, slug, ...dataContext }),
     getDocument: ({ source, slug, docId }) => loadSpecificationDocument({ source, slug, docId, ...dataContext }),
     getTaskStatuses: ({ source, slug }) => loadTaskStatuses({ source, slug, ...dataContext }),

@@ -98,22 +98,114 @@ export function defaultProbeCodexExecutable(executable = 'codex') {
   }
 }
 
-function toolDescription(item) {
+export function mapCodexCommandActions(actions = []) {
+  if (!Array.isArray(actions)) return [];
+  return actions
+    .map((act, index) => {
+      if (!act || typeof act !== 'object') return null;
+      const actionType = String(act.type || act.kind || 'other').toLowerCase();
+      let kind = 'other';
+      let title = act.title || act.command || act.path || `Action ${index + 1}`;
+      let target = act.target || act.path || act.file || act.url || undefined;
+      let description = act.description || undefined;
+
+      if (['read', 'readfile', 'fileread'].includes(actionType)) {
+        kind = 'read';
+        title = act.title || (act.path ? `Read ${act.path}` : 'Read file');
+        target = act.path || act.target;
+      } else if (['write', 'writefile', 'filewrite'].includes(actionType)) {
+        kind = 'write';
+        title = act.title || (act.path ? `Write ${act.path}` : 'Write file');
+        target = act.path || act.target;
+      } else if (['edit', 'fileedit', 'modify'].includes(actionType)) {
+        kind = 'edit';
+        title = act.title || (act.path ? `Edit ${act.path}` : 'Edit file');
+        target = act.path || act.target;
+      } else if (['list', 'listfiles', 'dirlist', 'ls'].includes(actionType)) {
+        kind = 'list';
+        title = act.title || (act.path ? `List ${act.path}` : 'List directory');
+        target = act.path || act.target;
+      } else if (['search', 'filesearch', 'grep', 'find'].includes(actionType)) {
+        kind = 'search';
+        title =
+          act.title || (act.pattern ? `Search for ${act.pattern}` : act.query ? `Search for ${act.query}` : 'Search');
+        target = act.target || act.path || act.pattern || act.query;
+      } else if (['execute', 'command', 'exec', 'unknown'].includes(actionType)) {
+        kind = actionType === 'unknown' ? 'other' : 'execute';
+        title = act.title || act.command || 'Execute command';
+        target = act.command || act.target;
+      } else if (['fetch', 'web', 'download'].includes(actionType)) {
+        kind = 'fetch';
+        title = act.title || (act.url ? `Fetch ${act.url}` : 'Fetch URL');
+        target = act.url || act.target;
+      } else if (['other', 'custom'].includes(actionType)) {
+        kind = 'other';
+        title = act.title || act.command || 'Tool action';
+      }
+
+      return {
+        id: act.id || `act-${index + 1}`,
+        seq: index + 1,
+        kind,
+        title: String(title).slice(0, 200),
+        ...(target ? { target: String(target).slice(0, 1000) } : {}),
+        ...(description ? { description: String(description).slice(0, 1000) } : {}),
+        ...(act.status ? { status: act.status } : {}),
+      };
+    })
+    .filter(Boolean);
+}
+
+// `description` is a concise UI label (C5); the canonical model bounds it to 1000
+// chars. The full, untruncated value already survives separately in `input` (an
+// expandable technical detail, not length-limited) — a long shell command must only
+// truncate the label, never fail the whole Turn's canonical validation.
+const MAX_TOOL_DESCRIPTION_LENGTH = 300;
+
+function truncateToolDescription(value) {
+  if (typeof value !== 'string') return undefined;
+  return value.length > MAX_TOOL_DESCRIPTION_LENGTH ? `${value.slice(0, MAX_TOOL_DESCRIPTION_LENGTH - 1)}…` : value;
+}
+
+export function toolDescription(item) {
   switch (item.type) {
-    case 'commandExecution':
+    case 'commandExecution': {
+      const actions = mapCodexCommandActions(item.commandActions);
       return {
         toolName: 'Command',
+        kind: 'command',
+        title: 'Run command',
+        description: truncateToolDescription(item.command || undefined),
         input: { command: item.command, cwd: item.cwd },
+        actions,
       };
+    }
     case 'fileChange':
-      return { toolName: 'File change', input: { changes: item.changes } };
+      return {
+        toolName: 'File change',
+        kind: 'edit',
+        title: 'Edit file',
+        description: truncateToolDescription(
+          Array.isArray(item.changes) ? item.changes.map((c) => c.path).join(', ') : undefined,
+        ),
+        input: { changes: item.changes },
+      };
     case 'mcpToolCall':
       return {
         toolName: `${item.server}/${item.tool}`,
+        kind: 'other',
+        title: item.title || `${item.server}/${item.tool}`,
+        description: `${item.server}/${item.tool}`,
         input: { server: item.server, tool: item.tool, arguments: item.arguments },
       };
     case 'dynamicToolCall':
-      return { toolName: item.tool, input: { tool: item.tool, arguments: item.arguments } };
+      return {
+        toolName: item.tool,
+        kind: 'other',
+        title: item.title || item.tool,
+        description: item.tool,
+        input: { tool: item.tool, arguments: item.arguments },
+      };
     default:
       return null;
   }
@@ -121,11 +213,14 @@ function toolDescription(item) {
 
 function toolOutput(item) {
   switch (item.type) {
-    case 'commandExecution':
+    case 'commandExecution': {
+      const actions = mapCodexCommandActions(item.commandActions);
       return {
         output: item.aggregatedOutput ?? '',
         ...(typeof item.exitCode === 'number' ? { exitCode: item.exitCode } : {}),
+        ...(actions.length > 0 ? { actions } : {}),
       };
+    }
     case 'fileChange':
       return { changes: item.changes };
     case 'mcpToolCall':
@@ -197,25 +292,33 @@ export class CodexAgentProvider {
   } = {}) {
     this.#executable = executable;
     this.#cwd = cwd;
-    this.#rawCapture = client?.rawCapture ?? new RawCaptureRecorder({
-      providerId: 'codex',
-      rawCaptureDir: rawCaptureEnabled
-        ? (rawCaptureDir || resolve(this.#cwd, '.nevo-ai-local', 'codex_raw'))
-        : (rawCaptureDir ? resolve(rawCaptureDir) : null),
-      rawCaptureEnabled,
-      rawFlushTimeoutMs,
-    });
-    this.#client = client ?? clientFactory({
-      executable,
-      cwd,
-      rawCaptureDir,
-      rawCaptureEnabled,
-      rawFlushTimeoutMs,
-      rawCaptureRecorder: this.#rawCapture,
-    });
+    this.#rawCapture =
+      client?.rawCapture ??
+      new RawCaptureRecorder({
+        providerId: 'codex',
+        rawCaptureDir: rawCaptureEnabled
+          ? rawCaptureDir || resolve(this.#cwd, '.nevo-ai-local', 'codex_raw')
+          : rawCaptureDir
+            ? resolve(rawCaptureDir)
+            : null,
+        rawCaptureEnabled,
+        rawFlushTimeoutMs,
+      });
+    this.#client =
+      client ??
+      clientFactory({
+        executable,
+        cwd,
+        rawCaptureDir,
+        rawCaptureEnabled,
+        rawFlushTimeoutMs,
+        rawCaptureRecorder: this.#rawCapture,
+      });
     this.#probeExecutable = probeExecutable ?? (client ? () => true : defaultProbeCodexExecutable);
-    this.#unsubscribeNotification = this.#client.onNotification(notification => this.#handleNotification(notification));
-    this.#unsubscribeServerRequest = this.#client.onServerRequest(request => this.#handleServerRequest(request));
+    this.#unsubscribeNotification = this.#client.onNotification((notification) =>
+      this.#handleNotification(notification),
+    );
+    this.#unsubscribeServerRequest = this.#client.onServerRequest((request) => this.#handleServerRequest(request));
     this.descriptor = CODEX_DESCRIPTOR;
   }
 
@@ -261,13 +364,14 @@ export class CodexAgentProvider {
     prompt,
     mode = 'edit',
     setOperation,
-    emitTextDelta,
-    emitDelta,
-    emitProgressDelta,
+    emitCommentaryDelta,
     emitReasoningDelta,
+    emitFinalAnswerDelta,
+    setFinalAnswer,
     emitToolStarted,
     emitToolUpdated,
     emitToolCompleted,
+    addToolAction,
     emitUsageUpdated,
     emitEvent,
     requestInteraction,
@@ -295,12 +399,14 @@ export class CodexAgentProvider {
     const operation = this.#createOperation({
       turnId,
       threadId,
-      emitTextDelta: emitTextDelta ?? emitDelta,
-      emitProgressDelta,
+      emitCommentaryDelta,
       emitReasoningDelta,
+      emitFinalAnswerDelta,
+      setFinalAnswer,
       emitToolStarted,
       emitToolUpdated,
       emitToolCompleted,
+      addToolAction,
       emitUsageUpdated,
       emitEvent,
       requestInteraction,
@@ -309,17 +415,20 @@ export class CodexAgentProvider {
     setOperation?.(operation);
 
     const failureWatch = this.#client.waitForNotification(() => false, { signal: operation.watchAbort.signal });
-    failureWatch.catch(error => {
+    failureWatch.catch((error) => {
       if (!operation.settled) this.#rejectOperation(operation, error);
     });
 
     try {
       const settings = modeSettings(validatedMode, this.#cwd).turn;
-      const result = requireObject(await this.#client.request('turn/start', {
-        threadId,
-        input: [{ type: 'text', text: input }],
-        ...settings,
-      }), 'turn/start response');
+      const result = requireObject(
+        await this.#client.request('turn/start', {
+          threadId,
+          input: [{ type: 'text', text: input }],
+          ...settings,
+        }),
+        'turn/start response',
+      );
       const codexTurn = requireObject(result.turn, 'turn/start turn');
       const responseTurnId = requireString(codexTurn.id, 'turn id');
       if (operation.codexTurnId && operation.codexTurnId !== responseTurnId) {
@@ -346,7 +455,11 @@ export class CodexAgentProvider {
   async respondInteraction({ turnId, providerSessionId, interactionId, response } = {}) {
     this.#assertUsable();
     const correlation = this.#interactions.get(interactionId);
-    if (!correlation || correlation.operation.turnId !== turnId || correlation.operation.threadId !== providerSessionId) {
+    if (
+      !correlation ||
+      correlation.operation.turnId !== turnId ||
+      correlation.operation.threadId !== providerSessionId
+    ) {
       throw new AiError('AI_NOT_FOUND', 'The Codex interaction correlation was not found.', { status: 404 });
     }
     if (correlation.answered) {
@@ -414,10 +527,13 @@ export class CodexAgentProvider {
 
   async #startThread(mode) {
     const settings = modeSettings(mode, this.#cwd).thread;
-    const result = requireObject(await this.#client.request('thread/start', {
-      cwd: this.#cwd,
-      ...settings,
-    }), 'thread/start response');
+    const result = requireObject(
+      await this.#client.request('thread/start', {
+        cwd: this.#cwd,
+        ...settings,
+      }),
+      'thread/start response',
+    );
     const thread = requireObject(result.thread, 'thread/start thread');
     const threadId = requireString(thread.id, 'thread id');
     this.#loadedThreads.add(threadId);
@@ -427,11 +543,14 @@ export class CodexAgentProvider {
   async #ensureThreadLoaded(threadId, mode) {
     if (this.#loadedThreads.has(threadId)) return;
     const settings = modeSettings(mode, this.#cwd).thread;
-    const result = requireObject(await this.#client.request('thread/resume', {
-      threadId,
-      cwd: this.#cwd,
-      ...settings,
-    }), 'thread/resume response');
+    const result = requireObject(
+      await this.#client.request('thread/resume', {
+        threadId,
+        cwd: this.#cwd,
+        ...settings,
+      }),
+      'thread/resume response',
+    );
     const resumed = requireObject(result.thread, 'thread/resume thread');
     if (requireString(resumed.id, 'resumed thread id') !== threadId) {
       throw protocolError('Codex thread/resume returned a different thread identity.');
@@ -475,7 +594,19 @@ export class CodexAgentProvider {
 
   #operationFor(params) {
     if (!params || typeof params !== 'object') return null;
-    const operation = typeof params.threadId === 'string' ? this.#operationsByThread.get(params.threadId) : null;
+    let operation = typeof params.threadId === 'string' ? this.#operationsByThread.get(params.threadId) : null;
+    if (!operation && (params.turnId || params.turn?.id)) {
+      const targetTurnId = params.turnId || params.turn?.id;
+      for (const op of this.#operationsByThread.values()) {
+        if (op.codexTurnId === targetTurnId) {
+          operation = op;
+          break;
+        }
+      }
+    }
+    if (!operation && this.#operationsByThread.size === 1) {
+      operation = Array.from(this.#operationsByThread.values())[0];
+    }
     if (!operation) return null;
     if (params.turnId && operation.codexTurnId && params.turnId !== operation.codexTurnId) return null;
     return operation;
@@ -585,8 +716,8 @@ export class CodexAgentProvider {
     }
     const delta = requireString(params.delta, 'agent message delta');
     item.streamedText += delta;
-    if (item.publishedAs === 'final_answer') operation.emitTextDelta?.(delta, item.publicId);
-    if (item.publishedAs === 'commentary') operation.emitProgressDelta?.(delta, item.progressId);
+    if (item.publishedAs === 'final_answer') operation.emitFinalAnswerDelta?.(delta, 'final-answer');
+    if (item.publishedAs === 'commentary') operation.emitCommentaryDelta?.(delta, item.publicId);
   }
 
   #reasoningDelta(operation, params) {
@@ -629,10 +760,12 @@ export class CodexAgentProvider {
       return;
     }
     if (TOOL_TYPES.has(state.type)) {
+      const finalActions = mapCodexCommandActions(finalItem.actions || finalItem.commandActions);
       operation.emitToolCompleted?.({
         toolId: state.publicId,
         output: toolOutput(finalItem),
         ...(typeof finalItem.durationMs === 'number' ? { durationMs: finalItem.durationMs } : {}),
+        ...(Array.isArray(finalActions) && finalActions.length > 0 ? { actions: finalActions } : {}),
         status: isToolSuccess(finalItem) ? 'completed' : 'failed',
       });
     }
@@ -660,51 +793,68 @@ export class CodexAgentProvider {
     const unfinished = [...operation.items.entries()].filter(([, item]) => !item.terminal);
     for (const [, item] of unfinished.filter(([, item]) => TOOL_TYPES.has(item.type))) {
       item.terminal = true;
-      operation.emitToolCompleted?.({ toolId: item.publicId, output: 'No authoritative Codex tool outcome.', status: 'failed' });
+      operation.emitToolCompleted?.({
+        toolId: item.publicId,
+        output: 'No authoritative Codex tool outcome.',
+        status: 'failed',
+      });
     }
 
     if (status === 'interrupted') {
-      this.#rejectOperation(operation, new AiError(
-        operation.cancelRequested ? 'AI_TURN_CANCELLED' : 'AI_TURN_INTERRUPTED',
-        operation.cancelRequested ? 'Codex turn was cancelled.' : 'Codex turn was interrupted.',
-        { status: 409 },
-      ));
+      this.#rejectOperation(
+        operation,
+        new AiError(
+          operation.cancelRequested ? 'AI_TURN_CANCELLED' : 'AI_TURN_INTERRUPTED',
+          operation.cancelRequested ? 'Codex turn was cancelled.' : 'Codex turn was interrupted.',
+          { status: 409 },
+        ),
+      );
       return;
     }
     if (status === 'failed') {
-      this.#rejectOperation(operation, new AiError(
-        'AI_PROVIDER_ERROR',
-        turn.error?.message || operation.providerError?.message || 'Codex turn failed.',
-        { status: 502 },
-      ));
+      this.#rejectOperation(
+        operation,
+        new AiError(
+          'AI_PROVIDER_ERROR',
+          turn.error?.message || operation.providerError?.message || 'Codex turn failed.',
+          { status: 502 },
+        ),
+      );
       return;
     }
     if (operation.providerError) {
-      this.#rejectOperation(operation, new AiError('AI_PROVIDER_ERROR', 'Codex reported a terminal provider error.', { status: 502 }));
+      this.#rejectOperation(
+        operation,
+        new AiError('AI_PROVIDER_ERROR', 'Codex reported a terminal provider error.', { status: 502 }),
+      );
       return;
     }
 
     const agentMessages = [...operation.items.entries()].filter(([, item]) => item.type === 'agentMessage');
     const lastAgentMessageId = agentMessages.at(-1)?.[0];
-    const unsafe = unfinished.find(([privateId, item]) => (
-      TOOL_TYPES.has(item.type)
-      || (item.type === 'agentMessage' && item.phase === 'final_answer')
-      || (item.type === 'agentMessage' && !item.phase && privateId === lastAgentMessageId)
-    ));
+    const unsafe = unfinished.find(
+      ([privateId, item]) =>
+        TOOL_TYPES.has(item.type) ||
+        (item.type === 'agentMessage' && item.phase === 'final_answer') ||
+        (item.type === 'agentMessage' && !item.phase && privateId === lastAgentMessageId),
+    );
     if (unsafe) {
       const [privateId, item] = unsafe;
       const phase = item.type === 'agentMessage' ? (item.phase ?? null) : undefined;
       const phaseLabel = phase ? ` (${phase})` : '';
-      this.#rejectOperation(operation, protocolError(
-        `Codex completed turn '${operation.codexTurnId}' with unfinished ${item.type}${phaseLabel} item '${privateId}'.`,
-        {
-          codexTurnId: operation.codexTurnId,
-          turnStatus: status,
-          itemId: privateId,
-          itemType: item.type,
-          ...(item.type === 'agentMessage' ? { agentMessagePhase: phase } : {}),
-        },
-      ));
+      this.#rejectOperation(
+        operation,
+        protocolError(
+          `Codex completed turn '${operation.codexTurnId}' with unfinished ${item.type}${phaseLabel} item '${privateId}'.`,
+          {
+            codexTurnId: operation.codexTurnId,
+            turnStatus: status,
+            itemId: privateId,
+            itemType: item.type,
+            ...(item.type === 'agentMessage' ? { agentMessagePhase: phase } : {}),
+          },
+        ),
+      );
       return;
     }
 
@@ -726,8 +876,8 @@ export class CodexAgentProvider {
   }
 
   #emitAgentMessageText(operation, state, text) {
-    if (state.publishedAs === 'final_answer') operation.emitTextDelta?.(text, state.publicId);
-    else operation.emitProgressDelta?.(text, state.progressId);
+    if (state.publishedAs === 'final_answer') operation.emitFinalAnswerDelta?.(text, 'final-answer');
+    else operation.emitCommentaryDelta?.(text, state.publicId);
   }
 
   #publishSupersededUnphasedMessages(operation) {
@@ -740,12 +890,12 @@ export class CodexAgentProvider {
   }
 
   #publishTerminalUnphasedMessages(operation) {
-    const pending = [...operation.items.values()].filter(state => (
-      state.type === 'agentMessage' && state.terminal && !state.phase && !state.publishedAs
-    ));
-    const hasFinalAnswer = [...operation.items.values()].some(state => (
-      state.type === 'agentMessage' && state.publishedAs === 'final_answer'
-    ));
+    const pending = [...operation.items.values()].filter(
+      (state) => state.type === 'agentMessage' && state.terminal && !state.phase && !state.publishedAs,
+    );
+    const hasFinalAnswer = [...operation.items.values()].some(
+      (state) => state.type === 'agentMessage' && state.publishedAs === 'final_answer',
+    );
     for (let index = 0; index < pending.length; index += 1) {
       const isLegacyFinal = !hasFinalAnswer && index === pending.length - 1;
       this.#beginAgentMessage(operation, pending[index], isLegacyFinal ? 'final_answer' : 'commentary');
@@ -769,14 +919,19 @@ export class CodexAgentProvider {
         this.#rejectOperation(operation, protocolError('Codex user-input request has no questions.'));
         return;
       }
-      providerQuestionIds = params.questions.map(question => requireString(question.id, 'user-input question id'));
+      providerQuestionIds = params.questions.map((question) => requireString(question.id, 'user-input question id'));
       neutral = {
         kind: 'question',
-        questions: params.questions.map(question => ({
+        questions: params.questions.map((question) => ({
           question: requireString(question.question, 'user-input question'),
           ...(question.header ? { header: String(question.header) } : {}),
           ...(Array.isArray(question.options)
-            ? { options: question.options.map(option => ({ label: String(option.label), description: String(option.description) })) }
+            ? {
+                options: question.options.map((option) => ({
+                  label: String(option.label),
+                  description: String(option.description),
+                })),
+              }
             : {}),
           multiSelect: false,
         })),
@@ -790,7 +945,9 @@ export class CodexAgentProvider {
 
     const interaction = await operation.requestInteraction(neutral, { resumePolicy: 'live-operation' });
     let release;
-    const gate = new Promise(resolve => { release = resolve; });
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
     const correlation = {
       operation,
       request,
@@ -808,7 +965,7 @@ export class CodexAgentProvider {
 
   #interactionResponse(correlation, response) {
     if (correlation.method === 'item/tool/requestUserInput') {
-      const byQuestion = new Map(response.answers.map(answer => [answer.questionId, answer.value]));
+      const byQuestion = new Map(response.answers.map((answer) => [answer.questionId, answer.value]));
       const answers = {};
       correlation.interaction.questions.forEach((question, index) => {
         const value = byQuestion.get(question.id);
@@ -827,7 +984,7 @@ export class CodexAgentProvider {
   #cancelInteractionResponse(correlation) {
     if (correlation.method === 'item/tool/requestUserInput') {
       return {
-        answers: Object.fromEntries(correlation.providerQuestionIds.map(id => [id, { answers: [] }])),
+        answers: Object.fromEntries(correlation.providerQuestionIds.map((id) => [id, { answers: [] }])),
       };
     }
     if (correlation.method === 'item/permissions/requestApproval') {
@@ -852,7 +1009,9 @@ export class CodexAgentProvider {
     for (const interactionId of [...operation.interactionIds]) {
       const correlation = this.#interactions.get(interactionId);
       if (correlation && !correlation.answered) {
-        try { correlation.request.reject({ code: -32603, message: 'Codex turn ended before the request was answered.' }); } catch {}
+        try {
+          correlation.request.reject({ code: -32603, message: 'Codex turn ended before the request was answered.' });
+        } catch {}
         correlation.release();
       }
       this.#interactions.delete(interactionId);

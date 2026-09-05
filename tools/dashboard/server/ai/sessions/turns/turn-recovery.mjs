@@ -1,27 +1,46 @@
-import {
-  AiError,
-  validateAgentExecutionMode,
-} from '../../contracts.mjs';
+import { AiError, validateAgentExecutionMode } from '../../contracts.mjs';
+import { TurnLifecycleCoordinator } from './coordinator.mjs';
 import { sessionKey } from './turn-event-stream.mjs';
 
 /**
  * Reconstructs a canonical in-memory Agent Turn state object from a persisted
  * transcript record.
  */
-export function reconstructTurnState({ cached, registry, clock }) {
+export function reconstructTurnState({ cached, registry, clock, transcriptCache }) {
   const restoredMode = cached.activeTurn.mode
     ? validateAgentExecutionMode(cached.activeTurn.mode, 'activeTurn.mode')
     : 'edit';
 
+  const restoredTurn = cached.turns?.find((t) => t.id === cached.activeTurn.turnId);
+
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: cached.activeTurn.turnId,
+    sessionId: cached.providerSessionId || null,
+    provider: cached.provider,
+    providerSessionId: cached.providerSessionId,
+    mode: restoredMode,
+    turn: restoredTurn || null,
+    onTurnUpdated: (turnSnapshot) => {
+      if (cached.providerSessionId && transcriptCache?.recordCanonicalTurn) {
+        transcriptCache.recordCanonicalTurn(turnSnapshot.provider, cached.providerSessionId, turnSnapshot);
+      }
+    },
+  });
+
+  if (!restoredTurn && cached.pendingInteraction) {
+    coordinator.recordInteractionRequested({
+      interaction: structuredClone(cached.pendingInteraction),
+    });
+  }
+
   return {
     turnId: cached.activeTurn.turnId,
+    coordinator,
     provider: cached.provider,
     providerSessionId: cached.providerSessionId,
     identity: { provider: cached.provider, providerSessionId: cached.providerSessionId },
     key: sessionKey(cached.provider, cached.providerSessionId),
     mode: restoredMode,
-    status: 'waitingForUser',
-    pendingInteraction: cached.pendingInteraction ? structuredClone(cached.pendingInteraction) : null,
     abortController: new AbortController(),
     agentProvider: registry.get(cached.provider).provider,
     privateOperation: undefined,

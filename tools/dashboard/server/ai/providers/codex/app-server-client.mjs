@@ -62,8 +62,7 @@ function isObject(value) {
 }
 
 function validateRequestId(id) {
-  return (typeof id === 'string' && id.length > 0) ||
-    (typeof id === 'number' && Number.isFinite(id));
+  return (typeof id === 'string' && id.length > 0) || (typeof id === 'number' && Number.isFinite(id));
 }
 
 function validateParams(params, method) {
@@ -144,14 +143,18 @@ export class CodexAppServerClient {
     this.#maxStderrBytes = maxStderrBytes;
     this.#disposeGraceMs = disposeGraceMs;
     this.#forceGraceMs = forceGraceMs;
-    this.#rawCapture = rawCaptureRecorder ?? new RawCaptureRecorder({
-      providerId: 'codex',
-      rawCaptureDir: rawCaptureEnabled
-        ? (rawCaptureDir || resolve(cwd, '.nevo-ai-local', 'codex_raw'))
-        : (rawCaptureDir ? resolve(rawCaptureDir) : null),
-      rawCaptureEnabled,
-      rawFlushTimeoutMs,
-    });
+    this.#rawCapture =
+      rawCaptureRecorder ??
+      new RawCaptureRecorder({
+        providerId: 'codex',
+        rawCaptureDir: rawCaptureEnabled
+          ? rawCaptureDir || resolve(cwd, '.nevo-ai-local', 'codex_raw')
+          : rawCaptureDir
+            ? resolve(rawCaptureDir)
+            : null,
+        rawCaptureEnabled,
+        rawFlushTimeoutMs,
+      });
   }
 
   get rawCapture() {
@@ -219,16 +222,17 @@ export class CodexAppServerClient {
         this.#waiters.delete(waiter);
         if (signal && waiter.onAbort) signal.removeEventListener('abort', waiter.onAbort);
       };
-      waiter.resolve = value => {
+      waiter.resolve = (value) => {
         remove();
         resolve(value);
       };
-      waiter.reject = error => {
+      waiter.reject = (error) => {
         remove();
         reject(error);
       };
       if (signal) {
-        waiter.onAbort = () => waiter.reject(new AiError('AI_TURN_CANCELLED', 'Codex turn wait was cancelled.', { status: 409 }));
+        waiter.onAbort = () =>
+          waiter.reject(new AiError('AI_TURN_CANCELLED', 'Codex turn wait was cancelled.', { status: 409 }));
         if (signal.aborted) return waiter.onAbort();
         signal.addEventListener('abort', waiter.onAbort, { once: true });
       }
@@ -301,22 +305,25 @@ export class CodexAppServerClient {
     this.#initializationPromise = (async () => {
       this.#startProcess();
       try {
-        const result = validateInitializeResult(await this.#sendRequest('initialize', {
-          clientInfo: this.#clientInfo,
-          capabilities: this.#initializeCapabilities,
-        }));
+        const result = validateInitializeResult(
+          await this.#sendRequest('initialize', {
+            clientInfo: this.#clientInfo,
+            capabilities: this.#initializeCapabilities,
+          }),
+        );
         this.#writeEnvelope({ method: 'initialized' });
         this.#initializationResult = result;
         return result;
       } catch (error) {
-        const failure = error?.code === 'AI_PROVIDER_PROTOCOL_ERROR'
-          ? error
-          : providerFailure(
-              'AI_PROVIDER_INITIALIZATION_FAILED',
-              'Codex app-server initialization failed.',
-              undefined,
-              error,
-            );
+        const failure =
+          error?.code === 'AI_PROVIDER_PROTOCOL_ERROR'
+            ? error
+            : providerFailure(
+                'AI_PROVIDER_INITIALIZATION_FAILED',
+                'Codex app-server initialization failed.',
+                undefined,
+                error,
+              );
         this.#tripFailure(failure);
         throw failure;
       }
@@ -348,17 +355,17 @@ export class CodexAppServerClient {
     }
 
     this.#child = child;
-    const onStdoutData = chunk => {
+    const onStdoutData = (chunk) => {
       this.#stdoutBuffer += chunk.toString('utf8');
       const lines = this.#stdoutBuffer.split(/\r?\n/);
       this.#stdoutBuffer = lines.pop() ?? '';
       for (const line of lines) {
         this.#processingQueue = this.#processingQueue
           .then(() => this.#processLine(line))
-          .catch(error => this.#tripFailure(error));
+          .catch((error) => this.#tripFailure(error));
       }
     };
-    const onStderrData = chunk => {
+    const onStderrData = (chunk) => {
       const text = chunk.toString('utf8');
       this.#stderr = `${this.#stderr}${text}`.slice(-this.#maxStderrBytes);
       this.#rawCapture.recordRawEvent({
@@ -367,21 +374,25 @@ export class CodexAppServerClient {
         rawText: text,
       });
     };
-    const onError = error => {
-      this.#tripFailure(providerFailure(
-        'AI_PROVIDER_PROCESS_ERROR',
-        `Codex app-server process error: ${error.message}`,
-        this.#stderrDetails(),
-        error,
-      ));
+    const onError = (error) => {
+      this.#tripFailure(
+        providerFailure(
+          'AI_PROVIDER_PROCESS_ERROR',
+          `Codex app-server process error: ${error.message}`,
+          this.#stderrDetails(),
+          error,
+        ),
+      );
     };
     const onExit = (code, signal) => {
       if (this.#disposed) return;
-      this.#tripFailure(providerFailure(
-        'AI_PROVIDER_EXIT_ERROR',
-        `Codex app-server exited unexpectedly (code ${code ?? 'null'}, signal ${signal ?? 'none'}).`,
-        this.#stderrDetails(),
-      ));
+      this.#tripFailure(
+        providerFailure(
+          'AI_PROVIDER_EXIT_ERROR',
+          `Codex app-server exited unexpectedly (code ${code ?? 'null'}, signal ${signal ?? 'none'}).`,
+          this.#stderrDetails(),
+        ),
+      );
     };
 
     this.#listeners = { onStdoutData, onStderrData, onError, onExit };
@@ -415,9 +426,10 @@ export class CodexAppServerClient {
         this.#writeEnvelope({ method, params, id });
       } catch (error) {
         this.#pendingRequests.delete(id);
-        const failure = error instanceof AiError
-          ? error
-          : providerFailure('AI_PROVIDER_WRITE_ERROR', 'Failed to write to Codex app-server.', undefined, error);
+        const failure =
+          error instanceof AiError
+            ? error
+            : providerFailure('AI_PROVIDER_WRITE_ERROR', 'Failed to write to Codex app-server.', undefined, error);
         this.#tripFailure(failure);
       }
     });
@@ -625,17 +637,21 @@ export class CodexAppServerClient {
 
     if (hasError) {
       if (!isObject(envelope.error)) throw protocolError('Codex response error must be an object.');
-      pending.reject(new AiError(
-        'AI_PROVIDER_REQUEST_ERROR',
-        typeof envelope.error.message === 'string' ? envelope.error.message : `Codex '${pending.method}' request failed.`,
-        {
-          status: 502,
-          details: {
-            method: pending.method,
-            ...(envelope.error.code === undefined ? {} : { providerCode: envelope.error.code }),
+      pending.reject(
+        new AiError(
+          'AI_PROVIDER_REQUEST_ERROR',
+          typeof envelope.error.message === 'string'
+            ? envelope.error.message
+            : `Codex '${pending.method}' request failed.`,
+          {
+            status: 502,
+            details: {
+              method: pending.method,
+              ...(envelope.error.code === undefined ? {} : { providerCode: envelope.error.code }),
+            },
           },
-        },
-      ));
+        ),
+      );
       return;
     }
     pending.resolve(envelope.result);
@@ -669,12 +685,12 @@ export class CodexAppServerClient {
     }
 
     let answered = false;
-    const respond = result => {
+    const respond = (result) => {
       if (answered) throw protocolError(`Codex server request '${envelope.id}' was answered more than once.`);
       answered = true;
       this.#writeEnvelope({ id: envelope.id, result });
     };
-    const reject = error => {
+    const reject = (error) => {
       if (answered) throw protocolError(`Codex server request '${envelope.id}' was answered more than once.`);
       answered = true;
       const normalized = isObject(error)
@@ -714,9 +730,10 @@ export class CodexAppServerClient {
 
   #tripFailure(error) {
     if (this.#failure) return this.#failure;
-    const failure = error instanceof AiError
-      ? error
-      : providerFailure('AI_PROVIDER_PROTOCOL_ERROR', 'Codex app-server client failed.', undefined, error);
+    const failure =
+      error instanceof AiError
+        ? error
+        : providerFailure('AI_PROVIDER_PROTOCOL_ERROR', 'Codex app-server client failed.', undefined, error);
     this.#failure = failure;
     for (const pending of this.#pendingRequests.values()) pending.reject(failure);
     this.#pendingRequests.clear();

@@ -2,6 +2,10 @@ export type StageId = 'new' | 'design' | 'ready' | 'implementation' | 'review' |
 
 export type SpecificationSource = 'active' | 'archive';
 
+export function isSpecificationSource(value: string): value is SpecificationSource {
+  return value === 'active' || value === 'archive';
+}
+
 export interface SpecificationTask {
   id: string;
   title: string;
@@ -83,9 +87,7 @@ export interface SpecificationManifestDirectorySection {
   documents: SpecificationManifestDocument[];
 }
 
-export type SpecificationManifestSection =
-  | SpecificationManifestDocumentSection
-  | SpecificationManifestDirectorySection;
+export type SpecificationManifestSection = SpecificationManifestDocumentSection | SpecificationManifestDirectorySection;
 
 // Manifest entries carry no markdown body (area dashboard-data-loading-contracts:
 // "which documents exist ... but not their bodies") — only enough to render

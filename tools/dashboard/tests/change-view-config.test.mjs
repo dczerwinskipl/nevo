@@ -4,9 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { DEFAULT_CHANGE_VIEW, DEFAULT_GENERATED_FILES, loadChangeViewConfig } from '../server/pull-requests/change-view-config.mjs';
+import {
+  DEFAULT_CHANGE_VIEW,
+  DEFAULT_GENERATED_FILES,
+  loadChangeViewConfig,
+} from '../server/pull-requests/change-view-config.mjs';
 
-test('falls back to this repo\'s own reasonable default when no project config file exists', () => {
+test("falls back to this repo's own reasonable default when no project config file exists", () => {
   const root = join(tmpdir(), `nevo-dashboard-changeview-${process.pid}-${Date.now()}`);
   mkdirSync(root, { recursive: true });
   try {
@@ -52,6 +56,8 @@ test('DEFAULT_CHANGE_VIEW separates tooling per tool (Dashboard Server, Dashboar
   const { assignGroup } = await import('../ui/features/pull-requests/changes/grouping.ts');
   assert.equal(assignGroup('tools/dashboard/ui/App.tsx', DEFAULT_CHANGE_VIEW), 'Tooling: Dashboard UI');
   assert.equal(assignGroup('tools/dashboard/server/index.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: Dashboard Server');
+  assert.equal(assignGroup('tools/dashboard/.storybook/main.ts', DEFAULT_CHANGE_VIEW), 'Tooling: Dashboard Storybook');
+  assert.equal(assignGroup('.storybook/preview.tsx', DEFAULT_CHANGE_VIEW), 'Tooling: Dashboard Storybook');
   assert.equal(assignGroup('tools/dashboard/server/ai/sessions/service.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: AI');
   assert.equal(assignGroup('.claude/skills/demo.md', DEFAULT_CHANGE_VIEW), 'Tooling: AI');
   assert.equal(assignGroup('.cursor/rules/main.md', DEFAULT_CHANGE_VIEW), 'Tooling: AI');
@@ -67,4 +73,3 @@ test('DEFAULT_CHANGE_VIEW separates tooling per tool (Dashboard Server, Dashboar
   assert.equal(assignGroup('docs/development/local-setup.md', DEFAULT_CHANGE_VIEW), 'Docs');
   assert.equal(assignGroup('README.md', DEFAULT_CHANGE_VIEW), 'Other');
 });
-

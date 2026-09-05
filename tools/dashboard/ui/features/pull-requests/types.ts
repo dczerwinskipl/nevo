@@ -5,6 +5,11 @@ export interface PullRequestReference {
   number: number;
 }
 
+export interface PullRequestScope {
+  source: string;
+  slug: string;
+}
+
 export interface PullRequestBranch {
   label: string | null;
   name: string | null;

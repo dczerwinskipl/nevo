@@ -1,9 +1,4 @@
-import type {
-  AgentEvent,
-  AgentSessionSnapshot,
-  AgentSessionStatus,
-  NormalizedMessage,
-} from '../types.ts';
+import type { AgentEvent, AgentSessionSnapshot, AgentSessionStatus, NormalizedMessage } from '../types.ts';
 
 export function createTurnIdempotencyKey(prefix = 'turn'): string {
   const timestamp = Date.now().toString(36);
@@ -27,7 +22,10 @@ export function createTurnIdempotencyKey(prefix = 'turn'): string {
  *
  * Returns the existing message index, or -1 if no message exists yet for this event.
  */
-function findAssistantMessageIndex(messages: NormalizedMessage[], event: Pick<AgentEvent, 'turnId' | 'messageId'>): number {
+function findAssistantMessageIndex(
+  messages: NormalizedMessage[],
+  event: Pick<AgentEvent, 'turnId' | 'messageId'>,
+): number {
   // Explicit messageId takes priority — preserves distinct message identity within a turn.
   // If the event carries an explicit messageId but it isn't in the list yet, return -1
   // to create a new message with that ID (do NOT fall through to the turnId fallback,
@@ -52,10 +50,7 @@ function canonicalAssistantMessageId(event: Pick<AgentEvent, 'turnId' | 'message
   return 'msg-current';
 }
 
-export function applyAgentEvent(
-  prevMessages: NormalizedMessage[],
-  event: AgentEvent,
-): NormalizedMessage[] {
+export function applyAgentEvent(prevMessages: NormalizedMessage[], event: AgentEvent): NormalizedMessage[] {
   switch (event.type) {
     case 'turn.started': {
       const userText = event.userMessage?.text || event.userPrompt;
@@ -168,11 +163,12 @@ export function applyAgentEvent(
                 ...tc,
                 input: event.input ?? tc.input,
                 output: event.output ?? tc.output,
-                status: (event.status === 'completed' || event.status === 'failed' || event.status === 'running')
-                  ? event.status
-                  : tc.status,
+                status:
+                  event.status === 'completed' || event.status === 'failed' || event.status === 'running'
+                    ? event.status
+                    : tc.status,
               }
-            : tc
+            : tc,
         );
         updated[targetIdx] = { ...updated[targetIdx], toolCalls: calls };
         return updated;
@@ -198,7 +194,7 @@ export function applyAgentEvent(
                 status: (event.status as 'completed' | 'failed' | undefined) ?? 'failed',
                 durationMs: event.durationMs ?? tc.durationMs,
               }
-            : tc
+            : tc,
         );
         updated[targetIdx] = { ...updated[targetIdx], toolCalls: calls };
         return updated;
@@ -326,16 +322,11 @@ export interface ApplyCancelTurnResponseResult {
   error?: Error;
 }
 
-export function shouldSurfaceCancelError(
-  turnId: string,
-  terminalTurnIds: Set<string>
-): boolean {
+export function shouldSurfaceCancelError(turnId: string, terminalTurnIds: Set<string>): boolean {
   return !terminalTurnIds.has(turnId);
 }
 
-export function shouldSurfaceTurnError(
-  error?: { code?: string; message?: string } | null
-): boolean {
+export function shouldSurfaceTurnError(error?: { code?: string; message?: string } | null): boolean {
   if (!error) return false;
   // Explicit cancellation by user (Stop) is an intentional termination, not an unexpected error toast
   if (error.code === 'AI_TURN_CANCELLED') return false;
@@ -363,9 +354,7 @@ export function applyCancelTurnResponse({
 
   if (!response.ok) {
     const message =
-      errorData?.error?.message ||
-      errorData?.message ||
-      `Failed to cancel turn (${response.status || 'unknown'})`;
+      errorData?.error?.message || errorData?.message || `Failed to cancel turn (${response.status || 'unknown'})`;
     return {
       nextActivity: currentActivity,
       nextActiveTurnId: currentActiveTurnId,

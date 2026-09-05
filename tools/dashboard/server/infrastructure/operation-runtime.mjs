@@ -39,7 +39,7 @@ export class OperationRuntime {
       throw error;
     }
     const operationId = `op-${this.idFactory()}`;
-    const initialSteps = steps.map(s => ({
+    const initialSteps = steps.map((s) => ({
       id: s.id,
       label: s.label || s.id,
       status: s.status || 'pending',
@@ -81,7 +81,7 @@ export class OperationRuntime {
     switch (event.type) {
       case 'operation.started': {
         if (Array.isArray(event.steps) && event.steps.length) {
-          state.steps = event.steps.map(s => ({
+          state.steps = event.steps.map((s) => ({
             id: s.id,
             label: s.label || s.id,
             status: s.status || 'pending',
@@ -92,7 +92,7 @@ export class OperationRuntime {
         break;
       }
       case 'operation.step.started': {
-        let step = state.steps.find(s => s.id === stepId);
+        let step = state.steps.find((s) => s.id === stepId);
         if (!step) {
           step = { id: stepId, label: event.label || stepId, status: 'running' };
           state.steps.push(step);
@@ -104,7 +104,7 @@ export class OperationRuntime {
         break;
       }
       case 'operation.step.progress': {
-        const step = state.steps.find(s => s.id === stepId);
+        const step = state.steps.find((s) => s.id === stepId);
         if (step) {
           if (event.current !== undefined) step.current = event.current;
           if (event.total !== undefined) step.total = event.total;
@@ -113,7 +113,7 @@ export class OperationRuntime {
         break;
       }
       case 'operation.step.completed': {
-        let step = state.steps.find(s => s.id === stepId);
+        let step = state.steps.find((s) => s.id === stepId);
         if (!step) {
           step = { id: stepId, label: stepId, status: 'completed' };
           state.steps.push(step);
@@ -124,8 +124,9 @@ export class OperationRuntime {
         break;
       }
       case 'operation.step.failed': {
-        let step = state.steps.find(s => s.id === stepId);
-        const errorObj = typeof event.error === 'string' ? { message: event.error } : (event.error || { message: 'Step failed' });
+        let step = state.steps.find((s) => s.id === stepId);
+        const errorObj =
+          typeof event.error === 'string' ? { message: event.error } : event.error || { message: 'Step failed' };
         if (!step) {
           step = { id: stepId, label: stepId, status: 'failed', error: errorObj };
           state.steps.push(step);
@@ -169,9 +170,12 @@ export class OperationRuntime {
     const state = this.#operations.get(operationId);
     if (!state || this.#isTerminal(state)) return;
 
-    const errorObj = typeof error === 'string'
-      ? { message: error }
-      : (error && typeof error === 'object' ? { message: error.message || String(error), code: error.code } : { message: 'Operation failed' });
+    const errorObj =
+      typeof error === 'string'
+        ? { message: error }
+        : error && typeof error === 'object'
+          ? { message: error.message || String(error), code: error.code }
+          : { message: 'Operation failed' };
 
     state.status = 'failed';
     state.completedAt = this.#timestamp();
@@ -202,17 +206,17 @@ export class OperationRuntime {
       startedAt: state.startedAt,
       ...(state.completedAt ? { completedAt: state.completedAt } : {}),
       lastEventId: state.sequence,
-      steps: state.steps.map(s => structuredClone(s)),
+      steps: state.steps.map((s) => structuredClone(s)),
       ...(state.result !== undefined ? { result: structuredClone(state.result) } : {}),
       ...(state.error !== undefined ? { error: structuredClone(state.error) } : {}),
-      events: state.events.map(e => structuredClone(e)),
+      events: state.events.map((e) => structuredClone(e)),
     };
   }
 
   getEvents(operationId, afterSequence = 0) {
     const state = this.#get(operationId);
     const cursor = Number(afterSequence) || 0;
-    return state.events.filter(e => e.id > cursor).map(e => structuredClone(e));
+    return state.events.filter((e) => e.id > cursor).map((e) => structuredClone(e));
   }
 
   subscribe(operationId, { afterSequence = 0, onEvent } = {}) {
@@ -232,7 +236,10 @@ export class OperationRuntime {
     this.#closed = true;
     for (const state of this.#operations.values()) {
       if (this.#isTerminal(state)) continue;
-      this.failOperation(state.id, { message: 'The server stopped before the operation completed.', code: 'OPERATION_INTERRUPTED' });
+      this.failOperation(state.id, {
+        message: 'The server stopped before the operation completed.',
+        code: 'OPERATION_INTERRUPTED',
+      });
     }
   }
 

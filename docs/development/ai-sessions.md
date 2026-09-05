@@ -103,6 +103,8 @@ register in the ignored `.nevo-ai-local/ai-providers.yaml` file:
       enabled: true
     antigravity:
       enabled: true
+      transport:
+        print_timeout_seconds: 86400
       diagnostics:
         raw_responses:
           enabled: true
@@ -119,6 +121,17 @@ provider is registered. The dashboard's session-creation surfaces explain where 
 provider, while a previously recorded session whose provider is no longer enabled remains
 visible but cannot start another turn. The configuration is read when the dashboard AI service
 starts, so restart the dashboard after editing it.
+
+Antigravity CLI 1.1.23 requires a finite `--print-timeout` in print mode and does not document a
+supported disable value. NEvo therefore treats this as an explicit provider-transport constraint,
+passes it in Go duration form on every invocation, and defaults it to 86,400 seconds (24 hours).
+Configure `providers.antigravity.transport.print_timeout_seconds` with a positive integer when a
+different transport ceiling is required. This deadline is not the neutral protocol-silence timeout:
+protocol silence remains owned by the Turn lifecycle coordinator and is suppressed during evidenced
+tool/user waits. It is also not the neutral maximum-Turn policy, which remains disabled by default.
+If the CLI deadline fires, the provider reports `AI_PROVIDER_TIMEOUT` with
+`source=antigravity_cli` and `timeoutKind=provider_transport`; the coordinator still owns the one
+terminal Turn transition and its arbitration against cancellation or late provider evidence.
 
 Antigravity raw capture is independently opt-in and defaults to disabled. Its directory must
 be relative to and remain inside the repository. Each canonical provider session gets its own

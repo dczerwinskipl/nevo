@@ -6,7 +6,14 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { verifyCodexSchema, verifyGeneratedSchemaDirectory } from '../server/ai/providers/codex/verify-schema.mjs';
 
-const CODEX_PROVIDER_ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'server', 'ai', 'providers', 'codex');
+const CODEX_PROVIDER_ROOT = join(
+  fileURLToPath(new URL('.', import.meta.url)),
+  '..',
+  'server',
+  'ai',
+  'providers',
+  'codex',
+);
 const BASELINE_PATH = join(CODEX_PROVIDER_ROOT, 'protocol-baseline.json');
 
 async function writeJson(path, value) {
@@ -16,17 +23,17 @@ async function writeJson(path, value) {
 
 function methodSchema(methods) {
   return {
-    oneOf: methods.map(method => ({ properties: { method: { enum: [method] } } })),
+    oneOf: methods.map((method) => ({ properties: { method: { enum: [method] } } })),
   };
 }
 
 async function createCompatibleSchemaFixture(root, baseline) {
   await writeJson(join(root, 'ClientRequest.json'), methodSchema(baseline.methods.clientRequests));
   await writeJson(join(root, 'ClientNotification.json'), methodSchema(baseline.methods.clientNotifications));
-  await writeJson(join(root, 'ServerNotification.json'), methodSchema([
-    ...baseline.methods.serverNotifications,
-    ...baseline.observedProviderGlobalNotifications,
-  ]));
+  await writeJson(
+    join(root, 'ServerNotification.json'),
+    methodSchema([...baseline.methods.serverNotifications, ...baseline.observedProviderGlobalNotifications]),
+  );
   await writeJson(join(root, 'ServerRequest.json'), methodSchema(baseline.methods.serverRequests));
   const paths = new Set([...Object.keys(baseline.types), ...Object.keys(baseline.taggedVariants ?? {})]);
   for (const relativePath of paths) {
@@ -51,12 +58,8 @@ test('compact baseline describes exact implementation-time version and envelope 
   assert.equal(baseline.envelope.incomingJsonrpc20, 'tolerated');
   assert.ok(baseline.methods.clientRequests.includes('thread/start'));
   assert.deepEqual(
-    baseline.methods.serverRequests.filter(method => method.includes('requestApproval')),
-    [
-      'item/commandExecution/requestApproval',
-      'item/fileChange/requestApproval',
-      'item/permissions/requestApproval',
-    ],
+    baseline.methods.serverRequests.filter((method) => method.includes('requestApproval')),
+    ['item/commandExecution/requestApproval', 'item/fileChange/requestApproval', 'item/permissions/requestApproval'],
   );
   assert.ok(baseline.methods.serverRequests.includes('item/tool/requestUserInput'));
 });
@@ -81,8 +84,8 @@ test('schema-directory verifier reports missing methods and required fields', as
     await writeJson(join(root, 'v2', 'TurnStartParams.json'), { required: ['threadId'] });
     const result = await verifyGeneratedSchemaDirectory(root, baseline);
     assert.equal(result.ok, false);
-    assert.ok(result.errors.some(error => error.includes("client request method 'thread/start'")));
-    assert.ok(result.errors.some(error => error.includes("TurnStartParams.json' no longer requires 'input'")));
+    assert.ok(result.errors.some((error) => error.includes("client request method 'thread/start'")));
+    assert.ok(result.errors.some((error) => error.includes("TurnStartParams.json' no longer requires 'input'")));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -107,7 +110,7 @@ test('schema-directory verifier requires optional agentMessage phase semantics',
     });
     const result = await verifyGeneratedSchemaDirectory(root, baseline);
     assert.equal(result.ok, false);
-    assert.ok(result.errors.some(error => error.includes("optional 'phase'") && error.includes('final_answer')));
+    assert.ok(result.errors.some((error) => error.includes("optional 'phase'") && error.includes('final_answer')));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

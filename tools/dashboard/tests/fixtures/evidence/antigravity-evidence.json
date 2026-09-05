@@ -1,0 +1,101 @@
+{
+  "provider": "antigravity",
+  "sessionId": "17a80412-9fd3-41c9-b1fd-02fab295be53",
+  "turnId": "turn-ddd689dc-5d2c-4f3f-b9b2-4e5f0842a72d",
+  "rawEvents": [
+    {
+      "event": "init",
+      "conversation_id": "17a80412-9fd3-41c9-b1fd-02fab295be53",
+      "init": {
+        "cwd": "D:\\repos\\git\\nevo",
+        "tools": ["run_command", "find_by_name", "view_file"],
+        "permission_mode": "always-proceed"
+      }
+    },
+    {
+      "event": "step_update",
+      "step_update": { "step_index": 0, "state": "DONE", "step_type": "user_input" }
+    },
+    {
+      "event": "step_update",
+      "step_update": {
+        "step_index": 1,
+        "state": "DONE",
+        "step_type": "agent_response",
+        "duration_seconds": 1.2,
+        "usage": { "input_tokens": 18000, "output_tokens": 200, "thinking_tokens": 150, "total_tokens": 18200 }
+      }
+    },
+    {
+      "event": "step_update",
+      "step_update": {
+        "step_index": 2,
+        "state": "ACTIVE",
+        "step_type": "tool",
+        "tool_name": "run_command",
+        "tool_info": { "name": "run_command", "parameters": { "CommandLine": "git status" } }
+      }
+    },
+    {
+      "event": "step_update",
+      "step_update": {
+        "step_index": 2,
+        "state": "DONE",
+        "step_type": "tool",
+        "tool_name": "run_command",
+        "duration_seconds": 0.25,
+        "tool_info": {
+          "name": "run_command",
+          "parameters": { "CommandLine": "git status" },
+          "output": "nothing to commit, working tree clean\n"
+        }
+      }
+    },
+    {
+      "event": "step_update",
+      "step_update": {
+        "step_index": 3,
+        "state": "DONE",
+        "step_type": "agent_response",
+        "duration_seconds": 0.9,
+        "usage": { "input_tokens": 2500, "output_tokens": 80, "thinking_tokens": 20, "total_tokens": 2580 }
+      }
+    },
+    {
+      "event": "step_update",
+      "step_update": {
+        "step_index": 4,
+        "state": "ACTIVE",
+        "step_type": "tool",
+        "tool_name": "find_by_name",
+        "tool_info": { "name": "find_by_name", "parameters": { "Pattern": "*", "SearchDirectory": "specs/active" } }
+      }
+    },
+    {
+      "event": "step_update",
+      "step_update": {
+        "step_index": 4,
+        "state": "DONE",
+        "step_type": "tool",
+        "tool_name": "find_by_name",
+        "duration_seconds": 0.02,
+        "tool_info": {
+          "name": "find_by_name",
+          "parameters": { "Pattern": "*", "SearchDirectory": "specs/active" },
+          "output": "ai-session-issues-and-diagnostics\n"
+        }
+      }
+    },
+    {
+      "event": "result",
+      "result": {
+        "conversation_id": "17a80412-9fd3-41c9-b1fd-02fab295be53",
+        "status": "SUCCESS",
+        "response": "Working tree is clean and active specs were verified.",
+        "duration_seconds": 2.4,
+        "num_turns": 1,
+        "usage": { "input_tokens": 20500, "output_tokens": 280, "thinking_tokens": 170, "total_tokens": 20780 }
+      }
+    }
+  ]
+}

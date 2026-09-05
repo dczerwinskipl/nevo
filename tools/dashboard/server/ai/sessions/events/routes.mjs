@@ -1,8 +1,4 @@
-import {
-  PROVIDER_PATTERN,
-  validatedSegment,
-  validatedSessionId,
-} from '../http.mjs';
+import { PROVIDER_PATTERN, validatedSegment, validatedSessionId } from '../http.mjs';
 import { authorize } from '../../access-policy.mjs';
 import { AiValidationError } from '../../contracts.mjs';
 
@@ -36,10 +32,21 @@ export default async function aiEventRoutes(fastify, { service, accessPolicy }) 
     activeConnections.add(reply.sse);
     reply.sse.onClose(() => activeConnections.delete(reply.sse));
 
+    // Sends are serialized per connection: @fastify/sse's writeToStream() registers a
+    // fresh once('drain')/once('error') pair on the raw ServerResponse every time a
+    // write hits backpressure. Replaying a reconnect's backlog (subscribeToSession
+    // replays every buffered event synchronously) or a burst of live events would
+    // otherwise fire many overlapping, un-awaited send() calls — each adding its own
+    // listener pair — and pile past Node's default MaxListeners before any of them
+    // gets a chance to resolve. Chaining onto one promise ensures at most one write
+    // (and therefore at most one pending listener pair) is ever in flight.
+    let sendQueue = Promise.resolve();
     const unsubscribe = service.subscribeToSession(provider, providerSessionId, {
       afterSequence,
-      onEvent: event => {
-        reply.sse.send({ id: event.seq ?? event.id, event: event.type, data: event }).catch(() => {});
+      onEvent: (event) => {
+        sendQueue = sendQueue.then(() =>
+          reply.sse.send({ id: event.seq ?? event.id, event: event.type, data: event }).catch(() => {}),
+        );
       },
     });
     reply.sse.onClose(() => unsubscribe());
@@ -47,7 +54,9 @@ export default async function aiEventRoutes(fastify, { service, accessPolicy }) 
 
   fastify.addHook('preClose', async () => {
     for (const sse of Array.from(activeConnections)) {
-      try { sse.close(); } catch {}
+      try {
+        sse.close();
+      } catch {}
     }
     activeConnections.clear();
   });

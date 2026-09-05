@@ -16,13 +16,17 @@ class MockEventSource {
     if (!this.listeners.has(type)) this.listeners.set(type, new Set());
     this.listeners.get(type).add(listener);
   }
-  removeEventListener(type, listener) { this.listeners.get(type)?.delete(listener); }
+  removeEventListener(type, listener) {
+    this.listeners.get(type)?.delete(listener);
+  }
   emit(type, data) {
     const event = { type, data: JSON.stringify(data) };
     if (type === 'message') this.onmessage?.(event);
     this.listeners.get(type)?.forEach((l) => l(event));
   }
-  close() { this.closed = true; }
+  close() {
+    this.closed = true;
+  }
 }
 MockEventSource.instances = [];
 
@@ -57,7 +61,13 @@ test('resolves { kind: "failed" } once a failed SSE event arrives, and closes th
   assert.ok(source, 'an SSE connection was opened for the non-terminal initial snapshot');
   assert.ok(source.url.includes('op-2'));
 
-  source.emit('operation.failed', { id: 1, type: 'operation.failed', operationId: 'op-2', timestamp: 't', error: { message: 'boom' } });
+  source.emit('operation.failed', {
+    id: 1,
+    type: 'operation.failed',
+    operationId: 'op-2',
+    timestamp: 't',
+    error: { message: 'boom' },
+  });
 
   const outcome = await promise;
   assert.equal(outcome.kind, 'failed');
@@ -75,7 +85,13 @@ test('resolves { kind: "completed" } once a completed SSE event arrives', async 
   await new Promise((r) => setTimeout(r, 0));
   await new Promise((r) => setTimeout(r, 0));
   const source = MockEventSource.instances[0];
-  source.emit('operation.completed', { id: 1, type: 'operation.completed', operationId: 'op-2b', timestamp: 't', result: { ok: true } });
+  source.emit('operation.completed', {
+    id: 1,
+    type: 'operation.completed',
+    operationId: 'op-2b',
+    timestamp: 't',
+    result: { ok: true },
+  });
 
   const outcome = await promise;
   assert.equal(outcome.kind, 'completed');
@@ -89,7 +105,11 @@ test('resolves { kind: "timeout" } with the last-known (non-terminal) snapshot o
 
   const outcome = await waitForOperationTerminal('op-3', { timeoutMs: 5 });
   assert.equal(outcome.kind, 'timeout');
-  assert.equal(outcome.snapshot.status, 'running', 'the last-observed snapshot is carried for diagnostics, but never treated as completion');
+  assert.equal(
+    outcome.snapshot.status,
+    'running',
+    'the last-observed snapshot is carried for diagnostics, but never treated as completion',
+  );
 });
 
 test('falls back to a snapshot poll on stream error and resolves { kind: "failed" } once that poll reports terminal', async () => {
@@ -99,7 +119,10 @@ test('falls back to a snapshot poll on stream error and resolves { kind: "failed
     if (pollCount === 1) {
       return { ok: true, json: async () => ({ id: 'op-4', status: 'running', lastEventId: 0, steps: [] }) };
     }
-    return { ok: true, json: async () => ({ id: 'op-4', status: 'failed', lastEventId: 1, steps: [], error: { message: 'boom' } }) };
+    return {
+      ok: true,
+      json: async () => ({ id: 'op-4', status: 'failed', lastEventId: 1, steps: [], error: { message: 'boom' } }),
+    };
   };
 
   const promise = waitForOperationTerminal('op-4');

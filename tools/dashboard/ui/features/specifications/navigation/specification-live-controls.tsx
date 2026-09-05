@@ -1,7 +1,7 @@
 import { Radio } from 'lucide-react';
 
-import { RetryButton } from '@/components/ui/status-card';
-import { cn } from '@/lib/utils';
+import { RetryButton } from '@/shared/ui/status-card';
+import { cn } from '@/shared/lib/utils';
 import type { LiveConnectionStatus } from '../queries';
 
 export type { LiveConnectionStatus };
@@ -50,11 +50,11 @@ export function SpecificationLiveControls({
                 : 'SSE: Stan nieznany (brak aktywnego połączenia)'
         }
         className={cn(
-          'flex size-8 items-center justify-center rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] cursor-default',
-          isConnected && 'border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]',
-          isReconnecting && 'border-[var(--warning-border)] bg-[var(--warning-muted)] text-[var(--warning)]',
-          isDisconnected && 'border-[var(--danger-border)] bg-[var(--danger-muted)] text-[var(--danger)]',
-          isUnknown && 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)]',
+          'flex size-8 cursor-default items-center justify-center rounded-lg border transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none',
+          isConnected && 'border-status-success/25 bg-status-success/10 text-status-success',
+          isReconnecting && 'border-status-warning/25 bg-status-warning/10 text-status-warning',
+          isDisconnected && 'border-status-error/25 bg-status-error/10 text-status-error',
+          isUnknown && 'border-border bg-surface text-fg-muted',
         )}
       >
         <span className="relative flex size-3.5 items-center justify-center">

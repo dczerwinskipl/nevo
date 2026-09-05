@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-31T11:46:25.193Z",
+  "generated": "2026-09-05T17:23:26.302Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -40,75 +40,349 @@
           "id": "canonical-turn-work-contract",
           "order": 4,
           "file": "tasks/04-canonical-turn-work-contract.md",
-          "status": "draft",
+          "status": "implemented",
           "depends_on": [
             "claude-protocol-evidence",
             "codex-protocol-evidence",
             "antigravity-protocol-evidence"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8",
+            "review_revision": "62b1cd625221cedf58e45409e9baa2e16bffafbb",
+            "changed_paths": [
+              "tools/dashboard/server/ai/contracts.mjs",
+              "tools/dashboard/server/ai/model/canonical-turn.mjs",
+              "tools/dashboard/server/ai/model/final-answer.mjs",
+              "tools/dashboard/server/ai/model/fixtures.mjs",
+              "tools/dashboard/server/ai/model/index.mjs",
+              "tools/dashboard/server/ai/model/serialization.mjs",
+              "tools/dashboard/server/ai/model/turn-status.mjs",
+              "tools/dashboard/server/ai/model/work-items.mjs",
+              "tools/dashboard/tests/ai-contract-drift.test.mjs",
+              "tools/dashboard/tests/ai-contracts.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "c4f0a777a7d95f56fb9a72d8f481ea7cbe03096a040257bf2b1020e51be605f4",
+            "revision": "62b1cd625221cedf58e45409e9baa2e16bffafbb",
+            "commands": [
+              {
+                "command": "node --test tools/dashboard/tests/ai-contracts.test.mjs tools/dashboard/tests/ai-contract-drift.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "neutral-lifecycle-diagnostics",
           "order": 5,
           "file": "tasks/05-neutral-lifecycle-diagnostics.md",
-          "status": "draft",
+          "status": "implemented",
           "depends_on": [
             "canonical-turn-work-contract"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8",
+            "review_revision": "62b1cd625221cedf58e45409e9baa2e16bffafbb",
+            "changed_paths": [
+              "tools/dashboard/server/ai/contracts.mjs",
+              "tools/dashboard/server/ai/diagnostics/index.mjs",
+              "tools/dashboard/server/ai/diagnostics/trace-record.mjs",
+              "tools/dashboard/server/ai/diagnostics/trace-sink.mjs",
+              "tools/dashboard/server/ai/sessions/turns/coordinator.mjs",
+              "tools/dashboard/server/ai/sessions/turns/routes.mjs",
+              "tools/dashboard/server/ai/sessions/turns/runtime.mjs",
+              "tools/dashboard/server/ai/sessions/turns/turn-event-stream.mjs",
+              "tools/dashboard/server/ai/sessions/turns/turn-recovery.mjs",
+              "tools/dashboard/tests/ai-lifecycle-diagnostics.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "c5bfafb2ef6ca5f80b88f96336c84c83adb9614e00f4038f1542a4e13578f488",
+            "revision": "62b1cd625221cedf58e45409e9baa2e16bffafbb",
+            "commands": [
+              {
+                "command": "node --test tools/dashboard/tests/ai-lifecycle-diagnostics.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "lifecycle-coordinator-and-timeouts",
           "order": 6,
           "file": "tasks/06-lifecycle-coordinator-and-timeouts.md",
-          "status": "draft",
+          "status": "verified",
           "depends_on": [
             "neutral-lifecycle-diagnostics"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8",
+            "review_revision": "8ba276b4303cd466673d3180a317dbb38879fc64",
+            "changed_paths": [
+              "tools/dashboard/server/ai/contracts.mjs",
+              "tools/dashboard/server/ai/diagnostics/index.mjs",
+              "tools/dashboard/server/ai/diagnostics/trace-record.mjs",
+              "tools/dashboard/server/ai/diagnostics/trace-sink.mjs",
+              "tools/dashboard/server/ai/model/canonical-turn.mjs",
+              "tools/dashboard/server/ai/model/final-answer.mjs",
+              "tools/dashboard/server/ai/model/fixtures.mjs",
+              "tools/dashboard/server/ai/model/index.mjs",
+              "tools/dashboard/server/ai/model/serialization.mjs",
+              "tools/dashboard/server/ai/model/turn-status.mjs",
+              "tools/dashboard/server/ai/model/work-items.mjs",
+              "tools/dashboard/server/ai/sessions/turns/coordinator.mjs",
+              "tools/dashboard/server/ai/sessions/turns/runtime.mjs",
+              "tools/dashboard/server/ai/sessions/turns/turn-recovery.mjs",
+              "tools/dashboard/tests/ai-lifecycle-diagnostics.test.mjs",
+              "tools/dashboard/tests/ai-turn-runtime.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "d6217da182ed8cc5dd833d271c6c326fabbca7d3d57581940e58c174e6dcc61f"
+          },
+          "self_check": {
+            "fingerprint": "0894626c45a9ca6a11551e6633c1b656b985a9bad47da3fcdb9297163cf26ac8",
+            "revision": "8ba276b4303cd466673d3180a317dbb38879fc64",
+            "commands": [
+              {
+                "command": "node --test tools/dashboard/tests/ai-turn-runtime.test.mjs tools/dashboard/tests/ai-lifecycle-diagnostics.test.mjs tools/dashboard/tests/session-states-integration.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "canonical-persistence-and-server-projection",
           "order": 7,
           "file": "tasks/07-canonical-persistence-and-server-projection.md",
-          "status": "draft",
+          "status": "verified",
           "depends_on": [
             "lifecycle-coordinator-and-timeouts"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "56cc0d54e192280f2e18ef713864462f725ddcf2",
+            "review_revision": "23de557923ecb2056e2a23ede256a0fa59c9808c",
+            "changed_paths": [
+              "tools/dashboard/server/ai/contracts.mjs",
+              "tools/dashboard/server/ai/diagnostics/trace-record.mjs",
+              "tools/dashboard/server/ai/model/canonical-turn.mjs",
+              "tools/dashboard/server/ai/model/serialization.mjs",
+              "tools/dashboard/server/ai/model/work-items.mjs",
+              "tools/dashboard/server/ai/sessions/routes.mjs",
+              "tools/dashboard/server/ai/sessions/service.mjs",
+              "tools/dashboard/server/ai/sessions/transcript-cache.mjs",
+              "tools/dashboard/server/ai/sessions/turns/coordinator.mjs",
+              "tools/dashboard/server/ai/sessions/turns/runtime.mjs",
+              "tools/dashboard/server/ai/sessions/turns/turn-recovery.mjs",
+              "tools/dashboard/tests/ai-contracts.test.mjs",
+              "tools/dashboard/tests/ai-server.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "f8fb9a2a7ba451000625da668da6f0caef94780ac326d1bf9d73b1037caf9ddc"
+          },
+          "self_check": {
+            "fingerprint": "ba73497dc34110bf99c2d92004fb1605e57e7f5228c95c893ee17aa514e3a248",
+            "revision": "23de557923ecb2056e2a23ede256a0fa59c9808c",
+            "commands": [
+              {
+                "command": "node --experimental-strip-types --test tools/dashboard/tests/ai-server.test.mjs tools/dashboard/tests/session-states-integration.test.mjs tools/dashboard/tests/session-readiness.test.mjs tools/dashboard/tests/transcript-projection.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "claude-neutral-mapping",
           "order": 8,
           "file": "tasks/08-claude-neutral-mapping.md",
-          "status": "draft",
+          "status": "verified",
           "depends_on": [
             "lifecycle-coordinator-and-timeouts"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "3b58aa48d9a20381057777ffeb5569a4fc7b61af",
+            "review_revision": "6798746f5b95bce0a1297921af377fda830653ba",
+            "changed_paths": [
+              "tools/dashboard/server/ai/providers/claude/continuation-store.mjs",
+              "tools/dashboard/server/ai/providers/claude/hook.mjs",
+              "tools/dashboard/server/ai/providers/claude/provider.mjs",
+              "tools/dashboard/tests/claude-provider.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "c387e99026f79c33096d8896ec86f24686aed144332b1ac448757182a93e8f09",
+            "revision": "6798746f5b95bce0a1297921af377fda830653ba",
+            "commands": [
+              {
+                "command": "node --test tools/dashboard/tests/claude-provider.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "codex-neutral-mapping",
           "order": 9,
           "file": "tasks/09-codex-neutral-mapping.md",
-          "status": "draft",
+          "status": "verified",
           "depends_on": [
             "lifecycle-coordinator-and-timeouts"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "462715bf9eab37c8bc8dff8f4e60989a9c0574dd",
+            "review_revision": "23de557923ecb2056e2a23ede256a0fa59c9808c",
+            "changed_paths": [
+              "tools/dashboard/server/ai/providers/codex/provider.mjs",
+              "tools/dashboard/tests/codex-provider.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "d6f5e323c47cd1347c45f0a6dce0728d0bf20b011cc116225e2dfa350af6382e"
+          },
+          "self_check": {
+            "fingerprint": "ad62a80d3e9b67d75f2a009952dbd445d15fa6f24eb825ad8bab06728610a5a0",
+            "revision": "23de557923ecb2056e2a23ede256a0fa59c9808c",
+            "commands": [
+              {
+                "command": "node --test tools/dashboard/tests/codex-schema-compat.test.mjs tools/dashboard/tests/codex-provider.test.mjs tools/dashboard/tests/codex-app-server-client.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "antigravity-neutral-mapping",
           "order": 10,
           "file": "tasks/10-antigravity-neutral-mapping.md",
-          "status": "draft",
+          "status": "verified",
           "depends_on": [
             "lifecycle-coordinator-and-timeouts"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "203d6e09c568c61beac043943934dced66ff19fe",
+            "review_revision": "23de557923ecb2056e2a23ede256a0fa59c9808c",
+            "changed_paths": [
+              "tools/dashboard/server/ai/providers/antigravity/provider.mjs",
+              "tools/dashboard/tests/antigravity-provider.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "4a3da5f2789eaf9e922ea99bee8aec9ffb3fa37b23e1da9b2b1a59dd4ac97297"
+          },
+          "self_check": {
+            "fingerprint": "24935212e3fb56591990d38187c3922525d2080357121ca3ba552bfe86891eba",
+            "revision": "23de557923ecb2056e2a23ede256a0fa59c9808c",
+            "commands": [
+              {
+                "command": "node --test tools/dashboard/tests/antigravity-provider.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "semantic-work-chat-v2",
           "order": 11,
           "file": "tasks/11-semantic-work-chat-v2.md",
-          "status": "draft",
+          "status": "verified",
           "depends_on": [
             "canonical-persistence-and-server-projection"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "b84c80b9f279243f806b4bfc056db5f717cdb3bb",
+            "review_revision": "6798746f5b95bce0a1297921af377fda830653ba",
+            "changed_paths": [
+              "tools/dashboard/.storybook/vitest.setup.ts",
+              "tools/dashboard/tests/agent-session-header.test.mjs",
+              "tools/dashboard/tests/agent-session-runtime-state.test.mjs",
+              "tools/dashboard/tests/agent-turn-transport.test.mjs",
+              "tools/dashboard/tests/composer-interaction.test.mjs",
+              "tools/dashboard/tests/responsive-accessibility-regression.test.mjs",
+              "tools/dashboard/tests/semantic-work-chat-v2-corrections.test.mjs",
+              "tools/dashboard/tests/semantic-work-chat-v2-corrections.test.tsx",
+              "tools/dashboard/tests/session-details.test.mjs",
+              "tools/dashboard/tests/transcript-message-layout.test.mjs",
+              "tools/dashboard/tests/transcript-projection.test.mjs",
+              "tools/dashboard/tests/turn-work-correlation.test.mjs",
+              "tools/dashboard/tests/turn-work-summary.test.mjs",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-details-sheet.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-details.stories.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-details.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-header.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-list.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-page.tsx",
+              "tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx",
+              "tools/dashboard/ui/features/agent-sessions/composer/composer-sizing.ts",
+              "tools/dashboard/ui/features/agent-sessions/create-agent-session-dialog.tsx",
+              "tools/dashboard/ui/features/agent-sessions/create-agent-session-helpers.ts",
+              "tools/dashboard/ui/features/agent-sessions/initial-dispatch.ts",
+              "tools/dashboard/ui/features/agent-sessions/interactions/interaction-prompt.tsx",
+              "tools/dashboard/ui/features/agent-sessions/provider-config.ts",
+              "tools/dashboard/ui/features/agent-sessions/provider-unavailable-banner.tsx",
+              "tools/dashboard/ui/features/agent-sessions/queries.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-event-reducer.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-event-source.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-session-runtime-v2.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-session-runtime.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-session-transport.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-session-v2-transport.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-turn-transport.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/pending-dispatch-store.ts",
+              "tools/dashboard/ui/features/agent-sessions/session-tasks.ts",
+              "tools/dashboard/ui/features/agent-sessions/status.ts",
+              "tools/dashboard/ui/features/agent-sessions/transcript/agent-session-transcript.tsx",
+              "tools/dashboard/ui/features/agent-sessions/transcript/message-collapse.ts",
+              "tools/dashboard/ui/features/agent-sessions/transcript/projection.ts",
+              "tools/dashboard/ui/features/agent-sessions/transcript/reasoning-view.tsx",
+              "tools/dashboard/ui/features/agent-sessions/transcript/transcript-message.tsx",
+              "tools/dashboard/ui/features/agent-sessions/transcript/use-scroll-follow.ts",
+              "tools/dashboard/ui/features/agent-sessions/transcript/use-visual-viewport.ts",
+              "tools/dashboard/ui/features/agent-sessions/turn-work/tool-call-view.tsx",
+              "tools/dashboard/ui/features/agent-sessions/turn-work/turn-work-summary.tsx",
+              "tools/dashboard/ui/features/agent-sessions/turn-work/turn-work-visibility.ts",
+              "tools/dashboard/ui/features/agent-sessions/types.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/__fixtures__/chat-fixtures.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/activity-model-v2.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/agent-session-transcript-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/final-answer-view-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/pending-interaction-view-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/text-preview-v2.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/timeline-projection-v2.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/tool-kind-icons-v2.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/turn-status-tone-v2.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/turn-work-panel-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/use-elapsed-label.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-details-sheet-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-indicator-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-timeline-v2.tsx"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "3fb17ee0ac1a5d5eb0d81e44ff95a9ef2e22dca83d24d40e5e8a718bfe25863e",
+            "revision": "6798746f5b95bce0a1297921af377fda830653ba",
+            "commands": [
+              {
+                "command": "node --experimental-strip-types --test tools/dashboard/tests/turn-work-summary.test.mjs tools/dashboard/tests/transcript-projection.test.mjs tools/dashboard/tests/turn-work-correlation.test.mjs tools/dashboard/tests/composer-interaction.test.mjs tools/dashboard/tests/transcript-message-layout.test.mjs tools/dashboard/tests/agent-session-runtime-state.test.mjs tools/dashboard/tests/responsive-accessibility-regression.test.mjs tools/dashboard/tests/semantic-work-chat-v2-corrections.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "cross-provider-lifecycle-validation",
@@ -5316,6 +5590,1175 @@
               },
               {
                 "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        }
+      ]
+    },
+    {
+      "id": "semantic-color-tokens-with-tailwind-css-4",
+      "specId": "dc05983f-45d1-43a1-a2e2-4a6a12425d13",
+      "title": "Semantic Color Tokens with Tailwind CSS 4",
+      "status": "archived",
+      "priority": 10,
+      "created": "2026-09-03",
+      "tasks": [
+        {
+          "id": "frontend-formatter-baseline",
+          "order": 1,
+          "file": "tasks/01-frontend-formatter-baseline.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "2a2663ce96e6a60cc0930106133416da4eb02453",
+            "review_revision": "709c61f6edb29b8fe9cd2895677b64dbee24a451",
+            "changed_paths": [
+              "tools/dashboard/.prettierignore",
+              "tools/dashboard/.storybook/main.ts",
+              "tools/dashboard/config/network.mjs",
+              "tools/dashboard/package-lock.json",
+              "tools/dashboard/package.json",
+              "tools/dashboard/prettier.config.mjs",
+              "tools/dashboard/server/ai/access-policy.mjs",
+              "tools/dashboard/server/ai/contracts.mjs",
+              "tools/dashboard/server/ai/diagnostics/trace-record.mjs",
+              "tools/dashboard/server/ai/diagnostics/trace-sink.mjs",
+              "tools/dashboard/server/ai/model/canonical-turn.mjs",
+              "tools/dashboard/server/ai/model/final-answer.mjs",
+              "tools/dashboard/server/ai/model/fixtures.mjs",
+              "tools/dashboard/server/ai/model/serialization.mjs",
+              "tools/dashboard/server/ai/model/turn-status.mjs",
+              "tools/dashboard/server/ai/model/work-items.mjs",
+              "tools/dashboard/server/ai/providers/antigravity/provider.mjs",
+              "tools/dashboard/server/ai/providers/claude/continuation-store.mjs",
+              "tools/dashboard/server/ai/providers/claude/hook.mjs",
+              "tools/dashboard/server/ai/providers/claude/provider.mjs",
+              "tools/dashboard/server/ai/providers/codex/app-server-client.mjs",
+              "tools/dashboard/server/ai/providers/codex/protocol-baseline.json",
+              "tools/dashboard/server/ai/providers/codex/provider.mjs",
+              "tools/dashboard/server/ai/providers/codex/verify-schema.mjs",
+              "tools/dashboard/server/ai/providers/config.mjs",
+              "tools/dashboard/server/ai/providers/mock/provider.mjs",
+              "tools/dashboard/server/ai/providers/raw-capture.mjs",
+              "tools/dashboard/server/ai/providers/registry.mjs",
+              "tools/dashboard/server/ai/routes.mjs",
+              "tools/dashboard/server/ai/sessions/binding-service.mjs",
+              "tools/dashboard/server/ai/sessions/events/routes.mjs",
+              "tools/dashboard/server/ai/sessions/interactions/routes.mjs",
+              "tools/dashboard/server/ai/sessions/routes.mjs",
+              "tools/dashboard/server/ai/sessions/service.mjs",
+              "tools/dashboard/server/ai/sessions/transcript-cache.mjs",
+              "tools/dashboard/server/ai/sessions/turns/coordinator.mjs",
+              "tools/dashboard/server/ai/sessions/turns/routes.mjs",
+              "tools/dashboard/server/ai/sessions/turns/runtime.mjs",
+              "tools/dashboard/server/ai/sessions/turns/turn-event-stream.mjs",
+              "tools/dashboard/server/ai/sessions/turns/turn-recovery.mjs",
+              "tools/dashboard/server/app.mjs",
+              "tools/dashboard/server/index.mjs",
+              "tools/dashboard/server/infrastructure/operation-runtime.mjs",
+              "tools/dashboard/server/operations/routes.mjs",
+              "tools/dashboard/server/pull-requests/change-view-config.mjs",
+              "tools/dashboard/server/pull-requests/github.mjs",
+              "tools/dashboard/server/pull-requests/routes.mjs",
+              "tools/dashboard/server/pull-requests/service.mjs",
+              "tools/dashboard/server/specs/actions.mjs",
+              "tools/dashboard/server/specs/data.mjs",
+              "tools/dashboard/server/specs/events.mjs",
+              "tools/dashboard/server/specs/routes.mjs",
+              "tools/dashboard/server/specs/service.mjs",
+              "tools/dashboard/server/specs/watcher.mjs",
+              "tools/dashboard/tests/actions.test.mjs",
+              "tools/dashboard/tests/agent-event-source.test.mjs",
+              "tools/dashboard/tests/agent-session-header.test.mjs",
+              "tools/dashboard/tests/agent-session-runtime-state.test.mjs",
+              "tools/dashboard/tests/agent-sessions-feature-boundary.test.mjs",
+              "tools/dashboard/tests/agent-turn-transport.test.mjs",
+              "tools/dashboard/tests/ai-contract-drift.test.mjs",
+              "tools/dashboard/tests/ai-contracts.test.mjs",
+              "tools/dashboard/tests/ai-custom-root.test.mjs",
+              "tools/dashboard/tests/ai-lifecycle-diagnostics.test.mjs",
+              "tools/dashboard/tests/ai-providers-config.test.mjs",
+              "tools/dashboard/tests/ai-server.test.mjs",
+              "tools/dashboard/tests/ai-sse-listener-leak.test.mjs",
+              "tools/dashboard/tests/ai-turn-runtime.test.mjs",
+              "tools/dashboard/tests/antigravity-provider.test.mjs",
+              "tools/dashboard/tests/binding-service.test.mjs",
+              "tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs",
+              "tools/dashboard/tests/change-view-config.test.mjs",
+              "tools/dashboard/tests/changes-grouping.test.mjs",
+              "tools/dashboard/tests/chat-fixture-model.test.tsx",
+              "tools/dashboard/tests/claude-deferral-discovery.test.mjs",
+              "tools/dashboard/tests/claude-fresh-session-identity.test.mjs",
+              "tools/dashboard/tests/claude-hook.test.mjs",
+              "tools/dashboard/tests/claude-interaction.test.mjs",
+              "tools/dashboard/tests/claude-provider.test.mjs",
+              "tools/dashboard/tests/codex-app-server-client.test.mjs",
+              "tools/dashboard/tests/codex-provider.test.mjs",
+              "tools/dashboard/tests/codex-schema-compat.test.mjs",
+              "tools/dashboard/tests/composer-interaction.test.mjs",
+              "tools/dashboard/tests/create-agent-session-helpers.test.mjs",
+              "tools/dashboard/tests/data.test.mjs",
+              "tools/dashboard/tests/diff-hydration-queue.test.mjs",
+              "tools/dashboard/tests/fastify-architecture.test.mjs",
+              "tools/dashboard/tests/fastify-migration.test.mjs",
+              "tools/dashboard/tests/fixtures/evidence/antigravity-evidence.json",
+              "tools/dashboard/tests/fixtures/evidence/claude-evidence.json",
+              "tools/dashboard/tests/fixtures/evidence/codex-evidence.json",
+              "tools/dashboard/tests/health.test.mjs",
+              "tools/dashboard/tests/mock-provider.test.mjs",
+              "tools/dashboard/tests/network-config.test.mjs",
+              "tools/dashboard/tests/operations-ui.test.mjs",
+              "tools/dashboard/tests/operations.test.mjs",
+              "tools/dashboard/tests/pull-requests-service.test.mjs",
+              "tools/dashboard/tests/pull-requests.test.mjs",
+              "tools/dashboard/tests/responsive-accessibility-regression.test.mjs",
+              "tools/dashboard/tests/router-navigation.test.mjs",
+              "tools/dashboard/tests/scroll-follow.test.mjs",
+              "tools/dashboard/tests/semantic-work-chat-v2-corrections.test.mjs",
+              "tools/dashboard/tests/semantic-work-chat-v2-corrections.test.tsx",
+              "tools/dashboard/tests/server.test.mjs",
+              "tools/dashboard/tests/session-details.test.mjs",
+              "tools/dashboard/tests/session-readiness.test.mjs",
+              "tools/dashboard/tests/session-states-integration.test.mjs",
+              "tools/dashboard/tests/spec-create-helpers.test.mjs",
+              "tools/dashboard/tests/spec-detail-documentation-projection.test.mjs",
+              "tools/dashboard/tests/spec-watcher.test.mjs",
+              "tools/dashboard/tests/spec-workflow-actions.test.mjs",
+              "tools/dashboard/tests/specs-events.test.mjs",
+              "tools/dashboard/tests/specs-paths-resolver.test.mjs",
+              "tools/dashboard/tests/specs-paths.test.mjs",
+              "tools/dashboard/tests/specs.test.mjs",
+              "tools/dashboard/tests/theme-visual-cleanup.test.mjs",
+              "tools/dashboard/tests/transcript-message-layout.test.mjs",
+              "tools/dashboard/tests/transcript-projection.test.mjs",
+              "tools/dashboard/tests/turn-event-stream.test.mjs",
+              "tools/dashboard/tests/turn-recovery.test.mjs",
+              "tools/dashboard/tests/turn-work-correlation.test.mjs",
+              "tools/dashboard/tests/turn-work-summary.test.mjs",
+              "tools/dashboard/tests/turn-work-summary.test.tsx",
+              "tools/dashboard/tests/ux-improvements-regression.test.mjs",
+              "tools/dashboard/tests/wait-for-operation-terminal.test.mjs",
+              "tools/dashboard/tsconfig.json",
+              "tools/dashboard/ui/components/ui/button.tsx",
+              "tools/dashboard/ui/components/ui/dialog.tsx",
+              "tools/dashboard/ui/components/ui/sheet.tsx",
+              "tools/dashboard/ui/components/ui/status-card.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-details-sheet.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-details.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-header.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-list.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-page.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-route.tsx",
+              "tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx",
+              "tools/dashboard/ui/features/agent-sessions/composer/composer-sizing.ts",
+              "tools/dashboard/ui/features/agent-sessions/create-agent-session-dialog.tsx",
+              "tools/dashboard/ui/features/agent-sessions/create-agent-session-helpers.ts",
+              "tools/dashboard/ui/features/agent-sessions/initial-dispatch.ts",
+              "tools/dashboard/ui/features/agent-sessions/interactions/interaction-prompt.tsx",
+              "tools/dashboard/ui/features/agent-sessions/provider-config.ts",
+              "tools/dashboard/ui/features/agent-sessions/provider-unavailable-banner.tsx",
+              "tools/dashboard/ui/features/agent-sessions/queries.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-event-reducer.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-session-runtime-v2.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-session-runtime.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-session-transport.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-turn-transport.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/pending-dispatch-store.ts",
+              "tools/dashboard/ui/features/agent-sessions/session-tasks.ts",
+              "tools/dashboard/ui/features/agent-sessions/transcript/agent-session-transcript.tsx",
+              "tools/dashboard/ui/features/agent-sessions/transcript/projection.ts",
+              "tools/dashboard/ui/features/agent-sessions/transcript/reasoning-view.tsx",
+              "tools/dashboard/ui/features/agent-sessions/transcript/transcript-message.tsx",
+              "tools/dashboard/ui/features/agent-sessions/transcript/use-scroll-follow.ts",
+              "tools/dashboard/ui/features/agent-sessions/transcript/use-visual-viewport.ts",
+              "tools/dashboard/ui/features/agent-sessions/turn-work/tool-call-view.tsx",
+              "tools/dashboard/ui/features/agent-sessions/turn-work/turn-work-summary.tsx",
+              "tools/dashboard/ui/features/agent-sessions/turn-work/turn-work-visibility.ts",
+              "tools/dashboard/ui/features/agent-sessions/types.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/__fixtures__/chat-fixtures.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/activity-model-v2.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/agent-session-transcript-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/final-answer-view-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/pending-interaction-view-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/timeline-projection-v2.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/turn-work-panel-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-details-sheet-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-indicator-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-timeline-v2.tsx",
+              "tools/dashboard/ui/features/operations/operation-modal.tsx",
+              "tools/dashboard/ui/features/operations/operation-progress.tsx",
+              "tools/dashboard/ui/features/operations/operation-snapshot.ts",
+              "tools/dashboard/ui/features/operations/wait-for-operation-terminal.ts",
+              "tools/dashboard/ui/features/pull-requests/changes/file-change.tsx",
+              "tools/dashboard/ui/features/pull-requests/changes/grouping.ts",
+              "tools/dashboard/ui/features/pull-requests/changes/status.ts",
+              "tools/dashboard/ui/features/pull-requests/detail/pull-request-cards.tsx",
+              "tools/dashboard/ui/features/pull-requests/detail/pull-request-detail.tsx",
+              "tools/dashboard/ui/features/pull-requests/panel/pull-requests-panel.tsx",
+              "tools/dashboard/ui/features/pull-requests/queries.ts",
+              "tools/dashboard/ui/features/specifications/actions/spec-actions.tsx",
+              "tools/dashboard/ui/features/specifications/actions/spec-workflow-actions.ts",
+              "tools/dashboard/ui/features/specifications/actions/use-spec-workflow-actions.ts",
+              "tools/dashboard/ui/features/specifications/create/create-specification-dialog.tsx",
+              "tools/dashboard/ui/features/specifications/create/create-specification-error-banner.tsx",
+              "tools/dashboard/ui/features/specifications/create/create-specification-helpers.ts",
+              "tools/dashboard/ui/features/specifications/create/specification-ai-planning-section.tsx",
+              "tools/dashboard/ui/features/specifications/create/use-create-specification-form.ts",
+              "tools/dashboard/ui/features/specifications/detail/directory-section-panel.tsx",
+              "tools/dashboard/ui/features/specifications/detail/document-section-panel.tsx",
+              "tools/dashboard/ui/features/specifications/detail/documentation-panel.tsx",
+              "tools/dashboard/ui/features/specifications/detail/documentation-projection.ts",
+              "tools/dashboard/ui/features/specifications/detail/overview-panel.tsx",
+              "tools/dashboard/ui/features/specifications/detail/spec-detail-queries.ts",
+              "tools/dashboard/ui/features/specifications/detail/specification-detail.tsx",
+              "tools/dashboard/ui/features/specifications/detail/status-board.tsx",
+              "tools/dashboard/ui/features/specifications/list/specification-list.tsx",
+              "tools/dashboard/ui/features/specifications/navigation/specification-live-controls.tsx",
+              "tools/dashboard/ui/features/specifications/navigation/specification-sidebar.tsx",
+              "tools/dashboard/ui/features/specifications/queries.ts",
+              "tools/dashboard/ui/features/specifications/specification-console-layout.tsx",
+              "tools/dashboard/ui/features/specifications/stage-progress.tsx",
+              "tools/dashboard/ui/features/specifications/tasks/task-dialog.tsx",
+              "tools/dashboard/ui/features/specifications/types.ts",
+              "tools/dashboard/ui/foundations/colors.stories.tsx",
+              "tools/dashboard/ui/foundations/smoke.stories.tsx",
+              "tools/dashboard/ui/foundations/typography.stories.tsx",
+              "tools/dashboard/ui/index.css",
+              "tools/dashboard/ui/index.html",
+              "tools/dashboard/ui/routes/specs.$source.$slug.sessions.$provider.$providerSessionId.tsx",
+              "tools/dashboard/ui/shared/markdown/markdown-content.tsx",
+              "tools/dashboard/ui/shared/ui/status-label.tsx",
+              "tools/dashboard/vitest.config.ts"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "2b7ae839d6b191f364a1f4fd076257d63546a6729e535b962fa9acf77240a776",
+            "revision": "709c61f6edb29b8fe9cd2895677b64dbee24a451",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run format:check",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "react-class-composition-guidelines",
+          "order": 2,
+          "file": "tasks/02-react-class-composition-guidelines.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "d1dc9de8ed76b08f4ce905269cfe2770cfedad05",
+            "review_revision": "6374dcd68310df1b945620a3cdc5a957c2fbcd16",
+            "changed_paths": [
+              "docs/ai/change-impact-map.md",
+              "docs/ai/how-to-navigate.md",
+              "docs/ai/task-routing.md",
+              "docs/development/nevo-ai-ux-guidelines.md",
+              "docs/development/react-component-guidelines.md",
+              "docs/development/ui-ux-guidelines.md",
+              "docs/index.generated.json",
+              "docs/index.generated.md",
+              "docs/routing.generated.json",
+              "specs/active/semantic-color-tokens-with-tailwind-css-4/change.yaml",
+              "specs/active/semantic-color-tokens-with-tailwind-css-4/tasks/02-react-class-composition-guidelines.md",
+              "specs/active/semantic-color-tokens-with-tailwind-css-4/tasks/10-architecture-enforcement-check.md",
+              "specs/index.generated.json",
+              "tools/docs.mjs",
+              "tools/docs/service.mjs",
+              "tools/tests/docs-discovery.test.mjs",
+              "tools/tests/docs-routing.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "af300e8a99487acf08a64d44a96055e79cea49dd1e513f3f8b957e878837e55d",
+            "revision": "6374dcd68310df1b945620a3cdc5a957c2fbcd16",
+            "commands": [
+              {
+                "command": "node tools/docs.mjs generate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/docs-routing.test.mjs tools/tests/docs-discovery.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "npm test",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "theme-contract",
+          "order": 3,
+          "file": "tasks/03-theme-contract.md",
+          "status": "verified",
+          "depends_on": [
+            "frontend-formatter-baseline"
+          ],
+          "implementation": {
+            "baseline_revision": "51b2599896ebec83241cdde64b5963fb213200b3",
+            "review_revision": "fc27375e2e7636f2e2cc068b357f61423c9766d3",
+            "changed_paths": [
+              "tools/dashboard/ui/index.css"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "c470e30c0eaa6512eeccd5411a85ef3f84b6a6a31c89a047667d5fc512ee3dc1",
+            "revision": "fc27375e2e7636f2e2cc068b357f61423c9766d3",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "shared-ui-primitives",
+          "order": 4,
+          "file": "tasks/04-shared-ui-primitives.md",
+          "status": "verified",
+          "depends_on": [
+            "theme-contract",
+            "frontend-formatter-baseline",
+            "react-class-composition-guidelines"
+          ],
+          "implementation": {
+            "baseline_revision": "aaa5334c86d35f8089d71a3b2d9307132f26ee57",
+            "review_revision": "10e0916ef9118cf728062d5e75483b01ac4268b2",
+            "changed_paths": [
+              "tools/dashboard/ui/components/ui/badge.tsx",
+              "tools/dashboard/ui/components/ui/button.tsx",
+              "tools/dashboard/ui/components/ui/card.tsx",
+              "tools/dashboard/ui/components/ui/dialog.tsx",
+              "tools/dashboard/ui/components/ui/progress.tsx",
+              "tools/dashboard/ui/components/ui/shared-primitives.stories.tsx",
+              "tools/dashboard/ui/components/ui/sheet.tsx",
+              "tools/dashboard/ui/components/ui/status-card.tsx",
+              "tools/dashboard/ui/components/ui/storybook-test-helpers.ts",
+              "tools/dashboard/ui/shared/ui/loading-screen.tsx"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "4b6f3cba0565a32576ded816aeb03cfe54be1322b9f56410e1536f89da90f024",
+            "revision": "10e0916ef9118cf728062d5e75483b01ac4268b2",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run format:check",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build-storybook",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "status-tone-contract",
+          "order": 5,
+          "file": "tasks/05-status-tone-contract.md",
+          "status": "verified",
+          "depends_on": [
+            "theme-contract",
+            "frontend-formatter-baseline",
+            "react-class-composition-guidelines"
+          ],
+          "implementation": {
+            "baseline_revision": "f3726746d1bd151097547ad213c02ea4dd44b07d",
+            "review_revision": "407ec03de0d51127d83cd31f4067000459df9f83",
+            "changed_paths": [
+              "tools/dashboard/ui/features/agent-sessions/agent-session-list.tsx",
+              "tools/dashboard/ui/features/agent-sessions/turn-work/turn-work-summary.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/turn-status-tone-v2.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-indicator-v2.tsx",
+              "tools/dashboard/ui/features/specifications/detail/specification-detail.tsx",
+              "tools/dashboard/ui/shared/status-tone.ts",
+              "tools/dashboard/ui/shared/ui/status-label.tsx"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "31598d8dcccee4bd930c8696238cd675604bf51d6eafc9ef21d38b02c69411d6",
+            "revision": "407ec03de0d51127d83cd31f4067000459df9f83",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "agent-sessions-and-work",
+          "order": 6,
+          "file": "tasks/06-agent-sessions-and-work.md",
+          "status": "verified",
+          "depends_on": [
+            "shared-ui-primitives",
+            "status-tone-contract"
+          ],
+          "implementation": {
+            "baseline_revision": "b2bfd58b382fcac11891c68426665ac65a224df3",
+            "review_revision": "75b88f5b224543bc4a66e2668989ca4bc5e3b40d",
+            "changed_paths": [
+              "tools/dashboard/tests/semantic-work-chat-v2-corrections.test.mjs",
+              "tools/dashboard/tests/theme-visual-cleanup.test.mjs",
+              "tools/dashboard/tests/transcript-message-layout.test.mjs",
+              "tools/dashboard/tests/turn-work-summary.test.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-details.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-header.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-list.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-page.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-route.tsx",
+              "tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx",
+              "tools/dashboard/ui/features/agent-sessions/create-agent-session-dialog.tsx",
+              "tools/dashboard/ui/features/agent-sessions/interactions/interaction-prompt.tsx",
+              "tools/dashboard/ui/features/agent-sessions/provider-unavailable-banner.tsx",
+              "tools/dashboard/ui/features/agent-sessions/transcript/agent-session-transcript.tsx",
+              "tools/dashboard/ui/features/agent-sessions/transcript/reasoning-view.tsx",
+              "tools/dashboard/ui/features/agent-sessions/transcript/transcript-message.tsx",
+              "tools/dashboard/ui/features/agent-sessions/turn-work/tool-call-view.tsx",
+              "tools/dashboard/ui/features/agent-sessions/turn-work/turn-work-summary.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/agent-session-transcript-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/final-answer-view-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/turn-work-panel-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-details-sheet-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-indicator-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-timeline-v2.tsx"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "2fefb985b537e8b518768a99ee90eb20fe94e52e7efe1242a76867fec00c54b2",
+            "revision": "75b88f5b224543bc4a66e2668989ca4bc5e3b40d",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "specs-lanes-and-remaining-ui",
+          "order": 7,
+          "file": "tasks/07-specs-lanes-and-remaining-ui.md",
+          "status": "verified",
+          "depends_on": [
+            "shared-ui-primitives",
+            "status-tone-contract",
+            "agent-sessions-and-work"
+          ],
+          "implementation": {
+            "baseline_revision": "322ec3d53830f102984e89617ea0f581c2f823f3",
+            "review_revision": "8c58c407dede5ede9a072ea9d22791b8de7d0aff",
+            "changed_paths": [
+              "tools/dashboard/.storybook/aliases.ts",
+              "tools/dashboard/.storybook/test-utils/color-helpers.ts",
+              "tools/dashboard/.storybook/test-utils/index.ts",
+              "tools/dashboard/.storybook/test-utils/interaction-helpers.ts",
+              "tools/dashboard/tests/network-config.test.mjs",
+              "tools/dashboard/tests/theme-visual-cleanup.test.mjs",
+              "tools/dashboard/tests/ux-improvements-regression.test.mjs",
+              "tools/dashboard/ui/components/ui/badge.stories.tsx",
+              "tools/dashboard/ui/components/ui/button.stories.tsx",
+              "tools/dashboard/ui/components/ui/card.stories.tsx",
+              "tools/dashboard/ui/components/ui/dialog.stories.tsx",
+              "tools/dashboard/ui/components/ui/progress.stories.tsx",
+              "tools/dashboard/ui/components/ui/shared-primitives.stories.tsx",
+              "tools/dashboard/ui/components/ui/sheet.stories.tsx",
+              "tools/dashboard/ui/components/ui/status-card.stories.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-details.stories.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-header.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-list.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-page.tsx",
+              "tools/dashboard/ui/features/agent-sessions/status.ts",
+              "tools/dashboard/ui/features/operations/operation-modal.tsx",
+              "tools/dashboard/ui/features/operations/operation-progress.stories.tsx",
+              "tools/dashboard/ui/features/operations/operation-progress.tsx",
+              "tools/dashboard/ui/features/pull-requests/changes/file-change.tsx",
+              "tools/dashboard/ui/features/pull-requests/changes/status.ts",
+              "tools/dashboard/ui/features/pull-requests/detail/pull-request-cards.stories.tsx",
+              "tools/dashboard/ui/features/pull-requests/detail/pull-request-cards.tsx",
+              "tools/dashboard/ui/features/pull-requests/detail/pull-request-detail.tsx",
+              "tools/dashboard/ui/features/pull-requests/panel/pull-requests-panel.tsx",
+              "tools/dashboard/ui/features/specifications/actions/spec-actions.tsx",
+              "tools/dashboard/ui/features/specifications/create/create-specification-dialog.tsx",
+              "tools/dashboard/ui/features/specifications/create/create-specification-error-banner.tsx",
+              "tools/dashboard/ui/features/specifications/create/specification-ai-planning-section.tsx",
+              "tools/dashboard/ui/features/specifications/create/specification-metadata-fields.tsx",
+              "tools/dashboard/ui/features/specifications/detail/directory-section-panel.tsx",
+              "tools/dashboard/ui/features/specifications/detail/document-section-panel.tsx",
+              "tools/dashboard/ui/features/specifications/detail/documentation-panel.tsx",
+              "tools/dashboard/ui/features/specifications/detail/lane-presentation.ts",
+              "tools/dashboard/ui/features/specifications/detail/overview-panel.tsx",
+              "tools/dashboard/ui/features/specifications/detail/specification-detail.tsx",
+              "tools/dashboard/ui/features/specifications/detail/status-board.stories.tsx",
+              "tools/dashboard/ui/features/specifications/detail/status-board.tsx",
+              "tools/dashboard/ui/features/specifications/list/specification-list.stories.tsx",
+              "tools/dashboard/ui/features/specifications/list/specification-list.tsx",
+              "tools/dashboard/ui/features/specifications/navigation/specification-live-controls.tsx",
+              "tools/dashboard/ui/features/specifications/navigation/specification-sidebar.tsx",
+              "tools/dashboard/ui/features/specifications/specification-console-layout.tsx",
+              "tools/dashboard/ui/features/specifications/stage-progress.tsx",
+              "tools/dashboard/ui/features/specifications/status.ts",
+              "tools/dashboard/ui/features/specifications/tasks/task-dialog.tsx",
+              "tools/dashboard/ui/foundations/token-resolver.stories.tsx",
+              "tools/dashboard/ui/index.css",
+              "tools/dashboard/ui/shared/ui/loading-screen.stories.tsx",
+              "tools/dashboard/ui/shared/ui/status-label.tsx"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "808d68f4d6890b18d06de6dc4034d1ab0cc065841be690d8901b55143cf654fb",
+            "revision": "8c58c407dede5ede9a072ea9d22791b8de7d0aff",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run format:check",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build-storybook",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "storybook-and-documentation",
+          "order": 8,
+          "file": "tasks/08-storybook-and-documentation.md",
+          "status": "verified",
+          "depends_on": [
+            "shared-ui-primitives",
+            "status-tone-contract"
+          ],
+          "self_check": {
+            "fingerprint": "7186df884684e8dadb95f720b1dda3060ffebeb4cb1276921b01c0171b570897",
+            "revision": "79133077fa78a1989b496ec515389d474192d8d6",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build-storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs generate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          },
+          "implementation": {
+            "baseline_revision": "4ebe237ca40e12a55258991c4fabdc30fc4c9f78",
+            "review_revision": "b85c122e57252b5c0c182334af20562535adac24",
+            "changed_paths": [
+              "docs/ai/task-routing.md",
+              "docs/development/dashboard-frontend-architecture.md",
+              "docs/development/local-setup.md",
+              "docs/development/nevo-ai-ux-guidelines.md",
+              "docs/development/react-component-guidelines.md",
+              "docs/development/storybook.md",
+              "docs/development/ui-ux-guidelines.md",
+              "docs/index.generated.json",
+              "docs/index.generated.md",
+              "docs/routing.generated.json",
+              "specs/active/semantic-color-tokens-with-tailwind-css-4/areas/storybook-and-documentation.md",
+              "specs/active/semantic-color-tokens-with-tailwind-css-4/change.yaml",
+              "specs/active/semantic-color-tokens-with-tailwind-css-4/overview.md",
+              "specs/active/semantic-color-tokens-with-tailwind-css-4/owner-decisions.md",
+              "specs/active/semantic-color-tokens-with-tailwind-css-4/tasks/08-storybook-and-documentation.md",
+              "specs/index.generated.json",
+              "tools/dashboard/components.json",
+              "tools/dashboard/config/network.mjs",
+              "tools/dashboard/server/index.mjs",
+              "tools/dashboard/tests/architecture-boundaries.test.mjs",
+              "tools/dashboard/tests/http-redirect.test.mjs",
+              "tools/dashboard/tests/network-config.test.mjs",
+              "tools/dashboard/tests/responsive-accessibility-regression.test.mjs",
+              "tools/dashboard/tests/router-navigation.test.mjs",
+              "tools/dashboard/tests/session-details.test.mjs",
+              "tools/dashboard/tests/session-readiness.test.mjs",
+              "tools/dashboard/tests/spec-create-helpers.test.mjs",
+              "tools/dashboard/tests/spec-detail-documentation-projection.test.mjs",
+              "tools/dashboard/tests/spec-workflow-actions.test.mjs",
+              "tools/dashboard/tests/theme-visual-cleanup.test.mjs",
+              "tools/dashboard/tests/ux-improvements-regression.test.mjs",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-details-sheet.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-details.stories.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-details.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-header.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-list.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-page.tsx",
+              "tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx",
+              "tools/dashboard/ui/features/agent-sessions/create-agent-session-dialog.tsx",
+              "tools/dashboard/ui/features/agent-sessions/interactions/interaction-prompt.tsx",
+              "tools/dashboard/ui/features/agent-sessions/transcript/agent-session-transcript.tsx",
+              "tools/dashboard/ui/features/agent-sessions/transcript/message-collapse.ts",
+              "tools/dashboard/ui/features/agent-sessions/transcript/reasoning-view.tsx",
+              "tools/dashboard/ui/features/agent-sessions/transcript/transcript-message.tsx",
+              "tools/dashboard/ui/features/agent-sessions/turn-work/turn-work-summary.tsx",
+              "tools/dashboard/ui/features/agent-sessions/turn-work/turn-work-visibility.ts",
+              "tools/dashboard/ui/features/agent-sessions/types.ts",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/agent-session-transcript-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-details-sheet-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-indicator-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-timeline-v2.tsx",
+              "tools/dashboard/ui/features/operations/operation-modal.tsx",
+              "tools/dashboard/ui/features/operations/operation-progress.stories.tsx",
+              "tools/dashboard/ui/features/operations/operation-progress.tsx",
+              "tools/dashboard/ui/features/pull-requests/changes/file-change.tsx",
+              "tools/dashboard/ui/features/pull-requests/detail/pull-request-cards.stories.tsx",
+              "tools/dashboard/ui/features/pull-requests/detail/pull-request-cards.tsx",
+              "tools/dashboard/ui/features/pull-requests/detail/pull-request-detail.tsx",
+              "tools/dashboard/ui/features/pull-requests/pull-requests-panel.tsx",
+              "tools/dashboard/ui/features/pull-requests/queries.ts",
+              "tools/dashboard/ui/features/pull-requests/types.ts",
+              "tools/dashboard/ui/features/specifications/actions/spec-actions.tsx",
+              "tools/dashboard/ui/features/specifications/detail/directory-section-panel.tsx",
+              "tools/dashboard/ui/features/specifications/detail/document-section-panel.tsx",
+              "tools/dashboard/ui/features/specifications/detail/documentation-panel.tsx",
+              "tools/dashboard/ui/features/specifications/detail/spec-detail-queries.ts",
+              "tools/dashboard/ui/features/specifications/detail/specification-route.tsx",
+              "tools/dashboard/ui/features/specifications/detail/status-board.stories.tsx",
+              "tools/dashboard/ui/features/specifications/detail/status-board.tsx",
+              "tools/dashboard/ui/features/specifications/list/active-specifications-page.tsx",
+              "tools/dashboard/ui/features/specifications/list/archive-specifications-page.tsx",
+              "tools/dashboard/ui/features/specifications/list/specification-list.stories.tsx",
+              "tools/dashboard/ui/features/specifications/list/specification-list.tsx",
+              "tools/dashboard/ui/features/specifications/navigation/specification-live-controls.tsx",
+              "tools/dashboard/ui/features/specifications/navigation/specification-sidebar.tsx",
+              "tools/dashboard/ui/features/specifications/stage-progress.tsx",
+              "tools/dashboard/ui/features/specifications/status.ts",
+              "tools/dashboard/ui/features/specifications/tasks/task-dialog.tsx",
+              "tools/dashboard/ui/foundations/colors.stories.tsx",
+              "tools/dashboard/ui/foundations/smoke.stories.tsx",
+              "tools/dashboard/ui/foundations/token-resolver.stories.tsx",
+              "tools/dashboard/ui/foundations/typography.stories.tsx",
+              "tools/dashboard/ui/index.css",
+              "tools/dashboard/ui/routes/_spec-layout.tsx",
+              "tools/dashboard/ui/routes/_spec-layout/archive.tsx",
+              "tools/dashboard/ui/routes/_spec-layout/index.tsx",
+              "tools/dashboard/ui/routes/_spec-layout/specs.$source.$slug.tsx",
+              "tools/dashboard/ui/routes/specs.$source.$slug.sessions.$provider.$providerSessionId.tsx",
+              "tools/dashboard/ui/screens/agent-session/agent-session-screen.tsx",
+              "tools/dashboard/ui/screens/specification-console/create-specification/create-specification-dialog.tsx",
+              "tools/dashboard/ui/screens/specification-console/create-specification/create-specification-error-banner.tsx",
+              "tools/dashboard/ui/screens/specification-console/create-specification/create-specification-helpers.ts",
+              "tools/dashboard/ui/screens/specification-console/create-specification/specification-ai-planning-section.tsx",
+              "tools/dashboard/ui/screens/specification-console/create-specification/specification-metadata-fields.tsx",
+              "tools/dashboard/ui/screens/specification-console/create-specification/use-create-specification-form.ts",
+              "tools/dashboard/ui/screens/specification-console/specification-console-layout.tsx",
+              "tools/dashboard/ui/screens/specification-detail/spec-workflow-actions.ts",
+              "tools/dashboard/ui/screens/specification-detail/specification-detail-content.tsx",
+              "tools/dashboard/ui/screens/specification-detail/specification-detail-screen.tsx",
+              "tools/dashboard/ui/screens/specification-detail/specification-overview.tsx",
+              "tools/dashboard/ui/screens/specification-detail/use-spec-workflow-actions.ts",
+              "tools/dashboard/ui/shared/lib/utils.ts",
+              "tools/dashboard/ui/shared/markdown/markdown-content.tsx",
+              "tools/dashboard/ui/shared/ui/badge.stories.tsx",
+              "tools/dashboard/ui/shared/ui/badge.tsx",
+              "tools/dashboard/ui/shared/ui/button.stories.tsx",
+              "tools/dashboard/ui/shared/ui/button.tsx",
+              "tools/dashboard/ui/shared/ui/card.stories.tsx",
+              "tools/dashboard/ui/shared/ui/card.tsx",
+              "tools/dashboard/ui/shared/ui/dialog.stories.tsx",
+              "tools/dashboard/ui/shared/ui/dialog.tsx",
+              "tools/dashboard/ui/shared/ui/progress.stories.tsx",
+              "tools/dashboard/ui/shared/ui/progress.tsx",
+              "tools/dashboard/ui/shared/ui/sheet.stories.tsx",
+              "tools/dashboard/ui/shared/ui/sheet.tsx",
+              "tools/dashboard/ui/shared/ui/status-card.stories.tsx",
+              "tools/dashboard/ui/shared/ui/status-card.tsx",
+              "tools/dashboard/ui/shared/ui/status-label.tsx",
+              "tools/tests/docs-routing.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          }
+        },
+        {
+          "id": "cleanup-and-token-removal",
+          "order": 9,
+          "file": "tasks/09-cleanup-and-token-removal.md",
+          "status": "verified",
+          "depends_on": [
+            "shared-ui-primitives",
+            "status-tone-contract",
+            "agent-sessions-and-work",
+            "specs-lanes-and-remaining-ui",
+            "storybook-and-documentation"
+          ],
+          "implementation": {
+            "baseline_revision": "82d823fdce0d77f386b2a4284cf2ae562f31ec48"
+          }
+        },
+        {
+          "id": "architecture-enforcement-check",
+          "order": 10,
+          "file": "tasks/10-architecture-enforcement-check.md",
+          "status": "verified",
+          "depends_on": [
+            "cleanup-and-token-removal"
+          ],
+          "implementation": {
+            "baseline_revision": "d10a1dc6317d3dd5aa528d0ba0c9ed7ec1e83451"
+          }
+        }
+      ]
+    },
+    {
+      "id": "storybook-for-nevo-ai",
+      "specId": "cb8e318a-8f67-49f7-b9ed-09282c5d7bfe",
+      "title": "Storybook for Nevo AI",
+      "status": "archived",
+      "priority": 10,
+      "created": "2026-09-02",
+      "tasks": [
+        {
+          "id": "chat-boundary-audit",
+          "order": 1,
+          "file": "tasks/01-chat-boundary-audit.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "d1d5dc1968a0e854ea65d151676b7a0d584343f7",
+            "review_revision": "40e8d93c1c66b490165c33100a3a763c50723a68",
+            "changed_paths": [
+              "specs/active/storybook-for-nevo-ai/areas/chat-surface-boundaries.md"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "284a0c56a6f1f70dab3dee6a319aeba832556a9cb9ab425415fddf51cd98c503",
+            "revision": "40e8d93c1c66b490165c33100a3a763c50723a68",
+            "commands": [
+              {
+                "command": "git diff --name-only -- specs/active/storybook-for-nevo-ai/areas/chat-surface-boundaries.md",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "chat-surface-extraction",
+          "order": 2,
+          "file": "tasks/02-chat-surface-extraction.md",
+          "status": "verified",
+          "depends_on": [
+            "chat-boundary-audit"
+          ],
+          "implementation": {
+            "baseline_revision": "70c2c20c9a530a8c260d52e017e9ed0efa23f34f",
+            "review_revision": "dc05491a1989031ed961d0654a1a391ab077b301",
+            "changed_paths": [
+              "tools/dashboard/tests/semantic-work-chat-v2-corrections.test.mjs",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-page.tsx"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "7e184003be06d86b1c1059fa7c75b04d5f404af202acf2148ef5425cb47b9302",
+            "revision": "dc05491a1989031ed961d0654a1a391ab077b301",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "storybook-infrastructure-setup",
+          "order": 3,
+          "file": "tasks/03-storybook-infrastructure-setup.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "3745a31bd90bd85675163bdc0d69c5f1c52ed69c",
+            "review_revision": "b3288b9fe4167f41fb622d0b8bdca92ca5193cb1",
+            "changed_paths": [
+              "tools/dashboard/.storybook/.gitignore",
+              "tools/dashboard/.storybook/aliases.ts",
+              "tools/dashboard/.storybook/main.ts",
+              "tools/dashboard/.storybook/manager.ts",
+              "tools/dashboard/.storybook/preview.tsx",
+              "tools/dashboard/package-lock.json",
+              "tools/dashboard/package.json",
+              "tools/dashboard/ui/foundations/smoke.stories.tsx",
+              "tools/dashboard/vite.config.ts"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "4ee4504cd635a2a2f48fba9caeb426655f7ac16a1e2a323fef0ebd0d841fdf81",
+            "revision": "b3288b9fe4167f41fb622d0b8bdca92ca5193cb1",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run build-storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "component-testing-infrastructure",
+          "order": 4,
+          "file": "tasks/04-component-testing-infrastructure.md",
+          "status": "verified",
+          "depends_on": [
+            "storybook-infrastructure-setup"
+          ],
+          "implementation": {
+            "baseline_revision": "433b8fcd07c4cc8837e7d58b83b3d55228c10d0c",
+            "review_revision": "b3288b9fe4167f41fb622d0b8bdca92ca5193cb1",
+            "changed_paths": [
+              "tools/dashboard/.storybook/aliases.ts",
+              "tools/dashboard/.storybook/main.ts",
+              "tools/dashboard/.storybook/manager-head.html",
+              "tools/dashboard/.storybook/manager.ts",
+              "tools/dashboard/.storybook/preview-head.html",
+              "tools/dashboard/.storybook/preview.tsx",
+              "tools/dashboard/.storybook/vitest.setup.ts",
+              "tools/dashboard/package-lock.json",
+              "tools/dashboard/package.json",
+              "tools/dashboard/tests/semantic-work-chat-v2-corrections.test.mjs",
+              "tools/dashboard/tests/semantic-work-chat-v2-corrections.test.tsx",
+              "tools/dashboard/tests/turn-work-summary.test.mjs",
+              "tools/dashboard/tests/turn-work-summary.test.tsx",
+              "tools/dashboard/ui/foundations/smoke.stories.tsx",
+              "tools/dashboard/vite.config.ts",
+              "tools/dashboard/vitest.config.ts"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "976c3ff0c201546137d1a6a06f3472af3dba4e689b0aac12275e2db72a041da6",
+            "revision": "b3288b9fe4167f41fb622d0b8bdca92ca5193cb1",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "foundation-stories",
+          "order": 5,
+          "file": "tasks/05-foundation-stories.md",
+          "status": "verified",
+          "depends_on": [
+            "storybook-infrastructure-setup"
+          ],
+          "implementation": {
+            "baseline_revision": "34764c30d26150ab61ef8c2e229ab91f0bb4ecd3",
+            "review_revision": "139f82e24816fb49323bd9333677613b1c35ea7b",
+            "changed_paths": [
+              "tools/dashboard/ui/foundations/colors.stories.tsx",
+              "tools/dashboard/ui/foundations/typography.stories.tsx"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "61f552affe57067da68466cc6ab943efb22e205094f798b00fd1834d1e2f5b8e",
+            "revision": "139f82e24816fb49323bd9333677613b1c35ea7b",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run build-storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "chat-fixture-model",
+          "order": 6,
+          "file": "tasks/06-chat-fixture-model.md",
+          "status": "verified",
+          "depends_on": [
+            "chat-surface-extraction",
+            "component-testing-infrastructure"
+          ],
+          "implementation": {
+            "baseline_revision": "05d6541b204c1d8fb0e0c246aea32e47425d3344",
+            "review_revision": "b6225038b04f05a8748f4f19edf6780b06c3f3b4",
+            "changed_paths": [
+              "tools/dashboard/tests/chat-fixture-model.test.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/__fixtures__/chat-fixtures.ts"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "87f825ed5fd169aa4d3890aecde4b9aca709263261dc10b1fd12d275e0d5b5e9",
+            "revision": "b6225038b04f05a8748f4f19edf6780b06c3f3b4",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "chat-stories-empty-and-waiting",
+          "order": 7,
+          "file": "tasks/07-chat-stories-empty-and-waiting.md",
+          "status": "verified",
+          "depends_on": [
+            "chat-fixture-model"
+          ],
+          "implementation": {
+            "baseline_revision": "0085095bf409d652a45398a6881e73d53ef024c0",
+            "review_revision": "77e86c3346f4ddff4dd90a52c6d624ce90b9aa61",
+            "changed_paths": [
+              "tools/dashboard/tests/composer-interaction.test.mjs",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx",
+              "tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx",
+              "tools/dashboard/ui/features/agent-sessions/composer/composer-sizing.ts"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "0e7f942e6703e2e3465a493ae8e80a25919fd0e7c852d5c4bfdb2944adc6eef7",
+            "revision": "77e86c3346f4ddff4dd90a52c6d624ce90b9aa61",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build-storybook",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "chat-stories-conversation-and-work",
+          "order": 8,
+          "file": "tasks/08-chat-stories-conversation-and-work.md",
+          "status": "verified",
+          "depends_on": [
+            "chat-fixture-model"
+          ],
+          "implementation": {
+            "baseline_revision": "a4715a309fa3bb91f038bb72d6101e3b5a17aa8f",
+            "review_revision": "77e86c3346f4ddff4dd90a52c6d624ce90b9aa61",
+            "changed_paths": [
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "bcc870fd14edd2fc11b1c6ab6c7f0dc7638a8fee85cdac99f3c2087681d094c6",
+            "revision": "77e86c3346f4ddff4dd90a52c6d624ce90b9aa61",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build-storybook",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "chat-stories-active-states",
+          "order": 9,
+          "file": "tasks/09-chat-stories-active-states.md",
+          "status": "verified",
+          "depends_on": [
+            "chat-fixture-model"
+          ],
+          "implementation": {
+            "baseline_revision": "93f3e50469d436158a7e0b8c14a3696c695639e6",
+            "review_revision": "a58ca119f34d8e896572d060dd00b830b655323e",
+            "changed_paths": [
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "763a363269d70bb4cac4f2abaaea6059b547ccf106a9c51ea3163385b96537d9",
+            "revision": "a58ca119f34d8e896572d060dd00b830b655323e",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build-storybook",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "storybook-documentation",
+          "order": 10,
+          "file": "tasks/10-storybook-documentation.md",
+          "status": "verified",
+          "depends_on": [
+            "chat-fixture-model",
+            "foundation-stories",
+            "chat-stories-empty-and-waiting",
+            "chat-stories-conversation-and-work",
+            "chat-stories-active-states"
+          ],
+          "implementation": {
+            "baseline_revision": "f2297cd992782c19bc98ab42e16121b5544a52b4",
+            "review_revision": "b6225038b04f05a8748f4f19edf6780b06c3f3b4",
+            "changed_paths": [
+              "docs/development/react-component-guidelines.md",
+              "docs/development/storybook.md",
+              "docs/index.generated.json",
+              "docs/index.generated.md",
+              "docs/routing.generated.json"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "d1e2b03dcfb8a5f4e318ffb12c9835c363bc38bea47ce863ad63b2c240a7e93e",
+            "revision": "b6225038b04f05a8748f4f19edf6780b06c3f3b4",
+            "commands": [
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
                 "exit_code": 0
               }
             ],
