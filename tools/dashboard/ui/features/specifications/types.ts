@@ -2,6 +2,10 @@ export type StageId = 'new' | 'design' | 'ready' | 'implementation' | 'review' |
 
 export type SpecificationSource = 'active' | 'archive';
 
+export function isSpecificationSource(value: string): value is SpecificationSource {
+  return value === 'active' || value === 'archive';
+}
+
 export interface SpecificationTask {
   id: string;
   title: string;

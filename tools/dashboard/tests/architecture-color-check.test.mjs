@@ -76,6 +76,18 @@ test('AC7: a legacy CSS custom-property reference fails the check; the canonical
   assert.ok(!canonical.some((v) => v.rule === 'legacy-css-variable'));
 });
 
+test('AC3 (CSS): an undeclared --color-* reference (e.g. a typo) in a .css file fails the check', () => {
+  const violations = checkContent('index.css', '.thing { background: var(--color-sruface); }', {
+    declaredColorTokens: declaredTokens(),
+  });
+  assert.ok(violations.some((v) => v.rule === 'undeclared-color-variable'));
+
+  const clean = checkContent('index.css', '.thing { background: var(--color-surface); }', {
+    declaredColorTokens: declaredTokens(),
+  });
+  assert.ok(!clean.some((v) => v.rule === 'undeclared-color-variable'));
+});
+
 test('AC8: text-accent-solid fails the check', () => {
   const violations = checkContent('features/example/widget.tsx', '<span className="text-accent-solid">Go</span>');
   assert.ok(violations.some((v) => v.rule === 'accent-solid-as-text'));

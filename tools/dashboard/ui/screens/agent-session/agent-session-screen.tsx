@@ -5,6 +5,7 @@ import { Button } from '@/shared/ui/button';
 import { StatusCard } from '@/shared/ui/status-card';
 import { LoadingScreen } from '@/shared/ui/loading-screen';
 import { useSpecificationIndex } from '@/features/specifications/queries';
+import { isSpecificationSource } from '@/features/specifications/types';
 import type { AgentSession, TaskNavigationTarget } from '@/features/agent-sessions/types';
 import { useAgentSessions } from '@/features/agent-sessions/queries';
 import { AgentSessionPage } from '@/features/agent-sessions/agent-session-page';
@@ -19,20 +20,30 @@ export interface AgentSessionScreenProps {
 }
 
 export function AgentSessionScreen({ source: rawSource, slug, provider, providerSessionId }: AgentSessionScreenProps) {
-  const source: 'active' | 'archive' = rawSource === 'archive' ? 'archive' : 'active';
+  const source: 'active' | 'archive' | null = isSpecificationSource(rawSource) ? rawSource : null;
 
   const { data, loading: dataLoading, error: dataError } = useSpecificationIndex();
   const navigate = useNavigate();
   const [inspectedTaskId, setInspectedTaskId] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (source === null) {
+      navigate({
+        to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+        params: { source: 'active', slug, provider, providerSessionId },
+        replace: true,
+      });
+    }
+  }, [source, navigate, slug, provider, providerSessionId]);
+
   const selectedSpec = useMemo(() => {
-    if (!data) return null;
+    if (!data || source === null) return null;
     const collection = source === 'active' ? data.active : data.archive;
     return collection.find((c) => c.slug === slug) ?? null;
   }, [data, source, slug]);
 
   const fallbackSpec = useMemo(() => {
-    if (!data || selectedSpec) return null;
+    if (!data || selectedSpec || source === null) return null;
     const oppositeSource = source === 'active' ? 'archive' : 'active';
     const oppositeCollection = source === 'active' ? data.archive : data.active;
     const match = oppositeCollection.find((c) => c.slug === slug);
@@ -55,7 +66,7 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
   }, [fallbackSpec, navigate, provider, providerSessionId, slug]);
 
   const effectiveSpec = selectedSpec || fallbackSpec?.specification || null;
-  const effectiveSource = effectiveSpec?.source || source;
+  const effectiveSource: 'active' | 'archive' = effectiveSpec?.source || source || 'active';
 
   const specId = effectiveSpec?.specId ?? null;
   const sessionsQuery = useAgentSessions({
@@ -102,6 +113,7 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
     [navigate, slug, effectiveSource],
   );
 
+  if (source === null) return <LoadingScreen />;
   if (dataLoading && !data) return <LoadingScreen />;
   if (dataError && !data) {
     return <div className="flex min-h-screen items-center justify-center text-sm text-status-error">{dataError}</div>;

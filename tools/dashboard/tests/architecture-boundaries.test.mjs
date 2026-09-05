@@ -82,6 +82,30 @@ test('1. Sibling feature isolation: features/** has zero imports from other feat
   assert.deepEqual(violations, [], `Sibling feature violations found:\n${JSON.stringify(violations, null, 2)}`);
 });
 
+test('1b. Feature layer dependency direction: features/** never imports screens, routes, or app', () => {
+  const featuresDir = join(uiDir, 'features');
+  const featureFiles = listFiles(featuresDir);
+  const violations = [];
+
+  for (const file of featureFiles) {
+    const source = readFileSync(file, 'utf8');
+    const specifiers = extractImportSpecifiers(source);
+
+    for (const specifier of specifiers) {
+      if (specifier.startsWith('@/screens') || specifier.startsWith('@/routes') || specifier.startsWith('@/app')) {
+        violations.push({
+          file: relative(uiDir, file),
+          specifier,
+          reason:
+            'feature layer must not depend on higher layers (screens, routes, app) — cross-feature composition belongs in ui/screens/',
+        });
+      }
+    }
+  }
+
+  assert.deepEqual(violations, [], `Feature layer boundary violations found:\n${JSON.stringify(violations, null, 2)}`);
+});
+
 test('2. Shared layer purity: shared/** never imports from features, screens, routes, or app', () => {
   const sharedDir = join(uiDir, 'shared');
   const sharedFiles = listFiles(sharedDir);

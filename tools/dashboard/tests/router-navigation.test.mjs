@@ -231,7 +231,7 @@ test('13. Fallback routing: Archived spec accessed via /specs/active/... or acti
   assert.ok(specificationRouteSource.includes('effectiveSpec'), 'SpecificationRoute renders effectiveSpec');
 
   assert.ok(
-    agentSessionRouteSource.includes('effectiveSource = effectiveSpec?.source || source'),
+    agentSessionRouteSource.includes('effectiveSpec?.source || source'),
     'AgentSessionRoute derives effectiveSource from effectiveSpec',
   );
 });

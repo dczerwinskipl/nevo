@@ -132,6 +132,17 @@ export function checkContent(relPath, content, { declaredColorTokens } = {}) {
     const record = (rule, snippet) =>
       violations.push({ file: normalizedRelPath, line: lineNo, rule, snippet: snippet.trim() });
 
+    // 3. Undeclared `--color-*` variable references — checked for both CSS and TS/TSX, since
+    // index.css's own selectors are exactly the place a typo (e.g. `--color-sruface`) would
+    // otherwise slip past this check entirely.
+    if (declaredColorTokens) {
+      const colorVarRefs = line.match(/var\(--color-[\w-]+\)/g) || [];
+      for (const ref of colorVarRefs) {
+        const name = ref.slice('var('.length, -1);
+        if (!declaredColorTokens.has(name)) record('undeclared-color-variable', line);
+      }
+    }
+
     if (isCss) {
       for (const name of LEGACY_CSS_VARIABLE_NAMES) {
         const re = new RegExp(`var\\(--${name}\\)`);
@@ -149,15 +160,6 @@ export function checkContent(relPath, content, { declaredColorTokens } = {}) {
       `\\b(${COLOR_UTILITY_PREFIXES.join('|')})-(white|black|${DEFAULT_PALETTE_FAMILIES.join('|')})(-\\d{2,3})?\\b`,
     );
     if (defaultPalette.test(line)) record('default-palette-utility', line);
-
-    // 3. Undeclared `--color-*` variable references.
-    if (declaredColorTokens) {
-      const colorVarRefs = line.match(/var\(--color-[\w-]+\)/g) || [];
-      for (const ref of colorVarRefs) {
-        const name = ref.slice('var('.length, -1);
-        if (!declaredColorTokens.has(name)) record('undeclared-color-variable', line);
-      }
-    }
 
     // 4. Component-local color-mix(...) recipes (allowed only inside index.css's selector-oriented exception).
     if (line.includes('color-mix(')) record('component-local-color-mix', line);

@@ -55,7 +55,7 @@ The NEvo dashboard (`tools/dashboard/ui`) is a developer console and AI orchestr
 2. **Dedicated Screen Composition Layer:** Multi-feature assembly (connecting specifications, agent sessions, pull requests, and operations) occurs in dedicated screens (`ui/screens/`), preventing cross-feature coupling inside feature directories.
 3. **Thin Route Adapters:** Routes (`ui/routes/`) are thin file-route wrappers responsible solely for path parameter binding and delegating directly to screens.
 4. **Consolidated Domain-Agnostic Shared Layer:** Reusable UI primitives reside in `ui/shared/ui/` with no business logic or domain knowledge.
-5. **Canonical Design Tokens with Compatibility Bridge:** Components express styling through semantic design tokens declared in `ui/index.css` via Tailwind CSS 4 `@theme static`, with legacy variables mapped in `:root` for backward compatibility.
+5. **Canonical Design Tokens, No Legacy Bridge:** Components express styling through semantic design tokens declared in `ui/index.css` via Tailwind CSS 4 `@theme static`. The transitional `:root` legacy CSS-variable bridge was fully removed once every consumer migrated to semantic Tailwind utilities.
 
 ---
 
@@ -76,10 +76,10 @@ The dashboard frontend is organized into hierarchical layers where screens act a
               ▼                            ▼
 ┌──────────────────────────────────┐ ┌──────────────────────────────────┐
 │ Screen Composition (ui/screens/) │ │ Feature Views (ui/features/)     │
-│ - specification-console-layout   │ │ - active-specifications-page     │
-│ - screens/specification-detail/  │ │ - archive-specifications-page    │
-│ - screens/agent-session/         │ └──────────────────────────────────┘
-│ - screens/create-specification/  │               ▲
+│ - screens/specification-console/ │ │ - active-specifications-page     │
+│   (layout + create-specification)│ │ - archive-specifications-page    │
+│ - screens/specification-detail/  │ └──────────────────────────────────┘
+│ - screens/agent-session/         │               ▲
 └──────────────────┬───────────────┘               │
                    │ imports                       │
                    └───────────────────────────────┘
@@ -106,7 +106,7 @@ ui/foundations/ (design system catalog & verification stories)
 | **Features** | `ui/features/<domain>/` | Vertical slices owning single-domain views, components, local UI state, queries, mutations, projections, and co-located stories. Features never import from sibling features. | `shared`, own feature internals |
 | **Shared** | `ui/shared/ui/`, `ui/shared/` | Reusable, domain-independent UI primitives (`Button`, `Card`, `Dialog`, `Sheet`, `Badge`, `Progress`, `StatusCard`, `StatusLabel`, `LoadingScreen`), markdown renderers, token contracts (`status-tone.ts`), and utilities (`cn`, formatters in `shared/lib/utils.ts`). | External libraries (Radix, Lucide) |
 | **Foundations & Testing** | `ui/foundations/`, `.storybook/` | Catalog stories, typography inventories, color palettes, and browser test infrastructure. Catalog and test verification only; not imported by production UI components. | `shared`, `@storybook-test-utils` |
-| **Production Styling** | `ui/index.css` | Production CSS entry point imported by `main.tsx`. Declares Tailwind CSS 4 theme (`@theme static`) and legacy CSS custom property bridge in `:root`. | `@tailwindcss` |
+| **Production Styling** | `ui/index.css` | Production CSS entry point imported by `main.tsx`. Declares Tailwind CSS 4 theme (`@theme static`), with `:root` limited to 4 non-color globals (`color-scheme`, `font-family`, `font-synthesis`, `text-rendering`) — no legacy CSS custom-property bridge. | `@tailwindcss` |
 
 ### Dependency Rules
 
@@ -247,7 +247,7 @@ tools/dashboard/ui/shared/
 
 ---
 
-## 7. Styling Infrastructure & Legacy Variable Bridge (`ui/index.css`)
+## 7. Styling Infrastructure (`ui/index.css`)
 
 `tools/dashboard/ui/index.css` is the production styling entry point imported by `main.tsx`. It defines:
 
@@ -399,7 +399,7 @@ tools/dashboard/
 │   │   ├── token-resolver.stories.tsx
 │   │   └── typography.stories.tsx
 │   ├── App.tsx                          # Root application component
-│   ├── index.css                        # Tailwind 4 theme & legacy CSS bridge
+│   ├── index.css                        # Tailwind 4 theme, no legacy CSS bridge
 │   ├── index.html                       # HTML entry point
 │   ├── main.tsx                         # DOM mounting entry point
 │   └── routeTree.gen.ts                 # Generated TanStack router manifest
