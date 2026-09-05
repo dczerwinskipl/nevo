@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-05T09:59:12.431Z",
+  "generated": "2026-09-05T13:34:09.835Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -397,17 +397,19 @@
         "frontend architecture",
         "dashboard architecture",
         "feature boundaries and domain areas",
+        "screen composition layer",
         "shared ui",
         "component ownership",
         "storybook story colocation",
         "folder structure and import boundaries"
       ],
-      "summary": "Comprehensive frontend architecture for the NEvo dashboard: layer responsibilities (app -> routes -> features -> shared), component taxonomy, domain areas, public API and import boundaries, resolution of components/ui vs shared/ui, state management and data fetching, Storybook and testing colocation, component placement decision matrix, and migration strategy.",
+      "summary": "Comprehensive frontend architecture for the NEvo dashboard: five-tier layer responsibilities (App -> Routes -> Screens -> Features -> Shared), component taxonomy, domain verticals, screen-level multi-feature composition, consolidated shared/ui primitives, production styling infrastructure in index.css, and verified directory layout.",
       "tags": [
         "frontend",
         "architecture",
         "react",
         "dashboard",
+        "screens",
         "features",
         "shared-ui",
         "storybook"

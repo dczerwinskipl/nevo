@@ -514,3 +514,41 @@ agent. They are recorded here verbatim in substance so later commands (`spec-ref
 - **Affected artifacts:** `owner-decisions.md`, `tasks/08-storybook-and-documentation.md`,
   `areas/storybook-and-documentation.md`.
 
+## D17: Owner approval for real frontend architecture cleanup and shared UI consolidation
+
+- **Question:** How should the dashboard frontend architecture be cleaned up to resolve
+  multi-feature composition coupling and eliminate the deferred structural debt between
+  `components/ui` and `shared/ui`?
+- **Options considered:**
+  - A — Keep `components/ui` as documented debt and leave multi-feature orchestration
+    inside `features/specifications` and `features/agent-sessions`.
+  - B — Execute the real frontend architecture cleanup:
+    1. Introduce a dedicated screen composition layer: `tools/dashboard/ui/screens/`
+       (`SpecificationConsoleLayout`, `SpecificationDetailScreen`, `AgentSessionScreen`,
+       `ActiveSpecificationsScreen`, `ArchiveSpecificationsScreen`).
+    2. Keep `ui/routes/` as thin parameter-binding adapters delegating directly to screens.
+    3. Fully consolidate all domain-independent UI primitives from `ui/components/ui/`
+       into `ui/shared/ui/`, update all imports across the dashboard, update `components.json`
+       to alias `"ui": "@/shared/ui"`, and delete `ui/components/ui/`.
+    4. Implement the legacy CSS custom properties bridge in `ui/index.css` by mapping
+       root variables (`--background`, `--surface`, `--accent`, etc.) directly to canonical
+       `--color-*` tokens, with equivalence verified in `token-resolver.stories.tsx`.
+    5. Update `docs/development/dashboard-frontend-architecture.md` to accurately describe
+       the true 5-tier architecture (`App -> Routes -> Screens -> Features -> Shared`)
+       and verified directory layout without obsolete debt tables.
+- **Decision:** Option B.
+- **Rationale:** The owner explicitly directed to eliminate the structural debt rather
+  than merely documenting it as migration debt. Introducing `ui/screens/` cleanly decouples
+  multi-feature composition from domain feature verticals, and consolidating primitives
+  into `ui/shared/ui/` removes ambiguity about canonical component ownership.
+- **Consequences:** `tools/dashboard/ui/screens/` created and wired to `ui/routes/`.
+  All primitives consolidated into `ui/shared/ui/`; `ui/components/ui/` deleted.
+  `components.json` points to `@/shared/ui`. `ui/index.css` maps `:root` variables to
+  `var(--color-*)` canonical tokens. All unit, navigation, accessibility regression, and
+  Storybook tests pass. `docs/development/dashboard-frontend-architecture.md` updated.
+- **Date:** 2026-09-05
+- **Affected artifacts:** `owner-decisions.md`, `tasks/08-storybook-and-documentation.md`,
+  `docs/development/dashboard-frontend-architecture.md`, `tools/dashboard/components.json`,
+  `tools/dashboard/ui/index.css`, `tools/dashboard/ui/screens/*`, `tools/dashboard/ui/shared/ui/*`.
+
+

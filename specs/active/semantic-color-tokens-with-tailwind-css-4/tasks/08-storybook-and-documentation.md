@@ -39,7 +39,7 @@ depends_on:
   - shared-ui-primitives
   - status-tone-contract
 semantic_references:
-  decisions: [D1, D2, D3, D10, D13, D14, D15, D16]
+  decisions: [D1, D2, D3, D10, D13, D14, D15, D16, D17]
   constraints: [C5]
 ---
 

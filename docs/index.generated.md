@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-09-05T09:59:12.431Z_
+_Generated: 2026-09-05T13:34:09.835Z_
 
 ## Hub
 
@@ -64,7 +64,7 @@ _Generated: 2026-09-05T09:59:12.431Z_
 | `development.coding-conventions` | [Coding conventions](development/coding-conventions.md) | current | Standing rules a contributor follows regardless of what they're building: the Either<Exception, T> error convention, dependency-direction, DI registration shape, and constructor null-checking. Cross-links the extension workflow rather than duplicating it. |
 | `development.commit-conventions` | [Commit conventions](development/commit-conventions.md) | current | Conventional Commits format adopted for this project. PR title is the squash commit message — it must follow this format. |
 | `development.contributing` | [Contributing](development/contributing.md) | current | Thin entry point linking the process documents a contributor needs: coding conventions, commit conventions, git workflow, local setup, pull requests, and testing strategy. |
-| `development.dashboard-frontend-architecture` | [Dashboard frontend architecture](development/dashboard-frontend-architecture.md) | current | Comprehensive frontend architecture for the NEvo dashboard: layer responsibilities (app -> routes -> features -> shared), component taxonomy, domain areas, public API and import boundaries, resolution of components/ui vs shared/ui, state management and data fetching, Storybook and testing colocation, component placement decision matrix, and migration strategy. |
+| `development.dashboard-frontend-architecture` | [Dashboard frontend architecture](development/dashboard-frontend-architecture.md) | current | Comprehensive frontend architecture for the NEvo dashboard: five-tier layer responsibilities (App -> Routes -> Screens -> Features -> Shared), component taxonomy, domain verticals, screen-level multi-feature composition, consolidated shared/ui primitives, production styling infrastructure in index.css, and verified directory layout. |
 | `development.event-sourcing` | [Event sourcing](development/event-sourcing.md) | experimental | Maintainer-facing architecture of NEvo.Ddd.EventSourcing: the executor's lifecycle, convention discovery and decision-method parameter injection, Primary/Fallback registration, the store/repository boundary and concurrency model, the authorization ownership split, and the compatibility constraints a future persistence/modeling provider must not violate. |
 | `development.extension-points` | [Extension points](development/extension-points.md) | current | The IMessageHandlerFactory contract a third-party handler-type author must implement, and a consolidated list of extension approaches that look plausible but are unsafe or unsupported today. |
 | `development.failure-semantics` | [Failure and partial-failure semantics](development/failure-semantics.md) | current | Event fan-out partial-failure behavior, whether middleware ordering is a guaranteed contract, and outbox partition-assignment semantics. |
