@@ -165,3 +165,4 @@ combined.
 | RT-28 | tools/dashboard/ui/**/*.stories.* | docs/development/storybook.md |
 | RT-29 | tools/dashboard/tests/** | docs/development/node-tooling-guidelines.md |
 | RT-30 | tools/docs/** | docs/development/node-tooling-guidelines.md |
+| RT-31 | tools/dashboard/ui/** | docs/development/dashboard-frontend-architecture.md |

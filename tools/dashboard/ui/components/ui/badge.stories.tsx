@@ -12,9 +12,9 @@ function BadgeGallery() {
   );
 }
 
-const meta: Meta<typeof BadgeGallery> = {
+const meta: Meta<typeof Badge> = {
   title: 'Shared/UI/Badge',
-  component: BadgeGallery,
+  component: Badge,
   parameters: {
     layout: 'padded',
   },
@@ -24,6 +24,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
+  render: () => <BadgeGallery />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 

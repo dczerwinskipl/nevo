@@ -14,9 +14,9 @@ function ProgressGallery() {
   );
 }
 
-const meta: Meta<typeof ProgressGallery> = {
+const meta: Meta<typeof Progress> = {
   title: 'Shared/UI/Progress',
-  component: ProgressGallery,
+  component: Progress,
   parameters: {
     layout: 'padded',
   },
@@ -26,6 +26,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
+  render: () => <ProgressGallery />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 

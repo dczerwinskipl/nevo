@@ -1,8 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, waitFor, within } from 'storybook/test';
-import { Trash2 } from 'lucide-react';
-
-import { Button } from '@/components/ui/button';
+import { AgentSessionDetails } from './agent-session-details';
 import {
   resolveLiveTokenComputed,
   resolveLiveTokenRgba,
@@ -12,34 +10,9 @@ import {
   unhoverWithNoTransition,
 } from '@storybook-test-utils';
 
-function DeleteSessionDialogScenario() {
-  return (
-    <div className="max-w-md rounded-2xl bg-surface-raised p-6" data-testid="delete-session-wrapper">
-      <div className="space-y-3 border-t border-border pt-4">
-        <h3 className="text-xs font-bold tracking-wider text-action-destructive uppercase">Strefa niebezpieczna</h3>
-        <div
-          data-testid="delete-session-card"
-          className="space-y-3 rounded-xl border border-action-destructive/30 bg-surface p-4"
-        >
-          <div>
-            <p className="text-xs font-semibold text-fg-primary">Usuń sesję</p>
-            <p className="mt-0.5 text-[11px] text-fg-muted">
-              Usuwa historię sesji i powiązania z dysku lokalnego. Tej operacji nie można cofnąć.
-            </p>
-          </div>
-          <Button data-testid="delete-session-btn" variant="destructive" className="w-full justify-center">
-            <Trash2 className="mr-2 size-3.5" />
-            Usuń sesję z dysku
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const meta: Meta<typeof DeleteSessionDialogScenario> = {
-  title: 'Features/Agent Sessions/Delete Session Scenario',
-  component: DeleteSessionDialogScenario,
+const meta: Meta<typeof AgentSessionDetails> = {
+  title: 'Features/Agent Sessions/Agent Session Details',
+  component: AgentSessionDetails,
   parameters: {
     layout: 'padded',
   },
@@ -49,6 +22,17 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const DeleteSessionContext: Story = {
+  render: () => (
+    <div className="max-w-md rounded-2xl bg-surface-raised p-6" data-testid="delete-session-wrapper">
+      <AgentSessionDetails
+        specTitle="Semantic Color Tokens"
+        provider="claude"
+        mode="edit"
+        tasks={['07-specs-lanes-and-remaining-ui']}
+        onDelete={() => {}}
+      />
+    </div>
+  ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const btn = canvas.getByTestId('delete-session-btn');

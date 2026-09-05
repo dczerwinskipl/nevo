@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-05T09:20:37.929Z",
+  "generated": "2026-09-05T09:52:05.427Z",
   "rules": [
     {
       "rule_id": "CIM-01",
@@ -257,6 +257,12 @@
       "rule_id": "RT-30",
       "path_glob": "tools/docs/**",
       "doc_ref": "docs/development/node-tooling-guidelines.md",
+      "source": "docs/ai/task-routing.md"
+    },
+    {
+      "rule_id": "RT-31",
+      "path_glob": "tools/dashboard/ui/**",
+      "doc_ref": "docs/development/dashboard-frontend-architecture.md",
       "source": "docs/ai/task-routing.md"
     }
   ]

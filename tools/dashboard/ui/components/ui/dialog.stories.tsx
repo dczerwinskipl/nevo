@@ -29,9 +29,9 @@ function DialogDemo() {
   );
 }
 
-const meta: Meta<typeof DialogDemo> = {
+const meta: Meta<typeof Dialog> = {
   title: 'Shared/UI/Dialog',
-  component: DialogDemo,
+  component: Dialog,
   parameters: {
     layout: 'padded',
   },
@@ -41,6 +41,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Interactive: Story = {
+  render: () => <DialogDemo />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const openBtn = canvas.getByTestId('open-dialog-btn');

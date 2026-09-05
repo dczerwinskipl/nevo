@@ -15,9 +15,9 @@ function CardGallery() {
   );
 }
 
-const meta: Meta<typeof CardGallery> = {
+const meta: Meta<typeof Card> = {
   title: 'Shared/UI/Card',
-  component: CardGallery,
+  component: Card,
   parameters: {
     layout: 'padded',
   },
@@ -27,6 +27,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
+  render: () => <CardGallery />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 

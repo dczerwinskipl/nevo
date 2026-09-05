@@ -1,16 +1,15 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect } from 'storybook/test';
+import { expect, within } from 'storybook/test';
 import { useLayoutEffect, useRef, useState } from 'react';
+import { resolveLiveToken, resolveLiveTokenComputed, resolveLiveTokenRgba, contrastRatio } from '@storybook-test-utils';
 
 interface ColorTokenMeta {
   name: string;
-  sourceLine: number;
   description: string;
 }
 
 interface ColorGroupMeta {
   title: string;
-  sourceRange: string;
   description: string;
   tokens: ColorTokenMeta[];
 }
@@ -18,81 +17,74 @@ interface ColorGroupMeta {
 const COLOR_GROUPS: ColorGroupMeta[] = [
   {
     title: 'Neutral Foundation',
-    sourceRange: 'tools/dashboard/ui/index.css:6-14',
     description:
-      'Neutral foundation tokens. These values must never be derived from --accent. Dashboard is dark-only (color-scheme: dark, no light theme toggle).',
+      'Neutral foundation tokens for canvas, surfaces, and structural borders. Dark-only theme (color-scheme: dark).',
     tokens: [
-      { name: '--background', sourceLine: 6, description: 'Default canvas background' },
-      { name: '--surface', sourceLine: 7, description: 'Base component surface' },
-      { name: '--surface-raised', sourceLine: 8, description: 'Raised cards and modal panels' },
-      { name: '--surface-hover', sourceLine: 9, description: 'Hover state for interactive surfaces' },
-      { name: '--border', sourceLine: 10, description: 'Standard subtle border' },
-      { name: '--border-strong', sourceLine: 11, description: 'Prominent structural border' },
-      { name: '--foreground', sourceLine: 12, description: 'Primary high-contrast text' },
-      { name: '--muted', sourceLine: 13, description: 'Secondary subdued text' },
-      { name: '--muted-strong', sourceLine: 14, description: 'Readable prose and commentary' },
+      { name: '--color-background', description: 'Default canvas background' },
+      { name: '--color-surface', description: 'Base component surface' },
+      { name: '--color-surface-raised', description: 'Raised cards, dropdowns, and modal panels' },
+      { name: '--color-surface-hover', description: 'Hover state for interactive surfaces' },
+      { name: '--color-border', description: 'Standard subtle border' },
+      { name: '--color-border-strong', description: 'Prominent structural border' },
     ],
   },
   {
-    title: 'Interaction & Active State',
-    sourceRange: 'tools/dashboard/ui/index.css:17-21',
-    description: 'Accent and interactive focus tokens.',
+    title: 'Foreground Hierarchy',
+    description: 'Text and iconography contrast hierarchy across neutral and accent surfaces.',
     tokens: [
-      { name: '--accent', sourceLine: 17, description: 'Primary brand and action color' },
-      { name: '--accent-strong', sourceLine: 18, description: 'Active and pressed states' },
-      { name: '--accent-foreground', sourceLine: 19, description: 'High-contrast text on accent' },
-      { name: '--accent-muted', sourceLine: 20, description: 'Subtle accent wash' },
-      { name: '--accent-border', sourceLine: 21, description: 'Accent border highlight' },
+      { name: '--color-fg-primary', description: 'Primary high-contrast text and headers' },
+      { name: '--color-fg-secondary', description: 'Secondary subdued text and metadata' },
+      { name: '--color-fg-muted', description: 'Muted captions, placeholders, and icons' },
+      { name: '--color-fg-on-accent', description: 'High-contrast text on solid accent backgrounds' },
     ],
   },
   {
-    title: 'Semantic State',
-    sourceRange: 'tools/dashboard/ui/index.css:24-39',
-    description: 'Status feedback colors: success, warning, danger, info.',
+    title: 'Interaction & Accent',
+    description: 'Primary interaction, focus, and solid button fills.',
     tokens: [
-      { name: '--success', sourceLine: 24, description: 'Completed and verified state' },
-      { name: '--success-strong', sourceLine: 25, description: 'Prominent success accent' },
-      { name: '--success-muted', sourceLine: 26, description: 'Subtle success background' },
-      { name: '--success-border', sourceLine: 27, description: 'Success border' },
-
-      { name: '--warning', sourceLine: 28, description: 'In-review or attention-required state' },
-      { name: '--warning-strong', sourceLine: 29, description: 'Prominent warning text' },
-      { name: '--warning-muted', sourceLine: 30, description: 'Subtle warning background' },
-      { name: '--warning-border', sourceLine: 31, description: 'Warning border' },
-
-      { name: '--danger', sourceLine: 32, description: 'Error and failure state' },
-      { name: '--danger-strong', sourceLine: 33, description: 'Prominent danger text' },
-      { name: '--danger-muted', sourceLine: 34, description: 'Subtle danger background' },
-      { name: '--danger-border', sourceLine: 35, description: 'Danger border' },
-
-      { name: '--info', sourceLine: 36, description: 'Informational and ready state' },
-      { name: '--info-strong', sourceLine: 37, description: 'Prominent info text' },
-      { name: '--info-muted', sourceLine: 38, description: 'Subtle info background' },
-      { name: '--info-border', sourceLine: 39, description: 'Info border' },
+      { name: '--color-accent', description: 'Interactive focus, links, and highlights' },
+      { name: '--color-accent-solid', description: 'Solid button fill and active toggles' },
     ],
   },
   {
-    title: 'Lane Presentation',
-    sourceRange: 'tools/dashboard/ui/index.css:42-48',
-    description: 'Workflow lane badges and status indicators.',
+    title: 'Canonical Status',
+    description: 'Semantic status vocabulary covering all 7 StatusTone values.',
     tokens: [
-      { name: '--lane-new', sourceLine: 42, description: 'New change lane' },
-      { name: '--lane-design', sourceLine: 43, description: 'Design lane' },
-      { name: '--lane-ready', sourceLine: 44, description: 'Ready for implementation lane' },
-      { name: '--lane-implementation', sourceLine: 45, description: 'In-implementation lane' },
-      { name: '--lane-review', sourceLine: 46, description: 'In-review lane' },
-      { name: '--lane-done', sourceLine: 47, description: 'Done / verified lane' },
-      { name: '--lane-danger', sourceLine: 48, description: 'Blocked / danger lane' },
+      { name: '--color-status-success', description: 'Success and verified states' },
+      { name: '--color-status-warning', description: 'Warning and review-required states' },
+      { name: '--color-status-error', description: 'Error and failure states' },
+      { name: '--color-status-attention', description: 'Attention and notice states' },
+      { name: '--color-status-info', description: 'Informational and readiness states' },
+      { name: '--color-status-active', description: 'Running and in-progress operational states' },
+      { name: '--color-status-neutral', description: 'Neutral and default fallback state' },
     ],
   },
   {
-    title: 'Categories',
-    sourceRange: 'tools/dashboard/ui/index.css:50-51',
-    description: 'Category accent tokens.',
+    title: 'Action Role',
+    description: 'Destructive action indicator and buttons.',
+    tokens: [{ name: '--color-action-destructive', description: 'Destructive delete/terminate action' }],
+  },
+  {
+    title: 'Provider & Workflow',
+    description: 'Agent provider accents and workflow lane highlights.',
     tokens: [
-      { name: '--cat-1', sourceLine: 50, description: 'Category 1 accent' },
-      { name: '--cat-2', sourceLine: 51, description: 'Category 2 accent' },
+      { name: '--color-provider-claude', description: 'Claude agent provider badge/indicator' },
+      { name: '--color-provider-antigravity', description: 'Antigravity agent provider badge/indicator' },
+      { name: '--color-workflow-design', description: 'Design workflow stage badge' },
     ],
+  },
+  {
+    title: 'Diff Statistics',
+    description: 'Git diff addition and deletion statistics.',
+    tokens: [
+      { name: '--color-diff-addition', description: 'Diff lines added count' },
+      { name: '--color-diff-deletion', description: 'Diff lines deleted count' },
+    ],
+  },
+  {
+    title: 'Overlay',
+    description: 'Modal and drawer backdrop dimming.',
+    tokens: [{ name: '--color-backdrop', description: 'Semi-transparent modal overlay' }],
   },
 ];
 
@@ -106,37 +98,70 @@ function ColorTokenCard({ token }: { token: ColorTokenMeta }) {
       const computed = window.getComputedStyle(probeRef.current).backgroundColor;
       setComputedColor(computed);
     }
-    const root = window.getComputedStyle(document.documentElement);
-    const declared = root.getPropertyValue(token.name).trim();
-    setDeclaredValue(declared);
+    try {
+      const declared = resolveLiveToken(token.name);
+      setDeclaredValue(declared);
+    } catch {
+      setDeclaredValue('');
+    }
   }, [token.name]);
 
   return (
     <div
       data-token={token.name}
-      className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 text-xs shadow-xs"
+      className="overflow-hidden rounded-xl border border-border bg-surface p-3.5 text-xs shadow-xs"
     >
       <div className="mb-2.5 flex items-center gap-2.5">
         <div
           ref={probeRef}
           data-probe="true"
-          className="size-9 shrink-0 rounded-md border border-[var(--border-strong)]"
+          className="size-9 shrink-0 rounded-lg border border-border-strong"
           style={{ backgroundColor: `var(${token.name})` }}
         />
         <div className="min-w-0 flex-1">
-          <div className="truncate font-mono font-medium text-[var(--foreground)]">{token.name}</div>
-          <div data-computed-color="true" className="truncate font-mono text-[11px] text-[var(--muted-strong)]">
+          <div className="truncate font-mono font-medium text-fg-primary">{token.name}</div>
+          <div data-computed-color="true" className="truncate font-mono text-[11px] text-fg-secondary">
             {computedColor || 'resolving…'}
           </div>
           {declaredValue && (
-            <div data-declared-value="true" className="truncate font-mono text-[10px] text-[var(--muted)]">
+            <div data-declared-value="true" className="truncate font-mono text-[10px] text-fg-muted">
               decl: {declaredValue}
             </div>
           )}
         </div>
       </div>
-      <div className="text-[11px] text-[var(--muted)]">
-        {token.description} <span className="text-[10px] text-[var(--muted)]">(:{token.sourceLine})</span>
+      <div className="text-[11px] text-fg-muted">{token.description}</div>
+    </div>
+  );
+}
+
+function FilledButtonContrastDemo() {
+  const fgRgba = resolveLiveTokenRgba('--color-fg-on-accent');
+  const bgRgba = resolveLiveTokenRgba('--color-accent-solid');
+  const ratio = contrastRatio([fgRgba[0], fgRgba[1], fgRgba[2]], [bgRgba[0], bgRgba[1], bgRgba[2]]);
+
+  return (
+    <div
+      data-testid="filled-button-contrast-demo"
+      className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-surface-raised p-4"
+    >
+      <div>
+        <h3 className="text-sm font-semibold text-fg-primary">Filled Button Contrast Pair</h3>
+        <p className="text-xs text-fg-muted">WCAG 2.1 AA requirement: ≥ 4.5:1 for normal text.</p>
+      </div>
+      <div className="flex items-center gap-4">
+        <div
+          data-testid="filled-button-sample"
+          className="rounded-lg bg-accent-solid px-4 py-2 font-medium text-fg-on-accent shadow-xs"
+        >
+          Primary Button
+        </div>
+        <div className="font-mono text-xs">
+          <span className="text-fg-muted">Ratio: </span>
+          <span data-testid="contrast-ratio-value" className="font-bold text-status-success">
+            {ratio.toFixed(2)}:1
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -144,24 +169,23 @@ function ColorTokenCard({ token }: { token: ColorTokenMeta }) {
 
 function ColorPaletteFoundation() {
   return (
-    <div className="space-y-8 p-6 text-[var(--foreground)]">
+    <div className="space-y-8 p-6 text-fg-primary">
       <div>
-        <h1 className="text-2xl font-bold">Color Foundation Tokens</h1>
-        <p className="mt-1 text-sm text-[var(--muted)]">
-          Live tokens declared in <code className="text-[var(--foreground)]">tools/dashboard/ui/index.css:6-51</code>.
-          Values shown are read live via <code className="text-[var(--foreground)]">getComputedStyle</code> from
-          rendered probes and CSS declarations. The dashboard is exclusively dark-mode (
-          <code className="text-[var(--foreground)]">color-scheme: dark</code>). No alternate light theme exists.
+        <h1 className="text-2xl font-bold text-fg-primary">Color Foundation Tokens</h1>
+        <p className="mt-1 text-sm text-fg-muted">
+          Semantic tokens declared in Tailwind CSS v4 <code className="text-fg-primary">@theme static</code> block in{' '}
+          <code className="text-fg-primary">tools/dashboard/ui/index.css</code>. Values shown are read live via{' '}
+          <code className="text-fg-primary">getComputedStyle</code> from rendered probes and CSS declarations.
         </p>
       </div>
 
+      <FilledButtonContrastDemo />
+
       {COLOR_GROUPS.map((group) => (
         <section key={group.title} className="space-y-3">
-          <div className="border-b border-[var(--border)] pb-2">
-            <h2 className="text-lg font-semibold">{group.title}</h2>
-            <p className="text-xs text-[var(--muted)]">
-              {group.description} ({group.sourceRange})
-            </p>
+          <div className="border-b border-border pb-2">
+            <h2 className="text-lg font-semibold text-fg-primary">{group.title}</h2>
+            <p className="text-xs text-fg-muted">{group.description}</p>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
@@ -186,9 +210,8 @@ type Story = StoryObj<typeof ColorPaletteFoundation>;
 export const Default: Story = {
   play: async ({ canvasElement }) => {
     const cards = canvasElement.querySelectorAll<HTMLElement>('[data-token]');
-    expect(cards.length).toBe(39); // 9 neutral + 5 interaction + 16 semantic + 7 lane + 2 categories
-
-    const rootStyle = window.getComputedStyle(document.documentElement);
+    const totalExpectedTokens = COLOR_GROUPS.reduce((acc, g) => acc + g.tokens.length, 0);
+    expect(cards.length).toBe(totalExpectedTokens);
 
     for (const card of cards) {
       const tokenName = card.getAttribute('data-token');
@@ -203,15 +226,28 @@ export const Default: Story = {
       expect(computedBg).not.toBe('');
       expect(computedBg).not.toBe('rgba(0, 0, 0, 0)');
 
+      // Verify probe computed matches resolveLiveTokenComputed
+      const liveComputed = resolveLiveTokenComputed(tokenName!);
+      expect(computedBg).toBe(liveComputed);
+
       // Verify the card display text matches the probe's computed value
       const displayedComputed = card.querySelector('[data-computed-color="true"]')?.textContent?.trim();
       expect(displayedComputed).toBe(computedBg);
 
       // Verify live CSS declaration on :root matches
-      const liveDecl = rootStyle.getPropertyValue(tokenName!).trim();
+      const liveDecl = resolveLiveToken(tokenName!);
       expect(liveDecl).toBeTruthy();
       const displayedDecl = card.querySelector('[data-declared-value="true"]')?.textContent?.trim();
       expect(displayedDecl).toBe(`decl: ${liveDecl}`);
     }
+
+    // Verify filled-button pair contrast ≥ 4.5:1
+    const fgOnAccent = resolveLiveTokenRgba('--color-fg-on-accent');
+    const accentSolid = resolveLiveTokenRgba('--color-accent-solid');
+    const ratio = contrastRatio(
+      [fgOnAccent[0], fgOnAccent[1], fgOnAccent[2]],
+      [accentSolid[0], accentSolid[1], accentSolid[2]],
+    );
+    expect(ratio).toBeGreaterThanOrEqual(4.5);
   },
 };

@@ -262,13 +262,14 @@ describe('frontend routing precision', () => {
   const docs = scanDocs();
   const rules = loadRoutingRules();
 
-  test('operations feature path routes only to React and UI/UX guidelines, not AI UX or interaction model', () => {
+  test('operations feature path routes to architecture, React, and UI/UX guidelines, not AI UX or interaction model', () => {
     const results = findDocs(docs, {
       path: 'tools/dashboard/ui/features/operations/operations-view.tsx',
       routingRules: rules,
     });
     const ids = results.map(r => r.id).sort();
     assert.deepEqual(ids, [
+      'development.dashboard-frontend-architecture',
       'development.react-component-guidelines',
       'development.ui-ux-guidelines',
     ]);
@@ -276,13 +277,14 @@ describe('frontend routing precision', () => {
     assert.ok(!ids.includes('development.nevo-interaction-model'));
   });
 
-  test('agent-sessions feature path routes to React, UI/UX, AI UX, and interaction model', () => {
+  test('agent-sessions feature path routes to architecture, React, UI/UX, AI UX, and interaction model', () => {
     const results = findDocs(docs, {
       path: 'tools/dashboard/ui/features/agent-sessions/session-view.tsx',
       routingRules: rules,
     });
     const ids = results.map(r => r.id).sort();
     assert.deepEqual(ids, [
+      'development.dashboard-frontend-architecture',
       'development.nevo-ai-ux-guidelines',
       'development.nevo-interaction-model',
       'development.react-component-guidelines',
@@ -290,13 +292,14 @@ describe('frontend routing precision', () => {
     ]);
   });
 
-  test('foundation story routes to React guidelines, UI/UX guidelines, and Storybook', () => {
+  test('foundation story routes to architecture, React guidelines, UI/UX guidelines, and Storybook', () => {
     const results = findDocs(docs, {
       path: 'tools/dashboard/ui/foundations/colors.stories.tsx',
       routingRules: rules,
     });
     const ids = results.map(r => r.id).sort();
     assert.deepEqual(ids, [
+      'development.dashboard-frontend-architecture',
       'development.react-component-guidelines',
       'development.storybook',
       'development.ui-ux-guidelines',
@@ -310,6 +313,7 @@ describe('frontend routing precision', () => {
     });
     const ids = results.map(r => r.id).sort();
     assert.deepEqual(ids, [
+      'development.dashboard-frontend-architecture',
       'development.react-component-guidelines',
       'development.ui-ux-guidelines',
     ]);
@@ -323,6 +327,7 @@ describe('frontend routing precision', () => {
     });
     const ids = results.map(r => r.id).sort();
     assert.deepEqual(ids, [
+      'development.dashboard-frontend-architecture',
       'development.react-component-guidelines',
       'development.storybook',
       'development.ui-ux-guidelines',

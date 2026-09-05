@@ -43,9 +43,9 @@ function StatusCardGallery() {
   );
 }
 
-const meta: Meta<typeof StatusCardGallery> = {
+const meta: Meta<typeof StatusCard> = {
   title: 'Shared/UI/StatusCard',
-  component: StatusCardGallery,
+  component: StatusCard,
   parameters: {
     layout: 'padded',
   },
@@ -55,6 +55,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Variants: Story = {
+  render: () => <StatusCardGallery />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 

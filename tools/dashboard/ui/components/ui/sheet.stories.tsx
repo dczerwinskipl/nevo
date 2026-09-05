@@ -27,9 +27,9 @@ function SheetDemo() {
   );
 }
 
-const meta: Meta<typeof SheetDemo> = {
+const meta: Meta<typeof Sheet> = {
   title: 'Shared/UI/Sheet',
-  component: SheetDemo,
+  component: Sheet,
   parameters: {
     layout: 'padded',
   },
@@ -39,6 +39,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Interactive: Story = {
+  render: () => <SheetDemo />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const openBtn = canvas.getByTestId('open-sheet-btn');

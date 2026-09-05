@@ -134,6 +134,7 @@ export function AgentSessionDetails({
             onClick={onDelete}
             disabled={disabled || deleting}
             className="w-full justify-center text-xs font-semibold"
+            data-testid="delete-session-btn"
           >
             {deleting ? <LoaderCircle className="mr-2 size-3.5 animate-spin" /> : <Trash2 className="mr-2 size-3.5" />}
             Usuń sesję z dysku

@@ -44,9 +44,9 @@ function ButtonGallery() {
   );
 }
 
-const meta: Meta<typeof ButtonGallery> = {
+const meta: Meta<typeof Button> = {
   title: 'Shared/UI/Button',
-  component: ButtonGallery,
+  component: Button,
   parameters: {
     layout: 'padded',
   },
@@ -56,6 +56,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Variants: Story = {
+  render: () => <ButtonGallery />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
