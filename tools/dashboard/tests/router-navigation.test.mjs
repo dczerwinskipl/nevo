@@ -42,15 +42,25 @@ test('2. Layout hierarchy: Specification routes are nested under _spec-layout wh
   assert.ok(specLayoutRouteSource.includes('/_spec-layout'), '_spec-layout is configured as pathless layout');
 
   // Specification console pages are placed in _spec-layout/ and bind to their feature components
-  assert.ok(indexRouteSource.includes('ActiveSpecificationsRoute'), 'Index route binds to ActiveSpecificationsRoute');
   assert.ok(
-    archiveRouteSource.includes('ArchiveSpecificationsRoute'),
-    'Archive route binds to ArchiveSpecificationsRoute',
+    indexRouteSource.includes('ActiveSpecificationsScreen') || indexRouteSource.includes('ActiveSpecificationsRoute'),
+    'Index route binds to ActiveSpecificationsScreen',
   );
-  assert.ok(specDetailRouteSource.includes('SpecificationRoute'), 'Spec detail route binds to SpecificationRoute');
+  assert.ok(
+    archiveRouteSource.includes('ArchiveSpecificationsScreen') ||
+      archiveRouteSource.includes('ArchiveSpecificationsRoute'),
+    'Archive route binds to ArchiveSpecificationsScreen',
+  );
+  assert.ok(
+    specDetailRouteSource.includes('SpecificationDetailScreen') || specDetailRouteSource.includes('SpecificationRoute'),
+    'Spec detail route binds to SpecificationDetailScreen',
+  );
 
   // Agent Session route is placed at top-level routes/ (outside _spec-layout/) and binds to AgentSessionRoute
-  assert.ok(agentSessionRouteSource.includes('AgentSessionRoute'), 'Agent session route binds to AgentSessionRoute');
+  assert.ok(
+    agentSessionRouteSource.includes('AgentSessionScreen') || agentSessionRouteSource.includes('AgentSessionRoute'),
+    'Agent session route binds to AgentSessionScreen',
+  );
   assert.ok(
     !agentSessionRouteSource.includes('SpecificationConsoleLayout'),
     'Agent session route does not reference console layout',
@@ -60,8 +70,8 @@ test('2. Layout hierarchy: Specification routes are nested under _spec-layout wh
 test('3. Route param typing: file routes pass typed Route.useParams() to feature route components', () => {
   const specDetailRouteSource = readSource('routes/_spec-layout/specs.$source.$slug.tsx');
   const agentSessionRouteSource = readSource('routes/specs.$source.$slug.sessions.$provider.$providerSessionId.tsx');
-  const specificationRouteSource = readSource('features/specifications/detail/specification-route.tsx');
-  const agentSessionComponentSource = readSource('features/agent-sessions/agent-session-route.tsx');
+  const specificationRouteSource = readSource('screens/specification-detail-screen.tsx');
+  const agentSessionComponentSource = readSource('screens/agent-session-screen.tsx');
 
   // Route files extract typed params via Route.useParams()
   assert.ok(specDetailRouteSource.includes('Route.useParams()'), 'Specification route uses Route.useParams()');
@@ -154,7 +164,7 @@ test('8. Free/ad-hoc session (specId: null) has no dashboard route', () => {
 });
 
 test('9. No global session fetch: SpecificationConsoleLayout and SpecificationSidebar do not load global sessions', () => {
-  const appLayoutSource = readSource('features/specifications/specification-console-layout.tsx');
+  const appLayoutSource = readSource('screens/specification-console-layout.tsx');
   const sidebarSource = readSource('features/specifications/navigation/specification-sidebar.tsx');
 
   assert.ok(
@@ -176,7 +186,7 @@ test('10. No reverse spec resolution: AgentSessionPage receives spec directly, w
 });
 
 test('11. AgentSessionRoute: Fatal initial load error blocks with StatusCard; background refresh error retains active chat', () => {
-  const routerSource = readSource('features/agent-sessions/agent-session-route.tsx');
+  const routerSource = readSource('screens/agent-session-screen.tsx');
 
   assert.ok(
     routerSource.includes('if (sessionsQuery.error && !sessionsQuery.data) {'),
@@ -201,7 +211,7 @@ test('11. AgentSessionRoute: Fatal initial load error blocks with StatusCard; ba
 });
 
 test('12. Session switching: Switching sessions inside same spec uses replace to preserve Spec -> Session history hierarchy', () => {
-  const routerSource = readSource('features/agent-sessions/agent-session-route.tsx');
+  const routerSource = readSource('screens/agent-session-screen.tsx');
 
   assert.ok(
     routerSource.includes('handleSwitchSession') && routerSource.includes('replace: true'),
@@ -210,8 +220,8 @@ test('12. Session switching: Switching sessions inside same spec uses replace to
 });
 
 test('13. Fallback routing: Archived spec accessed via /specs/active/... or active spec via /specs/archive/... resolves fallback without 404', () => {
-  const specificationRouteSource = readSource('features/specifications/detail/specification-route.tsx');
-  const agentSessionRouteSource = readSource('features/agent-sessions/agent-session-route.tsx');
+  const specificationRouteSource = readSource('screens/specification-detail-screen.tsx');
+  const agentSessionRouteSource = readSource('screens/agent-session-screen.tsx');
 
   assert.ok(
     specificationRouteSource.includes('const fallbackSpec = useMemo('),

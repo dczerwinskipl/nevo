@@ -47,53 +47,53 @@
 
 :root {
   color-scheme: dark;
-  /* Neutral foundation. These values must never be derived from --accent. */
-  --background: #090a0d;
-  --surface: #0f1116;
-  --surface-raised: #14171d;
-  --surface-hover: #191d24;
-  --border: #252a33;
-  --border-strong: #343b47;
-  --foreground: #f1f3f5;
-  --muted: #929baa;
-  --muted-strong: #c7cdd6;
+  /* Neutral foundation legacy bridge. Mapped directly to canonical tokens. */
+  --background: var(--color-background);
+  --surface: var(--color-surface);
+  --surface-raised: var(--color-surface-raised);
+  --surface-hover: var(--color-surface-hover);
+  --border: var(--color-border);
+  --border-strong: var(--color-border-strong);
+  --foreground: var(--color-fg-primary);
+  --muted: var(--color-fg-muted);
+  --muted-strong: var(--color-fg-secondary);
 
-  /* Interaction and active state. */
-  --accent: #3882f6;
-  --accent-strong: #1d4ed8;
-  --accent-foreground: #f8fafc;
+  /* Interaction and active state legacy bridge. */
+  --accent: var(--color-accent);
+  --accent-strong: var(--color-accent-solid);
+  --accent-foreground: var(--color-fg-on-accent);
   --accent-muted: color-mix(in srgb, var(--accent) 10%, transparent);
   --accent-border: color-mix(in srgb, var(--accent) 35%, var(--border));
 
-  /* Semantic state. */
-  --success: #35c76f;
+  /* Semantic state legacy bridge. */
+  --success: var(--color-status-success);
   --success-strong: #7bdc99;
   --success-muted: color-mix(in srgb, var(--success) 10%, transparent);
   --success-border: color-mix(in srgb, var(--success) 28%, var(--border));
-  --warning: #f59e0b;
+  --warning: var(--color-status-warning);
   --warning-strong: #fcd34d;
   --warning-muted: color-mix(in srgb, var(--warning) 10%, transparent);
   --warning-border: color-mix(in srgb, var(--warning) 28%, var(--border));
-  --danger: #ef4444;
+  --danger: var(--color-status-error);
   --danger-strong: #fca5a5;
   --danger-muted: color-mix(in srgb, var(--danger) 10%, transparent);
   --danger-border: color-mix(in srgb, var(--danger) 28%, var(--border));
-  --info: #06b6d4;
+  --info: var(--color-status-info);
   --info-strong: #67e8f9;
   --info-muted: color-mix(in srgb, var(--info) 10%, transparent);
   --info-border: color-mix(in srgb, var(--info) 28%, var(--border));
 
   /* Lane presentation. Workflow configuration selects a lane; lanes select tokens. */
   --lane-new: var(--muted);
-  --lane-design: #8b5cf6;
+  --lane-design: var(--color-workflow-design);
   --lane-ready: var(--info);
   --lane-implementation: var(--accent);
   --lane-review: var(--warning);
   --lane-done: var(--success);
   --lane-danger: var(--danger);
 
-  --cat-1: #fb923c;
-  --cat-2: #60a5fa;
+  --cat-1: var(--color-provider-claude);
+  --cat-2: var(--color-provider-antigravity);
   font-family:
     Inter,
     ui-sans-serif,

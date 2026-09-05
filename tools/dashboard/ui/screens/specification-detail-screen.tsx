@@ -2,24 +2,26 @@ import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useMemo, useState } from 'react';
 
 import { LoadingScreen } from '@/shared/ui/loading-screen';
-import { StatusCard } from '@/components/ui/status-card';
+import { StatusCard } from '@/shared/ui/status-card';
 import { CreateAgentSessionDialog } from '@/features/agent-sessions/create-agent-session-dialog';
 import { queueAgentSessionInitialDispatch } from '@/features/agent-sessions/initial-dispatch';
-import type { SpecificationSummary, SpecificationSource } from '../types';
-import { useSpecificationIndex } from '../queries';
-import { SpecificationDetail } from './specification-detail';
+import type { SpecificationSummary, SpecificationSource } from '@/features/specifications/types';
+import { useSpecificationIndex } from '@/features/specifications/queries';
+import { SpecificationDetail } from '@/features/specifications/detail/specification-detail';
 
 export interface SpecificationRouteProps {
   source: string;
   slug: string;
 }
 
+export type SpecificationDetailScreenProps = SpecificationRouteProps;
+
 /**
- * Specification detail route (`/specs/:source/:slug`): resolves the specification from
+ * Specification detail screen (`/specs/:source/:slug`): resolves the specification from
  * the Specifications index, redirects on a source mismatch (active/archive
  * fallback), and hosts spec-scoped Agent Session creation.
  */
-export function SpecificationRoute({ source: rawSource, slug }: SpecificationRouteProps) {
+export function SpecificationDetailScreen({ source: rawSource, slug }: SpecificationDetailScreenProps) {
   const source: SpecificationSource = rawSource === 'archive' ? 'archive' : 'active';
 
   const { data, loading, error, refresh } = useSpecificationIndex();
@@ -135,3 +137,5 @@ export function SpecificationRoute({ source: rawSource, slug }: SpecificationRou
     </>
   );
 }
+
+export const SpecificationRoute = SpecificationDetailScreen;

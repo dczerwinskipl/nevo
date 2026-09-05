@@ -1,6 +1,6 @@
 import { Radio } from 'lucide-react';
 
-import { RetryButton } from '@/components/ui/status-card';
+import { RetryButton } from '@/shared/ui/status-card';
 import { cn } from '@/lib/utils';
 import type { LiveConnectionStatus } from '../queries';
 

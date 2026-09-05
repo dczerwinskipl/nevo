@@ -2,8 +2,8 @@ import { Archive, FileText, LayoutDashboard, Plus, Search, X } from 'lucide-reac
 
 import type { SpecificationSummary, SpecificationSource } from '../types';
 import { cn, formatDate, formatStatus, pluralizeTasks } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Badge } from '@/shared/ui/badge';
+import { Button } from '@/shared/ui/button';
 import { StageProgress } from '../stage-progress';
 import { Link } from '@tanstack/react-router';
 

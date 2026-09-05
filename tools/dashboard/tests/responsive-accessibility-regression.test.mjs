@@ -41,7 +41,7 @@ test('Documentation layout constrains both grid tracks and rendered Markdown to 
 test('AC3: Mobile keyboard viewport adjustments and safe area insets are wired', () => {
   const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');
   const viewportSource = readSource('features/agent-sessions/transcript/use-visual-viewport.ts');
-  const sheetSource = readSource('components/ui/sheet.tsx');
+  const sheetSource = readSource('shared/ui/sheet.tsx');
 
   // AgentSessionPage consumes useVisualViewport's keyboardOpen state
   assert.match(agentSessionPageSource, /useVisualViewport/);
@@ -83,7 +83,7 @@ test('AC6: Tool details constrain large inputs and outputs with scrollable pre c
 });
 
 test('AC7: Session details sheet supports both mobile (full width) and desktop (max-w-md)', () => {
-  const sheetSource = readSource('components/ui/sheet.tsx');
+  const sheetSource = readSource('shared/ui/sheet.tsx');
   const sessionDetailsSource = readSource('features/agent-sessions/agent-session-details.tsx');
 
   // Responsive width in sheetVariants
@@ -100,7 +100,7 @@ test('AC7: Session details sheet supports both mobile (full width) and desktop (
 test('AC8: Core interactive controls have accessible names and labels', () => {
   const headerSource = readSource('features/agent-sessions/agent-session-header.tsx');
   const composerSource = readSource('features/agent-sessions/composer/agent-session-composer.tsx');
-  const sheetSource = readSource('components/ui/sheet.tsx');
+  const sheetSource = readSource('shared/ui/sheet.tsx');
 
   // Back button and details button have accessible names
   assert.match(headerSource, /aria-label=\{backLabel\}/);
@@ -156,7 +156,7 @@ test('AC10: Role and status distinctions are not color-only', () => {
 });
 
 test('AC11: Keyboard focus management, tab order, and keydown handlers are structured for desktop keyboard navigation', () => {
-  const buttonSource = readSource('components/ui/button.tsx');
+  const buttonSource = readSource('shared/ui/button.tsx');
   const composerSource = readSource('features/agent-sessions/composer/agent-session-composer.tsx');
   const headerSource = readSource('features/agent-sessions/agent-session-header.tsx');
   const toolCallViewSource = readSource('features/agent-sessions/turn-work/tool-call-view.tsx');
@@ -198,7 +198,7 @@ test('V2 AC8: Work Details opens as a Sheet (portal), never expanding the chat t
   const detailsSource = readV2Source('work-details-sheet-v2.tsx');
   assert.match(
     detailsSource,
-    /from '@\/components\/ui\/sheet'/,
+    /from '@\/shared\/ui\/sheet'/,
     'must reuse the shared Sheet primitive, not an inline expanding panel',
   );
   assert.match(

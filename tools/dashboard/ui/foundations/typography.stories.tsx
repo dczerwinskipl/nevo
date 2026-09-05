@@ -105,7 +105,7 @@ const FONT_SIZE_UTILITIES: UtilityItem[] = [
 const LINE_HEIGHT_UTILITIES: UtilityItem[] = [
   {
     utility: 'leading-none',
-    sourceFile: 'tools/dashboard/ui/components/ui/dialog.tsx',
+    sourceFile: 'tools/dashboard/ui/shared/ui/dialog.tsx',
     category: 'line-height',
   },
   {
@@ -249,7 +249,7 @@ function TypographyFoundation() {
         <p className="mt-1 text-sm text-fg-muted">
           Inventories of distinct font-size, line-height, and font-weight utilities actively present in{' '}
           <code className="text-fg-primary">tools/dashboard/ui/features</code> and{' '}
-          <code className="text-fg-primary">tools/dashboard/ui/components/ui</code>. Metrics shown are read live via{' '}
+          <code className="text-fg-primary">tools/dashboard/ui/shared/ui</code>. Metrics shown are read live via{' '}
           <code className="text-fg-primary">getComputedStyle</code>.
         </p>
       </div>

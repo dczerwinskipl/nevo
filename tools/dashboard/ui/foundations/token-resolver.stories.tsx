@@ -50,12 +50,24 @@ export const LiveTokenResolver: Story = {
     const surfaceComputed = resolveLiveTokenComputed('--color-surface');
     expect(surfaceComputed).toMatch(/^rgb\(\d+,\s*\d+,\s*\d+\)$/);
 
-    // 3. Backdrop token resolves with alpha channel
+    // 3. Legacy bridge variables resolve to the exact same computed values as canonical tokens
+    expect(resolveLiveTokenComputed('--background')).toBe(resolveLiveTokenComputed('--color-background'));
+    expect(resolveLiveTokenComputed('--surface')).toBe(resolveLiveTokenComputed('--color-surface'));
+    expect(resolveLiveTokenComputed('--border')).toBe(resolveLiveTokenComputed('--color-border'));
+    expect(resolveLiveTokenComputed('--accent')).toBe(resolveLiveTokenComputed('--color-accent'));
+    expect(resolveLiveTokenComputed('--foreground')).toBe(resolveLiveTokenComputed('--color-fg-primary'));
+    expect(resolveLiveTokenComputed('--muted')).toBe(resolveLiveTokenComputed('--color-fg-muted'));
+    expect(resolveLiveTokenComputed('--success')).toBe(resolveLiveTokenComputed('--color-status-success'));
+    expect(resolveLiveTokenComputed('--warning')).toBe(resolveLiveTokenComputed('--color-status-warning'));
+    expect(resolveLiveTokenComputed('--danger')).toBe(resolveLiveTokenComputed('--color-status-error'));
+    expect(resolveLiveTokenComputed('--info')).toBe(resolveLiveTokenComputed('--color-status-info'));
+
+    // 4. Backdrop token resolves with alpha channel
     const backdropRgba = resolveLiveTokenRgba('--color-backdrop');
     expect(backdropRgba[3]).toBeGreaterThan(0);
     expect(backdropRgba[3]).toBeLessThan(1);
 
-    // 4. Fixed synthetic fixtures for parser testing (unit-testing parsing and conversion)
+    // 5. Fixed synthetic fixtures for parser testing (unit-testing parsing and conversion)
     expect(parseCssColor('rgb(255, 0, 128)')).toEqual([255, 0, 128, 1]);
     const translucent = parseCssColor('rgba(10, 20, 30, 0.5)');
     expect(translucent.slice(0, 3)).toEqual([10, 20, 30]);
@@ -66,7 +78,7 @@ export const LiveTokenResolver: Story = {
     const oklabRgba = parseCssColor('oklab(0.636841 0.187884 0.0889429)');
     expect(oklabRgba).toEqual([239, 68, 68, 1]);
 
-    // 5. Unsupported or invalid CSS color syntax throws explicitly instead of defaulting to black
+    // 6. Unsupported or invalid CSS color syntax throws explicitly instead of defaulting to black
     expect(() => parseCssColor('not-a-valid-css-color')).toThrow(
       'Unsupported or invalid CSS color syntax: "not-a-valid-css-color"',
     );

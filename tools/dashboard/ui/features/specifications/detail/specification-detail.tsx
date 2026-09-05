@@ -5,8 +5,8 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import type { SpecificationSummary, SpecificationTask, SpecificationSource } from '../types';
 import type { AgentSession } from '@/features/agent-sessions/types';
 import { cn, formatDate, formatStatus } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
-import { Card } from '@/components/ui/card';
+import { Badge } from '@/shared/ui/badge';
+import { Card } from '@/shared/ui/card';
 import { FinalizeDialog, RepositoryActionsCard } from '../actions/spec-actions';
 import { TaskDialog } from '../tasks/task-dialog';
 import { StageProgress } from '../stage-progress';

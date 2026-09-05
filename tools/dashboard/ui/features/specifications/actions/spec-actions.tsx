@@ -12,10 +12,10 @@ import { useEffect, useRef } from 'react';
 
 import type { SpecificationActionsPayload, SpecificationTaskActionGate } from '../types';
 import { cn } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { StatusCard, RetryButton } from '@/components/ui/status-card';
+import { Badge } from '@/shared/ui/badge';
+import { Button } from '@/shared/ui/button';
+import { Card } from '@/shared/ui/card';
+import { StatusCard, RetryButton } from '@/shared/ui/status-card';
 
 export function RepositoryActionsCard({
   data,

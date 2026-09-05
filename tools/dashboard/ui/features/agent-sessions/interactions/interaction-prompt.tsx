@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Check, ShieldAlert, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import { Button } from '@/shared/ui/button';
+import { Card } from '@/shared/ui/card';
 import type { AgentInteraction, AgentPermissionInteraction, AgentQuestionInteraction } from '../types';
 import { cn } from '@/lib/utils';
 

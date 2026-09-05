@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { AgentSessionRoute } from '@/features/agent-sessions/agent-session-route';
+import { AgentSessionScreen } from '@/screens/agent-session-screen';
 
 export const Route = createFileRoute('/specs/$source/$slug/sessions/$provider/$providerSessionId')({
   component: AgentSessionRouteEntry,
@@ -7,5 +7,5 @@ export const Route = createFileRoute('/specs/$source/$slug/sessions/$provider/$p
 
 function AgentSessionRouteEntry() {
   const { source, slug, provider, providerSessionId } = Route.useParams();
-  return <AgentSessionRoute source={source} slug={slug} provider={provider} providerSessionId={providerSessionId} />;
+  return <AgentSessionScreen source={source} slug={slug} provider={provider} providerSessionId={providerSessionId} />;
 }

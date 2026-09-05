@@ -1,4 +1,4 @@
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/shared/ui/sheet';
 import { AgentSessionDetails } from './agent-session-details';
 import type { SessionTaskItem } from './session-tasks';
 import type { AgentExecutionMode, AgentSession, TaskNavigationTarget } from './types';

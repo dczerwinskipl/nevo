@@ -1,7 +1,7 @@
 import { AlertTriangle, ArrowLeft, ChevronDown, LoaderCircle, RefreshCw } from 'lucide-react';
 import { forwardRef, useEffect, useImperativeHandle, useMemo } from 'react';
 
-import { Button } from '@/components/ui/button';
+import { Button } from '@/shared/ui/button';
 import { TranscriptMessage } from './transcript-message';
 import { PermissionPrompt, QuestionPrompt } from '../interactions/interaction-prompt';
 import { projectTranscript } from './projection';

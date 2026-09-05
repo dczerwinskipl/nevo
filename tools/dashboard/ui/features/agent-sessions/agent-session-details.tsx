@@ -1,5 +1,5 @@
 import { Trash2, LoaderCircle, FileText, CheckSquare, Cpu, Layers } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/shared/ui/button';
 import type { AgentExecutionMode, TaskNavigationTarget } from './types';
 import type { SessionTaskItem } from './session-tasks';
 

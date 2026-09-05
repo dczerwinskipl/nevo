@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { LoaderCircle, MessageSquarePlus, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/shared/ui/button';
 import { ProviderBadge } from './agent-session-list';
 import { useAgentProviders, useCreateAgentSession } from './queries';
 import { initialPromptWithTaskContext } from './create-agent-session-helpers';

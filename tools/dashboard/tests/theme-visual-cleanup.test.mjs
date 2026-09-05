@@ -10,13 +10,18 @@ function readSource(relative) {
 test('neutral foundation tokens do not derive from the interaction accent', () => {
   const css = readSource('index.css');
 
-  assert.match(css, /--background: #090a0d/);
-  assert.match(css, /--surface: #0f1116/);
-  assert.match(css, /--surface-raised: #14171d/);
-  assert.match(css, /--surface-hover: #191d24/);
-  assert.match(css, /--border: #252a33/);
-  assert.match(css, /--border-strong: #343b47/);
-  assert.match(css, /--accent: #3882f6/);
+  assert.match(css, /--color-background: #090a0d/);
+  assert.match(css, /--color-surface: #0f1116/);
+  assert.match(css, /--color-surface-raised: #14171d/);
+  assert.match(css, /--color-surface-hover: #191d24/);
+  assert.match(css, /--color-border: #252a33/);
+  assert.match(css, /--color-border-strong: #343b47/);
+  assert.match(css, /--color-accent: #3882f6/);
+
+  assert.match(css, /--background:\s*var\(--color-background\);/);
+  assert.match(css, /--surface:\s*var\(--color-surface\);/);
+  assert.match(css, /--border:\s*var\(--color-border\);/);
+  assert.match(css, /--accent:\s*var\(--color-accent\);/);
 
   const bodyRule = css.slice(css.indexOf('body {'), css.indexOf('body::before'));
   assert.doesNotMatch(bodyRule, /var\(--accent\)|59, 130, 246/);
@@ -46,7 +51,7 @@ test('theme exposes interaction and semantic token families', () => {
 });
 
 test('desktop shell removes the full-width brand header and keeps floating utilities', () => {
-  const appLayout = readSource('features/specifications/specification-console-layout.tsx');
+  const appLayout = readSource('screens/specification-console-layout.tsx');
 
   assert.ok(appLayout.includes('backdrop-blur-xl sm:px-7 lg:hidden'));
   assert.ok(appLayout.includes('fixed top-3 right-4 z-40 hidden rounded-xl'));

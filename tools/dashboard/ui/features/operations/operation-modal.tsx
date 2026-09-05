@@ -4,7 +4,7 @@ import { AlertCircle, CheckCircle2, LoaderCircle, X } from 'lucide-react';
 import type { OperationSnapshot } from './types';
 import { useOperationProgress } from './use-operation-progress';
 import { formatOperationType, OperationProgressView } from './operation-progress';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/shared/ui/button';
 
 export function OperationModal({
   operationId,

@@ -14,8 +14,8 @@ import {
 import type { AgentSession, TaskNavigationTarget } from './types';
 import type { SpecificationTask } from '@/features/specifications/types';
 import { cn, formatDate } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { StatusCard } from '@/components/ui/status-card';
+import { Button } from '@/shared/ui/button';
+import { StatusCard } from '@/shared/ui/status-card';
 import { StatusLabel } from '@/shared/ui/status-label';
 import { statusTextTone } from '@/shared/status-tone';
 import { useAgentProviders, useDeleteAgentSession } from './queries';

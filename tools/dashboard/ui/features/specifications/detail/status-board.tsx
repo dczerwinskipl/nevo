@@ -8,7 +8,7 @@ import type {
 } from '../types';
 import { cn } from '@/lib/utils';
 import { lanePresentation } from './lane-presentation';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/shared/ui/button';
 import { StatusLabel } from '@/shared/ui/status-label';
 import { formatTaskStatus, taskStatusTone } from '../status';
 

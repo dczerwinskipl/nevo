@@ -1,5 +1,5 @@
 import { ArrowLeft, Info, Radio } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/shared/ui/button';
 import { StatusLabel } from '@/shared/ui/status-label';
 import { statusSurfaceTone, type StatusTone } from '@/shared/status-tone';
 import { cn } from '@/lib/utils';

@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react';
 
 import type { PullRequestFile, PullRequestFileManifestEntry } from '../types';
 import { cn } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
+import { Badge } from '@/shared/ui/badge';
 import { usePullRequestFileDiffs } from '../queries';
 import type { FileDiffRequest } from '../queries';
 

@@ -1,7 +1,7 @@
 import { FileCode2, LoaderCircle } from 'lucide-react';
 import type { SpecificationSummary } from '../types';
-import { Card } from '@/components/ui/card';
-import { StatusCard } from '@/components/ui/status-card';
+import { Card } from '@/shared/ui/card';
+import { StatusCard } from '@/shared/ui/status-card';
 import { MarkdownContent } from '@/shared/markdown/markdown-content';
 import { useSpecificationDocument } from './spec-detail-queries';
 

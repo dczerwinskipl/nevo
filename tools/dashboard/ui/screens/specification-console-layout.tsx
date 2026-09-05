@@ -3,13 +3,13 @@ import { useMemo, useState } from 'react';
 import { Menu } from 'lucide-react';
 
 import { LoadingScreen } from '@/shared/ui/loading-screen';
-import { Button } from '@/components/ui/button';
-import { StatusCard } from '@/components/ui/status-card';
-import { SpecificationSidebar } from './navigation/specification-sidebar';
-import { SpecificationLiveControls } from './navigation/specification-live-controls';
-import { useSpecificationIndex } from './queries';
-import { CreateSpecificationDialog } from './create/create-specification-dialog';
-import type { SpecificationSource } from './types';
+import { Button } from '@/shared/ui/button';
+import { StatusCard } from '@/shared/ui/status-card';
+import { SpecificationSidebar } from '@/features/specifications/navigation/specification-sidebar';
+import { SpecificationLiveControls } from '@/features/specifications/navigation/specification-live-controls';
+import { useSpecificationIndex } from '@/features/specifications/queries';
+import { CreateSpecificationDialog } from '@/features/specifications/create/create-specification-dialog';
+import type { SpecificationSource } from '@/features/specifications/types';
 import { queueAgentSessionInitialDispatch } from '@/features/agent-sessions/initial-dispatch';
 
 export function SpecificationConsoleLayout() {

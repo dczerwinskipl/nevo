@@ -12,7 +12,7 @@ import {
   MessageSquareText,
   X,
 } from 'lucide-react';
-import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { Sheet, SheetContent } from '@/shared/ui/sheet';
 import { MarkdownContent } from '@/shared/markdown/markdown-content';
 import { TOOL_KIND_ICONS_V2 } from './tool-kind-icons-v2';
 import { previewPlainText } from './text-preview-v2';

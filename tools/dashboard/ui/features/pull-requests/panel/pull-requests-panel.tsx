@@ -3,9 +3,9 @@ import { useEffect, useState } from 'react';
 
 import type { SpecificationSummary } from '@/features/specifications/types';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { StatusCard, RetryButton } from '@/components/ui/status-card';
+import { Button } from '@/shared/ui/button';
+import { Card } from '@/shared/ui/card';
+import { StatusCard, RetryButton } from '@/shared/ui/status-card';
 import { usePullRequests } from '../queries';
 import type { DiffViewMode } from '../changes/file-change';
 import { PullRequestCard } from '../detail/pull-request-detail';

@@ -1,13 +1,13 @@
 import { useNavigate, useRouter } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo } from 'react';
 
-import { Button } from '@/components/ui/button';
-import { StatusCard } from '@/components/ui/status-card';
+import { Button } from '@/shared/ui/button';
+import { StatusCard } from '@/shared/ui/status-card';
 import { LoadingScreen } from '@/shared/ui/loading-screen';
 import { useSpecificationIndex } from '@/features/specifications/queries';
-import type { AgentSession } from './types';
-import { useAgentSessions } from './queries';
-import { AgentSessionPage } from './agent-session-page';
+import type { AgentSession } from '@/features/agent-sessions/types';
+import { useAgentSessions } from '@/features/agent-sessions/queries';
+import { AgentSessionPage } from '@/features/agent-sessions/agent-session-page';
 
 export interface AgentSessionRouteProps {
   source: string;
@@ -16,13 +16,15 @@ export interface AgentSessionRouteProps {
   providerSessionId: string;
 }
 
+export type AgentSessionScreenProps = AgentSessionRouteProps;
+
 /**
- * Agent Session route (`/specs/:source/:slug/sessions/:provider/:providerSessionId`):
+ * Agent Session screen (`/specs/:source/:slug/sessions/:provider/:providerSessionId`):
  * resolves the owning specification (via the Specifications feature's own index
  * query — AgentSession belongs to / is attached to a Specification) and the
  * session itself, then hands off to `AgentSessionPage`.
  */
-export function AgentSessionRoute({ source: rawSource, slug, provider, providerSessionId }: AgentSessionRouteProps) {
+export function AgentSessionScreen({ source: rawSource, slug, provider, providerSessionId }: AgentSessionScreenProps) {
   const source: 'active' | 'archive' = rawSource === 'archive' ? 'archive' : 'active';
 
   const { data, loading: dataLoading, error: dataError } = useSpecificationIndex();
@@ -186,3 +188,5 @@ export function AgentSessionRoute({ source: rawSource, slug, provider, providerS
     />
   );
 }
+
+export const AgentSessionRoute = AgentSessionScreen;

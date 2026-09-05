@@ -1,7 +1,7 @@
 import { AlertTriangle, ArrowLeft, ChevronDown, ChevronRight, LoaderCircle, RefreshCw } from 'lucide-react';
 import { forwardRef, useCallback, useImperativeHandle, useState } from 'react';
 
-import { Button } from '@/components/ui/button';
+import { Button } from '@/shared/ui/button';
 import { TurnWorkPanelV2 } from './turn-work-panel-v2';
 import { useScrollFollow } from '../transcript/use-scroll-follow';
 import { shouldCollapseMessage } from '../transcript/message-collapse';

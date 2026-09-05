@@ -1,8 +1,8 @@
 import { AlertTriangle, ChevronRight, Files, GitBranch, GitPullRequest, UserRound } from 'lucide-react';
 
 import type { AvailablePullRequest, UnavailablePullRequest } from '../types';
-import { Badge } from '@/components/ui/badge';
-import { Card } from '@/components/ui/card';
+import { Badge } from '@/shared/ui/badge';
+import { Card } from '@/shared/ui/card';
 import { stateLabel, stateTone } from '../changes/status';
 
 export function PullRequestSummaryCard({

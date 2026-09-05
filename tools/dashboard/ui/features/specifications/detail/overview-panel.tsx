@@ -8,8 +8,8 @@ import type {
 } from '../types';
 import type { AgentSession, TaskNavigationTarget } from '@/features/agent-sessions/types';
 import { formatStatus } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import { Button } from '@/shared/ui/button';
+import { Card } from '@/shared/ui/card';
 import { AgentSessionList } from '@/features/agent-sessions/agent-session-list';
 import { StatusBoard } from './status-board';
 

@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, type KeyboardEvent } from 'react';
 import { Send, CircleStop } from 'lucide-react';
 import { useMediaQuery } from 'usehooks-ts';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/shared/ui/button';
 import type { AgentExecutionMode } from '../types';
 import { AI_MODES, getModeMeta } from '../mode-meta';
 import { cn } from '@/lib/utils';
