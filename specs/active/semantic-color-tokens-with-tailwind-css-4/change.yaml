@@ -684,7 +684,7 @@ tasks:
   - id: architecture-enforcement-check
     order: 10
     file: tasks/10-architecture-enforcement-check.md
-    status: implemented
+    status: verified
     depends_on:
       - cleanup-and-token-removal
     implementation:
