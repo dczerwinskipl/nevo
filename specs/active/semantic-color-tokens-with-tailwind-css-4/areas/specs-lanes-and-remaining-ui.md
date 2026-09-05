@@ -9,6 +9,22 @@ Migrate `features/specifications/**` (including workflow lane presentation),
 runtime CSS-variable indirection with the static lane→token mapping from the change
 request.
 
+Additionally, this area owns:
+- Refactoring `StatusLabel` (`tools/dashboard/ui/shared/ui/status-label.tsx`) into a purely
+  presentational primitive with typed `tone: StatusTone` and rendered children, removing domain
+  awareness, `kind`, `status`, and the deprecated `statusTone()` function. Feature modules
+  own their status projections.
+- Introducing dedicated diff statistics semantic roles (`--color-diff-addition` and
+  `--color-diff-deletion`), emitting `text-diff-addition` and `text-diff-deletion`, and migrating
+  additions/deletions in file-change and pull-request components.
+- Auditing lifecycle-state presentation to use `status-active` for running/in-progress states
+  (session running badges, operation running rows, spec implementation stage) instead of `accent`.
+- Reorganizing Storybook stories: deleting the omnibus `shared-primitives.stories.tsx`, co-locating
+  stories beside individual shared primitives, moving the delete-session scenario to
+  `features/agent-sessions/agent-session-details.stories.tsx`, splitting `specifications.stories.tsx`
+  by owning components, and relocating test helpers from `components/ui/` to
+  `tools/dashboard/.storybook/test-utils/`.
+
 ## Current state
 
 - High-density specifications files: `features/specifications/navigation/specification-sidebar.tsx`
@@ -24,35 +40,16 @@ request.
   `{ accent: 'var(--lane-X)' }`; `status-board.tsx:119,125,129` sets
   `style={{ '--lane-accent': presentation.accent }}` per render, then consumes it via
   `bg-[var(--lane-accent)]`.
-- `specification-list.tsx:66` — `text-[var(--accent)] group-hover:text-[var(--accent-strong)]`
-  icon hover (same D4 fix as `status-card.tsx` in Area 2 — this file wasn't migrated
-  there because it's under `features/`, not `components/ui/`).
-- `specification-sidebar.tsx:51,60,218` — active-nav-item and focus-ring `color-mix`
-  recipes; `:115,189,205` — `bg-black/60`, `bg-black/20` raw usages.
-- Repeated `color-mix(in_srgb,var(--danger)_20%,transparent)`/`_8%,10%` error-banner
-  recipe and `color-mix(in_srgb,var(--warning)_20%,transparent)`/`_8%` warning-banner
-  recipe across `spec-actions.tsx:72-73,76,198,212`,
-  `operation-progress.tsx:34,67,116,151`, `pull-request-detail.tsx:255`,
-  `pull-request-cards.tsx:52,54`, `agent-session-list.tsx:148` (the last is Area 4's
-  file — if Area 4 lands first, this task only needs to confirm it, not redo it).
-  `create-specification-error-banner.tsx:41` — `color-mix(in_srgb,var(--warning-strong)_90%,transparent)`
-  muted-warning text (same duplicated recipe family as Area 4's
-  `create-agent-session-dialog.tsx:262`).
-- Repeated `color-mix(in_srgb,var(--accent)_8%,transparent)` selected-pill recipe also
-  appears in `specification-metadata-fields.tsx:94`,
-  `specification-ai-planning-section.tsx:87,122` (same family as Area 4's).
-- Provider/category and other stray white/black or `-[var(--…)]` occurrences may exist
-  elsewhere in the tree beyond the files named here (the 58-file/1003-occurrence and
-  27-file/59-occurrence counts in `overview.md` include files not individually profiled
-  by discovery) — this area's task is responsible for sweeping every remaining
-  occurrence anywhere in `tools/dashboard/ui` once Areas 2-4 are done, since it is the
-  last consumer-migration area before cleanup.
-- `features/pull-requests/changes/status.ts:10-15` — `stateTone()`, a third,
-  independent status→class mapping (PR draft/merged/closed/open), not identified by the
-  original discovery. Its own PR-state→tone mapping logic stays feature-local (per D8 —
-  a different canonical domain than Turn/tool status), but it must consume the shared
-  `StatusTone` type/recipe from `areas/status-tone-contract.md` rather than inventing its
-  own class strings.
+- `StatusLabel` boundary: `status-label.tsx` contains domain-specific knowledge (session, spec,
+  task, and stage formatting), plus a deprecated `statusTone()` function. Some callers use
+  it merely for uppercase styling.
+- Diff statistics in `file-change.tsx`, `pull-request-detail.tsx`, `pull-request-cards.tsx`
+  currently use `status-success`/`status-error` instead of dedicated diff tokens.
+- Lifecycle indicators in session headers, operations, and spec stages use `accent` instead
+  of `status-active`.
+- Storybook stories for primitives are bundled into one monolithic file (`shared-primitives.stories.tsx`)
+  and specification stories are bundled into `specifications.stories.tsx`. Test helpers live in
+  `components/ui/storybook-test-helpers.ts` instead of `.storybook/test-utils/`.
 
 ## Requirements
 
@@ -68,40 +65,26 @@ request.
   indirection; consume the static classes directly.
   `--lane-*` CSS variables (`index.css:42-48`) become unused by this migration (their
   removal is `areas/cleanup-and-enforcement.md`'s job, not this task's).
-- `specification-list.tsx:66`: apply the same D4 hover-contrast fix as `status-card.tsx`
-  (stop using `accent-strong`/`accent-solid` as hover text color).
-- Collapse every duplicated `color-mix(...)` recipe family (error-banner, warning-banner,
-  selected-pill, muted-warning-text) into opacity-modifier utilities consistent with how
-  Areas 2 and 4 resolved the same families — do not invent a third convention for the
-  same recipe.
-- After this task, run one sweep grep for `-[var(--`, raw white/black, and `color-mix(`
-  across all of `tools/dashboard/ui/**/*.{ts,tsx}` (not just the features named above)
-  and fix any remaining occurrence found — this area is the last TS/TSX
-  consumer-migration area before `areas/cleanup-and-enforcement.md`'s final
-  verification. **This sweep never includes `index.css` or any other `.css` file** —
-  this area is forbidden from editing `index.css` (see the task's own
-  `forbidden_paths`), and `index.css` still legitimately contains `color-mix(...)` at
-  this point (old `:root` token definitions, plus two selector-oriented exceptions the
-  class-composition contract already allows). `areas/cleanup-and-enforcement.md`
-  explicitly owns migrating or documenting the preservation of that global CSS.
-
-## Constraints
-
-- Depends on `areas/shared-ui-primitives.md` and `areas/status-tone-contract.md`
-  (renders through Button/Badge/StatusCard/status-tone module); for the lane mapping,
-  also depends on the status-tone module's `status-info`/`status-active`/
-  `status-warning`/`status-success` token names being final.
-- No visual change to lane colors — new→neutral etc. is a naming/mechanism change (from
-  `--lane-*` values to canonical status-token values), not a repaint; if any lane's
-  numeric color would change under the new mapping (e.g. `--lane-ready` is currently
-  `var(--info)` and maps to `status-info`, so should be unchanged — verify each of the 6
-  lanes individually rather than assuming).
-
-## Interfaces and boundaries
-
-- Consumes: `areas/theme-foundation.md` tokens, `areas/shared-ui-primitives.md`
-  primitives, `areas/status-tone-contract.md` module.
-- Produces: nothing consumed by other areas (leaf features).
+- `StatusLabel` presentation boundary:
+  - Remove deprecated `statusTone(status: string)`.
+  - Remove all domain awareness from `StatusLabel` (`kind`, `status`, session status literals, task formatting, stage formatting).
+  - Its public contract receives rendered `children` and a required typed `tone: StatusTone`.
+  - Move domain-status-to-tone mappings and formatting into their owning feature modules (`features/specifications/status.ts`, `features/agent-sessions/`, etc.).
+  - Update every current `StatusLabel` call site.
+  - Non-status labels (e.g. workflow lane names) must use local semantic markup (`span` with uppercase typography), not `StatusLabel`.
+  - Remove commented obsolete JSX in `agent-session-list.tsx` and brittle tests matching raw strings.
+- Semantic role purity:
+  - Add `--color-diff-addition: var(--color-status-success);` and `--color-diff-deletion: var(--color-status-error);` to `index.css` `@theme static inline`, emitting `text-diff-addition` and `text-diff-deletion`.
+  - Migrate additions/deletions in `file-change.tsx`, `pull-request-detail.tsx`, `pull-request-cards.tsx` to use `text-diff-addition`/`text-diff-deletion`.
+  - Audit clear lifecycle-state uses of `accent` -> migrate to `status-active` for session running badges, operation running rows, and specification implementation stages.
+- Storybook co-location and architecture:
+  - Delete `components/ui/shared-primitives.stories.tsx`.
+  - Co-locate stories with their component: `button.stories.tsx`, `badge.stories.tsx`, `card.stories.tsx`, `dialog.stories.tsx`, `sheet.stories.tsx`, `status-card.stories.tsx`, `progress.stories.tsx`, `loading-screen.stories.tsx` (beside `shared/ui/loading-screen.tsx`).
+  - Move delete-session scenario to `features/agent-sessions/agent-session-details.stories.tsx`.
+  - Split `features/specifications/specifications.stories.tsx` by component: `status-board.stories.tsx`, `specification-list.stories.tsx`, `pull-request-cards.stories.tsx`, `operation-progress.stories.tsx`.
+  - Move Storybook test helpers to `tools/dashboard/.storybook/test-utils/`.
+  - Use `Meta<typeof Component>` and `StoryObj<typeof meta>`.
+  - Remove copied production palette assertions from `LiveTokenResolver`.
 
 ## Area-specific acceptance criteria
 
@@ -112,19 +95,18 @@ request.
 4. `lane-presentation.ts` returns no `var(--lane-*)` string; `status-board.tsx` contains
    no `'--lane-accent'` inline-style assignment.
 5. Each of the 6 lane states renders with the exact token specified in the change
-   request's mapping table, verified against the previous rendered color for parity
-   where the mapping implies no change.
-6. A sweep (`grep -r -- "-\[var(--" tools/dashboard/ui/**/*.{ts,tsx}`, equivalent for
-   white/black and `color-mix`) returns zero results outside Storybook
-   stories/tests/fixtures and any explicitly documented exception — `index.css` and
-   other `.css` files are out of scope for this sweep (owned by
-   `areas/cleanup-and-enforcement.md`).
-7. `npm --prefix tools/dashboard test`, `npm --prefix tools/dashboard run build`,
-   `npm --prefix tools/dashboard run test:storybook` all pass.
-8. Durable Storybook tests for Specifications/PR/operations components pass, covering
-   the explicit `specification-list.tsx` hover fix and each of the 6 lane states — these
-   are the intentional, expected changes (D9), verified for correctness rather than
-   claimed pixel-identical as a blanket statement.
+   request's mapping table.
+6. `StatusLabel` is purely presentational: requires typed `tone: StatusTone`, receives rendered
+   children, has no `kind` or `status` prop, and `statusTone(string)` is completely removed.
+7. Diff additions and deletions use `text-diff-addition` and `text-diff-deletion` rather than
+   `status-success`/`status-error`.
+8. Active running lifecycle indicators use `status-active` rather than `accent`.
+9. Primitive stories are co-located with their components, delete-session scenario is in
+   agent-session details story, specification stories are split, and test helpers reside in
+   `tools/dashboard/.storybook/test-utils/`.
+10. `npm --prefix tools/dashboard test`, `npm --prefix tools/dashboard run build`,
+    `npm --prefix tools/dashboard run test:storybook`, `npm --prefix tools/dashboard run build-storybook` all pass.
+
 
 ## Dependencies
 

@@ -353,3 +353,99 @@ agent. They are recorded here verbatim in substance so later commands (`spec-ref
 - **Date:** 2026-09-03
 - **Affected artifacts:** `areas/theme-foundation.md`, `areas/storybook-and-documentation.md`,
   `tasks/03`, `tasks/08`.
+
+## D11: Purely presentational StatusLabel boundary and feature-owned projections
+
+- **Question:** How should `StatusLabel` (`tools/dashboard/ui/shared/ui/status-label.tsx`)
+  be structured, given that it currently mixes presentation with domain awareness (raw
+  session status literals, spec status, task status, stage formatting, and a deprecated
+  `statusTone(status: string)` function)?
+- **Options considered:**
+  - A — Keep domain-aware branching inside `StatusLabel` and continue expanding it for
+    new features.
+  - B — Make `StatusLabel` a purely presentational primitive requiring typed `tone: StatusTone`
+    and receiving rendered `children`, completely removing domain awareness (`kind`, `status`,
+    `statusTone(string)`). Feature modules (`specifications`, `agent-sessions`, etc.) own
+    their own status-to-tone projections and formatting. Non-status labels (e.g. lane header
+    labels) must use local semantic markup instead of abusing `StatusLabel` merely for
+    uppercase typography.
+- **Decision:** Option B.
+- **Rationale:** Preserves clean architectural boundaries. A shared UI primitive must not
+  couple to domain models across different features. Removing `statusTone(string)` eliminates
+  brittle fallback behavior. Feature-owned projections keep domain logic co-located with the
+  owning domain.
+- **Consequences:** `tools/dashboard/ui/shared/ui/status-label.tsx` becomes purely presentational.
+  All call sites are updated to pass `tone` and `children`. Feature-local projections are
+  created (e.g. `specStatusTone` in specifications). Obsolete tests and commented JSX are removed.
+- **Date:** 2026-09-05
+- **Affected artifacts:** `areas/specs-lanes-and-remaining-ui.md`, `tasks/07-specs-lanes-and-remaining-ui.md`.
+
+## D12: Dedicated diff statistics tokens (`diff-addition`, `diff-deletion`) and lifecycle-state audit
+
+- **Question:** How should diff additions/deletions and lifecycle states (running/in-progress)
+  be styled? Should diffs use `status-success`/`status-error`, and should active lifecycle
+  states use `accent`?
+- **Options considered:**
+  - A — Continue using `status-success`/`status-error` for diff line counts and `accent`
+    for running lifecycle indicators.
+  - B — Introduce dedicated semantic tokens `--color-diff-addition` and `--color-diff-deletion`
+    in `@theme static inline` aliasing success/error hues, emitting `text-diff-addition` and
+    `text-diff-deletion`. Audit lifecycle states to use `status-active` for running/in-implementation
+    presentation, reserving `accent` for interactive controls, selections, links, and branding.
+- **Decision:** Option B.
+- **Rationale:** Semantic role purity: git diff additions/deletions are statistics about code
+  modifications, not operational success/error statuses. Separating them prevents confusion and
+  allows independent styling in the future. Similarly, lifecycle states are system statuses
+  belonging to `status-active`, whereas `accent` represents user interaction and affordance.
+- **Consequences:** `--color-diff-addition` and `--color-diff-deletion` added to `index.css`.
+  Diff views in `file-change.tsx`, `pull-request-detail.tsx`, `pull-request-cards.tsx` migrate
+  to `text-diff-addition` and `text-diff-deletion`. Session running badges, operation running rows,
+  and spec implementation indicators migrate from `accent` to `status-active`.
+- **Date:** 2026-09-05
+- **Affected artifacts:** `overview.md`, `areas/specs-lanes-and-remaining-ui.md`, `tasks/07-specs-lanes-and-remaining-ui.md`.
+
+## D13: Storybook story co-location, ownership, and test-utils architecture
+
+- **Question:** How should Storybook stories and testing utilities be organized across the
+  dashboard codebase?
+- **Options considered:**
+  - A — Keep omnibus story files (`shared-primitives.stories.tsx`, `specifications.stories.tsx`)
+    and keep test helpers in `components/ui/storybook-test-helpers.ts`.
+  - B — Delete omnibus stories and co-locate stories beside the component they exercise
+    (`button.stories.tsx`, `badge.stories.tsx`, `card.stories.tsx`, `dialog.stories.tsx`,
+    `sheet.stories.tsx`, `status-card.stories.tsx`, `progress.stories.tsx`, `loading-screen.stories.tsx`).
+    Move feature-specific stories to their features (e.g. delete-session scenario to
+    `features/agent-sessions/agent-session-details.stories.tsx`, split `specifications.stories.tsx`).
+    Move Storybook test utilities to `tools/dashboard/.storybook/test-utils/` cleanly split
+    by responsibility. Use `Meta<typeof Component>` and `StoryObj<typeof meta>`.
+- **Decision:** Option B.
+- **Rationale:** Co-location ensures component authors see and maintain stories alongside code.
+  `components/ui` must contain only production UI primitives, not test infrastructure.
+  Moving test helpers to `.storybook/test-utils/` prevents test utilities from polluting
+  the production component library.
+- **Consequences:** `components/ui/shared-primitives.stories.tsx` deleted. Co-located stories
+  created. Helpers relocated to `tools/dashboard/.storybook/test-utils/`. Production palette
+  assertions in `LiveTokenResolver` removed in favor of live custom property inspection.
+- **Date:** 2026-09-05
+- **Affected artifacts:** `areas/specs-lanes-and-remaining-ui.md`, `tasks/07-specs-lanes-and-remaining-ui.md`, `areas/storybook-and-documentation.md`, `tasks/08-storybook-and-documentation.md`.
+
+## D14: Storybook foundation stories migration and comprehensive token validation
+
+- **Question:** Which stories must be migrated to semantic color tokens, and should Storybook
+  stories be subject to token architecture sweeps and lint checks?
+- **Options considered:**
+  - A — Only migrate `colors.stories.tsx`; exclude other stories from sweeps and checks.
+  - B — Expand Task 08 to own all foundation stories (`colors.stories.tsx`, `typography.stories.tsx`,
+    `smoke.stories.tsx`), migrating them to semantic Tailwind utilities and live token resolution.
+    Update Task 09 and Task 10 so the final sweep and architectural scanner include stories
+    as executable UI consumers, allowing narrow exceptions only for test fixtures under `.storybook/test-utils/`.
+- **Decision:** Option B.
+- **Rationale:** Stories are live, executable UI consumers running in Storybook and browser tests.
+  Allowing legacy tokens or raw palette classes in stories would undermine design-system consistency
+  and cause false-positive or undetected token regressions.
+- **Consequences:** Task 08 expanded to migrate `typography.stories.tsx` and `smoke.stories.tsx` as
+  well as `colors.stories.tsx`. Tasks 09 and 10 updated to include `*.stories.tsx` in sweeps and
+  the enforcement scanner.
+- **Date:** 2026-09-05
+- **Affected artifacts:** `areas/storybook-and-documentation.md`, `tasks/08-storybook-and-documentation.md`, `tasks/09-cleanup-and-token-removal.md`, `tasks/10-architecture-enforcement-check.md`.
+

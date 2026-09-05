@@ -1,6 +1,6 @@
 ---
 id: semantic-color-tokens-with-tailwind-css-4.specs-lanes-and-remaining-ui
-status: draft
+status: in-implementation
 change: semantic-color-tokens-with-tailwind-css-4
 context:
   required:
@@ -19,22 +19,19 @@ context:
 allowed_paths:
   - tools/dashboard/ui/**
   - tools/dashboard/tests/**
+  - tools/dashboard/.storybook/**
 forbidden_paths:
-  - tools/dashboard/ui/index.css
-  - tools/dashboard/ui/components/ui/**
-  - tools/dashboard/ui/shared/status-tone.ts
-  - tools/dashboard/ui/features/agent-sessions/**
   - src/**
 depends_on:
   - shared-ui-primitives
   - status-tone-contract
   - agent-sessions-and-work
 semantic_references:
-  decisions: [D2, D3, D4, D8, D9]
+  decisions: [D2, D3, D4, D8, D9, D11, D12, D13]
   constraints: [C5, C7, C8]
 ---
 
-# Task: Migrate specifications/lanes/PRs/operations and sweep remaining UI
+# Task: Migrate specifications/lanes/PRs/operations, refine status presentation boundary, add diff tokens, and co-locate stories
 
 ## Goal
 
@@ -44,11 +41,23 @@ indirection with the static lane→token mapping), `features/pull-requests/**`,
 `specification-list.tsx`, and sweep the rest of `tools/dashboard/ui` for any remaining
 `-[var(--…)]`/raw-white-black/`color-mix(...)` occurrence not covered by earlier tasks.
 
+Scope expansion:
+1. Refactor `StatusLabel` (`tools/dashboard/ui/shared/ui/status-label.tsx`) to be purely
+   presentational (`tone: StatusTone` required, rendered `children`, no domain awareness,
+   remove deprecated `statusTone()`).
+2. Add `--color-diff-addition` and `--color-diff-deletion` to `index.css` `@theme static inline`
+   emitting `text-diff-addition` and `text-diff-deletion`. Migrate additions/deletions in
+   file-change and PR components. Audit lifecycle-state vs interaction uses of `accent` ->
+   migrate running/in-progress indicators to `status-active`.
+3. Reorganize Storybook stories: delete omnibus `shared-primitives.stories.tsx`, co-locate
+   stories beside their primitives (`button`, `badge`, `card`, `dialog`, `sheet`, `status-card`,
+   `progress`, `loading-screen`), move delete-session scenario to
+   `features/agent-sessions/agent-session-details.stories.tsx`, split `specifications.stories.tsx`,
+   relocate test helpers to `tools/dashboard/.storybook/test-utils/`.
+
 ## Dependencies
 
-`shared-ui-primitives`, `status-tone-contract`, `agent-sessions-and-work` (shared
-`color-mix` recipe families should be resolved consistently with how that task resolved
-them).
+`shared-ui-primitives`, `status-tone-contract`, `agent-sessions-and-work`.
 
 ## Implementation constraints
 
@@ -56,78 +65,54 @@ them).
   lookup implementing new→neutral, design→`workflow-design`, ready→`status-info`,
   implementation→`status-active`, review→`status-warning`, done→`status-success`.
 - `status-board.tsx`: remove the `style={{ '--lane-accent': presentation.accent }}`
-  inline-style assignment (lines 119, 125, 129) and the `bg-[var(--lane-accent)]`
-  consumption — use the static classes directly.
-- `specification-list.tsx:66`: same hover-contrast fix as `status-card.tsx` in
-  `tasks/04-*` (stop using `accent-strong`/`accent-solid` as hover text color).
-- Resolve the error-banner, warning-banner, selected-pill, and muted-warning-text
-  `color-mix` recipe families the same way `tasks/06-*` resolved them in
-  `create-agent-session-dialog.tsx`/`interaction-prompt.tsx`/`provider-unavailable-banner.tsx`
-  — consistent opacity-modifier naming across both tasks.
-- After the named directories are migrated, grep the rest of
-  `tools/dashboard/ui/**/*.{ts,tsx}` (excluding `*.stories.tsx`, `tests/`,
-  `__fixtures__/`) for `-[var(--`, raw white/black, and `color-mix(` and fix any
-  remaining occurrence — this is the last TS/TSX consumer-migration task before
-  `tasks/09-*` removes the old CSS variables. **This sweep excludes `index.css` and
-  every other `.css` file entirely** — `index.css` is forbidden to this task (see
-  `forbidden_paths`) and still legitimately contains `color-mix(...)` at this point (the
-  old `:root` token definitions, plus the two selector-oriented exceptions in
-  `::selection`/`.markdown-body blockquote` the class-composition contract already
-  allows for global CSS). Migrating or preserving those is `tasks/09-*`'s job, not this
-  task's — do not attempt it and do not let this task's sweep report them as a failure.
-- `pull-requests/changes/status.ts:10-15`'s `stateTone()`: keep its own PR-state→tone
-  mapping feature-local (per D8 — PR state is a different canonical domain than
-  Turn/tool status), but change it to consume the shared `StatusTone` type and the
-  `shared/status-tone.ts` tone-rendering recipe from `tasks/05-*` instead of returning
-  independently-invented full class strings.
-- `specification-metadata-fields.tsx:92-96` and
-  `specification-ai-planning-section.tsx:83-89,120-124`: convert the ternary
-  expressions that select whole pre-written class strings into `cn()`-based conditional
-  composition, per the class-composition contract (D8).
-- Apply the "required inspection when touching a component" checklist
-  (`react-component-guidelines.md` §11/§12) to every component this task changes.
-- **Destructive-action audit (item 5):** confirmed by grep — no delete/remove/destructive
-  button pattern exists under `features/specifications/**` or `features/pull-requests/**`
-  (the only real destructive action in this change is agent-sessions' delete-session
-  button, migrated in `tasks/06-*`). No action needed here; do not introduce a
-  destructive-variant usage without a genuine consumer.
-- Do not touch `index.css`, `components/ui/**`, `shared/status-tone.ts`, or
-  `features/agent-sessions/**`.
+  inline-style assignment and the `bg-[var(--lane-accent)]` consumption — use static classes directly.
+- `StatusLabel` presentation boundary:
+  - Remove deprecated `statusTone(status: string)`.
+  - Remove domain awareness (`kind`, `status`, session status literals, task formatting, stage formatting).
+  - Public contract receives rendered `children` and a required typed `tone: StatusTone`.
+  - Move domain-status-to-tone mappings and formatting into their owning feature modules (`features/specifications/status.ts`, `features/agent-sessions/`, etc.).
+  - Non-status labels (such as workflow lane names) must not use `StatusLabel` merely to reuse uppercase typography; use local semantic markup.
+  - Remove commented obsolete JSX in `agent-session-list.tsx` and brittle tests matching raw strings.
+- Semantic role purity:
+  - Add `--color-diff-addition: var(--color-status-success);` and `--color-diff-deletion: var(--color-status-error);` to `index.css` `@theme static inline`.
+  - Migrate additions/deletions in `file-change.tsx`, `pull-request-detail.tsx`, `pull-request-cards.tsx` to `text-diff-addition` and `text-diff-deletion`.
+  - Audit lifecycle-state uses of `accent`: migrate running/in-progress indicators (session running badge, operation running rows, spec implementation stage) to `status-active`.
+- Storybook co-location & test utils:
+  - Delete `components/ui/shared-primitives.stories.tsx`.
+  - Co-locate stories beside primitives (`button.stories.tsx`, `badge.stories.tsx`, etc.).
+  - Move delete-session scenario to `features/agent-sessions/agent-session-details.stories.tsx`.
+  - Split `specifications.stories.tsx` into `status-board.stories.tsx`, `specification-list.stories.tsx`, `pull-request-cards.stories.tsx`, `operation-progress.stories.tsx`.
+  - Move Storybook test helpers to `tools/dashboard/.storybook/test-utils/`.
+  - Use `Meta<typeof Component>` and `StoryObj<typeof meta>`.
+  - Remove copied production palette assertions from `LiveTokenResolver`.
 
 ## Acceptance criteria
 
 1. Zero `-[var(--` occurrences remain under `features/specifications/**`,
    `features/pull-requests/**`, `features/operations/**`.
-   `automated: ! grep -rq -- "-\[var(--" tools/dashboard/ui/features/specifications tools/dashboard/ui/features/pull-requests tools/dashboard/ui/features/operations`
 2. Zero raw `bg/text/border-white|black` occurrences remain in those directories.
-   `automated: ! grep -rqE "bg-(white|black)|text-(white|black)|border-(white|black)" tools/dashboard/ui/features/specifications tools/dashboard/ui/features/pull-requests tools/dashboard/ui/features/operations`
 3. Zero `color-mix(...)` occurrences remain in those directories.
-   `automated: ! grep -rq "color-mix" tools/dashboard/ui/features/specifications tools/dashboard/ui/features/pull-requests tools/dashboard/ui/features/operations`
 4. `lane-presentation.ts` contains no `var(--lane-*)` string; `status-board.tsx`
-   contains no `'--lane-accent'`. `automated: ! grep -q -- "--lane-accent" tools/dashboard/ui/features/specifications/detail/status-board.tsx`
-5. A sweep of `tools/dashboard/ui/**/*.{ts,tsx}` (excluding `*.stories.tsx`, `tests/`,
-   `__fixtures__/`, and — not applicable to this extension anyway — `index.css`) for
-   `-[var(--`, raw white/black, and `color-mix(` returns zero results.
-   `automated: repo-wide grep across tools/dashboard/ui/**/*.{ts,tsx} with the story/test/fixture exclusions`
-6. `npm --prefix tools/dashboard test`, `npm --prefix tools/dashboard run build`,
-   `npm --prefix tools/dashboard run test:storybook` pass.
-7. Durable Storybook tests for Specifications/PR/operations components pass, covering
-   the deliberate `specification-list.tsx` hover fix and each of the 6 lane states — the
-   lane-color changes are verified for parity against
-   `areas/specs-lanes-and-remaining-ui.md` acceptance criterion 5's per-lane check, not
-   claimed pixel-identical as a blanket statement (D9).
-8. `pull-requests/changes/status.ts` consumes the shared `StatusTone` type/recipe; its
-   own PR-state→tone mapping stays feature-local. `inspection: source reviewed`
-9. The two named ternary-based class selections use `cn()`. `inspection: source reviewed`
-10. The "required inspection when touching a component" checklist was applied.
-    `inspection: checklist applied and recorded per component`
+   contains no `'--lane-accent'`.
+5. `StatusLabel` is purely presentational: requires typed `tone: StatusTone`, receives rendered
+   children, has no `kind` or `status` prop, and `statusTone(string)` is completely removed.
+6. Diff additions and deletions use `text-diff-addition` and `text-diff-deletion` rather than
+   `status-success`/`status-error`.
+7. Active running lifecycle indicators use `status-active` rather than `accent`.
+8. Primitive stories are co-located with their components, delete-session scenario is in
+   agent-session details story, specification stories are split, and test helpers reside in
+   `tools/dashboard/.storybook/test-utils/`.
+9. `npm --prefix tools/dashboard test`, `npm --prefix tools/dashboard run build`,
+   `npm --prefix tools/dashboard run test:storybook`, `npm --prefix tools/dashboard run build-storybook` pass.
 
 ## Verification
 
 ```text
+npm --prefix tools/dashboard run format:check
 npm --prefix tools/dashboard test
 npm --prefix tools/dashboard run build
 npm --prefix tools/dashboard run test:storybook
+npm --prefix tools/dashboard run build-storybook
 ```
 
 ## Documentation impact
@@ -138,3 +123,4 @@ None yet — `tasks/08-storybook-and-documentation.md`.
 
 - Removing old `:root` variables, `--color-*: initial`, `theme-color` meta fix, the
   architecture check — `tasks/09-*`, `tasks/10-*`.
+

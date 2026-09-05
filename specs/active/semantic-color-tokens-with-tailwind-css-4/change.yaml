@@ -439,21 +439,41 @@ tasks:
   - id: specs-lanes-and-remaining-ui
     order: 7
     file: tasks/07-specs-lanes-and-remaining-ui.md
-    status: verified
+    status: implemented
     depends_on:
       - shared-ui-primitives
       - status-tone-contract
       - agent-sessions-and-work
     implementation:
       baseline_revision: 322ec3d53830f102984e89617ea0f581c2f823f3
-      review_revision: 3c6f888a75c9c45cf25763b3690e4bcee98c993b
+      review_revision: 8c58c407dede5ede9a072ea9d22791b8de7d0aff
       changed_paths:
+        - tools/dashboard/.storybook/aliases.ts
+        - tools/dashboard/.storybook/test-utils/color-helpers.ts
+        - tools/dashboard/.storybook/test-utils/index.ts
+        - tools/dashboard/.storybook/test-utils/interaction-helpers.ts
+        - tools/dashboard/tests/network-config.test.mjs
         - tools/dashboard/tests/theme-visual-cleanup.test.mjs
         - tools/dashboard/tests/ux-improvements-regression.test.mjs
+        - tools/dashboard/ui/components/ui/badge.stories.tsx
+        - tools/dashboard/ui/components/ui/button.stories.tsx
+        - tools/dashboard/ui/components/ui/card.stories.tsx
+        - tools/dashboard/ui/components/ui/dialog.stories.tsx
+        - tools/dashboard/ui/components/ui/progress.stories.tsx
+        - tools/dashboard/ui/components/ui/shared-primitives.stories.tsx
+        - tools/dashboard/ui/components/ui/sheet.stories.tsx
+        - tools/dashboard/ui/components/ui/status-card.stories.tsx
+        - tools/dashboard/ui/features/agent-sessions/agent-session-details.stories.tsx
+        - tools/dashboard/ui/features/agent-sessions/agent-session-header.tsx
+        - tools/dashboard/ui/features/agent-sessions/agent-session-list.tsx
+        - tools/dashboard/ui/features/agent-sessions/agent-session-page.tsx
+        - tools/dashboard/ui/features/agent-sessions/status.ts
         - tools/dashboard/ui/features/operations/operation-modal.tsx
+        - tools/dashboard/ui/features/operations/operation-progress.stories.tsx
         - tools/dashboard/ui/features/operations/operation-progress.tsx
         - tools/dashboard/ui/features/pull-requests/changes/file-change.tsx
         - tools/dashboard/ui/features/pull-requests/changes/status.ts
+        - tools/dashboard/ui/features/pull-requests/detail/pull-request-cards.stories.tsx
         - tools/dashboard/ui/features/pull-requests/detail/pull-request-cards.tsx
         - tools/dashboard/ui/features/pull-requests/detail/pull-request-detail.tsx
         - tools/dashboard/ui/features/pull-requests/panel/pull-requests-panel.tsx
@@ -468,25 +488,34 @@ tasks:
         - tools/dashboard/ui/features/specifications/detail/lane-presentation.ts
         - tools/dashboard/ui/features/specifications/detail/overview-panel.tsx
         - tools/dashboard/ui/features/specifications/detail/specification-detail.tsx
+        - tools/dashboard/ui/features/specifications/detail/status-board.stories.tsx
         - tools/dashboard/ui/features/specifications/detail/status-board.tsx
+        - tools/dashboard/ui/features/specifications/list/specification-list.stories.tsx
         - tools/dashboard/ui/features/specifications/list/specification-list.tsx
         - tools/dashboard/ui/features/specifications/navigation/specification-live-controls.tsx
         - tools/dashboard/ui/features/specifications/navigation/specification-sidebar.tsx
         - tools/dashboard/ui/features/specifications/specification-console-layout.tsx
-        - tools/dashboard/ui/features/specifications/specifications.stories.tsx
         - tools/dashboard/ui/features/specifications/stage-progress.tsx
+        - tools/dashboard/ui/features/specifications/status.ts
         - tools/dashboard/ui/features/specifications/tasks/task-dialog.tsx
+        - tools/dashboard/ui/foundations/token-resolver.stories.tsx
+        - tools/dashboard/ui/index.css
+        - tools/dashboard/ui/shared/ui/loading-screen.stories.tsx
         - tools/dashboard/ui/shared/ui/status-label.tsx
-      worktree_patch_fingerprint: 94102770af2325c5daf8c21be057be0a4936ab610d8dfa503759e042f61e6892
+      worktree_patch_fingerprint: null
     self_check:
-      fingerprint: 036424ed11c96f42087d6004afe382dbcea62c8e2d865553f6677e0dcfb069fd
-      revision: 3c6f888a75c9c45cf25763b3690e4bcee98c993b
+      fingerprint: 808d68f4d6890b18d06de6dc4034d1ab0cc065841be690d8901b55143cf654fb
+      revision: 8c58c407dede5ede9a072ea9d22791b8de7d0aff
       commands:
+        - command: npm --prefix tools/dashboard run format:check
+          exit_code: 0
         - command: npm --prefix tools/dashboard test
           exit_code: 0
         - command: npm --prefix tools/dashboard run build
           exit_code: 0
         - command: npm --prefix tools/dashboard run test:storybook
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build-storybook
           exit_code: 0
       status: passed
 

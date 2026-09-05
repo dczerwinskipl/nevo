@@ -50,9 +50,10 @@ Every consumer-migration task: `shared-ui-primitives`, `status-tone-contract`,
 
 ## Implementation constraints
 
-- Run the TS/TSX sweep first (`tools/dashboard/ui/**/*.{ts,tsx}`, excluding
-  stories/tests/fixtures); if it finds any straggler, fix it in this task (do not defer)
-  and note which earlier task missed it.
+- Run the TS/TSX sweep first (`tools/dashboard/ui/**/*.{ts,tsx}`, including `*.stories.tsx`,
+  excluding tests/fixtures); if it finds any straggler, fix it in this task (do not defer)
+  and note which earlier task missed it. Stories are executable UI consumers and must
+  satisfy the same token architecture as production components.
 - **Migrate `index.css`'s own embedded `var(--legacy-name)` references before removing
   any legacy declaration.** The full, confirmed list (line numbers from the file as of
   this spec's writing — re-verify against the actual file at implementation time, since
@@ -96,8 +97,8 @@ Every consumer-migration task: `shared-ui-primitives`, `status-tone-contract`,
 
 ## Acceptance criteria
 
-1. TS/TSX sweep (`tools/dashboard/ui/**/*.{ts,tsx}`, excluding stories/tests/fixtures)
-   returns zero `-[var(--`, raw white/black, or `color-mix(` occurrences.
+1. TS/TSX sweep (`tools/dashboard/ui/**/*.{ts,tsx}`, including `*.stories.tsx`,
+   excluding tests/fixtures) returns zero `-[var(--`, raw white/black, or `color-mix(` occurrences.
    `automated: sweep grep with story/test/fixture exclusions, scoped to .ts/.tsx`
 2. Zero `var(--legacy-name)` references remain in `index.css` for any of the original 39
    names — including inside the two preserved `color-mix(...)` calls.
