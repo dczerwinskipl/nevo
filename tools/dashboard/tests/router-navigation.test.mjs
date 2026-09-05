@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { isSpecificationSource } from '../ui/features/specifications/types.ts';
 
 function readSource(relative) {
   return readFileSync(fileURLToPath(new URL('../ui/' + relative, import.meta.url)), 'utf8');
@@ -249,4 +250,231 @@ test('14. Archived spec sessions: specification-detail-content enables useAgentS
     taskDialogSource.includes('sessionsContent?: React.ReactNode'),
     'TaskDialog accepts injected sessionsContent instead of tightly coupling to useAgentSessions',
   );
+});
+
+test('15. Source validation contract: isSpecificationSource strictly validates active and archive sources', () => {
+  assert.equal(isSpecificationSource('active'), true);
+  assert.equal(isSpecificationSource('archive'), true);
+  assert.equal(isSpecificationSource('invalid'), false);
+  assert.equal(isSpecificationSource(''), false);
+  assert.equal(isSpecificationSource('archived'), false);
+  assert.equal(isSpecificationSource('ACTIVE'), false);
+  assert.equal(isSpecificationSource('null'), false);
+  assert.equal(isSpecificationSource('undefined'), false);
+});
+
+test('16. SpecificationDetailScreen: invalid $source canonicalizes to active via replace and prevents premature domain lookup', () => {
+  const specDetailScreenSource = readSource('screens/specification-detail/specification-detail-screen.tsx');
+
+  // Architecture & contract assertions:
+  // 1) Invalid source is not treated as active — it resolves strictly to null
+  assert.match(
+    specDetailScreenSource,
+    /const\s+source:\s*SpecificationSource\s*\|\s*null\s*=\s*isSpecificationSource\(\s*rawSource\s*\)\s*\?\s*rawSource\s*:\s*null;/,
+    'SpecificationDetailScreen guards rawSource using isSpecificationSource, evaluating invalid values to null',
+  );
+
+  // 2) The screen canonicalizes invalid source through a replace navigation to an active URL
+  assert.match(
+    specDetailScreenSource,
+    /if\s*\(\s*source\s*===\s*null\s*\)\s*\{\s*navigate\(\{\s*to:\s*['"]\/specs\/\$source\/\$slug['"],\s*params:\s*\{\s*source:\s*['"]active['"],\s*slug\s*\},\s*replace:\s*true\s*\}\);?\s*\}/,
+    'SpecificationDetailScreen triggers replace navigation to /specs/active/$slug when source is null',
+  );
+
+  // 3) Domain lookup does not proceed using the invalid source before canonicalization
+  assert.match(
+    specDetailScreenSource,
+    /if\s*\(!data\s*\|\|\s*source\s*===\s*null\)\s*return\s*null;/,
+    'selected memoization guards against null source before accessing data collections',
+  );
+  assert.match(
+    specDetailScreenSource,
+    /if\s*\(!data\s*\|\|\s*selected\s*\|\|\s*source\s*===\s*null\)\s*return\s*null;/,
+    'fallbackSpec memoization guards against null source before attempting opposite-collection lookup',
+  );
+  assert.match(
+    specDetailScreenSource,
+    /if\s*\(source\s*===\s*null\)\s*return\s*<LoadingScreen\s*\/>;/,
+    'SpecificationDetailScreen returns LoadingScreen while source is null, preventing not-found or content render',
+  );
+
+  // Behavioral logic simulation mirroring component state transitions:
+  function evaluateSpecificationResolution(rawSource, slug, data) {
+    const source = isSpecificationSource(rawSource) ? rawSource : null;
+    let canonicalRedirect = null;
+    if (source === null) {
+      canonicalRedirect = { to: '/specs/$source/$slug', params: { source: 'active', slug }, replace: true };
+    }
+
+    let selectedLookupExecuted = false;
+    const selected = (() => {
+      if (!data || source === null) return null;
+      selectedLookupExecuted = true;
+      const collection = source === 'active' ? data.active : data.archive;
+      return collection.find((c) => c.slug === slug) ?? null;
+    })();
+
+    let fallbackLookupExecuted = false;
+    const fallbackSpec = (() => {
+      if (!data || selected || source === null) return null;
+      fallbackLookupExecuted = true;
+      const oppositeCollection = source === 'active' ? data.archive : data.active;
+      const match = oppositeCollection.find((c) => c.slug === slug);
+      return match ? { specification: match, oppositeSource: source === 'active' ? 'archive' : 'active' } : null;
+    })();
+
+    return {
+      source,
+      canonicalRedirect,
+      selected,
+      fallbackSpec,
+      selectedLookupExecuted,
+      fallbackLookupExecuted,
+      rendersLoading: source === null,
+    };
+  }
+
+  const mockIndexData = {
+    active: [{ slug: 'sample-spec', title: 'Sample Spec', source: 'active' }],
+    archive: [],
+  };
+
+  // Test with invalid source: must canonicalize to active without premature domain lookup
+  const invalidResult = evaluateSpecificationResolution('invalid-src', 'sample-spec', mockIndexData);
+  assert.equal(invalidResult.source, null, 'Invalid source must resolve to null, not active');
+  assert.deepEqual(
+    invalidResult.canonicalRedirect,
+    { to: '/specs/$source/$slug', params: { source: 'active', slug: 'sample-spec' }, replace: true },
+    'Must trigger canonical replace navigation to active source',
+  );
+  assert.equal(invalidResult.selectedLookupExecuted, false, 'Domain lookup must NOT run for invalid source');
+  assert.equal(invalidResult.fallbackLookupExecuted, false, 'Fallback lookup must NOT run for invalid source');
+  assert.equal(invalidResult.selected, null);
+  assert.equal(invalidResult.rendersLoading, true, 'Must render LoadingScreen while canonicalization is in flight');
+
+  // Test with valid source
+  const validResult = evaluateSpecificationResolution('active', 'sample-spec', mockIndexData);
+  assert.equal(validResult.source, 'active');
+  assert.equal(validResult.canonicalRedirect, null);
+  assert.equal(validResult.selectedLookupExecuted, true);
+  assert.equal(validResult.selected?.slug, 'sample-spec');
+  assert.equal(validResult.rendersLoading, false);
+});
+
+test('17. AgentSessionScreen: invalid $source canonicalizes to active via replace and prevents premature domain lookup', () => {
+  const agentSessionScreenSource = readSource('screens/agent-session/agent-session-screen.tsx');
+
+  // Architecture & contract assertions:
+  // 1) Invalid source is not treated as active — it resolves strictly to null
+  assert.match(
+    agentSessionScreenSource,
+    /const\s+source:\s*['"]active['"]\s*\|\s*['"]archive['"]\s*\|\s*null\s*=\s*isSpecificationSource\(\s*rawSource\s*\)\s*\?\s*rawSource\s*:\s*null;/,
+    'AgentSessionScreen guards rawSource using isSpecificationSource, evaluating invalid values to null',
+  );
+
+  // 2) The screen canonicalizes invalid source through a replace navigation to an active session URL
+  assert.match(
+    agentSessionScreenSource,
+    /if\s*\(\s*source\s*===\s*null\s*\)\s*\{\s*navigate\(\{\s*to:\s*['"]\/specs\/\$source\/\$slug\/sessions\/\$provider\/\$providerSessionId['"],\s*params:\s*\{\s*source:\s*['"]active['"],\s*slug,\s*provider,\s*providerSessionId\s*\},?\s*replace:\s*true,?\s*\}\);?\s*\}/,
+    'AgentSessionScreen triggers replace navigation to /specs/active/$slug/sessions/... when source is null',
+  );
+
+  // 3) Domain lookup does not proceed using the invalid source before canonicalization
+  assert.match(
+    agentSessionScreenSource,
+    /if\s*\(!data\s*\|\|\s*source\s*===\s*null\)\s*return\s*null;/,
+    'selectedSpec memoization guards against null source before accessing data collections',
+  );
+  assert.match(
+    agentSessionScreenSource,
+    /if\s*\(!data\s*\|\|\s*selectedSpec\s*\|\|\s*source\s*===\s*null\)\s*return\s*null;/,
+    'fallbackSpec memoization guards against null source before attempting opposite-collection lookup',
+  );
+  assert.match(
+    agentSessionScreenSource,
+    /if\s*\(source\s*===\s*null\)\s*return\s*<LoadingScreen\s*\/>;/,
+    'AgentSessionScreen returns LoadingScreen while source is null, preventing chat or session query execution',
+  );
+
+  // Behavioral logic simulation mirroring component state transitions:
+  function evaluateAgentSessionResolution(rawSource, slug, provider, providerSessionId, data) {
+    const source = isSpecificationSource(rawSource) ? rawSource : null;
+    let canonicalRedirect = null;
+    if (source === null) {
+      canonicalRedirect = {
+        to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+        params: { source: 'active', slug, provider, providerSessionId },
+        replace: true,
+      };
+    }
+
+    let selectedLookupExecuted = false;
+    const selectedSpec = (() => {
+      if (!data || source === null) return null;
+      selectedLookupExecuted = true;
+      const collection = source === 'active' ? data.active : data.archive;
+      return collection.find((c) => c.slug === slug) ?? null;
+    })();
+
+    let fallbackLookupExecuted = false;
+    const fallbackSpec = (() => {
+      if (!data || selectedSpec || source === null) return null;
+      fallbackLookupExecuted = true;
+      const oppositeCollection = source === 'active' ? data.archive : data.active;
+      const match = oppositeCollection.find((c) => c.slug === slug);
+      return match ? { specification: match, oppositeSource: source === 'active' ? 'archive' : 'active' } : null;
+    })();
+
+    const effectiveSpec = selectedSpec || fallbackSpec?.specification || null;
+    const sessionsQueryEnabled = Boolean(effectiveSpec?.specId);
+
+    return {
+      source,
+      canonicalRedirect,
+      selectedSpec,
+      fallbackSpec,
+      selectedLookupExecuted,
+      fallbackLookupExecuted,
+      sessionsQueryEnabled,
+      rendersLoading: source === null,
+    };
+  }
+
+  const mockIndexData = {
+    active: [{ slug: 'sample-spec', title: 'Sample Spec', source: 'active', specId: 'spec-active-id' }],
+    archive: [],
+  };
+
+  // Test with invalid source: must canonicalize to active without premature domain lookup
+  const invalidResult = evaluateAgentSessionResolution(
+    'bogus-source',
+    'sample-spec',
+    'claude',
+    'sess-1',
+    mockIndexData,
+  );
+  assert.equal(invalidResult.source, null, 'Invalid source must resolve to null, not active');
+  assert.deepEqual(
+    invalidResult.canonicalRedirect,
+    {
+      to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+      params: { source: 'active', slug: 'sample-spec', provider: 'claude', providerSessionId: 'sess-1' },
+      replace: true,
+    },
+    'Must trigger canonical replace navigation to active source',
+  );
+  assert.equal(invalidResult.selectedLookupExecuted, false, 'Domain lookup must NOT run for invalid source');
+  assert.equal(invalidResult.fallbackLookupExecuted, false, 'Fallback lookup must NOT run for invalid source');
+  assert.equal(invalidResult.selectedSpec, null);
+  assert.equal(invalidResult.sessionsQueryEnabled, false, 'Sessions query must NOT be enabled before spec resolves');
+  assert.equal(invalidResult.rendersLoading, true, 'Must render LoadingScreen while canonicalization is in flight');
+
+  // Test with valid source
+  const validResult = evaluateAgentSessionResolution('active', 'sample-spec', 'claude', 'sess-1', mockIndexData);
+  assert.equal(validResult.source, 'active');
+  assert.equal(validResult.canonicalRedirect, null);
+  assert.equal(validResult.selectedLookupExecuted, true);
+  assert.equal(validResult.selectedSpec?.slug, 'sample-spec');
+  assert.equal(validResult.sessionsQueryEnabled, true);
+  assert.equal(validResult.rendersLoading, false);
 });

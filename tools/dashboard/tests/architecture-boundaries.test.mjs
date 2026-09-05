@@ -82,6 +82,52 @@ test('1. Sibling feature isolation: features/** has zero imports from other feat
   assert.deepEqual(violations, [], `Sibling feature violations found:\n${JSON.stringify(violations, null, 2)}`);
 });
 
+export function checkFeatureDependencyDirection(importerFile, specifier, baseUiDir = uiDir) {
+  // Alias imports to higher layers or app root files
+  if (
+    specifier.startsWith('@/screens') ||
+    specifier.startsWith('@/routes') ||
+    specifier.startsWith('@/app') ||
+    specifier === '@/App' ||
+    specifier.startsWith('@/App.')
+  ) {
+    return {
+      violates: true,
+      reason:
+        'feature layer must not depend on higher layers (screens, routes, app) — cross-feature composition belongs in ui/screens/',
+    };
+  }
+
+  // Relative imports resolved from importing file
+  if (specifier.startsWith('.')) {
+    const fileDir = dirname(importerFile);
+    const resolvedPath = join(fileDir, specifier);
+    const relToUi = relative(baseUiDir, resolvedPath).replace(/\\/g, '/');
+
+    const isHigherLayer =
+      relToUi === 'screens' ||
+      relToUi.startsWith('screens/') ||
+      relToUi === 'routes' ||
+      relToUi.startsWith('routes/') ||
+      relToUi === 'app' ||
+      relToUi.startsWith('app/') ||
+      relToUi === 'App' ||
+      relToUi.startsWith('App.') ||
+      relToUi === 'main' ||
+      relToUi.startsWith('main.');
+
+    if (isHigherLayer) {
+      return {
+        violates: true,
+        reason:
+          'feature layer must not depend on higher layers (screens, routes, app) via relative imports — cross-feature composition belongs in ui/screens/',
+      };
+    }
+  }
+
+  return { violates: false };
+}
+
 test('1b. Feature layer dependency direction: features/** never imports screens, routes, or app', () => {
   const featuresDir = join(uiDir, 'features');
   const featureFiles = listFiles(featuresDir);
@@ -92,18 +138,73 @@ test('1b. Feature layer dependency direction: features/** never imports screens,
     const specifiers = extractImportSpecifiers(source);
 
     for (const specifier of specifiers) {
-      if (specifier.startsWith('@/screens') || specifier.startsWith('@/routes') || specifier.startsWith('@/app')) {
+      const check = checkFeatureDependencyDirection(file, specifier, uiDir);
+      if (check.violates) {
         violations.push({
           file: relative(uiDir, file),
           specifier,
-          reason:
-            'feature layer must not depend on higher layers (screens, routes, app) — cross-feature composition belongs in ui/screens/',
+          reason: check.reason,
         });
       }
     }
   }
 
   assert.deepEqual(violations, [], `Feature layer boundary violations found:\n${JSON.stringify(violations, null, 2)}`);
+});
+
+test('1c. Feature layer dependency direction unit tests: relative and alias imports into higher layers are rejected', () => {
+  const sampleFeatureFile = join(uiDir, 'features', 'specifications', 'detail', 'sample-component.tsx');
+
+  // a valid relative import staying inside the same feature is allowed
+  const validSameFeature = checkFeatureDependencyDirection(sampleFeatureFile, '../types');
+  assert.equal(validSameFeature.violates, false, 'Relative import staying inside feature must be allowed');
+
+  const validLocalRelative = checkFeatureDependencyDirection(sampleFeatureFile, './sub-component');
+  assert.equal(validLocalRelative.violates, false, 'Local relative import within same directory must be allowed');
+
+  // a relative import from a feature into screens is rejected
+  const screenRelativeViolation = checkFeatureDependencyDirection(
+    sampleFeatureFile,
+    '../../../screens/specification-detail/specification-detail-screen',
+  );
+  assert.equal(screenRelativeViolation.violates, true, 'Relative import from feature into screens must be rejected');
+
+  // a relative import from a feature into routes is rejected
+  const routeRelativeViolation = checkFeatureDependencyDirection(
+    sampleFeatureFile,
+    '../../../routes/_spec-layout/specs.$source.$slug',
+  );
+  assert.equal(routeRelativeViolation.violates, true, 'Relative import from feature into routes must be rejected');
+
+  // a relative import from a feature into app is rejected
+  const appRelativeViolation = checkFeatureDependencyDirection(sampleFeatureFile, '../../../app/router');
+  assert.equal(appRelativeViolation.violates, true, 'Relative import from feature into app must be rejected');
+
+  // a relative import from a feature into App.tsx / root app-level files is rejected
+  const appFileRelativeViolation = checkFeatureDependencyDirection(sampleFeatureFile, '../../../App');
+  assert.equal(appFileRelativeViolation.violates, true, 'Relative import from feature into App.tsx must be rejected');
+
+  // alias imports into higher layers are rejected
+  assert.equal(
+    checkFeatureDependencyDirection(sampleFeatureFile, '@/screens/agent-session/agent-session-screen').violates,
+    true,
+    'Alias import into screens must be rejected',
+  );
+  assert.equal(
+    checkFeatureDependencyDirection(sampleFeatureFile, '@/routes/_spec-layout').violates,
+    true,
+    'Alias import into routes must be rejected',
+  );
+  assert.equal(
+    checkFeatureDependencyDirection(sampleFeatureFile, '@/app/router').violates,
+    true,
+    'Alias import into app must be rejected',
+  );
+  assert.equal(
+    checkFeatureDependencyDirection(sampleFeatureFile, '@/App').violates,
+    true,
+    'Alias import into App root must be rejected',
+  );
 });
 
 test('2. Shared layer purity: shared/** never imports from features, screens, routes, or app', () => {
