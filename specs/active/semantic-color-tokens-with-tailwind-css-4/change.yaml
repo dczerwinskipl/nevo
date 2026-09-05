@@ -439,11 +439,13 @@ tasks:
   - id: specs-lanes-and-remaining-ui
     order: 7
     file: tasks/07-specs-lanes-and-remaining-ui.md
-    status: approved
+    status: in-implementation
     depends_on:
       - shared-ui-primitives
       - status-tone-contract
       - agent-sessions-and-work
+    implementation:
+      baseline_revision: 322ec3d53830f102984e89617ea0f581c2f823f3
 
   - id: storybook-and-documentation
     order: 8
