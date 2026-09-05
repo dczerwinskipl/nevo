@@ -449,3 +449,35 @@ agent. They are recorded here verbatim in substance so later commands (`spec-ref
 - **Date:** 2026-09-05
 - **Affected artifacts:** `areas/storybook-and-documentation.md`, `tasks/08-storybook-and-documentation.md`, `tasks/09-cleanup-and-token-removal.md`, `tasks/10-architecture-enforcement-check.md`.
 
+## D15: Dashboard frontend architecture contract, component taxonomy, and deferred migration
+
+- **Question:** How should the dashboard frontend architecture (`tools/dashboard/ui`) be
+  structured, how are component taxonomy and Storybook story titles organized, and how
+  should the coexistence of `tools/dashboard/ui/components/ui` and `tools/dashboard/ui/shared/ui`
+  be resolved?
+- **Options considered:**
+  - A — Perform an immediate mass refactor moving all primitives from `components/ui/`
+    to `shared/ui/` and updating all import sites across the codebase within the current PR.
+  - B — Formally define and document the architecture contract in `docs/development/dashboard-frontend-architecture.md`
+    specifying layer responsibilities (`app -> routes -> features -> shared`), component taxonomy
+    (primitive, shared composition, feature component, application component), story co-location,
+    and testing isolation (`.storybook/test-utils/`). Resolve `shared/ui` as the official target
+    for domain-independent primitives, recognize `components/ui` as a legacy exception from initial
+    shadcn scaffolding, mandate that any new primitive go into `shared/ui`, and explicitly defer
+    mass migration of `components/ui` to a future dedicated change. Align story titles to the
+    taxonomy (`Shared/UI/*`, `Features/*`, `Foundations/*`).
+- **Decision:** Option B.
+- **Rationale:** Mass relocation of `components/ui` touches dozens of files and would create
+  extensive git churn and merge conflict hazards on active branches with zero functional or
+  semantic benefit. Formally documenting the target architecture and decision matrix establishes
+  clear boundaries and prevents further drift without destabilizing the current PR.
+- **Consequences:** `docs/development/dashboard-frontend-architecture.md` authored with all 11
+  required architectural sections, decision matrix, pseudo-tree, and guidelines. Cross-links
+  established in `react-component-guidelines.md`, `storybook.md`, `ui-ux-guidelines.md`, and
+  `nevo-ai-ux-guidelines.md`. Story titles aligned to `Shared/UI/*`, `Features/*`, and `Foundations/*`.
+  Stale section references to `react-component-guidelines.md` repaired across `tools/dashboard`.
+  Mass relocation of `components/ui` to `shared/ui` is deferred to a future change.
+- **Date:** 2026-09-05
+- **Affected artifacts:** `docs/development/dashboard-frontend-architecture.md`,
+  `docs/development/storybook.md`, `docs/development/react-component-guidelines.md`,
+  `areas/storybook-and-documentation.md`, `tasks/08-storybook-and-documentation.md`.

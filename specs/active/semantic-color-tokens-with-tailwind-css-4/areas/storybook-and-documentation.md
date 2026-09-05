@@ -21,6 +21,13 @@ the UX/color guideline documentation to the final semantic contract.
 
 ## Requirements
 
+- Author `docs/development/dashboard-frontend-architecture.md` formally establishing the
+  dashboard architecture contract: layer responsibilities (`app -> routes -> features -> shared`),
+  component taxonomy, domain area boundaries, public API rules, resolution of `components/ui`
+  vs `shared/ui` (declaring `shared/ui` as official home and recognizing `components/ui` as legacy
+  with deferred mass migration), state management, Storybook colocation, and decision matrix (D15).
+- Align Storybook story titles across all primitives (`Shared/UI/*`), features (`Features/<Domain>/*`),
+  and foundations (`Foundations/*`).
 - Rewrite `colors.stories.tsx` to read live computed CSS custom property values rather
   than hardcoded objects.
 - Migrate `typography.stories.tsx` and `smoke.stories.tsx` to semantic Tailwind utilities
@@ -35,14 +42,17 @@ the UX/color guideline documentation to the final semantic contract.
 
 ## Area-specific acceptance criteria
 
-1. `colors.stories.tsx`, `typography.stories.tsx`, and `smoke.stories.tsx` use semantic
+1. `docs/development/dashboard-frontend-architecture.md` is authored with all 11 required
+   sections, decision matrix, pseudo-tree, and guidelines, and cross-referenced in related docs.
+2. Story titles match the component taxonomy (`Shared/UI/*`, `Features/*`, `Foundations/*`).
+3. `colors.stories.tsx`, `typography.stories.tsx`, and `smoke.stories.tsx` use semantic
    Tailwind utilities and live token resolution.
-2. Tokens in `colors.stories.tsx` are grouped by semantic categories.
-3. Filled-button contrast pair meets ≥4.5:1 ratio.
-4. `docs/development/storybook.md` accurately describes story structure and co-location.
-5. Broken section references to `react-component-guidelines.md` are resolved.
-6. `npm --prefix tools/dashboard run test:storybook` and `npm --prefix tools/dashboard run build-storybook` pass.
-7. `node tools/docs.mjs generate`, `validate`, and `check` all pass.
+4. Tokens in `colors.stories.tsx` are grouped by semantic categories.
+5. Filled-button contrast pair meets ≥4.5:1 ratio.
+6. `docs/development/storybook.md` accurately describes story structure and co-location.
+7. Broken section references to `react-component-guidelines.md` are resolved.
+8. `npm --prefix tools/dashboard run test:storybook` and `npm --prefix tools/dashboard run build-storybook` pass.
+9. `node tools/docs.mjs generate`, `validate`, and `check` all pass.
 
 
 ## Dependencies
