@@ -684,9 +684,11 @@ tasks:
   - id: architecture-enforcement-check
     order: 10
     file: tasks/10-architecture-enforcement-check.md
-    status: approved
+    status: in-implementation
     depends_on:
       - cleanup-and-token-removal
+    implementation:
+      baseline_revision: d10a1dc6317d3dd5aa528d0ba0c9ed7ec1e83451
 
 spec_id: dc05983f-45d1-43a1-a2e2-4a6a12425d13
 pull_requests:

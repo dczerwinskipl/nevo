@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-05T15:25:49.680Z",
+  "generated": "2026-09-05T15:29:43.774Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -1284,10 +1284,13 @@
           "id": "architecture-enforcement-check",
           "order": 10,
           "file": "tasks/10-architecture-enforcement-check.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "cleanup-and-token-removal"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "d10a1dc6317d3dd5aa528d0ba0c9ed7ec1e83451"
+          }
         }
       ]
     },
