@@ -8,7 +8,6 @@ test('uses loopback and the standard ports by default', () => {
     host: '127.0.0.1',
     port: 4317,
     apiPort: 4318,
-    httpsPort: 4318,
   });
 });
 
@@ -26,7 +25,6 @@ test('supports host and port overrides through environment variables', () => {
       host: '100.117.54.81',
       port: 5317,
       apiPort: 5318,
-      httpsPort: 5318,
     },
   );
 });
@@ -45,7 +43,6 @@ test('command flags override environment variables', () => {
       host: '100.117.54.81',
       port: 6317,
       apiPort: 6318,
-      httpsPort: 6318,
     },
   );
 });
@@ -60,33 +57,8 @@ test('supports positional values forwarded by nested Windows npm scripts', () =>
       host: '100.117.54.81',
       port: 4317,
       apiPort: 4318,
-      httpsPort: 4318,
     },
   );
-});
-
-test('defaults the HTTPS port to port + 1 and supports an explicit override', () => {
-  assert.equal(dashboardNetworkConfig({ argv: ['--port', '5317'], env: {} }).httpsPort, 5318);
-  assert.equal(
-    dashboardNetworkConfig({
-      argv: ['--port', '5317', '--https-port', '9443'],
-      env: {},
-    }).httpsPort,
-    9443,
-  );
-  assert.equal(
-    dashboardNetworkConfig({
-      argv: ['--port', '5317'],
-      env: { NEVO_DASHBOARD_HTTPS_PORT: '9443' },
-    }).httpsPort,
-    9443,
-  );
-});
-
-test('--http-port and NEVO_DASHBOARD_HTTP_PORT are aliases for --port / NEVO_DASHBOARD_PORT', () => {
-  assert.equal(dashboardNetworkConfig({ argv: ['--http-port', '5317'], env: {} }).port, 5317);
-  assert.equal(dashboardNetworkConfig({ argv: [], env: { NEVO_DASHBOARD_HTTP_PORT: '5317' } }).port, 5317);
-  assert.equal(dashboardNetworkConfig({ argv: ['--http-port', '5317', '--port', '6317'], env: {} }).port, 5317);
 });
 
 test('rejects malformed hosts, ports, and options', () => {

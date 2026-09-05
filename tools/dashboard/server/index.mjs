@@ -44,21 +44,11 @@ function loadTlsConfig() {
 
 /**
  * Starts a plain-HTTP server whose only job is to redirect every request to
- * the HTTPS equivalent. Bound to `redirectPort` — the dashboard's ordinary
- * `port` (the one already bookmarked from before TLS was set up), so an old
- * `http://host:<port>/` link keeps working instead of hitting ERR_EMPTY_RESPONSE.
- * Fails gracefully — if the port is unavailable it logs a warning and the
- * main HTTPS server keeps running unaffected.
- *
- * Deliberately a *separate* port from HTTPS rather than sharing one: a raw
- * TCP-level multiplexer (peek the first byte, route 0x16/TLS ClientHello vs.
- * plain HTTP to two different servers on one port) was tried and discarded —
- * handing an already-touched socket to Node's `https`/`http2` server via a
- * manual `emit('connection', socket)` corrupts the TLS handshake, because
- * those servers take over the socket's handle at a lower level than
- * `http.Server` does and don't see data replayed via `unshift()`. Two ports
- * (the same "legacy HTTP port, new HTTPS port" shape Kestrel uses by default
- * in ASP.NET Core) is the robust option.
+ * the HTTPS equivalent. Default port is 80 (the browser's implicit HTTP port,
+ * so users can type the bare hostname without a port number). Override with
+ * the NEVO_DASHBOARD_HTTP_REDIRECT_PORT env variable. Fails gracefully — if
+ * the port is unavailable (e.g. requires admin on Windows) it logs a warning
+ * and the main HTTPS server keeps running unaffected.
  */
 function startHttpRedirectServer({ httpsUrl, host, redirectPort }) {
   return new Promise((resolve) => {
@@ -68,7 +58,8 @@ function startHttpRedirectServer({ httpsUrl, host, redirectPort }) {
       res.end();
     });
     server.listen(redirectPort, host, () => {
-      console.log(`NEvo dashboard HTTP redirect: http://${host}:${redirectPort} → ${httpsUrl}`);
+      const httpUrl = `http://${host}:${redirectPort === 80 ? '' : redirectPort}`.replace(/:$/, '');
+      console.log(`NEvo dashboard HTTP redirect: ${httpUrl} → ${httpsUrl}`);
       resolve(server);
     });
     server.on('error', (err) => {
@@ -89,20 +80,16 @@ function startHttpRedirectServer({ httpsUrl, host, redirectPort }) {
 const isDirectRun = process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
 
 if (isDirectRun) {
-  const { host, port, httpsPort } = dashboardNetworkConfig();
+  const { host, port } = dashboardNetworkConfig();
   const tls = loadTlsConfig();
   const app = await buildDashboardApp({ config: { tls } });
-
+  const url = await listen(app, { port, host });
+  console.log(`NEvo dashboard: ${url}`);
+  console.log(`NEvo dashboard API: ${url}/api/dashboard`);
   if (tls) {
-    const httpsUrl = await listen(app, { port: httpsPort, host });
-    console.log(`NEvo dashboard: ${httpsUrl}`);
-    console.log(`NEvo dashboard API: ${httpsUrl}/api/dashboard`);
     console.log(`TLS: HTTP/2 enabled (cert: ${TLS_CERT_PATH})`);
-    await startHttpRedirectServer({ httpsUrl, host, redirectPort: port });
-  } else {
-    const url = await listen(app, { port, host });
-    console.log(`NEvo dashboard: ${url}`);
-    console.log(`NEvo dashboard API: ${url}/api/dashboard`);
+    const redirectPort = Number(process.env.NEVO_DASHBOARD_HTTP_REDIRECT_PORT ?? 80);
+    await startHttpRedirectServer({ httpsUrl: url, host, redirectPort });
   }
   console.warn('AI access mode: trusted network (VPN boundary); requests are not identity-authenticated.');
 }
