@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { lanePresentation } from './lane-presentation';
 import { Button } from '@/components/ui/button';
 import { StatusLabel } from '@/shared/ui/status-label';
+import { formatTaskStatus, taskStatusTone } from '../status';
 
 function TaskCard({
   task,
@@ -40,10 +41,11 @@ function TaskCard({
         </span>
         <div className="flex min-w-0 items-center gap-2 text-[9px] font-medium text-fg-muted tabular-nums">
           <StatusLabel
-            kind="task"
-            status={task.status}
-            className="truncate text-[9px] font-semibold tracking-[0.08em] text-fg-muted"
-          />
+            tone={taskStatusTone(task.status)}
+            className="truncate text-[9px] font-semibold tracking-[0.08em]"
+          >
+            {formatTaskStatus(task.status)}
+          </StatusLabel>
           {task.dependsOn.length > 0 && (
             <span
               className="inline-flex shrink-0 items-center gap-1"
@@ -132,7 +134,9 @@ export function StatusBoard({
             <div key={lane.id} className={cn('min-w-0', lane.tasks.length === 0 && 'hidden sm:block')}>
               <div className="mb-2 flex items-center gap-2 px-1">
                 <span className={cn('size-1.5 rounded-full', presentation.dotClassName)} />
-                <StatusLabel className="text-fg-secondary">{lane.shortLabel}</StatusLabel>
+                <span className="text-[10px] font-bold tracking-[0.1em] text-fg-secondary uppercase">
+                  {lane.shortLabel}
+                </span>
                 <span className="ml-auto text-[10px] text-fg-muted tabular-nums">{lane.tasks.length}</span>
               </div>
               <div className="space-y-2 rounded-2xl border border-border bg-surface p-2 sm:min-h-[160px] 2xl:min-h-[230px]">

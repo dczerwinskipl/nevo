@@ -17,8 +17,10 @@
     "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
     "paths": {
-      "@/*": ["./ui/*"]
+      "@/*": ["./ui/*"],
+      "@storybook-test-utils": ["./.storybook/test-utils/index.ts"],
+      "@storybook-test-utils/*": ["./.storybook/test-utils/*"]
     }
   },
-  "include": ["ui"]
+  "include": ["ui", ".storybook/test-utils"]
 }

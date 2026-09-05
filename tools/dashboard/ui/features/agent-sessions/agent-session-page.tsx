@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AssistantRuntimeProvider } from '@assistant-ui/react';
 
 import { AgentSessionHeader } from './agent-session-header';
-import { formatSessionStatus } from '@/shared/ui/status-label';
+import { formatSessionStatus, sessionStatusTone } from './status';
 import { AgentSessionDetailsSheet } from './agent-session-details-sheet';
 import { resolveSessionTaskItems } from './session-tasks';
 import { ProviderUnavailableBanner } from './provider-unavailable-banner';
@@ -219,6 +219,7 @@ export function AgentSessionPage({
         <AgentSessionHeader
           title={headerTitle}
           status={session ? formatSessionStatus(assistant.activity) : undefined}
+          statusTone={session ? sessionStatusTone(assistant.activity) : undefined}
           live={assistant.live}
           connectionStatus={assistant.connectionStatus}
           onBack={onBack}

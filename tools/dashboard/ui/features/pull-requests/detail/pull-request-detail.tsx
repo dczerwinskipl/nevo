@@ -222,8 +222,8 @@ export function PullRequestCard({
                 <Files className="size-3.5" />
                 {pullRequest.stats.changedFiles} plików
               </span>
-              <span className="font-semibold text-status-success">+{pullRequest.stats.additions}</span>
-              <span className="font-semibold text-status-error">−{pullRequest.stats.deletions}</span>
+              <span className="font-semibold text-diff-addition">+{pullRequest.stats.additions}</span>
+              <span className="font-semibold text-diff-deletion">−{pullRequest.stats.deletions}</span>
               {collapseFilesInitially && <span className="text-fg-muted">Duży PR — pliki domyślnie zwinięte</span>}
             </div>
           </div>
@@ -330,8 +330,8 @@ export function PullRequestCard({
                         </span>
                       </div>
                       <div className="flex shrink-0 items-center gap-2.5 text-[10px] font-semibold">
-                        <span className="text-status-success">+{st.additions}</span>
-                        <span className="text-status-error">−{st.deletions}</span>
+                        <span className="text-diff-addition">+{st.additions}</span>
+                        <span className="text-diff-deletion">−{st.deletions}</span>
                       </div>
                     </button>
 

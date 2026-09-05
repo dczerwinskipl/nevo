@@ -67,10 +67,11 @@ test('workflow and session states follow the semantic color contract', () => {
   assert.ok(lanes.includes("done: { dotClassName: 'bg-status-success' }"));
   assert.ok(board.includes('presentation.dotClassName'));
   assert.ok(progress.includes("{ id: 'done', label: 'Gotowe', color: 'bg-status-success' }"));
-  assert.ok(progress.includes("{ id: 'implementation', label: 'Implementacja', color: 'bg-accent' }"));
+  assert.ok(progress.includes("{ id: 'implementation', label: 'Implementacja', color: 'bg-status-active' }"));
   assert.ok(progress.includes('style={{ width: `${(count / total) * 100}%` }}'));
   assert.ok(progress.includes('key={stage.id}'));
-  assert.match(labels, /case 'approved':[\s\S]*return 'text-status-success'/);
+  const specStatus = readSource('features/specifications/status.ts');
+  assert.match(specStatus, /case 'approved':[\s\S]*return 'success'/);
   assert.ok(tools.includes('isFailed && <AlertTriangle className="size-3.5 text-status-warning"'));
   assert.ok(sessions.includes("session.status === 'waitingForUser' && 'bg-status-warning/10'"));
 });
@@ -101,6 +102,6 @@ test('overview avoids duplicate metric cards and board lanes use neutral surface
   assert.ok(board.includes('border border-border bg-surface'));
   assert.ok(board.includes("lane.tasks.length === 0 && 'hidden sm:block'"));
   assert.doesNotMatch(board, /border-dashed|tone\.tint|tone\.line/);
-  assert.match(board, /<StatusLabel\s+kind="task"\s+status=\{task\.status\}\s+className="truncate text-\[9px\]/);
+  assert.match(board, /<StatusLabel\s+tone=\{taskStatusTone\(task\.status\)\}\s+className="truncate text-\[9px\]/);
   assert.doesNotMatch(board, /import \{ Badge \}/);
 });

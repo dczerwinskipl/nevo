@@ -41,6 +41,8 @@
 @theme static inline {
   --color-status-active: var(--color-accent);
   --color-status-neutral: var(--color-fg-muted);
+  --color-diff-addition: var(--color-status-success);
+  --color-diff-deletion: var(--color-status-error);
 }
 
 :root {

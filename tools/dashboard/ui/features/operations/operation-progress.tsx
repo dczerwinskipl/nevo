@@ -10,7 +10,7 @@ export function StepStatusIcon({ status }: { status: OperationStepStatus }) {
     case 'completed':
       return <CheckCircle2 className="size-4 shrink-0 text-status-success" />;
     case 'running':
-      return <LoaderCircle className="size-4 shrink-0 animate-spin text-accent" />;
+      return <LoaderCircle className="size-4 shrink-0 animate-spin text-status-active" />;
     case 'failed':
       return <AlertCircle className="size-4 shrink-0 text-status-error" />;
     case 'pending':
@@ -24,7 +24,7 @@ export function OperationStepRow({ step }: { step: OperationStep }) {
     <li
       className={cn(
         'flex items-start gap-3 rounded-lg px-3 py-2.5 text-xs transition-colors',
-        step.status === 'running' && 'border border-accent/35 bg-accent/10',
+        step.status === 'running' && 'border border-status-active/35 bg-status-active/10',
         step.status === 'failed' && 'border border-status-error/25 bg-status-error/10',
         step.status === 'completed' && 'border border-border bg-surface-raised',
         step.status === 'pending' && 'opacity-60',
@@ -38,7 +38,7 @@ export function OperationStepRow({ step }: { step: OperationStep }) {
           <span
             className={cn(
               'truncate font-medium',
-              step.status === 'running' && 'font-semibold text-accent',
+              step.status === 'running' && 'font-semibold text-status-active',
               step.status === 'failed' && 'font-semibold text-status-error',
               step.status === 'completed' && 'text-fg-secondary',
               step.status === 'pending' && 'text-fg-muted',

@@ -96,13 +96,13 @@ export function FileChange({
         <div className="flex shrink-0 items-center gap-3 font-mono text-xs">
           <div className="flex items-center gap-1.5 font-medium">
             {file.additions > 0 && (
-              <span className="flex items-center text-status-success">
+              <span className="flex items-center text-diff-addition">
                 <Plus className="size-3" />
                 {file.additions}
               </span>
             )}
             {file.deletions > 0 && (
-              <span className="flex items-center text-status-error">
+              <span className="flex items-center text-diff-deletion">
                 <Minus className="size-3" />
                 {file.deletions}
               </span>

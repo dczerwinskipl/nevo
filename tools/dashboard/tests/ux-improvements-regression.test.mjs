@@ -150,7 +150,7 @@ test('Item 5 (Task 14 AC1 & Finding 2): TaskCard uses a full-width title, compac
   assert.ok(statusBoardSource.includes('mt-2.5 block w-full'));
 
   // 3. Exact task status, dependencies, and blockers share one compact metadata header
-  assert.match(statusBoardSource, /<StatusLabel\s+kind="task"\s+status=\{task\.status\}/);
+  assert.match(statusBoardSource, /<StatusLabel\s+tone=\{taskStatusTone\(task\.status\)\}/);
   assert.ok(statusBoardSource.includes('flex min-w-0 items-center gap-2'));
   assert.ok(statusBoardSource.includes("title={`Zależności: ${task.dependsOn.join(', ')}`}"));
   assert.ok(statusBoardSource.includes("title={`Blokowane przez: ${task.blockedBy.join(', ')}`}"));
@@ -192,64 +192,63 @@ test('Item 7 (Task 17): CreateAgentSessionDialog provider group uses semantic fi
   assert.ok(modalSource.includes('aria-pressed={mode === item.id}'));
 });
 
-test('Item 8 (Task 18): Shared status label component and consistent session status labels across all 5 sites', () => {
+test('Item 8: Shared StatusLabel primitive and feature status projections', () => {
   const statusLabelSource = readSource('shared/ui/status-label.tsx');
-  const stageProgressSource = readSource('features/specifications/stage-progress.tsx');
+  const sessionStatusSource = readSource('features/agent-sessions/status.ts');
+  const specStatusSource = readSource('features/specifications/status.ts');
   const statusBoardSource = readSource('features/specifications/detail/status-board.tsx');
   const sessionListSource = readSource('features/agent-sessions/agent-session-list.tsx');
   const agentSessionHeaderSource = readSource('features/agent-sessions/agent-session-header.tsx');
   const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');
 
-  // 1. StatusLabel primitive owns common typography contract
+  // 1. StatusLabel primitive is purely presentational and owns common typography contract
   assert.ok(statusLabelSource.includes('export function StatusLabel'), 'StatusLabel component exported');
   assert.ok(
     statusLabelSource.includes('text-[10px] font-bold tracking-[0.1em] uppercase'),
     'Typography contract owned by StatusLabel',
   );
-  assert.ok(statusLabelSource.includes('formatSessionStatus'), 'Shared formatSessionStatus exported');
+  assert.ok(!statusLabelSource.includes('statusTone('), 'Deprecated statusTone removed from StatusLabel');
+  assert.ok(!statusLabelSource.includes('formatSessionStatus'), 'Domain formatSessionStatus removed from StatusLabel');
 
-  // 2. Site 1: stage-progress stage labels use StatusLabel
+  // 2. Feature modules own status mapping and formatting
   assert.ok(
-    stageProgressSource.includes("import { StatusLabel } from '@/shared/ui/status-label'") ||
-      stageProgressSource.includes("from '@/shared/ui/status-label'"),
-    'stage-progress imports StatusLabel',
+    sessionStatusSource.includes('export function formatSessionStatus'),
+    'formatSessionStatus in agent-sessions/status.ts',
   );
   assert.ok(
-    stageProgressSource.includes('<StatusLabel className="truncate">{stage.label}</StatusLabel>'),
-    'stage-progress renders StatusLabel',
+    sessionStatusSource.includes('export function sessionStatusTone'),
+    'sessionStatusTone in agent-sessions/status.ts',
+  );
+  assert.ok(specStatusSource.includes('export function taskStatusTone'), 'taskStatusTone in specifications/status.ts');
+  assert.ok(
+    specStatusSource.includes('export function formatTaskStatus'),
+    'formatTaskStatus in specifications/status.ts',
   );
 
-  // 3. Status-board lane headers and exact task statuses use the shared label primitive
+  // 3. Status-board uses taskStatusTone with StatusLabel
   assert.ok(statusBoardSource.includes("from '@/shared/ui/status-label'"), 'status-board imports StatusLabel');
-  assert.ok(
-    statusBoardSource.includes('<StatusLabel className="text-fg-secondary">{lane.shortLabel}</StatusLabel>'),
-    'status-board lane header renders StatusLabel',
-  );
   assert.match(
     statusBoardSource,
-    /<StatusLabel\s+kind="task"\s+status=\{task\.status\}/,
-    'task cards render the exact domain status as lightweight metadata',
+    /<StatusLabel\s+tone=\{taskStatusTone\(task\.status\)\}/,
+    'task cards render StatusLabel with tone',
   );
 
-  // 4. Site 4: agent-session-list session status uses StatusLabel
+  // 4. agent-session-list renders StatusLabel with tone and formatted label
   assert.ok(
     sessionListSource.includes("from '@/shared/ui/status-label'"),
     'agent-session-list imports from status-label',
   );
   assert.ok(
-    sessionListSource.includes('<StatusLabel kind="session" status={session.status} />'),
-    'agent-session-list renders StatusLabel',
+    sessionListSource.includes('<StatusLabel tone={sessionStatusTone(session.status)}>'),
+    'agent-session-list renders StatusLabel with tone',
   );
 
-  // 5. Site 5: agent session header status uses StatusLabel
+  // 5. agent-session-header and page use StatusLabel and feature projections
   assert.ok(
     agentSessionHeaderSource.includes("import { StatusLabel } from '@/shared/ui/status-label'"),
     'agent-session-header imports StatusLabel',
   );
-  assert.ok(
-    agentSessionHeaderSource.includes('<StatusLabel>{status}</StatusLabel>'),
-    'agent-session-header renders StatusLabel',
-  );
+  assert.ok(agentSessionHeaderSource.includes('<StatusLabel'), 'agent-session-header renders StatusLabel');
   assert.ok(
     agentSessionPageSource.includes('formatSessionStatus(assistant.activity)'),
     'agent-session-page passes formatSessionStatus to header',

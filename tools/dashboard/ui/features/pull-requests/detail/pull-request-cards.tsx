@@ -51,8 +51,8 @@ export function PullRequestSummaryCard({
               <Files className="size-3.5" />
               {pullRequest.stats.changedFiles} plików
             </span>
-            <span className="font-semibold text-status-success">+{pullRequest.stats.additions}</span>
-            <span className="font-semibold text-status-error">−{pullRequest.stats.deletions}</span>
+            <span className="font-semibold text-diff-addition">+{pullRequest.stats.additions}</span>
+            <span className="font-semibold text-diff-deletion">−{pullRequest.stats.deletions}</span>
           </div>
         </div>
         <ChevronRight className="mt-1 size-4 shrink-0 text-accent sm:mt-0" />

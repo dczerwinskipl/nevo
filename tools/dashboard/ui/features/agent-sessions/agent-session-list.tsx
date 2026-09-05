@@ -16,21 +16,10 @@ import type { SpecificationTask } from '@/features/specifications/types';
 import { cn, formatDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { StatusCard } from '@/components/ui/status-card';
-import { StatusLabel, formatSessionStatus } from '@/shared/ui/status-label';
-import { statusTextTone, type StatusTone } from '@/shared/status-tone';
+import { StatusLabel } from '@/shared/ui/status-label';
+import { statusTextTone } from '@/shared/status-tone';
 import { useAgentProviders, useDeleteAgentSession } from './queries';
-
-function sessionStatusTone(status?: 'idle' | 'running' | 'waitingForUser' | string | null): StatusTone {
-  switch (status) {
-    case 'running':
-      return 'active';
-    case 'waitingForUser':
-      return 'warning';
-    case 'idle':
-    default:
-      return 'neutral';
-  }
-}
+import { formatSessionStatus, sessionStatusTone } from './status';
 
 function sessionTitle(session: AgentSession) {
   if (session.title?.trim()) return session.title.trim();
@@ -142,14 +131,13 @@ export function AgentSessionRow({
           <span
             className={cn(
               'shrink-0 rounded-full px-2 py-0.5',
-              session.status === 'running' && 'bg-accent/10',
+              session.status === 'running' && 'bg-status-active/10',
               session.status === 'waitingForUser' && 'bg-status-warning/10',
               session.status !== 'running' && session.status !== 'waitingForUser' && 'bg-fg-primary/6',
               statusTextTone({ tone: sessionStatusTone(session.status) }),
             )}
           >
-            {/* <StatusLabel kind="session" status={session.status} /> */}
-            <StatusLabel kind="session" status={session.status} tone={sessionStatusTone(session.status)} />
+            <StatusLabel tone={sessionStatusTone(session.status)}>{formatSessionStatus(session.status)}</StatusLabel>
           </span>
         </button>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-fg-muted">

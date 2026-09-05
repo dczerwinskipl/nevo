@@ -1,14 +1,16 @@
 import { ArrowLeft, Info, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StatusLabel } from '@/shared/ui/status-label';
-import { statusSurfaceTone } from '@/shared/status-tone';
+import { statusSurfaceTone, type StatusTone } from '@/shared/status-tone';
 import { cn } from '@/lib/utils';
 
 import type { LiveConnectionStatus } from './types';
+import { sessionStatusTone } from './status';
 
 export interface AgentSessionHeaderProps {
   title: string;
   status?: string;
+  statusTone?: StatusTone;
   live?: boolean;
   connectionStatus?: LiveConnectionStatus;
   onBack: () => void;
@@ -19,6 +21,7 @@ export interface AgentSessionHeaderProps {
 export function AgentSessionHeader({
   title,
   status,
+  statusTone,
   live,
   connectionStatus,
   onBack,
@@ -52,7 +55,7 @@ export function AgentSessionHeader({
             </h1>
             {status && (
               <span className="shrink-0 rounded-full bg-fg-primary/6 px-2 py-0.5 text-fg-muted">
-                <StatusLabel>{status}</StatusLabel>
+                <StatusLabel tone={statusTone ?? sessionStatusTone(status)}>{status}</StatusLabel>
               </span>
             )}
           </div>

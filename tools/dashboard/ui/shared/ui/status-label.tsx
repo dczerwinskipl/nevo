@@ -1,80 +1,17 @@
-import { cn, formatStatus } from '@/lib/utils';
+import type { ReactNode } from 'react';
+import { cn } from '@/lib/utils';
 import { statusTextTone, type StatusTone } from '@/shared/status-tone';
 
-// A generic shared status-label component (used for spec stages, tasks, and
-// Agent Session status alike) — the session status literals are inlined here
-// rather than imported from features/agent-sessions/types, since this file
-// must stay usable independently of any one feature.
-export function formatSessionStatus(status?: 'idle' | 'running' | 'waitingForUser' | string | null): string {
-  switch (status) {
-    case 'running':
-      return 'Aktywna';
-    case 'waitingForUser':
-      return 'Oczekuje';
-    case 'idle':
-    default:
-      return 'Bezczynna';
-  }
-}
-
-/**
- * @deprecated Legacy domain-status to class mapping preserved for backward compatibility.
- * Use typed StatusTone and statusTextTone instead.
- */
-export function statusTone(status?: string | null): string {
-  switch (status) {
-    case 'approved':
-    case 'verified':
-    case 'archived':
-    case 'completed':
-      return 'text-status-success';
-    case 'implemented':
-    case 'waitingForUser':
-    case 'review':
-    case 'warning':
-      return 'text-status-warning';
-    case 'in-implementation':
-    case 'running':
-      return 'text-status-active';
-    case 'failed':
-    case 'error':
-      return 'text-status-error';
-    default:
-      return 'text-fg-muted';
-  }
-}
-
 export interface StatusLabelProps {
-  status?: string;
-  tone?: StatusTone;
-  kind?: 'stage' | 'session' | 'task' | 'raw';
-  children?: React.ReactNode;
+  tone: StatusTone;
+  children: ReactNode;
   className?: string;
 }
 
-export function StatusLabel({ status, tone, kind = 'raw', children, className }: StatusLabelProps) {
-  let content: React.ReactNode = children;
-  if (!content && status !== undefined) {
-    if (kind === 'session') {
-      content = formatSessionStatus(status);
-    } else if (kind === 'stage' || kind === 'task') {
-      content = formatStatus(status);
-    } else {
-      content = status;
-    }
-  }
-
+export function StatusLabel({ tone, children, className }: StatusLabelProps) {
   return (
-    <span
-      className={cn(
-        'text-[10px] font-bold tracking-[0.1em] uppercase',
-        tone !== undefined && statusTextTone({ tone }),
-        className,
-      )}
-    >
-      {content}
+    <span className={cn('text-[10px] font-bold tracking-[0.1em] uppercase', statusTextTone({ tone }), className)}>
+      {children}
     </span>
   );
 }
-
-export { formatStatus };

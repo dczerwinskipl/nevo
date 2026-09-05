@@ -1,11 +1,10 @@
 import type { SpecificationSummary, StageId } from './types';
 import { cn } from '@/lib/utils';
-import { StatusLabel } from '@/shared/ui/status-label';
 
 const visibleStages: Array<{ id: StageId; label: string; color: string }> = [
   { id: 'done', label: 'Gotowe', color: 'bg-status-success' },
   { id: 'review', label: 'Review', color: 'bg-status-warning/60' },
-  { id: 'implementation', label: 'Implementacja', color: 'bg-accent' },
+  { id: 'implementation', label: 'Implementacja', color: 'bg-status-active' },
   { id: 'ready', label: 'Ready', color: 'bg-status-neutral/25' },
   { id: 'design', label: 'Projekt', color: 'bg-status-neutral/25' },
   { id: 'new', label: 'Nowe', color: 'bg-status-neutral/25' },
@@ -55,7 +54,9 @@ export function StageProgress({
           {visibleStages.map((stage) => (
             <div key={stage.id} className="flex min-w-0 items-center gap-2 text-[9px] text-fg-muted">
               <span className={cn('size-1.5 shrink-0 rounded-full', stage.color)} />
-              <StatusLabel className="truncate">{stage.label}</StatusLabel>
+              <span className="truncate text-[10px] font-bold tracking-[0.1em] text-fg-secondary uppercase">
+                {stage.label}
+              </span>
               <span className="ml-auto text-fg-secondary tabular-nums">
                 {specification.metrics.stageCounts[stage.id]}
               </span>
