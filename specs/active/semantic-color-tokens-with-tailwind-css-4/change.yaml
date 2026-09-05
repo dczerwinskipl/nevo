@@ -522,7 +522,7 @@ tasks:
   - id: storybook-and-documentation
     order: 8
     file: tasks/08-storybook-and-documentation.md
-    status: approved
+    status: implemented
     depends_on:
       - shared-ui-primitives
       - status-tone-contract
