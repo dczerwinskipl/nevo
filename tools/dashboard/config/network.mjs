@@ -62,18 +62,40 @@ export function dashboardNetworkConfig({ argv = process.argv.slice(2), env = pro
     'Dashboard port',
   );
 
+  const rawHttpsPort = flags['https-port'] || env.NEVO_DASHBOARD_HTTPS_PORT;
+  const explicitHttpsPort =
+    rawHttpsPort !== undefined && rawHttpsPort !== null && rawHttpsPort !== ''
+      ? parsePort(rawHttpsPort, 'Dashboard HTTPS port')
+      : null;
+
   return {
     host,
     port,
     apiPort: parsePort(flags['api-port'] || env.NEVO_DASHBOARD_API_PORT || DEFAULT_API_PORT, 'Dashboard API port'),
-    // Only consulted when a TLS cert is configured (see server/index.mjs):
-    // the dashboard then serves HTTPS on this port and turns `port` (the
-    // one already bookmarked from before TLS was set up) into a plain-HTTP
-    // redirect to it — the same "legacy HTTP port stays, HTTPS gets a new
-    // one" shape ASP.NET Core's Kestrel uses by default. Defaults to
-    // `port + 1` so most setups need no extra configuration.
-    httpsPort: parsePort(flags['https-port'] || env.NEVO_DASHBOARD_HTTPS_PORT || port + 1, 'Dashboard HTTPS port'),
+    explicitHttpsPort,
+    httpsPort: explicitHttpsPort,
   };
+}
+
+/**
+ * Resolves and validates the HTTPS serving port when TLS is enabled.
+ * Uses an explicitly configured HTTPS port when provided, or derives `port + 1`
+ * as the standard convention. Enforces that the HTTP redirect port and HTTPS
+ * serving port do not conflict.
+ */
+export function resolveHttpsPort({ port, explicitHttpsPort, httpsPort } = {}) {
+  const explicit = explicitHttpsPort ?? httpsPort;
+  const candidate = explicit ?? (port != null ? port + 1 : undefined);
+  if (candidate == null) {
+    throw new Error('Cannot resolve HTTPS port without a port or explicit HTTPS port.');
+  }
+  const resolvedPort = parsePort(candidate, 'Dashboard HTTPS port');
+  if (resolvedPort === port) {
+    throw new Error(
+      `When TLS is active, HTTP redirect port (${port}) and HTTPS serving port (${resolvedPort}) must be different.`,
+    );
+  }
+  return resolvedPort;
 }
 
 export { DEFAULT_API_PORT, DEFAULT_HOST, DEFAULT_UI_PORT };

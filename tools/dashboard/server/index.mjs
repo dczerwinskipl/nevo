@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
 import { buildDashboardApp } from './app.mjs';
-import { dashboardNetworkConfig } from '../config/network.mjs';
+import { dashboardNetworkConfig, resolveHttpsPort } from '../config/network.mjs';
 
 export { buildDashboardApp };
 
@@ -60,7 +60,13 @@ function loadTlsConfig() {
  * (the same "legacy HTTP port, new HTTPS port" shape Kestrel uses by default
  * in ASP.NET Core) is the robust option.
  */
-function startHttpRedirectServer({ httpsUrl, host, redirectPort }) {
+export function startHttpRedirectServer({ httpsUrl, host = '127.0.0.1', redirectPort }) {
+  const targetUrl = new URL(httpsUrl);
+  const targetPort = Number(targetUrl.port || (targetUrl.protocol === 'https:' ? 443 : 80));
+  if (Number(redirectPort) === targetPort) {
+    throw new Error(`HTTP redirect port (${redirectPort}) cannot be identical to HTTPS serving port (${targetPort}).`);
+  }
+
   return new Promise((resolve) => {
     const server = createServer((req, res) => {
       const target = new URL(req.url ?? '/', httpsUrl).href;
@@ -68,7 +74,8 @@ function startHttpRedirectServer({ httpsUrl, host, redirectPort }) {
       res.end();
     });
     server.listen(redirectPort, host, () => {
-      console.log(`NEvo dashboard HTTP redirect: http://${host}:${redirectPort} → ${httpsUrl}`);
+      const actualPort = server.address()?.port ?? redirectPort;
+      console.log(`NEvo dashboard HTTP redirect: http://${host}:${actualPort} → ${httpsUrl}`);
       resolve(server);
     });
     server.on('error', (err) => {
@@ -89,11 +96,12 @@ function startHttpRedirectServer({ httpsUrl, host, redirectPort }) {
 const isDirectRun = process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
 
 if (isDirectRun) {
-  const { host, port, httpsPort } = dashboardNetworkConfig();
+  const { host, port, explicitHttpsPort } = dashboardNetworkConfig();
   const tls = loadTlsConfig();
   const app = await buildDashboardApp({ config: { tls } });
 
   if (tls) {
+    const httpsPort = resolveHttpsPort({ port, explicitHttpsPort });
     const httpsUrl = await listen(app, { port: httpsPort, host });
     console.log(`NEvo dashboard: ${httpsUrl}`);
     console.log(`NEvo dashboard API: ${httpsUrl}/api/dashboard`);
