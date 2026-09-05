@@ -38,7 +38,7 @@ function DeleteSessionDialogScenario() {
 }
 
 const meta: Meta<typeof DeleteSessionDialogScenario> = {
-  title: 'Features/AgentSessions/Details',
+  title: 'Features/Agent Sessions/Delete Session Scenario',
   component: DeleteSessionDialogScenario,
   parameters: {
     layout: 'padded',

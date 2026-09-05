@@ -13,7 +13,7 @@ function BadgeGallery() {
 }
 
 const meta: Meta<typeof BadgeGallery> = {
-  title: 'Components/UI/Badge',
+  title: 'Shared/UI/Badge',
   component: BadgeGallery,
   parameters: {
     layout: 'padded',

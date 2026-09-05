@@ -16,7 +16,7 @@ function CardGallery() {
 }
 
 const meta: Meta<typeof CardGallery> = {
-  title: 'Components/UI/Card',
+  title: 'Shared/UI/Card',
   component: CardGallery,
   parameters: {
     layout: 'padded',

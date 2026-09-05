@@ -22,7 +22,7 @@ import {
 } from './work-v2/__fixtures__/chat-fixtures';
 
 const meta: Meta<typeof AgentSessionChatSurface> = {
-  title: 'Features/AgentSessions/ChatSurface',
+  title: 'Features/Agent Sessions/Chat Surface',
   component: AgentSessionChatSurface,
   parameters: {
     layout: 'fullscreen',

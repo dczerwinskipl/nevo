@@ -44,7 +44,7 @@ function PullRequestGallery() {
 }
 
 const meta: Meta<typeof PullRequestSummaryCard> = {
-  title: 'Features/PullRequests/Detail/PullRequestCards',
+  title: 'Features/Pull Requests/Summary Card',
   component: PullRequestSummaryCard,
   parameters: {
     layout: 'padded',

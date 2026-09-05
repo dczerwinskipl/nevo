@@ -22,7 +22,7 @@ function OperationProgressGallery() {
 }
 
 const meta: Meta<typeof OperationStepRow> = {
-  title: 'Features/Operations/OperationProgress',
+  title: 'Features/Operations/Step Row',
   component: OperationStepRow,
   parameters: {
     layout: 'padded',

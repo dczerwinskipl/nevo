@@ -28,7 +28,7 @@ function SheetDemo() {
 }
 
 const meta: Meta<typeof SheetDemo> = {
-  title: 'Components/UI/Sheet',
+  title: 'Shared/UI/Sheet',
   component: SheetDemo,
   parameters: {
     layout: 'padded',

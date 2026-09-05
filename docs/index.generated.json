@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-05T09:07:21.383Z",
+  "generated": "2026-09-05T09:20:37.928Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -387,6 +387,39 @@
       ]
     },
     {
+      "file": "docs/development/dashboard-frontend-architecture.md",
+      "id": "development.dashboard-frontend-architecture",
+      "type": "development",
+      "title": "Dashboard frontend architecture",
+      "status": "current",
+      "read_when": [
+        "developing, restructuring, or creating frontend components in tools/dashboard/ui",
+        "frontend architecture",
+        "dashboard architecture",
+        "feature boundaries and domain areas",
+        "shared ui",
+        "component ownership",
+        "storybook story colocation",
+        "folder structure and import boundaries"
+      ],
+      "summary": "Comprehensive frontend architecture for the NEvo dashboard: layer responsibilities (app -> routes -> features -> shared), component taxonomy, domain areas, public API and import boundaries, resolution of components/ui vs shared/ui, state management and data fetching, Storybook and testing colocation, component placement decision matrix, and migration strategy.",
+      "tags": [
+        "frontend",
+        "architecture",
+        "react",
+        "dashboard",
+        "features",
+        "shared-ui",
+        "storybook"
+      ],
+      "related": [
+        "development.react-component-guidelines",
+        "development.storybook",
+        "development.ui-ux-guidelines",
+        "development.nevo-ai-ux-guidelines"
+      ]
+    },
+    {
       "file": "docs/development/event-sourcing.md",
       "id": "development.event-sourcing",
       "type": "development",
@@ -540,6 +573,7 @@
       ],
       "summary": "NEvo-specific UX rules that apply the general UI/UX guidelines to AI sessions, chat, Work, semantic state, tasks, specifications, changes, and inspection surfaces.",
       "related": [
+        "development.dashboard-frontend-architecture",
         "development.ui-ux-guidelines",
         "development.nevo-interaction-model",
         "development.react-component-guidelines",
@@ -684,6 +718,7 @@
       ],
       "summary": "Practical architecture guidelines for React UI code: component composition, module and file boundaries, \"one primary concept per module\", feature-local vertical ownership, token -> primitive -> wrapper -> feature layering, state/effect/context ownership, view-model projections, testing, and anti-mechanical refactoring principles.",
       "related": [
+        "development.dashboard-frontend-architecture",
         "development.coding-conventions",
         "development.architecture-overview",
         "development.node-tooling-guidelines",
@@ -705,6 +740,7 @@
       ],
       "summary": "Guide to Storybook for the NEvo dashboard: running locally, static builds, story hierarchy and naming conventions, fixture and scenario reuse, state management patterns, Vitest test projects, and the mandatory agent visual verification workflow.",
       "related": [
+        "development.dashboard-frontend-architecture",
         "development.react-component-guidelines",
         "development.ui-ux-guidelines",
         "development.nevo-ai-ux-guidelines"
@@ -777,6 +813,7 @@
       ],
       "summary": "Portable UI/UX rules for information hierarchy, visual weight, typography, semantic color, progressive disclosure, discovery, interaction hierarchy, responsive behavior, dense content, visual patterns, and composed-screen verification.",
       "related": [
+        "development.dashboard-frontend-architecture",
         "development.react-component-guidelines",
         "development.nevo-ai-ux-guidelines",
         "development.nevo-interaction-model"

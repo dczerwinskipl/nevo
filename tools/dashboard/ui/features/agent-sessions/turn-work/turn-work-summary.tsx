@@ -26,7 +26,8 @@ function toToolCall(item: WorkItem): AgentToolCall {
 /**
  * The primary "what's happening right now" line — isolated into its own memoized
  * component so it can update on every streamed tool event without forcing the
- * lower-frequency collapsed summary to re-render (react-component-guidelines.md §9.1).
+ * lower-frequency collapsed summary to re-render (react-component-guidelines.md §2.2
+ * "When a helper component may stay in the parent file").
  * Uses Task 04's normalized activity label, never the raw provider tool name.
  */
 const WorkCurrentActivity = memo(function WorkCurrentActivity({ item }: { item: WorkItem | null }) {
@@ -45,7 +46,7 @@ const WorkCurrentActivity = memo(function WorkCurrentActivity({ item }: { item: 
  * card chrome (border/background/rounded container) — reads as metadata about the
  * turn, not as another chat bubble. Memoized on primitive props only, so it does not
  * re-render merely because the current activity line above it changed
- * (react-component-guidelines.md §9.1).
+ * (react-component-guidelines.md §2.2 "When a helper component may stay in the parent file").
  */
 const WorkCollapsedSummary = memo(function WorkCollapsedSummary({
   count,
@@ -112,7 +113,7 @@ const TurnErrorRow = memo(function TurnErrorRow({ turnError }: { turnError: { co
  * card per tool call). Consumes Task 01's `TurnWork` projection directly — grouping
  * (current/completed/failed, and the independent `severity` signal) is already
  * decided by the projection; this component only renders it
- * (react-component-guidelines.md §6, §9.2). Renders as a flat transcript row, never a
+ * (react-component-guidelines.md §5.1 "Visual components" and §7 "View models and data transformation"). Renders as a flat transcript row, never a
  * nested card — the caller is responsible for not wrapping this in an assistant
  * message bubble when there is no accompanying prose.
  */
@@ -120,7 +121,7 @@ export function TurnWorkSummary({ work }: TurnWorkSummaryProps) {
   const [expanded, setExpanded] = useState(false);
   // Stable across renders so WorkCollapsedSummary's memo() actually skips a re-render
   // when only work.items' object identity changed but count/severity/expanded did
-  // not (react-component-guidelines.md §9.1) — an inline arrow here would defeat that
+  // not (react-component-guidelines.md §8.1 "State placement") — an inline arrow here would defeat that
   // memo on every streamed token.
   const toggleExpanded = useCallback(() => setExpanded((prev) => !prev), []);
 

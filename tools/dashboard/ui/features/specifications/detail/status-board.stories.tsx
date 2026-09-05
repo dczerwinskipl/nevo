@@ -108,7 +108,7 @@ function StatusBoardStoryWrapper() {
 }
 
 const meta: Meta<typeof StatusBoard> = {
-  title: 'Features/Specifications/Detail/StatusBoard',
+  title: 'Features/Specifications/Status Board',
   component: StatusBoard,
   parameters: {
     layout: 'padded',

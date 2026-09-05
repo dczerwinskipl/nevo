@@ -44,7 +44,7 @@ function StatusCardGallery() {
 }
 
 const meta: Meta<typeof StatusCardGallery> = {
-  title: 'Components/UI/StatusCard',
+  title: 'Shared/UI/StatusCard',
   component: StatusCardGallery,
   parameters: {
     layout: 'padded',

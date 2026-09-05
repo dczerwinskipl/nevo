@@ -15,7 +15,7 @@ function ProgressGallery() {
 }
 
 const meta: Meta<typeof ProgressGallery> = {
-  title: 'Components/UI/Progress',
+  title: 'Shared/UI/Progress',
   component: ProgressGallery,
   parameters: {
     layout: 'padded',

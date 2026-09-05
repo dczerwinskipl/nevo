@@ -6,7 +6,7 @@ import type { NormalizedMessage } from '../types';
  * still running. Only the selected `currentActivity` is excluded from this list (since it
  * has its own dedicated current-activity line), so expanding never duplicates the current item,
  * while other/prior running actions remain inspectable. Pure and independently testable per
- * react-component-guidelines.md §6/§16.
+ * react-component-guidelines.md §7 "View models and data transformation" and §10 "Testing strategy".
  */
 export function visibleWorkItemsWhileRunning(work: TurnWork, expanded: boolean): WorkItem[] {
   if (!expanded) return [];
@@ -23,7 +23,7 @@ export function visibleWorkItemsWhileRunning(work: TurnWork, expanded: boolean):
  * status is retained and it becomes inspectable through expansion, but it does not
  * render automatically alongside the collapsed row (owner-decisions.md, Task 03
  * correction — collapsed Work must never emit historical action cards). Pure and
- * independently testable per react-component-guidelines.md §6/§16.
+ * independently testable per react-component-guidelines.md §7 "View models and data transformation" and §10 "Testing strategy".
  */
 export function visibleWorkItemsWhenTerminal(work: TurnWork, expanded: boolean): WorkItem[] {
   if (!expanded) return [];

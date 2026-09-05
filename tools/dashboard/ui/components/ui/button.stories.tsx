@@ -45,7 +45,7 @@ function ButtonGallery() {
 }
 
 const meta: Meta<typeof ButtonGallery> = {
-  title: 'Components/UI/Button',
+  title: 'Shared/UI/Button',
   component: ButtonGallery,
   parameters: {
     layout: 'padded',

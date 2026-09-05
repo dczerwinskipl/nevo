@@ -17,6 +17,7 @@ summary: >
   token -> primitive -> wrapper -> feature layering, state/effect/context ownership,
   view-model projections, testing, and anti-mechanical refactoring principles.
 related:
+  - development.dashboard-frontend-architecture
   - development.coding-conventions
   - development.architecture-overview
   - development.node-tooling-guidelines
@@ -39,6 +40,8 @@ Therefore, these guidelines are:
 - designed to maintain clear boundaries without altering the overarching .NET-centric architecture of NEvo.
 
 The goal is not to maximize the number of components or files. The goal is to make UI code easy to understand, compose, test, change, and move between repositories without carrying accidental coupling.
+
+For project-specific directory structure, layer responsibilities (`app -> routes -> features -> shared`), component taxonomy, public API boundaries, and resolution of `components/ui` vs `shared/ui` in the NEvo dashboard, see [dashboard-frontend-architecture.md](dashboard-frontend-architecture.md).
 
 ---
 

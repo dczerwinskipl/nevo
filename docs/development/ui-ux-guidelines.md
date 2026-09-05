@@ -15,6 +15,7 @@ summary: >
   progressive disclosure, discovery, interaction hierarchy, responsive behavior, dense content,
   visual patterns, and composed-screen verification.
 related:
+  - development.dashboard-frontend-architecture
   - development.react-component-guidelines
   - development.nevo-ai-ux-guidelines
   - development.nevo-interaction-model

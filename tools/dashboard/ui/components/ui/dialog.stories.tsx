@@ -30,7 +30,7 @@ function DialogDemo() {
 }
 
 const meta: Meta<typeof DialogDemo> = {
-  title: 'Components/UI/Dialog',
+  title: 'Shared/UI/Dialog',
   component: DialogDemo,
   parameters: {
     layout: 'padded',

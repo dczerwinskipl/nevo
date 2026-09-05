@@ -9,7 +9,8 @@ const COLLAPSE_CHAR_THRESHOLD = 480;
 
 /**
  * Whether a message is long enough to default to a collapsed preview (FR-2). Pure and
- * independently testable per react-component-guidelines.md §6/§16 — the component only
+ * independently testable per react-component-guidelines.md §7 "View models and data transformation"
+ * and §10 "Testing strategy" — the component only
  * consumes the boolean, it never re-derives the thresholds inline in JSX.
  */
 export function shouldCollapseMessage(text: string): boolean {

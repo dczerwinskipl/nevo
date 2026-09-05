@@ -17,7 +17,7 @@ export interface TranscriptMessageProps {
 }
 
 /**
- * Module-level per react-component-guidelines.md §20.1 — previously a nested function
+ * Module-level per react-component-guidelines.md §2.1 "Default: one primary concept per module" — previously a nested function
  * inside `AgentSessionPage`, now extracted so it isn't recreated on every render. No avatars
  * (FR-2): role is distinguished by alignment (`justify-end`/`items-end` for the user)
  * plus background color, not color alone (NFR-2). Consumes Task 01's `TurnWork`

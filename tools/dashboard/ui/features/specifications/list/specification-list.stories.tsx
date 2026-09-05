@@ -137,7 +137,7 @@ function SpecificationListStoryWrapper() {
 }
 
 const meta: Meta<typeof SpecificationList> = {
-  title: 'Features/Specifications/List/SpecificationList',
+  title: 'Features/Specifications/Specification List',
   component: SpecificationList,
   parameters: {
     layout: 'padded',

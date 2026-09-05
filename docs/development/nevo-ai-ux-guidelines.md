@@ -13,6 +13,7 @@ summary: >
   NEvo-specific UX rules that apply the general UI/UX guidelines to AI sessions, chat, Work,
   semantic state, tasks, specifications, changes, and inspection surfaces.
 related:
+  - development.dashboard-frontend-architecture
   - development.ui-ux-guidelines
   - development.nevo-interaction-model
   - development.react-component-guidelines
