@@ -23,16 +23,16 @@ allowed_paths:
   - docs/index.generated.json
   - docs/index.generated.md
   - docs/routing.generated.json
-  - tools/dashboard/ui/foundations/**
-  - tools/dashboard/ui/features/**/*.stories.tsx
-  - tools/dashboard/ui/features/agent-sessions/agent-session-details.tsx
-  - tools/dashboard/ui/features/agent-sessions/transcript/**
-  - tools/dashboard/ui/features/agent-sessions/turn-work/**
-  - tools/dashboard/ui/shared/ui/*.stories.tsx
-  - tools/dashboard/.storybook/**
+  - tools/dashboard/ui/**
+  - tools/dashboard/tests/**
+  - tools/dashboard/components.json
+  - tools/dashboard/config/network.mjs
+  - tools/dashboard/server/index.mjs
   - tools/tests/docs-routing.test.mjs
+consequential_paths:
+  - specs/active/semantic-color-tokens-with-tailwind-css-4/**
+  - specs/index.generated.json
 forbidden_paths:
-  - tools/dashboard/ui/index.css
   - src/**
 depends_on:
   - shared-ui-primitives
@@ -161,4 +161,13 @@ Updates `docs/development/storybook.md`, `docs/development/ui-ux-guidelines.md`,
 - **Co-landed Feature Scope**: The dashboard network configuration feature (HTTPS port override
   and HTTP redirect port binding) was restored on this branch per owner approval at commit
   `c4aef0abf814b331797f653848c38fe612e5e2fd`, remaining independent of Task 08's design-system scope.
+- **Specification Scope Amendment (`/nevo-ai:task-review`, 2026-09-05)**: `allowed_paths` was widened
+  to `tools/dashboard/ui/**`, `tools/dashboard/tests/**`, `tools/dashboard/components.json`,
+  `tools/dashboard/config/network.mjs`, and `tools/dashboard/server/index.mjs`, and
+  `tools/dashboard/ui/index.css` was removed from `forbidden_paths`, to formally reflect the D16/D17/D18
+  owner-approved scope expansion (architecture cleanup, shared/ui consolidation, legacy CSS bridge,
+  co-landed network config restore) that was already implemented and documented above but never
+  mirrored into this task's declared scope. `specs/active/semantic-color-tokens-with-tailwind-css-4/**`
+  and `specs/index.generated.json` were declared `consequential_paths` (mechanical spec-bookkeeping
+  writes, not scope violations).
 
