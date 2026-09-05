@@ -439,13 +439,56 @@ tasks:
   - id: specs-lanes-and-remaining-ui
     order: 7
     file: tasks/07-specs-lanes-and-remaining-ui.md
-    status: in-implementation
+    status: verified
     depends_on:
       - shared-ui-primitives
       - status-tone-contract
       - agent-sessions-and-work
     implementation:
       baseline_revision: 322ec3d53830f102984e89617ea0f581c2f823f3
+      review_revision: 3c6f888a75c9c45cf25763b3690e4bcee98c993b
+      changed_paths:
+        - tools/dashboard/tests/theme-visual-cleanup.test.mjs
+        - tools/dashboard/tests/ux-improvements-regression.test.mjs
+        - tools/dashboard/ui/features/operations/operation-modal.tsx
+        - tools/dashboard/ui/features/operations/operation-progress.tsx
+        - tools/dashboard/ui/features/pull-requests/changes/file-change.tsx
+        - tools/dashboard/ui/features/pull-requests/changes/status.ts
+        - tools/dashboard/ui/features/pull-requests/detail/pull-request-cards.tsx
+        - tools/dashboard/ui/features/pull-requests/detail/pull-request-detail.tsx
+        - tools/dashboard/ui/features/pull-requests/panel/pull-requests-panel.tsx
+        - tools/dashboard/ui/features/specifications/actions/spec-actions.tsx
+        - tools/dashboard/ui/features/specifications/create/create-specification-dialog.tsx
+        - tools/dashboard/ui/features/specifications/create/create-specification-error-banner.tsx
+        - tools/dashboard/ui/features/specifications/create/specification-ai-planning-section.tsx
+        - tools/dashboard/ui/features/specifications/create/specification-metadata-fields.tsx
+        - tools/dashboard/ui/features/specifications/detail/directory-section-panel.tsx
+        - tools/dashboard/ui/features/specifications/detail/document-section-panel.tsx
+        - tools/dashboard/ui/features/specifications/detail/documentation-panel.tsx
+        - tools/dashboard/ui/features/specifications/detail/lane-presentation.ts
+        - tools/dashboard/ui/features/specifications/detail/overview-panel.tsx
+        - tools/dashboard/ui/features/specifications/detail/specification-detail.tsx
+        - tools/dashboard/ui/features/specifications/detail/status-board.tsx
+        - tools/dashboard/ui/features/specifications/list/specification-list.tsx
+        - tools/dashboard/ui/features/specifications/navigation/specification-live-controls.tsx
+        - tools/dashboard/ui/features/specifications/navigation/specification-sidebar.tsx
+        - tools/dashboard/ui/features/specifications/specification-console-layout.tsx
+        - tools/dashboard/ui/features/specifications/specifications.stories.tsx
+        - tools/dashboard/ui/features/specifications/stage-progress.tsx
+        - tools/dashboard/ui/features/specifications/tasks/task-dialog.tsx
+        - tools/dashboard/ui/shared/ui/status-label.tsx
+      worktree_patch_fingerprint: 94102770af2325c5daf8c21be057be0a4936ab610d8dfa503759e042f61e6892
+    self_check:
+      fingerprint: 036424ed11c96f42087d6004afe382dbcea62c8e2d865553f6677e0dcfb069fd
+      revision: 3c6f888a75c9c45cf25763b3690e4bcee98c993b
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run test:storybook
+          exit_code: 0
+      status: passed
 
   - id: storybook-and-documentation
     order: 8
