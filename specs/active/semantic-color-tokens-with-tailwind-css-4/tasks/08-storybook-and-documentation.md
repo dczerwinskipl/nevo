@@ -18,6 +18,7 @@ context:
     - tools/dashboard/ui/components/ui/button.tsx
     - tools/dashboard/ui/shared/status-tone.ts
 allowed_paths:
+  - docs/ai/task-routing.md
   - docs/development/**
   - docs/index.generated.json
   - docs/index.generated.md
@@ -25,10 +26,12 @@ allowed_paths:
   - tools/dashboard/ui/foundations/**
   - tools/dashboard/ui/components/ui/*.stories.tsx
   - tools/dashboard/ui/features/**/*.stories.tsx
+  - tools/dashboard/ui/features/agent-sessions/agent-session-details.tsx
   - tools/dashboard/ui/features/agent-sessions/transcript/**
   - tools/dashboard/ui/features/agent-sessions/turn-work/**
   - tools/dashboard/ui/shared/ui/*.stories.tsx
   - tools/dashboard/.storybook/**
+  - tools/tests/docs-routing.test.mjs
 forbidden_paths:
   - tools/dashboard/ui/index.css
   - src/**
@@ -36,7 +39,7 @@ depends_on:
   - shared-ui-primitives
   - status-tone-contract
 semantic_references:
-  decisions: [D1, D2, D3, D10, D13, D14, D15]
+  decisions: [D1, D2, D3, D10, D13, D14, D15, D16]
   constraints: [C5]
 ---
 
@@ -129,3 +132,24 @@ Updates `docs/development/storybook.md`, `docs/development/ui-ux-guidelines.md`,
 ## Out of scope
 
 - Feature-level component migration.
+
+## Implementation Provenance and Scope Corrections
+
+- **Owner Approval**: Authorized scope expansion, frontend architecture corrections, and
+  foundation stories migration for Task 08.
+- **Initial Implementation**: Partial architecture definition and story colocation landed at
+  commit `90914f4756543b59dfa3e9c5ec37ce4ea6cfad1f`.
+- **Scope Corrections and Foundation Migration**: Final architectural stack corrections
+  (React 19.2.8, Vite 8.2.1, TypeScript 7.0.2, Tailwind 4.3.3, Vitest 4.1.11, Storybook 10.6.0,
+  Playwright headless browser testing reality without automated axe-core), docs discovery routing
+  (RT-31), Storybook primitive `meta.component` ownership, real `AgentSessionDetails` story rendering
+  (with `data-testid="delete-session-btn"` in `agent-session-details.tsx`), and complete foundation
+  stories migration (`colors.stories.tsx`, `typography.stories.tsx`, `smoke.stories.tsx`) landed at
+  commit `79133077fa78a1989b496ec515389d474192d8d6`.
+- **Deferred Migration Debt**: Mass migration of `components/ui` to `shared/ui`, updating shadcn
+  `components.json` alias configuration, and cross-feature deep-import refactoring are formally
+  deferred to dedicated future changes.
+- **Co-landed Feature Scope**: The dashboard network configuration feature (HTTPS port override
+  and HTTP redirect port binding) was restored on this branch per owner approval at commit
+  `c4aef0abf814b331797f653848c38fe612e5e2fd`, remaining independent of Task 08's design-system scope.
+

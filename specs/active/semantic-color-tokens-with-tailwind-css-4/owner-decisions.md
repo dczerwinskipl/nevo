@@ -481,3 +481,36 @@ agent. They are recorded here verbatim in substance so later commands (`spec-ref
 - **Affected artifacts:** `docs/development/dashboard-frontend-architecture.md`,
   `docs/development/storybook.md`, `docs/development/react-component-guidelines.md`,
   `areas/storybook-and-documentation.md`, `tasks/08-storybook-and-documentation.md`.
+
+## D16: Owner approval and scope corrections for Task 08 implementation
+
+- **Question:** How should the architectural documentation corrections, Storybook metadata
+  improvements, foundation stories migration, and co-landed network configuration feature
+  be recorded and tracked within the active specification?
+- **Options considered:**
+  - A — Track the network configuration restore as part of Task 08 work.
+  - B — Keep Task 08 strictly focused on documentation discovery, frontend architecture
+    accuracy, Storybook metadata and primitive ownership, and foundation story migration.
+    Document the partial implementation at commit `90914f4756543b59dfa3e9c5ec37ce4ea6cfad1f`, current
+    corrections and foundation tokens at commit `79133077fa78a1989b496ec515389d474192d8d6`, explicit
+    deferred migration debt (shadcn `components.json` update, `components/ui` to `shared/ui` migration,
+    and cross-feature deep import elimination), and record the restored network configuration as a co-landed
+    feature commit (`c4aef0abf814b331797f653848c38fe612e5e2fd`) on the branch without conflating it with
+    design-system scope.
+- **Decision:** Option B.
+- **Rationale:** The network configuration feature is an independent server/config capability
+  restored to PR #43 per owner approval, not a design-system or documentation task. Task 08
+  cleanly owns the frontend architecture document, story metadata and component ownership,
+  and foundation stories migration. Recording exact implementation provenance and explicit
+  boundaries prevents scope confusion across commits and future PR reviews.
+- **Consequences:** `owner-decisions.md` and `tasks/08-storybook-and-documentation.md` document
+  the approval and implementation provenance (`90914f4756543b59dfa3e9c5ec37ce4ea6cfad1f` and
+  `79133077fa78a1989b496ec515389d474192d8d6`). Task 08 allowed paths are updated to include
+  `docs/ai/task-routing.md`, `tools/dashboard/ui/features/agent-sessions/agent-session-details.tsx`,
+  and `tools/tests/docs-routing.test.mjs`. Architectural doc accurately reflects the verified
+  working tree stack versions and testing truth. Cross-feature deep imports and `components/ui`
+  consolidation are formally logged as deferred migration debt.
+- **Date:** 2026-09-05
+- **Affected artifacts:** `owner-decisions.md`, `tasks/08-storybook-and-documentation.md`,
+  `areas/storybook-and-documentation.md`.
+

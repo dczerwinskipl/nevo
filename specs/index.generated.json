@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-05T09:21:38.416Z",
+  "generated": "2026-09-05T09:59:13.075Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -1107,7 +1107,34 @@
           "depends_on": [
             "shared-ui-primitives",
             "status-tone-contract"
-          ]
+          ],
+          "self_check": {
+            "fingerprint": "7186df884684e8dadb95f720b1dda3060ffebeb4cb1276921b01c0171b570897",
+            "revision": "79133077fa78a1989b496ec515389d474192d8d6",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build-storybook",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs generate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "cleanup-and-token-removal",

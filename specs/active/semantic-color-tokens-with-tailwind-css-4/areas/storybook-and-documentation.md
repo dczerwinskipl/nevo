@@ -62,5 +62,7 @@ the UX/color guideline documentation to the final semantic contract.
 
 ## Out of scope
 
-- Any other Storybook story (typography, chat, etc.).
-- Feature-level migration — Areas 2-5.
+- Chat, session, and domain feature story authoring outside the foundations and primitives covered by Tasks 04-07.
+- Feature-level component migration — Areas 2-5.
+- Mass consolidation of `components/ui` to `shared/ui` (deferred to dedicated future change).
+- Feature boundary deep-import elimination across domain features (deferred to dedicated future change).
