@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T22:36:12.218Z",
+  "generated": "2026-09-05T08:01:50.177Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -942,13 +942,62 @@
           "id": "agent-sessions-and-work",
           "order": 6,
           "file": "tasks/06-agent-sessions-and-work.md",
-          "status": "in-implementation",
+          "status": "verified",
           "depends_on": [
             "shared-ui-primitives",
             "status-tone-contract"
           ],
           "implementation": {
-            "baseline_revision": "b2bfd58b382fcac11891c68426665ac65a224df3"
+            "baseline_revision": "b2bfd58b382fcac11891c68426665ac65a224df3",
+            "review_revision": "75b88f5b224543bc4a66e2668989ca4bc5e3b40d",
+            "changed_paths": [
+              "tools/dashboard/tests/semantic-work-chat-v2-corrections.test.mjs",
+              "tools/dashboard/tests/theme-visual-cleanup.test.mjs",
+              "tools/dashboard/tests/transcript-message-layout.test.mjs",
+              "tools/dashboard/tests/turn-work-summary.test.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-details.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-header.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-list.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-page.tsx",
+              "tools/dashboard/ui/features/agent-sessions/agent-session-route.tsx",
+              "tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx",
+              "tools/dashboard/ui/features/agent-sessions/create-agent-session-dialog.tsx",
+              "tools/dashboard/ui/features/agent-sessions/interactions/interaction-prompt.tsx",
+              "tools/dashboard/ui/features/agent-sessions/provider-unavailable-banner.tsx",
+              "tools/dashboard/ui/features/agent-sessions/transcript/agent-session-transcript.tsx",
+              "tools/dashboard/ui/features/agent-sessions/transcript/reasoning-view.tsx",
+              "tools/dashboard/ui/features/agent-sessions/transcript/transcript-message.tsx",
+              "tools/dashboard/ui/features/agent-sessions/turn-work/tool-call-view.tsx",
+              "tools/dashboard/ui/features/agent-sessions/turn-work/turn-work-summary.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/agent-session-transcript-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/final-answer-view-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/turn-work-panel-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-details-sheet-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-indicator-v2.tsx",
+              "tools/dashboard/ui/features/agent-sessions/work-v2/work-timeline-v2.tsx"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "2fefb985b537e8b518768a99ee90eb20fe94e52e7efe1242a76867fec00c54b2",
+            "revision": "75b88f5b224543bc4a66e2668989ca4bc5e3b40d",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run test:storybook",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
           }
         },
         {
