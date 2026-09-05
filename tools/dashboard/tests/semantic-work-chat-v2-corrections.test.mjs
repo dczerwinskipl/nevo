@@ -861,7 +861,7 @@ test('16.9 Compression of 40+ consecutive items into compact grouped timeline ro
   assert.equal(l2Rows[6].status, 'failed');
 });
 
-test('15.5 Repeated Commentary compression: immediately adjacent narration compresses with repeatCount; intervening tools preserve strict chronology', () => {
+test('15.5 Repeated Commentary preservation: adjacent narration is not grouped; every commentary item produces a distinct Level 2 row preserving exact chronology', () => {
   const repeatedNarration = 'I will wait for the test run to complete.';
   const consecutiveCommentary = [
     { id: 'c-1', type: 'commentary', text: repeatedNarration, status: 'completed' },
@@ -869,12 +869,15 @@ test('15.5 Repeated Commentary compression: immediately adjacent narration compr
     { id: 'c-3', type: 'commentary', text: repeatedNarration, status: 'completed' },
   ];
 
-  // Immediately adjacent identical commentary compresses to 1 row with repeatCount: 3
-  const compressedRows = buildTimelineRowsV2(consecutiveCommentary);
-  assert.equal(compressedRows.length, 1);
-  assert.equal(compressedRows[0].row, 'commentary');
-  assert.equal(compressedRows[0].item.text, repeatedNarration);
-  assert.equal(compressedRows[0].repeatCount, 3);
+  // Consecutive commentary preserves all individual rows in chronological order without grouping
+  const rows = buildTimelineRowsV2(consecutiveCommentary);
+  assert.equal(rows.length, 3, 'commentary must not be grouped in Level 2');
+  assert.equal(rows[0].row, 'commentary');
+  assert.equal(rows[0].id, 'c-1');
+  assert.equal(rows[1].row, 'commentary');
+  assert.equal(rows[1].id, 'c-2');
+  assert.equal(rows[2].row, 'commentary');
+  assert.equal(rows[2].id, 'c-3');
 
   // Interleaved commentary and tools: intervening tools break grouping to preserve exact chronology
   const interleavedItems = [

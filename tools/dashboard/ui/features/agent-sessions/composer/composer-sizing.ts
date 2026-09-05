@@ -100,6 +100,7 @@ export interface ResolveComposerPlaceholderOptions {
   loadError?: unknown;
   isProviderAvailable?: boolean;
   isRunning?: boolean;
+  hasActiveTurn?: boolean;
   disabled?: boolean;
   placeholder?: string;
 }
@@ -117,6 +118,7 @@ export function resolveComposerPlaceholder({
   loadError,
   isProviderAvailable = true,
   isRunning = false,
+  hasActiveTurn = false,
   disabled = false,
   placeholder,
 }: ResolveComposerPlaceholderOptions): string {
@@ -127,7 +129,7 @@ export function resolveComposerPlaceholder({
       : 'Serwer dashboardu jest niedostępny...';
   }
   if (!isProviderAvailable) return 'Provider CLI niedostępny (brak w PATH)';
-  if (isRunning) return 'Turn trwa…';
+  if (isRunning || hasActiveTurn) return 'Turn trwa…';
   if (disabled) return 'Ta sesja jest tylko do odczytu';
   return 'Napisz wiadomość…';
 }

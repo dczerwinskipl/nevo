@@ -303,7 +303,7 @@ test('V2 AC4: Work indicator distinguishes requires_attention from ordinary wait
 test('AC10: Send / stop / cancel behavior is preserved and toggles correctly when running', () => {
   const source = readComposerSource();
 
-  assert.match(source, /isRunning \? \(/);
+  assert.match(source, /(?:showCancelAction|isRunning) \? \(/);
   assert.match(source, /onClick=\{onCancel\}/);
   assert.match(source, /Przerwij/);
   assert.match(source, /Wyślij/);

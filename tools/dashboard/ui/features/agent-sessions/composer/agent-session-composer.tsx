@@ -30,6 +30,7 @@ export interface AgentSessionComposerProps {
   onSend: (text: string) => void | Promise<void>;
   onCancel?: () => void;
   isRunning?: boolean;
+  hasActiveTurn?: boolean;
   canCancel?: boolean;
   isProviderAvailable?: boolean;
   disabled?: boolean;
@@ -44,6 +45,7 @@ export function AgentSessionComposer({
   onSend,
   onCancel,
   isRunning = false,
+  hasActiveTurn,
   canCancel = true,
   isProviderAvailable = true,
   disabled = false,
@@ -67,12 +69,14 @@ export function AgentSessionComposer({
     adjustHeight();
   }, [draft, isFocused, adjustHeight]);
 
-  const isDisabled = disabled || !isProviderAvailable || Boolean(loadError) || isRunning;
+  const showCancelAction = hasActiveTurn !== undefined ? hasActiveTurn : isRunning;
+  const isDisabled = disabled || !isProviderAvailable || Boolean(loadError) || isRunning || Boolean(hasActiveTurn);
 
   const resolvedPlaceholder = resolveComposerPlaceholder({
     loadError,
     isProviderAvailable,
     isRunning,
+    hasActiveTurn,
     disabled,
     placeholder,
   });
@@ -93,7 +97,7 @@ export function AgentSessionComposer({
 
   const handleSend = () => {
     const trimmed = draft.trim();
-    if (!trimmed || isRunning || isDisabled) return;
+    if (!trimmed || showCancelAction || isDisabled) return;
     setDraft('');
     onSend(trimmed);
   };
@@ -154,7 +158,7 @@ export function AgentSessionComposer({
 
           {/* Action button: Send or Stop */}
           <div>
-            {isRunning ? (
+            {showCancelAction ? (
               <Button
                 type="button"
                 size="sm"

@@ -84,25 +84,11 @@ export function buildTimelineRowsV2(historicalWork: WorkItemV2[]): TimelineRowV2
 
   for (const item of historicalWork) {
     if (item.type === 'commentary') {
-      const normalized = normalizeCommentaryText(item.text);
-      const prevRow = rows[rows.length - 1];
-      if (
-        normalized &&
-        prevRow &&
-        prevRow.row === 'commentary' &&
-        normalizeCommentaryText(prevRow.item.text) === normalized
-      ) {
-        // Genuinely consecutive identical commentary: presentation-only compaction
-        prevRow.repeatCount = (prevRow.repeatCount || 1) + 1;
-      } else {
-        const commentaryRow: CommentaryPresentationRowV2 = {
-          row: 'commentary',
-          id: item.id,
-          item,
-          repeatCount: 1,
-        };
-        rows.push(commentaryRow);
-      }
+      rows.push({
+        row: 'commentary',
+        id: item.id,
+        item,
+      });
       continue;
     }
 

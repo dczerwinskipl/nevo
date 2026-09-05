@@ -311,6 +311,21 @@ export function useAgentSessionRuntimeV2({
   const exposedLive = exposedConnectionStatus === 'connected';
   const exposedIsLoading = isSnapshotLoaded ? false : Boolean(provider && providerSessionId && !exposedLoadError);
   const exposedCanStartTurn = Boolean(isSnapshotLoaded && !exposedLoadError && exposedActivity === 'idle');
+  const latest = latestTurn(exposedTurns);
+  const hasActiveTurn = Boolean(
+    (latest && latest.status.status !== 'terminal') ||
+    exposedActiveTurnId ||
+    exposedActivity === 'running' ||
+    exposedActivity === 'waitingForUser' ||
+    exposedReadiness?.status === 'busy' ||
+    exposedReadiness?.status === 'requiresAttention',
+  );
+  const exposedCanCancelTurn = Boolean(
+    exposedCapabilities?.cancelTurn &&
+    hasActiveTurn &&
+    latest?.status.status !== 'cancelling' &&
+    exposedReadiness?.status !== 'unavailable',
+  );
 
   return {
     turns: exposedTurns,
@@ -326,6 +341,8 @@ export function useAgentSessionRuntimeV2({
     live: exposedLive,
     connectionStatus: exposedConnectionStatus,
     canStartTurn: exposedCanStartTurn,
+    canCancelTurn: exposedCanCancelTurn,
+    hasActiveTurn,
     isSnapshotLoaded,
     loadError: exposedLoadError,
     /** Optimistic text for the brief gap between POST and the first turn.updated snapshot — never used once a real turn carries its own `userMessage`. */

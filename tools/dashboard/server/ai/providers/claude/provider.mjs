@@ -18,7 +18,7 @@ const HOOK_SCRIPT_PATH = join(__dirname, 'hook.mjs');
 export const CLAUDE_CAPABILITIES = Object.freeze({
   interactivePermissions: false,
   interactiveQuestions: true,
-  interactiveConfirmations: true,
+  interactiveConfirmations: false,
   resumeSession: true,
   cancelTurn: true,
   toolCalls: true,

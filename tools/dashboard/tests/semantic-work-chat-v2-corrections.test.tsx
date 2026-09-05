@@ -6,9 +6,12 @@ import { WorkIndicatorV2 } from '../ui/features/agent-sessions/work-v2/work-indi
 import { WorkTimelineV2 } from '../ui/features/agent-sessions/work-v2/work-timeline-v2';
 import { ConfirmationPrompt } from '../ui/features/agent-sessions/interactions/interaction-prompt';
 import { describeCurrentActivityV2 } from '../ui/features/agent-sessions/work-v2/activity-model-v2';
+import { AgentSessionComposer } from '../ui/features/agent-sessions/composer/agent-session-composer';
+import { WorkDetailsSheetV2 } from '../ui/features/agent-sessions/work-v2/work-details-sheet-v2';
 import type {
   AgentConfirmationInteraction,
   CanonicalTurnV2,
+  CommentaryWorkItemV2,
   ToolInvocationWorkItemV2,
 } from '../ui/features/agent-sessions/types';
 
@@ -255,5 +258,232 @@ describe('V2 Chat Surface Component Tests (RTL renders)', () => {
     });
     expect(displayEmpty?.label).toBe('Thinking…');
     expect(displayEmpty?.detail).toBeUndefined();
+  });
+
+  describe('Finding 1: Send vs Stop control contract lifecycle', () => {
+    it('Case 1: idle + ready renders Send button, enabled when draft has text', () => {
+      const onSend = vi.fn();
+      render(
+        <AgentSessionComposer
+          currentMode="edit"
+          onModeChange={vi.fn()}
+          onSend={onSend}
+          hasActiveTurn={false}
+          isRunning={false}
+          disabled={false}
+        />,
+      );
+
+      const sendBtn = screen.getByRole('button', { name: /wyślij/i });
+      expect(sendBtn).toBeInTheDocument();
+      expect(sendBtn).toBeDisabled();
+
+      const textarea = screen.getByPlaceholderText(/napisz wiadomość/i);
+      fireEvent.change(textarea, { target: { value: 'Nowa wiadomość' } });
+      expect(sendBtn).not.toBeDisabled();
+
+      fireEvent.click(sendBtn);
+      expect(onSend).toHaveBeenCalledWith('Nowa wiadomość');
+    });
+
+    it('Case 2: active running + cancellable renders enabled Stop button', () => {
+      const onCancel = vi.fn();
+      render(
+        <AgentSessionComposer
+          currentMode="edit"
+          onModeChange={vi.fn()}
+          onSend={vi.fn()}
+          onCancel={onCancel}
+          hasActiveTurn={true}
+          isRunning={true}
+          canCancel={true}
+        />,
+      );
+
+      const stopBtn = screen.getByRole('button', { name: /przerwij/i });
+      expect(stopBtn).toBeInTheDocument();
+      expect(stopBtn).not.toBeDisabled();
+      expect(screen.queryByRole('button', { name: /wyślij/i })).toBeNull();
+
+      fireEvent.click(stopBtn);
+      expect(onCancel).toHaveBeenCalledTimes(1);
+    });
+
+    it('Case 3: active running + not cancellable renders disabled Stop button, NOT Send', () => {
+      render(
+        <AgentSessionComposer
+          currentMode="edit"
+          onModeChange={vi.fn()}
+          onSend={vi.fn()}
+          hasActiveTurn={true}
+          isRunning={true}
+          canCancel={false}
+        />,
+      );
+
+      const stopBtn = screen.getByRole('button', { name: /przerwij/i });
+      expect(stopBtn).toBeInTheDocument();
+      expect(stopBtn).toBeDisabled();
+      expect(screen.queryByRole('button', { name: /wyślij/i })).toBeNull();
+    });
+
+    it('Case 4: requires-attention + cancellable renders enabled Stop button', () => {
+      const onCancel = vi.fn();
+      render(
+        <AgentSessionComposer
+          currentMode="edit"
+          onModeChange={vi.fn()}
+          onSend={vi.fn()}
+          onCancel={onCancel}
+          hasActiveTurn={true}
+          isRunning={false}
+          canCancel={true}
+          placeholder="Odpowiedz na pytanie powyżej…"
+        />,
+      );
+
+      const stopBtn = screen.getByRole('button', { name: /przerwij/i });
+      expect(stopBtn).toBeInTheDocument();
+      expect(stopBtn).not.toBeDisabled();
+      expect(screen.queryByRole('button', { name: /wyślij/i })).toBeNull();
+
+      fireEvent.click(stopBtn);
+      expect(onCancel).toHaveBeenCalledTimes(1);
+    });
+
+    it('Case 5: requires-attention + not cancellable renders disabled Stop button, NOT fake Send', () => {
+      render(
+        <AgentSessionComposer
+          currentMode="edit"
+          onModeChange={vi.fn()}
+          onSend={vi.fn()}
+          hasActiveTurn={true}
+          isRunning={false}
+          canCancel={false}
+          placeholder="Odpowiedz na pytanie powyżej…"
+        />,
+      );
+
+      const stopBtn = screen.getByRole('button', { name: /przerwij/i });
+      expect(stopBtn).toBeInTheDocument();
+      expect(stopBtn).toBeDisabled();
+      expect(screen.queryByRole('button', { name: /wyślij/i })).toBeNull();
+    });
+
+    it('Case 6: cancelling renders disabled Stop button to prevent duplicate cancel', () => {
+      render(
+        <AgentSessionComposer
+          currentMode="edit"
+          onModeChange={vi.fn()}
+          onSend={vi.fn()}
+          hasActiveTurn={true}
+          isRunning={false}
+          canCancel={false}
+        />,
+      );
+
+      const stopBtn = screen.getByRole('button', { name: /przerwij/i });
+      expect(stopBtn).toBeInTheDocument();
+      expect(stopBtn).toBeDisabled();
+      expect(screen.queryByRole('button', { name: /wyślij/i })).toBeNull();
+    });
+
+    it('Case 7: terminal turn completed/failed renders Send button', () => {
+      render(
+        <AgentSessionComposer
+          currentMode="edit"
+          onModeChange={vi.fn()}
+          onSend={vi.fn()}
+          hasActiveTurn={false}
+          isRunning={false}
+          disabled={false}
+        />,
+      );
+
+      expect(screen.getByRole('button', { name: /wyślij/i })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /przerwij/i })).toBeNull();
+    });
+  });
+
+  describe('Finding 3: Level 2 Commentary ungrouped preservation', () => {
+    it('renders 3 distinct rows for 3 adjacent commentary items in WorkTimelineV2', () => {
+      const commentaryItems: CommentaryWorkItemV2[] = [
+        {
+          id: 'c-1',
+          seq: 1,
+          type: 'commentary',
+          text: 'First progress update',
+          status: 'completed',
+          createdAt: '2026-09-01T10:00:00Z',
+          updatedAt: '2026-09-01T10:00:01Z',
+        },
+        {
+          id: 'c-2',
+          seq: 2,
+          type: 'commentary',
+          text: 'Second progress update',
+          status: 'completed',
+          createdAt: '2026-09-01T10:00:02Z',
+          updatedAt: '2026-09-01T10:00:03Z',
+        },
+        {
+          id: 'c-3',
+          seq: 3,
+          type: 'commentary',
+          text: 'Third progress update',
+          status: 'completed',
+          createdAt: '2026-09-01T10:00:04Z',
+          updatedAt: '2026-09-01T10:00:05Z',
+        },
+      ];
+
+      render(<WorkTimelineV2 historicalWork={commentaryItems} onSelectItem={vi.fn()} />);
+
+      expect(screen.getByText('First progress update')).toBeInTheDocument();
+      expect(screen.getByText('Second progress update')).toBeInTheDocument();
+      expect(screen.getByText('Third progress update')).toBeInTheDocument();
+      expect(screen.queryByText(/×/)).toBeNull();
+    });
+  });
+
+  describe('Finding 4: Work Details low-emphasis provider metadata', () => {
+    it('renders provider name in overview header subtitle and ToolDetail dl', () => {
+      const toolItem: ToolInvocationWorkItemV2 = {
+        id: 'tool-prov-1',
+        seq: 1,
+        type: 'tool',
+        toolName: 'read_file',
+        kind: 'read',
+        title: 'Read specification',
+        status: 'completed',
+        createdAt: '2026-09-01T10:00:00Z',
+        updatedAt: '2026-09-01T10:00:01Z',
+      };
+
+      const turn: CanonicalTurnV2 = {
+        id: 'turn-prov-1',
+        provider: 'antigravity',
+        work: [toolItem],
+        historicalWork: [toolItem],
+        currentActivity: null,
+        activityCount: 1,
+        finalAnswer: null,
+        status: { status: 'terminal', outcome: 'completed' },
+      };
+
+      // 1. Overview sheet state: header subtitle includes provider
+      const { rerender } = render(
+        <WorkDetailsSheetV2 turn={turn} open={true} onOpenChange={vi.fn()} selectedItemId={null} />,
+      );
+
+      expect(screen.getByText('Work Details')).toBeInTheDocument();
+      expect(screen.getByText(/1 actions in this turn · antigravity/)).toBeInTheDocument();
+
+      // 2. Item selected state: ToolDetail renders provider in definition list
+      rerender(<WorkDetailsSheetV2 turn={turn} open={true} onOpenChange={vi.fn()} selectedItemId="tool-prov-1" />);
+
+      expect(screen.getByText('Dostawca')).toBeInTheDocument();
+      expect(screen.getByText('antigravity')).toBeInTheDocument();
+    });
   });
 });

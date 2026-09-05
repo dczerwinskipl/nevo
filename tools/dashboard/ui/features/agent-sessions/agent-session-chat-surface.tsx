@@ -25,6 +25,7 @@ export interface AgentSessionChatSurfaceProps {
   // Composer data & state
   currentMode?: AgentExecutionMode;
   isRunning?: boolean;
+  hasActiveTurn?: boolean;
   canCancel?: boolean;
   isProviderAvailable?: boolean;
   disabled?: boolean;
@@ -64,6 +65,7 @@ export const AgentSessionChatSurface = forwardRef<AgentSessionChatSurfaceHandle,
       canRetryInitial = false,
       currentMode = 'edit',
       isRunning = false,
+      hasActiveTurn,
       canCancel = false,
       isProviderAvailable = true,
       disabled = false,
@@ -149,6 +151,7 @@ export const AgentSessionChatSurface = forwardRef<AgentSessionChatSurfaceHandle,
               onSend={handleSend}
               onCancel={onCancel}
               isRunning={isRunning}
+              hasActiveTurn={hasActiveTurn}
               canCancel={canCancel}
               isProviderAvailable={isProviderAvailable}
               disabled={disabled}

@@ -120,6 +120,7 @@ test('ClaudeAgentProvider declares capabilities', () => {
   assert.equal(provider.descriptor.id, 'claude');
   assert.equal(provider.descriptor.capabilities.interactiveQuestions, true);
   assert.equal(provider.descriptor.capabilities.interactivePermissions, false);
+  assert.equal(provider.descriptor.capabilities.interactiveConfirmations, false);
   assert.equal(provider.descriptor.capabilities.resumeSession, true);
 });
 

@@ -213,6 +213,7 @@ export function AgentSessionPage({
     activeTurnId: assistant.activeTurnId,
     canStartTurn: assistant.canStartTurn,
     canCancelTurn: assistant.canCancelTurn,
+    hasActiveTurn: assistant.hasActiveTurn,
     readiness: assistant.readiness,
     loadError: assistant.loadError,
   };
@@ -305,6 +306,7 @@ export function AgentSessionPage({
             onSend={(text) => handleComposerSubmit(text)}
             onCancel={() => void handleCancelTurn()}
             isRunning={activeRuntime.isRunning}
+            hasActiveTurn={activeRuntime.hasActiveTurn}
             canCancel={activeRuntime.canCancelTurn}
             isProviderAvailable={isProviderAvailable}
             disabled={!activeRuntime.canStartTurn || !isProviderAvailable}
@@ -359,6 +361,7 @@ export function AgentSessionPage({
                   onSend={(text) => handleComposerSubmit(text)}
                   onCancel={() => void handleCancelTurn()}
                   isRunning={activeRuntime.isRunning}
+                  hasActiveTurn={activeRuntime.hasActiveTurn}
                   canCancel={activeRuntime.canCancelTurn}
                   isProviderAvailable={isProviderAvailable}
                   disabled={!activeRuntime.canStartTurn || !isProviderAvailable}

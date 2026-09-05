@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-05T16:55:32.865Z",
+  "generated": "2026-09-05T17:15:43.976Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -292,7 +292,7 @@
           ],
           "implementation": {
             "baseline_revision": "b84c80b9f279243f806b4bfc056db5f717cdb3bb",
-            "review_revision": "62b1cd625221cedf58e45409e9baa2e16bffafbb",
+            "review_revision": "c519a1025db895337a74914f9540d4214a8004f3",
             "changed_paths": [
               "tools/dashboard/tests/agent-session-header.test.mjs",
               "tools/dashboard/tests/agent-session-runtime-state.test.mjs",
@@ -357,11 +357,11 @@
               "tools/dashboard/ui/features/agent-sessions/work-v2/work-indicator-v2.tsx",
               "tools/dashboard/ui/features/agent-sessions/work-v2/work-timeline-v2.tsx"
             ],
-            "worktree_patch_fingerprint": "9247cadb5d1c5e808025581f99fc48228414e45d188e5164f1527c7df19bcfd3"
+            "worktree_patch_fingerprint": "8448ea9d8004afe6c33e4791495d3ddf421662dea4fb64ec489e1e356743e0f4"
           },
           "self_check": {
             "fingerprint": "5ccb913dfaad067966427b03f6e778e15ee155c602aebc12e7bd80d349e8e8e7",
-            "revision": "62b1cd625221cedf58e45409e9baa2e16bffafbb",
+            "revision": "c519a1025db895337a74914f9540d4214a8004f3",
             "commands": [
               {
                 "command": "node --experimental-strip-types --test tools/dashboard/tests/turn-work-summary.test.mjs tools/dashboard/tests/transcript-projection.test.mjs tools/dashboard/tests/turn-work-correlation.test.mjs tools/dashboard/tests/composer-interaction.test.mjs tools/dashboard/tests/transcript-message-layout.test.mjs tools/dashboard/tests/agent-session-runtime-state.test.mjs tools/dashboard/tests/responsive-accessibility-regression.test.mjs tools/dashboard/tests/semantic-work-chat-v2-corrections.test.mjs",

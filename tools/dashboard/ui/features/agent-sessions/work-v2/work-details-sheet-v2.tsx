@@ -53,7 +53,7 @@ function resolveToolSubject(item: ToolInvocationWorkItemV2): string | null {
 }
 
 /** Full technical inspection of one ToolInvocation — every field the canonical model exposes. */
-function ToolDetail({ item }: { item: ToolInvocationWorkItemV2 }) {
+function ToolDetail({ item, provider }: { item: ToolInvocationWorkItemV2; provider?: string }) {
   const Icon = TOOL_KIND_ICONS_V2[item.kind];
   const started = formatAbsolute(item.startedAt);
   const completed = formatAbsolute(item.completedAt);
@@ -69,6 +69,12 @@ function ToolDetail({ item }: { item: ToolInvocationWorkItemV2 }) {
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
         <dt className="text-fg-muted">Narzędzie</dt>
         <dd className="font-mono text-fg-secondary">{item.toolName}</dd>
+        {provider && (
+          <>
+            <dt className="text-fg-muted">Dostawca</dt>
+            <dd className="font-mono text-fg-secondary">{provider}</dd>
+          </>
+        )}
         <dt className="text-fg-muted">Rodzaj</dt>
         <dd className="text-fg-secondary">{item.kind}</dd>
         <dt className="text-fg-muted">Status</dt>
@@ -376,7 +382,7 @@ export function WorkDetailsSheetV2({
                       : selectedItem.type === 'commentary'
                         ? 'Narration inspection'
                         : selectedItem.interaction.kind
-                  : `${turn?.activityCount || 0} actions in this turn`}
+                  : `${turn?.activityCount || 0} actions in this turn${turn?.provider ? ` · ${turn.provider}` : ''}`}
               </p>
             </div>
           </div>
@@ -392,7 +398,7 @@ export function WorkDetailsSheetV2({
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4 sm:px-6 sm:py-5">
           {!turn ? null : selectedItem?.type === 'tool' ? (
-            <ToolDetail item={selectedItem} />
+            <ToolDetail item={selectedItem} provider={turn.provider} />
           ) : selectedItem?.type === 'commentary' || selectedItem?.type === 'reasoning' ? (
             <TextDetail item={selectedItem} />
           ) : (
