@@ -193,10 +193,11 @@ tools/dashboard/ui/features/
 
 Rather than having individual features deeply import and orchestrate sibling features, multi-feature screen composition is consolidated in `ui/screens/`:
 
-- **`specification-console-layout.tsx`:** Coordinates the specification sidebar, live connectivity controls, navigation mode (active/archive), search filtering, and embeds the specification creation dialog.
-- **`screens/specification-detail/`:** Screen folder housing `specification-detail-screen.tsx`, `specification-overview.tsx`, and workflow action hooks (`use-spec-workflow-actions.ts`, `spec-workflow-actions.ts`). Orchestrates specification details, tabs, task inspection with injected `AgentSessionList`, PR panel invalidation, and operation progress modals.
+- **`screens/specification-console/`:** Screen folder housing console layout and modal composition:
+  - `specification-console-layout.tsx`: Coordinates the specification sidebar, live connectivity controls, navigation mode (active/archive), search filtering, and embeds the specification creation dialog.
+  - `create-specification/`: Encapsulates `create-specification-dialog.tsx`, metadata inputs, and AI planning sections for new spec creation.
+- **`screens/specification-detail/`:** Screen folder housing `specification-detail-screen.tsx` (route data resolution, loading/error states, and active/archive fallback redirect), `specification-detail-content.tsx` (typed multi-feature composition with guaranteed non-null `SpecificationSummary`), `specification-overview.tsx`, and workflow action hooks (`use-spec-workflow-actions.ts`, `spec-workflow-actions.ts`). Orchestrates specification details, tabs, task inspection with injected `AgentSessionList`, PR panel invalidation, and operation progress modals.
 - **`screens/agent-session/`:** Screen folder housing `agent-session-screen.tsx`. Resolves owning specification and session instance, manages in-spec session switching with history preservation, and injects `TaskDialog` into `AgentSessionPage`.
-- **`screens/create-specification/`:** Screen folder housing `create-specification-dialog.tsx`, metadata inputs, and AI planning sections.
 
 Single-feature pages (e.g. `ActiveSpecificationsPage`, `ArchiveSpecificationsPage`) are routed directly without artificial screen wrappers.
 
@@ -380,19 +381,21 @@ tools/dashboard/
 │   ├── screens/                         # Multi-feature page composition layer
 │   │   ├── agent-session/
 │   │   │   └── agent-session-screen.tsx
-│   │   ├── create-specification/
-│   │   │   ├── create-specification-dialog.tsx
-│   │   │   ├── create-specification-error-banner.tsx
-│   │   │   ├── create-specification-helpers.ts
-│   │   │   ├── specification-ai-planning-section.tsx
-│   │   │   ├── specification-metadata-fields.tsx
-│   │   │   └── use-create-specification-form.ts
-│   │   ├── specification-detail/
-│   │   │   ├── spec-workflow-actions.ts
-│   │   │   ├── specification-detail-screen.tsx
-│   │   │   ├── specification-overview.tsx
-│   │   │   └── use-spec-workflow-actions.ts
-│   │   └── specification-console-layout.tsx
+│   │   ├── specification-console/
+│   │   │   ├── create-specification/
+│   │   │   │   ├── create-specification-dialog.tsx
+│   │   │   │   ├── create-specification-error-banner.tsx
+│   │   │   │   ├── create-specification-helpers.ts
+│   │   │   │   ├── specification-ai-planning-section.tsx
+│   │   │   │   ├── specification-metadata-fields.tsx
+│   │   │   │   └── use-create-specification-form.ts
+│   │   │   └── specification-console-layout.tsx
+│   │   └── specification-detail/
+│   │       ├── spec-workflow-actions.ts
+│   │       ├── specification-detail-content.tsx
+│   │       ├── specification-detail-screen.tsx
+│   │       ├── specification-overview.tsx
+│   │       └── use-spec-workflow-actions.ts
 │   ├── features/                        # Single-domain vertical slices (zero sibling imports)
 │   │   ├── agent-sessions/              # AI sessions, chat surface, Work V2 timeline
 │   │   ├── specifications/              # Spec status board, tasks, docs, list pages

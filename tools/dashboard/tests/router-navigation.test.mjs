@@ -157,7 +157,7 @@ test('8. Free/ad-hoc session (specId: null) has no dashboard route', () => {
 });
 
 test('9. No global session fetch: SpecificationConsoleLayout and SpecificationSidebar do not load global sessions', () => {
-  const appLayoutSource = readSource('screens/specification-console-layout.tsx');
+  const appLayoutSource = readSource('screens/specification-console/specification-console-layout.tsx');
   const sidebarSource = readSource('features/specifications/navigation/specification-sidebar.tsx');
 
   assert.ok(
@@ -236,14 +236,14 @@ test('13. Fallback routing: Archived spec accessed via /specs/active/... or acti
   );
 });
 
-test('14. Archived spec sessions: specification-detail-screen enables useAgentSessions for specs with specId', () => {
-  const specificationScreenSource = readSource('screens/specification-detail/specification-detail-screen.tsx');
+test('14. Archived spec sessions: specification-detail-content enables useAgentSessions for specs with specId', () => {
+  const specificationContentSource = readSource('screens/specification-detail/specification-detail-content.tsx');
   const taskDialogSource = readSource('features/specifications/tasks/task-dialog.tsx');
 
   assert.match(
-    specificationScreenSource,
-    /useAgentSessions\({\s*specId:\s*effectiveSpec\?\.specId \|\| undefined,\s*enabled:\s*Boolean\(effectiveSpec\?\.specId\),?\s*}\)/,
-    'SpecificationDetailScreen must not restrict useAgentSessions to active specifications',
+    specificationContentSource,
+    /useAgentSessions\({\s*specId:\s*specification\.specId \|\| undefined,\s*enabled:\s*Boolean\(specification\.specId\),?\s*}\)/,
+    'SpecificationDetailContent must not restrict useAgentSessions to active specifications',
   );
   assert.ok(
     taskDialogSource.includes('sessionsContent?: React.ReactNode'),

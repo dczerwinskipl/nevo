@@ -8,6 +8,7 @@ import {
   buildUserMessage,
   buildCompletedConversationTurn,
   buildReasoning,
+  buildCommentary,
   buildCommandTool,
   buildFileReadTool,
   buildFileEditTool,
@@ -459,6 +460,79 @@ export const ActiveTool: Story = {
  */
 export const ActiveToolMobile: Story = {
   ...ActiveTool,
+  parameters: {
+    viewport: {
+      defaultViewport: 'mobile1',
+    },
+  },
+};
+
+const manyActivities: WorkItemV2[] = [
+  buildCommentary({ text: 'Starting multi-step batch operations across 25 tools…' }),
+  buildFileReadTool({ subject: 'file-1.ts', description: 'Read configuration' }),
+  buildCommandTool({ subject: 'step-1', description: 'Run step 1' }),
+  buildSearchTool({ subject: 'query-1', description: 'Search tokens' }),
+  buildFileEditTool({ subject: 'file-2.ts', description: 'Edit tokens' }),
+  buildCommandTool({ subject: 'step-2', description: 'Run step 2' }),
+  buildFileWriteTool({ subject: 'file-3.ts', description: 'Write generated file' }),
+  buildSearchTool({ subject: 'query-2', description: 'Search icons' }),
+  buildFileReadTool({ subject: 'file-4.ts', description: 'Read manifest' }),
+  ...buildGroupedCommandsScenario(10),
+  buildFileEditTool({ subject: 'file-5.ts', description: 'Update styles' }),
+  ...buildGroupedCommandsScenario(5),
+];
+
+/**
+ * Story 6: "Many tools"
+ * A scenario with 25 tools demonstrating automatic Level 2 grouping and older history capping.
+ */
+export const ManyTools: StoryObj<typeof AgentSessionChatSurface> = {
+  args: {
+    turns: [
+      buildCompletedConversationTurn({
+        userMessage: buildUserMessage({
+          text: 'Execute large refactoring pipeline with 25 operations.',
+        }),
+        work: manyActivities,
+        historicalWork: manyActivities,
+        activityCount: manyActivities.length,
+        finalAnswer: buildFinalAnswer({
+          text: 'Refactoring pipeline completed successfully across 25 operations.',
+        }),
+      }),
+    ],
+    isLoading: false,
+    hasSessionDetails: true,
+    loadError: null,
+    isRunning: false,
+    canCancel: false,
+    isProviderAvailable: true,
+    disabled: false,
+    currentMode: 'agent',
+  },
+  play: async ({ canvasElement }) => {
+    // 1. Verify Level 1 shows 25 actions and Completed
+    expect(canvasElement.textContent).toContain('Work · 25 actions');
+    expect(canvasElement.textContent).toContain('Completed');
+
+    // 2. Expand Level 2 Work details
+    const workHeaderButton = canvasElement.querySelector('button[aria-expanded]');
+    expect(workHeaderButton).not.toBeNull();
+    if (workHeaderButton && workHeaderButton.getAttribute('aria-expanded') === 'false') {
+      await userEvent.click(workHeaderButton);
+    }
+
+    // 3. Verify (+N hidden) capping affordance is rendered
+    expect(canvasElement.textContent).toContain('hidden)');
+    expect(canvasElement.textContent).toContain('Details');
+  },
+};
+
+/**
+ * Story 6 (Mobile viewport): "Many tools" on narrow screen.
+ */
+export const ManyToolsMobile: StoryObj<typeof AgentSessionChatSurface> = {
+  ...ManyTools,
   parameters: {
     viewport: {
       defaultViewport: 'mobile1',

@@ -65,7 +65,7 @@ test('1. Sibling feature isolation: features/** has zero imports from other feat
           const resolvedPath = join(fileDir, specifier);
           const relToFeatures = relative(featuresDir, resolvedPath);
           if (!relToFeatures.startsWith('..')) {
-            const targetFeature = relToFeatures.split(/[/\\]/)[0];
+            const targetFeature = relToFeatures.split(/[\/\\]/)[0];
             if (targetFeature && targetFeature !== featureName && featureDirs.includes(targetFeature)) {
               violations.push({
                 file: relative(uiDir, file),
@@ -159,9 +159,63 @@ test('3. Screen layer decoupling: screens/** never imports from routes', () => {
   assert.deepEqual(violations, [], `Screens layer boundary violations found:\n${JSON.stringify(violations, null, 2)}`);
 });
 
-test('4. Deprecated paths and compatibility aliases are completely eliminated', () => {
+test('4. Route layer boundaries: routes/** delegates cleanly without importing app internals', () => {
+  const routesDir = join(uiDir, 'routes');
+  const routeFiles = listFiles(routesDir);
+  const violations = [];
+
+  for (const file of routeFiles) {
+    const source = readFileSync(file, 'utf8');
+    const specifiers = extractImportSpecifiers(source);
+
+    for (const specifier of specifiers) {
+      // Routes must not import application bootstrap internals
+      if (specifier.startsWith('@/app') || specifier.includes('/app/')) {
+        violations.push({
+          file: relative(uiDir, file),
+          specifier,
+          reason: 'route file must not import application bootstrap internals (@/app)',
+        });
+      }
+
+      // Routes must not reach outside the frontend into server or config infrastructure
+      if (specifier.includes('server/') || specifier.includes('config/')) {
+        violations.push({
+          file: relative(uiDir, file),
+          specifier,
+          reason: 'route file must not import server or infrastructure modules',
+        });
+      }
+
+      // Feature imports in routes: only top-level single-feature page views are permitted
+      if (specifier.startsWith('@/features/')) {
+        const isPermittedPage = specifier.endsWith('-page') || specifier.includes('/list/');
+        if (!isPermittedPage) {
+          violations.push({
+            file: relative(uiDir, file),
+            specifier,
+            reason: 'route file may only import top-level feature pages, not deep feature internals',
+          });
+        }
+      }
+    }
+  }
+
+  assert.deepEqual(violations, [], `Route boundary violations found:\n${JSON.stringify(violations, null, 2)}`);
+});
+
+test('5. Deprecated paths and compatibility aliases are completely eliminated', () => {
   const allUiFiles = listFiles(uiDir);
   const violations = [];
+
+  const legacyAliases = [
+    'ActiveSpecificationsRoute',
+    'ArchiveSpecificationsRoute',
+    'SpecificationRoute',
+    'AgentSessionRoute',
+    'ActiveSpecificationsScreen',
+    'ArchiveSpecificationsScreen',
+  ];
 
   for (const file of allUiFiles) {
     const source = readFileSync(file, 'utf8');
@@ -191,10 +245,30 @@ test('4. Deprecated paths and compatibility aliases are completely eliminated', 
       }
     }
 
-    if (source.includes('ActiveSpecificationsRoute') || source.includes('ArchiveSpecificationsRoute')) {
+    // Check removed compatibility alias identifiers in code (excluding comments)
+    for (const alias of legacyAliases) {
+      const aliasRegex = new RegExp(`\\b${alias}\\b`);
+      // Exclude simple comment references if line starts with // or *
+      const lines = source.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.startsWith('//') || line.startsWith('*') || line.startsWith('/*')) continue;
+        if (aliasRegex.test(line)) {
+          violations.push({
+            file: relative(uiDir, file),
+            line: i + 1,
+            alias,
+            reason: `Legacy route/screen alias '${alias}' must not be used in code.`,
+          });
+        }
+      }
+    }
+
+    // Check fake SpecificationSummary placeholder
+    if (/\{\}\s+as\s+SpecificationSummary/.test(source)) {
       violations.push({
         file: relative(uiDir, file),
-        reason: 'Legacy route aliases ActiveSpecificationsRoute / ArchiveSpecificationsRoute must not be used.',
+        reason: 'Zero occurrences of "{} as SpecificationSummary" allowed. Use separate loaded content component.',
       });
     }
   }
@@ -202,10 +276,39 @@ test('4. Deprecated paths and compatibility aliases are completely eliminated', 
   assert.deepEqual(violations, [], `Deprecated import/alias violations found:\n${JSON.stringify(violations, null, 2)}`);
 });
 
-test('5. Single-file directory flattening: pull-requests panel is flattened', () => {
+test('6. Single-file directory flattening: pull-requests panel is flattened', () => {
   const oldPanelDir = join(uiDir, 'features', 'pull-requests', 'panel');
   assert.equal(existsSync(oldPanelDir), false, 'features/pull-requests/panel directory must be removed');
 
   const newPanelFile = join(uiDir, 'features', 'pull-requests', 'pull-requests-panel.tsx');
   assert.equal(existsSync(newPanelFile), true, 'features/pull-requests/pull-requests-panel.tsx must exist');
+});
+
+test('7. Screen locality: specification-console directory houses console layout and create dialog', () => {
+  const oldTopLevelLayout = join(uiDir, 'screens', 'specification-console-layout.tsx');
+  assert.equal(
+    existsSync(oldTopLevelLayout),
+    false,
+    'screens/specification-console-layout.tsx must be moved under screens/specification-console/',
+  );
+
+  const consoleLayout = join(uiDir, 'screens', 'specification-console', 'specification-console-layout.tsx');
+  assert.equal(
+    existsSync(consoleLayout),
+    true,
+    'screens/specification-console/specification-console-layout.tsx must exist',
+  );
+
+  const createDialog = join(
+    uiDir,
+    'screens',
+    'specification-console',
+    'create-specification',
+    'create-specification-dialog.tsx',
+  );
+  assert.equal(
+    existsSync(createDialog),
+    true,
+    'create-specification dialog must live under screens/specification-console/create-specification',
+  );
 });

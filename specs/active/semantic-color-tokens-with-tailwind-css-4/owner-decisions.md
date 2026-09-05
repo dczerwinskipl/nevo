@@ -551,4 +551,30 @@ agent. They are recorded here verbatim in substance so later commands (`spec-ref
   `docs/development/dashboard-frontend-architecture.md`, `tools/dashboard/components.json`,
   `tools/dashboard/ui/index.css`, `tools/dashboard/ui/screens/*`, `tools/dashboard/ui/shared/ui/*`.
 
+## D18: Flexible frontend architecture, screen locality, and mechanical boundary enforcement
+
+- **Question:** How should the screen composition layer, route delegation, and feature isolation be refined after the initial screens introduction to avoid rigid over-abstraction and ensure robust architectural enforcement?
+- **Options considered:**
+  - A — Enforce a dogmatic 5-tier layer where every single route must have a dedicated screen component, even when the screen is a trivial pass-through to a single feature page, and allow features to import from sibling features when convenient.
+  - B — Adopt a pragmatic, flexible frontend architecture:
+    1. **Screens are an optional multi-feature composition layer:** Screens exist strictly to compose multiple independent feature domains (e.g., `specification-detail` composing specifications, agent sessions, and pull requests; `agent-session` composing sessions, specifications, and tasks). Single-feature routes delegate directly to feature pages (e.g. `ActiveSpecificationsPage`, `ArchiveSpecificationsPage`) without redundant screen wrappers.
+    2. **Strict zero sibling feature imports:** Feature directories under `ui/features/*` are isolated vertical domains that must never import from sibling feature modules. Any cross-feature orchestration must occur in `ui/screens/*`.
+    3. **Canonical shared ownership:** `ui/shared/ui/` owns all domain-independent UI primitives, and `ui/shared/lib/` owns shared utilities.
+    4. **Screen locality:** Group related screen artifacts by user experience context under subdirectories (e.g. `ui/screens/specification-console/` grouping `specification-console-layout.tsx` and `create-specification/`).
+    5. **Eliminate fake object placeholders:** Disallow placeholder casts (such as `{} as SpecificationSummary`) by separating route resolution and fallback states in `SpecificationDetailScreen` from the rendered feature orchestration in `SpecificationDetailContent`, which receives a guaranteed non-null `SpecificationSummary`.
+    6. **Mechanical boundary enforcement:** Automate boundary and isolation checks in `tools/dashboard/tests/architecture-boundaries.test.mjs`, verifying route boundaries, feature isolation, removal of legacy aliases, and absence of fake object casts.
+- **Decision:** Option B.
+- **Rationale:** Option B prevents empty boilerplate layers where a screen would merely re-export a feature page, enforces clean vertical boundaries between domain modules, guarantees type safety without runtime placeholder bugs, and mechanically prevents architectural regression via automated unit tests.
+- **Consequences:**
+  - `ActiveSpecificationsScreen` and `ArchiveSpecificationsScreen` compatibility wrappers removed; routes delegate directly to `ActiveSpecificationsPage` and `ArchiveSpecificationsPage`.
+  - `ui/screens/specification-console/` houses layout and create dialog.
+  - `SpecificationDetailScreen` cleanly resolves route data and passes typed `specification: SpecificationSummary` to `SpecificationDetailContent`.
+  - `tools/dashboard/tests/architecture-boundaries.test.mjs` enforces all architectural boundaries automatically on every test run.
+- **Date:** 2026-09-05
+- **Affected artifacts:** `owner-decisions.md`, `overview.md`, `areas/storybook-and-documentation.md`,
+  `tasks/08-storybook-and-documentation.md`, `docs/development/dashboard-frontend-architecture.md`,
+  `tools/dashboard/tests/architecture-boundaries.test.mjs`, `tools/dashboard/ui/routes/*`,
+  `tools/dashboard/ui/screens/*`.
+
+
 

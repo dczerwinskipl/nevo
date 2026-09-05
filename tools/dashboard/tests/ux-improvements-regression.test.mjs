@@ -77,7 +77,7 @@ test('Item 2B & 2C (Task 07): AgentSessionDetails and AgentSessionPage resolve t
 
 test('Item 2C, 2D & Item 9B/9C: Reusable TaskDialog component is mounted from both SpecificationDetail and AgentSessionScreen without leaveChat()', () => {
   const taskDialogSource = readSource('features/specifications/tasks/task-dialog.tsx');
-  const specDetailSource = readSource('screens/specification-detail/specification-detail-screen.tsx');
+  const specDetailSource = readSource('screens/specification-detail/specification-detail-content.tsx');
   const agentSessionScreenSource = readSource('screens/agent-session/agent-session-screen.tsx');
 
   // TaskDialog is a reusable component in features/specifications/tasks/task-dialog.tsx
@@ -86,7 +86,7 @@ test('Item 2C, 2D & Item 9B/9C: Reusable TaskDialog component is mounted from bo
   assert.ok(taskDialogSource.includes('useSpecificationDocument('));
   assert.ok(taskDialogSource.includes('useSpecificationActions('));
 
-  // SpecificationDetail imports and mounts TaskDialog
+  // SpecificationDetailContent imports and mounts TaskDialog
   assert.ok(specDetailSource.includes("import { TaskDialog } from '@/features/specifications/tasks/task-dialog';"));
   assert.ok(specDetailSource.includes('<TaskDialog'));
   assert.ok(specDetailSource.includes('taskId={selectedTask.id}'));

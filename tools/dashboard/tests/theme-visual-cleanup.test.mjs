@@ -51,7 +51,7 @@ test('theme exposes interaction and semantic token families', () => {
 });
 
 test('desktop shell removes the full-width brand header and keeps floating utilities', () => {
-  const appLayout = readSource('screens/specification-console-layout.tsx');
+  const appLayout = readSource('screens/specification-console/specification-console-layout.tsx');
 
   assert.ok(appLayout.includes('backdrop-blur-xl sm:px-7 lg:hidden'));
   assert.ok(appLayout.includes('fixed top-3 right-4 z-40 hidden rounded-xl'));

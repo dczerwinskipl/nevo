@@ -287,19 +287,19 @@ test('Finding 2b (Behavioral): Persisted in-flight state -> reload/new runtime -
 
 test('Finding 1: Source inspection confirms prompt text is removed from ChatSearch and URL schemas', () => {
   const routeTreeSource = readSource('routeTree.gen.ts');
-  const appLayoutSource = readSource('screens/specification-console-layout.tsx');
-  const specificationRouteSource = readSource('screens/specification-detail/specification-detail-screen.tsx');
+  const appLayoutSource = readSource('screens/specification-console/specification-console-layout.tsx');
+  const specificationContentSource = readSource('screens/specification-detail/specification-detail-content.tsx');
   const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');
   const pendingDispatchStoreSource = readSource('features/agent-sessions/runtime/pending-dispatch-store.ts');
 
   // routeTree.gen.ts does not declare initialPrompt in route search schemas
   assert.ok(!routeTreeSource.includes('initialPrompt?: string;'), 'initialPrompt must be removed from ChatSearch');
 
-  // specification-console-layout.tsx and specification-route.tsx use queueAgentSessionInitialDispatch and do not pass initialPrompt in search
+  // specification-console-layout.tsx and specification-detail-content.tsx use queueAgentSessionInitialDispatch and do not pass initialPrompt in search
   assert.ok(appLayoutSource.includes('queueAgentSessionInitialDispatch'));
-  assert.ok(specificationRouteSource.includes('queueAgentSessionInitialDispatch'));
+  assert.ok(specificationContentSource.includes('queueAgentSessionInitialDispatch'));
   assert.ok(!appLayoutSource.includes('initialPrompt: initialPrompt'));
-  assert.ok(!specificationRouteSource.includes('initialPrompt: initialPrompt'));
+  assert.ok(!specificationContentSource.includes('initialPrompt: initialPrompt'));
 
   // agent-session-page.tsx and pending-dispatch-store.ts enforce explicit pending status and production retry
   assert.ok(agentSessionPageSource.includes('useInitialDispatch'));

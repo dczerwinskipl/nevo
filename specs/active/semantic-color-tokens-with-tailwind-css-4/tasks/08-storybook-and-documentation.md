@@ -39,7 +39,7 @@ depends_on:
   - shared-ui-primitives
   - status-tone-contract
 semantic_references:
-  decisions: [D1, D2, D3, D10, D13, D14, D15, D16, D17]
+  decisions: [D1, D2, D3, D10, D13, D14, D15, D16, D17, D18]
   constraints: [C5]
 ---
 
@@ -146,9 +146,14 @@ Updates `docs/development/storybook.md`, `docs/development/ui-ux-guidelines.md`,
   (with `data-testid="delete-session-btn"` in `agent-session-details.tsx`), and complete foundation
   stories migration (`colors.stories.tsx`, `typography.stories.tsx`, `smoke.stories.tsx`) landed at
   commit `79133077fa78a1989b496ec515389d474192d8d6`.
-- **Deferred Migration Debt**: Mass migration of `components/ui` to `shared/ui`, updating shadcn
-  `components.json` alias configuration, and cross-feature deep-import refactoring are formally
-  deferred to dedicated future changes.
+- **Architecture Cleanup and Debt Resolution (D17, D18)**: Per owner approval, the deferred
+  migration debt was fully resolved on this branch: domain-independent primitives were consolidated
+  into `ui/shared/ui/` and `ui/components/ui/` was deleted, `components.json` was updated to
+  `"ui": "@/shared/ui"`, a dedicated screen composition layer was established (`ui/screens/agent-session/`,
+  `ui/screens/specification-console/`, `ui/screens/specification-detail/`), routes delegate directly
+  to feature pages for single-feature routes (`ActiveSpecificationsPage`, `ArchiveSpecificationsPage`),
+  fake `SpecificationSummary` placeholders were removed via screen/content separation, and mechanical
+  boundary enforcement was added to `tools/dashboard/tests/architecture-boundaries.test.mjs`.
 - **Co-landed Feature Scope**: The dashboard network configuration feature (HTTPS port override
   and HTTP redirect port binding) was restored on this branch per owner approval at commit
   `c4aef0abf814b331797f653848c38fe612e5e2fd`, remaining independent of Task 08's design-system scope.

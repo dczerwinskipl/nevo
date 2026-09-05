@@ -5,7 +5,7 @@ import {
   slugifyTitle,
   resolveDefaultPlanningMode,
   SPEC_TYPES_OPTIONS,
-} from '../ui/screens/create-specification/create-specification-helpers.ts';
+} from '../ui/screens/specification-console/create-specification/create-specification-helpers.ts';
 
 test('slugifyTitle converts titles to canonical kebab-case slugs', () => {
   assert.equal(slugifyTitle('Multi-Provider Agent Sessions'), 'multi-provider-agent-sessions');
