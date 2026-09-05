@@ -18,7 +18,7 @@ test('AC1 & AC2: Header and transcript layouts prevent horizontal overflow acros
 
   // Transcript message container has min-w-0 and break-words for content wrapping
   assert.match(transcriptMessageSource, /flex w-full min-w-0/);
-  assert.match(transcriptMessageSource, /w-full min-w-0 space-y-1\.5 flex flex-col/);
+  assert.match(transcriptMessageSource, /flex w-full min-w-0 flex-col space-y-1\.5/);
   assert.match(transcriptMessageSource, /break-words/);
 
   // Shell handles overflow-hidden and overscroll-none
@@ -32,16 +32,16 @@ test('Documentation layout constrains both grid tracks and rendered Markdown to 
   const stylesSource = readSource('index.css');
 
   assert.match(specDetailSource, /lg:grid-cols-\[minmax\(0,280px\)_minmax\(0,1fr\)\]/);
-  assert.match(specDetailSource, /w-full min-w-0 max-w-full/);
-  assert.match(documentSectionSource, /w-full min-w-0 max-w-full/);
-  assert.match(directorySectionSource, /w-full min-w-0 max-w-full/);
+  assert.match(specDetailSource, /w-full max-w-full min-w-0/);
+  assert.match(documentSectionSource, /w-full max-w-full min-w-0/);
+  assert.match(directorySectionSource, /w-full max-w-full min-w-0/);
   assert.match(stylesSource, /\.markdown-body \{\s+width: 100%;\s+min-width: 0;\s+max-width: 100%;/);
 });
 
 test('AC3: Mobile keyboard viewport adjustments and safe area insets are wired', () => {
   const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');
   const viewportSource = readSource('features/agent-sessions/transcript/use-visual-viewport.ts');
-  const sheetSource = readSource('components/ui/sheet.tsx');
+  const sheetSource = readSource('shared/ui/sheet.tsx');
 
   // AgentSessionPage consumes useVisualViewport's keyboardOpen state
   assert.match(agentSessionPageSource, /useVisualViewport/);
@@ -77,13 +77,13 @@ test('AC6: Tool details constrain large inputs and outputs with scrollable pre c
   const toolCallViewSource = readSource('features/agent-sessions/turn-work/tool-call-view.tsx');
 
   // Large input/output payloads use max-h-48 with overflow-auto
-  assert.match(toolCallViewSource, /max-h-48 overflow-auto rounded-lg border/);
+  assert.match(toolCallViewSource, /max-h-48 max-w-full overflow-auto rounded-lg border/);
   assert.match(toolCallViewSource, /formatPayload\(toolCall\.input\)/);
   assert.match(toolCallViewSource, /formatPayload\(toolCall\.output\)/);
 });
 
 test('AC7: Session details sheet supports both mobile (full width) and desktop (max-w-md)', () => {
-  const sheetSource = readSource('components/ui/sheet.tsx');
+  const sheetSource = readSource('shared/ui/sheet.tsx');
   const sessionDetailsSource = readSource('features/agent-sessions/agent-session-details.tsx');
 
   // Responsive width in sheetVariants
@@ -100,7 +100,7 @@ test('AC7: Session details sheet supports both mobile (full width) and desktop (
 test('AC8: Core interactive controls have accessible names and labels', () => {
   const headerSource = readSource('features/agent-sessions/agent-session-header.tsx');
   const composerSource = readSource('features/agent-sessions/composer/agent-session-composer.tsx');
-  const sheetSource = readSource('components/ui/sheet.tsx');
+  const sheetSource = readSource('shared/ui/sheet.tsx');
 
   // Back button and details button have accessible names
   assert.match(headerSource, /aria-label=\{backLabel\}/);
@@ -156,7 +156,7 @@ test('AC10: Role and status distinctions are not color-only', () => {
 });
 
 test('AC11: Keyboard focus management, tab order, and keydown handlers are structured for desktop keyboard navigation', () => {
-  const buttonSource = readSource('components/ui/button.tsx');
+  const buttonSource = readSource('shared/ui/button.tsx');
   const composerSource = readSource('features/agent-sessions/composer/agent-session-composer.tsx');
   const headerSource = readSource('features/agent-sessions/agent-session-header.tsx');
   const toolCallViewSource = readSource('features/agent-sessions/turn-work/tool-call-view.tsx');
@@ -187,18 +187,34 @@ function readV2Source(relative) {
 test('V2 AC8: Level 2 timeline rows stay one line with truncation, no horizontal scroll', () => {
   const timelineSource = readV2Source('work-timeline-v2.tsx');
   assert.match(timelineSource, /min-w-0 flex-1 truncate/, 'row text must truncate, not wrap/overflow horizontally');
-  assert.doesNotMatch(timelineSource, /overflow-x-auto|overflow-x-scroll/, 'Level 2 must not introduce horizontal scrolling');
+  assert.doesNotMatch(
+    timelineSource,
+    /overflow-x-auto|overflow-x-scroll/,
+    'Level 2 must not introduce horizontal scrolling',
+  );
 });
 
 test('V2 AC8: Work Details opens as a Sheet (portal), never expanding the chat transcript vertically', () => {
   const detailsSource = readV2Source('work-details-sheet-v2.tsx');
-  assert.match(detailsSource, /from '@\/components\/ui\/sheet'/, 'must reuse the shared Sheet primitive, not an inline expanding panel');
-  assert.match(detailsSource, /<SheetContent side="right"/, 'reuses the same responsive side="right" variant as AgentSessionDetailsSheet (full width on mobile, max-w-md on desktop)');
+  assert.match(
+    detailsSource,
+    /from '@\/shared\/ui\/sheet'/,
+    'must reuse the shared Sheet primitive, not an inline expanding panel',
+  );
+  assert.match(
+    detailsSource,
+    /<SheetContent side="right"/,
+    'reuses the same responsive side="right" variant as AgentSessionDetailsSheet (full width on mobile, max-w-md on desktop)',
+  );
 });
 
 test('V2 AC8: Level 2 never inlines full input/output/command — that stays exclusive to Work Details', () => {
   const timelineSource = readV2Source('work-timeline-v2.tsx');
-  assert.doesNotMatch(timelineSource, /\.input\b|\.output\b|\.command\b/, 'Level 2 rows must never render raw technical payloads inline');
+  assert.doesNotMatch(
+    timelineSource,
+    /\.input\b|\.output\b|\.command\b/,
+    'Level 2 rows must never render raw technical payloads inline',
+  );
   const detailsSource = readV2Source('work-details-sheet-v2.tsx');
   assert.match(detailsSource, /item\.input/);
   assert.match(detailsSource, /item\.output/);
@@ -208,8 +224,16 @@ test('V2 AC8: expand/collapse and Work Details triggers expose aria-expanded / a
   const indicatorSource = readV2Source('work-indicator-v2.tsx');
   const timelineSource = readV2Source('work-timeline-v2.tsx');
   assert.match(indicatorSource, /aria-expanded=\{expanded\}/);
-  assert.match(indicatorSource, /type="button"/, 'the Work indicator must be a native, keyboard/touch-accessible button');
-  assert.match(timelineSource, /type="button"/, 'Level 2 timeline row triggers must be native, keyboard/touch-accessible buttons');
+  assert.match(
+    indicatorSource,
+    /type="button"/,
+    'the Work indicator must be a native, keyboard/touch-accessible button',
+  );
+  assert.match(
+    timelineSource,
+    /type="button"/,
+    'Level 2 timeline row triggers must be native, keyboard/touch-accessible buttons',
+  );
 });
 
 test('AC13: Regression checks for all NFR-7 critical paths', () => {

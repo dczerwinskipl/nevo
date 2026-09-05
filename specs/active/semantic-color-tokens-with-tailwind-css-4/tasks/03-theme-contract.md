@@ -7,7 +7,11 @@ context:
     - specs/active/semantic-color-tokens-with-tailwind-css-4/overview.md
     - specs/active/semantic-color-tokens-with-tailwind-css-4/owner-decisions.md
     - specs/active/semantic-color-tokens-with-tailwind-css-4/areas/theme-foundation.md
+    - docs/development/ui-ux-guidelines.md
     - tools/dashboard/ui/index.css
+  optional:
+    - docs/development/storybook.md
+    - docs/development/react-component-guidelines.md
 allowed_paths:
   - tools/dashboard/ui/index.css
 forbidden_paths:

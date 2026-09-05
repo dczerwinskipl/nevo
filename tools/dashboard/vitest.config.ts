@@ -10,10 +10,7 @@ import { sharedAliases } from './.storybook/aliases.ts';
 const dashboardRoot = fileURLToPath(new URL('.', import.meta.url));
 
 export default defineConfig({
-  plugins: [
-    react(),
-    tailwindcss(),
-  ],
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: sharedAliases,
   },

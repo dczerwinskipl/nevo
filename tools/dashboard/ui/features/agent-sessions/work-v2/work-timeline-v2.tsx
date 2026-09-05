@@ -8,13 +8,8 @@ import {
 } from './timeline-projection-v2';
 import { TOOL_KIND_ICONS_V2 } from './tool-kind-icons-v2';
 import { previewPlainText } from './text-preview-v2';
-import type {
-  InteractionWorkItemV2,
-  ReasoningWorkItemV2,
-  ToolStatusV2,
-  WorkItemV2,
-} from '../types';
-import { cn } from '@/lib/utils';
+import type { InteractionWorkItemV2, ReasoningWorkItemV2, ToolStatusV2, WorkItemV2 } from '../types';
+import { cn } from '@/shared/lib/utils';
 
 const TOOL_STATUS_ICON: Partial<Record<ToolStatusV2, typeof XCircle>> = {
   failed: XCircle,
@@ -42,21 +37,21 @@ const ToolGroupRowV2 = memo(function ToolGroupRowV2({
     <button
       type="button"
       onClick={() => onSelect(primaryItem)}
-      className="group flex w-full min-w-0 items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs leading-4 transition-colors hover:bg-white/4"
+      className="group flex w-full min-w-0 items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs leading-4 transition-colors hover:bg-fg-primary/4"
     >
       <div className="relative flex size-4 shrink-0 items-center justify-center">
         <span className="relative z-10 flex items-center justify-center bg-transparent">
-          <Icon className="size-4 text-[var(--muted)] group-hover:text-[var(--foreground-muted)]" />
+          <Icon className="size-4 text-fg-muted group-hover:text-fg-muted" />
         </span>
       </div>
       <span className="min-w-0 flex-1 truncate">
-        <span className="font-normal text-[var(--muted-strong)] group-hover:text-[var(--foreground)]">
+        <span className="font-normal text-fg-secondary group-hover:text-fg-primary">
           {row.title}
           {countSuffix}
         </span>
-        {row.subject ? <span className="font-normal text-[var(--muted)]"> · {row.subject}</span> : null}
+        {row.subject ? <span className="font-normal text-fg-muted"> · {row.subject}</span> : null}
       </span>
-      {StatusIcon && <StatusIcon className="size-4 shrink-0 text-[var(--warning)]" />}
+      {StatusIcon && <StatusIcon className="size-4 shrink-0 text-status-warning" />}
     </button>
   );
 });
@@ -80,11 +75,11 @@ const CommentaryRowV2 = memo(function CommentaryRowV2({
     <button
       type="button"
       onClick={() => onSelect(row.item)}
-      className="group my-0.5 flex w-full min-w-0 rounded border border-[var(--border)]/40 bg-white/[0.02] px-2.5 py-1.5 text-left text-xs leading-relaxed text-[var(--muted-strong)] transition-colors hover:border-[var(--border)] hover:bg-white/[0.04] hover:text-[var(--foreground)]"
+      className="group my-0.5 flex w-full min-w-0 rounded border border-border/40 bg-fg-primary/[0.02] px-2.5 py-1.5 text-left text-xs leading-relaxed text-fg-secondary transition-colors hover:border-border hover:bg-fg-primary/[0.04] hover:text-fg-primary"
     >
       <p className="line-clamp-2">
         {preview}
-        {repeatSuffix ? <span className="text-xs text-[var(--muted)]"> {repeatSuffix}</span> : null}
+        {repeatSuffix ? <span className="text-xs text-fg-muted"> {repeatSuffix}</span> : null}
       </p>
     </button>
   );
@@ -106,13 +101,13 @@ const ReasoningRowV2 = memo(function ReasoningRowV2({
     <button
       type="button"
       onClick={() => onSelect(item)}
-      className="group flex w-full min-w-0 items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs leading-4 transition-colors hover:bg-white/4"
+      className="group flex w-full min-w-0 items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs leading-4 transition-colors hover:bg-fg-primary/4"
     >
       <div className="relative flex size-4 shrink-0 items-center justify-center">
-        <span className="relative z-10 size-1.5 rounded-full border border-[var(--muted-strong)] bg-transparent" />
+        <span className="relative z-10 size-1.5 rounded-full border border-fg-secondary bg-transparent" />
       </div>
-      <span className="min-w-0 flex-1 truncate italic text-[var(--muted)] group-hover:text-[var(--muted-strong)]">
-        <span className="font-medium not-italic text-[var(--muted-strong)]">Thinking</span>
+      <span className="min-w-0 flex-1 truncate text-fg-muted italic group-hover:text-fg-secondary">
+        <span className="font-medium text-fg-secondary not-italic">Thinking</span>
         {preview ? <span> · {preview}</span> : null}
       </span>
     </button>
@@ -151,17 +146,12 @@ const InteractionRowV2 = memo(function InteractionRowV2({
       type="button"
       onClick={() => onSelect(item)}
       className={cn(
-        'group flex w-full min-w-0 items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs leading-4 transition-colors hover:bg-white/4',
-        isPending ? 'font-medium text-[var(--warning-strong)]' : 'font-normal text-[var(--muted)]',
+        'group flex w-full min-w-0 items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs leading-4 transition-colors hover:bg-fg-primary/4',
+        isPending ? 'font-medium text-status-warning' : 'font-normal text-fg-muted',
       )}
     >
       <div className="relative flex size-4 shrink-0 items-center justify-center">
-        <span
-          className={cn(
-            'relative z-10 size-1.5 rounded-full',
-            isPending ? 'bg-[var(--warning)]' : 'bg-[var(--muted)]',
-          )}
-        />
+        <span className={cn('relative z-10 size-1.5 rounded-full', isPending ? 'bg-status-warning' : 'bg-fg-muted')} />
       </div>
       <span className="min-w-0 flex-1 truncate">{interactionSummary(item)}</span>
     </button>
@@ -172,19 +162,13 @@ const InteractionRowV2 = memo(function InteractionRowV2({
  * Older history disclosure indicator rendered at the TOP of Level 2 history.
  * Non-interactive, quiet indicator showing (+N hidden).
  */
-const OlderHistoryRowV2 = memo(function OlderHistoryRowV2({
-  hiddenCount,
-}: {
-  hiddenCount: number;
-}) {
+const OlderHistoryRowV2 = memo(function OlderHistoryRowV2({ hiddenCount }: { hiddenCount: number }) {
   return (
-    <div className="flex w-full min-w-0 items-center gap-2 px-1.5 py-0.5 text-xs text-[var(--muted)]">
+    <div className="flex w-full min-w-0 items-center gap-2 px-1.5 py-0.5 text-xs text-fg-muted">
       <div className="relative flex size-4 shrink-0 items-center justify-center">
-        <span className="relative z-10 size-1.5 rounded-full bg-[var(--muted)]" />
+        <span className="relative z-10 size-1.5 rounded-full bg-fg-muted" />
       </div>
-      <span className="min-w-0 flex-1 truncate font-normal">
-        (+{hiddenCount} hidden)
-      </span>
+      <span className="min-w-0 flex-1 truncate font-normal">(+{hiddenCount} hidden)</span>
     </div>
   );
 });
@@ -228,9 +212,7 @@ export const WorkTimelineV2 = memo(function WorkTimelineV2({
 
   const content = (
     <>
-      {projection.hasMore && (
-        <OlderHistoryRowV2 hiddenCount={projection.hiddenCount} />
-      )}
+      {projection.hasMore && <OlderHistoryRowV2 hiddenCount={projection.hiddenCount} />}
       {projection.visibleRows.map((row) => (
         <TimelineRow key={row.id} row={row} onSelectItem={onSelectItem} />
       ))}
@@ -242,11 +224,8 @@ export const WorkTimelineV2 = memo(function WorkTimelineV2({
   }
 
   return (
-    <div className="relative w-full min-w-0 max-w-full pl-1">
-      <div
-        className="absolute bottom-2 left-[18px] top-2 w-px -translate-x-1/2 bg-[var(--border)]"
-        aria-hidden="true"
-      />
+    <div className="relative w-full max-w-full min-w-0 pl-1">
+      <div className="absolute top-2 bottom-2 left-[18px] w-px -translate-x-1/2 bg-border" aria-hidden="true" />
       <div className="relative flex flex-col gap-0.5">{content}</div>
     </div>
   );

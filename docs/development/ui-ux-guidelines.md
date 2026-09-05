@@ -9,11 +9,13 @@ read_when:
   - introducing cards, rows, lists, details views, inspectors, drawers, or sheets
   - designing loading, active, empty, warning, error, or attention states
   - reviewing composed screens or dense repeated content
+  - defining, auditing, or changing semantic color tokens, status tokens, or presentation tones
 summary: >
   Portable UI/UX rules for information hierarchy, visual weight, typography, semantic color,
   progressive disclosure, discovery, interaction hierarchy, responsive behavior, dense content,
   visual patterns, and composed-screen verification.
 related:
+  - development.dashboard-frontend-architecture
   - development.react-component-guidelines
   - development.nevo-ai-ux-guidelines
   - development.nevo-interaction-model
@@ -102,7 +104,7 @@ The host surface is the primary user task that must remain visually dominant.
 
 Examples:
 
-- chat is the host surface for Work inside a Turn;
+- conversation view is the host surface for inline activity or sub-tasks;
 - task details are the host surface for embedded task Markdown;
 - changes are the host surface for file inspection.
 
@@ -258,20 +260,22 @@ Until the token audit is complete, these names describe semantic roles. Existing
 
 Color **MUST** have semantic meaning and **MUST NOT** be used as arbitrary decoration.
 
-### Provisional semantic state tokens
+This document is the authoritative owner of the canonical semantic status presentation vocabulary: `neutral`, `active`, `success`, `warning`, `error`, `attention`, `info`, and `action-destructive`. Feature modules map their domain states to these presentation roles before selecting component variants or utility classes (see [react-component-guidelines.md](react-component-guidelines.md) §12.3).
 
-| Token | Provisional value | Meaning |
-|---|---:|---|
-| `status-active` | `#3882f6` | currently progressing / active selection when appropriate |
-| `status-success` | `#35c76f` | successful state when success needs emphasis |
-| `status-warning` | `#f59e0b` | recoverable/local problem |
-| `status-error` | `#ef4444` | primary operation failed |
-| `status-attention` | `#a78bfa` | user action is required |
-| `status-info` | `#06b6d4` | informational state, not failure |
-| `status-neutral` | neutral foreground | waiting, inactive, historical, or unremarkable state |
-| `action-destructive` | initially may share error red | destructive user action |
+### Semantic status vocabulary and role distinctions
 
-`status-error` and `action-destructive` are distinct semantic roles even if they initially share the same color value.
+| Semantic tone | Role and meaning | Invariants and distinctions |
+|---|---|---|
+| `neutral` | Waiting, inactive, historical, or unremarkable state | Default baseline. Does not draw active attention. Prevents visual clutter across dense history. |
+| `active` | Currently progressing operation or active selection | Indicates truthful ongoing work. Never use without evidence of progress. |
+| `success` | Successful completion when success needs emphasis | Use sparingly. Happy-path historical items should lose color and become visually quiet. |
+| `warning` | Recoverable or non-fatal issue; local problem | The primary process, parent task, or containing operation may still proceed or succeed. A local or recoverable failure inside a sub-step is a warning, not a failure of the overall operation. |
+| `error` | Primary operation, process, or task failed | Indicates terminal or primary failure requiring diagnosis. Distinct from local recoverable warnings. |
+| `attention` | Explicit user intervention or action is required | Strictly reserved for required user input/interaction. **MUST NOT** be used for waiting or long-running latency. |
+| `info` | Supplemental informational state or contextual hint | Explicit informational callout that indicates neither progress, degradation nor required action. Distinct from the default resting or unremarkable presentation of `neutral`. |
+| `action-destructive` | Destructive user action or confirmation | User control role (e.g. delete, discard, cancel). Distinct from system failure (`error`) even when sharing palette hue. |
+
+`status-error` and `action-destructive` are distinct semantic roles even if their default theme palettes initially share a red hue. System error states must not be conflated with intentional destructive user actions.
 
 A completed historical item **SHOULD NOT** remain strongly green merely because it succeeded. Happy-path history should normally lose color as it becomes less important.
 

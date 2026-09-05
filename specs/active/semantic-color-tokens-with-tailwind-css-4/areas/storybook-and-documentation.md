@@ -2,89 +2,59 @@
 
 ## Responsibility
 
-Update the Colors foundation Storybook story to read live production `--color-*`
-values (no duplicated TypeScript palette), prove every catalogued token actually
-resolves to a real value (guarding against `@theme static` regressing to plain
-`@theme`'s usage-detection gaps, D10), and update the UX/color guideline documentation
-from provisional color roles to the final semantic contract.
+Update all foundation Storybook stories (`colors.stories.tsx`, `typography.stories.tsx`,
+`smoke.stories.tsx`) to read live production `--color-*` values and use semantic Tailwind
+utilities, prove every catalogued token actually resolves to a real value, update
+`docs/development/storybook.md` to match actual story hierarchy and co-location rules,
+repair broken numeric section references to `react-component-guidelines.md`, and update
+the UX/color guideline documentation to the final semantic contract.
 
-## Current state
+## Historical baseline state (before this change)
 
-- `tools/dashboard/ui/foundations/colors.stories.tsx` currently documents the old
-  `:root` tokens, including the generic "Category 1/2 accent" labels for `--cat-1`/
-  `--cat-2` (lines 93-94) and the four now-dead `info-*`/`success-strong` variants
-  (lines 54, 68-71) — confirmed defined but with zero real component consumers.
-- No dedicated UX color-role guideline doc was identified by discovery under
-  `docs/development/`; if one exists it must be found and updated during this task
-  (`node tools/docs.mjs find` scoped to the dashboard/UI area), and if none exists, the
-  change request's own requirement to "update the UX guidelines from provisional color
-  roles to the final semantic contract" is satisfied by creating the minimal doc needed
-  — confirm which case applies before writing new prose (per `artifact-policy.md`, don't
-  create boilerplate for its own sake).
+- `tools/dashboard/ui/foundations/colors.stories.tsx` documented the old `:root` tokens, including generic labels and dead variants.
+- `typography.stories.tsx` and `smoke.stories.tsx` contained legacy `var(--foreground)`-style utilities and raw `amber-*` classes.
+- `docs/development/storybook.md` inaccurately claimed that `Components/*` was unused.
+- Broken numeric section references (`§20.1`, `§16`, old `§9.1`/`§9.2`) to `react-component-guidelines.md` existed across source files.
 
 ## Requirements
 
-- Rewrite `colors.stories.tsx` to read live computed CSS custom property values (e.g. via
-  `getComputedStyle` against a rendered element) rather than a hardcoded TypeScript
-  object — the story must not duplicate palette values in source.
-- Group tokens by semantic role (neutral/foreground/interaction/status/action/provider/
-  workflow), matching the `@theme` block's own grouping.
-- Show representative foreground/background combinations actually used by product
-  components (not just isolated swatches) — at minimum: `fg-primary` on `background`,
-  `fg-secondary`/`fg-muted` on `surface`, and the primary filled-button pair.
-- Show all 7 `StatusTone` values (`status-active`, `status-success`, `status-warning`,
-  `status-error`, `status-attention`, `status-info`, `status-neutral`), plus
-  `action-destructive` shown separately in its real consumer context (a destructive
-  Button variant), not grouped in as an 8th status tone.
-- Include the primary filled-button contrast pair (`bg-accent-solid text-fg-on-accent`)
-  with its computed contrast ratio displayed or computable from the story.
-- Remove the old `cat-1`/`cat-2`/`info-*`/`success-strong` entries; replace with
-  `provider-claude`/`provider-antigravity`/`workflow-design` and the canonical status
-  set.
-- Update (or create, if none exists) the UX color-role documentation to describe the
-  final semantic contract by role/name, not by hex value — production CSS remains the
-  value source of truth, the doc must not need to be updated every time a value changes.
-- After any `docs/development/**` content change, run `node tools/docs.mjs generate` to
-  refresh the generated doc indexes (`docs/index.generated.json`,
-  `docs/index.generated.md`, `docs/routing.generated.json` — all three are this task's
-  own tool-written output, included in its `allowed_paths`), then `node tools/docs.mjs
-  validate` and `node tools/docs.mjs check`.
-- Add a Storybook test asserting every catalogued token resolves to a non-empty computed
-  color — this is the story's own guard against silently rendering blank swatches if
-  `@theme static` isn't actually emitting a token (D10).
-- Do not refactor typography or any unrelated Storybook story.
-
-## Constraints
-
-- No new palette values invented for the story — it reads whatever `index.css` actually
-  contains.
-- Depends on `areas/theme-foundation.md` (tokens must exist) and, for full accuracy,
-  benefits from running after `areas/shared-ui-primitives.md` and
-  `areas/status-tone-contract.md` land (so the filled-button pair and status tones are
-  already migrated) — but does not require Areas 4-5 to be complete, since it documents
-  the token contract itself, not feature-level consumption.
-
-## Interfaces and boundaries
-
-- Consumes: the `--color-*` contract, the migrated Button primitive, the status-tone
-  module.
-- Produces: nothing consumed by other areas.
+- Author `docs/development/dashboard-frontend-architecture.md` formally establishing the final dashboard architecture contract (D15, D17, D18):
+  - Routes are thin parameter-extracting adapters that delegate directly to single-feature pages (`ActiveSpecificationsPage`, `ArchiveSpecificationsPage`) when no multi-feature coordination is required.
+  - Screens (`ui/screens/`) serve as the optional composition boundary where multiple features converge (`specification-detail`, `agent-session`, `specification-console`).
+  - Strict vertical feature isolation: features under `ui/features/*` never import from sibling features.
+  - Canonical domain-independent primitives reside in `ui/shared/ui/` and generic utilities in `ui/shared/lib/`, with `ui/components/ui/` removed.
+  - Elimination of fake object placeholders via clean screen/content separation.
+  - Component taxonomy, domain area boundaries, public API rules, state management, Storybook colocation, and decision matrix.
+- Align Storybook story titles across all primitives (`Shared/UI/*`), features (`Features/<Domain>/*`),
+  and foundations (`Foundations/*`).
+- Rewrite `colors.stories.tsx` to read live computed CSS custom property values rather
+  than hardcoded objects.
+- Migrate `typography.stories.tsx` and `smoke.stories.tsx` to semantic Tailwind utilities
+  and remove raw palette classes and legacy CSS variables.
+- Group tokens in `colors.stories.tsx` by semantic role (neutral, foreground, interaction,
+  status, action, provider, workflow).
+- Show representative foreground/background combinations and all 7 `StatusTone` values
+  plus `action-destructive`.
+- Update `docs/development/storybook.md` to reflect real story hierarchy and co-location rules.
+- Replace fragile numeric references to `react-component-guidelines.md` with stable headings/IDs.
+- After any `docs/development/**` change, run `node tools/docs.mjs generate`, `validate`, `check`.
 
 ## Area-specific acceptance criteria
 
-1. `colors.stories.tsx` contains no hardcoded hex/color literal duplicating a theme
-   value — every displayed value is read from computed styles at render time.
-2. The story groups tokens by the same semantic categories as the `@theme` block.
-3. The filled-button contrast pair is shown with a verifiable ≥4.5:1 ratio.
-4. `cat-1`/`cat-2`/`info-*`/`success-strong` no longer appear in the story.
-5. The UX documentation (existing or newly created, whichever applies) describes the
-   final contract by role/name.
-6. `npm --prefix tools/dashboard run test:storybook` and
-   `npm --prefix tools/dashboard run build-storybook` pass.
-7. `node tools/docs.mjs generate` was run after any `docs/development/**` change, and
-   `node tools/docs.mjs validate`/`node tools/docs.mjs check` both pass.
-8. A durable Storybook test confirms every catalogued token resolves to a non-empty
-   computed color.
+1. `docs/development/dashboard-frontend-architecture.md` is authored reflecting the final architecture
+   (optional screen composition layer, direct single-feature route delegation, zero sibling feature imports,
+   canonical `shared/ui` primitives and `shared/lib` utilities, removal of `components/ui`), decision matrix,
+   verified directory layout, and guidelines, and cross-referenced in related docs.
+2. Story titles match the component taxonomy (`Shared/UI/*`, `Features/*`, `Foundations/*`).
+3. `colors.stories.tsx`, `typography.stories.tsx`, and `smoke.stories.tsx` use semantic
+   Tailwind utilities and live token resolution.
+4. Tokens in `colors.stories.tsx` are grouped by semantic categories.
+5. Filled-button contrast pair meets ≥4.5:1 ratio.
+6. `docs/development/storybook.md` accurately describes story structure and co-location.
+7. Broken section references to `react-component-guidelines.md` are resolved.
+8. `npm --prefix tools/dashboard run test:storybook` and `npm --prefix tools/dashboard run build-storybook` pass.
+9. `node tools/docs.mjs generate`, `validate`, and `check` all pass.
+
 
 ## Dependencies
 
@@ -93,5 +63,5 @@ from provisional color roles to the final semantic contract.
 
 ## Out of scope
 
-- Any other Storybook story (typography, chat, etc.).
-- Feature-level migration — Areas 2-5.
+- Chat, session, and domain feature story authoring outside the foundations and primitives covered by Tasks 04-07.
+- Feature-level component migration — Areas 2-5.

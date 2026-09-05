@@ -9,6 +9,8 @@ context:
     - specs/active/semantic-color-tokens-with-tailwind-css-4/areas/cleanup-and-enforcement.md
     - tools/dashboard/tests/composer-interaction.test.mjs
     - tools/dashboard/package.json
+  optional:
+    - docs/development/node-tooling-guidelines.md
 allowed_paths:
   - tools/dashboard/tests/**
   - tools/dashboard/scripts/**
@@ -27,8 +29,9 @@ semantic_references:
 
 ## Goal
 
-Add a lightweight, dependency-free check that scans production UI sources under
-`tools/dashboard/ui` (excluding stories, tests, fixtures, generated files) and fails on,
+Add a lightweight, dependency-free check that scans UI sources under
+`tools/dashboard/ui` (including `*.stories.tsx`, excluding tests, fixtures, generated files,
+and explicitly documented synthetic fixtures under `.storybook/test-utils/`) and fails on,
 **across both TS/TSX and CSS**: color-bearing arbitrary-value utilities
 (`bg-[var(--...)]`, `ring-[var(--...)]`, `outline-[var(--...)]`, `fill-[var(--...)]`,
 `stroke-[var(--...)]`, `caret-[var(--...)]`, etc. — not just `bg`/`text`/`border`),
@@ -57,10 +60,12 @@ would fail immediately against legitimate remaining work).
     non-obvious color-utility spellings — introducing ESLint (or another new
     dependency) is an owner decision, not a call this task can make unilaterally; escalate
     rather than adding it silently.
-- Explicit, minimal exception list for genuinely dynamic CSS custom properties or
-  one-off decorative global CSS — document each exception inline with a one-line reason.
-- Scope: production sources under `tools/dashboard/ui` only. Exclude `*.stories.tsx`,
-  `tests/`, `__fixtures__/`, and any generated file.
+- Explicit, minimal exception list for genuinely dynamic CSS custom properties,
+  one-off decorative global CSS, or synthetic test fixtures under `.storybook/test-utils/` —
+  document each exception inline with a one-line reason.
+- Scope: sources under `tools/dashboard/ui` including `*.stories.tsx`. Exclude
+  `tests/`, `__fixtures__/`, any generated file, and documented synthetic fixtures under
+  `.storybook/test-utils/`.
 - The CSS-file legacy-reference check needs a maintained list of legacy variable names
   (the original 39, from `overview.md` § Current architecture) to flag — a `.css` file
   referencing any of them via `var(--legacy-name)` fails; referencing a `--color-*` name

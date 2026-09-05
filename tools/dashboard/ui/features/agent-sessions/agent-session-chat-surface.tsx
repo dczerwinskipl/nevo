@@ -1,13 +1,10 @@
 import { forwardRef, useCallback, useImperativeHandle, useRef } from 'react';
 
 import { AgentSessionComposer } from './composer/agent-session-composer';
-import {
-  AgentSessionTranscriptV2,
-  type AgentSessionTranscriptV2Handle,
-} from './work-v2/agent-session-transcript-v2';
+import { AgentSessionTranscriptV2, type AgentSessionTranscriptV2Handle } from './work-v2/agent-session-transcript-v2';
 import type { AgentSessionLoadError } from './runtime/agent-session-transport';
 import type { AgentExecutionMode, CanonicalTurnV2 } from './types';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 
 export interface AgentSessionChatSurfaceHandle {
   scrollToBottom: (behavior?: ScrollBehavior) => void;
@@ -140,7 +137,7 @@ export const AgentSessionChatSurface = forwardRef<AgentSessionChatSurfaceHandle,
 
         <footer
           className={cn(
-            'shrink-0 border-t border-[var(--border)] bg-[var(--background)] px-3 pt-2 sm:px-6',
+            'shrink-0 border-t border-border bg-background px-3 pt-2 sm:px-6',
             keyboardOpen ? 'pb-2' : 'pb-[max(0.5rem,env(safe-area-inset-bottom))]',
           )}
         >

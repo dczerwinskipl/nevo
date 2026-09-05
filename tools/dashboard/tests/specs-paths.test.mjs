@@ -27,29 +27,29 @@ test('a custom root/activeDir/archiveDir configuration is used consistently by e
 
   const activeChangeDir = join(activeDir, 'custom-active-change');
   await mkdir(join(activeChangeDir, 'tasks'), { recursive: true });
-  await writeFile(join(activeChangeDir, 'change.yaml'), [
-    'id: custom-active-change',
-    'title: Custom Active Change',
-    'status: draft',
-    'tasks:',
-    '  - id: only-task',
-    '    order: 1',
-    '    file: tasks/01-only.md',
-    '    status: draft',
-    '',
-  ].join('\n'));
+  await writeFile(
+    join(activeChangeDir, 'change.yaml'),
+    [
+      'id: custom-active-change',
+      'title: Custom Active Change',
+      'status: draft',
+      'tasks:',
+      '  - id: only-task',
+      '    order: 1',
+      '    file: tasks/01-only.md',
+      '    status: draft',
+      '',
+    ].join('\n'),
+  );
   await writeFile(join(activeChangeDir, 'overview.md'), '# Custom Active Change\n\nLives only in the temp fixture.');
   await writeFile(join(activeChangeDir, 'tasks', '01-only.md'), '# Only task\n\nContent.');
 
   const archiveChangeDir = join(archiveDir, 'custom-archived-change');
   await mkdir(archiveChangeDir, { recursive: true });
-  await writeFile(join(archiveChangeDir, 'change.yaml'), [
-    'id: custom-archived-change',
-    'title: Custom Archived Change',
-    'status: draft',
-    'tasks: []',
-    '',
-  ].join('\n'));
+  await writeFile(
+    join(archiveChangeDir, 'change.yaml'),
+    ['id: custom-archived-change', 'title: Custom Archived Change', 'status: draft', 'tasks: []', ''].join('\n'),
+  );
   await writeFile(join(archiveChangeDir, 'overview.md'), '# Custom Archived Change');
 
   let capturedActionExecutorArgs = null;
@@ -92,7 +92,7 @@ test('a custom root/activeDir/archiveDir configuration is used consistently by e
     } catch {}
   })();
   while (!sseBuffer.includes('event: connected')) {
-    await new Promise(resolve => setTimeout(resolve, 5));
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
 
   t.after(async () => {
@@ -106,8 +106,14 @@ test('a custom root/activeDir/archiveDir configuration is used consistently by e
   const dashboardRes = await fetch(`${baseUrl}/api/dashboard`);
   assert.equal(dashboardRes.status, 200);
   const dashboard = await dashboardRes.json();
-  assert.ok(dashboard.active.some(change => change.slug === 'custom-active-change'), 'dashboard active list is missing the custom-fixture change');
-  assert.ok(dashboard.archive.some(change => change.slug === 'custom-archived-change'), 'dashboard archive list is missing the custom-fixture change');
+  assert.ok(
+    dashboard.active.some((change) => change.slug === 'custom-active-change'),
+    'dashboard active list is missing the custom-fixture change',
+  );
+  assert.ok(
+    dashboard.archive.some((change) => change.slug === 'custom-archived-change'),
+    'dashboard archive list is missing the custom-fixture change',
+  );
 
   // 2. Manifest lookup uses the custom directories.
   const manifestRes = await fetch(`${baseUrl}/api/specs/active/custom-active-change/content`);
@@ -126,7 +132,10 @@ test('a custom root/activeDir/archiveDir configuration is used consistently by e
   const taskStatusesRes = await fetch(`${baseUrl}/api/specs/active/custom-active-change/task-statuses`);
   assert.equal(taskStatusesRes.status, 200);
   const taskStatuses = await taskStatusesRes.json();
-  assert.deepEqual(taskStatuses.tasks.map(task => task.id), ['only-task']);
+  assert.deepEqual(
+    taskStatuses.tasks.map((task) => task.id),
+    ['only-task'],
+  );
 
   // The same change is invisible under the real repository's own specs/
   // tree — confirms the reads above did not fall back to it.
@@ -139,8 +148,16 @@ test('a custom root/activeDir/archiveDir configuration is used consistently by e
     body: JSON.stringify({ slug: 'custom-new-spec', title: 'Custom New Spec' }),
   });
   assert.equal(createRes.status, 201, JSON.stringify(await createRes.json().catch(() => null)));
-  assert.equal(existsSync(join(activeDir, 'custom-new-spec', 'change.yaml')), true, 'the new spec was not written into the configured activeDir');
-  assert.equal(existsSync(join(root, 'specs')), false, 'a stray specs/ directory was created — creation fell back to a repo-shaped default path');
+  assert.equal(
+    existsSync(join(activeDir, 'custom-new-spec', 'change.yaml')),
+    true,
+    'the new spec was not written into the configured activeDir',
+  );
+  assert.equal(
+    existsSync(join(root, 'specs')),
+    false,
+    'a stray specs/ directory was created — creation fell back to a repo-shaped default path',
+  );
 
   // 6. Relevant indexes are updated in the corresponding custom location,
   // not the real repository's specs/*.generated.* files.
@@ -148,7 +165,7 @@ test('a custom root/activeDir/archiveDir configuration is used consistently by e
   assert.equal(existsSync(indexJson), true, 'index JSON was not written to the configured path');
   const indexJsonContent = JSON.parse(await readFile(indexJson, 'utf8'));
   assert.ok(
-    indexJsonContent.changes.some(change => change.id === 'custom-new-spec'),
+    indexJsonContent.changes.some((change) => change.id === 'custom-new-spec'),
     'the configured index.generated.json does not list the newly created spec',
   );
 
@@ -170,11 +187,11 @@ test('a custom root/activeDir/archiveDir configuration is used consistently by e
   // physical directory is a temp fixture.
   const deadline = Date.now() + 2000;
   while (!sseBuffer.includes('custom-new-spec') && Date.now() < deadline) {
-    await new Promise(resolve => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 20));
   }
   assert.match(sseBuffer, /event: specs-changed/);
-  const dataLines = sseBuffer.split('\n').filter(line => line.startsWith('data:'));
-  const allFiles = dataLines.flatMap(line => {
+  const dataLines = sseBuffer.split('\n').filter((line) => line.startsWith('data:'));
+  const allFiles = dataLines.flatMap((line) => {
     try {
       return JSON.parse(line.slice('data:'.length).trim()).files || [];
     } catch {
@@ -182,11 +199,11 @@ test('a custom root/activeDir/archiveDir configuration is used consistently by e
     }
   });
   assert.ok(
-    allFiles.some(file => file.startsWith('specs/active/custom-new-spec/')),
+    allFiles.some((file) => file.startsWith('specs/active/custom-new-spec/')),
     `expected a specs/active/custom-new-spec/... file in watcher events, got: ${JSON.stringify(allFiles)}`,
   );
   assert.ok(
-    allFiles.every(file => file.startsWith('specs/active/') || file.startsWith('specs/archive/')),
+    allFiles.every((file) => file.startsWith('specs/active/') || file.startsWith('specs/archive/')),
     `a watcher event used a path outside the logical specs/active|archive prefixes: ${JSON.stringify(allFiles)}`,
   );
 });

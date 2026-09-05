@@ -49,13 +49,19 @@ central status/tone module, fix the dangling `--foreground-muted` reference, and
   bg-[var(--danger-muted)] text-[var(--danger)] hover:bg-[color-mix(...)]
   hover:text-[var(--danger-strong)] focus-visible:ring-[var(--danger)]` overrides. This
   is the confirmed real consumer that justifies `areas/shared-ui-primitives.md` adding a
-  `destructive` Button variant — migrate this button to `variant="destructive"`.
+  `destructive` Button variant — migrate this button to `variant="destructive"`. Per the
+  Task 04 implementation finding on nested contrast, the surrounding danger container
+  (`agent-session-details.tsx:124`) migrates to a neutral dark surface with a
+  destructive border (`border border-action-destructive/30 bg-surface`) rather than
+  retaining a red-tinted fill (`bg-[var(--danger-muted)]` / `bg-action-destructive/10`),
+  preventing compounded luminance and ensuring the nested destructive button and text
+  satisfy ≥4.5:1 contrast.
   Separately, `composer/agent-session-composer.tsx:159-173` has a **different, smaller**
   action — "Przerwij" (stop/cancel the active turn), currently `variant="secondary"`
   plus a light `text-[var(--danger)] hover:bg-[var(--danger-muted)]
   hover:text-[var(--danger-strong)]` override. This is **not** a destructive action in
   D2's sense (interrupting in-progress generation is recoverable, not an irreversible
-  delete) — migrate its raw `var()` usages to semantic tokens (e.g. `text-status-error
+  delete) — migrate its raw `var()` usages to semantic status tokens (e.g. `text-status-error
   hover:bg-status-error/10 hover:text-status-error`) but keep it visually lighter than
   the delete button and do **not** give it `variant="destructive"`. No other genuine
   destructive action was found elsewhere in this feature, or in `features/specifications/**`/

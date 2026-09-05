@@ -20,7 +20,9 @@ export default async function turnRoutes(fastify, { service, accessPolicy }) {
     const provider = validatedSegment(body.provider, PROVIDER_PATTERN, 'provider ID');
     if (body.specId && !UUID_PATTERN.test(body.specId)) throw new AiValidationError('Invalid specification ID.');
     if (body.taskId && !TURN_PATTERN.test(body.taskId)) throw new AiValidationError('Invalid task ID.');
-    console.log(`[ai] [turn:start] provider=${provider} session=new specId=${body.specId || '-'} taskId=${body.taskId || '-'}${body.mode ? ` mode=${body.mode}` : ''}`);
+    console.log(
+      `[ai] [turn:start] provider=${provider} session=new specId=${body.specId || '-'} taskId=${body.taskId || '-'}${body.mode ? ` mode=${body.mode}` : ''}`,
+    );
     const result = await service.startTurn(provider, undefined, {
       message: body.message ?? body.prompt,
       ...(typeof body.userMessage === 'string' ? { userMessage: body.userMessage } : {}),
@@ -30,7 +32,9 @@ export default async function turnRoutes(fastify, { service, accessPolicy }) {
       mode: body.mode,
       idempotencyKey: body.idempotencyKey,
     });
-    console.log(`[ai] [turn:started] provider=${provider} session=${result.providerSessionId} turnId=${result.turnId} idempotent=${result.idempotent}`);
+    console.log(
+      `[ai] [turn:started] provider=${provider} session=${result.providerSessionId} turnId=${result.turnId} idempotent=${result.idempotent}`,
+    );
     reply.code(result.idempotent ? 200 : 201).send(result);
   });
 
@@ -43,14 +47,18 @@ export default async function turnRoutes(fastify, { service, accessPolicy }) {
       const body = assertBodyObject(request.body);
       const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
       const sessionId = validatedSessionId(request.params.providerSessionId);
-      console.log(`[ai] [turn:start] provider=${provider} session=${sessionId}${body.mode ? ` mode=${body.mode}` : ''} prompt="${(body.message ?? body.prompt ?? '').slice(0, 60)}"`);
+      console.log(
+        `[ai] [turn:start] provider=${provider} session=${sessionId}${body.mode ? ` mode=${body.mode}` : ''} prompt="${(body.message ?? body.prompt ?? '').slice(0, 60)}"`,
+      );
       const result = await service.startTurn(provider, sessionId, {
         message: body.message ?? body.prompt,
         ...(typeof body.userMessage === 'string' ? { userMessage: body.userMessage } : {}),
         mode: body.mode,
         ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
       });
-      console.log(`[ai] [turn:started] provider=${provider} session=${result.providerSessionId} turnId=${result.turnId} idempotent=${result.idempotent}`);
+      console.log(
+        `[ai] [turn:started] provider=${provider} session=${result.providerSessionId} turnId=${result.turnId} idempotent=${result.idempotent}`,
+      );
       reply.code(result.idempotent ? 200 : 202).send(result);
     },
   );

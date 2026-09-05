@@ -15,15 +15,24 @@ import {
 } from '../ui/features/agent-sessions/transcript/use-scroll-follow.ts';
 
 function readAgentSessionPageSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)),
+    'utf8',
+  );
 }
 
 function readTranscriptSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/transcript/agent-session-transcript.tsx', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/transcript/agent-session-transcript.tsx', import.meta.url)),
+    'utf8',
+  );
 }
 
 function readUseScrollFollowSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/transcript/use-scroll-follow.ts', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/transcript/use-scroll-follow.ts', import.meta.url)),
+    'utf8',
+  );
 }
 
 test('Task 08: calculateMaxScrollTop correctly determines maximum scrollTop in viewport coordinate system', () => {
@@ -322,4 +331,3 @@ test('Performance / Finding 3: Repeated content arrivals while unseen=true do no
     state = nextArrival.state;
   }
 });
-

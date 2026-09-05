@@ -17,7 +17,7 @@ const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
 // SSE lifecycle, AI body-size overrides, static/SPA serving) is not
 // duplicated here.
 
-test('an unexpected actionExecutor failure is mapped by the specs capability\'s own local catch, not left to hang', async () => {
+test("an unexpected actionExecutor failure is mapped by the specs capability's own local catch, not left to hang", async () => {
   // `actionExecutor` is the specs slice's own local override option (see
   // specs/routes.mjs's own comment) — exercised here by registering just
   // this one capability on a bare Fastify instance, never routed through
@@ -79,7 +79,7 @@ test('the default 4096-byte body limit applies to non-AI routes and rejects over
   }
 });
 
-test('malformed JSON with a declared application/json content-type yields Fastify\'s own 400 message', async () => {
+test("malformed JSON with a declared application/json content-type yields Fastify's own 400 message", async () => {
   const app = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   try {
     const res = await app.inject({

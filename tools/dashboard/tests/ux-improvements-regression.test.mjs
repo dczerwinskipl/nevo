@@ -12,8 +12,14 @@ test('Item 1 (Task 04): AgentSessionComposer uses canonical AI_MODES metadata wi
   const aiModeMetaSource = readSource('features/agent-sessions/mode-meta.ts');
 
   // Must import AI_MODES from mode-meta
-  assert.ok(composerSource.includes("import { AI_MODES, getModeMeta } from '../mode-meta';") || composerSource.includes("from '../mode-meta'"));
-  assert.ok(!composerSource.includes('const MODE_METAS:'), 'Local MODE_METAS must be removed from agent-session-composer.tsx');
+  assert.ok(
+    composerSource.includes("import { AI_MODES, getModeMeta } from '../mode-meta';") ||
+      composerSource.includes("from '../mode-meta'"),
+  );
+  assert.ok(
+    !composerSource.includes('const MODE_METAS:'),
+    'Local MODE_METAS must be removed from agent-session-composer.tsx',
+  );
 
   // Must render mode buttons iterating over AI_MODES with descriptions
   assert.ok(composerSource.includes('AI_MODES.map((modeMeta) =>'));
@@ -69,30 +75,33 @@ test('Item 2B & 2C (Task 07): AgentSessionDetails and AgentSessionPage resolve t
   assert.ok(agentSessionPageSource.includes('tasks={sessionTaskItems}'));
 });
 
-test('Item 2C, 2D & Item 9B/9C: Reusable TaskDialog component is mounted from both SpecificationDetail and AgentSessionPage without leaveChat()', () => {
+test('Item 2C, 2D & Item 9B/9C: Reusable TaskDialog component is mounted from both SpecificationDetail and AgentSessionScreen without leaveChat()', () => {
   const taskDialogSource = readSource('features/specifications/tasks/task-dialog.tsx');
-  const specDetailSource = readSource('features/specifications/detail/specification-detail.tsx');
-  const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');
+  const specDetailSource = readSource('screens/specification-detail/specification-detail-content.tsx');
+  const agentSessionScreenSource = readSource('screens/agent-session/agent-session-screen.tsx');
 
   // TaskDialog is a reusable component in features/specifications/tasks/task-dialog.tsx
   assert.ok(taskDialogSource.includes('export function TaskDialog('));
   assert.ok(taskDialogSource.includes('export interface TaskDialogProps'));
   assert.ok(taskDialogSource.includes('useSpecificationDocument('));
   assert.ok(taskDialogSource.includes('useSpecificationActions('));
-  assert.ok(taskDialogSource.includes('useAgentSessions('));
 
-  // SpecificationDetail imports and mounts TaskDialog
-  assert.ok(specDetailSource.includes("import { TaskDialog } from '../tasks/task-dialog';"));
+  // SpecificationDetailContent imports and mounts TaskDialog
+  assert.ok(specDetailSource.includes("import { TaskDialog } from '@/features/specifications/tasks/task-dialog';"));
   assert.ok(specDetailSource.includes('<TaskDialog'));
   assert.ok(specDetailSource.includes('taskId={selectedTask.id}'));
 
-  // AgentSessionPage imports and mounts TaskDialog locally as an overlay without calling leaveChat()
-  assert.ok(agentSessionPageSource.includes("import { TaskDialog } from '@/features/specifications/tasks/task-dialog';"));
-  assert.ok(agentSessionPageSource.includes('const [inspectedTaskId, setInspectedTaskId] = useState<string | null>(null);'));
-  assert.ok(agentSessionPageSource.includes('setInspectedTaskId(taskId);'));
-  assert.ok(agentSessionPageSource.includes('<TaskDialog'));
-  assert.ok(agentSessionPageSource.includes('taskId={inspectedTaskId}'));
-  assert.ok(agentSessionPageSource.includes('onClose={() => setInspectedTaskId(null)}'));
+  // AgentSessionScreen imports and mounts TaskDialog locally as an overlay without calling leaveChat()
+  assert.ok(
+    agentSessionScreenSource.includes("import { TaskDialog } from '@/features/specifications/tasks/task-dialog';"),
+  );
+  assert.ok(
+    agentSessionScreenSource.includes('const [inspectedTaskId, setInspectedTaskId] = useState<string | null>(null);'),
+  );
+  assert.ok(agentSessionScreenSource.includes('setInspectedTaskId(taskId);'));
+  assert.ok(agentSessionScreenSource.includes('<TaskDialog'));
+  assert.ok(agentSessionScreenSource.includes('taskId={inspectedTaskId}'));
+  assert.ok(agentSessionScreenSource.includes('onClose={() => setInspectedTaskId(null)}'));
 });
 
 test('Item 4 (Task 12): Compact icon-only connectivity indicator uses semantic state', () => {
@@ -103,11 +112,28 @@ test('Item 4 (Task 12): Compact icon-only connectivity indicator uses semantic s
   assert.ok(connectivityControlsSource.includes('tabIndex={0}'));
   assert.ok(connectivityControlsSource.includes('Połączenie na żywo aktywne (SSE: Połączono)'));
   assert.ok(connectivityControlsSource.includes('SSE: Połączono (aktualizacje na żywo aktywne)'));
-  assert.ok(connectivityControlsSource.includes('border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]'));
-  assert.ok(connectivityControlsSource.includes('border-[var(--warning-border)] bg-[var(--warning-muted)] text-[var(--warning)]'));
-  assert.ok(connectivityControlsSource.includes('border-[var(--danger-border)] bg-[var(--danger-muted)] text-[var(--danger)]'));
-  assert.ok(connectivityControlsSource.includes('border-[var(--border)] bg-[var(--surface)] text-[var(--muted)]'));
-  assert.ok(!connectivityControlsSource.includes('<span className="hidden sm:inline">{live ? \'SSE: Połączono\' : \'SSE: Rozłączono\'}</span>'), 'Text pill must not remain in header');
+  assert.ok(
+    connectivityControlsSource.includes(
+      "isConnected && 'border-status-success/25 bg-status-success/10 text-status-success'",
+    ),
+  );
+  assert.ok(
+    connectivityControlsSource.includes(
+      "isReconnecting && 'border-status-warning/25 bg-status-warning/10 text-status-warning'",
+    ),
+  );
+  assert.ok(
+    connectivityControlsSource.includes(
+      "isDisconnected && 'border-status-error/25 bg-status-error/10 text-status-error'",
+    ),
+  );
+  assert.ok(connectivityControlsSource.includes("isUnknown && 'border-border bg-surface text-fg-muted'"));
+  assert.ok(
+    !connectivityControlsSource.includes(
+      "<span className=\"hidden sm:inline\">{live ? 'SSE: Połączono' : 'SSE: Rozłączono'}</span>",
+    ),
+    'Text pill must not remain in header',
+  );
 });
 
 test('Item 5 (Task 14 AC1 & Finding 2): TaskCard uses a full-width title, compact metadata, and a separate action footer', () => {
@@ -118,20 +144,24 @@ test('Item 5 (Task 14 AC1 & Finding 2): TaskCard uses a full-width title, compac
   assert.ok(!statusBoardSource.includes('tabIndex={0}'), 'TaskCard outer div must not have tabIndex=0');
 
   // 2. Dedicated semantic button for opening task details gets the full card width
-  assert.ok(statusBoardSource.includes('onClick={event => onSelect?.(task, event.currentTarget)}'));
+  assert.ok(statusBoardSource.includes('onClick={(event) => onSelect?.(task, event.currentTarget)}'));
   assert.ok(statusBoardSource.includes('aria-label={`Otwórz szczegóły zadania: ${task.title}`}'));
   assert.ok(statusBoardSource.includes('mt-2.5 block w-full'));
 
   // 3. Exact task status, dependencies, and blockers share one compact metadata header
-  assert.ok(statusBoardSource.includes('<StatusLabel kind="task" status={task.status}'));
+  assert.match(statusBoardSource, /<StatusLabel\s+tone=\{taskStatusTone\(task\.status\)\}/);
   assert.ok(statusBoardSource.includes('flex min-w-0 items-center gap-2'));
-  assert.ok(statusBoardSource.includes('title={`Zależności: ${task.dependsOn.join(\', \')}`}'));
-  assert.ok(statusBoardSource.includes('title={`Blokowane przez: ${task.blockedBy.join(\', \')}`}'));
+  assert.ok(statusBoardSource.includes("title={`Zależności: ${task.dependsOn.join(', ')}`}"));
+  assert.ok(statusBoardSource.includes("title={`Blokowane przez: ${task.blockedBy.join(', ')}`}"));
 
   // 4. Action is a separate centered footer, not nested beside the title
-  assert.ok(statusBoardSource.includes('mt-3 flex justify-center border-t border-[var(--border)] pt-2.5'));
+  assert.ok(statusBoardSource.includes('mt-3 flex justify-center border-t border-border pt-2.5'));
   assert.ok(statusBoardSource.includes('onClick={() => onAction?.(task, actionGate.action)}'));
-  assert.ok(statusBoardSource.includes('aria-label={`${actionGate.action === \'approve\' ? \'Zatwierdź zadanie\' : \'Zaakceptuj zadanie\'}: ${task.title}\`}'));
+  assert.ok(
+    statusBoardSource.includes(
+      "aria-label={`${actionGate.action === 'approve' ? 'Zatwierdź zadanie' : 'Zaakceptuj zadanie'}: ${task.title}`}",
+    ),
+  );
 });
 
 test('Item 6: AppSidebar cleanup of unused task/delete handlers', () => {
@@ -148,7 +178,10 @@ test('Item 7 (Task 17): CreateAgentSessionDialog provider group uses semantic fi
 
   // Provider group uses fieldset + legend, not label wrapping multiple buttons
   assert.ok(modalSource.includes('<fieldset className="mt-6">'));
-  assert.ok(modalSource.includes('<legend className="text-xs font-semibold text-[var(--foreground)]">\n                Provider\n              </legend>') || modalSource.includes('Provider'));
+  assert.ok(
+    modalSource.includes('<legend className="text-xs font-semibold text-fg-primary">Provider</legend>') ||
+      modalSource.includes('Provider'),
+  );
   assert.ok(!modalSource.includes('<label className="mt-6 block text-xs font-semibold">\n              Provider'));
 
   // Provider buttons have aria-pressed
@@ -158,45 +191,78 @@ test('Item 7 (Task 17): CreateAgentSessionDialog provider group uses semantic fi
   assert.ok(modalSource.includes('aria-pressed={mode === item.id}'));
 });
 
-test('Item 8 (Task 18): Shared status label component and consistent session status labels across all 5 sites', () => {
+test('Item 8: Shared StatusLabel primitive and feature status projections', () => {
   const statusLabelSource = readSource('shared/ui/status-label.tsx');
-  const stageProgressSource = readSource('features/specifications/stage-progress.tsx');
+  const sessionStatusSource = readSource('features/agent-sessions/status.ts');
+  const specStatusSource = readSource('features/specifications/status.ts');
   const statusBoardSource = readSource('features/specifications/detail/status-board.tsx');
   const sessionListSource = readSource('features/agent-sessions/agent-session-list.tsx');
   const agentSessionHeaderSource = readSource('features/agent-sessions/agent-session-header.tsx');
   const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');
 
-  // 1. StatusLabel primitive owns common typography contract
+  // 1. StatusLabel primitive is purely presentational and owns common typography contract
   assert.ok(statusLabelSource.includes('export function StatusLabel'), 'StatusLabel component exported');
-  assert.ok(statusLabelSource.includes('text-[10px] font-bold uppercase tracking-[0.1em]'), 'Typography contract owned by StatusLabel');
-  assert.ok(statusLabelSource.includes('formatSessionStatus'), 'Shared formatSessionStatus exported');
+  assert.ok(
+    statusLabelSource.includes('text-[10px] font-bold tracking-[0.1em] uppercase'),
+    'Typography contract owned by StatusLabel',
+  );
+  assert.ok(!statusLabelSource.includes('statusTone('), 'Deprecated statusTone removed from StatusLabel');
+  assert.ok(!statusLabelSource.includes('formatSessionStatus'), 'Domain formatSessionStatus removed from StatusLabel');
 
-  // 2. Site 1: stage-progress stage labels use StatusLabel
-  assert.ok(stageProgressSource.includes("import { StatusLabel } from '@/shared/ui/status-label'") || stageProgressSource.includes("from '@/shared/ui/status-label'"), 'stage-progress imports StatusLabel');
-  assert.ok(stageProgressSource.includes('<StatusLabel className="truncate">{stage.label}</StatusLabel>'), 'stage-progress renders StatusLabel');
+  // 2. Feature modules own status mapping and formatting
+  assert.ok(
+    sessionStatusSource.includes('export function formatSessionStatus'),
+    'formatSessionStatus in agent-sessions/status.ts',
+  );
+  assert.ok(
+    sessionStatusSource.includes('export function sessionStatusTone'),
+    'sessionStatusTone in agent-sessions/status.ts',
+  );
+  assert.ok(specStatusSource.includes('export function taskStatusTone'), 'taskStatusTone in specifications/status.ts');
+  assert.ok(
+    specStatusSource.includes('export function formatTaskStatus'),
+    'formatTaskStatus in specifications/status.ts',
+  );
 
-  // 3. Status-board lane headers and exact task statuses use the shared label primitive
+  // 3. Status-board uses taskStatusTone with StatusLabel
   assert.ok(statusBoardSource.includes("from '@/shared/ui/status-label'"), 'status-board imports StatusLabel');
-  assert.ok(statusBoardSource.includes('<StatusLabel className="text-[var(--muted-strong)]">{lane.shortLabel}</StatusLabel>'), 'status-board lane header renders StatusLabel');
-  assert.ok(statusBoardSource.includes('<StatusLabel kind="task" status={task.status}'), 'task cards render the exact domain status as lightweight metadata');
+  assert.match(
+    statusBoardSource,
+    /<StatusLabel\s+tone=\{taskStatusTone\(task\.status\)\}/,
+    'task cards render StatusLabel with tone',
+  );
 
-  // 4. Site 4: agent-session-list session status uses StatusLabel
-  assert.ok(sessionListSource.includes("from '@/shared/ui/status-label'"), 'agent-session-list imports from status-label');
-  assert.ok(sessionListSource.includes('<StatusLabel kind="session" status={session.status} />'), 'agent-session-list renders StatusLabel');
+  // 4. agent-session-list renders StatusLabel with tone and formatted label
+  assert.ok(
+    sessionListSource.includes("from '@/shared/ui/status-label'"),
+    'agent-session-list imports from status-label',
+  );
+  assert.ok(
+    sessionListSource.includes('<StatusLabel tone={sessionStatusTone(session.status)}>'),
+    'agent-session-list renders StatusLabel with tone',
+  );
 
-  // 5. Site 5: agent session header status uses StatusLabel
-  assert.ok(agentSessionHeaderSource.includes("import { StatusLabel } from '@/shared/ui/status-label'"), 'agent-session-header imports StatusLabel');
-  assert.ok(agentSessionHeaderSource.includes('<StatusLabel>{status}</StatusLabel>'), 'agent-session-header renders StatusLabel');
-  assert.ok(agentSessionPageSource.includes('formatSessionStatus(assistant.activity)'), 'agent-session-page passes formatSessionStatus to header');
+  // 5. agent-session-header and page use StatusLabel and feature projections
+  assert.ok(
+    agentSessionHeaderSource.includes("import { StatusLabel } from '@/shared/ui/status-label'"),
+    'agent-session-header imports StatusLabel',
+  );
+  assert.ok(agentSessionHeaderSource.includes('<StatusLabel'), 'agent-session-header renders StatusLabel');
+  assert.ok(
+    agentSessionPageSource.includes('formatSessionStatus(assistant.activity)'),
+    'agent-session-page passes formatSessionStatus to header',
+  );
 });
 
 test('Item 9 (Task 19): Standardize H2 scale on spec-detail to text-xl', () => {
-  const specDetailSource = readSource('features/specifications/detail/overview-panel.tsx');
+  const specDetailSource = readSource('screens/specification-detail/specification-overview.tsx');
   const statusBoardSource = readSource('features/specifications/detail/status-board.tsx');
 
   // Both section h2 headings use text-xl
-  assert.ok(specDetailSource.includes('<h2 className="mt-1 text-xl font-semibold text-[var(--foreground)]">Ostatnie rozmowy</h2>'));
-  assert.ok(statusBoardSource.includes('text-xl font-semibold tracking-tight text-[var(--foreground)]'));
+  assert.ok(
+    specDetailSource.includes('<h2 className="mt-1 text-xl font-semibold text-fg-primary">Ostatnie rozmowy</h2>'),
+  );
+  assert.ok(statusBoardSource.includes('text-xl font-semibold tracking-tight text-fg-primary'));
 });
 
 test('Item 10 (Task 20): CreateAgentSessionDialog closes on Escape when not creating', () => {

@@ -25,10 +25,12 @@ test('serves provider-neutral pull request results through an exact read-only ro
     assert.equal(traversal.status, 404);
     // No custom 405 machinery: an unsupported method on a known path falls
     // through to the generic `/api/*` 404, same as an unknown route.
-    const mutation = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/pull-requests`, { method: 'POST' });
+    const mutation = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/pull-requests`, {
+      method: 'POST',
+    });
     assert.equal(mutation.status, 404);
   } finally {
-    await new Promise(r => server.close(r));
+    await new Promise((r) => server.close(r));
   }
 });
 test('serves the PR file-diffs route (POST { paths, headSha }) and rejects a malformed body', async () => {
@@ -37,15 +39,20 @@ test('serves the PR file-diffs route (POST { paths, headSha }) and rejects a mal
   });
   const baseUrl = await listen(server, { port: 0 });
   try {
-    const malformed = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/pull-requests/42/file-diffs`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ headSha: 'sha-1' }),
-    });
+    const malformed = await fetch(
+      `${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/pull-requests/42/file-diffs`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ headSha: 'sha-1' }),
+      },
+    );
     assert.equal(malformed.status, 400);
-    const wrongMethod = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/pull-requests/42/file-diffs`);
+    const wrongMethod = await fetch(
+      `${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/pull-requests/42/file-diffs`,
+    );
     assert.equal(wrongMethod.status, 404);
   } finally {
-    await new Promise(r => server.close(r));
+    await new Promise((r) => server.close(r));
   }
 });

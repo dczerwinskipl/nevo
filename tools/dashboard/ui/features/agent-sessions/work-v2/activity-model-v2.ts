@@ -52,7 +52,11 @@ export function describeCurrentActivityV2(activity: CurrentActivityV2 | null): C
         startedAt: activity.startedAt,
       };
     case 'tool': {
-      const detail = activity.subject || (activity.description && activity.description.length <= 80 && !activity.description.includes('\n') ? activity.description : undefined);
+      const detail =
+        activity.subject ||
+        (activity.description && activity.description.length <= 80 && !activity.description.includes('\n')
+          ? activity.description
+          : undefined);
       return {
         kind: activity.kind,
         label: activity.title,
@@ -83,9 +87,19 @@ export function describeCurrentActivityV2(activity: CurrentActivityV2 | null): C
         startedAt: activity.startedAt,
       };
     case 'waiting_for_tool':
-      return { kind: activity.kind, label: 'Waiting for tool execution', textFirst: true, startedAt: activity.startedAt };
+      return {
+        kind: activity.kind,
+        label: 'Waiting for tool execution',
+        textFirst: true,
+        startedAt: activity.startedAt,
+      };
     case 'waiting_for_model':
-      return { kind: activity.kind, label: 'Waiting for model response', textFirst: true, startedAt: activity.startedAt };
+      return {
+        kind: activity.kind,
+        label: 'Waiting for model response',
+        textFirst: true,
+        startedAt: activity.startedAt,
+      };
     case 'cancelling':
       return { kind: activity.kind, label: 'Cancelling turn…', textFirst: true, startedAt: activity.startedAt };
     default:

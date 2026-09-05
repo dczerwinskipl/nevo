@@ -1,16 +1,13 @@
 import { AiValidationError, normalizeTimestamp } from '../contracts.mjs';
 
-export const FINAL_ANSWER_STATUSES = Object.freeze([
-  'pending',
-  'streaming',
-  'completed',
-  'absent',
-]);
+export const FINAL_ANSWER_STATUSES = Object.freeze(['pending', 'streaming', 'completed', 'absent']);
 
 function rejectProviderFields(value, path = 'finalAnswer') {
   for (const [key, child] of Object.entries(value || {})) {
     if (/provider.*(?:request|event|payload).*id|providerRequestId|rawPayload/i.test(key)) {
-      throw new AiValidationError(`Provider-private field '${key}' is not allowed in FinalAnswer.`, { field: `${path}.${key}` });
+      throw new AiValidationError(`Provider-private field '${key}' is not allowed in FinalAnswer.`, {
+        field: `${path}.${key}`,
+      });
     }
     if (child && typeof child === 'object' && !Array.isArray(child)) {
       rejectProviderFields(child, `${path}.${key}`);
@@ -36,10 +33,10 @@ export function validateFinalAnswer(value) {
   const text = typeof value.text === 'string' ? value.text : '';
   const status = value.status ?? 'streaming';
   if (!FINAL_ANSWER_STATUSES.includes(status)) {
-    throw new AiValidationError(
-      `FinalAnswer 'status' must be one of: ${FINAL_ANSWER_STATUSES.join(', ')}.`,
-      { field: 'finalAnswer.status', value: status },
-    );
+    throw new AiValidationError(`FinalAnswer 'status' must be one of: ${FINAL_ANSWER_STATUSES.join(', ')}.`, {
+      field: 'finalAnswer.status',
+      value: status,
+    });
   }
 
   return {

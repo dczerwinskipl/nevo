@@ -186,10 +186,7 @@ test('error state is propagated reactively to QueryObserver when fetchBatch reje
     observerEvents.push(result);
   });
 
-  await assert.rejects(
-    () => manager.load({ path: 'error-file.ts' }),
-    /Network timeout loading diff/,
-  );
+  await assert.rejects(() => manager.load({ path: 'error-file.ts' }), /Network timeout loading diff/);
 
   const result = observer.getCurrentResult();
   assert.equal(result.status, 'error');
@@ -677,7 +674,10 @@ test('HTTP fetch adapter with ApiError propagates status: 404 does not retry, 50
     retryDelay: 10,
   });
 
-  await assert.rejects(() => manager404.load({ path: 'missing.ts' }), (err) => err instanceof ApiError && err.status === 404);
+  await assert.rejects(
+    () => manager404.load({ path: 'missing.ts' }),
+    (err) => err instanceof ApiError && err.status === 404,
+  );
   await sleep(30);
   assert.equal(fetchAttempts404, 1, 'HTTP 404 via ApiError must not be retried by the query manager');
 
@@ -697,10 +697,9 @@ test('HTTP fetch adapter with ApiError propagates status: 404 does not retry, 50
     retryDelay: 10,
   });
 
-  await assert.rejects(() => manager504.load({ path: 'timeout.ts' }), (err) => err instanceof ApiError && err.status === 504);
+  await assert.rejects(
+    () => manager504.load({ path: 'timeout.ts' }),
+    (err) => err instanceof ApiError && err.status === 504,
+  );
   assert.equal(fetchAttempts504, 2, 'HTTP 504 via ApiError must retry at most once (2 attempts total)');
 });
-
-
-
-

@@ -7,10 +7,20 @@ context:
     - specs/active/semantic-color-tokens-with-tailwind-css-4/overview.md
     - specs/active/semantic-color-tokens-with-tailwind-css-4/owner-decisions.md
     - specs/active/semantic-color-tokens-with-tailwind-css-4/areas/cleanup-and-enforcement.md
+    - docs/development/react-component-guidelines.md
+    - docs/development/ui-ux-guidelines.md
+    - docs/development/nevo-ai-ux-guidelines.md
+    - docs/development/nevo-interaction-model.md
+    - docs/development/storybook.md
     - tools/dashboard/ui/index.css
     - tools/dashboard/ui/index.html
 allowed_paths:
   - tools/dashboard/ui/**
+  - tools/dashboard/tests/**
+  - docs/development/dashboard-frontend-architecture.md
+  - docs/index.generated.json
+  - docs/index.generated.md
+  - docs/routing.generated.json
 forbidden_paths:
   - src/**
 depends_on:
@@ -45,9 +55,10 @@ Every consumer-migration task: `shared-ui-primitives`, `status-tone-contract`,
 
 ## Implementation constraints
 
-- Run the TS/TSX sweep first (`tools/dashboard/ui/**/*.{ts,tsx}`, excluding
-  stories/tests/fixtures); if it finds any straggler, fix it in this task (do not defer)
-  and note which earlier task missed it.
+- Run the TS/TSX sweep first (`tools/dashboard/ui/**/*.{ts,tsx}`, including `*.stories.tsx`,
+  excluding tests/fixtures); if it finds any straggler, fix it in this task (do not defer)
+  and note which earlier task missed it. Stories are executable UI consumers and must
+  satisfy the same token architecture as production components.
 - **Migrate `index.css`'s own embedded `var(--legacy-name)` references before removing
   any legacy declaration.** The full, confirmed list (line numbers from the file as of
   this spec's writing — re-verify against the actual file at implementation time, since
@@ -91,8 +102,8 @@ Every consumer-migration task: `shared-ui-primitives`, `status-tone-contract`,
 
 ## Acceptance criteria
 
-1. TS/TSX sweep (`tools/dashboard/ui/**/*.{ts,tsx}`, excluding stories/tests/fixtures)
-   returns zero `-[var(--`, raw white/black, or `color-mix(` occurrences.
+1. TS/TSX sweep (`tools/dashboard/ui/**/*.{ts,tsx}`, including `*.stories.tsx`,
+   excluding tests/fixtures) returns zero `-[var(--`, raw white/black, or `color-mix(` occurrences.
    `automated: sweep grep with story/test/fixture exclusions, scoped to .ts/.tsx`
 2. Zero `var(--legacy-name)` references remain in `index.css` for any of the original 39
    names — including inside the two preserved `color-mix(...)` calls.

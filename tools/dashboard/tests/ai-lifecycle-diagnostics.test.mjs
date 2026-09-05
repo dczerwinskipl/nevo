@@ -199,7 +199,7 @@ test('runtime integration: lifecycle transitions, tools, and terminal completion
     for (let i = 0; i < 50; i++) {
       snap = runtime.getSnapshot(turn.turnId);
       if (snap?.pendingInteraction) break;
-      await new Promise(r => setTimeout(r, 5));
+      await new Promise((r) => setTimeout(r, 5));
     }
 
     if (snap?.pendingInteraction) {
@@ -209,7 +209,7 @@ test('runtime integration: lifecycle transitions, tools, and terminal completion
     for (let i = 0; i < 50; i++) {
       snap = runtime.getSnapshot(turn.turnId);
       if (snap?.status === 'completed' || snap?.status === 'failed') break;
-      await new Promise(r => setTimeout(r, 5));
+      await new Promise((r) => setTimeout(r, 5));
     }
 
     await traceSink.flushTurn(turn.turnId);
@@ -217,7 +217,7 @@ test('runtime integration: lifecycle transitions, tools, and terminal completion
     const trace = runtime.getTrace(turn.turnId);
     assert.ok(trace.length >= 2, `Expected at least 2 trace records, got ${trace.length}`);
     assert.equal(trace[0].event, 'turn.started');
-    assert.ok(trace.some(r => r.event === 'interaction.requested' || r.event === 'turn.completed'));
+    assert.ok(trace.some((r) => r.event === 'interaction.requested' || r.event === 'turn.completed'));
 
     const exported = runtime.exportTrace(turn.turnId);
     assert.equal(exported.turnId, turn.turnId);
@@ -252,7 +252,7 @@ test('transition race: cancellation requested while waiting records intent and o
     for (let i = 0; i < 50; i++) {
       const snap = runtime.getSnapshot(turn.turnId);
       if (snap?.pendingInteraction) break;
-      await new Promise(r => setTimeout(r, 5));
+      await new Promise((r) => setTimeout(r, 5));
     }
 
     // Cancel while waiting
@@ -260,11 +260,11 @@ test('transition race: cancellation requested while waiting records intent and o
     await traceSink.flushTurn(turn.turnId);
 
     const trace = runtime.getTrace(turn.turnId);
-    const cancelEvent = trace.find(r => r.event === 'turn.cancel_requested');
+    const cancelEvent = trace.find((r) => r.event === 'turn.cancel_requested');
     assert.ok(cancelEvent, 'Trace must record turn.cancel_requested');
     assert.equal(cancelEvent.initiator, 'user');
 
-    const terminalEvent = trace.find(r => r.event === 'turn.failed' || r.event === 'turn.completed');
+    const terminalEvent = trace.find((r) => r.event === 'turn.failed' || r.event === 'turn.completed');
     assert.ok(terminalEvent, 'Trace must record terminal event');
   } finally {
     await rm(tempDir, { recursive: true, force: true });

@@ -7,10 +7,16 @@ context:
     - specs/active/semantic-color-tokens-with-tailwind-css-4/overview.md
     - specs/active/semantic-color-tokens-with-tailwind-css-4/owner-decisions.md
     - specs/active/semantic-color-tokens-with-tailwind-css-4/areas/agent-sessions-and-work.md
+    - docs/development/react-component-guidelines.md
+    - docs/development/ui-ux-guidelines.md
+    - docs/development/nevo-ai-ux-guidelines.md
+    - docs/development/nevo-interaction-model.md
+    - docs/development/storybook.md
     - tools/dashboard/ui/index.css
     - tools/dashboard/ui/shared/status-tone.ts
 allowed_paths:
   - tools/dashboard/ui/features/agent-sessions/**
+  - tools/dashboard/tests/**
 forbidden_paths:
   - tools/dashboard/ui/index.css
   - tools/dashboard/ui/components/ui/**
@@ -69,7 +75,12 @@ and rename `ProviderBadge`'s `cat-1`/`cat-2` usage to `provider-claude`/
   "Usuń sesję z dysku" (delete session) button is a confirmed real, irreversible
   destructive action — migrate it from `variant="ghost"` plus ~7 manual `--danger*`
   class overrides to `<Button variant="destructive">` (added in `tasks/04-*`), removing
-  the manual overrides entirely. `composer/agent-session-composer.tsx:159-173`'s
+  the manual overrides entirely. Per the Task 04 implementation finding on nested
+  contrast, the surrounding container (`agent-session-details.tsx:124`) migrates to a
+  neutral dark surface with a destructive border (`border border-action-destructive/30 bg-surface`),
+  rather than retaining a red-tinted fill (`bg-[var(--danger-muted)]` / `bg-action-destructive/10`)
+  which would compound background luminance and cause `text-action-destructive` to fail
+  the ≥4.5:1 contrast requirement. `composer/agent-session-composer.tsx:159-173`'s
   "Przerwij" (stop/cancel active turn) button is a **different, non-destructive** action
   — migrate its raw `--danger*` `var()` usage to semantic status tokens, but keep it
   visually lighter than the delete button and do **not** apply

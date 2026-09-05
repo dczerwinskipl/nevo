@@ -8,6 +8,9 @@ context:
     - specs/active/semantic-color-tokens-with-tailwind-css-4/owner-decisions.md
     - specs/active/semantic-color-tokens-with-tailwind-css-4/areas/status-tone-contract.md
     - docs/development/react-component-guidelines.md
+    - docs/development/ui-ux-guidelines.md
+    - docs/development/nevo-ai-ux-guidelines.md
+    - docs/development/storybook.md
     - tools/dashboard/ui/index.css
     - tools/dashboard/ui/features/agent-sessions/transcript/projection.ts
     - tools/dashboard/ui/features/agent-sessions/turn-work/turn-work-summary.tsx
@@ -18,6 +21,7 @@ context:
     - tools/dashboard/ui/features/agent-sessions/agent-session-list.tsx
     - tools/dashboard/ui/features/specifications/detail/specification-detail.tsx
   optional:
+    - docs/development/nevo-interaction-model.md
     - tools/dashboard/ui/features/pull-requests/changes/status.ts
 allowed_paths:
   - tools/dashboard/ui/shared/status-tone.ts

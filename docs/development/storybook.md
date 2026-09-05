@@ -13,6 +13,7 @@ summary: >
   and naming conventions, fixture and scenario reuse, state management patterns, Vitest
   test projects, and the mandatory agent visual verification workflow.
 related:
+  - development.dashboard-frontend-architecture
   - development.react-component-guidelines
   - development.ui-ux-guidelines
   - development.nevo-ai-ux-guidelines
@@ -56,23 +57,22 @@ npm --prefix tools/dashboard run test:storybook
 
 ## 2. Story hierarchy and naming conventions
 
-Story titles define the sidebar hierarchy in Storybook. The NEvo dashboard follows this four-tier organization:
+Story titles define the sidebar hierarchy in Storybook. The NEvo dashboard follows this organization matching the component taxonomy defined in [dashboard-frontend-architecture.md](dashboard-frontend-architecture.md):
 
 | Hierarchy tier | Title pattern | Current status in codebase | Purpose |
 |---|---|---|---|
-| **Foundations** | `Foundations/<Topic>` | Implemented: `Foundations/Smoke`<br>`Foundations/Typography`<br>`Foundations/Colors` | Design tokens, color swatches, font size scales, line heights, and smoke sanity tests. |
-| **Features** | `Features/<Domain>/<Feature>` | Implemented: `Features/AgentSessions/ChatSurface` | Vertical domain features composing primitives and domain state models. |
-| **Components** | `Components/<Domain>/<Component>` | *Reserved convention for future stories* | Low-level shared primitives and generic presentation components. |
+| **Foundations** | `Foundations/<Topic>` | Implemented: `Foundations/Colors`<br>`Foundations/Typography`<br>`Foundations/Smoke`<br>`Foundations/TokenResolver` | Design tokens, color swatches, font size scales, line heights, live token resolution tests, and smoke sanity tests. |
+| **Shared UI** | `Shared/UI/<Component>` | Implemented: `Shared/UI/Button`<br>`Shared/UI/Badge`<br>`Shared/UI/Card`<br>`Shared/UI/Dialog`<br>`Shared/UI/Sheet`<br>`Shared/UI/StatusCard`<br>`Shared/UI/Progress`<br>`Shared/UI/LoadingScreen` | Low-level domain-agnostic UI primitives and presentation components. |
+| **Features** | `Features/<Domain>/<Component>` | Implemented: `Features/Agent Sessions/*`<br>`Features/Specifications/*`<br>`Features/Pull Requests/*`<br>`Features/Operations/*` | Vertical domain features composing primitives, domain state models, and scenarios. |
 | **Screens** | `Screens/<PageName>` | *Reserved convention for future stories* | Full page views composed with routing and layout contexts. |
 
-The repository currently implements stories in `Foundations/*` and `Features/*`. `Components/*` and `Screens/*` are reserved structural conventions for future work and do not currently contain story files.
+### Story co-location and ownership rules
 
-### Naming rules
-
-- Story files are co-located with their target components: `<name>.stories.tsx`.
-- The default export `Meta` must specify a `title` following the hierarchy above.
-- Story exports use PascalCase (e.g., `EmptyChat`, `ExistingConversation`, `ActiveThinking`, `ActiveTool`).
-- Mobile breakpoint variants share the base story configuration and append `Mobile` with a viewport parameter:
+- **Co-location:** Story files are strictly co-located with their target components: `<component-name>.stories.tsx` directly beside `<component-name>.tsx`. Omnibus story files bundling multiple components together are prohibited.
+- **Title convention:** The default export `Meta` must specify a `title` following the taxonomy above (`Shared/UI/*`, `Features/<Domain>/*`, `Foundations/*`).
+- **Story exports:** Story exports use PascalCase (e.g., `EmptyChat`, `ExistingConversation`, `ActiveThinking`, `ActiveTool`).
+- **Test utilities isolation:** All Storybook testing utilities, color calculation helpers, and DOM interaction helpers reside in `tools/dashboard/.storybook/test-utils/` and are imported via `@storybook-test-utils`. Test utilities must never be placed in production component directories.
+- **Mobile breakpoint variants:** Mobile variants share the base story configuration and append `Mobile` with a viewport parameter:
   ```typescript
   export const ActiveToolMobile: Story = {
     ...ActiveTool,

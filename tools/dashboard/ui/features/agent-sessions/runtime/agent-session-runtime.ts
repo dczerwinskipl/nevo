@@ -19,7 +19,11 @@ import {
   shouldSurfaceTurnError,
 } from './agent-event-reducer.ts';
 import { connectAgentEventStream, resolveEventSeq } from './agent-event-source.ts';
-import { classifySessionLoadError, fetchAgentSessionSnapshot, AgentSessionLoadError } from './agent-session-transport.ts';
+import {
+  classifySessionLoadError,
+  fetchAgentSessionSnapshot,
+  AgentSessionLoadError,
+} from './agent-session-transport.ts';
 import { postCancelTurn, postRespondInteraction, postStartTurn } from './agent-turn-transport.ts';
 import { useAssistantUiBridge } from './assistant-ui-bridge.ts';
 import { applyTurnUpdatedV2 } from './agent-session-runtime-v2.ts';
@@ -273,7 +277,10 @@ export function useAgentSessionRuntime({
 
   // 3. Send Turn
   const handleSendTurn = useCallback(
-    async (messageText: string, options?: { mode?: AgentExecutionMode; idempotencyKey?: string; userMessage?: string }) => {
+    async (
+      messageText: string,
+      options?: { mode?: AgentExecutionMode; idempotencyKey?: string; userMessage?: string },
+    ) => {
       const trimmed = messageText ? messageText.trim() : '';
       if (!trimmed) {
         throw new Error('Cannot start turn with an empty message.');
@@ -335,7 +342,7 @@ export function useAgentSessionRuntime({
         throw normalized;
       }
     },
-    [provider, providerSessionId, isSnapshotLoaded, loadedIdentity, loadError]
+    [provider, providerSessionId, isSnapshotLoaded, loadedIdentity, loadError],
   );
 
   // 4. Cancel Turn
@@ -396,7 +403,7 @@ export function useAgentSessionRuntime({
         onError?.(err instanceof Error ? err : new Error(String(err)));
       }
     },
-    [provider, providerSessionId, loadedIdentity, onError]
+    [provider, providerSessionId, loadedIdentity, onError],
   );
 
   const exposedMessages = isSnapshotLoaded ? messages : [];
@@ -404,18 +411,14 @@ export function useAgentSessionRuntime({
   const exposedPendingInteraction = isSnapshotLoaded ? pendingInteraction : null;
   const exposedCapabilities = isSnapshotLoaded ? capabilities : null;
   const exposedActivity: AgentSessionStatus = isSnapshotLoaded ? activity : 'idle';
-  const exposedIsRunning = isSnapshotLoaded ? (activity === 'running') : false;
+  const exposedIsRunning = isSnapshotLoaded ? activity === 'running' : false;
   const exposedActiveTurnId = isSnapshotLoaded ? activeTurnId : null;
   const exposedContentRevision = isSnapshotLoaded ? contentRevision : 0;
-  const exposedSessionDetails = isSnapshotLoaded && sessionDetails
-    ? { ...sessionDetails, status: exposedActivity }
-    : null;
+  const exposedSessionDetails =
+    isSnapshotLoaded && sessionDetails ? { ...sessionDetails, status: exposedActivity } : null;
   const exposedLoadError = isErrorForCurrentIdentity ? loadError : null;
-  const exposedConnectionStatus: LiveConnectionStatus = isSnapshotLoaded && !exposedLoadError
-    ? connectionStatus
-    : exposedLoadError
-      ? 'disconnected'
-      : 'unknown';
+  const exposedConnectionStatus: LiveConnectionStatus =
+    isSnapshotLoaded && !exposedLoadError ? connectionStatus : exposedLoadError ? 'disconnected' : 'unknown';
   const exposedLive = exposedConnectionStatus === 'connected';
   const exposedIsLoading = isSnapshotLoaded ? false : Boolean(provider && providerSessionId && !exposedLoadError);
   const exposedIsReady = Boolean(isSnapshotLoaded && !exposedLoadError && activity === 'idle');
@@ -433,7 +436,7 @@ export function useAgentSessionRuntime({
     runtime,
     messages: exposedMessages,
     turns: exposedTurns,
-    optimisticUserMessage: isSnapshotLoaded ? optimisticPending?.text ?? null : null,
+    optimisticUserMessage: isSnapshotLoaded ? (optimisticPending?.text ?? null) : null,
     pendingInteraction: exposedPendingInteraction,
     capabilities: exposedCapabilities,
     sessionDetails: exposedSessionDetails,

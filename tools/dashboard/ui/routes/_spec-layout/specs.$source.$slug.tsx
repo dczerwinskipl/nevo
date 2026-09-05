@@ -1,12 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { SpecificationRoute } from '@/features/specifications/detail/specification-route';
+import { SpecificationDetailScreen } from '@/screens/specification-detail/specification-detail-screen';
 
 export const Route = createFileRoute('/_spec-layout/specs/$source/$slug')({
   component: SpecificationRouteEntry,
-  validateSearch: () => ({}),
 });
 
 function SpecificationRouteEntry() {
   const { source, slug } = Route.useParams();
-  return <SpecificationRoute source={source} slug={slug} />;
+  return <SpecificationDetailScreen source={source} slug={slug} />;
 }

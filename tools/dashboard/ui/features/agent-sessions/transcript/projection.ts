@@ -47,7 +47,7 @@ export function computePresentationSeverity(
   if (isGenuineTurnError(turnError)) {
     return 'error';
   }
-  if (items.some(item => item.status === 'failed')) {
+  if (items.some((item) => item.status === 'failed')) {
     return 'warning';
   }
   return 'normal';
@@ -126,7 +126,7 @@ export interface TranscriptProjection {
  * group, which is exactly the bug this ordering avoids.
  */
 function computeWorkLifecycle(items: WorkItem[], isActiveTurn: boolean): 'current' | 'terminal' {
-  return isActiveTurn || items.some(item => item.status === 'running') ? 'current' : 'terminal';
+  return isActiveTurn || items.some((item) => item.status === 'running') ? 'current' : 'terminal';
 }
 
 /**
@@ -152,7 +152,7 @@ export function projectTranscript(
   messages: NormalizedMessage[],
   { activeTurnId = null }: { activeTurnId?: string | null } = {},
 ): TranscriptProjection {
-  const entries: TranscriptEntry[] = messages.map(message => ({
+  const entries: TranscriptEntry[] = messages.map((message) => ({
     id: message.id,
     role: message.role,
     text: message.text,
@@ -166,16 +166,19 @@ export function projectTranscript(
   // never one per message. The anchor is the first message in transcript order that
   // has tool calls or a turnError; that message's `id` is what TurnWork.messageId
   // records so the rendering layer can place Work exactly once.
-  const turnWorkMap = new Map<string, {
-    anchorMessageId: string;
-    items: WorkItem[];
-    turnError: { code: string; message: string } | undefined;
-    isActiveTurn: boolean;
-  }>();
+  const turnWorkMap = new Map<
+    string,
+    {
+      anchorMessageId: string;
+      items: WorkItem[];
+      turnError: { code: string; message: string } | undefined;
+      isActiveTurn: boolean;
+    }
+  >();
 
   for (const message of messages) {
     if (message.role !== 'assistant' || !message.turnId) continue;
-    const items: WorkItem[] = (message.toolCalls ?? []).map(call => ({
+    const items: WorkItem[] = (message.toolCalls ?? []).map((call) => ({
       toolId: call.id,
       toolName: call.name,
       input: call.input,
@@ -212,9 +215,7 @@ export function projectTranscript(
     workByTurn.push({
       turnId,
       messageId: anchorMessageId,
-      status: lifecycle === 'current'
-        ? 'current'
-        : (isGenuineTurnError(turnError) ? 'failed' : 'completed'),
+      status: lifecycle === 'current' ? 'current' : isGenuineTurnError(turnError) ? 'failed' : 'completed',
       severity,
       hasFailures,
       items,

@@ -18,7 +18,9 @@ function requiredString(value, field, max = 256) {
 function rejectProviderFields(value, path = 'turn') {
   for (const [key, child] of Object.entries(value || {})) {
     if (/provider.*(?:request|event|payload).*id|providerRequestId|rawPayload/i.test(key)) {
-      throw new AiValidationError(`Provider-private field '${key}' is not allowed in canonical turn.`, { field: `${path}.${key}` });
+      throw new AiValidationError(`Provider-private field '${key}' is not allowed in canonical turn.`, {
+        field: `${path}.${key}`,
+      });
     }
     if (child && typeof child === 'object' && !Array.isArray(child)) {
       rejectProviderFields(child, `${path}.${key}`);
@@ -34,12 +36,14 @@ export function validateCanonicalTurn(value) {
 
   const id = requiredString(value.id ?? value.turnId, 'turn.id');
   const provider = requiredString(value.provider, 'turn.provider');
-  const providerSessionId = value.providerSessionId != null && value.providerSessionId !== ''
-    ? requiredString(value.providerSessionId, 'turn.providerSessionId')
-    : null;
-  const sessionId = value.sessionId != null && value.sessionId !== ''
-    ? requiredString(value.sessionId, 'turn.sessionId')
-    : providerSessionId;
+  const providerSessionId =
+    value.providerSessionId != null && value.providerSessionId !== ''
+      ? requiredString(value.providerSessionId, 'turn.providerSessionId')
+      : null;
+  const sessionId =
+    value.sessionId != null && value.sessionId !== ''
+      ? requiredString(value.sessionId, 'turn.sessionId')
+      : providerSessionId;
   const mode = validateAgentExecutionMode(value.mode ?? DEFAULT_AGENT_EXECUTION_MODE, 'turn.mode');
 
   const status = validateTurnStatus(value.status);
@@ -49,15 +53,14 @@ export function validateCanonicalTurn(value) {
 
   const work = Array.isArray(value.work)
     ? value.work.map((item, idx) => {
-      const validated = validateWorkItem(item);
-      if (validated.seq !== idx + 1) {
-        throw new AiValidationError(
-          `Work item at index ${idx} has seq ${validated.seq}, expected ${idx + 1}.`,
-          { field: `work[${idx}].seq` },
-        );
-      }
-      return validated;
-    })
+        const validated = validateWorkItem(item);
+        if (validated.seq !== idx + 1) {
+          throw new AiValidationError(`Work item at index ${idx} has seq ${validated.seq}, expected ${idx + 1}.`, {
+            field: `work[${idx}].seq`,
+          });
+        }
+        return validated;
+      })
     : [];
 
   const activityCount = work.length;
@@ -69,14 +72,20 @@ export function validateCanonicalTurn(value) {
     terminalOutcome = {
       outcome: requiredString(value.terminalOutcome.outcome, 'terminalOutcome.outcome', 50),
       initiator: requiredString(value.terminalOutcome.initiator ?? 'provider', 'terminalOutcome.initiator', 50),
-      ...(value.terminalOutcome.cause ? { cause: requiredString(value.terminalOutcome.cause, 'terminalOutcome.cause', 200) } : {}),
-      ...(value.terminalOutcome.finishReason ? { finishReason: requiredString(value.terminalOutcome.finishReason, 'terminalOutcome.finishReason', 100) } : {}),
-      ...(value.terminalOutcome.error ? {
-        error: {
-          code: requiredString(value.terminalOutcome.error.code, 'terminalOutcome.error.code', 100),
-          message: requiredString(value.terminalOutcome.error.message, 'terminalOutcome.error.message', 2000),
-        },
-      } : {}),
+      ...(value.terminalOutcome.cause
+        ? { cause: requiredString(value.terminalOutcome.cause, 'terminalOutcome.cause', 200) }
+        : {}),
+      ...(value.terminalOutcome.finishReason
+        ? { finishReason: requiredString(value.terminalOutcome.finishReason, 'terminalOutcome.finishReason', 100) }
+        : {}),
+      ...(value.terminalOutcome.error
+        ? {
+            error: {
+              code: requiredString(value.terminalOutcome.error.code, 'terminalOutcome.error.code', 100),
+              message: requiredString(value.terminalOutcome.error.message, 'terminalOutcome.error.message', 2000),
+            },
+          }
+        : {}),
       completedAt: normalizeTimestamp(value.terminalOutcome.completedAt ?? now, 'terminalOutcome.completedAt'),
     };
   }
@@ -84,7 +93,7 @@ export function validateCanonicalTurn(value) {
   // Cross-field invariant checks
   if (status.status === 'requiresAttention') {
     const matchingInteraction = work.find(
-      w => w.type === 'interaction' && w.id === status.interactionId && w.status === 'pending',
+      (w) => w.type === 'interaction' && w.id === status.interactionId && w.status === 'pending',
     );
     if (!matchingInteraction) {
       throw new AiValidationError(
@@ -110,20 +119,24 @@ export function validateCanonicalTurn(value) {
     // browser renders as the turn's chat bubble. They are equal for a plain composer
     // send and diverge only when the caller enriches the initial-dispatch prompt.
     ...(value.prompt ? { prompt: requiredString(value.prompt, 'turn.prompt', 100_000) } : {}),
-    ...(value.userMessage ? {
-      userMessage: {
-        text: requiredString(value.userMessage.text, 'turn.userMessage.text', 100_000),
-        createdAt: normalizeTimestamp(value.userMessage.createdAt ?? now, 'turn.userMessage.createdAt'),
-      },
-    } : {}),
+    ...(value.userMessage
+      ? {
+          userMessage: {
+            text: requiredString(value.userMessage.text, 'turn.userMessage.text', 100_000),
+            createdAt: normalizeTimestamp(value.userMessage.createdAt ?? now, 'turn.userMessage.createdAt'),
+          },
+        }
+      : {}),
     ...(terminalOutcome ? { terminalOutcome } : {}),
-    ...(value.usage ? {
-      usage: {
-        ...(typeof value.usage.tokensIn === 'number' ? { tokensIn: value.usage.tokensIn } : {}),
-        ...(typeof value.usage.tokensOut === 'number' ? { tokensOut: value.usage.tokensOut } : {}),
-        ...(typeof value.usage.cost === 'number' ? { cost: value.usage.cost } : {}),
-      },
-    } : {}),
+    ...(value.usage
+      ? {
+          usage: {
+            ...(typeof value.usage.tokensIn === 'number' ? { tokensIn: value.usage.tokensIn } : {}),
+            ...(typeof value.usage.tokensOut === 'number' ? { tokensOut: value.usage.tokensOut } : {}),
+            ...(typeof value.usage.cost === 'number' ? { cost: value.usage.cost } : {}),
+          },
+        }
+      : {}),
     createdAt,
     updatedAt,
     ...(value.completedAt ? { completedAt: normalizeTimestamp(value.completedAt, 'turn.completedAt') } : {}),
@@ -177,7 +190,7 @@ export function appendWorkItem(turn, rawItem) {
 }
 
 export function updateWorkItem(turn, itemId, updates) {
-  const index = turn.work.findIndex(item => item.id === itemId);
+  const index = turn.work.findIndex((item) => item.id === itemId);
   if (index === -1) {
     throw new AiValidationError(`WorkItem '${itemId}' not found in turn '${turn.id}'.`);
   }
@@ -196,7 +209,9 @@ export function updateWorkItem(turn, itemId, updates) {
   const isCurrentlyTerminal = isTerminalWorkStatus(current.type, current.status);
   const targetStatus = updates.status ?? current.status;
   if (isCurrentlyTerminal && isActiveWorkStatus(current.type, targetStatus)) {
-    throw new AiValidationError(`Terminal ${current.type} WorkItem '${itemId}' (status: ${current.status}) cannot return to active status '${targetStatus}'.`);
+    throw new AiValidationError(
+      `Terminal ${current.type} WorkItem '${itemId}' (status: ${current.status}) cannot return to active status '${targetStatus}'.`,
+    );
   }
 
   const merged = {
@@ -261,7 +276,7 @@ export function setTurnStatus(turn, newStatus) {
   // If entering requiresAttention, check that a pending interaction exists
   if (targetStatus === 'requiresAttention') {
     const pendingInt = turn.work.find(
-      w => w.type === 'interaction' && w.id === targetStatusObj.interactionId && w.status === 'pending',
+      (w) => w.type === 'interaction' && w.id === targetStatusObj.interactionId && w.status === 'pending',
     );
     if (!pendingInt) {
       throw new AiValidationError(
@@ -303,15 +318,18 @@ export function computeCurrentActivity(turn) {
   // 1. Pending blocking Interaction -> requires_attention
   if (status === 'requiresAttention') {
     const interactionItem = workItems.find(
-      w => w.type === 'interaction' && (w.id === turn.status.interactionId || w.status === 'pending'),
+      (w) => w.type === 'interaction' && (w.id === turn.status.interactionId || w.status === 'pending'),
     );
     const interaction = interactionItem?.interaction;
     return {
       kind: 'requires_attention',
       subjectId: interactionItem?.id ?? turn.status.interactionId,
-      title: interaction?.kind === 'permission'
-        ? `Permission required for ${interaction.toolName || 'tool'}`
-        : (interaction?.kind === 'question' ? 'User input question pending' : 'Attention required'),
+      title:
+        interaction?.kind === 'permission'
+          ? `Permission required for ${interaction.toolName || 'tool'}`
+          : interaction?.kind === 'question'
+            ? 'User input question pending'
+            : 'Attention required',
       description: interaction?.prompt ?? interaction?.details ?? undefined,
       status: 'requiresAttention',
       startedAt: interactionItem?.createdAt ?? turn.status.since ?? turn.updatedAt,
@@ -319,9 +337,7 @@ export function computeCurrentActivity(turn) {
   }
 
   // 2. Active ToolInvocation(s)
-  const activeTools = workItems.filter(
-    w => w.type === 'tool' && (w.status === 'active' || w.status === 'queued'),
-  );
+  const activeTools = workItems.filter((w) => w.type === 'tool' && (w.status === 'active' || w.status === 'queued'));
   if (activeTools.length > 0) {
     const primaryTool = activeTools[activeTools.length - 1]; // most recently started/updated
     if (activeTools.length === 1) {
@@ -353,7 +369,7 @@ export function computeCurrentActivity(turn) {
   }
 
   // 3. Active / streaming Reasoning backed by provider evidence -> thinking
-  const activeReasoning = workItems.find(w => w.type === 'reasoning' && w.status === 'streaming');
+  const activeReasoning = workItems.find((w) => w.type === 'reasoning' && w.status === 'streaming');
   if (activeReasoning) {
     return {
       kind: 'thinking',
@@ -366,7 +382,7 @@ export function computeCurrentActivity(turn) {
   }
 
   // 4. Active / streaming Commentary -> commentary
-  const activeCommentary = workItems.find(w => w.type === 'commentary' && w.status === 'streaming');
+  const activeCommentary = workItems.find((w) => w.type === 'commentary' && w.status === 'streaming');
   if (activeCommentary) {
     return {
       kind: 'commentary',
@@ -414,7 +430,9 @@ export function computeCurrentActivity(turn) {
 
 export function bindTurnProviderSessionId(turn, allocatedId) {
   if (!allocatedId || typeof allocatedId !== 'string' || allocatedId.trim().length === 0) {
-    throw new AiValidationError("Property 'providerSessionId' must be a non-empty string.", { field: 'providerSessionId' });
+    throw new AiValidationError("Property 'providerSessionId' must be a non-empty string.", {
+      field: 'providerSessionId',
+    });
   }
   const validId = allocatedId.trim();
   if (turn.providerSessionId && turn.providerSessionId !== validId) {

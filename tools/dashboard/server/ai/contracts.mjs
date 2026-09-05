@@ -187,12 +187,14 @@ export function validateAiMessage(value) {
     text,
     ...(value.reasoning == null ? {} : { reasoning: optionalString(value.reasoning, 'reasoning', 100_000) }),
     ...(value.turnId == null ? {} : { turnId: requiredString(value.turnId, 'turnId') }),
-    ...(value.turnError == null ? {} : {
-      turnError: {
-        code: requiredString(value.turnError.code, 'turnError.code'),
-        message: requiredString(value.turnError.message, 'turnError.message', { opaque: true, max: 2_000 }),
-      },
-    }),
+    ...(value.turnError == null
+      ? {}
+      : {
+          turnError: {
+            code: requiredString(value.turnError.code, 'turnError.code'),
+            message: requiredString(value.turnError.message, 'turnError.message', { opaque: true, max: 2_000 }),
+          },
+        }),
     ...(Array.isArray(value.toolCalls) ? { toolCalls: structuredClone(value.toolCalls) } : {}),
     ...(value.interaction ? { interaction: structuredClone(value.interaction) } : {}),
     createdAt: normalizeTimestamp(value.createdAt, 'createdAt'),
@@ -229,7 +231,9 @@ export function normalizeInteraction(value, { assignIds = false, idFactory = ran
       if (input !== undefined) {
         const encoded = JSON.stringify(input);
         if (!input || typeof input !== 'object' || Array.isArray(input) || encoded.length > 4_096) {
-          throw new AiValidationError("Permission 'input' must be a bounded normalized object.", { field: 'interaction.input' });
+          throw new AiValidationError("Permission 'input' must be a bounded normalized object.", {
+            field: 'interaction.input',
+          });
         }
         rejectProviderFields(input, 'interaction.input');
       }
@@ -242,29 +246,48 @@ export function normalizeInteraction(value, { assignIds = false, idFactory = ran
     }
     case 'question': {
       if (!Array.isArray(value.questions) || value.questions.length === 0 || value.questions.length > 20) {
-        throw new AiValidationError('Question interactions require 1-20 questions.', { field: 'interaction.questions' });
+        throw new AiValidationError('Question interactions require 1-20 questions.', {
+          field: 'interaction.questions',
+        });
       }
       const questions = value.questions.map((question, index) => {
         const questionId = question?.id ?? (assignIds ? `question-${idFactory()}` : undefined);
         const options = question?.options;
         if (options !== undefined && (!Array.isArray(options) || options.length > 20)) {
-          throw new AiValidationError("Question 'options' must be an array of at most 20 items.", { field: `interaction.questions[${index}].options` });
+          throw new AiValidationError("Question 'options' must be an array of at most 20 items.", {
+            field: `interaction.questions[${index}].options`,
+          });
         }
         return {
           id: requiredString(questionId, `interaction.questions[${index}].id`),
-          question: requiredString(question?.question, `interaction.questions[${index}].question`, { opaque: true, max: 1_000 }),
-          ...(question?.header == null ? {} : { header: optionalString(question.header, `interaction.questions[${index}].header`, 100) }),
-          ...(options === undefined ? {} : {
-            options: options.map((option, optionIndex) => ({
-              label: requiredString(option?.label, `interaction.questions[${index}].options[${optionIndex}].label`, { opaque: true, max: 200 }),
-              ...(option?.description == null ? {} : { description: optionalString(option.description, 'option.description', 500) }),
-            })),
+          question: requiredString(question?.question, `interaction.questions[${index}].question`, {
+            opaque: true,
+            max: 1_000,
           }),
+          ...(question?.header == null
+            ? {}
+            : { header: optionalString(question.header, `interaction.questions[${index}].header`, 100) }),
+          ...(options === undefined
+            ? {}
+            : {
+                options: options.map((option, optionIndex) => ({
+                  label: requiredString(
+                    option?.label,
+                    `interaction.questions[${index}].options[${optionIndex}].label`,
+                    { opaque: true, max: 200 },
+                  ),
+                  ...(option?.description == null
+                    ? {}
+                    : { description: optionalString(option.description, 'option.description', 500) }),
+                })),
+              }),
           multiSelect: question?.multiSelect === true,
         };
       });
-      if (new Set(questions.map(question => question.id)).size !== questions.length) {
-        throw new AiValidationError('Question IDs must be unique within an interaction.', { field: 'interaction.questions' });
+      if (new Set(questions.map((question) => question.id)).size !== questions.length) {
+        throw new AiValidationError('Question IDs must be unique within an interaction.', {
+          field: 'interaction.questions',
+        });
       }
       return { ...base, questions };
     }
@@ -278,7 +301,9 @@ export function normalizeInteraction(value, { assignIds = false, idFactory = ran
       };
     }
     default:
-      throw new AiValidationError("Interaction 'kind' must be permission, question, or confirmation.", { field: 'interaction.kind' });
+      throw new AiValidationError("Interaction 'kind' must be permission, question, or confirmation.", {
+        field: 'interaction.kind',
+      });
   }
 }
 
@@ -298,9 +323,14 @@ export function validateInteractionResponse(interaction, value) {
     }
     case 'confirmation': {
       if (typeof value.confirmed !== 'boolean' && !['confirm', 'cancel', 'allow', 'deny'].includes(value.decision)) {
-        throw new AiValidationError("Confirmation response must specify 'confirmed' or 'decision'.", { field: 'confirmed' });
+        throw new AiValidationError("Confirmation response must specify 'confirmed' or 'decision'.", {
+          field: 'confirmed',
+        });
       }
-      const confirmed = typeof value.confirmed === 'boolean' ? value.confirmed : (value.decision === 'confirm' || value.decision === 'allow');
+      const confirmed =
+        typeof value.confirmed === 'boolean'
+          ? value.confirmed
+          : value.decision === 'confirm' || value.decision === 'allow';
       return {
         confirmed,
         decision: confirmed ? 'confirm' : 'cancel',
@@ -311,20 +341,24 @@ export function validateInteractionResponse(interaction, value) {
       if (!Array.isArray(value.answers) || value.answers.length !== interaction.questions.length) {
         throw new AiValidationError('Question responses require one answer per question.', { field: 'answers' });
       }
-      const expected = new Set(interaction.questions.map(question => question.id));
+      const expected = new Set(interaction.questions.map((question) => question.id));
       const seen = new Set();
       const answers = value.answers.map((answer, index) => {
         const questionId = requiredString(answer?.questionId, `answers[${index}].questionId`);
         if (!expected.has(questionId) || seen.has(questionId)) {
-          throw new AiValidationError('Answers must correlate to each unique question ID.', { field: `answers[${index}].questionId` });
+          throw new AiValidationError('Answers must correlate to each unique question ID.', {
+            field: `answers[${index}].questionId`,
+          });
         }
         seen.add(questionId);
         const raw = answer?.value;
         if (typeof raw !== 'string' && !Array.isArray(raw)) {
-          throw new AiValidationError("Answer 'value' must be a string or string array.", { field: `answers[${index}].value` });
+          throw new AiValidationError("Answer 'value' must be a string or string array.", {
+            field: `answers[${index}].value`,
+          });
         }
         const values = Array.isArray(raw) ? raw : [raw];
-        if (values.length === 0 || values.some(item => typeof item !== 'string' || item.length > 1_000)) {
+        if (values.length === 0 || values.some((item) => typeof item !== 'string' || item.length > 1_000)) {
           throw new AiValidationError("Answer 'value' is invalid or too large.", { field: `answers[${index}].value` });
         }
         return { questionId, value: Array.isArray(raw) ? [...raw] : raw };
@@ -343,7 +377,12 @@ export function validateAgentEvent(value) {
   rejectProviderFields(value);
   const idValue = value.id ?? value.seq;
   const base = {
-    id: Number.isSafeInteger(idValue) && idValue > 0 ? idValue : (() => { throw new AiValidationError("Event 'id' must be a positive integer.", { field: 'id' }); })(),
+    id:
+      Number.isSafeInteger(idValue) && idValue > 0
+        ? idValue
+        : (() => {
+            throw new AiValidationError("Event 'id' must be a positive integer.", { field: 'id' });
+          })(),
     type: value.type,
     turnId: requiredString(value.turnId, 'turnId'),
     timestamp: normalizeTimestamp(value.timestamp, 'timestamp'),
@@ -433,7 +472,9 @@ export function validateAgentEvent(value) {
       return {
         ...base,
         ...(typeof value.durationMs === 'number' ? { durationMs: value.durationMs } : {}),
-        ...(value.finishReason ? { finishReason: requiredString(value.finishReason, 'finishReason', { opaque: true, max: 50 }) } : {}),
+        ...(value.finishReason
+          ? { finishReason: requiredString(value.finishReason, 'finishReason', { opaque: true, max: 50 }) }
+          : {}),
       };
 
     case 'turn.failed':
@@ -466,7 +507,6 @@ export function validateAgentEvent(value) {
   }
 }
 
-
 export const validateAiEvent = validateAgentEvent;
 
 export const AGENT_EXECUTION_MODES = Object.freeze(['ask', 'edit', 'agent']);
@@ -474,10 +514,10 @@ export const DEFAULT_AGENT_EXECUTION_MODE = 'edit';
 
 export function validateAgentExecutionMode(mode, field = 'mode') {
   if (typeof mode !== 'string' || !AGENT_EXECUTION_MODES.includes(mode)) {
-    throw new AiValidationError(
-      `'${field}' must be one of ${AGENT_EXECUTION_MODES.join(', ')}.`,
-      { field, value: mode }
-    );
+    throw new AiValidationError(`'${field}' must be one of ${AGENT_EXECUTION_MODES.join(', ')}.`, {
+      field,
+      value: mode,
+    });
   }
   return mode;
 }
@@ -547,7 +587,12 @@ export function projectChatV1(turns = []) {
         } else if (item.type === 'reasoning') {
           if (item.text) reasoning += item.text;
         } else if (item.type === 'tool') {
-          const status = item.status === 'completed' ? 'completed' : ((item.status === 'active' || item.status === 'queued') ? 'running' : 'failed');
+          const status =
+            item.status === 'completed'
+              ? 'completed'
+              : item.status === 'active' || item.status === 'queued'
+                ? 'running'
+                : 'failed';
           toolCalls.push({
             id: item.id,
             name: item.toolName || 'tool',
@@ -566,9 +611,13 @@ export function projectChatV1(turns = []) {
       }
     }
 
-    const text = (turn.status?.outcome === 'interrupted' && turn.finalAnswer?.status !== 'completed')
-      ? (turn.status?.error?.message || 'Interrupted by server restart.')
-      : (turn.finalAnswer?.text ?? (turn.status?.outcome === 'interrupted' ? (turn.status?.error?.message || 'Interrupted by server restart.') : commentaryParts.join('')));
+    const text =
+      turn.status?.outcome === 'interrupted' && turn.finalAnswer?.status !== 'completed'
+        ? turn.status?.error?.message || 'Interrupted by server restart.'
+        : (turn.finalAnswer?.text ??
+          (turn.status?.outcome === 'interrupted'
+            ? turn.status?.error?.message || 'Interrupted by server restart.'
+            : commentaryParts.join('')));
 
     let turnError = undefined;
     if (turn.status?.status === 'terminal' && turn.status.outcome !== 'completed') {

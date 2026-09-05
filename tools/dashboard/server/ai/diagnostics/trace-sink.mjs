@@ -9,16 +9,11 @@ export class LifecycleTraceSink {
   #maxFileSizeBytes;
   #enabled;
   #activeBuffers = new Map(); // turnId -> TraceRecord[]
-  #writeQueues = new Map();  // turnId -> Promise chain
+  #writeQueues = new Map(); // turnId -> Promise chain
   #lastError = null;
   #errorCount = 0;
 
-  constructor({
-    baseDir = null,
-    maxFiles = 500,
-    maxFileSizeBytes = 5_000_000,
-    enabled = true,
-  } = {}) {
+  constructor({ baseDir = null, maxFiles = 500, maxFileSizeBytes = 5_000_000, enabled = true } = {}) {
     this.#baseDir = baseDir ? resolve(baseDir) : resolve(process.cwd(), '.nevo-ai-local', 'lifecycle_traces');
     this.#maxFiles = maxFiles;
     this.#maxFileSizeBytes = maxFileSizeBytes;
@@ -127,7 +122,7 @@ export class LifecycleTraceSink {
         await mkdir(this.#baseDir, { recursive: true });
         await appendFile(filePath, line, 'utf-8');
       })
-      .catch(err => {
+      .catch((err) => {
         this.#recordSinkError(`append:${turnId}`, err);
       });
 
@@ -166,9 +161,9 @@ export class LifecycleTraceSink {
       const content = readFileSync(filePath, 'utf-8');
       return content
         .split('\n')
-        .map(l => l.trim())
+        .map((l) => l.trim())
         .filter(Boolean)
-        .map(l => JSON.parse(l));
+        .map((l) => JSON.parse(l));
     } catch (err) {
       this.#recordSinkError(`read:${turnId}`, err);
       return [];

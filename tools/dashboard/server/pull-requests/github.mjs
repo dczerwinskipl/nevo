@@ -75,14 +75,16 @@ export function mapGitHubPullRequest(reference, metadata) {
     number: Number(metadata.number) || reference.number,
     title: metadata.title || `Pull request #${reference.number}`,
     url: metadata.html_url || `${reference.base_url}/${reference.repository}/pull/${reference.number}`,
-    state: merged ? 'merged' : (metadata.state === 'closed' ? 'closed' : 'open'),
+    state: merged ? 'merged' : metadata.state === 'closed' ? 'closed' : 'open',
     draft: Boolean(metadata.draft),
     mergeableState: metadata.mergeable_state || null,
-    author: metadata.user ? {
-      login: metadata.user.login || 'unknown',
-      url: metadata.user.html_url || null,
-      avatarUrl: metadata.user.avatar_url || null,
-    } : null,
+    author: metadata.user
+      ? {
+          login: metadata.user.login || 'unknown',
+          url: metadata.user.html_url || null,
+          avatarUrl: metadata.user.avatar_url || null,
+        }
+      : null,
     head: branchProjection(metadata.head),
     base: branchProjection(metadata.base),
     headSha: metadata.head?.sha || null,
@@ -270,7 +272,9 @@ export function createGitHubPullRequestProvider({
               const map = new Map(rawFiles.map((file) => [file.filename, file]));
               cache.set(key, map);
               if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
-                console.log(`[file-diffs] pr=#${reference.number} files=${rawFiles.length} total=${duration}ms status=200`);
+                console.log(
+                  `[file-diffs] pr=#${reference.number} files=${rawFiles.length} total=${duration}ms status=200`,
+                );
               }
               return map;
             } catch (error) {
@@ -288,7 +292,10 @@ export function createGitHubPullRequestProvider({
         }
       }
 
-      return paths.map((path) => byPath.get(path)).filter(Boolean).map(fileDiffProjection);
+      return paths
+        .map((path) => byPath.get(path))
+        .filter(Boolean)
+        .map(fileDiffProjection);
     },
 
     async loadFullDiff(root, reference) {

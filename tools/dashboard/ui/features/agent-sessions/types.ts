@@ -81,6 +81,11 @@ export interface TaskNavigationTarget {
   specSlug?: string | null;
 }
 
+export interface AgentSessionTaskRef {
+  id: string;
+  title?: string;
+}
+
 export interface AgentSession {
   provider: string;
   providerSessionId: string;
@@ -141,22 +146,43 @@ export interface AgentQuestionInteraction {
   questions: AgentQuestion[];
 }
 
-export type AgentInteraction = AgentPermissionInteraction | AgentQuestionInteraction | {
-  id: string;
-  kind: string;
-  resumePolicy: 'restart' | 'live-operation';
-  payload?: unknown;
-  [key: string]: unknown;
-};
+export type AgentInteraction =
+  | AgentPermissionInteraction
+  | AgentQuestionInteraction
+  | {
+      id: string;
+      kind: string;
+      resumePolicy: 'restart' | 'live-operation';
+      payload?: unknown;
+      [key: string]: unknown;
+    };
 
 // --- V2 canonical Work model (task 11, temporary "V2" naming per owner-decisions.md D17) ---
 // Mirrors the server wire contract exactly (tools/dashboard/server/ai/model/*.mjs,
 // sessions/service.mjs). The browser never derives these shapes itself — only formats them.
 
 export type TurnStatusV2 =
-  | { status: 'active'; detail: 'startup' | 'processing' | 'commentary' | 'reasoning' | 'tool_execution'; subjectId?: string; since: string; source: string }
-  | { status: 'waiting'; reason: 'provider_response' | 'tool_result'; subjectId?: string; since: string; source: string }
-  | { status: 'requiresAttention'; reason: 'permission' | 'question' | 'confirmation'; interactionId: string; since: string; source: string }
+  | {
+      status: 'active';
+      detail: 'startup' | 'processing' | 'commentary' | 'reasoning' | 'tool_execution';
+      subjectId?: string;
+      since: string;
+      source: string;
+    }
+  | {
+      status: 'waiting';
+      reason: 'provider_response' | 'tool_result';
+      subjectId?: string;
+      since: string;
+      source: string;
+    }
+  | {
+      status: 'requiresAttention';
+      reason: 'permission' | 'question' | 'confirmation';
+      interactionId: string;
+      since: string;
+      source: string;
+    }
   | { status: 'cancelling'; initiator: string; requestedAt: string; since: string; source: string }
   | {
       status: 'terminal';
@@ -175,13 +201,7 @@ export type ToolStatusV2 = 'queued' | 'active' | 'completed' | 'failed' | 'cance
 export type ToolActionKindV2 = 'read' | 'write' | 'edit' | 'search' | 'list' | 'execute' | 'fetch' | 'other';
 export type ToolActionStatusV2 = 'active' | 'completed' | 'failed';
 export type ToolClosureReasonV2 =
-  | 'turn_cancelled'
-  | 'turn_failed'
-  | 'turn_interrupted'
-  | 'turn_completed'
-  | 'process_exit'
-  | 'timeout'
-  | 'unknown';
+  'turn_cancelled' | 'turn_failed' | 'turn_interrupted' | 'turn_completed' | 'process_exit' | 'timeout' | 'unknown';
 
 export interface ToolActionV2 {
   id: string;
@@ -260,13 +280,7 @@ export interface FinalAnswerV2 {
 }
 
 export type CurrentActivityKindV2 =
-  | 'requires_attention'
-  | 'tool'
-  | 'thinking'
-  | 'commentary'
-  | 'waiting_for_tool'
-  | 'cancelling'
-  | 'waiting_for_model';
+  'requires_attention' | 'tool' | 'thinking' | 'commentary' | 'waiting_for_tool' | 'cancelling' | 'waiting_for_model';
 
 export interface CurrentActivityV2 {
   kind: CurrentActivityKindV2;

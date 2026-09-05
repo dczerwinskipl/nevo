@@ -57,9 +57,8 @@ export const pendingDispatchStore = {
     const existing = this.getPending(provider, sessionId);
 
     // Reuse existing idempotency key if same prompt is already pending
-    const idempotencyKey = existing?.prompt === trimmed && existing.idempotencyKey
-      ? existing.idempotencyKey
-      : generateIdempotencyKey();
+    const idempotencyKey =
+      existing?.prompt === trimmed && existing.idempotencyKey ? existing.idempotencyKey : generateIdempotencyKey();
 
     const record: PendingInitialDispatch = {
       sessionKey,

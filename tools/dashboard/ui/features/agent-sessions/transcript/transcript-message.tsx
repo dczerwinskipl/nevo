@@ -8,7 +8,7 @@ import { hasVisibleProse, shouldRenderTranscriptMessage } from '../turn-work/tur
 import { shouldCollapseMessage } from './message-collapse';
 import type { TurnWork } from './projection';
 import type { NormalizedMessage } from '../types';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 
 export interface TranscriptMessageProps {
   message: NormalizedMessage;
@@ -17,7 +17,7 @@ export interface TranscriptMessageProps {
 }
 
 /**
- * Module-level per react-component-guidelines.md §20.1 — previously a nested function
+ * Module-level per react-component-guidelines.md §2.1 "Default: one primary concept per module" — previously a nested function
  * inside `AgentSessionPage`, now extracted so it isn't recreated on every render. No avatars
  * (FR-2): role is distinguished by alignment (`justify-end`/`items-end` for the user)
  * plus background color, not color alone (NFR-2). Consumes Task 01's `TurnWork`
@@ -29,7 +29,7 @@ export function TranscriptMessage({ message, work, isStreaming = false }: Transc
   const hasProse = hasVisibleProse(message);
   const isLong = user && shouldCollapseMessage(message.text);
   const [expanded, setExpanded] = useState(false);
-  const toggleExpanded = useCallback(() => setExpanded(previous => !previous), []);
+  const toggleExpanded = useCallback(() => setExpanded((previous) => !previous), []);
 
   // Nothing to show yet (no prose, no Work) — e.g. the brief moment a turn has started
   // but no content has streamed in — render nothing rather than an empty bubble/circle;
@@ -38,26 +38,28 @@ export function TranscriptMessage({ message, work, isStreaming = false }: Transc
 
   return (
     <div className={cn('flex w-full min-w-0', user ? 'justify-end' : 'justify-start')}>
-      <div className={cn('w-full min-w-0 space-y-1.5 flex flex-col', user ? 'items-end' : 'items-start')}>
+      <div className={cn('flex w-full min-w-0 flex-col space-y-1.5', user ? 'items-end' : 'items-start')}>
         {/* Work is a flat transcript row, never nested inside the prose card below —
             a turn with no prose renders Work directly with no card around it at all. */}
         {work && (
-          <div className="w-full min-w-0 max-w-full">
+          <div className="w-full max-w-full min-w-0">
             <TurnWorkSummary work={work} />
           </div>
         )}
         {hasProse && (
-          <div className={cn(
-            'rounded-2xl px-4 py-3 text-sm leading-6',
-            user
-              ? 'w-fit max-w-[min(88%,820px)] border border-[var(--border-strong)] bg-[var(--surface-raised)] text-[var(--foreground)]'
-              : 'w-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]'
-          )}>
-            {message.activityTimeline?.map(item => {
+          <div
+            className={cn(
+              'rounded-2xl px-4 py-3 text-sm leading-6',
+              user
+                ? 'w-fit max-w-[min(88%,820px)] border border-border-strong bg-surface-raised text-fg-primary'
+                : 'w-full border border-border bg-surface text-fg-primary',
+            )}
+          >
+            {message.activityTimeline?.map((item) => {
               if (item.type === 'commentary' && item.text) {
                 return (
-                  <div key={item.id} className="text-sm text-[var(--foreground-muted)] mb-2 last:mb-0">
-                    <MarkdownContent markdown={item.text} className="text-[var(--foreground)]" />
+                  <div key={item.id} className="mb-2 text-sm text-fg-muted last:mb-0">
+                    <MarkdownContent markdown={item.text} className="text-fg-primary" />
                   </div>
                 );
               }
@@ -66,15 +68,17 @@ export function TranscriptMessage({ message, work, isStreaming = false }: Transc
             {message.reasoning && (
               <ReasoningView reasoning={message.reasoning} isStreaming={isStreaming && !message.text} />
             )}
-            {message.text && (
-              user ? (
+            {message.text &&
+              (user ? (
                 <div className="space-y-1.5">
-                  <div className={cn(
-                    'whitespace-pre-wrap break-words font-normal text-[var(--foreground)]',
-                    // Must match message-collapse.ts's COLLAPSED_LINE_LIMIT — Tailwind's
-                    // scanner needs a literal class, not an interpolated variable.
-                    isLong && !expanded && 'line-clamp-6'
-                  )}>
+                  <div
+                    className={cn(
+                      'font-normal break-words whitespace-pre-wrap text-fg-primary',
+                      // Must match message-collapse.ts's COLLAPSED_LINE_LIMIT — Tailwind's
+                      // scanner needs a literal class, not an interpolated variable.
+                      isLong && !expanded && 'line-clamp-6',
+                    )}
+                  >
                     {message.text}
                   </div>
                   {isLong && (
@@ -82,7 +86,7 @@ export function TranscriptMessage({ message, work, isStreaming = false }: Transc
                       type="button"
                       onClick={toggleExpanded}
                       aria-expanded={expanded}
-                      className="flex items-center gap-1 text-xs font-medium text-[var(--accent)] hover:underline"
+                      className="flex items-center gap-1 text-xs font-medium text-accent hover:underline"
                     >
                       {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
                       {expanded ? 'Zwiń' : 'Pokaż więcej'}
@@ -90,9 +94,8 @@ export function TranscriptMessage({ message, work, isStreaming = false }: Transc
                   )}
                 </div>
               ) : (
-                <MarkdownContent markdown={message.text} className="text-[var(--foreground)]" />
-              )
-            )}
+                <MarkdownContent markdown={message.text} className="text-fg-primary" />
+              ))}
           </div>
         )}
       </div>

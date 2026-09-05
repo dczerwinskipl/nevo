@@ -56,12 +56,18 @@ ownership was a planning error).
   text-fg-on-accent` pair — `#f8fafc` on `#ef4444` is only ≈3.60:1, below the ≥4.5:1
   requirement. Use an outline/tinted treatment instead, matching the shape of the
   delete-session button's existing (manual) styling above: `text-action-destructive`
-  foreground, a low-opacity `action-destructive` border/background via Tailwind
-  opacity modifiers (e.g. `border-action-destructive/40 bg-action-destructive/10`), and
-  an `action-destructive` focus ring. Verify default- and hover-state
-  foreground/background pairs both meet ≥4.5:1 against their actual composited
-  rendering. No new theme token unless the opacity-modifier approach demonstrably can't
-  clear contrast.
+  foreground, `border-action-destructive/40 bg-transparent`, with `hover:border-action-destructive/60 hover:bg-action-destructive/5`,
+  and an `action-destructive` focus ring.
+  **Implementation finding recorded:** Stacking opacity modifiers inside a red-tinted
+  container (such as the existing `bg-[var(--danger-muted)]` delete-session container)
+  compounds red luminance and causes `#ef4444` text to fail normal contrast (yielding
+  ~4.14:1 default and ~3.90:1 hover). Even on plain `surface-raised` (`#14171d`),
+  `hover:bg-action-destructive/10` drops to ~4.34:1. To guarantee ≥4.5:1 across all
+  contexts, `Button` uses `bg-transparent` in default state (~4.87:1 on `surface-raised`,
+  ~5.12:1 on `surface`) and `hover:bg-action-destructive/5` on hover (~4.59:1 on
+  `surface-raised`, ~4.82:1 on `surface`), and the planned surrounding-container
+  contract for Area 4 (`agent-session-details.tsx`) is updated to use a neutral dark
+  surface (`border border-action-destructive/30 bg-surface`) rather than a red-tinted fill.
 - `status-card.tsx:27`'s hover treatment stops referencing `accent-strong`/
   `accent-solid` as text color (D4) — keep `text-accent` on hover (no darkening), or use
   an opacity modifier on `accent` if a hover affordance is still wanted; verify the

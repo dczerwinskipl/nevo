@@ -9,19 +9,35 @@ import { serializePublicTurn } from '../server/ai/model/serialization.mjs';
 import { mapAntigravityTool } from '../server/ai/providers/antigravity/provider.mjs';
 import { shouldCollapseMessage } from '../ui/features/agent-sessions/transcript/message-collapse.ts';
 import { previewPlainText } from '../ui/features/agent-sessions/work-v2/text-preview-v2.ts';
-import { describeCurrentActivityV2, terminalHeaderLabelV2 } from '../ui/features/agent-sessions/work-v2/activity-model-v2.ts';
-import { buildTimelineRowsV2, projectTimelineV2, normalizeCommentaryText } from '../ui/features/agent-sessions/work-v2/timeline-projection-v2.ts';
+import {
+  describeCurrentActivityV2,
+  terminalHeaderLabelV2,
+} from '../ui/features/agent-sessions/work-v2/activity-model-v2.ts';
+import {
+  buildTimelineRowsV2,
+  projectTimelineV2,
+  normalizeCommentaryText,
+} from '../ui/features/agent-sessions/work-v2/timeline-projection-v2.ts';
 
 function readV2Source(relative) {
-  return readFileSync(fileURLToPath(new URL(`../ui/features/agent-sessions/work-v2/${relative}`, import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL(`../ui/features/agent-sessions/work-v2/${relative}`, import.meta.url)),
+    'utf8',
+  );
 }
 
 function readPageSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)),
+    'utf8',
+  );
 }
 
 function readRuntimeSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/runtime/agent-session-runtime.ts', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/runtime/agent-session-runtime.ts', import.meta.url)),
+    'utf8',
+  );
 }
 
 // ── 1. Collapsible User Messages in V2 ──────────────────────────────────────────────
@@ -89,7 +105,11 @@ test('Requirement 3: projectChatV1 prefers canonical userMessage.text and falls 
   const userMessages = messages.filter((m) => m.role === 'user');
   assert.equal(userMessages[0].text, 'Clean user query');
   assert.equal(userMessages[1].text, 'Legacy prompt text');
-  assert.doesNotMatch(userMessages[1].text, /NEvo Context/, 'injected context header must be stripped from legacy prompt');
+  assert.doesNotMatch(
+    userMessages[1].text,
+    /NEvo Context/,
+    'injected context header must be stripped from legacy prompt',
+  );
 });
 
 // ── 4. Snapshot-First Hydration ────────────────────────────────────────────────────
@@ -120,13 +140,13 @@ test('Requirement 6 & 7: Level 2 renders timeline rail, compact tool titles, and
 
   // ToolGroupRow uses text-xs typography matching active tool with muted-strong
   assert.match(timelineSource, /text-xs/);
-  assert.match(timelineSource, /font-normal text-\[var\(--muted-strong\)\]/);
+  assert.match(timelineSource, /font-normal text-fg-secondary/);
 
   // Timeline rail structure and marker positioning centered on the icon column
-  assert.match(timelineSource, /left-\[18px\] top-2 w-px -translate-x-1\/2 bg-\[var\(--border\)\]/);
+  assert.match(timelineSource, /top-2 bottom-2 left-\[18px\] w-px -translate-x-1\/2 bg-border/);
 
   // Commentary is clean bordered prose cardlet
-  assert.match(timelineSource, /bg-white\/\[0\.02\]/);
+  assert.match(timelineSource, /bg-fg-primary\/\[0\.02\]/);
   assert.match(timelineSource, /line-clamp-2/);
 
   // Reasoning has distinct "Thinking" cue
@@ -145,7 +165,7 @@ test('Requirement 9 & 10: Work Details sheet provides 2-line layout with concret
   const detailsSource = readV2Source('work-details-sheet-v2.tsx');
 
   // Quiet check icon used for completed status
-  assert.match(detailsSource, /<Check className="size-3 text-\[var\(--muted-strong\)\]"/);
+  assert.match(detailsSource, /<Check className="size-3 text-fg-secondary"/);
 
   // Status badges reserved for exceptions (błąd, przerwano, aktywne)
   assert.match(detailsSource, /AlertTriangle/);
@@ -232,7 +252,8 @@ test('Level 2 Contract 2: ToolInvocation containing long full technical path doe
 });
 
 test('Level 2 Contract 3: Long command line maps to concise semantic summary for Level 2 while preserving full command for Details', () => {
-  const longCmd = 'node --experimental-strip-types --test tools/dashboard/tests/antigravity-provider.test.mjs --verbose';
+  const longCmd =
+    'node --experimental-strip-types --test tools/dashboard/tests/antigravity-provider.test.mjs --verbose';
   const mapped = mapAntigravityTool('run_command', {
     CommandLine: longCmd,
     toolSummary: 'Run dashboard tests',
@@ -393,11 +414,56 @@ test('Level 2 Contract 8: FinalAnswer is absent from Work timeline', () => {
 
 test('16.1 Adjacent grouping: compresses consecutive happy-path actions while preserving L3 canonical count', () => {
   const items = [
-    { id: '1', type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', subject: 'a.ts', status: 'completed', actions: [] },
-    { id: '2', type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', subject: 'b.ts', status: 'completed', actions: [] },
-    { id: '3', type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', subject: 'c.ts', status: 'completed', actions: [] },
-    { id: '4', type: 'tool', toolName: 'grep_search', kind: 'search', title: 'Search files', subject: 'q1', status: 'completed', actions: [] },
-    { id: '5', type: 'tool', toolName: 'grep_search', kind: 'search', title: 'Search files', subject: 'q2', status: 'completed', actions: [] },
+    {
+      id: '1',
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      subject: 'a.ts',
+      status: 'completed',
+      actions: [],
+    },
+    {
+      id: '2',
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      subject: 'b.ts',
+      status: 'completed',
+      actions: [],
+    },
+    {
+      id: '3',
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      subject: 'c.ts',
+      status: 'completed',
+      actions: [],
+    },
+    {
+      id: '4',
+      type: 'tool',
+      toolName: 'grep_search',
+      kind: 'search',
+      title: 'Search files',
+      subject: 'q1',
+      status: 'completed',
+      actions: [],
+    },
+    {
+      id: '5',
+      type: 'tool',
+      toolName: 'grep_search',
+      kind: 'search',
+      title: 'Search files',
+      subject: 'q2',
+      status: 'completed',
+      actions: [],
+    },
   ];
 
   const l2Rows = buildTimelineRowsV2(items);
@@ -417,12 +483,52 @@ test('16.1 Adjacent grouping: compresses consecutive happy-path actions while pr
 
 test('16.2 Chronology boundary: Commentary breaks grouping', () => {
   const items = [
-    { id: '1', type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'completed', actions: [] },
-    { id: '2', type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'completed', actions: [] },
+    {
+      id: '1',
+      type: 'tool',
+      toolName: 'run_command',
+      kind: 'command',
+      title: 'Run command',
+      status: 'completed',
+      actions: [],
+    },
+    {
+      id: '2',
+      type: 'tool',
+      toolName: 'run_command',
+      kind: 'command',
+      title: 'Run command',
+      status: 'completed',
+      actions: [],
+    },
     { id: '3', type: 'commentary', text: 'Port is wrong, retrying.', status: 'completed' },
-    { id: '4', type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'completed', actions: [] },
-    { id: '5', type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', status: 'completed', actions: [] },
-    { id: '6', type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', status: 'completed', actions: [] },
+    {
+      id: '4',
+      type: 'tool',
+      toolName: 'run_command',
+      kind: 'command',
+      title: 'Run command',
+      status: 'completed',
+      actions: [],
+    },
+    {
+      id: '5',
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      status: 'completed',
+      actions: [],
+    },
+    {
+      id: '6',
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      status: 'completed',
+      actions: [],
+    },
   ];
 
   const rows = buildTimelineRowsV2(items);
@@ -438,11 +544,43 @@ test('16.2 Chronology boundary: Commentary breaks grouping', () => {
 
 test('16.3 Reasoning boundary: Reasoning breaks grouping', () => {
   const items = [
-    { id: '1', type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', status: 'completed', actions: [] },
-    { id: '2', type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', status: 'completed', actions: [] },
+    {
+      id: '1',
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      status: 'completed',
+      actions: [],
+    },
+    {
+      id: '2',
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      status: 'completed',
+      actions: [],
+    },
     { id: '3', type: 'reasoning', text: 'Checking types next', status: 'completed', representation: 'summary' },
-    { id: '4', type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', status: 'completed', actions: [] },
-    { id: '5', type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', status: 'completed', actions: [] },
+    {
+      id: '4',
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      status: 'completed',
+      actions: [],
+    },
+    {
+      id: '5',
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      status: 'completed',
+      actions: [],
+    },
   ];
 
   const rows = buildTimelineRowsV2(items);
@@ -456,11 +594,51 @@ test('16.3 Reasoning boundary: Reasoning breaks grouping', () => {
 
 test('16.4 Exception boundary: Failed tools are not swallowed into happy-path groups', () => {
   const items = [
-    { id: '1', type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'completed', actions: [] },
-    { id: '2', type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'completed', actions: [] },
-    { id: '3', type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'failed', actions: [] },
-    { id: '4', type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'completed', actions: [] },
-    { id: '5', type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'completed', actions: [] },
+    {
+      id: '1',
+      type: 'tool',
+      toolName: 'run_command',
+      kind: 'command',
+      title: 'Run command',
+      status: 'completed',
+      actions: [],
+    },
+    {
+      id: '2',
+      type: 'tool',
+      toolName: 'run_command',
+      kind: 'command',
+      title: 'Run command',
+      status: 'completed',
+      actions: [],
+    },
+    {
+      id: '3',
+      type: 'tool',
+      toolName: 'run_command',
+      kind: 'command',
+      title: 'Run command',
+      status: 'failed',
+      actions: [],
+    },
+    {
+      id: '4',
+      type: 'tool',
+      toolName: 'run_command',
+      kind: 'command',
+      title: 'Run command',
+      status: 'completed',
+      actions: [],
+    },
+    {
+      id: '5',
+      type: 'tool',
+      toolName: 'run_command',
+      kind: 'command',
+      title: 'Run command',
+      status: 'completed',
+      actions: [],
+    },
   ];
 
   const rows = buildTimelineRowsV2(items);
@@ -480,9 +658,33 @@ test('16.4 Exception boundary: Failed tools are not swallowed into happy-path gr
 
 test('16.5 Different type/title: No global grouping across different tools', () => {
   const items = [
-    { id: '1', type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', status: 'completed', actions: [] },
-    { id: '2', type: 'tool', toolName: 'replace_file_content', kind: 'edit', title: 'Edit file', status: 'completed', actions: [] },
-    { id: '3', type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', status: 'completed', actions: [] },
+    {
+      id: '1',
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      status: 'completed',
+      actions: [],
+    },
+    {
+      id: '2',
+      type: 'tool',
+      toolName: 'replace_file_content',
+      kind: 'edit',
+      title: 'Edit file',
+      status: 'completed',
+      actions: [],
+    },
+    {
+      id: '3',
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      status: 'completed',
+      actions: [],
+    },
   ];
 
   const rows = buildTimelineRowsV2(items);
@@ -494,7 +696,16 @@ test('16.5 Different type/title: No global grouping across different tools', () 
 
 test('16.6 Single subject: Single tool row retains concise subject', () => {
   const items = [
-    { id: '1', type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', subject: 'provider.mjs', status: 'completed', actions: [] },
+    {
+      id: '1',
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      subject: 'provider.mjs',
+      status: 'completed',
+      actions: [],
+    },
   ];
 
   const rows = buildTimelineRowsV2(items);
@@ -507,9 +718,36 @@ test('16.6 Single subject: Single tool row retains concise subject', () => {
 
 test('16.7 Group subject: Grouped items with differing subjects do not concatenate filenames', () => {
   const items = [
-    { id: '1', type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', subject: 'a.ts', status: 'completed', actions: [] },
-    { id: '2', type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', subject: 'b.ts', status: 'completed', actions: [] },
-    { id: '3', type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', subject: 'c.ts', status: 'completed', actions: [] },
+    {
+      id: '1',
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      subject: 'a.ts',
+      status: 'completed',
+      actions: [],
+    },
+    {
+      id: '2',
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      subject: 'b.ts',
+      status: 'completed',
+      actions: [],
+    },
+    {
+      id: '3',
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      subject: 'c.ts',
+      status: 'completed',
+      actions: [],
+    },
   ];
 
   const rows = buildTimelineRowsV2(items);
@@ -522,24 +760,78 @@ test('16.9 Compression of 40+ consecutive items into compact grouped timeline ro
   const items = [];
   // 10 Read files
   for (let i = 1; i <= 10; i++) {
-    items.push({ id: `r-${i}`, type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', subject: `f${i}.ts`, status: 'completed', actions: [] });
+    items.push({
+      id: `r-${i}`,
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      subject: `f${i}.ts`,
+      status: 'completed',
+      actions: [],
+    });
   }
   // 10 Search files
   for (let i = 1; i <= 10; i++) {
-    items.push({ id: `s-${i}`, type: 'tool', toolName: 'grep_search', kind: 'search', title: 'Search files', subject: `q${i}`, status: 'completed', actions: [] });
+    items.push({
+      id: `s-${i}`,
+      type: 'tool',
+      toolName: 'grep_search',
+      kind: 'search',
+      title: 'Search files',
+      subject: `q${i}`,
+      status: 'completed',
+      actions: [],
+    });
   }
   // 1 Commentary
-  items.push({ id: 'c-1', type: 'commentary', text: 'I found the relevant projection and am checking tests.', status: 'completed' });
+  items.push({
+    id: 'c-1',
+    type: 'commentary',
+    text: 'I found the relevant projection and am checking tests.',
+    status: 'completed',
+  });
   // 5 Run commands
   for (let i = 1; i <= 5; i++) {
-    items.push({ id: `cmd-${i}`, type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'completed', actions: [] });
+    items.push({
+      id: `cmd-${i}`,
+      type: 'tool',
+      toolName: 'run_command',
+      kind: 'command',
+      title: 'Run command',
+      status: 'completed',
+      actions: [],
+    });
   }
   // 1 Reasoning
-  items.push({ id: 'reas-1', type: 'reasoning', text: 'Verifying grouping boundaries...', status: 'completed', representation: 'summary' });
+  items.push({
+    id: 'reas-1',
+    type: 'reasoning',
+    text: 'Verifying grouping boundaries...',
+    status: 'completed',
+    representation: 'summary',
+  });
   // 1 Edit file
-  items.push({ id: 'edit-1', type: 'tool', toolName: 'replace_file_content', kind: 'edit', title: 'Edit file', subject: 'timeline-projection-v2.ts', status: 'completed', actions: [] });
+  items.push({
+    id: 'edit-1',
+    type: 'tool',
+    toolName: 'replace_file_content',
+    kind: 'edit',
+    title: 'Edit file',
+    subject: 'timeline-projection-v2.ts',
+    status: 'completed',
+    actions: [],
+  });
   // 1 Failed command
-  items.push({ id: 'cmd-fail', type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'failed', actions: [] });
+  items.push({
+    id: 'cmd-fail',
+    type: 'tool',
+    toolName: 'run_command',
+    kind: 'command',
+    title: 'Run command',
+    status: 'failed',
+    actions: [],
+  });
 
   assert.equal(items.length, 29);
 
@@ -573,11 +865,35 @@ test('15.5 Repeated Commentary compression: identical narration is presentation-
   const repeatedNarration = 'I will wait for the test run to complete.';
   const items = [
     { id: 'c-1', type: 'commentary', text: repeatedNarration, status: 'completed' },
-    { id: 't-1', type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'completed', actions: [] },
+    {
+      id: 't-1',
+      type: 'tool',
+      toolName: 'run_command',
+      kind: 'command',
+      title: 'Run command',
+      status: 'completed',
+      actions: [],
+    },
     { id: 'c-2', type: 'commentary', text: repeatedNarration, status: 'completed' },
-    { id: 't-2', type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'completed', actions: [] },
+    {
+      id: 't-2',
+      type: 'tool',
+      toolName: 'run_command',
+      kind: 'command',
+      title: 'Run command',
+      status: 'completed',
+      actions: [],
+    },
     { id: 'c-3', type: 'commentary', text: repeatedNarration, status: 'completed' },
-    { id: 't-3', type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'completed', actions: [] },
+    {
+      id: 't-3',
+      type: 'tool',
+      toolName: 'run_command',
+      kind: 'command',
+      title: 'Run command',
+      status: 'completed',
+      actions: [],
+    },
   ];
 
   // Canonical/L3 keeps all 6 individual items
@@ -599,9 +915,25 @@ test('15.5 Repeated Commentary compression: identical narration is presentation-
 test('15.6 Different Commentary preserved: non-identical narration rows remain distinct with no fuzzy dedupe', () => {
   const items = [
     { id: 'c-1', type: 'commentary', text: 'Starting test run...', status: 'completed' },
-    { id: 't-1', type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'completed', actions: [] },
+    {
+      id: 't-1',
+      type: 'tool',
+      toolName: 'run_command',
+      kind: 'command',
+      title: 'Run command',
+      status: 'completed',
+      actions: [],
+    },
     { id: 'c-2', type: 'commentary', text: 'Tests still executing, waiting...', status: 'completed' },
-    { id: 't-2', type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', status: 'completed', actions: [] },
+    {
+      id: 't-2',
+      type: 'tool',
+      toolName: 'run_command',
+      kind: 'command',
+      title: 'Run command',
+      status: 'completed',
+      actions: [],
+    },
     { id: 'c-3', type: 'commentary', text: 'Tests finished with 2 failures.', status: 'completed' },
   ];
 
@@ -670,52 +1002,180 @@ test('16. Visual acceptance fixture: 70+ canonical items compress into bounded L
 
   // 1. Read file group (4 items)
   for (let i = 1; i <= 4; i++) {
-    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', subject: `spec-${i}.md`, status: 'completed', actions: [] });
+    items.push({
+      id: `item-${seq++}`,
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      subject: `spec-${i}.md`,
+      status: 'completed',
+      actions: [],
+    });
   }
   // 2. List directory (1 item)
-  items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'list_dir', kind: 'list', title: 'List directory', subject: 'docs', status: 'completed', actions: [] });
+  items.push({
+    id: `item-${seq++}`,
+    type: 'tool',
+    toolName: 'list_dir',
+    kind: 'list',
+    title: 'List directory',
+    subject: 'docs',
+    status: 'completed',
+    actions: [],
+  });
   // 3. Read file group (5 items)
   for (let i = 1; i <= 5; i++) {
-    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', subject: `guide-${i}.md`, status: 'completed', actions: [] });
+    items.push({
+      id: `item-${seq++}`,
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      subject: `guide-${i}.md`,
+      status: 'completed',
+      actions: [],
+    });
   }
   // 4. Edit file (1 item)
-  items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'replace_file_content', kind: 'edit', title: 'Edit file', subject: 'timeline.ts', status: 'completed', actions: [] });
+  items.push({
+    id: `item-${seq++}`,
+    type: 'tool',
+    toolName: 'replace_file_content',
+    kind: 'edit',
+    title: 'Edit file',
+    subject: 'timeline.ts',
+    status: 'completed',
+    actions: [],
+  });
   // 5. Read file group (3 items)
   for (let i = 1; i <= 3; i++) {
-    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', subject: `ref-${i}.ts`, status: 'completed', actions: [] });
+    items.push({
+      id: `item-${seq++}`,
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      subject: `ref-${i}.ts`,
+      status: 'completed',
+      actions: [],
+    });
   }
   // 6. Run command group (2 items)
   for (let i = 1; i <= 2; i++) {
-    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', subject: 'npm test', status: 'completed', actions: [] });
+    items.push({
+      id: `item-${seq++}`,
+      type: 'tool',
+      toolName: 'run_command',
+      kind: 'command',
+      title: 'Run command',
+      subject: 'npm test',
+      status: 'completed',
+      actions: [],
+    });
   }
   // 7. Repeated Commentary (waiting) interleaved with tools (3 repeats)
   const waitingCommentary = 'I will wait for the test run to complete.';
   for (let i = 1; i <= 3; i++) {
     items.push({ id: `item-${seq++}`, type: 'commentary', text: waitingCommentary, status: 'completed' });
-    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'manage_task', kind: 'other', title: 'Update task', subject: 'status', status: 'completed', actions: [] });
+    items.push({
+      id: `item-${seq++}`,
+      type: 'tool',
+      toolName: 'manage_task',
+      kind: 'other',
+      title: 'Update task',
+      subject: 'status',
+      status: 'completed',
+      actions: [],
+    });
   }
   // 8. Meaningful distinct Commentary
-  items.push({ id: `item-${seq++}`, type: 'commentary', text: 'Tests completed successfully. Now verifying search results.', status: 'completed' });
+  items.push({
+    id: `item-${seq++}`,
+    type: 'commentary',
+    text: 'Tests completed successfully. Now verifying search results.',
+    status: 'completed',
+  });
   // 9. Search files group (2 items)
   for (let i = 1; i <= 2; i++) {
-    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'grep_search', kind: 'search', title: 'Search files', subject: `query-${i}`, status: 'completed', actions: [] });
+    items.push({
+      id: `item-${seq++}`,
+      type: 'tool',
+      toolName: 'grep_search',
+      kind: 'search',
+      title: 'Search files',
+      subject: `query-${i}`,
+      status: 'completed',
+      actions: [],
+    });
   }
   // 10. Run command group (3 items)
   for (let i = 1; i <= 3; i++) {
-    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', subject: 'git diff', status: 'completed', actions: [] });
+    items.push({
+      id: `item-${seq++}`,
+      type: 'tool',
+      toolName: 'run_command',
+      kind: 'command',
+      title: 'Run command',
+      subject: 'git diff',
+      status: 'completed',
+      actions: [],
+    });
   }
   // 11. Reasoning item
-  items.push({ id: `item-${seq++}`, type: 'reasoning', text: 'Verifying that all acceptance criteria are met.', status: 'completed', representation: 'summary' });
+  items.push({
+    id: `item-${seq++}`,
+    type: 'reasoning',
+    text: 'Verifying that all acceptance criteria are met.',
+    status: 'completed',
+    representation: 'summary',
+  });
   // 12. Alternating Read/Edit pairs (10 pairs = 20 items)
   for (let i = 1; i <= 10; i++) {
-    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', subject: `f${i}.ts`, status: 'completed', actions: [] });
-    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'replace_file_content', kind: 'edit', title: 'Edit file', subject: `f${i}.ts`, status: 'completed', actions: [] });
+    items.push({
+      id: `item-${seq++}`,
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      subject: `f${i}.ts`,
+      status: 'completed',
+      actions: [],
+    });
+    items.push({
+      id: `item-${seq++}`,
+      type: 'tool',
+      toolName: 'replace_file_content',
+      kind: 'edit',
+      title: 'Edit file',
+      subject: `f${i}.ts`,
+      status: 'completed',
+      actions: [],
+    });
   }
   // 13. One failed tool
-  items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'run_command', kind: 'command', title: 'Run command', subject: 'npm run lint', status: 'failed', actions: [] });
+  items.push({
+    id: `item-${seq++}`,
+    type: 'tool',
+    toolName: 'run_command',
+    kind: 'command',
+    title: 'Run command',
+    subject: 'npm run lint',
+    status: 'failed',
+    actions: [],
+  });
   // 14. Remaining read/search items to reach 75 total items
   for (let i = 1; i <= 25; i++) {
-    items.push({ id: `item-${seq++}`, type: 'tool', toolName: 'view_file', kind: 'read', title: 'Read file', subject: `verify-${i}.ts`, status: 'completed', actions: [] });
+    items.push({
+      id: `item-${seq++}`,
+      type: 'tool',
+      toolName: 'view_file',
+      kind: 'read',
+      title: 'Read file',
+      subject: `verify-${i}.ts`,
+      status: 'completed',
+      actions: [],
+    });
   }
 
   assert.ok(items.length >= 70, `must have at least 70 items (actual: ${items.length})`);
@@ -731,6 +1191,13 @@ test('16. Visual acceptance fixture: 70+ canonical items compress into bounded L
   assert.equal(projection.visibleRows.length, 8, 'must render exactly 8 rows in Level 2');
   assert.equal(projection.hasMore, true);
   assert.ok(projection.hiddenCount > 40, `must accurately report >40 hidden items (actual: ${projection.hiddenCount})`);
-  assert.equal(projection.hiddenCount + projection.visibleRows.reduce((sum, r) => sum + (r.row === 'tool_group' ? r.count : (r.row === 'commentary' ? (r.repeatCount || 1) : 1)), 0), items.length, 'hiddenCount + visible items must exactly equal total canonical items');
+  assert.equal(
+    projection.hiddenCount +
+      projection.visibleRows.reduce(
+        (sum, r) => sum + (r.row === 'tool_group' ? r.count : r.row === 'commentary' ? r.repeatCount || 1 : 1),
+        0,
+      ),
+    items.length,
+    'hiddenCount + visible items must exactly equal total canonical items',
+  );
 });
-

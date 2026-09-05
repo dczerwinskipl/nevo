@@ -32,7 +32,7 @@ export function finalizeGate(change, facts = {}) {
   const result = evaluateGate('finalize', { change, ...facts }, { mode: 'full' });
   return {
     enabled: Boolean(result.ok),
-    reason: result.ok ? null : (result.reason || 'The finalize gate did not pass.'),
+    reason: result.ok ? null : result.reason || 'The finalize gate did not pass.',
     checks: facts?.verification || [],
     pullRequest: facts?.pr || null,
     branch: facts?.branch || { hasUpstream: false, ahead: null, behind: null },
@@ -84,16 +84,20 @@ export async function loadSpecificationActions({
   try {
     const followUps = loadFollowUps(change);
     openBlockingFollowUps = (followUps.follow_ups || [])
-      .filter(f => f.status === 'open' && f.severity === 'blocking')
-      .map(f => ({ id: f.id, reason: f.reason }));
+      .filter((f) => f.status === 'open' && f.severity === 'blocking')
+      .map((f) => ({ id: f.id, reason: f.reason }));
   } catch {}
 
-  const gateResult = evaluateGate('finalize', {
-    change,
-    worktree,
-    branch: { ...tracking, branch },
-    openBlockingFollowUps,
-  }, { mode: 'fast' });
+  const gateResult = evaluateGate(
+    'finalize',
+    {
+      change,
+      worktree,
+      branch: { ...tracking, branch },
+      openBlockingFollowUps,
+    },
+    { mode: 'fast' },
+  );
 
   const tasks = {};
   for (const task of change.tasks) {
@@ -140,7 +144,7 @@ export function executeSpecificationAction({
 
   let operationType;
   if (action === 'approve' || action === 'verify') {
-    const task = change.tasks.find(candidate => candidate.id === taskId);
+    const task = change.tasks.find((candidate) => candidate.id === taskId);
     if (!task) throw new SpecificationActionError('Task not found.', 404);
     operationType = `spec-action-${action}`;
   } else if (action === 'finalize') {
@@ -155,13 +159,13 @@ export function executeSpecificationAction({
     if (finished) return;
     finished = true;
     if (typeof onFinished === 'function') {
-      try { onFinished(); } catch {}
+      try {
+        onFinished();
+      } catch {}
     }
   }
 
-  const operationId = operationRuntime
-    ? operationRuntime.createOperation({ type: operationType })
-    : `op-${Date.now()}`;
+  const operationId = operationRuntime ? operationRuntime.createOperation({ type: operationType }) : `op-${Date.now()}`;
 
   // Forward only non-terminal step and progress events to OperationRuntime.
   // Terminal state is owned exclusively by OperationRuntime.completeOperation / failOperation.
@@ -179,7 +183,7 @@ export function executeSpecificationAction({
     },
   });
 
-  const useGit = useGitParam ?? (root === REPOSITORY_ROOT);
+  const useGit = useGitParam ?? root === REPOSITORY_ROOT;
 
   let resolveCompletion;
   const completion = new Promise((resolvePromise) => {
@@ -219,11 +223,14 @@ export function executeSpecificationAction({
       }
 
       if (operationRuntime) {
-        operationRuntime.completeOperation(operationId, result || {
-          ok: true,
-          action,
-          ...(taskId ? { taskId } : {}),
-        });
+        operationRuntime.completeOperation(
+          operationId,
+          result || {
+            ok: true,
+            action,
+            ...(taskId ? { taskId } : {}),
+          },
+        );
       }
     } catch (error) {
       if (operationRuntime) {
@@ -245,9 +252,12 @@ export function executeSpecificationAction({
     operationId,
     action,
     ...(taskId ? { taskId } : {}),
-    message: action === 'approve'
-      ? 'Zadanie zostało zatwierdzone.'
-      : (action === 'verify' ? 'Implementacja została zaakceptowana.' : 'Specyfikacja została sfinalizowana.'),
+    message:
+      action === 'approve'
+        ? 'Zadanie zostało zatwierdzone.'
+        : action === 'verify'
+          ? 'Implementacja została zaakceptowana.'
+          : 'Specyfikacja została sfinalizowana.',
     completion,
   };
 }
@@ -296,9 +306,10 @@ export function createSpecActionsCapability({
         signal: controller.signal,
         onFinished: cleanup,
       });
-      const completion = (result?.completion && typeof result.completion.then === 'function')
-        ? result.completion.finally(cleanup)
-        : Promise.resolve().finally(cleanup);
+      const completion =
+        result?.completion && typeof result.completion.then === 'function'
+          ? result.completion.finally(cleanup)
+          : Promise.resolve().finally(cleanup);
       activeActions.set(slug, { controller, completion });
       hasStarted = true;
       return result;
@@ -315,7 +326,7 @@ export function createSpecActionsCapability({
       } catch {}
     }
     if (entries.length > 0) {
-      await Promise.allSettled(entries.map(e => e.completion));
+      await Promise.allSettled(entries.map((e) => e.completion));
     }
     activeActions.clear();
   }

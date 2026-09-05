@@ -23,7 +23,11 @@ function createMockClaudeProcess(stdoutLines, { exitCode = 0, sessionId } = {}) 
   const child = new EventEmitter();
   child.exitCode = null;
   child.signalCode = null;
-  child.stdin = new Writable({ write(chunk, encoding, callback) { callback(); } });
+  child.stdin = new Writable({
+    write(chunk, encoding, callback) {
+      callback();
+    },
+  });
   child.stdout = new Readable({ read() {} });
   child.stderr = new Readable({ read() {} });
   child.kill = () => true;
@@ -72,7 +76,7 @@ async function waitForTurnTerminal(service, turnId) {
   for (let i = 0; i < 200; i++) {
     const snap = service.getTurn(turnId);
     if (snap?.status === 'completed' || snap?.status === 'failed') return snap;
-    await new Promise(resolve => setTimeout(resolve, 5));
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error(`Turn ${turnId} did not reach a terminal state in time`);
 }
@@ -113,12 +117,20 @@ test('Claude fresh-session identity: createSession -> first turn avoids --resume
   assert.equal(capturedCalls.length, 1);
   const firstCallFlag = extractFlag(capturedCalls[0]);
   assert.equal(firstCallFlag.flag, '--session-id', 'first turn on an unconfirmed session must not pass --resume');
-  assert.equal(firstCallFlag.value, placeholderId, 'Claude must create the session under the exact ID the Nevo session already carries');
+  assert.equal(
+    firstCallFlag.value,
+    placeholderId,
+    'Claude must create the session under the exact ID the Nevo session already carries',
+  );
   assert.equal(turn1.providerSessionId, placeholderId, 'the Nevo-visible session id must not change identity');
 
   // B. Once Claude actually confirms the session, the binding is durably updated.
   const bindingAfterFirstTurn = await bindingService.getBinding('claude', placeholderId);
-  assert.notEqual(bindingAfterFirstTurn.established, false, 'confirmed provider session must be persisted as established');
+  assert.notEqual(
+    bindingAfterFirstTurn.established,
+    false,
+    'confirmed provider session must be persisted as established',
+  );
 
   // C. Second turn on the now-confirmed session resumes using the bound ID.
   const turn2 = await service.startTurn('claude', placeholderId, { message: 'Follow-up message' });
@@ -139,7 +151,11 @@ test('Claude fresh-session identity: the Nevo-fabricated session id is never use
 
   // Provider instance/process #1: dashboard creates an empty session shell, never sends a message.
   const registry1 = createAgentProviderRegistry([
-    createClaudeAgentProvider({ spawnProcess: () => { throw new Error('must not spawn before any message is sent'); } }),
+    createClaudeAgentProvider({
+      spawnProcess: () => {
+        throw new Error('must not spawn before any message is sent');
+      },
+    }),
   ]);
   const bindingService1 = createAgentSessionBindingService({ storageDir: bindingStorageDir });
   const service1 = createAgentSessionService({ registry: registry1, bindingService: bindingService1 });
@@ -159,7 +175,11 @@ test('Claude fresh-session identity: the Nevo-fabricated session id is never use
   const registry2 = createAgentProviderRegistry([provider2]);
   const bindingService2 = createAgentSessionBindingService({ storageDir: bindingStorageDir });
   const turnRuntime2 = createAgentTurnRuntime({ registry: registry2 });
-  const service2 = createAgentSessionService({ registry: registry2, turnRuntime: turnRuntime2, bindingService: bindingService2 });
+  const service2 = createAgentSessionService({
+    registry: registry2,
+    turnRuntime: turnRuntime2,
+    bindingService: bindingService2,
+  });
 
   // D. The first message sent from this session must never implicitly resume a conversation
   // Claude has never actually created, even though the caller supplies a providerSessionId
@@ -169,6 +189,10 @@ test('Claude fresh-session identity: the Nevo-fabricated session id is never use
 
   assert.equal(capturedCalls.length, 1);
   const flag = extractFlag(capturedCalls[0]);
-  assert.equal(flag.flag, '--session-id', 'the Nevo session id must never be used as an implicit providerSessionId for --resume');
+  assert.equal(
+    flag.flag,
+    '--session-id',
+    'the Nevo session id must never be used as an implicit providerSessionId for --resume',
+  );
   assert.equal(flag.value, placeholderId);
 });

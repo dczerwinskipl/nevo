@@ -4,11 +4,17 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 function readComposerSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/composer/agent-session-composer.tsx', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/composer/agent-session-composer.tsx', import.meta.url)),
+    'utf8',
+  );
 }
 
 function readAgentSessionPageSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)),
+    'utf8',
+  );
 }
 
 import {
@@ -23,8 +29,14 @@ test('Composer interaction mode: usehooks-ts useMediaQuery determines prefersTou
   const source = readComposerSource();
 
   // 1. Uses useMediaQuery from usehooks-ts
-  assert.ok(source.includes("import { useMediaQuery } from 'usehooks-ts'"), 'Must import useMediaQuery from usehooks-ts');
-  assert.ok(source.includes("useMediaQuery('(pointer: coarse) and (hover: none)')"), 'Must query primary input modality (coarse pointer and no hover)');
+  assert.ok(
+    source.includes("import { useMediaQuery } from 'usehooks-ts'"),
+    'Must import useMediaQuery from usehooks-ts',
+  );
+  assert.ok(
+    source.includes("useMediaQuery('(pointer: coarse) and (hover: none)')"),
+    'Must query primary input modality (coarse pointer and no hover)',
+  );
 
   // 2. Named after interaction intent
   assert.ok(source.includes('prefersTouchInteraction'), 'Must name signal prefersTouchInteraction');
@@ -47,21 +59,21 @@ test('Behavioral: Keyboard action resolution across modalities, modifier keys, a
   assert.equal(
     resolveComposerKeyAction({ key: 'Enter', shiftKey: false, isComposing: false, enterToSend: true }),
     'send',
-    'Desktop Enter must trigger send'
+    'Desktop Enter must trigger send',
   );
 
   // 1b. Shift+Enter creates newline
   assert.equal(
     resolveComposerKeyAction({ key: 'Enter', shiftKey: true, isComposing: false, enterToSend: true }),
     'newline',
-    'Desktop Shift+Enter must insert newline'
+    'Desktop Shift+Enter must insert newline',
   );
 
   // 1c. Non-Enter key does nothing
   assert.equal(
     resolveComposerKeyAction({ key: 'a', shiftKey: false, isComposing: false, enterToSend: true }),
     'none',
-    'Non-Enter key must return none'
+    'Non-Enter key must return none',
   );
 
   // Scenario 2: Coarse pointer + no hover (Touch-oriented, enterToSend = false)
@@ -69,27 +81,27 @@ test('Behavioral: Keyboard action resolution across modalities, modifier keys, a
   assert.equal(
     resolveComposerKeyAction({ key: 'Enter', shiftKey: false, isComposing: false, enterToSend: false }),
     'newline',
-    'Touch Enter must insert newline'
+    'Touch Enter must insert newline',
   );
 
   // 2b. Shift+Enter creates newline
   assert.equal(
     resolveComposerKeyAction({ key: 'Enter', shiftKey: true, isComposing: false, enterToSend: false }),
     'newline',
-    'Touch Shift+Enter must insert newline'
+    'Touch Shift+Enter must insert newline',
   );
 
   // Scenario 3: IME composition (Japanese, Chinese, etc.) must NEVER trigger send in either mode
   assert.equal(
     resolveComposerKeyAction({ key: 'Enter', shiftKey: false, isComposing: true, enterToSend: true }),
     'newline',
-    'Desktop Enter during IME composition must never send'
+    'Desktop Enter during IME composition must never send',
   );
 
   assert.equal(
     resolveComposerKeyAction({ key: 'Enter', shiftKey: false, isComposing: true, enterToSend: false }),
     'newline',
-    'Touch Enter during IME composition must never send'
+    'Touch Enter during IME composition must never send',
   );
 });
 
@@ -213,7 +225,7 @@ test('AC5 & AC6: Scoped blur-on-outside-tap is attached to transcript surface wi
   assert.match(source, /onPointerDown=\{handleTranscriptPointerDown\}/);
 
   // Guards interactive elements (button, a, input, etc.)
-  assert.match(source, /closest\(['"]button, a, input, textarea/);
+  assert.match(source, /closest\(\s*['"]button, a, input, textarea/);
   assert.match(source, /composerTextareaRef\.current\.blur\(\)/);
 });
 
@@ -226,8 +238,14 @@ test('AC8 & AC9: Mode control is located inside the composer, not in the chat he
   assert.match(composerSource, /onModeChange\(modeMeta\.id\)/);
 
   // Header in agent-session-page.tsx does not contain the duplicate mode switcher
-  const headerSection = agentSessionPageSource.slice(agentSessionPageSource.indexOf('const header = ('), agentSessionPageSource.indexOf('return ('));
-  assert.ok(!headerSection.includes('AI_MODES.map') && !headerSection.includes("(['ask', 'edit', 'agent'] as const)"), 'Header must not contain duplicate mode switcher');
+  const headerSection = agentSessionPageSource.slice(
+    agentSessionPageSource.indexOf('const header = ('),
+    agentSessionPageSource.indexOf('return ('),
+  );
+  assert.ok(
+    !headerSection.includes('AI_MODES.map') && !headerSection.includes("(['ask', 'edit', 'agent'] as const)"),
+    'Header must not contain duplicate mode switcher',
+  );
 
   // No non-functional placeholder model/usage controls
   assert.ok(!composerSource.includes('select-model') && !composerSource.includes('usage-placeholder'));
@@ -236,24 +254,50 @@ test('AC8 & AC9: Mode control is located inside the composer, not in the chat he
 // ── task 11 (semantic Work chat V2), AC4: pending interaction is actionable, ordinary waiting is not ──
 
 function readPendingInteractionV2Source() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/pending-interaction-view-v2.tsx', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/pending-interaction-view-v2.tsx', import.meta.url)),
+    'utf8',
+  );
 }
 
 test('V2 AC4: PendingInteractionViewV2 renders actionable prompts only for requiresAttention + pending', () => {
   const source = readPendingInteractionV2Source();
 
   // Guarded strictly on the discriminated requiresAttention status — ordinary 'waiting'/'active' never reach here.
-  assert.match(source, /turn\.status\.status !== 'requiresAttention'\) return null/, 'ordinary waiting/active must render nothing here, no attention styling/actions');
-  assert.match(source, /w\.status === 'pending'/, 'only a pending interaction is actionable — resolved ones must not re-render as actionable');
+  assert.match(
+    source,
+    /turn\.status\.status !== 'requiresAttention'\) return null/,
+    'ordinary waiting/active must render nothing here, no attention styling/actions',
+  );
+  assert.match(
+    source,
+    /w\.status === 'pending'/,
+    'only a pending interaction is actionable — resolved ones must not re-render as actionable',
+  );
   assert.match(source, /<PermissionPrompt/, 'permission kind must be actionable via the shared PermissionPrompt');
   assert.match(source, /<QuestionPrompt/, 'question kind must be actionable via the shared QuestionPrompt');
-  assert.match(source, /onResolve=\{\(response\) => onRespond\(item\.id, response\)\}/, 'resolving must route back through the interaction id, not a guessed id');
+  assert.match(
+    source,
+    /onResolve=\{\(response\) => onRespond\(item\.id, response\)\}/,
+    'resolving must route back through the interaction id, not a guessed id',
+  );
 });
 
 test('V2 AC4: Work indicator distinguishes requires_attention from ordinary waiting kinds', () => {
-  const workIndicatorSource = readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/work-indicator-v2.tsx', import.meta.url)), 'utf8');
-  assert.match(workIndicatorSource, /requires_attention/, 'attention must be a materially distinct kind, not folded into waiting');
-  assert.match(workIndicatorSource, /waiting_for_model|waiting_for_tool/, 'ordinary waiting kinds must exist and stay separate from attention');
+  const workIndicatorSource = readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/work-indicator-v2.tsx', import.meta.url)),
+    'utf8',
+  );
+  assert.match(
+    workIndicatorSource,
+    /requires_attention/,
+    'attention must be a materially distinct kind, not folded into waiting',
+  );
+  assert.match(
+    workIndicatorSource,
+    /waiting_for_model|waiting_for_tool/,
+    'ordinary waiting kinds must exist and stay separate from attention',
+  );
 });
 
 test('AC10: Send / stop / cancel behavior is preserved and toggles correctly when running', () => {
@@ -278,19 +322,24 @@ test('Task 07 / Composer status precedence: loadError > provider unavailable > i
   assert.equal(
     resolveComposerPlaceholder({ isRunning: true, disabled: true }),
     'Turn trwa…',
-    'Active turn must take precedence over disabled, describing the running turn instead of claiming read-only'
+    'Active turn must take precedence over disabled, describing the running turn instead of claiming read-only',
   );
 
   // 4. Provider unavailable takes precedence over running / disabled
   assert.equal(
     resolveComposerPlaceholder({ isProviderAvailable: false, isRunning: true, disabled: true }),
-    'Provider CLI niedostępny (brak w PATH)'
+    'Provider CLI niedostępny (brak w PATH)',
   );
 
   // 5. Load error takes top precedence
   assert.equal(
-    resolveComposerPlaceholder({ loadError: { message: 'Server down' }, isProviderAvailable: false, isRunning: true, disabled: true }),
-    'Serwer dashboardu jest niedostępny...'
+    resolveComposerPlaceholder({
+      loadError: { message: 'Server down' },
+      isProviderAvailable: false,
+      isRunning: true,
+      disabled: true,
+    }),
+    'Serwer dashboardu jest niedostępny...',
   );
 
   // 6. Custom placeholder overrides defaults
@@ -298,6 +347,9 @@ test('Task 07 / Composer status precedence: loadError > provider unavailable > i
 
   // 7. Verify source enforces disabled={isDisabled} where isDisabled includes isRunning
   const source = readComposerSource();
-  assert.match(source, /const isDisabled = disabled \|\| !isProviderAvailable \|\| Boolean\(loadError\) \|\| isRunning/);
+  assert.match(
+    source,
+    /const isDisabled = disabled \|\| !isProviderAvailable \|\| Boolean\(loadError\) \|\| isRunning/,
+  );
   assert.match(source, /disabled=\{isDisabled\}/);
 });

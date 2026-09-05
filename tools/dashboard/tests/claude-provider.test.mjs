@@ -18,7 +18,9 @@ function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5, sessio
   child.exitCode = null;
   child.signalCode = null;
   child.stdin = new Writable({
-    write(chunk, encoding, callback) { callback(); },
+    write(chunk, encoding, callback) {
+      callback();
+    },
   });
   child.stdout = new Readable({
     read() {},
@@ -59,7 +61,7 @@ function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5, sessio
         } catch {}
       }
       child.stdout.push(`${line}\n`);
-      if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+      if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
     }
     if (!child.killed) {
       child.stdout.push(null);
@@ -85,7 +87,11 @@ function createHangingMockProcess({ ignoreSignal = false } = {}) {
   child.exitCode = null;
   child.signalCode = null;
   child.killCalls = [];
-  child.stdin = new Writable({ write(chunk, encoding, callback) { callback(); } });
+  child.stdin = new Writable({
+    write(chunk, encoding, callback) {
+      callback();
+    },
+  });
   child.stdout = new Readable({ read() {} });
   child.stderr = new Readable({ read() {} });
 
@@ -109,14 +115,12 @@ function createHangingMockProcess({ ignoreSignal = false } = {}) {
   return child;
 }
 
-
 test('ClaudeAgentProvider declares capabilities', () => {
   const provider = createClaudeAgentProvider();
   assert.equal(provider.descriptor.id, 'claude');
   assert.equal(provider.descriptor.capabilities.interactiveQuestions, true);
   assert.equal(provider.descriptor.capabilities.interactivePermissions, false);
   assert.equal(provider.descriptor.capabilities.resumeSession, true);
-
 });
 
 test('new Claude conversation uses --session-id and returns generated providerSessionId', async () => {
@@ -183,11 +187,14 @@ test('spawn failure before establishment does not call setProviderSessionId', as
   });
 
   await assert.rejects(
-    () => provider.startTurn({
-      turnId: 'turn-spawn-fail',
-      message: 'Hello',
-      setProviderSessionId: id => { established = id; },
-    }),
+    () =>
+      provider.startTurn({
+        turnId: 'turn-spawn-fail',
+        message: 'Hello',
+        setProviderSessionId: (id) => {
+          established = id;
+        },
+      }),
     { name: 'AiError' },
   );
 
@@ -201,11 +208,14 @@ test('provider process failure before session materialization rejects before est
   });
 
   await assert.rejects(
-    () => provider.startTurn({
-      turnId: 'turn-exit-fail',
-      message: 'Hello',
-      setProviderSessionId: id => { established = id; },
-    }),
+    () =>
+      provider.startTurn({
+        turnId: 'turn-exit-fail',
+        message: 'Hello',
+        setProviderSessionId: (id) => {
+          established = id;
+        },
+      }),
     { name: 'AiError' },
   );
 
@@ -226,7 +236,9 @@ test('successful establishment calls setProviderSessionId upon first stream even
   const result = await provider.startTurn({
     turnId: 'turn-success',
     message: 'Hello',
-    setProviderSessionId: async id => { established = id; },
+    setProviderSessionId: async (id) => {
+      established = id;
+    },
   });
 
   assert.ok(established);
@@ -266,7 +278,11 @@ test('failure before successful first Claude invocation does not cause retry to 
   const capturedCalls = [];
   let shouldFail = true;
   const lines = [
-    JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: 'success on retry' } }),
+    JSON.stringify({
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'text', text: 'success on retry' },
+    }),
     JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
   ];
 
@@ -281,10 +297,9 @@ test('failure before successful first Claude invocation does not cause retry to 
   });
 
   // Attempt 1 fails
-  await assert.rejects(
-    () => provider.startTurn({ turnId: 'turn-fail', message: 'Initial prompt' }),
-    { name: 'AiError' },
-  );
+  await assert.rejects(() => provider.startTurn({ turnId: 'turn-fail', message: 'Initial prompt' }), {
+    name: 'AiError',
+  });
   assert.equal(capturedCalls.length, 1);
   assert.ok(capturedCalls[0].args.includes('--session-id'));
 
@@ -324,19 +339,30 @@ test('externally attached existing providerSessionId still uses --resume', async
 
 test('ClaudeAgentProvider parses stream-json output and emits deltas and reasoning', async () => {
   const lines = [
-    JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: 'Analyzing codebase...' } }),
-    JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: ' planning changes' } }),
+    JSON.stringify({
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'thinking', thinking: 'Analyzing codebase...' },
+    }),
+    JSON.stringify({
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'thinking_delta', thinking: ' planning changes' },
+    }),
     JSON.stringify({ type: 'content_block_stop', index: 0 }),
     JSON.stringify({ type: 'content_block_start', index: 1, content_block: { type: 'text', text: 'Here is ' } }),
     JSON.stringify({ type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'the solution.' } }),
     JSON.stringify({ type: 'content_block_stop', index: 1 }),
-    JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { input_tokens: 50, output_tokens: 25 } }),
+    JSON.stringify({
+      type: 'message_delta',
+      delta: { stop_reason: 'end_turn' },
+      usage: { input_tokens: 50, output_tokens: 25 },
+    }),
   ];
 
   const provider = createClaudeAgentProvider({
     spawnProcess: (executable, args) => createMockProcess(lines, { sessionId: extractSessionId(args) }),
   });
-
 
   const textDeltas = [];
   const reasoningDeltas = [];
@@ -346,10 +372,12 @@ test('ClaudeAgentProvider parses stream-json output and emits deltas and reasoni
     turnId: 'turn-test-1',
     providerSessionId: 'sess-test-1',
     message: 'Hello Claude',
-    emitCommentaryDelta: text => textDeltas.push(text),
-    emitFinalAnswerDelta: text => textDeltas.push(text),
-    emitReasoningDelta: text => reasoningDeltas.push(text),
-    emitUsageUpdated: u => { usage = u; },
+    emitCommentaryDelta: (text) => textDeltas.push(text),
+    emitFinalAnswerDelta: (text) => textDeltas.push(text),
+    emitReasoningDelta: (text) => reasoningDeltas.push(text),
+    emitUsageUpdated: (u) => {
+      usage = u;
+    },
   });
 
   assert.deepEqual(textDeltas, ['Here is ', 'the solution.']);
@@ -374,9 +402,7 @@ for (const mode of ['ask', 'edit', 'agent']) {
           id: `toolu_q_${mode}`,
           name: 'AskUserQuestion',
           input: {
-            questions: [
-              { question: `Choose style in ${mode}?`, header: 'Style', multiSelect: false },
-            ],
+            questions: [{ question: `Choose style in ${mode}?`, header: 'Style', multiSelect: false }],
           },
         },
       }),
@@ -401,7 +427,11 @@ for (const mode of ['ask', 'edit', 'agent']) {
     assert.ok(result.interaction);
     assert.equal(result.interaction.kind, 'question');
     assert.equal(result.interaction.questions[0].question, `Choose style in ${mode}?`);
-    assert.notEqual(result.interaction.id, `toolu_q_${mode}`, 'Public interaction id must be decoupled from internal toolUseId');
+    assert.notEqual(
+      result.interaction.id,
+      `toolu_q_${mode}`,
+      'Public interaction id must be decoupled from internal toolUseId',
+    );
     assert.ok(result.interaction.id.startsWith('int-'));
   });
 }
@@ -415,7 +445,6 @@ test('ClaudeAgentProvider supports turn cancellation', async () => {
   const provider = createClaudeAgentProvider({
     spawnProcess: (executable, args) => createMockProcess(lines, { delayMs: 50, sessionId: extractSessionId(args) }),
   });
-
 
   const turnPromise = provider.startTurn({
     turnId: 'turn-cancel-1',
@@ -562,7 +591,10 @@ test('Claude ask mode contract simulation: provider correctly processes blocked 
     JSON.stringify({
       type: 'content_block_start',
       index: 0,
-      content_block: { type: 'text', text: 'Plan mode active: inspecting codebase. File writes are not permitted in plan mode.' },
+      content_block: {
+        type: 'text',
+        text: 'Plan mode active: inspecting codebase. File writes are not permitted in plan mode.',
+      },
     }),
     JSON.stringify({
       type: 'content_block_start',
@@ -578,12 +610,14 @@ test('Claude ask mode contract simulation: provider correctly processes blocked 
       type: 'user',
       message: {
         role: 'user',
-        content: [{
-          type: 'tool_result',
-          tool_use_id: 'tool_edit_01',
-          is_error: true,
-          content: 'Permission denied: file modification is disabled in plan mode.',
-        }],
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'tool_edit_01',
+            is_error: true,
+            content: 'Permission denied: file modification is disabled in plan mode.',
+          },
+        ],
       },
     }),
     JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
@@ -750,9 +784,11 @@ test('cancelTurn stops at SIGINT when the process responds within the grace peri
   const startPromise = provider.startTurn({
     turnId: 'turn-cancel-graceful',
     message: 'hello',
-    setOperation: op => { operation = op; },
+    setOperation: (op) => {
+      operation = op;
+    },
   });
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.ok(operation, 'setOperation must be called before cancelTurn can be exercised');
 
   await provider.cancelTurn({ operation });
@@ -771,9 +807,11 @@ test('cancelTurn escalates to a forceful SIGKILL when SIGINT is ignored past the
   const startPromise = provider.startTurn({
     turnId: 'turn-cancel-escalate',
     message: 'hello',
-    setOperation: op => { operation = op; },
+    setOperation: (op) => {
+      operation = op;
+    },
   });
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.ok(operation, 'setOperation must be called before cancelTurn can be exercised');
 
   await provider.cancelTurn({ operation });
@@ -787,7 +825,11 @@ test('Claude cancelTurn waits for terminal child state before reporting completi
   child.exitCode = null;
   child.signalCode = null;
   child.killCalls = [];
-  child.stdin = new Writable({ write(chunk, encoding, cb) { cb(); } });
+  child.stdin = new Writable({
+    write(chunk, encoding, cb) {
+      cb();
+    },
+  });
   child.stdout = new Readable({ read() {} });
   child.stderr = new Readable({ read() {} });
 
@@ -806,9 +848,11 @@ test('Claude cancelTurn waits for terminal child state before reporting completi
   const startPromise = provider.startTurn({
     turnId: 'turn-cancel-hold-claude',
     message: 'hello',
-    setOperation: op => { operation = op; },
+    setOperation: (op) => {
+      operation = op;
+    },
   });
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.ok(operation);
 
   let cancelCompleted = false;
@@ -816,7 +860,7 @@ test('Claude cancelTurn waits for terminal child state before reporting completi
     cancelCompleted = true;
   });
 
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(cancelCompleted, false, 'cancelTurn must not report completion before process exits');
 
   // Trigger process exit
@@ -835,7 +879,11 @@ test('Claude cancelTurn bounded cancellation fails cleanly when child ignores al
   child.exitCode = null;
   child.signalCode = null;
   child.killCalls = [];
-  child.stdin = new Writable({ write(chunk, encoding, cb) { cb(); } });
+  child.stdin = new Writable({
+    write(chunk, encoding, cb) {
+      cb();
+    },
+  });
   child.stdout = new Readable({ read() {} });
   child.stderr = new Readable({ read() {} });
   child.kill = (signal) => {
@@ -854,12 +902,14 @@ test('Claude cancelTurn bounded cancellation fails cleanly when child ignores al
   const startPromise = provider.startTurn({
     turnId: 'turn-cancel-unresponsive',
     message: 'hello',
-    setOperation: op => { operation = op; },
+    setOperation: (op) => {
+      operation = op;
+    },
   });
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   await assert.rejects(
     () => provider.cancelTurn({ operation }),
-    err => err.code === 'AI_PROCESS_TERMINATION_FAILED'
+    (err) => err.code === 'AI_PROCESS_TERMINATION_FAILED',
   );
   assert.deepEqual(child.killCalls, ['SIGINT', 'SIGKILL']);
 });
@@ -868,7 +918,11 @@ test('Claude raw capture: records stdout, stderr, and stdin to ndjson when enabl
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-claude-raw-'));
   try {
     const stdoutLines = [
-      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'Hello world' }] }, session_id: 'claude-sess-1' }),
+      JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'Hello world' }] },
+        session_id: 'claude-sess-1',
+      }),
       JSON.stringify({ type: 'result', result: 'Hello world', session_id: 'claude-sess-1' }),
     ];
 
@@ -891,14 +945,17 @@ test('Claude raw capture: records stdout, stderr, and stdin to ndjson when enabl
 
     await provider.flushRawCapture('claude-sess-1');
     const content = await readFile(rawPath, 'utf8');
-    const lines = content.trim().split('\n').map(l => JSON.parse(l));
+    const lines = content
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l));
 
     assert.ok(lines.length >= 3, 'Expected at least stdin, stdout assistant, and stdout result');
     assert.equal(lines[0].stream, 'stdin');
     assert.equal(lines[0].providerSessionId, 'claude-sess-1');
     assert.equal(lines[0].turnId, 'turn-raw-test-1');
 
-    const assistantLine = lines.find(l => l.stream === 'stdout' && l.raw?.type === 'assistant');
+    const assistantLine = lines.find((l) => l.stream === 'stdout' && l.raw?.type === 'assistant');
     assert.ok(assistantLine);
     assert.equal(assistantLine.providerSessionId, 'claude-sess-1');
 
@@ -914,9 +971,7 @@ test('Claude raw capture: records stdout, stderr, and stdin to ndjson when enabl
 test('Claude raw capture: disabled by default does not write raw files', async () => {
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-claude-noraw-'));
   try {
-    const stdoutLines = [
-      JSON.stringify({ type: 'result', result: 'Done', session_id: 'claude-sess-2' }),
-    ];
+    const stdoutLines = [JSON.stringify({ type: 'result', result: 'Done', session_id: 'claude-sess-2' })];
 
     const child = createMockProcess(stdoutLines, { sessionId: 'claude-sess-2' });
     const provider = createClaudeAgentProvider({
@@ -941,7 +996,11 @@ test('Claude raw capture: graceful shutdown flushes pending raw diagnostics', as
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-claude-dispose-'));
   try {
     const stdoutLines = [
-      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'Finishing' }] }, session_id: 'claude-sess-dispose' }),
+      JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'Finishing' }] },
+        session_id: 'claude-sess-dispose',
+      }),
       JSON.stringify({ type: 'result', result: 'Finishing', session_id: 'claude-sess-dispose' }),
     ];
 
@@ -962,9 +1021,12 @@ test('Claude raw capture: graceful shutdown flushes pending raw diagnostics', as
 
     const rawPath = provider.getRawCapturePath('claude-sess-dispose');
     const content = await readFile(rawPath, 'utf8');
-    const lines = content.trim().split('\n').map(l => JSON.parse(l));
+    const lines = content
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l));
 
-    assert.ok(lines.some(l => l.providerSessionId === 'claude-sess-dispose' && l.raw?.type === 'result'));
+    assert.ok(lines.some((l) => l.providerSessionId === 'claude-sess-dispose' && l.raw?.type === 'result'));
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
@@ -1032,11 +1094,11 @@ test('Claude parallel tool calls from fixture are tracked independently and do n
     turnId: 'turn-parallel-1',
     providerSessionId: 'sess-parallel-1',
     message: 'Read two files in parallel',
-    emitToolStarted: tool => {
+    emitToolStarted: (tool) => {
       toolsStarted.push(tool);
       coordinator.recordToolStarted(tool);
     },
-    emitToolCompleted: tool => {
+    emitToolCompleted: (tool) => {
       toolsCompleted.push(tool);
       coordinator.recordToolCompleted(tool);
     },
@@ -1061,29 +1123,30 @@ test('Claude parallel tool calls from fixture are tracked independently and do n
 test('Claude evidence replay: Turn 1 (429 rate limit error) maps to authoritative failure', async () => {
   const evidencePath = new URL('./fixtures/evidence/claude-evidence.json', import.meta.url);
   const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
-  const turn1Events = evidence.turns[0].rawEvents.map(e => JSON.stringify(e));
+  const turn1Events = evidence.turns[0].rawEvents.map((e) => JSON.stringify(e));
 
   const provider = createClaudeAgentProvider({
     spawnProcess: (executable, args) => createMockProcess(turn1Events, { sessionId: extractSessionId(args) }),
   });
 
   await assert.rejects(
-    () => provider.startTurn({
-      turnId: 'turn-evidence-1',
-      providerSessionId: evidence.sessionId,
-      message: evidence.turns[0].userMessage,
-    }),
-    err => {
+    () =>
+      provider.startTurn({
+        turnId: 'turn-evidence-1',
+        providerSessionId: evidence.sessionId,
+        message: evidence.turns[0].userMessage,
+      }),
+    (err) => {
       assert.equal(err.code, 'AI_PROVIDER_ERROR');
       return true;
-    }
+    },
   );
 });
 
 test('Claude evidence replay: Turn 2 maps exact Work order, parallel tools, durations, and terminal completion', async () => {
   const evidencePath = new URL('./fixtures/evidence/claude-evidence.json', import.meta.url);
   const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
-  const turn2Events = evidence.turns[1].rawEvents.map(e => JSON.stringify(e));
+  const turn2Events = evidence.turns[1].rawEvents.map((e) => JSON.stringify(e));
 
   const provider = createClaudeAgentProvider({
     spawnProcess: (executable, args) => createMockProcess(turn2Events, { sessionId: extractSessionId(args) }),
@@ -1113,15 +1176,15 @@ test('Claude evidence replay: Turn 2 maps exact Work order, parallel tools, dura
       textDeltas.push(text);
       coordinator.recordFinalAnswerDelta(text, id);
     },
-    emitReasoningDelta: reasoning => {
+    emitReasoningDelta: (reasoning) => {
       reasoningDeltas.push(reasoning);
       coordinator.recordReasoningDelta(reasoning);
     },
-    emitToolStarted: tool => {
+    emitToolStarted: (tool) => {
       toolsStarted.push(tool);
       coordinator.recordToolStarted(tool);
     },
-    emitToolCompleted: tool => {
+    emitToolCompleted: (tool) => {
       toolsCompleted.push(tool);
       coordinator.recordToolCompleted(tool);
     },
@@ -1187,7 +1250,14 @@ test('Claude tool failure followed by recovery completes turn successfully', asy
       type: 'user',
       message: {
         role: 'user',
-        content: [{ type: 'tool_result', tool_use_id: 'tool_fail_1', is_error: true, content: 'cat: missing.txt: No such file or directory' }],
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'tool_fail_1',
+            is_error: true,
+            content: 'cat: missing.txt: No such file or directory',
+          },
+        ],
       },
     }),
     JSON.stringify({
@@ -1229,10 +1299,10 @@ test('Claude tool failure followed by recovery completes turn successfully', asy
     turnId: 'turn-recover-1',
     providerSessionId: 'sess-recover-1',
     message: 'Try reading missing file then recover',
-    emitCommentaryDelta: text => coordinator.recordCommentaryDelta(text),
-    emitFinalAnswerDelta: text => coordinator.recordFinalAnswerDelta(text),
-    emitToolStarted: tool => coordinator.recordToolStarted(tool),
-    emitToolCompleted: tool => {
+    emitCommentaryDelta: (text) => coordinator.recordCommentaryDelta(text),
+    emitFinalAnswerDelta: (text) => coordinator.recordFinalAnswerDelta(text),
+    emitToolStarted: (tool) => coordinator.recordToolStarted(tool),
+    emitToolCompleted: (tool) => {
       toolsCompleted.push(tool);
       coordinator.recordToolCompleted(tool);
     },
@@ -1301,11 +1371,16 @@ test('mapClaudeTool: a truncated description always validates against the canoni
   const longCommand = 'x'.repeat(5000);
   const mapped = mapClaudeTool('Bash', { command: longCommand });
   const validated = validateToolInvocationWorkItem({
-    id: 't1', seq: 1, toolName: 'Bash', kind: mapped.kind, title: mapped.title,
-    description: mapped.description, input: { command: longCommand }, status: 'active',
+    id: 't1',
+    seq: 1,
+    toolName: 'Bash',
+    kind: mapped.kind,
+    title: mapped.title,
+    description: mapped.description,
+    input: { command: longCommand },
+    status: 'active',
   });
   assert.equal(validated.description, mapped.description);
   // The full, untruncated command remains available separately for Work Details.
   assert.equal(validated.input.command, longCommand);
 });
-

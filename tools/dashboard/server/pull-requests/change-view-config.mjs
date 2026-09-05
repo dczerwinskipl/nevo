@@ -14,7 +14,10 @@ export const DEFAULT_CHANGE_VIEW = Object.freeze({
     { name: 'Tooling: AI', paths: ['tools/dashboard/server/ai/**', '.claude/**', '.cursor/**'] },
     { name: 'Tooling: Dashboard Server', paths: ['tools/dashboard/server/**'] },
     { name: 'Tooling: Dashboard UI', paths: ['tools/dashboard/ui/**', 'tools/dashboard/vite.config.ts'] },
-    { name: 'Tooling: Dashboard Storybook', paths: ['tools/dashboard/.storybook/**', '.storybook/**', '**/.storybook/**'] },
+    {
+      name: 'Tooling: Dashboard Storybook',
+      paths: ['tools/dashboard/.storybook/**', '.storybook/**', '**/.storybook/**'],
+    },
     { name: 'Tooling: Dashboard', paths: ['tools/dashboard/**'] },
     { name: 'Tooling: Specs', paths: ['tools/specs/**', 'tools/specs.mjs'] },
     { name: 'Tooling: Docs', paths: ['tools/docs/**', 'tools/docs.mjs'] },
@@ -26,9 +29,7 @@ export const DEFAULT_CHANGE_VIEW = Object.freeze({
 });
 
 export const DEFAULT_GENERATED_FILES = Object.freeze({
-  rules: [
-    { paths: ['**/*.generated.*', '**/dist/**', '**/*.min.js', '**/*.min.css'] },
-  ],
+  rules: [{ paths: ['**/*.generated.*', '**/dist/**', '**/*.min.js', '**/*.min.css'] }],
   lockfiles: ['**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock'],
 });
 

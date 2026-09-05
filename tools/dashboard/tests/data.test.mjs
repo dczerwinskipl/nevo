@@ -24,11 +24,23 @@ function fixture() {
   mkdirSync(join(activeChange, 'areas'), { recursive: true });
   mkdirSync(join(archivedChange, 'tasks'), { recursive: true });
 
-  writeFileSync(join(activeChange, 'change.yaml'), `id: sample-change\ntitle: Sample change\nstatus: in-implementation\npriority: 1\ntasks:\n  - id: design-it\n    order: 1\n    file: tasks/01-design-it.md\n    status: verified\n  - id: build-it\n    order: 2\n    file: tasks/02-build-it.md\n    status: approved\n    depends_on: [design-it]\n`);
-  writeFileSync(join(activeChange, 'overview.md'), '# Sample change\n\n## Context\n\nA **short** file-backed summary for the dashboard.\n');
+  writeFileSync(
+    join(activeChange, 'change.yaml'),
+    `id: sample-change\ntitle: Sample change\nstatus: in-implementation\npriority: 1\ntasks:\n  - id: design-it\n    order: 1\n    file: tasks/01-design-it.md\n    status: verified\n  - id: build-it\n    order: 2\n    file: tasks/02-build-it.md\n    status: approved\n    depends_on: [design-it]\n`,
+  );
+  writeFileSync(
+    join(activeChange, 'overview.md'),
+    '# Sample change\n\n## Context\n\nA **short** file-backed summary for the dashboard.\n',
+  );
   writeFileSync(join(activeChange, 'areas', '02-runtime.md'), '# Area: Runtime\n\nRuntime details.\n');
-  writeFileSync(join(activeChange, 'areas', '01-contract.md'), '# Area: Contract\n\n| Name | Value |\n| --- | --- |\n| mode | local |\n');
-  writeFileSync(join(activeChange, 'tasks', '01-design-it.md'), '---\nid: sample.design\n---\n\n# Task: Design it\n\nCanonical design body.\n');
+  writeFileSync(
+    join(activeChange, 'areas', '01-contract.md'),
+    '# Area: Contract\n\n| Name | Value |\n| --- | --- |\n| mode | local |\n',
+  );
+  writeFileSync(
+    join(activeChange, 'tasks', '01-design-it.md'),
+    '---\nid: sample.design\n---\n\n# Task: Design it\n\nCanonical design body.\n',
+  );
   writeFileSync(join(activeChange, 'tasks', '02-build-it.md'), '# Task: Build it\n\nCanonical build body.\n');
 
   writeFileSync(join(archivedChange, 'change.yaml'), 'id: old-change\ntitle: Old change\nstatus: draft\ntasks: []\n');
@@ -63,16 +75,24 @@ test('projects active and archived manifests into dashboard data', async () => {
   }
 });
 
-test('carries a manifest\'s spec_id through both the dashboard projection and the specification manifest payload (D2)', async () => {
+test("carries a manifest's spec_id through both the dashboard projection and the specification manifest payload (D2)", async () => {
   const sample = fixture();
   try {
     const activeChange = join(sample.activeDir, 'sample-change');
-    writeFileSync(join(activeChange, 'change.yaml'), `id: sample-change\nspec_id: 4c1a7b8e-2f3d-4a5b-9c6d-1e2f3a4b5c6d\ntitle: Sample change\nstatus: in-implementation\npriority: 1\ntasks:\n  - id: design-it\n    order: 1\n    file: tasks/01-design-it.md\n    status: verified\n`);
+    writeFileSync(
+      join(activeChange, 'change.yaml'),
+      `id: sample-change\nspec_id: 4c1a7b8e-2f3d-4a5b-9c6d-1e2f3a4b5c6d\ntitle: Sample change\nstatus: in-implementation\npriority: 1\ntasks:\n  - id: design-it\n    order: 1\n    file: tasks/01-design-it.md\n    status: verified\n`,
+    );
 
     const change = (await loadDashboardData({ ...sample, repoRoot: sample.root })).active[0];
     assert.equal(change.specId, '4c1a7b8e-2f3d-4a5b-9c6d-1e2f3a4b5c6d');
 
-    const manifest = await loadSpecificationManifest({ source: 'active', slug: 'sample-change', ...sample, repoRoot: sample.root });
+    const manifest = await loadSpecificationManifest({
+      source: 'active',
+      slug: 'sample-change',
+      ...sample,
+      repoRoot: sample.root,
+    });
     assert.equal(manifest.specId, '4c1a7b8e-2f3d-4a5b-9c6d-1e2f3a4b5c6d');
   } finally {
     sample.cleanup();
@@ -91,7 +111,10 @@ test('keeps stage progress at zero while every actionable task is new', async ()
   const sample = fixture();
   try {
     const activeChange = join(sample.activeDir, 'sample-change');
-    writeFileSync(join(activeChange, 'change.yaml'), `id: sample-change\ntitle: Sample change\nstatus: draft\ntasks:\n  - id: design-it\n    order: 1\n    file: tasks/01-design-it.md\n    status: new\n  - id: build-it\n    order: 2\n    file: tasks/02-build-it.md\n    status: new\n`);
+    writeFileSync(
+      join(activeChange, 'change.yaml'),
+      `id: sample-change\ntitle: Sample change\nstatus: draft\ntasks:\n  - id: design-it\n    order: 1\n    file: tasks/01-design-it.md\n    status: new\n  - id: build-it\n    order: 2\n    file: tasks/02-build-it.md\n    status: new\n`,
+    );
 
     const change = (await loadDashboardData({ ...sample, repoRoot: sample.root })).active[0];
     assert.equal(change.metrics.progress, 0);
@@ -105,7 +128,10 @@ test('does not count review or implementation stages as completed progress', asy
   const sample = fixture();
   try {
     const activeChange = join(sample.activeDir, 'sample-change');
-    writeFileSync(join(activeChange, 'change.yaml'), `id: sample-change\ntitle: Sample change\nstatus: in-implementation\ntasks:\n  - id: design-it\n    order: 1\n    file: tasks/01-design-it.md\n    status: implemented\n  - id: build-it\n    order: 2\n    file: tasks/02-build-it.md\n    status: in-implementation\n`);
+    writeFileSync(
+      join(activeChange, 'change.yaml'),
+      `id: sample-change\ntitle: Sample change\nstatus: in-implementation\ntasks:\n  - id: design-it\n    order: 1\n    file: tasks/01-design-it.md\n    status: implemented\n  - id: build-it\n    order: 2\n    file: tasks/02-build-it.md\n    status: in-implementation\n`,
+    );
 
     const change = (await loadDashboardData({ ...sample, repoRoot: sample.root })).active[0];
     assert.equal(change.metrics.progress, 0);
@@ -136,10 +162,22 @@ test('manifest lists documents (no bodies) with canonical titles, deterministic 
     assert.equal(manifest.overview.available, true);
     assert.equal(manifest.overview.docId, 'overview');
     assert.equal(manifest.overview.markdown, undefined);
-    assert.deepEqual(manifest.areas.map(area => area.id), ['01-contract', '02-runtime']);
-    assert.deepEqual(manifest.areas.map(area => area.title), ['Area: Contract', 'Area: Runtime']);
-    assert.deepEqual(manifest.areas.map(area => area.docId), ['area:01-contract', 'area:02-runtime']);
-    assert.deepEqual(manifest.tasks.map(task => task.id), ['design-it', 'build-it']);
+    assert.deepEqual(
+      manifest.areas.map((area) => area.id),
+      ['01-contract', '02-runtime'],
+    );
+    assert.deepEqual(
+      manifest.areas.map((area) => area.title),
+      ['Area: Contract', 'Area: Runtime'],
+    );
+    assert.deepEqual(
+      manifest.areas.map((area) => area.docId),
+      ['area:01-contract', 'area:02-runtime'],
+    );
+    assert.deepEqual(
+      manifest.tasks.map((task) => task.id),
+      ['design-it', 'build-it'],
+    );
     assert.equal(manifest.tasks[0].title, 'Design it');
     assert.equal(manifest.tasks[0].docId, 'task:design-it');
     assert.equal(manifest.tasks[0].path, 'specs/active/sample-change/tasks/01-design-it.md');
@@ -148,32 +186,63 @@ test('manifest lists documents (no bodies) with canonical titles, deterministic 
   }
 });
 
-test('manifest does not read every document\'s full body to recompute titles on a repeat request', async () => {
+test("manifest does not read every document's full body to recompute titles on a repeat request", async () => {
   const sample = fixture();
   try {
-    const before = await loadSpecificationManifest({ source: 'active', slug: 'sample-change', ...sample, repoRoot: sample.root });
-    const after = await loadSpecificationManifest({ source: 'active', slug: 'sample-change', ...sample, repoRoot: sample.root });
-    assert.deepEqual(before.tasks.map(t => t.title), after.tasks.map(t => t.title));
+    const before = await loadSpecificationManifest({
+      source: 'active',
+      slug: 'sample-change',
+      ...sample,
+      repoRoot: sample.root,
+    });
+    const after = await loadSpecificationManifest({
+      source: 'active',
+      slug: 'sample-change',
+      ...sample,
+      repoRoot: sample.root,
+    });
+    assert.deepEqual(
+      before.tasks.map((t) => t.title),
+      after.tasks.map((t) => t.title),
+    );
     assert.equal(before.overview.markdown, undefined);
   } finally {
     sample.cleanup();
   }
 });
 
-test('per-document fetch returns exactly one document\'s canonical body', async () => {
+test("per-document fetch returns exactly one document's canonical body", async () => {
   const sample = fixture();
   try {
-    const overview = await loadSpecificationDocument({ source: 'active', slug: 'sample-change', docId: 'overview', ...sample, repoRoot: sample.root });
+    const overview = await loadSpecificationDocument({
+      source: 'active',
+      slug: 'sample-change',
+      docId: 'overview',
+      ...sample,
+      repoRoot: sample.root,
+    });
     assert.equal(overview.available, true);
     assert.ok(!overview.markdown.startsWith('---'));
 
-    const task = await loadSpecificationDocument({ source: 'active', slug: 'sample-change', docId: 'task:design-it', ...sample, repoRoot: sample.root });
+    const task = await loadSpecificationDocument({
+      source: 'active',
+      slug: 'sample-change',
+      docId: 'task:design-it',
+      ...sample,
+      repoRoot: sample.root,
+    });
     assert.equal(task.title, 'Design it');
     assert.equal(task.markdown, '# Task: Design it\n\nCanonical design body.');
     assert.equal(task.path, 'specs/active/sample-change/tasks/01-design-it.md');
     assert.equal(task.status, 'verified');
 
-    const area = await loadSpecificationDocument({ source: 'active', slug: 'sample-change', docId: 'area:01-contract', ...sample, repoRoot: sample.root });
+    const area = await loadSpecificationDocument({
+      source: 'active',
+      slug: 'sample-change',
+      docId: 'area:01-contract',
+      ...sample,
+      repoRoot: sample.root,
+    });
     assert.equal(area.title, 'Area: Contract');
 
     // A task id is data-driven (change.yaml's own task list) — an unknown one has no
@@ -181,8 +250,23 @@ test('per-document fetch returns exactly one document\'s canonical body', async 
     // docId shape entirely). An area id has no such registry beyond the files.mjs
     // themselves — "unknown" is indistinguishable from "an area that lost its file",
     // so it resolves the same way overview does when its file is missing: available: false.
-    assert.equal(await loadSpecificationDocument({ source: 'active', slug: 'sample-change', docId: 'task:unknown-task', ...sample, repoRoot: sample.root }), null);
-    const unknownArea = await loadSpecificationDocument({ source: 'active', slug: 'sample-change', docId: 'area:unknown-area', ...sample, repoRoot: sample.root });
+    assert.equal(
+      await loadSpecificationDocument({
+        source: 'active',
+        slug: 'sample-change',
+        docId: 'task:unknown-task',
+        ...sample,
+        repoRoot: sample.root,
+      }),
+      null,
+    );
+    const unknownArea = await loadSpecificationDocument({
+      source: 'active',
+      slug: 'sample-change',
+      docId: 'area:unknown-area',
+      ...sample,
+      repoRoot: sample.root,
+    });
     assert.equal(unknownArea.available, false);
     assert.equal(unknownArea.markdown, '');
   } finally {
@@ -205,15 +289,27 @@ test('manifest and per-document fetch return explicit optional-document empty st
     assert.deepEqual(manifest.areas, []);
     assert.deepEqual(manifest.tasks, []);
 
-    const missingOverview = await loadSpecificationDocument({ source: 'archive', slug: 'old-change', docId: 'overview', ...sample, repoRoot: sample.root });
+    const missingOverview = await loadSpecificationDocument({
+      source: 'archive',
+      slug: 'old-change',
+      docId: 'overview',
+      ...sample,
+      repoRoot: sample.root,
+    });
     assert.equal(missingOverview.available, false);
     assert.equal(missingOverview.markdown, '');
 
     assert.equal(await loadSpecificationManifest({ source: 'other', slug: 'old-change', ...sample }), null);
     assert.equal(await loadSpecificationManifest({ source: 'active', slug: '../old-change', ...sample }), null);
     assert.equal(await loadSpecificationManifest({ source: 'active', slug: 'missing', ...sample }), null);
-    assert.equal(await loadSpecificationDocument({ source: 'active', slug: '../old-change', docId: 'overview', ...sample }), null);
-    assert.equal(await loadSpecificationDocument({ source: 'active', slug: 'sample-change', docId: 'area:../secret', ...sample }), null);
+    assert.equal(
+      await loadSpecificationDocument({ source: 'active', slug: '../old-change', docId: 'overview', ...sample }),
+      null,
+    );
+    assert.equal(
+      await loadSpecificationDocument({ source: 'active', slug: 'sample-change', docId: 'area:../secret', ...sample }),
+      null,
+    );
   } finally {
     sample.cleanup();
   }
@@ -223,7 +319,10 @@ test('task statuses are small, ordered, and derived only from change.yaml (no pe
   const sample = fixture();
   try {
     const statuses = loadTaskStatuses({ source: 'active', slug: 'sample-change', ...sample });
-    assert.deepEqual(statuses.tasks.map(t => t.id), ['design-it', 'build-it']);
+    assert.deepEqual(
+      statuses.tasks.map((t) => t.id),
+      ['design-it', 'build-it'],
+    );
     assert.equal(statuses.tasks[0].status, 'verified');
     assert.equal(statuses.tasks[1].status, 'approved');
     assert.equal(statuses.tasks[1].ready, true);
@@ -239,12 +338,15 @@ test('task statuses are small, ordered, and derived only from change.yaml (no pe
   }
 });
 
-test('task statuses revision changes when a task\'s status changes', () => {
+test("task statuses revision changes when a task's status changes", () => {
   const sample = fixture();
   try {
     const before = loadTaskStatuses({ source: 'active', slug: 'sample-change', ...sample });
     const activeChange = join(sample.activeDir, 'sample-change');
-    writeFileSync(join(activeChange, 'change.yaml'), `id: sample-change\ntitle: Sample change\nstatus: in-implementation\npriority: 1\ntasks:\n  - id: design-it\n    order: 1\n    file: tasks/01-design-it.md\n    status: verified\n  - id: build-it\n    order: 2\n    file: tasks/02-build-it.md\n    status: in-implementation\n    depends_on: [design-it]\n`);
+    writeFileSync(
+      join(activeChange, 'change.yaml'),
+      `id: sample-change\ntitle: Sample change\nstatus: in-implementation\npriority: 1\ntasks:\n  - id: design-it\n    order: 1\n    file: tasks/01-design-it.md\n    status: verified\n  - id: build-it\n    order: 2\n    file: tasks/02-build-it.md\n    status: in-implementation\n    depends_on: [design-it]\n`,
+    );
     const after = loadTaskStatuses({ source: 'active', slug: 'sample-change', ...sample });
     assert.notEqual(after.revision, before.revision);
   } finally {
@@ -274,20 +376,20 @@ test('manifest and document loading support declarative configurable sections (r
     });
 
     assert.ok(Array.isArray(manifest.sections));
-    const sectionIds = manifest.sections.map(s => s.id);
+    const sectionIds = manifest.sections.map((s) => s.id);
     assert.deepEqual(sectionIds, ['specification', 'areas', 'solution-options', 'decisions', 'reviews']);
 
-    const solutionSec = manifest.sections.find(s => s.id === 'solution-options');
+    const solutionSec = manifest.sections.find((s) => s.id === 'solution-options');
     assert.equal(solutionSec.available, true);
     assert.equal(solutionSec.document.title, 'Solution Options');
     assert.equal(solutionSec.document.docId, 'solution-options');
 
-    const decisionsSec = manifest.sections.find(s => s.id === 'decisions');
+    const decisionsSec = manifest.sections.find((s) => s.id === 'decisions');
     assert.equal(decisionsSec.available, true);
     assert.equal(decisionsSec.document.title, 'Decisions');
     assert.equal(decisionsSec.document.docId, 'decisions');
 
-    const reviewsSec = manifest.sections.find(s => s.id === 'reviews');
+    const reviewsSec = manifest.sections.find((s) => s.id === 'reviews');
     assert.equal(reviewsSec.available, true);
     assert.equal(reviewsSec.documents.length, 1);
     assert.equal(reviewsSec.documents[0].id, 'spec');
@@ -335,9 +437,9 @@ test('manifest and document loading support declarative configurable sections (r
       ...sample,
       repoRoot: sample.root,
     });
-    const oldSolSec = oldManifest.sections.find(s => s.id === 'solution-options');
+    const oldSolSec = oldManifest.sections.find((s) => s.id === 'solution-options');
     assert.equal(oldSolSec.available, false);
-    const oldRevSec = oldManifest.sections.find(s => s.id === 'reviews');
+    const oldRevSec = oldManifest.sections.find((s) => s.id === 'reviews');
     assert.equal(oldRevSec.available, false);
     assert.deepEqual(oldRevSec.documents, []);
   } finally {
@@ -383,10 +485,12 @@ test('transparently falls back to alternate directory when change is moved betwe
 
     // 4. Truly missing change returns null
     assert.equal(await loadSpecificationManifest({ source: 'active', slug: 'non-existent', ...sample }), null);
-    assert.equal(await loadSpecificationDocument({ source: 'active', slug: 'non-existent', docId: 'overview', ...sample }), null);
+    assert.equal(
+      await loadSpecificationDocument({ source: 'active', slug: 'non-existent', docId: 'overview', ...sample }),
+      null,
+    );
     assert.equal(loadTaskStatuses({ source: 'active', slug: 'non-existent', ...sample }), null);
   } finally {
     sample.cleanup();
   }
 });
-

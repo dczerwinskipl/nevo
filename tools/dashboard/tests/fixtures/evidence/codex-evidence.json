@@ -29,7 +29,12 @@
     {
       "method": "item/completed",
       "params": {
-        "item": { "type": "agentMessage", "id": "msg_01", "text": "Sprawdzę repozytorium i uruchomię polecenie narzędziowe.", "phase": "commentary" }
+        "item": {
+          "type": "agentMessage",
+          "id": "msg_01",
+          "text": "Sprawdzę repozytorium i uruchomię polecenie narzędziowe.",
+          "phase": "commentary"
+        }
       }
     },
     {
@@ -75,7 +80,12 @@
     {
       "method": "item/completed",
       "params": {
-        "item": { "type": "agentMessage", "id": "msg_02", "text": "Wykryto brak środowiska node w PATH. Sprawdzam stan Git bez node.", "phase": "commentary" }
+        "item": {
+          "type": "agentMessage",
+          "id": "msg_02",
+          "text": "Wykryto brak środowiska node w PATH. Sprawdzam stan Git bez node.",
+          "phase": "commentary"
+        }
       }
     },
     {
@@ -112,12 +122,20 @@
     },
     {
       "method": "item/agentMessage/delta",
-      "params": { "itemId": "msg_final", "delta": "Diagnostyka zakończona pomyślnie. Stan repozytorium czysty, zidentyfikowano brak PATH node." }
+      "params": {
+        "itemId": "msg_final",
+        "delta": "Diagnostyka zakończona pomyślnie. Stan repozytorium czysty, zidentyfikowano brak PATH node."
+      }
     },
     {
       "method": "item/completed",
       "params": {
-        "item": { "type": "agentMessage", "id": "msg_final", "text": "Diagnostyka zakończona pomyślnie. Stan repozytorium czysty, zidentyfikowano brak PATH node.", "phase": "final_answer" }
+        "item": {
+          "type": "agentMessage",
+          "id": "msg_final",
+          "text": "Diagnostyka zakończona pomyślnie. Stan repozytorium czysty, zidentyfikowano brak PATH node.",
+          "phase": "final_answer"
+        }
       }
     },
     {

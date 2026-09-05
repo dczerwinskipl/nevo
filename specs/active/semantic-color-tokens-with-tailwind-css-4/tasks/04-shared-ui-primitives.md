@@ -7,6 +7,9 @@ context:
     - specs/active/semantic-color-tokens-with-tailwind-css-4/overview.md
     - specs/active/semantic-color-tokens-with-tailwind-css-4/owner-decisions.md
     - specs/active/semantic-color-tokens-with-tailwind-css-4/areas/shared-ui-primitives.md
+    - docs/development/react-component-guidelines.md
+    - docs/development/ui-ux-guidelines.md
+    - docs/development/storybook.md
     - tools/dashboard/ui/index.css
     - tools/dashboard/ui/components/ui/button.tsx
     - tools/dashboard/ui/components/ui/badge.tsx
@@ -64,22 +67,25 @@ follow the class-composition contract from the start).
   `#f8fafc` on `#ef4444` is only ≈3.60:1, below the change-wide ≥4.5:1 normal-text
   requirement. Use a semantic outline/tinted treatment instead, matching the shape of
   the existing delete-session button's own (currently manual) styling:
-  `text-action-destructive` foreground, a low-opacity `action-destructive`
-  border/background via Tailwind opacity modifiers (e.g.
-  `border-action-destructive/40 bg-action-destructive/10`), and an
-  `action-destructive` focus ring (`focus-visible:ring-action-destructive`). Verify the
-  default-state `text-action-destructive`-on-`bg-action-destructive/10` pair and the
-  hover-state pair both meet ≥4.5:1 against their actual rendered background (the
-  low-opacity fill composited over the button's surrounding surface, not the raw token
-  alone) — adjust the opacity values if the first attempt doesn't clear the bar. Do not
-  introduce a new theme token (e.g. an `action-destructive-muted`/`-border` variant)
-  unless implementation proves the opacity-modifier approach genuinely can't meet
-  contrast — that would be a new finding to report, not something to add speculatively
-  now. This is not a speculative/catalog-only addition: `tasks/06-*` migrates a
-  confirmed real consumer, `agent-session-details.tsx`'s "Usuń sesję z dysku" (delete
-  session) button (currently `variant="ghost"` plus ~7 manual `--danger*` class
-  overrides), to this variant. `--color-action-destructive` is never routed through
-  `shared/status-tone.ts` (that module doesn't export it — see `tasks/05-*`).
+  `text-action-destructive` foreground, an outline with subtle hover fill via Tailwind
+  opacity modifiers:
+  `border border-action-destructive/40 bg-transparent text-action-destructive hover:border-action-destructive/60 hover:bg-action-destructive/5`,
+  and an `action-destructive` focus ring (`focus-visible:ring-action-destructive`).
+  **Implementation finding recorded:** Stacking opacity modifiers inside a red-tinted
+  container (such as the existing `bg-[var(--danger-muted)]` delete-session container)
+  compounds red luminance and causes `#ef4444` text to fail normal contrast (yielding
+  ~4.14:1 default and ~3.90:1 hover). Even on plain `surface-raised` (`#14171d`),
+  `hover:bg-action-destructive/10` drops to ~4.34:1. To guarantee ≥4.5:1 across all
+  render contexts:
+  (1) `Button` uses `bg-transparent` in default state (~4.87:1 on `surface-raised`,
+  ~5.12:1 on `surface`) and `hover:bg-action-destructive/5` on hover (~4.59:1 on
+  `surface-raised`, ~4.82:1 on `surface`).
+  (2) The planned surrounding-container contract for `tasks/06-*` (`agent-session-details.tsx`)
+  is updated so the danger card uses a neutral dark surface with a destructive border
+  (`border border-action-destructive/30 bg-surface`) rather than a red-tinted fill.
+  This is proven by durable Storybook play tests covering both standalone and nested
+  delete-session container contexts. `--color-action-destructive` is never routed
+  through `shared/status-tone.ts` (that module doesn't export it — see `tasks/05-*`).
 - `status-card.tsx:27` hover: replace `hover:text-[var(--accent-strong)]` — do not
   reintroduce `accent-solid`/`accent-strong` as a text color; keep `text-accent`
   unchanged on hover, or apply an opacity modifier, whichever verifiably meets ≥4.5:1
@@ -145,6 +151,7 @@ follow the class-composition contract from the start).
 ## Verification
 
 ```text
+npm --prefix tools/dashboard run format:check
 npm --prefix tools/dashboard test
 npm --prefix tools/dashboard run build
 npm --prefix tools/dashboard run test:storybook

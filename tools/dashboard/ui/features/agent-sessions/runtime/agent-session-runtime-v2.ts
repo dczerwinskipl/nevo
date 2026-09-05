@@ -220,10 +220,14 @@ export function useAgentSessionRuntimeV2({
 
   // 3. Send Turn
   const handleSendTurn = useCallback(
-    async (messageText: string, options?: { mode?: AgentExecutionMode; idempotencyKey?: string; userMessage?: string }) => {
+    async (
+      messageText: string,
+      options?: { mode?: AgentExecutionMode; idempotencyKey?: string; userMessage?: string },
+    ) => {
       const trimmed = messageText ? messageText.trim() : '';
       if (!trimmed) throw new Error('Cannot start turn with an empty message.');
-      if (!provider || !providerSessionId) throw new Error('Cannot start turn without an active provider and session ID.');
+      if (!provider || !providerSessionId)
+        throw new Error('Cannot start turn without an active provider and session ID.');
       if (loadedIdentity !== `${provider}:${providerSessionId}`) {
         throw new Error('Cannot start turn while the session snapshot is loading.');
       }
@@ -302,11 +306,8 @@ export function useAgentSessionRuntimeV2({
   const exposedReadiness = isSnapshotLoaded ? readiness : null;
   const exposedSessionMeta = isSnapshotLoaded ? sessionMeta : null;
   const exposedLoadError = isErrorForCurrentIdentity ? loadError : null;
-  const exposedConnectionStatus: LiveConnectionStatus = isSnapshotLoaded && !exposedLoadError
-    ? connectionStatus
-    : exposedLoadError
-      ? 'disconnected'
-      : 'unknown';
+  const exposedConnectionStatus: LiveConnectionStatus =
+    isSnapshotLoaded && !exposedLoadError ? connectionStatus : exposedLoadError ? 'disconnected' : 'unknown';
   const exposedLive = exposedConnectionStatus === 'connected';
   const exposedIsLoading = isSnapshotLoaded ? false : Boolean(provider && providerSessionId && !exposedLoadError);
   const exposedCanStartTurn = Boolean(isSnapshotLoaded && !exposedLoadError && exposedActivity === 'idle');
@@ -328,7 +329,7 @@ export function useAgentSessionRuntimeV2({
     isSnapshotLoaded,
     loadError: exposedLoadError,
     /** Optimistic text for the brief gap between POST and the first turn.updated snapshot — never used once a real turn carries its own `userMessage`. */
-    optimisticUserMessage: isSnapshotLoaded ? optimisticPending?.text ?? null : null,
+    optimisticUserMessage: isSnapshotLoaded ? (optimisticPending?.text ?? null) : null,
     reload,
     sendTurn: handleSendTurn,
     cancelTurn: handleCancelTurn,

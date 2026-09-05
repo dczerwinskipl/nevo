@@ -47,7 +47,7 @@ describe('TurnWorkSummary component (RTL renders)', () => {
 
     const button = screen.getByRole('button', { name: /work ·/i });
     expect(button).toHaveAttribute('aria-expanded', 'false');
-    expect(button.className).toContain('hover:bg-white/4');
+    expect(button.className).toContain('hover:bg-fg-primary/4');
     expect(button.className).not.toContain('rounded-xl');
     expect(button.className).not.toContain('border');
 
@@ -66,9 +66,7 @@ describe('TurnWorkSummary component (RTL renders)', () => {
         code: 'AI_SESSION_LIMIT',
         message: "You've hit your session limit",
       },
-      items: [
-        { toolId: 't1', toolName: 'Read', input: { path: 'a.ts' }, status: 'completed' },
-      ],
+      items: [{ toolId: 't1', toolName: 'Read', input: { path: 'a.ts' }, status: 'completed' }],
     };
 
     render(<TurnWorkSummary work={work} />);

@@ -10,48 +10,80 @@ function readSource(relative) {
 test('neutral foundation tokens do not derive from the interaction accent', () => {
   const css = readSource('index.css');
 
-  assert.match(css, /--background: #090a0d/);
-  assert.match(css, /--surface: #0f1116/);
-  assert.match(css, /--surface-raised: #14171d/);
-  assert.match(css, /--surface-hover: #191d24/);
-  assert.match(css, /--border: #252a33/);
-  assert.match(css, /--border-strong: #343b47/);
-  assert.match(css, /--accent: #3882f6/);
+  assert.match(css, /--color-background: #090a0d/);
+  assert.match(css, /--color-surface: #0f1116/);
+  assert.match(css, /--color-surface-raised: #14171d/);
+  assert.match(css, /--color-surface-hover: #191d24/);
+  assert.match(css, /--color-border: #252a33/);
+  assert.match(css, /--color-border-strong: #343b47/);
+  assert.match(css, /--color-accent: #3882f6/);
 
   const bodyRule = css.slice(css.indexOf('body {'), css.indexOf('body::before'));
   assert.doesNotMatch(bodyRule, /var\(--accent\)|59, 130, 246/);
 });
 
-test('theme exposes interaction and semantic token families', () => {
+test('legacy CSS custom-property bridge is fully removed and --color-*: initial is set', () => {
   const css = readSource('index.css');
 
+  assert.match(css, /--color-\*:\s*initial;/);
+
   for (const token of [
+    '--background',
+    '--surface',
+    '--surface-raised',
+    '--surface-hover',
+    '--border',
+    '--border-strong',
+    '--foreground',
+    '--muted',
+    '--muted-strong',
+    '--accent',
+    '--accent-strong',
+    '--accent-foreground',
     '--accent-muted',
     '--accent-border',
+    '--success',
+    '--success-strong',
     '--success-muted',
     '--success-border',
+    '--warning',
+    '--warning-strong',
     '--warning-muted',
     '--warning-border',
+    '--danger',
+    '--danger-strong',
     '--danger-muted',
     '--danger-border',
+    '--info',
+    '--info-strong',
+    '--info-muted',
+    '--info-border',
     '--lane-new',
     '--lane-design',
     '--lane-ready',
     '--lane-implementation',
     '--lane-review',
     '--lane-done',
+    '--lane-danger',
+    '--cat-1',
+    '--cat-2',
   ]) {
-    assert.ok(css.includes(token), `missing ${token}`);
+    assert.ok(!css.includes(`${token}:`), `legacy declaration ${token} should no longer exist`);
   }
+
+  const rootRule = css.slice(css.indexOf(':root {'), css.indexOf('* {'));
+  assert.match(rootRule, /color-scheme: dark;/);
+  assert.match(rootRule, /font-synthesis: none;/);
+  assert.match(rootRule, /text-rendering: optimizeLegibility;/);
 });
 
 test('desktop shell removes the full-width brand header and keeps floating utilities', () => {
-  const appLayout = readSource('features/specifications/specification-console-layout.tsx');
+  const appLayout = readSource('screens/specification-console/specification-console-layout.tsx');
 
   assert.ok(appLayout.includes('backdrop-blur-xl sm:px-7 lg:hidden'));
-  assert.ok(appLayout.includes('fixed right-4 top-3 z-40 hidden rounded-xl'));
+  assert.ok(appLayout.includes('fixed top-3 right-4 z-40 hidden rounded-xl'));
   assert.ok(appLayout.includes('backdrop-blur-xl lg:flex'));
-  assert.ok(appLayout.includes('<SpecificationLiveControls live={live}') || appLayout.includes('<ConnectivityControls live={live}'));
+  assert.match(appLayout, /<SpecificationLiveControls\s+live=\{live\}|<ConnectivityControls\s+live=\{live\}/);
 });
 
 test('workflow and session states follow the semantic color contract', () => {
@@ -62,27 +94,28 @@ test('workflow and session states follow the semantic color contract', () => {
   const tools = readSource('features/agent-sessions/turn-work/tool-call-view.tsx');
   const sessions = readSource('features/agent-sessions/agent-session-list.tsx');
 
-  assert.ok(lanes.includes("implementation: { accent: 'var(--lane-implementation)' }"));
-  assert.ok(lanes.includes("review: { accent: 'var(--lane-review)' }"));
-  assert.ok(lanes.includes("done: { accent: 'var(--lane-done)' }"));
-  assert.ok(board.includes('bg-[var(--lane-accent)]'));
-  assert.ok(progress.includes("{ id: 'done', label: 'Gotowe', color: 'bg-[var(--success)]' }"));
-  assert.ok(progress.includes("{ id: 'implementation', label: 'Implementacja', color: 'bg-[var(--accent)]' }"));
-  assert.ok(progress.includes("style={{ width: `${(count / total) * 100}%` }}"));
-  assert.ok(progress.includes("key={stage.id}"));
-  assert.match(labels, /case 'approved':[\s\S]*return 'text-\[var\(--success\)\]'/);
-  assert.ok(tools.includes('isFailed && <AlertTriangle className="size-3.5 text-[var(--warning)]"'));
-  assert.ok(sessions.includes("session.status === 'waitingForUser' && 'bg-[var(--warning-muted)]'"));
+  assert.ok(lanes.includes("implementation: { dotClassName: 'bg-status-active' }"));
+  assert.ok(lanes.includes("review: { dotClassName: 'bg-status-warning' }"));
+  assert.ok(lanes.includes("done: { dotClassName: 'bg-status-success' }"));
+  assert.ok(board.includes('presentation.dotClassName'));
+  assert.ok(progress.includes("{ id: 'done', label: 'Gotowe', color: 'bg-status-success' }"));
+  assert.ok(progress.includes("{ id: 'implementation', label: 'Implementacja', color: 'bg-status-active' }"));
+  assert.ok(progress.includes('style={{ width: `${(count / total) * 100}%` }}'));
+  assert.ok(progress.includes('key={stage.id}'));
+  const specStatus = readSource('features/specifications/status.ts');
+  assert.match(specStatus, /case 'approved':[\s\S]*return 'success'/);
+  assert.ok(tools.includes('isFailed && <AlertTriangle className="size-3.5 text-status-warning"'));
+  assert.ok(sessions.includes("session.status === 'waitingForUser' && 'bg-status-warning/10'"));
 });
 
 test('sidebar hierarchy and mode switch stay neutral with a clear primary selection', () => {
   const sidebar = readSource('features/specifications/navigation/specification-sidebar.tsx');
 
-  assert.ok(sidebar.includes('border-r border-[var(--border)] bg-[var(--surface-raised)]'));
-  assert.ok(sidebar.includes('rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1'));
+  assert.ok(sidebar.includes('border-r border-border bg-surface-raised'));
+  assert.ok(sidebar.includes('rounded-xl border border-border bg-surface p-1'));
   assert.doesNotMatch(sidebar, /shadow-\[inset_0_-2px_0_var\(--accent\)\]/);
-  assert.ok(sidebar.includes('className="border-b border-[var(--border)] py-4"'));
-  assert.ok(sidebar.includes('divide-y divide-[var(--border)]'));
+  assert.ok(sidebar.includes('className="border-b border-border py-4"'));
+  assert.ok(sidebar.includes('divide-y divide-border'));
   assert.ok(sidebar.includes("aria-current={mode === 'active' ? 'page' : undefined}"));
   assert.ok(sidebar.includes("aria-current={mode === 'archive' ? 'page' : undefined}"));
 
@@ -94,13 +127,13 @@ test('sidebar hierarchy and mode switch stay neutral with a clear primary select
 });
 
 test('overview avoids duplicate metric cards and board lanes use neutral surfaces', () => {
-  const overview = readSource('features/specifications/detail/overview-panel.tsx');
+  const overview = readSource('screens/specification-detail/specification-overview.tsx');
   const board = readSource('features/specifications/detail/status-board.tsx');
 
   assert.doesNotMatch(overview, /function MetricCard|aria-label="Podsumowanie specyfikacji"/);
-  assert.ok(board.includes('border border-[var(--border)] bg-[var(--surface)]'));
+  assert.ok(board.includes('border border-border bg-surface'));
   assert.ok(board.includes("lane.tasks.length === 0 && 'hidden sm:block'"));
   assert.doesNotMatch(board, /border-dashed|tone\.tint|tone\.line/);
-  assert.ok(board.includes('<StatusLabel kind="task" status={task.status} className="truncate text-[9px]'));
+  assert.match(board, /<StatusLabel\s+tone=\{taskStatusTone\(task\.status\)\}\s+className="truncate text-\[9px\]/);
   assert.doesNotMatch(board, /import \{ Badge \}/);
 });

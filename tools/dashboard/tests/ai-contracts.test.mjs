@@ -58,7 +58,9 @@ test('validateAgentIdentity enforces canonical pair (provider, providerSessionId
   assert.deepEqual(identity, { provider: 'claude', providerSessionId: 'sess-123' });
 
   assert.throws(() => validateAgentIdentity({ provider: '', providerSessionId: 's1' }), { name: 'AiValidationError' });
-  assert.throws(() => validateAgentIdentity({ provider: 'claude', providerSessionId: '' }), { name: 'AiValidationError' });
+  assert.throws(() => validateAgentIdentity({ provider: 'claude', providerSessionId: '' }), {
+    name: 'AiValidationError',
+  });
   assert.throws(() => validateAgentIdentity(null), { name: 'AiValidationError' });
 });
 
@@ -78,15 +80,20 @@ test('unsupported capabilities return CapabilityNotSupportedError without invoki
   const provider = {
     descriptor: { id: 'limited', label: 'Limited', capabilities: {} },
     async startTurn() {},
-    async cancelTurn() { invoked = true; },
+    async cancelTurn() {
+      invoked = true;
+    },
   };
   const registry = createAgentProviderRegistry([provider]);
-  assert.throws(() => registry.require('limited', 'cancelTurn', 'cancelTurn'), error => {
-    assert.ok(error instanceof CapabilityNotSupportedError);
-    assert.equal(error.name, 'CapabilityNotSupportedError');
-    assert.deepEqual(error.toJSON().error.details, { provider: 'limited', capability: 'cancelTurn' });
-    return true;
-  });
+  assert.throws(
+    () => registry.require('limited', 'cancelTurn', 'cancelTurn'),
+    (error) => {
+      assert.ok(error instanceof CapabilityNotSupportedError);
+      assert.equal(error.name, 'CapabilityNotSupportedError');
+      assert.deepEqual(error.toJSON().error.details, { provider: 'limited', capability: 'cancelTurn' });
+      return true;
+    },
+  );
   assert.equal(invoked, false);
 });
 
@@ -97,18 +104,24 @@ test('registry rejects providers missing required methods (startTurn, cancelTurn
   );
 
   assert.throws(
-    () => createAgentProviderRegistry([{
-      descriptor: { id: 'missing-start', label: 'Missing', capabilities: {} },
-      async cancelTurn() {},
-    }]),
+    () =>
+      createAgentProviderRegistry([
+        {
+          descriptor: { id: 'missing-start', label: 'Missing', capabilities: {} },
+          async cancelTurn() {},
+        },
+      ]),
     { name: 'AiValidationError' },
   );
 
   assert.throws(
-    () => createAgentProviderRegistry([{
-      descriptor: { id: 'missing-cancel', label: 'Missing', capabilities: {} },
-      async startTurn() {},
-    }]),
+    () =>
+      createAgentProviderRegistry([
+        {
+          descriptor: { id: 'missing-cancel', label: 'Missing', capabilities: {} },
+          async startTurn() {},
+        },
+      ]),
     { name: 'AiValidationError' },
   );
 });
@@ -124,26 +137,94 @@ test('required events validate all normalized schemas and reject provider reques
     { ...base, type: 'tool.started', toolId: 'tool-1', toolName: 'Shell', input: { command: 'npm test' } },
     { ...base, type: 'tool.updated', toolId: 'tool-1', output: 'running...', status: 'running' },
     { ...base, type: 'tool.completed', toolId: 'tool-1', output: 'success', durationMs: 150, status: 'completed' },
-    { ...base, type: 'interaction.requested', interaction: { id: 'int-1', kind: 'permission', toolName: 'Shell', input: { command: 'npm test' } } },
-    { ...base, type: 'interaction.requested', interaction: { id: 'int-2', kind: 'question', questions: [{ id: 'q-1', question: 'Choose?', multiSelect: false }] } },
-    { ...base, type: 'interaction.requested', interaction: { id: 'int-3', kind: 'confirmation', message: 'Proceed with changes?' } },
-    { ...base, type: 'interaction.resolved', interactionId: 'int-2', response: { answers: [{ questionId: 'q-1', value: 'yes' }] } },
+    {
+      ...base,
+      type: 'interaction.requested',
+      interaction: { id: 'int-1', kind: 'permission', toolName: 'Shell', input: { command: 'npm test' } },
+    },
+    {
+      ...base,
+      type: 'interaction.requested',
+      interaction: {
+        id: 'int-2',
+        kind: 'question',
+        questions: [{ id: 'q-1', question: 'Choose?', multiSelect: false }],
+      },
+    },
+    {
+      ...base,
+      type: 'interaction.requested',
+      interaction: { id: 'int-3', kind: 'confirmation', message: 'Proceed with changes?' },
+    },
+    {
+      ...base,
+      type: 'interaction.resolved',
+      interactionId: 'int-2',
+      response: { answers: [{ questionId: 'q-1', value: 'yes' }] },
+    },
     { ...base, type: 'usage.updated', tokensIn: 100, tokensOut: 50, cost: 0.002 },
     { ...base, type: 'turn.completed', durationMs: 1200, finishReason: 'stop' },
     { ...base, type: 'turn.failed', error: { code: 'FAILED', message: 'failed' } },
-  ]) assert.equal(validateAgentEvent(event).type, event.type);
+  ])
+    assert.equal(validateAgentEvent(event).type, event.type);
 
-  assert.throws(() => validateAgentEvent({ ...base, type: 'tool.completed', toolId: 'tool-1', output: 'success' }), { name: 'AiValidationError' }, 'tool.completed must require a terminal status');
-  assert.throws(() => validateAgentEvent({ ...base, type: 'progress.delta', text: 'missing correlation' }), { name: 'AiValidationError' });
-  assert.throws(() => validateAgentEvent({ ...base, type: 'tool.completed', toolId: 'tool-1', status: 'running' }), { name: 'AiValidationError' }, 'tool.completed status must be completed or failed, not running');
+  assert.throws(
+    () => validateAgentEvent({ ...base, type: 'tool.completed', toolId: 'tool-1', output: 'success' }),
+    { name: 'AiValidationError' },
+    'tool.completed must require a terminal status',
+  );
+  assert.throws(() => validateAgentEvent({ ...base, type: 'progress.delta', text: 'missing correlation' }), {
+    name: 'AiValidationError',
+  });
+  assert.throws(
+    () => validateAgentEvent({ ...base, type: 'tool.completed', toolId: 'tool-1', status: 'running' }),
+    { name: 'AiValidationError' },
+    'tool.completed status must be completed or failed, not running',
+  );
 
-  assert.throws(() => validateAgentEvent({ ...base, type: 'turn.started', providerRequestId: 'secret' }), { name: 'AiValidationError' });
-  assert.throws(() => validateAgentEvent({ ...base, type: 'interaction.requested', interaction: { id: 'i', kind: 'permission', toolName: 'x', input: { rawPayload: {} } } }), { name: 'AiValidationError' });
+  assert.throws(() => validateAgentEvent({ ...base, type: 'turn.started', providerRequestId: 'secret' }), {
+    name: 'AiValidationError',
+  });
+  assert.throws(
+    () =>
+      validateAgentEvent({
+        ...base,
+        type: 'interaction.requested',
+        interaction: { id: 'i', kind: 'permission', toolName: 'x', input: { rawPayload: {} } },
+      }),
+    { name: 'AiValidationError' },
+  );
 
-  const question = validateAgentEvent({ ...base, type: 'interaction.requested', interaction: { id: 'int-2', kind: 'question', questions: [{ id: 'q-1', question: 'Same?' }, { id: 'q-2', question: 'Same?' }] } }).interaction;
+  const question = validateAgentEvent({
+    ...base,
+    type: 'interaction.requested',
+    interaction: {
+      id: 'int-2',
+      kind: 'question',
+      questions: [
+        { id: 'q-1', question: 'Same?' },
+        { id: 'q-2', question: 'Same?' },
+      ],
+    },
+  }).interaction;
   assert.equal(question.resumePolicy, 'restart');
-  assert.deepEqual(validateInteractionResponse(question, { answers: [{ questionId: 'q-1', value: 'A' }, { questionId: 'q-2', value: 'B' }] }).answers.map(item => item.questionId), ['q-1', 'q-2']);
-  assert.throws(() => validateInteractionResponse(question, { answers: [{ questionId: 'Same?', value: 'A' }, { questionId: 'q-2', value: 'B' }] }));
+  assert.deepEqual(
+    validateInteractionResponse(question, {
+      answers: [
+        { questionId: 'q-1', value: 'A' },
+        { questionId: 'q-2', value: 'B' },
+      ],
+    }).answers.map((item) => item.questionId),
+    ['q-1', 'q-2'],
+  );
+  assert.throws(() =>
+    validateInteractionResponse(question, {
+      answers: [
+        { questionId: 'Same?', value: 'A' },
+        { questionId: 'q-2', value: 'B' },
+      ],
+    }),
+  );
 
   const liveInteraction = validateAgentEvent({
     ...base,
@@ -151,15 +232,25 @@ test('required events validate all normalized schemas and reject provider reques
     interaction: { id: 'int-live', kind: 'permission', resumePolicy: 'live-operation', toolName: 'Shell' },
   }).interaction;
   assert.equal(liveInteraction.resumePolicy, 'live-operation');
-  assert.throws(() => validateAgentEvent({
-    ...base,
-    type: 'interaction.requested',
-    interaction: { id: 'int-invalid', kind: 'permission', resumePolicy: 'provider-specific', toolName: 'Shell' },
-  }), { name: 'AiValidationError' });
+  assert.throws(
+    () =>
+      validateAgentEvent({
+        ...base,
+        type: 'interaction.requested',
+        interaction: { id: 'int-invalid', kind: 'permission', resumePolicy: 'provider-specific', toolName: 'Shell' },
+      }),
+    { name: 'AiValidationError' },
+  );
 
   const confirmation = { id: 'int-3', kind: 'confirmation', title: 'Confirm', message: 'Sure?' };
-  assert.deepEqual(validateInteractionResponse(confirmation, { confirmed: true }), { confirmed: true, decision: 'confirm' });
-  assert.deepEqual(validateInteractionResponse(confirmation, { decision: 'deny' }), { confirmed: false, decision: 'cancel' });
+  assert.deepEqual(validateInteractionResponse(confirmation, { confirmed: true }), {
+    confirmed: true,
+    decision: 'confirm',
+  });
+  assert.deepEqual(validateInteractionResponse(confirmation, { decision: 'deny' }), {
+    confirmed: false,
+    decision: 'cancel',
+  });
 });
 
 test('multi-provider registry supports multiple registered providers (claude, antigravity, mock)', async () => {
@@ -188,7 +279,12 @@ test('AgentSessionService uses binding service for listings and transcript cache
   };
   const transcriptCache = {
     async getTranscript(provider, providerSessionId) {
-      return { provider, providerSessionId, messages: [{ role: 'user', text: 'hi' }], updatedAt: '2026-08-18T10:00:00.000Z' };
+      return {
+        provider,
+        providerSessionId,
+        messages: [{ role: 'user', text: 'hi' }],
+        updatedAt: '2026-08-18T10:00:00.000Z',
+      };
     },
   };
   const provider = {
@@ -200,35 +296,54 @@ test('AgentSessionService uses binding service for listings and transcript cache
   const service = createAgentSessionService({ registry, bindingService, transcriptCache });
 
   const sessions = await service.listSessions({ specId: 'spec-123' });
-  assert.deepEqual(sessions, [{
-    provider: 'claude',
-    providerSessionId: 'sess-1',
-    sessionId: 'sess-1',
-    specId: 'spec-123',
-    taskId: undefined,
-    taskIds: [],
-    lastActivityAt: '2026-08-18T10:00:00.000Z',
-    status: 'idle',
-    activeTurn: null,
-    pendingInteraction: null,
-  }]);
+  assert.deepEqual(sessions, [
+    {
+      provider: 'claude',
+      providerSessionId: 'sess-1',
+      sessionId: 'sess-1',
+      specId: 'spec-123',
+      taskId: undefined,
+      taskIds: [],
+      lastActivityAt: '2026-08-18T10:00:00.000Z',
+      status: 'idle',
+      activeTurn: null,
+      pendingInteraction: null,
+    },
+  ]);
 
   const session = await service.getSession('claude', 'sess-1');
   assert.deepEqual(session, { provider: 'claude', providerSessionId: 'sess-1', specId: 'my-spec' });
 
   const untouchedBindingService = {
     async listBindings() {
-      return [{ provider: 'claude', providerSessionId: 'sess-untouched', specId: 'spec-123', lastSeenAt: '2026-08-01T00:00:00.000Z' }];
+      return [
+        {
+          provider: 'claude',
+          providerSessionId: 'sess-untouched',
+          specId: 'spec-123',
+          lastSeenAt: '2026-08-01T00:00:00.000Z',
+        },
+      ];
     },
   };
   const untouchedTranscriptCache = {
     // Mirrors SessionTranscriptCacheService.getTranscript's real fallback: a synthetic,
     // empty transcript timestamped "now" for a session that never had a turn.
     async getTranscript() {
-      return { provider: 'claude', providerSessionId: 'sess-untouched', messages: [], lastEventSeq: 0, updatedAt: new Date().toISOString() };
+      return {
+        provider: 'claude',
+        providerSessionId: 'sess-untouched',
+        messages: [],
+        lastEventSeq: 0,
+        updatedAt: new Date().toISOString(),
+      };
     },
   };
-  const untouchedService = createAgentSessionService({ registry, bindingService: untouchedBindingService, transcriptCache: untouchedTranscriptCache });
+  const untouchedService = createAgentSessionService({
+    registry,
+    bindingService: untouchedBindingService,
+    transcriptCache: untouchedTranscriptCache,
+  });
   const untouchedSessions = await untouchedService.listSessions();
   assert.equal(untouchedSessions[0].lastActivityAt, '2026-08-01T00:00:00.000Z');
 
@@ -265,15 +380,24 @@ test('AgentSessionService binds a provider-created session identity only after c
   let failedBindingCalled = false;
   const failingProvider = {
     descriptor: { id: 'failing-owned', label: 'Failing owned', capabilities },
-    async createSession() { throw new Error('provider creation failed'); },
+    async createSession() {
+      throw new Error('provider creation failed');
+    },
     async startTurn() {},
     async cancelTurn() {},
   };
   const failingService = createAgentSessionService({
     registry: createAgentProviderRegistry([failingProvider]),
-    bindingService: { async bindSession() { failedBindingCalled = true; } },
+    bindingService: {
+      async bindSession() {
+        failedBindingCalled = true;
+      },
+    },
   });
-  await assert.rejects(() => failingService.createSession('failing-owned', { specId: 'spec-1' }), /provider creation failed/);
+  await assert.rejects(
+    () => failingService.createSession('failing-owned', { specId: 'spec-1' }),
+    /provider creation failed/,
+  );
   assert.equal(failedBindingCalled, false);
 });
 
@@ -328,7 +452,7 @@ test('integration: new chat -> first prompt -> provider identity created and bou
   for (let i = 0; i < 50; i++) {
     const snap = service.getTurn(turn1.turnId);
     if (snap?.status === 'completed') break;
-    await new Promise(r => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 5));
   }
 
   // 2. Second prompt resumes using the established providerSessionId
@@ -341,7 +465,7 @@ test('integration: new chat -> first prompt -> provider identity created and bou
   for (let i = 0; i < 50; i++) {
     const snap = service.getTurn(turn2.turnId);
     if (snap?.status === 'completed') break;
-    await new Promise(r => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 5));
   }
 
   assert.equal(resumeCalledWith, 'fake-allocated-uuid-999');
@@ -368,10 +492,9 @@ test('first-turn binding failure causes startTurn rejection and turn failure', a
   const turnRuntime = createAgentTurnRuntime({ registry });
   const service = createAgentSessionService({ registry, turnRuntime, bindingService });
 
-  await assert.rejects(
-    () => service.startTurn('fake', null, { message: 'hi', specId: 'spec-1' }),
-    { message: 'Database/disk binding error simulation' },
-  );
+  await assert.rejects(() => service.startTurn('fake', null, { message: 'hi', specId: 'spec-1' }), {
+    message: 'Database/disk binding error simulation',
+  });
 });
 
 test('validateAgentExecutionMode accepts canonical modes and rejects invalid strings', () => {
@@ -409,14 +532,24 @@ test('validateProviderDescriptor validates supportedModes and defaultMode', () =
 test('Execution mode precedence: turn.mode > session.mode > provider.defaultMode', async () => {
   let executedMode = null;
   const provider = {
-    descriptor: { id: 'prec', label: 'Precedence', capabilities, defaultMode: 'edit', supportedModes: ['ask', 'edit', 'agent'] },
-    async startTurn({ mode }) { executedMode = mode; },
+    descriptor: {
+      id: 'prec',
+      label: 'Precedence',
+      capabilities,
+      defaultMode: 'edit',
+      supportedModes: ['ask', 'edit', 'agent'],
+    },
+    async startTurn({ mode }) {
+      executedMode = mode;
+    },
     async cancelTurn() {},
   };
 
   const fakeBindings = new Map();
   const bindingService = {
-    async getBinding(p, sid) { return fakeBindings.get(sid) || null; },
+    async getBinding(p, sid) {
+      return fakeBindings.get(sid) || null;
+    },
     async bindSession({ provider, providerSessionId, specId, mode }) {
       const rec = { provider, providerSessionId, specId, mode };
       fakeBindings.set(providerSessionId, rec);
@@ -464,10 +597,16 @@ test('canonical TurnStatus validates all discriminated union variants and reject
   assert.equal(waitingStatus.reason, 'provider_response');
 
   // 3. requiresAttention (requires interactionId)
-  const attentionStatus = validateTurnStatus({ status: 'requiresAttention', reason: 'permission', interactionId: 'int-1' });
+  const attentionStatus = validateTurnStatus({
+    status: 'requiresAttention',
+    reason: 'permission',
+    interactionId: 'int-1',
+  });
   assert.equal(attentionStatus.status, 'requiresAttention');
   assert.equal(attentionStatus.interactionId, 'int-1');
-  assert.throws(() => validateTurnStatus({ status: 'requiresAttention', reason: 'permission' }), { name: 'AiValidationError' });
+  assert.throws(() => validateTurnStatus({ status: 'requiresAttention', reason: 'permission' }), {
+    name: 'AiValidationError',
+  });
 
   // 4. cancelling
   const cancellingStatus = validateTurnStatus({ status: 'cancelling', initiator: 'user' });
@@ -483,7 +622,9 @@ test('canonical TurnStatus validates all discriminated union variants and reject
   });
   assert.equal(terminalStatus.status, 'terminal');
   assert.equal(terminalStatus.outcome, 'completed');
-  assert.throws(() => validateTurnStatus({ status: 'terminal', outcome: 'invalid_outcome' }), { name: 'AiValidationError' });
+  assert.throws(() => validateTurnStatus({ status: 'terminal', outcome: 'invalid_outcome' }), {
+    name: 'AiValidationError',
+  });
 
   // 6. unknown
   const unknownStatus = validateTurnStatus({ status: 'unknown', reason: 'unproven_state' });
@@ -812,6 +953,10 @@ test('public serialization strips provider-private fields and enforces clean DTO
   assert.equal('rawPayload' in pub, false);
 
   // Validating turn containing private fields directly throws
-  assert.throws(() => validateCanonicalTurn({ ...turn, providerRequestId: 'secret-123' }), { name: 'AiValidationError' });
-  assert.throws(() => validateCanonicalTurn({ ...turn, work: [{ ...turn.work[0], rawPayload: {} }] }), { name: 'AiValidationError' });
+  assert.throws(() => validateCanonicalTurn({ ...turn, providerRequestId: 'secret-123' }), {
+    name: 'AiValidationError',
+  });
+  assert.throws(() => validateCanonicalTurn({ ...turn, work: [{ ...turn.work[0], rawPayload: {} }] }), {
+    name: 'AiValidationError',
+  });
 });

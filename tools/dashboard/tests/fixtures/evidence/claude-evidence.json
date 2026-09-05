@@ -7,9 +7,23 @@
       "turnId": "turn-1",
       "userMessage": "Test diagnostic turn 1",
       "rawEvents": [
-        { "type": "system", "subtype": "init", "claude_code_version": "2.1.220", "session_id": "f94fd31b-a29e-4449-93dd-5c927e62009f" },
-        { "type": "rate_limit_event", "rate_limit_info": { "status": "rejected", "resetsAt": 1788192000, "rateLimitType": "seven_day" } },
-        { "type": "result", "subtype": "error", "terminal_reason": "api_error", "is_error": true, "api_error_status": 429 }
+        {
+          "type": "system",
+          "subtype": "init",
+          "claude_code_version": "2.1.220",
+          "session_id": "f94fd31b-a29e-4449-93dd-5c927e62009f"
+        },
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": { "status": "rejected", "resetsAt": 1788192000, "rateLimitType": "seven_day" }
+        },
+        {
+          "type": "result",
+          "subtype": "error",
+          "terminal_reason": "api_error",
+          "is_error": true,
+          "api_error_status": 429
+        }
       ]
     },
     {
@@ -18,11 +32,19 @@
       "rawEvents": [
         { "type": "system", "subtype": "thinking_tokens", "estimated_tokens": 30 },
         { "type": "assistant", "content": [{ "type": "thinking", "signature": "sig-test-123" }] },
-        { "type": "assistant", "content": [{ "type": "text", "text": "Starting diagnostic check: checking repository status and files." }] },
+        {
+          "type": "assistant",
+          "content": [{ "type": "text", "text": "Starting diagnostic check: checking repository status and files." }]
+        },
         {
           "type": "assistant",
           "content": [
-            { "type": "tool_use", "id": "toolu_01Bash", "name": "Bash", "input": { "command": "git status --porcelain" } },
+            {
+              "type": "tool_use",
+              "id": "toolu_01Bash",
+              "name": "Bash",
+              "input": { "command": "git status --porcelain" }
+            },
             { "type": "tool_use", "id": "toolu_02Glob", "name": "Glob", "input": { "pattern": "specs/active/*" } }
           ]
         },
@@ -31,7 +53,16 @@
           "message": {
             "role": "user",
             "content": [
-              { "type": "tool_result", "tool_use_id": "toolu_02Glob", "content": "specs/active/ai-session-issues-and-diagnostics\n", "tool_use_result": { "durationMs": 220, "filenames": ["specs/active/ai-session-issues-and-diagnostics"], "numFiles": 1 } }
+              {
+                "type": "tool_result",
+                "tool_use_id": "toolu_02Glob",
+                "content": "specs/active/ai-session-issues-and-diagnostics\n",
+                "tool_use_result": {
+                  "durationMs": 220,
+                  "filenames": ["specs/active/ai-session-issues-and-diagnostics"],
+                  "numFiles": 1
+                }
+              }
             ]
           }
         },
@@ -40,15 +71,30 @@
           "message": {
             "role": "user",
             "content": [
-              { "type": "tool_result", "tool_use_id": "toolu_01Bash", "content": "", "tool_use_result": { "durationMs": 350, "stdout": "", "stderr": "" } }
+              {
+                "type": "tool_result",
+                "tool_use_id": "toolu_01Bash",
+                "content": "",
+                "tool_use_result": { "durationMs": 350, "stdout": "", "stderr": "" }
+              }
             ]
           }
         },
-        { "type": "assistant", "content": [{ "type": "text", "text": "Repository is clean and spec directory verified. Now reading overview." }] },
         {
           "type": "assistant",
           "content": [
-            { "type": "tool_use", "id": "toolu_03Read", "name": "Read", "input": { "file_path": "specs/active/ai-session-issues-and-diagnostics/overview.md" } }
+            { "type": "text", "text": "Repository is clean and spec directory verified. Now reading overview." }
+          ]
+        },
+        {
+          "type": "assistant",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_03Read",
+              "name": "Read",
+              "input": { "file_path": "specs/active/ai-session-issues-and-diagnostics/overview.md" }
+            }
           ]
         },
         {
@@ -56,12 +102,32 @@
           "message": {
             "role": "user",
             "content": [
-              { "type": "tool_result", "tool_use_id": "toolu_03Read", "content": "# AI session issues and diagnostics\n", "tool_use_result": { "durationMs": 45 } }
+              {
+                "type": "tool_result",
+                "tool_use_id": "toolu_03Read",
+                "content": "# AI session issues and diagnostics\n",
+                "tool_use_result": { "durationMs": 45 }
+              }
             ]
           }
         },
-        { "type": "assistant", "content": [{ "type": "text", "text": "Diagnostic test complete:\n1. Git status clean\n2. Spec located\n3. Overview verified." }] },
-        { "type": "result", "subtype": "success", "terminal_reason": "completed", "is_error": false, "duration_ms": 15200, "total_cost_usd": 0.05 }
+        {
+          "type": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "Diagnostic test complete:\n1. Git status clean\n2. Spec located\n3. Overview verified."
+            }
+          ]
+        },
+        {
+          "type": "result",
+          "subtype": "success",
+          "terminal_reason": "completed",
+          "is_error": false,
+          "duration_ms": 15200,
+          "total_cost_usd": 0.05
+        }
       ]
     }
   ]

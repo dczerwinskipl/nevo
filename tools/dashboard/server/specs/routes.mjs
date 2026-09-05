@@ -1,10 +1,6 @@
 import { SpecificationActionError } from './actions.mjs';
 import { createSpecsCapability } from './service.mjs';
-import {
-  SpecValidationError,
-  SpecConflictError,
-  SpecRollbackError,
-} from '../../../specs/identity.mjs';
+import { SpecValidationError, SpecConflictError, SpecRollbackError } from '../../../specs/identity.mjs';
 import { HttpError } from './http-utils.mjs';
 import specEventRoutes from './events.mjs';
 import { resolveSpecsPaths } from './paths.mjs';
@@ -116,7 +112,9 @@ export default async function specsRoutes(fastify, { config = {}, actionExecutor
       reply.code(200).header('cache-control', 'no-store').send(result);
     } catch (error) {
       const status = error instanceof SpecificationActionError ? error.status : 500;
-      reply.code(status).send({ error: status === 404 ? 'Specification actions not found' : 'Unable to load specification actions' });
+      reply
+        .code(status)
+        .send({ error: status === 404 ? 'Specification actions not found' : 'Unable to load specification actions' });
     }
   });
 

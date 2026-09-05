@@ -1,13 +1,16 @@
 import { ArrowLeft, Info, Radio } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/shared/ui/button';
 import { StatusLabel } from '@/shared/ui/status-label';
-import { cn } from '@/lib/utils';
+import { statusSurfaceTone, type StatusTone } from '@/shared/status-tone';
+import { cn } from '@/shared/lib/utils';
 
 import type { LiveConnectionStatus } from './types';
+import { sessionStatusTone } from './status';
 
 export interface AgentSessionHeaderProps {
   title: string;
   status?: string;
+  statusTone?: StatusTone;
   live?: boolean;
   connectionStatus?: LiveConnectionStatus;
   onBack: () => void;
@@ -18,6 +21,7 @@ export interface AgentSessionHeaderProps {
 export function AgentSessionHeader({
   title,
   status,
+  statusTone,
   live,
   connectionStatus,
   onBack,
@@ -32,7 +36,7 @@ export function AgentSessionHeader({
   const isUnknown = resolvedStatus === 'unknown';
 
   return (
-    <header className="shrink-0 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_92%,transparent)] px-3 py-2.5 backdrop-blur-xl sm:px-5 lg:pr-24">
+    <header className="shrink-0 border-b border-border bg-background/92 px-3 py-2.5 backdrop-blur-xl sm:px-5 lg:pr-24">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
           <Button
@@ -46,12 +50,12 @@ export function AgentSessionHeader({
             <ArrowLeft className="size-4" />
           </Button>
           <div className="flex min-w-0 items-center gap-2">
-            <h1 className="truncate text-sm font-semibold text-[var(--foreground)]" title={title}>
+            <h1 className="truncate text-sm font-semibold text-fg-primary" title={title}>
               {title}
             </h1>
             {status && (
-              <span className="shrink-0 rounded-full bg-white/6 px-2 py-0.5 text-[var(--muted)]">
-                <StatusLabel>{status}</StatusLabel>
+              <span className="shrink-0 rounded-full bg-fg-primary/6 px-2 py-0.5 text-fg-muted">
+                <StatusLabel tone={statusTone ?? sessionStatusTone(status)}>{status}</StatusLabel>
               </span>
             )}
           </div>
@@ -80,11 +84,11 @@ export function AgentSessionHeader({
                       : 'SSE: Stan nieznany (brak aktywnego połączenia)'
               }
               className={cn(
-                'flex size-8 items-center justify-center rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] cursor-default lg:hidden',
-                isConnected && 'border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]',
-                isReconnecting && 'border-[var(--warning-border)] bg-[var(--warning-muted)] text-[var(--warning)]',
-                isDisconnected && 'border-[var(--danger-border)] bg-[var(--danger-muted)] text-[var(--danger)]',
-                isUnknown && 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)]',
+                'flex size-8 cursor-default items-center justify-center rounded-lg border transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none lg:hidden',
+                isConnected && statusSurfaceTone({ tone: 'success' }),
+                isReconnecting && statusSurfaceTone({ tone: 'warning' }),
+                isDisconnected && statusSurfaceTone({ tone: 'error' }),
+                isUnknown && 'border-border bg-surface text-fg-muted',
               )}
             >
               <span className="relative flex size-3.5 items-center justify-center">
@@ -92,7 +96,7 @@ export function AgentSessionHeader({
                 <span
                   className={cn(
                     'absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-current',
-                    isReconnecting && 'animate-ping'
+                    isReconnecting && 'animate-ping',
                   )}
                 />
               </span>
@@ -101,7 +105,7 @@ export function AgentSessionHeader({
           <Button
             variant="ghost"
             size="icon"
-            className="size-8 shrink-0 text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+            className="size-8 shrink-0 text-fg-muted hover:bg-surface-hover hover:text-fg-primary"
             onClick={onOpenDetails}
             aria-label="Szczegóły sesji"
             title="Szczegóły sesji"

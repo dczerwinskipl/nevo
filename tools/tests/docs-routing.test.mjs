@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import {
   parseRoutingTable, validateRoutingTables, buildRoutingIndex, checkRoutingIndex,
 } from '../docs.mjs';
+import { loadRoutingRules, findDocs, scanDocs } from '../docs/service.mjs';
 
 const validTable = (heading = '## Routing table') => `# A file
 
@@ -218,5 +219,118 @@ describe('checkRoutingIndex', () => {
     const problems = checkRoutingIndex({ rules }, indexFile);
     assert.deepEqual(problems, []);
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('loadRoutingRules error visibility', () => {
+  let dir;
+
+  test('throws when routing index file is missing', () => {
+    dir = mkdtempSync(join(tmpdir(), 'nevo-routing-err-'));
+    const missingFile = join(dir, 'nonexistent.json');
+    assert.throws(
+      () => loadRoutingRules(missingFile),
+      /Missing routing index.*Run: node tools\/docs\.mjs generate/
+    );
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('throws when routing index file contains malformed JSON', () => {
+    dir = mkdtempSync(join(tmpdir(), 'nevo-routing-err-'));
+    const malformedFile = join(dir, 'malformed.json');
+    writeFileSync(malformedFile, '{ malformed json: true');
+    assert.throws(
+      () => loadRoutingRules(malformedFile),
+      /Malformed routing index.*Run: node tools\/docs\.mjs generate/
+    );
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('throws when routing index file has invalid shape (missing rules array)', () => {
+    dir = mkdtempSync(join(tmpdir(), 'nevo-routing-err-'));
+    const invalidFile = join(dir, 'invalid.json');
+    writeFileSync(invalidFile, JSON.stringify({ notRules: [] }));
+    assert.throws(
+      () => loadRoutingRules(invalidFile),
+      /Invalid routing index.*missing 'rules' array.*Run: node tools\/docs\.mjs generate/
+    );
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('frontend routing precision', () => {
+  const docs = scanDocs();
+  const rules = loadRoutingRules();
+
+  test('operations feature path routes to architecture, React, and UI/UX guidelines, not AI UX or interaction model', () => {
+    const results = findDocs(docs, {
+      path: 'tools/dashboard/ui/features/operations/operations-view.tsx',
+      routingRules: rules,
+    });
+    const ids = results.map(r => r.id).sort();
+    assert.deepEqual(ids, [
+      'development.dashboard-frontend-architecture',
+      'development.react-component-guidelines',
+      'development.ui-ux-guidelines',
+    ]);
+    assert.ok(!ids.includes('development.nevo-ai-ux-guidelines'));
+    assert.ok(!ids.includes('development.nevo-interaction-model'));
+  });
+
+  test('agent-sessions feature path routes to architecture, React, UI/UX, AI UX, and interaction model', () => {
+    const results = findDocs(docs, {
+      path: 'tools/dashboard/ui/features/agent-sessions/session-view.tsx',
+      routingRules: rules,
+    });
+    const ids = results.map(r => r.id).sort();
+    assert.deepEqual(ids, [
+      'development.dashboard-frontend-architecture',
+      'development.nevo-ai-ux-guidelines',
+      'development.nevo-interaction-model',
+      'development.react-component-guidelines',
+      'development.ui-ux-guidelines',
+    ]);
+  });
+
+  test('foundation story routes to architecture, React guidelines, UI/UX guidelines, and Storybook', () => {
+    const results = findDocs(docs, {
+      path: 'tools/dashboard/ui/foundations/colors.stories.tsx',
+      routingRules: rules,
+    });
+    const ids = results.map(r => r.id).sort();
+    assert.deepEqual(ids, [
+      'development.dashboard-frontend-architecture',
+      'development.react-component-guidelines',
+      'development.storybook',
+      'development.ui-ux-guidelines',
+    ]);
+  });
+
+  test('non-visual shared module does not route to Storybook', () => {
+    const results = findDocs(docs, {
+      path: 'tools/dashboard/ui/shared/hooks/use-theme.ts',
+      routingRules: rules,
+    });
+    const ids = results.map(r => r.id).sort();
+    assert.deepEqual(ids, [
+      'development.dashboard-frontend-architecture',
+      'development.react-component-guidelines',
+      'development.ui-ux-guidelines',
+    ]);
+    assert.ok(!ids.includes('development.storybook'));
+  });
+
+  test('visual shared UI component routes to Storybook', () => {
+    const results = findDocs(docs, {
+      path: 'tools/dashboard/ui/shared/ui/button.tsx',
+      routingRules: rules,
+    });
+    const ids = results.map(r => r.id).sort();
+    assert.deepEqual(ids, [
+      'development.dashboard-frontend-architecture',
+      'development.react-component-guidelines',
+      'development.storybook',
+      'development.ui-ux-guidelines',
+    ]);
   });
 });

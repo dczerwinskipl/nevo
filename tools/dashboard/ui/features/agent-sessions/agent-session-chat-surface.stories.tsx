@@ -8,6 +8,7 @@ import {
   buildUserMessage,
   buildCompletedConversationTurn,
   buildReasoning,
+  buildCommentary,
   buildCommandTool,
   buildFileReadTool,
   buildFileEditTool,
@@ -22,14 +23,14 @@ import {
 } from './work-v2/__fixtures__/chat-fixtures';
 
 const meta: Meta<typeof AgentSessionChatSurface> = {
-  title: 'Features/AgentSessions/ChatSurface',
+  title: 'Features/Agent Sessions/Chat Surface',
   component: AgentSessionChatSurface,
   parameters: {
     layout: 'fullscreen',
   },
   decorators: [
     (Story) => (
-      <div className="flex h-screen w-full flex-col bg-[var(--background)] text-[var(--foreground)]">
+      <div className="flex h-screen w-full flex-col bg-background text-fg-primary">
         <Story />
       </div>
     ),
@@ -242,7 +243,9 @@ export const ExistingConversation: ExistingConversationStory = {
     expect(canvasElement.textContent).toContain('Please analyze the design tokens and run the test suite');
 
     // 2. Verify final answer is rendered with expected text
-    expect(canvasElement.textContent).toContain('All design tokens and foundation stories have been successfully verified');
+    expect(canvasElement.textContent).toContain(
+      'All design tokens and foundation stories have been successfully verified',
+    );
 
     // 3. Verify Turn Work indicator shows completed status and action count (10 actions)
     expect(canvasElement.textContent).toContain('Work · 10 actions');
@@ -256,7 +259,9 @@ export const ExistingConversation: ExistingConversationStory = {
     }
 
     // 5. Verify presence of all required activity kinds in expanded timeline
-    expect(canvasElement.textContent).toContain('Investigating the performance metrics across all 14 active font-size scales');
+    expect(canvasElement.textContent).toContain(
+      'Investigating the performance metrics across all 14 active font-size scales',
+    );
     expect(canvasElement.textContent).toContain('Search code');
     expect(canvasElement.textContent).toContain('Read file');
     expect(canvasElement.textContent).toContain('Edit file');
@@ -420,9 +425,7 @@ export const ActiveTool: Story = {
 
     // 6. Verify completed command appears as a separate historical row
     const historicalRow = Array.from(canvasElement.querySelectorAll('button')).find(
-      (btn) =>
-        btn !== workHeaderButton &&
-        btn.textContent?.includes('git status --porcelain')
+      (btn) => btn !== workHeaderButton && btn.textContent?.includes('git status --porcelain'),
     );
     expect(historicalRow).toBeDefined();
     expect(historicalRow!.textContent).toContain('Run command');
@@ -457,6 +460,79 @@ export const ActiveTool: Story = {
  */
 export const ActiveToolMobile: Story = {
   ...ActiveTool,
+  parameters: {
+    viewport: {
+      defaultViewport: 'mobile1',
+    },
+  },
+};
+
+const manyActivities: WorkItemV2[] = [
+  buildCommentary({ text: 'Starting multi-step batch operations across 25 tools…' }),
+  buildFileReadTool({ subject: 'file-1.ts', description: 'Read configuration' }),
+  buildCommandTool({ subject: 'step-1', description: 'Run step 1' }),
+  buildSearchTool({ subject: 'query-1', description: 'Search tokens' }),
+  buildFileEditTool({ subject: 'file-2.ts', description: 'Edit tokens' }),
+  buildCommandTool({ subject: 'step-2', description: 'Run step 2' }),
+  buildFileWriteTool({ subject: 'file-3.ts', description: 'Write generated file' }),
+  buildSearchTool({ subject: 'query-2', description: 'Search icons' }),
+  buildFileReadTool({ subject: 'file-4.ts', description: 'Read manifest' }),
+  ...buildGroupedCommandsScenario(10),
+  buildFileEditTool({ subject: 'file-5.ts', description: 'Update styles' }),
+  ...buildGroupedCommandsScenario(5),
+];
+
+/**
+ * Story 6: "Many tools"
+ * A scenario with 25 tools demonstrating automatic Level 2 grouping and older history capping.
+ */
+export const ManyTools: StoryObj<typeof AgentSessionChatSurface> = {
+  args: {
+    turns: [
+      buildCompletedConversationTurn({
+        userMessage: buildUserMessage({
+          text: 'Execute large refactoring pipeline with 25 operations.',
+        }),
+        work: manyActivities,
+        historicalWork: manyActivities,
+        activityCount: manyActivities.length,
+        finalAnswer: buildFinalAnswer({
+          text: 'Refactoring pipeline completed successfully across 25 operations.',
+        }),
+      }),
+    ],
+    isLoading: false,
+    hasSessionDetails: true,
+    loadError: null,
+    isRunning: false,
+    canCancel: false,
+    isProviderAvailable: true,
+    disabled: false,
+    currentMode: 'agent',
+  },
+  play: async ({ canvasElement }) => {
+    // 1. Verify Level 1 shows 25 actions and Completed
+    expect(canvasElement.textContent).toContain('Work · 25 actions');
+    expect(canvasElement.textContent).toContain('Completed');
+
+    // 2. Expand Level 2 Work details
+    const workHeaderButton = canvasElement.querySelector('button[aria-expanded]');
+    expect(workHeaderButton).not.toBeNull();
+    if (workHeaderButton && workHeaderButton.getAttribute('aria-expanded') === 'false') {
+      await userEvent.click(workHeaderButton);
+    }
+
+    // 3. Verify (+N hidden) capping affordance is rendered
+    expect(canvasElement.textContent).toContain('hidden)');
+    expect(canvasElement.textContent).toContain('Details');
+  },
+};
+
+/**
+ * Story 6 (Mobile viewport): "Many tools" on narrow screen.
+ */
+export const ManyToolsMobile: StoryObj<typeof AgentSessionChatSurface> = {
+  ...ManyTools,
   parameters: {
     viewport: {
       defaultViewport: 'mobile1',

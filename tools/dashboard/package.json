@@ -14,7 +14,9 @@
     "start": "node server/index.mjs",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build -o .storybook/dist",
-    "test:storybook": "vitest run"
+    "test:storybook": "vitest run",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "@assistant-ui/react": "^0.15.14",
@@ -61,6 +63,8 @@
     "@vitest/browser-playwright": "^4.1.11",
     "jsdom": "^28.1.0",
     "playwright": "^1.62.1",
+    "prettier": "^3.9.6",
+    "prettier-plugin-tailwindcss": "^0.8.1",
     "storybook": "^10.6.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",

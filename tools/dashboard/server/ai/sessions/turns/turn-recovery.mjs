@@ -1,7 +1,4 @@
-import {
-  AiError,
-  validateAgentExecutionMode,
-} from '../../contracts.mjs';
+import { AiError, validateAgentExecutionMode } from '../../contracts.mjs';
 import { TurnLifecycleCoordinator } from './coordinator.mjs';
 import { sessionKey } from './turn-event-stream.mjs';
 
@@ -14,7 +11,7 @@ export function reconstructTurnState({ cached, registry, clock, transcriptCache 
     ? validateAgentExecutionMode(cached.activeTurn.mode, 'activeTurn.mode')
     : 'edit';
 
-  const restoredTurn = cached.turns?.find(t => t.id === cached.activeTurn.turnId);
+  const restoredTurn = cached.turns?.find((t) => t.id === cached.activeTurn.turnId);
 
   const coordinator = new TurnLifecycleCoordinator({
     turnId: cached.activeTurn.turnId,

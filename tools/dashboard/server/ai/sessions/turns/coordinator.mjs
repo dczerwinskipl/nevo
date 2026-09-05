@@ -50,13 +50,15 @@ export class TurnLifecycleCoordinator {
     onTurnUpdated = null,
   }) {
     this.#onTurnUpdated = onTurnUpdated;
-    this.#turn = turn ? structuredClone(turn) : createCanonicalTurn({
-      id: turnId,
-      sessionId: sessionId || providerSessionId || null,
-      provider,
-      providerSessionId: providerSessionId || null,
-      mode,
-    });
+    this.#turn = turn
+      ? structuredClone(turn)
+      : createCanonicalTurn({
+          id: turnId,
+          sessionId: sessionId || providerSessionId || null,
+          provider,
+          providerSessionId: providerSessionId || null,
+          mode,
+        });
     if (prompt && !this.#turn.prompt) {
       this.#turn.prompt = prompt;
     }
@@ -167,7 +169,7 @@ export class TurnLifecycleCoordinator {
   get pendingInteraction() {
     if (!this.#pendingInteractionId || this.isTerminal) return null;
     const item = this.#turn.work.find(
-      w => w.id === this.#pendingInteractionId && w.type === 'interaction' && w.status === 'pending',
+      (w) => w.id === this.#pendingInteractionId && w.type === 'interaction' && w.status === 'pending',
     );
     return item?.interaction ? structuredClone(item.interaction) : null;
   }
@@ -341,7 +343,7 @@ export class TurnLifecycleCoordinator {
         subjectId: itemId,
         metadata: deltaData,
       });
-      return this.#turn.work.find(w => w.id === itemId) || null;
+      return this.#turn.work.find((w) => w.id === itemId) || null;
     }
 
     this.touchActivity();
@@ -381,7 +383,7 @@ export class TurnLifecycleCoordinator {
     // Closing any outstanding active reasoning when commentary arrives (one active text/reasoning phase invariant)
     if (this.#activeReasoningId) {
       try {
-        const item = this.#turn.work.find(w => w.id === this.#activeReasoningId);
+        const item = this.#turn.work.find((w) => w.id === this.#activeReasoningId);
         if (item && item.status === 'streaming') {
           updateWorkItem(this.#turn, this.#activeReasoningId, {
             status: 'completed',
@@ -393,15 +395,18 @@ export class TurnLifecycleCoordinator {
     }
 
     let currentItem = this.#activeCommentaryId
-      ? this.#turn.work.find(w => w.id === this.#activeCommentaryId && w.type === 'commentary' && w.status === 'streaming')
+      ? this.#turn.work.find(
+          (w) => w.id === this.#activeCommentaryId && w.type === 'commentary' && w.status === 'streaming',
+        )
       : null;
 
     let isNewBlock = false;
     if (!currentItem) {
       isNewBlock = true;
-      const generatedId = (messageId && !this.#turn.work.some(w => w.id === messageId))
-        ? messageId
-        : `commentary-${this.#turn.id}-${this.#turn.work.length + 1}`;
+      const generatedId =
+        messageId && !this.#turn.work.some((w) => w.id === messageId)
+          ? messageId
+          : `commentary-${this.#turn.id}-${this.#turn.work.length + 1}`;
       this.#activeCommentaryId = generatedId;
       currentItem = appendWorkItem(this.#turn, {
         id: this.#activeCommentaryId,
@@ -442,7 +447,7 @@ export class TurnLifecycleCoordinator {
     // Closing any outstanding active commentary when reasoning arrives (one active text/reasoning phase invariant)
     if (this.#activeCommentaryId) {
       try {
-        const item = this.#turn.work.find(w => w.id === this.#activeCommentaryId);
+        const item = this.#turn.work.find((w) => w.id === this.#activeCommentaryId);
         if (item && item.status === 'streaming') {
           updateWorkItem(this.#turn, this.#activeCommentaryId, {
             status: 'completed',
@@ -454,15 +459,18 @@ export class TurnLifecycleCoordinator {
     }
 
     let currentItem = this.#activeReasoningId
-      ? this.#turn.work.find(w => w.id === this.#activeReasoningId && w.type === 'reasoning' && w.status === 'streaming')
+      ? this.#turn.work.find(
+          (w) => w.id === this.#activeReasoningId && w.type === 'reasoning' && w.status === 'streaming',
+        )
       : null;
 
     let isNewBlock = false;
     if (!currentItem) {
       isNewBlock = true;
-      const generatedId = (messageId && !this.#turn.work.some(w => w.id === messageId))
-        ? messageId
-        : `reasoning-${this.#turn.id}-${this.#turn.work.length + 1}`;
+      const generatedId =
+        messageId && !this.#turn.work.some((w) => w.id === messageId)
+          ? messageId
+          : `reasoning-${this.#turn.id}-${this.#turn.work.length + 1}`;
       this.#activeReasoningId = generatedId;
       currentItem = appendWorkItem(this.#turn, {
         id: this.#activeReasoningId,
@@ -538,7 +546,16 @@ export class TurnLifecycleCoordinator {
   /**
    * Record tool started.
    */
-  recordToolStarted({ toolId, toolName, input, kind = 'command', title = null, description = null, actions = null, status = 'active' }) {
+  recordToolStarted({
+    toolId,
+    toolName,
+    input,
+    kind = 'command',
+    title = null,
+    description = null,
+    actions = null,
+    status = 'active',
+  }) {
     if (this.isTerminal || this.isCancelling) {
       this.#tracer?.record?.({
         source: 'tool',
@@ -782,7 +799,7 @@ export class TurnLifecycleCoordinator {
   addToolAction(toolWorkId, actionData, { source = 'adapter' } = {}) {
     if (this.isTerminal || this.isCancelling) return null;
     this.touchActivity();
-    const tool = this.#turn.work.find(w => w.id === toolWorkId && w.type === 'tool');
+    const tool = this.#turn.work.find((w) => w.id === toolWorkId && w.type === 'tool');
     if (!tool) {
       throw new AiValidationError(`Tool invocation '${toolWorkId}' not found.`);
     }
@@ -1033,10 +1050,12 @@ export class TurnLifecycleCoordinator {
         message: 'The turn was cancelled because it stopped responding.',
       };
     } else {
-      effectiveError = error ? structuredClone(error) : {
-        code: 'AI_TURN_FAILED',
-        message: 'The turn failed.',
-      };
+      effectiveError = error
+        ? structuredClone(error)
+        : {
+            code: 'AI_TURN_FAILED',
+            message: 'The turn failed.',
+          };
     }
 
     this.#isTerminal = true;

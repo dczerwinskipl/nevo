@@ -353,3 +353,228 @@ agent. They are recorded here verbatim in substance so later commands (`spec-ref
 - **Date:** 2026-09-03
 - **Affected artifacts:** `areas/theme-foundation.md`, `areas/storybook-and-documentation.md`,
   `tasks/03`, `tasks/08`.
+
+## D11: Purely presentational StatusLabel boundary and feature-owned projections
+
+- **Question:** How should `StatusLabel` (`tools/dashboard/ui/shared/ui/status-label.tsx`)
+  be structured, given that it currently mixes presentation with domain awareness (raw
+  session status literals, spec status, task status, stage formatting, and a deprecated
+  `statusTone(status: string)` function)?
+- **Options considered:**
+  - A — Keep domain-aware branching inside `StatusLabel` and continue expanding it for
+    new features.
+  - B — Make `StatusLabel` a purely presentational primitive requiring typed `tone: StatusTone`
+    and receiving rendered `children`, completely removing domain awareness (`kind`, `status`,
+    `statusTone(string)`). Feature modules (`specifications`, `agent-sessions`, etc.) own
+    their own status-to-tone projections and formatting. Non-status labels (e.g. lane header
+    labels) must use local semantic markup instead of abusing `StatusLabel` merely for
+    uppercase typography.
+- **Decision:** Option B.
+- **Rationale:** Preserves clean architectural boundaries. A shared UI primitive must not
+  couple to domain models across different features. Removing `statusTone(string)` eliminates
+  brittle fallback behavior. Feature-owned projections keep domain logic co-located with the
+  owning domain.
+- **Consequences:** `tools/dashboard/ui/shared/ui/status-label.tsx` becomes purely presentational.
+  All call sites are updated to pass `tone` and `children`. Feature-local projections are
+  created (e.g. `specStatusTone` in specifications). Obsolete tests and commented JSX are removed.
+- **Date:** 2026-09-05
+- **Affected artifacts:** `areas/specs-lanes-and-remaining-ui.md`, `tasks/07-specs-lanes-and-remaining-ui.md`.
+
+## D12: Dedicated diff statistics tokens (`diff-addition`, `diff-deletion`) and lifecycle-state audit
+
+- **Question:** How should diff additions/deletions and lifecycle states (running/in-progress)
+  be styled? Should diffs use `status-success`/`status-error`, and should active lifecycle
+  states use `accent`?
+- **Options considered:**
+  - A — Continue using `status-success`/`status-error` for diff line counts and `accent`
+    for running lifecycle indicators.
+  - B — Introduce dedicated semantic tokens `--color-diff-addition` and `--color-diff-deletion`
+    in `@theme static inline` aliasing success/error hues, emitting `text-diff-addition` and
+    `text-diff-deletion`. Audit lifecycle states to use `status-active` for running/in-implementation
+    presentation, reserving `accent` for interactive controls, selections, links, and branding.
+- **Decision:** Option B.
+- **Rationale:** Semantic role purity: git diff additions/deletions are statistics about code
+  modifications, not operational success/error statuses. Separating them prevents confusion and
+  allows independent styling in the future. Similarly, lifecycle states are system statuses
+  belonging to `status-active`, whereas `accent` represents user interaction and affordance.
+- **Consequences:** `--color-diff-addition` and `--color-diff-deletion` added to `index.css`.
+  Diff views in `file-change.tsx`, `pull-request-detail.tsx`, `pull-request-cards.tsx` migrate
+  to `text-diff-addition` and `text-diff-deletion`. Session running badges, operation running rows,
+  and spec implementation indicators migrate from `accent` to `status-active`.
+- **Date:** 2026-09-05
+- **Affected artifacts:** `overview.md`, `areas/specs-lanes-and-remaining-ui.md`, `tasks/07-specs-lanes-and-remaining-ui.md`.
+
+## D13: Storybook story co-location, ownership, and test-utils architecture
+
+- **Question:** How should Storybook stories and testing utilities be organized across the
+  dashboard codebase?
+- **Options considered:**
+  - A — Keep omnibus story files (`shared-primitives.stories.tsx`, `specifications.stories.tsx`)
+    and keep test helpers in `components/ui/storybook-test-helpers.ts`.
+  - B — Delete omnibus stories and co-locate stories beside the component they exercise
+    (`button.stories.tsx`, `badge.stories.tsx`, `card.stories.tsx`, `dialog.stories.tsx`,
+    `sheet.stories.tsx`, `status-card.stories.tsx`, `progress.stories.tsx`, `loading-screen.stories.tsx`).
+    Move feature-specific stories to their features (e.g. delete-session scenario to
+    `features/agent-sessions/agent-session-details.stories.tsx`, split `specifications.stories.tsx`).
+    Move Storybook test utilities to `tools/dashboard/.storybook/test-utils/` cleanly split
+    by responsibility. Use `Meta<typeof Component>` and `StoryObj<typeof meta>`.
+- **Decision:** Option B.
+- **Rationale:** Co-location ensures component authors see and maintain stories alongside code.
+  `components/ui` must contain only production UI primitives, not test infrastructure.
+  Moving test helpers to `.storybook/test-utils/` prevents test utilities from polluting
+  the production component library.
+- **Consequences:** `components/ui/shared-primitives.stories.tsx` deleted. Co-located stories
+  created. Helpers relocated to `tools/dashboard/.storybook/test-utils/`. Production palette
+  assertions in `LiveTokenResolver` removed in favor of live custom property inspection.
+- **Date:** 2026-09-05
+- **Affected artifacts:** `areas/specs-lanes-and-remaining-ui.md`, `tasks/07-specs-lanes-and-remaining-ui.md`, `areas/storybook-and-documentation.md`, `tasks/08-storybook-and-documentation.md`.
+
+## D14: Storybook foundation stories migration and comprehensive token validation
+
+- **Question:** Which stories must be migrated to semantic color tokens, and should Storybook
+  stories be subject to token architecture sweeps and lint checks?
+- **Options considered:**
+  - A — Only migrate `colors.stories.tsx`; exclude other stories from sweeps and checks.
+  - B — Expand Task 08 to own all foundation stories (`colors.stories.tsx`, `typography.stories.tsx`,
+    `smoke.stories.tsx`), migrating them to semantic Tailwind utilities and live token resolution.
+    Update Task 09 and Task 10 so the final sweep and architectural scanner include stories
+    as executable UI consumers, allowing narrow exceptions only for test fixtures under `.storybook/test-utils/`.
+- **Decision:** Option B.
+- **Rationale:** Stories are live, executable UI consumers running in Storybook and browser tests.
+  Allowing legacy tokens or raw palette classes in stories would undermine design-system consistency
+  and cause false-positive or undetected token regressions.
+- **Consequences:** Task 08 expanded to migrate `typography.stories.tsx` and `smoke.stories.tsx` as
+  well as `colors.stories.tsx`. Tasks 09 and 10 updated to include `*.stories.tsx` in sweeps and
+  the enforcement scanner.
+- **Date:** 2026-09-05
+- **Affected artifacts:** `areas/storybook-and-documentation.md`, `tasks/08-storybook-and-documentation.md`, `tasks/09-cleanup-and-token-removal.md`, `tasks/10-architecture-enforcement-check.md`.
+
+## D15: Dashboard frontend architecture contract, component taxonomy, and deferred migration
+
+- **Question:** How should the dashboard frontend architecture (`tools/dashboard/ui`) be
+  structured, how are component taxonomy and Storybook story titles organized, and how
+  should the coexistence of `tools/dashboard/ui/components/ui` and `tools/dashboard/ui/shared/ui`
+  be resolved?
+- **Options considered:**
+  - A — Perform an immediate mass refactor moving all primitives from `components/ui/`
+    to `shared/ui/` and updating all import sites across the codebase within the current PR.
+  - B — Formally define and document the architecture contract in `docs/development/dashboard-frontend-architecture.md`
+    specifying layer responsibilities (`app -> routes -> features -> shared`), component taxonomy
+    (primitive, shared composition, feature component, application component), story co-location,
+    and testing isolation (`.storybook/test-utils/`). Resolve `shared/ui` as the official target
+    for domain-independent primitives, recognize `components/ui` as a legacy exception from initial
+    shadcn scaffolding, mandate that any new primitive go into `shared/ui`, and explicitly defer
+    mass migration of `components/ui` to a future dedicated change. Align story titles to the
+    taxonomy (`Shared/UI/*`, `Features/*`, `Foundations/*`).
+- **Decision:** Option B.
+- **Rationale:** Mass relocation of `components/ui` touches dozens of files and would create
+  extensive git churn and merge conflict hazards on active branches with zero functional or
+  semantic benefit. Formally documenting the target architecture and decision matrix establishes
+  clear boundaries and prevents further drift without destabilizing the current PR.
+- **Consequences:** `docs/development/dashboard-frontend-architecture.md` authored with all 11
+  required architectural sections, decision matrix, pseudo-tree, and guidelines. Cross-links
+  established in `react-component-guidelines.md`, `storybook.md`, `ui-ux-guidelines.md`, and
+  `nevo-ai-ux-guidelines.md`. Story titles aligned to `Shared/UI/*`, `Features/*`, and `Foundations/*`.
+  Stale section references to `react-component-guidelines.md` repaired across `tools/dashboard`.
+  Mass relocation of `components/ui` to `shared/ui` is deferred to a future change.
+- **Date:** 2026-09-05
+- **Affected artifacts:** `docs/development/dashboard-frontend-architecture.md`,
+  `docs/development/storybook.md`, `docs/development/react-component-guidelines.md`,
+  `areas/storybook-and-documentation.md`, `tasks/08-storybook-and-documentation.md`.
+
+## D16: Owner approval and scope corrections for Task 08 implementation
+
+- **Question:** How should the architectural documentation corrections, Storybook metadata
+  improvements, foundation stories migration, and co-landed network configuration feature
+  be recorded and tracked within the active specification?
+- **Options considered:**
+  - A — Track the network configuration restore as part of Task 08 work.
+  - B — Keep Task 08 strictly focused on documentation discovery, frontend architecture
+    accuracy, Storybook metadata and primitive ownership, and foundation story migration.
+    Document the partial implementation at commit `90914f4756543b59dfa3e9c5ec37ce4ea6cfad1f`, current
+    corrections and foundation tokens at commit `79133077fa78a1989b496ec515389d474192d8d6`, explicit
+    deferred migration debt (shadcn `components.json` update, `components/ui` to `shared/ui` migration,
+    and cross-feature deep import elimination), and record the restored network configuration as a co-landed
+    feature commit (`c4aef0abf814b331797f653848c38fe612e5e2fd`) on the branch without conflating it with
+    design-system scope.
+- **Decision:** Option B.
+- **Rationale:** The network configuration feature is an independent server/config capability
+  restored to PR #43 per owner approval, not a design-system or documentation task. Task 08
+  cleanly owns the frontend architecture document, story metadata and component ownership,
+  and foundation stories migration. Recording exact implementation provenance and explicit
+  boundaries prevents scope confusion across commits and future PR reviews.
+- **Consequences:** `owner-decisions.md` and `tasks/08-storybook-and-documentation.md` document
+  the approval and implementation provenance (`90914f4756543b59dfa3e9c5ec37ce4ea6cfad1f` and
+  `79133077fa78a1989b496ec515389d474192d8d6`). Task 08 allowed paths are updated to include
+  `docs/ai/task-routing.md`, `tools/dashboard/ui/features/agent-sessions/agent-session-details.tsx`,
+  and `tools/tests/docs-routing.test.mjs`. Architectural doc accurately reflects the verified
+  working tree stack versions and testing truth. Cross-feature deep imports and `components/ui`
+  consolidation are formally logged as deferred migration debt.
+- **Date:** 2026-09-05
+- **Affected artifacts:** `owner-decisions.md`, `tasks/08-storybook-and-documentation.md`,
+  `areas/storybook-and-documentation.md`.
+
+## D17: Owner approval for real frontend architecture cleanup and shared UI consolidation
+
+- **Question:** How should the dashboard frontend architecture be cleaned up to resolve
+  multi-feature composition coupling and eliminate the deferred structural debt between
+  `components/ui` and `shared/ui`?
+- **Options considered:**
+  - A — Keep `components/ui` as documented debt and leave multi-feature orchestration
+    inside `features/specifications` and `features/agent-sessions`.
+  - B — Execute the real frontend architecture cleanup:
+    1. Introduce a dedicated screen composition layer: `tools/dashboard/ui/screens/`
+       (`SpecificationConsoleLayout`, `SpecificationDetailScreen`, `AgentSessionScreen`,
+       `ActiveSpecificationsScreen`, `ArchiveSpecificationsScreen`).
+    2. Keep `ui/routes/` as thin parameter-binding adapters delegating directly to screens.
+    3. Fully consolidate all domain-independent UI primitives from `ui/components/ui/`
+       into `ui/shared/ui/`, update all imports across the dashboard, update `components.json`
+       to alias `"ui": "@/shared/ui"`, and delete `ui/components/ui/`.
+    4. Implement the legacy CSS custom properties bridge in `ui/index.css` by mapping
+       root variables (`--background`, `--surface`, `--accent`, etc.) directly to canonical
+       `--color-*` tokens, with equivalence verified in `token-resolver.stories.tsx`.
+    5. Update `docs/development/dashboard-frontend-architecture.md` to accurately describe
+       the true 5-tier architecture (`App -> Routes -> Screens -> Features -> Shared`)
+       and verified directory layout without obsolete debt tables.
+- **Decision:** Option B.
+- **Rationale:** The owner explicitly directed to eliminate the structural debt rather
+  than merely documenting it as migration debt. Introducing `ui/screens/` cleanly decouples
+  multi-feature composition from domain feature verticals, and consolidating primitives
+  into `ui/shared/ui/` removes ambiguity about canonical component ownership.
+- **Consequences:** `tools/dashboard/ui/screens/` created and wired to `ui/routes/`.
+  All primitives consolidated into `ui/shared/ui/`; `ui/components/ui/` deleted.
+  `components.json` points to `@/shared/ui`. `ui/index.css` maps `:root` variables to
+  `var(--color-*)` canonical tokens. All unit, navigation, accessibility regression, and
+  Storybook tests pass. `docs/development/dashboard-frontend-architecture.md` updated.
+- **Date:** 2026-09-05
+- **Affected artifacts:** `owner-decisions.md`, `tasks/08-storybook-and-documentation.md`,
+  `docs/development/dashboard-frontend-architecture.md`, `tools/dashboard/components.json`,
+  `tools/dashboard/ui/index.css`, `tools/dashboard/ui/screens/*`, `tools/dashboard/ui/shared/ui/*`.
+
+## D18: Flexible frontend architecture, screen locality, and mechanical boundary enforcement
+
+- **Question:** How should the screen composition layer, route delegation, and feature isolation be refined after the initial screens introduction to avoid rigid over-abstraction and ensure robust architectural enforcement?
+- **Options considered:**
+  - A — Enforce a dogmatic 5-tier layer where every single route must have a dedicated screen component, even when the screen is a trivial pass-through to a single feature page, and allow features to import from sibling features when convenient.
+  - B — Adopt a pragmatic, flexible frontend architecture:
+    1. **Screens are an optional multi-feature composition layer:** Screens exist strictly to compose multiple independent feature domains (e.g., `specification-detail` composing specifications, agent sessions, and pull requests; `agent-session` composing sessions, specifications, and tasks). Single-feature routes delegate directly to feature pages (e.g. `ActiveSpecificationsPage`, `ArchiveSpecificationsPage`) without redundant screen wrappers.
+    2. **Strict zero sibling feature imports:** Feature directories under `ui/features/*` are isolated vertical domains that must never import from sibling feature modules. Any cross-feature orchestration must occur in `ui/screens/*`.
+    3. **Canonical shared ownership:** `ui/shared/ui/` owns all domain-independent UI primitives, and `ui/shared/lib/` owns shared utilities.
+    4. **Screen locality:** Group related screen artifacts by user experience context under subdirectories (e.g. `ui/screens/specification-console/` grouping `specification-console-layout.tsx` and `create-specification/`).
+    5. **Eliminate fake object placeholders:** Disallow placeholder casts (such as `{} as SpecificationSummary`) by separating route resolution and fallback states in `SpecificationDetailScreen` from the rendered feature orchestration in `SpecificationDetailContent`, which receives a guaranteed non-null `SpecificationSummary`.
+    6. **Mechanical boundary enforcement:** Automate boundary and isolation checks in `tools/dashboard/tests/architecture-boundaries.test.mjs`, verifying route boundaries, feature isolation, removal of legacy aliases, and absence of fake object casts.
+- **Decision:** Option B.
+- **Rationale:** Option B prevents empty boilerplate layers where a screen would merely re-export a feature page, enforces clean vertical boundaries between domain modules, guarantees type safety without runtime placeholder bugs, and mechanically prevents architectural regression via automated unit tests.
+- **Consequences:**
+  - `ActiveSpecificationsScreen` and `ArchiveSpecificationsScreen` compatibility wrappers removed; routes delegate directly to `ActiveSpecificationsPage` and `ArchiveSpecificationsPage`.
+  - `ui/screens/specification-console/` houses layout and create dialog.
+  - `SpecificationDetailScreen` cleanly resolves route data and passes typed `specification: SpecificationSummary` to `SpecificationDetailContent`.
+  - `tools/dashboard/tests/architecture-boundaries.test.mjs` enforces all architectural boundaries automatically on every test run.
+- **Date:** 2026-09-05
+- **Affected artifacts:** `owner-decisions.md`, `overview.md`, `areas/storybook-and-documentation.md`,
+  `tasks/08-storybook-and-documentation.md`, `docs/development/dashboard-frontend-architecture.md`,
+  `tools/dashboard/tests/architecture-boundaries.test.mjs`, `tools/dashboard/ui/routes/*`,
+  `tools/dashboard/ui/screens/*`.
+
+
+

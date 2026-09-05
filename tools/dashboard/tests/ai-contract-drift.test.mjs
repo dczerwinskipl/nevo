@@ -31,7 +31,9 @@ async function createServer() {
   const registry = createAgentProviderRegistry([provider]);
   // Isolated real disk path — never the repo's own `.nevo-ai-local/`, which boot-time
   // reconciliation now actually scans (`listPersistedSessions`).
-  const transcriptCache = createTranscriptCacheService({ baseDir: join(tmpdir(), `nevo-contract-drift-test-${randomUUID()}`) });
+  const transcriptCache = createTranscriptCacheService({
+    baseDir: join(tmpdir(), `nevo-contract-drift-test-${randomUUID()}`),
+  });
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
   const aiService = createAgentSessionService({ registry, turnRuntime, transcriptCache });
   const server = await buildAiTestApp({ service: aiService });
@@ -45,7 +47,7 @@ async function waitForTurn(aiService, turnId, predicate) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const turn = aiService.getTurn(turnId);
     if (predicate(turn)) return turn;
-    await new Promise(resolve => setTimeout(resolve, 5));
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
   assert.fail('Timed out waiting for AI turn contract state.');
 }
@@ -63,10 +65,26 @@ test('dashboard AI payload field and event names stay aligned with the neutral b
   try {
     const providerPayload = await (await fetch(`${baseUrl}/api/agent-providers`)).json();
     exactKeys(providerPayload, ['providers', 'access']);
-    exactKeys(providerPayload.providers[0], ['id', 'label', 'enabled', 'available', 'capabilities', 'supportedModes', 'defaultMode']);
+    exactKeys(providerPayload.providers[0], [
+      'id',
+      'label',
+      'enabled',
+      'available',
+      'capabilities',
+      'supportedModes',
+      'defaultMode',
+    ]);
     exactKeys(providerPayload.providers[0].capabilities, [
-      'cancelTurn', 'interactiveConfirmations', 'interactivePermissions', 'interactiveQuestions',
-      'planUpdates', 'reasoning', 'resumeSession', 'steerTurn', 'toolCalls', 'usage',
+      'cancelTurn',
+      'interactiveConfirmations',
+      'interactivePermissions',
+      'interactiveQuestions',
+      'planUpdates',
+      'reasoning',
+      'resumeSession',
+      'steerTurn',
+      'toolCalls',
+      'usage',
     ]);
     assert.deepEqual(providerPayload.providers[0].supportedModes, ['ask', 'edit', 'agent']);
     assert.equal(providerPayload.providers[0].defaultMode, 'edit');
@@ -74,15 +92,23 @@ test('dashboard AI payload field and event names stay aligned with the neutral b
     const sessionPayload = await (await fetch(`${baseUrl}/api/agent-sessions?specId=${specId}`)).json();
     exactKeys(sessionPayload, ['sessions']);
 
-    const permissionStart = await (await fetch(
-      `${baseUrl}/api/agent-sessions/turns`,
-      control({ provider: 'mock', specId, taskId: 'contract-task', message: 'permission contract' }),
-    )).json();
+    const permissionStart = await (
+      await fetch(
+        `${baseUrl}/api/agent-sessions/turns`,
+        control({ provider: 'mock', specId, taskId: 'contract-task', message: 'permission contract' }),
+      )
+    ).json();
     exactKeys(permissionStart, ['turnId', 'providerSessionId', 'idempotent']);
-    const permissionTurn = await waitForTurn(aiService, permissionStart.turnId, turn => turn.pendingInteraction);
+    const permissionTurn = await waitForTurn(aiService, permissionStart.turnId, (turn) => turn.pendingInteraction);
     exactKeys(permissionTurn, [
-      'turnId', 'provider', 'providerSessionId', 'status', 'startedAt',
-      'lastEventId', 'pendingInteraction', 'events',
+      'turnId',
+      'provider',
+      'providerSessionId',
+      'status',
+      'startedAt',
+      'lastEventId',
+      'pendingInteraction',
+      'events',
     ]);
     exactKeys(permissionTurn.pendingInteraction, ['id', 'kind', 'resumePolicy', 'toolName', 'input', 'details']);
     assert.equal(typeof permissionTurn.events[0].id, 'number');
@@ -93,21 +119,21 @@ test('dashboard AI payload field and event names stay aligned with the neutral b
       `${baseUrl}/api/agent-sessions/mock/${permissionStart.providerSessionId}/interactions/${permissionTurn.pendingInteraction.id}/respond`,
       control({ decision: 'allow' }),
     );
-    await waitForTurn(aiService, permissionStart.turnId, turn => turn.status === 'completed');
+    await waitForTurn(aiService, permissionStart.turnId, (turn) => turn.status === 'completed');
 
-    const questionStart = await (await fetch(
-      `${baseUrl}/api/agent-sessions/turns`,
-      control({ provider: 'mock', specId, taskId: 'contract-task', message: 'question contract' }),
-    )).json();
-    const questionTurn = await waitForTurn(aiService, questionStart.turnId, turn => turn.pendingInteraction);
+    const questionStart = await (
+      await fetch(
+        `${baseUrl}/api/agent-sessions/turns`,
+        control({ provider: 'mock', specId, taskId: 'contract-task', message: 'question contract' }),
+      )
+    ).json();
+    const questionTurn = await waitForTurn(aiService, questionStart.turnId, (turn) => turn.pendingInteraction);
     exactKeys(questionTurn.pendingInteraction, ['id', 'kind', 'resumePolicy', 'questions']);
-    exactKeys(questionTurn.pendingInteraction.questions[0], [
-      'id', 'question', 'header', 'options', 'multiSelect',
-    ]);
+    exactKeys(questionTurn.pendingInteraction.questions[0], ['id', 'question', 'header', 'options', 'multiSelect']);
     exactKeys(questionTurn.pendingInteraction.questions[0].options[0], ['label', 'description']);
-    assert.ok(questionTurn.pendingInteraction.questions.every(question => Boolean(question.id)));
+    assert.ok(questionTurn.pendingInteraction.questions.every((question) => Boolean(question.id)));
 
-    const answers = questionTurn.pendingInteraction.questions.map(question => ({
+    const answers = questionTurn.pendingInteraction.questions.map((question) => ({
       questionId: question.id,
       value: question.multiSelect ? ['Tests'] : 'Focused',
     }));
@@ -115,13 +141,20 @@ test('dashboard AI payload field and event names stay aligned with the neutral b
       `${baseUrl}/api/agent-sessions/mock/${questionStart.providerSessionId}/interactions/${questionTurn.pendingInteraction.id}/respond`,
       control({ answers }),
     );
-    const completed = await waitForTurn(aiService, questionStart.turnId, turn => turn.status === 'completed');
+    const completed = await waitForTurn(aiService, questionStart.turnId, (turn) => turn.status === 'completed');
     exactKeys(completed, [
-      'turnId', 'provider', 'providerSessionId', 'status', 'startedAt',
-      'completedAt', 'lastEventId', 'pendingInteraction', 'events',
+      'turnId',
+      'provider',
+      'providerSessionId',
+      'status',
+      'startedAt',
+      'completedAt',
+      'lastEventId',
+      'pendingInteraction',
+      'events',
     ]);
-    assert.ok(completed.events.some(event => event.type === 'interaction.resolved'));
-    assert.ok(completed.events.some(event => event.type === 'text.delta'));
+    assert.ok(completed.events.some((event) => event.type === 'interaction.resolved'));
+    assert.ok(completed.events.some((event) => event.type === 'text.delta'));
   } finally {
     await closeServer(server);
   }

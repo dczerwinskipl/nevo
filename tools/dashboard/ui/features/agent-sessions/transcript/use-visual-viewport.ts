@@ -20,9 +20,11 @@ export function useVisualViewport() {
         const active = document.activeElement;
         const keyboard = Boolean(
           active &&
-          (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.getAttribute('contenteditable') === 'true') &&
+          (active.tagName === 'INPUT' ||
+            active.tagName === 'TEXTAREA' ||
+            active.getAttribute('contenteditable') === 'true') &&
           visualViewport &&
-          visualViewport.height < baselineHeight.current - 80
+          visualViewport.height < baselineHeight.current - 80,
         );
         setViewport({
           height: visualViewport ? Math.round(visualViewport.height) : null,

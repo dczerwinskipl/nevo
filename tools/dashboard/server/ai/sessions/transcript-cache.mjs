@@ -1,15 +1,10 @@
 import { mkdir, readdir, readFile, rm, unlink, writeFile, rename } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import {
-  normalizeTimestamp,
-  validateAgentIdentity,
-  validateAiEvent,
-  projectChatV1,
-} from '../contracts.mjs';
+import { normalizeTimestamp, validateAgentIdentity, validateAiEvent, projectChatV1 } from '../contracts.mjs';
 
 function sanitizeFilename(value) {
-  return encodeURIComponent(value).replace(/[*~]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return encodeURIComponent(value).replace(/[*~]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
 /**
@@ -125,7 +120,7 @@ export class SessionTranscriptCacheService {
 
     // Reconcile canonical Turn in state.turns
     if (Array.isArray(state.turns)) {
-      const activeTurn = state.turns.find(t => t.id === interruptedTurnId);
+      const activeTurn = state.turns.find((t) => t.id === interruptedTurnId);
       if (activeTurn) {
         closeDanglingTurnWork(activeTurn, 'interrupted', 'turn_interrupted');
         activeTurn.status = {
@@ -167,7 +162,7 @@ export class SessionTranscriptCacheService {
     }
 
     if (!Array.isArray(state.turns)) state.turns = [];
-    const index = state.turns.findIndex(t => t.id === turn.id);
+    const index = state.turns.findIndex((t) => t.id === turn.id);
     const cloned = structuredClone(turn);
     if (index >= 0) {
       state.turns[index] = cloned;
@@ -182,7 +177,7 @@ export class SessionTranscriptCacheService {
         mode: cloned.mode,
       };
       if (cloned.status?.status === 'requiresAttention') {
-        const pendingItem = cloned.work?.find(w => w.type === 'interaction' && w.status === 'pending');
+        const pendingItem = cloned.work?.find((w) => w.type === 'interaction' && w.status === 'pending');
         state.pendingInteraction = pendingItem?.interaction ? structuredClone(pendingItem.interaction) : null;
       } else {
         delete state.pendingInteraction;
@@ -210,7 +205,9 @@ export class SessionTranscriptCacheService {
 
         // Explicit canonical schema and version validation
         const isUnsupportedSchema = parsed?.schemaVersion !== 2;
-        const isMalformedStructure = typeof parsed !== 'object' || parsed === null ||
+        const isMalformedStructure =
+          typeof parsed !== 'object' ||
+          parsed === null ||
           typeof parsed.provider !== 'string' ||
           typeof parsed.providerSessionId !== 'string' ||
           (parsed.turns !== undefined && !Array.isArray(parsed.turns));
@@ -373,7 +370,7 @@ export class SessionTranscriptCacheService {
             await rename(tempPath, filePath);
           } catch (renameErr) {
             if (process.platform === 'win32') {
-              await new Promise(r => setTimeout(r, 10));
+              await new Promise((r) => setTimeout(r, 10));
               try {
                 await rename(tempPath, filePath);
               } catch {

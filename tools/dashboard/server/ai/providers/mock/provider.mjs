@@ -1,7 +1,4 @@
-import {
-  AiValidationError,
-} from '../../contracts.mjs';
-
+import { AiValidationError } from '../../contracts.mjs';
 
 const MOCK_CAPABILITIES = Object.freeze({
   interactivePermissions: true,
@@ -75,9 +72,18 @@ export class MockAgentProvider {
 
     if (normalized.includes('tools') || normalized.includes('reasoning')) {
       if (emitReasoningDelta) emitReasoningDelta('Thinking through the problem...', messageId);
-      if (emitToolStarted) emitToolStarted({ toolId: 't1', toolName: 'ReadDir', kind: 'list', title: 'List directory', description: '.', input: { path: '.' } });
+      if (emitToolStarted)
+        emitToolStarted({
+          toolId: 't1',
+          toolName: 'ReadDir',
+          kind: 'list',
+          title: 'List directory',
+          description: '.',
+          input: { path: '.' },
+        });
       await this.#yield(signal);
-      if (emitToolCompleted) emitToolCompleted({ toolId: 't1', output: ['file1.txt', 'file2.txt'], durationMs: 15, status: 'completed' });
+      if (emitToolCompleted)
+        emitToolCompleted({ toolId: 't1', output: ['file1.txt', 'file2.txt'], durationMs: 15, status: 'completed' });
       if (emitUsageUpdated) emitUsageUpdated({ tokensIn: 50, tokensOut: 25, cost: 0.001 });
     }
 
@@ -171,7 +177,7 @@ export class MockAgentProvider {
     if (interaction?.kind === 'permission') {
       summary = response.decision === 'allow' ? 'Permission was allowed. ' : 'Permission was denied. ';
     } else if (interaction?.kind === 'question') {
-      summary = `Answers received: ${response.answers?.map(a => Array.isArray(a.value) ? a.value.join(', ') : a.value).join('; ')}. `;
+      summary = `Answers received: ${response.answers?.map((a) => (Array.isArray(a.value) ? a.value.join(', ') : a.value)).join('; ')}. `;
     } else {
       summary = response.confirmed ? 'Confirmed. ' : 'Cancelled. ';
     }
@@ -184,7 +190,6 @@ export class MockAgentProvider {
     await this.#emitChunks(ending, messageId, emit, signal);
     return { providerSessionId };
   }
-
 
   async cancelTurn({ operation } = {}) {
     if (operation) operation.cancelled = true;

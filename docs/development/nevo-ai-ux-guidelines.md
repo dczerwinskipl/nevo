@@ -13,6 +13,7 @@ summary: >
   NEvo-specific UX rules that apply the general UI/UX guidelines to AI sessions, chat, Work,
   semantic state, tasks, specifications, changes, and inspection surfaces.
 related:
+  - development.dashboard-frontend-architecture
   - development.ui-ux-guidelines
   - development.nevo-interaction-model
   - development.react-component-guidelines
@@ -167,33 +168,49 @@ Waiting and attention are separate semantic states.
 
 ---
 
-# 3. Status semantics
+# 3. Status semantics and session status mappings
 
-NEvo must distinguish at least:
+This document is the authoritative owner of NEvo AI and session domain state mappings to the semantic presentation tones defined in [ui-ux-guidelines.md](ui-ux-guidelines.md) §4.2.
 
-- active / working;
-- neutral waiting;
-- requires attention;
-- completed/success;
-- warning;
-- failed;
-- cancelled/interrupted.
+## 3.1 Canonical domain status to semantic tone mapping
 
-## 3.1 Tool failure vs Turn failure
+| AI / Session domain state | Semantic tone | Rationale and rules |
+|---|---|---|
+| In-progress turn / running tool / streaming | `active` | Active execution with live evidence. |
+| Model latency / waiting for tool output | `neutral` | Waiting is not attention; do not alarm the user. |
+| User interaction requested / input required | `attention` | Explicit user action required to continue. |
+| Recoverable tool invocation failure | `warning` | Tool error inside a turn; agent may retry or adapt. |
+| Failed turn / session fatal error | `error` | Primary operation or turn failed terminally. |
+| Active or newly completed turn (current success) | `success` | Immediate feedback for successful completion that warrants momentary emphasis. |
+| Historical completed turn / successful tool execution | `neutral` | Quiet resting state; happy-path history loses color to prevent visual noise. |
+| User-cancelled turn / aborted action | `neutral` | Intentional user termination; unremarkable resting state that does not signal defect or failure. |
+| Unexpected interruption / timeout (sub-step recovered) | `warning` | Non-fatal interruption or tool timeout where containing turn continues or adapts. |
+| Unexpected interruption / timeout (primary turn failed) | `error` | Terminal timeout or interruption causing the primary turn or operation to fail. |
+
+## 3.2 Tool failure vs Turn failure
 
 A tool failure **MUST NOT** automatically make the Turn visually failed.
 
-A recoverable tool failure is normally a warning. The agent may correct the command or choose another tool and still complete the Turn successfully.
+- A recoverable tool failure is mapped to **`warning`**. The agent may correct the command, retry, or choose another tool and still complete the Turn successfully.
+- A failed Turn is the primary **`error`** state.
 
-A failed Turn is the primary error state.
+## 3.3 Waiting is not attention
 
-## 3.2 Historical success loses emphasis
+`Requires attention` means the user must act.
+
+It **MUST NOT** be used for:
+- a model taking a long time;
+- a tool taking a long time;
+- waiting for provider output;
+- waiting for a known asynchronous operation.
+
+Waiting and attention are separate semantic states.
+
+## 3.4 Historical success loses emphasis
 
 Successful historical tool activity **SHOULD** become visually quiet.
 
-Do not turn large Work histories into walls of green `Completed` labels.
-
-Inspection levels may retain exact status information, but the normal history should emphasize exceptions and current state.
+Do not turn large Work histories into walls of green `Completed` labels. Inspection levels may retain exact status information, but the normal history should emphasize exceptions, required attention, and current state.
 
 ---
 

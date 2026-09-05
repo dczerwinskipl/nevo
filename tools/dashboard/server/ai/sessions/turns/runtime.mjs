@@ -107,7 +107,18 @@ export class AgentTurnRuntime {
     return 'failed';
   }
 
-  async startTurn({ provider, providerSessionId, sessionId, message, prompt, userMessage, mode, idempotencyKey, onSessionEstablished, isSessionEstablished = true } = {}) {
+  async startTurn({
+    provider,
+    providerSessionId,
+    sessionId,
+    message,
+    prompt,
+    userMessage,
+    mode,
+    idempotencyKey,
+    onSessionEstablished,
+    isSessionEstablished = true,
+  } = {}) {
     if (this.#closed) throw new AiError('AI_RUNTIME_CLOSED', 'The AI turn runtime is shut down.', { status: 503 });
     if (sessionId !== undefined) {
       throw new AiValidationError("Property 'sessionId' is obsolete. Use 'providerSessionId' instead.");
@@ -124,7 +135,7 @@ export class AgentTurnRuntime {
     // (message === displayed text); a caller-enriched prompt (e.g. injected task/spec
     // context) supplies a separate, clean `userMessage` so the chat bubble never shows
     // automatically injected context the user did not type.
-    const displayMessage = (typeof userMessage === 'string' && userMessage.trim()) ? userMessage : inputMessage;
+    const displayMessage = typeof userMessage === 'string' && userMessage.trim() ? userMessage : inputMessage;
     const entry = this.registry.get(provider);
     const agentProvider = entry.provider;
     if (typeof agentProvider.startTurn !== 'function') {
@@ -152,7 +163,10 @@ export class AgentTurnRuntime {
       if (typeof inputMessage !== 'string' || inputMessage.trim().length === 0 || inputMessage.length > 100_000) {
         throw new AiError('AI_VALIDATION_ERROR', 'A non-empty message is required.', { status: 400 });
       }
-      if (idempotencyKey !== undefined && (typeof idempotencyKey !== 'string' || idempotencyKey.length === 0 || idempotencyKey.length > 200)) {
+      if (
+        idempotencyKey !== undefined &&
+        (typeof idempotencyKey !== 'string' || idempotencyKey.length === 0 || idempotencyKey.length > 200)
+      ) {
         throw new AiError('AI_VALIDATION_ERROR', 'The idempotency key is invalid.', { status: 400 });
       }
 
@@ -258,7 +272,10 @@ export class AgentTurnRuntime {
           state.identity = { provider: state.provider, providerSessionId: allocatedSessionId };
           state.key = sessionKey(state.provider, allocatedSessionId);
           this.#activeBySession.set(state.key, state.turnId);
-          this.#eventStream.bindSession(state.turnId, { provider: state.provider, providerSessionId: allocatedSessionId });
+          this.#eventStream.bindSession(state.turnId, {
+            provider: state.provider,
+            providerSessionId: allocatedSessionId,
+          });
           if (this.transcriptCache?.recordCanonicalTurn) {
             const snap = state.coordinator.getCanonicalSnapshot();
             snap.prompt = inputMessage;
@@ -297,7 +314,9 @@ export class AgentTurnRuntime {
           try {
             await state.onSessionEstablished(allocatedSessionId);
           } catch (err) {
-            console.warn(`[ai] Failed to persist provider session confirmation for ${state.provider}:${allocatedSessionId}: ${err?.message || err}`);
+            console.warn(
+              `[ai] Failed to persist provider session confirmation for ${state.provider}:${allocatedSessionId}: ${err?.message || err}`,
+            );
           }
         }
       };
@@ -337,7 +356,9 @@ export class AgentTurnRuntime {
   async #acquireStartLock(key) {
     const previous = this.#startQueueBySession.get(key) ?? Promise.resolve();
     let release;
-    const current = new Promise(resolve => { release = resolve; });
+    const current = new Promise((resolve) => {
+      release = resolve;
+    });
     const tail = previous.then(() => current);
     this.#startQueueBySession.set(key, tail);
     await previous;
@@ -355,16 +376,20 @@ export class AgentTurnRuntime {
       identity: state.identity,
       mode: state.mode,
       signal: state.abortController.signal,
-      setOperation: operation => { state.privateOperation = operation; },
+      setOperation: (operation) => {
+        state.privateOperation = operation;
+      },
       emitCommentaryDelta: (text, commentaryId) => this.#emitCommentaryDelta(state, text, commentaryId),
-      emitReasoningDelta: (text, reasoningId, representation) => this.#emitReasoningDelta(state, text, reasoningId, representation),
-      emitFinalAnswerDelta: (text, finalAnswerId, confidence) => this.#emitFinalAnswerDelta(state, text, finalAnswerId, confidence),
-      setFinalAnswer: finalAnswerData => this.#setFinalAnswer(state, finalAnswerData),
-      emitToolStarted: tool => this.#emitToolStarted(state, tool),
-      emitToolUpdated: tool => this.#emitToolUpdated(state, tool),
-      emitToolCompleted: tool => this.#emitToolCompleted(state, tool),
+      emitReasoningDelta: (text, reasoningId, representation) =>
+        this.#emitReasoningDelta(state, text, reasoningId, representation),
+      emitFinalAnswerDelta: (text, finalAnswerId, confidence) =>
+        this.#emitFinalAnswerDelta(state, text, finalAnswerId, confidence),
+      setFinalAnswer: (finalAnswerData) => this.#setFinalAnswer(state, finalAnswerData),
+      emitToolStarted: (tool) => this.#emitToolStarted(state, tool),
+      emitToolUpdated: (tool) => this.#emitToolUpdated(state, tool),
+      emitToolCompleted: (tool) => this.#emitToolCompleted(state, tool),
       addToolAction: (toolId, action) => this.#addToolAction(state, toolId, action),
-      emitUsageUpdated: usage => this.#emitUsageUpdated(state, usage),
+      emitUsageUpdated: (usage) => this.#emitUsageUpdated(state, usage),
       emitEvent: (type, data) => this.#emit(state, type, data),
       ...extra,
     };
@@ -378,7 +403,7 @@ export class AgentTurnRuntime {
           message,
           prompt: message,
           requestInteraction: (interaction, options) => this.#requestInteraction(state, interaction, options),
-        })
+        }),
       );
 
       let result;
@@ -410,7 +435,9 @@ export class AgentTurnRuntime {
       if (!this.#isTerminal(state)) this.#finish(state, 'turn.completed');
     } catch (error) {
       if (rejectEstablished) {
-        try { rejectEstablished(error); } catch {}
+        try {
+          rejectEstablished(error);
+        } catch {}
       }
       if (!this.#isTerminal(state)) this.#finish(state, 'turn.failed', error);
     }
@@ -425,7 +452,7 @@ export class AgentTurnRuntime {
             interactionId,
             interaction,
             response,
-          })
+          }),
         );
       }
 
@@ -461,7 +488,9 @@ export class AgentTurnRuntime {
   #emitFinalAnswerDelta(state, text, finalAnswerId = 'final-answer', confidence = undefined) {
     if (this.#isTerminal(state)) return;
     if (typeof text !== 'string' || text.length === 0 || text.length > 50_000) {
-      throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid final answer delta.', { status: 502 });
+      throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid final answer delta.', {
+        status: 502,
+      });
     }
     state.coordinator.recordFinalAnswerDelta(text, finalAnswerId, confidence);
     this.#emit(state, 'text.delta', { messageId: finalAnswerId, text, delta: text });
@@ -484,21 +513,46 @@ export class AgentTurnRuntime {
   #emitToolStarted(state, { toolId, toolName, input, kind, title, description, actions, status } = {}) {
     if (this.#isTerminal(state)) return;
     const normalizedStatus = normalizeTransitionalToolStatus(status, 'active');
-    state.coordinator.recordToolStarted({ toolId, toolName, input, kind, title, description, actions, status: normalizedStatus });
+    state.coordinator.recordToolStarted({
+      toolId,
+      toolName,
+      input,
+      kind,
+      title,
+      description,
+      actions,
+      status: normalizedStatus,
+    });
     this.#emit(state, 'tool.started', { toolId, toolName, input: input === undefined ? {} : input });
   }
 
   #emitToolUpdated(state, { toolId, output, status, progress, durationMs, exitCode, actions } = {}) {
     if (this.#isTerminal(state)) return;
     const normalizedStatus = normalizeTransitionalToolStatus(status, 'active');
-    state.coordinator.recordToolUpdated({ toolId, output, status: normalizedStatus, progress, durationMs, exitCode, actions });
+    state.coordinator.recordToolUpdated({
+      toolId,
+      output,
+      status: normalizedStatus,
+      progress,
+      durationMs,
+      exitCode,
+      actions,
+    });
     this.#emit(state, 'tool.updated', { toolId, output, status: normalizedStatus });
   }
 
   #emitToolCompleted(state, { toolId, output, durationMs, status, exitCode, actions, closureReason } = {}) {
     if (this.#isTerminal(state)) return;
     const normalizedStatus = normalizeTransitionalToolStatus(status, 'completed');
-    state.coordinator.recordToolCompleted({ toolId, output, durationMs, status: normalizedStatus, exitCode, actions, closureReason });
+    state.coordinator.recordToolCompleted({
+      toolId,
+      output,
+      durationMs,
+      status: normalizedStatus,
+      exitCode,
+      actions,
+      closureReason,
+    });
     this.#emit(state, 'tool.completed', { toolId, output, durationMs, status: normalizedStatus });
   }
 
@@ -514,14 +568,16 @@ export class AgentTurnRuntime {
   }
 
   #requestInteraction(state, value, { resumePolicy = 'restart' } = {}) {
-    if (this.#isTerminal(state)) throw new AiError('AI_TURN_TERMINAL', 'The turn is already terminal.', { status: 409 });
-    if (state.coordinator.pendingInteraction) throw new AiError('AI_INTERACTION_PENDING', 'The turn already has a pending interaction.', { status: 409 });
+    if (this.#isTerminal(state))
+      throw new AiError('AI_TURN_TERMINAL', 'The turn is already terminal.', { status: 409 });
+    if (state.coordinator.pendingInteraction)
+      throw new AiError('AI_INTERACTION_PENDING', 'The turn already has a pending interaction.', { status: 409 });
     const neutral = {
       ...value,
       id: undefined,
       resumePolicy,
       ...(Array.isArray(value?.questions)
-        ? { questions: value.questions.map(question => ({ ...question, id: undefined })) }
+        ? { questions: value.questions.map((question) => ({ ...question, id: undefined })) }
         : {}),
     };
     const interaction = normalizeInteraction(neutral, {
@@ -605,7 +661,11 @@ export class AgentTurnRuntime {
 
     if (!state) {
       if (!turnId) {
-        throw new AiNotFoundError('No active turn found for this session.', { provider, providerSessionId, interactionId });
+        throw new AiNotFoundError('No active turn found for this session.', {
+          provider,
+          providerSessionId,
+          interactionId,
+        });
       }
       state = this.#get(turnId);
     }
@@ -626,7 +686,10 @@ export class AgentTurnRuntime {
 
     const pending = state.coordinator.pendingInteraction;
     if (!pending || pending.id !== interactionId) {
-      throw new AiNotFoundError('The pending interaction was not found for this turn.', { turnId: state.turnId, interactionId });
+      throw new AiNotFoundError('The pending interaction was not found for this turn.', {
+        turnId: state.turnId,
+        interactionId,
+      });
     }
     const normalized = validateInteractionResponse(pending, response);
     const interaction = structuredClone(pending);
@@ -709,7 +772,10 @@ export class AgentTurnRuntime {
    */
   async #timeoutRunningTurn(state, error) {
     if (state.finished) return;
-    const accepted = state.coordinator.requestTimeoutIntent({ cause: 'timeout/protocol-silence', initiator: 'runtime' });
+    const accepted = state.coordinator.requestTimeoutIntent({
+      cause: 'timeout/protocol-silence',
+      initiator: 'runtime',
+    });
     if (!accepted) return;
     const entry = this.registry.get(state.provider);
     if (state.privateOperation && entry?.provider?.cancelTurn) {
@@ -723,7 +789,11 @@ export class AgentTurnRuntime {
       } catch {}
     }
     state.abortController.abort();
-    await this.#finish(state, 'turn.failed', error, { outcome: 'failed', initiator: 'runtime', cause: 'timeout/protocol-silence' });
+    await this.#finish(state, 'turn.failed', error, {
+      outcome: 'failed',
+      initiator: 'runtime',
+      cause: 'timeout/protocol-silence',
+    });
   }
 
   #checkIdleTurns() {
@@ -733,11 +803,10 @@ export class AgentTurnRuntime {
       if (state.finished) continue;
       const check = state.coordinator.checkProtocolSilence(now, this.idleTimeoutMs);
       if (check.fired) {
-        void this.#timeoutRunningTurn(state, new AiError(
-          'AI_TURN_TIMEOUT',
-          'The turn was cancelled because it stopped responding.',
-          { status: 504 },
-        ));
+        void this.#timeoutRunningTurn(
+          state,
+          new AiError('AI_TURN_TIMEOUT', 'The turn was cancelled because it stopped responding.', { status: 504 }),
+        );
       }
     }
   }
@@ -774,7 +843,9 @@ export class AgentTurnRuntime {
       startedAt: state.startedAt,
       ...(state.completedAt ? { completedAt: state.completedAt } : {}),
       lastEventId: this.#eventStream.getTurnSequence(state.turnId),
-      pendingInteraction: state.coordinator?.pendingInteraction ? structuredClone(state.coordinator.pendingInteraction) : null,
+      pendingInteraction: state.coordinator?.pendingInteraction
+        ? structuredClone(state.coordinator.pendingInteraction)
+        : null,
       events: this.#eventStream.getTurnEvents(state.turnId, 0),
     };
   }
@@ -828,7 +899,10 @@ export class AgentTurnRuntime {
         }
         continue;
       }
-      if (state.coordinator.status.status === 'requiresAttention' && state.coordinator.pendingInteraction?.resumePolicy !== 'live-operation') {
+      if (
+        state.coordinator.status.status === 'requiresAttention' &&
+        state.coordinator.pendingInteraction?.resumePolicy !== 'live-operation'
+      ) {
         if (state.provider && state.providerSessionId && this.transcriptCache) {
           transcriptFlushes.push(this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {}));
         }
@@ -878,9 +952,12 @@ export class AgentTurnRuntime {
     } else {
       effectiveEventType = 'turn.failed';
       const terminalErr = terminalStatus.error;
-      const status = terminalErr?.code === 'AI_TURN_TIMEOUT'
-        ? 504
-        : (terminalErr?.code === 'AI_TURN_CANCELLED' ? 409 : (error?.status || 500));
+      const status =
+        terminalErr?.code === 'AI_TURN_TIMEOUT'
+          ? 504
+          : terminalErr?.code === 'AI_TURN_CANCELLED'
+            ? 409
+            : error?.status || 500;
       eventData = {
         error: publicFailure(
           terminalErr
