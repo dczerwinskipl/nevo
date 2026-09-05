@@ -671,13 +671,15 @@ tasks:
   - id: cleanup-and-token-removal
     order: 9
     file: tasks/09-cleanup-and-token-removal.md
-    status: approved
+    status: in-implementation
     depends_on:
       - shared-ui-primitives
       - status-tone-contract
       - agent-sessions-and-work
       - specs-lanes-and-remaining-ui
       - storybook-and-documentation
+    implementation:
+      baseline_revision: 82d823fdce0d77f386b2a4284cf2ae562f31ec48
 
   - id: architecture-enforcement-check
     order: 10

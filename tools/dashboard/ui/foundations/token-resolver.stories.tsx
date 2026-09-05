@@ -50,17 +50,12 @@ export const LiveTokenResolver: Story = {
     const surfaceComputed = resolveLiveTokenComputed('--color-surface');
     expect(surfaceComputed).toMatch(/^rgb\(\d+,\s*\d+,\s*\d+\)$/);
 
-    // 3. Legacy bridge variables resolve to the exact same computed values as canonical tokens
-    expect(resolveLiveTokenComputed('--background')).toBe(resolveLiveTokenComputed('--color-background'));
-    expect(resolveLiveTokenComputed('--surface')).toBe(resolveLiveTokenComputed('--color-surface'));
-    expect(resolveLiveTokenComputed('--border')).toBe(resolveLiveTokenComputed('--color-border'));
-    expect(resolveLiveTokenComputed('--accent')).toBe(resolveLiveTokenComputed('--color-accent'));
-    expect(resolveLiveTokenComputed('--foreground')).toBe(resolveLiveTokenComputed('--color-fg-primary'));
-    expect(resolveLiveTokenComputed('--muted')).toBe(resolveLiveTokenComputed('--color-fg-muted'));
-    expect(resolveLiveTokenComputed('--success')).toBe(resolveLiveTokenComputed('--color-status-success'));
-    expect(resolveLiveTokenComputed('--warning')).toBe(resolveLiveTokenComputed('--color-status-warning'));
-    expect(resolveLiveTokenComputed('--danger')).toBe(resolveLiveTokenComputed('--color-status-error'));
-    expect(resolveLiveTokenComputed('--info')).toBe(resolveLiveTokenComputed('--color-status-info'));
+    // 3. The legacy CSS-variable bridge (--background, --surface, --accent, etc.) was fully
+    // removed in the cleanup-and-token-removal task — resolving one now throws explicitly,
+    // the same as any other undeclared token (see assertion 1 above).
+    expect(() => resolveLiveTokenComputed('--background')).toThrow(
+      'CSS token "--background" is not defined on document.documentElement',
+    );
 
     // 4. Backdrop token resolves with alpha channel
     const backdropRgba = resolveLiveTokenRgba('--color-backdrop');

@@ -1,6 +1,8 @@
 @import 'tailwindcss';
 
 @theme static {
+  --color-*: initial;
+
   /* Neutral foundation */
   --color-background: #090a0d;
   --color-surface: #0f1116;
@@ -47,53 +49,6 @@
 
 :root {
   color-scheme: dark;
-  /* Neutral foundation legacy bridge. Mapped directly to canonical tokens. */
-  --background: var(--color-background);
-  --surface: var(--color-surface);
-  --surface-raised: var(--color-surface-raised);
-  --surface-hover: var(--color-surface-hover);
-  --border: var(--color-border);
-  --border-strong: var(--color-border-strong);
-  --foreground: var(--color-fg-primary);
-  --muted: var(--color-fg-muted);
-  --muted-strong: var(--color-fg-secondary);
-
-  /* Interaction and active state legacy bridge. */
-  --accent: var(--color-accent);
-  --accent-strong: var(--color-accent-solid);
-  --accent-foreground: var(--color-fg-on-accent);
-  --accent-muted: color-mix(in srgb, var(--accent) 10%, transparent);
-  --accent-border: color-mix(in srgb, var(--accent) 35%, var(--border));
-
-  /* Semantic state legacy bridge. */
-  --success: var(--color-status-success);
-  --success-strong: #7bdc99;
-  --success-muted: color-mix(in srgb, var(--success) 10%, transparent);
-  --success-border: color-mix(in srgb, var(--success) 28%, var(--border));
-  --warning: var(--color-status-warning);
-  --warning-strong: #fcd34d;
-  --warning-muted: color-mix(in srgb, var(--warning) 10%, transparent);
-  --warning-border: color-mix(in srgb, var(--warning) 28%, var(--border));
-  --danger: var(--color-status-error);
-  --danger-strong: #fca5a5;
-  --danger-muted: color-mix(in srgb, var(--danger) 10%, transparent);
-  --danger-border: color-mix(in srgb, var(--danger) 28%, var(--border));
-  --info: var(--color-status-info);
-  --info-strong: #67e8f9;
-  --info-muted: color-mix(in srgb, var(--info) 10%, transparent);
-  --info-border: color-mix(in srgb, var(--info) 28%, var(--border));
-
-  /* Lane presentation. Workflow configuration selects a lane; lanes select tokens. */
-  --lane-new: var(--muted);
-  --lane-design: var(--color-workflow-design);
-  --lane-ready: var(--info);
-  --lane-implementation: var(--accent);
-  --lane-review: var(--warning);
-  --lane-done: var(--success);
-  --lane-danger: var(--danger);
-
-  --cat-1: var(--color-provider-claude);
-  --cat-2: var(--color-provider-antigravity);
   font-family:
     Inter,
     ui-sans-serif,
@@ -108,13 +63,13 @@
 
 * {
   box-sizing: border-box;
-  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-color: var(--color-border-strong) transparent;
   scrollbar-width: thin;
 }
 
 html {
   min-width: 320px;
-  background: var(--background);
+  background: var(--color-background);
 }
 
 body {
@@ -123,8 +78,8 @@ body {
   margin: 0;
   background:
     radial-gradient(circle at 22% -10%, rgba(255, 255, 255, 0.025), transparent 28rem),
-    radial-gradient(circle at 80% 115%, rgba(255, 255, 255, 0.018), transparent 32rem), var(--background);
-  color: var(--foreground);
+    radial-gradient(circle at 80% 115%, rgba(255, 255, 255, 0.018), transparent 32rem), var(--color-background);
+  color: var(--color-fg-primary);
 }
 
 body::before {
@@ -150,15 +105,15 @@ button {
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--accent) 30%, transparent);
-  color: var(--accent-foreground);
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+  color: var(--color-fg-on-accent);
 }
 
 .markdown-body {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  color: var(--muted-strong);
+  color: var(--color-fg-secondary);
   font-size: 0.925rem;
   line-height: 1.75;
   overflow-wrap: anywhere;
@@ -175,7 +130,7 @@ button {
 .markdown-body h3,
 .markdown-body h4 {
   margin: 1.8em 0 0.65em;
-  color: var(--foreground);
+  color: var(--color-fg-primary);
   font-weight: 650;
   line-height: 1.25;
   letter-spacing: -0.02em;
@@ -184,7 +139,7 @@ button {
   font-size: 1.75rem;
 }
 .markdown-body h2 {
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--color-border);
   padding-bottom: 0.45rem;
   font-size: 1.3rem;
 }
@@ -216,34 +171,34 @@ button {
   margin-top: 0.25rem;
 }
 .markdown-body a {
-  color: var(--accent);
+  color: var(--color-accent);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 .markdown-body strong {
-  color: var(--foreground);
+  color: var(--color-fg-primary);
   font-weight: 650;
 }
 .markdown-body blockquote {
-  border-left: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
   padding-left: 1rem;
-  color: var(--muted);
+  color: var(--color-fg-muted);
 }
 .markdown-body code {
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   border-radius: 0.35rem;
-  background: var(--background);
+  background: var(--color-background);
   padding: 0.12rem 0.35rem;
-  color: var(--muted-strong);
+  color: var(--color-fg-secondary);
   font-family: 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
   font-size: 0.84em;
 }
 .markdown-body pre {
   max-width: 100%;
   overflow-x: auto;
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   border-radius: 0.8rem;
-  background: var(--background);
+  background: var(--color-background);
   padding: 1rem;
 }
 .markdown-body pre code {
@@ -258,7 +213,7 @@ button {
 }
 .markdown-body input[type='checkbox'] {
   margin-right: 0.5rem;
-  accent-color: var(--accent);
+  accent-color: var(--color-accent);
 }
 .markdown-body table {
   display: block;
@@ -270,28 +225,28 @@ button {
 }
 .markdown-body th,
 .markdown-body td {
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   padding: 0.55rem 0.75rem;
   text-align: left;
 }
 .markdown-body th {
-  background: var(--surface-raised);
-  color: var(--foreground);
+  background: var(--color-surface-raised);
+  color: var(--color-fg-primary);
 }
 .markdown-body hr {
   margin: 1.8rem 0;
   border: 0;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--color-border);
 }
 
 .nevo-diff-view {
-  scrollbar-color: var(--border-strong) var(--background);
+  scrollbar-color: var(--color-border-strong) var(--color-background);
   scrollbar-gutter: stable;
 }
 
 .nevo-diff-view .diff-tailwindcss-wrapper {
   min-width: 680px;
-  background: var(--surface);
+  background: var(--color-surface);
   font-family: 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
 }
 

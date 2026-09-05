@@ -280,37 +280,14 @@ tools/dashboard/ui/shared/
    }
    ```
 
-2. **Legacy Variable Bridge (`:root`):**
-   Provides backward compatibility for CSS custom properties by referencing canonical tokens via `var(--color-*)`:
-   ```css
-   :root {
-     color-scheme: dark;
-     --background: var(--color-background);
-     --surface: var(--color-surface);
-     --surface-raised: var(--color-surface-raised);
-     --surface-hover: var(--color-surface-hover);
-     --border: var(--color-border);
-     --border-strong: var(--color-border-strong);
-     --foreground: var(--color-fg-primary);
-     --muted: var(--color-fg-muted);
-     --muted-strong: var(--color-fg-secondary);
-     --accent: var(--color-accent);
-     --accent-strong: var(--color-accent-solid);
-     --accent-foreground: var(--color-fg-on-accent);
-     --success: var(--color-status-success);
-     --warning: var(--color-status-warning);
-     --danger: var(--color-status-error);
-     --info: var(--color-status-info);
-     --lane-design: var(--color-workflow-design);
-     --cat-1: var(--color-provider-claude);
-     --cat-2: var(--color-provider-antigravity);
-     /* Derived color-mix values where distinct semantic tokens do not exist */
-     --accent-muted: color-mix(in srgb, var(--accent) 10%, transparent);
-     --accent-border: color-mix(in srgb, var(--accent) 35%, var(--border));
-     ...
-   }
-   ```
-   Equivalence between legacy bridge variables and canonical tokens is verified in `ui/foundations/token-resolver.stories.tsx`.
+2. **No Legacy Variable Bridge:**
+   The transitional `:root` legacy CSS-variable bridge (`--background`, `--surface`, `--accent`,
+   etc., mapped to canonical `--color-*` tokens) was removed once every consumer finished
+   migrating to semantic Tailwind utilities (`cleanup-and-token-removal`). `:root` now declares
+   only 4 non-color globals — `color-scheme`, `font-family`, `font-synthesis`, and
+   `text-rendering` — plus `--color-*: initial` in `@theme static` to disable Tailwind's default
+   palette. Every component and every selector inside `ui/index.css` itself consumes the
+   canonical `--color-*` tokens directly; there is no indirection layer left to keep in sync.
 
 ---
 

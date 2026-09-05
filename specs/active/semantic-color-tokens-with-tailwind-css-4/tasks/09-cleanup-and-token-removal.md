@@ -16,6 +16,11 @@ context:
     - tools/dashboard/ui/index.html
 allowed_paths:
   - tools/dashboard/ui/**
+  - tools/dashboard/tests/**
+  - docs/development/dashboard-frontend-architecture.md
+  - docs/index.generated.json
+  - docs/index.generated.md
+  - docs/routing.generated.json
 forbidden_paths:
   - src/**
 depends_on:

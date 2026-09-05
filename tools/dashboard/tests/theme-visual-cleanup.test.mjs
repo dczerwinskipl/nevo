@@ -18,36 +18,63 @@ test('neutral foundation tokens do not derive from the interaction accent', () =
   assert.match(css, /--color-border-strong: #343b47/);
   assert.match(css, /--color-accent: #3882f6/);
 
-  assert.match(css, /--background:\s*var\(--color-background\);/);
-  assert.match(css, /--surface:\s*var\(--color-surface\);/);
-  assert.match(css, /--border:\s*var\(--color-border\);/);
-  assert.match(css, /--accent:\s*var\(--color-accent\);/);
-
   const bodyRule = css.slice(css.indexOf('body {'), css.indexOf('body::before'));
   assert.doesNotMatch(bodyRule, /var\(--accent\)|59, 130, 246/);
 });
 
-test('theme exposes interaction and semantic token families', () => {
+test('legacy CSS custom-property bridge is fully removed and --color-*: initial is set', () => {
   const css = readSource('index.css');
 
+  assert.match(css, /--color-\*:\s*initial;/);
+
   for (const token of [
+    '--background',
+    '--surface',
+    '--surface-raised',
+    '--surface-hover',
+    '--border',
+    '--border-strong',
+    '--foreground',
+    '--muted',
+    '--muted-strong',
+    '--accent',
+    '--accent-strong',
+    '--accent-foreground',
     '--accent-muted',
     '--accent-border',
+    '--success',
+    '--success-strong',
     '--success-muted',
     '--success-border',
+    '--warning',
+    '--warning-strong',
     '--warning-muted',
     '--warning-border',
+    '--danger',
+    '--danger-strong',
     '--danger-muted',
     '--danger-border',
+    '--info',
+    '--info-strong',
+    '--info-muted',
+    '--info-border',
     '--lane-new',
     '--lane-design',
     '--lane-ready',
     '--lane-implementation',
     '--lane-review',
     '--lane-done',
+    '--lane-danger',
+    '--cat-1',
+    '--cat-2',
   ]) {
-    assert.ok(css.includes(token), `missing ${token}`);
+    assert.ok(!css.includes(`${token}:`), `legacy declaration ${token} should no longer exist`);
   }
+
+  const rootRule = css.slice(css.indexOf(':root {'), css.indexOf('* {'));
+  assert.match(rootRule, /color-scheme: dark;/);
+  assert.match(rootRule, /font-synthesis: none;/);
+  assert.match(rootRule, /text-rendering: optimizeLegibility;/);
 });
 
 test('desktop shell removes the full-width brand header and keeps floating utilities', () => {
