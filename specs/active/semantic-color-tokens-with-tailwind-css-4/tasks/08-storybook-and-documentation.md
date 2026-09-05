@@ -15,7 +15,7 @@ context:
   optional:
     - docs/development/react-component-guidelines.md
     - docs/development/nevo-ai-ux-guidelines.md
-    - tools/dashboard/ui/components/ui/button.tsx
+    - tools/dashboard/ui/shared/ui/button.tsx
     - tools/dashboard/ui/shared/status-tone.ts
 allowed_paths:
   - docs/ai/task-routing.md
@@ -24,7 +24,6 @@ allowed_paths:
   - docs/index.generated.md
   - docs/routing.generated.json
   - tools/dashboard/ui/foundations/**
-  - tools/dashboard/ui/components/ui/*.stories.tsx
   - tools/dashboard/ui/features/**/*.stories.tsx
   - tools/dashboard/ui/features/agent-sessions/agent-session-details.tsx
   - tools/dashboard/ui/features/agent-sessions/transcript/**
@@ -48,8 +47,10 @@ semantic_references:
 ## Goal
 
 Author `docs/development/dashboard-frontend-architecture.md` establishing the complete frontend architecture
-contract (`app -> routes -> features -> shared`), component taxonomy, domain areas, public API boundaries,
-and deferred `components/ui` migration (D15). Align all Storybook story titles across primitives, features,
+contract: routes may delegate directly to single-feature pages while screens serve as the optional multi-feature
+composition boundary (D17, D18), features do not import sibling features, canonical UI primitives reside under
+`shared/ui/`, generic utilities reside under `shared/lib/`, `components/ui/` is removed, and structural migration
+debt is fully resolved. Align all Storybook story titles across primitives, features,
 and foundations with this taxonomy. Rewrite `colors.stories.tsx` to read live computed `--color-*` values grouped by
 semantic role (no duplicated TypeScript palette), including the canonical status set,
 provider/workflow tokens, and the filled-button contrast pair. Migrate all foundation
@@ -64,11 +65,11 @@ reflect actual story hierarchy and co-location rules, repair stale section refer
 
 ## Implementation constraints
 
-- Author `docs/development/dashboard-frontend-architecture.md` with all 11 required sections:
-  Executive Summary, Layer Responsibilities, Component Taxonomy, Domain Areas, Public API & Import
-  Boundaries, Resolution of `components/ui` vs `shared/ui`, State Management, Storybook Colocation,
-  Component Placement Decision Matrix, Directory Structure, and Migration Strategy.
-- Story titles in `components/ui/*.stories.tsx` and `features/**/*.stories.tsx` must align to the
+- Author `docs/development/dashboard-frontend-architecture.md` establishing layer responsibilities
+  (App, Routes, Screens, Features, Shared), component taxonomy, domain areas, public API & import
+  boundaries, consolidation of `shared/ui` and removal of `components/ui` (D17, D18), state management,
+  Storybook colocation, component placement decision matrix, verified directory layout, and verification commands.
+- Story titles in `shared/ui/*.stories.tsx` and `features/**/*.stories.tsx` must align to the
   component taxonomy (`Shared/UI/*`, `Features/<Domain>/*`, `Foundations/*`).
 - No hardcoded hex value may appear in `colors.stories.tsx` for any token also defined
   in `index.css` — read via computed styles.
@@ -91,14 +92,17 @@ reflect actual story hierarchy and co-location rules, repair stale section refer
 - After changing any `docs/development/**` content, run `node tools/docs.mjs generate`
   to refresh `docs/index.generated.json`/`docs/index.generated.md`/`docs/routing.generated.json`,
   then `node tools/docs.mjs validate` and `node tools/docs.mjs check`.
-- Non-story source files in `components/ui/**` and `features/**` are not modified except for
+- Non-story source files outside approved architecture cleanup and bug fixes are not modified except for
   repairing stale `react-component-guidelines.md` section references in `turn-work-visibility.ts`,
-  `turn-work-summary.tsx`, `message-collapse.ts`, and `transcript-message.tsx`. Do not touch `index.css`.
+  `turn-work-summary.tsx`, `message-collapse.ts`, and `transcript-message.tsx`. Do not touch canonical
+  theme tokens in `index.css`.
 
 ## Acceptance criteria
 
-1. `docs/development/dashboard-frontend-architecture.md` is authored with all 11 required
-   sections, decision matrix, pseudo-tree, and guidelines, and cross-referenced in related docs.
+1. `docs/development/dashboard-frontend-architecture.md` is authored reflecting the final architecture
+   (optional screen composition layer, direct single-feature route delegation, zero sibling feature imports,
+   canonical `shared/ui` primitives and `shared/lib` utilities, removal of `components/ui`), decision matrix,
+   verified directory layout, and guidelines, and cross-referenced in related docs.
 2. Story titles match the component taxonomy (`Shared/UI/*`, `Features/*`, `Foundations/*`).
 3. `colors.stories.tsx` contains zero duplicated hex literals for theme-defined tokens.
 4. Tokens are grouped by the same categories as the `@theme` block (neutral, foreground,

@@ -312,3 +312,21 @@ test('7. Screen locality: specification-console directory houses console layout 
     'create-specification dialog must live under screens/specification-console/create-specification',
   );
 });
+
+test('8. Canonical tab projection: SpecificationDetailContent imports computeVisibleTabs with no duplicate screen definition', () => {
+  const contentFile = join(uiDir, 'screens', 'specification-detail', 'specification-detail-content.tsx');
+  assert.equal(existsSync(contentFile), true, 'specification-detail-content.tsx must exist');
+  const source = readFileSync(contentFile, 'utf-8');
+
+  assert.ok(
+    source.includes('@/features/specifications/detail/documentation-projection') &&
+      source.includes('computeVisibleTabs'),
+    'SpecificationDetailContent must import computeVisibleTabs from documentation-projection',
+  );
+
+  assert.equal(
+    /function\s+computeVisibleTabs/.test(source),
+    false,
+    'SpecificationDetailContent must not define a duplicate local computeVisibleTabs',
+  );
+});

@@ -9,23 +9,22 @@ utilities, prove every catalogued token actually resolves to a real value, updat
 repair broken numeric section references to `react-component-guidelines.md`, and update
 the UX/color guideline documentation to the final semantic contract.
 
-## Current state
+## Historical baseline state (before this change)
 
-- `tools/dashboard/ui/foundations/colors.stories.tsx` currently documents the old
-  `:root` tokens, including generic labels and dead variants.
-- `typography.stories.tsx` and `smoke.stories.tsx` contain legacy `var(--foreground)`-style
-  utilities and raw `amber-*` classes.
-- `docs/development/storybook.md` inaccurately claims that `Components/*` is unused.
-- Broken numeric section references (`§20.1`, `§16`, old `§9.1`/`§9.2`) to
-  `react-component-guidelines.md` exist across source files.
+- `tools/dashboard/ui/foundations/colors.stories.tsx` documented the old `:root` tokens, including generic labels and dead variants.
+- `typography.stories.tsx` and `smoke.stories.tsx` contained legacy `var(--foreground)`-style utilities and raw `amber-*` classes.
+- `docs/development/storybook.md` inaccurately claimed that `Components/*` was unused.
+- Broken numeric section references (`§20.1`, `§16`, old `§9.1`/`§9.2`) to `react-component-guidelines.md` existed across source files.
 
 ## Requirements
 
-- Author `docs/development/dashboard-frontend-architecture.md` formally establishing the
-  dashboard architecture contract: layer responsibilities (`app -> routes -> features -> shared`),
-  component taxonomy, domain area boundaries, public API rules, resolution of `components/ui`
-  vs `shared/ui` (declaring `shared/ui` as official home and recognizing `components/ui` as legacy
-  with deferred mass migration), state management, Storybook colocation, and decision matrix (D15).
+- Author `docs/development/dashboard-frontend-architecture.md` formally establishing the final dashboard architecture contract (D15, D17, D18):
+  - Routes are thin parameter-extracting adapters that delegate directly to single-feature pages (`ActiveSpecificationsPage`, `ArchiveSpecificationsPage`) when no multi-feature coordination is required.
+  - Screens (`ui/screens/`) serve as the optional composition boundary where multiple features converge (`specification-detail`, `agent-session`, `specification-console`).
+  - Strict vertical feature isolation: features under `ui/features/*` never import from sibling features.
+  - Canonical domain-independent primitives reside in `ui/shared/ui/` and generic utilities in `ui/shared/lib/`, with `ui/components/ui/` removed.
+  - Elimination of fake object placeholders via clean screen/content separation.
+  - Component taxonomy, domain area boundaries, public API rules, state management, Storybook colocation, and decision matrix.
 - Align Storybook story titles across all primitives (`Shared/UI/*`), features (`Features/<Domain>/*`),
   and foundations (`Foundations/*`).
 - Rewrite `colors.stories.tsx` to read live computed CSS custom property values rather
@@ -42,8 +41,10 @@ the UX/color guideline documentation to the final semantic contract.
 
 ## Area-specific acceptance criteria
 
-1. `docs/development/dashboard-frontend-architecture.md` is authored with all 11 required
-   sections, decision matrix, pseudo-tree, and guidelines, and cross-referenced in related docs.
+1. `docs/development/dashboard-frontend-architecture.md` is authored reflecting the final architecture
+   (optional screen composition layer, direct single-feature route delegation, zero sibling feature imports,
+   canonical `shared/ui` primitives and `shared/lib` utilities, removal of `components/ui`), decision matrix,
+   verified directory layout, and guidelines, and cross-referenced in related docs.
 2. Story titles match the component taxonomy (`Shared/UI/*`, `Features/*`, `Foundations/*`).
 3. `colors.stories.tsx`, `typography.stories.tsx`, and `smoke.stories.tsx` use semantic
    Tailwind utilities and live token resolution.

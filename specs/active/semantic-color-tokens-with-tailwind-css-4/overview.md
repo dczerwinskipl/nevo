@@ -172,16 +172,31 @@ which file) — an implementation detail within the owner's already-decided arch
 
 ## Owner decisions
 
-See `owner-decisions.md` — D1 (theme contract shape), D2 (status/tone contract — **7
-`StatusTone` values + 1 separate `action-destructive` action role**, not a "9-state"
-contract), D3 (lane/provider naming and static mapping), D4 (accent contrast fix), D5
-(migration and enforcement sequencing), D6 (base branch), D7 (Prettier +
-`prettier-plugin-tailwindcss`, not Biome, applied as a standalone mechanical baseline),
-D8 (durable Tailwind class-composition contract in `react-component-guidelines.md`), D9
-(visual-parity claims reframed as intentional semantic normalization, verified for
-contrast/legibility, not pixel identity — added during `/nevo-ai:spec-review`), D10
-(`@theme static` for the direct-value token contract, plus a Storybook token-presence
-test — added during `/nevo-ai:spec-review`).
+See `owner-decisions.md` for full records, rationale, and consequences:
+
+- **Original Problem & Baseline Architecture (D1–D10)**:
+  - D1: Semantic `@theme static` design token contract (direct-value utilities, no intermediate primitive abstraction).
+  - D2: Central `StatusTone` contract (**7 `StatusTone` values + 1 separate `action-destructive` action role**, not a "9-state" model).
+  - D3: Static lane/provider token mapping.
+  - D4: Accent contrast fix (≥4.5:1 text-on-accent contrast pairing).
+  - D5: Migration and enforcement sequencing.
+  - D6: Base branch alignment.
+  - D7: Prettier + `prettier-plugin-tailwindcss` mechanical formatting baseline.
+  - D8: Durable Tailwind class-composition contract in `react-component-guidelines.md`.
+  - D9: Visual-parity claims reframed as intentional semantic normalization.
+  - D10: `@theme static` emission guarantee and Storybook token-presence self-verification.
+
+- **Later Owner-Approved Scope Expansion (D11–D16)**:
+  - D11: Purely presentational `StatusLabel` boundary (`tone: StatusTone`, rendered `children`) with feature-owned projections (`specStatusTone`, `sessionStatusTone`).
+  - D12: Dedicated diff statistics tokens (`diff-addition`, `diff-deletion`) and lifecycle-state audit (`status-active` for running/in-implementation states).
+  - D13: Storybook story co-location beside components, removal of omnibus stories, and `.storybook/test-utils/` test infrastructure.
+  - D14: Foundation stories migration (`colors`, `typography`, `smoke`) and inclusion of stories in architectural sweeps.
+  - D15: Initial dashboard frontend architecture contract and taxonomy in `dashboard-frontend-architecture.md`.
+  - D16: Owner approval and scope corrections for Task 08 implementation, preserving the co-landed network configuration feature.
+
+- **Final Architectural Outcome (D17–D18)**:
+  - D17: Elimination of structural migration debt via real frontend architecture cleanup: dedicated screen composition layer (`ui/screens/`), `ui/routes/` as thin parameter adapters, full consolidation of domain-independent UI primitives into `ui/shared/ui/` with removal of `components/ui/`, and legacy custom properties bridge in `ui/index.css`.
+  - D18: Flexible frontend architecture, screen locality, and mechanical boundary enforcement: routes delegate directly to single-feature pages (`ActiveSpecificationsPage`, `ArchiveSpecificationsPage`) when cross-feature composition is unnecessary; screens serve as the optional multi-feature composition boundary; strict vertical feature isolation with zero sibling imports; screen locality under `ui/screens/specification-console/`; elimination of fake `SpecificationSummary` placeholders via screen/content separation; and automated boundary enforcement via `architecture-boundaries.test.mjs`.
 
 ## Proposed architecture
 
@@ -223,7 +238,8 @@ formatting is ordered first.
 - `areas/specs-lanes-and-remaining-ui.md` — specifications feature (incl. workflow lane
   static mapping), pull-requests (incl. `status.ts`'s `StatusTone` consumption),
   operations, and any remaining stray usages.
-- `areas/storybook-and-documentation.md` — live-value Colors story and UX guideline doc.
+- `areas/storybook-and-documentation.md` — live-value Colors story, foundation stories
+  migration, and frontend architecture documentation (`dashboard-frontend-architecture.md`).
 - `areas/cleanup-and-enforcement.md` — old-variable/dead-token removal,
   `--color-*: initial`, `theme-color` meta fix, and the architecture check (incl. the
   interpolated-class-construction ban).

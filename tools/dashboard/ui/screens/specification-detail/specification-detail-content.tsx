@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, Suspense, lazy } from 'react';
-import { CalendarClock, FileCode2, Sparkles, FileText, History } from 'lucide-react';
+import { CalendarClock, FileCode2, LayoutDashboard, BookOpenText, GitPullRequest } from 'lucide-react';
 import { useNavigate, Link } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 
-import type { SpecificationSummary, SpecificationTask, SpecificationManifest } from '@/features/specifications/types';
+import type { SpecificationSummary, SpecificationTask } from '@/features/specifications/types';
+import { computeVisibleTabs, type SpecTabId } from '@/features/specifications/detail/documentation-projection';
 import { formatDate, cn } from '@/shared/lib/utils';
 import { Badge } from '@/shared/ui/badge';
 import { Card } from '@/shared/ui/card';
@@ -40,25 +41,11 @@ function ContentLoading() {
   );
 }
 
-const TAB_ICON = {
-  overview: Sparkles,
-  docs: FileText,
-  changes: History,
-} as const;
-
-interface SpecTabItem {
-  id: 'overview' | 'docs' | 'changes';
-  label: string;
-}
-
-function computeVisibleTabs(manifest: SpecificationManifest | undefined | null): SpecTabItem[] {
-  const tabs: SpecTabItem[] = [{ id: 'overview', label: 'Przegląd' }];
-  if (manifest?.sections && manifest.sections.length > 0) {
-    tabs.push({ id: 'docs', label: 'Dokumentacja' });
-  }
-  tabs.push({ id: 'changes', label: 'Zmiany kodu' });
-  return tabs;
-}
+const TAB_ICON: Record<SpecTabId, typeof LayoutDashboard> = {
+  overview: LayoutDashboard,
+  docs: BookOpenText,
+  changes: GitPullRequest,
+};
 
 export interface SpecificationDetailContentProps {
   specification: SpecificationSummary;
@@ -69,7 +56,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
   const navigate = useNavigate();
 
   const [sessionSpecification, setSessionSpecification] = useState<SpecificationSummary | null>(null);
-  const [activeTab, setActiveTab] = useState<string>('overview');
+  const [activeTab, setActiveTab] = useState<SpecTabId>('overview');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const taskTriggerRef = useRef<HTMLElement | null>(null);
 
@@ -85,7 +72,13 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
 
   const selectedTask = selectedTaskId ? (specification.tasks.find((task) => task.id === selectedTaskId) ?? null) : null;
   const visibleTabs = useMemo(() => computeVisibleTabs(manifestQuery.data), [manifestQuery.data]);
-  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set(['overview']));
+  const [visitedTabs, setVisitedTabs] = useState<Set<SpecTabId>>(() => new Set(['overview']));
+
+  useEffect(() => {
+    if (!visibleTabs.some((t) => t.id === activeTab)) {
+      setActiveTab('overview');
+    }
+  }, [visibleTabs, activeTab]);
 
   useEffect(() => {
     setVisitedTabs((prev) => {

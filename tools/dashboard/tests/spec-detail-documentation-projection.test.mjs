@@ -208,6 +208,20 @@ test('computeVisibleTabs includes docs when the manifest has any documentation',
   );
 });
 
+test('computeVisibleTabs hides docs when sections are present but none are available', () => {
+  const manifest = baseManifest({
+    sections: [
+      { id: 's1', type: 'document', label: 'S1', available: false, document: null },
+      { id: 's2', type: 'directory', label: 'S2', available: false, documents: [] },
+    ],
+  });
+  const tabs = computeVisibleTabs(manifest);
+  assert.deepEqual(
+    tabs.map((t) => t.id),
+    ['overview', 'changes'],
+  );
+});
+
 test('computeVisibleTabs handles a missing manifest (loading state) as docs-less', () => {
   assert.deepEqual(
     computeVisibleTabs(null).map((t) => t.id),
