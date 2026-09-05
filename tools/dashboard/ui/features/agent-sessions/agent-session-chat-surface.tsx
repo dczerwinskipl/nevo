@@ -137,7 +137,7 @@ export const AgentSessionChatSurface = forwardRef<AgentSessionChatSurfaceHandle,
 
         <footer
           className={cn(
-            'shrink-0 border-t border-[var(--border)] bg-[var(--background)] px-3 pt-2 sm:px-6',
+            'shrink-0 border-t border-border bg-background px-3 pt-2 sm:px-6',
             keyboardOpen ? 'pb-2' : 'pb-[max(0.5rem,env(safe-area-inset-bottom))]',
           )}
         >

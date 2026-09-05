@@ -51,15 +51,15 @@ export function TranscriptMessage({ message, work, isStreaming = false }: Transc
             className={cn(
               'rounded-2xl px-4 py-3 text-sm leading-6',
               user
-                ? 'w-fit max-w-[min(88%,820px)] border border-[var(--border-strong)] bg-[var(--surface-raised)] text-[var(--foreground)]'
-                : 'w-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]',
+                ? 'w-fit max-w-[min(88%,820px)] border border-border-strong bg-surface-raised text-fg-primary'
+                : 'w-full border border-border bg-surface text-fg-primary',
             )}
           >
             {message.activityTimeline?.map((item) => {
               if (item.type === 'commentary' && item.text) {
                 return (
-                  <div key={item.id} className="mb-2 text-sm text-[var(--foreground-muted)] last:mb-0">
-                    <MarkdownContent markdown={item.text} className="text-[var(--foreground)]" />
+                  <div key={item.id} className="mb-2 text-sm text-fg-muted last:mb-0">
+                    <MarkdownContent markdown={item.text} className="text-fg-primary" />
                   </div>
                 );
               }
@@ -73,7 +73,7 @@ export function TranscriptMessage({ message, work, isStreaming = false }: Transc
                 <div className="space-y-1.5">
                   <div
                     className={cn(
-                      'font-normal break-words whitespace-pre-wrap text-[var(--foreground)]',
+                      'font-normal break-words whitespace-pre-wrap text-fg-primary',
                       // Must match message-collapse.ts's COLLAPSED_LINE_LIMIT — Tailwind's
                       // scanner needs a literal class, not an interpolated variable.
                       isLong && !expanded && 'line-clamp-6',
@@ -86,7 +86,7 @@ export function TranscriptMessage({ message, work, isStreaming = false }: Transc
                       type="button"
                       onClick={toggleExpanded}
                       aria-expanded={expanded}
-                      className="flex items-center gap-1 text-xs font-medium text-[var(--accent)] hover:underline"
+                      className="flex items-center gap-1 text-xs font-medium text-accent hover:underline"
                     >
                       {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
                       {expanded ? 'Zwiń' : 'Pokaż więcej'}
@@ -94,7 +94,7 @@ export function TranscriptMessage({ message, work, isStreaming = false }: Transc
                   )}
                 </div>
               ) : (
-                <MarkdownContent markdown={message.text} className="text-[var(--foreground)]" />
+                <MarkdownContent markdown={message.text} className="text-fg-primary" />
               ))}
           </div>
         )}

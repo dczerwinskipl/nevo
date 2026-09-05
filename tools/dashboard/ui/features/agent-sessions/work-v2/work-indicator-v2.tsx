@@ -82,7 +82,7 @@ export const WorkIndicatorV2 = memo(function WorkIndicatorV2({ turn, expanded, o
       onClick={onToggle}
       aria-expanded={expanded}
       className={cn(
-        'flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-xs font-medium transition-colors hover:bg-white/4',
+        'flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-xs font-medium transition-colors hover:bg-fg-primary/4',
         tone === 'error' && 'text-status-error',
         tone === 'attention' && 'text-status-attention',
         tone === 'warning' && 'text-status-warning',

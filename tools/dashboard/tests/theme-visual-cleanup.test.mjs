@@ -71,8 +71,8 @@ test('workflow and session states follow the semantic color contract', () => {
   assert.ok(progress.includes('style={{ width: `${(count / total) * 100}%` }}'));
   assert.ok(progress.includes('key={stage.id}'));
   assert.match(labels, /case 'approved':[\s\S]*return 'text-\[var\(--success\)\]'/);
-  assert.ok(tools.includes('isFailed && <AlertTriangle className="size-3.5 text-[var(--warning)]"'));
-  assert.ok(sessions.includes("session.status === 'waitingForUser' && 'bg-[var(--warning-muted)]'"));
+  assert.ok(tools.includes('isFailed && <AlertTriangle className="size-3.5 text-status-warning"'));
+  assert.ok(sessions.includes("session.status === 'waitingForUser' && 'bg-status-warning/10'"));
 });
 
 test('sidebar hierarchy and mode switch stay neutral with a clear primary selection', () => {

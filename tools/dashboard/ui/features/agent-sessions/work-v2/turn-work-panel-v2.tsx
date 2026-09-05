@@ -49,10 +49,7 @@ export function TurnWorkPanelV2({ turn, onRespondInteraction }: TurnWorkPanelV2P
         <div className="flex w-full min-w-0 items-end justify-between gap-2 pl-1">
           {/* Column 1: Timeline occupying almost all free space */}
           <div className="relative min-w-0 flex-1">
-            <div
-              className="absolute top-2 bottom-2 left-[18px] w-px -translate-x-1/2 bg-[var(--border)]"
-              aria-hidden="true"
-            />
+            <div className="absolute top-2 bottom-2 left-[18px] w-px -translate-x-1/2 bg-border" aria-hidden="true" />
             <div className="relative flex flex-col gap-0.5">
               <WorkTimelineV2 historicalWork={turn.historicalWork} onSelectItem={openDetailsForItem} embedded />
               {!isTerminal && <WorkCurrentActivityLineV2 turn={turn} embedded />}
@@ -66,7 +63,7 @@ export function TurnWorkPanelV2({ turn, onRespondInteraction }: TurnWorkPanelV2P
                 type="button"
                 onClick={openDetailsOverview}
                 aria-label="Details"
-                className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-normal text-[var(--muted)] transition-colors hover:bg-white/4 hover:text-[var(--foreground)]"
+                className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-normal text-fg-muted transition-colors hover:bg-fg-primary/4 hover:text-fg-primary"
               >
                 <Search className="size-3" />
                 <span>Details</span>

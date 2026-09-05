@@ -35,24 +35,24 @@ export function ToolCallView({ toolCall }: ToolCallViewProps) {
   };
 
   return (
-    <div className="my-2 w-full max-w-full min-w-0 rounded-xl border border-[var(--border)] bg-[var(--surface-raised)] text-xs shadow-xs">
+    <div className="my-2 w-full max-w-full min-w-0 rounded-xl border border-border bg-surface-raised text-xs shadow-xs">
       <button
         type="button"
         onClick={() => setExpanded((prev) => !prev)}
         aria-expanded={expanded}
-        className="flex w-full max-w-full min-w-0 items-center justify-between px-3 py-2 text-left font-medium hover:bg-white/4"
+        className="flex w-full max-w-full min-w-0 items-center justify-between px-3 py-2 text-left font-medium hover:bg-fg-primary/4"
       >
         <div className="flex min-w-0 items-center gap-2">
-          <Wrench className="size-3.5 shrink-0 text-[var(--accent)]" />
+          <Wrench className="size-3.5 shrink-0 text-accent" />
           {/* Activity label is primary; status is a small secondary icon only — reverse
               of the previous uppercase status-badge-as-primary treatment. */}
-          <span className="truncate font-medium text-[var(--foreground)]">{activityLabel}</span>
+          <span className="truncate font-medium text-fg-primary">{activityLabel}</span>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2 text-[var(--muted)]">
-          {isRunning && <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" />}
-          {isCompleted && <CheckCircle2 className="size-3.5 text-[var(--success)]" />}
-          {isFailed && <AlertTriangle className="size-3.5 text-[var(--warning)]" />}
+        <div className="flex shrink-0 items-center gap-2 text-fg-muted">
+          {isRunning && <LoaderCircle className="size-3.5 animate-spin text-accent" />}
+          {isCompleted && <CheckCircle2 className="size-3.5 text-status-success" />}
+          {isFailed && <AlertTriangle className="size-3.5 text-status-warning" />}
           {toolCall.durationMs != null && (
             <span className="flex items-center gap-1 text-[10px]">
               <Clock className="size-3" />
@@ -64,20 +64,20 @@ export function ToolCallView({ toolCall }: ToolCallViewProps) {
       </button>
 
       {expanded && (
-        <div className="max-w-full min-w-0 space-y-2 border-t border-[var(--border)] px-3 py-2">
+        <div className="max-w-full min-w-0 space-y-2 border-t border-border px-3 py-2">
           <div className="max-w-full min-w-0">
-            <p className="flex items-center gap-1 text-[10px] font-semibold tracking-wider text-[var(--muted)] uppercase">
+            <p className="flex items-center gap-1 text-[10px] font-semibold tracking-wider text-fg-muted uppercase">
               <Wrench className="size-3" /> Tool
             </p>
-            <p className="mt-1 font-mono text-[10px] break-words text-[var(--muted-strong)]">{toolCall.name}</p>
+            <p className="mt-1 font-mono text-[10px] break-words text-fg-secondary">{toolCall.name}</p>
           </div>
 
           {toolCall.input != null && (
             <div className="max-w-full min-w-0">
-              <p className="flex items-center gap-1 text-[10px] font-semibold tracking-wider text-[var(--muted)] uppercase">
+              <p className="flex items-center gap-1 text-[10px] font-semibold tracking-wider text-fg-muted uppercase">
                 <Code2 className="size-3" /> Wejście
               </p>
-              <pre className="mt-1 max-h-48 max-w-full overflow-auto rounded-lg border border-[var(--border)] bg-black/25 p-2 font-mono text-[10px] leading-relaxed whitespace-pre text-[var(--foreground)]">
+              <pre className="mt-1 max-h-48 max-w-full overflow-auto rounded-lg border border-border bg-background p-2 font-mono text-[10px] leading-relaxed whitespace-pre text-fg-primary">
                 {formatPayload(toolCall.input)}
               </pre>
             </div>
@@ -85,10 +85,10 @@ export function ToolCallView({ toolCall }: ToolCallViewProps) {
 
           {toolCall.output != null && (
             <div className="max-w-full min-w-0">
-              <p className="flex items-center gap-1 text-[10px] font-semibold tracking-wider text-[var(--muted)] uppercase">
+              <p className="flex items-center gap-1 text-[10px] font-semibold tracking-wider text-fg-muted uppercase">
                 <Code2 className="size-3" /> Wynik
               </p>
-              <pre className="mt-1 max-h-48 max-w-full overflow-auto rounded-lg border border-[var(--border)] bg-black/25 p-2 font-mono text-[10px] leading-relaxed whitespace-pre text-[var(--foreground)]">
+              <pre className="mt-1 max-h-48 max-w-full overflow-auto rounded-lg border border-border bg-background p-2 font-mono text-[10px] leading-relaxed whitespace-pre text-fg-primary">
                 {formatPayload(toolCall.output)}
               </pre>
             </div>

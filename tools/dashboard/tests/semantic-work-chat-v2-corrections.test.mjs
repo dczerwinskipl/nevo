@@ -140,13 +140,13 @@ test('Requirement 6 & 7: Level 2 renders timeline rail, compact tool titles, and
 
   // ToolGroupRow uses text-xs typography matching active tool with muted-strong
   assert.match(timelineSource, /text-xs/);
-  assert.match(timelineSource, /font-normal text-\[var\(--muted-strong\)\]/);
+  assert.match(timelineSource, /font-normal text-fg-secondary/);
 
   // Timeline rail structure and marker positioning centered on the icon column
-  assert.match(timelineSource, /top-2 bottom-2 left-\[18px\] w-px -translate-x-1\/2 bg-\[var\(--border\)\]/);
+  assert.match(timelineSource, /top-2 bottom-2 left-\[18px\] w-px -translate-x-1\/2 bg-border/);
 
   // Commentary is clean bordered prose cardlet
-  assert.match(timelineSource, /bg-white\/\[0\.02\]/);
+  assert.match(timelineSource, /bg-fg-primary\/\[0\.02\]/);
   assert.match(timelineSource, /line-clamp-2/);
 
   // Reasoning has distinct "Thinking" cue
@@ -165,7 +165,7 @@ test('Requirement 9 & 10: Work Details sheet provides 2-line layout with concret
   const detailsSource = readV2Source('work-details-sheet-v2.tsx');
 
   // Quiet check icon used for completed status
-  assert.match(detailsSource, /<Check className="size-3 text-\[var\(--muted-strong\)\]"/);
+  assert.match(detailsSource, /<Check className="size-3 text-fg-secondary"/);
 
   // Status badges reserved for exceptions (błąd, przerwano, aktywne)
   assert.match(detailsSource, /AlertTriangle/);

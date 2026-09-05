@@ -103,10 +103,8 @@ export function AgentSessionComposer({
   return (
     <div
       className={cn(
-        'relative rounded-2xl border bg-[var(--surface)] transition-all duration-200 ease-out',
-        isFocused
-          ? 'border-[var(--accent)] shadow-lg ring-1 ring-[var(--accent)]'
-          : 'border-[var(--border)] hover:border-[var(--border-strong)]',
+        'relative rounded-2xl border bg-surface transition-all duration-200 ease-out',
+        isFocused ? 'border-accent shadow-lg ring-1 ring-accent' : 'border-border hover:border-border-strong',
       )}
     >
       <div className="flex flex-col">
@@ -126,16 +124,16 @@ export function AgentSessionComposer({
             disabled={isDisabled}
             placeholder={resolvedPlaceholder}
             className={cn(
-              'w-full resize-none bg-transparent px-4 pt-3 pb-2 text-base transition-all duration-150 outline-none placeholder:text-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm',
+              'w-full resize-none bg-transparent px-4 pt-3 pb-2 text-base transition-all duration-150 outline-none placeholder:text-fg-muted disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm',
               layoutState.className,
             )}
           />
         </label>
 
         {/* Footer controls: Mode switcher on left, Send/Cancel on right */}
-        <div className="flex items-center justify-between border-t border-[var(--border)]/60 px-3 py-2">
+        <div className="flex items-center justify-between border-t border-border/60 px-3 py-2">
           {/* Mode Switcher */}
-          <div className="flex items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] p-0.5 text-[10px]">
+          <div className="flex items-center gap-0.5 rounded-lg border border-border bg-surface-raised p-0.5 text-[10px]">
             {AI_MODES.map((modeMeta) => (
               <button
                 key={modeMeta.id}
@@ -143,9 +141,7 @@ export function AgentSessionComposer({
                 onClick={() => onModeChange(modeMeta.id)}
                 className={cn(
                   'rounded px-2 py-1 text-[9px] font-semibold tracking-wider uppercase transition-colors',
-                  currentMode === modeMeta.id
-                    ? 'bg-[var(--accent)] text-[var(--accent-foreground)]'
-                    : 'text-[var(--muted)] hover:text-[var(--foreground)]',
+                  currentMode === modeMeta.id ? 'bg-accent text-fg-on-accent' : 'text-fg-muted hover:text-fg-primary',
                 )}
                 title={`${modeMeta.label} - ${modeMeta.description}`}
                 aria-label={`${modeMeta.label}: ${modeMeta.description}`}
@@ -165,7 +161,7 @@ export function AgentSessionComposer({
                 variant="secondary"
                 onClick={onCancel}
                 disabled={!canCancel}
-                className="h-8 gap-1.5 px-3 text-xs font-semibold text-[var(--danger)] hover:bg-[var(--danger-muted)] hover:text-[var(--danger-strong)]"
+                className="h-8 gap-1.5 px-3 text-xs font-semibold text-status-error hover:bg-status-error/10 hover:text-status-error"
                 aria-label="Przerwij generowanie"
               >
                 <CircleStop className="size-3.5" />

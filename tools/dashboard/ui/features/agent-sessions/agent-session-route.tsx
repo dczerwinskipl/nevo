@@ -107,11 +107,7 @@ export function AgentSessionRoute({ source: rawSource, slug, provider, providerS
 
   if (dataLoading && !data) return <LoadingScreen />;
   if (dataError && !data) {
-    return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-[var(--danger-strong)]">
-        {dataError}
-      </div>
-    );
+    return <div className="flex min-h-screen items-center justify-center text-sm text-status-error">{dataError}</div>;
   }
 
   // Spec Not Found in either collection
@@ -148,7 +144,7 @@ export function AgentSessionRoute({ source: rawSource, slug, provider, providerS
             <Button
               variant="ghost"
               size="sm"
-              className="-ml-2 text-xs text-[var(--muted)] hover:text-[var(--foreground)]"
+              className="-ml-2 text-xs text-fg-muted hover:text-fg-primary"
               onClick={handleBack}
             >
               Wróć do specyfikacji

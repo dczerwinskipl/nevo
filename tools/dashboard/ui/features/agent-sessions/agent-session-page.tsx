@@ -187,7 +187,7 @@ export function AgentSessionPage({
   );
 
   const shellClassName =
-    'fixed inset-x-0 top-0 flex h-[100dvh] min-h-0 flex-col overflow-hidden overscroll-none bg-[var(--background)]';
+    'fixed inset-x-0 top-0 flex h-[100dvh] min-h-0 flex-col overflow-hidden overscroll-none bg-background';
   const shellStyle = visualViewport.height
     ? {
         height: `${visualViewport.height}px`,
@@ -226,11 +226,11 @@ export function AgentSessionPage({
           onOpenDetails={() => setIsSessionDetailsOpen(true)}
         />
 
-        <div className="flex shrink-0 justify-center border-b border-[var(--border)] bg-[var(--background)] py-1">
+        <div className="flex shrink-0 justify-center border-b border-border bg-background py-1">
           <div
             role="radiogroup"
             aria-label="Wersja czatu"
-            className="inline-flex items-center gap-0.5 rounded-full border border-[var(--border)] bg-[var(--surface)] p-0.5 text-[10px] font-medium"
+            className="inline-flex items-center gap-0.5 rounded-full border border-border bg-surface p-0.5 text-[10px] font-medium"
           >
             {(['v1', 'v2'] as const).map((option) => (
               <button
@@ -241,9 +241,7 @@ export function AgentSessionPage({
                 onClick={() => setRepresentation(option)}
                 className={cn(
                   'rounded-full px-2.5 py-0.5 tracking-wide uppercase transition-colors',
-                  representation === option
-                    ? 'bg-[var(--accent)] text-[var(--accent-foreground,white)]'
-                    : 'text-[var(--muted)] hover:text-[var(--foreground)]',
+                  representation === option ? 'bg-accent text-fg-on-accent' : 'text-fg-muted hover:text-fg-primary',
                 )}
               >
                 Czat {option.toUpperCase()}
@@ -332,7 +330,7 @@ export function AgentSessionPage({
 
             <footer
               className={cn(
-                'shrink-0 border-t border-[var(--border)] bg-[var(--background)] px-3 pt-2 sm:px-6',
+                'shrink-0 border-t border-border bg-background px-3 pt-2 sm:px-6',
                 visualViewport.keyboardOpen ? 'pb-2' : 'pb-[max(0.5rem,env(safe-area-inset-bottom))]',
               )}
             >

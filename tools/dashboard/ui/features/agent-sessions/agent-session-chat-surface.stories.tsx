@@ -29,7 +29,7 @@ const meta: Meta<typeof AgentSessionChatSurface> = {
   },
   decorators: [
     (Story) => (
-      <div className="flex h-screen w-full flex-col bg-[var(--background)] text-[var(--foreground)]">
+      <div className="flex h-screen w-full flex-col bg-background text-fg-primary">
         <Story />
       </div>
     ),

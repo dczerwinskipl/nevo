@@ -16,6 +16,7 @@ context:
     - tools/dashboard/ui/shared/status-tone.ts
 allowed_paths:
   - tools/dashboard/ui/features/agent-sessions/**
+  - tools/dashboard/tests/**
 forbidden_paths:
   - tools/dashboard/ui/index.css
   - tools/dashboard/ui/components/ui/**

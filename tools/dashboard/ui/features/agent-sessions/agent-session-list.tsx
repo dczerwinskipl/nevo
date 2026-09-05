@@ -63,20 +63,20 @@ export function ProviderBadge({ provider }: { provider: string }) {
   const norm = provider.toLowerCase();
   if (norm.includes('claude')) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md bg-[color-mix(in_srgb,var(--cat-1)_10%,transparent)] px-1.5 py-0.5 font-medium text-[var(--cat-1)]">
+      <span className="inline-flex items-center gap-1 rounded-md bg-provider-claude/10 px-1.5 py-0.5 font-medium text-provider-claude">
         <Sparkles className="size-3" /> Claude
       </span>
     );
   }
   if (norm.includes('antigravity')) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md bg-[color-mix(in_srgb,var(--cat-2)_10%,transparent)] px-1.5 py-0.5 font-medium text-[var(--cat-2)]">
+      <span className="inline-flex items-center gap-1 rounded-md bg-provider-antigravity/10 px-1.5 py-0.5 font-medium text-provider-antigravity">
         <Cpu className="size-3" /> Antigravity
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-md bg-[var(--surface)] px-1.5 py-0.5 font-medium text-[var(--muted-strong)]">
+    <span className="inline-flex items-center gap-1 rounded-md bg-surface px-1.5 py-0.5 font-medium text-fg-secondary">
       <Bot className="size-3" /> {provider}
     </span>
   );
@@ -118,14 +118,14 @@ export function AgentSessionRow({
         }
       }}
       className={cn(
-        'group relative flex w-full min-w-0 cursor-pointer items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-left transition-colors hover:border-[color-mix(in_srgb,var(--accent)_38%,var(--border))] hover:bg-[var(--surface-raised)]',
+        'group relative flex w-full min-w-0 cursor-pointer items-start gap-3 rounded-xl border border-border bg-surface text-left transition-colors hover:border-accent/38 hover:bg-surface-raised',
         compact ? 'p-3' : 'p-4',
       )}
     >
       <button
         type="button"
         onClick={() => onOpen(session)}
-        className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--accent)] transition-colors hover:border-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:outline-none"
+        className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-raised text-accent transition-colors hover:border-accent hover:bg-accent/15 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
         aria-label={`Otwórz sesję: ${sessionTitle(session)}`}
       >
         <MessagesSquare className="size-4" />
@@ -134,17 +134,17 @@ export function AgentSessionRow({
         <button
           type="button"
           onClick={() => onOpen(session)}
-          className="flex w-full items-start justify-between gap-2 rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+          className="flex w-full items-start justify-between gap-2 rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
-          <p className="truncate text-sm font-semibold text-[var(--foreground)] transition-colors hover:text-[var(--accent)]">
+          <p className="truncate text-sm font-semibold text-fg-primary transition-colors hover:text-accent">
             {sessionTitle(session)}
           </p>
           <span
             className={cn(
               'shrink-0 rounded-full px-2 py-0.5',
-              session.status === 'running' && 'bg-[var(--accent-muted)]',
-              session.status === 'waitingForUser' && 'bg-[var(--warning-muted)]',
-              session.status !== 'running' && session.status !== 'waitingForUser' && 'bg-white/6',
+              session.status === 'running' && 'bg-accent/10',
+              session.status === 'waitingForUser' && 'bg-status-warning/10',
+              session.status !== 'running' && session.status !== 'waitingForUser' && 'bg-fg-primary/6',
               statusTextTone({ tone: sessionStatusTone(session.status) }),
             )}
           >
@@ -152,22 +152,22 @@ export function AgentSessionRow({
             <StatusLabel kind="session" status={session.status} tone={sessionStatusTone(session.status)} />
           </span>
         </button>
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--muted)]">
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-fg-muted">
           <ProviderBadge provider={session.provider} />
           {!isAvailable && (
-            <span className="inline-flex items-center gap-1 rounded-md bg-[color-mix(in_srgb,var(--warning)_10%,transparent)] px-1.5 py-0.5 text-[9px] font-semibold text-[var(--warning)]">
+            <span className="inline-flex items-center gap-1 rounded-md bg-status-warning/10 px-1.5 py-0.5 text-[9px] font-semibold text-status-warning">
               CLI niedostępne
             </span>
           )}
           {timeStr && (
             <span className="inline-flex items-center gap-1">
-              <Clock3 className="size-3 text-[var(--accent)]" />
+              <Clock3 className="size-3 text-accent" />
               {formatDate(timeStr)}
             </span>
           )}
         </div>
         {showSubtitle && (
-          <div className="mt-2 text-[10px] text-[var(--muted)]">
+          <div className="mt-2 text-[10px] text-fg-muted">
             {taskList.length > 0 ? (
               <div className="flex flex-wrap items-center gap-1.5">
                 {taskList.map((taskId) => {
@@ -178,16 +178,16 @@ export function AgentSessionRow({
                       key={taskId}
                       type="button"
                       onClick={() => onOpenTask({ taskId })}
-                      className="inline-flex max-w-[240px] cursor-pointer items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground)] transition-colors hover:border-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] hover:text-[var(--accent)] focus-visible:ring-1 focus-visible:ring-[var(--accent)] focus-visible:outline-none"
+                      className="inline-flex max-w-[240px] cursor-pointer items-center gap-1 rounded-md border border-border bg-surface-raised px-2 py-0.5 text-[10px] font-medium text-fg-primary transition-colors hover:border-accent hover:bg-accent/12 hover:text-accent focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none"
                       title={`Otwórz szczegóły zadania: ${label}`}
                     >
-                      <CheckSquare className="size-2.5 shrink-0 text-[var(--accent)]" />
+                      <CheckSquare className="size-2.5 shrink-0 text-accent" />
                       <span className="truncate">{label}</span>
                     </button>
                   ) : (
                     <span
                       key={taskId}
-                      className="inline-flex max-w-[240px] items-center gap-1 rounded-md border border-transparent bg-white/4 px-1.5 py-0.5 text-[10px] text-[var(--muted)]"
+                      className="inline-flex max-w-[240px] items-center gap-1 rounded-md border border-transparent bg-fg-primary/4 px-1.5 py-0.5 text-[10px] text-fg-muted"
                     >
                       <span className="truncate">{label}</span>
                     </span>
@@ -216,7 +216,7 @@ export function AgentSessionRow({
             }
           }}
           disabled={isDeleting}
-          className="absolute top-1 right-1 flex size-11 items-center justify-center rounded-lg text-[var(--muted)] opacity-70 transition-all hover:bg-[var(--danger-muted)] hover:text-[var(--danger)] hover:opacity-100 focus:opacity-100 focus-visible:ring-2 focus-visible:ring-[var(--danger)] focus-visible:outline-none disabled:opacity-30"
+          className="absolute top-1 right-1 flex size-11 items-center justify-center rounded-lg text-fg-muted opacity-70 transition-all hover:bg-action-destructive/10 hover:text-action-destructive hover:opacity-100 focus:opacity-100 focus-visible:ring-2 focus-visible:ring-action-destructive focus-visible:outline-none disabled:opacity-30"
         >
           {isDeleting ? <LoaderCircle className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
         </button>
@@ -262,8 +262,8 @@ export function AgentSessionList({
 
   if (loading)
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-[var(--border)] p-4 text-xs text-[var(--muted)]">
-        <LoaderCircle className="size-4 animate-spin text-[var(--accent)]" />
+      <div className="flex items-center gap-2 rounded-xl border border-border p-4 text-xs text-fg-muted">
+        <LoaderCircle className="size-4 animate-spin text-accent" />
         Wczytywanie sesji…
       </div>
     );
@@ -273,7 +273,7 @@ export function AgentSessionList({
     );
   if (!sessions.length)
     return (
-      <div className="rounded-xl border border-dashed border-[var(--border)] p-5 text-center text-xs text-[var(--muted)]">
+      <div className="rounded-xl border border-dashed border-border p-5 text-center text-xs text-fg-muted">
         {emptyLabel}
       </div>
     );

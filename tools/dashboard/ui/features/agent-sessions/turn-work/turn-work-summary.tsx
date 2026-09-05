@@ -66,7 +66,7 @@ const WorkCollapsedSummary = memo(function WorkCollapsedSummary({
       onClick={onToggle}
       aria-expanded={expanded}
       className={cn(
-        'flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-xs font-medium transition-colors hover:bg-white/4',
+        'flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-xs font-medium transition-colors hover:bg-fg-primary/4',
         statusTextTone({ tone }),
       )}
     >

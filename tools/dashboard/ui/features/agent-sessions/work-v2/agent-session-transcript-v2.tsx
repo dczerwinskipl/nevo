@@ -20,11 +20,11 @@ function UserMessageBubble({ text }: { text: string }) {
 
   return (
     <div className="flex w-full min-w-0 justify-end">
-      <div className="w-fit max-w-[min(88%,820px)] rounded-2xl border border-[var(--border-strong)] bg-[var(--surface-raised)] px-4 py-3 text-sm leading-6 text-[var(--foreground)]">
+      <div className="w-fit max-w-[min(88%,820px)] rounded-2xl border border-border-strong bg-surface-raised px-4 py-3 text-sm leading-6 text-fg-primary">
         <div className="space-y-1.5">
           <div
             className={cn(
-              'font-normal break-words whitespace-pre-wrap text-[var(--foreground)]',
+              'font-normal break-words whitespace-pre-wrap text-fg-primary',
               isLong && !expanded && 'line-clamp-6',
             )}
           >
@@ -35,7 +35,7 @@ function UserMessageBubble({ text }: { text: string }) {
               type="button"
               onClick={toggleExpanded}
               aria-expanded={expanded}
-              className="flex items-center gap-1 text-xs font-medium text-[var(--accent)] hover:underline"
+              className="flex items-center gap-1 text-xs font-medium text-accent hover:underline"
             >
               {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
               {expanded ? 'Zwiń' : 'Pokaż więcej'}
@@ -110,11 +110,11 @@ export const AgentSessionTranscriptV2 = forwardRef<AgentSessionTranscriptV2Handl
         <div className="mx-auto max-w-4xl space-y-5">
           {loadError && !hasSessionDetails && (
             <div className="py-16 text-center">
-              <div className="mx-auto flex size-12 items-center justify-center rounded-2xl border border-[var(--danger-border)] bg-[var(--danger-muted)] text-[var(--danger)]">
+              <div className="mx-auto flex size-12 items-center justify-center rounded-2xl border border-status-error/25 bg-status-error/10 text-status-error">
                 <AlertTriangle className="size-6" />
               </div>
-              <h2 className="mt-4 text-base font-semibold text-[var(--foreground)]">{loadError.title}</h2>
-              <p className="mx-auto mt-2 max-w-md text-xs text-[var(--muted)]">
+              <h2 className="mt-4 text-base font-semibold text-fg-primary">{loadError.title}</h2>
+              <p className="mx-auto mt-2 max-w-md text-xs text-fg-muted">
                 {loadError.message || 'Wystąpił nieoczekiwany błąd podczas wczytywania sesji.'}
               </p>
               <div className="mt-6 flex items-center justify-center gap-3">
@@ -136,14 +136,14 @@ export const AgentSessionTranscriptV2 = forwardRef<AgentSessionTranscriptV2Handl
 
           {isLoading && !hasSessionDetails && !loadError && (
             <div className="py-20 text-center">
-              <LoaderCircle className="mx-auto size-7 animate-spin text-[var(--accent)]" />
-              <p className="mt-3 text-xs text-[var(--muted)]">Wczytywanie sesji czatu...</p>
+              <LoaderCircle className="mx-auto size-7 animate-spin text-accent" />
+              <p className="mt-3 text-xs text-fg-muted">Wczytywanie sesji czatu...</p>
             </div>
           )}
 
           {!isLoading && !loadError && turns.length === 0 && (
-            <div className="py-20 text-center text-xs text-[var(--muted)]">
-              <p className="font-semibold text-[var(--foreground)]">Brak wiadomości w sesji</p>
+            <div className="py-20 text-center text-xs text-fg-muted">
+              <p className="font-semibold text-fg-primary">Brak wiadomości w sesji</p>
               <p className="mt-1">Wpisz pierwszą wiadomość, aby rozpocząć konwersację z agentem.</p>
             </div>
           )}
@@ -163,8 +163,8 @@ export const AgentSessionTranscriptV2 = forwardRef<AgentSessionTranscriptV2Handl
           {optimisticUserMessage && (
             <div className="w-full min-w-0 space-y-1.5">
               <UserMessageBubble text={optimisticUserMessage} />
-              <div className="flex items-center gap-2 pl-1 text-xs text-[var(--muted)]" role="status">
-                <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" />
+              <div className="flex items-center gap-2 pl-1 text-xs text-fg-muted" role="status">
+                <LoaderCircle className="size-3.5 shrink-0 animate-spin text-accent" />
                 <span>Starting…</span>
               </div>
             </div>
@@ -175,23 +175,21 @@ export const AgentSessionTranscriptV2 = forwardRef<AgentSessionTranscriptV2Handl
               className={cn(
                 'flex items-start gap-3 rounded-xl p-3.5 text-xs',
                 displayError.toLowerCase().includes('cancelled')
-                  ? 'border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)]'
-                  : 'border border-[var(--danger-border)] bg-[var(--danger-muted)] text-[var(--danger-strong)]',
+                  ? 'border border-border bg-surface text-fg-muted'
+                  : 'border border-status-error/25 bg-status-error/10 text-status-error',
               )}
             >
               <AlertTriangle
                 className={cn(
                   'mt-0.5 size-4 shrink-0',
-                  displayError.toLowerCase().includes('cancelled') ? 'text-[var(--muted)]' : 'text-[var(--danger)]',
+                  displayError.toLowerCase().includes('cancelled') ? 'text-fg-muted' : 'text-status-error',
                 )}
               />
               <div className="min-w-0 flex-1">
                 <p
                   className={cn(
                     'font-semibold',
-                    displayError.toLowerCase().includes('cancelled')
-                      ? 'text-[var(--foreground)]'
-                      : 'text-[var(--danger-strong)]',
+                    displayError.toLowerCase().includes('cancelled') ? 'text-fg-primary' : 'text-status-error',
                   )}
                 >
                   {displayError.toLowerCase().includes('cancelled') ? 'Generowanie przerwane' : 'Komunikat agenta'}
@@ -214,7 +212,7 @@ export const AgentSessionTranscriptV2 = forwardRef<AgentSessionTranscriptV2Handl
                 <button
                   type="button"
                   onClick={onDismissError}
-                  className="rounded px-1.5 py-0.5 text-[10px] opacity-70 hover:bg-white/10 hover:opacity-100"
+                  className="rounded px-1.5 py-0.5 text-[10px] opacity-70 hover:bg-fg-primary/10 hover:opacity-100"
                 >
                   Zamknij
                 </button>
@@ -228,7 +226,7 @@ export const AgentSessionTranscriptV2 = forwardRef<AgentSessionTranscriptV2Handl
                 variant="secondary"
                 size="sm"
                 onClick={() => scrollToBottom('smooth')}
-                className="gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface-raised)]/95 px-3.5 py-1.5 text-xs font-medium text-[var(--foreground)] shadow-lg backdrop-blur-sm transition-all hover:bg-[var(--surface-hover)]"
+                className="gap-1.5 rounded-full border border-border bg-surface-raised/95 px-3.5 py-1.5 text-xs font-medium text-fg-primary shadow-lg backdrop-blur-sm transition-all hover:bg-surface-hover"
               >
                 <ChevronDown className="size-3.5" />
                 Nowe wiadomości

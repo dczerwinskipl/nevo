@@ -98,11 +98,11 @@ export const AgentSessionTranscript = forwardRef<AgentSessionTranscriptHandle, A
         <div className="mx-auto max-w-4xl space-y-5">
           {loadError && !hasSessionDetails && (
             <div className="py-16 text-center">
-              <div className="mx-auto flex size-12 items-center justify-center rounded-2xl border border-[var(--danger-border)] bg-[var(--danger-muted)] text-[var(--danger)]">
+              <div className="mx-auto flex size-12 items-center justify-center rounded-2xl border border-status-error/25 bg-status-error/10 text-status-error">
                 <AlertTriangle className="size-6" />
               </div>
-              <h2 className="mt-4 text-base font-semibold text-[var(--foreground)]">{loadError.title}</h2>
-              <p className="mx-auto mt-2 max-w-md text-xs text-[var(--muted)]">
+              <h2 className="mt-4 text-base font-semibold text-fg-primary">{loadError.title}</h2>
+              <p className="mx-auto mt-2 max-w-md text-xs text-fg-muted">
                 {loadError.message || 'Wystąpił nieoczekiwany błąd podczas wczytywania sesji.'}
               </p>
               <div className="mt-6 flex items-center justify-center gap-3">
@@ -124,14 +124,14 @@ export const AgentSessionTranscript = forwardRef<AgentSessionTranscriptHandle, A
 
           {isLoading && !hasSessionDetails && !loadError && (
             <div className="py-20 text-center">
-              <LoaderCircle className="mx-auto size-7 animate-spin text-[var(--accent)]" />
-              <p className="mt-3 text-xs text-[var(--muted)]">Wczytywanie sesji czatu...</p>
+              <LoaderCircle className="mx-auto size-7 animate-spin text-accent" />
+              <p className="mt-3 text-xs text-fg-muted">Wczytywanie sesji czatu...</p>
             </div>
           )}
 
           {!isLoading && !loadError && !messages.length && !isRunning && (
-            <div className="py-20 text-center text-xs text-[var(--muted)]">
-              <p className="font-semibold text-[var(--foreground)]">Brak wiadomości w sesji</p>
+            <div className="py-20 text-center text-xs text-fg-muted">
+              <p className="font-semibold text-fg-primary">Brak wiadomości w sesji</p>
               <p className="mt-1">Wpisz pierwszą wiadomość, aby rozpocząć konwersację z agentem.</p>
             </div>
           )}
@@ -163,23 +163,21 @@ export const AgentSessionTranscript = forwardRef<AgentSessionTranscriptHandle, A
               className={cn(
                 'flex items-start gap-3 rounded-xl p-3.5 text-xs',
                 displayError.toLowerCase().includes('cancelled')
-                  ? 'border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)]'
-                  : 'border border-[var(--danger-border)] bg-[var(--danger-muted)] text-[var(--danger-strong)]',
+                  ? 'border border-border bg-surface text-fg-muted'
+                  : 'border border-status-error/25 bg-status-error/10 text-status-error',
               )}
             >
               <AlertTriangle
                 className={cn(
                   'mt-0.5 size-4 shrink-0',
-                  displayError.toLowerCase().includes('cancelled') ? 'text-[var(--muted)]' : 'text-[var(--danger)]',
+                  displayError.toLowerCase().includes('cancelled') ? 'text-fg-muted' : 'text-status-error',
                 )}
               />
               <div className="min-w-0 flex-1">
                 <p
                   className={cn(
                     'font-semibold',
-                    displayError.toLowerCase().includes('cancelled')
-                      ? 'text-[var(--foreground)]'
-                      : 'text-[var(--danger-strong)]',
+                    displayError.toLowerCase().includes('cancelled') ? 'text-fg-primary' : 'text-status-error',
                   )}
                 >
                   {displayError.toLowerCase().includes('cancelled') ? 'Generowanie przerwane' : 'Komunikat agenta'}
@@ -202,7 +200,7 @@ export const AgentSessionTranscript = forwardRef<AgentSessionTranscriptHandle, A
                 <button
                   type="button"
                   onClick={onDismissError}
-                  className="rounded px-1.5 py-0.5 text-[10px] opacity-70 hover:bg-white/10 hover:opacity-100"
+                  className="rounded px-1.5 py-0.5 text-[10px] opacity-70 hover:bg-fg-primary/10 hover:opacity-100"
                 >
                   Zamknij
                 </button>
@@ -216,7 +214,7 @@ export const AgentSessionTranscript = forwardRef<AgentSessionTranscriptHandle, A
                 variant="secondary"
                 size="sm"
                 onClick={() => scrollToBottom('smooth')}
-                className="gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface-raised)]/95 px-3.5 py-1.5 text-xs font-medium text-[var(--foreground)] shadow-lg backdrop-blur-sm transition-all hover:bg-[var(--surface-hover)]"
+                className="gap-1.5 rounded-full border border-border bg-surface-raised/95 px-3.5 py-1.5 text-xs font-medium text-fg-primary shadow-lg backdrop-blur-sm transition-all hover:bg-surface-hover"
               >
                 <ChevronDown className="size-3.5" />
                 Nowe wiadomości

@@ -49,7 +49,7 @@ test('Finding 2: Assistant messages retain full width and markdown rendering', (
   const source = readTranscriptMessageSource();
 
   // Assistant bubble uses w-full and standard surface styling
-  assert.match(source, /w-full border border-\[var\(--border\)\] bg-\[var\(--surface\)\]/);
+  assert.match(source, /w-full border border-border bg-surface/);
   // Uses MarkdownContent for assistant text
   assert.match(source, /<MarkdownContent markdown=\{message\.text\}/);
 });
