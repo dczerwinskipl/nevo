@@ -32,6 +32,10 @@ Interaction rendering (permission/question/confirmation) follows `areas/work-ux-
 § "Level 1 — Work indicator" and its chronological placement in the Level 2 timeline. Both V1 and V2
 must present the same pending Interaction consistently, using the server-provided allowed
 actions/correlation, so switching representations never loses or misrepresents a blocking action.
+Crucially, an `Interaction` is strictly created from structured provider protocol events (such as
+Claude `AskUserQuestion`, Antigravity `ask_question`, or Codex `requestUserInput`), never inferred
+from question marks or prose punctuation in normal assistant text. A normal conversational question
+ending a Turn remains standard assistant output (FinalAnswer).
 
 ## Final answer
 

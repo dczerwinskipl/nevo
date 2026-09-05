@@ -45,6 +45,18 @@ Antigravity before cutover.
   tool failure/recovery, long execution, waits, cancellation, timeout, provider failure, final
   answer, cleanup barrier, and unknown/interrupted recovery.
 - Add desktop/mobile inspection fixtures or test harness coverage for long Work timelines.
+- Distinguish normal textual questions from blocking provider interactions:
+  - A normal textual question that ends a Turn is valid assistant output (FinalAnswer); it does not
+    enter `requiresAttention` or invent an `Interaction`.
+  - A genuine provider/model state that actually blocks continuation waiting for user input must become
+    canonical `Interaction + requiresAttention` where the provider supports structured questions:
+    Claude `AskUserQuestion`, Antigravity `ask_question` (or evidenced question events), and Codex
+    `requestUserInput` (or approval requests).
+  - Never infer an `Interaction` from punctuation (`?`), regex, or free-form assistant text.
+  - If a provider process/turn is observed blocking for user input without producing its supported
+    structured Interaction, Task 12 must fail and reopen the owning provider mapping task
+    (`08-claude-neutral-mapping`, `09-codex-neutral-mapping`, or `10-antigravity-neutral-mapping`)
+    rather than introducing UI/browser-level heuristic inference.
 - This task adds validation only. A failing production behavior is corrected in/reopened against the
   owning implementation task or recorded as a blocking follow-up; validation does not broaden into
   an unscoped production rewrite.
@@ -64,6 +76,12 @@ Antigravity before cutover.
 6. The same active session remains usable through V1 if V2 projection/rendering is intentionally
    faulted in the validation harness. `automated: npm --prefix tools/dashboard test`
 7. Dashboard test suite and production build pass. `automated: npm --prefix tools/dashboard test && npm --prefix tools/dashboard run build`
+8. Textual question vs blocking interaction invariant: normal questions ending a Turn produce normal
+   terminal assistant output without entering `requiresAttention`, while genuine blocking provider states
+   produce canonical `Interaction + requiresAttention` via evidenced structured tools (Claude
+   `AskUserQuestion`, Antigravity `ask_question`, Codex `requestUserInput`) with zero text/punctuation
+   heuristics. A provider blocking without structured interaction fails conformance.
+   `automated: npm --prefix tools/dashboard test`
 
 ## Verification
 

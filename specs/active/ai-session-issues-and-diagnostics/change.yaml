@@ -168,14 +168,16 @@ tasks:
       - lifecycle-coordinator-and-timeouts
     implementation:
       baseline_revision: 3b58aa48d9a20381057777ffeb5569a4fc7b61af
-      review_revision: 23de557923ecb2056e2a23ede256a0fa59c9808c
+      review_revision: 6798746f5b95bce0a1297921af377fda830653ba
       changed_paths:
+        - tools/dashboard/server/ai/providers/claude/continuation-store.mjs
+        - tools/dashboard/server/ai/providers/claude/hook.mjs
         - tools/dashboard/server/ai/providers/claude/provider.mjs
         - tools/dashboard/tests/claude-provider.test.mjs
-      worktree_patch_fingerprint: 3448e612eea2badcb6af0138297e3ca97dff2aabca5a3d1dade50957ae254dcc
+      worktree_patch_fingerprint: null
     self_check:
       fingerprint: c387e99026f79c33096d8896ec86f24686aed144332b1ac448757182a93e8f09
-      revision: 23de557923ecb2056e2a23ede256a0fa59c9808c
+      revision: 6798746f5b95bce0a1297921af377fda830653ba
       commands:
         - command: node --test tools/dashboard/tests/claude-provider.test.mjs
           exit_code: 0
@@ -233,13 +235,16 @@ tasks:
       - canonical-persistence-and-server-projection
     implementation:
       baseline_revision: b84c80b9f279243f806b4bfc056db5f717cdb3bb
-      review_revision: c519a1025db895337a74914f9540d4214a8004f3
+      review_revision: 6798746f5b95bce0a1297921af377fda830653ba
       changed_paths:
+        - tools/dashboard/.storybook/vitest.setup.ts
         - tools/dashboard/tests/agent-session-header.test.mjs
         - tools/dashboard/tests/agent-session-runtime-state.test.mjs
         - tools/dashboard/tests/agent-turn-transport.test.mjs
         - tools/dashboard/tests/composer-interaction.test.mjs
         - tools/dashboard/tests/responsive-accessibility-regression.test.mjs
+        - tools/dashboard/tests/semantic-work-chat-v2-corrections.test.mjs
+        - tools/dashboard/tests/semantic-work-chat-v2-corrections.test.tsx
         - tools/dashboard/tests/session-details.test.mjs
         - tools/dashboard/tests/transcript-message-layout.test.mjs
         - tools/dashboard/tests/transcript-projection.test.mjs
@@ -297,10 +302,10 @@ tasks:
         - tools/dashboard/ui/features/agent-sessions/work-v2/work-details-sheet-v2.tsx
         - tools/dashboard/ui/features/agent-sessions/work-v2/work-indicator-v2.tsx
         - tools/dashboard/ui/features/agent-sessions/work-v2/work-timeline-v2.tsx
-      worktree_patch_fingerprint: 8448ea9d8004afe6c33e4791495d3ddf421662dea4fb64ec489e1e356743e0f4
+      worktree_patch_fingerprint: null
     self_check:
-      fingerprint: 5ccb913dfaad067966427b03f6e778e15ee155c602aebc12e7bd80d349e8e8e7
-      revision: c519a1025db895337a74914f9540d4214a8004f3
+      fingerprint: 3fb17ee0ac1a5d5eb0d81e44ff95a9ef2e22dca83d24d40e5e8a718bfe25863e
+      revision: 6798746f5b95bce0a1297921af377fda830653ba
       commands:
         - command: node --experimental-strip-types --test
             tools/dashboard/tests/turn-work-summary.test.mjs
@@ -313,6 +318,8 @@ tasks:
             tools/dashboard/tests/semantic-work-chat-v2-corrections.test.mjs
           exit_code: 0
         - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run test:storybook
           exit_code: 0
       status: passed
 

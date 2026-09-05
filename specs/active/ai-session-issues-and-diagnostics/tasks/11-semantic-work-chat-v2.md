@@ -28,6 +28,9 @@ allowed_paths:
   - tools/dashboard/tests/transcript-projection.test.mjs
   - tools/dashboard/tests/turn-work-correlation.test.mjs
   - tools/dashboard/tests/turn-work-summary.test.mjs
+  - tools/dashboard/tests/semantic-work-chat-v2-corrections.test.mjs
+  - tools/dashboard/tests/semantic-work-chat-v2-corrections.test.tsx
+  - tools/dashboard/.storybook/vitest.setup.ts
 forbidden_paths:
   - tools/dashboard/server/ai/providers/**
   - src/**
@@ -113,4 +116,5 @@ projection and add a bounded V1/V2 representation switch so V1 remains usable du
 ```text
 node --experimental-strip-types --test tools/dashboard/tests/turn-work-summary.test.mjs tools/dashboard/tests/transcript-projection.test.mjs tools/dashboard/tests/turn-work-correlation.test.mjs tools/dashboard/tests/composer-interaction.test.mjs tools/dashboard/tests/transcript-message-layout.test.mjs tools/dashboard/tests/agent-session-runtime-state.test.mjs tools/dashboard/tests/responsive-accessibility-regression.test.mjs tools/dashboard/tests/semantic-work-chat-v2-corrections.test.mjs
 npm --prefix tools/dashboard run build
+npm --prefix tools/dashboard run test:storybook
 ```
