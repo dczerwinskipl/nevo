@@ -1,6 +1,6 @@
 ---
 id: ai-session-issues-and-diagnostics.claude-neutral-mapping
-status: draft
+status: verified
 change: ai-session-issues-and-diagnostics
 context:
   required:
@@ -15,8 +15,13 @@ context:
     - specs/active/ai-session-issues-and-diagnostics/areas/provider-protocol-discovery.md
 allowed_paths:
   - tools/dashboard/server/ai/providers/claude/**
+  - tools/dashboard/server/ai/bridge/**
+  - tools/dashboard/server/ai/routes.mjs
   - tools/dashboard/tests/claude-provider.test.mjs
+  - tools/dashboard/tests/interaction-bridge.test.mjs
+  - tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs
   - tools/dashboard/tests/fixtures/claude/**
+  - tools/dashboard/tests/fixtures/evidence/claude-evidence.json
 forbidden_paths:
   - tools/dashboard/server/ai/providers/codex/**
   - tools/dashboard/server/ai/providers/antigravity/**
@@ -48,6 +53,11 @@ Turn state, interactions, provider operation/process lifecycle, and terminal aut
   summaries.
 - Preserve deferral/AskUserQuestion lifecycle and terminal precedence without inventing a final
   answer.
+- Enable live interactive questions in headless mode via a local stdio MCP bridge server
+  (`mcp__nevo__ask_user`) generated per turn via `--mcp-config` and `--append-system-prompt`,
+  registered with `interactionBridgeHub`, and resolved via `POST /api/ai/bridge/ask` returning
+  `{ continuesTurn: true }` without text heuristics.
+- Truthfully declare capabilities (`interactiveQuestions: true`, `interactiveConfirmations: false`).
 - Remove Claude use of the transitional callback bridge when complete.
 
 ## Acceptance criteria
@@ -62,9 +72,12 @@ Turn state, interactions, provider operation/process lifecycle, and terminal aut
    precedence. `automated: node --test tools/dashboard/tests/claude-provider.test.mjs`
 5. Neutral/public output contains no Claude-private IDs or raw protocol payloads.
    `automated: node --test tools/dashboard/tests/claude-provider.test.mjs`
+6. Live interactive questions work end-to-end via stdio MCP bridge without text heuristics; cancellation
+   clears pending interaction gates and kills the process; confirmations remain truthfully unsupported.
+   `automated: node --test tools/dashboard/tests/claude-provider.test.mjs tools/dashboard/tests/interaction-bridge.test.mjs tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs`
 
 ## Verification
 
 ```text
-node --test tools/dashboard/tests/claude-provider.test.mjs
+node --test tools/dashboard/tests/claude-provider.test.mjs tools/dashboard/tests/interaction-bridge.test.mjs tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs
 ```

@@ -8,6 +8,7 @@ import { AiError, AiValidationError, validateAgentExecutionMode } from '../../co
 import { createClaudeContinuationStore } from './continuation-store.mjs';
 import { terminateChildProcess } from '../process-termination.mjs';
 import { RawCaptureRecorder, rawCaptureSessionDirectory } from '../raw-capture.mjs';
+import { interactionBridgeHub } from '../../bridge/interaction-bridge-hub.mjs';
 
 export { rawCaptureSessionDirectory };
 
@@ -137,6 +138,21 @@ export function mapClaudeTool(toolName = '', input = {}) {
     };
   }
 
+  if (lower.includes('ask_user') || lower.includes('askuserquestion')) {
+    const rawQuestion =
+      typeof input?.question === 'string'
+        ? input.question
+        : typeof input?.prompt === 'string'
+          ? input.prompt
+          : undefined;
+    return {
+      kind: 'other',
+      title: 'Ask question',
+      subject: extractCommandSubject(rawQuestion),
+      description: truncateToolDescription(rawQuestion),
+    };
+  }
+
   return {
     kind: 'other',
     title: name || 'Tool',
@@ -167,6 +183,9 @@ export class ClaudeAgentProvider {
   #forceGraceMs;
   #probeExecutable;
   #rawCapture;
+  #mcpBridgeEnabled;
+  #mcpBridgeScriptPath;
+  #bridgePort;
 
   constructor({
     executable = 'claude',
@@ -182,6 +201,9 @@ export class ClaudeAgentProvider {
     rawCaptureDir = null,
     rawCaptureEnabled = false,
     rawFlushTimeoutMs = 2_000,
+    mcpBridgeEnabled = true,
+    mcpBridgeScriptPath = resolve(__dirname, '..', '..', 'bridge', 'mcp-bridge-server.mjs'),
+    bridgePort = process.env.NEVO_BRIDGE_PORT || process.env.PORT || 4318,
   } = {}) {
     this.#executable = executable;
     this.#cwd = cwd;
@@ -191,6 +213,9 @@ export class ClaudeAgentProvider {
     this.#cancelGraceMs = cancelGraceMs;
     this.#forceGraceMs = forceGraceMs;
     this.#probeExecutable = probeExecutable ?? (spawnProcess !== spawn ? () => true : defaultProbeClaudeExecutable);
+    this.#mcpBridgeEnabled = mcpBridgeEnabled;
+    this.#mcpBridgeScriptPath = mcpBridgeScriptPath;
+    this.#bridgePort = bridgePort;
     this.#rawCapture = new RawCaptureRecorder({
       providerId: 'claude',
       rawCaptureDir: rawCaptureEnabled
@@ -267,6 +292,30 @@ export class ClaudeAgentProvider {
     return settingsPath;
   }
 
+  #createMcpConfigFile({ turnId, effectiveSessionId }) {
+    const configPath = join(tmpdir(), `nevo-claude-mcp-${randomUUID()}.json`);
+    const mcpConfig = {
+      mcpServers: {
+        nevo: {
+          command: process.execPath,
+          args: [
+            this.#mcpBridgeScriptPath,
+            '--port',
+            String(this.#bridgePort),
+            '--session',
+            effectiveSessionId,
+            '--turn',
+            turnId,
+            '--provider',
+            'claude',
+          ],
+        },
+      },
+    };
+    writeFileSync(configPath, JSON.stringify(mcpConfig, null, 2), 'utf-8');
+    return configPath;
+  }
+
   async startTurn(params = {}) {
     const userPrompt = params.message ?? params.prompt;
     if (!userPrompt || typeof userPrompt !== 'string') {
@@ -332,6 +381,7 @@ export class ClaudeAgentProvider {
     const finalAnswerDelta = emitFinalAnswerDelta;
     const userPrompt = message ?? prompt;
     const settingsPath = this.#createSettingsFile();
+    let mcpConfigPath = null;
     const permissionMode = mode === 'ask' ? 'plan' : mode === 'agent' ? 'bypassPermissions' : 'acceptEdits';
 
     const args = [
@@ -349,6 +399,16 @@ export class ClaudeAgentProvider {
       permissionMode,
     ];
 
+    if (this.#mcpBridgeEnabled) {
+      mcpConfigPath = this.#createMcpConfigFile({ turnId, effectiveSessionId });
+      args.push(
+        '--mcp-config',
+        mcpConfigPath,
+        '--append-system-prompt',
+        'When you need user clarification, approval, or to ask multiple choice questions, call the ask_user tool.',
+      );
+    }
+
     console.log(`[claude] spawning CLI: ${this.#executable} ${args.join(' ')}`);
     this.#rawCapture.logCapturePathOnce(effectiveSessionId);
     return new Promise((resolve, reject) => {
@@ -364,13 +424,26 @@ export class ClaudeAgentProvider {
         try {
           unlinkSync(settingsPath);
         } catch {}
+        if (mcpConfigPath) {
+          try {
+            unlinkSync(mcpConfigPath);
+          } catch {}
+        }
         return reject(
           new AiError('AI_PROVIDER_SPAWN_ERROR', `Failed to spawn claude CLI: ${err.message}`, { cause: err }),
         );
       }
 
-      const operation = { childProcess: child, cancelled: false };
+      const operation = { childProcess: child, cancelled: false, turnId };
       if (setOperation) setOperation(operation);
+
+      if (requestInteraction) {
+        interactionBridgeHub.registerActiveTurn(turnId, {
+          provider: 'claude',
+          providerSessionId: effectiveSessionId,
+          requestInteraction,
+        });
+      }
 
       if (signal) {
         signal.addEventListener(
@@ -413,6 +486,13 @@ export class ClaudeAgentProvider {
         try {
           unlinkSync(settingsPath);
         } catch {}
+        if (mcpConfigPath) {
+          try {
+            unlinkSync(mcpConfigPath);
+          } catch {}
+          mcpConfigPath = null;
+        }
+        interactionBridgeHub.unregisterActiveTurn(turnId);
       };
 
       const maybeConfirmSession = async (event) => {
@@ -911,6 +991,11 @@ export class ClaudeAgentProvider {
       throw new AiValidationError("'providerSessionId' is required.");
     }
 
+    if (interactionBridgeHub.hasPending(interactionId)) {
+      interactionBridgeHub.resolveResponse(interactionId, response);
+      return { continuesTurn: true };
+    }
+
     // Persist resolution in continuation store BEFORE spawning resume
     this.#continuationStore.resolveResponse({
       providerSessionId,
@@ -950,6 +1035,9 @@ export class ClaudeAgentProvider {
   async cancelTurn({ operation } = {}) {
     if (!operation) return;
     operation.cancelled = true;
+    if (operation.turnId) {
+      interactionBridgeHub.cancelTurn(operation.turnId);
+    }
     const child = operation.childProcess;
     if (!child) return;
 

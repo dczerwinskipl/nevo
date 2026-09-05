@@ -62,8 +62,10 @@ Current adapter evidence shows:
 - assistant text blocks currently all flow to the final-answer delta channel, so commentary/final
   phase meaning is not preserved or proven;
 - the adapter has a single `activeTool` fallback even though fixtures cover parallel tool calls;
-- AskUserQuestion deferral becomes a normalized question interaction; permission behavior depends
-  on execution mode/hooks and must be documented from real evidence; and
+- in headless CLI mode (`-p`), native `AskUserQuestion` is disabled by the Claude CLI runtime; live
+  interactive questions are enabled via dynamic stdio MCP bridge server (`mcp__nevo__ask_user`), which
+  halts the CLI process until the user answers via the dashboard UI and returns the response over stdio;
+  permission confirmations remain unsupported; and
 - provider timestamps, tool titles/descriptions beyond name/input, progress, and process/completion
   evidence are not carried by the neutral chat model.
 
@@ -82,7 +84,10 @@ Current adapter evidence shows:
   text without a proven commentary/final phase boundary;
 - tool ID/name/input/output/status and sometimes duration are preserved, but only one active-tool
   fallback is tracked and richer titles/actions/progress are not normalized;
-- questions are normalized, interactive permissions are declared unsupported;
+- in headless CLI mode, Antigravity (`jetski`) auto-skips `ask_question` calls with `A1: User Skipped`
+  without awaiting user input or accepting stdin/stdio answers mid-run; interactive questions
+  (`interactiveQuestions: false`) and confirmations (`interactiveConfirmations: false`) are truthfully
+  declared unsupported under native CLI transport;
 - authoritative `result`/`done`, clean process-close fallback, and post-result process cleanup have
   distinct meanings that the current neutral contract does not expose; and
 - optional raw capture is the only existing detailed provider capture. Local evidence confirms the

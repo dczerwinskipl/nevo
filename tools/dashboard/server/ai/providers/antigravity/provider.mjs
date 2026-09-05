@@ -11,6 +11,7 @@ import {
 } from '../../contracts.mjs';
 import { terminateChildProcess } from '../process-termination.mjs';
 import { DEFAULT_ANTIGRAVITY_PRINT_TIMEOUT_SECONDS } from '../config.mjs';
+import { interactionBridgeHub } from '../../bridge/interaction-bridge-hub.mjs';
 
 const WINDOWS_RESERVED_NAMES = new Set([
   'con',
@@ -96,7 +97,7 @@ export function rawCaptureSessionDirectory(providerSessionId, rawCaptureDir = nu
 
 export const ANTIGRAVITY_CAPABILITIES = Object.freeze({
   interactivePermissions: false,
-  interactiveQuestions: true,
+  interactiveQuestions: false,
   interactiveConfirmations: false,
   resumeSession: true,
   cancelTurn: true,
@@ -200,6 +201,14 @@ function mapAntigravityToolRaw(toolName, parameters = {}) {
   const params = parameters && typeof parameters === 'object' ? parameters : {};
 
   switch (name) {
+    case 'ask_question':
+      return {
+        toolName: 'ask_question',
+        kind: 'other',
+        title: 'Ask question',
+        subject: extractCommandSubject(params.prompt || params.question, params.toolSummary),
+        description: params.prompt || params.question || undefined,
+      };
     case 'run_command':
       return {
         toolName: 'run_command',
@@ -973,28 +982,6 @@ export class AntigravityAgentProvider {
             const toolName = payload.tool_name || payload.toolName || payload.tool_info?.name || 'tool';
             const input = payload.tool_info?.parameters || payload.input || payload.args || {};
 
-            if (toolName === 'ask_question') {
-              flushPendingAsCommentary();
-              if (payload.state === 'ACTIVE' && requestInteraction) {
-                const interaction = {
-                  id: payload.toolId || `int-${randomUUID()}`,
-                  kind: 'question',
-                  prompt: input.prompt || input.question || 'Antigravity requested input',
-                  questions: input.questions || [
-                    {
-                      id: input.questionId || 'q1',
-                      question: input.prompt || input.question || 'Antigravity requested input',
-                      header: input.header || 'Pytanie',
-                      options: input.options || [],
-                      isMultiSelect: Boolean(input.isMultiSelect),
-                    },
-                  ],
-                };
-                pendingInteractionPromise = requestInteraction(interaction);
-              }
-              return;
-            }
-
             const toolId = payload.toolId || `tool-${payload.step_index ?? randomUUID()}`;
             const mapped = mapAntigravityTool(toolName, input);
 
@@ -1062,27 +1049,6 @@ export class AntigravityAgentProvider {
             flushPendingAsCommentary();
             const toolName = raw.toolName || raw.name || 'tool';
             const input = raw.input || raw.args || {};
-
-            if (toolName === 'ask_question') {
-              if (requestInteraction) {
-                const interaction = {
-                  id: raw.toolId || raw.id || `int-${randomUUID()}`,
-                  kind: 'question',
-                  prompt: input.prompt || input.question || 'Antigravity requested input',
-                  questions: input.questions || [
-                    {
-                      id: input.questionId || 'q1',
-                      question: input.prompt || input.question || 'Antigravity requested input',
-                      header: input.header || 'Pytanie',
-                      options: input.options || [],
-                      isMultiSelect: Boolean(input.isMultiSelect),
-                    },
-                  ],
-                };
-                pendingInteractionPromise = requestInteraction(interaction);
-              }
-              break;
-            }
 
             const toolId = raw.toolId || raw.id || `tool-${randomUUID()}`;
             const mapped = mapAntigravityTool(toolName, input);
@@ -1219,7 +1185,6 @@ export class AntigravityAgentProvider {
             }
 
             if (isTerminalError) {
-              flushPendingAsCommentary();
               const rawErr = payload?.error ?? raw.error;
               const explicitResponse =
                 typeof raw.result?.response === 'string' && raw.result.response.trim()
@@ -1227,6 +1192,10 @@ export class AntigravityAgentProvider {
                   : typeof raw.response === 'string' && raw.response.trim()
                     ? raw.response.trim()
                     : null;
+              if (explicitResponse && !pendingAssistantText.includes(explicitResponse)) {
+                bufferAssistantText(explicitResponse);
+              }
+              flushPendingAsCommentary();
               const errorMessage =
                 (typeof rawErr === 'string' ? rawErr : rawErr?.message || payload?.message || raw.message) ||
                 explicitResponse ||
@@ -1566,11 +1535,21 @@ export class AntigravityAgentProvider {
     await this.#flushAllRawCapture();
   }
 
-  async respondInteraction(providerSessionId, interactionId, response) {
+  async respondInteraction(firstArg, interactionIdArg, responseArg) {
+    let interactionId = interactionIdArg;
+    let response = responseArg;
+    if (firstArg && typeof firstArg === 'object' && 'response' in firstArg) {
+      response = firstArg.response;
+      interactionId = firstArg.interactionId;
+    }
+    if (interactionId && interactionBridgeHub.hasPending(interactionId)) {
+      interactionBridgeHub.resolveResponse(interactionId, response);
+      return { continuesTurn: true };
+    }
     if (response?.kind === 'permission' || (!response?.answers && response?.decision)) {
       throw new CapabilityNotSupportedError('antigravity', 'interactivePermissions');
     }
-    return { resolved: true, interactionId };
+    throw new CapabilityNotSupportedError('antigravity', 'interactiveQuestions');
   }
 }
 

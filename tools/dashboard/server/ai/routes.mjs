@@ -18,6 +18,8 @@ import sessionRoutes from './sessions/routes.mjs';
 import turnRoutes from './sessions/turns/routes.mjs';
 import interactionRoutes from './sessions/interactions/routes.mjs';
 import aiEventRoutes from './sessions/events/routes.mjs';
+import bridgeRoutes from './bridge/routes.mjs';
+import { interactionBridgeHub } from './bridge/interaction-bridge-hub.mjs';
 
 import { createTrustedNetworkAiAccessPolicy } from './access-policy.mjs';
 import { aiErrorHandler } from './sessions/http.mjs';
@@ -142,11 +144,13 @@ export default async function aiRoutes(
   await fastify.register(turnRoutes, deps);
   await fastify.register(interactionRoutes, deps);
   await fastify.register(aiEventRoutes, deps);
+  await fastify.register(bridgeRoutes);
 
   // Owned here: this capability constructed (or was given) the AI service
   // and is the only one that knows how to shut it down.
   fastify.addHook('onClose', async () => {
     try {
+      interactionBridgeHub.clear();
       await (service?.shutdown?.() ?? service?.turnRuntime?.shutdown?.());
     } catch (err) {
       console.error('[server] error shutting down AI service:', err);

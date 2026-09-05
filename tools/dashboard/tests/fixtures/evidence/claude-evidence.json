@@ -129,6 +129,57 @@
           "total_cost_usd": 0.05
         }
       ]
+    },
+    {
+      "turnId": "turn-3",
+      "userMessage": "Ask user for confirmation via MCP bridge",
+      "rawEvents": [
+        { "type": "system", "subtype": "init", "claude_code_version": "2.1.220", "session_id": "f94fd31b-a29e-4449-93dd-5c927e62009f" },
+        {
+          "type": "assistant",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_04McpAsk",
+              "name": "mcp__nevo__ask_user",
+              "input": {
+                "question": "Which target branch should be updated?",
+                "options": ["main", "feature/ai-session-issues-and-diagnostics"]
+              }
+            }
+          ]
+        },
+        {
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "tool_result",
+                "tool_use_id": "toolu_04McpAsk",
+                "content": "The user provided the following answer:\nfeature/ai-session-issues-and-diagnostics"
+              }
+            ]
+          }
+        },
+        {
+          "type": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "Proceeding with branch feature/ai-session-issues-and-diagnostics as confirmed."
+            }
+          ]
+        },
+        {
+          "type": "result",
+          "subtype": "success",
+          "terminal_reason": "completed",
+          "is_error": false,
+          "duration_ms": 5400,
+          "total_cost_usd": 0.01
+        }
+      ]
     }
   ]
 }

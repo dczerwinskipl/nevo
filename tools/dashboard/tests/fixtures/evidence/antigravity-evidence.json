@@ -87,6 +87,31 @@
       }
     },
     {
+      "event": "step_update",
+      "step_update": {
+        "step_index": 5,
+        "state": "ACTIVE",
+        "step_type": "tool",
+        "tool_name": "ask_question",
+        "tool_info": { "name": "ask_question", "parameters": { "prompt": "Confirm proceeding with implementation" } }
+      }
+    },
+    {
+      "event": "step_update",
+      "step_update": {
+        "step_index": 5,
+        "state": "DONE",
+        "step_type": "tool",
+        "tool_name": "ask_question",
+        "duration_seconds": 0.01,
+        "tool_info": {
+          "name": "ask_question",
+          "parameters": { "prompt": "Confirm proceeding with implementation" },
+          "output": "A1: User Skipped"
+        }
+      }
+    },
+    {
       "event": "result",
       "result": {
         "conversation_id": "17a80412-9fd3-41c9-b1fd-02fab295be53",

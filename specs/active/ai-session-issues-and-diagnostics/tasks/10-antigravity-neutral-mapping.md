@@ -1,6 +1,6 @@
 ---
 id: ai-session-issues-and-diagnostics.antigravity-neutral-mapping
-status: draft
+status: verified
 change: ai-session-issues-and-diagnostics
 context:
   required:
@@ -17,7 +17,9 @@ allowed_paths:
   - tools/dashboard/server/ai/providers/antigravity/**
   - tools/dashboard/server/ai/providers/process-termination.mjs
   - tools/dashboard/tests/antigravity-provider.test.mjs
+  - tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs
   - tools/dashboard/tests/fixtures/antigravity/**
+  - tools/dashboard/tests/fixtures/evidence/antigravity-evidence.json
 forbidden_paths:
   - tools/dashboard/server/ai/providers/claude/**
   - tools/dashboard/server/ai/providers/codex/**
@@ -46,6 +48,10 @@ separate terminal-result versus process-cleanup ownership.
   authority matrix.
 - Pass `--print-timeout` explicitly according to neutral configuration; never rely on CLI default.
 - Map provider timeout to structured timeout/provider failure without relabeling it user cancel.
+- In headless CLI mode, Antigravity (`jetski`) auto-skips `ask_question` events with `A1: User Skipped`;
+  map them as standard tool invocations (`kind: 'other'`) without raising fake pending interactions.
+- Truthfully declare capabilities (`interactiveQuestions: false`, `interactiveConfirmations: false`),
+  and reject interaction responses with `CapabilityNotSupportedError`.
 - Retain optional raw capture with neutral Turn correlation and separate retention.
 - Keep session aliases/provider IDs private and diagnose their resolution without exposing them to
   browser contracts.
@@ -65,9 +71,12 @@ separate terminal-result versus process-cleanup ownership.
    `automated: node --test tools/dashboard/tests/antigravity-provider.test.mjs`
 6. Public output excludes Antigravity aliases, private IDs, and raw payloads.
    `automated: node --test tools/dashboard/tests/antigravity-provider.test.mjs`
+7. Antigravity capabilities truthfully declare no interactive questions or confirmations under native
+   CLI transport; auto-skipped `ask_question` calls do not block or request interaction, and question
+   responses are cleanly rejected. `automated: node --test tools/dashboard/tests/antigravity-provider.test.mjs tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs`
 
 ## Verification
 
 ```text
-node --test tools/dashboard/tests/antigravity-provider.test.mjs
+node --test tools/dashboard/tests/antigravity-provider.test.mjs tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs
 ```

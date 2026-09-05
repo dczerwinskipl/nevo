@@ -17,6 +17,8 @@ allowed_paths:
   - tools/dashboard/server/ai/providers/antigravity/**
   - tools/dashboard/tests/antigravity-provider.test.mjs
   - tools/dashboard/tests/fixtures/antigravity/**
+  - tools/dashboard/tests/fixtures/evidence/antigravity-evidence.json
+  - tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs
 forbidden_paths:
   - tools/dashboard/server/ai/providers/claude/**
   - tools/dashboard/server/ai/providers/codex/**
@@ -40,6 +42,8 @@ including timeout and terminal authority, without changing the shared neutral co
 - Capture/sanitize supported CLI events for initialization/session identity, text, thought/reasoning,
   step/tool lifecycle and progress, questions, long-running tool work, provider error, cancellation,
   `result`/`done`, process close, and print timeout.
+- Record that in headless CLI mode, Antigravity (`jetski`) auto-skips `ask_question` events with
+  `A1: User Skipped`, evidencing that questions cannot be answered mid-turn over native CLI transport.
 - Record CLI version, invocation flags, capture date, scenario, sanitization, and which event aliases
   are stable versus best-effort compatibility shapes.
 - Establish whether text/step output exposes authoritative commentary/final phase information.
@@ -57,7 +61,7 @@ including timeout and terminal authority, without changing the shared neutral co
 2. The audit matrix separates authoritative shapes from aliases and ties current normalization loss
    to real captured fields. `inspection: audit matrix review`
 3. Tests characterize `--print-timeout`, result/process authority, long tool activity, and current
-   timeout/cancel behavior. `automated: node --test tools/dashboard/tests/antigravity-provider.test.mjs`
+   timeout/cancel behavior. `automated: node --test tools/dashboard/tests/antigravity-provider.test.mjs tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs`
 4. Missing commentary/final, action, progress, or multi-tool evidence is represented as unknown or
    unsupported, not guessed. `inspection: fixture-to-audit comparison`
 5. Committed fixtures contain no real prompts, responses, credentials, user paths, or unnecessary
@@ -66,5 +70,5 @@ including timeout and terminal authority, without changing the shared neutral co
 ## Verification
 
 ```text
-node --test tools/dashboard/tests/antigravity-provider.test.mjs
+node --test tools/dashboard/tests/antigravity-provider.test.mjs tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs
 ```

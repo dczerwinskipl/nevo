@@ -110,7 +110,7 @@ test('AntigravityAgentProvider declares honest capabilities', () => {
   const provider = createAntigravityAgentProvider();
   assert.equal(provider.descriptor.id, 'antigravity');
   assert.equal(provider.descriptor.capabilities.interactivePermissions, false);
-  assert.equal(provider.descriptor.capabilities.interactiveQuestions, true);
+  assert.equal(provider.descriptor.capabilities.interactiveQuestions, false);
   assert.equal(provider.descriptor.capabilities.interactiveConfirmations, false);
   assert.equal(provider.descriptor.capabilities.resumeSession, true);
   assert.equal(provider.descriptor.capabilities.cancelTurn, true);
@@ -130,6 +130,80 @@ test('AntigravityAgentProvider throws CapabilityNotSupportedError for permission
       return true;
     },
   );
+});
+
+test('AntigravityAgentProvider throws CapabilityNotSupportedError for questions', async () => {
+  const provider = createAntigravityAgentProvider();
+  await assert.rejects(
+    () => provider.respondInteraction('sess-1', 'int-1', { kind: 'question', answers: [{ questionId: 'q1', value: 'opt1' }] }),
+    (err) => {
+      assert.ok(err instanceof CapabilityNotSupportedError);
+      assert.equal(err.provider, 'antigravity');
+      assert.equal(err.capability, 'interactiveQuestions');
+      return true;
+    },
+  );
+});
+
+test('ask_question from jetski stream is mapped as tool call and does not invoke requestInteraction', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'agy-conv-q1' }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 1,
+        state: 'ACTIVE',
+        step_type: 'tool',
+        tool_name: 'ask_question',
+        tool_info: { name: 'ask_question', parameters: { prompt: 'Which option?' } },
+      },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 1,
+        state: 'DONE',
+        step_type: 'tool',
+        tool_name: 'ask_question',
+        tool_info: { name: 'ask_question', output: 'A1: User Skipped' },
+      },
+    }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'SUCCESS',
+        response: 'Done after skipped question',
+      },
+    }),
+  ];
+
+  const toolsStarted = [];
+  const toolsCompleted = [];
+  let interactionRequested = false;
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-q1',
+    message: 'Run question test',
+    emitToolStarted: (t) => toolsStarted.push(t),
+    emitToolCompleted: (t) => toolsCompleted.push(t),
+    requestInteraction: () => {
+      interactionRequested = true;
+      throw new Error('requestInteraction should NOT be called for auto-skipped ask_question');
+    },
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(interactionRequested, false, 'requestInteraction must not be called');
+  assert.equal(toolsStarted.length, 1);
+  assert.equal(toolsStarted[0].toolName, 'ask_question');
+  assert.equal(toolsStarted[0].kind, 'other');
+  assert.equal(toolsCompleted.length, 1);
+  assert.equal(toolsCompleted[0].status, 'completed');
+  assert.equal(toolsCompleted[0].output, 'A1: User Skipped');
 });
 
 test('new conversation spawns with stream-json input format and sets providerSessionId upon init', async () => {
@@ -1879,6 +1953,7 @@ test('Antigravity error result: event "result" + status "ERROR" with non-empty r
   ];
 
   const finalAnswerDeltas = [];
+  const commentaryDeltas = [];
   const provider = createAntigravityAgentProvider({
     spawnProcess: () => createMockProcess(lines),
   });
@@ -1890,6 +1965,7 @@ test('Antigravity error result: event "result" + status "ERROR" with non-empty r
         providerSessionId: 'conv-err-response',
         message: 'Do work',
         emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
+        emitCommentaryDelta: (t) => commentaryDeltas.push(t),
       }),
     (err) => {
       assert.equal(err.code, 'AI_PROVIDER_ERROR');
@@ -1900,6 +1976,8 @@ test('Antigravity error result: event "result" + status "ERROR" with non-empty r
   );
 
   assert.equal(finalAnswerDeltas.length, 0, 'must not emit FinalAnswer on failed turn');
+  assert.equal(commentaryDeltas.length, 1, 'must emit non-empty response as Commentary in Work on failed turn');
+  assert.equal(commentaryDeltas[0], 'Odpowiedź asystenta wygenerowana mimo wcześniejszego błędu w sesji');
 });
 
 test('Antigravity error result: event "result" + status "FAILED" with non-empty response fails turn', async () => {
@@ -2534,7 +2612,7 @@ test('Antigravity evidence replay: maps full protocol capture from fixture to ca
   assert.equal(snapshot.status.outcome, 'completed');
 
   // Verify tools executed in exact evidenced order with canonical metadata
-  assert.equal(toolsStarted.length, 2);
+  assert.equal(toolsStarted.length, 3);
   assert.equal(toolsStarted[0].toolName, 'run_command');
   assert.equal(toolsStarted[0].kind, 'command');
   assert.equal(toolsStarted[0].title, 'Run command');
@@ -2543,12 +2621,19 @@ test('Antigravity evidence replay: maps full protocol capture from fixture to ca
   assert.equal(toolsStarted[1].kind, 'search');
   assert.equal(toolsStarted[1].title, 'Find files');
   assert.equal(toolsStarted[1].description, '* in specs/active');
+  assert.equal(toolsStarted[2].toolName, 'ask_question');
+  assert.equal(toolsStarted[2].kind, 'other');
+  assert.equal(toolsStarted[2].title, 'Ask question');
+  assert.equal(toolsStarted[2].description, 'Confirm proceeding with implementation');
 
-  assert.equal(toolsCompleted.length, 2);
+  assert.equal(toolsCompleted.length, 3);
   assert.equal(toolsCompleted[0].status, 'completed');
   assert.equal(toolsCompleted[0].durationMs, 250);
   assert.equal(toolsCompleted[1].status, 'completed');
   assert.equal(toolsCompleted[1].durationMs, 20);
+  assert.equal(toolsCompleted[2].status, 'completed');
+  assert.equal(toolsCompleted[2].durationMs, 10);
+  assert.equal(toolsCompleted[2].output, 'A1: User Skipped');
 
   // Verify final response streamed
   assert.ok(

@@ -793,6 +793,18 @@ test('Part B: Evidence-driven validation against real Claude CLI v2.1.220 protoc
   // In Task 08 adapter design, final trailing text preceding success result may be treated as FinalAnswer.
   const hasExplicitPhaseMarkers = turn2Events.some((e) => e.phase || e.content?.some?.((c) => c.phase));
   assert.equal(hasExplicitPhaseMarkers, false, 'Claude protocol lacks explicit phase markers');
+
+  // 9. Evidence: Claude MCP bridge invokes ask_user over MCP stdio and receives tool_result
+  const turn3 = claudeRaw.turns.find((t) => t.turnId === 'turn-3');
+  assert.ok(turn3, 'Claude evidence contains Turn 3 MCP bridge capture');
+  const mcpToolUse = turn3.rawEvents.find(
+    (e) => e.type === 'assistant' && e.content?.some((c) => c.name === 'mcp__nevo__ask_user'),
+  );
+  assert.ok(mcpToolUse, 'Claude invokes mcp__nevo__ask_user tool');
+  const mcpToolResult = turn3.rawEvents.find(
+    (e) => e.type === 'user' && e.message?.content?.some((c) => c.tool_use_id === 'toolu_04McpAsk'),
+  );
+  assert.ok(mcpToolResult, 'Claude receives tool_result for MCP interaction');
 });
 
 test('Part B: Evidence-driven validation against real Codex CLI v0.149.0 protocol capture', async () => {
@@ -877,6 +889,13 @@ test('Part B: Evidence-driven validation against real Antigravity CLI protocol c
 
   // 6. Protocol Observation: In Antigravity, intermediate agent_response steps lack full text deltas,
   // while final response text arrives in the terminal result packet. Adapter mapping in Task 10 will synthesize commentary vs final answer accordingly.
+
+  // 7. Evidence: In headless mode, Antigravity auto-answers ask_question with skipped state
+  const askQuestionDone = agyRaw.rawEvents.find(
+    (e) => e.event === 'step_update' && e.step_update?.tool_name === 'ask_question' && e.step_update?.state === 'DONE',
+  );
+  assert.ok(askQuestionDone, 'Antigravity emits ask_question step');
+  assert.equal(askQuestionDone.step_update.tool_info.output, 'A1: User Skipped');
 });
 
 test('V2 Production Path: Provider-independent canonical tool kinds (Claude, Antigravity, Codex)', () => {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { Readable, Writable } from 'node:stream';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +12,7 @@ import {
   CLAUDE_CAPABILITIES,
   mapClaudeTool,
 } from '../server/ai/providers/claude/provider.mjs';
+import { interactionBridgeHub } from '../server/ai/bridge/interaction-bridge-hub.mjs';
 import { TurnLifecycleCoordinator } from '../server/ai/sessions/turns/coordinator.mjs';
 
 function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5, sessionId, ignoreSignal = false } = {}) {
@@ -1384,4 +1386,202 @@ test('mapClaudeTool: a truncated description always validates against the canoni
   assert.equal(validated.description, mapped.description);
   // The full, untruncated command remains available separately for Work Details.
   assert.equal(validated.input.command, longCommand);
+});
+
+test('Claude CLI spawns with --mcp-config and --append-system-prompt for MCP interaction bridge', async () => {
+  const capturedCalls = [];
+  const lines = [
+    JSON.stringify({ type: 'init', session_id: 'claude-sess-mcp' }),
+    JSON.stringify({ type: 'result', subtype: 'success' }),
+  ];
+
+  let inspectedMcpConfig = null;
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => {
+      capturedCalls.push({ executable, args });
+      const mcpIndex = args.indexOf('--mcp-config');
+      if (mcpIndex !== -1 && args[mcpIndex + 1]) {
+        try {
+          inspectedMcpConfig = JSON.parse(readFileSync(args[mcpIndex + 1], 'utf-8'));
+        } catch {}
+      }
+      return createMockProcess(lines, { sessionId: 'claude-sess-mcp' });
+    },
+  });
+
+  await provider.startTurn({
+    turnId: 'turn-mcp-1',
+    message: 'Hello Claude',
+  });
+
+  assert.equal(capturedCalls.length, 1);
+  const args = capturedCalls[0].args;
+  assert.ok(args.includes('--mcp-config'), 'Args must include --mcp-config');
+  assert.ok(args.includes('--append-system-prompt'), 'Args must include --append-system-prompt');
+  const mcpPath = args[args.indexOf('--mcp-config') + 1];
+  assert.ok(mcpPath, '--mcp-config must have a valid path');
+  assert.ok(inspectedMcpConfig?.mcpServers?.nevo, 'MCP config must define nevo server');
+  assert.ok(inspectedMcpConfig.mcpServers.nevo.args.includes('--turn'), 'MCP config args must specify --turn');
+  assert.ok(inspectedMcpConfig.mcpServers.nevo.args.includes('turn-mcp-1'), 'MCP config args must contain turnId');
+});
+
+test('Claude MCP bridge round-trip: requestInteraction is resolved via respondInteraction with continuesTurn: true', async () => {
+  interactionBridgeHub.clear();
+  let requestedInteraction = null;
+  const hangingChild = createHangingMockProcess();
+
+  let capturedOperation = null;
+  const provider = createClaudeAgentProvider({
+    spawnProcess: () => hangingChild,
+  });
+
+  const turnPromise = provider.startTurn({
+    turnId: 'turn-bridge-rt-1',
+    providerSessionId: 'sess-bridge-rt-1',
+    message: 'Start complex task',
+    setOperation: (op) => {
+      capturedOperation = op;
+    },
+    requestInteraction: (neutral) => {
+      requestedInteraction = {
+        ...neutral,
+        id: 'int-bridge-123',
+      };
+      return Promise.resolve(requestedInteraction);
+    },
+  });
+
+  // Turn is active and registered with interactionBridgeHub
+  const activeTurn = interactionBridgeHub.getActiveTurn({ turnId: 'turn-bridge-rt-1' });
+  assert.ok(activeTurn, 'Active turn must be registered in interactionBridgeHub');
+
+  // MCP bridge invokes handleAsk
+  const askPromise = interactionBridgeHub.handleAsk({
+    provider: 'claude',
+    providerSessionId: 'sess-bridge-rt-1',
+    turnId: 'turn-bridge-rt-1',
+    question: 'Do you want to proceed with file modification?',
+    options: ['Yes', 'No'],
+    multiSelect: false,
+  });
+
+  // Await registration
+  await new Promise((r) => setImmediate(r));
+
+  assert.ok(requestedInteraction, 'requestInteraction must be invoked by handleAsk');
+  assert.equal(requestedInteraction.kind, 'question');
+  assert.equal(requestedInteraction.questions[0].question, 'Do you want to proceed with file modification?');
+  assert.ok(interactionBridgeHub.hasPending('int-bridge-123'), 'Interaction must be pending in hub');
+
+  // Dashboard UI responds to interaction
+  const responsePayload = {
+    answers: [{ questionId: 'q1', value: 'Yes' }],
+  };
+
+  const respondResult = await provider.respondInteraction({
+    turnId: 'turn-bridge-rt-1',
+    providerSessionId: 'sess-bridge-rt-1',
+    interactionId: 'int-bridge-123',
+    response: responsePayload,
+  });
+
+  // Provider indicates turn is still live
+  assert.equal(respondResult.continuesTurn, true);
+  assert.equal(interactionBridgeHub.hasPending('int-bridge-123'), false);
+
+  // handleAsk promise resolves with the answered payload
+  const answeredBridgeResult = await askPromise;
+  assert.deepEqual(answeredBridgeResult, responsePayload);
+
+  // Clean up hanging process
+  hangingChild.emit('close', 0);
+  await turnPromise;
+  interactionBridgeHub.clear();
+});
+
+test('Claude MCP bridge interaction cancellation: cancelTurn terminates waiting interaction promise with AI_TURN_CANCELLED', async () => {
+  interactionBridgeHub.clear();
+  const hangingChild = createHangingMockProcess();
+
+  let capturedOperation = null;
+  const provider = createClaudeAgentProvider({
+    spawnProcess: () => hangingChild,
+  });
+
+  const turnPromise = provider.startTurn({
+    turnId: 'turn-bridge-cancel-1',
+    providerSessionId: 'sess-bridge-cancel-1',
+    message: 'Start task to be cancelled',
+    setOperation: (op) => {
+      capturedOperation = op;
+    },
+    requestInteraction: (neutral) =>
+      Promise.resolve({
+        ...neutral,
+        id: 'int-cancel-123',
+      }),
+  });
+
+  const askPromise = interactionBridgeHub.handleAsk({
+    provider: 'claude',
+    providerSessionId: 'sess-bridge-cancel-1',
+    turnId: 'turn-bridge-cancel-1',
+    question: 'Awaiting confirmation before destructive action',
+  });
+
+  // Await registration
+  await new Promise((r) => setImmediate(r));
+
+  assert.ok(interactionBridgeHub.hasPending('int-cancel-123'));
+
+  // Attach rejection assertion BEFORE cancelling so rejection is never unhandled
+  const rejectionAssertion = assert.rejects(
+    askPromise,
+    (err) => {
+      assert.equal(err.code, 'AI_TURN_CANCELLED');
+      return true;
+    },
+  );
+
+  // Cancel turn via provider
+  await provider.cancelTurn({ operation: capturedOperation });
+
+  await rejectionAssertion;
+
+  assert.equal(interactionBridgeHub.hasPending('int-cancel-123'), false);
+  try {
+    await turnPromise;
+  } catch {}
+  interactionBridgeHub.clear();
+});
+
+test('Claude question heuristics rejection: question marks in assistant text do not trigger requestInteraction', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', session_id: 'sess-heuristic-1' }),
+    JSON.stringify({
+      type: 'assistant',
+      content: [{ type: 'text', text: 'Should I proceed with the refactoring? Please let me know.' }],
+    }),
+    JSON.stringify({ type: 'result', subtype: 'success' }),
+  ];
+
+  let requestInteractionCalled = false;
+  const commentaryDeltas = [];
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-heuristic-1',
+    message: 'Check refactoring question',
+    emitCommentaryDelta: (t) => commentaryDeltas.push(t),
+    requestInteraction: () => {
+      requestInteractionCalled = true;
+      throw new Error('requestInteraction must not be called from text parsing');
+    },
+  });
+
+  assert.equal(result.status || 'completed', 'completed');
+  assert.equal(requestInteractionCalled, false, 'Text containing ? must never trigger requestInteraction');
 });

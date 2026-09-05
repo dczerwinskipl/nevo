@@ -16,6 +16,8 @@ allowed_paths:
   - tools/dashboard/server/ai/providers/claude/**
   - tools/dashboard/tests/claude-provider.test.mjs
   - tools/dashboard/tests/fixtures/claude/**
+  - tools/dashboard/tests/fixtures/evidence/claude-evidence.json
+  - tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs
 forbidden_paths:
   - tools/dashboard/server/ai/providers/codex/**
   - tools/dashboard/server/ai/providers/antigravity/**
@@ -38,8 +40,10 @@ terminal authority. Do not change the shared neutral contract in this task.
 ## Requirements
 
 - Capture or regenerate real supported-CLI events for final answer, available mid-turn narration,
-  thinking/reasoning, tool lifecycle, parallel tools, tool failure, AskUserQuestion, cancellation,
-  provider failure, and authoritative completion/exit.
+  thinking/reasoning, tool lifecycle, parallel tools, tool failure, AskUserQuestion / MCP tool calls,
+  cancellation, provider failure, and authoritative completion/exit.
+- Record that native `AskUserQuestion` is disabled by Claude CLI in headless (`-p`) mode, and capture
+  stdio MCP tool execution evidence (`mcp__nevo__ask_user`) for mid-turn interactive questions.
 - Record CLI version, capture date, scenario, sanitization, and any protocol mode/settings required.
 - Determine whether Claude exposes an authoritative commentary/final distinction. Mark absence or
   ambiguity explicitly; do not infer it in browser code.
@@ -58,7 +62,7 @@ terminal authority. Do not change the shared neutral contract in this task.
 2. A provider audit matrix records native lifecycle, available semantics, current loss, mapping
    candidate, confidence, and exposure for every captured construct. `inspection: audit matrix review`
 3. Tests prove operation identity/terminal authority, parallel tool correlation, reasoning shape,
-   interaction shape, and any evidenced text phase. `automated: node --test tools/dashboard/tests/claude-provider.test.mjs`
+   interaction shape, and any evidenced text phase. `automated: node --test tools/dashboard/tests/claude-provider.test.mjs tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs`
 4. Unsupported/ambiguous commentary, action, progress, or timing semantics are explicitly marked
    rather than fabricated. `inspection: fixture-to-audit comparison`
 5. No fixture contains real prompt/answer content, credentials, user paths, or provider-private
@@ -67,5 +71,5 @@ terminal authority. Do not change the shared neutral contract in this task.
 ## Verification
 
 ```text
-node --test tools/dashboard/tests/claude-provider.test.mjs
+node --test tools/dashboard/tests/claude-provider.test.mjs tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs
 ```

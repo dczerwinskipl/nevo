@@ -43,7 +43,12 @@ Structured provider action data is acceptable.
 - Provider-presentable thinking/reasoning remains Reasoning and never commentary.
 - Assistant text becomes Commentary or FinalAnswer only when fixture evidence/declared CLI contract
   supports the distinction. Any supported-version fallback is adapter-owned and confidence-marked.
-- AskUserQuestion and any evidenced approval flow map to Interaction and drive attention.
+- AskUserQuestion deferral and MCP bridge `ask_user` invocations map to Interaction and drive attention.
+  In headless CLI mode (`-p`), native `AskUserQuestion` is suppressed by Claude CLI; live interactive
+  questions are provided via a local stdio MCP bridge server (`mcp__nevo__ask_user`) configured via
+  `--mcp-config` and `--append-system-prompt`. When invoked, the CLI halts and awaits the stdio tool
+  response, which the dashboard UI fulfills via `POST /api/ai/bridge/ask` and returns `{ continuesTurn: true }`.
+  Confirmations remain unsupported (`interactiveConfirmations: false`).
 - Process exit and result authority are declared explicitly. Deferral/restart metadata remains an
   adapter concern but reports neutral wait/interaction/operation evidence.
 - Timestamps/durations are preserved when native; otherwise runtime-observed provenance is explicit.
@@ -76,7 +81,12 @@ Structured provider action data is acceptable.
   evidence supports the phase; otherwise use honest optional/unknown semantics from Task 04.
 - Every provider tool ID is tracked independently. Name/input/output/status/progress/duration and any
   evidenced title/action semantics are preserved.
-- Questions map to Interaction. Unsupported permissions do not appear as a false capability.
+- In headless CLI mode, Antigravity (`jetski`) auto-skips `ask_question` calls with `A1: User Skipped`
+  without awaiting user response. Interactive questions (`interactiveQuestions: false`) and interactive
+  confirmations (`interactiveConfirmations: false`) are truthfully declared unsupported under the
+  native CLI transport. Auto-skipped `ask_question` events are mapped as normal tool invocations
+  (`kind: 'other'`) without raising pending interactions, and `respondInteraction` rejects questions
+  with `CapabilityNotSupportedError`.
 - `result`/`done`, error status, clean process close fallback, and process cleanup/release have an
   explicit authority matrix.
 - `--print-timeout` is passed explicitly and aligned with neutral maximum-Turn policy. Provider
