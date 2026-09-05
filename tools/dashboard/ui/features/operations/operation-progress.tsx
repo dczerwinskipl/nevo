@@ -8,14 +8,14 @@ import { cn } from '@/lib/utils';
 export function StepStatusIcon({ status }: { status: OperationStepStatus }) {
   switch (status) {
     case 'completed':
-      return <CheckCircle2 className="size-4 shrink-0 text-[var(--success)]" />;
+      return <CheckCircle2 className="size-4 shrink-0 text-status-success" />;
     case 'running':
-      return <LoaderCircle className="size-4 shrink-0 animate-spin text-[var(--accent)]" />;
+      return <LoaderCircle className="size-4 shrink-0 animate-spin text-accent" />;
     case 'failed':
-      return <AlertCircle className="size-4 shrink-0 text-[var(--danger)]" />;
+      return <AlertCircle className="size-4 shrink-0 text-status-error" />;
     case 'pending':
     default:
-      return <Circle className="size-3.5 shrink-0 text-[var(--muted)] opacity-50" />;
+      return <Circle className="size-3.5 shrink-0 text-fg-muted opacity-50" />;
   }
 }
 
@@ -24,10 +24,9 @@ export function OperationStepRow({ step }: { step: OperationStep }) {
     <li
       className={cn(
         'flex items-start gap-3 rounded-lg px-3 py-2.5 text-xs transition-colors',
-        step.status === 'running' && 'border border-[var(--accent-border)] bg-[var(--accent-muted)]',
-        step.status === 'failed' &&
-          'border border-[color-mix(in_srgb,var(--danger)_20%,transparent)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)]',
-        step.status === 'completed' && 'border border-[var(--border)] bg-[var(--surface-raised)]',
+        step.status === 'running' && 'border border-accent/35 bg-accent/10',
+        step.status === 'failed' && 'border border-status-error/25 bg-status-error/10',
+        step.status === 'completed' && 'border border-border bg-surface-raised',
         step.status === 'pending' && 'opacity-60',
       )}
     >
@@ -39,25 +38,23 @@ export function OperationStepRow({ step }: { step: OperationStep }) {
           <span
             className={cn(
               'truncate font-medium',
-              step.status === 'running' && 'font-semibold text-[var(--accent)]',
-              step.status === 'failed' && 'font-semibold text-[var(--danger-strong)]',
-              step.status === 'completed' && 'text-[var(--muted-strong)]',
-              step.status === 'pending' && 'text-[var(--muted)]',
+              step.status === 'running' && 'font-semibold text-accent',
+              step.status === 'failed' && 'font-semibold text-status-error',
+              step.status === 'completed' && 'text-fg-secondary',
+              step.status === 'pending' && 'text-fg-muted',
             )}
           >
             {step.label}
           </span>
           {typeof step.current === 'number' && typeof step.total === 'number' && (
-            <span className="font-mono text-[10px] text-[var(--muted)]">
+            <span className="font-mono text-[10px] text-fg-muted">
               {step.current}/{step.total}
             </span>
           )}
         </div>
-        {step.detail && (
-          <p className="mt-0.5 text-[11px] leading-relaxed break-words text-[var(--muted)]">{step.detail}</p>
-        )}
+        {step.detail && <p className="mt-0.5 text-[11px] leading-relaxed break-words text-fg-muted">{step.detail}</p>}
         {step.error && (
-          <p className="mt-1 rounded border border-[color-mix(in_srgb,var(--danger)_30%,transparent)] bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] px-2 py-1 font-mono text-[11px] leading-normal text-[var(--danger)]">
+          <p className="mt-1 rounded border border-status-error/30 bg-status-error/15 px-2 py-1 font-mono text-[11px] leading-normal text-status-error">
             {step.error.message}
           </p>
         )}
@@ -97,8 +94,8 @@ export function OperationProgressView({
   if (loading && !snapshot) {
     return (
       <div className="flex flex-col items-center justify-center space-y-3 p-8 text-center" role="status">
-        <LoaderCircle className="size-6 animate-spin text-[var(--accent)]" />
-        <p className="text-xs text-[var(--muted)]">Inicjalizacja operacji…</p>
+        <LoaderCircle className="size-6 animate-spin text-accent" />
+        <p className="text-xs text-fg-muted">Inicjalizacja operacji…</p>
       </div>
     );
   }
@@ -106,7 +103,7 @@ export function OperationProgressView({
   if (error && !snapshot) {
     return (
       <div className="space-y-4 p-6">
-        <div className="flex items-center gap-2.5 rounded-lg border border-[color-mix(in_srgb,var(--danger)_30%,transparent)] bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] p-3 text-xs text-[var(--danger)]">
+        <div className="flex items-center gap-2.5 rounded-lg border border-status-error/25 bg-status-error/10 p-3 text-xs text-status-error">
           <AlertTriangle className="size-4 shrink-0" />
           <span>{error}</span>
         </div>
@@ -142,18 +139,18 @@ export function OperationProgressView({
       )}
 
       {isFailed && snapshot.error && (
-        <div className="space-y-1 rounded-lg border border-[color-mix(in_srgb,var(--danger)_30%,transparent)] bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] p-3 text-[var(--danger-strong)]">
+        <div className="space-y-1 rounded-lg border border-status-error/25 bg-status-error/10 p-3 text-status-error">
           <p className="flex items-center gap-1.5 text-xs font-semibold">
-            <AlertTriangle className="size-3.5 text-[var(--danger)]" /> Operacja nie powiodła się
+            <AlertTriangle className="size-3.5 text-status-error" /> Operacja nie powiodła się
           </p>
-          <p className="font-mono text-[11px] leading-relaxed text-[var(--danger)]">{snapshot.error.message}</p>
+          <p className="font-mono text-[11px] leading-relaxed text-status-error">{snapshot.error.message}</p>
         </div>
       )}
 
-      {isCompleted && resultSummary && <p className="px-1 text-[11px] text-[var(--muted)] italic">{resultSummary}</p>}
+      {isCompleted && resultSummary && <p className="px-1 text-[11px] text-fg-muted italic">{resultSummary}</p>}
 
       {onDismiss && !isRunning && (
-        <div className="flex justify-end border-t border-[var(--border)] pt-2">
+        <div className="flex justify-end border-t border-border pt-2">
           <Button size="sm" variant={isCompleted ? 'default' : 'secondary'} onClick={onDismiss}>
             Zamknij
           </Button>

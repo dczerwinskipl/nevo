@@ -23,25 +23,23 @@ export function CreateSpecificationDialog({ onClose, onCreated }: CreateSpecific
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 backdrop-blur-sm sm:items-center sm:p-6"
+      className="fixed inset-0 z-[70] flex items-end justify-center bg-backdrop backdrop-blur-sm sm:items-center sm:p-6"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !form.isSubmitting) onClose();
       }}
     >
       <form
         onSubmit={(event) => void form.handleSubmit(event)}
-        className="max-h-[94dvh] w-full max-w-xl overflow-y-auto rounded-t-2xl border border-[var(--border)] bg-[var(--background)] p-5 shadow-2xl sm:rounded-2xl sm:p-7"
+        className="max-h-[94dvh] w-full max-w-xl overflow-y-auto rounded-t-2xl border border-border bg-background p-5 shadow-2xl sm:rounded-2xl sm:p-7"
       >
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--accent)]">
+            <div className="flex size-10 items-center justify-center rounded-xl border border-border bg-surface text-accent">
               <FilePlus2 className="size-5" />
             </div>
             <div>
-              <p className="text-[10px] font-bold tracking-[0.18em] text-[var(--accent)] uppercase">
-                Workflow Specyfikacji
-              </p>
+              <p className="text-[10px] font-bold tracking-[0.18em] text-accent uppercase">Workflow Specyfikacji</p>
               <h2 className="mt-1 text-xl font-semibold">Nowa specyfikacja</h2>
             </div>
           </div>
@@ -101,7 +99,7 @@ export function CreateSpecificationDialog({ onClose, onCreated }: CreateSpecific
 
         {/* Modal Actions */}
         {!form.aiError && (
-          <div className="mt-6 flex items-center justify-end gap-3 border-t border-[var(--border)] pt-4">
+          <div className="mt-6 flex items-center justify-end gap-3 border-t border-border pt-4">
             <Button type="button" variant="ghost" onClick={onClose} disabled={form.isSubmitting}>
               Anuluj
             </Button>

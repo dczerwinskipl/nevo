@@ -72,21 +72,18 @@ export function FileChange({
   };
 
   return (
-    <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] transition-colors">
+    <div className="overflow-hidden rounded-xl border border-border bg-surface transition-colors">
       <button
         type="button"
-        className="flex w-full items-center justify-between gap-3 bg-[var(--surface-raised)] px-4 py-3 text-left transition-colors hover:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:outline-none"
+        className="flex w-full items-center justify-between gap-3 bg-surface-raised px-4 py-3 text-left transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
         onClick={handleToggle}
         aria-expanded={open}
       >
         <div className="flex min-w-0 items-center gap-2.5">
           <ChevronDown
-            className={cn(
-              'size-4 shrink-0 text-[var(--muted)] transition-transform duration-200',
-              !open && '-rotate-90',
-            )}
+            className={cn('size-4 shrink-0 text-fg-muted transition-transform duration-200', !open && '-rotate-90')}
           />
-          <span className="truncate font-mono text-xs font-semibold text-[var(--foreground)]" title={file.path}>
+          <span className="truncate font-mono text-xs font-semibold text-fg-primary" title={file.path}>
             {file.path}
           </span>
           {file.status !== 'modified' && (
@@ -99,36 +96,36 @@ export function FileChange({
         <div className="flex shrink-0 items-center gap-3 font-mono text-xs">
           <div className="flex items-center gap-1.5 font-medium">
             {file.additions > 0 && (
-              <span className="flex items-center text-[var(--success)]">
+              <span className="flex items-center text-status-success">
                 <Plus className="size-3" />
                 {file.additions}
               </span>
             )}
             {file.deletions > 0 && (
-              <span className="flex items-center text-[var(--danger)]">
+              <span className="flex items-center text-status-error">
                 <Minus className="size-3" />
                 {file.deletions}
               </span>
             )}
           </div>
-          {diffItem.isFetching && <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" />}
+          {diffItem.isFetching && <LoaderCircle className="size-3.5 animate-spin text-accent" />}
         </div>
       </button>
 
       {open && (
-        <div className="border-t border-[var(--border)] bg-[var(--background)]">
+        <div className="border-t border-border bg-background">
           {diffItem.isFetching && !diff ? (
-            <div className="flex items-center justify-center gap-2 p-8 text-xs text-[var(--muted)]">
-              <LoaderCircle className="size-4 animate-spin text-[var(--accent)]" /> Ładowanie diffu…
+            <div className="flex items-center justify-center gap-2 p-8 text-xs text-fg-muted">
+              <LoaderCircle className="size-4 animate-spin text-accent" /> Ładowanie diffu…
             </div>
           ) : diffItem.isError && !diff ? (
-            <div className="p-4 text-xs text-[var(--danger)]">
+            <div className="p-4 text-xs text-status-error">
               Nie udało się wczytać zawartości diffu: {diffItem.error?.message || 'Błąd sieci'}
             </div>
           ) : contentUnchangedRename ? (
-            <div className="p-4 text-center text-xs text-[var(--muted)]">Plik przeniesiony bez zmian w zawartości.</div>
+            <div className="p-4 text-center text-xs text-fg-muted">Plik przeniesiony bez zmian w zawartości.</div>
           ) : diff && !diff.patchAvailable ? (
-            <div className="p-4 text-center text-xs text-[var(--muted)]">
+            <div className="p-4 text-center text-xs text-fg-muted">
               Diff niedostępny dla tego pliku (plik binarny, wykluczony lub zbyt duży).
             </div>
           ) : diffViewData ? (
@@ -142,8 +139,8 @@ export function FileChange({
               />
             </div>
           ) : (
-            <div className="flex items-center justify-center gap-2 p-8 text-xs text-[var(--muted)]">
-              <FileDiff className="size-4 text-[var(--muted)]" /> Brak zmian w pliku.
+            <div className="flex items-center justify-center gap-2 p-8 text-xs text-fg-muted">
+              <FileDiff className="size-4 text-fg-muted" /> Brak zmian w pliku.
             </div>
           )}
         </div>

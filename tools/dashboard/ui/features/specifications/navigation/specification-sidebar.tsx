@@ -39,26 +39,24 @@ function SpecNavigationItem({
       onClick={onClick}
       aria-current={selected ? 'page' : undefined}
       className={cn(
-        'group block w-full rounded-xl border p-3.5 text-left transition-all outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
+        'group block w-full rounded-xl border p-3.5 text-left transition-all outline-none focus-visible:ring-2 focus-visible:ring-accent',
         selected
-          ? 'border-[var(--accent-border)] bg-[color-mix(in_srgb,var(--accent)_7%,var(--surface))]'
-          : 'border-transparent bg-transparent hover:border-[var(--border)] hover:bg-[var(--surface-raised)]',
+          ? 'border-accent/35 bg-accent/7'
+          : 'border-transparent bg-transparent hover:border-border hover:bg-surface-raised',
       )}
     >
       <div className="flex items-start gap-3">
         <div
           className={cn(
-            'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border text-[var(--accent)]',
-            selected
-              ? 'border-[color-mix(in_srgb,var(--accent)_35%,transparent)] bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] text-[var(--accent)]'
-              : 'border-[var(--border)] bg-[var(--surface)]',
+            'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border text-accent',
+            selected ? 'border-accent/35 bg-accent/12 text-accent' : 'border-border bg-surface',
           )}
         >
           <FileText className="size-3.5" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="line-clamp-2 text-sm leading-5 font-semibold text-[var(--foreground)]">{specification.title}</p>
-          <div className="mt-1.5 flex items-center gap-2 text-[11px] text-[var(--muted)]">
+          <p className="line-clamp-2 text-sm leading-5 font-semibold text-fg-primary">{specification.title}</p>
+          <div className="mt-1.5 flex items-center gap-2 text-[11px] text-fg-muted">
             <span>
               {specification.metrics.total} {pluralizeTasks(specification.metrics.total)}
             </span>
@@ -71,12 +69,10 @@ function SpecNavigationItem({
           </div>
           <div className="mt-3 flex items-center gap-2">
             <StageProgress specification={specification} className="flex-1" />
-            <span className="text-[10px] font-bold text-[var(--muted)] tabular-nums">
-              {specification.metrics.progress}%
-            </span>
+            <span className="text-[10px] font-bold text-fg-muted tabular-nums">{specification.metrics.progress}%</span>
           </div>
           {specification.source === 'archive' && (
-            <p className="mt-2 text-[10px] text-[var(--muted)]">{formatDate(specification.updatedAt)}</p>
+            <p className="mt-2 text-[10px] text-fg-muted">{formatDate(specification.updatedAt)}</p>
           )}
         </div>
       </div>
@@ -105,31 +101,31 @@ export function SpecificationSidebar({
         aria-label="Zamknij menu"
         type="button"
         className={cn(
-          'fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity lg:hidden',
+          'fixed inset-0 z-40 bg-backdrop backdrop-blur-sm transition-opacity lg:hidden',
           open ? 'opacity-100' : 'pointer-events-none opacity-0',
         )}
         onClick={onClose}
       />
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-40 flex w-[370px] flex-col border-r border-[var(--border)] bg-[var(--surface-raised)] transition-transform duration-200 lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-40 flex w-[370px] flex-col border-r border-border bg-surface-raised transition-transform duration-200 lg:translate-x-0',
           open ? 'translate-x-0' : '-translate-x-full',
         )}
       >
         <div className="px-4 sm:px-6">
-          <div className="flex h-16 items-center justify-between border-b border-[var(--border)]">
+          <div className="flex h-16 items-center justify-between border-b border-border">
             <Link
               to="/"
               onClick={onClose}
-              className="flex items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              className="flex items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-accent"
               title="Przejdź do listy specyfikacji"
             >
-              <div className="flex size-8 items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-black text-[var(--accent-foreground)]">
+              <div className="flex size-8 items-center justify-center rounded-lg bg-accent text-sm font-black text-fg-on-accent">
                 N
               </div>
               <div>
-                <p className="text-xs font-semibold text-[var(--foreground)]">NEvo Flow</p>
-                <p className="text-[9px] tracking-[0.14em] text-[var(--muted)] uppercase">Specification console</p>
+                <p className="text-xs font-semibold text-fg-primary">NEvo Flow</p>
+                <p className="text-[9px] tracking-[0.14em] text-fg-muted uppercase">Specification console</p>
               </div>
             </Link>
             <Button
@@ -145,11 +141,11 @@ export function SpecificationSidebar({
         </div>
 
         <div className="px-4 sm:px-6">
-          <div className="border-b border-[var(--border)] py-4">
+          <div className="border-b border-border py-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold text-[var(--foreground)]">Specyfikacje</p>
-                <p className="text-[11px] text-[var(--muted)]">Baza zmian i zadań</p>
+                <p className="text-xs font-semibold text-fg-primary">Specyfikacje</p>
+                <p className="text-[11px] text-fg-muted">Baza zmian i zadań</p>
               </div>
               {onOpenCreateSpec && (
                 <Button
@@ -166,45 +162,45 @@ export function SpecificationSidebar({
               )}
             </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
+            <div className="mt-4 grid grid-cols-2 gap-1 rounded-xl border border-border bg-surface p-1">
               <Link
                 to="/"
                 aria-current={mode === 'active' ? 'page' : undefined}
                 className={cn(
-                  'flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
+                  'flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent',
                   mode === 'active'
-                    ? 'bg-[color-mix(in_srgb,var(--accent)_10%,var(--surface-hover))] font-semibold text-[var(--foreground)]'
-                    : 'text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--foreground)]',
+                    ? 'bg-accent/10 font-semibold text-fg-primary'
+                    : 'text-fg-muted hover:bg-surface-raised hover:text-fg-primary',
                 )}
               >
-                <LayoutDashboard className="size-3.5 text-[var(--accent)]" />
+                <LayoutDashboard className="size-3.5 text-accent" />
                 <span>W toku</span>
-                <Badge className="border-transparent bg-black/20 px-1.5 py-0 text-[10px]">{active.length}</Badge>
+                <Badge className="border-transparent bg-fg-primary/10 px-1.5 py-0 text-[10px]">{active.length}</Badge>
               </Link>
               <Link
                 to="/archive"
                 aria-current={mode === 'archive' ? 'page' : undefined}
                 className={cn(
-                  'flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
+                  'flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent',
                   mode === 'archive'
-                    ? 'bg-[color-mix(in_srgb,var(--accent)_10%,var(--surface-hover))] font-semibold text-[var(--foreground)]'
-                    : 'text-[var(--muted)] hover:bg-[var(--surface-raised)] hover:text-[var(--foreground)]',
+                    ? 'bg-accent/10 font-semibold text-fg-primary'
+                    : 'text-fg-muted hover:bg-surface-raised hover:text-fg-primary',
                 )}
               >
-                <Archive className="size-3.5 text-[var(--accent)]" />
+                <Archive className="size-3.5 text-accent" />
                 <span>Archiwum</span>
-                <Badge className="border-transparent bg-black/20 px-1.5 py-0 text-[10px]">{archive.length}</Badge>
+                <Badge className="border-transparent bg-fg-primary/10 px-1.5 py-0 text-[10px]">{archive.length}</Badge>
               </Link>
             </div>
 
             <label className="relative mt-3 block">
               <span className="sr-only">Szukaj specyfikacji</span>
-              <Search className="absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-[var(--accent)]" />
+              <Search className="absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-accent" />
               <input
                 value={search}
                 onChange={(event) => onSearchChange(event.target.value)}
                 placeholder={mode === 'active' ? 'Szukaj aktualnych…' : 'Szukaj w archiwum…'}
-                className="h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] pr-3 pl-9 text-xs text-[var(--foreground)] outline-none placeholder:text-[var(--muted)] focus:border-[color-mix(in_srgb,var(--accent)_45%,transparent)]"
+                className="h-10 w-full rounded-lg border border-border bg-surface pr-3 pl-9 text-xs text-fg-primary outline-none placeholder:text-fg-muted focus:border-accent/45"
               />
             </label>
           </div>
@@ -212,12 +208,12 @@ export function SpecificationSidebar({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
           <div className="mb-2 flex items-center justify-between px-2">
-            <span className="text-[10px] font-bold tracking-[0.16em] text-[var(--muted)] uppercase">
+            <span className="text-[10px] font-bold tracking-[0.16em] text-fg-muted uppercase">
               {mode === 'active' ? 'W toku' : 'Zakończone'}
             </span>
-            <span className="text-[10px] text-[var(--muted)]">{visible.length}</span>
+            <span className="text-[10px] text-fg-muted">{visible.length}</span>
           </div>
-          <div className="divide-y divide-[var(--border)]">
+          <div className="divide-y divide-border">
             {visible.map((spec) => (
               <div key={`${spec.source}:${spec.slug}`} className="py-1.5 first:pt-0 last:pb-0">
                 <SpecNavigationItem
@@ -231,10 +227,10 @@ export function SpecificationSidebar({
               </div>
             ))}
             {visible.length === 0 && (
-              <div className="mx-2 rounded-xl border border-dashed border-[var(--border)] px-4 py-10 text-center">
-                <Archive className="mx-auto size-5 text-[var(--accent)]" />
-                <p className="mt-3 text-xs font-semibold text-[var(--foreground)]">Brak wyników</p>
-                <p className="mt-1 text-[11px] leading-5 text-[var(--muted)]">Zmień wyszukiwaną frazę.</p>
+              <div className="mx-2 rounded-xl border border-dashed border-border px-4 py-10 text-center">
+                <Archive className="mx-auto size-5 text-accent" />
+                <p className="mt-3 text-xs font-semibold text-fg-primary">Brak wyników</p>
+                <p className="mt-1 text-[11px] leading-5 text-fg-muted">Zmień wyszukiwaną frazę.</p>
               </div>
             )}
           </div>

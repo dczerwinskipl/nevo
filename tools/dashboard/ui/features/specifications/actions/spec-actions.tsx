@@ -37,8 +37,8 @@ export function RepositoryActionsCard({
   if (loading) {
     return (
       <Card className="p-5" role="status">
-        <div className="flex items-center gap-3 text-xs text-[var(--muted)]">
-          <LoaderCircle className="size-4 animate-spin text-[var(--accent)]" /> Sprawdzanie bramek workflow…
+        <div className="flex items-center gap-3 text-xs text-fg-muted">
+          <LoaderCircle className="size-4 animate-spin text-accent" /> Sprawdzanie bramek workflow…
         </div>
       </Card>
     );
@@ -63,24 +63,18 @@ export function RepositoryActionsCard({
     <Card className="p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[10px] font-bold tracking-[0.18em] text-[var(--muted)] uppercase">Workflow</p>
+          <p className="text-[10px] font-bold tracking-[0.18em] text-fg-muted uppercase">Workflow</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Badge
               className={
                 worktree.clean
-                  ? 'border-[color-mix(in_srgb,var(--success)_20%,transparent)] bg-[color-mix(in_srgb,var(--success)_8%,transparent)] text-[var(--success)]'
-                  : 'border-[color-mix(in_srgb,var(--warning)_20%,transparent)] bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] text-[var(--warning)]'
+                  ? 'border-status-success/25 bg-status-success/10 text-status-success'
+                  : 'border-status-warning/25 bg-status-warning/10 text-status-warning'
               }
             >
               {worktree.clean ? 'Worktree czysty' : `${worktree.total} zmian bez commita`}
             </Badge>
-            <Badge
-              className={
-                synchronized
-                  ? 'text-[var(--muted-strong)]'
-                  : 'border-[color-mix(in_srgb,var(--warning)_20%,transparent)] text-[var(--warning)]'
-              }
-            >
+            <Badge className={synchronized ? 'text-fg-secondary' : 'border-status-warning/25 text-status-warning'}>
               {synchronized ? 'Branch zsynchronizowany' : 'Git wymaga uwagi'}
             </Badge>
           </div>
@@ -93,16 +87,16 @@ export function RepositoryActionsCard({
         />
       </div>
 
-      <div className="mt-4 space-y-2 text-[10px] leading-5 text-[var(--muted)]">
+      <div className="mt-4 space-y-2 text-[10px] leading-5 text-fg-muted">
         <p className="flex items-center gap-2">
-          <GitBranch className="size-3.5 text-[var(--accent)]" />
+          <GitBranch className="size-3.5 text-accent" />
           <span className="truncate font-mono">{worktree.branch}</span>
         </p>
         {!worktree.clean && (
           <p>
-            <span className="text-[var(--muted-strong)]">Staged:</span> {worktree.staged} ·{' '}
-            <span className="text-[var(--muted-strong)]">unstaged:</span> {worktree.unstaged} ·{' '}
-            <span className="text-[var(--muted-strong)]">untracked:</span> {worktree.untracked}
+            <span className="text-fg-secondary">Staged:</span> {worktree.staged} ·{' '}
+            <span className="text-fg-secondary">unstaged:</span> {worktree.unstaged} ·{' '}
+            <span className="text-fg-secondary">untracked:</span> {worktree.untracked}
           </p>
         )}
         {worktree.hasUpstream ? (
@@ -111,16 +105,16 @@ export function RepositoryActionsCard({
             Ahead {worktree.ahead ?? 0} · behind {worktree.behind ?? 0}
           </p>
         ) : (
-          <p className="text-[color-mix(in_srgb,var(--warning-strong)_80%,transparent)]">Branch nie ma upstreamu.</p>
+          <p className="text-status-warning/80">Branch nie ma upstreamu.</p>
         )}
       </div>
 
       {!worktree.clean && worktree.files.length > 0 && (
-        <details className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2">
-          <summary className="cursor-pointer text-[10px] font-semibold text-[var(--muted-strong)]">
+        <details className="mt-3 rounded-lg border border-border bg-background px-3 py-2">
+          <summary className="cursor-pointer text-[10px] font-semibold text-fg-secondary">
             Pokaż zmienione pliki
           </summary>
-          <ul className="mt-2 space-y-1 font-mono text-[9px] leading-4 text-[var(--muted)]">
+          <ul className="mt-2 space-y-1 font-mono text-[9px] leading-4 text-fg-muted">
             {worktree.files.slice(0, 8).map((file) => (
               <li key={`${file.status}:${file.path}`} className="break-all">
                 {file.status} {file.path}
@@ -140,7 +134,7 @@ export function RepositoryActionsCard({
         Finalizuj specyfikację
       </Button>
       {!data.finalize.enabled && data.finalize.reason && (
-        <p className="mt-2 text-[10px] leading-4 text-[var(--muted)]">{data.finalize.reason}</p>
+        <p className="mt-2 text-[10px] leading-4 text-fg-muted">{data.finalize.reason}</p>
       )}
     </Card>
   );
@@ -161,8 +155,8 @@ export function TaskActionFooter({
 }) {
   if (loading) {
     return (
-      <div className="flex items-center gap-2 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-4 text-xs text-[var(--muted)] sm:px-7">
-        <LoaderCircle className="size-4 animate-spin text-[var(--accent)]" /> Sprawdzanie możliwości zatwierdzenia…
+      <div className="flex items-center gap-2 border-t border-border bg-surface px-5 py-4 text-xs text-fg-muted sm:px-7">
+        <LoaderCircle className="size-4 animate-spin text-accent" /> Sprawdzanie możliwości zatwierdzenia…
       </div>
     );
   }
@@ -170,10 +164,10 @@ export function TaskActionFooter({
 
   const label = gate.action === 'approve' ? 'Zatwierdź zadanie' : 'Zaakceptuj implementację';
   return (
-    <div className="flex flex-col gap-3 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+    <div className="flex flex-col gap-3 border-t border-border bg-surface px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
       <div className="min-w-0">
-        <p className="text-xs font-semibold text-[var(--foreground)]">Akcja właściciela</p>
-        <p className={cn('mt-1 text-[10px] leading-4', error ? 'text-[var(--danger-strong)]' : 'text-[var(--muted)]')}>
+        <p className="text-xs font-semibold text-fg-primary">Akcja właściciela</p>
+        <p className={cn('mt-1 text-[10px] leading-4', error ? 'text-status-error' : 'text-fg-muted')}>
           {error || gate.reason || 'Bramka workflow przeszła — akcja jest dostępna.'}
         </p>
       </div>
@@ -223,7 +217,7 @@ export function FinalizeDialog({
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-end justify-center bg-black/75 p-0 backdrop-blur-sm sm:items-center sm:p-6"
+      className="fixed inset-0 z-[60] flex items-end justify-center bg-backdrop p-0 backdrop-blur-sm sm:items-center sm:p-6"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !executing) onClose();
       }}
@@ -233,14 +227,14 @@ export function FinalizeDialog({
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="finalize-dialog-title"
-        className="w-full max-w-lg overflow-hidden rounded-t-2xl border border-[var(--border)] bg-[var(--background)] shadow-2xl sm:rounded-2xl"
+        className="w-full max-w-lg overflow-hidden rounded-t-2xl border border-border bg-background shadow-2xl sm:rounded-2xl"
       >
-        <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface)] px-5 py-4 sm:px-6">
+        <div className="flex items-start justify-between gap-4 border-b border-border bg-surface px-5 py-4 sm:px-6">
           <div>
-            <Badge className="border-[color-mix(in_srgb,var(--warning)_20%,transparent)] bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] text-[var(--warning)]">
+            <Badge className="border-status-warning/25 bg-status-warning/10 text-status-warning">
               Operacja końcowa
             </Badge>
-            <h2 id="finalize-dialog-title" className="mt-3 text-lg font-semibold text-[var(--foreground)]">
+            <h2 id="finalize-dialog-title" className="mt-3 text-lg font-semibold text-fg-primary">
               Finalizować specyfikację?
             </h2>
           </div>
@@ -254,9 +248,9 @@ export function FinalizeDialog({
             <X className="size-4" />
           </Button>
         </div>
-        <div className="px-5 py-5 text-xs leading-6 text-[var(--muted-strong)] sm:px-6">
+        <div className="px-5 py-5 text-xs leading-6 text-fg-secondary sm:px-6">
           <p>Dashboard uruchomi istniejący flow NEvo bez zmian jego semantyki:</p>
-          <ol className="mt-3 list-decimal space-y-1 pl-5 text-[var(--muted)]">
+          <ol className="mt-3 list-decimal space-y-1 pl-5 text-fg-muted">
             <li>ponownie sprawdzi wszystkie bramki,</li>
             <li>przeniesie specyfikację do archiwum,</li>
             <li>utworzy commit i wykona push,</li>
@@ -264,13 +258,13 @@ export function FinalizeDialog({
             <li>uruchomi kontrolę po merge i posprząta branch.</li>
           </ol>
           {error && (
-            <div className="mt-4 flex gap-2 rounded-lg border border-[color-mix(in_srgb,var(--danger)_20%,transparent)] bg-[color-mix(in_srgb,var(--danger)_8%,transparent)] px-3 py-2 text-[var(--danger-strong)]">
+            <div className="mt-4 flex gap-2 rounded-lg border border-status-error/25 bg-status-error/10 px-3 py-2 text-status-error">
               <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
               {error}
             </div>
           )}
         </div>
-        <div className="flex justify-end gap-2 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-4 sm:px-6">
+        <div className="flex justify-end gap-2 border-t border-border bg-surface px-5 py-4 sm:px-6">
           <Button ref={cancelRef} variant="secondary" size="sm" disabled={executing} onClick={onClose}>
             Anuluj
           </Button>

@@ -59,7 +59,7 @@ const TAB_ICON: Record<SpecTabId, ComponentType<{ className?: string }>> = {
 function ContentLoading() {
   return (
     <Card className="p-8" role="status">
-      <div className="flex items-center gap-3 text-sm text-[var(--muted)]">Wczytywanie…</div>
+      <div className="flex items-center gap-3 text-sm text-fg-muted">Wczytywanie…</div>
     </Card>
   );
 }
@@ -134,22 +134,19 @@ export function SpecificationDetail({
 
   return (
     <div className="mx-auto w-full max-w-[1500px] px-4 pt-7 pb-16 sm:px-7 lg:px-9">
-      <nav
-        aria-label="Okruszki nawigacji"
-        className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--muted)]"
-      >
-        <Link to="/" className="transition-colors hover:text-[var(--foreground)]">
+      <nav aria-label="Okruszki nawigacji" className="flex flex-wrap items-center gap-2 text-[11px] text-fg-muted">
+        <Link to="/" className="transition-colors hover:text-fg-primary">
           NEvo
         </Link>
         <span>/</span>
         <Link
           to={specification.source === 'archive' ? '/archive' : '/'}
-          className="transition-colors hover:text-[var(--foreground)]"
+          className="transition-colors hover:text-fg-primary"
         >
           {specification.source === 'active' ? 'Aktualne' : 'Archiwum'}
         </Link>
         <span>/</span>
-        <span className="max-w-[240px] truncate font-medium text-[var(--foreground)]">{specification.slug}</span>
+        <span className="max-w-[240px] truncate font-medium text-fg-primary">{specification.slug}</span>
       </nav>
 
       <header className="mt-7 grid gap-7 xl:grid-cols-[1fr_340px] xl:items-end">
@@ -157,12 +154,11 @@ export function SpecificationDetail({
           <div className="flex flex-wrap items-center gap-2">
             <Badge
               className={cn(
-                'bg-[var(--surface-raised)]',
+                'bg-surface-raised',
                 (specification.status === 'verified' || specification.status === 'archived') &&
-                  'border-[var(--success-border)] bg-[var(--success-muted)]',
-                specification.status === 'implemented' && 'border-[var(--warning-border)] bg-[var(--warning-muted)]',
-                specification.status === 'in-implementation' &&
-                  'border-[var(--accent-border)] bg-[var(--accent-muted)]',
+                  'border-status-success/25 bg-status-success/10',
+                specification.status === 'implemented' && 'border-status-warning/25 bg-status-warning/10',
+                specification.status === 'in-implementation' && 'border-accent/35 bg-accent/10',
                 statusTextTone({ tone: specStatusTone(specification.status) }),
               )}
             >
@@ -172,19 +168,17 @@ export function SpecificationDetail({
             {specification.priority !== null && <Badge>Priorytet {specification.priority}</Badge>}
             <Badge>{specification.source === 'active' ? 'Aktualna' : 'Archiwalna'}</Badge>
           </div>
-          <h1 className="mt-5 max-w-4xl text-3xl leading-tight font-semibold tracking-[-0.035em] text-[var(--foreground)] sm:text-5xl">
+          <h1 className="mt-5 max-w-4xl text-3xl leading-tight font-semibold tracking-[-0.035em] text-fg-primary sm:text-5xl">
             {specification.title}
           </h1>
-          <p className="mt-5 max-w-3xl text-sm leading-7 text-[var(--muted-strong)] sm:text-[15px]">
-            {specification.summary}
-          </p>
-          <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-[var(--muted)]">
+          <p className="mt-5 max-w-3xl text-sm leading-7 text-fg-secondary sm:text-[15px]">{specification.summary}</p>
+          <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-fg-muted">
             <span className="inline-flex items-center gap-1.5">
-              <CalendarClock className="size-3.5 text-[var(--accent)]" /> {formatDate(specification.updatedAt)}
+              <CalendarClock className="size-3.5 text-accent" /> {formatDate(specification.updatedAt)}
             </span>
             {specification.path && (
               <span className="inline-flex items-center gap-1.5">
-                <FileCode2 className="size-3.5 text-[var(--accent)]" /> {specification.path}
+                <FileCode2 className="size-3.5 text-accent" /> {specification.path}
               </span>
             )}
           </div>
@@ -194,14 +188,12 @@ export function SpecificationDetail({
           <Card className="p-5">
             <div className="flex items-end justify-between">
               <div>
-                <p className="text-[10px] font-bold tracking-[0.18em] text-[var(--muted)] uppercase">
-                  Postęp ukończenia
-                </p>
-                <p className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">
+                <p className="text-[10px] font-bold tracking-[0.18em] text-fg-muted uppercase">Postęp ukończenia</p>
+                <p className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-fg-primary">
                   {specification.metrics.progress}%
                 </p>
               </div>
-              <div className="text-right text-[11px] text-[var(--muted)]">
+              <div className="text-right text-[11px] text-fg-muted">
                 <p>
                   {specification.metrics.completed}/{specification.metrics.actionable}
                 </p>
@@ -213,7 +205,7 @@ export function SpecificationDetail({
         </div>
       </header>
 
-      <nav className="mt-9 overflow-x-auto border-b border-[var(--border)]" aria-label="Widoki specyfikacji">
+      <nav className="mt-9 overflow-x-auto border-b border-border" aria-label="Widoki specyfikacji">
         <div className="flex min-w-max gap-1" role="tablist">
           {visibleTabs.map((tab, index) => {
             const Icon = TAB_ICON[tab.id];
@@ -228,15 +220,15 @@ export function SpecificationDetail({
                 aria-controls={`spec-panel-${tab.id}`}
                 tabIndex={selected ? 0 : -1}
                 className={cn(
-                  'relative inline-flex h-11 items-center gap-2 px-3 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:outline-none focus-visible:ring-inset sm:px-4',
-                  selected ? 'text-[var(--foreground)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]',
+                  'relative inline-flex h-11 items-center gap-2 px-3 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none focus-visible:ring-inset sm:px-4',
+                  selected ? 'text-fg-primary' : 'text-fg-muted hover:text-fg-primary',
                 )}
                 onClick={() => setActiveTab(tab.id)}
                 onKeyDown={(event) => handleTabKeyDown(event, index)}
               >
-                <Icon className="size-3.5 text-[var(--accent)]" />
+                <Icon className="size-3.5 text-accent" />
                 {tab.label}
-                {selected && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-[var(--accent)]" />}
+                {selected && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-accent" />}
               </button>
             );
           })}

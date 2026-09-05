@@ -27,20 +27,20 @@ export function statusTone(status?: string | null): string {
     case 'verified':
     case 'archived':
     case 'completed':
-      return 'text-[var(--success)]';
+      return 'text-status-success';
     case 'implemented':
     case 'waitingForUser':
     case 'review':
     case 'warning':
-      return 'text-[var(--warning)]';
+      return 'text-status-warning';
     case 'in-implementation':
     case 'running':
-      return 'text-[var(--accent)]';
+      return 'text-status-active';
     case 'failed':
     case 'error':
-      return 'text-[var(--danger)]';
+      return 'text-status-error';
     default:
-      return 'text-[var(--muted)]';
+      return 'text-fg-muted';
   }
 }
 

@@ -53,7 +53,7 @@ function IncompleteDiffIndicator({
   if (!incomplete) return null;
 
   return (
-    <div className="mb-4 flex items-start gap-2 rounded-lg border border-[color-mix(in_srgb,var(--warning)_15%,transparent)] bg-[color-mix(in_srgb,var(--warning)_6%,transparent)] px-3 py-2.5 text-[10px] leading-5 text-[color-mix(in_srgb,var(--warning)_80%,transparent)]">
+    <div className="mb-4 flex items-start gap-2 rounded-lg border border-status-warning/25 bg-status-warning/10 px-3 py-2.5 text-[10px] leading-5 text-status-warning">
       <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
       Część diffu może być niedostępna lub skrócona przez providera. Lista plików i statystyki pozostają widoczne.
     </div>
@@ -162,11 +162,11 @@ export function PullRequestCard({
 
   return (
     <Card className="overflow-hidden">
-      <div className="border-b border-[var(--border)] bg-[var(--surface)] px-4 py-4 sm:px-6">
+      <div className="border-b border-border bg-surface px-4 py-4 sm:px-6">
         <div className="flex items-start gap-3">
           <button
             type="button"
-            className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+            className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-border text-fg-muted hover:bg-surface-hover hover:text-fg-primary"
             aria-expanded={open}
             aria-label={`${open ? 'Zwiń' : 'Rozwiń'} pull request #${pullRequest.number}`}
             onClick={() => setOpen((value) => !value)}
@@ -176,13 +176,11 @@ export function PullRequestCard({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <Badge className={stateTone(pullRequest)}>{stateLabel(pullRequest)}</Badge>
-              <span className="text-[11px] text-[var(--muted)]">
+              <span className="text-[11px] text-fg-muted">
                 {pullRequest.providerLabel} #{pullRequest.number}
               </span>
             </div>
-            <h2 className="mt-2 text-base leading-6 font-semibold text-[var(--foreground)] sm:text-lg">
-              {pullRequest.title}
-            </h2>
+            <h2 className="mt-2 text-base leading-6 font-semibold text-fg-primary sm:text-lg">{pullRequest.title}</h2>
           </div>
           <Button variant="secondary" size="sm" asChild>
             <a href={pullRequest.url} target="_blank" rel="noreferrer noopener">
@@ -192,7 +190,7 @@ export function PullRequestCard({
           </Button>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-[10px] text-[var(--muted)] sm:pl-11">
+        <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-[10px] text-fg-muted sm:pl-11">
           {pullRequest.author && (
             <span className="inline-flex items-center gap-1.5">
               <UserRound className="size-3.5" />
@@ -220,22 +218,20 @@ export function PullRequestCard({
         <div className="px-3 py-4 sm:px-5 sm:py-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3 text-[11px]">
-              <span className="inline-flex items-center gap-1.5 text-[var(--muted)]">
+              <span className="inline-flex items-center gap-1.5 text-fg-muted">
                 <Files className="size-3.5" />
                 {pullRequest.stats.changedFiles} plików
               </span>
-              <span className="font-semibold text-[var(--success)]">+{pullRequest.stats.additions}</span>
-              <span className="font-semibold text-[var(--danger)]">−{pullRequest.stats.deletions}</span>
-              {collapseFilesInitially && (
-                <span className="text-[var(--muted)]">Duży PR — pliki domyślnie zwinięte</span>
-              )}
+              <span className="font-semibold text-status-success">+{pullRequest.stats.additions}</span>
+              <span className="font-semibold text-status-error">−{pullRequest.stats.deletions}</span>
+              {collapseFilesInitially && <span className="text-fg-muted">Duży PR — pliki domyślnie zwinięte</span>}
             </div>
           </div>
 
           {files.length > 0 && (
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div
-                className="inline-flex rounded-lg border border-[var(--border)] bg-[var(--background)] p-0.5"
+                className="inline-flex rounded-lg border border-border bg-background p-0.5"
                 aria-label="Grupowanie plików"
               >
                 {GROUP_MODE_OPTIONS.map((option) => {
@@ -247,8 +243,8 @@ export function PullRequestCard({
                       className={cn(
                         'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[10px] font-semibold transition-colors',
                         groupMode === option.id
-                          ? 'bg-[var(--surface-hover)] text-[var(--foreground)]'
-                          : 'text-[var(--muted)] hover:text-[var(--foreground)]',
+                          ? 'bg-surface-hover text-fg-primary'
+                          : 'text-fg-muted hover:text-fg-primary',
                       )}
                       aria-pressed={groupMode === option.id}
                       onClick={() => setGroupMode(option.id)}
@@ -262,7 +258,7 @@ export function PullRequestCard({
               {generatedCount > 0 && (
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-1.5 text-[10px] font-semibold text-[var(--muted)] transition-colors hover:text-[var(--foreground)]"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[10px] font-semibold text-fg-muted transition-colors hover:text-fg-primary"
                   aria-pressed={hideGenerated}
                   onClick={() => setHideGenerated((value) => !value)}
                 >
@@ -278,11 +274,11 @@ export function PullRequestCard({
           <IncompleteDiffIndicator diffHandle={diffHandle} requests={visibleDiffRequests} filesByPath={filesByPath} />
 
           {filesQuery.loading ? (
-            <div className="flex items-center gap-2 rounded-xl border border-dashed border-[var(--border)] px-5 py-10 text-center text-xs text-[var(--muted)]">
-              <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" /> Wczytywanie listy plików…
+            <div className="flex items-center gap-2 rounded-xl border border-dashed border-border px-5 py-10 text-center text-xs text-fg-muted">
+              <LoaderCircle className="size-3.5 animate-spin text-accent" /> Wczytywanie listy plików…
             </div>
           ) : filesQuery.error ? (
-            <div className="rounded-xl border border-[color-mix(in_srgb,var(--danger)_20%,transparent)] px-5 py-10 text-center text-xs text-[var(--danger-strong)]">
+            <div className="rounded-xl border border-status-error/25 bg-status-error/10 px-5 py-10 text-center text-xs text-status-error">
               {filesQuery.error}
             </div>
           ) : groups.length ? (
@@ -314,37 +310,34 @@ export function PullRequestCard({
                 }
 
                 return (
-                  <div
-                    key={group.name}
-                    className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)]"
-                  >
+                  <div key={group.name} className="overflow-hidden rounded-xl border border-border bg-background">
                     <button
                       type="button"
-                      className="flex w-full items-center justify-between gap-3 bg-[var(--surface-raised)] px-4 py-3 text-left transition-colors hover:bg-[var(--surface-hover)]"
+                      className="flex w-full items-center justify-between gap-3 bg-surface-raised px-4 py-3 text-left transition-colors hover:bg-surface-hover"
                       aria-expanded={isGroupOpen}
                       onClick={() => toggleGroup(group.name)}
                     >
                       <div className="flex min-w-0 items-center gap-2.5">
                         <ChevronDown
                           className={cn(
-                            'size-3.5 shrink-0 text-[var(--accent)] transition-transform',
+                            'size-3.5 shrink-0 text-accent transition-transform',
                             !isGroupOpen && '-rotate-90',
                           )}
                         />
-                        <span className="truncate text-xs font-semibold text-[var(--foreground)]">{group.name}</span>
-                        <span className="font-mono text-[10px] text-[var(--muted)]">
+                        <span className="truncate text-xs font-semibold text-fg-primary">{group.name}</span>
+                        <span className="font-mono text-[10px] text-fg-muted">
                           {group.paths.length} {group.paths.length === 1 ? 'plik' : 'plików'}
                         </span>
                       </div>
                       <div className="flex shrink-0 items-center gap-2.5 text-[10px] font-semibold">
-                        <span className="text-[var(--success)]">+{st.additions}</span>
-                        <span className="text-[var(--danger)]">−{st.deletions}</span>
+                        <span className="text-status-success">+{st.additions}</span>
+                        <span className="text-status-error">−{st.deletions}</span>
                       </div>
                     </button>
 
                     {/* Do not render FileChange / DiffView for collapsed groups */}
                     {isGroupOpen && (
-                      <div className="space-y-3 border-t border-[var(--border)] p-3 sm:p-4">
+                      <div className="space-y-3 border-t border-border p-3 sm:p-4">
                         {group.paths.map((path) => {
                           const file = filesByPath.get(path);
                           if (!file) return null;
@@ -367,7 +360,7 @@ export function PullRequestCard({
               })}
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed border-[var(--border)] px-5 py-10 text-center text-xs text-[var(--muted)]">
+            <div className="rounded-xl border border-dashed border-border px-5 py-10 text-center text-xs text-fg-muted">
               {files.length
                 ? 'Wszystkie pliki są ukryte — wyłącz filtr, aby je zobaczyć.'
                 : 'Provider nie zwrócił listy zmienionych plików.'}
@@ -375,25 +368,23 @@ export function PullRequestCard({
           )}
 
           <details
-            className="mt-4 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)]"
+            className="mt-4 overflow-hidden rounded-xl border border-border bg-background"
             onToggle={(event) => {
               if (event.currentTarget.open && !fullDiffQuery.loaded && !fullDiffQuery.loading)
                 void fullDiffQuery.load();
             }}
           >
-            <summary className="cursor-pointer bg-[var(--surface-raised)] px-4 py-3 text-[11px] font-semibold text-[var(--foreground)]">
+            <summary className="cursor-pointer bg-surface-raised px-4 py-3 text-[11px] font-semibold text-fg-primary">
               Pełny surowy diff z providera
             </summary>
             {fullDiffQuery.loading ? (
-              <div className="flex items-center gap-2 border-t border-[var(--border)] px-4 py-6 text-xs text-[var(--muted)]">
-                <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" /> Wczytywanie pełnego diffu…
+              <div className="flex items-center gap-2 border-t border-border px-4 py-6 text-xs text-fg-muted">
+                <LoaderCircle className="size-3.5 animate-spin text-accent" /> Wczytywanie pełnego diffu…
               </div>
             ) : fullDiffQuery.error ? (
-              <div className="border-t border-[var(--border)] px-4 py-6 text-xs text-[var(--danger-strong)]">
-                {fullDiffQuery.error}
-              </div>
+              <div className="border-t border-border px-4 py-6 text-xs text-status-error">{fullDiffQuery.error}</div>
             ) : fullDiffQuery.data ? (
-              <pre className="max-h-[70vh] overflow-auto border-t border-[var(--border)] p-4 font-mono text-[11px] leading-5 text-[var(--muted-strong)]">
+              <pre className="max-h-[70vh] overflow-auto border-t border-border p-4 font-mono text-[11px] leading-5 text-fg-secondary">
                 {fullDiffQuery.data.diffAvailable ? fullDiffQuery.data.diff : 'Provider nie zwrócił pełnego diffu.'}
               </pre>
             ) : null}

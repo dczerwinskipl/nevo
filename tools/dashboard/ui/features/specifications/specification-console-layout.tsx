@@ -49,7 +49,7 @@ export function SpecificationConsoleLayout() {
 
   return (
     <div className="min-h-screen lg:pl-[370px]">
-      <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_88%,transparent)] px-4 backdrop-blur-xl sm:px-7 lg:hidden">
+      <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-background/88 px-4 backdrop-blur-xl sm:px-7 lg:hidden">
         <div className="flex items-center gap-3">
           <Button
             variant="secondary"
@@ -62,15 +62,15 @@ export function SpecificationConsoleLayout() {
           </Button>
           <Link
             to="/"
-            className="flex cursor-pointer items-center gap-3 rounded-lg text-left focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:outline-none"
+            className="flex cursor-pointer items-center gap-3 rounded-lg text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
             title="Przejdź do listy specyfikacji"
           >
-            <div className="flex size-8 items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-black text-[var(--accent-foreground)]">
+            <div className="flex size-8 items-center justify-center rounded-lg bg-accent text-sm font-black text-fg-on-accent">
               N
             </div>
             <div>
-              <p className="text-xs font-semibold text-[var(--foreground)]">NEvo Flow</p>
-              <p className="text-[9px] tracking-[0.14em] text-[var(--muted)] uppercase">Specification console</p>
+              <p className="text-xs font-semibold text-fg-primary">NEvo Flow</p>
+              <p className="text-[9px] tracking-[0.14em] text-fg-muted uppercase">Specification console</p>
             </div>
           </Link>
         </div>
@@ -87,7 +87,7 @@ export function SpecificationConsoleLayout() {
         status={connectionStatus}
         refreshing={refreshing}
         onRefresh={() => void refresh()}
-        className="fixed top-3 right-4 z-40 hidden rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_92%,transparent)] p-1 shadow-[0_12px_32px_rgba(0,0,0,0.28)] backdrop-blur-xl lg:flex"
+        className="fixed top-3 right-4 z-40 hidden rounded-xl border border-border bg-surface/92 p-1 shadow-[0_12px_32px_rgba(0,0,0,0.28)] backdrop-blur-xl lg:flex"
       />
 
       <main>

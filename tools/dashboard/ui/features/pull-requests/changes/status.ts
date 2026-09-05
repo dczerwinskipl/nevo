@@ -1,4 +1,5 @@
 import type { AvailablePullRequest, PullRequestResult } from '../types';
+import { statusSurfaceTone, type StatusTone } from '@/shared/status-tone';
 
 export function stateLabel(pullRequest: AvailablePullRequest) {
   if (pullRequest.draft) return 'Draft';
@@ -7,14 +8,15 @@ export function stateLabel(pullRequest: AvailablePullRequest) {
   return 'Open';
 }
 
-export function stateTone(pullRequest: AvailablePullRequest) {
-  if (pullRequest.draft)
-    return 'border-[color-mix(in_srgb,var(--muted)_20%,transparent)] bg-[color-mix(in_srgb,var(--muted)_8%,transparent)] text-[var(--muted-strong)]';
-  if (pullRequest.state === 'merged')
-    return 'border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]';
-  if (pullRequest.state === 'closed')
-    return 'border-[var(--border)] bg-[var(--surface-raised)] text-[var(--muted-strong)]';
-  return 'border-[color-mix(in_srgb,var(--accent)_25%,transparent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] text-[var(--accent)]';
+export function prStateTone(pullRequest: AvailablePullRequest): StatusTone {
+  if (pullRequest.draft) return 'neutral';
+  if (pullRequest.state === 'merged') return 'success';
+  if (pullRequest.state === 'closed') return 'neutral';
+  return 'active';
+}
+
+export function stateTone(pullRequest: AvailablePullRequest): string {
+  return statusSurfaceTone({ tone: prStateTone(pullRequest) });
 }
 
 export function pullRequestKey(result: PullRequestResult) {

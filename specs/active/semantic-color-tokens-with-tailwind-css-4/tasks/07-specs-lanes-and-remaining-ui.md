@@ -18,6 +18,7 @@ context:
     - tools/dashboard/ui/features/specifications/detail/status-board.tsx
 allowed_paths:
   - tools/dashboard/ui/**
+  - tools/dashboard/tests/**
 forbidden_paths:
   - tools/dashboard/ui/index.css
   - tools/dashboard/ui/components/ui/**

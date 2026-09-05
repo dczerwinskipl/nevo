@@ -115,18 +115,20 @@ test('Item 4 (Task 12): Compact icon-only connectivity indicator uses semantic s
   assert.ok(connectivityControlsSource.includes('SSE: Połączono (aktualizacje na żywo aktywne)'));
   assert.ok(
     connectivityControlsSource.includes(
-      'border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]',
+      "isConnected && 'border-status-success/25 bg-status-success/10 text-status-success'",
     ),
   );
   assert.ok(
     connectivityControlsSource.includes(
-      'border-[var(--warning-border)] bg-[var(--warning-muted)] text-[var(--warning)]',
+      "isReconnecting && 'border-status-warning/25 bg-status-warning/10 text-status-warning'",
     ),
   );
   assert.ok(
-    connectivityControlsSource.includes('border-[var(--danger-border)] bg-[var(--danger-muted)] text-[var(--danger)]'),
+    connectivityControlsSource.includes(
+      "isDisconnected && 'border-status-error/25 bg-status-error/10 text-status-error'",
+    ),
   );
-  assert.ok(connectivityControlsSource.includes('border-[var(--border)] bg-[var(--surface)] text-[var(--muted)]'));
+  assert.ok(connectivityControlsSource.includes("isUnknown && 'border-border bg-surface text-fg-muted'"));
   assert.ok(
     !connectivityControlsSource.includes(
       "<span className=\"hidden sm:inline\">{live ? 'SSE: Połączono' : 'SSE: Rozłączono'}</span>",
@@ -154,11 +156,11 @@ test('Item 5 (Task 14 AC1 & Finding 2): TaskCard uses a full-width title, compac
   assert.ok(statusBoardSource.includes("title={`Blokowane przez: ${task.blockedBy.join(', ')}`}"));
 
   // 4. Action is a separate centered footer, not nested beside the title
-  assert.ok(statusBoardSource.includes('mt-3 flex justify-center border-t border-[var(--border)] pt-2.5'));
+  assert.ok(statusBoardSource.includes('mt-3 flex justify-center border-t border-border pt-2.5'));
   assert.ok(statusBoardSource.includes('onClick={() => onAction?.(task, actionGate.action)}'));
   assert.ok(
     statusBoardSource.includes(
-      "aria-label={`${actionGate.action === 'approve' ? 'Zatwierdź zadanie' : 'Zaakceptuj zadanie'}: ${task.title}\`}",
+      "aria-label={`${actionGate.action === 'approve' ? 'Zatwierdź zadanie' : 'Zaakceptuj zadanie'}: ${task.title}`}",
     ),
   );
 });
@@ -178,9 +180,8 @@ test('Item 7 (Task 17): CreateAgentSessionDialog provider group uses semantic fi
   // Provider group uses fieldset + legend, not label wrapping multiple buttons
   assert.ok(modalSource.includes('<fieldset className="mt-6">'));
   assert.ok(
-    modalSource.includes(
-      '<legend className="text-xs font-semibold text-[var(--foreground)]">\n                Provider\n              </legend>',
-    ) || modalSource.includes('Provider'),
+    modalSource.includes('<legend className="text-xs font-semibold text-fg-primary">Provider</legend>') ||
+      modalSource.includes('Provider'),
   );
   assert.ok(!modalSource.includes('<label className="mt-6 block text-xs font-semibold">\n              Provider'));
 
@@ -221,7 +222,7 @@ test('Item 8 (Task 18): Shared status label component and consistent session sta
   // 3. Status-board lane headers and exact task statuses use the shared label primitive
   assert.ok(statusBoardSource.includes("from '@/shared/ui/status-label'"), 'status-board imports StatusLabel');
   assert.ok(
-    statusBoardSource.includes('<StatusLabel className="text-[var(--muted-strong)]">{lane.shortLabel}</StatusLabel>'),
+    statusBoardSource.includes('<StatusLabel className="text-fg-secondary">{lane.shortLabel}</StatusLabel>'),
     'status-board lane header renders StatusLabel',
   );
   assert.match(
@@ -261,11 +262,9 @@ test('Item 9 (Task 19): Standardize H2 scale on spec-detail to text-xl', () => {
 
   // Both section h2 headings use text-xl
   assert.ok(
-    specDetailSource.includes(
-      '<h2 className="mt-1 text-xl font-semibold text-[var(--foreground)]">Ostatnie rozmowy</h2>',
-    ),
+    specDetailSource.includes('<h2 className="mt-1 text-xl font-semibold text-fg-primary">Ostatnie rozmowy</h2>'),
   );
-  assert.ok(statusBoardSource.includes('text-xl font-semibold tracking-tight text-[var(--foreground)]'));
+  assert.ok(statusBoardSource.includes('text-xl font-semibold tracking-tight text-fg-primary'));
 });
 
 test('Item 10 (Task 20): CreateAgentSessionDialog closes on Escape when not creating', () => {

@@ -47,8 +47,8 @@ export function OverviewPanel({
       <section className="mb-9" aria-label="Ostatnie sesje specyfikacji">
         <div className="mb-4 flex items-end justify-between gap-4">
           <div>
-            <p className="text-[10px] font-bold tracking-[0.18em] text-[var(--accent)] uppercase">Sesje AI</p>
-            <h2 className="mt-1 text-xl font-semibold text-[var(--foreground)]">Ostatnie rozmowy</h2>
+            <p className="text-[10px] font-bold tracking-[0.18em] text-accent uppercase">Sesje AI</p>
+            <h2 className="mt-1 text-xl font-semibold text-fg-primary">Ostatnie rozmowy</h2>
           </div>
           {specification.source === 'active' && specification.specId && (
             <Button size="sm" onClick={onCreateSession}>
@@ -74,19 +74,19 @@ export function OverviewPanel({
       {specification.nextTask && (
         <Card className="mt-3 overflow-hidden">
           <div className="grid gap-4 p-5 sm:grid-cols-[auto_1fr_auto] sm:items-center">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-[var(--accent)] text-[var(--accent-foreground)]">
+            <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-fg-on-accent">
               <ArrowUpRight className="size-4" />
             </div>
             <div>
-              <p className="text-[10px] font-bold tracking-[0.16em] text-[var(--muted)] uppercase">
+              <p className="text-[10px] font-bold tracking-[0.16em] text-fg-muted uppercase">
                 {specification.nextTask.status === 'in-implementation'
                   ? 'Aktualnie realizowane'
                   : 'Następne gotowe zadanie'}
               </p>
-              <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">{specification.nextTask.title}</p>
+              <p className="mt-1 text-sm font-semibold text-fg-primary">{specification.nextTask.title}</p>
             </div>
-            <div className="flex items-center gap-2 text-[11px] text-[var(--muted)]">
-              <Layers3 className="size-3.5 text-[var(--accent)]" />
+            <div className="flex items-center gap-2 text-[11px] text-fg-muted">
+              <Layers3 className="size-3.5 text-accent" />
               {formatStatus(specification.nextTask.status)}
             </div>
           </div>

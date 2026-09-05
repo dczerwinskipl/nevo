@@ -1,4 +1,5 @@
 import { RefreshCw } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { SPEC_TYPES_OPTIONS, slugifyTitle } from './create-specification-helpers';
 
 export interface SpecificationMetadataFieldsProps {
@@ -33,7 +34,7 @@ export function SpecificationMetadataFields({
       {/* Title */}
       <div>
         <label htmlFor="spec-title" className="block text-xs font-semibold">
-          Tytuł specyfikacji <span className="text-[var(--danger)]">*</span>
+          Tytuł specyfikacji <span className="text-status-error">*</span>
         </label>
         <input
           id="spec-title"
@@ -43,7 +44,7 @@ export function SpecificationMetadataFields({
           required
           maxLength={200}
           placeholder="np. Multi-provider local agent chat"
-          className="mt-1.5 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm outline-none focus:border-[var(--accent)] disabled:opacity-60"
+          className="mt-1.5 h-11 w-full rounded-xl border border-border bg-surface px-3 text-sm outline-none focus:border-accent disabled:opacity-60"
         />
       </div>
 
@@ -51,13 +52,13 @@ export function SpecificationMetadataFields({
       <div>
         <div className="flex items-center justify-between">
           <label htmlFor="spec-slug" className="block text-xs font-semibold">
-            Identyfikator / Slug <span className="text-[var(--danger)]">*</span>
+            Identyfikator / Slug <span className="text-status-error">*</span>
           </label>
           {slugManuallyEdited && title.trim() && slug !== slugifyTitle(title) && (
             <button
               type="button"
               onClick={onSyncSlugWithTitle}
-              className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--accent)] hover:underline"
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"
             >
               <RefreshCw className="size-3" />
               Zsynchronizuj z tytułem
@@ -72,9 +73,9 @@ export function SpecificationMetadataFields({
           required
           pattern="^[a-z0-9][a-z0-9._-]*$"
           placeholder="np. multi-provider-agent-sessions"
-          className="mt-1.5 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 font-mono text-xs outline-none focus:border-[var(--accent)] disabled:opacity-60"
+          className="mt-1.5 h-11 w-full rounded-xl border border-border bg-surface px-3 font-mono text-xs outline-none focus:border-accent disabled:opacity-60"
         />
-        <p className="mt-1 text-[10px] text-[var(--muted)]">
+        <p className="mt-1 text-[10px] text-fg-muted">
           Dozwolone: małe litery, cyfry, kropki, podkreślenia i myślniki (musi zaczynać się od litery lub cyfry).
         </p>
       </div>
@@ -89,14 +90,15 @@ export function SpecificationMetadataFields({
               type="button"
               disabled={disabled}
               onClick={() => onTypeChange(item.id as typeof type)}
-              className={`flex flex-col items-start rounded-xl border p-2.5 text-left transition-all ${
+              className={cn(
+                'flex flex-col items-start rounded-xl border p-2.5 text-left transition-all disabled:opacity-60',
                 type === item.id
-                  ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] ring-1 ring-[var(--accent)]'
-                  : 'border-[var(--border)] bg-[var(--surface)] hover:border-white/20'
-              } disabled:opacity-60`}
+                  ? 'border-accent bg-accent/8 ring-1 ring-accent'
+                  : 'border-border bg-surface hover:border-fg-primary/20',
+              )}
             >
-              <span className="text-xs font-semibold text-[var(--foreground)]">{item.label}</span>
-              <span className="mt-0.5 text-[9px] text-[var(--muted)]">{item.desc}</span>
+              <span className="text-xs font-semibold text-fg-primary">{item.label}</span>
+              <span className="mt-0.5 text-[9px] text-fg-muted">{item.desc}</span>
             </button>
           ))}
         </div>
@@ -105,7 +107,7 @@ export function SpecificationMetadataFields({
       {/* Goal */}
       <div>
         <label htmlFor="spec-goal" className="block text-xs font-semibold">
-          Cel / Opis <span className="font-normal text-[var(--muted)]">(opcjonalnie)</span>
+          Cel / Opis <span className="font-normal text-fg-muted">(opcjonalnie)</span>
         </label>
         <textarea
           id="spec-goal"
@@ -114,7 +116,7 @@ export function SpecificationMetadataFields({
           disabled={disabled}
           rows={2}
           placeholder="Krótki opis celu biznesowego lub technicznego…"
-          className="mt-1.5 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-xs outline-none focus:border-[var(--accent)] disabled:opacity-60"
+          className="mt-1.5 w-full rounded-xl border border-border bg-surface p-3 text-xs outline-none focus:border-accent disabled:opacity-60"
         />
       </div>
     </div>
