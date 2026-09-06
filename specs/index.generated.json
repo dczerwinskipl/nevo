@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-06T12:03:13.834Z",
+  "generated": "2026-09-06T13:26:42.867Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -205,7 +205,7 @@
           ],
           "implementation": {
             "baseline_revision": "3b58aa48d9a20381057777ffeb5569a4fc7b61af",
-            "review_revision": "ccbb7491e6d7471cddd93911908418f589fa3e89",
+            "review_revision": "6497100aa1189565cc1b83d75b1d5cdbf65751df",
             "changed_paths": [
               "tools/dashboard/package-lock.json",
               "tools/dashboard/package.json",
@@ -213,6 +213,7 @@
               "tools/dashboard/server/ai/interactions/mcp/interaction-registry.mjs",
               "tools/dashboard/server/ai/interactions/mcp/mcp-server.mjs",
               "tools/dashboard/server/ai/interactions/mcp/routes.mjs",
+              "tools/dashboard/server/ai/interactions/mcp/session-manager.mjs",
               "tools/dashboard/server/ai/providers/claude/continuation-store.mjs",
               "tools/dashboard/server/ai/providers/claude/hook.mjs",
               "tools/dashboard/server/ai/providers/claude/provider.mjs",
@@ -222,11 +223,11 @@
               "tools/dashboard/tests/fixtures/evidence/claude-evidence.json",
               "tools/dashboard/tests/interaction-bridge.test.mjs"
             ],
-            "worktree_patch_fingerprint": "96dd569cfeb43792b728d74217196c07c9fcd37a89a68fccbf87fdabccdb8d64"
+            "worktree_patch_fingerprint": null
           },
           "self_check": {
             "fingerprint": "94683a0786812d1983f20ab9eaeb59e5e169c4cbb27f463bc73f22b9f93311ab",
-            "revision": "ccbb7491e6d7471cddd93911908418f589fa3e89",
+            "revision": "6497100aa1189565cc1b83d75b1d5cdbf65751df",
             "commands": [
               {
                 "command": "node --experimental-strip-types --test tools/dashboard/tests/claude-provider.test.mjs tools/dashboard/tests/interaction-bridge.test.mjs tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs",
@@ -409,7 +410,7 @@
           ],
           "implementation": {
             "baseline_revision": "ef2df9251514f8767786e03627d4e346d1eed33d",
-            "review_revision": "ccbb7491e6d7471cddd93911908418f589fa3e89",
+            "review_revision": "6497100aa1189565cc1b83d75b1d5cdbf65751df",
             "changed_paths": [
               "tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs",
               "tools/dashboard/tests/claude-provider.test.mjs",
@@ -418,11 +419,11 @@
               "tools/dashboard/tests/fixtures/evidence/claude-evidence.json",
               "tools/dashboard/tests/interaction-bridge.test.mjs"
             ],
-            "worktree_patch_fingerprint": "9b26eace357006f29d769c4709872be2b811e6e2b55a0c4db18a0d1899446173"
+            "worktree_patch_fingerprint": null
           },
           "self_check": {
             "fingerprint": "0582dd6833451df8fdff39745636b4a4a04ad46a6fb45189be3ed2df8b13cd99",
-            "revision": "ccbb7491e6d7471cddd93911908418f589fa3e89",
+            "revision": "6497100aa1189565cc1b83d75b1d5cdbf65751df",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard test",
