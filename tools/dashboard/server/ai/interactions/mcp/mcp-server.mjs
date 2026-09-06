@@ -58,10 +58,10 @@ export function createNevoMcpServer(interactionRegistry = mcpInteractionRegistry
       };
     }
 
-    // Correlation token is extracted from connection/request context — never supplied as model input
+    // Correlation token is extracted strictly from the x-nevo-interaction-token request header
     const token =
-      extra?.requestInfo?.headers?.['x-bridge-token'] ||
-      extra?.requestInfo?.url?.searchParams?.get('token');
+      extra?.requestInfo?.headers?.['x-nevo-interaction-token'] ||
+      extra?.requestInfo?.headers?.['X-Nevo-Interaction-Token'];
 
     if (!token) {
       return {
@@ -69,7 +69,7 @@ export function createNevoMcpServer(interactionRegistry = mcpInteractionRegistry
         content: [
           {
             type: 'text',
-            text: 'Forbidden: missing turn correlation token.',
+            text: 'Forbidden: missing x-nevo-interaction-token header.',
           },
         ],
       };

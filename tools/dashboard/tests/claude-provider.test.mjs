@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { Readable, Writable } from 'node:stream';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -1430,9 +1431,8 @@ test('Claude CLI spawns with --mcp-config and --append-system-prompt for MCP int
   const mcpPath = args[args.indexOf('--mcp-config') + 1];
   assert.ok(mcpPath, '--mcp-config must have a valid path');
   assert.ok(inspectedMcpConfig?.mcpServers?.nevo, 'MCP config must define nevo server');
-  assert.equal(inspectedMcpConfig.mcpServers.nevo.type, 'http', 'MCP config must configure streamable http transport');
-  assert.ok(inspectedMcpConfig.mcpServers.nevo.url.startsWith('http://127.0.0.1:4318/mcp'), 'MCP config url must point to server MCP route');
-  assert.ok(inspectedMcpConfig.mcpServers.nevo.headers['x-bridge-token'], 'MCP config headers must contain x-bridge-token');
+  assert.equal(inspectedMcpConfig.mcpServers.nevo.url, 'http://127.0.0.1:4318/mcp', 'MCP config url must be clean URL without token parameter');
+  assert.ok(inspectedMcpConfig.mcpServers.nevo.headers['x-nevo-interaction-token'], 'MCP config headers must contain x-nevo-interaction-token');
   assert.equal(inspectedMcpConfig.mcpServers.nevo.args, undefined, 'No stdio child bridge process should be configured');
 });
 
@@ -1670,4 +1670,69 @@ test('Claude question heuristics rejection: question marks in assistant text do 
 
   assert.equal(result.status || 'completed', 'completed');
   assert.equal(requestInteractionCalled, false, 'Text containing ? must never trigger requestInteraction');
+});
+
+test('Claude TLS security: NODE_TLS_REJECT_UNAUTHORIZED is never set; NODE_EXTRA_CA_CERTS is passed for HTTPS', async () => {
+  let capturedEnv1 = null;
+  const lines = [
+    JSON.stringify({ type: 'init', session_id: 'sess-tls-1' }),
+    JSON.stringify({ type: 'result', subtype: 'success' }),
+  ];
+
+  // 1. HTTPS endpoint without custom cert -> NODE_TLS_REJECT_UNAUTHORIZED must NOT be set
+  const providerHttpsNoCert = createClaudeAgentProvider({
+    mcpEndpointUrl: 'https://127.0.0.1:4318/mcp',
+    tlsCertPath: '/nonexistent/cert.pem',
+    spawnProcess: (executable, args, options) => {
+      capturedEnv1 = options.env;
+      return createMockProcess(lines);
+    },
+  });
+
+  await providerHttpsNoCert.startTurn({
+    turnId: 'turn-tls-1',
+    message: 'Test HTTPS TLS',
+  });
+
+  assert.equal(
+    capturedEnv1.NODE_TLS_REJECT_UNAUTHORIZED,
+    undefined,
+    'NODE_TLS_REJECT_UNAUTHORIZED must NEVER be set to 0 or any value',
+  );
+
+  // 2. HTTPS endpoint with existing cert file -> NODE_EXTRA_CA_CERTS is set
+  const dummyCertPath = join(tmpdir(), `test-ca-cert-${randomUUID()}.pem`);
+  writeFileSync(dummyCertPath, '---BEGIN CERTIFICATE---\ndummy\n---END CERTIFICATE---', 'utf-8');
+
+  try {
+    let capturedEnv2 = null;
+    const providerHttpsWithCert = createClaudeAgentProvider({
+      mcpEndpointUrl: 'https://127.0.0.1:4318/mcp',
+      tlsCertPath: dummyCertPath,
+      spawnProcess: (executable, args, options) => {
+        capturedEnv2 = options.env;
+        return createMockProcess(lines);
+      },
+    });
+
+    await providerHttpsWithCert.startTurn({
+      turnId: 'turn-tls-2',
+      message: 'Test HTTPS TLS with cert',
+    });
+
+    assert.equal(
+      capturedEnv2.NODE_TLS_REJECT_UNAUTHORIZED,
+      undefined,
+      'NODE_TLS_REJECT_UNAUTHORIZED must NEVER be set',
+    );
+    assert.equal(
+      capturedEnv2.NODE_EXTRA_CA_CERTS,
+      dummyCertPath,
+      'NODE_EXTRA_CA_CERTS must point to the configured TLS cert file',
+    );
+  } finally {
+    try {
+      unlinkSync(dummyCertPath);
+    } catch {}
+  }
 });

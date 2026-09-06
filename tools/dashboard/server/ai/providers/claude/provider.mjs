@@ -185,6 +185,7 @@ export class ClaudeAgentProvider {
   #rawCapture;
   #mcpEnabled;
   #mcpEndpointUrl;
+  #tlsCertPath;
 
   constructor({
     executable = 'claude',
@@ -204,6 +205,7 @@ export class ClaudeAgentProvider {
     mcpBridgeEnabled,
     mcpEndpointUrl = null,
     bridgePort = null,
+    tlsCertPath = null,
   } = {}) {
     this.#executable = executable;
     this.#cwd = cwd;
@@ -215,6 +217,14 @@ export class ClaudeAgentProvider {
     this.#probeExecutable = probeExecutable ?? (spawnProcess !== spawn ? () => true : defaultProbeClaudeExecutable);
     this.#mcpEnabled = mcpBridgeEnabled !== undefined ? Boolean(mcpBridgeEnabled) : Boolean(mcpEnabled);
     this.#mcpEndpointUrl = mcpEndpointUrl || (bridgePort ? `http://127.0.0.1:${bridgePort}/mcp` : null);
+    this.#tlsCertPath =
+      tlsCertPath ||
+      process.env.NEVO_TLS_CERT_PATH ||
+      (existsSync(resolve(this.#cwd, 'tools', 'dashboard', 'config', 'tls-cert.pem'))
+        ? resolve(this.#cwd, 'tools', 'dashboard', 'config', 'tls-cert.pem')
+        : existsSync(resolve(__dirname, '..', '..', '..', 'config', 'tls-cert.pem'))
+          ? resolve(__dirname, '..', '..', '..', 'config', 'tls-cert.pem')
+          : null);
     this.#rawCapture = new RawCaptureRecorder({
       providerId: 'claude',
       rawCaptureDir: rawCaptureEnabled
@@ -247,8 +257,7 @@ export class ClaudeAgentProvider {
 
   get capabilities() {
     const endpointUrl = this.#resolveMcpEndpointUrl();
-    const isAvailable = this.isAvailable().available;
-    const isMcpUsable = Boolean(this.#mcpEnabled && endpointUrl && isAvailable);
+    const isMcpUsable = Boolean(this.#mcpEnabled && endpointUrl);
     return Object.freeze({
       ...CLAUDE_CAPABILITIES,
       interactiveQuestions: isMcpUsable,
@@ -332,9 +341,9 @@ export class ClaudeAgentProvider {
       mcpServers: {
         nevo: {
           type: 'http',
-          url: `${mcpUrl}?token=${token}`,
+          url: mcpUrl,
           headers: {
-            'x-bridge-token': token,
+            'x-nevo-interaction-token': token,
           },
         },
       },
@@ -445,8 +454,8 @@ export class ClaudeAgentProvider {
       let child;
       try {
         const childEnv = { ...process.env, CLAUDE_INTERACTIVE: '0' };
-        if (resolvedMcpUrl?.startsWith('https:')) {
-          childEnv.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+        if (resolvedMcpUrl?.startsWith('https:') && this.#tlsCertPath && existsSync(this.#tlsCertPath)) {
+          childEnv.NODE_EXTRA_CA_CERTS = this.#tlsCertPath;
         }
         child = this.#spawnProcess(this.#executable, args, {
           cwd: this.#cwd,
@@ -786,8 +795,9 @@ export class ClaudeAgentProvider {
               deferredPayload = event.deferred_tool_use || event.delta?.deferred_tool_use || deferredPayload;
             }
             if (event.subtype === 'error' || event.is_error === true) {
-              cleanupSettings();
-              reject(new AiError('AI_PROVIDER_ERROR', event.error?.message || event.result || 'Claude turn failed.'));
+              const err = new AiError('AI_PROVIDER_ERROR', event.error?.message || event.result || 'Claude turn failed.');
+              cleanupSettings(err);
+              reject(err);
               return;
             }
 
@@ -813,8 +823,9 @@ export class ClaudeAgentProvider {
           }
 
           case 'error': {
-            cleanupSettings();
-            reject(new AiError('AI_PROVIDER_ERROR', event.error?.message || 'Claude turn failed.'));
+            const err = new AiError('AI_PROVIDER_ERROR', event.error?.message || 'Claude turn failed.');
+            cleanupSettings(err);
+            reject(err);
             break;
           }
           default:
@@ -1072,11 +1083,13 @@ export class ClaudeAgentProvider {
     }
   }
 
-  async cancelTurn({ operation } = {}) {
+  async cancelTurn({ operation, error } = {}) {
     if (!operation) return;
     operation.cancelled = true;
+    const terminalError =
+      error || new AiError('AI_TURN_CANCELLED', 'Claude turn was cancelled.', { status: 409 });
     if (operation.turnId) {
-      mcpInteractionRegistry.cancelTurn(operation.turnId);
+      mcpInteractionRegistry.cancelTurn(operation.turnId, terminalError);
     }
     const child = operation.childProcess;
     if (!child) return;

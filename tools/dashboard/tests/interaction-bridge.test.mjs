@@ -183,7 +183,7 @@ test('Official MCP SDK Client with InMemoryTransport: round-trip, token extracti
     arguments: { question: 'Question without token?' },
   });
   assert.equal(noTokenResult.isError, true);
-  assert.ok(noTokenResult.content[0].text.includes('Forbidden: missing turn correlation token'));
+  assert.ok(noTokenResult.content[0].text.includes('Forbidden: missing x-nevo-interaction-token header'));
 
   // 2. Empty question returns validation error
   // (we simulate extra context by testing createNevoMcpServer tool handler with extra)
@@ -198,7 +198,7 @@ test('Official MCP SDK Client with InMemoryTransport: round-trip, token extracti
   await server.close();
 });
 
-test('Fastify mcpRoutes: loopback enforcement, /mcp and /api/ai/mcp routes, and full MCP lifecycle', async () => {
+test('Fastify mcpRoutes: loopback enforcement, canonical /mcp route, and full MCP lifecycle', async () => {
   const registry = new McpInteractionRegistry();
   const token = 'tok-fastify-loopback';
 
@@ -285,14 +285,14 @@ test('Fastify mcpRoutes: loopback enforcement, /mcp and /api/ai/mcp routes, and 
     assert.equal(toolsBody.result.tools.length, 1);
     assert.equal(toolsBody.result.tools[0].name, 'ask_user');
 
-    // Step 2d: Tools call on /api/ai/mcp endpoint with token in header
-    const callPromise = fetch(`http://127.0.0.1:${port}/api/ai/mcp`, {
+    // Step 2d: Tools call on canonical /mcp endpoint with x-nevo-interaction-token in header
+    const callPromise = fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream',
         'mcp-session-id': mcpSessionId,
-        'x-bridge-token': token,
+        'x-nevo-interaction-token': token,
       },
       body: JSON.stringify({
         jsonrpc: '2.0',
@@ -322,20 +322,36 @@ test('Fastify mcpRoutes: loopback enforcement, /mcp and /api/ai/mcp routes, and 
     assert.equal(callRes.status, 200);
     const callBody = await callRes.json();
     assert.ok(callBody.result.content[0].text.includes('Staging'));
+
+    // Step 2e: Verify deprecated /api/ai/mcp endpoint is removed (returns 404)
+    const deprecatedRes = await fetch(`http://127.0.0.1:${port}/api/ai/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 99, method: 'tools/list', params: {} }),
+    });
+    assert.equal(deprecatedRes.status, 404, 'Deprecated /api/ai/mcp route must return 404');
   } finally {
     await fastify.close();
   }
 });
 
-test('Token correlation security: missing, invalid, and stale tokens are rejected', async () => {
+test('Token correlation security: missing, invalid, stale, wrong turn, and query-param rejection', async () => {
   const registry = new McpInteractionRegistry();
-  const token = 'tok-valid-sec';
+  const tokenValid = 'tok-valid-sec';
+  const tokenOther = 'tok-other-turn';
 
   registry.registerActiveTurn('turn-sec', {
-    token,
+    token: tokenValid,
     provider: 'claude',
     providerSessionId: 'sess-sec',
     requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-sec-1' }),
+  });
+
+  registry.registerActiveTurn('turn-other', {
+    token: tokenOther,
+    provider: 'claude',
+    providerSessionId: 'sess-other',
+    requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-other-1' }),
   });
 
   const fastify = Fastify({ logger: false });
@@ -367,7 +383,7 @@ test('Token correlation security: missing, invalid, and stale tokens are rejecte
       body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }),
     });
 
-    // 1. Missing token
+    // 1. Missing token header completely
     const noTokenRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid },
@@ -380,20 +396,35 @@ test('Token correlation security: missing, invalid, and stale tokens are rejecte
     });
     const noTokenBody = await noTokenRes.json();
     assert.equal(noTokenBody.result.isError, true);
-    assert.ok(noTokenBody.result.content[0].text.includes('Forbidden: missing turn correlation token'));
+    assert.ok(noTokenBody.result.content[0].text.includes('Forbidden: missing x-nevo-interaction-token header'));
 
-    // 2. Wrong token
+    // 2. Token in query param is rejected (must be in header)
+    const queryParamTokenRes = await fetch(`http://127.0.0.1:${port}/mcp?token=${tokenValid}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'tools/call',
+        params: { name: 'ask_user', arguments: { question: 'Query param token?' } },
+      }),
+    });
+    const queryParamBody = await queryParamTokenRes.json();
+    assert.equal(queryParamBody.result.isError, true);
+    assert.ok(queryParamBody.result.content[0].text.includes('Forbidden: missing x-nevo-interaction-token header'));
+
+    // 3. Invalid / unknown token
     const wrongTokenRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream',
         'mcp-session-id': sid,
-        'x-bridge-token': 'wrong-token-abc',
+        'x-nevo-interaction-token': 'wrong-token-xyz',
       },
       body: JSON.stringify({
         jsonrpc: '2.0',
-        id: 3,
+        id: 4,
         method: 'tools/call',
         params: { name: 'ask_user', arguments: { question: 'Wrong token?' } },
       }),
@@ -402,7 +433,7 @@ test('Token correlation security: missing, invalid, and stale tokens are rejecte
     assert.equal(wrongTokenBody.result.isError, true);
     assert.ok(wrongTokenBody.result.content[0].text.includes('invalid, stale, or expired'));
 
-    // 3. Stale token after turn unregistration
+    // 4. Stale token after turn unregistration
     registry.unregisterActiveTurn('turn-sec');
     const staleTokenRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
@@ -410,11 +441,11 @@ test('Token correlation security: missing, invalid, and stale tokens are rejecte
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream',
         'mcp-session-id': sid,
-        'x-bridge-token': token,
+        'x-nevo-interaction-token': tokenValid,
       },
       body: JSON.stringify({
         jsonrpc: '2.0',
-        id: 4,
+        id: 5,
         method: 'tools/call',
         params: { name: 'ask_user', arguments: { question: 'Stale token?' } },
       }),
@@ -422,6 +453,34 @@ test('Token correlation security: missing, invalid, and stale tokens are rejecte
     const staleTokenBody = await staleTokenRes.json();
     assert.equal(staleTokenBody.result.isError, true);
     assert.ok(staleTokenBody.result.content[0].text.includes('invalid, stale, or expired'));
+
+    // 5. Valid token on other turn correlates strictly to other turn
+    const callOtherPromise = fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid,
+        'x-nevo-interaction-token': tokenOther,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 6,
+        method: 'tools/call',
+        params: { name: 'ask_user', arguments: { question: 'Question on other turn' } },
+      }),
+    });
+
+    while (!registry.hasPending('int-other-1')) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    assert.equal(registry.getPending('int-other-1')?.turnId, 'turn-other');
+    registry.resolveResponse('int-other-1', { answer: 'Other turn answered' });
+
+    const otherRes = await callOtherPromise;
+    const otherBody = await otherRes.json();
+    assert.equal(otherBody.result.isError, undefined);
+    assert.ok(otherBody.result.content[0].text.includes('Other turn answered'));
   } finally {
     await fastify.close();
   }
@@ -521,6 +580,310 @@ test('Server shutdown: cleanly terminates and rejects pending bridge requests wi
 
   assert.equal(registry.hasPending('int-shutdown'), false);
   assert.equal(registry.getActiveTurn({ turnId: 'turn-shutdown' }), null);
+});
+
+test('Multi-client MCP concurrency: independent sessions, isolated calls, distinct resolution, and cancellation isolation (A-F)', async () => {
+  const registry = new McpInteractionRegistry();
+  const fastify = Fastify({ logger: false });
+  await fastify.register(mcpRoutes, { registry });
+  await fastify.listen({ port: 0, host: '127.0.0.1' });
+  const port = fastify.server.address().port;
+
+  try {
+    // Register two concurrent turns
+    const token1 = 'tok-turn-1';
+    const token2 = 'tok-turn-2';
+
+    registry.registerActiveTurn('turn-conc-1', {
+      token: token1,
+      provider: 'claude',
+      providerSessionId: 'sess-conc-1',
+      requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-conc-1' }),
+    });
+
+    registry.registerActiveTurn('turn-conc-2', {
+      token: token2,
+      provider: 'claude',
+      providerSessionId: 'sess-conc-2',
+      requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-conc-2' }),
+    });
+
+    // Client 1 initializes
+    const initRes1 = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'client-1', version: '1.0' } },
+      }),
+    });
+    const sid1 = initRes1.headers.get('mcp-session-id');
+    assert.ok(sid1, 'Client 1 receives session id');
+
+    // Client 2 initializes
+    const initRes2 = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'client-2', version: '1.0' } },
+      }),
+    });
+    const sid2 = initRes2.headers.get('mcp-session-id');
+    assert.ok(sid2, 'Client 2 receives distinct session id');
+    assert.notEqual(sid1, sid2, 'A: Sessions must have independent session IDs');
+
+    // Both send initialized notifications
+    await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid1 },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }),
+    });
+    await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid2 },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }),
+    });
+
+    // B: Independent calls - call ask_user on both sessions concurrently
+    const call1Promise = fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid1,
+        'x-nevo-interaction-token': token1,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 10,
+        method: 'tools/call',
+        params: { name: 'ask_user', arguments: { question: 'Question for Turn 1' } },
+      }),
+    });
+
+    const call2Promise = fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid2,
+        'x-nevo-interaction-token': token2,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 20,
+        method: 'tools/call',
+        params: { name: 'ask_user', arguments: { question: 'Question for Turn 2' } },
+      }),
+    });
+
+    while (!registry.hasPending('int-conc-1') || !registry.hasPending('int-conc-2')) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    // C: Distinct resolution - resolve each turn with different answers
+    registry.resolveResponse('int-conc-1', { answer: 'Answer for Turn 1' });
+    registry.resolveResponse('int-conc-2', { answer: 'Answer for Turn 2' });
+
+    const [res1, res2] = await Promise.all([call1Promise, call2Promise]);
+    const body1 = await res1.json();
+    const body2 = await res2.json();
+
+    assert.ok(body1.result.content[0].text.includes('Answer for Turn 1'));
+    assert.ok(!body1.result.content[0].text.includes('Answer for Turn 2'));
+    assert.ok(body2.result.content[0].text.includes('Answer for Turn 2'));
+    assert.ok(!body2.result.content[0].text.includes('Answer for Turn 1'));
+
+    // D: Cancellation isolation: Turn 1 is cancelled, while Turn 2 remains active
+    const call1CancelPromise = fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid1,
+        'x-nevo-interaction-token': token1,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 11,
+        method: 'tools/call',
+        params: { name: 'ask_user', arguments: { question: 'Question 1B to be cancelled' } },
+      }),
+    });
+
+    const call2ActivePromise = fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid2,
+        'x-nevo-interaction-token': token2,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 21,
+        method: 'tools/call',
+        params: { name: 'ask_user', arguments: { question: 'Question 2B to succeed' } },
+      }),
+    });
+
+    while (!registry.hasPending('int-conc-1') || !registry.hasPending('int-conc-2')) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    // Cancel Turn 1 only
+    registry.cancelTurn('turn-conc-1');
+
+    const res1Cancelled = await call1CancelPromise;
+    const body1Cancelled = await res1Cancelled.json();
+    assert.ok(body1Cancelled.result.isError, 'Cancelled turn call must return isError');
+    assert.ok(body1Cancelled.result.content[0].text.includes('cancelled'));
+
+    // Turn 2 is still pending!
+    assert.equal(registry.hasPending('int-conc-2'), true, 'Turn 2 must remain pending after Turn 1 cancellation');
+
+    // Resolve Turn 2
+    registry.resolveResponse('int-conc-2', { answer: 'Turn 2 survived' });
+    const res2Active = await call2ActivePromise;
+    const body2Active = await res2Active.json();
+    assert.ok(body2Active.result.content[0].text.includes('Turn 2 survived'));
+
+    // E: Session closing: DELETE /mcp for Session 1 does not affect Session 2
+    const delRes1 = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'DELETE',
+      headers: { 'mcp-session-id': sid1 },
+    });
+    assert.equal(delRes1.status, 200, 'DELETE session 1 succeeds');
+
+    // Session 1 is gone (returns 404)
+    const deadSessionRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid1 },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 99, method: 'tools/list', params: {} }),
+    });
+    assert.equal(deadSessionRes.status, 404, 'Closed session returns 404');
+
+    // Session 2 is still alive and working!
+    const liveSessionRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid2 },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 100, method: 'tools/list', params: {} }),
+    });
+    assert.equal(liveSessionRes.status, 200, 'Session 2 remains alive');
+    const liveBody = await liveSessionRes.json();
+    assert.equal(liveBody.result.tools[0].name, 'ask_user');
+  } finally {
+    // F: Cleanup on server close
+    await fastify.close();
+  }
+});
+
+test('Terminal cause propagation: MCP waiter receives authoritative error code and message', async () => {
+  // 1. Cancellation -> AI_TURN_CANCELLED
+  {
+    const registry = new McpInteractionRegistry();
+    registry.registerActiveTurn('turn-prop-cancel', {
+      token: 'tok-prop-cancel',
+      provider: 'claude',
+      providerSessionId: 'sess-prop-cancel',
+      requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-prop-cancel' }),
+    });
+    registry.registerPending('int-prop-cancel', {
+      turnId: 'turn-prop-cancel',
+      provider: 'claude',
+      providerSessionId: 'sess-prop-cancel',
+    });
+    const waiter = registry.waitForResponse('int-prop-cancel');
+    const cancelErr = new AiError('AI_TURN_CANCELLED', 'User explicitly cancelled the turn.', { status: 409 });
+    registry.cancelTurn('turn-prop-cancel', cancelErr);
+
+    await assert.rejects(waiter, (err) => {
+      assert.equal(err.code, 'AI_TURN_CANCELLED');
+      assert.equal(err.message, 'User explicitly cancelled the turn.');
+      assert.equal(err.status, 409);
+      return true;
+    });
+  }
+
+  // 2. Provider error / exit -> AI_PROVIDER_EXIT_ERROR
+  {
+    const registry = new McpInteractionRegistry();
+    registry.registerActiveTurn('turn-prop-exit', {
+      token: 'tok-prop-exit',
+      provider: 'claude',
+      providerSessionId: 'sess-prop-exit',
+      requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-prop-exit' }),
+    });
+    registry.registerPending('int-prop-exit', {
+      turnId: 'turn-prop-exit',
+      provider: 'claude',
+      providerSessionId: 'sess-prop-exit',
+    });
+    const waiter = registry.waitForResponse('int-prop-exit');
+    const exitErr = new AiError('AI_PROVIDER_EXIT_ERROR', 'Claude CLI process crashed with exit code 137 (SIGKILL)');
+    registry.unregisterActiveTurn('turn-prop-exit', exitErr);
+
+    await assert.rejects(waiter, (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_EXIT_ERROR');
+      assert.ok(err.message.includes('SIGKILL'));
+      return true;
+    });
+  }
+
+  // 3. Timeout -> AI_TURN_TIMEOUT
+  {
+    const registry = new McpInteractionRegistry();
+    registry.registerActiveTurn('turn-prop-timeout', {
+      token: 'tok-prop-timeout',
+      provider: 'claude',
+      providerSessionId: 'sess-prop-timeout',
+      requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-prop-timeout' }),
+    });
+    registry.registerPending('int-prop-timeout', {
+      turnId: 'turn-prop-timeout',
+      provider: 'claude',
+      providerSessionId: 'sess-prop-timeout',
+    });
+    const waiter = registry.waitForResponse('int-prop-timeout');
+    const timeoutErr = new AiError('AI_TURN_TIMEOUT', 'The turn was cancelled because it stopped responding.', { status: 504 });
+    registry.cancelTurn('turn-prop-timeout', timeoutErr);
+
+    await assert.rejects(waiter, (err) => {
+      assert.equal(err.code, 'AI_TURN_TIMEOUT');
+      assert.equal(err.status, 504);
+      return true;
+    });
+  }
+
+  // 4. Server shutdown -> AI_SERVER_SHUTDOWN
+  {
+    const registry = new McpInteractionRegistry();
+    registry.registerActiveTurn('turn-prop-shutdown', {
+      token: 'tok-prop-shutdown',
+      provider: 'claude',
+      providerSessionId: 'sess-prop-shutdown',
+      requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-prop-shutdown' }),
+    });
+    registry.registerPending('int-prop-shutdown', {
+      turnId: 'turn-prop-shutdown',
+      provider: 'claude',
+      providerSessionId: 'sess-prop-shutdown',
+    });
+    const waiter = registry.waitForResponse('int-prop-shutdown');
+    const shutdownErr = new AiError('AI_SERVER_SHUTDOWN', 'Server is shutting down.', { status: 503 });
+    registry.shutdown(shutdownErr);
+
+    await assert.rejects(waiter, (err) => {
+      assert.equal(err.code, 'AI_SERVER_SHUTDOWN');
+      assert.equal(err.status, 503);
+      return true;
+    });
+  }
 });
 
 test('Restart reconciliation: persisted live-operation interaction is interrupted on boot', async () => {

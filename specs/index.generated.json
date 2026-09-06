@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-06T10:28:51.711Z",
+  "generated": "2026-09-06T11:12:31.468Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -205,7 +205,7 @@
           ],
           "implementation": {
             "baseline_revision": "3b58aa48d9a20381057777ffeb5569a4fc7b61af",
-            "review_revision": "e32327ae99d9fe47a7de904030b558417a0df8a1",
+            "review_revision": "14643b45640da6caa693269e0255bf1cec384f1d",
             "changed_paths": [
               "tools/dashboard/package-lock.json",
               "tools/dashboard/package.json",
@@ -222,11 +222,11 @@
               "tools/dashboard/tests/fixtures/evidence/claude-evidence.json",
               "tools/dashboard/tests/interaction-bridge.test.mjs"
             ],
-            "worktree_patch_fingerprint": "64ab16b3c4de4f1edd2555a2ce519e76eefcb7f25f8a8f7faa92936b94d4b522"
+            "worktree_patch_fingerprint": "3e6c1a6632d3ed53d83a11341a0bd1b8dbb8b4469a8fa6c737ce37a8cdaaf50c"
           },
           "self_check": {
-            "fingerprint": "c2e832641b539459297fb5c571b7aa6089bf81e2fb8ec41265c6fe2d2bc2e7e8",
-            "revision": "e32327ae99d9fe47a7de904030b558417a0df8a1",
+            "fingerprint": "94683a0786812d1983f20ab9eaeb59e5e169c4cbb27f463bc73f22b9f93311ab",
+            "revision": "14643b45640da6caa693269e0255bf1cec384f1d",
             "commands": [
               {
                 "command": "node --experimental-strip-types --test tools/dashboard/tests/claude-provider.test.mjs tools/dashboard/tests/interaction-bridge.test.mjs tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs",
@@ -409,7 +409,7 @@
           ],
           "implementation": {
             "baseline_revision": "ef2df9251514f8767786e03627d4e346d1eed33d",
-            "review_revision": "e32327ae99d9fe47a7de904030b558417a0df8a1",
+            "review_revision": "14643b45640da6caa693269e0255bf1cec384f1d",
             "changed_paths": [
               "tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs",
               "tools/dashboard/tests/claude-provider.test.mjs",
@@ -418,11 +418,11 @@
               "tools/dashboard/tests/fixtures/evidence/claude-evidence.json",
               "tools/dashboard/tests/interaction-bridge.test.mjs"
             ],
-            "worktree_patch_fingerprint": "be84dc15f382726af47678fac78d26a345cbe012fb0c0396affa1e4a0ea5bd47"
+            "worktree_patch_fingerprint": "028df3d96e40b6cb18f52e973ac559bf6f6ce025ae3662148bf3fb0c91c45377"
           },
           "self_check": {
-            "fingerprint": "7c0a27e6fbbf21bb194778faf94aefab9b391ac1af4428df44d2b703156efc5d",
-            "revision": "e32327ae99d9fe47a7de904030b558417a0df8a1",
+            "fingerprint": "0582dd6833451df8fdff39745636b4a4a04ad46a6fb45189be3ed2df8b13cd99",
+            "revision": "14643b45640da6caa693269e0255bf1cec384f1d",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard test",

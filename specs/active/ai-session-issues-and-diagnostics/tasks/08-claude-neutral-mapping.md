@@ -56,12 +56,12 @@ Turn state, interactions, provider operation/process lifecycle, and terminal aut
 - Preserve deferral/AskUserQuestion lifecycle and terminal precedence without inventing a final
   answer.
 - Enable live interactive questions in headless mode via a server-owned Fastify Streamable HTTP MCP
-  endpoint (`/mcp` and `/api/ai/mcp`) exposing a single canonical tool (`ask_user`), correlated via
-  opaque short-lived turn tokens passed in the connection URL and headers, registered with
+  endpoint (`/mcp`) exposing a single canonical tool (`ask_user`), correlated via
+  opaque short-lived turn tokens passed in the `x-nevo-interaction-token` request header, registered with
   `mcpInteractionRegistry`, and resolved via `POST /api/ai/sessions/:provider/:providerSessionId/interactions/:interactionId/respond`
   returning `{ continuesTurn: true }` without text heuristics.
 - Truthfully declare capabilities (`interactiveQuestions: true` dynamically when MCP is enabled and endpoint
-  is available; `interactiveConfirmations: false`).
+  is configured; `interactiveConfirmations: false`).
 - Remove Claude use of the transitional callback bridge when complete.
 
 ## Acceptance criteria
