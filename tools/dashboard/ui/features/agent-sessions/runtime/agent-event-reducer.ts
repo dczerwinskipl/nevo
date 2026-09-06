@@ -28,6 +28,27 @@ export function deriveActivity(turns: CanonicalTurn[]): AgentSessionStatus {
   return 'running';
 }
 
+// A loaded snapshot's readiness is a required field on the wire contract — this value
+// is never a normal outcome, only a fail-closed guard against a contract violation (a
+// malformed/missing readiness on an otherwise-loaded snapshot or event). It must never
+// be mistaken for a legitimate `unavailable` provider/persistence state.
+export const MISSING_READINESS: SessionReadiness = { status: 'unavailable', reason: 'readiness_unavailable' };
+
+/**
+ * Combines authoritative server readiness with the one permitted client-local
+ * override — a brief optimistic-busy state between a successful POST and the first
+ * authoritative `turn.updated`. The override may only ever make readiness more
+ * restrictive, never less, and a missing/malformed server readiness fails closed
+ * rather than silently becoming `ready`.
+ */
+export function resolveEffectiveReadiness(
+  serverReadiness: SessionReadiness | null,
+  optimisticPending: boolean,
+): SessionReadiness {
+  if (optimisticPending) return { status: 'busy', reason: 'turn_in_progress' };
+  return serverReadiness ?? MISSING_READINESS;
+}
+
 /**
  * Checks whether a normal new turn may be started.
  * A new turn may only be started when the session readiness is 'ready'.

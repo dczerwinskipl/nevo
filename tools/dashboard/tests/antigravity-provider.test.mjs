@@ -1971,7 +1971,15 @@ test('Antigravity error result: event "result" + status "ERROR" with non-empty r
   assert.deepEqual(finalAnswerDeltas, ['Odpowiedź asystenta wygenerowana mimo wcześniejszego błędu w sesji']);
 });
 
-test('Antigravity error result: event "result" + status "FAILED" with non-empty response completes turn with FinalAnswer', async () => {
+test('Antigravity error result: event "result" + status "FAILED" with non-empty response still fails turn — no captured evidence of a recoverable FAILED status', async () => {
+  // Unlike status "ERROR" (evidenced quota/retry/stale-diagnostic recovery cases,
+  // see the tests above), no captured Antigravity evidence shows status: "FAILED"
+  // carrying a genuine current-turn response alongside a stale/advisory error — every
+  // observed FAILED envelope is a real current-turn failure. The diagnostic-residue
+  // override is therefore scoped to status "ERROR" only; FAILED stays authoritative
+  // fatal even when a response string is present, and that response is preserved as
+  // commentary (not promoted to FinalAnswer) for visibility into what was produced
+  // before the failure.
   const lines = [
     JSON.stringify({ type: 'init', conversation_id: 'conv-failed-response' }),
     JSON.stringify({
@@ -1990,17 +1998,25 @@ test('Antigravity error result: event "result" + status "FAILED" with non-empty 
     spawnProcess: () => createMockProcess(lines),
   });
 
-  const result = await provider.startTurn({
-    turnId: 'turn-failed-response',
-    providerSessionId: 'conv-failed-response',
-    message: 'Do work',
-    emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
-    emitCommentaryDelta: (t) => commentaryDeltas.push(t),
-  });
+  await assert.rejects(
+    () =>
+      provider.startTurn({
+        turnId: 'turn-failed-response',
+        providerSessionId: 'conv-failed-response',
+        message: 'Do work',
+        emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
+        emitCommentaryDelta: (t) => commentaryDeltas.push(t),
+      }),
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.message, 'Task execution failed');
+      assert.equal(err.details?.providerResponse, 'Response generated despite failed status');
+      return true;
+    },
+  );
 
-  assert.equal(result.status, 'completed');
-  assert.equal(commentaryDeltas.length, 0, 'must not downgrade completed response to commentary');
-  assert.deepEqual(finalAnswerDeltas, ['Response generated despite failed status']);
+  assert.equal(finalAnswerDeltas.length, 0, 'must not promote a FAILED-status response to FinalAnswer');
+  assert.deepEqual(commentaryDeltas, ['Response generated despite failed status']);
 });
 
 test('Antigravity error result: event "result" + status "TIMEOUT" with non-empty response fails turn with AI_PROVIDER_TIMEOUT', async () => {

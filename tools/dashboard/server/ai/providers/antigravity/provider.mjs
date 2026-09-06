@@ -1237,15 +1237,19 @@ export class AntigravityAgentProvider {
               !isResponseEchoingError &&
               (typeof finalText === 'string' ? finalText.trim().length > 0 : !statusIndicatesError);
 
-            // Global terminal outcome evaluation:
-            // When a turn successfully produces a substantive final response (hasFinalResponse)
-            // and did not time out (!isTimeout):
-            // Antigravity CLI may report status: "ERROR" or is_error: true alongside non-fatal
-            // diagnostic advisory strings (e.g. quota/rate notices, internal function call formatting
-            // retries, stale session errors carried over across turns, or tool exit warnings).
-            // A substantive final response MUST be honored as the canonical FinalAnswer rather than
-            // downgraded to commentary or failing the turn.
-            if (isTerminalError && hasFinalResponse && !isTimeout) {
+            // Antigravity CLI evidence captured in this repo (quota/rate-limit notices,
+            // function-call-formatting retry notices, and stale errors re-emitted from a
+            // resumed conversation — see antigravity-provider.test.mjs) is consistently
+            // reported as status: "ERROR" carrying an advisory `error` string alongside a
+            // genuine, substantive, non-echoed current-turn response. No captured evidence
+            // shows that same recoverable pattern for status: "FAILED" or a bare `is_error`
+            // flag without status "ERROR" — every captured FAILED/is_error-only case is a
+            // genuine current-turn failure with an empty response. Only the evidenced
+            // status is ever reclassified; FAILED/TIMEOUT/is_error-only stay authoritative
+            // fatal regardless of response text.
+            const isDiagnosticEligibleStatus = statusValue?.toUpperCase() === 'ERROR';
+
+            if (isTerminalError && isDiagnosticEligibleStatus && hasFinalResponse && !isTimeout) {
               isTerminalError = false;
               if (errorMessage) {
                 console.warn(`[antigravity] Diagnostic notice on completed turn: ${errorMessage}`);

@@ -8,6 +8,8 @@ import {
   applyTurnUpdated,
   shouldSurfaceCancelError,
   shouldSurfaceTurnError,
+  resolveEffectiveReadiness,
+  MISSING_READINESS,
 } from '../ui/features/agent-sessions/runtime/agent-event-reducer.ts';
 import { resolveSessionReadiness } from '../server/ai/sessions/service.mjs';
 import {
@@ -298,6 +300,39 @@ test('Task 13 correction: resolveSessionReadiness projects every canonical Turn 
   );
 });
 
+test('PR #41 correction: resolveEffectiveReadiness fails closed on missing server readiness, never synthesizes ready', () => {
+  const ready = { status: 'ready', reason: 'idle' };
+  const requiresAttention = { status: 'requiresAttention', reason: 'permission_required' };
+
+  // Missing/malformed authoritative readiness on an otherwise-loaded snapshot must
+  // never be treated as ready — it fails closed to `unavailable`.
+  const missing = resolveEffectiveReadiness(null, false);
+  assert.deepEqual(missing, MISSING_READINESS);
+  assert.equal(missing.status, 'unavailable');
+  assert.equal(canStartTurn(missing), false, 'missing readiness must not enable the composer');
+
+  // Missing readiness combined with an optimistic send stays non-ready either way.
+  assert.equal(resolveEffectiveReadiness(null, true).status, 'busy');
+  assert.equal(canStartTurn(resolveEffectiveReadiness(null, true)), false);
+
+  // A loaded, authoritative `ready` state enables send.
+  assert.deepEqual(resolveEffectiveReadiness(ready, false), ready);
+  assert.equal(canStartTurn(resolveEffectiveReadiness(ready, false)), true);
+
+  // Optimistic pending only ever restricts — it overrides an authoritative `ready`
+  // immediately after a successful POST, before the first turn.updated arrives.
+  const optimisticOverRead = resolveEffectiveReadiness(ready, true);
+  assert.equal(optimisticOverRead.status, 'busy');
+  assert.equal(canStartTurn(optimisticOverRead), false, 'optimistic send immediately disables send');
+
+  // The first authoritative turn.updated (optimisticPending cleared) replaces the
+  // optimistic override with whatever the server actually reports, even if still busy.
+  assert.deepEqual(resolveEffectiveReadiness(requiresAttention, false), requiresAttention);
+  assert.equal(canStartTurn(resolveEffectiveReadiness(requiresAttention, false)), false);
+
+  // A later terminal turn.updated carrying authoritative `ready` re-enables send.
+  assert.equal(canStartTurn(resolveEffectiveReadiness(ready, false)), true);
+});
 
 test('Issue 2 & Race Safety: Terminal SSE before POST response never leaves stale activeTurnId', () => {
   const readyReadiness = { status: 'ready', reason: 'idle' };
@@ -453,8 +488,8 @@ test('AgentSessionPage disables normal composer send when session cannot start t
   // submitMessage requires assistant.canStartTurn
   assert.match(agentSessionPageSource, /!assistant\.canStartTurn/);
 
-  // AgentSessionComposer has disabled and placeholder configured from whichever
-  // representation (V1/V2) is currently displayed (task 11's V1/V2 switch, AC6).
+  // AgentSessionComposer has disabled and placeholder configured from the canonical
+  // runtime's own readiness/activity.
   assert.match(agentSessionPageSource, /disabled=\{!activeRuntime\.canStartTurn \|\| !isProviderAvailable\}/);
   assert.match(
     agentSessionPageSource,
@@ -760,7 +795,7 @@ test('BLOCKING: Action/error lifecycle: Cancel and interaction retry clear previ
   assert.equal(runtimeError, null, 'Runtime error must not survive successful interaction response');
 });
 
-// ── task 11 (semantic Work chat V2), AC6: V1/V2 switch never mutates/cancels runtime state ──
+// ── task 11 (semantic Work chat), AC6: the canonical runtime mounts unconditionally, never gated by a representation switch ──
 
 function turn(status) {
   return { id: 't1', status, work: [], historicalWork: [], activityCount: 0, currentActivity: null, finalAnswer: null };

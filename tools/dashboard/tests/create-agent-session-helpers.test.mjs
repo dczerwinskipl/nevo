@@ -569,7 +569,10 @@ test('real useAgentSessionRuntime mounting: error domain separation between snap
           providerSessionId: 'sess-domain-test',
           messages: [],
           lastEventSeq: 0,
+          readiness: { status: 'ready', reason: 'idle' },
         },
+        readiness: { status: 'ready', reason: 'idle' },
+        turns: [],
       }),
     };
   };

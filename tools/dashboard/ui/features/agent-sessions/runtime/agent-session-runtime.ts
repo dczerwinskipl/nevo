@@ -13,7 +13,7 @@ import { connectAgentEventStream, resolveEventSeq } from './agent-event-source.t
 import { fetchAgentSessionChat, classifySessionLoadError, AgentSessionLoadError } from './agent-session-transport.ts';
 import { postCancelTurn, postRespondInteraction, postStartTurn } from './agent-turn-transport.ts';
 import { createTurnIdempotencyKey } from './idempotency-key.ts';
-import { applyTurnUpdated, deriveActivity } from './agent-event-reducer.ts';
+import { applyTurnUpdated, deriveActivity, resolveEffectiveReadiness } from './agent-event-reducer.ts';
 
 export { applyTurnUpdated, deriveActivity };
 
@@ -210,9 +210,7 @@ export function useAgentSessionRuntime({
         throw new Error('Cannot start turn while the session snapshot is loading.');
       }
       if (loadError) throw new Error('Cannot start turn on a session with a load error.');
-      const currentReadiness: SessionReadiness = optimisticPending
-        ? { status: 'busy', reason: 'turn_in_progress' }
-        : (serverReadiness ?? { status: 'ready', reason: 'idle' });
+      const currentReadiness = resolveEffectiveReadiness(serverReadiness, Boolean(optimisticPending));
       if (currentReadiness.status !== 'ready') {
         throw new Error(`Cannot start turn while session is ${currentReadiness.status}.`);
       }
@@ -285,9 +283,7 @@ export function useAgentSessionRuntime({
   const exposedActiveTurnId = exposedActiveTurn?.id ?? null;
   const exposedCapabilities = isSnapshotLoaded ? capabilities : null;
   const exposedReadiness: SessionReadiness | null = isSnapshotLoaded
-    ? (optimisticPending
-        ? { status: 'busy', reason: 'turn_in_progress' }
-        : (serverReadiness ?? { status: 'ready', reason: 'idle' }))
+    ? resolveEffectiveReadiness(serverReadiness, Boolean(optimisticPending))
     : null;
   const exposedSessionMeta = isSnapshotLoaded ? sessionMeta : null;
   const exposedSessionDetails: AgentSessionSnapshot | null =
