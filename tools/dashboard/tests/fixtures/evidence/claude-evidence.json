@@ -140,6 +140,30 @@
           "content": [
             {
               "type": "tool_use",
+              "id": "toolu_01SearchMcp",
+              "name": "ToolSearch",
+              "input": { "query": "select:mcp__nevo__ask_user", "max_results": 5 }
+            }
+          ]
+        },
+        {
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "tool_result",
+                "tool_use_id": "toolu_01SearchMcp",
+                "content": "[{\"type\":\"tool_reference\",\"tool_name\":\"mcp__nevo__ask_user\"}]"
+              }
+            ]
+          }
+        },
+        {
+          "type": "assistant",
+          "content": [
+            {
+              "type": "tool_use",
               "id": "toolu_04McpAsk",
               "name": "mcp__nevo__ask_user",
               "input": {

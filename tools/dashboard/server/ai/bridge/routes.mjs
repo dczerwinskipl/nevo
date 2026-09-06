@@ -1,4 +1,4 @@
-﻿import { assertBodyObject } from '../sessions/http.mjs';
+import { assertBodyObject } from '../sessions/http.mjs';
 import { interactionBridgeHub } from './interaction-bridge-hub.mjs';
 
 const BRIDGE_ASK_BODY_LIMIT = 32_768;
@@ -22,6 +22,8 @@ export default async function bridgeRoutes(fastify, { interactionHub = interacti
       }
 
       const body = assertBodyObject(request.body);
+      const bridgeToken = request.headers['x-bridge-token'] || body.bridgeToken || body.token;
+
       const {
         provider = 'claude',
         providerSessionId,
@@ -32,17 +34,26 @@ export default async function bridgeRoutes(fastify, { interactionHub = interacti
         multiSelect,
       } = body;
 
-      const result = await interactionHub.handleAsk({
-        provider,
-        providerSessionId,
-        turnId,
-        question,
-        header,
-        options,
-        multiSelect,
-      });
+      try {
+        const result = await interactionHub.handleAsk({
+          provider,
+          providerSessionId,
+          turnId,
+          bridgeToken,
+          question,
+          header,
+          options,
+          multiSelect,
+        });
 
-      reply.send(result);
+        reply.send(result);
+      } catch (err) {
+        const statusCode = typeof err.status === 'number' ? err.status : 500;
+        reply.code(statusCode).send({
+          code: err.code || 'AI_BRIDGE_ERROR',
+          message: err.message,
+        });
+      }
     },
   );
 }

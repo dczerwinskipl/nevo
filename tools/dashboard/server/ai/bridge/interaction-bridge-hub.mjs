@@ -14,11 +14,11 @@ export class InteractionBridgeHub {
   /**
    * Registers an active turn allowing bridge requests to locate its requestInteraction context.
    */
-  registerActiveTurn(turnId, { provider, providerSessionId, requestInteraction } = {}) {
+  registerActiveTurn(turnId, { provider, providerSessionId, bridgeToken, requestInteraction } = {}) {
     if (!turnId) {
       throw new TypeError('turnId is required');
     }
-    const entry = { turnId, provider, providerSessionId, requestInteraction };
+    const entry = { turnId, provider, providerSessionId, bridgeToken, requestInteraction };
     this.#activeTurns.set(turnId, entry);
     if (provider && providerSessionId) {
       this.#activeTurnsBySession.set(`${provider}:${providerSessionId}`, turnId);
@@ -37,8 +37,12 @@ export class InteractionBridgeHub {
   }
 
   getActiveTurn({ turnId, provider, providerSessionId } = {}) {
-    if (turnId && this.#activeTurns.has(turnId)) {
-      return this.#activeTurns.get(turnId);
+    if (turnId) {
+      const entry = this.#activeTurns.get(turnId);
+      if (!entry) return null;
+      if (provider && entry.provider && entry.provider !== provider) return null;
+      if (providerSessionId && entry.providerSessionId && entry.providerSessionId !== providerSessionId) return null;
+      return entry;
     }
     if (provider && providerSessionId) {
       const id = this.#activeTurnsBySession.get(`${provider}:${providerSessionId}`);
@@ -128,6 +132,7 @@ export class InteractionBridgeHub {
     provider,
     providerSessionId,
     turnId,
+    bridgeToken,
     question,
     header,
     options,
@@ -136,6 +141,10 @@ export class InteractionBridgeHub {
     const activeTurn = this.getActiveTurn({ turnId, provider, providerSessionId });
     if (!activeTurn || typeof activeTurn.requestInteraction !== 'function') {
       throw new AiError('AI_INTERACTION_NOT_FOUND', 'No active turn found for bridge request.', { status: 404 });
+    }
+
+    if (activeTurn.bridgeToken && activeTurn.bridgeToken !== bridgeToken) {
+      throw new AiError('AI_FORBIDDEN', 'Invalid or missing bridge token for active turn.', { status: 403 });
     }
 
     const questionText = String(question || '').trim();
@@ -218,6 +227,14 @@ export class InteractionBridgeHub {
       set.delete(entry.interactionId);
       if (set.size === 0) this.#pendingBySession.delete(entry.providerSessionId);
     }
+  }
+
+  shutdown(error = new AiError('AI_SERVER_SHUTDOWN', 'Server is shutting down.', { status: 503 })) {
+    for (const entry of [...this.#pendingInteractions.values()]) {
+      this.#cleanup(entry);
+      entry.reject(error);
+    }
+    this.clear();
   }
 
   clear() {

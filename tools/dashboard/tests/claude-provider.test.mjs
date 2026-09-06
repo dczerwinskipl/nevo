@@ -1455,11 +1455,12 @@ test('Claude MCP bridge round-trip: requestInteraction is resolved via respondIn
   const activeTurn = interactionBridgeHub.getActiveTurn({ turnId: 'turn-bridge-rt-1' });
   assert.ok(activeTurn, 'Active turn must be registered in interactionBridgeHub');
 
-  // MCP bridge invokes handleAsk
+  // MCP bridge invokes handleAsk with bridgeToken provided to MCP process
   const askPromise = interactionBridgeHub.handleAsk({
     provider: 'claude',
     providerSessionId: 'sess-bridge-rt-1',
     turnId: 'turn-bridge-rt-1',
+    bridgeToken: activeTurn.bridgeToken,
     question: 'Do you want to proceed with file modification?',
     options: ['Yes', 'No'],
     multiSelect: false,
@@ -1522,10 +1523,12 @@ test('Claude MCP bridge interaction cancellation: cancelTurn terminates waiting 
       }),
   });
 
+  const activeTurn = interactionBridgeHub.getActiveTurn({ turnId: 'turn-bridge-cancel-1' });
   const askPromise = interactionBridgeHub.handleAsk({
     provider: 'claude',
     providerSessionId: 'sess-bridge-cancel-1',
     turnId: 'turn-bridge-cancel-1',
+    bridgeToken: activeTurn.bridgeToken,
     question: 'Awaiting confirmation before destructive action',
   });
 

@@ -1,6 +1,6 @@
 import { spawn, execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { writeFileSync, unlinkSync } from 'node:fs';
+import { writeFileSync, unlinkSync, existsSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -226,11 +226,23 @@ export class ClaudeAgentProvider {
       rawCaptureEnabled,
       rawFlushTimeoutMs,
     });
-    this.descriptor = Object.freeze({
+  }
+
+  get capabilities() {
+    const isBridgeUsable = Boolean(this.#mcpBridgeEnabled && existsSync(this.#mcpBridgeScriptPath));
+    return Object.freeze({
+      ...CLAUDE_CAPABILITIES,
+      interactiveQuestions: isBridgeUsable,
+      interactiveConfirmations: false,
+    });
+  }
+
+  get descriptor() {
+    return Object.freeze({
       id: 'claude',
       label: 'Claude Code',
       enabled: true,
-      capabilities: CLAUDE_CAPABILITIES,
+      capabilities: this.capabilities,
       supportedModes: ['ask', 'edit', 'agent'],
       defaultMode: 'edit',
     });
@@ -273,6 +285,9 @@ export class ClaudeAgentProvider {
     const hookCmd = `node "${this.#hookScriptPath.replace(/\\/g, '/')}"`;
 
     const settings = {
+      permissions: {
+        allow: ['mcp__nevo__*', 'mcp__nevo__ask_user', 'ask_user'],
+      },
       hooks: {
         PreToolUse: [
           {
@@ -292,23 +307,27 @@ export class ClaudeAgentProvider {
     return settingsPath;
   }
 
-  #createMcpConfigFile({ turnId, effectiveSessionId }) {
+  #createMcpConfigFile({ turnId, effectiveSessionId, bridgeToken }) {
     const configPath = join(tmpdir(), `nevo-claude-mcp-${randomUUID()}.json`);
+    const args = [
+      this.#mcpBridgeScriptPath,
+      '--port',
+      String(this.#bridgePort),
+      '--session',
+      effectiveSessionId,
+      '--turn',
+      turnId,
+      '--provider',
+      'claude',
+    ];
+    if (bridgeToken) {
+      args.push('--token', bridgeToken);
+    }
     const mcpConfig = {
       mcpServers: {
         nevo: {
           command: process.execPath,
-          args: [
-            this.#mcpBridgeScriptPath,
-            '--port',
-            String(this.#bridgePort),
-            '--session',
-            effectiveSessionId,
-            '--turn',
-            turnId,
-            '--provider',
-            'claude',
-          ],
+          args,
         },
       },
     };
@@ -399,8 +418,10 @@ export class ClaudeAgentProvider {
       permissionMode,
     ];
 
+    let bridgeToken = null;
     if (this.#mcpBridgeEnabled) {
-      mcpConfigPath = this.#createMcpConfigFile({ turnId, effectiveSessionId });
+      bridgeToken = randomUUID();
+      mcpConfigPath = this.#createMcpConfigFile({ turnId, effectiveSessionId, bridgeToken });
       args.push(
         '--mcp-config',
         mcpConfigPath,
@@ -441,6 +462,7 @@ export class ClaudeAgentProvider {
         interactionBridgeHub.registerActiveTurn(turnId, {
           provider: 'claude',
           providerSessionId: effectiveSessionId,
+          bridgeToken,
           requestInteraction,
         });
       }

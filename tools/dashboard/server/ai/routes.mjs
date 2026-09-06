@@ -150,7 +150,7 @@ export default async function aiRoutes(
   // and is the only one that knows how to shut it down.
   fastify.addHook('onClose', async () => {
     try {
-      interactionBridgeHub.clear();
+      interactionBridgeHub.shutdown();
       await (service?.shutdown?.() ?? service?.turnRuntime?.shutdown?.());
     } catch (err) {
       console.error('[server] error shutting down AI service:', err);

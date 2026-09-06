@@ -14,6 +14,8 @@ context:
   optional:
     - specs/active/ai-session-issues-and-diagnostics/areas/provider-protocol-discovery.md
 allowed_paths:
+  - tools/dashboard/package.json
+  - tools/dashboard/package-lock.json
   - tools/dashboard/server/ai/providers/claude/**
   - tools/dashboard/server/ai/bridge/**
   - tools/dashboard/server/ai/routes.mjs
