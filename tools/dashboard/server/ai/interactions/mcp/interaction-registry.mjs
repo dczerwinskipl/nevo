@@ -1,4 +1,5 @@
 import { AiError } from '../../contracts.mjs';
+import { mcpSessionManager } from './session-manager.mjs';
 
 /**
  * Manages short-lived turn correlation tokens and pending interaction waiters
@@ -11,6 +12,19 @@ export class McpInteractionRegistry {
   #activeTurns = new Map();
   #activeTurnsByToken = new Map();
   #activeTurnsBySession = new Map();
+  #sessionManager;
+
+  constructor({ sessionManager = mcpSessionManager } = {}) {
+    this.#sessionManager = sessionManager;
+  }
+
+  get sessionManager() {
+    return this.#sessionManager;
+  }
+
+  setSessionManager(sessionManager) {
+    this.#sessionManager = sessionManager;
+  }
 
   /**
    * Registers an active turn with a short-lived token and its requestInteraction context.
@@ -51,6 +65,11 @@ export class McpInteractionRegistry {
       error ||
       new AiError('AI_TURN_TERMINATED', 'The turn terminated while an interaction was pending.', { status: 409 });
     this.cancelTurn(turnId, terminationError);
+
+    // Turn is terminal: close all MCP sessions bound to this Turn and release their transport/server resources
+    if (this.#sessionManager) {
+      this.#sessionManager.closeSessionsForTurn(turnId).catch(() => {});
+    }
   }
 
   /**
@@ -203,6 +222,9 @@ export class McpInteractionRegistry {
       this.#cleanup(entry);
       entry.reject(error);
     }
+    if (this.#sessionManager) {
+      this.#sessionManager.closeAll().catch(() => {});
+    }
     this.clear();
   }
 
@@ -213,6 +235,9 @@ export class McpInteractionRegistry {
     this.#activeTurns.clear();
     this.#activeTurnsByToken.clear();
     this.#activeTurnsBySession.clear();
+    if (this.#sessionManager) {
+      this.#sessionManager.closeAll().catch(() => {});
+    }
   }
 }
 

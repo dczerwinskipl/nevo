@@ -1405,6 +1405,7 @@ test('Claude CLI spawns with --mcp-config and --append-system-prompt for MCP int
   ];
 
   let inspectedMcpConfig = null;
+  let inspectedSettings = null;
   const provider = createClaudeAgentProvider({
     mcpEndpointUrl: 'http://127.0.0.1:4318/mcp',
     spawnProcess: (executable, args) => {
@@ -1413,6 +1414,12 @@ test('Claude CLI spawns with --mcp-config and --append-system-prompt for MCP int
       if (mcpIndex !== -1 && args[mcpIndex + 1]) {
         try {
           inspectedMcpConfig = JSON.parse(readFileSync(args[mcpIndex + 1], 'utf-8'));
+        } catch {}
+      }
+      const settingsIndex = args.indexOf('--settings');
+      if (settingsIndex !== -1 && args[settingsIndex + 1]) {
+        try {
+          inspectedSettings = JSON.parse(readFileSync(args[settingsIndex + 1], 'utf-8'));
         } catch {}
       }
       return createMockProcess(lines, { sessionId: 'claude-sess-mcp' });
@@ -1428,12 +1435,18 @@ test('Claude CLI spawns with --mcp-config and --append-system-prompt for MCP int
   const args = capturedCalls[0].args;
   assert.ok(args.includes('--mcp-config'), 'Args must include --mcp-config');
   assert.ok(args.includes('--append-system-prompt'), 'Args must include --append-system-prompt');
+  assert.ok(args.includes('--settings'), 'Args must include --settings');
   const mcpPath = args[args.indexOf('--mcp-config') + 1];
   assert.ok(mcpPath, '--mcp-config must have a valid path');
   assert.ok(inspectedMcpConfig?.mcpServers?.nevo, 'MCP config must define nevo server');
   assert.equal(inspectedMcpConfig.mcpServers.nevo.url, 'http://127.0.0.1:4318/mcp', 'MCP config url must be clean URL without token parameter');
   assert.ok(inspectedMcpConfig.mcpServers.nevo.headers['x-nevo-interaction-token'], 'MCP config headers must contain x-nevo-interaction-token');
   assert.equal(inspectedMcpConfig.mcpServers.nevo.args, undefined, 'No stdio child bridge process should be configured');
+  assert.deepEqual(
+    inspectedSettings?.permissions?.allow,
+    ['mcp__nevo__ask_user'],
+    'Claude MCP permissions must strictly allow only mcp__nevo__ask_user (least privilege)',
+  );
 });
 
 test('Claude MCP bridge round-trip: requestInteraction is resolved via respondInteraction with continuesTurn: true', async () => {

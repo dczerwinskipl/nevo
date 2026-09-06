@@ -314,7 +314,7 @@ export class ClaudeAgentProvider {
 
     const settings = {
       permissions: {
-        allow: ['mcp__nevo__*', 'mcp__nevo__ask_user', 'ask_user'],
+        allow: ['mcp__nevo__ask_user'],
       },
       hooks: {
         PreToolUse: [

@@ -259,6 +259,7 @@ test('Fastify mcpRoutes: loopback enforcement, canonical /mcp route, and full MC
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream',
         'mcp-session-id': mcpSessionId,
+        'x-nevo-interaction-token': token,
       },
       body: JSON.stringify({
         jsonrpc: '2.0',
@@ -274,6 +275,7 @@ test('Fastify mcpRoutes: loopback enforcement, canonical /mcp route, and full MC
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream',
         'mcp-session-id': mcpSessionId,
+        'x-nevo-interaction-token': token,
       },
       body: JSON.stringify({
         jsonrpc: '2.0',
@@ -435,9 +437,33 @@ test('Token correlation security: missing, invalid, stale, wrong turn, and query
 
     await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid },
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid,
+        'x-nevo-interaction-token': tokenValid,
+      },
       body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }),
     });
+
+    // 4b. Missing token on established session is rejected with 403
+    const missingTokenSubsequentRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 99,
+        method: 'tools/list',
+        params: {},
+      }),
+    });
+    assert.equal(missingTokenSubsequentRes.status, 403);
+    const missingTokenSubsequentBody = await missingTokenSubsequentRes.json();
+    assert.ok(missingTokenSubsequentBody.error.message.includes('missing x-nevo-interaction-token header'));
 
     // 5. Presenting tokenOther on session sid (bound to turn-sec) is REJECTED and does NOT route to turn-other
     const wrongTurnRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
@@ -519,12 +545,13 @@ test('Token correlation security: missing, invalid, stale, wrong turn, and query
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream',
         'mcp-session-id': 'non-existent-sid',
+        'x-nevo-interaction-token': tokenValid,
       },
       body: JSON.stringify({ jsonrpc: '2.0', id: 8, method: 'tools/list', params: {} }),
     });
     assert.equal(staleSessionRes.status, 404);
 
-    // 9. Stale turn: unregister active turn, later ask_user on session sid fails closed
+    // 9. Stale turn: unregister active turn closes and removes MCP session from server; subsequent request fails with 404
     registry.unregisterActiveTurn('turn-sec');
     const staleTurnRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
@@ -541,9 +568,9 @@ test('Token correlation security: missing, invalid, stale, wrong turn, and query
         params: { name: 'ask_user', arguments: { question: 'Call after turn terminated' } },
       }),
     });
+    assert.equal(staleTurnRes.status, 404, 'Terminated turn must have its MCP session removed (404)');
     const staleTurnBody = await staleTurnRes.json();
-    assert.equal(staleTurnBody.result.isError, true);
-    assert.ok(staleTurnBody.result.content[0].text.includes('invalid, stale, or expired'));
+    assert.ok(staleTurnBody.error.message.includes('Session not found'));
     assert.equal(registry.hasPending('int-sec-1'), false);
   } finally {
     await fastify.close();
@@ -712,12 +739,22 @@ test('Multi-client MCP concurrency: independent sessions, isolated calls, distin
     // Both send initialized notifications
     await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid1 },
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid1,
+        'x-nevo-interaction-token': token1,
+      },
       body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }),
     });
     await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid2 },
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid2,
+        'x-nevo-interaction-token': token2,
+      },
       body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }),
     });
 
@@ -828,14 +865,22 @@ test('Multi-client MCP concurrency: independent sessions, isolated calls, distin
     // E: Session closing: DELETE /mcp for Session 1 does not affect Session 2
     const delRes1 = await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'DELETE',
-      headers: { 'mcp-session-id': sid1 },
+      headers: {
+        'mcp-session-id': sid1,
+        'x-nevo-interaction-token': token1,
+      },
     });
     assert.equal(delRes1.status, 200, 'DELETE session 1 succeeds');
 
     // Session 1 is gone (returns 404)
     const deadSessionRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid1 },
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid1,
+        'x-nevo-interaction-token': token1,
+      },
       body: JSON.stringify({ jsonrpc: '2.0', id: 99, method: 'tools/list', params: {} }),
     });
     assert.equal(deadSessionRes.status, 404, 'Closed session returns 404');
@@ -843,7 +888,12 @@ test('Multi-client MCP concurrency: independent sessions, isolated calls, distin
     // Session 2 is still alive and working!
     const liveSessionRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid2 },
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid2,
+        'x-nevo-interaction-token': token2,
+      },
       body: JSON.stringify({ jsonrpc: '2.0', id: 100, method: 'tools/list', params: {} }),
     });
     assert.equal(liveSessionRes.status, 200, 'Session 2 remains alive');
@@ -910,7 +960,12 @@ test('MCP session-to-Turn binding and lifecycle isolation (requirements 1-10)', 
 
     await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid1 },
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid1,
+        'x-nevo-interaction-token': tokenA,
+      },
       body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }),
     });
 
@@ -983,7 +1038,12 @@ test('MCP session-to-Turn binding and lifecycle isolation (requirements 1-10)', 
 
     await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid2 },
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid2,
+        'x-nevo-interaction-token': tokenB,
+      },
       body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }),
     });
 
@@ -1080,59 +1140,100 @@ test('MCP session-to-Turn binding and lifecycle isolation (requirements 1-10)', 
     const bodyB3 = await resB3.json();
     assert.ok(bodyB3.result.content[0].text.includes('B3 survived'));
 
-    // 6. token A becomes stale because Turn A terminates -> later ask_user on S1 rejected -> no Interaction created
+    // 6. token A becomes stale because Turn A terminates -> MCP session S1 is closed and removed -> later call rejected with 404 -> no Interaction created
     registry.unregisterActiveTurn('turn-A');
     const callAStaleRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid1, 'x-nevo-interaction-token': tokenA },
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid1,
+        'x-nevo-interaction-token': tokenA,
+      },
       body: JSON.stringify({ jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'ask_user', arguments: { question: 'After turn terminated' } } }),
     });
+    assert.equal(callAStaleRes.status, 404, 'S1 is removed when Turn A terminates');
     const bodyAStale = await callAStaleRes.json();
-    assert.equal(bodyAStale.result.isError, true);
-    assert.ok(bodyAStale.result.content[0].text.includes('invalid, stale, or expired'));
+    assert.ok(bodyAStale.error.message.includes('Session not found'));
 
-    // 8. closing S1: does not mutate Turn B / S2
-    const delS1Res = await fetch(`http://127.0.0.1:${port}/mcp`, {
-      method: 'DELETE',
-      headers: { 'mcp-session-id': sid1 },
-    });
-    assert.equal(delS1Res.status, 200);
-
+    // 7b. Turn B / S2 remains alive and isolated
     const toolsS2Res = await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid2 },
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid2,
+        'x-nevo-interaction-token': tokenB,
+      },
       body: JSON.stringify({ jsonrpc: '2.0', id: 11, method: 'tools/list', params: {} }),
     });
     assert.equal(toolsS2Res.status, 200);
     const toolsS2Body = await toolsS2Res.json();
     assert.equal(toolsS2Body.result.tools[0].name, 'ask_user');
 
-    // 9. duplicate/replayed initialize or stale MCP session id: deterministic failure, no ownership reassignment
+    // 8. duplicate/replayed initialize on S2: deterministic failure, no ownership reassignment
     const replayInitRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid2, 'x-nevo-interaction-token': tokenB },
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid2,
+        'x-nevo-interaction-token': tokenB,
+      },
       body: JSON.stringify({ jsonrpc: '2.0', id: 12, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'replayer', version: '1.0' } } }),
     });
     assert.equal(replayInitRes.status, 400);
     const replayBody = await replayInitRes.json();
     assert.ok(replayBody.error.message.includes('already initialized'));
 
-    const staleSidRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': 'stale-sid-999' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 13, method: 'tools/list', params: {} }),
-    });
-    assert.equal(staleSidRes.status, 404);
-
-    // 10. MCP session ownership cannot be changed after initialization
+    // 9. MCP session ownership cannot be changed after initialization (rogue token rejected)
     const hijackRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid2, 'x-nevo-interaction-token': 'rogue-token' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 14, method: 'tools/call', params: { name: 'ask_user', arguments: { question: 'Hijack attempt' } } }),
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid2,
+        'x-nevo-interaction-token': 'rogue-token',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 13, method: 'tools/call', params: { name: 'ask_user', arguments: { question: 'Hijack attempt' } } }),
     });
     assert.equal(hijackRes.status, 403);
     const hijackBody = await hijackRes.json();
     assert.ok(hijackBody.error.message.includes('Forbidden: interaction token does not match the bound session turn'));
+
+    // 10. Explicit DELETE on S2 removes session; subsequent request returns 404
+    const delS2Res = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'DELETE',
+      headers: {
+        'mcp-session-id': sid2,
+        'x-nevo-interaction-token': tokenB,
+      },
+    });
+    assert.equal(delS2Res.status, 200);
+
+    const postDelS2Res = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid2,
+        'x-nevo-interaction-token': tokenB,
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 14, method: 'tools/list', params: {} }),
+    });
+    assert.equal(postDelS2Res.status, 404);
+
+    const staleSidRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': 'stale-sid-999',
+        'x-nevo-interaction-token': tokenB,
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 15, method: 'tools/list', params: {} }),
+    });
+    assert.equal(staleSidRes.status, 404);
   } finally {
     await fastify.close();
   }
@@ -1317,4 +1418,188 @@ test('Claude provider: dynamic capability truthfulness reflects endpoint configu
   });
   assert.equal(missingEndpointProvider.capabilities.interactiveQuestions, false);
   assert.equal(missingEndpointProvider.descriptor.capabilities.interactiveQuestions, false);
+});
+
+test('Turn-owned MCP session lifecycle: Turn termination without DELETE closes transport, releases McpServer, and removes session', async () => {
+  const registry = new McpInteractionRegistry();
+  const fastify = Fastify({ logger: false });
+  await fastify.register(mcpRoutes, { registry });
+  await fastify.listen({ port: 0, host: '127.0.0.1' });
+  const port = fastify.server.address().port;
+
+  try {
+    const sessionManager = registry.sessionManager;
+    assert.ok(sessionManager, 'Registry must provide sessionManager');
+
+    // Case 1: Turn completes normally without MCP DELETE -> session removed
+    const tokenNorm = 'tok-turn-norm';
+    registry.registerActiveTurn('turn-norm', {
+      token: tokenNorm,
+      provider: 'claude',
+      providerSessionId: 'sess-norm',
+      requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-norm' }),
+    });
+
+    const initResNorm = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'x-nevo-interaction-token': tokenNorm,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'claude', version: '1.0' } },
+      }),
+    });
+    const sidNorm = initResNorm.headers.get('mcp-session-id');
+    assert.ok(sidNorm);
+    assert.equal(sessionManager.hasSession(sidNorm), true, 'Session registered in sessionManager');
+
+    // Turn completes normally (provider unregisters turn)
+    registry.unregisterActiveTurn('turn-norm');
+
+    // Invariant: Session does NOT outlive Turn, removed without Claude sending DELETE
+    assert.equal(sessionManager.hasSession(sidNorm), false, 'Session must be removed from sessionManager upon Turn completion');
+    assert.equal(sessionManager.getSessionsForTurn('turn-norm').length, 0);
+
+    const postCompleteRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sidNorm,
+        'x-nevo-interaction-token': tokenNorm,
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
+    });
+    assert.equal(postCompleteRes.status, 404, 'Stale session ID after turn completion returns 404');
+
+    // Case 2: Provider crashes without MCP DELETE -> session removed
+    const tokenCrash = 'tok-turn-crash';
+    registry.registerActiveTurn('turn-crash', {
+      token: tokenCrash,
+      provider: 'claude',
+      providerSessionId: 'sess-crash',
+      requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-crash' }),
+    });
+
+    const initResCrash = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'x-nevo-interaction-token': tokenCrash,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'claude', version: '1.0' } },
+      }),
+    });
+    const sidCrash = initResCrash.headers.get('mcp-session-id');
+    assert.ok(sidCrash);
+    assert.equal(sessionManager.hasSession(sidCrash), true);
+
+    // Provider crashes
+    const crashError = new AiError('AI_PROVIDER_EXIT_ERROR', 'Claude exited with code 1');
+    registry.unregisterActiveTurn('turn-crash', crashError);
+
+    assert.equal(sessionManager.hasSession(sidCrash), false, 'Session must be removed upon provider crash');
+    const postCrashRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sidCrash,
+        'x-nevo-interaction-token': tokenCrash,
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
+    });
+    assert.equal(postCrashRes.status, 404, 'Stale session ID after provider crash returns 404');
+
+    // Case 3: Concurrent Turns with cancellation isolation
+    const tokenA = 'tok-turn-cA';
+    const tokenB = 'tok-turn-cB';
+    registry.registerActiveTurn('turn-cA', {
+      token: tokenA,
+      provider: 'claude',
+      providerSessionId: 'sess-cA',
+      requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-cA' }),
+    });
+    registry.registerActiveTurn('turn-cB', {
+      token: tokenB,
+      provider: 'claude',
+      providerSessionId: 'sess-cB',
+      requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-cB' }),
+    });
+
+    const initResA = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'x-nevo-interaction-token': tokenA,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'claude-A', version: '1.0' } },
+      }),
+    });
+    const sidA = initResA.headers.get('mcp-session-id');
+
+    const initResB = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'x-nevo-interaction-token': tokenB,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'claude-B', version: '1.0' } },
+      }),
+    });
+    const sidB = initResB.headers.get('mcp-session-id');
+
+    assert.equal(sessionManager.hasSession(sidA), true);
+    assert.equal(sessionManager.hasSession(sidB), true);
+
+    // Cancel turn-cA only
+    registry.cancelTurn('turn-cA');
+    registry.unregisterActiveTurn('turn-cA');
+
+    // Only sidA is removed; sidB remains alive and functional
+    assert.equal(sessionManager.hasSession(sidA), false, 'Turn A session must be removed on cancellation');
+    assert.equal(sessionManager.hasSession(sidB), true, 'Turn B session must remain active');
+
+    const toolsResB = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sidB,
+        'x-nevo-interaction-token': tokenB,
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 10, method: 'tools/list', params: {} }),
+    });
+    assert.equal(toolsResB.status, 200, 'Turn B session continues normally');
+    const toolsBodyB = await toolsResB.json();
+    assert.equal(toolsBodyB.result.tools[0].name, 'ask_user');
+
+    // Fastify close shuts down remaining sessions cleanly
+    await fastify.close();
+    assert.equal(sessionManager.hasSession(sidB), false, 'Fastify shutdown closes remaining sessions');
+  } finally {
+    try {
+      await fastify.close();
+    } catch {}
+  }
 });

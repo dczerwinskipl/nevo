@@ -67,8 +67,21 @@ export function createNevoMcpServer(
 
     let activeTurn;
     if (boundTurnId) {
+      // Invariant: Every request associated with a Nevo-bound session must carry x-nevo-interaction-token
+      if (!reqToken) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: 'Forbidden: missing x-nevo-interaction-token header.',
+            },
+          ],
+        };
+      }
+
       // Invariant: An established session cannot switch Turn ownership via a mismatched token header
-      if (reqToken && boundToken && reqToken !== boundToken) {
+      if (boundToken && reqToken !== boundToken) {
         return {
           isError: true,
           content: [

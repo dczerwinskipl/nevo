@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createNevoMcpServer } from './mcp-server.mjs';
 import { mcpInteractionRegistry } from './interaction-registry.mjs';
+import { mcpSessionManager } from './session-manager.mjs';
 
 /**
  * Fastify plugin mounting the server-owned Streamable HTTP MCP transport.
@@ -13,12 +14,22 @@ import { mcpInteractionRegistry } from './interaction-registry.mjs';
  * - Non-initialization requests with a session ID are dispatched to their session transport.
  * - Missing or invalid session IDs return 400 Bad Request or 404 Session Not Found.
  * - DELETE requests terminate the session and tear down its transport.
+ *
+ * Invariant:
+ * Every MCP session is bound to exactly one Nevo Turn.
+ * Every request associated with a session must carry `x-nevo-interaction-token` matching
+ * the bound session token. When the Nevo Turn becomes terminal, all MCP sessions bound
+ * to that Turn are closed and their resources released.
  */
 export default async function mcpRoutes(
   fastify,
-  { registry = mcpInteractionRegistry, mcpServer: customMcpServer, mcpServerFactory } = {},
+  {
+    registry = mcpInteractionRegistry,
+    sessionManager = registry.sessionManager || mcpSessionManager,
+    mcpServer: customMcpServer,
+    mcpServerFactory,
+  } = {},
 ) {
-  const sessions = new Map(); // sessionId -> { transport, server, turnId, token }
   const createServer = (options) => {
     if (mcpServerFactory) return mcpServerFactory(options);
     if (typeof customMcpServer === 'function') return customMcpServer(options);
@@ -43,7 +54,7 @@ export default async function mcpRoutes(
     const sessionId = request.headers['mcp-session-id'];
 
     if (sessionId) {
-      const session = sessions.get(sessionId);
+      const session = sessionManager.getSession(sessionId);
       if (!session) {
         reply.code(404).header('content-type', 'application/json').send({
           jsonrpc: '2.0',
@@ -53,15 +64,42 @@ export default async function mcpRoutes(
         return;
       }
 
-      // If token header is provided on an existing session, it MUST match the bound token
+      // Invariant: Every request associated with a Nevo-bound session must carry x-nevo-interaction-token
       const reqToken =
         request.headers['x-nevo-interaction-token'] || request.headers['X-Nevo-Interaction-Token'];
-      if (reqToken && session.token && reqToken !== session.token) {
+      if (!reqToken) {
+        reply.code(403).header('content-type', 'application/json').send({
+          jsonrpc: '2.0',
+          error: {
+            code: -32003,
+            message: 'Forbidden: missing x-nevo-interaction-token header.',
+          },
+          id: null,
+        });
+        return;
+      }
+
+      // Invariant: Token must strictly match the token bound to this MCP session
+      if (reqToken !== session.token) {
         reply.code(403).header('content-type', 'application/json').send({
           jsonrpc: '2.0',
           error: {
             code: -32003,
             message: 'Forbidden: interaction token does not match the bound session turn. Session ownership cannot be reassigned.',
+          },
+          id: null,
+        });
+        return;
+      }
+
+      // Invariant: Bound turn must still be active and non-stale
+      const activeTurn = registry.getActiveTurn({ turnId: session.turnId });
+      if (!activeTurn || activeTurn.token !== session.token) {
+        reply.code(403).header('content-type', 'application/json').send({
+          jsonrpc: '2.0',
+          error: {
+            code: -32003,
+            message: 'Forbidden: invalid, stale, or expired turn correlation token.',
           },
           id: null,
         });
@@ -83,6 +121,13 @@ export default async function mcpRoutes(
           },
           id: null,
         });
+        return;
+      }
+
+      // DELETE requests terminate the session immediately
+      if (request.method === 'DELETE') {
+        await sessionManager.closeSession(sessionId);
+        reply.code(200).send({ ok: true });
         return;
       }
 
@@ -143,31 +188,26 @@ export default async function mcpRoutes(
     }
 
     // Create a new transport and connected MCP server for this session bound to this Turn
-    let sessionEntry = null;
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       enableJsonResponse: true,
       onsessioninitialized: (newSessionId) => {
-        sessionEntry = { transport, server, turnId: boundTurn.turnId, token: initToken };
-        sessions.set(newSessionId, sessionEntry);
+        sessionManager.registerSession(newSessionId, {
+          transport,
+          server,
+          turnId: boundTurn.turnId,
+          token: initToken,
+        });
       },
       onsessionclosed: async (closedSessionId) => {
-        const entry = sessions.get(closedSessionId);
-        sessions.delete(closedSessionId);
-        if (entry?.server) {
-          await entry.server.close().catch(() => {});
-        }
+        await sessionManager.closeSession(closedSessionId);
       },
     });
 
     transport.onclose = () => {
       const sid = transport.sessionId;
-      if (sid && sessions.has(sid)) {
-        const entry = sessions.get(sid);
-        sessions.delete(sid);
-        if (entry?.server) {
-          entry.server.close().catch(() => {});
-        }
+      if (sid && sessionManager.hasSession(sid)) {
+        sessionManager.closeSession(sid).catch(() => {});
       }
     };
 
@@ -193,15 +233,7 @@ export default async function mcpRoutes(
   fastify.delete('/mcp', handleMcpRequest);
 
   fastify.addHook('onClose', async () => {
-    for (const session of sessions.values()) {
-      try {
-        await session.transport.close();
-      } catch {}
-      try {
-        await session.server.close();
-      } catch {}
-    }
-    sessions.clear();
+    await sessionManager.closeAll();
     registry.shutdown();
   });
 }
