@@ -378,12 +378,13 @@ tasks:
       - cross-provider-lifecycle-validation
     implementation:
       baseline_revision: acb3a64dd7dc39c112ec78d7492b03cee52450e4
-      review_revision: 133fe2933e9804b4e68327b92864421b47d6710f
+      review_revision: dde8c1ac6d077a53a6beab09d909834d364a455b
       changed_paths:
         - docs/decisions/ADR-0007-provider-neutral-ai-sessions.md
         - docs/decisions/ADR-0008-canonical-ai-session-chat-and-turn-model.md
         - docs/development/ai-sessions.md
         - tools/dashboard/server/ai/contracts.mjs
+        - tools/dashboard/server/ai/providers/antigravity/provider.mjs
         - tools/dashboard/server/ai/sessions/routes.mjs
         - tools/dashboard/server/ai/sessions/service.mjs
         - tools/dashboard/server/ai/sessions/transcript-cache.mjs
@@ -393,6 +394,7 @@ tasks:
         - tools/dashboard/tests/ai-contracts.test.mjs
         - tools/dashboard/tests/ai-server.test.mjs
         - tools/dashboard/tests/ai-turn-runtime.test.mjs
+        - tools/dashboard/tests/antigravity-provider.test.mjs
         - tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs
         - tools/dashboard/tests/chat-fixture-model.test.tsx
         - tools/dashboard/tests/composer-interaction.test.mjs
@@ -448,7 +450,7 @@ tasks:
       worktree_patch_fingerprint: null
     self_check:
       fingerprint: 48d080fc7e99ded4488082b0ff8a7787eb943a7888dc4f82fcec4111d5708a2d
-      revision: 133fe2933e9804b4e68327b92864421b47d6710f
+      revision: dde8c1ac6d077a53a6beab09d909834d364a455b
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
