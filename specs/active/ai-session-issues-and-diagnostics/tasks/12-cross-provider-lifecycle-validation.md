@@ -1,6 +1,6 @@
 ---
 id: ai-session-issues-and-diagnostics.cross-provider-lifecycle-validation
-status: draft
+status: verified
 change: ai-session-issues-and-diagnostics
 context:
   required:

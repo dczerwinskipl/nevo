@@ -232,6 +232,7 @@ test('Fastify mcpRoutes: loopback enforcement, canonical /mcp route, and full MC
       headers: {
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream',
+        'x-nevo-interaction-token': token,
       },
       body: JSON.stringify({
         jsonrpc: '2.0',
@@ -360,13 +361,66 @@ test('Token correlation security: missing, invalid, stale, wrong turn, and query
   const port = fastify.server.address().port;
 
   try {
-    // Initialize session
-    const initRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+    // 1. Missing token header during initialization is rejected with 403
+    const noTokenInitRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test-client', version: '1.0' } },
+      }),
+    });
+    assert.equal(noTokenInitRes.status, 403);
+    const noTokenInitBody = await noTokenInitRes.json();
+    assert.ok(noTokenInitBody.error.message.includes('missing x-nevo-interaction-token header'));
+
+    // 2. Token in query param during initialization is rejected (must be in header)
+    const queryParamInitRes = await fetch(`http://127.0.0.1:${port}/mcp?token=${tokenValid}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test-client', version: '1.0' } },
+      }),
+    });
+    assert.equal(queryParamInitRes.status, 403);
+    const queryParamInitBody = await queryParamInitRes.json();
+    assert.ok(queryParamInitBody.error.message.includes('missing x-nevo-interaction-token header'));
+
+    // 3. Invalid / unknown token during initialization is rejected with 403
+    const wrongTokenInitRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'x-nevo-interaction-token': 'wrong-token-xyz',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test-client', version: '1.0' } },
+      }),
+    });
+    assert.equal(wrongTokenInitRes.status, 403);
+    const wrongTokenInitBody = await wrongTokenInitRes.json();
+    assert.ok(wrongTokenInitBody.error.message.includes('invalid, stale, or expired'));
+
+    // 4. Initialize session sid successfully with tokenValid
+    const initRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'x-nevo-interaction-token': tokenValid,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 4,
         method: 'initialize',
         params: {
           protocolVersion: '2024-11-05',
@@ -375,7 +429,9 @@ test('Token correlation security: missing, invalid, stale, wrong turn, and query
         },
       }),
     });
+    assert.equal(initRes.status, 200);
     const sid = initRes.headers.get('mcp-session-id');
+    assert.ok(sid, 'Initialization returns mcp-session-id');
 
     await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
@@ -383,79 +439,8 @@ test('Token correlation security: missing, invalid, stale, wrong turn, and query
       body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }),
     });
 
-    // 1. Missing token header completely
-    const noTokenRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 2,
-        method: 'tools/call',
-        params: { name: 'ask_user', arguments: { question: 'Missing token?' } },
-      }),
-    });
-    const noTokenBody = await noTokenRes.json();
-    assert.equal(noTokenBody.result.isError, true);
-    assert.ok(noTokenBody.result.content[0].text.includes('Forbidden: missing x-nevo-interaction-token header'));
-
-    // 2. Token in query param is rejected (must be in header)
-    const queryParamTokenRes = await fetch(`http://127.0.0.1:${port}/mcp?token=${tokenValid}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 3,
-        method: 'tools/call',
-        params: { name: 'ask_user', arguments: { question: 'Query param token?' } },
-      }),
-    });
-    const queryParamBody = await queryParamTokenRes.json();
-    assert.equal(queryParamBody.result.isError, true);
-    assert.ok(queryParamBody.result.content[0].text.includes('Forbidden: missing x-nevo-interaction-token header'));
-
-    // 3. Invalid / unknown token
-    const wrongTokenRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        accept: 'application/json, text/event-stream',
-        'mcp-session-id': sid,
-        'x-nevo-interaction-token': 'wrong-token-xyz',
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 4,
-        method: 'tools/call',
-        params: { name: 'ask_user', arguments: { question: 'Wrong token?' } },
-      }),
-    });
-    const wrongTokenBody = await wrongTokenRes.json();
-    assert.equal(wrongTokenBody.result.isError, true);
-    assert.ok(wrongTokenBody.result.content[0].text.includes('invalid, stale, or expired'));
-
-    // 4. Stale token after turn unregistration
-    registry.unregisterActiveTurn('turn-sec');
-    const staleTokenRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        accept: 'application/json, text/event-stream',
-        'mcp-session-id': sid,
-        'x-nevo-interaction-token': tokenValid,
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 5,
-        method: 'tools/call',
-        params: { name: 'ask_user', arguments: { question: 'Stale token?' } },
-      }),
-    });
-    const staleTokenBody = await staleTokenRes.json();
-    assert.equal(staleTokenBody.result.isError, true);
-    assert.ok(staleTokenBody.result.content[0].text.includes('invalid, stale, or expired'));
-
-    // 5. Valid token on other turn correlates strictly to other turn
-    const callOtherPromise = fetch(`http://127.0.0.1:${port}/mcp`, {
+    // 5. Presenting tokenOther on session sid (bound to turn-sec) is REJECTED and does NOT route to turn-other
+    const wrongTurnRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -465,22 +450,101 @@ test('Token correlation security: missing, invalid, stale, wrong turn, and query
       },
       body: JSON.stringify({
         jsonrpc: '2.0',
+        id: 5,
+        method: 'tools/call',
+        params: { name: 'ask_user', arguments: { question: 'Attempt cross-turn routing' } },
+      }),
+    });
+    assert.equal(wrongTurnRes.status, 403, 'Submitting token of another turn on session sid must be rejected with 403');
+    const wrongTurnBody = await wrongTurnRes.json();
+    assert.ok(
+      wrongTurnBody.error.message.includes('Forbidden: interaction token does not match the bound session turn'),
+      'Error message must indicate token mismatch with bound session',
+    );
+    assert.equal(registry.hasPending('int-other-1'), false, 'Must NOT create interaction on other turn');
+
+    // 6. Presenting matching tokenValid on session sid succeeds
+    const callValidPromise = fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid,
+        'x-nevo-interaction-token': tokenValid,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
         id: 6,
         method: 'tools/call',
-        params: { name: 'ask_user', arguments: { question: 'Question on other turn' } },
+        params: { name: 'ask_user', arguments: { question: 'Question on turn-sec' } },
       }),
     });
 
-    while (!registry.hasPending('int-other-1')) {
+    while (!registry.hasPending('int-sec-1')) {
       await new Promise((r) => setTimeout(r, 10));
     }
-    assert.equal(registry.getPending('int-other-1')?.turnId, 'turn-other');
-    registry.resolveResponse('int-other-1', { answer: 'Other turn answered' });
+    assert.equal(registry.getPending('int-sec-1')?.turnId, 'turn-sec');
+    registry.resolveResponse('int-sec-1', { answer: 'Turn sec answered' });
 
-    const otherRes = await callOtherPromise;
-    const otherBody = await otherRes.json();
-    assert.equal(otherBody.result.isError, undefined);
-    assert.ok(otherBody.result.content[0].text.includes('Other turn answered'));
+    const validRes = await callValidPromise;
+    assert.equal(validRes.status, 200);
+    const validBody = await validRes.json();
+    assert.equal(validBody.result.isError, undefined);
+    assert.ok(validBody.result.content[0].text.includes('Turn sec answered'));
+
+    // 7. Duplicate/replayed initialize on already initialized session sid is rejected
+    const replayInitRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid,
+        'x-nevo-interaction-token': tokenValid,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 7,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test-client', version: '1.0' } },
+      }),
+    });
+    assert.equal(replayInitRes.status, 400);
+    const replayInitBody = await replayInitRes.json();
+    assert.ok(replayInitBody.error.message.includes('already initialized'));
+
+    // 8. Stale/non-existent MCP session id returns 404
+    const staleSessionRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': 'non-existent-sid',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 8, method: 'tools/list', params: {} }),
+    });
+    assert.equal(staleSessionRes.status, 404);
+
+    // 9. Stale turn: unregister active turn, later ask_user on session sid fails closed
+    registry.unregisterActiveTurn('turn-sec');
+    const staleTurnRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid,
+        'x-nevo-interaction-token': tokenValid,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 9,
+        method: 'tools/call',
+        params: { name: 'ask_user', arguments: { question: 'Call after turn terminated' } },
+      }),
+    });
+    const staleTurnBody = await staleTurnRes.json();
+    assert.equal(staleTurnBody.result.isError, true);
+    assert.ok(staleTurnBody.result.content[0].text.includes('invalid, stale, or expired'));
+    assert.equal(registry.hasPending('int-sec-1'), false);
   } finally {
     await fastify.close();
   }
@@ -608,10 +672,14 @@ test('Multi-client MCP concurrency: independent sessions, isolated calls, distin
       requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-conc-2' }),
     });
 
-    // Client 1 initializes
+    // Client 1 initializes with token1
     const initRes1 = await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'x-nevo-interaction-token': token1,
+      },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 1,
@@ -622,10 +690,14 @@ test('Multi-client MCP concurrency: independent sessions, isolated calls, distin
     const sid1 = initRes1.headers.get('mcp-session-id');
     assert.ok(sid1, 'Client 1 receives session id');
 
-    // Client 2 initializes
+    // Client 2 initializes with token2
     const initRes2 = await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'x-nevo-interaction-token': token2,
+      },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 1,
@@ -779,6 +851,289 @@ test('Multi-client MCP concurrency: independent sessions, isolated calls, distin
     assert.equal(liveBody.result.tools[0].name, 'ask_user');
   } finally {
     // F: Cleanup on server close
+    await fastify.close();
+  }
+});
+
+test('MCP session-to-Turn binding and lifecycle isolation (requirements 1-10)', async () => {
+  const registry = new McpInteractionRegistry();
+  const tokenA = 'tok-turn-A';
+  const tokenB = 'tok-turn-B';
+
+  let interactionA = null;
+  let interactionB = null;
+
+  registry.registerActiveTurn('turn-A', {
+    token: tokenA,
+    provider: 'claude',
+    providerSessionId: 'sess-A',
+    requestInteraction: (neutral) => {
+      interactionA = { ...neutral, id: 'int-A-1' };
+      return Promise.resolve(interactionA);
+    },
+  });
+
+  registry.registerActiveTurn('turn-B', {
+    token: tokenB,
+    provider: 'claude',
+    providerSessionId: 'sess-B',
+    requestInteraction: (neutral) => {
+      interactionB = { ...neutral, id: 'int-B-1' };
+      return Promise.resolve(interactionB);
+    },
+  });
+
+  const fastify = Fastify({ logger: false });
+  await fastify.register(mcpRoutes, { registry });
+  await fastify.listen({ port: 0, host: '127.0.0.1' });
+  const port = fastify.server.address().port;
+
+  try {
+    // 1. initialize with valid token A -> MCP session S1 bound to Turn A
+    const initRes1 = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'x-nevo-interaction-token': tokenA,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'client-A', version: '1.0' } },
+      }),
+    });
+    assert.equal(initRes1.status, 200);
+    const sid1 = initRes1.headers.get('mcp-session-id');
+    assert.ok(sid1, 'Session S1 created');
+
+    await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid1 },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }),
+    });
+
+    // 2. S1 ask_user -> creates Interaction on Turn A
+    const callA1Promise = fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid1,
+        'x-nevo-interaction-token': tokenA,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: { name: 'ask_user', arguments: { question: 'Question on Turn A' } },
+      }),
+    });
+
+    while (!registry.hasPending('int-A-1')) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    assert.equal(registry.getPending('int-A-1')?.turnId, 'turn-A');
+    registry.resolveResponse('int-A-1', { answer: 'Answer for Turn A' });
+    const callA1Res = await callA1Promise;
+    const callA1Body = await callA1Res.json();
+    assert.ok(callA1Body.result.content[0].text.includes('Answer for Turn A'));
+
+    // 3. S1 + token B belonging to another active Turn -> rejected -> MUST NOT create Interaction on Turn B
+    const callAWithBRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid1,
+        'x-nevo-interaction-token': tokenB,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'tools/call',
+        params: { name: 'ask_user', arguments: { question: 'Cross-turn call' } },
+      }),
+    });
+    assert.equal(callAWithBRes.status, 403);
+    const callAWithBBody = await callAWithBRes.json();
+    assert.ok(callAWithBBody.error.message.includes('Forbidden: interaction token does not match the bound session turn'));
+    assert.equal(registry.hasPending('int-B-1'), false, 'MUST NOT create interaction on Turn B');
+
+    // 4. independent MCP session S2 initialized with token B -> can create Interaction on Turn B normally
+    const initRes2 = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'x-nevo-interaction-token': tokenB,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 4,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'client-B', version: '1.0' } },
+      }),
+    });
+    assert.equal(initRes2.status, 200);
+    const sid2 = initRes2.headers.get('mcp-session-id');
+    assert.ok(sid2, 'Session S2 created');
+    assert.notEqual(sid1, sid2, 'S1 and S2 have distinct session IDs');
+
+    await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid2 },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }),
+    });
+
+    const callB1Promise = fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid2,
+        'x-nevo-interaction-token': tokenB,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 5,
+        method: 'tools/call',
+        params: { name: 'ask_user', arguments: { question: 'Question on Turn B' } },
+      }),
+    });
+
+    while (!registry.hasPending('int-B-1')) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    assert.equal(registry.getPending('int-B-1')?.turnId, 'turn-B');
+    registry.resolveResponse('int-B-1', { answer: 'Answer for Turn B' });
+    const callB1Res = await callB1Promise;
+    const callB1Body = await callB1Res.json();
+    assert.ok(callB1Body.result.content[0].text.includes('Answer for Turn B'));
+
+    // 5. two concurrent sessions: S1 -> Turn A, S2 -> Turn B remain isolated
+    registry.getActiveTurn({ turnId: 'turn-A' }).requestInteraction = (neutral) => {
+      return Promise.resolve({ ...neutral, id: 'int-A-2' });
+    };
+    registry.getActiveTurn({ turnId: 'turn-B' }).requestInteraction = (neutral) => {
+      return Promise.resolve({ ...neutral, id: 'int-B-2' });
+    };
+
+    const concA = fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid1, 'x-nevo-interaction-token': tokenA },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'ask_user', arguments: { question: 'Concurrent A' } } }),
+    });
+    const concB = fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid2, 'x-nevo-interaction-token': tokenB },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'ask_user', arguments: { question: 'Concurrent B' } } }),
+    });
+
+    while (!registry.hasPending('int-A-2') || !registry.hasPending('int-B-2')) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    registry.resolveResponse('int-A-2', { answer: 'Resolved A2' });
+    registry.resolveResponse('int-B-2', { answer: 'Resolved B2' });
+    const [resConcA, resConcB] = await Promise.all([concA, concB]);
+    const bodyConcA = await resConcA.json();
+    const bodyConcB = await resConcB.json();
+    assert.ok(bodyConcA.result.content[0].text.includes('Resolved A2'));
+    assert.ok(!bodyConcA.result.content[0].text.includes('Resolved B2'));
+    assert.ok(bodyConcB.result.content[0].text.includes('Resolved B2'));
+    assert.ok(!bodyConcB.result.content[0].text.includes('Resolved A2'));
+
+    // 7. cancellation of Turn A: pending ask_user on S1 terminates -> S2 / Turn B unaffected
+    registry.getActiveTurn({ turnId: 'turn-A' }).requestInteraction = (neutral) => {
+      return Promise.resolve({ ...neutral, id: 'int-A-3' });
+    };
+    registry.getActiveTurn({ turnId: 'turn-B' }).requestInteraction = (neutral) => {
+      return Promise.resolve({ ...neutral, id: 'int-B-3' });
+    };
+
+    const callA3CancelPromise = fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid1, 'x-nevo-interaction-token': tokenA },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 8, method: 'tools/call', params: { name: 'ask_user', arguments: { question: 'A3 cancel test' } } }),
+    });
+    const callB3ActivePromise = fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid2, 'x-nevo-interaction-token': tokenB },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'ask_user', arguments: { question: 'B3 active test' } } }),
+    });
+
+    while (!registry.hasPending('int-A-3') || !registry.hasPending('int-B-3')) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    registry.cancelTurn('turn-A');
+    const resA3 = await callA3CancelPromise;
+    const bodyA3 = await resA3.json();
+    assert.equal(bodyA3.result.isError, true);
+    assert.ok(bodyA3.result.content[0].text.includes('cancelled'));
+
+    assert.equal(registry.hasPending('int-B-3'), true, 'Turn B waiter must remain active');
+    registry.resolveResponse('int-B-3', { answer: 'B3 survived' });
+    const resB3 = await callB3ActivePromise;
+    const bodyB3 = await resB3.json();
+    assert.ok(bodyB3.result.content[0].text.includes('B3 survived'));
+
+    // 6. token A becomes stale because Turn A terminates -> later ask_user on S1 rejected -> no Interaction created
+    registry.unregisterActiveTurn('turn-A');
+    const callAStaleRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid1, 'x-nevo-interaction-token': tokenA },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'ask_user', arguments: { question: 'After turn terminated' } } }),
+    });
+    const bodyAStale = await callAStaleRes.json();
+    assert.equal(bodyAStale.result.isError, true);
+    assert.ok(bodyAStale.result.content[0].text.includes('invalid, stale, or expired'));
+
+    // 8. closing S1: does not mutate Turn B / S2
+    const delS1Res = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'DELETE',
+      headers: { 'mcp-session-id': sid1 },
+    });
+    assert.equal(delS1Res.status, 200);
+
+    const toolsS2Res = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid2 },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 11, method: 'tools/list', params: {} }),
+    });
+    assert.equal(toolsS2Res.status, 200);
+    const toolsS2Body = await toolsS2Res.json();
+    assert.equal(toolsS2Body.result.tools[0].name, 'ask_user');
+
+    // 9. duplicate/replayed initialize or stale MCP session id: deterministic failure, no ownership reassignment
+    const replayInitRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid2, 'x-nevo-interaction-token': tokenB },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 12, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'replayer', version: '1.0' } } }),
+    });
+    assert.equal(replayInitRes.status, 400);
+    const replayBody = await replayInitRes.json();
+    assert.ok(replayBody.error.message.includes('already initialized'));
+
+    const staleSidRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': 'stale-sid-999' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 13, method: 'tools/list', params: {} }),
+    });
+    assert.equal(staleSidRes.status, 404);
+
+    // 10. MCP session ownership cannot be changed after initialization
+    const hijackRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid2, 'x-nevo-interaction-token': 'rogue-token' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 14, method: 'tools/call', params: { name: 'ask_user', arguments: { question: 'Hijack attempt' } } }),
+    });
+    assert.equal(hijackRes.status, 403);
+    const hijackBody = await hijackRes.json();
+    assert.ok(hijackBody.error.message.includes('Forbidden: interaction token does not match the bound session turn'));
+  } finally {
     await fastify.close();
   }
 });

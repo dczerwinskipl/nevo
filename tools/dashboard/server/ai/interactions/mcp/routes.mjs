@@ -18,14 +18,13 @@ export default async function mcpRoutes(
   fastify,
   { registry = mcpInteractionRegistry, mcpServer: customMcpServer, mcpServerFactory } = {},
 ) {
-  const sessions = new Map(); // sessionId -> { transport, server }
-  const createServer =
-    mcpServerFactory ||
-    (typeof customMcpServer === 'function'
-      ? customMcpServer
-      : customMcpServer
-        ? () => customMcpServer
-        : () => createNevoMcpServer(registry));
+  const sessions = new Map(); // sessionId -> { transport, server, turnId, token }
+  const createServer = (options) => {
+    if (mcpServerFactory) return mcpServerFactory(options);
+    if (typeof customMcpServer === 'function') return customMcpServer(options);
+    if (customMcpServer) return customMcpServer;
+    return createNevoMcpServer(registry, options);
+  };
 
   const handleMcpRequest = async (request, reply) => {
     // Enforce loopback boundary
@@ -49,6 +48,39 @@ export default async function mcpRoutes(
         reply.code(404).header('content-type', 'application/json').send({
           jsonrpc: '2.0',
           error: { code: -32001, message: 'Session not found' },
+          id: null,
+        });
+        return;
+      }
+
+      // If token header is provided on an existing session, it MUST match the bound token
+      const reqToken =
+        request.headers['x-nevo-interaction-token'] || request.headers['X-Nevo-Interaction-Token'];
+      if (reqToken && session.token && reqToken !== session.token) {
+        reply.code(403).header('content-type', 'application/json').send({
+          jsonrpc: '2.0',
+          error: {
+            code: -32003,
+            message: 'Forbidden: interaction token does not match the bound session turn. Session ownership cannot be reassigned.',
+          },
+          id: null,
+        });
+        return;
+      }
+
+      // Duplicate/replayed initialize on an already-established session is deterministically rejected
+      const isInit =
+        request.method === 'POST' &&
+        (request.body?.method === 'initialize' ||
+          (Array.isArray(request.body) && request.body.some((m) => m?.method === 'initialize')));
+
+      if (isInit) {
+        reply.code(400).header('content-type', 'application/json').send({
+          jsonrpc: '2.0',
+          error: {
+            code: -32000,
+            message: 'Bad Request: session is already initialized. Ownership cannot be reassigned.',
+          },
           id: null,
         });
         return;
@@ -82,13 +114,41 @@ export default async function mcpRoutes(
       return;
     }
 
-    // Create a new transport and connected MCP server for this session
+    const initToken =
+      request.headers['x-nevo-interaction-token'] || request.headers['X-Nevo-Interaction-Token'];
+
+    if (!initToken) {
+      reply.code(403).header('content-type', 'application/json').send({
+        jsonrpc: '2.0',
+        error: {
+          code: -32003,
+          message: 'Forbidden: missing x-nevo-interaction-token header during initialization.',
+        },
+        id: null,
+      });
+      return;
+    }
+
+    const boundTurn = registry.getActiveTurnByToken(initToken);
+    if (!boundTurn) {
+      reply.code(403).header('content-type', 'application/json').send({
+        jsonrpc: '2.0',
+        error: {
+          code: -32003,
+          message: 'Forbidden: invalid, stale, or expired turn correlation token.',
+        },
+        id: null,
+      });
+      return;
+    }
+
+    // Create a new transport and connected MCP server for this session bound to this Turn
     let sessionEntry = null;
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       enableJsonResponse: true,
       onsessioninitialized: (newSessionId) => {
-        sessionEntry = { transport, server };
+        sessionEntry = { transport, server, turnId: boundTurn.turnId, token: initToken };
         sessions.set(newSessionId, sessionEntry);
       },
       onsessionclosed: async (closedSessionId) => {
@@ -111,7 +171,7 @@ export default async function mcpRoutes(
       }
     };
 
-    const server = createServer();
+    const server = createServer({ boundTurnId: boundTurn.turnId, boundToken: initToken });
     await server.connect(transport);
 
     try {

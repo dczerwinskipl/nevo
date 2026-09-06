@@ -25,7 +25,10 @@ export function formatInteractionAnswer(responseData) {
  * Creates the single server-owned Nevo MCP server instance.
  * Exposes exactly one canonical tool: `ask_user`.
  */
-export function createNevoMcpServer(interactionRegistry = mcpInteractionRegistry) {
+export function createNevoMcpServer(
+  interactionRegistry = mcpInteractionRegistry,
+  { boundTurnId, boundToken } = {},
+) {
   const server = new McpServer({
     name: 'nevo',
     version: '1.0.0',
@@ -58,34 +61,63 @@ export function createNevoMcpServer(interactionRegistry = mcpInteractionRegistry
       };
     }
 
-    // Correlation token is extracted strictly from the x-nevo-interaction-token request header
-    const token =
+    const reqToken =
       extra?.requestInfo?.headers?.['x-nevo-interaction-token'] ||
       extra?.requestInfo?.headers?.['X-Nevo-Interaction-Token'];
 
-    if (!token) {
-      return {
-        isError: true,
-        content: [
-          {
-            type: 'text',
-            text: 'Forbidden: missing x-nevo-interaction-token header.',
-          },
-        ],
-      };
-    }
+    let activeTurn;
+    if (boundTurnId) {
+      // Invariant: An established session cannot switch Turn ownership via a mismatched token header
+      if (reqToken && boundToken && reqToken !== boundToken) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: 'Forbidden: interaction token does not match the bound session turn.',
+            },
+          ],
+        };
+      }
 
-    const activeTurn = interactionRegistry.getActiveTurnByToken(token);
-    if (!activeTurn || typeof activeTurn.requestInteraction !== 'function') {
-      return {
-        isError: true,
-        content: [
-          {
-            type: 'text',
-            text: 'Error: invalid, stale, or expired turn correlation token.',
-          },
-        ],
-      };
+      activeTurn = interactionRegistry.getActiveTurn({ turnId: boundTurnId });
+      if (!activeTurn || typeof activeTurn.requestInteraction !== 'function') {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: 'Error: invalid, stale, or expired turn correlation token.',
+            },
+          ],
+        };
+      }
+    } else {
+      // Fallback for unbound servers (e.g. direct in-memory unit tests)
+      if (!reqToken) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: 'Forbidden: missing x-nevo-interaction-token header.',
+            },
+          ],
+        };
+      }
+
+      activeTurn = interactionRegistry.getActiveTurnByToken(reqToken);
+      if (!activeTurn || typeof activeTurn.requestInteraction !== 'function') {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: 'Error: invalid, stale, or expired turn correlation token.',
+            },
+          ],
+        };
+      }
     }
 
     const formattedOptions =
