@@ -2129,6 +2129,141 @@ test('Antigravity successful result: event "result" + status "SUCCESS" completes
   assert.equal(usages[0].tokensOut, 50);
 });
 
+test('Antigravity quota notice: event "result" + status "ERROR" with quota limit notice and non-empty response completes turn successfully with FinalAnswer', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-quota-response' }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'ERROR',
+        response: 'Not yet — per the NEvo Git safety rule, I waited for confirmation.',
+        error: 'Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 23m32s.',
+      },
+    }),
+  ];
+
+  const finalAnswerDeltas = [];
+  const commentaryDeltas = [];
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-quota-response',
+    providerSessionId: 'conv-quota-response',
+    message: 'Committed?',
+    emitCommentaryDelta: (t) => commentaryDeltas.push(t),
+    emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(commentaryDeltas.length, 0, 'must not downgrade response to commentary');
+  assert.deepEqual(finalAnswerDeltas, ['Not yet — per the NEvo Git safety rule, I waited for confirmation.']);
+});
+
+test('Antigravity quota notice: event "result" + status "ERROR" with quota limit notice and empty response fails turn', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-quota-empty' }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'ERROR',
+        response: '',
+        error: 'Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 23m32s.',
+      },
+    }),
+  ];
+
+  const finalAnswerDeltas = [];
+  const commentaryDeltas = [];
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  await assert.rejects(
+    () =>
+      provider.startTurn({
+        turnId: 'turn-quota-empty',
+        providerSessionId: 'conv-quota-empty',
+        message: 'Do work',
+        emitCommentaryDelta: (t) => commentaryDeltas.push(t),
+        emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
+      }),
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.match(err.message, /Individual quota reached/);
+      return true;
+    },
+  );
+
+  assert.equal(finalAnswerDeltas.length, 0, 'must not emit FinalAnswer on failed turn');
+});
+
+test('Antigravity multi-turn: stale conversation error from previous turn does not fail subsequent successful turn with FinalAnswer', async () => {
+  const turn1Lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-stale-test' }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'ERROR',
+        response: '',
+        error: 'Tool crashed in turn 1',
+      },
+    }),
+  ];
+
+  const turn2Lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-stale-test' }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'ERROR',
+        response: 'Turn 2 completed successfully despite past error.',
+        error: 'Tool crashed in turn 1',
+      },
+    }),
+  ];
+
+  let currentRun = 1;
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => {
+      const lines = currentRun === 1 ? turn1Lines : turn2Lines;
+      currentRun++;
+      return createMockProcess(lines);
+    },
+  });
+
+  // Turn 1 fails with the original error
+  await assert.rejects(
+    () =>
+      provider.startTurn({
+        turnId: 'turn-stale-1',
+        providerSessionId: 'conv-stale-test',
+        message: 'Do work 1',
+      }),
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.message, 'Tool crashed in turn 1');
+      return true;
+    },
+  );
+
+  // Turn 2 re-uses the conversation and produces a valid response; the echoed prior error must not fail Turn 2
+  const commentaryDeltas = [];
+  const finalAnswerDeltas = [];
+  const result2 = await provider.startTurn({
+    turnId: 'turn-stale-2',
+    providerSessionId: 'conv-stale-test',
+    message: 'Do work 2',
+    emitCommentaryDelta: (t) => commentaryDeltas.push(t),
+    emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
+  });
+
+  assert.equal(result2.status, 'completed');
+  assert.equal(commentaryDeltas.length, 0, 'must not demote final response to commentary');
+  assert.deepEqual(finalAnswerDeltas, ['Turn 2 completed successfully despite past error.']);
+});
+
 test('Antigravity error result: buffered assistant text before ERROR result is not promoted into a successful FinalAnswer', async () => {
   const lines = [
     JSON.stringify({ type: 'init', conversation_id: 'conv-err-streamed' }),

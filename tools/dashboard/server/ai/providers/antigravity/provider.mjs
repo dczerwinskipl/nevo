@@ -392,6 +392,7 @@ export class AntigravityAgentProvider {
   #loggedCaptureSessions = new Set();
   #sessionWriteQueues = new Map();
   #sessionDirMap = new Map();
+  #lastHandledSessionErrors = new Map();
 
   constructor({
     executable = 'agy',
@@ -875,6 +876,12 @@ export class AntigravityAgentProvider {
         operation.isDone = true;
 
         if (outcome === 'failed') {
+          if (error?.message) {
+            this.#lastHandledSessionErrors.set(effectiveSessionId, error.message);
+            if (currentSessionId) {
+              this.#lastHandledSessionErrors.set(currentSessionId, error.message);
+            }
+          }
           flushPendingAsCommentary();
         }
 
@@ -905,6 +912,12 @@ export class AntigravityAgentProvider {
         isDone = true;
         operation.isResolved = true;
         operation.isDone = true;
+        if (err?.message) {
+          this.#lastHandledSessionErrors.set(effectiveSessionId, err.message);
+          if (currentSessionId) {
+            this.#lastHandledSessionErrors.set(currentSessionId, err.message);
+          }
+        }
         if (operation.postResultTimer) {
           clearTimeout(operation.postResultTimer);
           operation.postResultTimer = null;
@@ -1173,7 +1186,7 @@ export class AntigravityAgentProvider {
                 statusValue.toUpperCase() === 'FAILED' ||
                 statusValue.toUpperCase() === 'TIMEOUT');
             const explicitErrorFlag = payload?.is_error === true || raw.is_error === true;
-            const isTerminalError = statusIndicatesError || explicitErrorFlag;
+            let isTerminalError = statusIndicatesError || explicitErrorFlag;
 
             const usageObj = payload?.usage || raw.usage;
             if (usageObj && emitUsageUpdated) {
@@ -1184,36 +1197,20 @@ export class AntigravityAgentProvider {
               });
             }
 
-            if (isTerminalError) {
-              const rawErr = payload?.error ?? raw.error;
-              const explicitResponse =
-                typeof raw.result?.response === 'string' && raw.result.response.trim()
-                  ? raw.result.response.trim()
-                  : typeof raw.response === 'string' && raw.response.trim()
-                    ? raw.response.trim()
-                    : null;
-              if (explicitResponse && !pendingAssistantText.includes(explicitResponse)) {
-                bufferAssistantText(explicitResponse);
-              }
-              flushPendingAsCommentary();
-              const errorMessage =
-                (typeof rawErr === 'string' ? rawErr : rawErr?.message || payload?.message || raw.message) ||
-                explicitResponse ||
-                'Antigravity turn failed.';
-              const isTimeout =
-                statusValue?.toUpperCase() === 'TIMEOUT' ||
-                /timeout|timed out|deadline exceeded|ETIMEDOUT/i.test(errorMessage);
-              const errorObj = isTimeout
-                ? new AiError('AI_PROVIDER_TIMEOUT', errorMessage, {
-                    status: 504,
-                    details: explicitResponse ? { providerResponse: explicitResponse } : undefined,
-                  })
-                : new AiError('AI_PROVIDER_ERROR', errorMessage, {
-                    details: explicitResponse ? { providerResponse: explicitResponse } : undefined,
-                  });
-              await failAuthoritativeTerminal(errorObj);
-              break;
-            }
+            const rawErr = payload?.error ?? raw.error;
+            const explicitResponse =
+              typeof raw.result?.response === 'string' && raw.result.response.trim()
+                ? raw.result.response.trim()
+                : typeof raw.response === 'string' && raw.response.trim()
+                  ? raw.response.trim()
+                  : null;
+            const errorMessage =
+              (typeof rawErr === 'string' ? rawErr : rawErr?.message || payload?.message || raw.message) ||
+              explicitResponse ||
+              'Antigravity turn failed.';
+            const isTimeout =
+              statusValue?.toUpperCase() === 'TIMEOUT' ||
+              /timeout|timed out|deadline exceeded|ETIMEDOUT/i.test(errorMessage);
 
             const finalText = extractFinalResponse(raw);
             let terminalResponseText = null;
@@ -1235,6 +1232,49 @@ export class AntigravityAgentProvider {
               }
             }
             const hasFinalResponse = typeof terminalResponseText === 'string' && terminalResponseText.trim().length > 0;
+
+            const priorSessionError =
+              this.#lastHandledSessionErrors.get(effectiveSessionId) ||
+              (currentSessionId ? this.#lastHandledSessionErrors.get(currentSessionId) : null);
+            const isStaleSessionError =
+              Boolean(priorSessionError && errorMessage && priorSessionError === errorMessage);
+
+            const isQuotaNotice =
+              !isTimeout &&
+              /quota|limit.*reset|resets? in \d|rate.?limit|insufficient.*credit|usage.*limit/i.test(errorMessage);
+
+            if (isTerminalError && hasFinalResponse && (isQuotaNotice || isStaleSessionError)) {
+              // 1. Antigravity CLI reports status: "ERROR" with a quota notice (e.g. "Individual quota reached. Resets in 23m32s.")
+              //    even when the current turn successfully completed and produced a full response.
+              // 2. Antigravity CLI retains and re-emits past conversation errors in subsequent turn result envelopes
+              //    when resuming a conversation (--conversation <id>). If the exact same error was already handled
+              //    in a prior turn, and this turn successfully generated a final response, it is a stale session error
+              //    and must not fail the current turn.
+              isTerminalError = false;
+            }
+
+            if (isTerminalError) {
+              if (errorMessage) {
+                this.#lastHandledSessionErrors.set(effectiveSessionId, errorMessage);
+                if (currentSessionId) {
+                  this.#lastHandledSessionErrors.set(currentSessionId, errorMessage);
+                }
+              }
+              if (explicitResponse && !pendingAssistantText.includes(explicitResponse)) {
+                bufferAssistantText(explicitResponse);
+              }
+              flushPendingAsCommentary();
+              const errorObj = isTimeout
+                ? new AiError('AI_PROVIDER_TIMEOUT', errorMessage, {
+                    status: 504,
+                    details: explicitResponse ? { providerResponse: explicitResponse } : undefined,
+                  })
+                : new AiError('AI_PROVIDER_ERROR', errorMessage, {
+                    details: explicitResponse ? { providerResponse: explicitResponse } : undefined,
+                  });
+              await failAuthoritativeTerminal(errorObj);
+              break;
+            }
 
             if (hasFinalResponse && emitFinalAnswerDelta) {
               emitFinalAnswerDelta(terminalResponseText, 'final-answer');
@@ -1515,6 +1555,7 @@ export class AntigravityAgentProvider {
   }
 
   async dispose() {
+    this.#lastHandledSessionErrors.clear();
     const operations = [...this.#activeOperations.values()];
     await Promise.allSettled(
       operations.map(async (operation) => {
