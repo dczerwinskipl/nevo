@@ -338,7 +338,7 @@ tasks:
   - id: cross-provider-lifecycle-validation
     order: 12
     file: tasks/12-cross-provider-lifecycle-validation.md
-    status: implemented
+    status: verified
     depends_on:
       - claude-neutral-mapping
       - codex-neutral-mapping

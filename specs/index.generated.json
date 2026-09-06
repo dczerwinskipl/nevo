@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-06T08:54:13.397Z",
+  "generated": "2026-09-06T08:54:23.807Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -397,7 +397,7 @@
           "id": "cross-provider-lifecycle-validation",
           "order": 12,
           "file": "tasks/12-cross-provider-lifecycle-validation.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "claude-neutral-mapping",
             "codex-neutral-mapping",
