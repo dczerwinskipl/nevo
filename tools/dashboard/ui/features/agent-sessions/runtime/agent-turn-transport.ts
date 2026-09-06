@@ -38,7 +38,6 @@ export async function postStartTurn(
   return { turnId: data.turnId };
 }
 
-/** Response shape mirrors what `applyCancelTurnResponse` (agent-event-reducer.ts) already consumes. */
 export async function postCancelTurn(
   provider: string,
   providerSessionId: string,

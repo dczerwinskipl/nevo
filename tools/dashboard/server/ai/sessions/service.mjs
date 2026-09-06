@@ -8,9 +8,12 @@ import {
 import { compareBindingRecency } from './binding-service.mjs';
 
 /**
- * Computes semantic session readiness without falling back to 'ready' on corrupt state.
+ * Computes semantic session readiness — the single, server-owned projection of
+ * CanonicalTurn.status onto the client-facing SessionReadiness contract (ADR-0008).
+ * HTTP snapshot reads and SSE `turn.updated` events both call this with the same
+ * canonical Turn, so they can never disagree.
  */
-export function resolveSessionReadiness({ descriptor, binding, transcript, activeTurn, turnSnapshot, error } = {}) {
+export function resolveSessionReadiness({ descriptor, transcript, turnSnapshot, error } = {}) {
   // 1. Persistence corruption / unreadable error
   if (transcript?.health === 'corrupt' || error) {
     return {
@@ -29,27 +32,39 @@ export function resolveSessionReadiness({ descriptor, binding, transcript, activ
     };
   }
 
-  // 3. Active Turn / Pending Interaction
-  if (activeTurn) {
-    if (activeTurn.status === 'waitingForUser' || turnSnapshot?.pendingInteraction) {
-      const interaction = turnSnapshot?.pendingInteraction || transcript?.pendingInteraction;
-      return {
-        status: 'requiresAttention',
-        reason: interaction?.kind === 'question' ? 'question_required' : 'permission_required',
-        details: { interactionId: interaction?.id, kind: interaction?.kind },
-      };
-    }
+  // 3. Canonical Turn projection. No active/latest turn at all is equivalent to terminal.
+  const status = turnSnapshot?.status;
+  if (!status || status.status === 'terminal') {
     return {
-      status: 'busy',
-      reason: 'turn_in_progress',
-      details: { turnId: activeTurn.turnId },
+      status: 'ready',
+      reason: 'idle',
     };
   }
 
-  // 4. Ready / Idle
+  if (status.status === 'requiresAttention') {
+    const reason =
+      status.reason === 'question'
+        ? 'question_required'
+        : status.reason === 'confirmation'
+          ? 'confirmation_required'
+          : 'permission_required';
+    const workItems = Array.isArray(turnSnapshot.work) ? turnSnapshot.work : [];
+    const interactionWork = workItems.find((w) => w.type === 'interaction' && w.id === status.interactionId);
+    return {
+      status: 'requiresAttention',
+      reason,
+      details: {
+        interactionId: status.interactionId,
+        kind: interactionWork?.interaction?.kind || status.reason,
+      },
+    };
+  }
+
+  // active / waiting / cancelling / unknown — non-terminal, not awaiting user input.
   return {
-    status: 'ready',
-    reason: 'idle',
+    status: 'busy',
+    reason: 'turn_in_progress',
+    details: { turnId: turnSnapshot.id },
   };
 }
 
@@ -384,21 +399,6 @@ export class AgentSessionService {
     const { status, activeTurn, pendingInteraction } = this.resolveSessionActivity(transcript);
     const resolvedMode = binding?.mode ?? descriptor?.defaultMode ?? 'edit';
 
-    let turnSnapshot = null;
-    if (activeTurn?.turnId) {
-      try {
-        turnSnapshot = this.getTurn(activeTurn.turnId);
-      } catch {}
-    }
-
-    const readiness = resolveSessionReadiness({
-      descriptor,
-      binding,
-      transcript,
-      activeTurn,
-      turnSnapshot,
-    });
-
     const turns = Array.isArray(transcript?.turns) ? transcript.turns : [];
     const activeCanonical = activeTurn?.turnId ? this.getCanonicalTurn(activeTurn.turnId) : null;
     const combinedTurns = turns.map((t) => (t.id === activeTurn?.turnId && activeCanonical ? activeCanonical : t));
@@ -407,6 +407,12 @@ export class AgentSessionService {
     }
 
     const activeOrLatestTurn = activeCanonical || (combinedTurns.length > 0 ? combinedTurns.at(-1) : null);
+
+    const readiness = resolveSessionReadiness({
+      descriptor,
+      transcript,
+      turnSnapshot: activeOrLatestTurn,
+    });
     const workSummary = computeWorkSummary(activeOrLatestTurn);
     const publicTurns = combinedTurns.map(serializePublicTurn);
 
@@ -570,10 +576,8 @@ export class AgentSessionService {
           if (event.type === 'turn.updated' && event.turn) {
             const publicTurn = serializePublicTurn(event.turn);
             const descriptor = this.registry?.has(prov) ? this.registry.get(prov).descriptor : undefined;
-            const isActive = publicTurn.status?.status !== 'terminal';
             const readiness = resolveSessionReadiness({
               descriptor,
-              activeTurn: isActive ? { turnId: publicTurn.id, status: publicTurn.status?.status } : null,
               turnSnapshot: publicTurn,
             });
             onEvent({

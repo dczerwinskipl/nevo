@@ -13,9 +13,9 @@ import { connectAgentEventStream, resolveEventSeq } from './agent-event-source.t
 import { fetchAgentSessionChat, classifySessionLoadError, AgentSessionLoadError } from './agent-session-transport.ts';
 import { postCancelTurn, postRespondInteraction, postStartTurn } from './agent-turn-transport.ts';
 import { createTurnIdempotencyKey } from './idempotency-key.ts';
-import { applyTurnUpdated, deriveActivity, deriveSessionReadiness } from './agent-event-reducer.ts';
+import { applyTurnUpdated, deriveActivity } from './agent-event-reducer.ts';
 
-export { applyTurnUpdated, deriveActivity, deriveSessionReadiness };
+export { applyTurnUpdated, deriveActivity };
 
 export interface UseAgentSessionRuntimeOptions {
   provider: string;
@@ -46,7 +46,7 @@ export function useAgentSessionRuntime({
 
   const [turns, setTurns] = useState<CanonicalTurn[]>([]);
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
-  const [baseReadiness, setBaseReadiness] = useState<SessionReadiness | null>(null);
+  const [serverReadiness, setServerReadiness] = useState<SessionReadiness | null>(null);
   const [sessionMeta, setSessionMeta] = useState<AgentSessionChatPayload['session'] | null>(null);
   const [loadError, setLoadError] = useState<AgentSessionLoadError | null>(null);
   const [reloadTrigger, setReloadTrigger] = useState<number>(0);
@@ -100,7 +100,7 @@ export function useAgentSessionRuntime({
         // an empty start followed by event-by-event reconstruction.
         setTurns(payload.turns || []);
         setCapabilities(payload.session.capabilities || null);
-        setBaseReadiness(payload.readiness || payload.session.readiness || null);
+        setServerReadiness(payload.readiness || payload.session.readiness || null);
         setOptimisticPending(null);
         // Resume SSE from the snapshot's own cursor, never 0 — otherwise the browser
         // replays the entire historical event stream and visibly rebuilds Work counts
@@ -117,7 +117,7 @@ export function useAgentSessionRuntime({
           setSessionMeta(null);
           setTurns([]);
           setCapabilities(null);
-          setBaseReadiness(null);
+          setServerReadiness(null);
           setOptimisticPending(null);
 
           setLoadedIdentity(null);
@@ -166,21 +166,27 @@ export function useAgentSessionRuntime({
         const seq = resolveEventSeq(event);
         if (seq > lastSeqRef.current) lastSeqRef.current = seq;
 
-        if (event.type !== 'turn.updated' || !event.turn) return;
-        const updatedTurn = event.turn;
+        if (event.type !== 'turn.updated') return;
+        if (event.turn) {
+          const updatedTurn = event.turn;
 
-        setTurns((prev) => applyTurnUpdated(prev, updatedTurn));
-        setOptimisticPending(null);
-        setContentRevision((r) => r + 1);
+          setTurns((prev) => applyTurnUpdated(prev, updatedTurn));
 
-        if (updatedTurn.status.status === 'terminal' && !terminalTurnIdsRef.current.has(updatedTurn.id)) {
-          terminalTurnIdsRef.current.add(updatedTurn.id);
-          onTurnCompletedRef.current?.();
-          const error = updatedTurn.status.error;
-          if (updatedTurn.status.outcome === 'failed' && error && error.code !== 'AI_TURN_CANCELLED') {
-            onErrorRef.current?.(new Error(error.message));
+          if (updatedTurn.status.status === 'terminal' && !terminalTurnIdsRef.current.has(updatedTurn.id)) {
+            terminalTurnIdsRef.current.add(updatedTurn.id);
+            onTurnCompletedRef.current?.();
+            const error = updatedTurn.status.error;
+            if (updatedTurn.status.outcome === 'failed' && error && error.code !== 'AI_TURN_CANCELLED') {
+              onErrorRef.current?.(new Error(error.message));
+            }
           }
         }
+
+        if (event.readiness) {
+          setServerReadiness(event.readiness);
+        }
+        setOptimisticPending(null);
+        setContentRevision((r) => r + 1);
       },
     });
 
@@ -204,7 +210,9 @@ export function useAgentSessionRuntime({
         throw new Error('Cannot start turn while the session snapshot is loading.');
       }
       if (loadError) throw new Error('Cannot start turn on a session with a load error.');
-      const currentReadiness = deriveSessionReadiness(baseReadiness, turnsRef.current, Boolean(optimisticPending));
+      const currentReadiness: SessionReadiness = optimisticPending
+        ? { status: 'busy', reason: 'turn_in_progress' }
+        : (serverReadiness ?? { status: 'ready', reason: 'idle' });
       if (currentReadiness.status !== 'ready') {
         throw new Error(`Cannot start turn while session is ${currentReadiness.status}.`);
       }
@@ -227,7 +235,7 @@ export function useAgentSessionRuntime({
         throw normalized;
       }
     },
-    [provider, providerSessionId, loadedIdentity, loadError, baseReadiness, optimisticPending],
+    [provider, providerSessionId, loadedIdentity, loadError, serverReadiness, optimisticPending],
   );
 
   // 4. Cancel Turn
@@ -276,8 +284,10 @@ export function useAgentSessionRuntime({
     : null;
   const exposedActiveTurnId = exposedActiveTurn?.id ?? null;
   const exposedCapabilities = isSnapshotLoaded ? capabilities : null;
-  const exposedReadiness = isSnapshotLoaded
-    ? deriveSessionReadiness(baseReadiness, exposedTurns, Boolean(optimisticPending))
+  const exposedReadiness: SessionReadiness | null = isSnapshotLoaded
+    ? (optimisticPending
+        ? { status: 'busy', reason: 'turn_in_progress' }
+        : (serverReadiness ?? { status: 'ready', reason: 'idle' }))
     : null;
   const exposedSessionMeta = isSnapshotLoaded ? sessionMeta : null;
   const exposedSessionDetails: AgentSessionSnapshot | null =

@@ -391,7 +391,6 @@ export class AntigravityAgentProvider {
   #loggedCaptureSessions = new Set();
   #sessionWriteQueues = new Map();
   #sessionDirMap = new Map();
-  #lastHandledSessionErrors = new Map();
 
   constructor({
     executable = 'agy',
@@ -875,12 +874,6 @@ export class AntigravityAgentProvider {
         operation.isDone = true;
 
         if (outcome === 'failed') {
-          if (error?.message) {
-            this.#lastHandledSessionErrors.set(effectiveSessionId, error.message);
-            if (currentSessionId) {
-              this.#lastHandledSessionErrors.set(currentSessionId, error.message);
-            }
-          }
           flushPendingAsCommentary();
         }
 
@@ -911,12 +904,6 @@ export class AntigravityAgentProvider {
         isDone = true;
         operation.isResolved = true;
         operation.isDone = true;
-        if (err?.message) {
-          this.#lastHandledSessionErrors.set(effectiveSessionId, err.message);
-          if (currentSessionId) {
-            this.#lastHandledSessionErrors.set(currentSessionId, err.message);
-          }
-        }
         if (operation.postResultTimer) {
           clearTimeout(operation.postResultTimer);
           operation.postResultTimer = null;
@@ -1212,54 +1199,61 @@ export class AntigravityAgentProvider {
               /timeout|timed out|deadline exceeded|ETIMEDOUT/i.test(errorMessage);
 
             const finalText = extractFinalResponse(raw);
+            const strippedFinalText =
+              typeof finalText === 'string' && committedCommentary && finalText.startsWith(committedCommentary)
+                ? finalText.slice(committedCommentary.length).trimStart()
+                : finalText;
+
             let terminalResponseText = null;
             if (typeof pendingAssistantText === 'string' && pendingAssistantText.trim().length > 0) {
               if (
-                typeof finalText === 'string' &&
-                finalText.startsWith(pendingAssistantText) &&
-                finalText.length > pendingAssistantText.length
+                typeof strippedFinalText === 'string' &&
+                strippedFinalText.startsWith(pendingAssistantText) &&
+                strippedFinalText.length > pendingAssistantText.length
               ) {
-                terminalResponseText = finalText;
+                terminalResponseText = strippedFinalText;
               } else {
                 terminalResponseText = pendingAssistantText;
               }
-            } else if (typeof finalText === 'string' && finalText.trim().length > 0) {
-              if (committedCommentary && finalText.startsWith(committedCommentary)) {
-                terminalResponseText = finalText.slice(committedCommentary.length).trimStart();
-              } else {
-                terminalResponseText = finalText;
-              }
+            } else if (typeof strippedFinalText === 'string' && strippedFinalText.trim().length > 0) {
+              terminalResponseText = strippedFinalText;
             }
-            const hasFinalResponse = typeof terminalResponseText === 'string' && terminalResponseText.trim().length > 0;
 
-            const priorSessionError =
-              this.#lastHandledSessionErrors.get(effectiveSessionId) ||
-              (currentSessionId ? this.#lastHandledSessionErrors.get(currentSessionId) : null);
-            const isStaleSessionError =
-              Boolean(priorSessionError && errorMessage && priorSessionError === errorMessage);
+            const rawErrString =
+              typeof rawErr === 'string'
+                ? rawErr.trim()
+                : typeof rawErr?.message === 'string'
+                  ? rawErr.message.trim()
+                  : null;
+            const isResponseEchoingError = Boolean(
+              rawErrString &&
+                terminalResponseText &&
+                (terminalResponseText.trim() === rawErrString ||
+                  (rawErrString.length > 10 && terminalResponseText.trim().startsWith(rawErrString))),
+            );
+            const hasFinalResponse =
+              typeof terminalResponseText === 'string' &&
+              terminalResponseText.trim().length > 0 &&
+              !isResponseEchoingError &&
+              (typeof finalText === 'string' ? finalText.trim().length > 0 : !statusIndicatesError);
 
-            const isQuotaNotice =
-              !isTimeout &&
-              /quota|limit.*reset|resets? in \d|rate.?limit|insufficient.*credit|usage.*limit/i.test(errorMessage);
-
-            if (isTerminalError && hasFinalResponse && (isQuotaNotice || isStaleSessionError)) {
-              // 1. Antigravity CLI reports status: "ERROR" with a quota notice (e.g. "Individual quota reached. Resets in 23m32s.")
-              //    even when the current turn successfully completed and produced a full response.
-              // 2. Antigravity CLI retains and re-emits past conversation errors in subsequent turn result envelopes
-              //    when resuming a conversation (--conversation <id>). If the exact same error was already handled
-              //    in a prior turn, and this turn successfully generated a final response, it is a stale session error
-              //    and must not fail the current turn.
+            // Global terminal outcome evaluation:
+            // When a turn successfully produces a substantive final response (hasFinalResponse)
+            // and did not time out (!isTimeout):
+            // Antigravity CLI may report status: "ERROR" or is_error: true alongside non-fatal
+            // diagnostic advisory strings (e.g. quota/rate notices, internal function call formatting
+            // retries, stale session errors carried over across turns, or tool exit warnings).
+            // A substantive final response MUST be honored as the canonical FinalAnswer rather than
+            // downgraded to commentary or failing the turn.
+            if (isTerminalError && hasFinalResponse && !isTimeout) {
               isTerminalError = false;
+              if (errorMessage) {
+                console.warn(`[antigravity] Diagnostic notice on completed turn: ${errorMessage}`);
+              }
             }
 
             if (isTerminalError) {
-              if (errorMessage) {
-                this.#lastHandledSessionErrors.set(effectiveSessionId, errorMessage);
-                if (currentSessionId) {
-                  this.#lastHandledSessionErrors.set(currentSessionId, errorMessage);
-                }
-              }
-              if (explicitResponse && !pendingAssistantText.includes(explicitResponse)) {
+              if (explicitResponse && !isResponseEchoingError && !pendingAssistantText.includes(explicitResponse)) {
                 bufferAssistantText(explicitResponse);
               }
               flushPendingAsCommentary();
@@ -1554,7 +1548,6 @@ export class AntigravityAgentProvider {
   }
 
   async dispose() {
-    this.#lastHandledSessionErrors.clear();
     const operations = [...this.#activeOperations.values()];
     await Promise.allSettled(
       operations.map(async (operation) => {

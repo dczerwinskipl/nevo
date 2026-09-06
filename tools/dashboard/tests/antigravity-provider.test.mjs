@@ -1939,7 +1939,7 @@ test('Antigravity dispose terminates active operations and flushes their raw dia
   }
 });
 
-test('Antigravity error result: event "result" + status "ERROR" with non-empty response and error fails turn and preserves providerResponse detail', async () => {
+test('Antigravity error result: event "result" + status "ERROR" with non-empty response avoids false-positive error and completes turn with FinalAnswer', async () => {
   const lines = [
     JSON.stringify({ type: 'init', conversation_id: 'conv-err-response' }),
     JSON.stringify({
@@ -1958,59 +1958,49 @@ test('Antigravity error result: event "result" + status "ERROR" with non-empty r
     spawnProcess: () => createMockProcess(lines),
   });
 
-  await assert.rejects(
-    () =>
-      provider.startTurn({
-        turnId: 'turn-err-response',
-        providerSessionId: 'conv-err-response',
-        message: 'Do work',
-        emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
-        emitCommentaryDelta: (t) => commentaryDeltas.push(t),
-      }),
-    (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_ERROR');
-      assert.equal(err.message, 'Earlier tool failed');
-      assert.equal(err.details?.providerResponse, 'Odpowiedź asystenta wygenerowana mimo wcześniejszego błędu w sesji');
-      return true;
-    },
-  );
+  const result = await provider.startTurn({
+    turnId: 'turn-err-response',
+    providerSessionId: 'conv-err-response',
+    message: 'Do work',
+    emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
+    emitCommentaryDelta: (t) => commentaryDeltas.push(t),
+  });
 
-  assert.equal(finalAnswerDeltas.length, 0, 'must not emit FinalAnswer on failed turn');
-  assert.equal(commentaryDeltas.length, 1, 'must emit non-empty response as Commentary in Work on failed turn');
-  assert.equal(commentaryDeltas[0], 'Odpowiedź asystenta wygenerowana mimo wcześniejszego błędu w sesji');
+  assert.equal(result.status, 'completed');
+  assert.equal(commentaryDeltas.length, 0, 'must not downgrade completed response to commentary');
+  assert.deepEqual(finalAnswerDeltas, ['Odpowiedź asystenta wygenerowana mimo wcześniejszego błędu w sesji']);
 });
 
-test('Antigravity error result: event "result" + status "FAILED" with non-empty response fails turn', async () => {
+test('Antigravity error result: event "result" + status "FAILED" with non-empty response completes turn with FinalAnswer', async () => {
   const lines = [
     JSON.stringify({ type: 'init', conversation_id: 'conv-failed-response' }),
     JSON.stringify({
       event: 'result',
       result: {
         status: 'FAILED',
-        response: 'Partial response before failure',
+        response: 'Response generated despite failed status',
         error: 'Task execution failed',
       },
     }),
   ];
 
+  const finalAnswerDeltas = [];
+  const commentaryDeltas = [];
   const provider = createAntigravityAgentProvider({
     spawnProcess: () => createMockProcess(lines),
   });
 
-  await assert.rejects(
-    () =>
-      provider.startTurn({
-        turnId: 'turn-failed-response',
-        providerSessionId: 'conv-failed-response',
-        message: 'Do work',
-      }),
-    (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_ERROR');
-      assert.equal(err.message, 'Task execution failed');
-      assert.equal(err.details?.providerResponse, 'Partial response before failure');
-      return true;
-    },
-  );
+  const result = await provider.startTurn({
+    turnId: 'turn-failed-response',
+    providerSessionId: 'conv-failed-response',
+    message: 'Do work',
+    emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
+    emitCommentaryDelta: (t) => commentaryDeltas.push(t),
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(commentaryDeltas.length, 0, 'must not downgrade completed response to commentary');
+  assert.deepEqual(finalAnswerDeltas, ['Response generated despite failed status']);
 });
 
 test('Antigravity error result: event "result" + status "TIMEOUT" with non-empty response fails turn with AI_PROVIDER_TIMEOUT', async () => {
@@ -2264,15 +2254,15 @@ test('Antigravity multi-turn: stale conversation error from previous turn does n
   assert.deepEqual(finalAnswerDeltas, ['Turn 2 completed successfully despite past error.']);
 });
 
-test('Antigravity error result: buffered assistant text before ERROR result is not promoted into a successful FinalAnswer', async () => {
+test('Antigravity error result: interrupted streaming with empty result.response preserves buffered text in commentary and fails turn', async () => {
   const lines = [
     JSON.stringify({ type: 'init', conversation_id: 'conv-err-streamed' }),
-    JSON.stringify({ event: 'step_update', step_update: { text_delta: 'Wystreamowany tekst' } }),
+    JSON.stringify({ event: 'step_update', step_update: { text_delta: 'Wystreamowany tekst przed błędem' } }),
     JSON.stringify({
       event: 'result',
       result: {
         status: 'ERROR',
-        response: 'Wystreamowany tekst',
+        response: '',
         error: 'Błąd po wygenerowaniu tekstu',
       },
     }),
@@ -2302,10 +2292,114 @@ test('Antigravity error result: buffered assistant text before ERROR result is n
 
   assert.deepEqual(
     commentaryDeltas,
-    ['Wystreamowany tekst'],
+    ['Wystreamowany tekst przed błędem'],
     'buffered text must be preserved in commentary upon failure',
   );
-  assert.equal(finalAnswerDeltas.length, 0, 'must never emit final answer on error result');
+  assert.equal(finalAnswerDeltas.length, 0, 'must never emit final answer on error result without completed response');
+});
+
+test('Antigravity function call formatting retry notice: event "result" + status "ERROR" with retry error string and non-empty response completes turn successfully with FinalAnswer', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-fn-retry-response' }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'ERROR',
+        response: 'Pliki zostały zaktualizowane zgodnie z poleceniem.',
+        error:
+          'Your previous response contained an improperly formatted function call. Please retry with a properly formatted function call. Retries remaining: 3',
+      },
+    }),
+  ];
+
+  const finalAnswerDeltas = [];
+  const commentaryDeltas = [];
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-fn-retry-response',
+    providerSessionId: 'conv-fn-retry-response',
+    message: 'Aktualizuj pliki',
+    emitCommentaryDelta: (t) => commentaryDeltas.push(t),
+    emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(commentaryDeltas.length, 0, 'must not downgrade response to commentary');
+  assert.deepEqual(finalAnswerDeltas, ['Pliki zostały zaktualizowane zgodnie z poleceniem.']);
+});
+
+test('Antigravity generic diagnostic error: event "result" + status "ERROR" with arbitrary unrecognized diagnostic string and non-empty response completes turn successfully with FinalAnswer', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-generic-diagnostic' }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'ERROR',
+        response: 'Zadanie zakończone sukcesem.',
+        error: 'Arbitrary internal diagnostic: context window 85% full, tool warning in step 4',
+      },
+    }),
+  ];
+
+  const finalAnswerDeltas = [];
+  const commentaryDeltas = [];
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-generic-diagnostic',
+    providerSessionId: 'conv-generic-diagnostic',
+    message: 'Wykonaj zadanie',
+    emitCommentaryDelta: (t) => commentaryDeltas.push(t),
+    emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(commentaryDeltas.length, 0, 'must not downgrade response to commentary');
+  assert.deepEqual(finalAnswerDeltas, ['Zadanie zakończone sukcesem.']);
+});
+
+test('Antigravity error with response echoing error message fails turn with AI_PROVIDER_ERROR without commentary', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-echo-err' }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'ERROR',
+        response: 'Authentication token expired. Please re-authenticate.',
+        error: 'Authentication token expired. Please re-authenticate.',
+      },
+    }),
+  ];
+
+  const finalAnswerDeltas = [];
+  const commentaryDeltas = [];
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  await assert.rejects(
+    () =>
+      provider.startTurn({
+        turnId: 'turn-echo-err',
+        providerSessionId: 'conv-echo-err',
+        message: 'Do work',
+        emitCommentaryDelta: (t) => commentaryDeltas.push(t),
+        emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
+      }),
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.match(err.message, /Authentication token expired/);
+      return true;
+    },
+  );
+
+  assert.equal(finalAnswerDeltas.length, 0, 'must not emit FinalAnswer when response is merely the error message');
+  assert.equal(commentaryDeltas.length, 0, 'must not buffer echoed error message as commentary');
 });
 
 test('Antigravity error result: still-active tool call is resolved to failed', async () => {

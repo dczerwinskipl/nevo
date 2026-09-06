@@ -1296,6 +1296,67 @@ test('Task 07: Server workSummary supplies activityCount, currentActivity, and a
   }
 });
 
+test("Task 13 correction: readiness attached to 'turn.updated' SSE events matches the canonical server projection across active, requiresAttention, and terminal states", async () => {
+  const { service } = createStack();
+  const sessionId = 'session-sse-readiness';
+  const events = [];
+  const unsubscribe = service.subscribeToSession('mock', sessionId, {
+    onEvent: (event) => {
+      if (event.type === 'turn.updated') events.push(event);
+    },
+  });
+
+  const waitForEvent = async (predicate, message) => {
+    for (let index = 0; index < 200; index += 1) {
+      const match = events.findLast(predicate);
+      if (match) return match;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.fail(`Timed out waiting for ${message}.`);
+  };
+
+  try {
+    const { turnId } = await service.startTurn('mock', sessionId, { message: 'permission please' });
+
+    // active -> busy
+    const activeEvent = await waitForEvent((e) => e.turn.status.status === 'active', 'active snapshot');
+    assert.equal(activeEvent.readiness.status, 'busy');
+    assert.equal(activeEvent.readiness.reason, 'turn_in_progress');
+
+    // requiresAttention / permission
+    const attentionEvent = await waitForEvent(
+      (e) => e.turn.status.status === 'requiresAttention',
+      'requiresAttention snapshot',
+    );
+    assert.equal(attentionEvent.readiness.status, 'requiresAttention');
+    assert.equal(attentionEvent.readiness.reason, 'permission_required');
+    assert.equal(attentionEvent.readiness.details.interactionId, attentionEvent.turn.status.interactionId);
+
+    await service.resolveInteraction(turnId, attentionEvent.turn.status.interactionId, { decision: 'allow' });
+
+    // terminal completed -> ready
+    const completedEvent = await waitForEvent(
+      (e) => e.turn.status.status === 'terminal' && e.turn.status.outcome === 'completed',
+      'terminal completed snapshot',
+    );
+    assert.equal(completedEvent.readiness.status, 'ready');
+
+    // A second turn, cancelled while requiring attention, must also project to ready.
+    events.length = 0;
+    const cancelStart = await service.startTurn('mock', sessionId, { message: 'permission again' });
+    await waitForEvent((e) => e.turn.status.status === 'requiresAttention', 'second requiresAttention snapshot');
+
+    await service.cancelTurn(cancelStart.turnId);
+    const cancelledEvent = await waitForEvent(
+      (e) => e.turn.status.status === 'terminal' && e.turn.status.outcome === 'cancelled',
+      'terminal cancelled snapshot',
+    );
+    assert.equal(cancelledEvent.readiness.status, 'ready');
+  } finally {
+    unsubscribe();
+  }
+});
+
 test('Task 07: Corrupt/unreadable persistence state does not become empty ready/idle', async () => {
   const cacheDir = join(tmpdir(), `nevo-ai-corrupt-test-${randomUUID()}`);
   const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir });
