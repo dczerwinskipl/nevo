@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-06T14:47:46.471Z",
+  "generated": "2026-09-06T15:21:44.076Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -441,13 +441,13 @@
           "id": "canonical-cutover-and-cleanup",
           "order": 13,
           "file": "tasks/13-canonical-cutover-and-cleanup.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "cross-provider-lifecycle-validation"
           ],
           "implementation": {
             "baseline_revision": "acb3a64dd7dc39c112ec78d7492b03cee52450e4",
-            "review_revision": "7678315cfceb2d11ebe8553b9be8ec4cbd433cc2",
+            "review_revision": "133fe2933e9804b4e68327b92864421b47d6710f",
             "changed_paths": [
               "docs/decisions/ADR-0007-provider-neutral-ai-sessions.md",
               "docs/decisions/ADR-0008-canonical-ai-session-chat-and-turn-model.md",
@@ -457,6 +457,7 @@
               "tools/dashboard/server/ai/sessions/service.mjs",
               "tools/dashboard/server/ai/sessions/transcript-cache.mjs",
               "tools/dashboard/server/ai/sessions/turns/runtime.mjs",
+              "tools/dashboard/tests/agent-event-source.test.mjs",
               "tools/dashboard/tests/agent-session-runtime-state.test.mjs",
               "tools/dashboard/tests/ai-contracts.test.mjs",
               "tools/dashboard/tests/ai-server.test.mjs",
@@ -482,11 +483,14 @@
               "tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.tsx",
               "tools/dashboard/ui/features/agent-sessions/agent-session-page.tsx",
               "tools/dashboard/ui/features/agent-sessions/runtime/agent-event-reducer.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-event-source.ts",
               "tools/dashboard/ui/features/agent-sessions/runtime/agent-session-runtime-v2.ts",
               "tools/dashboard/ui/features/agent-sessions/runtime/agent-session-runtime.ts",
               "tools/dashboard/ui/features/agent-sessions/runtime/agent-session-transport.ts",
               "tools/dashboard/ui/features/agent-sessions/runtime/agent-session-v2-transport.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/agent-turn-transport.ts",
               "tools/dashboard/ui/features/agent-sessions/runtime/assistant-ui-bridge.ts",
+              "tools/dashboard/ui/features/agent-sessions/runtime/idempotency-key.ts",
               "tools/dashboard/ui/features/agent-sessions/transcript/agent-session-transcript.tsx",
               "tools/dashboard/ui/features/agent-sessions/transcript/projection.ts",
               "tools/dashboard/ui/features/agent-sessions/transcript/reasoning-view.tsx",
@@ -515,7 +519,7 @@
           },
           "self_check": {
             "fingerprint": "48d080fc7e99ded4488082b0ff8a7787eb943a7888dc4f82fcec4111d5708a2d",
-            "revision": "7678315cfceb2d11ebe8553b9be8ec4cbd433cc2",
+            "revision": "133fe2933e9804b4e68327b92864421b47d6710f",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard test",
