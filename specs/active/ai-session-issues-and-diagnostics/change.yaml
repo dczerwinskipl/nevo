@@ -373,9 +373,92 @@ tasks:
   - id: canonical-cutover-and-cleanup
     order: 13
     file: tasks/13-canonical-cutover-and-cleanup.md
-    status: draft
+    status: implemented
     depends_on:
       - cross-provider-lifecycle-validation
+    implementation:
+      baseline_revision: acb3a64dd7dc39c112ec78d7492b03cee52450e4
+      review_revision: 7678315cfceb2d11ebe8553b9be8ec4cbd433cc2
+      changed_paths:
+        - docs/decisions/ADR-0007-provider-neutral-ai-sessions.md
+        - docs/decisions/ADR-0008-canonical-ai-session-chat-and-turn-model.md
+        - docs/development/ai-sessions.md
+        - tools/dashboard/server/ai/contracts.mjs
+        - tools/dashboard/server/ai/sessions/routes.mjs
+        - tools/dashboard/server/ai/sessions/service.mjs
+        - tools/dashboard/server/ai/sessions/transcript-cache.mjs
+        - tools/dashboard/server/ai/sessions/turns/runtime.mjs
+        - tools/dashboard/tests/agent-session-runtime-state.test.mjs
+        - tools/dashboard/tests/ai-contracts.test.mjs
+        - tools/dashboard/tests/ai-server.test.mjs
+        - tools/dashboard/tests/ai-turn-runtime.test.mjs
+        - tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs
+        - tools/dashboard/tests/chat-fixture-model.test.tsx
+        - tools/dashboard/tests/composer-interaction.test.mjs
+        - tools/dashboard/tests/create-agent-session-helpers.test.mjs
+        - tools/dashboard/tests/cross-provider-conformance.test.mjs
+        - tools/dashboard/tests/responsive-accessibility-regression.test.mjs
+        - tools/dashboard/tests/scroll-follow.test.mjs
+        - tools/dashboard/tests/semantic-work-chat-corrections.test.mjs
+        - tools/dashboard/tests/semantic-work-chat-corrections.test.tsx
+        - tools/dashboard/tests/session-readiness.test.mjs
+        - tools/dashboard/tests/theme-visual-cleanup.test.mjs
+        - tools/dashboard/tests/tool-activity-labels.test.mjs
+        - tools/dashboard/tests/transcript-message-layout.test.mjs
+        - tools/dashboard/tests/transcript-projection.test.mjs
+        - tools/dashboard/tests/turn-work-correlation.test.mjs
+        - tools/dashboard/tests/turn-work-summary.test.mjs
+        - tools/dashboard/tests/turn-work-summary.test.tsx
+        - tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.stories.tsx
+        - tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.tsx
+        - tools/dashboard/ui/features/agent-sessions/agent-session-page.tsx
+        - tools/dashboard/ui/features/agent-sessions/runtime/agent-event-reducer.ts
+        - tools/dashboard/ui/features/agent-sessions/runtime/agent-session-runtime-v2.ts
+        - tools/dashboard/ui/features/agent-sessions/runtime/agent-session-runtime.ts
+        - tools/dashboard/ui/features/agent-sessions/runtime/agent-session-transport.ts
+        - tools/dashboard/ui/features/agent-sessions/runtime/agent-session-v2-transport.ts
+        - tools/dashboard/ui/features/agent-sessions/runtime/assistant-ui-bridge.ts
+        - tools/dashboard/ui/features/agent-sessions/transcript/agent-session-transcript.tsx
+        - tools/dashboard/ui/features/agent-sessions/transcript/projection.ts
+        - tools/dashboard/ui/features/agent-sessions/transcript/reasoning-view.tsx
+        - tools/dashboard/ui/features/agent-sessions/transcript/transcript-message.tsx
+        - tools/dashboard/ui/features/agent-sessions/turn-work/tool-activity-labels.ts
+        - tools/dashboard/ui/features/agent-sessions/turn-work/tool-call-view.tsx
+        - tools/dashboard/ui/features/agent-sessions/turn-work/turn-work-summary.tsx
+        - tools/dashboard/ui/features/agent-sessions/turn-work/turn-work-visibility.ts
+        - tools/dashboard/ui/features/agent-sessions/types.ts
+        - tools/dashboard/ui/features/agent-sessions/work/__fixtures__/chat-fixtures.ts
+        - tools/dashboard/ui/features/agent-sessions/work/activity-model.ts
+        - tools/dashboard/ui/features/agent-sessions/work/agent-session-transcript.tsx
+        - tools/dashboard/ui/features/agent-sessions/work/final-answer-view.tsx
+        - tools/dashboard/ui/features/agent-sessions/work/pending-interaction-view.tsx
+        - tools/dashboard/ui/features/agent-sessions/work/text-preview.ts
+        - tools/dashboard/ui/features/agent-sessions/work/timeline-projection.ts
+        - tools/dashboard/ui/features/agent-sessions/work/tool-kind-icons.ts
+        - tools/dashboard/ui/features/agent-sessions/work/turn-status-tone.ts
+        - tools/dashboard/ui/features/agent-sessions/work/turn-work-panel.tsx
+        - tools/dashboard/ui/features/agent-sessions/work/use-elapsed-label.ts
+        - tools/dashboard/ui/features/agent-sessions/work/work-details-sheet.tsx
+        - tools/dashboard/ui/features/agent-sessions/work/work-indicator.tsx
+        - tools/dashboard/ui/features/agent-sessions/work/work-timeline.tsx
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 48d080fc7e99ded4488082b0ff8a7787eb943a7888dc4f82fcec4111d5708a2d
+      revision: 7678315cfceb2d11ebe8553b9be8ec4cbd433cc2
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+        - command: node tools/specs.mjs check
+          exit_code: 0
+        - command: node tools/docs.mjs validate
+          exit_code: 0
+        - command: node tools/docs.mjs check
+          exit_code: 0
+      status: passed
 spec_id: 4f26584c-9abc-4421-ae9a-2897a1647c79
 pull_requests:
   - provider: github

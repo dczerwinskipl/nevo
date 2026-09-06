@@ -17,12 +17,12 @@ task_fingerprints:
   neutral-lifecycle-diagnostics: 88fcee96c17a851aa64cc6f8075ef4385b2cb3e459e893f524b2ba397c4e3605
   lifecycle-coordinator-and-timeouts: 287fe2b64a6b4d6211b2e9ed86b33af56f5e7697afcfaef569be477e31d2e31a
   canonical-persistence-and-server-projection: 960275f9bc93150b59bdfdd90c14147f509275942372a667943c6ca09365d5cc
-  claude-neutral-mapping: f1ff63f4f0a85615e0790220cf0d25d2a0573d49a37b10745e645c071b5126eb
+  claude-neutral-mapping: 94683a0786812d1983f20ab9eaeb59e5e169c4cbb27f463bc73f22b9f93311ab
   codex-neutral-mapping: 2711b7ff69e06b3ad4e288d584904d096d446b8c84d483b9efc0b2f748ca1f12
   antigravity-neutral-mapping: a4807d6b0dab45ae7b5565c93fb1bc13ebad96999fa9db93a158275ba3767664
   semantic-work-chat-v2: f379cc8114f55c7514b89ae4679ed20e8589ceab044a79c5b7b6cb197f7159ab
-  cross-provider-lifecycle-validation: eaa0eeb3abd1cc0c811b1372b8b536bb1f68d8ea0e439429ba0dc77dea52db6d
-  canonical-cutover-and-cleanup: 85fe060b0409cdfd3bca63d076481f39085d3951981d7c3e21b959bc35b85a60
+  cross-provider-lifecycle-validation: 0582dd6833451df8fdff39745636b4a4a04ad46a6fb45189be3ed2df8b13cd99
+  canonical-cutover-and-cleanup: 48d080fc7e99ded4488082b0ff8a7787eb943a7888dc4f82fcec4111d5708a2d
 ---
 
 # Review: ai-session-issues-and-diagnostics (scope: all tasks 01-13)
