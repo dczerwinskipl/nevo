@@ -23,7 +23,7 @@ function readAgentSessionPageSource() {
 
 function readTranscriptSource() {
   return readFileSync(
-    fileURLToPath(new URL('../ui/features/agent-sessions/transcript/agent-session-transcript.tsx', import.meta.url)),
+    fileURLToPath(new URL('../ui/features/agent-sessions/work/agent-session-transcript.tsx', import.meta.url)),
     'utf8',
   );
 }

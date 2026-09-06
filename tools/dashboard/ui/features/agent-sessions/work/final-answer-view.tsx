@@ -1,9 +1,9 @@
 import { LoaderCircle } from 'lucide-react';
 import { MarkdownContent } from '@/shared/markdown/markdown-content';
-import type { FinalAnswerV2 } from '../types';
+import type { FinalAnswer } from '../types';
 
-export interface FinalAnswerViewV2Props {
-  finalAnswer: FinalAnswerV2 | null;
+export interface FinalAnswerViewProps {
+  finalAnswer: FinalAnswer | null;
 }
 
 /**
@@ -12,7 +12,7 @@ export interface FinalAnswerViewV2Props {
  * "Final answer"). `absent`/`null` renders nothing — cancellation or failure never
  * promotes commentary/partial Work into a fabricated final answer.
  */
-export function FinalAnswerViewV2({ finalAnswer }: FinalAnswerViewV2Props) {
+export function FinalAnswerView({ finalAnswer }: FinalAnswerViewProps) {
   if (!finalAnswer || finalAnswer.status === 'absent') return null;
 
   return (

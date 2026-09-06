@@ -91,7 +91,7 @@ test('workflow and session states follow the semantic color contract', () => {
   const lanes = readSource('features/specifications/detail/lane-presentation.ts');
   const progress = readSource('features/specifications/stage-progress.tsx');
   const labels = readSource('shared/ui/status-label.tsx');
-  const tools = readSource('features/agent-sessions/turn-work/tool-call-view.tsx');
+  const workIndicator = readSource('features/agent-sessions/work/work-indicator.tsx');
   const sessions = readSource('features/agent-sessions/agent-session-list.tsx');
 
   assert.ok(lanes.includes("implementation: { dotClassName: 'bg-status-active' }"));
@@ -104,7 +104,7 @@ test('workflow and session states follow the semantic color contract', () => {
   assert.ok(progress.includes('key={stage.id}'));
   const specStatus = readSource('features/specifications/status.ts');
   assert.match(specStatus, /case 'approved':[\s\S]*return 'success'/);
-  assert.ok(tools.includes('isFailed && <AlertTriangle className="size-3.5 text-status-warning"'));
+  assert.ok(workIndicator.includes('<AlertTriangle className="size-4 shrink-0 text-status-attention"'));
   assert.ok(sessions.includes("session.status === 'waitingForUser' && 'bg-status-warning/10'"));
 });
 

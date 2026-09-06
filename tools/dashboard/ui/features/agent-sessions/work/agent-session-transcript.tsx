@@ -2,14 +2,14 @@ import { AlertTriangle, ArrowLeft, ChevronDown, ChevronRight, LoaderCircle, Refr
 import { forwardRef, useCallback, useImperativeHandle, useState } from 'react';
 
 import { Button } from '@/shared/ui/button';
-import { TurnWorkPanelV2 } from './turn-work-panel-v2';
+import { TurnWorkPanel } from './turn-work-panel';
 import { useScrollFollow } from '../transcript/use-scroll-follow';
 import { shouldCollapseMessage } from '../transcript/message-collapse';
 import { AgentSessionLoadError } from '../runtime/agent-session-transport';
-import type { CanonicalTurnV2 } from '../types';
+import type { CanonicalTurn } from '../types';
 import { cn } from '@/shared/lib/utils';
 
-export interface AgentSessionTranscriptV2Handle {
+export interface AgentSessionTranscriptHandle {
   scrollToBottom: (behavior?: ScrollBehavior) => void;
 }
 
@@ -47,8 +47,8 @@ function UserMessageBubble({ text }: { text: string }) {
   );
 }
 
-export interface AgentSessionTranscriptV2Props {
-  turns: CanonicalTurnV2[];
+export interface AgentSessionTranscriptProps {
+  turns: CanonicalTurn[];
   /** Optimistic text for the brief POST-to-first-snapshot gap only — every materialized turn renders its own canonical `userMessage` instead. */
   optimisticUserMessage?: string | null;
   isLoading: boolean;
@@ -66,13 +66,13 @@ export interface AgentSessionTranscriptV2Props {
 }
 
 /**
- * V2 semantic Work chat transcript (task 11). Renders directly from the canonical
+ * Canonical semantic Work chat transcript. Renders directly from the canonical
  * Turn[] projection — one user bubble (when the prompt was observed live) plus one
- * `TurnWorkPanelV2` per turn. No provider payloads, no command parsing: everything
+ * `TurnWorkPanel` per turn. No provider payloads, no command parsing: everything
  * rendered here is already-classified server evidence.
  */
-export const AgentSessionTranscriptV2 = forwardRef<AgentSessionTranscriptV2Handle, AgentSessionTranscriptV2Props>(
-  function AgentSessionTranscriptV2(
+export const AgentSessionTranscript = forwardRef<AgentSessionTranscriptHandle, AgentSessionTranscriptProps>(
+  function AgentSessionTranscript(
     {
       turns,
       optimisticUserMessage,
@@ -156,7 +156,7 @@ export const AgentSessionTranscriptV2 = forwardRef<AgentSessionTranscriptV2Handl
           {turns.map((turn) => (
             <div key={turn.id} className="w-full min-w-0 space-y-1.5">
               {turn.userMessage && <UserMessageBubble text={turn.userMessage.text} />}
-              <TurnWorkPanelV2 turn={turn} onRespondInteraction={onRespondInteraction} />
+              <TurnWorkPanel turn={turn} onRespondInteraction={onRespondInteraction} />
             </div>
           ))}
 

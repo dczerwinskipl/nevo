@@ -1,4 +1,4 @@
-import type { AgentSessionSnapshot } from '../types.ts';
+import type { AgentSessionChatPayload, AgentSessionSnapshot } from '../types.ts';
 
 export type AgentSessionLoadErrorKind = 'network' | 'not_found' | 'http';
 
@@ -120,3 +120,49 @@ export async function fetchAgentSessionSnapshot(
   const data = await res.json();
   return data.session as AgentSessionSnapshot;
 }
+
+export async function fetchAgentSessionChat(
+  provider: string,
+  providerSessionId: string,
+  fetchFn: typeof fetch = fetch,
+): Promise<AgentSessionChatPayload> {
+  let res: Response;
+  try {
+    res = await fetchFn(
+      `/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}/chat`,
+    );
+  } catch (err) {
+    throw classifySessionLoadError(err, provider, providerSessionId);
+  }
+
+  if (!res.ok) {
+    let errorMsg = '';
+    try {
+      const errData = await res.json();
+      errorMsg = errData?.error?.message || errData?.message || '';
+    } catch {
+      // ignore non-json response body
+    }
+
+    if (res.status === 404) {
+      throw new AgentSessionLoadError(
+        errorMsg ||
+          `Sesja "${providerSessionId}" dla providera "${provider}" nie została znaleziona lub została usunięta.`,
+        {
+          kind: 'not_found',
+          status: 404,
+          title: 'Sesja nie znaleziona',
+        },
+      );
+    }
+
+    throw new AgentSessionLoadError(errorMsg || `Serwer dashboardu zwrócił błąd: ${res.status} ${res.statusText}`, {
+      kind: 'http',
+      status: res.status,
+      title: `Błąd serwera (${res.status})`,
+    });
+  }
+
+  return (await res.json()) as AgentSessionChatPayload;
+}
+

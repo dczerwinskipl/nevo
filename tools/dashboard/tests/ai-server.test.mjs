@@ -5,7 +5,6 @@ import { mkdir, mkdtemp, rm, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 
-import { projectChatV1 } from '../server/ai/contracts.mjs';
 import { createMockAgentProvider } from '../server/ai/providers/mock/provider.mjs';
 import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
 import { createAgentSessionService } from '../server/ai/sessions/service.mjs';
@@ -136,7 +135,7 @@ test('Agent session routes expose the complete provider-neutral session and turn
     assert.equal(sessionBody.specId, specId);
     assert.equal(sessionBody.taskId, 'task-a');
     assert.equal(sessionBody.status, 'idle');
-    assert.ok(sessionBody.messages.length >= 2);
+    assert.ok(sessionBody.turns.length >= 1);
     assert.ok(sessionBody.lastEventSeq > 0);
     // Regression guard: registry.get(provider) returns { provider, descriptor }, not the
     // descriptor itself — a session snapshot must still surface the provider's real
@@ -153,12 +152,13 @@ test('Agent session routes expose the complete provider-neutral session and turn
     const { turnId: secondTurnId } = await secondTurnResponse.json();
     await waitFor(service, secondTurnId, (turn) => turn.status === 'completed');
 
-    // 6. Messages list
-    const messagesResponse = await fetch(
-      `${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(providerSessionId)}/messages`,
+    // 6. Chat snapshot: GET /api/agent-sessions/:provider/:providerSessionId/chat
+    const chatResponse = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(providerSessionId)}/chat`,
     );
-    const messagesBody = await messagesResponse.json();
-    assert.equal(messagesBody.messages.length, 4);
+    assert.equal(chatResponse.status, 200);
+    const chatBody = await chatResponse.json();
+    assert.equal(chatBody.turns.length, 2);
 
     // 7. Manual pre-allocated session attachment: POST /api/agent-sessions
     const attachResponse = await fetch(
@@ -1341,7 +1341,7 @@ test('Task 07: Corrupt/unreadable persistence state does not become empty ready/
   }
 });
 
-test('Task 07: V1 and V2 can project the same session and representation switching has no lifecycle write effect', async () => {
+test('Canonical session and chat endpoints project turns and readiness without legacy messages', async () => {
   const { service } = createStack();
   const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
@@ -1358,27 +1358,17 @@ test('Task 07: V1 and V2 can project the same session and representation switchi
     const { turnId } = await startRes.json();
     await waitFor(service, turnId, (t) => t.status === 'completed');
 
-    // 1. Query with representation=v1 -> Must return messages, must NOT return turns or workSummary or readiness
-    const v1Res = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}?representation=v1`);
-    assert.equal(v1Res.status, 200);
-    const v1Body = (await v1Res.json()).session;
-    assert.ok(Array.isArray(v1Body.messages));
-    assert.ok(v1Body.messages.length >= 2);
-    assert.equal(v1Body.turns, undefined);
-    assert.equal(v1Body.workSummary, undefined);
-    assert.equal(v1Body.readiness, undefined);
+    // 1. Query canonical session endpoint -> returns turns, workSummary, readiness, no messages
+    const sessionRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}`);
+    assert.equal(sessionRes.status, 200);
+    const sessionBody = (await sessionRes.json()).session;
+    assert.ok(Array.isArray(sessionBody.turns));
+    assert.equal(sessionBody.turns.length, 1);
+    assert.ok(sessionBody.workSummary);
+    assert.equal(sessionBody.readiness.status, 'ready');
+    assert.equal(sessionBody.messages, undefined);
 
-    // 2. Query with representation=v2 -> Must return turns, workSummary, readiness, must NOT return messages
-    const v2Res = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}?representation=v2`);
-    assert.equal(v2Res.status, 200);
-    const v2Body = (await v2Res.json()).session;
-    assert.ok(Array.isArray(v2Body.turns));
-    assert.equal(v2Body.turns.length, 1);
-    assert.ok(v2Body.workSummary);
-    assert.equal(v2Body.readiness.status, 'ready');
-    assert.equal(v2Body.messages, undefined);
-
-    // 3. Query /chat endpoint
+    // 2. Query canonical /chat endpoint
     const chatRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}/chat`);
     assert.equal(chatRes.status, 200);
     const chatBody = await chatRes.json();
@@ -1387,15 +1377,11 @@ test('Task 07: V1 and V2 can project the same session and representation switchi
     assert.equal(chatBody.turns[0].id, turnId);
     assert.equal(chatBody.workSummary.status, 'completed');
 
-    // 4. Repeated representation queries do not alter session turns count or status
-    const repeatV1 = await fetch(
-      `${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}?representation=v1`,
-    );
-    const repeatV2 = await fetch(
-      `${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}?representation=v2`,
-    );
-    assert.equal(repeatV1.status, 200);
-    assert.equal(repeatV2.status, 200);
+    // 3. Repeated queries do not alter session turns count or status
+    const repeatSession = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}`);
+    const repeatChat = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}/chat`);
+    assert.equal(repeatSession.status, 200);
+    assert.equal(repeatChat.status, 200);
     const postTurns = await service.listTurns('mock', sessionId);
     assert.equal(postTurns.length, 1);
     assert.equal(postTurns[0].status.outcome, 'completed');
@@ -1689,48 +1675,6 @@ test('Task 07: Terminal persistence flush is awaitable and persists before grace
   } finally {
     await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
   }
-});
-
-test('Task 07: Single V1 projector produces identical assistant message across all V1 read paths for interrupted turn', async () => {
-  const interruptedTurn = {
-    id: 'turn-int-proj-1',
-    providerSessionId: 'sess-proj',
-    mode: 'agent',
-    status: {
-      status: 'terminal',
-      outcome: 'interrupted',
-      initiator: 'shutdown',
-      cause: 'turn_interrupted',
-      error: { message: 'Interrupted by server restart.' },
-    },
-    work: [{ id: 'c1', type: 'commentary', text: 'Partial text before crash', status: 'completed' }],
-    startedAt: '2026-08-31T10:00:00.000Z',
-    completedAt: '2026-08-31T10:00:05.000Z',
-  };
-
-  // 1. Direct projectChatV1 call
-  const fromDirectProjector = projectChatV1([interruptedTurn]);
-
-  // 2. TranscriptCache getTranscript() messages
-  const cacheDir = join(tmpdir(), `nevo-test-proj-v1-${randomUUID()}`);
-  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
-  transcriptCache.recordCanonicalTurn('mock', 'sess-proj', interruptedTurn);
-  await transcriptCache.flush('mock', 'sess-proj');
-
-  const transcript = await transcriptCache.getTranscript('mock', 'sess-proj');
-  const fromCache = transcript.messages;
-
-  // 3. AgentSessionService listMessages()
-  const provider = createMockAgentProvider({ specId });
-  const registry = createAgentProviderRegistry([provider]);
-  const service = createAgentSessionService({ registry, transcriptCache });
-  const fromService = await service.listMessages('mock', 'sess-proj');
-
-  assert.deepEqual(fromDirectProjector, fromCache);
-  assert.deepEqual(fromDirectProjector, fromService);
-  assert.equal(fromDirectProjector[0].text, 'Interrupted by server restart.');
-
-  await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
 });
 
 test('Task 07: Explicit schema validation rejects unsupported schema version as corrupt/unavailable', async () => {
@@ -2070,29 +2014,6 @@ test('Task 07: deleteTranscript() serializes with in-progress writes and guarant
   assert.equal(exists, false, 'Transcript file must remain deleted and not recreated by queued write');
 
   await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
-});
-
-test('Task 07: V1 queued tool status compatibility maps queued to running instead of failed', () => {
-  const queuedToolTurn = {
-    id: 'turn-q-1',
-    providerSessionId: 'sess-q',
-    status: { status: 'active' },
-    work: [
-      { id: 'tool-q', type: 'tool', toolName: 'build', status: 'queued' },
-      { id: 'tool-r', type: 'tool', toolName: 'test', status: 'active' },
-      { id: 'tool-c', type: 'tool', toolName: 'lint', status: 'completed' },
-      { id: 'tool-f', type: 'tool', toolName: 'deploy', status: 'failed' },
-    ],
-  };
-
-  const messages = projectChatV1([queuedToolTurn]);
-  assert.equal(messages.length, 1);
-  const toolCalls = messages[0].toolCalls;
-  assert.equal(toolCalls.length, 4);
-  assert.equal(toolCalls[0].status, 'running', 'queued status must map to running in V1 projection');
-  assert.equal(toolCalls[1].status, 'running', 'active status must map to running in V1 projection');
-  assert.equal(toolCalls[2].status, 'completed');
-  assert.equal(toolCalls[3].status, 'failed');
 });
 
 test('Task 07: CanonicalTurn session identity invariant holds across first turn and subsequent turns', async () => {

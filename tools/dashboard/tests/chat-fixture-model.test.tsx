@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import type { ToolInvocationWorkItemV2, ToolKindV2, ToolStatusV2 } from '../ui/features/agent-sessions/types.ts';
+import type { ToolInvocationWorkItem, ToolKind, ToolStatus } from '../ui/features/agent-sessions/types.ts';
 import {
   buildUserMessage,
   buildFinalAnswer,
@@ -26,14 +26,14 @@ import {
   LONG_COMMAND_STRING,
   LONG_PATH_STRING,
   LONG_COMMENTARY_TEXT,
-} from '../ui/features/agent-sessions/work-v2/__fixtures__/chat-fixtures.ts';
-import { projectTimelineV2 } from '../ui/features/agent-sessions/work-v2/timeline-projection-v2.ts';
+} from '../ui/features/agent-sessions/work/__fixtures__/chat-fixtures.ts';
+import { projectTimeline } from '../ui/features/agent-sessions/work/timeline-projection.ts';
 
 interface ToolMatrixEntry {
-  kind: ToolKindV2;
+  kind: ToolKind;
   toolName: string;
   title: string;
-  builder: (options?: ToolOverrideOptions) => ToolInvocationWorkItemV2;
+  builder: (options?: ToolOverrideOptions) => ToolInvocationWorkItem;
   successSnippet: string;
   failureSnippet: string;
 }
@@ -217,7 +217,7 @@ describe('Chat Fixture Model (Task 06)', () => {
       expect(item.status).toBe('completed');
     }
 
-    const projected = projectTimelineV2(items);
+    const projected = projectTimeline(items);
     expect(projected.allRows.length).toBe(1);
     expect(projected.allRows[0].row).toBe('tool_group');
     if (projected.allRows[0].row === 'tool_group') {

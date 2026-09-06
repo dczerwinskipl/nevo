@@ -2,14 +2,14 @@ import { useMemo, useState, useCallback } from 'react';
 import { AlertTriangle, ArrowLeft, Ban, Check, ChevronRight, Clock, Code2, LoaderCircle, X } from 'lucide-react';
 import { Sheet, SheetContent } from '@/shared/ui/sheet';
 import { MarkdownContent } from '@/shared/markdown/markdown-content';
-import { TOOL_KIND_ICONS_V2 } from './tool-kind-icons-v2';
-import { previewPlainText } from './text-preview-v2';
+import { TOOL_KIND_ICONS } from './tool-kind-icons';
+import { previewPlainText } from './text-preview';
 import type {
-  CanonicalTurnV2,
-  CommentaryWorkItemV2,
-  ReasoningWorkItemV2,
-  ToolInvocationWorkItemV2,
-  WorkItemV2,
+  CanonicalTurn,
+  CommentaryWorkItem,
+  ReasoningWorkItem,
+  ToolInvocationWorkItem,
+  WorkItem,
 } from '../types';
 import { cn } from '@/shared/lib/utils';
 
@@ -35,7 +35,7 @@ function formatDuration(durationMs?: number): string | null {
   return `${(durationMs / 1000).toFixed(1)} s`;
 }
 
-function resolveToolSubject(item: ToolInvocationWorkItemV2): string | null {
+function resolveToolSubject(item: ToolInvocationWorkItem): string | null {
   if (item.description?.trim()) return item.description.trim();
   if (item.actions && item.actions.length > 0) {
     const target = item.actions.find((a) => a.target)?.target;
@@ -53,8 +53,8 @@ function resolveToolSubject(item: ToolInvocationWorkItemV2): string | null {
 }
 
 /** Full technical inspection of one ToolInvocation — every field the canonical model exposes. */
-function ToolDetail({ item, provider }: { item: ToolInvocationWorkItemV2; provider?: string }) {
-  const Icon = TOOL_KIND_ICONS_V2[item.kind];
+function ToolDetail({ item, provider }: { item: ToolInvocationWorkItem; provider?: string }) {
+  const Icon = TOOL_KIND_ICONS[item.kind];
   const started = formatAbsolute(item.startedAt);
   const completed = formatAbsolute(item.completedAt);
   const duration = formatDuration(item.durationMs);
@@ -157,10 +157,10 @@ function ToolDetail({ item, provider }: { item: ToolInvocationWorkItemV2; provid
 
 /**
  * Full Markdown inspection of one Commentary/Reasoning item — the counterpart to
- * Level 2's single-line plain-text preview (text-preview-v2.ts). This is the only
+ * Level 2's single-line plain-text preview (text-preview.ts). This is the only
  * surface allowed to render full Markdown for these items (headings, code, lists).
  */
-function TextDetail({ item }: { item: CommentaryWorkItemV2 | ReasoningWorkItemV2 }) {
+function TextDetail({ item }: { item: CommentaryWorkItem | ReasoningWorkItem }) {
   const isReasoning = item.type === 'reasoning';
   return (
     <div className="space-y-3 text-xs">
@@ -175,7 +175,7 @@ function TextDetail({ item }: { item: CommentaryWorkItemV2 | ReasoningWorkItemV2
 }
 
 /** Full ungrouped Work list — every individual item in its exact original order, as an inspection timeline. */
-function WorkList({ work, onSelect }: { work: WorkItemV2[]; onSelect: (item: WorkItemV2) => void }) {
+function WorkList({ work, onSelect }: { work: WorkItem[]; onSelect: (item: WorkItem) => void }) {
   return (
     <div className="relative w-full max-w-full min-w-0 pl-1">
       {/* Central vertical rail aligned through the marker column */}
@@ -183,7 +183,7 @@ function WorkList({ work, onSelect }: { work: WorkItemV2[]; onSelect: (item: Wor
       <ol className="relative flex flex-col gap-0.5 text-xs">
         {work.map((item) => {
           if (item.type === 'tool') {
-            const Icon = TOOL_KIND_ICONS_V2[item.kind] || TOOL_KIND_ICONS_V2.other;
+            const Icon = TOOL_KIND_ICONS[item.kind] || TOOL_KIND_ICONS.other;
             const duration = formatDuration(item.durationMs);
             const subject = resolveToolSubject(item);
             return (
@@ -289,8 +289,9 @@ function WorkList({ work, onSelect }: { work: WorkItemV2[]; onSelect: (item: Wor
     </div>
   );
 }
-export interface WorkDetailsSheetV2Props {
-  turn: CanonicalTurnV2 | null;
+
+export interface WorkDetailsSheetProps {
+  turn: CanonicalTurn | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   selectedItemId?: string | null;
@@ -307,14 +308,14 @@ export interface WorkDetailsSheetV2Props {
  * Markdown. Richer per-row metadata than Level 2 on purpose — Level 2 scans, this
  * inspects exactly what happened.
  */
-export function WorkDetailsSheetV2({
+export function WorkDetailsSheet({
   turn,
   open,
   onOpenChange,
   selectedItemId: controlledSelectedItemId,
   onSelectItemId,
   initialItemId = null,
-}: WorkDetailsSheetV2Props) {
+}: WorkDetailsSheetProps) {
   const [uncontrolledSelectedItemId, setUncontrolledSelectedItemId] = useState<string | null>(initialItemId);
 
   const isControlled = controlledSelectedItemId !== undefined;

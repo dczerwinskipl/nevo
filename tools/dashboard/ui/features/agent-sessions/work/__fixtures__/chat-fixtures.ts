@@ -1,18 +1,18 @@
 import type {
-  CanonicalTurnV2,
-  CommentaryWorkItemV2,
-  CurrentActivityV2,
-  FinalAnswerV2,
-  ReasoningWorkItemV2,
-  ToolActionV2,
-  ToolInvocationWorkItemV2,
-  ToolKindV2,
-  ToolStatusV2,
-  TurnStatusV2,
-  WorkItemV2,
+  CanonicalTurn,
+  CommentaryWorkItem,
+  CurrentActivity,
+  FinalAnswer,
+  ReasoningWorkItem,
+  ToolAction,
+  ToolInvocationWorkItem,
+  ToolKind,
+  ToolStatus,
+  TurnStatus,
+  WorkItem,
 } from '../../types.ts';
 
-export type { WorkItemV2 };
+export type { WorkItem };
 
 const BASE_TIMESTAMP = '2026-09-02T12:00:00.000Z';
 
@@ -24,7 +24,7 @@ export function resetFixtureSeq(start = 1): void {
 }
 
 /** Override options for specialized tool builders that protect builder invariants. */
-export type ToolOverrideOptions = Omit<Partial<ToolInvocationWorkItemV2>, 'kind' | 'toolName' | 'title'>;
+export type ToolOverrideOptions = Omit<Partial<ToolInvocationWorkItem>, 'kind' | 'toolName' | 'title'>;
 
 // --- User Message Builder ---
 
@@ -40,7 +40,7 @@ export function buildUserMessage(options?: { text?: string; createdAt?: string }
 
 // --- Final Answer Builder ---
 
-export function buildFinalAnswer(options?: Partial<FinalAnswerV2>): FinalAnswerV2 {
+export function buildFinalAnswer(options?: Partial<FinalAnswer>): FinalAnswer {
   const status = options?.status ?? 'completed';
   return {
     id: options?.id ?? `final-ans-${nextSeq++}`,
@@ -57,7 +57,7 @@ export function buildFinalAnswer(options?: Partial<FinalAnswerV2>): FinalAnswerV
 
 // --- Commentary & Reasoning Builders ---
 
-export function buildCommentary(options?: Partial<CommentaryWorkItemV2>): CommentaryWorkItemV2 {
+export function buildCommentary(options?: Partial<CommentaryWorkItem>): CommentaryWorkItem {
   const status = options?.status ?? 'completed';
   return {
     id: options?.id ?? `work-commentary-${nextSeq++}`,
@@ -72,7 +72,7 @@ export function buildCommentary(options?: Partial<CommentaryWorkItemV2>): Commen
   };
 }
 
-export function buildReasoning(options?: Partial<ReasoningWorkItemV2>): ReasoningWorkItemV2 {
+export function buildReasoning(options?: Partial<ReasoningWorkItem>): ReasoningWorkItem {
   const status = options?.status ?? 'completed';
   return {
     id: options?.id ?? `work-reasoning-${nextSeq++}`,
@@ -91,15 +91,15 @@ export function buildReasoning(options?: Partial<ReasoningWorkItemV2>): Reasonin
 // --- Base Tool Invocation Builder ---
 
 export function buildToolInvocation(
-  options: Partial<ToolInvocationWorkItemV2> & {
+  options: Partial<ToolInvocationWorkItem> & {
     toolName: string;
-    kind: ToolKindV2;
+    kind: ToolKind;
     title: string;
-    status?: ToolStatusV2;
+    status?: ToolStatus;
   },
-): ToolInvocationWorkItemV2 {
+): ToolInvocationWorkItem {
   const id = options.id ?? `tool-${options.toolName}-${nextSeq++}`;
-  const status: ToolStatusV2 = options.status ?? 'completed';
+  const status: ToolStatus = options.status ?? 'completed';
   const isTerminal =
     status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'interrupted';
 
@@ -139,7 +139,7 @@ export function buildToolInvocation(
 
 // --- Represented Tool Kinds Builders (Command, Read, Edit/Write, Search) ---
 
-export function buildCommandTool(options?: ToolOverrideOptions): ToolInvocationWorkItemV2 {
+export function buildCommandTool(options?: ToolOverrideOptions): ToolInvocationWorkItem {
   const status = options?.status ?? 'completed';
   const defaultCommand = 'npm --prefix tools/dashboard test';
 
@@ -165,7 +165,7 @@ export function buildCommandTool(options?: ToolOverrideOptions): ToolInvocationW
   });
 }
 
-export function buildFileReadTool(options?: ToolOverrideOptions): ToolInvocationWorkItemV2 {
+export function buildFileReadTool(options?: ToolOverrideOptions): ToolInvocationWorkItem {
   const status = options?.status ?? 'completed';
   const targetFile = 'tools/dashboard/ui/index.css';
 
@@ -191,7 +191,7 @@ export function buildFileReadTool(options?: ToolOverrideOptions): ToolInvocation
   });
 }
 
-export function buildFileEditTool(options?: ToolOverrideOptions): ToolInvocationWorkItemV2 {
+export function buildFileEditTool(options?: ToolOverrideOptions): ToolInvocationWorkItem {
   const status = options?.status ?? 'completed';
   const targetFile = 'tools/dashboard/ui/foundations/colors.stories.tsx';
 
@@ -217,7 +217,7 @@ export function buildFileEditTool(options?: ToolOverrideOptions): ToolInvocation
   });
 }
 
-export function buildFileWriteTool(options?: ToolOverrideOptions): ToolInvocationWorkItemV2 {
+export function buildFileWriteTool(options?: ToolOverrideOptions): ToolInvocationWorkItem {
   const status = options?.status ?? 'completed';
   const targetFile = 'tools/dashboard/ui/foundations/typography.stories.tsx';
 
@@ -243,7 +243,7 @@ export function buildFileWriteTool(options?: ToolOverrideOptions): ToolInvocatio
   });
 }
 
-export function buildSearchTool(options?: ToolOverrideOptions): ToolInvocationWorkItemV2 {
+export function buildSearchTool(options?: ToolOverrideOptions): ToolInvocationWorkItem {
   const status = options?.status ?? 'completed';
 
   let defaultOutput: unknown = undefined;
@@ -270,8 +270,8 @@ export function buildSearchTool(options?: ToolOverrideOptions): ToolInvocationWo
 
 // --- Grouped Commands Scenario Builder ---
 
-export function buildGroupedCommandsScenario(count = 3, baseOptions?: ToolOverrideOptions): ToolInvocationWorkItemV2[] {
-  const items: ToolInvocationWorkItemV2[] = [];
+export function buildGroupedCommandsScenario(count = 3, baseOptions?: ToolOverrideOptions): ToolInvocationWorkItem[] {
+  const items: ToolInvocationWorkItem[] = [];
   for (let i = 1; i <= count; i++) {
     items.push(
       buildCommandTool({
@@ -286,7 +286,7 @@ export function buildGroupedCommandsScenario(count = 3, baseOptions?: ToolOverri
   return items;
 }
 
-// --- Long Content Builders (AC2: Exercise wrapping / truncation) ---
+// --- Long Content Builders ---
 
 export const LONG_COMMAND_STRING =
   'npm --prefix tools/dashboard/features/subsystems/analytics run build -- --env=production --target=es2022 --max-old-space-size=8192 --config-override=custom-vite.config.ts --reporter=verbose-json-stream-with-full-stack-traces';
@@ -297,7 +297,7 @@ export const LONG_PATH_STRING =
 export const LONG_COMMENTARY_TEXT =
   'Investigating the performance metrics across all 14 active font-size scales, 8 line-height configurations, and 5 font weights. The inspection indicates that system fallbacks are functioning appropriately under headless Chromium environments, with no layout shifts detected between initial paint and hydration. Continuing to monitor streaming events for subsequent verification batches.';
 
-export function buildLongCommandTool(options?: ToolOverrideOptions): ToolInvocationWorkItemV2 {
+export function buildLongCommandTool(options?: ToolOverrideOptions): ToolInvocationWorkItem {
   const status = options?.status ?? 'completed';
   const customOutput =
     options?.output !== undefined
@@ -317,7 +317,7 @@ export function buildLongCommandTool(options?: ToolOverrideOptions): ToolInvocat
   });
 }
 
-export function buildLongPathTool(options?: ToolOverrideOptions): ToolInvocationWorkItemV2 {
+export function buildLongPathTool(options?: ToolOverrideOptions): ToolInvocationWorkItem {
   return buildFileReadTool({
     subject: 'very-deeply-nested-session-transcript-inspection-view.component.tsx',
     description: LONG_PATH_STRING,
@@ -326,7 +326,7 @@ export function buildLongPathTool(options?: ToolOverrideOptions): ToolInvocation
   });
 }
 
-export function buildLongCommentary(options?: Partial<CommentaryWorkItemV2>): CommentaryWorkItemV2 {
+export function buildLongCommentary(options?: Partial<CommentaryWorkItem>): CommentaryWorkItem {
   return buildCommentary({
     text: LONG_COMMENTARY_TEXT,
     ...options,
@@ -335,10 +335,10 @@ export function buildLongCommentary(options?: Partial<CommentaryWorkItemV2>): Co
 
 // --- Canonical Turn Builder & Scenarios ---
 
-export function buildCanonicalTurn(options?: Partial<CanonicalTurnV2>): CanonicalTurnV2 {
+export function buildCanonicalTurn(options?: Partial<CanonicalTurn>): CanonicalTurn {
   const id = options?.id ?? `turn-${nextSeq++}`;
   const work = options?.work ?? [];
-  const status: TurnStatusV2 = options?.status ?? {
+  const status: TurnStatus = options?.status ?? {
     status: 'terminal',
     outcome: 'completed',
     initiator: 'agent',
@@ -395,8 +395,8 @@ export function buildCanonicalTurn(options?: Partial<CanonicalTurnV2>): Canonica
 }
 
 /** Scenario: Empty turn waiting for user or initialization. */
-export function buildEmptyWaitingTurn(options?: Partial<CanonicalTurnV2>): CanonicalTurnV2 {
-  const status: TurnStatusV2 = options?.status ?? {
+export function buildEmptyWaitingTurn(options?: Partial<CanonicalTurn>): CanonicalTurn {
+  const status: TurnStatus = options?.status ?? {
     status: 'waiting',
     reason: 'provider_response',
     since: BASE_TIMESTAMP,
@@ -404,7 +404,7 @@ export function buildEmptyWaitingTurn(options?: Partial<CanonicalTurnV2>): Canon
   };
   const startedAt = 'since' in status && status.since ? status.since : BASE_TIMESTAMP;
 
-  const currentActivity: CurrentActivityV2 | null =
+  const currentActivity: CurrentActivity | null =
     options?.currentActivity !== undefined
       ? options.currentActivity
       : {
@@ -427,13 +427,13 @@ export function buildEmptyWaitingTurn(options?: Partial<CanonicalTurnV2>): Canon
 }
 
 /** Scenario: Turn actively executing a tool with currentActivity. */
-export function buildActiveRunningTurn(options?: Partial<CanonicalTurnV2>): CanonicalTurnV2 {
-  let activeTool: ToolInvocationWorkItemV2;
-  let activeTools: ToolInvocationWorkItemV2[] = [];
+export function buildActiveRunningTurn(options?: Partial<CanonicalTurn>): CanonicalTurn {
+  let activeTool: ToolInvocationWorkItem;
+  let activeTools: ToolInvocationWorkItem[] = [];
 
   if (options?.work !== undefined) {
     activeTools = options.work.filter(
-      (w): w is ToolInvocationWorkItemV2 =>
+      (w): w is ToolInvocationWorkItem =>
         'type' in w && w.type === 'tool' && (w.status === 'active' || w.status === 'queued'),
     );
     if (activeTools.length === 0) {
@@ -450,7 +450,7 @@ export function buildActiveRunningTurn(options?: Partial<CanonicalTurnV2>): Cano
   const work = options?.work ?? [activeTool];
   const activeId = activeTool.id;
 
-  const currentActivity: CurrentActivityV2 =
+  const currentActivity: CurrentActivity =
     options?.currentActivity ??
     (activeTools.length > 1
       ? {
@@ -508,33 +508,28 @@ export function buildActiveRunningTurn(options?: Partial<CanonicalTurnV2>): Cano
   });
 }
 
-/** Scenario: Active thinking / commentary turn (Task 09 requirement). */
+/** Scenario: Active thinking / commentary turn. */
 export function buildActiveThinkingTurn(
-  options?: { item?: CommentaryWorkItemV2 | ReasoningWorkItemV2 } & Partial<CanonicalTurnV2>,
-): CanonicalTurnV2 {
-  let activeItem: CommentaryWorkItemV2 | ReasoningWorkItemV2;
-  let work: WorkItemV2[];
+  options?: { item?: CommentaryWorkItem | ReasoningWorkItem } & Partial<CanonicalTurn>,
+): CanonicalTurn {
+  let activeItem: CommentaryWorkItem | ReasoningWorkItem;
+  let work: WorkItem[];
 
   if (options?.work !== undefined) {
-    // 1. Select canonical evidence from supplied work array matching production precedence:
-    // streaming reasoning first, then streaming commentary.
     const activeReasoning = options.work.find(
-      (w): w is ReasoningWorkItemV2 => w.type === 'reasoning' && w.status === 'streaming',
+      (w): w is ReasoningWorkItem => w.type === 'reasoning' && w.status === 'streaming',
     );
     const activeCommentary = options.work.find(
-      (w): w is CommentaryWorkItemV2 => w.type === 'commentary' && w.status === 'streaming',
+      (w): w is CommentaryWorkItem => w.type === 'commentary' && w.status === 'streaming',
     );
     const canonicalItem = activeReasoning ?? activeCommentary;
 
-    // 3. Throw a clear error when "work" contains no streaming reasoning or commentary.
     if (!canonicalItem) {
       throw new Error(
         'Cannot build active thinking turn: supplied work contains no reasoning or commentary with status "streaming".',
       );
     }
 
-    // 5. Reject simultaneous "item" and "work" inputs unless the API explicitly verifies
-    // that the item belongs to "work" and is the same item selected by canonical precedence.
     if (options.item !== undefined) {
       if (options.item.id !== canonicalItem.id || !options.work.some((w) => w.id === options.item!.id)) {
         throw new Error(
@@ -543,7 +538,6 @@ export function buildActiveThinkingTurn(
       }
     }
 
-    // 4. Never create a synthetic active item that is absent from the supplied "work".
     activeItem = canonicalItem;
     work = options.work;
   } else if (options?.item !== undefined) {
@@ -560,7 +554,6 @@ export function buildActiveThinkingTurn(
     activeItem = options.item;
     work = [activeItem];
   } else {
-    // When neither "work" nor "item" is supplied, retain the default streaming reasoning scenario.
     activeItem = buildReasoning({
       status: 'streaming',
       text: 'Evaluating architectural boundaries and testing infrastructure…',
@@ -575,7 +568,7 @@ export function buildActiveThinkingTurn(
 
   const itemStartedAt: string = activeItem.createdAt;
 
-  const currentActivity: CurrentActivityV2 = {
+  const currentActivity: CurrentActivity = {
     kind: currentActivityKind,
     subjectId: activeItem.id,
     title,
@@ -594,7 +587,7 @@ export function buildActiveThinkingTurn(
 
   const { item: _item, ...turnOptions } = options ?? {};
 
-  const status: TurnStatusV2 = {
+  const status: TurnStatus = {
     status: 'active',
     detail,
     subjectId: activeItem.id,
@@ -615,10 +608,10 @@ export function buildActiveThinkingTurn(
 }
 
 /** Scenario: Convenience active commentary turn. */
-export function buildActiveCommentaryTurn(options?: Partial<CanonicalTurnV2>): CanonicalTurnV2 {
+export function buildActiveCommentaryTurn(options?: Partial<CanonicalTurn>): CanonicalTurn {
   if (options?.work !== undefined) {
     const existingStreamingCommentary = options.work.find(
-      (w): w is CommentaryWorkItemV2 => w.type === 'commentary' && w.status === 'streaming',
+      (w): w is CommentaryWorkItem => w.type === 'commentary' && w.status === 'streaming',
     );
     if (existingStreamingCommentary) {
       return buildActiveThinkingTurn({
@@ -648,8 +641,8 @@ export function buildActiveCommentaryTurn(options?: Partial<CanonicalTurnV2>): C
 }
 
 /** Scenario: Fully completed turn with user message, commentary, tools, and final answer. */
-export function buildCompletedConversationTurn(options?: Partial<CanonicalTurnV2>): CanonicalTurnV2 {
-  const defaultWork: WorkItemV2[] = [buildCommentary(), buildFileReadTool(), buildCommandTool()];
+export function buildCompletedConversationTurn(options?: Partial<CanonicalTurn>): CanonicalTurn {
+  const defaultWork: WorkItem[] = [buildCommentary(), buildFileReadTool(), buildCommandTool()];
 
   const work = options?.work ?? defaultWork;
   const historicalWork = options?.historicalWork ?? work;
@@ -675,8 +668,8 @@ export function buildCompletedConversationTurn(options?: Partial<CanonicalTurnV2
 /** Scenario: Turn that failed with a terminal error. */
 export function buildFailedTurn(
   error = { code: 'COMMAND_EXIT_NONZERO', message: 'Build command failed with exit code 1' },
-  options?: Partial<CanonicalTurnV2>,
-): CanonicalTurnV2 {
+  options?: Partial<CanonicalTurn>,
+): CanonicalTurn {
   const failedCmd = buildCommandTool({ status: 'failed', exitCode: 1 });
   const work = options?.work ?? [failedCmd];
   const historicalWork = options?.historicalWork ?? work;

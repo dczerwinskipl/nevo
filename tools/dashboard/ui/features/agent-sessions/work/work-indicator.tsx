@@ -8,12 +8,12 @@ import {
   LoaderCircle,
   XCircle,
 } from 'lucide-react';
-import { describeCurrentActivityV2, terminalHeaderLabelV2 } from './activity-model-v2';
-import { TOOL_KIND_ICONS_V2 } from './tool-kind-icons-v2';
+import { describeCurrentActivity, terminalHeaderLabel } from './activity-model';
+import { TOOL_KIND_ICONS } from './tool-kind-icons';
 import { useElapsedLabel } from './use-elapsed-label';
-import { turnStatusToneV2, currentActivityToneV2 } from './turn-status-tone-v2';
+import { turnStatusTone, currentActivityTone } from './turn-status-tone';
 import { statusTextTone } from '@/shared/status-tone';
-import type { CanonicalTurnV2 } from '../types';
+import type { CanonicalTurn } from '../types';
 import { cn } from '@/shared/lib/utils';
 
 /**
@@ -23,19 +23,19 @@ import { cn } from '@/shared/lib/utils';
  * distinct from `requires_attention`. Header state, activityCount, and currentActivity all
  * come straight from the server projection.
  */
-export const WorkCurrentActivityLineV2 = memo(function WorkCurrentActivityLineV2({
+export const WorkCurrentActivityLine = memo(function WorkCurrentActivityLine({
   turn,
   embedded = false,
 }: {
-  turn: CanonicalTurnV2;
+  turn: CanonicalTurn;
   embedded?: boolean;
 }) {
-  const display = describeCurrentActivityV2(turn.currentActivity);
+  const display = describeCurrentActivity(turn.currentActivity);
   const elapsed = useElapsedLabel(display?.startedAt);
   if (!display) return null;
 
-  const ToolIcon = display.toolKind ? TOOL_KIND_ICONS_V2[display.toolKind] : null;
-  const tone = currentActivityToneV2(display);
+  const ToolIcon = display.toolKind ? TOOL_KIND_ICONS[display.toolKind] : null;
+  const tone = currentActivityTone(display);
   const isAttention = tone === 'attention';
   const detail = display.detail || display.description;
 
@@ -70,15 +70,15 @@ export const WorkCurrentActivityLineV2 = memo(function WorkCurrentActivityLineV2
   );
 });
 
-export interface WorkIndicatorV2Props {
-  turn: CanonicalTurnV2;
+export interface WorkIndicatorProps {
+  turn: CanonicalTurn;
   expanded: boolean;
   onToggle: () => void;
 }
 
-export const WorkIndicatorV2 = memo(function WorkIndicatorV2({ turn, expanded, onToggle }: WorkIndicatorV2Props) {
-  const terminalLabel = terminalHeaderLabelV2(turn.status);
-  const tone = turnStatusToneV2(turn.status);
+export const WorkIndicator = memo(function WorkIndicator({ turn, expanded, onToggle }: WorkIndicatorProps) {
+  const terminalLabel = terminalHeaderLabel(turn.status);
+  const tone = turnStatusTone(turn.status);
   const attention = tone === 'attention';
   const count = turn.activityCount;
 

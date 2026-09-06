@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-05T15:48:45.571Z",
+  "generated": "2026-09-06T14:47:03.646Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -299,7 +299,8 @@
         "development.local-setup",
         "development.architecture-overview",
         "development.codex-app-server-research",
-        "adr.0007-provider-neutral-ai-sessions"
+        "adr.0007-provider-neutral-ai-sessions",
+        "adr.0008-canonical-ai-session-chat-and-turn-model"
       ]
     },
     {
@@ -886,9 +887,19 @@
       "id": "adr.0007-provider-neutral-ai-sessions",
       "type": "adr",
       "title": "Use provider-neutral local AI sessions in the specification dashboard",
-      "status": "accepted",
+      "status": "superseded",
       "date": "2026-08-15",
       "supersedes": null,
+      "superseded_by": "adr.0008-canonical-ai-session-chat-and-turn-model"
+    },
+    {
+      "file": "docs/decisions/ADR-0008-canonical-ai-session-chat-and-turn-model.md",
+      "id": "adr.0008-canonical-ai-session-chat-and-turn-model",
+      "type": "adr",
+      "title": "Canonical AI session chat and turn model in the specification dashboard",
+      "status": "accepted",
+      "date": "2026-09-06",
+      "supersedes": "adr.0007-provider-neutral-ai-sessions",
       "superseded_by": null
     },
     {

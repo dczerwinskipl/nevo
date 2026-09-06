@@ -3,25 +3,24 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { projectChatV1, deriveLegacyUserMessageText } from '../server/ai/contracts.mjs';
 import { createCanonicalTurn, appendWorkItem } from '../server/ai/model/canonical-turn.mjs';
 import { serializePublicTurn } from '../server/ai/model/serialization.mjs';
 import { mapAntigravityTool } from '../server/ai/providers/antigravity/provider.mjs';
 import { shouldCollapseMessage } from '../ui/features/agent-sessions/transcript/message-collapse.ts';
-import { previewPlainText } from '../ui/features/agent-sessions/work-v2/text-preview-v2.ts';
+import { previewPlainText } from '../ui/features/agent-sessions/work/text-preview.ts';
 import {
-  describeCurrentActivityV2,
-  terminalHeaderLabelV2,
-} from '../ui/features/agent-sessions/work-v2/activity-model-v2.ts';
+  describeCurrentActivity,
+  terminalHeaderLabel,
+} from '../ui/features/agent-sessions/work/activity-model.ts';
 import {
-  buildTimelineRowsV2,
-  projectTimelineV2,
+  buildTimelineRows,
+  projectTimeline,
   normalizeCommentaryText,
-} from '../ui/features/agent-sessions/work-v2/timeline-projection-v2.ts';
+} from '../ui/features/agent-sessions/work/timeline-projection.ts';
 
-function readV2Source(relative) {
+function readWorkSource(relative) {
   return readFileSync(
-    fileURLToPath(new URL(`../ui/features/agent-sessions/work-v2/${relative}`, import.meta.url)),
+    fileURLToPath(new URL(`../ui/features/agent-sessions/work/${relative}`, import.meta.url)),
     'utf8',
   );
 }
@@ -40,7 +39,7 @@ function readRuntimeSource() {
   );
 }
 
-// ── 1. Collapsible User Messages in V2 ──────────────────────────────────────────────
+// ── 1. Collapsible User Messages ──────────────────────────────────────────────
 
 test('Requirement 1: shouldCollapseMessage contract for collapsible user messages', () => {
   // (Component rendering and toggle behavior migrated to semantic-work-chat-v2-corrections.test.tsx)
@@ -54,9 +53,9 @@ test('Requirement 1: shouldCollapseMessage contract for collapsible user message
   assert.equal(shouldCollapseMessage(longSingleLine), true);
 });
 
-// ── 2. One Conversation: V1 and V2 share authoritative Turn state ────────────────────
+// ── 2. One Conversation: Canonical Turn state ────────────────────
 
-test('Requirement 2 & 16: AgentSessionPage uses single unified session runtime and projects to V1 and V2', () => {
+test('Requirement 2 & 16: AgentSessionPage uses single unified session runtime and renders canonical AgentSessionChatSurface', () => {
   const pageSource = readPageSource();
 
   // Exactly one call to useAgentSessionRuntime
@@ -64,79 +63,38 @@ test('Requirement 2 & 16: AgentSessionPage uses single unified session runtime a
   assert.equal(runtimeMatches.length, 1, 'must have exactly one runtime instance');
   assert.doesNotMatch(pageSource, /useAgentSessionRuntimeV2/, 'duplicate runtime instance must be removed');
 
-  // V2 chat surface receives turns from the unified runtime
-  assert.match(pageSource, /<(?:AgentSessionChatSurface|AgentSessionTranscriptV2)[\s\S]*?turns=\{assistant\.turns\}/);
-  assert.match(pageSource, /<AgentSessionTranscript[\s\S]*?messages=\{assistant\.messages\}/);
+  // Chat surface receives turns from the unified runtime
+  assert.match(pageSource, /<AgentSessionChatSurface[\s\S]*?turns=\{assistant\.turns\}/);
 
   // Composer submit sends through shared runtime
   assert.match(pageSource, /await assistant\.sendTurn\(trimmed/);
 });
 
-// ── 3. Authoritative User-Message Contract in projectChatV1 ─────────────────────────
-
-test('Requirement 3: projectChatV1 prefers canonical userMessage.text and falls back to clean legacy prompt', () => {
-  const turns = [
-    {
-      id: 'turn-1',
-      userMessage: { id: 'user-1', text: 'Clean user query', createdAt: '2026-08-30T10:00:00Z' },
-      prompt: '[NEvo Context: Specification]\n\nClean user query',
-      work: [],
-      historicalWork: [],
-      currentActivity: null,
-      activityCount: 0,
-      finalAnswer: { id: 'f1', text: 'Answer', status: 'completed' },
-      status: { status: 'terminal', outcome: 'completed' },
-    },
-    {
-      id: 'turn-2',
-      prompt: '[NEvo Context: Specification "foo"]\nTitle: "bar"\n\nLegacy prompt text',
-      work: [],
-      historicalWork: [],
-      currentActivity: null,
-      activityCount: 0,
-      finalAnswer: null,
-      status: { status: 'terminal', outcome: 'completed' },
-    },
-  ];
-
-  const messages = projectChatV1(turns);
-  assert.equal(messages.length, 4); // 2 user messages + 2 assistant messages (1 completed, 1 terminal outcome)
-
-  const userMessages = messages.filter((m) => m.role === 'user');
-  assert.equal(userMessages[0].text, 'Clean user query');
-  assert.equal(userMessages[1].text, 'Legacy prompt text');
-  assert.doesNotMatch(
-    userMessages[1].text,
-    /NEvo Context/,
-    'injected context header must be stripped from legacy prompt',
-  );
-});
 
 // ── 4. Snapshot-First Hydration ────────────────────────────────────────────────────
 
-test('Requirement 4: Runtime hydrates turns and messages atomically from snapshot without event replay', () => {
+test('Requirement 4: Runtime hydrates turns atomically from snapshot without event replay', () => {
   const source = readRuntimeSource();
 
   // Snapshot commit sets turns atomically from snapshot payload
-  assert.match(source, /setTurns\(snapshot\.turns \|\| \[\]\)/);
-  assert.match(source, /setMessages\(snapshot\.messages \|\| \[\]\)/);
+  assert.match(source, /setTurns\(payload\.turns \|\| \[\]\)/);
 
   // SSE cursor resumes from snapshot's lastEventSeq
-  assert.match(source, /const cursor = lastSeqRef\.current/);
+  assert.match(source, /lastSeqRef\.current = payload\.session\.lastEventSeq \|\| 0/);
 });
 
 // ── 5. Immediate Working Feedback After Send ────────────────────────────────────────
 
-test('Requirement 5: Once server turn arrives, describeCurrentActivityV2 truthfully labels waiting_for_model', () => {
+test('Requirement 5: Once server turn arrives, describeCurrentActivity truthfully labels waiting_for_model', () => {
   // (Optimistic Starting... render assertion migrated to semantic-work-chat-v2-corrections.test.tsx)
-  const waitingActivity = describeCurrentActivityV2({ kind: 'waiting_for_model', startedAt: '2026-08-30T10:00:00Z' });
+  const waitingActivity = describeCurrentActivity({ kind: 'waiting_for_model', startedAt: '2026-08-30T10:00:00Z' });
   assert.equal(waitingActivity.label, 'Waiting for model response');
 });
 
 // ── 6 & 7. Level 2 Visual Hierarchy & Timeline Rail ─────────────────────────────────
 
 test('Requirement 6 & 7: Level 2 renders timeline rail, compact tool titles, and readable prose commentary', () => {
-  const timelineSource = readV2Source('work-timeline-v2.tsx');
+  const timelineSource = readWorkSource('work-timeline.tsx');
 
   // ToolGroupRow uses text-xs typography matching active tool with muted-strong
   assert.match(timelineSource, /text-xs/);
@@ -162,7 +120,7 @@ test('Requirement 6 & 7: Level 2 renders timeline rail, compact tool titles, and
 // ── 9 & 10. Rich Work Details (Level 3) & Quiet Completion Status ───────────────────
 
 test('Requirement 9 & 10: Work Details sheet provides 2-line layout with concrete subject and quiet check icon for completed items', () => {
-  const detailsSource = readV2Source('work-details-sheet-v2.tsx');
+  const detailsSource = readWorkSource('work-details-sheet.tsx');
 
   // Quiet check icon used for completed status
   assert.match(detailsSource, /<Check className="size-3 text-fg-secondary"/);
@@ -180,10 +138,10 @@ test('Requirement 9 & 10: Work Details sheet provides 2-line layout with concret
 // ── 11. Work Header Interaction ─────────────────────────────────────────────────────
 
 test('Requirement 11: Work header is the single clean Level 2 toggle; Level 3 is accessed from Level 2 items', () => {
-  const panelSource = readV2Source('turn-work-panel-v2.tsx');
+  const panelSource = readWorkSource('turn-work-panel.tsx');
 
   // Primary indicator button is full-width toggle for Level 2
-  assert.match(panelSource, /<WorkIndicatorV2 turn=\{turn\} expanded=\{expanded\} onToggle=\{toggleExpanded\}/);
+  assert.match(panelSource, /<WorkIndicator turn=\{turn\} expanded=\{expanded\} onToggle=\{toggleExpanded\}/);
 
   // Level 3 sheet is accessed via Level 2 item selection and details action
   assert.match(panelSource, /onSelectItem=\{openDetailsForItem\}/);
@@ -194,13 +152,13 @@ test('Requirement 11: Work header is the single clean Level 2 toggle; Level 3 is
 // ── 14. Final Answer Separation ─────────────────────────────────────────────────────
 
 test('Requirement 14: FinalAnswer is outside Work timeline and renders null when absent', () => {
-  const finalAnswerSource = readV2Source('final-answer-view-v2.tsx');
-  const panelSource = readV2Source('turn-work-panel-v2.tsx');
+  const finalAnswerSource = readWorkSource('final-answer-view.tsx');
+  const panelSource = readWorkSource('turn-work-panel.tsx');
 
   assert.match(finalAnswerSource, /if \(!finalAnswer \|\| finalAnswer\.status === 'absent'\) return null;/);
 
-  const timelineIndex = panelSource.indexOf('<WorkTimelineV2');
-  const finalAnswerIndex = panelSource.indexOf('<FinalAnswerViewV2');
+  const timelineIndex = panelSource.indexOf('<WorkTimeline');
+  const finalAnswerIndex = panelSource.indexOf('<FinalAnswerView');
   assert.ok(finalAnswerIndex > timelineIndex, 'FinalAnswer must render after Work');
 });
 
@@ -213,7 +171,7 @@ test('Level 2 Contract 1: ToolInvocation with short subject renders title + conc
   assert.equal(mapped.title, 'Read file');
   assert.equal(mapped.subject, 'ui-ux-guidelines.md');
 
-  const rows = buildTimelineRowsV2([
+  const rows = buildTimelineRows([
     {
       id: 'tool-1',
       seq: 1,
@@ -331,7 +289,7 @@ test('Level 2 Contract 6: Interleaved WorkItems preserve exact temporal sequence
   }
 
   const publicTurn = serializePublicTurn(turn);
-  const rows = buildTimelineRowsV2(publicTurn.historicalWork);
+  const rows = buildTimelineRows(publicTurn.historicalWork);
 
   assert.equal(rows.length, 120);
   // Verify ordering is identical to canonical sequence (tool_group -> commentary -> reasoning -> tool_group...)
@@ -402,7 +360,7 @@ test('Level 2 Contract 8: FinalAnswer is absent from Work timeline', () => {
   };
 
   const publicTurn = serializePublicTurn(turn);
-  const rows = buildTimelineRowsV2(publicTurn.historicalWork);
+  const rows = buildTimelineRows(publicTurn.historicalWork);
 
   // Work items contain only tools/commentary/reasoning/interaction — never FinalAnswer
   assert.equal(rows.length, 1);
@@ -466,7 +424,7 @@ test('16.1 Adjacent grouping: compresses consecutive happy-path actions while pr
     },
   ];
 
-  const l2Rows = buildTimelineRowsV2(items);
+  const l2Rows = buildTimelineRows(items);
   assert.equal(l2Rows.length, 2);
   assert.equal(l2Rows[0].row, 'tool_group');
   assert.equal(l2Rows[0].title, 'Read file');
@@ -531,7 +489,7 @@ test('16.2 Chronology boundary: Commentary breaks grouping', () => {
     },
   ];
 
-  const rows = buildTimelineRowsV2(items);
+  const rows = buildTimelineRows(items);
   assert.equal(rows.length, 4);
   assert.equal(rows[0].row, 'tool_group');
   assert.equal(rows[0].count, 2);
@@ -583,7 +541,7 @@ test('16.3 Reasoning boundary: Reasoning breaks grouping', () => {
     },
   ];
 
-  const rows = buildTimelineRowsV2(items);
+  const rows = buildTimelineRows(items);
   assert.equal(rows.length, 3);
   assert.equal(rows[0].row, 'tool_group');
   assert.equal(rows[0].count, 2);
@@ -641,7 +599,7 @@ test('16.4 Exception boundary: Failed tools are not swallowed into happy-path gr
     },
   ];
 
-  const rows = buildTimelineRowsV2(items);
+  const rows = buildTimelineRows(items);
   assert.equal(rows.length, 3);
   assert.equal(rows[0].row, 'tool_group');
   assert.equal(rows[0].count, 2);
@@ -687,7 +645,7 @@ test('16.5 Different type/title: No global grouping across different tools', () 
     },
   ];
 
-  const rows = buildTimelineRowsV2(items);
+  const rows = buildTimelineRows(items);
   assert.equal(rows.length, 3);
   assert.equal(rows[0].title, 'Read file');
   assert.equal(rows[1].title, 'Edit file');
@@ -708,7 +666,7 @@ test('16.6 Single subject: Single tool row retains concise subject', () => {
     },
   ];
 
-  const rows = buildTimelineRowsV2(items);
+  const rows = buildTimelineRows(items);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].row, 'tool_group');
   assert.equal(rows[0].title, 'Read file');
@@ -750,7 +708,7 @@ test('16.7 Group subject: Grouped items with differing subjects do not concatena
     },
   ];
 
-  const rows = buildTimelineRowsV2(items);
+  const rows = buildTimelineRows(items);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].count, 3);
   assert.equal(rows[0].subject, undefined);
@@ -835,7 +793,7 @@ test('16.9 Compression of 40+ consecutive items into compact grouped timeline ro
 
   assert.equal(items.length, 29);
 
-  const l2Rows = buildTimelineRowsV2(items);
+  const l2Rows = buildTimelineRows(items);
   // Expected L2 rows:
   // 1. Read file (10)
   // 2. Search files (10)
@@ -870,7 +828,7 @@ test('15.5 Repeated Commentary preservation: adjacent narration is not grouped; 
   ];
 
   // Consecutive commentary preserves all individual rows in chronological order without grouping
-  const rows = buildTimelineRowsV2(consecutiveCommentary);
+  const rows = buildTimelineRows(consecutiveCommentary);
   assert.equal(rows.length, 3, 'commentary must not be grouped in Level 2');
   assert.equal(rows[0].row, 'commentary');
   assert.equal(rows[0].id, 'c-1');
@@ -917,7 +875,7 @@ test('15.5 Repeated Commentary preservation: adjacent narration is not grouped; 
   assert.equal(interleavedItems.length, 6);
 
   // L2 projection preserves chronological ordering without global regrouping across tools
-  const l2Rows = buildTimelineRowsV2(interleavedItems);
+  const l2Rows = buildTimelineRows(interleavedItems);
   assert.equal(l2Rows.length, 6, 'must not reorder or group commentary across intervening tools');
   assert.equal(l2Rows[0].row, 'commentary');
   assert.equal(l2Rows[1].row, 'tool_group');
@@ -952,7 +910,7 @@ test('15.6 Different Commentary preserved: non-identical narration rows remain d
     { id: 'c-3', type: 'commentary', text: 'Tests finished with 2 failures.', status: 'completed' },
   ];
 
-  const l2Rows = buildTimelineRowsV2(items);
+  const l2Rows = buildTimelineRows(items);
   assert.equal(l2Rows.length, 5, 'all 3 distinct commentaries must remain visible');
   assert.equal(l2Rows[0].row, 'commentary');
   assert.equal(l2Rows[1].row, 'tool_group');
@@ -961,7 +919,7 @@ test('15.6 Different Commentary preserved: non-identical narration rows remain d
   assert.equal(l2Rows[4].row, 'commentary');
 });
 
-test('15.7 Visible history cap: projectTimelineV2 bounds visible rows and computes accurate hiddenCount', () => {
+test('15.7 Visible history cap: projectTimeline bounds visible rows and computes accurate hiddenCount', () => {
   // Build a Turn with 15 distinct projected rows
   const items = [];
   for (let i = 1; i <= 15; i++) {
@@ -977,7 +935,7 @@ test('15.7 Visible history cap: projectTimelineV2 bounds visible rows and comput
     });
   }
 
-  const projection = projectTimelineV2(items, { maxRows: 8 });
+  const projection = projectTimeline(items, { maxRows: 8 });
   assert.equal(projection.allRows.length, 15);
   assert.equal(projection.visibleRows.length, 8);
   assert.equal(projection.hasMore, true);
@@ -985,7 +943,7 @@ test('15.7 Visible history cap: projectTimelineV2 bounds visible rows and comput
   assert.equal(projection.hiddenCount, 7, 'accurately counts 7 hidden canonical items');
 
   // When under budget, hasMore is false and all rows visible
-  const smallProjection = projectTimelineV2(items.slice(0, 5), { maxRows: 8 });
+  const smallProjection = projectTimeline(items.slice(0, 5), { maxRows: 8 });
   assert.equal(smallProjection.visibleRows.length, 5);
   assert.equal(smallProjection.hasMore, false);
   assert.equal(smallProjection.hiddenCount, 0);
@@ -1199,9 +1157,9 @@ test('16. Visual acceptance fixture: 70+ canonical items compress into bounded L
   assert.equal(items.length, 75);
 
   // Stage A projection: groups adjacent happy-path tools and dedupes repeated commentary
-  const allL2Rows = buildTimelineRowsV2(items);
+  const allL2Rows = buildTimelineRows(items);
   // Stage B projection: caps visible L2 history to default budget (8 rows)
-  const projection = projectTimelineV2(items, { maxRows: 8 });
+  const projection = projectTimeline(items, { maxRows: 8 });
 
   assert.equal(projection.visibleRows.length, 8, 'must render exactly 8 rows in Level 2');
   assert.equal(projection.hasMore, true);

@@ -98,7 +98,7 @@ export class AgentTurnRuntime {
     return this.traceSink?.exportTrace(turnId) ?? { turnId, recordCount: 0, records: [] };
   }
 
-  #mapLegacyStatus(canonicalStatus) {
+  #mapTurnLifecycleStatus(canonicalStatus) {
     if (!canonicalStatus) return 'running';
     const s = canonicalStatus.status;
     if (s === 'requiresAttention') return 'waitingForUser';
@@ -839,7 +839,7 @@ export class AgentTurnRuntime {
       turnId: state.turnId,
       provider: state.provider,
       providerSessionId: state.coordinator?.turn?.providerSessionId || state.providerSessionId,
-      status: this.#mapLegacyStatus(state.coordinator?.status),
+      status: this.#mapTurnLifecycleStatus(state.coordinator?.status),
       startedAt: state.startedAt,
       ...(state.completedAt ? { completedAt: state.completedAt } : {}),
       lastEventId: this.#eventStream.getTurnSequence(state.turnId),
@@ -1003,7 +1003,7 @@ export class AgentTurnRuntime {
       turnId: state.turnId,
       provider: state.provider,
       providerSessionId: state.providerSessionId,
-      status: this.#mapLegacyStatus(state.coordinator?.status),
+      status: this.#mapTurnLifecycleStatus(state.coordinator?.status),
       canonicalStatus: state.coordinator?.status,
       timestamp: this.#timestamp(),
     });

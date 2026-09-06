@@ -282,7 +282,17 @@ test('AgentSessionService uses binding service for listings and transcript cache
       return {
         provider,
         providerSessionId,
-        messages: [{ role: 'user', text: 'hi' }],
+        turns: [
+          {
+            ...createCanonicalTurn({
+              id: 'turn-1',
+              provider,
+              providerSessionId,
+              status: createTurnStatus('terminal', { outcome: 'completed' }),
+            }),
+            userMessage: { text: 'hi', createdAt: '2026-08-18T10:00:00.000Z' },
+          },
+        ],
         updatedAt: '2026-08-18T10:00:00.000Z',
       };
     },
@@ -333,7 +343,7 @@ test('AgentSessionService uses binding service for listings and transcript cache
       return {
         provider: 'claude',
         providerSessionId: 'sess-untouched',
-        messages: [],
+        turns: [],
         lastEventSeq: 0,
         updatedAt: new Date().toISOString(),
       };
@@ -347,8 +357,8 @@ test('AgentSessionService uses binding service for listings and transcript cache
   const untouchedSessions = await untouchedService.listSessions();
   assert.equal(untouchedSessions[0].lastActivityAt, '2026-08-01T00:00:00.000Z');
 
-  const messages = await service.listMessages('claude', 'sess-1');
-  assert.deepEqual(messages, [{ role: 'user', text: 'hi' }]);
+  const details = await service.getSessionDetails('claude', 'sess-1');
+  assert.equal(details.turns[0].userMessage.text, 'hi');
 });
 
 test('AgentSessionService binds a provider-created session identity only after creation succeeds', async () => {

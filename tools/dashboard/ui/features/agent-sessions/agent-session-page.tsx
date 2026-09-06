@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AssistantRuntimeProvider } from '@assistant-ui/react';
 
 import { AgentSessionHeader } from './agent-session-header';
 import { formatSessionStatus, sessionStatusTone } from './status';
 import { AgentSessionDetailsSheet } from './agent-session-details-sheet';
 import { resolveSessionTaskItems } from './session-tasks';
 import { ProviderUnavailableBanner } from './provider-unavailable-banner';
-import { AgentSessionComposer } from './composer/agent-session-composer';
-import { AgentSessionTranscript, type AgentSessionTranscriptHandle } from './transcript/agent-session-transcript';
 import { AgentSessionChatSurface, type AgentSessionChatSurfaceHandle } from './agent-session-chat-surface';
 import { useAgentSessionRuntime } from './runtime/agent-session-runtime';
 import { useAgentProviders, useDeleteAgentSession } from './queries';
@@ -15,7 +12,6 @@ import { AI_PROVIDERS_CONFIG_PATH } from './provider-config';
 import { useInitialDispatch } from './runtime/use-initial-dispatch';
 import { useVisualViewport } from './transcript/use-visual-viewport';
 import type { AgentExecutionMode, AgentSession, TaskNavigationTarget, AgentSessionTaskRef } from './types';
-import { cn } from '@/shared/lib/utils';
 
 export interface AgentSessionPageSpecContext {
   title?: string;
@@ -42,29 +38,11 @@ export function AgentSessionPage({
   onInspectTask,
   taskOverlay,
 }: AgentSessionPageProps) {
-  const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const transcriptHandleRef = useRef<AgentSessionTranscriptHandle>(null);
   const chatSurfaceRef = useRef<AgentSessionChatSurfaceHandle>(null);
   const visualViewport = useVisualViewport();
 
   const provider = session.provider;
   const sessionId = session.providerSessionId || session.sessionId;
-
-  // Temporary Chat V1/V2 selector (task 11 / owner-decisions.md D11): purely local UI
-  // representation state, never persisted, never provider/session domain state.
-  // Switching never restarts, cancels, or mutates the Turn — both runtimes below stay
-  // mounted and read-only regardless of which one is currently displayed.
-  const [representation, setRepresentation] = useState<'v1' | 'v2'>('v1');
-
-  const handleTranscriptPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    const target = event.target as HTMLElement | null;
-    const isInteractive = target?.closest(
-      'button, a, input, textarea, select, [role="button"], summary, details, [data-interactive="true"]',
-    );
-    if (!isInteractive && composerTextareaRef.current && document.activeElement === composerTextareaRef.current) {
-      composerTextareaRef.current.blur();
-    }
-  };
 
   const [selectedModeOverride, setSelectedModeOverride] = useState<AgentExecutionMode | null>(null);
   const providersQuery = useAgentProviders();
@@ -176,18 +154,14 @@ export function AgentSessionPage({
       const trimmed = promptText.trim();
       if (!trimmed || !isProviderAvailable || !assistant.canStartTurn) return;
       setRuntimeError(null);
-      if (representation === 'v2') {
-        chatSurfaceRef.current?.scrollToBottom('auto');
-      } else {
-        transcriptHandleRef.current?.scrollToBottom('auto');
-      }
+      chatSurfaceRef.current?.scrollToBottom('auto');
       try {
         await assistant.sendTurn(trimmed, { mode: currentMode });
       } catch (err) {
         setRuntimeError(err instanceof Error ? err.message : String(err));
       }
     },
-    [assistant.canStartTurn, assistant.sendTurn, currentMode, isProviderAvailable, representation],
+    [assistant.canStartTurn, assistant.sendTurn, currentMode, isProviderAvailable],
   );
 
   const shellClassName =
@@ -201,9 +175,9 @@ export function AgentSessionPage({
 
   const isTurnBusyOrAttention = Boolean(
     assistant.hasActiveTurn ||
-    assistant.isRunning ||
-    assistant.readiness?.status === 'busy' ||
-    assistant.readiness?.status === 'requiresAttention',
+      assistant.isRunning ||
+      assistant.readiness?.status === 'busy' ||
+      assistant.readiness?.status === 'requiresAttention',
   );
 
   const activeRuntime = {
@@ -228,158 +202,77 @@ export function AgentSessionPage({
     (session ? `Sesja ${session.providerSessionId.slice(0, 12)}` : `${provider} sesja`);
 
   return (
-    <AssistantRuntimeProvider runtime={assistant.runtime}>
-      <div className={shellClassName} style={shellStyle}>
-        <AgentSessionHeader
-          title={headerTitle}
-          status={session ? formatSessionStatus(assistant.activity) : undefined}
-          statusTone={session ? sessionStatusTone(assistant.activity) : undefined}
-          live={assistant.live}
-          connectionStatus={assistant.connectionStatus}
-          onBack={onBack}
-          backLabel={backLabel}
-          onOpenDetails={() => setIsSessionDetailsOpen(true)}
+    <div className={shellClassName} style={shellStyle}>
+      <AgentSessionHeader
+        title={headerTitle}
+        status={session ? formatSessionStatus(assistant.activity) : undefined}
+        statusTone={session ? sessionStatusTone(assistant.activity) : undefined}
+        live={assistant.live}
+        connectionStatus={assistant.connectionStatus}
+        onBack={onBack}
+        backLabel={backLabel}
+        onOpenDetails={() => setIsSessionDetailsOpen(true)}
+      />
+
+      <AgentSessionDetailsSheet
+        open={isSessionDetailsOpen}
+        onOpenChange={setIsSessionDetailsOpen}
+        spec={spec}
+        session={session}
+        tasks={sessionTaskItems}
+        provider={provider}
+        mode={currentMode}
+        onOpenTask={handleInspectTask}
+        onDelete={() => {
+          setIsSessionDetailsOpen(false);
+          void handleDeleteSession();
+        }}
+        deleting={deleting}
+        disabled={isTurnBusyOrAttention}
+      />
+
+      {!providersQuery.loading && providersQuery.data && !isProviderAvailable && (
+        <ProviderUnavailableBanner
+          providerLabel={providerInfo?.label || provider}
+          reason={providerUnavailableReason}
         />
+      )}
 
-        <div className="flex shrink-0 justify-center border-b border-border bg-background py-1">
-          <div
-            role="radiogroup"
-            aria-label="Wersja czatu"
-            className="inline-flex items-center gap-0.5 rounded-full border border-border bg-surface p-0.5 text-[10px] font-medium"
-          >
-            {(['v1', 'v2'] as const).map((option) => (
-              <button
-                key={option}
-                type="button"
-                role="radio"
-                aria-checked={representation === option}
-                onClick={() => setRepresentation(option)}
-                className={cn(
-                  'rounded-full px-2.5 py-0.5 tracking-wide uppercase transition-colors',
-                  representation === option ? 'bg-accent text-fg-on-accent' : 'text-fg-muted hover:text-fg-primary',
-                )}
-              >
-                Czat {option.toUpperCase()}
-              </button>
-            ))}
-          </div>
-        </div>
+      <AgentSessionChatSurface
+        key={sessionId}
+        ref={chatSurfaceRef}
+        turns={assistant.turns}
+        optimisticUserMessage={assistant.optimisticUserMessage}
+        isLoading={assistant.isLoading}
+        hasSessionDetails={Boolean(assistant.sessionDetails)}
+        loadError={assistant.loadError}
+        contentRevision={assistant.contentRevision}
+        displayError={displayError}
+        canRetryInitial={canRetryInitial}
+        currentMode={currentMode}
+        onModeChange={(m) => setSelectedModeOverride(m)}
+        onSend={(text) => handleComposerSubmit(text)}
+        onCancel={() => void handleCancelTurn()}
+        isRunning={activeRuntime.isRunning}
+        hasActiveTurn={activeRuntime.hasActiveTurn}
+        canCancel={activeRuntime.canCancelTurn}
+        isProviderAvailable={isProviderAvailable}
+        disabled={!activeRuntime.canStartTurn || !isProviderAvailable}
+        placeholder={
+          activeRuntime.readiness?.status === 'requiresAttention' || activeRuntime.activity === 'waitingForUser'
+            ? 'Odpowiedz na pytanie powyżej…'
+            : undefined
+        }
+        keyboardOpen={visualViewport.keyboardOpen}
+        onReload={() => void handleReload()}
+        onBack={onBack}
+        onRespondInteraction={handleRespondInteraction}
+        onRetryInitial={() => void handleRetryInitial()}
+        onDismissError={handleDismissError}
+      />
 
-        <AgentSessionDetailsSheet
-          open={isSessionDetailsOpen}
-          onOpenChange={setIsSessionDetailsOpen}
-          spec={spec}
-          session={session}
-          tasks={sessionTaskItems}
-          provider={provider}
-          mode={currentMode}
-          onOpenTask={handleInspectTask}
-          onDelete={() => {
-            setIsSessionDetailsOpen(false);
-            void handleDeleteSession();
-          }}
-          deleting={deleting}
-          disabled={isTurnBusyOrAttention}
-        />
-
-        {!providersQuery.loading && providersQuery.data && !isProviderAvailable && (
-          <ProviderUnavailableBanner
-            providerLabel={providerInfo?.label || provider}
-            reason={providerUnavailableReason}
-          />
-        )}
-
-        {representation === 'v2' ? (
-          <AgentSessionChatSurface
-            key={sessionId}
-            ref={chatSurfaceRef}
-            turns={assistant.turns}
-            optimisticUserMessage={assistant.optimisticUserMessage}
-            isLoading={assistant.isLoading}
-            hasSessionDetails={Boolean(assistant.sessionDetails)}
-            loadError={assistant.loadError}
-            contentRevision={assistant.contentRevision}
-            displayError={displayError}
-            canRetryInitial={canRetryInitial}
-            currentMode={currentMode}
-            onModeChange={(m) => setSelectedModeOverride(m)}
-            onSend={(text) => handleComposerSubmit(text)}
-            onCancel={() => void handleCancelTurn()}
-            isRunning={activeRuntime.isRunning}
-            hasActiveTurn={activeRuntime.hasActiveTurn}
-            canCancel={activeRuntime.canCancelTurn}
-            isProviderAvailable={isProviderAvailable}
-            disabled={!activeRuntime.canStartTurn || !isProviderAvailable}
-            placeholder={
-              activeRuntime.readiness?.status === 'requiresAttention' || activeRuntime.activity === 'waitingForUser'
-                ? 'Odpowiedz na pytanie powyżej…'
-                : undefined
-            }
-            keyboardOpen={visualViewport.keyboardOpen}
-            onReload={() => void handleReload()}
-            onBack={onBack}
-            onRespondInteraction={handleRespondInteraction}
-            onRetryInitial={() => void handleRetryInitial()}
-            onDismissError={handleDismissError}
-          />
-        ) : (
-          <>
-            <AgentSessionTranscript
-              ref={transcriptHandleRef}
-              messages={assistant.messages}
-              activeTurnId={assistant.activeTurnId}
-              pendingInteraction={assistant.pendingInteraction}
-              isLoading={assistant.isLoading}
-              isRunning={assistant.isRunning}
-              hasSessionDetails={Boolean(assistant.sessionDetails)}
-              loadError={assistant.loadError}
-              contentRevision={assistant.contentRevision}
-              displayError={displayError}
-              canRetryInitial={canRetryInitial}
-              keyboardOpen={visualViewport.keyboardOpen}
-              visualViewportHeight={visualViewport.height}
-              onReload={() => void handleReload()}
-              onBack={onBack}
-              onRespondInteraction={handleRespondInteraction}
-              onRetryInitial={() => void handleRetryInitial()}
-              onDismissError={handleDismissError}
-              onPointerDown={handleTranscriptPointerDown}
-            />
-
-            <footer
-              className={cn(
-                'shrink-0 border-t border-border bg-background px-3 pt-2 sm:px-6',
-                visualViewport.keyboardOpen ? 'pb-2' : 'pb-[max(0.5rem,env(safe-area-inset-bottom))]',
-              )}
-            >
-              <div className="mx-auto max-w-4xl">
-                <AgentSessionComposer
-                  key={sessionId}
-                  textareaRef={composerTextareaRef}
-                  currentMode={currentMode}
-                  onModeChange={(m) => setSelectedModeOverride(m)}
-                  onSend={(text) => handleComposerSubmit(text)}
-                  onCancel={() => void handleCancelTurn()}
-                  isRunning={activeRuntime.isRunning}
-                  hasActiveTurn={activeRuntime.hasActiveTurn}
-                  canCancel={activeRuntime.canCancelTurn}
-                  isProviderAvailable={isProviderAvailable}
-                  disabled={!activeRuntime.canStartTurn || !isProviderAvailable}
-                  placeholder={
-                    activeRuntime.readiness?.status === 'requiresAttention' ||
-                    activeRuntime.activity === 'waitingForUser'
-                      ? 'Odpowiedz na pytanie powyżej…'
-                      : undefined
-                  }
-                  loadError={activeRuntime.loadError}
-                />
-              </div>
-            </footer>
-          </>
-        )}
-
-        {taskOverlay}
-      </div>
-    </AssistantRuntimeProvider>
+      {taskOverlay}
+    </div>
   );
 }
+

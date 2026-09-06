@@ -19,8 +19,8 @@ import {
   buildLongCommandTool,
   buildLongPathTool,
   buildFinalAnswer,
-  type WorkItemV2,
-} from './work-v2/__fixtures__/chat-fixtures';
+  type WorkItem,
+} from './work/__fixtures__/chat-fixtures';
 
 const meta: Meta<typeof AgentSessionChatSurface> = {
   title: 'Features/Agent Sessions/Chat Surface',
@@ -68,7 +68,7 @@ export const EmptyChat: Story = {
     currentMode: 'edit',
   },
   play: async ({ canvasElement }) => {
-    // 1. Verify empty state text matching production transcript V2
+    // 1. Verify empty state text matching production transcript
     expect(canvasElement.textContent).toContain('Brak wiadomości w sesji');
     expect(canvasElement.textContent).toContain('Wpisz pierwszą wiadomość, aby rozpocząć konwersację z agentem.');
 
@@ -162,7 +162,7 @@ export const WaitingForFirstActivityMobile: Story = {
   },
 };
 
-const defaultActivities: WorkItemV2[] = [
+const defaultActivities: WorkItem[] = [
   buildLongCommentary(),
   buildSearchTool({
     subject: 'color-scheme',
@@ -187,7 +187,7 @@ const defaultActivities: WorkItemV2[] = [
 
 type ExistingConversationStory = StoryObj<
   React.ComponentProps<typeof AgentSessionChatSurface> & {
-    activities: WorkItemV2[];
+    activities: WorkItem[];
   }
 >;
 
@@ -467,7 +467,7 @@ export const ActiveToolMobile: Story = {
   },
 };
 
-const manyActivities: WorkItemV2[] = [
+const manyActivities: WorkItem[] = [
   buildCommentary({ text: 'Starting multi-step batch operations across 25 tools…' }),
   buildFileReadTool({ subject: 'file-1.ts', description: 'Read configuration' }),
   buildCommandTool({ subject: 'step-1', description: 'Run step 1' }),

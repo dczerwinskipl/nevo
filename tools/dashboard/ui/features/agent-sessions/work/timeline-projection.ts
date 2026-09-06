@@ -1,50 +1,53 @@
 import type {
-  CommentaryWorkItemV2,
-  InteractionWorkItemV2,
-  ReasoningWorkItemV2,
-  ToolInvocationWorkItemV2,
-  ToolKindV2,
-  ToolStatusV2,
-  WorkItemV2,
+  CommentaryWorkItem,
+  InteractionWorkItem,
+  ReasoningWorkItem,
+  ToolInvocationWorkItem,
+  ToolKind,
+  ToolStatus,
+  WorkItem,
 } from '../types.ts';
-import { previewPlainText } from './text-preview-v2.ts';
+import { previewPlainText } from './text-preview.ts';
 
-export interface ToolGroupPresentationRowV2 {
+export interface ToolGroupPresentationRow {
   row: 'tool_group';
   id: string;
-  kind: ToolKindV2;
+  kind: ToolKind;
   title: string;
   count: number;
   subject?: string;
-  items: ToolInvocationWorkItemV2[];
-  status: ToolStatusV2;
+  items: ToolInvocationWorkItem[];
+  status: ToolStatus;
 }
 
-export interface CommentaryPresentationRowV2 {
+export interface CommentaryPresentationRow {
   row: 'commentary';
   id: string;
-  item: CommentaryWorkItemV2;
+  item: CommentaryWorkItem;
   repeatCount?: number;
 }
 
-export interface ReasoningPresentationRowV2 {
+export interface ReasoningPresentationRow {
   row: 'reasoning';
   id: string;
-  item: ReasoningWorkItemV2;
+  item: ReasoningWorkItem;
 }
 
-export interface InteractionPresentationRowV2 {
+export interface InteractionPresentationRow {
   row: 'interaction';
   id: string;
-  item: InteractionWorkItemV2;
+  item: InteractionWorkItem;
 }
 
-export type TimelineRowV2 =
-  ToolGroupPresentationRowV2 | CommentaryPresentationRowV2 | ReasoningPresentationRowV2 | InteractionPresentationRowV2;
+export type TimelineRow =
+  | ToolGroupPresentationRow
+  | CommentaryPresentationRow
+  | ReasoningPresentationRow
+  | InteractionPresentationRow;
 
-export interface ProjectedTimelineV2 {
-  allRows: TimelineRowV2[];
-  visibleRows: TimelineRowV2[];
+export interface ProjectedTimeline {
+  allRows: TimelineRow[];
+  visibleRows: TimelineRow[];
   hiddenCount: number;
   hiddenRowCount: number;
   hasMore: boolean;
@@ -79,8 +82,8 @@ export function normalizeCommentaryText(text: string | undefined): string {
  * - Exceptional tools (failed, cancelled, interrupted, active).
  * - Change of tool kind or title.
  */
-export function buildTimelineRowsV2(historicalWork: WorkItemV2[]): TimelineRowV2[] {
-  const rows: TimelineRowV2[] = [];
+export function buildTimelineRows(historicalWork: WorkItem[]): TimelineRow[] {
+  const rows: TimelineRow[] = [];
 
   for (const item of historicalWork) {
     if (item.type === 'commentary') {
@@ -149,9 +152,9 @@ export function buildTimelineRowsV2(historicalWork: WorkItemV2[]): TimelineRowV2
  * For long turns, renders only a bounded, useful chronological summary and accurately
  * counts hidden canonical history for the "+N more in Work Details →" affordance.
  */
-export function projectTimelineV2(historicalWork: WorkItemV2[], options?: { maxRows?: number }): ProjectedTimelineV2 {
+export function projectTimeline(historicalWork: WorkItem[], options?: { maxRows?: number }): ProjectedTimeline {
   const maxRows = options?.maxRows ?? DEFAULT_L2_MAX_VISIBLE_ROWS;
-  const allRows = buildTimelineRowsV2(historicalWork);
+  const allRows = buildTimelineRows(historicalWork);
 
   if (allRows.length <= maxRows) {
     return {

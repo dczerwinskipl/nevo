@@ -3,12 +3,12 @@ import type {
   AgentConfirmationInteraction,
   AgentPermissionInteraction,
   AgentQuestionInteraction,
-  CanonicalTurnV2,
-  InteractionWorkItemV2,
+  CanonicalTurn,
+  InteractionWorkItem,
 } from '../types';
 
-export interface PendingInteractionViewV2Props {
-  turn: CanonicalTurnV2;
+export interface PendingInteractionViewProps {
+  turn: CanonicalTurn;
   onRespond: (interactionId: string, response: unknown) => void;
 }
 
@@ -20,12 +20,12 @@ export interface PendingInteractionViewV2Props {
  * `historicalWork` for exactly the same no-duplicate-active-activity reason an active
  * tool is, so this renders once, here, not a second time in the timeline.
  */
-export function PendingInteractionViewV2({ turn, onRespond }: PendingInteractionViewV2Props) {
+export function PendingInteractionView({ turn, onRespond }: PendingInteractionViewProps) {
   if (turn.status.status !== 'requiresAttention') return null;
   const interactionId = turn.status.interactionId;
 
   const item = turn.work.find(
-    (w): w is InteractionWorkItemV2 => w.type === 'interaction' && w.status === 'pending' && w.id === interactionId,
+    (w): w is InteractionWorkItem => w.type === 'interaction' && w.status === 'pending' && w.id === interactionId,
   );
 
   if (!item) return null;

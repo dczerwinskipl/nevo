@@ -220,12 +220,9 @@ test('progress.delta remains ordered provider-neutral activity and never becomes
     assert.equal(progress.progressId, 'progress-1');
     assert.equal(progress.text, 'checking...');
     const transcript = await transcriptCache.getTranscript('fake', 'progress-session');
-    const assistantText = transcript.messages
-      .filter((message) => message.role === 'assistant')
-      .map((message) => message.text)
-      .join('');
-    assert.equal(assistantText, 'one two');
-    assert.equal(assistantText.includes('checking'), false);
+    const turn = transcript.turns[0];
+    assert.equal(turn.finalAnswer?.text, 'one two');
+    assert.equal(turn.finalAnswer?.text.includes('checking'), false);
   } finally {
     await new Promise((resolve) => setTimeout(resolve, 25));
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
@@ -737,19 +734,19 @@ test('transcript caching persists messages, tool invocations, reasoning, and pre
     const transcript = await transcriptCache.getTranscript('fake', 'sess-cache-test');
     assert.equal(transcript.provider, 'fake');
     assert.equal(transcript.providerSessionId, 'sess-cache-test');
-    assert.equal(transcript.messages.length >= 2, true); // user + assistant
+    assert.equal(transcript.turns.length >= 1, true);
 
-    const userMsg = transcript.messages[0];
-    assert.equal(userMsg.role, 'user');
-    assert.equal(userMsg.text, 'tools-and-reasoning');
+    const turn = transcript.turns[0];
+    assert.equal(turn.userMessage?.text, 'tools-and-reasoning');
 
-    const assistantMsg = transcript.messages[1];
-    assert.equal(assistantMsg.role, 'assistant');
-    assert.equal(assistantMsg.reasoning, 'thinking...');
-    assert.equal(assistantMsg.text, 'one two');
-    assert.equal(assistantMsg.toolCalls?.length, 1);
-    assert.equal(assistantMsg.toolCalls[0].name, 'ReadDir');
-    assert.equal(assistantMsg.toolCalls[0].status, 'completed');
+    const reasoningItem = turn.work.find((w) => w.type === 'reasoning');
+    assert.equal(reasoningItem?.text, 'thinking...');
+    assert.equal(turn.finalAnswer?.text, 'one two');
+
+    const toolItem = turn.work.find((w) => w.type === 'tool');
+    assert.ok(toolItem);
+    assert.equal(toolItem.toolName, 'ReadDir');
+    assert.equal(toolItem.status, 'completed');
 
     // Invariant check: lastEventSeq matches highest sequence
     const snapshot = fixture.runtime.getSnapshot(turnId);
@@ -786,9 +783,9 @@ test('a tool still running when its turn reaches normal turn.completed resolves 
     assert.equal(snapshot.status, 'completed', 'the turn itself succeeds even though one tool lingers');
 
     const transcript = await transcriptCache.getTranscript('fake', 'sess-lingering-tool');
-    const assistantMsg = transcript.messages.find((m) => m.role === 'assistant');
-    const t1 = assistantMsg.toolCalls.find((t) => t.id === 't1');
-    const t2 = assistantMsg.toolCalls.find((t) => t.id === 't2');
+    const turn = transcript.turns[0];
+    const t1 = turn.work.find((w) => w.id === 't1');
+    const t2 = turn.work.find((w) => w.id === 't2');
     assert.equal(t1.status, 'completed', 'the tool that received a real terminal signal stays completed');
     assert.equal(t2.status, 'failed', 'the lingering tool resolves to failed, never completed, on reload');
 
@@ -796,8 +793,8 @@ test('a tool still running when its turn reaches normal turn.completed resolves 
     await transcriptCache.flush('fake', 'sess-lingering-tool');
     const reloadedCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
     const reloaded = await reloadedCache.getTranscript('fake', 'sess-lingering-tool');
-    const reloadedMsg = reloaded.messages.find((m) => m.role === 'assistant');
-    assert.equal(reloadedMsg.toolCalls.find((t) => t.id === 't2').status, 'failed');
+    const reloadedTurn = reloaded.turns[0];
+    assert.equal(reloadedTurn.work.find((w) => w.id === 't2').status, 'failed');
   } finally {
     await new Promise((r) => setTimeout(r, 25));
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
@@ -826,11 +823,11 @@ test('a tool still running when its turn fails resolves to failed', async () => 
     assert.equal(snapshot.status, 'failed');
 
     const transcript = await transcriptCache.getTranscript('fake', 'sess-fail-with-tool');
-    const assistantMsg = transcript.messages.find((m) => m.role === 'assistant');
-    assert.equal(assistantMsg.toolCalls.find((t) => t.id === 't1').status, 'failed');
-    // owner-decisions.md D6/D9: the turn's raw terminal error is plumbed onto the message
+    const turn = transcript.turns[0];
+    assert.equal(turn.work.find((w) => w.id === 't1').status, 'failed');
+    // owner-decisions.md D6/D9: the turn's raw terminal error is plumbed onto the turn
     // in a reload-safe way so Task 09 can later classify Turn/Work Outcome from it.
-    assert.ok(assistantMsg.turnError?.code, 'turn.failed error.code must survive onto the persisted message');
+    assert.ok(turn.terminalOutcome?.error?.code || turn.status?.error?.code, 'turn.failed error.code must survive onto the persisted turn');
   } finally {
     await new Promise((r) => setTimeout(r, 25));
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
@@ -934,7 +931,10 @@ test('boot reconciliation finalizes an orphaned persisted activeTurn as AI_TURN_
 
     const transcript = await transcriptCache.getTranscript('fake', 'orphan-session');
     assert.equal(transcript.activeTurn, undefined);
-    assert.equal(transcript.messages.at(-1).text, 'Interrupted by server restart.');
+    const orphanTurn = transcript.turns.find((t) => t.id === turnId);
+    assert.equal(orphanTurn.status.status, 'terminal');
+    assert.equal(orphanTurn.status.outcome, 'interrupted');
+    assert.equal(orphanTurn.status.error.message, 'Interrupted by server restart.');
     fresh.runtime.shutdown();
   } finally {
     await new Promise((r) => setTimeout(r, 25));
@@ -1009,7 +1009,8 @@ test('boot reconciliation interrupts a stale live-operation interaction', async 
     const transcript = await restartedCache.getTranscript('fake', 'live-pending-session');
     assert.equal(transcript.activeTurn, undefined);
     assert.equal(transcript.pendingInteraction, undefined);
-    assert.equal(transcript.messages.at(-1).text, 'Interrupted by server restart.');
+    const interruptedTurn = transcript.turns.find((t) => t.status.outcome === 'interrupted');
+    assert.equal(interruptedTurn.status.error.message, 'Interrupted by server restart.');
     await fresh.runtime.shutdown();
   } finally {
     await original?.runtime.shutdown();
@@ -1136,12 +1137,13 @@ test('Antigravity full path: tools -> result.response summary -> normalized even
     // 3. Verify transcript cache on disk and reload
     const reloadedCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
     const transcript = await reloadedCache.getTranscript('antigravity', 'sess-agy-full');
-    const assistantMsg = transcript.messages.find((m) => m.role === 'assistant');
-    assert.ok(assistantMsg, 'assistant message exists in transcript');
-    assert.equal(assistantMsg.text, 'Podsumowując, wszystkie testy przeszły pomyślnie.');
-    assert.equal(assistantMsg.toolCalls.length, 2);
-    assert.equal(assistantMsg.toolCalls[0].status, 'completed');
-    assert.equal(assistantMsg.toolCalls[1].status, 'completed');
+    const turn = transcript.turns[0];
+    assert.ok(turn, 'turn exists in transcript');
+    assert.equal(turn.finalAnswer.text, 'Podsumowując, wszystkie testy przeszły pomyślnie.');
+    const toolItems = turn.work.filter((w) => w.type === 'tool');
+    assert.equal(toolItems.length, 2);
+    assert.equal(toolItems[0].status, 'completed');
+    assert.equal(toolItems[1].status, 'completed');
 
     runtime.shutdown();
   } finally {
@@ -1211,10 +1213,11 @@ test('Antigravity full path: error result with empty response -> turn.failed, no
     // 3. Verify transcript cache on disk and reload
     const reloadedCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
     const transcript = await reloadedCache.getTranscript('antigravity', 'sess-agy-err-empty');
-    const assistantMsg = transcript.messages.find((m) => m.role === 'assistant');
-    if (assistantMsg) {
-      assert.equal(assistantMsg.text, '', 'assistant message must not contain placeholder prose');
-      assert.deepEqual(assistantMsg.turnError, {
+    const turn = transcript.turns[0];
+    if (turn) {
+      assert.equal(turn.finalAnswer, null, 'assistant turn must not contain placeholder prose');
+      const err = turn.terminalOutcome?.error || turn.status?.error;
+      assert.deepEqual(err, {
         code: 'AI_PROVIDER_ERROR',
         message: 'ContentOffset 22500 exceeds line range size 1792',
       });
@@ -1284,10 +1287,11 @@ test('Antigravity full path: error result with non-empty response -> turn.failed
     // 3. Verify transcript cache on disk and reload
     const reloadedCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
     const transcript = await reloadedCache.getTranscript('antigravity', 'sess-agy-err-prose');
-    const assistantMsg = transcript.messages.find((m) => m.role === 'assistant');
-    assert.ok(assistantMsg);
-    assert.ok(assistantMsg.turnError, 'must attach turnError on failure');
-    assert.equal(assistantMsg.turnError.message, 'Process crashed mid-execution');
+    const turn = transcript.turns[0];
+    assert.ok(turn);
+    const err = turn.terminalOutcome?.error || turn.status?.error;
+    assert.ok(err, 'must attach turnError on failure');
+    assert.equal(err.message, 'Process crashed mid-execution');
 
     runtime.shutdown();
   } finally {

@@ -309,16 +309,15 @@ test('Finding 1: Source inspection confirms prompt text is removed from ChatSear
 });
 
 test('Finding 3: Tool card layout and pre blocks are constrained to chat width and support horizontal scroll', () => {
-  const toolCallViewSource = readSource('features/agent-sessions/turn-work/tool-call-view.tsx');
-  const turnWorkSummarySource = readSource('features/agent-sessions/turn-work/turn-work-summary.tsx');
-  const transcriptMessageSource = readSource('features/agent-sessions/transcript/transcript-message.tsx');
+  const detailsSheetSource = readSource('features/agent-sessions/work/work-details-sheet.tsx');
+  const panelSource = readSource('features/agent-sessions/work/turn-work-panel.tsx');
+  const finalAnswerSource = readSource('features/agent-sessions/work/final-answer-view.tsx');
 
-  // ToolCallView is constrained with min-w-0 max-w-full and pre blocks use overflow-auto whitespace-pre
-  assert.ok(toolCallViewSource.includes('w-full max-w-full min-w-0'));
-  assert.ok(toolCallViewSource.includes('overflow-auto'));
-  assert.ok(toolCallViewSource.includes('whitespace-pre'));
+  // WorkDetailsSheet pre blocks use overflow-auto whitespace-pre
+  assert.ok(detailsSheetSource.includes('overflow-auto'));
+  assert.ok(detailsSheetSource.includes('whitespace-pre'));
 
-  // TurnWorkSummary and TranscriptMessage containers allow flex shrinking with min-w-0 max-w-full
-  assert.ok(turnWorkSummarySource.includes('w-full max-w-full min-w-0'));
-  assert.ok(transcriptMessageSource.includes('w-full max-w-full min-w-0'));
+  // TurnWorkPanel and FinalAnswerView containers allow flex shrinking with min-w-0 max-w-full
+  assert.ok(panelSource.includes('w-full max-w-full min-w-0'));
+  assert.ok(finalAnswerSource.includes('w-full max-w-full min-w-0'));
 });

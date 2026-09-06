@@ -84,7 +84,6 @@ test('persisted assistant messages replace their streamed version by stable mess
 test('browser EventSource dispatches named SSE events only to addEventListener, not onmessage', async () => {
   const { subscribeAgentEventSource, SUPPORTED_AGENT_EVENT_TYPES } =
     await import('../ui/features/agent-sessions/runtime/agent-event-source.ts');
-  const { applyAgentEvent } = await import('../ui/features/agent-sessions/runtime/agent-event-reducer.ts');
 
   // Minimal standard-compliant EventTarget mock for browser EventSource
   class MockEventSource {
@@ -146,69 +145,7 @@ test('browser EventSource dispatches named SSE events only to addEventListener, 
     Array.from(SUPPORTED_AGENT_EVENT_TYPES),
   );
 
-  // 3. Verify applyAgentEvent state reduction — every event for one turn carries the
-  // same turnId (the real, current-schema wire shape: contracts.mjs requires turnId on
-  // every event), which is what correlates text/reasoning/tool activity into one message.
-  let messages = [];
-  messages = applyAgentEvent(messages, {
-    id: 1,
-    seq: 1,
-    type: 'text.delta',
-    turnId: '1',
-    messageId: 'msg-1',
-    text: 'Hello ',
-  });
-  messages = applyAgentEvent(messages, {
-    id: 2,
-    seq: 2,
-    type: 'text.delta',
-    turnId: '1',
-    messageId: 'msg-1',
-    text: 'World',
-  });
-  messages = applyAgentEvent(messages, {
-    id: 3,
-    seq: 3,
-    type: 'reasoning.delta',
-    turnId: '1',
-    messageId: 'msg-1',
-    text: 'Deep thought',
-  });
-  messages = applyAgentEvent(messages, {
-    id: 4,
-    seq: 4,
-    type: 'progress.delta',
-    turnId: '1',
-    progressId: 'progress-1',
-    text: 'Checking files',
-  });
-  messages = applyAgentEvent(messages, {
-    id: 5,
-    seq: 5,
-    type: 'tool.started',
-    turnId: '1',
-    toolId: 'tool-a',
-    toolName: 'test_tool',
-    input: { a: 1 },
-  });
-  messages = applyAgentEvent(messages, {
-    id: 6,
-    seq: 6,
-    type: 'tool.completed',
-    turnId: '1',
-    toolId: 'tool-a',
-    output: { success: true },
-    status: 'completed',
-  });
-
-  assert.equal(messages[0].text, 'Hello World');
-  assert.equal(messages[0].text.includes('Checking files'), false);
-  assert.equal(messages[0].reasoning, 'Deep thought');
-  assert.equal(messages[0].toolCalls?.length, 1);
-  assert.equal(messages[0].toolCalls[0].status, 'completed');
-  assert.deepEqual(messages[0].toolCalls[0].output, { success: true });
-
-  // 4. Verify unsubscribe cleans up listeners and closes EventSource
+  // 3. Verify unsubscribe cleans up listeners and closes EventSource
   unsubscribe();
   assert.equal(source.closed, true);
 });
@@ -447,9 +384,9 @@ test('real useAgentSessionRuntime mounting: EventSource lifecycle during snapsho
         session: {
           provider: 'claude',
           providerSessionId: 'sess-retry-test',
-          messages: [{ id: 'm1', role: 'user', text: 'hello' }],
           lastEventSeq: 42,
         },
+        turns: [{ id: 'turn-1', userMessage: { id: 'm1', text: 'hello' } }],
       }),
     };
   };
@@ -466,7 +403,7 @@ test('real useAgentSessionRuntime mounting: EventSource lifecycle during snapsho
 
   assert.equal(harness.result.loadError?.kind, 'not_found');
   assert.equal(harness.result.sessionDetails, null);
-  assert.deepEqual(harness.result.messages, []);
+  assert.deepEqual(harness.result.turns, []);
   assert.equal(errorsReceived.length, 0, 'onError must NOT be called on snapshot load failure');
   assert.equal(sseEvents.length, 0, 'No EventSource should be opened when snapshot fails');
 
@@ -492,7 +429,7 @@ test('real useAgentSessionRuntime mounting: EventSource lifecycle during snapsho
   assert.equal(sseEvents[0].action, 'open');
   assert.ok(sseEvents[0].url.includes('sess-retry-test') && sseEvents[0].url.includes('after=42'));
   assert.equal(harness.result.sessionDetails?.providerSessionId, 'sess-retry-test');
-  assert.equal(harness.result.messages.length, 1);
+  assert.equal(harness.result.turns.length, 1);
   assert.equal(harness.result.loadError, null);
 });
 
@@ -522,9 +459,9 @@ test('real useAgentSessionRuntime mounting: session switch A -> failed B -> retr
           session: {
             provider: 'claude',
             providerSessionId: 'sess-A',
-            messages: [{ id: 'ma', role: 'user', text: 'msg in A' }],
             lastEventSeq: 10,
           },
+          turns: [{ id: 'ta', userMessage: { id: 'ma', text: 'msg in A' } }],
         }),
       };
     }
@@ -544,9 +481,9 @@ test('real useAgentSessionRuntime mounting: session switch A -> failed B -> retr
           session: {
             provider: 'claude',
             providerSessionId: 'sess-B',
-            messages: [{ id: 'mb', role: 'user', text: 'msg in B' }],
             lastEventSeq: 5,
           },
+          turns: [{ id: 'tb', userMessage: { id: 'mb', text: 'msg in B' } }],
         }),
       };
     }
@@ -558,7 +495,7 @@ test('real useAgentSessionRuntime mounting: session switch A -> failed B -> retr
   // 1. Successfully load session A
   await harness.render({ provider: 'claude', providerSessionId: 'sess-A' });
   assert.equal(harness.result.sessionDetails?.providerSessionId, 'sess-A');
-  assert.equal(harness.result.messages[0].text, 'msg in A');
+  assert.equal(harness.result.turns[0].userMessage.text, 'msg in A');
   assert.equal(sseEvents.length, 1);
   assert.ok(sseEvents[0].url.includes('sess-A') && sseEvents[0].url.includes('after=10'));
 
@@ -573,7 +510,7 @@ test('real useAgentSessionRuntime mounting: session switch A -> failed B -> retr
 
   // No stale state from session A remains visible or associated with B
   assert.equal(harness.result.sessionDetails, null);
-  assert.deepEqual(harness.result.messages, []);
+  assert.deepEqual(harness.result.turns, []);
   assert.equal(harness.result.loadError?.kind, 'http');
   assert.equal(harness.result.loadError?.status, 500);
 
@@ -584,7 +521,7 @@ test('real useAgentSessionRuntime mounting: session switch A -> failed B -> retr
   });
 
   assert.equal(harness.result.sessionDetails?.providerSessionId, 'sess-B');
-  assert.equal(harness.result.messages[0].text, 'msg in B');
+  assert.equal(harness.result.turns[0].userMessage.text, 'msg in B');
   assert.equal(harness.result.loadError, null);
 
   // EventSource for B opens with B's snapshot cursor (after=5)

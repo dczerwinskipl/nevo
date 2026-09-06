@@ -1,24 +1,24 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { AgentSessionTranscriptV2 } from '../ui/features/agent-sessions/work-v2/agent-session-transcript-v2';
-import { TurnWorkPanelV2 } from '../ui/features/agent-sessions/work-v2/turn-work-panel-v2';
-import { WorkIndicatorV2 } from '../ui/features/agent-sessions/work-v2/work-indicator-v2';
-import { WorkTimelineV2 } from '../ui/features/agent-sessions/work-v2/work-timeline-v2';
+import { AgentSessionTranscript } from '../ui/features/agent-sessions/work/agent-session-transcript';
+import { TurnWorkPanel } from '../ui/features/agent-sessions/work/turn-work-panel';
+import { WorkIndicator } from '../ui/features/agent-sessions/work/work-indicator';
+import { WorkTimeline } from '../ui/features/agent-sessions/work/work-timeline';
 import { ConfirmationPrompt } from '../ui/features/agent-sessions/interactions/interaction-prompt';
-import { describeCurrentActivityV2 } from '../ui/features/agent-sessions/work-v2/activity-model-v2';
+import { describeCurrentActivity } from '../ui/features/agent-sessions/work/activity-model';
 import { AgentSessionComposer } from '../ui/features/agent-sessions/composer/agent-session-composer';
-import { WorkDetailsSheetV2 } from '../ui/features/agent-sessions/work-v2/work-details-sheet-v2';
+import { WorkDetailsSheet } from '../ui/features/agent-sessions/work/work-details-sheet';
 import type {
   AgentConfirmationInteraction,
-  CanonicalTurnV2,
-  CommentaryWorkItemV2,
-  ToolInvocationWorkItemV2,
+  CanonicalTurn,
+  CommentaryWorkItem,
+  ToolInvocationWorkItem,
 } from '../ui/features/agent-sessions/types';
 
-describe('V2 Chat Surface Component Tests (RTL renders)', () => {
+describe('Canonical Chat Surface Component Tests (RTL renders)', () => {
   it('Requirement 1: UserMessageBubble provides line-clamp-6 and accessible Polish toggle button for long messages', () => {
     const longText = Array.from({ length: 8 }, (_, i) => `Line ${i + 1}`).join('\n');
-    const turns: CanonicalTurnV2[] = [
+    const turns: CanonicalTurn[] = [
       {
         id: 'turn-1',
         userMessage: {
@@ -35,7 +35,7 @@ describe('V2 Chat Surface Component Tests (RTL renders)', () => {
       },
     ];
 
-    render(<AgentSessionTranscriptV2 turns={turns} isLoading={false} hasSessionDetails={true} contentRevision={1} />);
+    render(<AgentSessionTranscript turns={turns} isLoading={false} hasSessionDetails={true} contentRevision={1} />);
 
     const toggleButton = screen.getByRole('button', { name: /pokaż więcej/i });
     expect(toggleButton).toBeInTheDocument();
@@ -49,7 +49,7 @@ describe('V2 Chat Surface Component Tests (RTL renders)', () => {
 
   it('Requirement 5: Optimistic state displays neutral Starting… indicator before server turn arrives', () => {
     render(
-      <AgentSessionTranscriptV2
+      <AgentSessionTranscript
         turns={[]}
         optimisticUserMessage="Please check the current spec"
         isLoading={false}
@@ -63,8 +63,8 @@ describe('V2 Chat Surface Component Tests (RTL renders)', () => {
     expect(screen.queryByText(/thinking/i)).not.toBeInTheDocument();
   });
 
-  it('Gap 4: TurnWorkPanelV2 directly navigates to item details, supports Back to list, and resets on Details click', () => {
-    const toolItem: ToolInvocationWorkItemV2 = {
+  it('Gap 4: TurnWorkPanel directly navigates to item details, supports Back to list, and resets on Details click', () => {
+    const toolItem: ToolInvocationWorkItem = {
       id: 'tool-item-1',
       seq: 1,
       type: 'tool',
@@ -79,7 +79,7 @@ describe('V2 Chat Surface Component Tests (RTL renders)', () => {
       updatedAt: '2026-08-30T10:00:01Z',
     };
 
-    const turn: CanonicalTurnV2 = {
+    const turn: CanonicalTurn = {
       id: 'turn-1',
       work: [toolItem],
       historicalWork: [toolItem],
@@ -89,13 +89,13 @@ describe('V2 Chat Surface Component Tests (RTL renders)', () => {
       status: { status: 'terminal', outcome: 'completed' },
     };
 
-    render(<TurnWorkPanelV2 turn={turn} onRespondInteraction={vi.fn()} />);
+    render(<TurnWorkPanel turn={turn} onRespondInteraction={vi.fn()} />);
 
     // Expand Level 2 by clicking the WorkIndicator toggle button
     const indicatorButton = screen.getByRole('button', { name: /work · 1 action · completed/i });
     fireEvent.click(indicatorButton);
 
-    // Direct click on the Level 2 item row opens WorkDetailsSheetV2 directly to that item
+    // Direct click on the Level 2 item row opens WorkDetailsSheet directly to that item
     const itemRowButton = screen.getByRole('button', { name: /read specification/i });
     fireEvent.click(itemRowButton);
 
@@ -121,7 +121,7 @@ describe('V2 Chat Surface Component Tests (RTL renders)', () => {
   });
 
   it('Gap 3: ToolGroupRow renders compound ToolActions nested under their invocation in Level 2', () => {
-    const compoundTool: ToolInvocationWorkItemV2 = {
+    const compoundTool: ToolInvocationWorkItem = {
       id: 'tool-compound-1',
       seq: 1,
       type: 'tool',
@@ -151,7 +151,7 @@ describe('V2 Chat Surface Component Tests (RTL renders)', () => {
       updatedAt: '2026-08-30T10:00:01Z',
     };
 
-    render(<WorkTimelineV2 historicalWork={[compoundTool]} onSelectItem={vi.fn()} />);
+    render(<WorkTimeline historicalWork={[compoundTool]} onSelectItem={vi.fn()} />);
 
     expect(screen.getByText('Run workspace tasks')).toBeInTheDocument();
     expect(screen.getByText('Read configuration')).toBeInTheDocument();
@@ -192,9 +192,9 @@ describe('V2 Chat Surface Component Tests (RTL renders)', () => {
     unmount();
   });
 
-  it('Gap 6: WorkIndicatorV2 handles cancelling and unknown truthfully without spinning loader', () => {
+  it('Gap 6: WorkIndicator handles cancelling and unknown truthfully without spinning loader', () => {
     // Cancelling turn
-    const cancellingTurn: CanonicalTurnV2 = {
+    const cancellingTurn: CanonicalTurn = {
       id: 'turn-cancelling',
       work: [],
       historicalWork: [],
@@ -211,14 +211,14 @@ describe('V2 Chat Surface Component Tests (RTL renders)', () => {
     };
 
     const { unmount: unmountCancelling } = render(
-      <WorkIndicatorV2 turn={cancellingTurn} expanded={false} onToggle={vi.fn()} />,
+      <WorkIndicator turn={cancellingTurn} expanded={false} onToggle={vi.fn()} />,
     );
     expect(screen.getByText(/cancelling…/i)).toBeInTheDocument();
     expect(document.querySelector('.animate-spin')).toBeNull();
     unmountCancelling();
 
     // Unknown status turn
-    const unknownTurn: CanonicalTurnV2 = {
+    const unknownTurn: CanonicalTurn = {
       id: 'turn-unknown',
       work: [],
       historicalWork: [],
@@ -234,7 +234,7 @@ describe('V2 Chat Surface Component Tests (RTL renders)', () => {
     };
 
     const { unmount: unmountUnknown } = render(
-      <WorkIndicatorV2 turn={unknownTurn} expanded={false} onToggle={vi.fn()} />,
+      <WorkIndicator turn={unknownTurn} expanded={false} onToggle={vi.fn()} />,
     );
     expect(screen.getByText(/unknown/i)).toBeInTheDocument();
     expect(document.querySelector('.animate-spin')).toBeNull();
@@ -242,7 +242,7 @@ describe('V2 Chat Surface Component Tests (RTL renders)', () => {
   });
 
   it('Gap 7: Active thinking is single-line preview with no duplicate detail string', () => {
-    const displayWithText = describeCurrentActivityV2({
+    const displayWithText = describeCurrentActivity({
       kind: 'thinking',
       text: 'Analyzing the specification requirements and planning edits',
       startedAt: '2026-08-30T10:00:00Z',
@@ -252,7 +252,7 @@ describe('V2 Chat Surface Component Tests (RTL renders)', () => {
     expect(displayWithText?.label).toBe('Analyzing the specification requirements and planning edits');
     expect(displayWithText?.detail).toBeUndefined();
 
-    const displayEmpty = describeCurrentActivityV2({
+    const displayEmpty = describeCurrentActivity({
       kind: 'thinking',
       startedAt: '2026-08-30T10:00:00Z',
     });
@@ -406,8 +406,8 @@ describe('V2 Chat Surface Component Tests (RTL renders)', () => {
   });
 
   describe('Finding 3: Level 2 Commentary ungrouped preservation', () => {
-    it('renders 3 distinct rows for 3 adjacent commentary items in WorkTimelineV2', () => {
-      const commentaryItems: CommentaryWorkItemV2[] = [
+    it('renders 3 distinct rows for 3 adjacent commentary items in WorkTimeline', () => {
+      const commentaryItems: CommentaryWorkItem[] = [
         {
           id: 'c-1',
           seq: 1,
@@ -437,7 +437,7 @@ describe('V2 Chat Surface Component Tests (RTL renders)', () => {
         },
       ];
 
-      render(<WorkTimelineV2 historicalWork={commentaryItems} onSelectItem={vi.fn()} />);
+      render(<WorkTimeline historicalWork={commentaryItems} onSelectItem={vi.fn()} />);
 
       expect(screen.getByText('First progress update')).toBeInTheDocument();
       expect(screen.getByText('Second progress update')).toBeInTheDocument();
@@ -448,7 +448,7 @@ describe('V2 Chat Surface Component Tests (RTL renders)', () => {
 
   describe('Finding 4: Work Details low-emphasis provider metadata', () => {
     it('renders provider name in overview header subtitle and ToolDetail dl', () => {
-      const toolItem: ToolInvocationWorkItemV2 = {
+      const toolItem: ToolInvocationWorkItem = {
         id: 'tool-prov-1',
         seq: 1,
         type: 'tool',
@@ -460,7 +460,7 @@ describe('V2 Chat Surface Component Tests (RTL renders)', () => {
         updatedAt: '2026-09-01T10:00:01Z',
       };
 
-      const turn: CanonicalTurnV2 = {
+      const turn: CanonicalTurn = {
         id: 'turn-prov-1',
         provider: 'antigravity',
         work: [toolItem],
@@ -473,14 +473,14 @@ describe('V2 Chat Surface Component Tests (RTL renders)', () => {
 
       // 1. Overview sheet state: header subtitle includes provider
       const { rerender } = render(
-        <WorkDetailsSheetV2 turn={turn} open={true} onOpenChange={vi.fn()} selectedItemId={null} />,
+        <WorkDetailsSheet turn={turn} open={true} onOpenChange={vi.fn()} selectedItemId={null} />,
       );
 
       expect(screen.getByText('Work Details')).toBeInTheDocument();
       expect(screen.getByText(/1 actions in this turn · antigravity/)).toBeInTheDocument();
 
       // 2. Item selected state: ToolDetail renders provider in definition list
-      rerender(<WorkDetailsSheetV2 turn={turn} open={true} onOpenChange={vi.fn()} selectedItemId="tool-prov-1" />);
+      rerender(<WorkDetailsSheet turn={turn} open={true} onOpenChange={vi.fn()} selectedItemId="tool-prov-1" />);
 
       expect(screen.getByText('Dostawca')).toBeInTheDocument();
       expect(screen.getByText('antigravity')).toBeInTheDocument();

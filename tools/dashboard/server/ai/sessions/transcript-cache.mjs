@@ -1,7 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, rm, unlink, writeFile, rename } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { normalizeTimestamp, validateAgentIdentity, validateAiEvent, projectChatV1 } from '../contracts.mjs';
+import { normalizeTimestamp, validateAgentIdentity, validateAiEvent } from '../contracts.mjs';
 
 function sanitizeFilename(value) {
   return encodeURIComponent(value).replace(/[*~]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
@@ -264,11 +264,7 @@ export class SessionTranscriptCacheService {
       }
     }
 
-    const cloned = structuredClone(state);
-    if (!Array.isArray(cloned.messages)) {
-      cloned.messages = Array.isArray(cloned.turns) ? projectChatV1(cloned.turns) : [];
-    }
-    return cloned;
+    return structuredClone(state);
   }
 
   recordUserMessage(provider, providerSessionId, { text, messageId, createdAt = new Date().toISOString() } = {}) {

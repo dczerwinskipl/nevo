@@ -2,17 +2,17 @@
 id: adr.0007-provider-neutral-ai-sessions
 type: adr
 title: Use provider-neutral local AI sessions in the specification dashboard
-status: accepted
+status: superseded
 date: 2026-08-15
 supersedes: ~
-superseded_by: ~
+superseded_by: adr.0008-canonical-ai-session-chat-and-turn-model
 ---
 
 # ADR-0007: Use provider-neutral local AI sessions in the specification dashboard
 
 ## Status
 
-Accepted
+Superseded by [ADR-0008](ADR-0008-canonical-ai-session-chat-and-turn-model.md) on 2026-09-06. The message-centric model and `@assistant-ui/react` runtime have been replaced with the canonical Turn and Work hierarchy model.
 
 ## Context
 

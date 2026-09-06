@@ -217,8 +217,15 @@ test('Finding 1: Full focus -> 20-line edit -> blur -> re-focus cycle preserves 
   assert.equal(state.overflow, 'auto');
 });
 
+function readChatSurfaceSource() {
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-chat-surface.tsx', import.meta.url)),
+    'utf8',
+  );
+}
+
 test('AC5 & AC6: Scoped blur-on-outside-tap is attached to transcript surface without breaking interactive controls', () => {
-  const source = readAgentSessionPageSource();
+  const source = readChatSurfaceSource();
 
   // Scoped handler on transcript container, not document
   assert.match(source, /handleTranscriptPointerDown/);
@@ -253,15 +260,15 @@ test('AC8 & AC9: Mode control is located inside the composer, not in the chat he
 
 // ── task 11 (semantic Work chat V2), AC4: pending interaction is actionable, ordinary waiting is not ──
 
-function readPendingInteractionV2Source() {
+function readPendingInteractionSource() {
   return readFileSync(
-    fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/pending-interaction-view-v2.tsx', import.meta.url)),
+    fileURLToPath(new URL('../ui/features/agent-sessions/work/pending-interaction-view.tsx', import.meta.url)),
     'utf8',
   );
 }
 
-test('V2 AC4: PendingInteractionViewV2 renders actionable prompts only for requiresAttention + pending', () => {
-  const source = readPendingInteractionV2Source();
+test('AC4: PendingInteractionView renders actionable prompts only for requiresAttention + pending', () => {
+  const source = readPendingInteractionSource();
 
   // Guarded strictly on the discriminated requiresAttention status — ordinary 'waiting'/'active' never reach here.
   assert.match(
@@ -283,9 +290,9 @@ test('V2 AC4: PendingInteractionViewV2 renders actionable prompts only for requi
   );
 });
 
-test('V2 AC4: Work indicator distinguishes requires_attention from ordinary waiting kinds', () => {
+test('AC4: Work indicator distinguishes requires_attention from ordinary waiting kinds', () => {
   const workIndicatorSource = readFileSync(
-    fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/work-indicator-v2.tsx', import.meta.url)),
+    fileURLToPath(new URL('../ui/features/agent-sessions/work/work-indicator.tsx', import.meta.url)),
     'utf8',
   );
   assert.match(

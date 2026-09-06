@@ -3,12 +3,9 @@ import {
   validateAgentIdentity,
   validateAgentExecutionMode,
   computeCurrentActivity,
-  projectChatV1,
   serializePublicTurn,
 } from '../contracts.mjs';
 import { compareBindingRecency } from './binding-service.mjs';
-
-export { projectChatV1 };
 
 /**
  * Computes semantic session readiness without falling back to 'ready' on corrupt state.
@@ -435,29 +432,11 @@ export class AgentSessionService {
       updatedAt: transcript?.updatedAt || new Date().toISOString(),
     };
 
-    const representation = options.representation;
-    if (representation === 'v1') {
-      return {
-        ...baseSession,
-        messages: projectChatV1(combinedTurns),
-      };
-    }
-
-    if (representation === 'v2') {
-      return {
-        ...baseSession,
-        readiness,
-        workSummary,
-        turns: publicTurns,
-      };
-    }
-
     return {
       ...baseSession,
       readiness,
       workSummary,
       turns: publicTurns,
-      messages: projectChatV1(combinedTurns),
     };
   }
 
@@ -470,18 +449,6 @@ export class AgentSessionService {
       await this.transcriptCache.deleteTranscript(provider, providerSessionId);
     }
     return { unbind: true, deleted: true };
-  }
-
-  async listMessages(provider, providerSessionId) {
-    validateAgentIdentity({ provider, providerSessionId });
-    if (this.transcriptCache) {
-      const transcript = await this.transcriptCache.getTranscript(provider, providerSessionId);
-      if (Array.isArray(transcript?.turns) && transcript.turns.length > 0) {
-        return projectChatV1(transcript.turns);
-      }
-      return transcript?.messages || [];
-    }
-    return [];
   }
 
   async listTurns(provider, providerSessionId) {

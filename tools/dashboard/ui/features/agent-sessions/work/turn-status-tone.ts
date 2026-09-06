@@ -1,11 +1,11 @@
 import type { StatusTone } from '@/shared/status-tone';
-import type { CanonicalTurnV2, CurrentActivityKindV2, CurrentActivityV2, TurnStatusV2 } from '../types';
+import type { CanonicalTurn, CurrentActivity, CurrentActivityKind, TurnStatus } from '../types';
 
 /**
- * Maps a CanonicalTurnV2 / TurnStatusV2 lifecycle state to the canonical StatusTone (D2).
- * Explicitly maps requiresAttention -> 'attention' (fixing the confirmed mis-mapping).
+ * Maps a CanonicalTurn / TurnStatus lifecycle state to the canonical StatusTone (D2).
+ * Explicitly maps requiresAttention -> 'attention'.
  */
-export function turnStatusToneV2(status: TurnStatusV2): StatusTone {
+export function turnStatusTone(status: TurnStatus): StatusTone {
   if (status.status === 'requiresAttention') {
     return 'attention';
   }
@@ -35,10 +35,10 @@ export function turnStatusToneV2(status: TurnStatusV2): StatusTone {
 }
 
 /**
- * Maps a CurrentActivityV2 (or display descriptor) to StatusTone.
+ * Maps a CurrentActivity (or display descriptor) to StatusTone.
  */
-export function currentActivityToneV2(
-  activity: CurrentActivityV2 | { kind: CurrentActivityKindV2 } | null,
+export function currentActivityTone(
+  activity: CurrentActivity | { kind: CurrentActivityKind } | null,
 ): StatusTone {
   if (!activity) return 'neutral';
   if (activity.kind === 'requires_attention') {
@@ -51,8 +51,8 @@ export function currentActivityToneV2(
 }
 
 /**
- * Convenience helper to map an entire CanonicalTurnV2 to StatusTone.
+ * Convenience helper to map an entire CanonicalTurn to StatusTone.
  */
-export function canonicalTurnToneV2(turn: CanonicalTurnV2): StatusTone {
-  return turnStatusToneV2(turn.status);
+export function canonicalTurnTone(turn: CanonicalTurn): StatusTone {
+  return turnStatusTone(turn.status);
 }

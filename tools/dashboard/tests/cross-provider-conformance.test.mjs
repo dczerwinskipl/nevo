@@ -7,7 +7,6 @@ import { join } from 'node:path';
 import {
   createCanonicalTurn,
   validateCanonicalTurn,
-  projectChatV1,
   computeCurrentActivity,
   serializePublicTurn,
   AiError,
@@ -17,11 +16,8 @@ import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs'
 import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
 import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
 import { LifecycleTraceSink } from '../server/ai/diagnostics/index.mjs';
-import {
-  visibleWorkItemsWhenTerminal,
-  visibleWorkItemsWhileRunning,
-} from '../ui/features/agent-sessions/turn-work/turn-work-visibility.ts';
-import { applyTurnUpdatedV2, deriveActivity } from '../ui/features/agent-sessions/runtime/agent-session-runtime-v2.ts';
+import { buildTimelineRows, projectTimeline } from '../ui/features/agent-sessions/work/timeline-projection.ts';
+import { deriveActivity } from '../ui/features/agent-sessions/runtime/agent-session-runtime.ts';
 import { mapClaudeTool, CLAUDE_CAPABILITIES } from '../server/ai/providers/claude/provider.mjs';
 import { mapCodexCommandActions, CODEX_CAPABILITIES } from '../server/ai/providers/codex/provider.mjs';
 import { mapAntigravityTool, ANTIGRAVITY_CAPABILITIES } from '../server/ai/providers/antigravity/provider.mjs';
@@ -544,216 +540,12 @@ test('AC5: Tool-heavy Work timeline (26 operations) is understandable in collaps
   assert.equal(publicTurn.currentActivity, null);
   assert.equal(publicTurn.historicalWork.length, 25);
 
-  // Desktop/Mobile UI visibility rules (preventing 26-card explosion on screens)
-  // 1. When terminal and collapsed: returns [] so screen displays ONLY 1 compact summary indicator
-  const terminalWork = {
-    turnId: publicTurn.id,
-    messageId: 'msg-1',
-    status: 'completed',
-    items: publicTurn.historicalWork,
-  };
-  const collapsedTerminalView = visibleWorkItemsWhenTerminal(terminalWork, false);
-  assert.deepEqual(collapsedTerminalView, [], 'Terminal collapsed Work must NOT dump 25 cards into the UI');
-
-  // 2. When expanded: reveals all 25 items for deep inspection
-  const expandedTerminalView = visibleWorkItemsWhenTerminal(terminalWork, true);
-  assert.equal(expandedTerminalView.length, 25, 'Expanded view reveals all 25 operations');
-
-  // 3. While running at operation 12:
-  const runningItems = [
-    ...Array.from({ length: 11 }, (_, i) => ({ toolId: `tool-step-${i + 1}`, status: 'completed' })),
-    { toolId: 'tool-step-12', status: 'running' },
-  ];
-  const runningWork = {
-    turnId: 'turn-running',
-    messageId: 'msg-1',
-    status: 'current',
-    items: runningItems,
-  };
-  const collapsedRunningView = visibleWorkItemsWhileRunning(runningWork, false);
-  assert.deepEqual(
-    collapsedRunningView,
-    [],
-    'Running collapsed view hides historical items to keep focus on currentActivity',
-  );
-  const expandedRunningView = visibleWorkItemsWhileRunning(runningWork, true);
-  assert.equal(
-    expandedRunningView.length,
-    11,
-    'Running expanded view shows prior 11 items without duplicating active 12th item',
-  );
-});
-
-// ── AC6: Safe V1 Fallback when V2 projection/rendering is faulted ────────────────────
-test('AC6: The same active session remains usable through V1 if V2 projection is intentionally faulted', () => {
-  const turns = [
-    // Turn 1: Normal turn with compound tool actions
-    validateCanonicalTurn({
-      id: 'turn-v1-1',
-      provider: 'codex',
-      userMessage: { text: 'Check repository status', createdAt: '2026-08-30T10:00:00Z' },
-      work: [
-        {
-          id: 'c1',
-          seq: 1,
-          type: 'commentary',
-          text: 'Checking status...',
-          status: 'completed',
-        },
-        {
-          id: 't1',
-          seq: 2,
-          type: 'tool',
-          toolName: 'exec_command',
-          kind: 'command',
-          title: 'Git status',
-          status: 'completed',
-          output: 'clean',
-          durationMs: 15,
-          actions: [
-            { id: 'act-1', seq: 1, kind: 'read', title: 'git status', target: '.git/index', status: 'completed' },
-            { id: 'act-2', seq: 2, kind: 'search', title: 'git status', target: 'specs/', status: 'completed' },
-          ],
-        },
-      ],
-      finalAnswer: { text: 'Repository is clean.', status: 'completed' },
-      status: {
-        status: 'terminal',
-        outcome: 'completed',
-        initiator: 'provider',
-        since: '2026-08-30T10:01:00Z',
-        source: 'coordinator',
-      },
-    }),
-    // Turn 2: Turn with structured interaction
-    validateCanonicalTurn({
-      id: 'turn-v1-2',
-      provider: 'claude',
-      userMessage: { text: 'Deploy update', createdAt: '2026-08-30T10:05:00Z' },
-      work: [
-        {
-          id: 'int-1',
-          seq: 1,
-          type: 'interaction',
-          status: 'resolved',
-          interaction: {
-            id: 'int-1',
-            kind: 'question',
-            prompt: 'Target environment?',
-            questions: [
-              {
-                id: 'env',
-                question: 'Target environment?',
-                options: [{ label: 'staging' }, { label: 'prod' }],
-              },
-            ],
-          },
-          response: { answers: { env: 'staging' } },
-        },
-      ],
-      finalAnswer: { text: 'Deployment to staging complete.', status: 'completed' },
-      status: {
-        status: 'terminal',
-        outcome: 'completed',
-        initiator: 'provider',
-        since: '2026-08-30T10:06:00Z',
-        source: 'coordinator',
-      },
-    }),
-    // Turn 3: Failed turn
-    validateCanonicalTurn({
-      id: 'turn-v1-3',
-      provider: 'antigravity',
-      userMessage: { text: 'Run migration', createdAt: '2026-08-30T10:10:00Z' },
-      work: [
-        {
-          id: 't-fail',
-          seq: 1,
-          type: 'tool',
-          toolName: 'run_command',
-          kind: 'command',
-          title: 'Migrate',
-          status: 'failed',
-          output: 'migration locked',
-          durationMs: 300,
-        },
-      ],
-      finalAnswer: null,
-      status: {
-        status: 'terminal',
-        outcome: 'failed',
-        initiator: 'provider',
-        cause: 'provider-error',
-        error: { code: 'AI_PROVIDER_ERROR', message: 'Migration failed to acquire lock.' },
-        since: '2026-08-30T10:11:00Z',
-        source: 'coordinator',
-      },
-    }),
-    // Turn 4: Interrupted turn
-    validateCanonicalTurn({
-      id: 'turn-v1-4',
-      provider: 'codex',
-      userMessage: { text: 'Long running task', createdAt: '2026-08-30T10:15:00Z' },
-      work: [],
-      finalAnswer: null,
-      status: {
-        status: 'terminal',
-        outcome: 'interrupted',
-        initiator: 'system',
-        cause: 'server-restart',
-        error: { code: 'AI_TURN_INTERRUPTED', message: 'Interrupted by server restart.' },
-        since: '2026-08-30T10:16:00Z',
-        source: 'coordinator',
-      },
-    }),
-  ];
-
-  // Simulate faulted V2 rendering / projection
-  function renderChatView(sessionTurns) {
-    try {
-      // Simulate an intentional unexpected fault in V2 component logic
-      throw new TypeError('V2 projection faulted: Cannot read properties of undefined (reading details)');
-    } catch {
-      // Fall back safely to projectChatV1
-      return {
-        viewMode: 'v1_fallback',
-        messages: projectChatV1(sessionTurns),
-      };
-    }
-  }
-
-  const result = renderChatView(turns);
-  assert.equal(result.viewMode, 'v1_fallback');
-  assert.equal(result.messages.length, 8); // 4 user messages + 4 assistant messages
-
-  // Verify Turn 1 fallback: preserves toolCalls and compound actions
-  const asst1 = result.messages.find((m) => m.turnId === 'turn-v1-1' && m.role === 'assistant');
-  assert.ok(asst1);
-  assert.equal(asst1.text, 'Repository is clean.');
-  assert.equal(asst1.toolCalls.length, 1);
-  assert.equal(asst1.toolCalls[0].name, 'exec_command');
-  assert.equal(asst1.toolCalls[0].actions?.length, 2);
-
-  // Verify Turn 2 fallback: preserves interaction and response
-  const asst2 = result.messages.find((m) => m.turnId === 'turn-v1-2' && m.role === 'assistant');
-  assert.ok(asst2);
-  assert.equal(asst2.text, 'Deployment to staging complete.');
-  assert.ok(asst2.interaction);
-  assert.equal(asst2.interaction.questions[0].question, 'Target environment?');
-  assert.equal(asst2.interaction.response?.answers?.env, 'staging');
-
-  // Verify Turn 3 fallback: preserves failed status and error
-  const asst3 = result.messages.find((m) => m.turnId === 'turn-v1-3' && m.role === 'assistant');
-  assert.ok(asst3);
-  assert.equal(asst3.toolCalls[0].status, 'failed');
-  assert.ok(asst3.turnError);
-  assert.equal(asst3.turnError.code, 'provider-error');
-
-  // Verify Turn 4 fallback: preserves interrupted message
-  const asst4 = result.messages.find((m) => m.turnId === 'turn-v1-4' && m.role === 'assistant');
-  assert.ok(asst4);
-  assert.equal(asst4.turnError?.code, 'server-restart');
-  assert.equal(asst4.text, 'Interrupted by server restart.');
+  // Desktop/Mobile UI projection rules (Level 2 timeline projection & bounding)
+  const projection = projectTimeline(publicTurn.historicalWork, { maxRows: 8 });
+  assert.equal(projection.visibleRows.length, 8, 'Level 2 caps visible history to maxRows');
+  assert.equal(projection.hasMore, true);
+  assert.equal(projection.allRows.length, 25);
+  assert.equal(projection.hiddenCount, 17, 'Correctly reports hidden items');
 });
 
 // ── AC8: Textual Question vs Blocking Interaction Invariant (Zero Text Heuristics) ───

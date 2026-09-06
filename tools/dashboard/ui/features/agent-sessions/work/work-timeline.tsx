@@ -1,17 +1,17 @@
 import { memo } from 'react';
 import { Ban, XCircle } from 'lucide-react';
 import {
-  projectTimelineV2,
-  type CommentaryPresentationRowV2,
-  type TimelineRowV2,
-  type ToolGroupPresentationRowV2,
-} from './timeline-projection-v2';
-import { TOOL_KIND_ICONS_V2 } from './tool-kind-icons-v2';
-import { previewPlainText } from './text-preview-v2';
-import type { InteractionWorkItemV2, ReasoningWorkItemV2, ToolKindV2, ToolStatusV2, WorkItemV2 } from '../types';
+  projectTimeline,
+  type CommentaryPresentationRow,
+  type TimelineRow,
+  type ToolGroupPresentationRow,
+} from './timeline-projection';
+import { TOOL_KIND_ICONS } from './tool-kind-icons';
+import { previewPlainText } from './text-preview';
+import type { InteractionWorkItem, ReasoningWorkItem, ToolKind, ToolStatus, WorkItem } from '../types';
 import { cn } from '@/shared/lib/utils';
 
-const TOOL_STATUS_ICON: Partial<Record<ToolStatusV2, typeof XCircle>> = {
+const TOOL_STATUS_ICON: Partial<Record<ToolStatus, typeof XCircle>> = {
   failed: XCircle,
   cancelled: Ban,
   interrupted: Ban,
@@ -22,14 +22,14 @@ const TOOL_STATUS_ICON: Partial<Record<ToolStatusV2, typeof XCircle>> = {
  * Pure Tailwind: 12px text (text-xs leading-4), visually smaller icons than Level 1.
  * Compound actions remain nested under their ToolInvocation.
  */
-const ToolGroupRowV2 = memo(function ToolGroupRowV2({
+const ToolGroupRow = memo(function ToolGroupRow({
   row,
   onSelect,
 }: {
-  row: ToolGroupPresentationRowV2;
-  onSelect: (item: WorkItemV2) => void;
+  row: ToolGroupPresentationRow;
+  onSelect: (item: WorkItem) => void;
 }) {
-  const Icon = TOOL_KIND_ICONS_V2[row.kind] || TOOL_KIND_ICONS_V2.other;
+  const Icon = TOOL_KIND_ICONS[row.kind] || TOOL_KIND_ICONS.other;
   const StatusIcon = TOOL_STATUS_ICON[row.status];
   const countSuffix = row.count > 1 ? ` (${row.count})` : '';
   const primaryItem = row.items[0];
@@ -60,7 +60,7 @@ const ToolGroupRowV2 = memo(function ToolGroupRowV2({
       {hasActions && (
         <div className="flex flex-col gap-0.5 pr-1 pl-6">
           {primaryItem.actions.map((action) => {
-            const ActionIcon = TOOL_KIND_ICONS_V2[action.kind as ToolKindV2] || null;
+            const ActionIcon = TOOL_KIND_ICONS[action.kind as ToolKind] || null;
             return (
               <button
                 key={action.id}
@@ -91,12 +91,12 @@ const ToolGroupRowV2 = memo(function ToolGroupRowV2({
 /**
  * Level 2 preview for Commentary — text-first, compact, no bordered card, normally one line.
  */
-const CommentaryRowV2 = memo(function CommentaryRowV2({
+const CommentaryRow = memo(function CommentaryRow({
   row,
   onSelect,
 }: {
-  row: CommentaryPresentationRowV2;
-  onSelect: (item: WorkItemV2) => void;
+  row: CommentaryPresentationRow;
+  onSelect: (item: WorkItem) => void;
 }) {
   const preview = previewPlainText(row.item.text, 120);
   if (!preview) return null;
@@ -122,12 +122,12 @@ const CommentaryRowV2 = memo(function CommentaryRowV2({
 /**
  * Compact Level 2 preview for Reasoning — plain text with "Thinking" cue and distinct marker.
  */
-const ReasoningRowV2 = memo(function ReasoningRowV2({
+const ReasoningRow = memo(function ReasoningRow({
   item,
   onSelect,
 }: {
-  item: ReasoningWorkItemV2;
-  onSelect: (item: WorkItemV2) => void;
+  item: ReasoningWorkItem;
+  onSelect: (item: WorkItem) => void;
 }) {
   const preview = previewPlainText(item.text, 120);
   if (!preview) return null;
@@ -148,7 +148,7 @@ const ReasoningRowV2 = memo(function ReasoningRowV2({
   );
 });
 
-function interactionSummary(item: InteractionWorkItemV2): string {
+function interactionSummary(item: InteractionWorkItem): string {
   const kind = item.interaction.kind;
   const label = kind === 'permission' ? 'Permission' : kind === 'question' ? 'Question' : 'Interaction';
   switch (item.status) {
@@ -167,12 +167,12 @@ function interactionSummary(item: InteractionWorkItemV2): string {
   }
 }
 
-const InteractionRowV2 = memo(function InteractionRowV2({
+const InteractionRow = memo(function InteractionRow({
   item,
   onSelect,
 }: {
-  item: InteractionWorkItemV2;
-  onSelect: (item: WorkItemV2) => void;
+  item: InteractionWorkItem;
+  onSelect: (item: WorkItem) => void;
 }) {
   const isPending = item.status === 'pending';
   return (
@@ -196,7 +196,7 @@ const InteractionRowV2 = memo(function InteractionRowV2({
  * Older history disclosure indicator rendered at the TOP of Level 2 history.
  * Non-interactive, quiet indicator showing (+N hidden).
  */
-const OlderHistoryRowV2 = memo(function OlderHistoryRowV2({ hiddenCount }: { hiddenCount: number }) {
+const OlderHistoryRow = memo(function OlderHistoryRow({ hiddenCount }: { hiddenCount: number }) {
   return (
     <div className="flex w-full min-w-0 items-center gap-2 px-1.5 py-0.5 text-xs text-fg-muted">
       <div className="relative flex size-4 shrink-0 items-center justify-center">
@@ -207,24 +207,24 @@ const OlderHistoryRowV2 = memo(function OlderHistoryRowV2({ hiddenCount }: { hid
   );
 });
 
-function TimelineRow({ row, onSelectItem }: { row: TimelineRowV2; onSelectItem: (item: WorkItemV2) => void }) {
+function TimelineRowView({ row, onSelectItem }: { row: TimelineRow; onSelectItem: (item: WorkItem) => void }) {
   switch (row.row) {
     case 'commentary':
-      return <CommentaryRowV2 row={row} onSelect={onSelectItem} />;
+      return <CommentaryRow row={row} onSelect={onSelectItem} />;
     case 'reasoning':
-      return <ReasoningRowV2 item={row.item} onSelect={onSelectItem} />;
+      return <ReasoningRow item={row.item} onSelect={onSelectItem} />;
     case 'interaction':
-      return <InteractionRowV2 item={row.item} onSelect={onSelectItem} />;
+      return <InteractionRow item={row.item} onSelect={onSelectItem} />;
     case 'tool_group':
-      return <ToolGroupRowV2 row={row} onSelect={onSelectItem} />;
+      return <ToolGroupRow row={row} onSelect={onSelectItem} />;
     default:
       return null;
   }
 }
 
-export interface WorkTimelineV2Props {
-  historicalWork: WorkItemV2[];
-  onSelectItem: (item: WorkItemV2) => void;
+export interface WorkTimelineProps {
+  historicalWork: WorkItem[];
+  onSelectItem: (item: WorkItem) => void;
   onOpenDetails?: () => void;
   maxRows?: number;
   embedded?: boolean;
@@ -235,20 +235,20 @@ export interface WorkTimelineV2Props {
  * Renders the pure presentation projection over `historicalWork` with adjacent tool
  * grouping and visible-history capping (newest actions visible), anchored along a central vertical rail.
  */
-export const WorkTimelineV2 = memo(function WorkTimelineV2({
+export const WorkTimeline = memo(function WorkTimeline({
   historicalWork,
   onSelectItem,
   maxRows,
   embedded = false,
-}: WorkTimelineV2Props) {
-  const projection = projectTimelineV2(historicalWork, { maxRows });
+}: WorkTimelineProps) {
+  const projection = projectTimeline(historicalWork, { maxRows });
   if (projection.allRows.length === 0) return null;
 
   const content = (
     <>
-      {projection.hasMore && <OlderHistoryRowV2 hiddenCount={projection.hiddenCount} />}
+      {projection.hasMore && <OlderHistoryRow hiddenCount={projection.hiddenCount} />}
       {projection.visibleRows.map((row) => (
-        <TimelineRow key={row.id} row={row} onSelectItem={onSelectItem} />
+        <TimelineRowView key={row.id} row={row} onSelectItem={onSelectItem} />
       ))}
     </>
   );

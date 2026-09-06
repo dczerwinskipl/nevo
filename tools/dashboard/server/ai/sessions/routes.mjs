@@ -7,7 +7,7 @@ import {
   validatedSessionId,
 } from './http.mjs';
 import { authorize } from '../access-policy.mjs';
-import { AiValidationError, validateAiMessage } from '../contracts.mjs';
+import { AiValidationError } from '../contracts.mjs';
 
 const SESSION_CREATE_BODY_LIMIT = 16_384;
 const SESSION_PATCH_BODY_LIMIT = 4_096;
@@ -88,8 +88,7 @@ export default async function sessionRoutes(fastify, { service, accessPolicy }) 
     const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
     const providerSessionId = validatedSessionId(request.params.providerSessionId);
     authorize(accessPolicy, 'read', request);
-    const representation = request.query?.representation || undefined;
-    const session = await service.getSessionDetails(provider, providerSessionId, { representation });
+    const session = await service.getSessionDetails(provider, providerSessionId);
     reply.send({ session });
   });
 
@@ -154,13 +153,5 @@ export default async function sessionRoutes(fastify, { service, accessPolicy }) 
     const providerSessionId = validatedSessionId(request.params.providerSessionId);
     authorize(accessPolicy, 'control', request);
     reply.send(await service.deleteSession(provider, providerSessionId));
-  });
-
-  fastify.get('/api/agent-sessions/:provider/:providerSessionId/messages', async (request, reply) => {
-    authorize(accessPolicy, 'read', request);
-    const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
-    const sessionId = validatedSessionId(request.params.providerSessionId);
-    const messages = (await service.listMessages(provider, sessionId)).map(validateAiMessage);
-    reply.send({ messages });
   });
 }

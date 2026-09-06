@@ -1,9 +1,9 @@
 import { forwardRef, useCallback, useImperativeHandle, useRef } from 'react';
 
 import { AgentSessionComposer } from './composer/agent-session-composer';
-import { AgentSessionTranscriptV2, type AgentSessionTranscriptV2Handle } from './work-v2/agent-session-transcript-v2';
+import { AgentSessionTranscript, type AgentSessionTranscriptHandle } from './work/agent-session-transcript';
 import type { AgentSessionLoadError } from './runtime/agent-session-transport';
-import type { AgentExecutionMode, CanonicalTurnV2 } from './types';
+import type { AgentExecutionMode, CanonicalTurn } from './types';
 import { cn } from '@/shared/lib/utils';
 
 export interface AgentSessionChatSurfaceHandle {
@@ -13,7 +13,7 @@ export interface AgentSessionChatSurfaceHandle {
 
 export interface AgentSessionChatSurfaceProps {
   // Transcript data & state
-  turns: CanonicalTurnV2[];
+  turns: CanonicalTurn[];
   optimisticUserMessage?: string | null;
   isLoading?: boolean;
   hasSessionDetails?: boolean;
@@ -48,9 +48,9 @@ export interface AgentSessionChatSurfaceProps {
 
 /**
  * Presentational composition point for the chat surface (transcript + composer).
- * Purely props/callback-driven: accepts explicit, serializable state (CanonicalTurnV2[],
- * execution mode, flags, handlers) with zero internal queries, SSE streams, router reads,
- * or context dependencies.
+ * Purely props/callback-driven: accepts explicit, serializable state (CanonicalTurn[],
+ * readiness, active runtime status) and emits intent events (onSend, onCancel, onRespondInteraction, etc.)
+ * with zero internal queries, SSE streams, router reads, or context dependencies.
  */
 export const AgentSessionChatSurface = forwardRef<AgentSessionChatSurfaceHandle, AgentSessionChatSurfaceProps>(
   function AgentSessionChatSurface(
@@ -84,7 +84,7 @@ export const AgentSessionChatSurface = forwardRef<AgentSessionChatSurfaceHandle,
     ref,
   ) {
     const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
-    const transcriptHandleRef = useRef<AgentSessionTranscriptV2Handle>(null);
+    const transcriptHandleRef = useRef<AgentSessionTranscriptHandle>(null);
 
     useImperativeHandle(
       ref,
@@ -119,7 +119,7 @@ export const AgentSessionChatSurface = forwardRef<AgentSessionChatSurfaceHandle,
 
     return (
       <div className={cn('relative flex min-h-0 flex-1 flex-col overflow-hidden', className)}>
-        <AgentSessionTranscriptV2
+        <AgentSessionTranscript
           ref={transcriptHandleRef}
           turns={turns}
           optimisticUserMessage={optimisticUserMessage}

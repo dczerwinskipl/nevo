@@ -6,7 +6,6 @@ import {
   resolveSnapshotActivity,
   canStartTurn,
   eventModifiesTranscriptContent,
-  applyAgentEvent,
   applyCancelTurnResponse,
   shouldSurfaceCancelError,
   shouldSurfaceTurnError,
@@ -111,43 +110,6 @@ test('Issue 2: eventModifiesTranscriptContent catches tool output changes while 
   );
 });
 
-test('Issue 2: applyAgentEvent updates earlier assistant messages by turnId fallback without losing content', () => {
-  const initialMessages = [
-    {
-      id: 'msg-turn-1',
-      role: 'assistant',
-      text: 'First message',
-      turnId: 'turn-1',
-      toolCalls: [{ id: 'tool-earlier', name: 'read_file', input: {}, status: 'running' }],
-      createdAt: '2026-08-23T12:00:00.000Z',
-    },
-    {
-      id: 'msg-turn-2',
-      role: 'assistant',
-      text: 'Second message in different turn',
-      turnId: 'turn-2',
-      createdAt: '2026-08-23T12:00:05.000Z',
-    },
-  ];
-
-  // Tool event arrives with turnId='turn-1' (no messageId). It must attach to the earlier message (index 0).
-  const updated = applyAgentEvent(initialMessages, {
-    id: 10,
-    seq: 10,
-    type: 'tool.completed',
-    turnId: 'turn-1',
-    toolId: 'tool-earlier',
-    status: 'completed',
-    output: 'File contents loaded',
-    durationMs: 250,
-    timestamp: '2026-08-23T12:00:06.000Z',
-  });
-
-  assert.equal(updated.length, 2);
-  assert.equal(updated[0].toolCalls[0].status, 'completed');
-  assert.equal(updated[0].toolCalls[0].output, 'File contents loaded');
-  assert.equal(updated[1].text, 'Second message in different turn', 'Last message remained untouched');
-});
 
 test('Issue 2 & Race Safety: Terminal SSE before POST response never leaves stale activeTurnId', () => {
   let activity = 'idle';
@@ -368,10 +330,9 @@ test('Finding 1: Runtime exposes explicit readiness contract and rejects send wh
   const runtimeSource = readRuntimeSource();
 
   // Exposes isReady, canStartTurn, and readiness derived state
-  assert.ok(
-    runtimeSource.includes(
-      "const exposedIsReady = Boolean(isSnapshotLoaded && !exposedLoadError && exposedReadiness?.status === 'ready');",
-    ),
+  assert.match(
+    runtimeSource,
+    /const exposedIsReady = Boolean\(\s*isSnapshotLoaded &&\s*!exposedLoadError/,
   );
   assert.ok(runtimeSource.includes('isReady: exposedIsReady'));
   assert.ok(runtimeSource.includes('canStartTurn: exposedCanStartTurn'));
@@ -665,77 +626,48 @@ test('BLOCKING: Action/error lifecycle: Cancel and interaction retry clear previ
 
 // ── task 11 (semantic Work chat V2), AC6: V1/V2 switch never mutates/cancels runtime state ──
 
-import { deriveActivity } from '../ui/features/agent-sessions/runtime/agent-session-runtime-v2.ts';
+import { deriveActivity } from '../ui/features/agent-sessions/runtime/agent-session-runtime.ts';
 
-function turnV2(status) {
+function turn(status) {
   return { id: 't1', status, work: [], historicalWork: [], activityCount: 0, currentActivity: null, finalAnswer: null };
 }
 
 test('V2 AC6: deriveActivity maps canonical Turn status to session activity honestly, matching V1 vocabulary', () => {
   assert.equal(deriveActivity([]), 'idle', 'no turns at all is idle');
   assert.equal(
-    deriveActivity([turnV2({ status: 'terminal', outcome: 'completed' })]),
+    deriveActivity([turn({ status: 'terminal', outcome: 'completed' })]),
     'idle',
     'a terminal latest turn is idle',
   );
-  assert.equal(deriveActivity([turnV2({ status: 'active', detail: 'processing' })]), 'running');
-  assert.equal(deriveActivity([turnV2({ status: 'waiting', reason: 'provider_response' })]), 'running');
-  assert.equal(deriveActivity([turnV2({ status: 'cancelling', initiator: 'user' })]), 'running');
+  assert.equal(deriveActivity([turn({ status: 'active', detail: 'processing' })]), 'running');
+  assert.equal(deriveActivity([turn({ status: 'waiting', reason: 'provider_response' })]), 'running');
+  assert.equal(deriveActivity([turn({ status: 'cancelling', initiator: 'user' })]), 'running');
   assert.equal(
-    deriveActivity([turnV2({ status: 'requiresAttention', reason: 'permission', interactionId: 'i1' })]),
+    deriveActivity([turn({ status: 'requiresAttention', reason: 'permission', interactionId: 'i1' })]),
     'waitingForUser',
   );
 });
 
-test('V2 AC6: the shared runtime stays mounted unconditionally — the switch itself never (re)starts a runtime', () => {
+test('AC6: the runtime stays mounted unconditionally at top level', () => {
   const pageSource = readAgentSessionPageSource();
 
-  // The runtime hook is called unconditionally at the top level, not gated behind `representation === ...`.
+  // The runtime hook is called unconditionally at the top level
   assert.match(pageSource, /const assistant = useAgentSessionRuntime\(\{/);
-  const v1CallIndex = pageSource.indexOf('const assistant = useAgentSessionRuntime(');
-  const before = pageSource.slice(Math.max(0, v1CallIndex - 200), v1CallIndex);
-  assert.doesNotMatch(
-    before,
-    /if \(representation/,
-    'runtime hooks must not be conditionally invoked based on the representation switch',
-  );
 });
 
-test('V2 AC6: representation is local UI state only — switching calls no mutation/cancel/send handler', () => {
-  const pageSource = readAgentSessionPageSource();
-
-  assert.match(pageSource, /const \[representation, setRepresentation\] = useState<'v1' \| 'v2'>\('v1'\)/);
-  // The switch buttons only ever call setRepresentation — never a send/cancel/reload/respond handler.
-  const switchBlockStart = pageSource.indexOf('role="radiogroup"');
-  const switchBlockEnd = pageSource.indexOf('</div>', pageSource.indexOf('</div>', switchBlockStart) + 1);
-  const switchBlock = pageSource.slice(switchBlockStart, switchBlockEnd);
-  assert.match(switchBlock, /onClick=\{\(\) => setRepresentation\(option\)\}/);
-  assert.doesNotMatch(
-    switchBlock,
-    /sendTurn|cancelTurn|respondInteraction|\.reload\(/,
-    'switching representation must never mutate or cancel Turn state',
-  );
-});
 
 // ── task 11 correction: historical user messages travel with the canonical Turn, no
 // duplicate long-lived client cache ────────────────────────────────────────────────
 
-function readRuntimeV2Source() {
+function readTranscriptSource() {
   return readFileSync(
-    fileURLToPath(new URL('../ui/features/agent-sessions/runtime/agent-session-runtime-v2.ts', import.meta.url)),
-    'utf8',
-  );
-}
-
-function readTranscriptV2Source() {
-  return readFileSync(
-    fileURLToPath(new URL('../ui/features/agent-sessions/work-v2/agent-session-transcript-v2.tsx', import.meta.url)),
+    fileURLToPath(new URL('../ui/features/agent-sessions/work/agent-session-transcript.tsx', import.meta.url)),
     'utf8',
   );
 }
 
 test('V2 correction: the V2 runtime hook keeps no long-lived turnPrompts cache and does not special-case turn.started', () => {
-  const source = readRuntimeV2Source();
+  const source = readRuntimeSource();
   assert.doesNotMatch(source, /turnPrompts/, 'the removed duplicate client-side transcript cache must not return');
   assert.doesNotMatch(
     source,
@@ -747,7 +679,7 @@ test('V2 correction: the V2 runtime hook keeps no long-lived turnPrompts cache a
 });
 
 test("V2 correction: the transcript renders each turn's own canonical userMessage, with only a short-lived optimistic fallback", () => {
-  const source = readTranscriptV2Source();
+  const source = readTranscriptSource();
   assert.match(
     source,
     /turn\.userMessage && <UserMessageBubble text=\{turn\.userMessage\.text\}/,
@@ -800,13 +732,13 @@ test('V2 correction: a session loaded only from the HTTP snapshot (no turn.start
 // with SSE resuming from the snapshot's own cursor — never replaying full history ─────
 
 test('V2 correction: the snapshot load is one atomic setTurns commit, not an empty-start-plus-replay', () => {
-  const source = readRuntimeV2Source();
+  const source = readRuntimeSource();
   // Exactly one setTurns call inside the successful-fetch path, fed directly from the
   // HTTP payload — no reduce/accumulate loop reconstructing turns from events. (The
   // catch branch's own `setTurns([])` reset on load failure is a separate, unrelated
   // call and is intentionally excluded from this count.)
   const trySuccessBody = source.slice(
-    source.indexOf('const payload = await fetchAgentSessionChatV2'),
+    source.indexOf('const payload = await fetchAgentSessionChat'),
     source.indexOf('} catch (err) {'),
   );
   const setTurnsCalls = trySuccessBody.match(/setTurns\(/g) || [];
@@ -815,7 +747,7 @@ test('V2 correction: the snapshot load is one atomic setTurns commit, not an emp
 });
 
 test('V2 correction: SSE resumes from the snapshot cursor (lastEventSeq), never a hardcoded 0', () => {
-  const source = readRuntimeV2Source();
+  const source = readRuntimeSource();
   const loadSnapshotBody = source.slice(
     source.indexOf('async function loadSnapshot'),
     source.indexOf('loadSnapshot();'),

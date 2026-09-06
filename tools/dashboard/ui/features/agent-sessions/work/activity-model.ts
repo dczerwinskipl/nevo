@@ -1,11 +1,12 @@
-import type { CurrentActivityKindV2, CurrentActivityV2, ToolKindV2, TurnStatusV2 } from '../types.ts';
+import type { CurrentActivityKind, CurrentActivity, ToolKind, TurnStatus } from '../types.ts';
+import { previewPlainText } from './text-preview.ts';
 
 /**
  * Bounded type-icon vocabulary (areas/work-ux-presentation.md § "Icon vocabulary").
  * Commentary and Reasoning/Thinking are intentionally absent — they stay text-first
  * everywhere per "Icon and text weighting" and never get a kind label from this table.
  */
-export const TOOL_KIND_LABELS_V2: Record<ToolKindV2, string> = {
+export const TOOL_KIND_LABELS: Record<ToolKind, string> = {
   read: 'Read file',
   edit: 'Edit file',
   write: 'Write file',
@@ -17,10 +18,8 @@ export const TOOL_KIND_LABELS_V2: Record<ToolKindV2, string> = {
   other: 'Tool',
 };
 
-import { previewPlainText } from './text-preview-v2.ts';
-
 export interface CurrentActivityDisplay {
-  kind: CurrentActivityKindV2;
+  kind: CurrentActivityKind;
   /** Primary label — semantic tool title, or a truthful state label ("Waiting for model response…", "Thinking…"). */
   label: string;
   /** Secondary detail (concise subject, reasoning preview, or brief detail), when available. */
@@ -29,7 +28,7 @@ export interface CurrentActivityDisplay {
   description?: string;
   /** Text-first (no type icon, per "Icon and text weighting") vs icon+label (tool). */
   textFirst: boolean;
-  toolKind?: ToolKindV2;
+  toolKind?: ToolKind;
   startedAt: string;
 }
 
@@ -38,7 +37,7 @@ export interface CurrentActivityDisplay {
  * presentation. This is pure formatting of already-classified server evidence — it does
  * not reclassify, infer, or fall back to a fake state; a `null` activity stays `null`.
  */
-export function describeCurrentActivityV2(activity: CurrentActivityV2 | null): CurrentActivityDisplay | null {
+export function describeCurrentActivity(activity: CurrentActivity | null): CurrentActivityDisplay | null {
   if (!activity) return null;
 
   switch (activity.kind) {
@@ -105,10 +104,10 @@ export function describeCurrentActivityV2(activity: CurrentActivityV2 | null): C
   }
 }
 
-export type TerminalHeaderLabelV2 = 'Completed' | 'Failed' | 'Cancelled' | 'Interrupted';
+export type TerminalHeaderLabel = 'Completed' | 'Failed' | 'Cancelled' | 'Interrupted';
 
 /** Truthful terminal Work-header label — `null` while the Turn has not reached a terminal outcome. */
-export function terminalHeaderLabelV2(status: TurnStatusV2): TerminalHeaderLabelV2 | null {
+export function terminalHeaderLabel(status: TurnStatus): TerminalHeaderLabel | null {
   if (status.status !== 'terminal') return null;
   switch (status.outcome) {
     case 'completed':

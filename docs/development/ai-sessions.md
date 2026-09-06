@@ -15,6 +15,7 @@ related:
   - development.architecture-overview
   - development.codex-app-server-research
   - adr.0007-provider-neutral-ai-sessions
+  - adr.0008-canonical-ai-session-chat-and-turn-model
 ---
 
 # Local AI sessions
@@ -41,10 +42,10 @@ one containing `question` pauses for correlated single- and multi-select answers
 Reloading while an interaction is pending reconnects to its turn snapshot and event
 stream.
 
-The browser uses provider-neutral HTTP endpoints under `/api/ai` for providers,
-sessions, messages, turns, interaction responses, and cancellation. Live turn output
-uses Server-Sent Events. The browser never receives provider-private request IDs or
-raw provider payloads.
+The browser uses provider-neutral HTTP endpoints under `/api/agent-providers` and
+`/api/agent-sessions` for providers, sessions, canonical chat snapshots (`GET .../chat`),
+turns, interaction responses, and cancellation. Live turn output uses Server-Sent Events.
+The browser never receives provider-private request IDs or raw provider payloads.
 
 ## Trust boundary
 
@@ -59,36 +60,40 @@ this mode to the UI and keeps the access decision behind a replaceable policy se
 - Providers own authoritative conversation history and provider session identity.
 - The neutral layer owns stable specification/task correlation, validation, and safe
   browser payloads.
-- The Part 1 turn runtime, mock sessions, replay buffers, and pending interactions are
-  in memory. Restarting the dashboard clears created mock sessions and live turns;
-  seeded demonstration sessions are recreated deterministically.
+- The canonical turn model (`CanonicalTurn`) organizes execution into a three-level
+  hierarchy:
+  1. **Level 1 (Turn)**: Top-level lifecycle boundary for a user prompt with immutable
+     terminal outcomes (`completed`, `failed`, `cancelled`, `interrupted`).
+  2. **Level 2 (Work item)**: Strongly typed, monotonically sequenced items (`commentary`,
+     `reasoning`, `tool`, `interaction`).
+  3. **Level 3 (ToolAction)**: Nested actions within a tool item representing compound
+     operations without inflating the turn's top-level `activityCount`.
+- The server computes semantic `workSummary` (`status`, `phase`, `activityCount`,
+  `currentActivity`, `attention`) and session `readiness` (`ready`, `busy`,
+  `requiresAttention`, `unavailable`), eliminating client-side heuristics.
+- Transcripts and turn histories persist under `.nevo-ai-local/transcripts/`.
+  Boot reconciliation and graceful shutdown interrupt orphaned turns with
+  `AI_TURN_INTERRUPTED`, while restart-resumable interactions remain answerable.
 - Only one non-terminal turn may be active for a provider/session pair. Retried starts
   with the same idempotency key return that turn; other starts conflict.
-- Every pending interaction declares a neutral `resumePolicy`. `restart` means a fresh
-  provider invocation can reconstruct the continuation; `live-operation` means the
-  interaction is answerable only while its original provider operation remains alive.
-  Boot reconciliation and graceful shutdown interrupt stale `live-operation` turns and
-  clear their pending interaction, while `restart` interactions remain resumable.
-- A future local registry may store correlation evidence under `/.nevo-ai-local/`.
-  That directory is local operator state, ignored by Git, and is not provider history.
 
 ## Agent providers
  
 ### Claude Code integration
- 
-Claude Code (version >= 2.1.89) is integrated through non-interactive process invocations (`claude -p --resume <providerSessionId>`). Interactive turns that require user input (interactive questions via `AskUserQuestion` or permission prompts for sensitive operations like `Bash` or `WriteFile`) use the native `PreToolUse` hook deferral mechanism:
-- When a tool is deferred (`permissionDecision: "defer"`), the Claude CLI process exits with `stop_reason: "tool_deferred"` and outputs the `deferred_tool_use` payload.
-- NEvo maps this payload to a normalized `interaction.requested` event (`kind: 'question'` or `kind: 'permission'`).
-- The user responds via the dashboard UI.
-- NEvo resumes the session with the user's answers or allow/deny decision passed back to the hook as `updatedInput` / `permissionDecision`, allowing execution to continue.
-- Known limitation: `PreToolUse/defer` does not support deferrals across multiple parallel tool calls in a single batch.
+
+Claude Code is integrated through non-interactive process invocations (`claude -p --resume <providerSessionId>`). Interactive turns that require user questions use Nevo's server-owned Streamable HTTP Model Context Protocol (`/mcp`) endpoint:
+- Nevo registers an ephemeral MCP server configuration via `--mcp-config` with a scoped, opaque correlation token header.
+- The MCP server exposes a canonical `ask_user` tool implemented with the official `@modelcontextprotocol/sdk`.
+- When Claude invokes `ask_user`, the server creates a canonical `interaction.requested` (`kind: 'question'`) in the turn's Work hierarchy.
+- The user responds in the dashboard UI, resolving the interaction and unblocking the MCP tool call. Claude continues execution in the same logical Turn.
+- Transport security uses scoped certificate trust (`NODE_EXTRA_CA_CERTS`) rather than disabling TLS verification.
 
 ### Antigravity / Gemini CLI integration
 
 The Antigravity provider spawns `agy` in headless streaming mode (`--output-format stream-json`). Turns are resumed using `--resume <providerSessionId>`. Capabilities are declared honestly:
-- `interactiveQuestions: true`: single-choice and multi-choice question prompts are supported.
-- `interactivePermissions: false`: Antigravity relies on autonomous execution policy; interactive permission hooks throw `CapabilityNotSupportedError` if requested directly.
-- `diagnostic raw capture`: exact raw stdout and stderr lines can be recorded before any provider
+- `interactiveQuestions: false`: Headless streaming mode does not support interactive question prompts in the current CLI transport; question requests fail fast with `CapabilityNotSupportedError`.
+- `interactivePermissions: false`: Antigravity relies on autonomous execution policy.
+- `diagnostic raw capture`: Exact raw stdout and stderr lines can be recorded before any provider
   processing for protocol analysis.
 
 ### Local AI provider configuration

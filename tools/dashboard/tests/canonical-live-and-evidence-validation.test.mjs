@@ -8,8 +8,6 @@ import { randomUUID } from 'node:crypto';
 import {
   createCanonicalTurn,
   validateCanonicalTurn,
-  projectChatV1,
-  normalizeTransitionalToolStatus,
   computeCurrentActivity,
   serializePublicTurn,
   AiError,
