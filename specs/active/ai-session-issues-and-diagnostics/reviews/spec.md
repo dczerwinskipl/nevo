@@ -1,7 +1,7 @@
 ---
 review-of: spec
 change: ai-session-issues-and-diagnostics
-generated: 2026-08-31
+generated: 2026-09-06
 verdict: ready-for-approval
 ready_for_approval: true
 implementation_allowed: false
@@ -10,19 +10,19 @@ unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
 spec_fingerprint: 744b1513d8a6fd27da5ae983a792fc0ae7f81aa9c31c38f572fe0306e1ab9815
 task_fingerprints:
-  claude-protocol-evidence: b0f155ecbafb264e4b563f7001ebea8887a1eb754f30de8fb13f71227e666878
+  claude-protocol-evidence: a6e0b09a7c069416f4eb0f98945b917cbf2eabb46cee75deec0d52f528fba3d3
   codex-protocol-evidence: bc9cd8a319991d01817486148fbfd23425ca9a21f923b1e5af996b217cd517f2
-  antigravity-protocol-evidence: ae72c7aa643ce45825d30073a5ccea55a09e313b3b59cc3e62a602e3e79259f9
-  canonical-turn-work-contract: c4f0a777a7d95f56fb9a72d8f481ea7cbe03096a040257bf2b1020e51be605f4
-  neutral-lifecycle-diagnostics: c5bfafb2ef6ca5f80b88f96336c84c83adb9614e00f4038f1542a4e13578f488
-  lifecycle-coordinator-and-timeouts: 0894626c45a9ca6a11551e6633c1b656b985a9bad47da3fcdb9297163cf26ac8
-  canonical-persistence-and-server-projection: ba73497dc34110bf99c2d92004fb1605e57e7f5228c95c893ee17aa514e3a248
-  claude-neutral-mapping: c387e99026f79c33096d8896ec86f24686aed144332b1ac448757182a93e8f09
-  codex-neutral-mapping: ad62a80d3e9b67d75f2a009952dbd445d15fa6f24eb825ad8bab06728610a5a0
-  antigravity-neutral-mapping: 24935212e3fb56591990d38187c3922525d2080357121ca3ba552bfe86891eba
-  semantic-work-chat-v2: 8a8ad9457803bb9e75374c30e0ed3d922a8da537cdd8bdaba6e4e9451a134b8d
-  cross-provider-lifecycle-validation: 546b995f3e02068c788562dd89262478f9c60690fd95ae9db642f0bb84e17535
-  canonical-cutover-and-cleanup: b6f3142246aefc5d57b018f3f236fb75b39ba7fbc5b001c5b646247fd5333771
+  antigravity-protocol-evidence: 438c182232f81a9f52c6e393b386b9345a2c5951d701c94a9a619c6535d45b76
+  canonical-turn-work-contract: 9a14e92bfbe58e56b118eac61b8c4bc8f748666f0c35c82b2db41b6493e23d44
+  neutral-lifecycle-diagnostics: 88fcee96c17a851aa64cc6f8075ef4385b2cb3e459e893f524b2ba397c4e3605
+  lifecycle-coordinator-and-timeouts: 287fe2b64a6b4d6211b2e9ed86b33af56f5e7697afcfaef569be477e31d2e31a
+  canonical-persistence-and-server-projection: 960275f9bc93150b59bdfdd90c14147f509275942372a667943c6ca09365d5cc
+  claude-neutral-mapping: f1ff63f4f0a85615e0790220cf0d25d2a0573d49a37b10745e645c071b5126eb
+  codex-neutral-mapping: 2711b7ff69e06b3ad4e288d584904d096d446b8c84d483b9efc0b2f748ca1f12
+  antigravity-neutral-mapping: a4807d6b0dab45ae7b5565c93fb1bc13ebad96999fa9db93a158275ba3767664
+  semantic-work-chat-v2: f379cc8114f55c7514b89ae4679ed20e8589ceab044a79c5b7b6cb197f7159ab
+  cross-provider-lifecycle-validation: eaa0eeb3abd1cc0c811b1372b8b536bb1f68d8ea0e439429ba0dc77dea52db6d
+  canonical-cutover-and-cleanup: 85fe060b0409cdfd3bca63d076481f39085d3951981d7c3e21b959bc35b85a60
 ---
 
 # Review: ai-session-issues-and-diagnostics (scope: all tasks 01-13)

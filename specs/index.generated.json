@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-05T19:42:35.157Z",
+  "generated": "2026-09-06T08:54:13.397Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -397,13 +397,37 @@
           "id": "cross-provider-lifecycle-validation",
           "order": 12,
           "file": "tasks/12-cross-provider-lifecycle-validation.md",
-          "status": "draft",
+          "status": "implemented",
           "depends_on": [
             "claude-neutral-mapping",
             "codex-neutral-mapping",
             "antigravity-neutral-mapping",
             "semantic-work-chat-v2"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "ef2df9251514f8767786e03627d4e346d1eed33d",
+            "review_revision": "bd4a481fc54889d014553c9250dd72f494ee4998",
+            "changed_paths": [
+              "tools/dashboard/tests/cross-provider-conformance.test.mjs",
+              "tools/dashboard/tests/fixtures/cross-provider-long-timeline.json"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "eaa0eeb3abd1cc0c811b1372b8b536bb1f68d8ea0e439429ba0dc77dea52db6d",
+            "revision": "bd4a481fc54889d014553c9250dd72f494ee4998",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "canonical-cutover-and-cleanup",
