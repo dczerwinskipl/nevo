@@ -1,0 +1,157 @@
+{
+  "description": "Cross-provider validation corpus for multi-turn long Work timelines, compound actions, and interactions",
+  "version": "1.0.0",
+  "scenarios": [
+    {
+      "id": "codex-compound-actions",
+      "provider": "codex",
+      "sessionId": "sess-codex-compound-1",
+      "turnId": "turn-codex-comp-1",
+      "userMessage": "Inspect specification and review workflow",
+      "work": [
+        {
+          "id": "rs-1",
+          "type": "reasoning",
+          "representation": "summary",
+          "text": "Checking project architecture and specification files."
+        },
+        {
+          "id": "comm-1",
+          "type": "commentary",
+          "text": "Running repository inspection tools."
+        },
+        {
+          "id": "tool-exec-1",
+          "type": "tool",
+          "kind": "command",
+          "toolName": "exec_command",
+          "title": "Run command",
+          "description": "node tools/specs.mjs check",
+          "status": "completed",
+          "durationMs": 450,
+          "actions": [
+            {
+              "type": "read",
+              "command": "node tools/specs.mjs check",
+              "target": "specs/active/ai-session-issues-and-diagnostics/change.yaml"
+            },
+            {
+              "type": "search",
+              "command": "node tools/specs.mjs check",
+              "target": "specs/index.generated.json"
+            }
+          ],
+          "output": "Specs valid and indexes are current."
+        },
+        {
+          "id": "tool-exec-2",
+          "type": "tool",
+          "kind": "search",
+          "toolName": "find_by_name",
+          "title": "Search files",
+          "description": "Find specification manifests",
+          "status": "completed",
+          "durationMs": 120,
+          "output": "change.yaml\noverview.md\n"
+        }
+      ],
+      "finalAnswer": "Verification complete: specification manifest and index are valid."
+    },
+    {
+      "id": "claude-mcp-interactive-question",
+      "provider": "claude",
+      "sessionId": "sess-claude-mcp-1",
+      "turnId": "turn-claude-mcp-1",
+      "userMessage": "Refactor adapter configuration",
+      "work": [
+        {
+          "id": "comm-claude-1",
+          "type": "commentary",
+          "text": "Examining provider configuration files."
+        },
+        {
+          "id": "tool-claude-read",
+          "type": "tool",
+          "kind": "read",
+          "toolName": "Read",
+          "title": "Read file",
+          "description": "tools/dashboard/server/ai/providers/claude/provider.mjs",
+          "status": "completed",
+          "durationMs": 85,
+          "output": "export const CLAUDE_CAPABILITIES = { ... };"
+        },
+        {
+          "id": "int-claude-q1",
+          "type": "interaction",
+          "interaction": {
+            "id": "int-claude-q1",
+            "kind": "question",
+            "prompt": "Which configuration format should be used?",
+            "questions": [
+              {
+                "id": "q1",
+                "question": "Which configuration format should be used?",
+                "header": "Format",
+                "options": ["JSON", "YAML"]
+              }
+            ]
+          },
+          "status": "resolved",
+          "response": {
+            "answers": {
+              "q1": "JSON"
+            }
+          }
+        }
+      ],
+      "finalAnswer": "Configuration refactored using JSON format as requested."
+    },
+    {
+      "id": "antigravity-truthful-skip-question",
+      "provider": "antigravity",
+      "sessionId": "sess-agy-skip-1",
+      "turnId": "turn-agy-skip-1",
+      "userMessage": "Perform automated diagnostic scan",
+      "work": [
+        {
+          "id": "rs-agy-1",
+          "type": "reasoning",
+          "representation": "thought",
+          "text": "Planning scan sequence."
+        },
+        {
+          "id": "tool-agy-cmd",
+          "type": "tool",
+          "kind": "command",
+          "toolName": "run_command",
+          "title": "Run command",
+          "description": "git status --porcelain",
+          "status": "completed",
+          "durationMs": 310,
+          "output": ""
+        },
+        {
+          "id": "tool-agy-skip",
+          "type": "tool",
+          "kind": "other",
+          "toolName": "ask_question",
+          "title": "ask_question",
+          "description": "ask_question",
+          "status": "completed",
+          "durationMs": 15,
+          "output": "A1: User Skipped"
+        }
+      ],
+      "finalAnswer": "Diagnostic scan completed cleanly."
+    },
+    {
+      "id": "tool-heavy-long-timeline",
+      "provider": "codex",
+      "sessionId": "sess-heavy-timeline-1",
+      "turnId": "turn-heavy-timeline-1",
+      "userMessage": "Execute 25-step validation and verification suite",
+      "operationCount": 26,
+      "finalAnswer": "All 26 operations executed successfully across the timeline."
+    }
+  ]
+}
