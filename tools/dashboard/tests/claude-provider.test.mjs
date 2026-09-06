@@ -12,7 +12,7 @@ import {
   CLAUDE_CAPABILITIES,
   mapClaudeTool,
 } from '../server/ai/providers/claude/provider.mjs';
-import { interactionBridgeHub } from '../server/ai/bridge/interaction-bridge-hub.mjs';
+import { mcpInteractionRegistry } from '../server/ai/interactions/mcp/index.mjs';
 import { TurnLifecycleCoordinator } from '../server/ai/sessions/turns/coordinator.mjs';
 
 function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5, sessionId, ignoreSignal = false } = {}) {
@@ -118,12 +118,20 @@ function createHangingMockProcess({ ignoreSignal = false } = {}) {
 }
 
 test('ClaudeAgentProvider declares capabilities', () => {
-  const provider = createClaudeAgentProvider();
+  const provider = createClaudeAgentProvider({
+    mcpEndpointUrl: 'http://127.0.0.1:4318/mcp',
+  });
   assert.equal(provider.descriptor.id, 'claude');
   assert.equal(provider.descriptor.capabilities.interactiveQuestions, true);
   assert.equal(provider.descriptor.capabilities.interactivePermissions, false);
   assert.equal(provider.descriptor.capabilities.interactiveConfirmations, false);
   assert.equal(provider.descriptor.capabilities.resumeSession, true);
+
+  // Dynamic capability truthfulness: false without endpoint or when disabled
+  const disabledProvider = createClaudeAgentProvider({
+    mcpEndpointUrl: null,
+  });
+  assert.equal(disabledProvider.descriptor.capabilities.interactiveQuestions, false);
 });
 
 test('new Claude conversation uses --session-id and returns generated providerSessionId', async () => {
@@ -1397,6 +1405,7 @@ test('Claude CLI spawns with --mcp-config and --append-system-prompt for MCP int
 
   let inspectedMcpConfig = null;
   const provider = createClaudeAgentProvider({
+    mcpEndpointUrl: 'http://127.0.0.1:4318/mcp',
     spawnProcess: (executable, args) => {
       capturedCalls.push({ executable, args });
       const mcpIndex = args.indexOf('--mcp-config');
@@ -1421,17 +1430,20 @@ test('Claude CLI spawns with --mcp-config and --append-system-prompt for MCP int
   const mcpPath = args[args.indexOf('--mcp-config') + 1];
   assert.ok(mcpPath, '--mcp-config must have a valid path');
   assert.ok(inspectedMcpConfig?.mcpServers?.nevo, 'MCP config must define nevo server');
-  assert.ok(inspectedMcpConfig.mcpServers.nevo.args.includes('--turn'), 'MCP config args must specify --turn');
-  assert.ok(inspectedMcpConfig.mcpServers.nevo.args.includes('turn-mcp-1'), 'MCP config args must contain turnId');
+  assert.equal(inspectedMcpConfig.mcpServers.nevo.type, 'http', 'MCP config must configure streamable http transport');
+  assert.ok(inspectedMcpConfig.mcpServers.nevo.url.startsWith('http://127.0.0.1:4318/mcp'), 'MCP config url must point to server MCP route');
+  assert.ok(inspectedMcpConfig.mcpServers.nevo.headers['x-bridge-token'], 'MCP config headers must contain x-bridge-token');
+  assert.equal(inspectedMcpConfig.mcpServers.nevo.args, undefined, 'No stdio child bridge process should be configured');
 });
 
 test('Claude MCP bridge round-trip: requestInteraction is resolved via respondInteraction with continuesTurn: true', async () => {
-  interactionBridgeHub.clear();
+  mcpInteractionRegistry.clear();
   let requestedInteraction = null;
   const hangingChild = createHangingMockProcess();
 
   let capturedOperation = null;
   const provider = createClaudeAgentProvider({
+    mcpEndpointUrl: 'http://127.0.0.1:4318/mcp',
     spawnProcess: () => hangingChild,
   });
 
@@ -1451,28 +1463,34 @@ test('Claude MCP bridge round-trip: requestInteraction is resolved via respondIn
     },
   });
 
-  // Turn is active and registered with interactionBridgeHub
-  const activeTurn = interactionBridgeHub.getActiveTurn({ turnId: 'turn-bridge-rt-1' });
-  assert.ok(activeTurn, 'Active turn must be registered in interactionBridgeHub');
+  // Turn is active and registered with mcpInteractionRegistry
+  const activeTurn = mcpInteractionRegistry.getActiveTurn({ turnId: 'turn-bridge-rt-1' });
+  assert.ok(activeTurn, 'Active turn must be registered in mcpInteractionRegistry');
+  assert.ok(activeTurn.token, 'Active turn must have correlation token');
 
-  // MCP bridge invokes handleAsk with bridgeToken provided to MCP process
-  const askPromise = interactionBridgeHub.handleAsk({
-    provider: 'claude',
-    providerSessionId: 'sess-bridge-rt-1',
-    turnId: 'turn-bridge-rt-1',
-    bridgeToken: activeTurn.bridgeToken,
-    question: 'Do you want to proceed with file modification?',
-    options: ['Yes', 'No'],
-    multiSelect: false,
+  // MCP tool invokes requestInteraction and waits via registry
+  await activeTurn.requestInteraction({
+    kind: 'question',
+    questions: [
+      {
+        question: 'Do you want to proceed with file modification?',
+        options: [{ label: 'Yes', description: 'Yes' }, { label: 'No', description: 'No' }],
+        multiSelect: false,
+      },
+    ],
   });
 
-  // Await registration
-  await new Promise((r) => setImmediate(r));
+  mcpInteractionRegistry.registerPending('int-bridge-123', {
+    turnId: 'turn-bridge-rt-1',
+    provider: 'claude',
+    providerSessionId: 'sess-bridge-rt-1',
+  });
+  const askPromise = mcpInteractionRegistry.waitForResponse('int-bridge-123');
 
-  assert.ok(requestedInteraction, 'requestInteraction must be invoked by handleAsk');
+  assert.ok(requestedInteraction, 'requestInteraction must be invoked');
   assert.equal(requestedInteraction.kind, 'question');
   assert.equal(requestedInteraction.questions[0].question, 'Do you want to proceed with file modification?');
-  assert.ok(interactionBridgeHub.hasPending('int-bridge-123'), 'Interaction must be pending in hub');
+  assert.ok(mcpInteractionRegistry.hasPending('int-bridge-123'), 'Interaction must be pending in registry');
 
   // Dashboard UI responds to interaction
   const responsePayload = {
@@ -1488,24 +1506,25 @@ test('Claude MCP bridge round-trip: requestInteraction is resolved via respondIn
 
   // Provider indicates turn is still live
   assert.equal(respondResult.continuesTurn, true);
-  assert.equal(interactionBridgeHub.hasPending('int-bridge-123'), false);
+  assert.equal(mcpInteractionRegistry.hasPending('int-bridge-123'), false);
 
-  // handleAsk promise resolves with the answered payload
+  // askPromise resolves with the answered payload
   const answeredBridgeResult = await askPromise;
   assert.deepEqual(answeredBridgeResult, responsePayload);
 
   // Clean up hanging process
   hangingChild.emit('close', 0);
   await turnPromise;
-  interactionBridgeHub.clear();
+  mcpInteractionRegistry.clear();
 });
 
 test('Claude MCP bridge interaction cancellation: cancelTurn terminates waiting interaction promise with AI_TURN_CANCELLED', async () => {
-  interactionBridgeHub.clear();
+  mcpInteractionRegistry.clear();
   const hangingChild = createHangingMockProcess();
 
   let capturedOperation = null;
   const provider = createClaudeAgentProvider({
+    mcpEndpointUrl: 'http://127.0.0.1:4318/mcp',
     spawnProcess: () => hangingChild,
   });
 
@@ -1523,19 +1542,22 @@ test('Claude MCP bridge interaction cancellation: cancelTurn terminates waiting 
       }),
   });
 
-  const activeTurn = interactionBridgeHub.getActiveTurn({ turnId: 'turn-bridge-cancel-1' });
-  const askPromise = interactionBridgeHub.handleAsk({
-    provider: 'claude',
-    providerSessionId: 'sess-bridge-cancel-1',
-    turnId: 'turn-bridge-cancel-1',
-    bridgeToken: activeTurn.bridgeToken,
-    question: 'Awaiting confirmation before destructive action',
+  const activeTurn = mcpInteractionRegistry.getActiveTurn({ turnId: 'turn-bridge-cancel-1' });
+  assert.ok(activeTurn);
+
+  await activeTurn.requestInteraction({
+    kind: 'question',
+    questions: [{ question: 'Awaiting confirmation before destructive action' }],
   });
 
-  // Await registration
-  await new Promise((r) => setImmediate(r));
+  mcpInteractionRegistry.registerPending('int-cancel-123', {
+    turnId: 'turn-bridge-cancel-1',
+    provider: 'claude',
+    providerSessionId: 'sess-bridge-cancel-1',
+  });
+  const askPromise = mcpInteractionRegistry.waitForResponse('int-cancel-123');
 
-  assert.ok(interactionBridgeHub.hasPending('int-cancel-123'));
+  assert.ok(mcpInteractionRegistry.hasPending('int-cancel-123'));
 
   // Attach rejection assertion BEFORE cancelling so rejection is never unhandled
   const rejectionAssertion = assert.rejects(
@@ -1551,11 +1573,72 @@ test('Claude MCP bridge interaction cancellation: cancelTurn terminates waiting 
 
   await rejectionAssertion;
 
-  assert.equal(interactionBridgeHub.hasPending('int-cancel-123'), false);
+  assert.equal(mcpInteractionRegistry.hasPending('int-cancel-123'), false);
   try {
     await turnPromise;
   } catch {}
-  interactionBridgeHub.clear();
+  mcpInteractionRegistry.clear();
+});
+
+test('Claude provider exit cleanup: child process crash/exit rejects pending ask_user waiter immediately', async () => {
+  mcpInteractionRegistry.clear();
+  const hangingChild = createHangingMockProcess();
+
+  const provider = createClaudeAgentProvider({
+    mcpEndpointUrl: 'http://127.0.0.1:4318/mcp',
+    spawnProcess: () => hangingChild,
+  });
+
+  const turnPromise = provider.startTurn({
+    turnId: 'turn-crash-cleanup-1',
+    providerSessionId: 'sess-crash-cleanup-1',
+    message: 'Task that will crash while interaction is pending',
+    requestInteraction: (neutral) =>
+      Promise.resolve({
+        ...neutral,
+        id: 'int-crash-123',
+      }),
+  });
+
+  const activeTurn = mcpInteractionRegistry.getActiveTurn({ turnId: 'turn-crash-cleanup-1' });
+  assert.ok(activeTurn);
+
+  await activeTurn.requestInteraction({
+    kind: 'question',
+    questions: [{ question: 'Will you approve this before crash?' }],
+  });
+
+  mcpInteractionRegistry.registerPending('int-crash-123', {
+    turnId: 'turn-crash-cleanup-1',
+    provider: 'claude',
+    providerSessionId: 'sess-crash-cleanup-1',
+  });
+  const askPromise = mcpInteractionRegistry.waitForResponse('int-crash-123');
+
+  assert.ok(mcpInteractionRegistry.hasPending('int-crash-123'));
+
+  const rejectionAssertion = assert.rejects(
+    askPromise,
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_EXIT_ERROR');
+      return true;
+    },
+  );
+
+  // Child process crashes with non-zero exit code
+  hangingChild.exitCode = 1;
+  hangingChild.emit('close', 1);
+
+  await rejectionAssertion;
+  assert.equal(mcpInteractionRegistry.hasPending('int-crash-123'), false);
+  assert.equal(mcpInteractionRegistry.getActiveTurn({ turnId: 'turn-crash-cleanup-1' }), null);
+
+  await assert.rejects(turnPromise, (err) => {
+    assert.equal(err.code, 'AI_PROVIDER_EXIT_ERROR');
+    return true;
+  });
+
+  mcpInteractionRegistry.clear();
 });
 
 test('Claude question heuristics rejection: question marks in assistant text do not trigger requestInteraction', async () => {

@@ -8,7 +8,7 @@ import { AiError, AiValidationError, validateAgentExecutionMode } from '../../co
 import { createClaudeContinuationStore } from './continuation-store.mjs';
 import { terminateChildProcess } from '../process-termination.mjs';
 import { RawCaptureRecorder, rawCaptureSessionDirectory } from '../raw-capture.mjs';
-import { interactionBridgeHub } from '../../bridge/interaction-bridge-hub.mjs';
+import { mcpInteractionRegistry } from '../../interactions/mcp/index.mjs';
 
 export { rawCaptureSessionDirectory };
 
@@ -183,9 +183,8 @@ export class ClaudeAgentProvider {
   #forceGraceMs;
   #probeExecutable;
   #rawCapture;
-  #mcpBridgeEnabled;
-  #mcpBridgeScriptPath;
-  #bridgePort;
+  #mcpEnabled;
+  #mcpEndpointUrl;
 
   constructor({
     executable = 'claude',
@@ -201,9 +200,10 @@ export class ClaudeAgentProvider {
     rawCaptureDir = null,
     rawCaptureEnabled = false,
     rawFlushTimeoutMs = 2_000,
-    mcpBridgeEnabled = true,
-    mcpBridgeScriptPath = resolve(__dirname, '..', '..', 'bridge', 'mcp-bridge-server.mjs'),
-    bridgePort = process.env.NEVO_BRIDGE_PORT || process.env.PORT || 4318,
+    mcpEnabled = true,
+    mcpBridgeEnabled,
+    mcpEndpointUrl = null,
+    bridgePort = null,
   } = {}) {
     this.#executable = executable;
     this.#cwd = cwd;
@@ -213,9 +213,8 @@ export class ClaudeAgentProvider {
     this.#cancelGraceMs = cancelGraceMs;
     this.#forceGraceMs = forceGraceMs;
     this.#probeExecutable = probeExecutable ?? (spawnProcess !== spawn ? () => true : defaultProbeClaudeExecutable);
-    this.#mcpBridgeEnabled = mcpBridgeEnabled;
-    this.#mcpBridgeScriptPath = mcpBridgeScriptPath;
-    this.#bridgePort = bridgePort;
+    this.#mcpEnabled = mcpBridgeEnabled !== undefined ? Boolean(mcpBridgeEnabled) : Boolean(mcpEnabled);
+    this.#mcpEndpointUrl = mcpEndpointUrl || (bridgePort ? `http://127.0.0.1:${bridgePort}/mcp` : null);
     this.#rawCapture = new RawCaptureRecorder({
       providerId: 'claude',
       rawCaptureDir: rawCaptureEnabled
@@ -228,11 +227,31 @@ export class ClaudeAgentProvider {
     });
   }
 
+  configureMcpEndpoint(urlOrResolver) {
+    this.#mcpEndpointUrl = urlOrResolver;
+  }
+
+  #resolveMcpEndpointUrl() {
+    if (typeof this.#mcpEndpointUrl === 'function') {
+      try {
+        return this.#mcpEndpointUrl();
+      } catch {
+        return null;
+      }
+    }
+    if (typeof this.#mcpEndpointUrl === 'string' && this.#mcpEndpointUrl.trim()) {
+      return this.#mcpEndpointUrl.trim();
+    }
+    return process.env.NEVO_MCP_ENDPOINT_URL || null;
+  }
+
   get capabilities() {
-    const isBridgeUsable = Boolean(this.#mcpBridgeEnabled && existsSync(this.#mcpBridgeScriptPath));
+    const endpointUrl = this.#resolveMcpEndpointUrl();
+    const isAvailable = this.isAvailable().available;
+    const isMcpUsable = Boolean(this.#mcpEnabled && endpointUrl && isAvailable);
     return Object.freeze({
       ...CLAUDE_CAPABILITIES,
-      interactiveQuestions: isBridgeUsable,
+      interactiveQuestions: isMcpUsable,
       interactiveConfirmations: false,
     });
   }
@@ -307,27 +326,16 @@ export class ClaudeAgentProvider {
     return settingsPath;
   }
 
-  #createMcpConfigFile({ turnId, effectiveSessionId, bridgeToken }) {
+  #createMcpConfigFile({ mcpUrl, token }) {
     const configPath = join(tmpdir(), `nevo-claude-mcp-${randomUUID()}.json`);
-    const args = [
-      this.#mcpBridgeScriptPath,
-      '--port',
-      String(this.#bridgePort),
-      '--session',
-      effectiveSessionId,
-      '--turn',
-      turnId,
-      '--provider',
-      'claude',
-    ];
-    if (bridgeToken) {
-      args.push('--token', bridgeToken);
-    }
     const mcpConfig = {
       mcpServers: {
         nevo: {
-          command: process.execPath,
-          args,
+          type: 'http',
+          url: `${mcpUrl}?token=${token}`,
+          headers: {
+            'x-bridge-token': token,
+          },
         },
       },
     };
@@ -418,10 +426,11 @@ export class ClaudeAgentProvider {
       permissionMode,
     ];
 
-    let bridgeToken = null;
-    if (this.#mcpBridgeEnabled) {
-      bridgeToken = randomUUID();
-      mcpConfigPath = this.#createMcpConfigFile({ turnId, effectiveSessionId, bridgeToken });
+    let token = null;
+    const resolvedMcpUrl = this.#resolveMcpEndpointUrl();
+    if (this.#mcpEnabled && resolvedMcpUrl) {
+      token = randomUUID();
+      mcpConfigPath = this.#createMcpConfigFile({ mcpUrl: resolvedMcpUrl, token });
       args.push(
         '--mcp-config',
         mcpConfigPath,
@@ -435,10 +444,14 @@ export class ClaudeAgentProvider {
     return new Promise((resolve, reject) => {
       let child;
       try {
+        const childEnv = { ...process.env, CLAUDE_INTERACTIVE: '0' };
+        if (resolvedMcpUrl?.startsWith('https:')) {
+          childEnv.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+        }
         child = this.#spawnProcess(this.#executable, args, {
           cwd: this.#cwd,
           stdio: ['pipe', 'pipe', 'pipe'],
-          env: { ...process.env, CLAUDE_INTERACTIVE: '0' },
+          env: childEnv,
         });
       } catch (err) {
         console.error(`[claude] spawn failed: ${err.message}`);
@@ -459,10 +472,10 @@ export class ClaudeAgentProvider {
       if (setOperation) setOperation(operation);
 
       if (requestInteraction) {
-        interactionBridgeHub.registerActiveTurn(turnId, {
+        mcpInteractionRegistry.registerActiveTurn(turnId, {
+          token,
           provider: 'claude',
           providerSessionId: effectiveSessionId,
-          bridgeToken,
           requestInteraction,
         });
       }
@@ -504,7 +517,7 @@ export class ClaudeAgentProvider {
         }
       };
 
-      const cleanupSettings = () => {
+      const cleanupSettings = (error) => {
         try {
           unlinkSync(settingsPath);
         } catch {}
@@ -514,7 +527,7 @@ export class ClaudeAgentProvider {
           } catch {}
           mcpConfigPath = null;
         }
-        interactionBridgeHub.unregisterActiveTurn(turnId);
+        mcpInteractionRegistry.unregisterActiveTurn(turnId, error);
       };
 
       const maybeConfirmSession = async (event) => {
@@ -846,8 +859,9 @@ export class ClaudeAgentProvider {
 
       child.on('error', (err) => {
         console.error(`[claude] [process-error] ${err.message}`);
-        cleanupSettings();
-        reject(new AiError('AI_PROVIDER_PROCESS_ERROR', `Claude process error: ${err.message}`, { cause: err }));
+        const aiErr = new AiError('AI_PROVIDER_PROCESS_ERROR', `Claude process error: ${err.message}`, { cause: err });
+        cleanupSettings(aiErr);
+        reject(aiErr);
       });
 
       child.on('close', async (exitCode) => {
@@ -855,10 +869,9 @@ export class ClaudeAgentProvider {
         try {
           await processingQueue;
         } catch (e) {
-          cleanupSettings();
+          cleanupSettings(e);
           return reject(e);
         }
-        cleanupSettings();
         if (lineBuffer.trim()) {
           this.#rawCapture.recordRawEvent({
             sessionId: effectiveSessionId,
@@ -895,10 +908,13 @@ export class ClaudeAgentProvider {
         await this.#rawCapture.flushRawCaptureBounded(effectiveSessionId);
 
         if (operation.cancelled) {
-          return reject(new AiError('AI_TURN_CANCELLED', 'Claude turn was cancelled.', { status: 409 }));
+          const cancelErr = new AiError('AI_TURN_CANCELLED', 'Claude turn was cancelled.', { status: 409 });
+          cleanupSettings(cancelErr);
+          return reject(cancelErr);
         }
 
         if (isDeferred && deferredPayload) {
+          cleanupSettings();
           const publicInteractionId = `int-${randomUUID()}`;
           const isQuestion =
             deferredPayload.name === 'AskUserQuestion' || Array.isArray(deferredPayload.input?.questions);
@@ -957,10 +973,12 @@ export class ClaudeAgentProvider {
 
         if (exitCode !== 0 && !isDeferred) {
           const detail = stderrOutput.trim() || 'Process ended unexpectedly (check server logs for details)';
-          return reject(
-            new AiError('AI_PROVIDER_EXIT_ERROR', `Claude process exited with code ${exitCode}: ${detail}`),
-          );
+          const exitErr = new AiError('AI_PROVIDER_EXIT_ERROR', `Claude process exited with code ${exitCode}: ${detail}`);
+          cleanupSettings(exitErr);
+          return reject(exitErr);
         }
+
+        cleanupSettings();
 
         this.#materializedSessions.add(effectiveSessionId);
         resolve({ operation, providerSessionId: effectiveSessionId });
@@ -1013,8 +1031,8 @@ export class ClaudeAgentProvider {
       throw new AiValidationError("'providerSessionId' is required.");
     }
 
-    if (interactionBridgeHub.hasPending(interactionId)) {
-      interactionBridgeHub.resolveResponse(interactionId, response);
+    if (mcpInteractionRegistry.hasPending(interactionId)) {
+      mcpInteractionRegistry.resolveResponse(interactionId, response);
       return { continuesTurn: true };
     }
 
@@ -1058,7 +1076,7 @@ export class ClaudeAgentProvider {
     if (!operation) return;
     operation.cancelled = true;
     if (operation.turnId) {
-      interactionBridgeHub.cancelTurn(operation.turnId);
+      mcpInteractionRegistry.cancelTurn(operation.turnId);
     }
     const child = operation.childProcess;
     if (!child) return;

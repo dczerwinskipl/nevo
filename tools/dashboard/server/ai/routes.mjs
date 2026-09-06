@@ -18,8 +18,7 @@ import sessionRoutes from './sessions/routes.mjs';
 import turnRoutes from './sessions/turns/routes.mjs';
 import interactionRoutes from './sessions/interactions/routes.mjs';
 import aiEventRoutes from './sessions/events/routes.mjs';
-import bridgeRoutes from './bridge/routes.mjs';
-import { interactionBridgeHub } from './bridge/interaction-bridge-hub.mjs';
+import { mcpRoutes, mcpInteractionRegistry } from './interactions/mcp/index.mjs';
 
 import { createTrustedNetworkAiAccessPolicy } from './access-policy.mjs';
 import { aiErrorHandler } from './sessions/http.mjs';
@@ -33,7 +32,12 @@ import { aiErrorHandler } from './sessions/http.mjs';
  * configured/worktree root relocates the whole AI capability together;
  * no provider independently falls back to the real repository root.
  */
-export function createDefaultAgentSessionService({ root = REPOSITORY_ROOT, dataLoader, providerConfigPath } = {}) {
+export function createDefaultAgentSessionService({
+  root = REPOSITORY_ROOT,
+  dataLoader,
+  providerConfigPath,
+  mcpEndpointResolver,
+} = {}) {
   const providerConfig = loadAgentProvidersConfig({ repoRoot: root, filePath: providerConfigPath });
   const data = dataLoader ? dataLoader() : {};
   const demonstration =
@@ -54,6 +58,7 @@ export function createDefaultAgentSessionService({ root = REPOSITORY_ROOT, dataL
             cwd: root,
             rawCaptureEnabled: providerConfig.providers.claude?.rawCaptureEnabled,
             rawCaptureDir: providerConfig.providers.claude?.rawCaptureDir,
+            mcpEndpointUrl: mcpEndpointResolver,
           }),
         );
         break;
@@ -117,7 +122,25 @@ export default async function aiRoutes(
   { config = {}, service: serviceOverride, accessPolicy: accessPolicyOverride } = {},
 ) {
   const root = config.root ?? REPOSITORY_ROOT;
-  const service = serviceOverride ?? createDefaultAgentSessionService({ root });
+
+  const resolveFastifyMcpUrl = () => {
+    if (process.env.NEVO_MCP_ENDPOINT_URL) {
+      return process.env.NEVO_MCP_ENDPOINT_URL;
+    }
+    const addr = fastify.server?.address?.();
+    if (!addr || typeof addr !== 'object' || !addr.port) {
+      return null;
+    }
+    const protocol = fastify.initialConfig?.https ? 'https' : 'http';
+    return `${protocol}://127.0.0.1:${addr.port}/mcp`;
+  };
+
+  const service = serviceOverride ?? createDefaultAgentSessionService({ root, mcpEndpointResolver: resolveFastifyMcpUrl });
+  const claudeProvider = service?.registry?.getProvider?.('claude');
+  if (claudeProvider && typeof claudeProvider.configureMcpEndpoint === 'function') {
+    claudeProvider.configureMcpEndpoint(resolveFastifyMcpUrl);
+  }
+
   const accessPolicy = accessPolicyOverride ?? createTrustedNetworkAiAccessPolicy();
 
   let reconciliationPromise = null;
@@ -144,13 +167,13 @@ export default async function aiRoutes(
   await fastify.register(turnRoutes, deps);
   await fastify.register(interactionRoutes, deps);
   await fastify.register(aiEventRoutes, deps);
-  await fastify.register(bridgeRoutes);
+  await fastify.register(mcpRoutes);
 
   // Owned here: this capability constructed (or was given) the AI service
   // and is the only one that knows how to shut it down.
   fastify.addHook('onClose', async () => {
     try {
-      interactionBridgeHub.shutdown();
+      mcpInteractionRegistry.shutdown();
       await (service?.shutdown?.() ?? service?.turnRuntime?.shutdown?.());
     } catch (err) {
       console.error('[server] error shutting down AI service:', err);

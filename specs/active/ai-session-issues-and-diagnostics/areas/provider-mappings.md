@@ -45,9 +45,10 @@ Structured provider action data is acceptable.
   supports the distinction. Any supported-version fallback is adapter-owned and confidence-marked.
 - AskUserQuestion deferral and MCP bridge `ask_user` invocations map to Interaction and drive attention.
   In headless CLI mode (`-p`), native `AskUserQuestion` is suppressed by Claude CLI; live interactive
-  questions are provided via a local stdio MCP bridge server (`mcp__nevo__ask_user`) configured via
-  `--mcp-config` and `--append-system-prompt`. When invoked, the CLI halts and awaits the stdio tool
-  response, which the dashboard UI fulfills via `POST /api/ai/bridge/ask` and returns `{ continuesTurn: true }`.
+  questions are provided via a server-owned Fastify Streamable HTTP MCP endpoint (`/mcp` and `/api/ai/mcp`)
+  exposing the canonical `ask_user` tool (`mcp__nevo__ask_user` to Claude), configured via `--mcp-config`
+  and `--append-system-prompt`. When invoked, Claude halts and awaits the MCP tool response, which the
+  dashboard UI fulfills via `respondInteraction` and returns `{ continuesTurn: true }` without text heuristics.
   Confirmations remain unsupported (`interactiveConfirmations: false`).
 - Process exit and result authority are declared explicitly. Deferral/restart metadata remains an
   adapter concern but reports neutral wait/interaction/operation evidence.

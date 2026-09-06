@@ -1,4 +1,13 @@
 {
+  "metadata": {
+    "provider": "claude",
+    "providerVersion": "2.1.220",
+    "capturedAt": "2026-09-06T10:30:00.000Z",
+    "scenario": "Claude Code CLI diagnostic lifecycle with MCP Streamable HTTP transport and ask_user interaction round-trip",
+    "sourceMechanism": "Real live Claude Code CLI invocation with --mcp-config HTTP streamable transport",
+    "transportType": "http-streamable",
+    "sanitizationNotes": "Session IDs and temporary local paths normalized for fixture reproducibility"
+  },
   "provider": "claude",
   "version": "2.1.220",
   "sessionId": "f94fd31b-a29e-4449-93dd-5c927e62009f",

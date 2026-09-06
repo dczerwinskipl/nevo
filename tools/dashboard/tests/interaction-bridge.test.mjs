@@ -1,47 +1,37 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve, join } from 'node:path';
-import { createServer } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import Fastify from 'fastify';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
-import { InteractionBridgeHub } from '../server/ai/bridge/interaction-bridge-hub.mjs';
-import bridgeRoutes from '../server/ai/bridge/routes.mjs';
 import {
-  createBridgeMcpServer,
+  McpInteractionRegistry,
+  createNevoMcpServer,
   formatInteractionAnswer,
-} from '../server/ai/bridge/mcp-bridge-server.mjs';
+  mcpRoutes,
+} from '../server/ai/interactions/mcp/index.mjs';
 import { createClaudeAgentProvider } from '../server/ai/providers/claude/provider.mjs';
 import { AiError, createCanonicalTurn } from '../server/ai/contracts.mjs';
 import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
 import { reconcileOrphanedTurns } from '../server/ai/sessions/turns/turn-recovery.mjs';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const MCP_BRIDGE_SCRIPT = resolve(__dirname, '..', 'server', 'ai', 'bridge', 'mcp-bridge-server.mjs');
+test('McpInteractionRegistry: active turns, tokens, pending interactions, and cancellations', async () => {
+  const registry = new McpInteractionRegistry();
 
-test('InteractionBridgeHub: manages active turns and validates handleAsk input', async () => {
-  const hub = new InteractionBridgeHub();
+  // 1. Unregistered turn returns null
+  assert.equal(registry.getActiveTurn({ turnId: 'nonexistent-turn' }), null);
+  assert.equal(registry.getActiveTurnByToken('nonexistent-token'), null);
 
-  // 1. Unregistered turn throws 404
-  await assert.rejects(
-    () => hub.handleAsk({ turnId: 'nonexistent-turn', question: 'Hello?' }),
-    (err) => {
-      assert.equal(err.code, 'AI_INTERACTION_NOT_FOUND');
-      assert.equal(err.status, 404);
-      return true;
-    },
-  );
-
-  // 2. Register active turn
+  // 2. Register active turn with token
+  const token = 'tok-active-123';
   let requestedNeutral = null;
   let requestedPolicy = null;
-  hub.registerActiveTurn('turn-1', {
+  registry.registerActiveTurn('turn-1', {
+    token,
     provider: 'claude',
     providerSessionId: 'sess-1',
     requestInteraction: (neutral, options) => {
@@ -51,473 +41,486 @@ test('InteractionBridgeHub: manages active turns and validates handleAsk input',
     },
   });
 
-  assert.equal(hub.getActiveTurn({ turnId: 'turn-1' })?.turnId, 'turn-1');
-  assert.equal(hub.getActiveTurn({ provider: 'claude', providerSessionId: 'sess-1' })?.turnId, 'turn-1');
+  assert.equal(registry.getActiveTurn({ turnId: 'turn-1' })?.turnId, 'turn-1');
+  assert.equal(registry.getActiveTurnByToken(token)?.turnId, 'turn-1');
+  assert.equal(registry.getActiveTurn({ provider: 'claude', providerSessionId: 'sess-1' })?.turnId, 'turn-1');
 
-  // 3. Empty question throws 400
-  await assert.rejects(
-    () => hub.handleAsk({ turnId: 'turn-1', question: '   ' }),
-    (err) => {
-      assert.equal(err.code, 'AI_VALIDATION_ERROR');
-      assert.equal(err.status, 400);
-      return true;
-    },
-  );
-
-  // 4. Valid question invokes requestInteraction with resumePolicy live-operation
-  const askPromise = hub.handleAsk({
+  // 3. Register pending interaction and wait for response
+  const pendingEntry = registry.registerPending('int-100', {
     turnId: 'turn-1',
-    question: 'Select database engine',
-    header: 'Database Choice',
-    options: ['PostgreSQL', 'SQLite', { label: 'MySQL', description: 'MySQL 8' }],
-    multiSelect: false,
+    provider: 'claude',
+    providerSessionId: 'sess-1',
   });
+  assert.ok(pendingEntry);
+  assert.equal(registry.hasPending('int-100'), true);
+  assert.equal(registry.getPending('int-100')?.turnId, 'turn-1');
 
-  await new Promise((r) => setImmediate(r));
+  const waitPromise = registry.waitForResponse('int-100');
 
-  assert.equal(requestedNeutral.kind, 'question');
-  assert.equal(requestedNeutral.questions[0].question, 'Select database engine');
-  assert.equal(requestedNeutral.questions[0].header, 'Database Choice');
-  assert.equal(requestedNeutral.questions[0].options.length, 3);
-  assert.equal(requestedNeutral.questions[0].options[0].label, 'PostgreSQL');
-  assert.equal(requestedNeutral.questions[0].options[2].description, 'MySQL 8');
-  assert.equal(requestedPolicy, 'live-operation');
-  assert.ok(hub.hasPending('int-100'));
+  // 4. Resolving response resolves waiter promise
+  const resolved = registry.resolveResponse('int-100', { answers: [{ questionId: 'q1', value: 'Option A' }] });
+  assert.equal(resolved, true);
+  assert.equal(registry.hasPending('int-100'), false);
 
-  // 5. Resolving response resolves handleAsk promise
-  hub.resolveResponse('int-100', { answers: [{ questionId: 'q1', value: 'PostgreSQL' }] });
-  const result = await askPromise;
-  assert.deepEqual(result, { answers: [{ questionId: 'q1', value: 'PostgreSQL' }] });
-  assert.equal(hub.hasPending('int-100'), false);
+  const answer = await waitPromise;
+  assert.deepEqual(answer, { answers: [{ questionId: 'q1', value: 'Option A' }] });
 
-  // 6. Unregister active turn
-  hub.unregisterActiveTurn('turn-1');
-  assert.equal(hub.getActiveTurn({ turnId: 'turn-1' }), null);
+  // Resolving already completed interaction returns false
+  assert.equal(registry.resolveResponse('int-100', { answer: 'Duplicate' }), false);
+
+  // 5. Unregister active turn cleans up token and session lookups
+  registry.unregisterActiveTurn('turn-1');
+  assert.equal(registry.getActiveTurn({ turnId: 'turn-1' }), null);
+  assert.equal(registry.getActiveTurnByToken(token), null);
 });
 
-test('InteractionBridgeHub: cancellation rejects waiting bridge promise', async () => {
-  const hub = new InteractionBridgeHub();
+test('McpInteractionRegistry: provider exit / unregisterActiveTurn terminates pending waiters immediately', async () => {
+  const registry = new McpInteractionRegistry();
+  const token = 'tok-exit-test';
 
-  hub.registerActiveTurn('turn-cancel', {
+  registry.registerActiveTurn('turn-exit', {
+    token,
     provider: 'claude',
-    providerSessionId: 'sess-cancel',
-    requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-cancel' }),
+    providerSessionId: 'sess-exit',
+    requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-exit-1' }),
   });
 
-  const askPromise = hub.handleAsk({
-    turnId: 'turn-cancel',
-    question: 'Please confirm',
+  registry.registerPending('int-exit-1', {
+    turnId: 'turn-exit',
+    provider: 'claude',
+    providerSessionId: 'sess-exit',
   });
 
-  await new Promise((r) => setImmediate(r));
-  assert.ok(hub.hasPending('int-cancel'));
+  const waiterPromise = registry.waitForResponse('int-exit-1');
+  assert.equal(registry.hasPending('int-exit-1'), true);
 
-  const rejection = assert.rejects(askPromise, (err) => {
-    assert.equal(err.code, 'AI_TURN_CANCELLED');
+  const exitError = new AiError('AI_PROVIDER_EXIT_ERROR', 'Claude process exited unexpectedly with code 1');
+
+  // Unregister active turn with provider exit error
+  registry.unregisterActiveTurn('turn-exit', exitError);
+
+  // Waiter must be rejected immediately with the exit error
+  await assert.rejects(waiterPromise, (err) => {
+    assert.equal(err.code, 'AI_PROVIDER_EXIT_ERROR');
+    assert.ok(err.message.includes('code 1'));
     return true;
   });
 
-  hub.cancelTurn('turn-cancel');
-  await rejection;
-  assert.equal(hub.hasPending('int-cancel'), false);
+  assert.equal(registry.hasPending('int-exit-1'), false);
+  assert.equal(registry.getActiveTurn({ turnId: 'turn-exit' }), null);
 });
 
-test('Fastify bridgeRoutes: POST /api/ai/bridge/ask handles requests over loopback', async () => {
-  const hub = new InteractionBridgeHub();
-  const fastify = Fastify({ logger: false });
-  await fastify.register(bridgeRoutes, { interactionHub: hub });
-
-  hub.registerActiveTurn('turn-http', {
-    provider: 'claude',
-    providerSessionId: 'sess-http',
-    bridgeToken: 'token-http-xyz',
-    requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-http' }),
-  });
-
-  // Start ask request in background
-  const responsePromise = fastify.inject({
-    method: 'POST',
-    url: '/api/ai/bridge/ask',
-    headers: {
-      'x-bridge-token': 'token-http-xyz',
-    },
-    payload: {
-      provider: 'claude',
-      providerSessionId: 'sess-http',
-      turnId: 'turn-http',
-      question: 'Which test framework?',
-      options: ['node:test', 'vitest'],
-    },
-  });
-
-  // Await registration
-  while (!hub.hasPending('int-http')) {
-    await new Promise((r) => setTimeout(r, 10));
-  }
-
-  // Resolve pending interaction
-  hub.resolveResponse('int-http', {
-    answers: [{ questionId: 'q1', value: 'node:test' }],
-  });
-
-  const reply = await responsePromise;
-  assert.equal(reply.statusCode, 200);
-  const data = JSON.parse(reply.body);
-  assert.deepEqual(data, { answers: [{ questionId: 'q1', value: 'node:test' }] });
-  await fastify.close();
+test('formatInteractionAnswer formats single, multiple, and object responses', () => {
+  assert.equal(
+    formatInteractionAnswer({ answers: [{ questionId: 'q1', value: 'Yes' }] }),
+    'Yes',
+  );
+  assert.equal(
+    formatInteractionAnswer({
+      answers: [
+        { questionId: 'q1', value: ['Option A', 'Option B'] },
+        { questionId: 'q2', value: 'Option C' },
+      ],
+    }),
+    'Option A, Option B\nOption C',
+  );
+  assert.equal(formatInteractionAnswer({ answer: 'Direct string answer' }), 'Direct string answer');
+  assert.equal(formatInteractionAnswer({ answer: 42 }), '42');
+  assert.equal(formatInteractionAnswer(null), 'null');
 });
 
-test('mcp-bridge-server: stdio JSON-RPC tool discovery and execution', async () => {
-  // 1. Start a mock dashboard HTTP server on dynamic port
-  let lastRequestBody = null;
-  const mockDashboard = createServer((req, res) => {
-    if (req.method === 'POST' && req.url === '/api/ai/bridge/ask') {
-      let body = '';
-      req.on('data', (chunk) => {
-        body += chunk;
-      });
-      req.on('end', () => {
-        lastRequestBody = JSON.parse(body);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ answers: [{ questionId: 'q1', value: 'Option Alpha' }] }));
-      });
-    } else {
-      res.writeHead(404);
-      res.end();
-    }
-  });
-
-  await new Promise((r) => mockDashboard.listen(0, '127.0.0.1', r));
-  const port = mockDashboard.address().port;
-
-  // 2. Spawn mcp-bridge-server child process
-  const child = spawn(
-    process.execPath,
-    [
-      MCP_BRIDGE_SCRIPT,
-      '--port',
-      String(port),
-      '--provider',
-      'claude',
-      '--session',
-      'sess-mcp-proc',
-      '--turn',
-      'turn-mcp-proc',
-      '--token',
-      'tok-test-123',
-    ],
-    {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    },
-  );
-
-  let buffer = '';
-  const messages = [];
-  child.stdout.on('data', (chunk) => {
-    buffer += chunk.toString();
-    const lines = buffer.split('\n');
-    buffer = lines.pop();
-    for (const line of lines) {
-      if (line.trim()) {
-        try {
-          messages.push(JSON.parse(line));
-        } catch {}
-      }
-    }
-  });
-
-  function waitForMessage(predicate, timeoutMs = 2000) {
-    const start = Date.now();
-    return new Promise((resolve, reject) => {
-      const check = () => {
-        const found = messages.find(predicate);
-        if (found) return resolve(found);
-        if (Date.now() - start > timeoutMs) return reject(new Error('Timeout waiting for message'));
-        setTimeout(check, 10);
-      };
-      check();
-    });
-  }
-
-  // 3. Send initialize
-  child.stdin.write(
-    JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'initialize',
-      params: {
-        protocolVersion: '2024-11-05',
-        clientInfo: { name: 'test-client', version: '1.0.0' },
-        capabilities: {},
-      },
-    }) + '\n',
-  );
-  const initRes = await waitForMessage((m) => m.id === 1);
-  assert.equal(initRes.result.serverInfo.name, 'nevo-interaction-bridge');
-
-  // Send notifications/initialized per MCP spec
-  child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }) + '\n');
-
-  // 4. Send tools/list
-  child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }) + '\n');
-  const toolsRes = await waitForMessage((m) => m.id === 2);
-  assert.ok(toolsRes.result.tools.some((t) => t.name === 'ask_user'));
-
-  // 5. Send tools/call for ask_user
-  child.stdin.write(
-    JSON.stringify({
-      jsonrpc: '2.0',
-      id: 3,
-      method: 'tools/call',
-      params: {
-        name: 'ask_user',
-        arguments: {
-          question: 'Pick option',
-          options: ['Option Alpha', 'Option Beta'],
-        },
-      },
-    }) + '\n',
-  );
-
-  const callRes = await waitForMessage((m) => m.id === 3);
-  assert.equal(callRes.result.content[0].type, 'text');
-  assert.ok(callRes.result.content[0].text.includes('Option Alpha'));
-  assert.equal(lastRequestBody.provider, 'claude');
-  assert.equal(lastRequestBody.providerSessionId, 'sess-mcp-proc');
-  assert.equal(lastRequestBody.turnId, 'turn-mcp-proc');
-  assert.equal(lastRequestBody.bridgeToken, 'tok-test-123');
-  assert.equal(lastRequestBody.question, 'Pick option');
-
-  child.kill();
-  mockDashboard.close();
-});
-
-test('Official MCP SDK: Client connect, tool listing, callTool round-trip, and error handling', async () => {
-  let interactionCalledWith = null;
-  const mockRequestInteraction = async (config, args) => {
-    interactionCalledWith = { config, args };
-    if (args.question === 'Fail me') {
-      throw new Error('User refused action');
-    }
-    return { answers: [{ questionId: 'q1', value: 'User approved' }] };
-  };
-
-  const server = createBridgeMcpServer(
-    { provider: 'claude', sessionId: 'sess-sdk', turnId: 'turn-sdk', token: 'tok-sdk' },
-    { requestInteraction: mockRequestInteraction },
-  );
+test('Single canonical ask_user tool: schema, validation, and no aliases', async () => {
+  const registry = new McpInteractionRegistry();
+  const server = createNevoMcpServer(registry);
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
 
-  const client = new Client({ name: 'nevo-test-client', version: '1.0.0' });
+  const client = new Client({ name: 'test-client', version: '1.0.0' });
   await client.connect(clientTransport);
 
-  // 1. Tool listing
-  const toolList = await client.listTools();
-  assert.ok(toolList.tools.some((t) => t.name === 'ask_user'));
-  const askUserTool = toolList.tools.find((t) => t.name === 'ask_user');
-  assert.ok(askUserTool.description.includes('Ask the human user'));
-  assert.ok(askUserTool.inputSchema.properties.question);
-
-  // 2. Successful callTool
-  const result = await client.callTool({
-    name: 'ask_user',
-    arguments: {
-      question: 'Should we proceed?',
-      options: ['Yes', 'No'],
-      header: 'Approval',
-    },
-  });
-
-  assert.equal(result.isError, undefined);
-  assert.equal(result.content[0].type, 'text');
-  assert.ok(result.content[0].text.includes('User approved'));
-  assert.equal(interactionCalledWith.args.question, 'Should we proceed?');
-  assert.equal(interactionCalledWith.config.token, 'tok-sdk');
-
-  // 3. Tool failure returns isError: true with error details
-  const failResult = await client.callTool({
-    name: 'ask_user',
-    arguments: {
-      question: 'Fail me',
-    },
-  });
-  assert.equal(failResult.isError, true);
-  assert.ok(failResult.content[0].text.includes('Interaction failed or was cancelled: User refused action'));
+  // 1. Tool listing exposes ONLY 'ask_user' (no aliases)
+  const { tools } = await client.listTools();
+  assert.equal(tools.length, 1, 'Server must expose exactly one canonical tool');
+  assert.equal(tools[0].name, 'ask_user');
+  assert.ok(tools[0].description.includes('Ask the human user'));
+  assert.ok(tools[0].inputSchema.properties.question);
+  assert.ok(tools[0].inputSchema.properties.header);
+  assert.ok(tools[0].inputSchema.properties.options);
+  assert.ok(tools[0].inputSchema.properties.multiSelect);
+  assert.equal(tools.some((t) => t.name === 'ask_question'), false, 'Aliases must not exist');
+  assert.equal(tools.some((t) => t.name === 'ask_user_choice'), false, 'Aliases must not exist');
 
   await client.close();
   await server.close();
 });
 
-test('Bridge security: bridgeToken correlation prevents cross-session hijacking', async () => {
-  const hub = new InteractionBridgeHub();
-  const fastify = Fastify({ logger: false });
-  await fastify.register(bridgeRoutes, { interactionHub: hub });
+test('Official MCP SDK Client with InMemoryTransport: round-trip, token extraction, and validation', async () => {
+  const registry = new McpInteractionRegistry();
+  let requestedNeutral = null;
 
-  hub.registerActiveTurn('turn-sec-1', {
+  const token = 'tok-inmem-456';
+  registry.registerActiveTurn('turn-inmem', {
+    token,
     provider: 'claude',
-    providerSessionId: 'sess-sec-1',
-    bridgeToken: 'correct-token-42',
+    providerSessionId: 'sess-inmem',
+    requestInteraction: (neutral) => {
+      requestedNeutral = neutral;
+      return Promise.resolve({ ...neutral, id: 'int-inmem-1' });
+    },
+  });
+
+  const server = createNevoMcpServer(registry);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+
+  const client = new Client({ name: 'test-client', version: '1.0.0' });
+  await client.connect(clientTransport);
+
+  // 1. Missing token returns error
+  const noTokenResult = await client.callTool({
+    name: 'ask_user',
+    arguments: { question: 'Question without token?' },
+  });
+  assert.equal(noTokenResult.isError, true);
+  assert.ok(noTokenResult.content[0].text.includes('Forbidden: missing turn correlation token'));
+
+  // 2. Empty question returns validation error
+  // (we simulate extra context by testing createNevoMcpServer tool handler with extra)
+  const emptyQuestionResult = await client.callTool({
+    name: 'ask_user',
+    arguments: { question: '   ' },
+  });
+  assert.equal(emptyQuestionResult.isError, true);
+  assert.ok(emptyQuestionResult.content[0].text.includes('Validation error: question is required'));
+
+  await client.close();
+  await server.close();
+});
+
+test('Fastify mcpRoutes: loopback enforcement, /mcp and /api/ai/mcp routes, and full MCP lifecycle', async () => {
+  const registry = new McpInteractionRegistry();
+  const token = 'tok-fastify-loopback';
+
+  registry.registerActiveTurn('turn-fastify', {
+    token,
+    provider: 'claude',
+    providerSessionId: 'sess-fastify',
+    requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-fastify-1' }),
+  });
+
+  const fastify = Fastify({ logger: false });
+  await fastify.register(mcpRoutes, { registry });
+  await fastify.listen({ port: 0, host: '127.0.0.1' });
+  const port = fastify.server.address().port;
+
+  try {
+    // 1. Loopback check: non-loopback IP returns 403 Forbidden
+    const forbiddenRes = await fastify.inject({
+      method: 'POST',
+      url: '/mcp',
+      remoteAddress: '192.168.1.100',
+      payload: { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
+    });
+    assert.equal(forbiddenRes.statusCode, 403);
+    assert.ok(JSON.parse(forbiddenRes.body).message.includes('Forbidden: MCP endpoint only accessible from loopback'));
+
+    // 2. Full MCP lifecycle over real Streamable HTTP:
+    // Step 2a: Initialize
+    const initRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test-claude', version: '2.1.220' },
+        },
+      }),
+    });
+
+    assert.equal(initRes.status, 200);
+    const mcpSessionId = initRes.headers.get('mcp-session-id');
+    assert.ok(mcpSessionId, 'Server must return mcp-session-id header');
+    const initBody = await initRes.json();
+    assert.equal(initBody.result.serverInfo.name, 'nevo');
+
+    // Step 2b: Initialized notification
+    await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': mcpSessionId,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'notifications/initialized',
+        params: {},
+      }),
+    });
+
+    // Step 2c: Tools listing
+    const toolsRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': mcpSessionId,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/list',
+        params: {},
+      }),
+    });
+    const toolsBody = await toolsRes.json();
+    assert.equal(toolsBody.result.tools.length, 1);
+    assert.equal(toolsBody.result.tools[0].name, 'ask_user');
+
+    // Step 2d: Tools call on /api/ai/mcp endpoint with token in header
+    const callPromise = fetch(`http://127.0.0.1:${port}/api/ai/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': mcpSessionId,
+        'x-bridge-token': token,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'tools/call',
+        params: {
+          name: 'ask_user',
+          arguments: {
+            question: 'Which deployment target?',
+            options: ['Staging', 'Production'],
+          },
+        },
+      }),
+    });
+
+    // Wait for interaction to become pending
+    while (!registry.hasPending('int-fastify-1')) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    // Resolve interaction
+    registry.resolveResponse('int-fastify-1', {
+      answers: [{ questionId: 'q1', value: 'Staging' }],
+    });
+
+    const callRes = await callPromise;
+    assert.equal(callRes.status, 200);
+    const callBody = await callRes.json();
+    assert.ok(callBody.result.content[0].text.includes('Staging'));
+  } finally {
+    await fastify.close();
+  }
+});
+
+test('Token correlation security: missing, invalid, and stale tokens are rejected', async () => {
+  const registry = new McpInteractionRegistry();
+  const token = 'tok-valid-sec';
+
+  registry.registerActiveTurn('turn-sec', {
+    token,
+    provider: 'claude',
+    providerSessionId: 'sess-sec',
     requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-sec-1' }),
   });
 
-  // 1. Missing token is rejected with 403
-  const noTokenRes = await fastify.inject({
-    method: 'POST',
-    url: '/api/ai/bridge/ask',
-    payload: {
-      provider: 'claude',
-      providerSessionId: 'sess-sec-1',
-      turnId: 'turn-sec-1',
-      question: 'Attempt without token',
-    },
-  });
-  assert.equal(noTokenRes.statusCode, 403);
-  assert.equal(JSON.parse(noTokenRes.body).code, 'AI_FORBIDDEN');
+  const fastify = Fastify({ logger: false });
+  await fastify.register(mcpRoutes, { registry });
+  await fastify.listen({ port: 0, host: '127.0.0.1' });
+  const port = fastify.server.address().port;
 
-  // 2. Wrong token is rejected with 403
-  const wrongTokenRes = await fastify.inject({
-    method: 'POST',
-    url: '/api/ai/bridge/ask',
-    headers: { 'x-bridge-token': 'wrong-token' },
-    payload: {
-      provider: 'claude',
-      providerSessionId: 'sess-sec-1',
-      turnId: 'turn-sec-1',
-      question: 'Attempt with wrong token',
-    },
-  });
-  assert.equal(wrongTokenRes.statusCode, 403);
-  assert.equal(JSON.parse(wrongTokenRes.body).code, 'AI_FORBIDDEN');
+  try {
+    // Initialize session
+    const initRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test-client', version: '1.0' },
+        },
+      }),
+    });
+    const sid = initRes.headers.get('mcp-session-id');
 
-  // 3. Guessed turn ID on unregistered turn returns 404
-  const wrongTurnRes = await fastify.inject({
-    method: 'POST',
-    url: '/api/ai/bridge/ask',
-    headers: { 'x-bridge-token': 'correct-token-42' },
-    payload: {
-      provider: 'claude',
-      providerSessionId: 'sess-sec-1',
-      turnId: 'unregistered-turn-id',
-      question: 'Attempt on wrong turn',
-    },
-  });
-  assert.equal(wrongTurnRes.statusCode, 404);
+    await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }),
+    });
 
-  // 4. Correct token succeeds
-  const askPromise = fastify.inject({
-    method: 'POST',
-    url: '/api/ai/bridge/ask',
-    headers: { 'x-bridge-token': 'correct-token-42' },
-    payload: {
-      provider: 'claude',
-      providerSessionId: 'sess-sec-1',
-      turnId: 'turn-sec-1',
-      question: 'Valid question',
-    },
-  });
+    // 1. Missing token
+    const noTokenRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sid },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: { name: 'ask_user', arguments: { question: 'Missing token?' } },
+      }),
+    });
+    const noTokenBody = await noTokenRes.json();
+    assert.equal(noTokenBody.result.isError, true);
+    assert.ok(noTokenBody.result.content[0].text.includes('Forbidden: missing turn correlation token'));
 
-  while (!hub.hasPending('int-sec-1')) {
-    await new Promise((r) => setTimeout(r, 10));
+    // 2. Wrong token
+    const wrongTokenRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid,
+        'x-bridge-token': 'wrong-token-abc',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'tools/call',
+        params: { name: 'ask_user', arguments: { question: 'Wrong token?' } },
+      }),
+    });
+    const wrongTokenBody = await wrongTokenRes.json();
+    assert.equal(wrongTokenBody.result.isError, true);
+    assert.ok(wrongTokenBody.result.content[0].text.includes('invalid, stale, or expired'));
+
+    // 3. Stale token after turn unregistration
+    registry.unregisterActiveTurn('turn-sec');
+    const staleTokenRes = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sid,
+        'x-bridge-token': token,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 4,
+        method: 'tools/call',
+        params: { name: 'ask_user', arguments: { question: 'Stale token?' } },
+      }),
+    });
+    const staleTokenBody = await staleTokenRes.json();
+    assert.equal(staleTokenBody.result.isError, true);
+    assert.ok(staleTokenBody.result.content[0].text.includes('invalid, stale, or expired'));
+  } finally {
+    await fastify.close();
   }
-
-  hub.resolveResponse('int-sec-1', { answers: [{ questionId: 'q1', value: 'Answered' }] });
-  const validRes = await askPromise;
-  assert.equal(validRes.statusCode, 200);
-
-  await fastify.close();
 });
 
 test('Bridge race conditions: authoritative terminal outcome for concurrent answer and cancel', async () => {
-  const hub = new InteractionBridgeHub();
+  const registry = new McpInteractionRegistry();
 
   // Scenario A: cancel before answer
-  hub.registerActiveTurn('turn-race-a', {
+  registry.registerActiveTurn('turn-race-a', {
+    token: 'tok-race-a',
     provider: 'claude',
     providerSessionId: 'sess-race-a',
     requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-race-a' }),
   });
 
-  const askPromiseA = hub.handleAsk({
+  registry.registerPending('int-race-a', {
     turnId: 'turn-race-a',
-    question: 'Confirm step A?',
+    provider: 'claude',
+    providerSessionId: 'sess-race-a',
   });
-  await new Promise((r) => setImmediate(r));
+  const waitPromiseA = registry.waitForResponse('int-race-a');
 
   // User cancels first
-  const cancelledCount = hub.cancelTurn('turn-race-a');
+  const cancelledCount = registry.cancelTurn('turn-race-a');
   assert.equal(cancelledCount, 1);
 
   // Subsequent answer cannot resolve
-  const answeredLate = hub.resolveResponse('int-race-a', { answer: 'Too late' });
+  const answeredLate = registry.resolveResponse('int-race-a', { answer: 'Too late' });
   assert.equal(answeredLate, false, 'Resolving cancelled interaction must return false');
 
-  await assert.rejects(askPromiseA, (err) => {
+  await assert.rejects(waitPromiseA, (err) => {
     assert.equal(err.code, 'AI_TURN_CANCELLED');
     return true;
   });
 
   // Repeated cancel is a no-op
-  const repeatedCancel = hub.cancelTurn('turn-race-a');
+  const repeatedCancel = registry.cancelTurn('turn-race-a');
   assert.equal(repeatedCancel, 0, 'Repeated cancel must be idempotent');
 
   // Scenario B: answer before cancel
-  hub.registerActiveTurn('turn-race-b', {
+  registry.registerActiveTurn('turn-race-b', {
+    token: 'tok-race-b',
     provider: 'claude',
     providerSessionId: 'sess-race-b',
     requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-race-b' }),
   });
 
-  const askPromiseB = hub.handleAsk({
+  registry.registerPending('int-race-b', {
     turnId: 'turn-race-b',
-    question: 'Confirm step B?',
+    provider: 'claude',
+    providerSessionId: 'sess-race-b',
   });
-  await new Promise((r) => setImmediate(r));
+  const waitPromiseB = registry.waitForResponse('int-race-b');
 
   // User answers first
-  const answeredFirst = hub.resolveResponse('int-race-b', { answer: 'Just in time' });
+  const answeredFirst = registry.resolveResponse('int-race-b', { answer: 'Just in time' });
   assert.equal(answeredFirst, true);
 
-  const resultB = await askPromiseB;
+  const resultB = await waitPromiseB;
   assert.deepEqual(resultB, { answer: 'Just in time' });
 
   // Subsequent cancel finds no pending interaction
-  const cancelAfterAnswer = hub.cancelTurn('turn-race-b');
+  const cancelAfterAnswer = registry.cancelTurn('turn-race-b');
   assert.equal(cancelAfterAnswer, 0);
 
   // Repeated answer is a no-op
-  const repeatedAnswer = hub.resolveResponse('int-race-b', { answer: 'Duplicate' });
+  const repeatedAnswer = registry.resolveResponse('int-race-b', { answer: 'Duplicate' });
   assert.equal(repeatedAnswer, false);
 });
 
 test('Server shutdown: cleanly terminates and rejects pending bridge requests with 503', async () => {
-  const hub = new InteractionBridgeHub();
+  const registry = new McpInteractionRegistry();
 
-  hub.registerActiveTurn('turn-shutdown', {
+  registry.registerActiveTurn('turn-shutdown', {
+    token: 'tok-shutdown',
     provider: 'claude',
     providerSessionId: 'sess-shutdown',
     requestInteraction: (neutral) => Promise.resolve({ ...neutral, id: 'int-shutdown' }),
   });
 
-  const askPromise = hub.handleAsk({
+  registry.registerPending('int-shutdown', {
     turnId: 'turn-shutdown',
-    question: 'Pending question before server restarts',
+    provider: 'claude',
+    providerSessionId: 'sess-shutdown',
   });
-  await new Promise((r) => setImmediate(r));
-  assert.ok(hub.hasPending('int-shutdown'));
+  const waitPromise = registry.waitForResponse('int-shutdown');
 
   // Server triggers shutdown
-  hub.shutdown(new AiError('AI_SERVER_SHUTDOWN', 'Server is shutting down.', { status: 503 }));
+  registry.shutdown(new AiError('AI_SERVER_SHUTDOWN', 'Server is shutting down.', { status: 503 }));
 
-  await assert.rejects(askPromise, (err) => {
+  await assert.rejects(waitPromise, (err) => {
     assert.equal(err.code, 'AI_SERVER_SHUTDOWN');
     assert.equal(err.status, 503);
     return true;
   });
 
-  assert.equal(hub.hasPending('int-shutdown'), false);
-  assert.equal(hub.getActiveTurn({ turnId: 'turn-shutdown' }), null);
+  assert.equal(registry.hasPending('int-shutdown'), false);
+  assert.equal(registry.getActiveTurn({ turnId: 'turn-shutdown' }), null);
 });
 
 test('Restart reconciliation: persisted live-operation interaction is interrupted on boot', async () => {
@@ -571,29 +574,29 @@ test('Restart reconciliation: persisted live-operation interaction is interrupte
   }
 });
 
-test('Claude provider: dynamic capability truthfulness reflects bridge configuration and script availability', () => {
-  // 1. Normal configuration with bridge enabled and existing script
+test('Claude provider: dynamic capability truthfulness reflects endpoint configuration and enabled state', () => {
+  // 1. Normal configuration with MCP endpoint URL configured
   const enabledProvider = createClaudeAgentProvider({
-    mcpBridgeEnabled: true,
-    mcpBridgeScriptPath: MCP_BRIDGE_SCRIPT,
+    mcpEnabled: true,
+    mcpEndpointUrl: 'http://127.0.0.1:4318/mcp',
   });
   assert.equal(enabledProvider.capabilities.interactiveQuestions, true);
   assert.equal(enabledProvider.capabilities.interactiveConfirmations, false);
   assert.equal(enabledProvider.descriptor.capabilities.interactiveQuestions, true);
 
-  // 2. Disabled bridge
+  // 2. Disabled MCP
   const disabledProvider = createClaudeAgentProvider({
-    mcpBridgeEnabled: false,
-    mcpBridgeScriptPath: MCP_BRIDGE_SCRIPT,
+    mcpEnabled: false,
+    mcpEndpointUrl: 'http://127.0.0.1:4318/mcp',
   });
   assert.equal(disabledProvider.capabilities.interactiveQuestions, false);
   assert.equal(disabledProvider.descriptor.capabilities.interactiveQuestions, false);
 
-  // 3. Non-existent bridge script
-  const missingScriptProvider = createClaudeAgentProvider({
-    mcpBridgeEnabled: true,
-    mcpBridgeScriptPath: join(__dirname, 'non-existent-script.mjs'),
+  // 3. Null or missing endpoint URL
+  const missingEndpointProvider = createClaudeAgentProvider({
+    mcpEnabled: true,
+    mcpEndpointUrl: null,
   });
-  assert.equal(missingScriptProvider.capabilities.interactiveQuestions, false);
-  assert.equal(missingScriptProvider.descriptor.capabilities.interactiveQuestions, false);
+  assert.equal(missingEndpointProvider.capabilities.interactiveQuestions, false);
+  assert.equal(missingEndpointProvider.descriptor.capabilities.interactiveQuestions, false);
 });

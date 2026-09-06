@@ -17,7 +17,7 @@ allowed_paths:
   - tools/dashboard/package.json
   - tools/dashboard/package-lock.json
   - tools/dashboard/server/ai/providers/claude/**
-  - tools/dashboard/server/ai/bridge/**
+  - tools/dashboard/server/ai/interactions/mcp/**
   - tools/dashboard/server/ai/routes.mjs
   - tools/dashboard/tests/claude-provider.test.mjs
   - tools/dashboard/tests/interaction-bridge.test.mjs
@@ -55,31 +55,33 @@ Turn state, interactions, provider operation/process lifecycle, and terminal aut
   summaries.
 - Preserve deferral/AskUserQuestion lifecycle and terminal precedence without inventing a final
   answer.
-- Enable live interactive questions in headless mode via a local stdio MCP bridge server
-  (`mcp__nevo__ask_user`) generated per turn via `--mcp-config` and `--append-system-prompt`,
-  registered with `interactionBridgeHub`, and resolved via `POST /api/ai/bridge/ask` returning
-  `{ continuesTurn: true }` without text heuristics.
-- Truthfully declare capabilities (`interactiveQuestions: true`, `interactiveConfirmations: false`).
+- Enable live interactive questions in headless mode via a server-owned Fastify Streamable HTTP MCP
+  endpoint (`/mcp` and `/api/ai/mcp`) exposing a single canonical tool (`ask_user`), correlated via
+  opaque short-lived turn tokens passed in the connection URL and headers, registered with
+  `mcpInteractionRegistry`, and resolved via `POST /api/ai/sessions/:provider/:providerSessionId/interactions/:interactionId/respond`
+  returning `{ continuesTurn: true }` without text heuristics.
+- Truthfully declare capabilities (`interactiveQuestions: true` dynamically when MCP is enabled and endpoint
+  is available; `interactiveConfirmations: false`).
 - Remove Claude use of the transitional callback bridge when complete.
 
 ## Acceptance criteria
 
 1. Fixture-to-canonical tests assert exact Work order, tool identities/statuses, reasoning/text
-   phases, interactions, timing, and terminal authority. `automated: node --test tools/dashboard/tests/claude-provider.test.mjs`
+   phases, interactions, timing, and terminal authority. `automated: node --experimental-strip-types --test tools/dashboard/tests/claude-provider.test.mjs`
 2. Parallel tools remain independent ToolInvocations and content-block stop never completes them.
-   `automated: node --test tools/dashboard/tests/claude-provider.test.mjs`
+   `automated: node --experimental-strip-types --test tools/dashboard/tests/claude-provider.test.mjs`
 3. Failed tool followed by recovery does not fail the Turn unless Claude supplies authoritative Turn
-   failure. `automated: node --test tools/dashboard/tests/claude-provider.test.mjs`
+   failure. `automated: node --experimental-strip-types --test tools/dashboard/tests/claude-provider.test.mjs`
 4. Cancellation, deferral, process exit, late events, and cleanup evidence follow coordinator
-   precedence. `automated: node --test tools/dashboard/tests/claude-provider.test.mjs`
+   precedence. `automated: node --experimental-strip-types --test tools/dashboard/tests/claude-provider.test.mjs`
 5. Neutral/public output contains no Claude-private IDs or raw protocol payloads.
-   `automated: node --test tools/dashboard/tests/claude-provider.test.mjs`
-6. Live interactive questions work end-to-end via stdio MCP bridge without text heuristics; cancellation
-   clears pending interaction gates and kills the process; confirmations remain truthfully unsupported.
-   `automated: node --test tools/dashboard/tests/claude-provider.test.mjs tools/dashboard/tests/interaction-bridge.test.mjs tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs`
+   `automated: node --experimental-strip-types --test tools/dashboard/tests/claude-provider.test.mjs`
+6. Live interactive questions work end-to-end via server-owned Streamable HTTP MCP endpoint without text heuristics;
+   cancellation and provider exit clear pending interaction gates; confirmations remain truthfully unsupported.
+   `automated: node --experimental-strip-types --test tools/dashboard/tests/claude-provider.test.mjs tools/dashboard/tests/interaction-bridge.test.mjs tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs`
 
 ## Verification
 
 ```text
-node --test tools/dashboard/tests/claude-provider.test.mjs tools/dashboard/tests/interaction-bridge.test.mjs tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs
+node --experimental-strip-types --test tools/dashboard/tests/claude-provider.test.mjs tools/dashboard/tests/interaction-bridge.test.mjs tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs
 ```

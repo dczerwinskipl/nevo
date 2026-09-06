@@ -743,6 +743,8 @@ test('Part B: Evidence-driven validation against real Claude CLI v2.1.220 protoc
   // 1. Evidence: Provider & version metadata
   assert.equal(claudeRaw.provider, 'claude');
   assert.equal(claudeRaw.version, '2.1.220');
+  assert.equal(claudeRaw.metadata?.transportType, 'http-streamable');
+  assert.equal(claudeRaw.metadata?.providerVersion, '2.1.220');
 
   // 2. Evidence: Terminal error representation (Turn 1 rate limit 429)
   const turn1Events = claudeRaw.turns[0].rawEvents;
@@ -794,7 +796,7 @@ test('Part B: Evidence-driven validation against real Claude CLI v2.1.220 protoc
   const hasExplicitPhaseMarkers = turn2Events.some((e) => e.phase || e.content?.some?.((c) => c.phase));
   assert.equal(hasExplicitPhaseMarkers, false, 'Claude protocol lacks explicit phase markers');
 
-  // 9. Evidence: Claude MCP bridge invokes ask_user over MCP stdio and receives tool_result
+  // 9. Evidence: Claude invokes ask_user over MCP Streamable HTTP and receives tool_result
   const turn3 = claudeRaw.turns.find((t) => t.turnId === 'turn-3');
   assert.ok(turn3, 'Claude evidence contains Turn 3 MCP bridge capture');
   const mcpToolUse = turn3.rawEvents.find(

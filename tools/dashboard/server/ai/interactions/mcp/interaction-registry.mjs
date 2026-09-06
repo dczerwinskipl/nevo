@@ -1,41 +1,71 @@
-import { AiError } from '../contracts.mjs';
+import { AiError } from '../../contracts.mjs';
 
 /**
- * Coordinates pending interactions between external bridge tools (such as MCP servers)
- * and the Nevo dashboard turn runtime.
+ * Manages short-lived turn correlation tokens and pending interaction waiters
+ * for server-owned MCP tools.
  */
-export class InteractionBridgeHub {
+export class McpInteractionRegistry {
   #pendingInteractions = new Map();
   #pendingByTurn = new Map();
   #pendingBySession = new Map();
   #activeTurns = new Map();
+  #activeTurnsByToken = new Map();
   #activeTurnsBySession = new Map();
 
   /**
-   * Registers an active turn allowing bridge requests to locate its requestInteraction context.
+   * Registers an active turn with a short-lived token and its requestInteraction context.
    */
-  registerActiveTurn(turnId, { provider, providerSessionId, bridgeToken, requestInteraction } = {}) {
+  registerActiveTurn(turnId, { token, provider = 'claude', providerSessionId, requestInteraction } = {}) {
     if (!turnId) {
       throw new TypeError('turnId is required');
     }
-    const entry = { turnId, provider, providerSessionId, bridgeToken, requestInteraction };
+    const entry = { turnId, token, provider, providerSessionId, requestInteraction };
     this.#activeTurns.set(turnId, entry);
+
+    if (token) {
+      this.#activeTurnsByToken.set(token, turnId);
+    }
     if (provider && providerSessionId) {
       this.#activeTurnsBySession.set(`${provider}:${providerSessionId}`, turnId);
     }
     return entry;
   }
 
-  unregisterActiveTurn(turnId) {
+  /**
+   * Unregisters an active turn and immediately rejects any orphaned pending interaction waiters.
+   */
+  unregisterActiveTurn(turnId, error) {
     const entry = this.#activeTurns.get(turnId);
-    if (entry) {
-      this.#activeTurns.delete(turnId);
-      if (entry.provider && entry.providerSessionId) {
-        this.#activeTurnsBySession.delete(`${entry.provider}:${entry.providerSessionId}`);
-      }
+    if (!entry) return;
+
+    if (entry.token) {
+      this.#activeTurnsByToken.delete(entry.token);
     }
+    if (entry.provider && entry.providerSessionId) {
+      this.#activeTurnsBySession.delete(`${entry.provider}:${entry.providerSessionId}`);
+    }
+    this.#activeTurns.delete(turnId);
+
+    // Any pending interactions for this turn must be terminated — no waiters may survive turn unregistration
+    const terminationError =
+      error ||
+      new AiError('AI_TURN_TERMINATED', 'The turn terminated while an interaction was pending.', { status: 409 });
+    this.cancelTurn(turnId, terminationError);
   }
 
+  /**
+   * Finds an active turn by its short-lived correlation token.
+   */
+  getActiveTurnByToken(token) {
+    if (!token) return null;
+    const turnId = this.#activeTurnsByToken.get(token);
+    if (!turnId) return null;
+    return this.#activeTurns.get(turnId) || null;
+  }
+
+  /**
+   * Finds an active turn by turnId or session.
+   */
   getActiveTurn({ turnId, provider, providerSessionId } = {}) {
     if (turnId) {
       const entry = this.#activeTurns.get(turnId);
@@ -54,7 +84,7 @@ export class InteractionBridgeHub {
   }
 
   /**
-   * Registers a pending bridge request awaiting a user response.
+   * Registers a pending MCP tool request awaiting a human user response in the dashboard.
    */
   registerPending(interactionId, { turnId, provider, providerSessionId } = {}) {
     if (!interactionId) {
@@ -124,67 +154,6 @@ export class InteractionBridgeHub {
     return true;
   }
 
-  /**
-   * Handles an incoming bridge ask request: converts to neutral question,
-   * calls requestInteraction on the active turn, and awaits the user's response.
-   */
-  async handleAsk({
-    provider,
-    providerSessionId,
-    turnId,
-    bridgeToken,
-    question,
-    header,
-    options,
-    multiSelect,
-  } = {}) {
-    const activeTurn = this.getActiveTurn({ turnId, provider, providerSessionId });
-    if (!activeTurn || typeof activeTurn.requestInteraction !== 'function') {
-      throw new AiError('AI_INTERACTION_NOT_FOUND', 'No active turn found for bridge request.', { status: 404 });
-    }
-
-    if (activeTurn.bridgeToken && activeTurn.bridgeToken !== bridgeToken) {
-      throw new AiError('AI_FORBIDDEN', 'Invalid or missing bridge token for active turn.', { status: 403 });
-    }
-
-    const questionText = String(question || '').trim();
-    if (!questionText) {
-      throw new AiError('AI_VALIDATION_ERROR', 'Question text is required for interaction bridge.', { status: 400 });
-    }
-
-    const formattedOptions =
-      Array.isArray(options) && options.length > 0
-        ? options.map((opt) => {
-            if (typeof opt === 'string') return { label: opt, description: opt };
-            return {
-              label: String(opt.label || opt.text || opt.title || ''),
-              description: String(opt.description || opt.desc || opt.label || opt.text || ''),
-            };
-          })
-        : undefined;
-
-    const neutral = {
-      kind: 'question',
-      questions: [
-        {
-          question: questionText,
-          ...(header ? { header: String(header) } : {}),
-          ...(formattedOptions ? { options: formattedOptions } : {}),
-          multiSelect: Boolean(multiSelect),
-        },
-      ],
-    };
-
-    const interaction = await activeTurn.requestInteraction(neutral, { resumePolicy: 'live-operation' });
-    this.registerPending(interaction.id, {
-      turnId: activeTurn.turnId,
-      provider: activeTurn.provider,
-      providerSessionId: activeTurn.providerSessionId,
-    });
-
-    return this.waitForResponse(interaction.id);
-  }
-
   cancelTurn(turnId, error = new AiError('AI_TURN_CANCELLED', 'The turn was cancelled.', { status: 409 })) {
     const interactionIds = this.#pendingByTurn.get(turnId);
     if (!interactionIds) return 0;
@@ -242,8 +211,9 @@ export class InteractionBridgeHub {
     this.#pendingByTurn.clear();
     this.#pendingBySession.clear();
     this.#activeTurns.clear();
+    this.#activeTurnsByToken.clear();
     this.#activeTurnsBySession.clear();
   }
 }
 
-export const interactionBridgeHub = new InteractionBridgeHub();
+export const mcpInteractionRegistry = new McpInteractionRegistry();

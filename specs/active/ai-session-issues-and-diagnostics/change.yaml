@@ -168,13 +168,14 @@ tasks:
       - lifecycle-coordinator-and-timeouts
     implementation:
       baseline_revision: 3b58aa48d9a20381057777ffeb5569a4fc7b61af
-      review_revision: 0b2e04b425690beb0aef4ca9080e14050270da99
+      review_revision: e32327ae99d9fe47a7de904030b558417a0df8a1
       changed_paths:
         - tools/dashboard/package-lock.json
         - tools/dashboard/package.json
-        - tools/dashboard/server/ai/bridge/interaction-bridge-hub.mjs
-        - tools/dashboard/server/ai/bridge/mcp-bridge-server.mjs
-        - tools/dashboard/server/ai/bridge/routes.mjs
+        - tools/dashboard/server/ai/interactions/mcp/index.mjs
+        - tools/dashboard/server/ai/interactions/mcp/interaction-registry.mjs
+        - tools/dashboard/server/ai/interactions/mcp/mcp-server.mjs
+        - tools/dashboard/server/ai/interactions/mcp/routes.mjs
         - tools/dashboard/server/ai/providers/claude/continuation-store.mjs
         - tools/dashboard/server/ai/providers/claude/hook.mjs
         - tools/dashboard/server/ai/providers/claude/provider.mjs
@@ -183,12 +184,13 @@ tasks:
         - tools/dashboard/tests/claude-provider.test.mjs
         - tools/dashboard/tests/fixtures/evidence/claude-evidence.json
         - tools/dashboard/tests/interaction-bridge.test.mjs
-      worktree_patch_fingerprint: 23ab965eba1246c2d77159f34410a0e4edf30ed4539347d2163d0e61ccf69bb7
+      worktree_patch_fingerprint: 64ab16b3c4de4f1edd2555a2ce519e76eefcb7f25f8a8f7faa92936b94d4b522
     self_check:
-      fingerprint: c8ef76f6939ba8ade8a814dd9f1a011a1949b1cc61f3626c129419d75b05e8a5
-      revision: 0b2e04b425690beb0aef4ca9080e14050270da99
+      fingerprint: c2e832641b539459297fb5c571b7aa6089bf81e2fb8ec41265c6fe2d2bc2e7e8
+      revision: e32327ae99d9fe47a7de904030b558417a0df8a1
       commands:
-        - command: node --test tools/dashboard/tests/claude-provider.test.mjs
+        - command: node --experimental-strip-types --test
+            tools/dashboard/tests/claude-provider.test.mjs
             tools/dashboard/tests/interaction-bridge.test.mjs
             tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs
           exit_code: 0
@@ -348,17 +350,18 @@ tasks:
       - semantic-work-chat-v2
     implementation:
       baseline_revision: ef2df9251514f8767786e03627d4e346d1eed33d
-      review_revision: 0b2e04b425690beb0aef4ca9080e14050270da99
+      review_revision: e32327ae99d9fe47a7de904030b558417a0df8a1
       changed_paths:
+        - tools/dashboard/tests/canonical-live-and-evidence-validation.test.mjs
         - tools/dashboard/tests/claude-provider.test.mjs
         - tools/dashboard/tests/cross-provider-conformance.test.mjs
         - tools/dashboard/tests/fixtures/cross-provider-long-timeline.json
         - tools/dashboard/tests/fixtures/evidence/claude-evidence.json
         - tools/dashboard/tests/interaction-bridge.test.mjs
-      worktree_patch_fingerprint: 894c1ea1c6da1abeb1b833e9682d21605e442191a0fe39d9704dae1c9de3e854
+      worktree_patch_fingerprint: be84dc15f382726af47678fac78d26a345cbe012fb0c0396affa1e4a0ea5bd47
     self_check:
-      fingerprint: 1f5e7fa199c827c0afae4ebe1cab934c481cd495ac6804f0cb4ac90d5d0958f2
-      revision: 0b2e04b425690beb0aef4ca9080e14050270da99
+      fingerprint: 7c0a27e6fbbf21bb194778faf94aefab9b391ac1af4428df44d2b703156efc5d
+      revision: e32327ae99d9fe47a7de904030b558417a0df8a1
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0

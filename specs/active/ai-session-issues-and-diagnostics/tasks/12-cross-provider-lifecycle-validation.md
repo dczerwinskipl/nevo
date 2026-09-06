@@ -50,8 +50,9 @@ Antigravity before cutover.
     enter `requiresAttention` or invent an `Interaction`.
   - A genuine provider/model state that actually blocks continuation waiting for user input must become
     canonical `Interaction + requiresAttention` where the provider supports structured questions:
-    Claude `AskUserQuestion`, Antigravity `ask_question` (or evidenced question events), and Codex
-    `requestUserInput` (or approval requests).
+    Claude `mcp__nevo__ask_user` (over server-owned Streamable HTTP MCP bridge) and Codex `requestUserInput`
+    (or approval requests), while Antigravity truthfully reports interactive questions unsupported under
+    the headless transport.
   - Never infer an `Interaction` from punctuation (`?`), regex, or free-form assistant text.
   - If a provider process/turn is observed blocking for user input without producing its supported
     structured Interaction, Task 12 must fail and reopen the owning provider mapping task
@@ -79,8 +80,9 @@ Antigravity before cutover.
 8. Textual question vs blocking interaction invariant: normal questions ending a Turn produce normal
    terminal assistant output without entering `requiresAttention`, while genuine blocking provider states
    produce canonical `Interaction + requiresAttention` via evidenced structured tools (Claude
-   `AskUserQuestion`, Antigravity `ask_question`, Codex `requestUserInput`) with zero text/punctuation
-   heuristics. A provider blocking without structured interaction fails conformance.
+   `mcp__nevo__ask_user`, Codex `requestUserInput`) with zero text/punctuation
+   heuristics, and Antigravity truthfully reports interactive questions unsupported without heuristic fallback.
+   A provider blocking without structured interaction fails conformance.
    `automated: npm --prefix tools/dashboard test`
 
 ## Verification

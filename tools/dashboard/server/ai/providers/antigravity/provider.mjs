@@ -11,7 +11,6 @@ import {
 } from '../../contracts.mjs';
 import { terminateChildProcess } from '../process-termination.mjs';
 import { DEFAULT_ANTIGRAVITY_PRINT_TIMEOUT_SECONDS } from '../config.mjs';
-import { interactionBridgeHub } from '../../bridge/interaction-bridge-hub.mjs';
 
 const WINDOWS_RESERVED_NAMES = new Set([
   'con',
@@ -1577,15 +1576,9 @@ export class AntigravityAgentProvider {
   }
 
   async respondInteraction(firstArg, interactionIdArg, responseArg) {
-    let interactionId = interactionIdArg;
     let response = responseArg;
     if (firstArg && typeof firstArg === 'object' && 'response' in firstArg) {
       response = firstArg.response;
-      interactionId = firstArg.interactionId;
-    }
-    if (interactionId && interactionBridgeHub.hasPending(interactionId)) {
-      interactionBridgeHub.resolveResponse(interactionId, response);
-      return { continuesTurn: true };
     }
     if (response?.kind === 'permission' || (!response?.answers && response?.decision)) {
       throw new CapabilityNotSupportedError('antigravity', 'interactivePermissions');
