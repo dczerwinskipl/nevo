@@ -12,7 +12,10 @@ import type {
 import { connectAgentEventStream, resolveEventSeq } from './agent-event-source.ts';
 import { fetchAgentSessionChat, classifySessionLoadError, AgentSessionLoadError } from './agent-session-transport.ts';
 import { postCancelTurn, postRespondInteraction, postStartTurn } from './agent-turn-transport.ts';
-import { createTurnIdempotencyKey } from './agent-event-reducer.ts';
+import { createTurnIdempotencyKey } from './idempotency-key.ts';
+import { applyTurnUpdated, deriveActivity, deriveSessionReadiness } from './agent-event-reducer.ts';
+
+export { applyTurnUpdated, deriveActivity, deriveSessionReadiness };
 
 export interface UseAgentSessionRuntimeOptions {
   provider: string;
@@ -23,33 +26,6 @@ export interface UseAgentSessionRuntimeOptions {
 
 function latestTurn(turns: CanonicalTurn[]): CanonicalTurn | null {
   return turns.length > 0 ? turns[turns.length - 1] : null;
-}
-
-/**
- * Applies one `turn.updated` SSE event to the current turns list — an identity-keyed
- * full-snapshot replace (append if unseen), never a delta merge. Exported as a pure
- * function so the correlation invariant (one turn.id, one entry, always current) is
- * independently testable without mounting the hook.
- */
-export function applyTurnUpdated(turns: CanonicalTurn[], updatedTurn: CanonicalTurn): CanonicalTurn[] {
-  const idx = turns.findIndex((t) => t.id === updatedTurn.id);
-  if (idx === -1) return [...turns, updatedTurn];
-  if (turns[idx] === updatedTurn) return turns;
-  const next = [...turns];
-  next[idx] = updatedTurn;
-  return next;
-}
-
-/**
- * Session-level activity, derived only from the latest Turn's own canonical `status`
- * field (owner-decisions.md D7 vocabulary) — never inferred from event absence or
- * elapsed time. Mirrors `sessions/service.mjs#resolveSessionActivity`'s coarse shape.
- */
-export function deriveActivity(turns: CanonicalTurn[]): AgentSessionStatus {
-  const turn = latestTurn(turns);
-  if (!turn || !turn.status || turn.status.status === 'terminal') return 'idle';
-  if (turn.status.status === 'requiresAttention') return 'waitingForUser';
-  return 'running';
 }
 
 /**
@@ -70,7 +46,7 @@ export function useAgentSessionRuntime({
 
   const [turns, setTurns] = useState<CanonicalTurn[]>([]);
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
-  const [readiness, setReadiness] = useState<SessionReadiness | null>(null);
+  const [baseReadiness, setBaseReadiness] = useState<SessionReadiness | null>(null);
   const [sessionMeta, setSessionMeta] = useState<AgentSessionChatPayload['session'] | null>(null);
   const [loadError, setLoadError] = useState<AgentSessionLoadError | null>(null);
   const [reloadTrigger, setReloadTrigger] = useState<number>(0);
@@ -124,7 +100,7 @@ export function useAgentSessionRuntime({
         // an empty start followed by event-by-event reconstruction.
         setTurns(payload.turns || []);
         setCapabilities(payload.session.capabilities || null);
-        setReadiness(payload.readiness || payload.session.readiness || null);
+        setBaseReadiness(payload.readiness || payload.session.readiness || null);
         setOptimisticPending(null);
         // Resume SSE from the snapshot's own cursor, never 0 — otherwise the browser
         // replays the entire historical event stream and visibly rebuilds Work counts
@@ -141,7 +117,7 @@ export function useAgentSessionRuntime({
           setSessionMeta(null);
           setTurns([]);
           setCapabilities(null);
-          setReadiness(null);
+          setBaseReadiness(null);
           setOptimisticPending(null);
 
           setLoadedIdentity(null);
@@ -228,8 +204,9 @@ export function useAgentSessionRuntime({
         throw new Error('Cannot start turn while the session snapshot is loading.');
       }
       if (loadError) throw new Error('Cannot start turn on a session with a load error.');
-      if (deriveActivity(turnsRef.current) !== 'idle') {
-        throw new Error(`Cannot start turn while session is ${deriveActivity(turnsRef.current)}.`);
+      const currentReadiness = deriveSessionReadiness(baseReadiness, turnsRef.current, Boolean(optimisticPending));
+      if (currentReadiness.status !== 'ready') {
+        throw new Error(`Cannot start turn while session is ${currentReadiness.status}.`);
       }
 
       const idempotencyKey = options?.idempotencyKey || createTurnIdempotencyKey();
@@ -250,7 +227,7 @@ export function useAgentSessionRuntime({
         throw normalized;
       }
     },
-    [provider, providerSessionId, loadedIdentity, loadError],
+    [provider, providerSessionId, loadedIdentity, loadError, baseReadiness, optimisticPending],
   );
 
   // 4. Cancel Turn
@@ -299,13 +276,16 @@ export function useAgentSessionRuntime({
     : null;
   const exposedActiveTurnId = exposedActiveTurn?.id ?? null;
   const exposedCapabilities = isSnapshotLoaded ? capabilities : null;
-  const exposedReadiness = isSnapshotLoaded ? readiness : null;
+  const exposedReadiness = isSnapshotLoaded
+    ? deriveSessionReadiness(baseReadiness, exposedTurns, Boolean(optimisticPending))
+    : null;
   const exposedSessionMeta = isSnapshotLoaded ? sessionMeta : null;
   const exposedSessionDetails: AgentSessionSnapshot | null =
     isSnapshotLoaded && sessionMeta
       ? ({
           ...sessionMeta,
           status: exposedActivity,
+          readiness: exposedReadiness ?? sessionMeta.readiness,
           turns: exposedTurns,
           lastEventSeq: sessionMeta.lastEventSeq ?? 0,
           updatedAt: sessionMeta.lastActivityAt ?? sessionMeta.createdAt,
@@ -319,12 +299,13 @@ export function useAgentSessionRuntime({
   const exposedIsReady = Boolean(
     isSnapshotLoaded &&
       !exposedLoadError &&
-      (exposedReadiness?.status ? exposedReadiness.status === 'ready' : exposedActivity === 'idle'),
+      exposedReadiness?.status === 'ready',
   );
   const exposedCanStartTurn = exposedIsReady;
   const latest = latestTurn(exposedTurns);
   const hasActiveTurn = Boolean(
-    (latest && latest.status?.status !== 'terminal') ||
+    optimisticPending ||
+      (latest && latest.status?.status !== 'terminal') ||
       exposedActiveTurnId ||
       exposedActivity === 'running' ||
       exposedActivity === 'waitingForUser' ||
@@ -334,8 +315,9 @@ export function useAgentSessionRuntime({
   const exposedCanCancelTurn = Boolean(
     exposedCapabilities?.cancelTurn &&
       hasActiveTurn &&
-      latest?.status.status !== 'cancelling' &&
-      exposedReadiness?.status !== 'unavailable',
+      latest?.status?.status !== 'cancelling' &&
+      exposedReadiness?.status !== 'unavailable' &&
+      exposedReadiness?.status !== 'readOnly',
   );
 
   return {

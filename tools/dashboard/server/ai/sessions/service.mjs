@@ -293,7 +293,6 @@ export class AgentSessionService {
           const { status, activeTurn, pendingInteraction } = this.resolveSessionActivity(transcript);
           const hasRecordedActivity = Boolean(
             transcript?.turns?.length ||
-            transcript?.messages?.length ||
             transcript?.lastEventSeq ||
             transcript?.activeTurn,
           );
@@ -464,7 +463,7 @@ export class AgentSessionService {
     if (this.transcriptCache) {
       return this.transcriptCache.getTranscript(provider, providerSessionId);
     }
-    return { messages: [], turns: [], lastEventSeq: 0 };
+    return { turns: [], lastEventSeq: 0 };
   }
 
   async startTurn(provider, providerSessionId, options = {}) {
@@ -567,10 +566,25 @@ export class AgentSessionService {
       { provider: prov, providerSessionId: sessId },
       {
         ...subscriptionOptions,
-        onEvent: (event) =>
-          onEvent(
-            event.type === 'turn.updated' && event.turn ? { ...event, turn: serializePublicTurn(event.turn) } : event,
-          ),
+        onEvent: (event) => {
+          if (event.type === 'turn.updated' && event.turn) {
+            const publicTurn = serializePublicTurn(event.turn);
+            const descriptor = this.registry?.has(prov) ? this.registry.get(prov).descriptor : undefined;
+            const isActive = publicTurn.status?.status !== 'terminal';
+            const readiness = resolveSessionReadiness({
+              descriptor,
+              activeTurn: isActive ? { turnId: publicTurn.id, status: publicTurn.status?.status } : null,
+              turnSnapshot: publicTurn,
+            });
+            onEvent({
+              ...event,
+              turn: publicTurn,
+              readiness,
+            });
+            return;
+          }
+          onEvent(event);
+        },
       },
     );
   }

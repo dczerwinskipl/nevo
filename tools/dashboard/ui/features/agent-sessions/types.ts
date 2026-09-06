@@ -344,31 +344,15 @@ export interface AgentSessionChatPayload {
 }
 
 export interface AgentEvent {
-  id: number;
-  seq: number;
+  id?: number;
+  seq?: number;
   type: string;
   turnId?: string;
-  timestamp: string;
-  messageId?: string;
-  progressId?: string;
-  text?: string;
-  delta?: string;
-  toolId?: string;
-  toolName?: string;
-  input?: unknown;
-  output?: unknown;
-  status?: string;
-  durationMs?: number;
-  tokensIn?: number;
-  tokensOut?: number;
-  cost?: number;
-  interaction?: AgentInteraction;
-  interactionId?: string;
-  response?: unknown;
-  finishReason?: string;
-  userPrompt?: string;
-  userMessage?: { id?: string; role?: string; text?: string; createdAt?: string };
-  error?: { code: string; message: string };
+  timestamp?: string;
   /** `turn.updated` payload — the full canonical Turn snapshot. */
   turn?: CanonicalTurn;
+  /** Authoritative session readiness, synchronized with turn.updated. */
+  readiness?: SessionReadiness;
+  error?: { code: string; message: string };
 }
+

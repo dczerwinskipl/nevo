@@ -497,6 +497,7 @@ export function validateAgentEvent(value) {
       return {
         ...base,
         ...(value.turn ? { turn: validateCanonicalTurn(value.turn) } : {}),
+        ...(value.readiness ? { readiness: value.readiness } : {}),
       };
 
     default:

@@ -1,44 +1,131 @@
-import type { AgentEvent, AgentSessionSnapshot, AgentSessionStatus } from '../types.ts';
+import type { AgentSessionStatus, CanonicalTurn, SessionReadiness } from '../types.ts';
+import { createTurnIdempotencyKey } from './idempotency-key.ts';
 
-export function createTurnIdempotencyKey(prefix = 'turn'): string {
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).slice(2, 10);
-  return `${prefix}-${timestamp}-${random}`;
+export { createTurnIdempotencyKey };
+
+function latestTurn(turns: CanonicalTurn[]): CanonicalTurn | null {
+  return turns.length > 0 ? turns[turns.length - 1] : null;
 }
 
+/**
+ * Applies one `turn.updated` SSE event to the current turns list — an identity-keyed
+ * full-snapshot replace (append if unseen), never a delta merge.
+ */
+export function applyTurnUpdated(turns: CanonicalTurn[], updatedTurn: CanonicalTurn): CanonicalTurn[] {
+  const idx = turns.findIndex((t) => t.id === updatedTurn.id);
+  if (idx === -1) return [...turns, updatedTurn];
+  if (turns[idx] === updatedTurn) return turns;
+  const next = [...turns];
+  next[idx] = updatedTurn;
+  return next;
+}
 
 /**
- * Determines whether an incoming AgentEvent changes visible transcript content.
- * Used to increment contentRevision for useScrollFollow without triggering on
- * telemetry (usage.updated) or metadata-only events.
+ * Session-level activity, derived only from the latest Turn's own canonical `status`
+ * field — never inferred from event absence or elapsed time.
  */
-export function eventModifiesTranscriptContent(event: AgentEvent): boolean {
-  switch (event.type) {
-    case 'text.delta':
-      return Boolean(event.text || event.delta);
-    case 'reasoning.delta':
-      return Boolean(event.text);
-    case 'tool.started':
-    case 'tool.updated':
-    case 'tool.completed':
-      return true;
-    case 'turn.started':
-      return Boolean(event.userMessage?.text || event.userPrompt);
-    case 'turn.completed':
-    case 'turn.failed':
-    case 'interaction.requested':
-    case 'interaction.resolved':
-      return true;
-    default:
-      return false;
+export function deriveActivity(turns: CanonicalTurn[]): AgentSessionStatus {
+  const turn = latestTurn(turns);
+  if (!turn || !turn.status || turn.status.status === 'terminal') return 'idle';
+  if (turn.status.status === 'requiresAttention') return 'waitingForUser';
+  return 'running';
+}
+
+/**
+ * Derives canonical session readiness reactively from base session health,
+ * current canonical turns, and optimistic send state.
+ *
+ * Precedence:
+ * 1. Static base health (`unavailable` on corrupt persistence, `readOnly` on disabled provider)
+ * 2. Optimistic send in progress (`busy`, `turn_in_progress`)
+ * 3. Latest turn requiring attention (`requiresAttention`, `question_required` | `permission_required`)
+ * 4. Latest turn active (`busy`, `turn_in_progress`)
+ * 5. Idle / all turns terminal (`ready`, `idle`)
+ */
+export function deriveSessionReadiness(
+  baseReadiness: SessionReadiness | null | undefined,
+  turns: CanonicalTurn[],
+  optimisticPending = false,
+): SessionReadiness {
+  if (baseReadiness?.status === 'unavailable' || baseReadiness?.status === 'readOnly') {
+    return baseReadiness;
   }
+
+  if (optimisticPending) {
+    return {
+      status: 'busy',
+      reason: 'turn_in_progress',
+    };
+  }
+
+  const turn = latestTurn(turns);
+  if (!turn || !turn.status || turn.status.status === 'terminal') {
+    return {
+      status: 'ready',
+      reason: 'idle',
+    };
+  }
+
+  if (turn.status.status === 'requiresAttention') {
+    const interactionWork = turn.work?.find(
+      (w): w is Extract<typeof w, { type: 'interaction' }> => w.type === 'interaction' && w.status === 'pending',
+    );
+    const anyTurn = turn as unknown as { pendingInteraction?: { id?: string; kind?: string } };
+    const interaction = anyTurn.pendingInteraction || interactionWork?.interaction;
+    const isQuestion =
+      turn.status.reason === 'question' || interaction?.kind === 'question';
+    return {
+      status: 'requiresAttention',
+      reason: isQuestion ? 'question_required' : 'permission_required',
+      details: {
+        interactionId: turn.status.interactionId || interaction?.id,
+        kind: interaction?.kind || (isQuestion ? 'question' : 'permission'),
+      },
+    };
+  }
+
+  return {
+    status: 'busy',
+    reason: 'turn_in_progress',
+    details: { turnId: turn.id },
+  };
+}
+
+/**
+ * Checks whether a normal new turn may be started.
+ * A new turn may only be started when the session readiness is 'ready'.
+ */
+export function canStartTurn(
+  readinessOrActivity?: SessionReadiness | AgentSessionStatus | null,
+  provider?: string,
+  providerSessionId?: string,
+  messageText?: string,
+): boolean {
+  if (messageText !== undefined && !messageText.trim()) return false;
+  if (provider !== undefined && !provider) return false;
+  if (providerSessionId !== undefined && !providerSessionId) return false;
+  if (!readinessOrActivity) return false;
+  if (typeof readinessOrActivity === 'string') {
+    return readinessOrActivity === 'idle';
+  }
+  return readinessOrActivity.status === 'ready';
+}
+
+/**
+ * Checks whether a turn error should be surfaced to the user as an error toast.
+ * Intentional user cancellations (AI_TURN_CANCELLED) are quiet terminations.
+ */
+export function shouldSurfaceTurnError(error?: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  if (error.code === 'AI_TURN_CANCELLED') return false;
+  return true;
 }
 
 /**
  * Resolves authoritative session activity from a snapshot.
  */
 export function resolveSnapshotActivity(
-  snapshot: Pick<AgentSessionSnapshot, 'status' | 'pendingInteraction' | 'activeTurn'>,
+  snapshot: { status?: AgentSessionStatus; pendingInteraction?: unknown; activeTurn?: unknown },
 ): AgentSessionStatus {
   if (snapshot.status === 'running' || snapshot.status === 'waitingForUser' || snapshot.status === 'idle') {
     return snapshot.status;
@@ -49,93 +136,10 @@ export function resolveSnapshotActivity(
 }
 
 /**
- * Checks whether a normal new turn may be started via composer.
- * A new turn may only be started when the session is completely 'idle'.
+ * Checks whether an error during cancellation should be surfaced.
+ * If the turn already reached a terminal state, cancel errors are suppressed.
  */
-export function canStartTurn(
-  activity: AgentSessionStatus,
-  provider?: string,
-  providerSessionId?: string,
-  messageText?: string,
-): boolean {
-  if (!messageText || !messageText.trim()) return false;
-  if (activity !== 'idle') return false;
-  if (!provider || !providerSessionId) return false;
-  return true;
-}
-
-export interface ApplyCancelTurnResponseParams {
-  turnId: string;
-  response: { ok: boolean; status?: number };
-  errorData?: { error?: { message?: string }; message?: string } | null;
-  currentActiveTurnId: string | null;
-  currentActivity: 'idle' | 'running' | 'waitingForUser';
-  terminalTurnIds: Set<string>;
-}
-
-export interface ApplyCancelTurnResponseResult {
-  nextActivity: 'idle' | 'running' | 'waitingForUser';
-  nextActiveTurnId: string | null;
-  terminalTurnIds: Set<string>;
-  error?: Error;
-}
-
 export function shouldSurfaceCancelError(turnId: string, terminalTurnIds: Set<string>): boolean {
   return !terminalTurnIds.has(turnId);
 }
 
-export function shouldSurfaceTurnError(error?: { code?: string; message?: string } | null): boolean {
-  if (!error) return false;
-  // Explicit cancellation by user (Stop) is an intentional termination, not an unexpected error toast
-  if (error.code === 'AI_TURN_CANCELLED') return false;
-  return true;
-}
-
-export function applyCancelTurnResponse({
-  turnId,
-  response,
-  errorData,
-  currentActiveTurnId,
-  currentActivity,
-  terminalTurnIds,
-}: ApplyCancelTurnResponseParams): ApplyCancelTurnResponseResult {
-  // If the turn already became terminal (e.g. terminal SSE arrived while cancel was in flight),
-  // suppress any stale cancel responses (HTTP 200, 409, 500, etc.) without surfacing errors
-  // or resurrecting/altering state.
-  if (!shouldSurfaceCancelError(turnId, terminalTurnIds)) {
-    return {
-      nextActivity: currentActivity,
-      nextActiveTurnId: currentActiveTurnId,
-      terminalTurnIds,
-    };
-  }
-
-  if (!response.ok) {
-    const message =
-      errorData?.error?.message || errorData?.message || `Failed to cancel turn (${response.status || 'unknown'})`;
-    return {
-      nextActivity: currentActivity,
-      nextActiveTurnId: currentActiveTurnId,
-      terminalTurnIds,
-      error: new Error(message),
-    };
-  }
-
-  terminalTurnIds.add(turnId);
-
-  // Race-safety check: If terminal SSE arrived before this POST response completed,
-  // currentActiveTurnId was already cleared / transitioned to idle.
-  if (currentActiveTurnId === turnId && currentActivity === 'running') {
-    return {
-      nextActivity: 'idle',
-      nextActiveTurnId: null,
-      terminalTurnIds,
-    };
-  }
-
-  return {
-    nextActivity: currentActivity,
-    nextActiveTurnId: currentActiveTurnId,
-    terminalTurnIds,
-  };
-}

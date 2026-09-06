@@ -5,8 +5,9 @@ import { fileURLToPath } from 'node:url';
 import {
   resolveSnapshotActivity,
   canStartTurn,
-  eventModifiesTranscriptContent,
-  applyCancelTurnResponse,
+  deriveSessionReadiness,
+  deriveActivity,
+  applyTurnUpdated,
   shouldSurfaceCancelError,
   shouldSurfaceTurnError,
 } from '../ui/features/agent-sessions/runtime/agent-event-reducer.ts';
@@ -74,40 +75,115 @@ test('Issue 3: canStartTurn prohibits normal send when session is waitingForUser
   assert.equal(canStartTurn('idle', provider, sessionId, '   '), false);
 });
 
-test('Issue 2: eventModifiesTranscriptContent catches tool output changes while running and ignores telemetry', () => {
-  // tool.updated with output changed while status remains running and duration unchanged
-  const toolUpdatedEvent = {
-    id: 1,
-    seq: 1,
-    type: 'tool.updated',
-    toolId: 'tool-1',
-    status: 'running',
-    output: 'Streaming 100 new lines of log output...',
-    timestamp: '2026-08-23T12:00:00.000Z',
+test('Live readiness transition: ready -> running -> terminal', () => {
+  // 1. Initial ready state: no turns, baseReadiness healthy
+  let turns = [];
+  let optimisticPending = false;
+  const baseReadiness = { status: 'ready', reason: 'idle' };
+
+  let readiness = deriveSessionReadiness(baseReadiness, turns, optimisticPending);
+  assert.equal(readiness.status, 'ready');
+  assert.equal(canStartTurn(readiness), true);
+  assert.equal(deriveActivity(turns), 'idle');
+
+  // 2. User sends turn -> optimistic pending becomes true immediately
+  optimisticPending = true;
+  readiness = deriveSessionReadiness(baseReadiness, turns, optimisticPending);
+  assert.equal(readiness.status, 'busy', 'Optimistic send immediately transitions readiness to busy');
+  assert.equal(canStartTurn(readiness), false, 'Composer must be disabled while turn is in progress');
+
+  // 3. Authoritative turn.updated arrives with running status
+  const runningTurn = {
+    id: 'turn-100',
+    status: { status: 'active', initiator: 'user', since: '2026-09-06T12:00:00.000Z' },
+    userMessage: { text: 'Analyze codebase' },
+    work: [],
   };
-  assert.equal(eventModifiesTranscriptContent(toolUpdatedEvent), true, 'Tool output update triggers content revision');
+  turns = applyTurnUpdated(turns, runningTurn);
+  optimisticPending = false;
 
-  // tool.started, tool.completed, text.delta
-  assert.equal(
-    eventModifiesTranscriptContent({ id: 2, seq: 2, type: 'tool.started', toolId: 't2', timestamp: '' }),
-    true,
-  );
-  assert.equal(
-    eventModifiesTranscriptContent({ id: 3, seq: 3, type: 'tool.completed', toolId: 't2', timestamp: '' }),
-    true,
-  );
-  assert.equal(
-    eventModifiesTranscriptContent({ id: 4, seq: 4, type: 'text.delta', delta: 'Hello', timestamp: '' }),
-    true,
-  );
-  assert.equal(eventModifiesTranscriptContent({ id: 5, seq: 5, type: 'interaction.requested', timestamp: '' }), true);
-  assert.equal(eventModifiesTranscriptContent({ id: 6, seq: 6, type: 'interaction.resolved', timestamp: '' }), true);
+  readiness = deriveSessionReadiness(baseReadiness, turns, optimisticPending);
+  assert.equal(readiness.status, 'busy');
+  assert.equal(readiness.details?.turnId, 'turn-100');
+  assert.equal(canStartTurn(readiness), false);
+  assert.equal(deriveActivity(turns), 'running');
 
-  // Telemetry (usage.updated) does NOT increment content revision
-  assert.equal(
-    eventModifiesTranscriptContent({ id: 7, seq: 7, type: 'usage.updated', tokensIn: 100, timestamp: '' }),
-    false,
-  );
+  // 4. Authoritative turn.updated arrives with terminal status
+  const completedTurn = {
+    ...runningTurn,
+    status: { status: 'terminal', outcome: 'completed', initiator: 'provider', since: '2026-09-06T12:01:00.000Z' },
+  };
+  turns = applyTurnUpdated(turns, completedTurn);
+
+  readiness = deriveSessionReadiness(baseReadiness, turns, optimisticPending);
+  assert.equal(readiness.status, 'ready', 'Readiness immediately transitions to ready upon terminal turn');
+  assert.equal(canStartTurn(readiness), true, 'Composer is re-enabled');
+  assert.equal(deriveActivity(turns), 'idle');
+});
+
+test('Live readiness transition: running -> requiresAttention', () => {
+  const baseReadiness = { status: 'ready', reason: 'idle' };
+  let turns = [
+    {
+      id: 'turn-101',
+      status: { status: 'active', initiator: 'user', since: '2026-09-06T12:00:00.000Z' },
+      userMessage: { text: 'Run migration' },
+      work: [],
+    },
+  ];
+
+  let readiness = deriveSessionReadiness(baseReadiness, turns, false);
+  assert.equal(readiness.status, 'busy');
+  assert.equal(deriveActivity(turns), 'running');
+
+  // Turn requests user confirmation/question via MCP ask_user or native interaction
+  const attentionTurn = {
+    ...turns[0],
+    status: { status: 'requiresAttention', initiator: 'provider', since: '2026-09-06T12:00:10.000Z' },
+    pendingInteraction: {
+      id: 'int-q1',
+      kind: 'question',
+      prompt: 'Proceed with destructive schema migration?',
+    },
+  };
+  turns = applyTurnUpdated(turns, attentionTurn);
+
+  readiness = deriveSessionReadiness(baseReadiness, turns, false);
+  assert.equal(readiness.status, 'requiresAttention', 'Readiness transitions immediately to requiresAttention');
+  assert.equal(readiness.reason, 'question_required');
+  assert.equal(readiness.details?.interactionId, 'int-q1');
+  assert.equal(canStartTurn(readiness), false, 'Composer cannot start a new turn while interaction is pending');
+  assert.equal(deriveActivity(turns), 'waitingForUser');
+});
+
+test('Live readiness transition: requiresAttention -> continuation', () => {
+  const baseReadiness = { status: 'ready', reason: 'idle' };
+  let turns = [
+    {
+      id: 'turn-102',
+      status: { status: 'requiresAttention', initiator: 'provider', since: '2026-09-06T12:00:10.000Z' },
+      pendingInteraction: { id: 'int-q2', kind: 'question', prompt: 'Which option?' },
+      userMessage: { text: 'Migrate' },
+      work: [],
+    },
+  ];
+
+  assert.equal(deriveSessionReadiness(baseReadiness, turns, false).status, 'requiresAttention');
+  assert.equal(deriveActivity(turns), 'waitingForUser');
+
+  // Interaction is answered, turn resumes execution
+  const resumedTurn = {
+    ...turns[0],
+    status: { status: 'active', initiator: 'provider', since: '2026-09-06T12:00:20.000Z' },
+    pendingInteraction: null,
+  };
+  turns = applyTurnUpdated(turns, resumedTurn);
+
+  const readiness = deriveSessionReadiness(baseReadiness, turns, false);
+  assert.equal(readiness.status, 'busy', 'Readiness resumes busy status during continuation');
+  assert.equal(readiness.reason, 'turn_in_progress');
+  assert.equal(deriveActivity(turns), 'running');
+  assert.equal(canStartTurn(readiness), false);
 });
 
 
@@ -163,132 +239,78 @@ test('Issue 2 & Race Safety: Terminal SSE before POST response never leaves stal
   assert.equal(activeTurnId, null, 'Turn 2 does not inherit stale turn-1 ID');
 });
 
-test('Cancel Turn: HTTP 500 error preserves running state and activeTurnId, surfaces error, and remains retryable', () => {
-  let activity = 'running';
-  let activeTurnId = 'turn-123';
-  const terminalTurnIds = new Set();
+test('Live readiness transition: cancel -> terminal -> ready', () => {
+  const baseReadiness = { status: 'ready', reason: 'idle' };
+  let turns = [
+    {
+      id: 'turn-103',
+      status: { status: 'active', initiator: 'user', since: '2026-09-06T12:00:00.000Z' },
+      userMessage: { text: 'Long task' },
+      work: [],
+    },
+  ];
 
-  // 1. Cancel fails with HTTP 500
-  const failResult = applyCancelTurnResponse({
-    turnId: 'turn-123',
-    response: { ok: false, status: 500 },
-    errorData: { error: { message: 'Internal server error while interrupting provider' } },
-    currentActiveTurnId: activeTurnId,
-    currentActivity: activity,
-    terminalTurnIds,
-  });
+  assert.equal(deriveSessionReadiness(baseReadiness, turns, false).status, 'busy');
 
-  assert.equal(failResult.nextActivity, 'running', 'Activity must remain running on HTTP 500');
-  assert.equal(failResult.nextActiveTurnId, 'turn-123', 'activeTurnId must remain intact for retry');
-  assert.equal(terminalTurnIds.has('turn-123'), false, 'turnId must NOT be added to terminalTurnIds');
-  assert.ok(failResult.error instanceof Error);
-  assert.match(failResult.error.message, /Internal server error/);
+  // User cancels turn; server cancels and emits terminal snapshot with outcome cancelled
+  const cancelledTurn = {
+    ...turns[0],
+    status: {
+      status: 'terminal',
+      outcome: 'cancelled',
+      error: { code: 'AI_TURN_CANCELLED', message: 'The turn was cancelled by the user.' },
+      initiator: 'user',
+      since: '2026-09-06T12:00:05.000Z',
+    },
+  };
+  turns = applyTurnUpdated(turns, cancelledTurn);
 
-  // 2. Subsequent retry with success transitions to idle
-  const retryResult = applyCancelTurnResponse({
-    turnId: 'turn-123',
-    response: { ok: true, status: 200 },
-    errorData: null,
-    currentActiveTurnId: failResult.nextActiveTurnId,
-    currentActivity: failResult.nextActivity,
-    terminalTurnIds,
-  });
-
-  assert.equal(retryResult.nextActivity, 'idle');
-  assert.equal(retryResult.nextActiveTurnId, null);
-  assert.equal(terminalTurnIds.has('turn-123'), true);
+  const readiness = deriveSessionReadiness(baseReadiness, turns, false);
+  assert.equal(readiness.status, 'ready', 'Readiness returns to ready immediately after cancellation');
+  assert.equal(deriveActivity(turns), 'idle');
+  assert.equal(canStartTurn(readiness), true, 'Composer is re-enabled');
+  assert.equal(shouldSurfaceTurnError(cancelledTurn.status.error), false, 'Cancellation does not surface error toast');
 });
 
-test('Cancel Turn: HTTP 409 conflict error preserves running state and surfaces error', () => {
-  let activity = 'running';
-  let activeTurnId = 'turn-456';
-  const terminalTurnIds = new Set();
+test('Live readiness transition: initial busy -> terminal -> ready without page reload', () => {
+  // Session opened while a turn is already executing on the server
+  const baseReadiness = { status: 'busy', reason: 'turn_in_progress' };
+  let turns = [
+    {
+      id: 'turn-104',
+      status: { status: 'active', initiator: 'user', since: '2026-09-06T12:00:00.000Z' },
+      userMessage: { text: 'In flight' },
+      work: [],
+    },
+  ];
 
-  const conflictResult = applyCancelTurnResponse({
-    turnId: 'turn-456',
-    response: { ok: false, status: 409 },
-    errorData: { error: { message: 'Turn is in uncancelable state' } },
-    currentActiveTurnId: activeTurnId,
-    currentActivity: activity,
-    terminalTurnIds,
-  });
+  let readiness = deriveSessionReadiness(baseReadiness, turns, false);
+  assert.equal(readiness.status, 'busy');
+  assert.equal(canStartTurn(readiness), false);
 
-  assert.equal(conflictResult.nextActivity, 'running');
-  assert.equal(conflictResult.nextActiveTurnId, 'turn-456');
-  assert.equal(terminalTurnIds.has('turn-456'), false);
-  assert.ok(conflictResult.error instanceof Error);
-  assert.match(conflictResult.error.message, /Turn is in uncancelable state/);
+  // Live SSE turn.updated arrives completing the turn
+  const completedTurn = {
+    ...turns[0],
+    status: { status: 'terminal', outcome: 'completed', initiator: 'provider', since: '2026-09-06T12:02:00.000Z' },
+  };
+  turns = applyTurnUpdated(turns, completedTurn);
+
+  readiness = deriveSessionReadiness(baseReadiness, turns, false);
+  assert.equal(readiness.status, 'ready', 'Transition from initial busy to ready does not require page reload');
+  assert.equal(canStartTurn(readiness), true);
 });
 
-test('Cancel Turn: Successful cancel transitions to idle, clears activeTurnId, and updates terminalTurnIds', () => {
-  let activity = 'running';
-  let activeTurnId = 'turn-789';
-  const terminalTurnIds = new Set();
+test('Static health overrides turn state: corrupt persistence and disabled provider', () => {
+  const corruptReadiness = { status: 'unavailable', reason: 'persistence_corrupt' };
+  const readOnlyReadiness = { status: 'readOnly', reason: 'provider_disabled' };
 
-  const successResult = applyCancelTurnResponse({
-    turnId: 'turn-789',
-    response: { ok: true, status: 200 },
-    errorData: null,
-    currentActiveTurnId: activeTurnId,
-    currentActivity: activity,
-    terminalTurnIds,
-  });
+  // Even with no turns or terminal turns, corrupt persistence remains unavailable
+  assert.equal(deriveSessionReadiness(corruptReadiness, []).status, 'unavailable');
+  assert.equal(canStartTurn(corruptReadiness), false);
 
-  assert.equal(successResult.nextActivity, 'idle');
-  assert.equal(successResult.nextActiveTurnId, null);
-  assert.equal(terminalTurnIds.has('turn-789'), true);
-});
-
-test('Cancel Turn: Race where turn.failed SSE arrives before late HTTP 409 response', () => {
-  let activity = 'running';
-  let activeTurnId = 'turn-race-409';
-  const terminalTurnIds = new Set();
-
-  // 1. SSE turn.failed arrives first
-  terminalTurnIds.add('turn-race-409');
-  activity = 'idle';
-  activeTurnId = null;
-
-  // 2. Late HTTP 409 response arrives
-  const lateResult = applyCancelTurnResponse({
-    turnId: 'turn-race-409',
-    response: { ok: false, status: 409 },
-    errorData: { error: { message: 'Cannot cancel finished turn' } },
-    currentActiveTurnId: activeTurnId,
-    currentActivity: activity,
-    terminalTurnIds,
-  });
-
-  assert.equal(lateResult.nextActivity, 'idle', 'Activity must remain idle');
-  assert.equal(lateResult.nextActiveTurnId, null);
-  assert.equal(lateResult.error, undefined, 'Must NOT return or surface an error for a stale cancel response');
-  assert.equal(terminalTurnIds.has('turn-race-409'), true);
-});
-
-test('Cancel Turn: Race where turn.completed SSE arrives before late HTTP 500 response', () => {
-  let activity = 'running';
-  let activeTurnId = 'turn-race-500';
-  const terminalTurnIds = new Set();
-
-  // 1. SSE turn.completed arrives first
-  terminalTurnIds.add('turn-race-500');
-  activity = 'idle';
-  activeTurnId = null;
-
-  // 2. Late HTTP 500 response arrives
-  const lateResult = applyCancelTurnResponse({
-    turnId: 'turn-race-500',
-    response: { ok: false, status: 500 },
-    errorData: { error: { message: 'Internal server error' } },
-    currentActiveTurnId: activeTurnId,
-    currentActivity: activity,
-    terminalTurnIds,
-  });
-
-  assert.equal(lateResult.nextActivity, 'idle', 'Activity must remain idle');
-  assert.equal(lateResult.nextActiveTurnId, null);
-  assert.equal(lateResult.error, undefined, 'Must NOT return or surface an error for a stale cancel response');
-  assert.equal(terminalTurnIds.has('turn-race-500'), true);
+  // Disabled provider remains readOnly
+  assert.equal(deriveSessionReadiness(readOnlyReadiness, []).status, 'readOnly');
+  assert.equal(canStartTurn(readOnlyReadiness), false);
 });
 
 test('Cancel Turn: shouldSurfaceCancelError behaviorally suppresses late network errors after terminal SSE', () => {
@@ -625,8 +647,6 @@ test('BLOCKING: Action/error lifecycle: Cancel and interaction retry clear previ
 });
 
 // ── task 11 (semantic Work chat V2), AC6: V1/V2 switch never mutates/cancels runtime state ──
-
-import { deriveActivity } from '../ui/features/agent-sessions/runtime/agent-session-runtime.ts';
 
 function turn(status) {
   return { id: 't1', status, work: [], historicalWork: [], activityCount: 0, currentActivity: null, finalAnswer: null };

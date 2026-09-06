@@ -19,7 +19,6 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
-    "@assistant-ui/react": "^0.15.14",
     "@fastify/autoload": "^6.5.0",
     "@fastify/sse": "^0.6.0",
     "@fastify/static": "^10.1.3",

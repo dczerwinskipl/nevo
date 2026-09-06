@@ -2,10 +2,9 @@ import type { AgentExecutionMode } from '../types.ts';
 
 /**
  * Raw HTTP transport for the three turn/interaction mutations the assistant runtime
- * hook issues against an already-loaded session. Kept framework-free (no React, no
- * @assistant-ui/react) so each call's request shape and error-normalization can be
- * unit-tested independently of the hook's state orchestration (area
- * ai-assistant-chat-and-runtime-feature-slice, task 07).
+ * hook issues against an already-loaded session. Kept framework-free (no React)
+ * so each call's request shape and error-normalization can be unit-tested
+ * independently of the hook's state orchestration.
  */
 
 export async function postStartTurn(
