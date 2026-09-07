@@ -31,20 +31,31 @@ the full source-control capability boundary that action sits on top of — see D
 ```yaml
 sourceControl:
   enabled: true
-  git:
-    enabled: true
-    push: true
+  push: true
   remote:
     enabled: true
     provider: github
 ```
 
-Source control, local push, and the remote provider are each independently
-enable/disable-able. The exact schema location (workflow definition file vs. per-change
-manifest) is a Task 04 implementation decision; the semantics above (independent
-enable/disable at each level, explicit provider naming when remote operations are
-enabled) are fixed by D12/C13. If source control is disabled, the commit/push action
-contributes no `requiredInputs` to a step's aggregated finish contract.
+Hierarchical, not three independent flags — `sourceControl.enabled` gates everything;
+`push` (meaningful only when `sourceControl.enabled: true`) controls whether commits are
+pushed; `remote.enabled`/`remote.provider` (meaningful only when `push: true`) controls
+whether provider-specific capability is available. The earlier sketch's separate
+`git.enabled` is removed — it added no capability beyond `sourceControl.enabled`. The
+four cases this must make unambiguous (D12 correction):
+
+| Case | Configuration |
+|---|---|
+| No automation | `sourceControl.enabled: false` |
+| Local commit, no push | `enabled: true, push: false` (`remote.enabled` must be `false`/absent) |
+| Commit + push, no provider | `enabled: true, push: true, remote.enabled: false` |
+| Commit + push + GitHub provider | `enabled: true, push: true, remote: { enabled: true, provider: github }` |
+
+`remote.enabled: true` with `push: false` is invalid and must be rejected or normalized
+to `false`. The exact schema *location* (workflow definition file vs. per-change
+manifest) is a Task 04 implementation decision; the field semantics above are fixed by
+D12/C13. If source control is disabled, the commit/push action contributes no
+`requiredInputs` to a step's aggregated finish contract.
 
 ## Concrete Action: Source-Control Commit/Push (`tools/specs/workflow/actions/commit-and-push.mjs`)
 
@@ -110,8 +121,16 @@ implementation:
   nothing.
 - **Scenario C (Gate Inspection):** Run `inspect` on exit gates (as part of `step start`'s
   aggregation); verify gate metadata and requirements are returned without executing tests.
-- **Scenario D (Gate Enforcement):** Attempt `workflow step finish` while human
-  verification is unrecorded; verify the transition is blocked.
+- **Scenario D (Gate Enforcement, Terminal-Only Operator Flow):** Attempt `workflow step
+  finish` while human verification is unrecorded; verify it reports the blocked
+  human-verification gate (never partially mutating). Then run the distinct operator
+  command `workflow verify-human <change> <task> --confirm`; verify the gate is satisfied
+  only after this explicit, agent-inaccessible confirmation — never via the agent's own
+  `step start`/`step finish` calls. A subsequent `workflow step finish` then proceeds past
+  the gate. This entire sequence — `step start` → work → `step finish` (blocked) →
+  `verify-human --confirm` → `step finish` (completes) — is driven using only these
+  public CLI commands, with no manual mutation of specification files and no direct
+  invocation of internal gate/action APIs.
 - **Scenario E (Fail-Closed Execution / `input-required`):** Run `workflow step finish`
   without explicit `include` or `commit.title`; verify it returns `status: "input-required"`
   with zero mutation, never a partial commit.

@@ -85,8 +85,9 @@
 - **Decision:** The normal agent flow is exactly `workflow step start <change> [task]` → bounded work → `workflow step finish <change> [task]`. The runtime resolves the current step from `change`/`task` state without requiring an explicit step id in the common case; explicit step ids remain available for diagnostics/manual override. The agent never discovers or orchestrates individual actions, gates, Git/`gh` commands, or transition rules itself.
 - **Rationale:** Nevo owns the process; the agent owns only the bounded work and the semantic inputs the workflow asks for. A chatty, primitive-level protocol reintroduces the same orchestration burden this specification exists to remove.
 - **Consequences:** `next-step`/`execute-step` from the original Task 06/07 design are superseded before ever being implemented — `step start`/`step finish` are the real CLI surface; internal step-runner/engine primitives (`checkStep`, `executeStep`, gate `inspect`/`verify`) remain and are composed *underneath* the two-call surface, not exposed as separate agent-facing commands.
-- **Date:** 2026-09-07
-- **Affected artifacts:** `overview.md`, `areas/workflow-engine-and-next-step.md`, tasks 06, 07
+- **Clarification (2026-09-08) — explicit agent vs. operator surface:** This decision governs the *agent*-facing surface only. A distinct *operator*-facing surface exists for human sign-off: `workflow verify-human <change> <task> --confirm` (already described under the gates architecture, D5/C8). This command is never folded into the agent's two calls and is never something the agent workflow itself can invoke to self-satisfy a human gate. When a human-verification exit gate is unmet, `workflow step finish`/`step finish --check` reports it the same way it reports any other unmet exit gate — via that gate's `inspect()` status in the finish-planning payload (`gates: [...]`, `blockers: [...]`) — it never attempts to perform, wait for, or bypass the confirmation itself. Task 07's vertical PoC must exercise the operator command as its own explicit step in the terminal-only flow, distinct from both agent calls.
+- **Date:** 2026-09-07 (clarified 2026-09-08)
+- **Affected artifacts:** `overview.md`, `areas/workflow-engine-and-next-step.md`, `areas/concrete-actions-and-vertical-poc.md`, tasks 06, 07
 
 ## D10: Compiled `StepContext` at `step start`
 
@@ -116,17 +117,25 @@
   ```yaml
   sourceControl:
     enabled: true
-    git:
-      enabled: true
-      push: true
+    push: true
     remote:
       enabled: true
       provider: github
   ```
-  Source control can be disabled entirely, or push disabled while local commits remain enabled, independently of whether a remote provider is configured. The exact schema location (workflow definition vs. per-change manifest) and field names are a Task 04 implementation detail, not re-litigated here. Task 04 is renamed from "Concrete action implementation: fail-closed commit-and-push" to "Source-control capability" to stop implying a single action is the whole scope.
+  The exact schema *location* (workflow definition file vs. per-change manifest) remains a Task 04 implementation detail; the field semantics above are fixed here and are not open to task-level reinterpretation (see the 2026-09-08 correction below for why).
 - **Rationale:** Matches specification requirement 3 exactly: reuse existing Git/GitHub infrastructure, keep a clean two-layer capability boundary, and avoid building a universal VCS framework this foundation does not need. GitLab or any other provider stays unimplemented — only the boundary that could later accept one is established.
 - **Consequences:** GitHub-provider-specific *mutating* operations (e.g. opening a PR) are still out of scope for this action — Task 04 only needs the config boundary plus local Git commit/push/reconciliation, since ordinary step finalization never requires a GitHub write beyond what `push` already achieves.
-- **Date:** 2026-09-07
+- **Correction (2026-09-08) — flattened configuration, resolved case table:** The original sketch nested `git: { enabled, push }` under `sourceControl`, leaving the relationship between `sourceControl.enabled` and `git.enabled` ambiguous — no real use case needs them independent (there is no scenario where source control is "enabled" but its local-Git layer isn't). `git.enabled` is removed; `push` moves to a direct child of `sourceControl` (schema above). The four cases this must make unambiguous:
+
+  | Case | Configuration | Meaning |
+  |---|---|---|
+  | No automation | `sourceControl.enabled: false` | No commit, no push, no remote operation; the commit/push action contributes no `requiredInputs` to the step's finish contract. |
+  | Local commit, no push | `enabled: true, push: false` | Commits are created; nothing is pushed. `remote.enabled` must be `false`/absent — meaningless without a push. |
+  | Commit + ordinary push, no provider | `enabled: true, push: true, remote.enabled: false` | Plain Git push; "is this pushed" reconciliation uses pure Git (`ls-remote`/`rev-list` via the Task 04 primitive) — no GitHub API call involved. |
+  | Commit + push + GitHub provider | `enabled: true, push: true, remote: { enabled: true, provider: github }` | Same as above, plus the GitHub-provider-specific capability boundary is available for future provider-specific operations — this foundation adds no additional mutating operation beyond ordinary push. |
+
+  `remote.enabled: true` with `push: false` is an invalid, contradictory configuration and must be rejected (or normalized to `remote.enabled: false`) rather than silently accepted.
+- **Date:** 2026-09-07 (corrected 2026-09-08)
 - **Affected artifacts:** `overview.md` (non-goals, constraints), `areas/concrete-actions-and-vertical-poc.md`, task 04 (renamed)
 
 ## D13: Finalize ordering invariant — the progress commit includes task/spec completion state
@@ -143,29 +152,28 @@
 
 - **Question:** How does a multi-stage finish operation survive a crash, timeout, or lost response without either repeating a completed side effect or getting stuck?
 - **Options considered:** No durability — a retried `step finish` simply re-runs every finalize action from scratch | a full distributed-transaction/saga framework | a minimal durable operation record: a stable `operationId`, a fixed per-stage status vocabulary (`pending`/`running`/`completed`/`failed`/`unknown`), and reconciliation logic that inspects real state before deciding what still needs to run.
-- **Decision:** Adopt the minimal durable operation record, persisted per task alongside the existing `execution.suspension` block (same `change.yaml` task entry, same "orthogonal to lifecycle status" pattern established for suspensions) as a new `execution.finish_operation` block:
-  ```yaml
-  execution:
-    finish_operation:
-      operationId: <opaque id>
-      status: pending | running | completed | failed
-      operations:
-        - id: verify-gates
-          status: completed | failed | pending | running
-        - id: update-task
-          status: completed
-        - id: commit
-          status: completed
-          result: { sha: abc123 }
-        - id: push
-          status: unknown
-        - id: transition
-          status: pending
+- **Decision:** Adopt the minimal durable operation record — but, per the 2026-09-08 correction below, it is **workflow execution/runtime state**, persisted in Nevo's local runtime storage, never inside Git-tracked `change.yaml`:
+  ```json
+  {
+    "operationId": "...",
+    "change": "deterministic-workflow-foundation",
+    "task": "06-step-orchestration-and-next-step-service",
+    "step": "implementation",
+    "status": "running",
+    "operations": [
+      { "id": "verify-gates", "status": "completed" },
+      { "id": "update-task", "status": "completed" },
+      { "id": "commit", "status": "completed", "result": { "sha": "abc123" } },
+      { "id": "push", "status": "unknown", "result": { "remote": "origin", "branch": "feature/foo", "expectedSha": "abc123" } },
+      { "id": "transition", "status": "pending" }
+    ]
+  }
   ```
   On retry, Nevo loads the existing record, treats `completed` stages as done, and reconciles any `unknown` stage against real external state before deciding whether it is actually `completed` or still `pending` — e.g. a `push` left `unknown` after a crash is reconciled by checking (via the Task 04 Git reconciliation primitive from D12) whether the recorded commit SHA is already present on the expected remote branch. It never re-creates a commit that already exists. A repeated `step finish` after the operation record shows full success returns the already-completed result and current next step rather than repeating finalize actions.
 - **Rationale:** Matches specification requirement 6 exactly — a foundation-level resumability invariant, not a claim of exactly-once distributed semantics. `unknown` is the state that makes reconciliation meaningful: it marks an external side effect whose outcome Nevo did not confirm, as distinct from `failed` (confirmed not to have happened) or `completed` (confirmed to have happened).
-- **Consequences:** This introduces one new persisted manifest field (`execution.finish_operation`), which needs schema support in `tools/specs/validation.mjs` — extending that shared module, not rewriting Task 01's own already-verified acceptance criteria or task file. Task 06 owns this addition.
-- **Date:** 2026-09-07
+- **Correction (2026-09-08) — moved out of Git-tracked `change.yaml`:** The original design persisted this record under `execution.finish_operation` inside the task's `change.yaml` entry, alongside `execution.suspension`. This created a circular consistency problem: a commit cannot contain its own resulting SHA, so the `commit` stage's result could never be written into the very commit it describes; and every post-commit bookkeeping write (recording `push`/`transition` completion) would leave the worktree dirty again immediately after a clean finalize — directly undermining the "not left dirty" invariant this record exists to protect (see C17). The fix: this record is workflow *execution/runtime* state, not Git-tracked domain/specification state, and now lives in Nevo's local runtime storage under `.nevo-ai-local/workflow-operations/<change>/<task>.json` — the same git-ignored, project-local storage convention already established by `tools/dashboard/server/ai/sessions/binding-service.mjs` (one JSON file per key, written atomically via temp-file-then-rename). Task 06 implements its own small, minimal read/write helper following that same on-disk convention — it does **not** add a dependency from `tools/specs/workflow/` on `tools/dashboard/`; the convention is reused, not the code. `change.yaml`'s existing `execution.suspension` block is unaffected by this correction and remains exactly as documented in `docs/ai/specification-workflow.md` — it is a distinct, task-lifecycle-level concept (why the *last attempted action* stopped) that this new, more granular, finish-sequence-specific runtime record does not replace or merge with.
+- **Consequences:** No manifest schema changes are needed in `tools/specs/validation.mjs` for this record — it is not part of `change.yaml` at all, so Task 01's already-verified schema/validator work is untouched by Task 06. Task 06 owns the small local-storage helper instead of a manifest schema addition.
+- **Date:** 2026-09-07 (corrected 2026-09-08)
 - **Affected artifacts:** `overview.md`, `areas/workflow-engine-and-next-step.md`, task 06
 
 ## D15: Push completion represents achieved state, not command invocation

@@ -14,22 +14,23 @@ context:
   optional:
     - docs/ai/specification-workflow.md
     - tools/specs/lifecycle.mjs
+    - tools/dashboard/server/ai/sessions/binding-service.mjs
 allowed_paths:
   - tools/specs/workflow/step-runner.mjs
   - tools/specs/workflow/step-context.mjs
   - tools/specs/workflow/finish-operation.mjs
   - tools/specs/workflow/definitions/**
   - tools/specs/workflow/index.mjs
-  - tools/specs/validation.mjs
   - tools/specs/lifecycle.mjs
   - tools/tests/workflow-next-step.test.mjs
   - tools/tests/workflow-finish-operation.test.mjs
 forbidden_paths:
   - src/**
   - tests/NEvo.*/**
+  - tools/dashboard/**
 semantic_references:
   decisions: [D5, D6, D7, D9, D10, D11, D13, D14, D15, D17]
-  constraints: [C3, C4, C7, C8, C9, C10, C11, C12, C14, C15, C16]
+  constraints: [C3, C4, C7, C8, C9, C10, C11, C12, C14, C15, C16, C17]
 ---
 
 # Task: Step lifecycle orchestration — compiled `StepContext`, finish planning, and durable finish execution
@@ -54,12 +55,18 @@ Implement the step lifecycle orchestration layer behind the agent-facing
 3. **Durable, resumable finish execution (D14):** a fixed-order finalize sequence
    (`verify-gates → update-task → commit → push → transition`, per the finalize ordering
    invariant D13 — task/spec completion state is updated *before* the progress commit, and
-   both land in the same commit) executed under a durable, persisted operation record
-   (`execution.finish_operation`, structurally parallel to the existing
-   `execution.suspension` block) with a fixed per-stage status vocabulary (`pending` /
-   `running` / `completed` / `failed` / `unknown`) and reconciliation of `unknown` stages
-   against real state on retry (never repeating a completed side effect, in particular
-   never re-creating a commit). A repeated `workflow step finish` after full success
+   both land in the same commit) executed under a durable operation record with a fixed
+   per-stage status vocabulary (`pending` / `running` / `completed` / `failed` /
+   `unknown`) and reconciliation of `unknown` stages against real state on retry (never
+   repeating a completed side effect, in particular never re-creating a commit). **This
+   record is workflow execution/runtime state, not Git-tracked domain/specification
+   state** — it is persisted at `.nevo-ai-local/workflow-operations/<change>/<task>.json`
+   (git-ignored, never staged or committed), never inside `change.yaml`. Storing it in
+   `change.yaml` (the original design) was a real defect: a commit cannot contain its own
+   resulting SHA, and every post-commit bookkeeping write would leave the worktree dirty
+   again right after a clean finalize (C17). `change.yaml`'s existing
+   `execution.suspension` block is unaffected and remains a separate,
+   task-lifecycle-level concept. A repeated `workflow step finish` after full success
    returns the already-completed result and current next step.
 4. Current/next-step resolution — replacing the original `next-step` query design (D9)
    with this two-call surface; the underlying step-definition evaluation (entry/exit
@@ -75,11 +82,16 @@ Implement the step lifecycle orchestration layer behind the agent-facing
 - The finish contract computed at `step start` and the `requiredInputs` reported by
   `step finish`/`step finish --check` must be the same aggregation, computed by the same
   code path — not two independently maintained implementations that could drift.
-- Extend `tools/specs/validation.mjs` with schema support for the new
-  `execution.finish_operation` block (shape: `operationId`, `status`, `operations[]` each
-  with `id`/`status`/optional `result`) — this extends a shared module used across the
-  whole `specs.mjs` surface; it must not touch or weaken Task 01's own already-verified
-  acceptance criteria or task file.
+- Persist the finish-operation record (shape: `operationId`, `change`, `task`, `step`,
+  `status`, `operations[]` each with `id`/`status`/optional `result`) to
+  `.nevo-ai-local/workflow-operations/<change>/<task>.json` via a small, self-contained
+  read/write helper inside `tools/specs/workflow/`, following the same on-disk convention
+  (git-ignored directory prefix, atomic temp-file-then-rename writes) already established
+  by `tools/dashboard/server/ai/sessions/binding-service.mjs` — read that file for the
+  pattern, but do not import from `tools/dashboard/` (see `forbidden_paths`; this task
+  adds no new dependency in that direction). No `tools/specs/validation.mjs` or
+  `change.yaml` schema change is needed — this record is never part of the manifest, so
+  Task 01's own already-verified acceptance criteria and task file are untouched.
 - Reuse existing task/spec completion-state transition logic (`tools/specs/lifecycle.mjs`)
   for the `update-task` stage rather than duplicating status-transition logic inside the
   workflow module.
@@ -130,6 +142,13 @@ Implement the step lifecycle orchestration layer behind the agent-facing
 11. Unit tests verify step progression and next-step resolution across multiple step
     configurations and states without executing test gates during inspection.
     `automated: node --test tools/tests/workflow-next-step.test.mjs`
+12. The finish-operation record is written only to
+    `.nevo-ai-local/workflow-operations/<change>/<task>.json` — never to `change.yaml` —
+    and `node tools/specs.mjs validate` requires no schema for it. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
+13. After a fully successful `workflow step finish` with source control enabled, the test
+    fixture's Git worktree is verified clean (`git status --porcelain` empty) — no
+    residual dirtiness from finish-operation bookkeeping performed after the progress
+    commit (C17). `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
 
 ## Verification
 

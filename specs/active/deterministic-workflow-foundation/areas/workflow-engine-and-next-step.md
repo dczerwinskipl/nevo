@@ -118,20 +118,34 @@ lives in. Fixed stage order, matching the finalize ordering invariant (D13):
 verify-gates → update-task → commit → push → transition
 ```
 
-Persisted per task, alongside the existing `execution.suspension` block (same
-orthogonal-to-lifecycle-status pattern, same `change.yaml` task entry) as a new
-`execution.finish_operation` block — schema support added to `tools/specs/validation.mjs`
-(extending that shared module; Task 01's own task file/acceptance criteria are untouched):
+**This record is workflow execution/runtime state, not Git-tracked domain/specification
+state (D14 correction, 2026-09-08).** Persisting it under `change.yaml`'s
+`execution.finish_operation` (the original design) created a circular problem: a commit
+cannot contain its own resulting SHA, and every post-commit bookkeeping write (recording
+`push`/`transition` completion) would leave the worktree dirty again immediately after a
+clean finalize — directly violating C17. Instead it is persisted in Nevo's local runtime
+storage at `.nevo-ai-local/workflow-operations/<change>/<task>.json`, following the
+existing git-ignored local-storage convention already used by
+`tools/dashboard/server/ai/sessions/binding-service.mjs` (one JSON file per key, atomic
+temp-file-then-rename writes) — reused as a *pattern*, not as a new code dependency from
+`tools/specs/workflow/` on `tools/dashboard/`. No `tools/specs/validation.mjs` schema
+change is needed for this — it is never part of `change.yaml`, so Task 01's own
+task file/acceptance criteria are untouched. `change.yaml`'s existing
+`execution.suspension` block is a separate, unaffected, task-lifecycle-level concept (why
+the last attempted *action* stopped) — this new record is distinct and more granular:
 
 ```json
 {
   "operationId": "...",
+  "change": "deterministic-workflow-foundation",
+  "task": "06-step-orchestration-and-next-step-service",
+  "step": "implementation",
   "status": "running",
   "operations": [
     { "id": "verify-gates", "status": "completed" },
     { "id": "update-task", "status": "completed" },
     { "id": "commit", "status": "completed", "result": { "sha": "abc123" } },
-    { "id": "push", "status": "unknown" },
+    { "id": "push", "status": "unknown", "result": { "remote": "origin", "branch": "feature/foo", "expectedSha": "abc123" } },
     { "id": "transition", "status": "pending" }
   ]
 }
@@ -158,6 +172,25 @@ matching Task 07's vertical PoC Scenario G:
 - interrupted after commit creation,
 - interrupted with an ambiguous (`unknown`) push result,
 - interrupted after a successful push but before workflow transition/result delivery.
+
+**Required invariant (C17).** After a successful task-completing `workflow step finish`
+with source control enabled: task/spec Git-tracked metadata reflects the completed
+state; the implementation and that metadata update are contained in the one progress
+commit; the expected commit is confirmed on the configured remote when push is enabled;
+and the Git worktree is **not** left dirty solely because Nevo updated its own internal
+finish-operation bookkeeping after the commit — that bookkeeping is the runtime-only
+record above and produces no Git-visible change by itself.
+
+## Human Verification: Reported, Never Self-Satisfied (D9 clarification)
+
+When a `HumanVerificationGate` exit gate is unmet, `workflow step finish` reports it the
+same way as any other unmet exit gate — via that gate's `inspect()` status in the finish
+planning payload (the `gates`/`blockers` fields shown above) — and stops, performing no
+mutation. This is distinct from `input-required` (missing semantic inputs like
+`commit.title`): a gate block can be present with or without missing inputs, and both are
+reported in the same payload rather than conflated into one status. Only the separate,
+operator-facing `workflow verify-human <change> <task> --confirm` command can satisfy the
+gate; the agent-facing `step start`/`step finish` calls have no path to do so (C8).
 
 ## Push Completion State (D15)
 

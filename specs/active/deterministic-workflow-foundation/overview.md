@@ -69,20 +69,22 @@ Provide a robust, modular foundation for migrating Nevo from agent-orchestrated 
 - **C10.** Implementation must follow horizontal slices: all new workflow infrastructure lives in cohesive modules under `tools/specs/workflow/` with dedicated unit and integration tests; existing large command files must not grow into larger god objects.
 - **C11.** `workflow step start` must return a compiled `StepContext` (D10) aggregating action/gate contracts into one step-level payload — the agent must not be required to inspect individual actions to discover their input schemas. The finish contract exposed at start must be the same aggregation `step finish`/`step finish --check` later report (D10's consequence).
 - **C12.** `workflow step finish --check` (or an equivalent dry-run form) must be strictly non-mutating (same invariant as C2). `workflow step finish` itself, called with missing required inputs, must return `status: "input-required"` plus the same factual planning payload without performing any mutation (D11) — a separate preflight call is never mandatory in the happy path.
-- **C13.** Source control is a workflow capability, split into a local Git layer (repository/worktree state, changed/staged files, current branch, commit, push, and reconciliation facts such as "is commit X already on the configured remote branch") and a separately configured remote provider (currently `github` only), both built on the existing `tools/lib/git.mjs`/`tools/lib/github.mjs` rather than new abstractions (D12). Source control, local push, and the remote provider must each be independently enable/disable-able.
+- **C13.** Source control is a workflow capability, split into a local Git layer (repository/worktree state, changed/staged files, current branch, commit, push, and reconciliation facts such as "is commit X already on the configured remote branch") and a separately configured remote provider (currently `github` only), both built on the existing `tools/lib/git.mjs`/`tools/lib/github.mjs` rather than new abstractions (D12). Configuration is hierarchical, not independent: `sourceControl.enabled` gates everything; `push` (meaningful only when `sourceControl.enabled: true`) controls whether commits are pushed; `remote.enabled`/`remote.provider` (meaningful only when `push: true`) controls whether provider-specific capability is available. The four valid combinations (no automation / local-commit-only / commit+push-no-provider / commit+push+provider) are enumerated in D12; `remote.enabled: true` with `push: false` is invalid.
 - **C14.** For a task-completing step, the progress commit must include both the agent's implementation and Nevo's own task/spec completion-state update — task metadata must never be left dirty immediately after a successful finalize (D13).
-- **C15.** Every mutating multi-stage finish operation must be durably resumable: a stable `operationId`, a fixed per-stage status vocabulary (`pending`/`running`/`completed`/`failed`/`unknown`), and reconciliation of `unknown` external side effects against real state before retrying — never blind repetition of a completed side effect, and never a claim of full distributed-transaction semantics (D14).
+- **C15.** Every mutating multi-stage finish operation must be durably resumable: a stable `operationId`, a fixed per-stage status vocabulary (`pending`/`running`/`completed`/`failed`/`unknown`), and reconciliation of `unknown` external side effects against real state before retrying — never blind repetition of a completed side effect, and never a claim of full distributed-transaction semantics (D14). This durable record is workflow execution/runtime state and must be persisted outside Git-tracked specification metadata (`change.yaml`) — never as a field that must itself be committed for the operation it describes to be considered durable.
 - **C16.** Push completion must persist achieved state, not just command invocation: the expected commit SHA alongside remote/branch/status, so "has this been pushed" is answerable deterministically at any later time (D15).
+- **C17.** After a successful task-completing `workflow step finish` with source control enabled: (a) task/spec Git-tracked metadata reflects the completed state, (b) the implementation and that tracked metadata update are contained in the one progress commit (C14), (c) the expected commit is confirmed on the configured remote when push is enabled (C16), and (d) the Git worktree is not left dirty solely because Nevo updated its own internal finish-operation bookkeeping after the commit — that bookkeeping is runtime-only state (C15/D14) and never itself produces a Git-visible change.
 
 ## Affected Areas
 
-- **Manifest Schemas & Validation:** `tools/specs/validation.mjs`, `tools/specs/service.mjs`, `change.yaml` schema updates for `workflow` mode/version/definition, and the new `execution.finish_operation` block (D14).
+- **Manifest Schemas & Validation:** `tools/specs/validation.mjs`, `tools/specs/service.mjs`, `change.yaml` schema updates for `workflow` mode/version/definition only — the durable finish-operation record is explicitly **not** a manifest field (D14 correction); no new `change.yaml` schema is added for it.
 - **Workflow Definitions & Loader:** Repository-local configuration in `.nevo-ai/workflows/` with loader/schema in `tools/specs/workflow/definitions/` and scaffolding templates in `tools/specs/workflow/templates/`; extended with the `sourceControl` capability configuration (D12).
 - **Composable Actions:** `tools/specs/workflow/contracts.mjs`, `tools/specs/workflow/registry.mjs`, source-control action(s) in `tools/specs/workflow/actions/` built on `tools/lib/git.mjs`/`tools/lib/github.mjs`, `tools/specs/workflow/actions/verify-output.mjs`.
 - **Deterministic Gates:** `tools/specs/workflow/gates/` implementing `GateContract` with `inspect` vs `verify` separation, `CommandGate`, `MarkdownGate`, and `HumanVerificationGate`.
 - **Step Lifecycle Orchestration:** `tools/specs/workflow/step-runner.mjs` and successor modules compiling `StepContext` at start, non-mutating finish planning, and the durable/resumable finish operation (D10, D11, D14) — reusing `WorkflowEngine.checkStep`/`executeStep` (Task 03) rather than re-implementing aggregation.
-- **CLI Dispatch:** `tools/specs.mjs` integration delegating to the new workflow engine and exposing `workflow step start` / `workflow step finish [--check]` (D9) as the agent-facing surface.
-- **Test Infrastructure:** `tools/tests/` comprehensive test suites for contracts, engine, gates, actions, step start/finish, durable-finish retry/reconciliation, and compatibility.
+- **Runtime Execution State:** `.nevo-ai-local/workflow-operations/<change>/<task>.json`, following the existing git-ignored local-storage convention already used by `tools/dashboard/server/ai/sessions/binding-service.mjs` (atomic temp-file-then-rename JSON writes) — reused as a pattern, not as a code dependency between `tools/specs/workflow/` and `tools/dashboard/`.
+- **CLI Dispatch:** `tools/specs.mjs` integration delegating to the new workflow engine and exposing `workflow step start` / `workflow step finish [--check]` (D9, agent-facing) and `workflow verify-human <change> <task> --confirm` (operator-facing) as the complete public surface.
+- **Test Infrastructure:** `tools/tests/` comprehensive test suites for contracts, engine, gates, actions, step start/finish, the operator human-verification command, durable-finish retry/reconciliation, and compatibility.
 
 ## Proposed Architecture
 
@@ -237,6 +239,17 @@ workflow step finish <change> [task]
 ```
 The runtime resolves the current step from `change`/`task` state whenever it can do so unambiguously; an explicit step id remains available for diagnostics/manual override but is never required in the normal flow. The agent never discovers or orchestrates individual actions, gates, Git/`gh` commands, or transition rules — it supplies only the semantic inputs the workflow's finish contract asks for. Internal primitives (`WorkflowEngine.checkStep`/`executeStep`, gate `inspect`/`verify`) remain and are composed underneath this surface; they are not separately exposed as agent-facing commands (superseding the original `next-step`/`execute-step` design from this section before it was implemented).
 
+**Agent-facing vs. operator-facing surface.** These two calls are the complete *agent*-facing surface. A separate, *operator*-facing surface exists for human sign-off and is never folded into the agent's orchestration:
+
+```text
+Agent-facing:     workflow step start <change> [task]
+                   workflow step finish <change> [task] [--check]
+
+Operator-facing:  workflow verify-human <change> <task> --confirm
+```
+
+When a `HumanVerificationGate` exit gate is unmet, `workflow step finish` reports it exactly like any other unmet exit gate — via that gate's `inspect()` status in the finish-planning payload (see section 8) — and stops there. It never waits for, performs, or bypasses the confirmation itself (C8). Only the explicit operator command can satisfy it; only after that does a subsequent `workflow step finish` proceed past that gate. Task 07's vertical PoC exercises this full terminal-only sequence — `step start` → work → `step finish` (blocked) → `verify-human --confirm` → `step finish` (completes) — using only these public CLI commands.
+
 ### 7. `workflow step start` — Compiled `StepContext` (D10)
 
 ```text
@@ -306,18 +319,25 @@ Two layers, both built on the repository's existing infrastructure — no new Gi
 - **Local Git capability** (`tools/lib/git.mjs`, extended, not replaced): repository/worktree state, changed/staged files, current branch, relevant commits, commit, push, and a reconciliation primitive answering "is commit `X` already present on the configured remote branch."
 - **Remote provider** (`tools/lib/github.mjs`, the repository's one existing GitHub integration): configured explicitly, used only for provider-specific capability when `remote.enabled` — GitHub is the only implemented provider; GitLab remains unimplemented, only the boundary for it exists.
 
-Configuration (exact schema location is a Task 04 implementation detail; semantics are fixed here):
+Configuration (exact schema *location* is a Task 04 implementation detail; field semantics are fixed here):
 ```yaml
 sourceControl:
   enabled: true
-  git:
-    enabled: true
-    push: true
+  push: true
   remote:
     enabled: true
     provider: github
 ```
-Source control, local push, and the remote provider are each independently enable/disable-able (C13).
+This is hierarchical, not three independent flags (C13) — resolving the earlier ambiguity between `sourceControl.enabled` and a separate `git.enabled` by removing `git.enabled` entirely (it added no capability `sourceControl.enabled` didn't already gate):
+
+| Case | Configuration | Meaning |
+|---|---|---|
+| No automation | `sourceControl.enabled: false` | No commit, no push, no remote operation; the commit/push action contributes no `requiredInputs`. |
+| Local commit, no push | `enabled: true, push: false` | Commits are created; nothing is pushed. `remote.enabled` must be `false`/absent. |
+| Commit + push, no provider | `enabled: true, push: true, remote.enabled: false` | Plain Git push; push-confirmation reconciliation uses pure Git (`ls-remote`/`rev-list`), no GitHub API call. |
+| Commit + push + GitHub provider | `enabled: true, push: true, remote: { enabled: true, provider: github }` | Same as above, plus the GitHub-provider-specific capability boundary is available (no additional mutating operation is added by this foundation). |
+
+`remote.enabled: true` with `push: false` is invalid and must be rejected or normalized to `false`.
 
 ### 10. Finalize Ordering and Durable, Resumable Finish Execution (D13, D14)
 
@@ -334,29 +354,40 @@ validate supplied inputs
 ```
 The resulting progress commit always includes both the agent's work and Nevo's own task/spec status update — never a separate, later commit for metadata.
 
-Every mutating finish operation persists a durable record so a crash, timeout, lost response, or provider/network failure never forces blind repetition of a side effect (C15). This is a resumability foundation, not a distributed-transaction guarantee. Persisted alongside the existing `execution.suspension` block, orthogonal to task lifecycle status:
+Every mutating finish operation persists a durable record so a crash, timeout, lost response, or provider/network failure never forces blind repetition of a side effect (C15). This is a resumability foundation, not a distributed-transaction guarantee.
+
+**This record is workflow execution/runtime state, not Git-tracked domain/specification state (D14).** It is persisted in Nevo's local runtime storage — `.nevo-ai-local/workflow-operations/<change>/<task>.json` — following the existing git-ignored local-storage convention already used by `tools/dashboard/server/ai/sessions/binding-service.mjs` (one JSON file per key, atomic temp-file-then-rename writes), reused as a *pattern*, not as a new code dependency from `tools/specs/workflow/` on `tools/dashboard/`. It is never written into `change.yaml` and never staged or committed. `change.yaml`'s existing `execution.suspension` block is a separate, unaffected, task-lifecycle-level concept (why the last attempted *action* stopped) — this new record is a distinct, more granular, finish-sequence-specific mechanism:
 ```json
 {
   "operationId": "...",
+  "change": "deterministic-workflow-foundation",
+  "task": "06-step-orchestration-and-next-step-service",
+  "step": "implementation",
   "status": "running",
   "operations": [
     { "id": "verify-gates", "status": "completed" },
     { "id": "update-task", "status": "completed" },
     { "id": "commit", "status": "completed", "result": { "sha": "abc123" } },
-    { "id": "push", "status": "unknown" },
+    { "id": "push", "status": "unknown", "result": { "remote": "origin", "branch": "feature/foo", "expectedSha": "abc123" } },
     { "id": "transition", "status": "pending" }
   ]
 }
 ```
 Per-stage status is one of `pending` / `running` / `completed` / `failed` / `unknown`. On retry, Nevo loads the existing record, keeps every `completed` stage's side effect, and reconciles any `unknown` stage against real state before deciding what still needs to run — e.g. a `push` left `unknown` is reconciled by checking whether the recorded commit SHA is already on the expected remote branch (via the Task 04 reconciliation primitive); if yes, `push` becomes `completed` and execution continues; if not, it becomes `pending` and the push is (re-)performed. A commit is never re-created once its SHA is known. A repeated `workflow step finish` after full success returns the already-completed result and current next step rather than repeating finalize actions.
 
-Push completion persists achieved state, not just invocation (C16, D15):
+Push completion persists achieved state, not just invocation (C16, D15) — as part of this same runtime record, never inside `change.yaml`:
 ```json
 {
   "commit": { "sha": "abc123", "status": "completed" },
   "push": { "remote": "origin", "branch": "feature/foo", "expectedSha": "abc123", "status": "completed" }
 }
 ```
+
+**Required invariant (C17):** after a successful task-completing `workflow step finish` with source control enabled:
+- task/spec Git-tracked metadata (`change.yaml`) reflects the completed state,
+- the implementation and that tracked metadata update are contained in the one progress commit,
+- the expected commit is confirmed on the configured remote when push is enabled,
+- the Git worktree is **not** left dirty solely because Nevo updated its own internal finish-operation bookkeeping after the commit — that bookkeeping is the runtime-only record above, and updating it after the commit produces no Git-visible change at all.
 
 ### 11. Legacy Lifecycle: Operational, Explicitly Superseded (D16)
 
@@ -389,7 +420,8 @@ tools/specs/workflow/
   engine.mjs             # Aggregated check runner and execution engine
   step-runner.mjs        # Step lifecycle evaluation and gate checking
   step-context.mjs       # Compiled StepContext at `step start` (D10)
-  finish-operation.mjs   # Non-mutating finish planning + durable/resumable finish execution (D11, D14)
+  finish-operation.mjs   # Non-mutating finish planning + durable/resumable finish execution (D11, D14);
+                         # persists its operation record to .nevo-ai-local/workflow-operations/, never change.yaml
   definitions/
     schema.mjs           # Workflow definition JSON/YAML schema (+ sourceControl config, D12)
     loader.mjs           # Definition loader, parser, and validator
@@ -418,9 +450,9 @@ tools/specs/workflow/
 - **Task 05 — Deterministic Gate Abstraction with Inspection/Verification Separation (`tasks/05-deterministic-gates-and-human-verification.md`):**
   Implement `GateContract` with separate `inspect(context)` and `verify(context)` methods, `CommandGate`, `MarkdownGate`, and `HumanVerificationGate` under `tools/specs/workflow/gates/`.
 - **Task 06 — Step Lifecycle Orchestration: `StepContext`, Finish Planning & Durable Finish Execution (`tasks/06-step-orchestration-and-next-step-service.md`):**
-  Implement the compiled `StepContext` at `step start` (D10), non-mutating finish planning with `input-required` support (D11), and the durable/resumable finish operation with `execution.finish_operation` persistence and reconciliation (D14) — sequencing task/spec completion-state update before the progress commit (D13), and extending `tools/specs/validation.mjs` with schema support for the new persisted block.
+  Implement the compiled `StepContext` at `step start` (D10), non-mutating finish planning with `input-required` support (D11), and the durable/resumable finish operation with reconciliation (D14) persisted to `.nevo-ai-local/workflow-operations/<change>/<task>.json` (never `change.yaml`) — sequencing task/spec completion-state update before the progress commit (D13), and satisfying C17 (a clean tracked repository state plus a completed runtime operation state at the end of a successful finish).
 - **Task 07 — CLI Integration, `step start`/`step finish` Vertical PoC & Coexistence Verification (`tasks/07-cli-integration-and-vertical-poc.md`):**
-  Integrate `workflow step start` / `workflow step finish [--check]` (D9) into `tools/specs.mjs`, prove the full finalize flow (gates → task/spec status update → commit → push → transition, including an interrupted-and-resumed retry) end-to-end, verify zero regressions across all legacy test suites, and write the legacy/deterministic migration map (D16) into `docs/development/workflow-engine.md`.
+  Integrate `workflow step start` / `workflow step finish [--check]` (D9, agent-facing) and `workflow verify-human <change> <task> --confirm` (operator-facing) into `tools/specs.mjs`, prove the full finalize flow — including the terminal-only human-verification sequence (blocked → operator confirms → finish completes) — end-to-end using only public CLI commands, through gates → task/spec status update → commit → push → transition, including an interrupted-and-resumed retry, verify zero regressions across all legacy test suites, and write the legacy/deterministic migration map (D16) into `docs/development/workflow-engine.md`.
 
 ## Acceptance Criteria & Verification
 
@@ -440,7 +472,11 @@ tools/specs/workflow/
 - `workflow step finish --check` is verified 100% non-mutating; `workflow step finish` with missing required inputs returns `input-required` with zero mutation (C12).
 - The progress commit for a task-completing step includes both the implementation and the task/spec completion-state update — never a separate later commit for metadata (C14).
 - A multi-stage finish operation is durably resumable: interrupting after task-metadata update, after commit creation, with an ambiguous push result, and after a successful push but before transition, each resume without duplicating a completed side effect (C15).
+- The finish-operation record lives in `.nevo-ai-local/workflow-operations/<change>/<task>.json`, never in `change.yaml`; `node tools/specs.mjs validate` requires no schema for it.
 - Push completion state (`expectedSha`, remote, branch, status) is verified sufficient to answer "is this pushed" deterministically after an interruption (C16).
+- After a successful task-completing `workflow step finish` with source control enabled, `git status` reports a clean worktree — no residual dirtiness from Nevo's own internal finish-operation bookkeeping (C17).
+- The `sourceControl` configuration's four defined cases (no automation / local-commit-only / commit+push-no-provider / commit+push+provider) each behave as specified, and `remote.enabled: true` with `push: false` is rejected or normalized (D12 correction).
+- The vertical PoC's human-verification sequence — `step finish` reporting blocked, the operator `workflow verify-human --confirm` command satisfying the gate, and a subsequent `step finish` completing the remaining stages — is exercised end-to-end using only public CLI commands, without manual mutation of specification files or direct invocation of internal gate/action APIs.
 - Vertical PoC (`step start` → work → `step finish`, including an interrupted-and-resumed retry) executes successfully under deterministic mode, and legacy specifications continue running unaffected (coexistence).
 - `docs/development/workflow-engine.md` documents the engine architecture and the legacy/deterministic migration map (D16).
 - Full test suite `node --test tools/tests/*.test.mjs` passes with zero failures.

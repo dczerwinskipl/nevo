@@ -50,22 +50,24 @@ provider-neutral VCS framework beyond this boundary (C13, D12).
 
 - Add a `sourceControl` configuration boundary (exact schema location — workflow
   definition file vs. per-change manifest — is this task's own implementation decision)
-  with the semantics:
+  with the semantics (D12 correction — no separate `git.enabled`, it added no capability
+  beyond `sourceControl.enabled`):
   ```yaml
   sourceControl:
     enabled: true
-    git:
-      enabled: true
-      push: true
+    push: true
     remote:
       enabled: true
       provider: github
   ```
-  `sourceControl.enabled`, `git.push`, and `remote.enabled` must each be independently
-  toggleable. When `sourceControl.enabled` is `false`, the commit-and-push action
-  contributes no `requiredInputs` to a step's aggregated finish contract (verified by
-  Task 06/07, not this task, but this task's `check(context)` must reflect the disabled
-  state correctly when queried directly).
+  This is hierarchical: `sourceControl.enabled` gates everything; `push` is meaningful
+  only when `sourceControl.enabled: true`; `remote.enabled`/`remote.provider` is
+  meaningful only when `push: true`. `remote.enabled: true` with `push: false` is an
+  invalid configuration and must be rejected (or normalized to `remote.enabled: false`).
+  When `sourceControl.enabled` is `false`, the commit-and-push action contributes no
+  `requiredInputs` to a step's aggregated finish contract (verified by Task 06/07, not
+  this task, but this task's `check(context)` must reflect the disabled state correctly
+  when queried directly).
 - Extend `tools/lib/git.mjs` with a reconciliation primitive — e.g. "does `origin/<branch>`
   already contain commit `<sha>`" — built on existing primitives in that file
   (`hasUpstream`, `getAheadBehind`, or a new narrow function in the same style: thin
@@ -98,7 +100,8 @@ provider-neutral VCS framework beyond this boundary (C13, D12).
 5. `execute` throws `PreconditionError` if `include` is omitted, refusing to guess or stage dirty files implicitly. `automated: node --test tools/tests/workflow-action-commit-push.test.mjs`
 6. `execute` stages matching files, commits with the specified message, and pushes when valid explicit inputs are provided against a test repository fixture, returning `outputs.commit.sha` and `outputs.push` in the D15 shape. `automated: node --test tools/tests/workflow-action-commit-push.test.mjs`
 7. The new `tools/lib/git.mjs` reconciliation primitive correctly reports whether a given commit SHA is present on a given remote branch, against a test repository fixture with both a pushed and an unpushed commit. `automated: node --test tools/tests/workflow-action-commit-push.test.mjs`
-8. `sourceControl.enabled: false` and `git.push: false` are each independently honored — verified against fixtures covering all four combinations of `{sourceControl.enabled, git.push} × {true, false}`. `automated: node --test tools/tests/workflow-action-commit-push.test.mjs`
+8. Each of the four defined configuration cases behaves as specified, verified against fixtures: (a) `sourceControl.enabled: false` — no commit, no push, no `requiredInputs`; (b) `enabled: true, push: false` — commits but never pushes; (c) `enabled: true, push: true, remote.enabled: false` — commits and pushes via plain Git, no GitHub API call; (d) `enabled: true, push: true, remote: { enabled: true, provider: github }` — same as (c) plus the provider boundary is recognized. `automated: node --test tools/tests/workflow-action-commit-push.test.mjs`
+9. `remote.enabled: true` with `push: false` is rejected (or normalized to `remote.enabled: false`) rather than silently accepted. `automated: node --test tools/tests/workflow-action-commit-push.test.mjs`
 
 ## Verification
 
