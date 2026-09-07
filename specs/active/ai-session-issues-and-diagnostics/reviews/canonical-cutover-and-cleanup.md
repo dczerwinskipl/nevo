@@ -11,11 +11,12 @@ unresolved_needs_clarification: 0
 
 # Review: ai-session-issues-and-diagnostics/canonical-cutover-and-cleanup
 
-Baseline for this run: this file's own prior content (generated 2026-09-06T19:55:00Z,
-verdict `pass`, reviewed at implementation `dde8c1ac6d077a53a6beab09d909834d364a455b`,
-no unresolved findings recorded). This is a third pass, per the owner's second PR #41
-follow-up. No baseline finding is stale/reopened — the prior pass had zero findings;
-this pass evaluates the additional narrowing applied since (§ "Third pass" below).
+Baseline for this run: this file's own prior content (generated at implementation
+`e6e6c1160a905377dc91950aff5dcbc5b2608d52`, verdict `pass`, no unresolved findings
+recorded). This is a fourth pass, addressing a real usability bug the owner reported
+directly (not part of a structured correction brief) after using the shipped SessionReadiness
+work. No baseline finding is stale/reopened — the prior pass had zero findings; this
+pass adds one new, narrowly-scoped fix (§ "Fourth pass" below).
 
 ## Verdict
 
@@ -42,13 +43,17 @@ work (baseline `acb3a64`) touches only `tools/dashboard/server/ai/**`,
 
 ## Verification
 
-Run fresh against implementation `e6e6c1160a905377dc91950aff5dcbc5b2608d52` (both
+Run fresh against implementation `c262e1e7374452fed3ceeae4f63e6b4d1a35a1d1` (both
 manually and via `node tools/specs.mjs self-check`, which recorded the same commands and
 revision in `self_check`):
 
-- `npm --prefix tools/dashboard test` — passed (809/809)
+- `npm --prefix tools/dashboard test` — passed (810/810); one transient failure
+  (`npm --prefix tools/dashboard test` itself, inside `self-check`'s own subprocess
+  invocation) reproduced as a flake — a direct rerun with identical code passed
+  immediately after, matching an already-known pre-existing port-contention flake in
+  this suite unrelated to this change
 - `npm --prefix tools/dashboard run build` — passed
-- `npm --prefix tools/dashboard run test:storybook` — passed (97/97)
+- `npm --prefix tools/dashboard run test:storybook` — passed (99/99)
 - `node tools/specs.mjs validate` — passed
 - `node tools/specs.mjs check` — passed
 - `node tools/docs.mjs validate` — passed
@@ -149,16 +154,44 @@ Two further, narrow corrections on top of `dde8c1a`:
   (`01`/`02`/`03`/`08`/`10`/`12`, which already carry the correct value) — not a
   generated index, so this isn't the hand-edit `AGENTS.md` warns against.
 
+## Fourth pass
+
+Owner-reported bug, not part of a structured correction brief: a failed turn's own
+diagnostic message (e.g. a quota notice) rendered correctly while watching a session
+live (`useAgentSessionRuntime`'s `onError` callback fires for a live SSE transition to
+`terminal`/`failed`), but was invisible after opening a session that already had a
+failed turn — the Work header showed only the bare word "Failed," with zero detail,
+because `onError` never fires for a turn that arrives already-terminal in the initial
+HTTP snapshot, and no other code path ever read `turn.status.error.message`.
+
+Root cause: the error message was only ever wired through a transient, live-event-only
+toast (`AgentSessionPage`'s `runtimeError` state), never derived from the canonical
+Turn itself, even though the message is present on `CanonicalTurn.status.error`
+identically whether the turn was watched live or loaded from the snapshot.
+
+Fix: `TurnWorkPanel` now renders `turn.status.error.message` directly for any terminal
+turn where `shouldSurfaceTurnError` says it should be shown (a quiet `AI_TURN_CANCELLED`
+stays quiet, unchanged from existing behavior) — present identically live or reloaded.
+Per the owner's explicit clarification, a session can have more than one failed turn,
+so every turn gets its own permanent record; only the most recent turn
+(`agent-session-transcript.tsx` passes `isLatestTurn={index === turns.length - 1}`) gets
+the louder, "toast"-styled treatment (matching the existing banner's visual language),
+so scrolling back through history doesn't turn into a stack of loud red boxes. The
+existing live `onError`/`runtimeError` toast is untouched — it still covers action-level
+failures (cancel, interaction-response, initial-dispatch) that aren't part of any turn's
+own persisted state, and the owner confirmed the live turn-failure case already worked
+correctly.
+
 ## Task 13 provenance
 
-- Implementation SHA: `e6e6c1160a905377dc91950aff5dcbc5b2608d52` (on top of the prior
-  passes' `d15ee14` and `dde8c1a`).
+- Implementation SHA: `c262e1e7374452fed3ceeae4f63e6b4d1a35a1d1` (on top of the prior
+  passes' `d15ee14`, `dde8c1a`, and `e6e6c11`).
 - `self_check`/`implementation.review_revision` updated to
-  `e6e6c1160a905377dc91950aff5dcbc5b2608d52` via `node tools/specs.mjs self-check`
+  `c262e1e7374452fed3ceeae4f63e6b4d1a35a1d1` via `node tools/specs.mjs self-check`
   (never hand-edited); `baseline_revision` unchanged
   (`acb3a64dd7dc39c112ec78d7492b03cee52450e4`); `changed_paths` unchanged from the prior
   pass (this pass touched only already-attributed files).
-- `status` remains `verified` throughout, across all three passes — each is a
+- `status` remains `verified` throughout, across all four passes — each is a
   re-evidencing pass on an already-verified task, never a fresh
   draft→implemented→verified transition.
 - This review file and the `change.yaml`/generated-index updates above are committed as

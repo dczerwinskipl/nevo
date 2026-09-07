@@ -378,7 +378,7 @@ tasks:
       - cross-provider-lifecycle-validation
     implementation:
       baseline_revision: acb3a64dd7dc39c112ec78d7492b03cee52450e4
-      review_revision: e6e6c1160a905377dc91950aff5dcbc5b2608d52
+      review_revision: c262e1e7374452fed3ceeae4f63e6b4d1a35a1d1
       changed_paths:
         - docs/decisions/ADR-0007-provider-neutral-ai-sessions.md
         - docs/decisions/ADR-0008-canonical-ai-session-chat-and-turn-model.md
@@ -433,6 +433,7 @@ tasks:
         - tools/dashboard/ui/features/agent-sessions/turn-work/turn-work-summary.tsx
         - tools/dashboard/ui/features/agent-sessions/turn-work/turn-work-visibility.ts
         - tools/dashboard/ui/features/agent-sessions/types.ts
+        - tools/dashboard/ui/features/agent-sessions/work-v2/turn-work-panel-v2.tsx
         - tools/dashboard/ui/features/agent-sessions/work/__fixtures__/chat-fixtures.ts
         - tools/dashboard/ui/features/agent-sessions/work/activity-model.ts
         - tools/dashboard/ui/features/agent-sessions/work/agent-session-transcript.tsx
@@ -450,7 +451,7 @@ tasks:
       worktree_patch_fingerprint: null
     self_check:
       fingerprint: 48d080fc7e99ded4488082b0ff8a7787eb943a7888dc4f82fcec4111d5708a2d
-      revision: e6e6c1160a905377dc91950aff5dcbc5b2608d52
+      revision: c262e1e7374452fed3ceeae4f63e6b4d1a35a1d1
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
