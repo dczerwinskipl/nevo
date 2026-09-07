@@ -23,7 +23,7 @@ forbidden_paths:
   - tests/NEvo.*/**
 semantic_references:
   decisions: [D1, D6, D8, D9, D10, D11, D12, D13, D14, D15, D16]
-  constraints: [C1, C2, C5, C6, C7, C8, C9, C10, C11, C12, C13, C14, C15, C16, C17]
+  constraints: [C1, C2, C5, C6, C7, C8, C9, C10, C11, C12, C13, C14, C15, C16, C17, C18, C19]
 ---
 
 # Task: CLI integration, `step start`/`step finish` vertical PoC, and coexistence verification
@@ -73,10 +73,16 @@ migration map (D16) in `docs/development/workflow-engine.md`.
   10. push is confirmed,
   11. the workflow transitions,
   12. the next step is returned,
-  13. retrying `step finish` after a simulated interruption does not duplicate completed
-      side effects (covering all four interruption points from Task 06's acceptance
-      criteria 6-9),
-  14. the entire sequence above is driven using only these public CLI commands — no
+  13. retrying `step finish` after a simulated interruption at any of the critical
+      uncertain windows — a stage left `running` (not just `completed`/`unknown`) after
+      task/spec mutation, after `git commit` succeeds, during/after push, or after push
+      but before transition — reconciles via persisted intent/pre-state rather than
+      blindly retrying or resetting, and never duplicates a completed side effect
+      (covering Task 06's acceptance criteria 6-9, 13-14),
+  14. retrying `step finish` with no inputs at all resumes an in-flight operation from its
+      persisted `resolvedInputs` (Task 06 AC11), and retrying with a conflicting input
+      value is rejected deterministically (Task 06 AC12),
+  15. the entire sequence above is driven using only these public CLI commands — no
       manual mutation of specification files, and no direct invocation of internal
       gate/action APIs (e.g. no test calling `HumanVerificationGate.verify()` or
       `ActionContract.execute()` directly to stand in for a CLI step).
@@ -112,31 +118,39 @@ migration map (D16) in `docs/development/workflow-engine.md`.
    call available to the agent (`step start`/`step finish`) can satisfy it; a subsequent
    `step finish` then proceeds through the remaining finalize stages to completion.
    `automated: node --test tools/tests/workflow-e2e.test.mjs`
-4. An interrupted-and-resumed `step finish` is exercised for each of the four points
-   required by specification requirement 6 (after task-metadata update, after commit
-   creation, with an ambiguous push result, after successful push but before transition)
-   and, in each case, retrying completes the remaining stages without duplicating a
-   completed side effect. `automated: node --test tools/tests/workflow-e2e.test.mjs`
+4. An interrupted-and-resumed `step finish` is exercised via the CLI for each of the
+   critical uncertain windows (C18): a stage left `running` after the task/spec mutation
+   but before `update-task` is persisted `completed`; a stage left `running` after `git
+   commit` succeeds but before its SHA/`completed` status is persisted; `push` left
+   `running` or `unknown`; and interruption after a successful push but before
+   `transition`. In each case, retrying via `step finish` reconciles against persisted
+   intent/pre-state plus real repository/remote state and completes the remaining stages
+   without duplicating a completed side effect or creating a second commit. `automated: node --test tools/tests/workflow-e2e.test.mjs`
 5. A `step finish` call repeated after a fully successful run returns the already-completed
    result and current next step without repeating any finalize action. `automated: node --test tools/tests/workflow-e2e.test.mjs`
-6. After a fully successful vertical PoC run, the fixture's Git worktree is clean
+6. An interrupted finish, when retried via `step finish` with **no** inputs supplied,
+   resumes using the persisted `resolvedInputs` (C19) rather than reporting
+   `input-required` again; retrying with a **different** `commit.title` than what was
+   already persisted is rejected with a deterministic conflict, and the operation's
+   original intent is unchanged. `automated: node --test tools/tests/workflow-e2e.test.mjs`
+7. After a fully successful vertical PoC run, the fixture's Git worktree is clean
    (`git status --porcelain` empty) and the finish-operation record under
    `.nevo-ai-local/workflow-operations/` shows the operation fully completed — proving
    C17's "clean tracked state plus completed runtime state" invariant together.
    `automated: node --test tools/tests/workflow-e2e.test.mjs`
-7. The complete PoC sequence (criteria 2-3, including retries) runs end-to-end using only
+8. The complete PoC sequence (criteria 2-6, including retries) runs end-to-end using only
    the public CLI commands named above — no test in this suite manually edits
    `change.yaml`/task files to simulate progress, and none directly invokes an internal
    gate/action API (e.g. `HumanVerificationGate.verify()`, `ActionContract.execute()`) in
    place of a CLI call. `automated: node --test tools/tests/workflow-e2e.test.mjs`
-8. Legacy specifications without `workflow.mode` execute legacy `finalize` and lifecycle
+9. Legacy specifications without `workflow.mode` execute legacy `finalize` and lifecycle
    commands without interference. `automated: node --test tools/tests/workflow-e2e.test.mjs`
-9. `docs/development/workflow-engine.md` documents the engine architecture, action
-   contracts, input schemas, gate types, the `StepContext`/finish-planning/durable-finish
-   model and its `.nevo-ai-local/` storage location, the agent-facing vs. operator-facing
-   CLI surface, the source-control capability boundary and its four configuration cases,
-   and the legacy/deterministic migration map. `automated: node tools/docs.mjs check`
-10. The full repository test suite `node --test tools/tests/*.test.mjs` passes with zero
+10. `docs/development/workflow-engine.md` documents the engine architecture, action
+    contracts, input schemas, gate types, the `StepContext`/finish-planning/durable-finish
+    model and its `.nevo-ai-local/` storage location, the agent-facing vs. operator-facing
+    CLI surface, the source-control capability boundary and its four configuration cases,
+    and the legacy/deterministic migration map. `automated: node tools/docs.mjs check`
+11. The full repository test suite `node --test tools/tests/*.test.mjs` passes with zero
     failures. `automated: node --test tools/tests/*.test.mjs`
 
 ## Verification

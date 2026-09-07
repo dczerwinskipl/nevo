@@ -134,7 +134,8 @@
   | Commit + ordinary push, no provider | `enabled: true, push: true, remote.enabled: false` | Plain Git push; "is this pushed" reconciliation uses pure Git (`ls-remote`/`rev-list` via the Task 04 primitive) — no GitHub API call involved. |
   | Commit + push + GitHub provider | `enabled: true, push: true, remote: { enabled: true, provider: github }` | Same as above, plus the GitHub-provider-specific capability boundary is available for future provider-specific operations — this foundation adds no additional mutating operation beyond ordinary push. |
 
-  `remote.enabled: true` with `push: false` is an invalid, contradictory configuration and must be rejected (or normalized to `remote.enabled: false`) rather than silently accepted.
+  `remote.enabled: true` with `push: false` is an invalid, contradictory configuration.
+- **Refinement — fail-closed only, no normalization:** The prior wording allowed either rejecting this configuration or silently normalizing it to `remote.enabled: false`. That choice is now resolved: `remote.enabled: true` with `sourceControl.push: false` **must** produce a configuration validation error — it is never silently normalized. Normalizing would mean the runtime accepted and reinterpreted a configuration the caller never actually specified, which is exactly the kind of silent, ambiguity-hiding behavior C6's fail-closed principle already forbids for action inputs; the same standard applies here to configuration.
 - **Date:** 2026-09-07
 - **Affected artifacts:** `overview.md` (non-goals, constraints), `areas/concrete-actions-and-vertical-poc.md`, task 04 (renamed)
 
@@ -160,10 +161,16 @@
     "task": "06-step-orchestration-and-next-step-service",
     "step": "implementation",
     "status": "running",
+    "resolvedInputs": {
+      "commit.title": "...",
+      "commit.message": "...",
+      "include": ["..."],
+      "exclude": []
+    },
     "operations": [
       { "id": "verify-gates", "status": "completed" },
-      { "id": "update-task", "status": "completed" },
-      { "id": "commit", "status": "completed", "result": { "sha": "abc123" } },
+      { "id": "update-task", "status": "completed", "intent": { "fromState": "in-implementation", "toState": "implemented" } },
+      { "id": "commit", "status": "completed", "intent": { "preCommitHead": "def456" }, "result": { "sha": "abc123" } },
       { "id": "push", "status": "unknown", "result": { "remote": "origin", "branch": "feature/foo", "expectedSha": "abc123" } },
       { "id": "transition", "status": "pending" }
     ]
@@ -171,10 +178,17 @@
   ```
   On retry, Nevo loads the existing record, treats `completed` stages as done, and reconciles any `unknown` stage against real external state before deciding whether it is actually `completed` or still `pending` — e.g. a `push` left `unknown` after a crash is reconciled by checking (via the Task 04 Git reconciliation primitive from D12) whether the recorded commit SHA is already present on the expected remote branch. It never re-creates a commit that already exists. A repeated `step finish` after the operation record shows full success returns the already-completed result and current next step rather than repeating finalize actions.
 - **Rationale:** Matches specification requirement 6 exactly — a foundation-level resumability invariant, not a claim of exactly-once distributed semantics. `unknown` is the state that makes reconciliation meaningful: it marks an external side effect whose outcome Nevo did not confirm, as distinct from `failed` (confirmed not to have happened) or `completed` (confirmed to have happened).
+- **Refinement — closing the crash window for a stage left `running`:** The original decision defined reconciliation for `unknown`, but left a real gap: a mutating stage can crash *after* its side effect happens and *before* the record is updated to `completed`, leaving it recorded as `running` — a state distinct from both "confirmed not started" (`pending`) and "confirmed uncertain" (`unknown`). **`running` found on recovery is never trusted at face value and never blindly reset to `pending`** — it is *always* reconciled first, exactly like `unknown`, using persisted pre-mutation intent plus real current state:
+  - **`update-task`**: before mutating, persist `intent: { fromState, toState }` (the task/spec state transition about to happen). On recovery: current tracked state `== toState` → the write happened, mark `completed`; current tracked state `== fromState` → it never happened, safe to (re)execute; anything else → ambiguous, never guess — report the stage as `unknown` and return a machine-readable reconciliation-required response instead of proceeding.
+  - **`commit`**: before running `git commit`, persist `intent: { preCommitHead }` (the current HEAD SHA) — the exact file selection and commit title/message needed to reconcile are already covered by `resolvedInputs` below, not duplicated here. On recovery: current HEAD `== preCommitHead` → the commit never happened, safe to (re)execute; current HEAD differs → inspect the commit(s) since `preCommitHead` to determine whether one of them is provably this operation's own commit (parent is `preCommitHead`, and its content matches the persisted `resolvedInputs`); if provable, recover its SHA and mark `completed`; if not provable, report `unknown` and block for reconciliation — **never create a second commit merely because the stage still says `running`.**
+  - **`push`**: unchanged model (D15) — `expectedSha` is itself the pre-push intent, already persisted before the `git push` call as part of moving the stage to `running`/`unknown`. A recovered `running` push is reconciled exactly like an `unknown` one — no separate handling needed.
+  - **`transition`**: remains runtime-only and idempotent — it introduces no tracked-metadata mutation of its own (see D13's consequence), so there is nothing to reconcile beyond re-deriving the next-step response.
+  - This reuses the existing five-value vocabulary (`pending`/`running`/`completed`/`failed`/`unknown`) — reconciliation is a *process* every mutating stage goes through when found `running` on recovery, not a sixth status value.
+- **Refinement — resolved finish inputs are persisted once, before the first mutation:** `resolvedInputs` (the caller's validated `commit.title`/`commit.message`/`include`/`exclude`, or the applicable subset) is written into the record once, before `update-task` (the first mutating stage) executes. A resumed `workflow step finish` for an existing in-flight operation uses these persisted inputs — the agent/operator is never required to rediscover or resupply them after a crash, and calling `step finish` with no inputs at all correctly resumes. If a resumed call *does* supply inputs that differ from what's already persisted for that `operationId`, this is a deterministic conflict, reported as such — Nevo never silently substitutes the new values for the operation's already-established intent. Supplying the same values again is a harmless no-op.
 - **Correction — moved out of Git-tracked `change.yaml`:** The original design persisted this record under an `execution.finish_operation` manifest field inside the task's `change.yaml` entry, alongside `execution.suspension`. This created a circular consistency problem: a commit cannot contain its own resulting SHA, so the `commit` stage's result could never be written into the very commit it describes; and every post-commit bookkeeping write (recording `push`/`transition` completion) would leave the worktree dirty again immediately after a clean finalize — directly undermining the "not left dirty" invariant this record exists to protect (see C17). The fix: this durable finish-operation record is workflow *execution/runtime* state, not Git-tracked domain/specification state, and now lives in Nevo's local runtime storage under `.nevo-ai-local/workflow-operations/<change>/<task>.json` — the same git-ignored, project-local storage convention already established by `tools/dashboard/server/ai/sessions/binding-service.mjs` (one JSON file per key, written atomically via temp-file-then-rename). Task 06 implements its own small, minimal read/write helper following that same on-disk convention — it does **not** add a dependency from `tools/specs/workflow/` on `tools/dashboard/`; the convention is reused, not the code. `change.yaml`'s existing `execution.suspension` block is unaffected by this correction and remains exactly as documented in `docs/ai/specification-workflow.md` — it is a distinct, task-lifecycle-level concept (why the *last attempted action* stopped) that this new, more granular, finish-sequence-specific runtime record does not replace or merge with. No manifest field named `execution.finish_operation` exists anywhere in the current design — that name is retained here only as the historical label for what this correction removed.
 - **Consequences:** No manifest schema changes are needed in `tools/specs/validation.mjs` for this record — it is not part of `change.yaml` at all, so Task 01's already-verified schema/validator work is untouched by Task 06. Task 06 owns the small local-storage helper instead of a manifest schema addition.
 - **Date:** 2026-09-07
-- **Affected artifacts:** `overview.md`, `areas/workflow-engine-and-next-step.md`, task 06
+- **Affected artifacts:** `overview.md`, `areas/workflow-engine-and-next-step.md`, tasks 06, 07
 
 ## D15: Push completion represents achieved state, not command invocation
 

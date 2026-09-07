@@ -64,7 +64,9 @@ provider-neutral VCS framework beyond this boundary (C13, D12).
   This is hierarchical: `sourceControl.enabled` gates everything; `push` is meaningful
   only when `sourceControl.enabled: true`; `remote.enabled`/`remote.provider` is
   meaningful only when `push: true`. `remote.enabled: true` with `push: false` is an
-  invalid configuration and must be rejected (or normalized to `remote.enabled: false`).
+  invalid configuration and **must** produce an explicit configuration validation error —
+  it is never silently normalized to `remote.enabled: false` or any other
+  reinterpretation (D12 refinement).
   When `sourceControl.enabled` is `false`, the commit-and-push action contributes no
   `requiredInputs` to a step's aggregated finish contract (verified by Task 06/07, not
   this task, but this task's `check(context)` must reflect the disabled state correctly
@@ -104,7 +106,7 @@ provider-neutral VCS framework beyond this boundary (C13, D12).
 6. `execute` stages matching files, commits with the specified message, and pushes when valid explicit inputs are provided against a test repository fixture, returning `outputs.commit.sha` and `outputs.push` in the D15 shape. `automated: node --test tools/tests/workflow-action-commit-push.test.mjs`
 7. The new `tools/lib/git.mjs` reconciliation primitive correctly reports whether a given commit SHA is present on a given remote branch, against a test repository fixture with both a pushed and an unpushed commit. `automated: node --test tools/tests/workflow-action-commit-push.test.mjs`
 8. Each of the four defined configuration cases behaves as specified, verified against fixtures: (a) `sourceControl.enabled: false` — no commit, no push, no `requiredInputs`; (b) `enabled: true, push: false` — commits but never pushes; (c) `enabled: true, push: true, remote.enabled: false` — commits and pushes via plain Git, no GitHub API call; (d) `enabled: true, push: true, remote: { enabled: true, provider: github }` — same as (c) plus the provider boundary is recognized. `automated: node --test tools/tests/workflow-action-commit-push.test.mjs`
-9. `remote.enabled: true` with `push: false` is rejected (or normalized to `remote.enabled: false`) rather than silently accepted. `automated: node --test tools/tests/workflow-action-commit-push.test.mjs`
+9. `remote.enabled: true` with `push: false` produces an explicit configuration validation error — never silently accepted and never silently normalized to a different configuration. `automated: node --test tools/tests/workflow-action-commit-push.test.mjs`
 
 ## Verification
 

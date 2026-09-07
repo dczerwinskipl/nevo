@@ -51,8 +51,10 @@ four cases this must make unambiguous (D12 correction):
 | Commit + push, no provider | `enabled: true, push: true, remote.enabled: false` |
 | Commit + push + GitHub provider | `enabled: true, push: true, remote: { enabled: true, provider: github }` |
 
-`remote.enabled: true` with `push: false` is invalid and must be rejected or normalized
-to `false`. The exact schema *location* (workflow definition file vs. per-change
+`remote.enabled: true` with `push: false` is invalid and must be rejected with an
+explicit configuration validation error — never silently normalized to
+`remote.enabled: false` or any other reinterpretation. The exact schema *location*
+(workflow definition file vs. per-change
 manifest) is a Task 04 implementation decision; the field semantics above are fixed by
 D12/C13. If source control is disabled, the commit/push action contributes no
 `requiredInputs` to a step's aggregated finish contract.
@@ -139,14 +141,24 @@ implementation:
   the task/spec completion-state update (D13), push is confirmed, and the workflow
   transitions to the next step.
 - **Scenario G (Interrupted and Resumed Finish):** Simulate an interruption at each of the
-  four points required by specification requirement 6 (after task-metadata update, after
-  commit creation, with an ambiguous push result, after successful push but before
-  transition); verify a retried `workflow step finish` reconciles `unknown` stages against
-  real repository/remote state, never repeats a completed side effect (in particular never
-  creates a second commit), and completes the remaining stages.
-- **Scenario H (Idempotent Repeat):** Call `workflow step finish` again after a fully
-  successful run; verify it returns the already-completed result and current next step
-  without repeating any finalize action.
+  critical uncertain windows, not only at already-completed stage boundaries: (1) after
+  the task/spec mutation but before `update-task: completed` is persisted (stage left
+  `running`), (2) after `git commit` succeeds but before the SHA/`completed` is persisted
+  (stage left `running`), (3) during/after push where persisted state remains `running` or
+  `unknown`, (4) after a successful push but before transition/result delivery; verify a
+  retried `workflow step finish` reconciles each `running`/`unknown` stage against
+  persisted intent/pre-state plus real repository/remote state (C18) — never blindly
+  resetting `running` to `pending`, never repeating a completed side effect, and in
+  particular never creating a second commit — and completes the remaining stages.
+- **Scenario H (Idempotent Repeat and Resumed Inputs):** (1) Call `workflow step finish`
+  again after a fully successful run; verify it returns the already-completed result and
+  current next step without repeating any finalize action. (2) Interrupt a finish
+  operation after inputs were supplied and resolved, then retry `workflow step finish`
+  with **no** inputs at all; verify it resumes using the persisted `resolvedInputs` (C19)
+  rather than reporting `input-required` again. (3) Retry the same in-flight operation
+  supplying a **different** `commit.title` than what was persisted; verify this is
+  rejected as a deterministic conflict, and the operation's original intent is
+  unchanged.
 - **Scenario I (Coexistence):** Run legacy `specs.mjs finalize` on a legacy specification;
   verify 100% legacy flow continuity.
 - **Scenario J (Clean-Worktree Invariant, C17):** After Scenario F's successful finalize,

@@ -155,10 +155,16 @@ the last attempted *action* stopped) — this new record is distinct and more gr
   "task": "06-step-orchestration-and-next-step-service",
   "step": "implementation",
   "status": "running",
+  "resolvedInputs": {
+    "commit.title": "...",
+    "commit.message": "...",
+    "include": ["..."],
+    "exclude": []
+  },
   "operations": [
     { "id": "verify-gates", "status": "completed" },
-    { "id": "update-task", "status": "completed" },
-    { "id": "commit", "status": "completed", "result": { "sha": "abc123" } },
+    { "id": "update-task", "status": "completed", "intent": { "fromState": "in-implementation", "toState": "implemented" } },
+    { "id": "commit", "status": "completed", "intent": { "preCommitHead": "def456" }, "result": { "sha": "abc123" } },
     { "id": "push", "status": "unknown", "result": { "remote": "origin", "branch": "feature/foo", "expectedSha": "abc123" } },
     { "id": "transition", "status": "pending" }
   ]
@@ -170,22 +176,63 @@ Per-stage status: `pending` / `running` / `completed` / `failed` / `unknown`. On
 1. Load the existing operation record (never start a fresh one while one is in progress
    for the same task).
 2. Treat every `completed` stage's side effect as already achieved — never repeat it.
-3. Reconcile any `unknown` stage against real state. For `push`: check (via the Task 04
-   local-Git reconciliation primitive) whether the recorded `commit.sha` is already
-   present on the expected remote branch; `completed` if yes, `pending` if not. A commit
-   is never re-created once its SHA is known.
+3. Reconcile any `unknown` **or `running`** stage against real state before deciding what
+   still needs to run — `running` is never trusted at face value and never blindly reset
+   to `pending` (C18); see "Recovering a stage found `running`" below for the per-stage
+   rule.
 4. Continue from the first stage that still needs work.
+
+### Recovering a stage found `running` (C18)
+
+A stage can crash *after* its side effect happens and *before* the record is updated to
+`completed` — this is a distinct, real window from "confirmed uncertain" (`unknown`), and
+`running` is reconciled through the same persisted-intent-plus-real-state process, not
+treated as a sixth status or reset blindly:
+
+- **`update-task`**: `intent.fromState`/`intent.toState` were persisted before the write.
+  Current tracked state `== toState` → the write happened, mark `completed`; `==
+  fromState` → it never happened, safe to (re)execute; anything else → ambiguous, report
+  `unknown` and block for reconciliation rather than guess.
+- **`commit`**: `intent.preCommitHead` was persisted before `git commit` ran (file
+  selection and message are already in `resolvedInputs`, not duplicated in `intent`).
+  Current HEAD `== preCommitHead` → the commit never happened, safe to (re)execute; HEAD
+  differs → inspect the commit(s) since `preCommitHead` for one provably produced by this
+  operation (parent is `preCommitHead`, content matches `resolvedInputs`); provable →
+  recover the SHA, mark `completed`; not provable → report `unknown`, block — **never
+  create a second commit merely because the stage still says `running`.**
+- **`push`**: unchanged model (D15) — `expectedSha` is itself the pre-push intent,
+  already persisted before the `git push` call as part of moving the stage to
+  `running`/`unknown`. A recovered `running` push reconciles identically to `unknown`:
+  check (via the Task 04 local-Git reconciliation primitive) whether the recorded
+  `commit.sha` is already present on the expected remote branch; `completed` if yes,
+  `pending` if not.
+- **`transition`**: remains runtime-only and idempotent; nothing to reconcile beyond
+  re-deriving the next-step response (D13's consequence).
+
+### Resolved inputs persisted once, before the first mutation (C19)
+
+`resolvedInputs` is written into the record before `update-task` (the first mutating
+stage) executes. A resumed `workflow step finish` for an existing in-flight operation
+uses these persisted inputs — the agent/operator never needs to rediscover or resupply
+them after a crash; calling `step finish` with no inputs at all correctly resumes.
+Supplying inputs that conflict with what's already persisted for that `operationId` is a
+deterministic, reported error, never a silent substitution of the operation's established
+intent; supplying the same values again is a harmless no-op.
 
 A repeated `workflow step finish` after the record shows full success returns the
 already-completed result and current next step rather than repeating finalize actions —
 this is what makes the whole sequence safely idempotent from the agent's point of view.
 
-Required acceptance coverage for interruption/retry (specification requirement 6),
-matching Task 07's vertical PoC Scenario G:
-- interrupted after task-metadata update,
-- interrupted after commit creation,
-- interrupted with an ambiguous (`unknown`) push result,
-- interrupted after a successful push but before workflow transition/result delivery.
+Required acceptance coverage for interruption/retry, matching Task 07's vertical PoC
+Scenario G:
+- crash after task/spec mutation but before `update-task: completed` is persisted,
+- crash after `git commit` succeeds but before the SHA/`completed` is persisted,
+- crash during/after push where persisted state remains `running` or `unknown`,
+- crash after a successful push but before transition/result delivery,
+- retry after full success (idempotent repeat),
+- retry without re-supplying finish inputs (resumes from `resolvedInputs`),
+- retry with conflicting inputs is rejected deterministically.
+For every scenario, no completed side effect is duplicated.
 
 **Required invariant (C17).** After a successful task-completing `workflow step finish`
 with source control enabled: task/spec Git-tracked metadata reflects the completed
