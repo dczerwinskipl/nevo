@@ -17,9 +17,12 @@ the full source-control capability boundary that action sits on top of — see D
 - **Local Git capability**, built on the existing `tools/lib/git.mjs` (already used by the
   legacy `finalize`/`archive` paths for `commitAll`/`push` — extended, not replaced):
   repository/worktree state, changed files, staged files, current branch, base branch,
-  existing commits, commit, push, and a new reconciliation primitive answering "is commit
-  `X` already present on the configured remote branch" (needed by Task 06's durable finish
-  operation to reconcile an `unknown` push result — see `areas/workflow-engine-and-next-step.md`).
+  existing commits, commit, push, and two new reconciliation primitives needed by Task
+  06's durable finish operation (see `areas/workflow-engine-and-next-step.md`): one
+  answering "is commit `X` already present on the configured remote branch" (`push`-stage
+  reconciliation), and `getCommitInfo(root, ref)` returning `{ sha, parentSha, subject }`
+  for a given ref (`commit`-stage reconciliation — proving a commit found at HEAD after a
+  crash was produced by the in-flight operation, without creating a second commit).
 - **Remote provider**, built on the existing `tools/lib/github.mjs` (the repository's one
   GitHub integration — no second GitHub abstraction is introduced): configured explicitly
   via `remote.provider`, used only when `remote.enabled`. `github` is the only implemented

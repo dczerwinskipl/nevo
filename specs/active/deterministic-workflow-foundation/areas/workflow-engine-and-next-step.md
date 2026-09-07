@@ -196,10 +196,12 @@ treated as a sixth status or reset blindly:
 - **`commit`**: `intent.preCommitHead` was persisted before `git commit` ran (file
   selection and message are already in `resolvedInputs`, not duplicated in `intent`).
   Current HEAD `== preCommitHead` → the commit never happened, safe to (re)execute; HEAD
-  differs → inspect the commit(s) since `preCommitHead` for one provably produced by this
-  operation (parent is `preCommitHead`, content matches `resolvedInputs`); provable →
-  recover the SHA, mark `completed`; not provable → report `unknown`, block — **never
-  create a second commit merely because the stage still says `running`.**
+  differs → call `tools/lib/git.mjs`'s `getCommitInfo(root, 'HEAD')` (Task 04) to read the
+  current HEAD commit's `parentSha`/`subject`; `parentSha === preCommitHead` and
+  `subject` matching `resolvedInputs['commit.title']` together prove HEAD is this
+  operation's own commit — recover the SHA, mark `completed`; otherwise report `unknown`,
+  block — **never create a second commit merely because the stage still says
+  `running`.**
 - **`push`**: unchanged model (D15) — `expectedSha` is itself the pre-push intent,
   already persisted before the `git push` call as part of moving the stage to
   `running`/`unknown`. A recovered `running` push reconciles identically to `unknown`:

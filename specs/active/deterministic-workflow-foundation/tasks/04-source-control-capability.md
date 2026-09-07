@@ -77,6 +77,15 @@ provider-neutral VCS framework beyond this boundary (C13, D12).
   `execFileSync` wrapper, no shell string concatenation). This is what Task 06's durable
   finish operation needs to reconcile an `unknown` push result without re-pushing or
   re-committing.
+- Extend `tools/lib/git.mjs` with a second, narrow primitive — e.g. `getCommitInfo(root, ref)`
+  returning `{ sha, parentSha, subject }` for a given ref (default `HEAD`), same thin
+  `execFileSync` style as every other function in that file (e.g.
+  `git log -1 --format=%H%x00%P%x00%s <ref>`, split on the NUL separator). This is what
+  Task 06's durable finish operation needs to reconcile a `commit` stage found `running`
+  on recovery: proving that the commit currently at HEAD is this operation's own (its
+  `parentSha` equals the persisted `intent.preCommitHead`, and its `subject` matches the
+  persisted `resolvedInputs['commit.title']`) before recovering its SHA — never by
+  guessing or re-running the commit action.
 - `check(context)` must not stage, commit, push, or mutate Git state under any
   circumstances.
 - Context extraction must report `changedFiles`, `stagedFiles`, `currentBranch`,
@@ -107,6 +116,7 @@ provider-neutral VCS framework beyond this boundary (C13, D12).
 7. The new `tools/lib/git.mjs` reconciliation primitive correctly reports whether a given commit SHA is present on a given remote branch, against a test repository fixture with both a pushed and an unpushed commit. `automated: node --test tools/tests/workflow-action-commit-push.test.mjs`
 8. Each of the four defined configuration cases behaves as specified, verified against fixtures: (a) `sourceControl.enabled: false` — no commit, no push, no `requiredInputs`; (b) `enabled: true, push: false` — commits but never pushes; (c) `enabled: true, push: true, remote.enabled: false` — commits and pushes via plain Git, no GitHub API call; (d) `enabled: true, push: true, remote: { enabled: true, provider: github }` — same as (c) plus the provider boundary is recognized. `automated: node --test tools/tests/workflow-action-commit-push.test.mjs`
 9. `remote.enabled: true` with `push: false` produces an explicit configuration validation error — never silently accepted and never silently normalized to a different configuration. `automated: node --test tools/tests/workflow-action-commit-push.test.mjs`
+10. `getCommitInfo(root, ref)` correctly returns `{ sha, parentSha, subject }` for a given ref against a test repository fixture with at least two commits, and correctly reports a root commit's `parentSha` (no parent) as `null`/absent rather than throwing. `automated: node --test tools/tests/workflow-action-commit-push.test.mjs`
 
 ## Verification
 

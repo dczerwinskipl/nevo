@@ -11,6 +11,7 @@ context:
     - tools/specs/workflow/registry.mjs
     - tools/specs/workflow/engine.mjs
     - tools/lib/cli-errors.mjs
+    - tools/lib/git.mjs
   optional:
     - docs/ai/specification-workflow.md
     - tools/specs/lifecycle.mjs
@@ -120,11 +121,12 @@ Implement the step lifecycle orchestration layer behind the agent-facing
     `tools/lib/git.mjs`'s `getCurrentRevision`) before calling the Task 04 commit action —
     the exact file selection/title/message are already covered by `resolvedInputs`. On
     recovery from `running`: current HEAD `== preCommitHead` → safe to (re)execute; HEAD
-    differs → inspect the commit(s) since `preCommitHead` for one provably produced by
-    this operation (parent is `preCommitHead`, content matches `resolvedInputs`); provable
-    → recover the SHA, mark `completed`; not provable → mark `unknown`, surface a
-    reconciliation-required response — **never call the commit action again merely
-    because the stage still says `running`.**
+    differs → call `tools/lib/git.mjs`'s `getCommitInfo(root, 'HEAD')` (Task 04) to read
+    the current HEAD commit's `parentSha`/`subject`; if `parentSha === preCommitHead` and
+    `subject` matches `resolvedInputs['commit.title']`, HEAD is provably this operation's
+    own commit — recover its SHA and mark `completed`; otherwise mark `unknown` and
+    surface a reconciliation-required response — **never call the commit action again
+    merely because the stage still says `running`.**
   - `push`: no new intent field needed — `expectedSha` (D15) already is the pre-push
     intent, persisted before the `git push` call. Treat a recovered `running` push
     identically to `unknown`: reconcile using the Task 04 local-Git reconciliation
