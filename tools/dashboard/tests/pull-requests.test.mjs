@@ -12,11 +12,11 @@ test('serves provider-neutral pull request results through an exact read-only ro
   });
   const baseUrl = await listen(server, { port: 0 });
   try {
-    const response = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/pull-requests`);
+    const response = await fetch(`${baseUrl}/api/specs/archive/ai-session-issues-and-diagnostics/pull-requests`);
     assert.equal(response.status, 200);
     const payload = await response.json();
     assert.equal(payload.slug, 'ai-session-issues-and-diagnostics');
-    assert.equal(payload.source, 'active');
+    assert.equal(payload.source, 'archive');
     assert.ok(Array.isArray(payload.pullRequests));
     const missing = await fetch(`${baseUrl}/api/specs/archive/missing-nonexistent-slug/pull-requests`);
     assert.equal(missing.status, 404);
