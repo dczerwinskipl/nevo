@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { buildDashboardApp, listen } from '../server/index.mjs';
 
 const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
+const ARCHIVED_FIXTURE_SLUG = 'ai-session-issues-and-diagnostics';
 
 test('serves provider-neutral pull request results through an exact read-only route', async () => {
   const server = await buildDashboardApp({
@@ -12,10 +13,10 @@ test('serves provider-neutral pull request results through an exact read-only ro
   });
   const baseUrl = await listen(server, { port: 0 });
   try {
-    const response = await fetch(`${baseUrl}/api/specs/archive/ai-session-issues-and-diagnostics/pull-requests`);
+    const response = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/pull-requests`);
     assert.equal(response.status, 200);
     const payload = await response.json();
-    assert.equal(payload.slug, 'ai-session-issues-and-diagnostics');
+    assert.equal(payload.slug, ARCHIVED_FIXTURE_SLUG);
     assert.equal(payload.source, 'archive');
     assert.ok(Array.isArray(payload.pullRequests));
     const missing = await fetch(`${baseUrl}/api/specs/archive/missing-nonexistent-slug/pull-requests`);
