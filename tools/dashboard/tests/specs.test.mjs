@@ -8,6 +8,8 @@ import { registerGlobalHttpInfrastructure } from '../server/infrastructure/http.
 import specsRoutes from '../server/specs/routes.mjs';
 
 const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
+const ARCHIVED_FIXTURE_SLUG = 'ai-session-issues-and-diagnostics';
+const ACTIVE_FIXTURE_SLUG = 'deterministic-workflow-foundation';
 test('serves read-only dashboard data and rejects unknown or mutating routes', async () => {
   const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
@@ -27,10 +29,10 @@ test('serves exact specification manifest routes without leaking lookup failures
   const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
   try {
-    const active = await fetch(`${baseUrl}/api/specs/archive/ai-session-issues-and-diagnostics/content`);
+    const active = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/content`);
     assert.equal(active.status, 200);
     const manifest = await active.json();
-    assert.equal(manifest.slug, 'ai-session-issues-and-diagnostics');
+    assert.equal(manifest.slug, ARCHIVED_FIXTURE_SLUG);
     assert.equal(manifest.source, 'archive');
     const missing = await fetch(`${baseUrl}/api/specs/active/missing-nonexistent-slug/content`);
     assert.equal(missing.status, 404);
@@ -47,7 +49,7 @@ test('serves exact per-document content routes without leaking lookup failures',
   const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
   try {
-    const doc = await fetch(`${baseUrl}/api/specs/archive/ai-session-issues-and-diagnostics/content/overview`);
+    const doc = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/content/overview`);
     assert.equal(doc.status, 200);
     const payload = await doc.json();
     assert.equal(payload.docId, 'overview');
@@ -69,10 +71,10 @@ test('serves a small, fast task-statuses route without leaking lookup failures',
   const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
   try {
-    const response = await fetch(`${baseUrl}/api/specs/archive/ai-session-issues-and-diagnostics/task-statuses`);
+    const response = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/task-statuses`);
     assert.equal(response.status, 200);
     const payload = await response.json();
-    assert.equal(payload.slug, 'ai-session-issues-and-diagnostics');
+    assert.equal(payload.slug, ARCHIVED_FIXTURE_SLUG);
     assert.equal(payload.source, 'archive');
     assert.ok(Array.isArray(payload.tasks));
     const missing = await fetch(`${baseUrl}/api/specs/active/missing-nonexistent-slug/task-statuses`);
@@ -89,30 +91,30 @@ test('serves active-only lifecycle gates and executes explicit validated actions
   const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
   try {
-    const gates = await fetch(`${baseUrl}/api/specs/active/deterministic-workflow-foundation/actions`);
+    const gates = await fetch(`${baseUrl}/api/specs/active/${ACTIVE_FIXTURE_SLUG}/actions`);
     assert.equal(gates.status, 200);
     const actionsPayload = await gates.json();
-    assert.equal(actionsPayload.slug, 'deterministic-workflow-foundation');
+    assert.equal(actionsPayload.slug, ACTIVE_FIXTURE_SLUG);
     assert.ok(actionsPayload.tasks);
-    const invalid = await fetch(`${baseUrl}/api/specs/active/deterministic-workflow-foundation/actions`, {
+    const invalid = await fetch(`${baseUrl}/api/specs/active/${ACTIVE_FIXTURE_SLUG}/actions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
       body: '{',
     });
     assert.equal(invalid.status, 400);
-    const missingActionHeader = await fetch(`${baseUrl}/api/specs/active/deterministic-workflow-foundation/actions`, {
+    const missingActionHeader = await fetch(`${baseUrl}/api/specs/active/${ACTIVE_FIXTURE_SLUG}/actions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ action: 'verify', taskId: 'shared-specs-workflow-operations' }),
     });
     assert.equal(missingActionHeader.status, 403);
-    const invalidShape = await fetch(`${baseUrl}/api/specs/active/deterministic-workflow-foundation/actions`, {
+    const invalidShape = await fetch(`${baseUrl}/api/specs/active/${ACTIVE_FIXTURE_SLUG}/actions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
       body: 'null',
     });
     assert.equal(invalidShape.status, 400);
-    const unknownAction = await fetch(`${baseUrl}/api/specs/active/deterministic-workflow-foundation/actions`, {
+    const unknownAction = await fetch(`${baseUrl}/api/specs/active/${ACTIVE_FIXTURE_SLUG}/actions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
       body: JSON.stringify({ action: 'nonexistent-action' }),
