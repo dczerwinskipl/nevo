@@ -11,12 +11,11 @@ unresolved_needs_clarification: 0
 
 # Review: ai-session-issues-and-diagnostics/canonical-cutover-and-cleanup
 
-Baseline for this run: this file's own prior content (generated 2026-09-06T19:08:56Z,
-verdict `pass`, reviewed at implementation `d15ee149761836512b7e6944bcfe49c71927a87d`,
-no unresolved findings recorded). This is a second, final corrective pass on top of that
-one, per the owner's PR #41 follow-up review. No baseline finding is stale/reopened —
-the prior pass had zero findings; this pass evaluates the additional narrowing applied
-since.
+Baseline for this run: this file's own prior content (generated 2026-09-06T19:55:00Z,
+verdict `pass`, reviewed at implementation `dde8c1ac6d077a53a6beab09d909834d364a455b`,
+no unresolved findings recorded). This is a third pass, per the owner's second PR #41
+follow-up. No baseline finding is stale/reopened — the prior pass had zero findings;
+this pass evaluates the additional narrowing applied since (§ "Third pass" below).
 
 ## Verdict
 
@@ -43,11 +42,11 @@ work (baseline `acb3a64`) touches only `tools/dashboard/server/ai/**`,
 
 ## Verification
 
-Run fresh against implementation `dde8c1ac6d077a53a6beab09d909834d364a455b` (both
+Run fresh against implementation `e6e6c1160a905377dc91950aff5dcbc5b2608d52` (both
 manually and via `node tools/specs.mjs self-check`, which recorded the same commands and
 revision in `self_check`):
 
-- `npm --prefix tools/dashboard test` — passed (808/808)
+- `npm --prefix tools/dashboard test` — passed (809/809)
 - `npm --prefix tools/dashboard run build` — passed
 - `npm --prefix tools/dashboard run test:storybook` — passed (97/97)
 - `node tools/specs.mjs validate` — passed
@@ -125,19 +124,43 @@ broader than the actual captured protocol/contract evidence supports:
   snapshot-load-failure error-domain separation), not the now-separately-tested
   missing-readiness behavior.
 
+## Third pass
+
+Two further, narrow corrections on top of `dde8c1a`:
+
+- **SSE fail-closed on missing readiness** (`agent-session-runtime.ts`): the live
+  `turn.updated` handler previously only called `setServerReadiness` when
+  `event.readiness` was truthy, so a malformed event that omitted the (required)
+  `readiness` field silently left whatever readiness was already in state — including a
+  stale, possibly more permissive value. Every `turn.updated` now unconditionally sets
+  `serverReadiness` to `event.readiness ?? null`, so a missing field clears to `null`
+  and `resolveEffectiveReadiness` fails closed to `unavailable` rather than preserving
+  stale state. Added a full hook-mounting regression test in
+  `create-agent-session-helpers.test.mjs` (`MockEventSource` dispatching a real
+  `turn.updated` message with `readiness` omitted) proving: ready → optimistic busy →
+  turn.updated-without-readiness → `unavailable`/send disabled.
+- **Task 13 source/manifest status sync**: `change.yaml` already had this task as
+  `verified`; the task file's own frontmatter `status:` field still said `draft`.
+  `computeTaskFingerprint`'s own doc comment (`tools/specs/fingerprint.mjs`) confirms
+  this field is "simply never read" by any tool — no CLI command manages it (confirmed:
+  no `tools/specs.mjs` subcommand writes task-file frontmatter), so there is no
+  lifecycle command to route this through. Corrected by direct edit to `verified`,
+  matching the same field on every other already-verified task in this change
+  (`01`/`02`/`03`/`08`/`10`/`12`, which already carry the correct value) — not a
+  generated index, so this isn't the hand-edit `AGENTS.md` warns against.
+
 ## Task 13 provenance
 
-- Implementation SHA: `dde8c1ac6d077a53a6beab09d909834d364a455b` (on top of the prior
-  pass's `d15ee149761836512b7e6944bcfe49c71927a87d`).
+- Implementation SHA: `e6e6c1160a905377dc91950aff5dcbc5b2608d52` (on top of the prior
+  passes' `d15ee14` and `dde8c1a`).
 - `self_check`/`implementation.review_revision` updated to
-  `dde8c1ac6d077a53a6beab09d909834d364a455b` via `node tools/specs.mjs self-check`
+  `e6e6c1160a905377dc91950aff5dcbc5b2608d52` via `node tools/specs.mjs self-check`
   (never hand-edited); `baseline_revision` unchanged
-  (`acb3a64dd7dc39c112ec78d7492b03cee52450e4`); `changed_paths` recomputed from that
-  baseline and now includes `tools/dashboard/server/ai/providers/antigravity/provider.mjs`
-  and `tools/dashboard/tests/antigravity-provider.test.mjs`, newly attributed this pass.
-- `status` remains `verified` throughout — this pass corrects and re-evidences an
-  already-verified task's implementation; it does not re-run the
-  draft→implemented→verified status transition.
+  (`acb3a64dd7dc39c112ec78d7492b03cee52450e4`); `changed_paths` unchanged from the prior
+  pass (this pass touched only already-attributed files).
+- `status` remains `verified` throughout, across all three passes — each is a
+  re-evidencing pass on an already-verified task, never a fresh
+  draft→implemented→verified transition.
 - This review file and the `change.yaml`/generated-index updates above are committed as
   one bookkeeping commit, separate from and after the implementation commit — no
   self-referencing provenance.

@@ -378,7 +378,7 @@ tasks:
       - cross-provider-lifecycle-validation
     implementation:
       baseline_revision: acb3a64dd7dc39c112ec78d7492b03cee52450e4
-      review_revision: dde8c1ac6d077a53a6beab09d909834d364a455b
+      review_revision: e6e6c1160a905377dc91950aff5dcbc5b2608d52
       changed_paths:
         - docs/decisions/ADR-0007-provider-neutral-ai-sessions.md
         - docs/decisions/ADR-0008-canonical-ai-session-chat-and-turn-model.md
@@ -450,7 +450,7 @@ tasks:
       worktree_patch_fingerprint: null
     self_check:
       fingerprint: 48d080fc7e99ded4488082b0ff8a7787eb943a7888dc4f82fcec4111d5708a2d
-      revision: dde8c1ac6d077a53a6beab09d909834d364a455b
+      revision: e6e6c1160a905377dc91950aff5dcbc5b2608d52
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
