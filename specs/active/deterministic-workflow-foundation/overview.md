@@ -146,10 +146,10 @@ Introspects current state without mutating anything and returns:
   ```json
   [
     {
-      "name": "commitMessage",
+      "name": "commit.title",
       "type": "string",
       "required": true,
-      "description": "Conventional commit message describing the changes"
+      "description": "Conventional commit title describing the changes"
     },
     {
       "name": "include",
@@ -192,7 +192,7 @@ When an aggregated check is requested on a step, the engine invokes `check` on e
     "commit-and-push": {
       "actionId": "commit-and-push",
       "requiredInputs": [
-        { "name": "commitMessage", "type": "string", "required": true, "description": "Commit message" },
+        { "name": "commit.title", "type": "string", "required": true, "description": "Commit title" },
         { "name": "include", "type": "array", "required": true, "description": "Explicit file selection" }
       ],
       "context": {
@@ -352,7 +352,7 @@ validate supplied inputs
 → persist/complete workflow transition
 → return completed state + next step
 ```
-The resulting progress commit always includes both the agent's work and Nevo's own task/spec status update — never a separate, later commit for metadata.
+The resulting progress commit always includes both the agent's work and Nevo's own task/spec status update — never a separate, later commit for metadata. The final `transition` stage (after push confirmation) is therefore a runtime-record/response-shaping step only — it never writes `change.yaml` a second time. The task/spec status change already happened and was already committed by the `update-task`/`commit` stages; `transition` marks the finish operation's own runtime record as fully complete and derives the `nextStepGuidance` to return — this is exactly what keeps C17's "clean worktree" invariant true even after this last stage runs.
 
 Every mutating finish operation persists a durable record so a crash, timeout, lost response, or provider/network failure never forces blind repetition of a side effect (C15). This is a resumability foundation, not a distributed-transaction guarantee.
 
@@ -446,7 +446,7 @@ tools/specs/workflow/
 - **Task 03 — Action Registry, Composition & Aggregated Check Engine (`tasks/03-action-registry-and-aggregated-checks.md`):**
   Implement `ActionRegistry` and the aggregated check engine in `tools/specs/workflow/registry.mjs` and `engine.mjs` ensuring strict action boundary preservation during multi-action step checks.
 - **Task 04 — Source-Control Capability (`tasks/04-source-control-capability.md`, renamed from "Concrete Action Implementation: Fail-Closed `commit-and-push` Action"):**
-  Implement the `sourceControl`/`git`/`remote` configuration boundary (D12), extend `tools/lib/git.mjs` with a remote-reconciliation primitive, and implement the fail-closed commit/push action in `tools/specs/workflow/actions/commit-and-push.mjs` — explicit file selection (`include`/`exclude`), non-mutating check with Git context (including push/reconciliation facts), and a result shape carrying commit SHA and push status (D15) ready for Task 06's durable finish operation to persist.
+  Implement the `sourceControl` configuration boundary — `enabled`/`push`/`remote` (D12) — extend `tools/lib/git.mjs` with a remote-reconciliation primitive, and implement the fail-closed commit/push action in `tools/specs/workflow/actions/commit-and-push.mjs` — explicit file selection (`include`/`exclude`), non-mutating check with Git context (including push/reconciliation facts), and a result shape carrying commit SHA and push status (D15) ready for Task 06's durable finish operation to persist.
 - **Task 05 — Deterministic Gate Abstraction with Inspection/Verification Separation (`tasks/05-deterministic-gates-and-human-verification.md`):**
   Implement `GateContract` with separate `inspect(context)` and `verify(context)` methods, `CommandGate`, `MarkdownGate`, and `HumanVerificationGate` under `tools/specs/workflow/gates/`.
 - **Task 06 — Step Lifecycle Orchestration: `StepContext`, Finish Planning & Durable Finish Execution (`tasks/06-step-orchestration-and-next-step-service.md`):**

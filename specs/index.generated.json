@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-07T11:52:10.696Z",
+  "generated": "2026-09-07T16:32:36.109Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -175,7 +175,8 @@
           "status": "draft",
           "depends_on": [
             "action-registry-and-aggregated-checks",
-            "deterministic-gates-and-human-verification"
+            "deterministic-gates-and-human-verification",
+            "source-control-capability"
           ]
         },
         {

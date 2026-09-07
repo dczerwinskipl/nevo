@@ -31,6 +31,7 @@ forbidden_paths:
 semantic_references:
   decisions: [D5, D6, D7, D9, D10, D11, D13, D14, D15, D17]
   constraints: [C3, C4, C7, C8, C9, C10, C11, C12, C14, C15, C16, C17]
+  dependency_contracts: [source-control-capability]
 ---
 
 # Task: Step lifecycle orchestration — compiled `StepContext`, finish planning, and durable finish execution
@@ -98,6 +99,10 @@ Implement the step lifecycle orchestration layer behind the agent-facing
 - The `commit`/`push` finish stages call the Task 04 source-control action and persist its
   `outputs.commit`/`outputs.push` shape (D15) directly into the operation record's stage
   results — no reshaping in between.
+- The final `transition` stage must never write `change.yaml` a second time — the
+  task/spec status change already happened via `update-task` and was already committed by
+  `commit`. `transition` only marks the runtime operation record fully `completed` and
+  derives the `nextStepGuidance` to return, preserving C17 even after this last stage.
 - Reconciliation for an `unknown` `push` stage must use the Task 04 local-Git
   reconciliation primitive (`tools/lib/git.mjs`) to check whether the recorded commit SHA
   is already on the expected remote branch, and must never issue a second commit.

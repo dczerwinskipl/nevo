@@ -137,6 +137,7 @@ tasks:
     depends_on:
       - action-registry-and-aggregated-checks
       - deterministic-gates-and-human-verification
+      - source-control-capability
 
   - id: cli-integration-and-vertical-poc
     order: 7

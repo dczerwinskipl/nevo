@@ -8,6 +8,7 @@ context:
     - specs/active/deterministic-workflow-foundation/owner-decisions.md
     - specs/active/deterministic-workflow-foundation/areas/concrete-actions-and-vertical-poc.md
     - tools/specs/workflow/contracts.mjs
+    - tools/specs/workflow/registry.mjs
     - tools/lib/git.mjs
     - tools/lib/github.mjs
   optional:
@@ -33,8 +34,8 @@ semantic_references:
 ## Goal
 
 Implement the minimal source-control capability boundary the deterministic workflow
-needs: a configurable `sourceControl`/`git`/`remote` boundary (D12), a local-Git
-reconciliation primitive in `tools/lib/git.mjs` answering "is commit X already on the
+needs: a configurable `sourceControl` boundary — `enabled`/`push`/`remote` (D12) — a
+local-Git reconciliation primitive in `tools/lib/git.mjs` answering "is commit X already on the
 configured remote branch," and the reference `commit-and-push` action — non-mutating
 check with parameter schemas (`commit.title`, `commit.message`, `include`, `exclude`) and
 runtime Git facts, fail-closed execution requiring explicit file selection, and a result
@@ -85,10 +86,12 @@ provider-neutral VCS framework beyond this boundary (C13, D12).
   an array, execution must throw `PreconditionError`. The action must NEVER implicitly
   stage all dirty files without explicit caller instruction.
 - Execute stages files matching `include` (respecting `exclude`), commits with
-  `commit.title`/`commit.message`, and pushes to upstream when `git.push` is enabled.
+  `commit.title`/`commit.message`, and pushes to upstream when `sourceControl.push` is
+  enabled.
 - `ActionExecuteResult.outputs` must carry `commit: { sha, status }` and, when pushed,
   `push: { remote, branch, expectedSha, status }` (D15) — the exact shape Task 06 persists
-  into `execution.finish_operation`'s `commit`/`push` stage results.
+  into the finish-operation runtime record's `commit`/`push` stage results
+  (`.nevo-ai-local/workflow-operations/<change>/<task>.json` — never `change.yaml`).
 - Auto-register `commit-and-push` in the default action registry.
 
 ## Acceptance criteria

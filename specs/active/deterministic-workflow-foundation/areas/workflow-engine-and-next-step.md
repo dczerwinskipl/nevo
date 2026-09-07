@@ -82,7 +82,14 @@ compiles a `StepContext` by reusing `WorkflowEngine.checkStep`'s action/gate agg
 }
 ```
 The agent must not need to inspect individual actions merely to discover their schemas —
-this aggregation is the one place that happens.
+this aggregation is the one place that happens. `finishContract.requiredInputs` is built
+by flattening each finalize action's `requiredInputs` array (from `checkStep`'s per-action
+output, Task 03) into one step-level map keyed by parameter `name` — dotted names like
+`commit.title` are ordinary strings to this layer (Task 02's schema validator places no
+character restriction on `name`, only non-empty). The finalize actions this foundation
+defines (`verify-task-output`, `commit-and-push`) never declare colliding names; a future
+step definition whose finalize actions do collide is out of scope here and would need
+explicit per-action namespacing, not silent overwrite.
 
 ## `workflow step finish` — Non-Mutating Planning and `input-required` (D11)
 
@@ -118,13 +125,20 @@ lives in. Fixed stage order, matching the finalize ordering invariant (D13):
 verify-gates → update-task → commit → push → transition
 ```
 
+`transition` (the final stage, after push confirmation) never writes `change.yaml` again
+— the task/spec status change already happened and was already committed by
+`update-task`/`commit`. `transition` only marks the runtime operation record fully
+`completed` and derives the next-step response; this is what keeps the worktree clean
+even after this last stage runs (C17).
+
 **This record is workflow execution/runtime state, not Git-tracked domain/specification
-state (D14 correction, 2026-09-08).** Persisting it under `change.yaml`'s
-`execution.finish_operation` (the original design) created a circular problem: a commit
-cannot contain its own resulting SHA, and every post-commit bookkeeping write (recording
-`push`/`transition` completion) would leave the worktree dirty again immediately after a
-clean finalize — directly violating C17. Instead it is persisted in Nevo's local runtime
-storage at `.nevo-ai-local/workflow-operations/<change>/<task>.json`, following the
+state (D14 correction).** The original design persisted it as an `execution.finish_operation`
+field inside `change.yaml`, which created a circular problem: a commit cannot contain its
+own resulting SHA, and every post-commit bookkeeping write (recording `push`/`transition`
+completion) would leave the worktree dirty again immediately after a clean finalize —
+directly violating C17. This finish-operation runtime record is instead persisted in
+Nevo's local runtime storage at `.nevo-ai-local/workflow-operations/<change>/<task>.json`,
+following the
 existing git-ignored local-storage convention already used by
 `tools/dashboard/server/ai/sessions/binding-service.mjs` (one JSON file per key, atomic
 temp-file-then-rename writes) — reused as a *pattern*, not as a new code dependency from

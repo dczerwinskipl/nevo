@@ -73,7 +73,7 @@ D12/C13. If source control is disabled, the commit/push action contributes no
   - `currentBranch`: Active Git branch.
   - `baseBranch`: Base branch (e.g. `main`).
   - `existingCommits`: Recent commits on this branch.
-  - `unpushedCommits`: Commits on `currentBranch` not yet present on its remote-tracking branch (via the reconciliation primitive above) — `null`/absent when `sourceControl.enabled` or `git.push` is `false`.
+  - `unpushedCommits`: Commits on `currentBranch` not yet present on its remote-tracking branch (via the reconciliation primitive above) — `null`/absent when `sourceControl.enabled` is `false` or `sourceControl.push` is `false`.
 
 ### 2. Fail-Closed File Selection Invariant (`execute(inputs, context)`)
 - **Strict Validation:**
@@ -83,7 +83,7 @@ D12/C13. If source control is disabled, the commit/push action contributes no
 - **Execution Operations:**
   - Stages files matching `include` (excluding any matching `exclude`).
   - Creates a Git commit with the explicit `commit.title`/`commit.message`.
-  - Pushes the branch to upstream tracking ref when `git.push` is enabled.
+  - Pushes the branch to upstream tracking ref when `sourceControl.push` is enabled.
   - Returns `ActionExecuteResult` with outputs shaped for durable persistence (D15):
     ```json
     {
@@ -149,3 +149,8 @@ implementation:
   without repeating any finalize action.
 - **Scenario I (Coexistence):** Run legacy `specs.mjs finalize` on a legacy specification;
   verify 100% legacy flow continuity.
+- **Scenario J (Clean-Worktree Invariant, C17):** After Scenario F's successful finalize,
+  verify the fixture's Git worktree is clean (`git status --porcelain` empty) and the
+  finish-operation runtime record under `.nevo-ai-local/workflow-operations/` shows the
+  operation fully `completed` — proving that Nevo's own post-commit bookkeeping never
+  produces a Git-visible change.
