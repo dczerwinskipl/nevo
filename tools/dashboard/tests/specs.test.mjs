@@ -33,7 +33,7 @@ test('serves exact specification manifest routes without leaking lookup failures
     const manifest = await active.json();
     assert.equal(manifest.slug, ARCHIVED_FIXTURE_SLUG);
     assert.equal(manifest.source, 'archive');
-    const missing = await fetch(`${baseUrl}/api/specs/active/missing-nonexistent-slug/content`);
+    const missing = await fetch(`${baseUrl}/api/specs/archive/missing-nonexistent-slug/content`);
     assert.equal(missing.status, 404);
     assert.deepEqual(await missing.json(), { error: 'Specification content not found' });
     const mutation = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/content`, {
@@ -76,7 +76,7 @@ test('serves a small, fast task-statuses route without leaking lookup failures',
     assert.equal(payload.slug, ARCHIVED_FIXTURE_SLUG);
     assert.equal(payload.source, 'archive');
     assert.ok(Array.isArray(payload.tasks));
-    const missing = await fetch(`${baseUrl}/api/specs/active/missing-nonexistent-slug/task-statuses`);
+    const missing = await fetch(`${baseUrl}/api/specs/archive/missing-nonexistent-slug/task-statuses`);
     assert.equal(missing.status, 404);
     const mutation = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/task-statuses`, {
       method: 'POST',
