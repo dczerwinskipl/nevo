@@ -182,9 +182,12 @@ export function useAgentSessionRuntime({
           }
         }
 
-        if (event.readiness) {
-          setServerReadiness(event.readiness);
-        }
+        // A canonical `turn.updated` event always carries authoritative readiness on
+        // the wire contract — replace it unconditionally, even when the field is
+        // missing/malformed, so a bad event can never leave a stale, possibly more
+        // permissive readiness in place. `resolveEffectiveReadiness` fails closed to
+        // `unavailable` on `null`, never re-derives `ready` from silence.
+        setServerReadiness(event.readiness ?? null);
         setOptimisticPending(null);
         setContentRevision((r) => r + 1);
       },

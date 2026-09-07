@@ -609,3 +609,86 @@ test('real useAgentSessionRuntime mounting: error domain separation between snap
   assert.equal(errorsReceived.length, 1);
   assert.equal(errorsReceived[0], 'Turn execution conflict');
 });
+
+test('real useAgentSessionRuntime mounting: a turn.updated event omitting readiness fails closed, never preserves the prior value', async () => {
+  const harness = createHookHarness();
+
+  class MockEventSource {
+    constructor(url) {
+      this.url = url;
+      this.listeners = new Map();
+      this.onmessage = null;
+      MockEventSource.current = this;
+    }
+    addEventListener(type, listener) {
+      if (!this.listeners.has(type)) this.listeners.set(type, new Set());
+      this.listeners.get(type).add(listener);
+    }
+    removeEventListener(type, listener) {
+      this.listeners.get(type)?.delete(listener);
+    }
+    dispatchEvent(type, data) {
+      const event = { type, data: JSON.stringify(data) };
+      this.onmessage?.(event);
+      for (const listener of this.listeners.get(type) || []) listener(event);
+    }
+    close() {}
+  }
+  globalThis.EventSource = MockEventSource;
+
+  globalThis.fetch = async (url, options) => {
+    if (options?.method === 'POST' && url.includes('/turns')) {
+      return { ok: true, status: 202, json: async () => ({ turnId: 'turn-fail-closed-1' }) };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        session: {
+          provider: 'claude',
+          providerSessionId: 'sess-fail-closed',
+          lastEventSeq: 0,
+          readiness: { status: 'ready', reason: 'idle' },
+        },
+        readiness: { status: 'ready', reason: 'idle' },
+        turns: [],
+      }),
+    };
+  };
+
+  // 1. Snapshot loads with authoritative ready.
+  await harness.render({ provider: 'claude', providerSessionId: 'sess-fail-closed' });
+  assert.equal(harness.result.readiness?.status, 'ready');
+  assert.equal(harness.result.canStartTurn, true);
+
+  // 2. Optimistic send immediately overrides to busy.
+  await harness.act(async () => {
+    await harness.result.sendTurn('Hello');
+  });
+  assert.equal(harness.result.readiness?.status, 'busy');
+  assert.equal(harness.result.canStartTurn, false);
+
+  // 3. A turn.updated event omitting the required `readiness` field arrives. It must
+  // clear the authoritative value to missing/unavailable — never silently keep the
+  // stale `busy` (or any other previously-known) readiness in place.
+  await harness.act(async () => {
+    MockEventSource.current.dispatchEvent('turn.updated', {
+      type: 'turn.updated',
+      seq: 1,
+      turn: {
+        id: 'turn-fail-closed-1',
+        status: { status: 'active', detail: 'processing', since: '', source: 'provider' },
+        work: [],
+        historicalWork: [],
+        activityCount: 0,
+        currentActivity: null,
+        finalAnswer: null,
+      },
+      // readiness intentionally omitted — malformed/incomplete event.
+    });
+  });
+
+  assert.equal(harness.result.readiness?.status, 'unavailable');
+  assert.equal(harness.result.readiness?.reason, 'readiness_unavailable');
+  assert.equal(harness.result.canStartTurn, false, 'a turn.updated missing readiness must never leave send enabled');
+});
