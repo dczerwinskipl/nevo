@@ -99,7 +99,7 @@ tasks:
   - id: source-control-capability
     order: 4
     file: tasks/04-source-control-capability.md
-    status: draft
+    status: approved
     depends_on:
       - composable-actions-and-contracts
 
