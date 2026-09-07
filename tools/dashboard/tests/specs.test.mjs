@@ -6,6 +6,7 @@ import Fastify from 'fastify';
 import { buildDashboardApp, listen } from '../server/index.mjs';
 import { registerGlobalHttpInfrastructure } from '../server/infrastructure/http.mjs';
 import specsRoutes from '../server/specs/routes.mjs';
+import { ACTIVE_FIXTURE_SLUG, ARCHIVED_FIXTURE_SLUG, createSpecificationRouteFixtures } from './helpers/spec-fixtures.mjs';
 
 const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
 test('serves read-only dashboard data and rejects unknown or mutating routes', async () => {
@@ -23,19 +24,20 @@ test('serves read-only dashboard data and rejects unknown or mutating routes', a
     await new Promise((r) => server.close(r));
   }
 });
-test('serves exact specification manifest routes without leaking lookup failures', async () => {
-  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
+test('serves exact specification manifest routes without leaking lookup failures', async (t) => {
+  const fixtures = await createSpecificationRouteFixtures(t);
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST, ...fixtures } });
   const baseUrl = await listen(server, { port: 0 });
   try {
-    const active = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/content`);
-    assert.equal(active.status, 200);
-    const manifest = await active.json();
-    assert.equal(manifest.slug, 'ai-session-issues-and-diagnostics');
-    assert.equal(manifest.source, 'active');
-    const missing = await fetch(`${baseUrl}/api/specs/active/missing-nonexistent-slug/content`);
+    const archived = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/content`);
+    assert.equal(archived.status, 200);
+    const manifest = await archived.json();
+    assert.equal(manifest.slug, ARCHIVED_FIXTURE_SLUG);
+    assert.equal(manifest.source, 'archive');
+    const missing = await fetch(`${baseUrl}/api/specs/archive/missing-nonexistent-slug/content`);
     assert.equal(missing.status, 404);
     assert.deepEqual(await missing.json(), { error: 'Specification content not found' });
-    const mutation = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/content`, {
+    const mutation = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/content`, {
       method: 'POST',
     });
     assert.equal(mutation.status, 404);
@@ -43,21 +45,22 @@ test('serves exact specification manifest routes without leaking lookup failures
     await new Promise((r) => server.close(r));
   }
 });
-test('serves exact per-document content routes without leaking lookup failures', async () => {
-  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
+test('serves exact per-document content routes without leaking lookup failures', async (t) => {
+  const fixtures = await createSpecificationRouteFixtures(t);
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST, ...fixtures } });
   const baseUrl = await listen(server, { port: 0 });
   try {
-    const doc = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/content/overview`);
+    const doc = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/content/overview`);
     assert.equal(doc.status, 200);
     const payload = await doc.json();
     assert.equal(payload.docId, 'overview');
     assert.ok(payload.markdown.length > 0);
     const missing = await fetch(
-      `${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/content/task%3Amissing-task-id`,
+      `${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/content/task%3Amissing-task-id`,
     );
     assert.equal(missing.status, 404);
     assert.deepEqual(await missing.json(), { error: 'Specification document not found' });
-    const mutation = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/content/overview`, {
+    const mutation = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/content/overview`, {
       method: 'POST',
     });
     assert.equal(mutation.status, 404);
@@ -65,19 +68,20 @@ test('serves exact per-document content routes without leaking lookup failures',
     await new Promise((r) => server.close(r));
   }
 });
-test('serves a small, fast task-statuses route without leaking lookup failures', async () => {
-  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
+test('serves a small, fast task-statuses route without leaking lookup failures', async (t) => {
+  const fixtures = await createSpecificationRouteFixtures(t);
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST, ...fixtures } });
   const baseUrl = await listen(server, { port: 0 });
   try {
-    const response = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/task-statuses`);
+    const response = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/task-statuses`);
     assert.equal(response.status, 200);
     const payload = await response.json();
-    assert.equal(payload.slug, 'ai-session-issues-and-diagnostics');
-    assert.equal(payload.source, 'active');
+    assert.equal(payload.slug, ARCHIVED_FIXTURE_SLUG);
+    assert.equal(payload.source, 'archive');
     assert.ok(Array.isArray(payload.tasks));
-    const missing = await fetch(`${baseUrl}/api/specs/active/missing-nonexistent-slug/task-statuses`);
+    const missing = await fetch(`${baseUrl}/api/specs/archive/missing-nonexistent-slug/task-statuses`);
     assert.equal(missing.status, 404);
-    const mutation = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/task-statuses`, {
+    const mutation = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/task-statuses`, {
       method: 'POST',
     });
     assert.equal(mutation.status, 404);
@@ -85,40 +89,41 @@ test('serves a small, fast task-statuses route without leaking lookup failures',
     await new Promise((r) => server.close(r));
   }
 });
-test('serves active-only lifecycle gates and executes explicit validated actions', async () => {
-  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
+test('serves active-only lifecycle gates and executes explicit validated actions', async (t) => {
+  const fixtures = await createSpecificationRouteFixtures(t);
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST, ...fixtures } });
   const baseUrl = await listen(server, { port: 0 });
   try {
-    const gates = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/actions`);
+    const gates = await fetch(`${baseUrl}/api/specs/active/${ACTIVE_FIXTURE_SLUG}/actions`);
     assert.equal(gates.status, 200);
     const actionsPayload = await gates.json();
-    assert.equal(actionsPayload.slug, 'ai-session-issues-and-diagnostics');
+    assert.equal(actionsPayload.slug, ACTIVE_FIXTURE_SLUG);
     assert.ok(actionsPayload.tasks);
-    const invalid = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/actions`, {
+    const invalid = await fetch(`${baseUrl}/api/specs/active/${ACTIVE_FIXTURE_SLUG}/actions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
       body: '{',
     });
     assert.equal(invalid.status, 400);
-    const missingActionHeader = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/actions`, {
+    const missingActionHeader = await fetch(`${baseUrl}/api/specs/active/${ACTIVE_FIXTURE_SLUG}/actions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ action: 'verify', taskId: 'shared-specs-workflow-operations' }),
     });
     assert.equal(missingActionHeader.status, 403);
-    const invalidShape = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/actions`, {
+    const invalidShape = await fetch(`${baseUrl}/api/specs/active/${ACTIVE_FIXTURE_SLUG}/actions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
       body: 'null',
     });
     assert.equal(invalidShape.status, 400);
-    const unknownAction = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/actions`, {
+    const unknownAction = await fetch(`${baseUrl}/api/specs/active/${ACTIVE_FIXTURE_SLUG}/actions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
       body: JSON.stringify({ action: 'nonexistent-action' }),
     });
     assert.equal(unknownAction.status, 400);
-    const archived = await fetch(`${baseUrl}/api/specs/archive/ai-session-issues-and-diagnostics/actions`, {
+    const archived = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/actions`, {
       method: 'POST',
     });
     assert.equal(archived.status, 404);

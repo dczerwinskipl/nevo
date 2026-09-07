@@ -3,20 +3,22 @@ import test from 'node:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildDashboardApp, listen } from '../server/index.mjs';
+import { ARCHIVED_FIXTURE_SLUG, createSpecificationRouteFixtures } from './helpers/spec-fixtures.mjs';
 
 const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
 
-test('serves provider-neutral pull request results through an exact read-only route', async () => {
+test('serves provider-neutral pull request results through an exact read-only route', async (t) => {
+  const fixtures = await createSpecificationRouteFixtures(t);
   const server = await buildDashboardApp({
-    config: { distDir: NONEXISTENT_DIST },
+    config: { distDir: NONEXISTENT_DIST, ...fixtures },
   });
   const baseUrl = await listen(server, { port: 0 });
   try {
-    const response = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/pull-requests`);
+    const response = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/pull-requests`);
     assert.equal(response.status, 200);
     const payload = await response.json();
-    assert.equal(payload.slug, 'ai-session-issues-and-diagnostics');
-    assert.equal(payload.source, 'active');
+    assert.equal(payload.slug, ARCHIVED_FIXTURE_SLUG);
+    assert.equal(payload.source, 'archive');
     assert.ok(Array.isArray(payload.pullRequests));
     const missing = await fetch(`${baseUrl}/api/specs/archive/missing-nonexistent-slug/pull-requests`);
     assert.equal(missing.status, 404);
@@ -25,7 +27,7 @@ test('serves provider-neutral pull request results through an exact read-only ro
     assert.equal(traversal.status, 404);
     // No custom 405 machinery: an unsupported method on a known path falls
     // through to the generic `/api/*` 404, same as an unknown route.
-    const mutation = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/pull-requests`, {
+    const mutation = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/pull-requests`, {
       method: 'POST',
     });
     assert.equal(mutation.status, 404);
@@ -33,14 +35,15 @@ test('serves provider-neutral pull request results through an exact read-only ro
     await new Promise((r) => server.close(r));
   }
 });
-test('serves the PR file-diffs route (POST { paths, headSha }) and rejects a malformed body', async () => {
+test('serves the PR file-diffs route (POST { paths, headSha }) and rejects a malformed body', async (t) => {
+  const fixtures = await createSpecificationRouteFixtures(t);
   const server = await buildDashboardApp({
-    config: { distDir: NONEXISTENT_DIST },
+    config: { distDir: NONEXISTENT_DIST, ...fixtures },
   });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const malformed = await fetch(
-      `${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/pull-requests/42/file-diffs`,
+      `${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/pull-requests/42/file-diffs`,
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -49,7 +52,7 @@ test('serves the PR file-diffs route (POST { paths, headSha }) and rejects a mal
     );
     assert.equal(malformed.status, 400);
     const wrongMethod = await fetch(
-      `${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/pull-requests/42/file-diffs`,
+      `${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/pull-requests/42/file-diffs`,
     );
     assert.equal(wrongMethod.status, 404);
   } finally {
