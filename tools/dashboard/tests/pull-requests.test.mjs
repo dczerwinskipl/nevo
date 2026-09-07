@@ -3,9 +3,9 @@ import test from 'node:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildDashboardApp, listen } from '../server/index.mjs';
+import { ARCHIVED_FIXTURE_SLUG } from './helpers/spec-fixtures.mjs';
 
 const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
-const ARCHIVED_FIXTURE_SLUG = 'ai-session-issues-and-diagnostics';
 
 test('serves provider-neutral pull request results through an exact read-only route', async () => {
   const server = await buildDashboardApp({

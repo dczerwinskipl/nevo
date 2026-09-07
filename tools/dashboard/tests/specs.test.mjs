@@ -6,10 +6,9 @@ import Fastify from 'fastify';
 import { buildDashboardApp, listen } from '../server/index.mjs';
 import { registerGlobalHttpInfrastructure } from '../server/infrastructure/http.mjs';
 import specsRoutes from '../server/specs/routes.mjs';
+import { ACTIVE_FIXTURE_SLUG, ARCHIVED_FIXTURE_SLUG } from './helpers/spec-fixtures.mjs';
 
 const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
-const ARCHIVED_FIXTURE_SLUG = 'ai-session-issues-and-diagnostics';
-const ACTIVE_FIXTURE_SLUG = 'deterministic-workflow-foundation';
 test('serves read-only dashboard data and rejects unknown or mutating routes', async () => {
   const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
