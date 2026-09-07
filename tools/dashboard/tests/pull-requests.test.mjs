@@ -3,13 +3,14 @@ import test from 'node:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildDashboardApp, listen } from '../server/index.mjs';
-import { ARCHIVED_FIXTURE_SLUG } from './helpers/spec-fixtures.mjs';
+import { ARCHIVED_FIXTURE_SLUG, createSpecificationRouteFixtures } from './helpers/spec-fixtures.mjs';
 
 const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
 
-test('serves provider-neutral pull request results through an exact read-only route', async () => {
+test('serves provider-neutral pull request results through an exact read-only route', async (t) => {
+  const fixtures = await createSpecificationRouteFixtures(t);
   const server = await buildDashboardApp({
-    config: { distDir: NONEXISTENT_DIST },
+    config: { distDir: NONEXISTENT_DIST, ...fixtures },
   });
   const baseUrl = await listen(server, { port: 0 });
   try {
@@ -34,9 +35,10 @@ test('serves provider-neutral pull request results through an exact read-only ro
     await new Promise((r) => server.close(r));
   }
 });
-test('serves the PR file-diffs route (POST { paths, headSha }) and rejects a malformed body', async () => {
+test('serves the PR file-diffs route (POST { paths, headSha }) and rejects a malformed body', async (t) => {
+  const fixtures = await createSpecificationRouteFixtures(t);
   const server = await buildDashboardApp({
-    config: { distDir: NONEXISTENT_DIST },
+    config: { distDir: NONEXISTENT_DIST, ...fixtures },
   });
   const baseUrl = await listen(server, { port: 0 });
   try {

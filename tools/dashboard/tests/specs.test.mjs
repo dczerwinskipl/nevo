@@ -6,7 +6,7 @@ import Fastify from 'fastify';
 import { buildDashboardApp, listen } from '../server/index.mjs';
 import { registerGlobalHttpInfrastructure } from '../server/infrastructure/http.mjs';
 import specsRoutes from '../server/specs/routes.mjs';
-import { ACTIVE_FIXTURE_SLUG, ARCHIVED_FIXTURE_SLUG } from './helpers/spec-fixtures.mjs';
+import { ACTIVE_FIXTURE_SLUG, ARCHIVED_FIXTURE_SLUG, createSpecificationRouteFixtures } from './helpers/spec-fixtures.mjs';
 
 const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
 test('serves read-only dashboard data and rejects unknown or mutating routes', async () => {
@@ -24,8 +24,9 @@ test('serves read-only dashboard data and rejects unknown or mutating routes', a
     await new Promise((r) => server.close(r));
   }
 });
-test('serves exact specification manifest routes without leaking lookup failures', async () => {
-  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
+test('serves exact specification manifest routes without leaking lookup failures', async (t) => {
+  const fixtures = await createSpecificationRouteFixtures(t);
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST, ...fixtures } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const archived = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/content`);
@@ -44,8 +45,9 @@ test('serves exact specification manifest routes without leaking lookup failures
     await new Promise((r) => server.close(r));
   }
 });
-test('serves exact per-document content routes without leaking lookup failures', async () => {
-  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
+test('serves exact per-document content routes without leaking lookup failures', async (t) => {
+  const fixtures = await createSpecificationRouteFixtures(t);
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST, ...fixtures } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const doc = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/content/overview`);
@@ -66,8 +68,9 @@ test('serves exact per-document content routes without leaking lookup failures',
     await new Promise((r) => server.close(r));
   }
 });
-test('serves a small, fast task-statuses route without leaking lookup failures', async () => {
-  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
+test('serves a small, fast task-statuses route without leaking lookup failures', async (t) => {
+  const fixtures = await createSpecificationRouteFixtures(t);
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST, ...fixtures } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const response = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/task-statuses`);
@@ -86,8 +89,9 @@ test('serves a small, fast task-statuses route without leaking lookup failures',
     await new Promise((r) => server.close(r));
   }
 });
-test('serves active-only lifecycle gates and executes explicit validated actions', async () => {
-  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
+test('serves active-only lifecycle gates and executes explicit validated actions', async (t) => {
+  const fixtures = await createSpecificationRouteFixtures(t);
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST, ...fixtures } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const gates = await fetch(`${baseUrl}/api/specs/active/${ACTIVE_FIXTURE_SLUG}/actions`);
