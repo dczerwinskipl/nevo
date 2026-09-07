@@ -28,9 +28,9 @@ test('serves exact specification manifest routes without leaking lookup failures
   const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
   try {
-    const active = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/content`);
-    assert.equal(active.status, 200);
-    const manifest = await active.json();
+    const archived = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/content`);
+    assert.equal(archived.status, 200);
+    const manifest = await archived.json();
     assert.equal(manifest.slug, ARCHIVED_FIXTURE_SLUG);
     assert.equal(manifest.source, 'archive');
     const missing = await fetch(`${baseUrl}/api/specs/archive/missing-nonexistent-slug/content`);
