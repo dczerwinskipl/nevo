@@ -2,7 +2,7 @@
 // tools/docs.mjs — documentation index and validation CLI
 // Usage: node tools/docs.mjs <generate|validate|check|find>
 
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, dirname, relative } from 'node:path';
@@ -222,13 +222,28 @@ export function handleCheck() {
   console.log('Indexes are current.');
 }
 
-export function handleFind({ scope, type, format }) {
+export function handleFind({ query, path, scope, type, format }) {
   const docs = scanDocs();
-  const results = findDocs(docs, { scope, type });
+  let results;
+  try {
+    results = findDocs(docs, { query, path, scope, type });
+  } catch (err) {
+    console.error(err.message);
+    process.exitCode = 1;
+    return;
+  }
   if (format === 'json') {
     console.log(JSON.stringify(results, null, 2));
   } else {
-    for (const doc of results) console.log(`${doc.id}  ${doc.file}`);
+    for (const doc of results) {
+      const parts = [];
+      if (doc.match_reason) parts.push(doc.match_reason);
+      if (doc.matched_terms && doc.matched_terms.length > 0) {
+        parts.push(`matched [${doc.matched_terms.join(', ')}] in ${doc.matched_fields.join(', ')}`);
+      }
+      const explanation = parts.length > 0 ? `  (${parts.join('; ')})` : '';
+      console.log(`${doc.id} — "${doc.title}"  ${doc.file}${explanation}`);
+    }
   }
 }
 
@@ -254,10 +269,12 @@ export function buildProgram() {
     .action(handleCheck);
 
   program.command('find')
-    .description('Find documents by scope and/or type')
+    .description('Find documents by query, path, scope, and/or type')
+    .option('--query <query>', 'search across id, title, summary, read_when, file, and related')
+    .option('--path <path>', 'find documents governing a file or directory path via routing rules')
     .option('--scope <scope>', 'filter by scope')
     .option('--type <type>', 'filter by document type')
-    .option('--format <format>', 'output format: text or json', 'text')
+    .addOption(new Option('--format <format>', 'output format: text or json').choices(['text', 'json']).default('text'))
     .action(handleFind);
 
   return program;

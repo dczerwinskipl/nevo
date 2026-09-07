@@ -1,26 +1,21 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   AgentCapabilities,
   AgentExecutionMode,
+  AgentSessionChatPayload,
   AgentSessionSnapshot,
   AgentSessionStatus,
-  AgentInteraction,
+  CanonicalTurn,
   LiveConnectionStatus,
-  NormalizedMessage,
+  SessionReadiness,
 } from '../types.ts';
-import {
-  applyAgentEvent,
-  applyCancelTurnResponse,
-  createTurnIdempotencyKey,
-  eventModifiesTranscriptContent,
-  resolveSnapshotActivity,
-  shouldSurfaceCancelError,
-  shouldSurfaceTurnError,
-} from './agent-event-reducer.ts';
 import { connectAgentEventStream, resolveEventSeq } from './agent-event-source.ts';
-import { classifySessionLoadError, fetchAgentSessionSnapshot, AgentSessionLoadError } from './agent-session-transport.ts';
+import { fetchAgentSessionChat, classifySessionLoadError, AgentSessionLoadError } from './agent-session-transport.ts';
 import { postCancelTurn, postRespondInteraction, postStartTurn } from './agent-turn-transport.ts';
-import { useAssistantUiBridge } from './assistant-ui-bridge.ts';
+import { createTurnIdempotencyKey } from './idempotency-key.ts';
+import { applyTurnUpdated, deriveActivity, resolveEffectiveReadiness } from './agent-event-reducer.ts';
+
+export { applyTurnUpdated, deriveActivity };
 
 export interface UseAgentSessionRuntimeOptions {
   provider: string;
@@ -29,6 +24,16 @@ export interface UseAgentSessionRuntimeOptions {
   onError?: (error: Error) => void;
 }
 
+function latestTurn(turns: CanonicalTurn[]): CanonicalTurn | null {
+  return turns.length > 0 ? turns[turns.length - 1] : null;
+}
+
+/**
+ * Canonical semantic Work chat runtime. Reads only the server's canonical projection
+ * (`GET .../chat`, SSE `turn.updated`) — it never reconstructs Work from raw provider
+ * events. A live `turn.updated` event carries the *entire* current Turn snapshot, so
+ * applying it is a simple identity-keyed replace, idempotent under SSE reconnect replay.
+ */
 export function useAgentSessionRuntime({
   provider,
   providerSessionId,
@@ -39,41 +44,36 @@ export function useAgentSessionRuntime({
   const [loadedIdentity, setLoadedIdentity] = useState<string | null>(null);
   const [loadErrorIdentity, setLoadErrorIdentity] = useState<string | null>(null);
 
-  const [messages, setMessages] = useState<NormalizedMessage[]>([]);
-  const [pendingInteraction, setPendingInteraction] = useState<AgentInteraction | null>(null);
-  const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
+  const [turns, setTurns] = useState<CanonicalTurn[]>([]);
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
-  const [activity, setActivity] = useState<AgentSessionStatus>('idle');
-  const [contentRevision, setContentRevision] = useState<number>(0);
-  const [lastEventSeq, setLastEventSeq] = useState<number>(0);
-  const [sessionDetails, setSessionDetails] = useState<AgentSessionSnapshot | null>(null);
+  const [serverReadiness, setServerReadiness] = useState<SessionReadiness | null>(null);
+  const [sessionMeta, setSessionMeta] = useState<AgentSessionChatPayload['session'] | null>(null);
   const [loadError, setLoadError] = useState<AgentSessionLoadError | null>(null);
   const [reloadTrigger, setReloadTrigger] = useState<number>(0);
   const [live, setLive] = useState<boolean>(true);
   const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>('unknown');
+  const [contentRevision, setContentRevision] = useState<number>(0);
+  // Bridges the gap between a successful POST /turns and the first authoritative
+  // `turn.updated` snapshot for that turn — cleared as soon as any turn.updated arrives,
+  // at which point `turns` state (and each turn's own canonical `userMessage`) is
+  // authoritative again. This is the only client-side duplicate of server state this
+  // hook keeps; it is never a substitute for the canonical per-turn `userMessage`.
+  const [optimisticPending, setOptimisticPending] = useState<{ text: string } | null>(null);
 
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
-
   const onTurnCompletedRef = useRef(onTurnCompleted);
   onTurnCompletedRef.current = onTurnCompleted;
 
+  const terminalTurnIdsRef = useRef<Set<string>>(new Set());
   const lastSeqRef = useRef<number>(0);
 
-  const activityRef = useRef<AgentSessionStatus>('idle');
-  activityRef.current = activity;
-
-  const activeTurnIdRef = useRef<string | null>(null);
-  activeTurnIdRef.current = activeTurnId;
-
-  const terminalTurnIdsRef = useRef<Set<string>>(new Set());
-
-  // Identity match check: only expose state if it belongs to the current provider + providerSessionId
   const isSnapshotLoaded = Boolean(currentIdentity && loadedIdentity === currentIdentity);
   const isErrorForCurrentIdentity = Boolean(currentIdentity && loadErrorIdentity === currentIdentity);
 
-  // Sync cursor ref with state
-  lastSeqRef.current = isSnapshotLoaded ? lastEventSeq : 0;
+  const exposedTurns = isSnapshotLoaded ? turns : [];
+  const turnsRef = useRef<CanonicalTurn[]>([]);
+  turnsRef.current = exposedTurns;
 
   const reload = useCallback(async () => {
     setLoadError(null);
@@ -86,37 +86,26 @@ export function useAgentSessionRuntime({
     let cancelled = false;
     async function loadSnapshot() {
       if (!provider || !providerSessionId) return;
-
       const identity = `${provider}:${providerSessionId}`;
       setLoadError(null);
       setLoadErrorIdentity(null);
       setConnectionStatus('unknown');
 
       try {
-        const snapshot = await fetchAgentSessionSnapshot(provider, providerSessionId);
+        const payload = await fetchAgentSessionChat(provider, providerSessionId);
         if (cancelled) return;
 
-        setSessionDetails(snapshot);
-        setMessages(snapshot.messages || []);
-        setPendingInteraction(snapshot.pendingInteraction || null);
-        setCapabilities(snapshot.capabilities || null);
-        const seq = snapshot.lastEventSeq || 0;
-        setLastEventSeq(seq);
-        lastSeqRef.current = seq;
-
-        // Authoritative activity resolution from snapshot (supports reload while waitingForUser, running, or idle)
-        const snapshotActivity = resolveSnapshotActivity(snapshot);
-
-        setActivity(snapshotActivity);
-        activityRef.current = snapshotActivity;
-
-        if (snapshot.activeTurn) {
-          setActiveTurnId(snapshot.activeTurn.turnId);
-          activeTurnIdRef.current = snapshot.activeTurn.turnId;
-        } else {
-          setActiveTurnId(null);
-          activeTurnIdRef.current = null;
-        }
+        setSessionMeta(payload.session);
+        // One atomic commit for the already-materialized historical transcript — never
+        // an empty start followed by event-by-event reconstruction.
+        setTurns(payload.turns || []);
+        setCapabilities(payload.session.capabilities || null);
+        setServerReadiness(payload.readiness || payload.session.readiness || null);
+        setOptimisticPending(null);
+        // Resume SSE from the snapshot's own cursor, never 0 — otherwise the browser
+        // replays the entire historical event stream and visibly rebuilds Work counts
+        // that were already complete in the snapshot.
+        lastSeqRef.current = payload.session.lastEventSeq || 0;
 
         setContentRevision((r) => r + 1);
         setLoadedIdentity(identity);
@@ -125,48 +114,35 @@ export function useAgentSessionRuntime({
       } catch (err) {
         if (!cancelled) {
           const classified = classifySessionLoadError(err, provider, providerSessionId);
-          // Clear all snapshot-derived state so stale session data is never retained
-          setSessionDetails(null);
-          setMessages([]);
-          setPendingInteraction(null);
+          setSessionMeta(null);
+          setTurns([]);
           setCapabilities(null);
-          setActiveTurnId(null);
-          activeTurnIdRef.current = null;
-          setActivity('idle');
-          activityRef.current = 'idle';
-          setLastEventSeq(0);
-          lastSeqRef.current = 0;
+          setServerReadiness(null);
+          setOptimisticPending(null);
 
-          // Do NOT set loadedIdentity on failure; record loadErrorIdentity instead
           setLoadedIdentity(null);
           setLoadErrorIdentity(identity);
           setLoadError(classified);
           setConnectionStatus('disconnected');
           setLive(false);
-          // Note: Handled snapshot load failures do not invoke onError (separated error domain)
         }
       }
     }
 
     loadSnapshot();
-
     return () => {
       cancelled = true;
     };
   }, [provider, providerSessionId, reloadTrigger]);
 
-  // 2. Live SSE connection & event deduplication — connection lifecycle itself lives in
-  // connectAgentEventStream (agent-event-source.ts); this effect only decides what a
-  // received event means for this hook's own React state.
+  // 2. Live SSE — the only event this hook acts on is `turn.updated`, whose payload is
+  // the full canonical Turn (never a delta), so applying it is an identity-keyed replace.
   useEffect(() => {
     if (!provider || !providerSessionId) return;
     const identity = `${provider}:${providerSessionId}`;
-    // Only connect SSE if snapshot for current identity is loaded and there is no load error
     if (loadedIdentity !== identity || loadError) return;
 
-    const cursor = lastSeqRef.current;
-    const url = `/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}/events?after=${cursor}`;
-
+    const url = `/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}/events?after=${lastSeqRef.current}`;
     let active = true;
 
     const disconnect = connectAgentEventStream(url, {
@@ -188,64 +164,32 @@ export function useAgentSessionRuntime({
         setLive(true);
         setConnectionStatus('connected');
         const seq = resolveEventSeq(event);
-        if (seq <= lastSeqRef.current) return; // Deduplication cursor check
+        if (seq > lastSeqRef.current) lastSeqRef.current = seq;
 
-        setLastEventSeq(seq);
-        lastSeqRef.current = seq;
+        if (event.type !== 'turn.updated') return;
+        if (event.turn) {
+          const updatedTurn = event.turn;
 
-        setMessages((prev) => applyAgentEvent(prev, event));
-        if (eventModifiesTranscriptContent(event)) {
-          setContentRevision((r) => r + 1);
-        }
+          setTurns((prev) => applyTurnUpdated(prev, updatedTurn));
 
-        switch (event.type) {
-          case 'turn.started':
-            setActivity('running');
-            activityRef.current = 'running';
-            if (event.turnId) {
-              setActiveTurnId(event.turnId);
-              activeTurnIdRef.current = event.turnId;
-            }
-            break;
-
-          case 'interaction.requested':
-            setPendingInteraction(event.interaction || null);
-            setActivity('waitingForUser');
-            activityRef.current = 'waitingForUser';
-            break;
-
-          case 'interaction.resolved':
-            setPendingInteraction(null);
-            setActivity('running');
-            activityRef.current = 'running';
-            break;
-
-          case 'turn.completed':
-            if (event.turnId) {
-              terminalTurnIdsRef.current.add(event.turnId);
-            }
-            setActivity('idle');
-            activityRef.current = 'idle';
-            setActiveTurnId(null);
-            activeTurnIdRef.current = null;
-            setPendingInteraction(null);
+          if (updatedTurn.status.status === 'terminal' && !terminalTurnIdsRef.current.has(updatedTurn.id)) {
+            terminalTurnIdsRef.current.add(updatedTurn.id);
             onTurnCompletedRef.current?.();
-            break;
-
-          case 'turn.failed':
-            if (event.turnId) {
-              terminalTurnIdsRef.current.add(event.turnId);
+            const error = updatedTurn.status.error;
+            if (updatedTurn.status.outcome === 'failed' && error && error.code !== 'AI_TURN_CANCELLED') {
+              onErrorRef.current?.(new Error(error.message));
             }
-            setActivity('idle');
-            activityRef.current = 'idle';
-            setActiveTurnId(null);
-            activeTurnIdRef.current = null;
-            setPendingInteraction(null);
-            if (event.error && shouldSurfaceTurnError(event.error)) {
-              onErrorRef.current?.(new Error(event.error.message));
-            }
-            break;
+          }
         }
+
+        // A canonical `turn.updated` event always carries authoritative readiness on
+        // the wire contract — replace it unconditionally, even when the field is
+        // missing/malformed, so a bad event can never leave a stale, possibly more
+        // permissive readiness in place. `resolveEffectiveReadiness` fails closed to
+        // `unavailable` on `null`, never re-derives `ready` from silence.
+        setServerReadiness(event.readiness ?? null);
+        setOptimisticPending(null);
+        setContentRevision((r) => r + 1);
       },
     });
 
@@ -257,172 +201,156 @@ export function useAgentSessionRuntime({
 
   // 3. Send Turn
   const handleSendTurn = useCallback(
-    async (messageText: string, options?: { mode?: AgentExecutionMode; idempotencyKey?: string }) => {
+    async (
+      messageText: string,
+      options?: { mode?: AgentExecutionMode; idempotencyKey?: string; userMessage?: string },
+    ) => {
       const trimmed = messageText ? messageText.trim() : '';
-      if (!trimmed) {
-        throw new Error('Cannot start turn with an empty message.');
-      }
-      if (!provider || !providerSessionId) {
+      if (!trimmed) throw new Error('Cannot start turn with an empty message.');
+      if (!provider || !providerSessionId)
         throw new Error('Cannot start turn without an active provider and session ID.');
-      }
-      if (!isSnapshotLoaded || loadedIdentity !== `${provider}:${providerSessionId}`) {
+      if (loadedIdentity !== `${provider}:${providerSessionId}`) {
         throw new Error('Cannot start turn while the session snapshot is loading.');
       }
-      if (loadError) {
-        throw new Error('Cannot start turn on a session with a load error.');
-      }
-      if (activityRef.current !== 'idle') {
-        throw new Error(`Cannot start turn while session is ${activityRef.current}.`);
+      if (loadError) throw new Error('Cannot start turn on a session with a load error.');
+      const currentReadiness = resolveEffectiveReadiness(serverReadiness, Boolean(optimisticPending));
+      if (currentReadiness.status !== 'ready') {
+        throw new Error(`Cannot start turn while session is ${currentReadiness.status}.`);
       }
 
       const idempotencyKey = options?.idempotencyKey || createTurnIdempotencyKey();
-      const userMessage: NormalizedMessage = {
-        id: `user-${Date.now()}`,
-        role: 'user',
-        text: trimmed,
-        createdAt: new Date().toISOString(),
-      };
-
-      setMessages((prev) => [...prev, userMessage]);
-      setContentRevision((r) => r + 1);
-      setActivity('running');
-      activityRef.current = 'running';
-      setActiveTurnId(null);
-      activeTurnIdRef.current = null;
+      const displayText = options?.userMessage?.trim() || trimmed;
+      setOptimisticPending({ text: displayText });
 
       try {
-        const { turnId: returnedTurnId } = await postStartTurn(provider, providerSessionId, {
+        await postStartTurn(provider, providerSessionId, {
           message: trimmed,
           idempotencyKey,
           mode: options?.mode,
+          userMessage: options?.userMessage,
         });
-
-        // Race-safety check: If terminal SSE arrived before this POST response completed,
-        // or the activity is no longer running, do not overwrite the cleared activeTurnId.
-        if (returnedTurnId && !terminalTurnIdsRef.current.has(returnedTurnId) && activityRef.current === 'running') {
-          setActiveTurnId(returnedTurnId);
-          activeTurnIdRef.current = returnedTurnId;
-        }
       } catch (err) {
-        setActivity('idle');
-        activityRef.current = 'idle';
-        setActiveTurnId(null);
-        activeTurnIdRef.current = null;
+        setOptimisticPending(null);
         const normalized = err instanceof Error ? err : new Error(String(err));
         onErrorRef.current?.(normalized);
         throw normalized;
       }
     },
-    [provider, providerSessionId, isSnapshotLoaded, loadedIdentity, loadError]
+    [provider, providerSessionId, loadedIdentity, loadError, serverReadiness, optimisticPending],
   );
 
   // 4. Cancel Turn
   const handleCancelTurn = useCallback(async () => {
-    const turnId = activeTurnIdRef.current;
-    if (!turnId || activityRef.current !== 'running' || !provider || !providerSessionId) return;
+    const turn = latestTurn(turnsRef.current);
+    if (!turn || turn.status.status === 'terminal') return;
+    if (!provider || !providerSessionId) return;
     if (loadedIdentity !== `${provider}:${providerSessionId}`) return;
 
     try {
-      const { response, errorData } = await postCancelTurn(provider, providerSessionId, turnId);
-      const result = applyCancelTurnResponse({
-        turnId,
-        response,
-        errorData,
-        currentActiveTurnId: activeTurnIdRef.current,
-        currentActivity: activityRef.current,
-        terminalTurnIds: terminalTurnIdsRef.current,
-      });
-
-      if (result.error) {
-        throw result.error;
+      const { response, errorData } = await postCancelTurn(provider, providerSessionId, turn.id);
+      if (!response.ok && !terminalTurnIdsRef.current.has(turn.id)) {
+        const message =
+          errorData?.error?.message || errorData?.message || `Failed to cancel turn (${response.status || 'unknown'})`;
+        throw new Error(message);
       }
-
-      if (result.nextActivity !== activityRef.current) {
-        setActivity(result.nextActivity);
-        activityRef.current = result.nextActivity;
-      }
-      if (result.nextActiveTurnId !== activeTurnIdRef.current) {
-        setActiveTurnId(result.nextActiveTurnId);
-        activeTurnIdRef.current = result.nextActiveTurnId;
-      }
-      setContentRevision((r) => r + 1);
     } catch (err) {
-      // If the turn already became terminal (e.g. via SSE) while fetch was in flight or rejected,
-      // suppress late errors so they don't produce confusing user-facing alerts.
-      if (!shouldSurfaceCancelError(turnId, terminalTurnIdsRef.current)) {
-        return;
+      if (!terminalTurnIdsRef.current.has(turn.id)) {
+        onErrorRef.current?.(err instanceof Error ? err : new Error(String(err)));
       }
-      // On failed cancel DO NOT mutate terminalTurnIds, activity, activeTurnId, or pending turn ownership.
-      // The turn remains running and cancellation remains retryable.
-      onError?.(err instanceof Error ? err : new Error(String(err)));
     }
-  }, [provider, providerSessionId, loadedIdentity, onError]);
+  }, [provider, providerSessionId, loadedIdentity]);
 
   // 5. Respond Interaction
   const handleRespondInteraction = useCallback(
     async (interactionId: string, responsePayload: unknown) => {
       if (!provider || !providerSessionId) return;
       if (loadedIdentity !== `${provider}:${providerSessionId}`) return;
-
       try {
         await postRespondInteraction(provider, providerSessionId, interactionId, responsePayload);
-        setPendingInteraction(null);
-        setContentRevision((r) => r + 1);
-        setActivity('running');
-        activityRef.current = 'running';
       } catch (err) {
-        onError?.(err instanceof Error ? err : new Error(String(err)));
+        onErrorRef.current?.(err instanceof Error ? err : new Error(String(err)));
       }
     },
-    [provider, providerSessionId, loadedIdentity, onError]
+    [provider, providerSessionId, loadedIdentity],
   );
 
-  const exposedMessages = isSnapshotLoaded ? messages : [];
-  const exposedPendingInteraction = isSnapshotLoaded ? pendingInteraction : null;
-  const exposedCapabilities = isSnapshotLoaded ? capabilities : null;
-  const exposedActivity: AgentSessionStatus = isSnapshotLoaded ? activity : 'idle';
-  const exposedIsRunning = isSnapshotLoaded ? (activity === 'running') : false;
-  const exposedActiveTurnId = isSnapshotLoaded ? activeTurnId : null;
-  const exposedContentRevision = isSnapshotLoaded ? contentRevision : 0;
-  const exposedSessionDetails = isSnapshotLoaded && sessionDetails
-    ? { ...sessionDetails, status: exposedActivity }
+  const baseActivity = isSnapshotLoaded ? deriveActivity(exposedTurns) : 'idle';
+  const exposedActivity: AgentSessionStatus = optimisticPending && baseActivity === 'idle' ? 'running' : baseActivity;
+  const exposedIsRunning = exposedActivity === 'running';
+  const exposedActiveTurn = isSnapshotLoaded
+    ? (() => {
+        const turn = latestTurn(exposedTurns);
+        return turn && turn.status?.status !== 'terminal' ? turn : null;
+      })()
     : null;
+  const exposedActiveTurnId = exposedActiveTurn?.id ?? null;
+  const exposedCapabilities = isSnapshotLoaded ? capabilities : null;
+  const exposedReadiness: SessionReadiness | null = isSnapshotLoaded
+    ? resolveEffectiveReadiness(serverReadiness, Boolean(optimisticPending))
+    : null;
+  const exposedSessionMeta = isSnapshotLoaded ? sessionMeta : null;
+  const exposedSessionDetails: AgentSessionSnapshot | null =
+    isSnapshotLoaded && sessionMeta
+      ? ({
+          ...sessionMeta,
+          status: exposedActivity,
+          readiness: exposedReadiness ?? sessionMeta.readiness,
+          turns: exposedTurns,
+          lastEventSeq: sessionMeta.lastEventSeq ?? 0,
+          updatedAt: sessionMeta.lastActivityAt ?? sessionMeta.createdAt,
+        } as AgentSessionSnapshot)
+      : null;
   const exposedLoadError = isErrorForCurrentIdentity ? loadError : null;
-  const exposedConnectionStatus: LiveConnectionStatus = isSnapshotLoaded && !exposedLoadError
-    ? connectionStatus
-    : exposedLoadError
-      ? 'disconnected'
-      : 'unknown';
+  const exposedConnectionStatus: LiveConnectionStatus =
+    isSnapshotLoaded && !exposedLoadError ? connectionStatus : exposedLoadError ? 'disconnected' : 'unknown';
   const exposedLive = exposedConnectionStatus === 'connected';
   const exposedIsLoading = isSnapshotLoaded ? false : Boolean(provider && providerSessionId && !exposedLoadError);
-  const exposedIsReady = Boolean(isSnapshotLoaded && !exposedLoadError && activity === 'idle');
+  const exposedIsReady = Boolean(
+    isSnapshotLoaded &&
+      !exposedLoadError &&
+      exposedReadiness?.status === 'ready',
+  );
   const exposedCanStartTurn = exposedIsReady;
-
-  // 6. Bind to @assistant-ui/react — sole responsibility of useAssistantUiBridge.
-  const runtime = useAssistantUiBridge({
-    messages: exposedMessages,
-    isRunning: exposedIsRunning,
-    onSendText: handleSendTurn,
-    onCancel: handleCancelTurn,
-  });
+  const latest = latestTurn(exposedTurns);
+  const hasActiveTurn = Boolean(
+    optimisticPending ||
+      (latest && latest.status?.status !== 'terminal') ||
+      exposedActiveTurnId ||
+      exposedActivity === 'running' ||
+      exposedActivity === 'waitingForUser' ||
+      exposedReadiness?.status === 'busy' ||
+      exposedReadiness?.status === 'requiresAttention',
+  );
+  const exposedCanCancelTurn = Boolean(
+    exposedCapabilities?.cancelTurn &&
+      hasActiveTurn &&
+      latest?.status?.status !== 'cancelling' &&
+      exposedReadiness?.status !== 'unavailable' &&
+      exposedReadiness?.status !== 'readOnly',
+  );
 
   return {
-    runtime,
-    messages: exposedMessages,
-    pendingInteraction: exposedPendingInteraction,
-    capabilities: exposedCapabilities,
-    sessionDetails: exposedSessionDetails,
+    turns: exposedTurns,
+    activeTurn: exposedActiveTurn,
+    activeTurnId: exposedActiveTurnId,
     activity: exposedActivity,
     isRunning: exposedIsRunning,
-    activeTurnId: exposedActiveTurnId,
-    contentRevision: exposedContentRevision,
+    capabilities: exposedCapabilities,
+    readiness: exposedReadiness,
+    sessionMeta: exposedSessionMeta,
+    sessionDetails: exposedSessionDetails,
+    contentRevision: isSnapshotLoaded ? contentRevision : 0,
     isLoading: exposedIsLoading,
     live: exposedLive,
     connectionStatus: exposedConnectionStatus,
     isReady: exposedIsReady,
     canStartTurn: exposedCanStartTurn,
+    canCancelTurn: exposedCanCancelTurn,
+    hasActiveTurn,
     isSnapshotLoaded,
     loadError: exposedLoadError,
+    /** Optimistic text for the brief gap between POST and the first turn.updated snapshot — never used once a real turn carries its own `userMessage`. */
+    optimisticUserMessage: isSnapshotLoaded ? (optimisticPending?.text ?? null) : null,
     reload,
     sendTurn: handleSendTurn,
     cancelTurn: handleCancelTurn,

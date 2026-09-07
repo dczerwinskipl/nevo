@@ -4,13 +4,17 @@ export function calculateMaxScrollTop(el: { scrollHeight: number; clientHeight: 
   return Math.max(0, el.scrollHeight - el.clientHeight);
 }
 
-export function calculateDistanceFromBottom(el: { scrollHeight: number; scrollTop: number; clientHeight: number }): number {
+export function calculateDistanceFromBottom(el: {
+  scrollHeight: number;
+  scrollTop: number;
+  clientHeight: number;
+}): number {
   return Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight);
 }
 
 export function isScrolledNearBottom(
   el: { scrollHeight: number; scrollTop: number; clientHeight: number },
-  threshold = 80
+  threshold = 80,
 ): boolean {
   return calculateDistanceFromBottom(el) <= threshold;
 }
@@ -50,9 +54,10 @@ export function handleProgrammaticScroll(
   };
 }
 
-export function handleContentArrival(
-  state: ScrollControllerState,
-): { state: ScrollControllerState; shouldScrollToBottom: boolean } {
+export function handleContentArrival(state: ScrollControllerState): {
+  state: ScrollControllerState;
+  shouldScrollToBottom: boolean;
+} {
   if (state.isFollowing) {
     return {
       state,
@@ -84,9 +89,7 @@ export function handleUserReturnToBottom(
   };
 }
 
-export function handleUserUpwardGesture(
-  state: ScrollControllerState,
-): ScrollControllerState {
+export function handleUserUpwardGesture(state: ScrollControllerState): ScrollControllerState {
   return {
     ...state,
     isProgrammaticScroll: false,
@@ -231,14 +234,17 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
     });
   }, []);
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
-    const el = containerRef.current;
-    if (!el) return;
-    const targetScrollTop = calculateMaxScrollTop(el);
-    const updated = handleUserReturnToBottom(internalStateRef.current, targetScrollTop, behavior === 'smooth');
-    publishStateIfNeeded(updated.state);
-    el.scrollTo({ top: el.scrollHeight, behavior });
-  }, [publishStateIfNeeded]);
+  const scrollToBottom = useCallback(
+    (behavior: ScrollBehavior = 'smooth') => {
+      const el = containerRef.current;
+      if (!el) return;
+      const targetScrollTop = calculateMaxScrollTop(el);
+      const updated = handleUserReturnToBottom(internalStateRef.current, targetScrollTop, behavior === 'smooth');
+      publishStateIfNeeded(updated.state);
+      el.scrollTo({ top: el.scrollHeight, behavior });
+    },
+    [publishStateIfNeeded],
+  );
 
   const handleScroll = useCallback(() => {
     const el = containerRef.current;

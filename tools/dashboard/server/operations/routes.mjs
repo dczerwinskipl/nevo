@@ -41,7 +41,10 @@ export default async function operationRoutes(fastify) {
       reply.code(200).header('cache-control', 'no-store').send(snapshot);
     } catch (error) {
       const status = error instanceof OperationNotFoundError ? 404 : 500;
-      reply.code(status).header('cache-control', 'no-store').send({ error: error?.message || 'Operation not found' });
+      reply
+        .code(status)
+        .header('cache-control', 'no-store')
+        .send({ error: error?.message || 'Operation not found' });
     }
   });
 
@@ -89,7 +92,7 @@ export default async function operationRoutes(fastify) {
     try {
       unsubscribe = operationRuntime.subscribe(operationId, {
         afterSequence: replayCursor,
-        onEvent: event => {
+        onEvent: (event) => {
           reply.sse.send({ id: event.id, event: event.type, data: event }).catch(() => {});
           if (event.type === 'operation.completed' || event.type === 'operation.failed') {
             reply.sse.close();
@@ -117,7 +120,9 @@ export default async function operationRoutes(fastify) {
   // constructed it, so app.mjs owns tearing it down (see its own comment).
   fastify.addHook('preClose', async () => {
     for (const sse of Array.from(activeConnections)) {
-      try { sse.close(); } catch {}
+      try {
+        sse.close();
+      } catch {}
     }
     activeConnections.clear();
   });

@@ -25,6 +25,6 @@ test('serves GET /api/health with status ok and rejects unsupported methods with
     assert.equal(postRes.status, 404);
     assert.deepEqual(await postRes.json(), { error: 'API route not found' });
   } finally {
-    await new Promise(resolvePromise => server.close(resolvePromise));
+    await new Promise((resolvePromise) => server.close(resolvePromise));
   }
 });

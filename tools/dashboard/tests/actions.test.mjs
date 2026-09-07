@@ -16,21 +16,24 @@ function fixture() {
   const activeDir = join(root, 'specs', 'active');
   const changeDir = join(activeDir, 'sample');
   mkdirSync(changeDir, { recursive: true });
-  writeFileSync(join(changeDir, 'change.yaml'), [
-    'id: sample',
-    'title: Sample',
-    'status: draft',
-    'tasks:',
-    '  - id: design-task',
-    '    order: 1',
-    '    file: tasks/01-design-task.md',
-    '    status: draft',
-    '  - id: implemented-task',
-    '    order: 2',
-    '    file: tasks/02-implemented-task.md',
-    '    status: implemented',
-    '',
-  ].join('\n'));
+  writeFileSync(
+    join(changeDir, 'change.yaml'),
+    [
+      'id: sample',
+      'title: Sample',
+      'status: draft',
+      'tasks:',
+      '  - id: design-task',
+      '    order: 1',
+      '    file: tasks/01-design-task.md',
+      '    status: draft',
+      '  - id: implemented-task',
+      '    order: 2',
+      '    file: tasks/02-implemented-task.md',
+      '    status: implemented',
+      '',
+    ].join('\n'),
+  );
   mkdirSync(join(changeDir, 'tasks'), { recursive: true });
   writeFileSync(join(changeDir, 'overview.md'), '# Overview\n\nSample goal');
   writeFileSync(join(changeDir, 'tasks', '01-design-task.md'), '# Design Task\n\nContent');
@@ -46,19 +49,22 @@ function fixture() {
   const fingerprint = computeChangeFingerprint(changeObj);
   const taskFingerprint = computeTaskFingerprint(changeObj, 'design-task');
   mkdirSync(join(changeDir, 'reviews'), { recursive: true });
-  writeFileSync(join(changeDir, 'reviews', 'spec.md'), [
-    '---',
-    'verdict: ready-for-approval',
-    `spec_fingerprint: ${fingerprint}`,
-    'unresolved_required_fixes: 0',
-    'unresolved_owner_decisions: 0',
-    'unresolved_needs_clarification: 0',
-    'task_fingerprints:',
-    `  design-task: ${taskFingerprint}`,
-    '---',
-    '',
-    '# Spec Review',
-  ].join('\n'));
+  writeFileSync(
+    join(changeDir, 'reviews', 'spec.md'),
+    [
+      '---',
+      'verdict: ready-for-approval',
+      `spec_fingerprint: ${fingerprint}`,
+      'unresolved_required_fixes: 0',
+      'unresolved_owner_decisions: 0',
+      'unresolved_needs_clarification: 0',
+      'task_fingerprints:',
+      `  design-task: ${taskFingerprint}`,
+      '---',
+      '',
+      '# Spec Review',
+    ].join('\n'),
+  );
 
   return { root, activeDir, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
@@ -82,8 +88,16 @@ test('projects contextual task gates, finalize validation, and worktree state fo
     assert.equal(payload.tasks['implemented-task'].reason, null);
     assert.equal(payload.finalize.enabled, false); // tasks are not all verified yet
     assert.deepEqual(payload.worktree, {
-      clean: false, total: 2, staged: 1, unstaged: 1, untracked: 0, files: [],
-      branch: 'feature/sample', hasUpstream: true, ahead: 0, behind: 0,
+      clean: false,
+      total: 2,
+      staged: 1,
+      unstaged: 1,
+      untracked: 0,
+      files: [],
+      branch: 'feature/sample',
+      hasUpstream: true,
+      ahead: 0,
+      behind: 0,
     });
   } finally {
     sample.cleanup();
@@ -96,11 +110,15 @@ test('production-path in-process action execution uses shared application operat
   let runtimeResult = null;
 
   let resolveDone;
-  const donePromise = new Promise(resolve => { resolveDone = resolve; });
+  const donePromise = new Promise((resolve) => {
+    resolveDone = resolve;
+  });
 
   const runtime = {
     createOperation: () => 'op-prod-1',
-    recordEvent: (id, event) => { recordedEvents.push(event); },
+    recordEvent: (id, event) => {
+      recordedEvents.push(event);
+    },
     completeOperation: (id, result) => {
       runtimeResult = { status: 'completed', result };
       resolveDone();
@@ -130,11 +148,17 @@ test('production-path in-process action execution uses shared application operat
     assert.equal(runtimeResult?.result?.ok, true);
     assert.ok(runtimeResult?.result?.summary, 'result object includes domain summary');
     assert.ok(recordedEvents.length > 0, 'progress events recorded in OperationRuntime');
-    assert.ok(recordedEvents.some(e => e.type === 'operation.step.started'));
-    assert.ok(recordedEvents.some(e => e.type === 'operation.step.completed'));
+    assert.ok(recordedEvents.some((e) => e.type === 'operation.step.started'));
+    assert.ok(recordedEvents.some((e) => e.type === 'operation.step.completed'));
     // Ensure operation.completed was not directly forwarded to recordEvent
-    assert.equal(recordedEvents.some(e => e.type === 'operation.completed'), false);
-    assert.equal(recordedEvents.some(e => e.type === 'operation.failed'), false);
+    assert.equal(
+      recordedEvents.some((e) => e.type === 'operation.completed'),
+      false,
+    );
+    assert.equal(
+      recordedEvents.some((e) => e.type === 'operation.failed'),
+      false,
+    );
   } finally {
     sample.cleanup();
   }
@@ -189,10 +213,17 @@ test('in-process action execution records failure in OperationRuntime on error a
 test('revalidates owner actions and requires finalize confirmation', () => {
   const sample = fixture();
   try {
-    assert.throws(() => executeSpecificationAction({
-      slug: 'sample', action: 'finalize', confirmed: false,
-      activeDir: sample.activeDir, root: sample.root,
-    }), error => error instanceof SpecificationActionError && error.status === 400);
+    assert.throws(
+      () =>
+        executeSpecificationAction({
+          slug: 'sample',
+          action: 'finalize',
+          confirmed: false,
+          activeDir: sample.activeDir,
+          root: sample.root,
+        }),
+      (error) => error instanceof SpecificationActionError && error.status === 400,
+    );
   } finally {
     sample.cleanup();
   }

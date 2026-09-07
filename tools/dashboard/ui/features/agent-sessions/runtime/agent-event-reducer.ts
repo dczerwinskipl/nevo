@@ -1,394 +1,86 @@
-import type {
-  AgentEvent,
-  AgentSessionSnapshot,
-  AgentSessionStatus,
-  NormalizedMessage,
-} from '../types.ts';
+import type { AgentSessionStatus, CanonicalTurn, SessionReadiness } from '../types.ts';
 
-export function createTurnIdempotencyKey(prefix = 'turn'): string {
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).slice(2, 10);
-  return `${prefix}-${timestamp}-${random}`;
+function latestTurn(turns: CanonicalTurn[]): CanonicalTurn | null {
+  return turns.length > 0 ? turns[turns.length - 1] : null;
 }
 
 /**
- * Finds this event's owning assistant message.
- *
- * Priority (owner-decisions.md D7):
- *  1. Explicit `messageId` — when the provider sends a distinct `messageId`, that
- *     identity is preserved so message-A and message-B within the same turn stay
- *     separate `NormalizedMessage` records.
- *  2. `turnId` fallback — for events that carry a `turnId` but no explicit `messageId`
- *     (e.g. `tool.started`/`tool.completed`, which must attach to the existing turn
- *     message regardless of which prose message owns the turn).
- *
- * Work de-duplication is NOT done here — the projection layer (`transcript/projection.ts`)
- * aggregates all messages sharing a `turnId` into exactly one `TurnWork`.
- *
- * Returns the existing message index, or -1 if no message exists yet for this event.
+ * Applies one `turn.updated` SSE event to the current turns list — an identity-keyed
+ * full-snapshot replace (append if unseen), never a delta merge.
  */
-function findAssistantMessageIndex(messages: NormalizedMessage[], event: Pick<AgentEvent, 'turnId' | 'messageId'>): number {
-  // Explicit messageId takes priority — preserves distinct message identity within a turn.
-  // If the event carries an explicit messageId but it isn't in the list yet, return -1
-  // to create a new message with that ID (do NOT fall through to the turnId fallback,
-  // which would merge two distinct messages sharing only a turnId).
-  if (event.messageId) {
-    return messages.findIndex((m) => m.id === event.messageId);
-  }
-  // turnId fallback — tool events carry turnId but no messageId; they must land in the
-  // existing assistant message for that turn, whichever message currently owns it.
-  if (event.turnId) {
-    return messages.findIndex((m) => m.role === 'assistant' && m.turnId === event.turnId);
-  }
-  return -1;
-}
-
-function canonicalAssistantMessageId(event: Pick<AgentEvent, 'turnId' | 'messageId'>): string {
-  // Prefer the explicit messageId the provider assigned; fall back to a turnId-derived
-  // synthetic ID for events that carry only a turnId (tool events, reasoning without
-  // an explicit messageId, etc.).
-  if (event.messageId) return event.messageId;
-  if (event.turnId) return `msg-${event.turnId}`;
-  return 'msg-current';
-}
-
-export function applyAgentEvent(
-  prevMessages: NormalizedMessage[],
-  event: AgentEvent,
-): NormalizedMessage[] {
-  switch (event.type) {
-    case 'turn.started': {
-      const userText = event.userMessage?.text || event.userPrompt;
-      if (userText && typeof userText === 'string') {
-        const alreadyHasUserMsg = prevMessages.some((m) => m.role === 'user' && m.text === userText);
-        if (!alreadyHasUserMsg) {
-          return [
-            ...prevMessages,
-            {
-              id: event.userMessage?.id || `user-${event.turnId || Date.now()}`,
-              role: 'user',
-              text: userText,
-              createdAt: event.userMessage?.createdAt || event.timestamp || new Date().toISOString(),
-            },
-          ];
-        }
-      }
-      return prevMessages;
-    }
-
-    case 'text.delta': {
-      const text = event.text ?? event.delta ?? '';
-      const existingIdx = findAssistantMessageIndex(prevMessages, event);
-      if (existingIdx >= 0) {
-        const updated = [...prevMessages];
-        updated[existingIdx] = {
-          ...updated[existingIdx],
-          text: updated[existingIdx].text + text,
-        };
-        return updated;
-      }
-      return [
-        ...prevMessages,
-        {
-          id: canonicalAssistantMessageId(event),
-          role: 'assistant',
-          text,
-          turnId: event.turnId,
-          createdAt: event.timestamp || new Date().toISOString(),
-        },
-      ];
-    }
-
-    case 'reasoning.delta': {
-      const reasoning = event.text ?? '';
-      const existingIdx = findAssistantMessageIndex(prevMessages, event);
-      if (existingIdx >= 0) {
-        const updated = [...prevMessages];
-        updated[existingIdx] = {
-          ...updated[existingIdx],
-          reasoning: (updated[existingIdx].reasoning || '') + reasoning,
-        };
-        return updated;
-      }
-      return [
-        ...prevMessages,
-        {
-          id: canonicalAssistantMessageId(event),
-          role: 'assistant',
-          text: '',
-          reasoning,
-          turnId: event.turnId,
-          createdAt: event.timestamp || new Date().toISOString(),
-        },
-      ];
-    }
-
-    case 'progress.delta':
-      // Progress is intentionally not projected into the main assistant transcript.
-      // Dedicated activity surfaces can consume the normalized event stream directly.
-      return prevMessages;
-
-    case 'tool.started': {
-      const toolCall = {
-        id: event.toolId || `tool-${Date.now()}`,
-        name: event.toolName || 'tool',
-        input: event.input,
-        status: 'running' as const,
-      };
-      const existingIdx = findAssistantMessageIndex(prevMessages, event);
-      if (existingIdx >= 0) {
-        const updated = [...prevMessages];
-        const calls = [...(updated[existingIdx].toolCalls || []), toolCall];
-        updated[existingIdx] = { ...updated[existingIdx], toolCalls: calls };
-        return updated;
-      }
-      return [
-        ...prevMessages,
-        {
-          id: canonicalAssistantMessageId(event),
-          role: 'assistant',
-          text: '',
-          toolCalls: [toolCall],
-          turnId: event.turnId,
-          createdAt: event.timestamp || new Date().toISOString(),
-        },
-      ];
-    }
-
-    case 'tool.updated': {
-      let targetIdx = findAssistantMessageIndex(prevMessages, event);
-      if (targetIdx === -1 && event.toolId) {
-        targetIdx = prevMessages.findIndex((m) => m.toolCalls?.some((tc) => tc.id === event.toolId));
-      }
-      if (targetIdx >= 0) {
-        const updated = [...prevMessages];
-        const calls = (updated[targetIdx].toolCalls || []).map((tc) =>
-          tc.id === event.toolId
-            ? {
-                ...tc,
-                input: event.input ?? tc.input,
-                output: event.output ?? tc.output,
-                status: (event.status === 'completed' || event.status === 'failed' || event.status === 'running')
-                  ? event.status
-                  : tc.status,
-              }
-            : tc
-        );
-        updated[targetIdx] = { ...updated[targetIdx], toolCalls: calls };
-        return updated;
-      }
-      return prevMessages;
-    }
-
-    case 'tool.completed': {
-      let targetIdx = findAssistantMessageIndex(prevMessages, event);
-      if (targetIdx === -1 && event.toolId) {
-        targetIdx = prevMessages.findIndex((m) => m.toolCalls?.some((tc) => tc.id === event.toolId));
-      }
-      if (targetIdx >= 0) {
-        const updated = [...prevMessages];
-        const calls = (updated[targetIdx].toolCalls || []).map((tc) =>
-          tc.id === event.toolId
-            ? {
-                ...tc,
-                output: event.output ?? tc.output,
-                // tool.completed always carries a validated 'completed' | 'failed'
-                // status on the wire (owner-decisions.md D6) — never default a
-                // missing/malformed status to success.
-                status: (event.status as 'completed' | 'failed' | undefined) ?? 'failed',
-                durationMs: event.durationMs ?? tc.durationMs,
-              }
-            : tc
-        );
-        updated[targetIdx] = { ...updated[targetIdx], toolCalls: calls };
-        return updated;
-      }
-      return prevMessages;
-    }
-
-    case 'turn.completed':
-    case 'turn.failed': {
-      // A tool still 'running' when the turn ends never received a real successful
-      // terminal signal — resolves to 'failed', regardless of how the turn itself
-      // ended (owner-decisions.md D6), matching the backend's completeRunningToolCalls.
-      // Scoped strictly to this event's own turnId — a terminal event for one turn must
-      // never resolve a still-running tool belonging to a different turn.
-      let updated = prevMessages.map((m) => {
-        if (m.turnId !== event.turnId) return m;
-        if (!m.toolCalls || !m.toolCalls.some((tc) => tc.status === 'running')) return m;
-        return {
-          ...m,
-          toolCalls: m.toolCalls.map((tc) => (tc.status === 'running' ? { ...tc, status: 'failed' as const } : tc)),
-        };
-      });
-
-      if (event.type === 'turn.failed' && event.error) {
-        const turnError = event.error;
-        const existingIdx = findAssistantMessageIndex(updated, event);
-        if (existingIdx >= 0) {
-          updated = [...updated];
-          updated[existingIdx] = { ...updated[existingIdx], turnError };
-        } else {
-          // The turn failed before any content/tool event created its message — reload-safe
-          // home for the error still needs a message shell to attach to (owner-decisions.md D6/D9).
-          updated = [
-            ...updated,
-            {
-              id: canonicalAssistantMessageId(event),
-              role: 'assistant',
-              text: '',
-              turnId: event.turnId,
-              turnError,
-              createdAt: event.timestamp || new Date().toISOString(),
-            },
-          ];
-        }
-      }
-
-      return updated;
-    }
-
-    default:
-      return prevMessages;
-  }
+export function applyTurnUpdated(turns: CanonicalTurn[], updatedTurn: CanonicalTurn): CanonicalTurn[] {
+  const idx = turns.findIndex((t) => t.id === updatedTurn.id);
+  if (idx === -1) return [...turns, updatedTurn];
+  if (turns[idx] === updatedTurn) return turns;
+  const next = [...turns];
+  next[idx] = updatedTurn;
+  return next;
 }
 
 /**
- * Determines whether an incoming AgentEvent changes visible transcript content.
- * Used to increment contentRevision for useScrollFollow without triggering on
- * telemetry (usage.updated) or metadata-only events.
+ * Session-level activity, derived only from the latest Turn's own canonical `status`
+ * field — never inferred from event absence or elapsed time.
  */
-export function eventModifiesTranscriptContent(event: AgentEvent): boolean {
-  switch (event.type) {
-    case 'text.delta':
-      return Boolean(event.text || event.delta);
-    case 'reasoning.delta':
-      return Boolean(event.text);
-    case 'tool.started':
-    case 'tool.updated':
-    case 'tool.completed':
-      return true;
-    case 'turn.started':
-      return Boolean(event.userMessage?.text || event.userPrompt);
-    case 'turn.completed':
-    case 'turn.failed':
-    case 'interaction.requested':
-    case 'interaction.resolved':
-      return true;
-    default:
-      return false;
-  }
+export function deriveActivity(turns: CanonicalTurn[]): AgentSessionStatus {
+  const turn = latestTurn(turns);
+  if (!turn || !turn.status || turn.status.status === 'terminal') return 'idle';
+  if (turn.status.status === 'requiresAttention') return 'waitingForUser';
+  return 'running';
 }
 
+// A loaded snapshot's readiness is a required field on the wire contract — this value
+// is never a normal outcome, only a fail-closed guard against a contract violation (a
+// malformed/missing readiness on an otherwise-loaded snapshot or event). It must never
+// be mistaken for a legitimate `unavailable` provider/persistence state.
+export const MISSING_READINESS: SessionReadiness = { status: 'unavailable', reason: 'readiness_unavailable' };
+
 /**
- * Resolves authoritative session activity from a snapshot.
+ * Combines authoritative server readiness with the one permitted client-local
+ * override — a brief optimistic-busy state between a successful POST and the first
+ * authoritative `turn.updated`. The override may only ever make readiness more
+ * restrictive, never less, and a missing/malformed server readiness fails closed
+ * rather than silently becoming `ready`.
  */
-export function resolveSnapshotActivity(
-  snapshot: Pick<AgentSessionSnapshot, 'status' | 'pendingInteraction' | 'activeTurn'>,
-): AgentSessionStatus {
-  if (snapshot.status === 'running' || snapshot.status === 'waitingForUser' || snapshot.status === 'idle') {
-    return snapshot.status;
-  }
-  if (snapshot.pendingInteraction) return 'waitingForUser';
-  if (snapshot.activeTurn) return 'running';
-  return 'idle';
+export function resolveEffectiveReadiness(
+  serverReadiness: SessionReadiness | null,
+  optimisticPending: boolean,
+): SessionReadiness {
+  if (optimisticPending) return { status: 'busy', reason: 'turn_in_progress' };
+  return serverReadiness ?? MISSING_READINESS;
 }
 
 /**
- * Checks whether a normal new turn may be started via composer.
- * A new turn may only be started when the session is completely 'idle'.
+ * Checks whether a normal new turn may be started.
+ * A new turn may only be started when the session readiness is 'ready'.
  */
 export function canStartTurn(
-  activity: AgentSessionStatus,
+  readiness?: SessionReadiness | null,
   provider?: string,
   providerSessionId?: string,
   messageText?: string,
 ): boolean {
-  if (!messageText || !messageText.trim()) return false;
-  if (activity !== 'idle') return false;
-  if (!provider || !providerSessionId) return false;
-  return true;
+  if (messageText !== undefined && !messageText.trim()) return false;
+  if (provider !== undefined && !provider) return false;
+  if (providerSessionId !== undefined && !providerSessionId) return false;
+  if (!readiness) return false;
+  return readiness.status === 'ready';
 }
 
-export interface ApplyCancelTurnResponseParams {
-  turnId: string;
-  response: { ok: boolean; status?: number };
-  errorData?: { error?: { message?: string }; message?: string } | null;
-  currentActiveTurnId: string | null;
-  currentActivity: 'idle' | 'running' | 'waitingForUser';
-  terminalTurnIds: Set<string>;
-}
-
-export interface ApplyCancelTurnResponseResult {
-  nextActivity: 'idle' | 'running' | 'waitingForUser';
-  nextActiveTurnId: string | null;
-  terminalTurnIds: Set<string>;
-  error?: Error;
-}
-
-export function shouldSurfaceCancelError(
-  turnId: string,
-  terminalTurnIds: Set<string>
-): boolean {
-  return !terminalTurnIds.has(turnId);
-}
-
-export function shouldSurfaceTurnError(
-  error?: { code?: string; message?: string } | null
-): boolean {
+/**
+ * Checks whether a turn error should be surfaced to the user as an error toast.
+ * Intentional user cancellations (AI_TURN_CANCELLED) are quiet terminations.
+ */
+export function shouldSurfaceTurnError(error?: { code?: string; message?: string } | null): boolean {
   if (!error) return false;
-  // Explicit cancellation by user (Stop) is an intentional termination, not an unexpected error toast
   if (error.code === 'AI_TURN_CANCELLED') return false;
   return true;
 }
 
-export function applyCancelTurnResponse({
-  turnId,
-  response,
-  errorData,
-  currentActiveTurnId,
-  currentActivity,
-  terminalTurnIds,
-}: ApplyCancelTurnResponseParams): ApplyCancelTurnResponseResult {
-  // If the turn already became terminal (e.g. terminal SSE arrived while cancel was in flight),
-  // suppress any stale cancel responses (HTTP 200, 409, 500, etc.) without surfacing errors
-  // or resurrecting/altering state.
-  if (!shouldSurfaceCancelError(turnId, terminalTurnIds)) {
-    return {
-      nextActivity: currentActivity,
-      nextActiveTurnId: currentActiveTurnId,
-      terminalTurnIds,
-    };
-  }
-
-  if (!response.ok) {
-    const message =
-      errorData?.error?.message ||
-      errorData?.message ||
-      `Failed to cancel turn (${response.status || 'unknown'})`;
-    return {
-      nextActivity: currentActivity,
-      nextActiveTurnId: currentActiveTurnId,
-      terminalTurnIds,
-      error: new Error(message),
-    };
-  }
-
-  terminalTurnIds.add(turnId);
-
-  // Race-safety check: If terminal SSE arrived before this POST response completed,
-  // currentActiveTurnId was already cleared / transitioned to idle.
-  if (currentActiveTurnId === turnId && currentActivity === 'running') {
-    return {
-      nextActivity: 'idle',
-      nextActiveTurnId: null,
-      terminalTurnIds,
-    };
-  }
-
-  return {
-    nextActivity: currentActivity,
-    nextActiveTurnId: currentActiveTurnId,
-    terminalTurnIds,
-  };
+/**
+ * Checks whether an error during cancellation should be surfaced.
+ * If the turn already reached a terminal state, cancel errors are suppressed.
+ */
+export function shouldSurfaceCancelError(turnId: string, terminalTurnIds: Set<string>): boolean {
+  return !terminalTurnIds.has(turnId);
 }
+

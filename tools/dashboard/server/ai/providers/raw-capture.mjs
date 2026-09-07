@@ -4,9 +4,28 @@ import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 
 const WINDOWS_RESERVED_NAMES = new Set([
-  'con', 'prn', 'aux', 'nul',
-  'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
-  'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9',
+  'con',
+  'prn',
+  'aux',
+  'nul',
+  'com1',
+  'com2',
+  'com3',
+  'com4',
+  'com5',
+  'com6',
+  'com7',
+  'com8',
+  'com9',
+  'lpt1',
+  'lpt2',
+  'lpt3',
+  'lpt4',
+  'lpt5',
+  'lpt6',
+  'lpt7',
+  'lpt8',
+  'lpt9',
 ]);
 
 /**
@@ -21,11 +40,12 @@ export function rawCaptureSessionDirectory(providerSessionId, rawCaptureDir = nu
   if (!providerSessionId || typeof providerSessionId !== 'string') {
     throw new TypeError('providerSessionId must be a non-empty string');
   }
-  const isSafeCandidate = /^[a-zA-Z0-9_-]+$/.test(providerSessionId)
-    && providerSessionId !== '.'
-    && providerSessionId !== '..'
-    && providerSessionId.length <= 128
-    && !WINDOWS_RESERVED_NAMES.has(providerSessionId.toLowerCase());
+  const isSafeCandidate =
+    /^[a-zA-Z0-9_-]+$/.test(providerSessionId) &&
+    providerSessionId !== '.' &&
+    providerSessionId !== '..' &&
+    providerSessionId.length <= 128 &&
+    !WINDOWS_RESERVED_NAMES.has(providerSessionId.toLowerCase());
 
   if (isSafeCandidate) {
     if (!rawCaptureDir) {
@@ -56,10 +76,11 @@ export function rawCaptureSessionDirectory(providerSessionId, rawCaptureDir = nu
     // If directory exists on disk for a different session or different case-variant, fall back to hash
   }
 
-  const safePrefix = providerSessionId
-    .replace(/[^a-zA-Z0-9_-]/g, '_')
-    .slice(0, 32)
-    .replace(/^_+|_+$/g, '') || 'session';
+  const safePrefix =
+    providerSessionId
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .slice(0, 32)
+      .replace(/^_+|_+$/g, '') || 'session';
   const hash = createHash('sha256').update(providerSessionId, 'utf8').digest('hex').slice(0, 16);
   return `${safePrefix}-${hash}`;
 }
@@ -73,23 +94,20 @@ export class RawCaptureRecorder {
   #sessionWriteQueues = new Map();
   #sessionDirMap = new Map();
 
-  constructor({
-    providerId,
-    rawCaptureDir = null,
-    rawCaptureEnabled = false,
-    rawFlushTimeoutMs = 2_000,
-  } = {}) {
+  constructor({ providerId, rawCaptureDir = null, rawCaptureEnabled = false, rawFlushTimeoutMs = 2_000 } = {}) {
     if (!providerId || typeof providerId !== 'string') {
       throw new TypeError('providerId must be a non-empty string');
     }
     this.#providerId = providerId;
     this.#rawCaptureEnabled = Boolean(rawCaptureEnabled);
-    this.#rawFlushTimeoutMs = Number.isFinite(rawFlushTimeoutMs) && rawFlushTimeoutMs >= 0
-      ? rawFlushTimeoutMs
-      : 2_000;
+    this.#rawFlushTimeoutMs = Number.isFinite(rawFlushTimeoutMs) && rawFlushTimeoutMs >= 0 ? rawFlushTimeoutMs : 2_000;
     this.#rawCaptureDir = this.#rawCaptureEnabled
-      ? (rawCaptureDir ? resolve(rawCaptureDir) : null)
-      : (rawCaptureDir ? resolve(rawCaptureDir) : null);
+      ? rawCaptureDir
+        ? resolve(rawCaptureDir)
+        : null
+      : rawCaptureDir
+        ? resolve(rawCaptureDir)
+        : null;
   }
 
   get isEnabled() {
@@ -118,10 +136,11 @@ export class RawCaptureRecorder {
       }
 
       if (hasInMemoryCaseCollision) {
-        const safePrefix = sessionId
-          .replace(/[^a-zA-Z0-9_-]/g, '_')
-          .slice(0, 32)
-          .replace(/^_+|_+$/g, '') || 'session';
+        const safePrefix =
+          sessionId
+            .replace(/[^a-zA-Z0-9_-]/g, '_')
+            .slice(0, 32)
+            .replace(/^_+|_+$/g, '') || 'session';
         const hash = createHash('sha256').update(sessionId, 'utf8').digest('hex').slice(0, 16);
         dirName = `${safePrefix}-${hash}`;
       } else {
@@ -140,12 +159,12 @@ export class RawCaptureRecorder {
 
   logCapturePathOnce(sessionId, customLabel = null) {
     if (!this.#rawCaptureEnabled || !this.#rawCaptureDir) return;
-    const key = (sessionId && sessionId !== '_global') ? sessionId : '_global';
+    const key = sessionId && sessionId !== '_global' ? sessionId : '_global';
     if (!this.#loggedSessions.has(key)) {
       this.#loggedSessions.add(key);
       const sessionDirName = this.resolveSessionDirName(sessionId);
       const filePath = join(this.#rawCaptureDir, sessionDirName, 'raw.ndjson');
-      const label = customLabel || (this.#providerId.charAt(0).toUpperCase() + this.#providerId.slice(1));
+      const label = customLabel || this.#providerId.charAt(0).toUpperCase() + this.#providerId.slice(1);
       console.log(`[ai] ${label} raw capture: ${filePath}`);
     }
   }
@@ -169,7 +188,7 @@ export class RawCaptureRecorder {
       return;
     }
 
-    const effectiveSessionId = (sessionId && sessionId !== '_global') ? sessionId : null;
+    const effectiveSessionId = sessionId && sessionId !== '_global' ? sessionId : null;
     const queueKey = effectiveSessionId || '_global';
     const capturedAt = new Date().toISOString();
 
@@ -216,29 +235,41 @@ export class RawCaptureRecorder {
           const sessionMetadataPath = join(sessionDir, 'session.json');
           if (!existsSync(sessionMetadataPath)) {
             const metadata = effectiveSessionId
-              ? JSON.stringify({
-                  provider: this.#providerId,
-                  providerSessionId: effectiveSessionId,
-                }, null, 2)
-              : JSON.stringify({
-                  provider: this.#providerId,
-                  global: true,
-                }, null, 2);
+              ? JSON.stringify(
+                  {
+                    provider: this.#providerId,
+                    providerSessionId: effectiveSessionId,
+                  },
+                  null,
+                  2,
+                )
+              : JSON.stringify(
+                  {
+                    provider: this.#providerId,
+                    global: true,
+                  },
+                  null,
+                  2,
+                );
             await writeFile(sessionMetadataPath, metadata, 'utf8');
           }
           await appendFile(filePath, ndjsonLine, 'utf8');
         } catch (err) {
-          console.warn(`[${this.#providerId}] [raw-capture] Failed to append raw event for ${queueKey}: ${err?.message || err}`);
+          console.warn(
+            `[${this.#providerId}] [raw-capture] Failed to append raw event for ${queueKey}: ${err?.message || err}`,
+          );
         }
       })
-      .catch(err => {
-        console.warn(`[${this.#providerId}] [raw-capture] Unexpected error in raw capture queue: ${err?.message || err}`);
+      .catch((err) => {
+        console.warn(
+          `[${this.#providerId}] [raw-capture] Unexpected error in raw capture queue: ${err?.message || err}`,
+        );
       });
     this.#sessionWriteQueues.set(queueKey, queue);
   }
 
   async flushRawCapture(sessionId) {
-    const queueKey = (sessionId && sessionId !== '_global') ? sessionId : '_global';
+    const queueKey = sessionId && sessionId !== '_global' ? sessionId : '_global';
     const queue = this.#sessionWriteQueues.get(queueKey);
     if (queue) await queue;
   }
@@ -254,7 +285,7 @@ export class RawCaptureRecorder {
     let timedOut = false;
     await Promise.race([
       Promise.resolve(queue),
-      new Promise(resolveTimeout => {
+      new Promise((resolveTimeout) => {
         timer = setTimeout(() => {
           timedOut = true;
           resolveTimeout();
@@ -263,12 +294,14 @@ export class RawCaptureRecorder {
     ]);
     if (timer) clearTimeout(timer);
     if (timedOut) {
-      console.warn(`[${this.#providerId}] [raw-capture] Timed out after ${this.#rawFlushTimeoutMs}ms while flushing ${label}; queued writes continue in the background.`);
+      console.warn(
+        `[${this.#providerId}] [raw-capture] Timed out after ${this.#rawFlushTimeoutMs}ms while flushing ${label}; queued writes continue in the background.`,
+      );
     }
   }
 
   async flushRawCaptureBounded(sessionId) {
-    const queueKey = (sessionId && sessionId !== '_global') ? sessionId : '_global';
+    const queueKey = sessionId && sessionId !== '_global' ? sessionId : '_global';
     await this.#awaitRawCaptureBoundary(
       this.#sessionWriteQueues.get(queueKey),
       sessionId ? `session ${sessionId}` : 'global diagnostics',

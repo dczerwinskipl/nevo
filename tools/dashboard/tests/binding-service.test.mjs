@@ -299,10 +299,9 @@ test('AgentSessionBindingService persists session mode preference and maintains 
     assert.equal(reloadedB.mode, 'edit');
 
     // 6. Invalid mode throws AiValidationError
-    await assert.rejects(
-      () => service.updateSessionMode('claude', 'sess-A', 'invalid-mode'),
-      { name: 'AiValidationError' }
-    );
+    await assert.rejects(() => service.updateSessionMode('claude', 'sess-A', 'invalid-mode'), {
+      name: 'AiValidationError',
+    });
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
@@ -438,7 +437,11 @@ test('Multi-spec session deletion: unbindSession removes session identity from A
     // 3. Verify ALL spec binding files are cleaned up
     assert.equal((await service.listBindings({ specId: specA })).length, 0, 'Spec A bindings must be empty');
     assert.equal((await service.listBindings({ specId: specB })).length, 0, 'Spec B bindings must be empty');
-    assert.equal(await service.resolveCurrentBinding('claude', 'sess-multi-spec-1'), null, 'Resolved current binding must be null');
+    assert.equal(
+      await service.resolveCurrentBinding('claude', 'sess-multi-spec-1'),
+      null,
+      'Resolved current binding must be null',
+    );
 
     // 4. Test synchronous variant (unbindSessionSync)
     service.bindSessionSync({
@@ -491,8 +494,18 @@ test('HTTP DELETE /api/agent-sessions/:provider/:providerSessionId deletes multi
     const aiService = new AgentSessionService({ registry, bindingService, transcriptCache });
 
     // 1. Bind to multiple specs
-    await bindingService.bindSession({ provider: 'claude', providerSessionId: 'sess-http-del', specId: specA, taskId: 't1' });
-    await bindingService.bindSession({ provider: 'claude', providerSessionId: 'sess-http-del', specId: specB, taskId: 't2' });
+    await bindingService.bindSession({
+      provider: 'claude',
+      providerSessionId: 'sess-http-del',
+      specId: specA,
+      taskId: 't1',
+    });
+    await bindingService.bindSession({
+      provider: 'claude',
+      providerSessionId: 'sess-http-del',
+      specId: specB,
+      taskId: 't2',
+    });
     transcriptCache.recordUserMessage('claude', 'sess-http-del', { text: 'Hello' });
     await transcriptCache.flush('claude', 'sess-http-del');
 

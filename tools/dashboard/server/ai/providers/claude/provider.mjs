@@ -1,17 +1,14 @@
 import { spawn, execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { writeFileSync, unlinkSync } from 'node:fs';
+import { writeFileSync, unlinkSync, existsSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
-import {
-  AiError,
-  AiValidationError,
-  validateAgentExecutionMode,
-} from '../../contracts.mjs';
+import { AiError, AiValidationError, validateAgentExecutionMode } from '../../contracts.mjs';
 import { createClaudeContinuationStore } from './continuation-store.mjs';
 import { terminateChildProcess } from '../process-termination.mjs';
 import { RawCaptureRecorder, rawCaptureSessionDirectory } from '../raw-capture.mjs';
+import { mcpInteractionRegistry } from '../../interactions/mcp/index.mjs';
 
 export { rawCaptureSessionDirectory };
 
@@ -22,13 +19,147 @@ const HOOK_SCRIPT_PATH = join(__dirname, 'hook.mjs');
 export const CLAUDE_CAPABILITIES = Object.freeze({
   interactivePermissions: false,
   interactiveQuestions: true,
-  interactiveConfirmations: true,
+  interactiveConfirmations: false,
   resumeSession: true,
   cancelTurn: true,
   toolCalls: true,
   reasoning: true,
   usage: true,
 });
+
+// `description` is a concise label for primary UI presentation (C5) — the canonical
+// model bounds it to 1000 chars, and the full untruncated value already survives
+// separately in `input` (an expandable technical detail, not length-limited). A raw
+// shell command, heredoc, or long search pattern can easily exceed that, which
+// previously failed the entire Turn's canonical validation instead of just the label.
+const MAX_TOOL_DESCRIPTION_LENGTH = 300;
+
+function truncateToolDescription(value) {
+  if (typeof value !== 'string') return undefined;
+  return value.length > MAX_TOOL_DESCRIPTION_LENGTH ? `${value.slice(0, MAX_TOOL_DESCRIPTION_LENGTH - 1)}…` : value;
+}
+
+export function mapClaudeTool(toolName = '', input = {}) {
+  const name = String(toolName || '').trim();
+  const lower = name.toLowerCase();
+
+  function extractFileBasename(filePath) {
+    if (typeof filePath !== 'string' || !filePath.trim()) return undefined;
+    const normalized = filePath.trim().replace(/\\/g, '/');
+    const parts = normalized.split('/').filter(Boolean);
+    return parts.length > 0 ? parts[parts.length - 1] : filePath.trim();
+  }
+
+  function extractCommandSubject(cmd) {
+    if (typeof cmd !== 'string' || !cmd.trim()) return undefined;
+    const singleLine = cmd.trim().split('\n')[0].trim();
+    if (singleLine.length <= 40) return singleLine;
+    return `${singleLine.slice(0, 39)}…`;
+  }
+
+  if (['bash', 'terminal', 'executecommand', 'command'].includes(lower)) {
+    return {
+      kind: 'command',
+      title: 'Run command',
+      subject: extractCommandSubject(input?.command),
+      description: truncateToolDescription(typeof input?.command === 'string' ? input.command : undefined),
+    };
+  }
+
+  if (['read', 'view', 'notebookread'].includes(lower)) {
+    const rawPath =
+      typeof input?.file_path === 'string' ? input.file_path : typeof input?.path === 'string' ? input.path : undefined;
+    return {
+      kind: 'read',
+      title: 'Read file',
+      subject: extractFileBasename(rawPath),
+      description: truncateToolDescription(rawPath),
+    };
+  }
+
+  if (['write', 'createfile'].includes(lower)) {
+    const rawPath =
+      typeof input?.file_path === 'string' ? input.file_path : typeof input?.path === 'string' ? input.path : undefined;
+    return {
+      kind: 'write',
+      title: 'Write file',
+      subject: extractFileBasename(rawPath),
+      description: truncateToolDescription(rawPath),
+    };
+  }
+
+  if (['edit', 'multiedit', 'notebookedit', 'fileedit'].includes(lower)) {
+    const rawPath =
+      typeof input?.file_path === 'string' ? input.file_path : typeof input?.path === 'string' ? input.path : undefined;
+    return {
+      kind: 'edit',
+      title: 'Edit file',
+      subject: extractFileBasename(rawPath),
+      description: truncateToolDescription(rawPath),
+    };
+  }
+
+  if (['glob', 'ls', 'listdirectory', 'listfiles', 'listdir'].includes(lower)) {
+    const rawPath =
+      typeof input?.path === 'string' ? input.path : typeof input?.pattern === 'string' ? input.pattern : undefined;
+    return {
+      kind: 'list',
+      title: 'List files',
+      subject: typeof input?.pattern === 'string' ? input.pattern : extractFileBasename(rawPath),
+      description: truncateToolDescription(rawPath),
+    };
+  }
+
+  if (['grep', 'search', 'find', 'filesearch'].includes(lower)) {
+    const rawSubject =
+      typeof input?.pattern === 'string' ? input.pattern : typeof input?.query === 'string' ? input.query : undefined;
+    return {
+      kind: 'search',
+      title: 'Search files',
+      subject: rawSubject,
+      description: truncateToolDescription(rawSubject || (typeof input?.path === 'string' ? input.path : undefined)),
+    };
+  }
+
+  if (['websearch', 'webfetch', 'browser', 'fetch'].includes(lower)) {
+    const rawSubject =
+      typeof input?.query === 'string'
+        ? input.query
+        : typeof input?.url === 'string'
+          ? input.url.replace(/^https?:\/\//, '').split('?')[0]
+          : undefined;
+    return {
+      kind: 'web',
+      title: 'Web search / fetch',
+      subject: rawSubject,
+      description: truncateToolDescription(
+        typeof input?.url === 'string' ? input.url : typeof input?.query === 'string' ? input.query : undefined,
+      ),
+    };
+  }
+
+  if (lower.includes('ask_user') || lower.includes('askuserquestion')) {
+    const rawQuestion =
+      typeof input?.question === 'string'
+        ? input.question
+        : typeof input?.prompt === 'string'
+          ? input.prompt
+          : undefined;
+    return {
+      kind: 'other',
+      title: 'Ask question',
+      subject: extractCommandSubject(rawQuestion),
+      description: truncateToolDescription(rawQuestion),
+    };
+  }
+
+  return {
+    kind: 'other',
+    title: name || 'Tool',
+    subject: undefined,
+    description: undefined,
+  };
+}
 
 export function defaultProbeClaudeExecutable(executable) {
   try {
@@ -52,12 +183,17 @@ export class ClaudeAgentProvider {
   #forceGraceMs;
   #probeExecutable;
   #rawCapture;
+  #mcpEnabled;
+  #mcpEndpointUrl;
+  #tlsCertPath;
 
   constructor({
     executable = 'claude',
     cwd = process.cwd(),
     spawnProcess = spawn,
-    continuationStore = createClaudeContinuationStore({ baseDir: join(cwd, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') }),
+    continuationStore = createClaudeContinuationStore({
+      baseDir: join(cwd, '.nevo-ai-local', 'transcripts', 'claude', 'continuations'),
+    }),
     hookScriptPath = HOOK_SCRIPT_PATH,
     cancelGraceMs = 5_000,
     forceGraceMs = 2_000,
@@ -65,6 +201,11 @@ export class ClaudeAgentProvider {
     rawCaptureDir = null,
     rawCaptureEnabled = false,
     rawFlushTimeoutMs = 2_000,
+    mcpEnabled = true,
+    mcpBridgeEnabled,
+    mcpEndpointUrl = null,
+    bridgePort = null,
+    tlsCertPath = null,
   } = {}) {
     this.#executable = executable;
     this.#cwd = cwd;
@@ -74,19 +215,62 @@ export class ClaudeAgentProvider {
     this.#cancelGraceMs = cancelGraceMs;
     this.#forceGraceMs = forceGraceMs;
     this.#probeExecutable = probeExecutable ?? (spawnProcess !== spawn ? () => true : defaultProbeClaudeExecutable);
+    this.#mcpEnabled = mcpBridgeEnabled !== undefined ? Boolean(mcpBridgeEnabled) : Boolean(mcpEnabled);
+    this.#mcpEndpointUrl = mcpEndpointUrl || (bridgePort ? `http://127.0.0.1:${bridgePort}/mcp` : null);
+    this.#tlsCertPath =
+      tlsCertPath ||
+      process.env.NEVO_TLS_CERT_PATH ||
+      (existsSync(resolve(this.#cwd, 'tools', 'dashboard', 'config', 'tls-cert.pem'))
+        ? resolve(this.#cwd, 'tools', 'dashboard', 'config', 'tls-cert.pem')
+        : existsSync(resolve(__dirname, '..', '..', '..', 'config', 'tls-cert.pem'))
+          ? resolve(__dirname, '..', '..', '..', 'config', 'tls-cert.pem')
+          : null);
     this.#rawCapture = new RawCaptureRecorder({
       providerId: 'claude',
       rawCaptureDir: rawCaptureEnabled
-        ? (rawCaptureDir || resolve(this.#cwd, '.nevo-ai-local', 'claude_raw'))
-        : (rawCaptureDir ? resolve(rawCaptureDir) : null),
+        ? rawCaptureDir || resolve(this.#cwd, '.nevo-ai-local', 'claude_raw')
+        : rawCaptureDir
+          ? resolve(rawCaptureDir)
+          : null,
       rawCaptureEnabled,
       rawFlushTimeoutMs,
     });
-    this.descriptor = Object.freeze({
+  }
+
+  configureMcpEndpoint(urlOrResolver) {
+    this.#mcpEndpointUrl = urlOrResolver;
+  }
+
+  #resolveMcpEndpointUrl() {
+    if (typeof this.#mcpEndpointUrl === 'function') {
+      try {
+        return this.#mcpEndpointUrl();
+      } catch {
+        return null;
+      }
+    }
+    if (typeof this.#mcpEndpointUrl === 'string' && this.#mcpEndpointUrl.trim()) {
+      return this.#mcpEndpointUrl.trim();
+    }
+    return process.env.NEVO_MCP_ENDPOINT_URL || null;
+  }
+
+  get capabilities() {
+    const endpointUrl = this.#resolveMcpEndpointUrl();
+    const isMcpUsable = Boolean(this.#mcpEnabled && endpointUrl);
+    return Object.freeze({
+      ...CLAUDE_CAPABILITIES,
+      interactiveQuestions: isMcpUsable,
+      interactiveConfirmations: false,
+    });
+  }
+
+  get descriptor() {
+    return Object.freeze({
       id: 'claude',
       label: 'Claude Code',
       enabled: true,
-      capabilities: CLAUDE_CAPABILITIES,
+      capabilities: this.capabilities,
       supportedModes: ['ask', 'edit', 'agent'],
       defaultMode: 'edit',
     });
@@ -102,7 +286,7 @@ export class ClaudeAgentProvider {
 
   isAvailable({ ttlMs = 30_000 } = {}) {
     const now = Date.now();
-    if (this.#availabilityCache.result && (now - this.#availabilityCache.checkedAt < ttlMs)) {
+    if (this.#availabilityCache.result && now - this.#availabilityCache.checkedAt < ttlMs) {
       return this.#availabilityCache.result;
     }
     let available = false;
@@ -113,7 +297,10 @@ export class ClaudeAgentProvider {
     }
     const result = available
       ? { available: true }
-      : { available: false, unavailableReason: `Claude Code CLI ('${this.#executable}') is not found in PATH. Install Claude Code CLI to enable this provider.` };
+      : {
+          available: false,
+          unavailableReason: `Claude Code CLI ('${this.#executable}') is not found in PATH. Install Claude Code CLI to enable this provider.`,
+        };
     this.#availabilityCache = { checkedAt: now, result };
     return result;
   }
@@ -126,6 +313,9 @@ export class ClaudeAgentProvider {
     const hookCmd = `node "${this.#hookScriptPath.replace(/\\/g, '/')}"`;
 
     const settings = {
+      permissions: {
+        allow: ['mcp__nevo__ask_user'],
+      },
       hooks: {
         PreToolUse: [
           {
@@ -145,6 +335,23 @@ export class ClaudeAgentProvider {
     return settingsPath;
   }
 
+  #createMcpConfigFile({ mcpUrl, token }) {
+    const configPath = join(tmpdir(), `nevo-claude-mcp-${randomUUID()}.json`);
+    const mcpConfig = {
+      mcpServers: {
+        nevo: {
+          type: 'http',
+          url: mcpUrl,
+          headers: {
+            'x-nevo-interaction-token': token,
+          },
+        },
+      },
+    };
+    writeFileSync(configPath, JSON.stringify(mcpConfig, null, 2), 'utf-8');
+    return configPath;
+  }
+
   async startTurn(params = {}) {
     const userPrompt = params.message ?? params.prompt;
     if (!userPrompt || typeof userPrompt !== 'string') {
@@ -152,115 +359,184 @@ export class ClaudeAgentProvider {
     }
     const mode = params.mode ? validateAgentExecutionMode(params.mode) : 'edit';
 
-    const isNew = !params.providerSessionId;
+    // A providerSessionId alone does not mean Claude has ever seen this conversation:
+    // callers that only pre-allocated a local placeholder (never confirmed by Claude)
+    // must explicitly say so via isSessionEstablished === false, so the fresh identity
+    // is created (--session-id) instead of a nonexistent one being resumed (--resume).
+    const isNew = !params.providerSessionId || params.isSessionEstablished === false;
     const effectiveSessionId = params.providerSessionId || randomUUID();
     const isMaterialized = this.#materializedSessions.has(effectiveSessionId);
     const initialFlag = isNew && !isMaterialized ? '--session-id' : '--resume';
 
     try {
-      return await this.#runClaudeProcess({ ...params, mode }, { effectiveSessionId, sessionFlag: initialFlag });
+      return await this.#startTurnWithSession({ ...params, mode }, { effectiveSessionId, sessionFlag: initialFlag });
     } catch (err) {
       const isSessionNotFound =
         err instanceof AiError &&
         (err.message.includes('No conversation found with session ID') ||
-         err.message.includes('not match any session'));
+          err.message.includes('not match any session'));
 
       if (initialFlag === '--resume' && isSessionNotFound) {
         console.warn(`[claude] session ${effectiveSessionId} not found in Claude CLI DB, retrying with --session-id`);
         this.#materializedSessions.delete(effectiveSessionId);
-        return await this.#runClaudeProcess({ ...params, mode }, { effectiveSessionId, sessionFlag: '--session-id' });
+        return await this.#startTurnWithSession(
+          { ...params, mode },
+          { effectiveSessionId, sessionFlag: '--session-id' },
+        );
       }
       throw err;
     }
   }
 
-  async #runClaudeProcess({
-    turnId,
-    providerSessionId,
-    setProviderSessionId,
-    identity,
-    message,
-    prompt,
-    mode = 'edit',
-    signal,
-    setOperation,
-    emitDelta,
-    emitTextDelta,
-    emitReasoningDelta,
-    emitToolStarted,
-    emitToolUpdated,
-    emitToolCompleted,
-    emitUsageUpdated,
-    emitEvent,
-    requestInteraction,
-  } = {}, { effectiveSessionId, sessionFlag }) {
+  async #startTurnWithSession(
+    {
+      turnId,
+      providerSessionId,
+      setProviderSessionId,
+      identity,
+      message,
+      prompt,
+      mode = 'edit',
+      signal,
+      setOperation,
+      emitCommentaryDelta,
+      emitReasoningDelta,
+      emitFinalAnswerDelta,
+      setFinalAnswer,
+      emitToolStarted,
+      emitToolUpdated,
+      emitToolCompleted,
+      addToolAction,
+      emitUsageUpdated,
+      emitEvent,
+      requestInteraction,
+    } = {},
+    { effectiveSessionId, sessionFlag },
+  ) {
+    const commentaryDelta = emitCommentaryDelta;
+    const finalAnswerDelta = emitFinalAnswerDelta;
     const userPrompt = message ?? prompt;
     const settingsPath = this.#createSettingsFile();
-    const permissionMode =
-      mode === 'ask'
-        ? 'plan'
-        : mode === 'agent'
-          ? 'bypassPermissions'
-          : 'acceptEdits';
+    let mcpConfigPath = null;
+    const permissionMode = mode === 'ask' ? 'plan' : mode === 'agent' ? 'bypassPermissions' : 'acceptEdits';
 
     const args = [
       '-p',
       '--verbose',
-      '--output-format', 'stream-json',
-      '--input-format', 'stream-json',
-      '--settings', settingsPath,
-      sessionFlag, effectiveSessionId,
-      '--permission-mode', permissionMode,
+      '--output-format',
+      'stream-json',
+      '--input-format',
+      'stream-json',
+      '--settings',
+      settingsPath,
+      sessionFlag,
+      effectiveSessionId,
+      '--permission-mode',
+      permissionMode,
     ];
 
-      console.log(`[claude] spawning CLI: ${this.#executable} ${args.join(' ')}`);
-      this.#rawCapture.logCapturePathOnce(effectiveSessionId);
-      return new Promise((resolve, reject) => {
-        let child;
+    let token = null;
+    const resolvedMcpUrl = this.#resolveMcpEndpointUrl();
+    if (this.#mcpEnabled && resolvedMcpUrl) {
+      token = randomUUID();
+      mcpConfigPath = this.#createMcpConfigFile({ mcpUrl: resolvedMcpUrl, token });
+      args.push(
+        '--mcp-config',
+        mcpConfigPath,
+        '--append-system-prompt',
+        'When you need user clarification, approval, or to ask multiple choice questions, call the ask_user tool.',
+      );
+    }
+
+    console.log(`[claude] spawning CLI: ${this.#executable} ${args.join(' ')}`);
+    this.#rawCapture.logCapturePathOnce(effectiveSessionId);
+    return new Promise((resolve, reject) => {
+      let child;
       try {
+        const childEnv = { ...process.env, CLAUDE_INTERACTIVE: '0' };
+        if (resolvedMcpUrl?.startsWith('https:') && this.#tlsCertPath && existsSync(this.#tlsCertPath)) {
+          childEnv.NODE_EXTRA_CA_CERTS = this.#tlsCertPath;
+        }
         child = this.#spawnProcess(this.#executable, args, {
           cwd: this.#cwd,
           stdio: ['pipe', 'pipe', 'pipe'],
-          env: { ...process.env, CLAUDE_INTERACTIVE: '0' },
+          env: childEnv,
         });
       } catch (err) {
         console.error(`[claude] spawn failed: ${err.message}`);
-        try { unlinkSync(settingsPath); } catch {}
-        return reject(new AiError('AI_PROVIDER_SPAWN_ERROR', `Failed to spawn claude CLI: ${err.message}`, { cause: err }));
+        try {
+          unlinkSync(settingsPath);
+        } catch {}
+        if (mcpConfigPath) {
+          try {
+            unlinkSync(mcpConfigPath);
+          } catch {}
+        }
+        return reject(
+          new AiError('AI_PROVIDER_SPAWN_ERROR', `Failed to spawn claude CLI: ${err.message}`, { cause: err }),
+        );
       }
 
-      const operation = { childProcess: child, cancelled: false };
+      const operation = { childProcess: child, cancelled: false, turnId };
       if (setOperation) setOperation(operation);
 
+      if (requestInteraction) {
+        mcpInteractionRegistry.registerActiveTurn(turnId, {
+          token,
+          provider: 'claude',
+          providerSessionId: effectiveSessionId,
+          requestInteraction,
+        });
+      }
+
       if (signal) {
-        signal.addEventListener('abort', () => {
-          operation.cancelled = true;
-          if (child) {
-            terminateChildProcess(child, {
-              graceMs: this.#cancelGraceMs,
-              forceGraceMs: this.#forceGraceMs,
-            }).catch(() => {});
-          }
-        }, { once: true });
+        signal.addEventListener(
+          'abort',
+          () => {
+            operation.cancelled = true;
+            if (child) {
+              terminateChildProcess(child, {
+                graceMs: this.#cancelGraceMs,
+                forceGraceMs: this.#forceGraceMs,
+              }).catch(() => {});
+            }
+          },
+          { once: true },
+        );
       }
 
       let lineBuffer = '';
       let activeThinking = false;
-      let activeTool = null;
+      const activeTools = new Map();
+      let hasExecutedTools = false;
       let isDeferred = false;
       let deferredPayload = null;
       let isMaterialized = sessionFlag === '--resume';
-      let emittedAnyText = false;
+      let commentaryCounter = 0;
+      let pendingCommentary = null;
 
-      const sendTextDelta = text => {
-        if (!text) return;
-        emittedAnyText = true;
-        if (emitTextDelta) emitTextDelta(text);
-        else if (emitDelta) emitDelta(text);
+      const flushPendingCommentary = () => {
+        if (pendingCommentary && pendingCommentary.chunks.length > 0) {
+          if (commentaryDelta) {
+            for (const chunk of pendingCommentary.chunks) {
+              commentaryDelta(chunk, pendingCommentary.id);
+            }
+          }
+          pendingCommentary = null;
+        }
       };
 
-      const cleanupSettings = () => {
-        try { unlinkSync(settingsPath); } catch {}
+      const cleanupSettings = (error) => {
+        try {
+          unlinkSync(settingsPath);
+        } catch {}
+        if (mcpConfigPath) {
+          try {
+            unlinkSync(mcpConfigPath);
+          } catch {}
+          mcpConfigPath = null;
+        }
+        mcpInteractionRegistry.unregisterActiveTurn(turnId, error);
       };
 
       const maybeConfirmSession = async (event) => {
@@ -271,7 +547,9 @@ export class ClaudeAgentProvider {
             try {
               await setProviderSessionId(effectiveSessionId);
             } catch (bindingErr) {
-              try { child.kill('SIGINT'); } catch {}
+              try {
+                child.kill('SIGINT');
+              } catch {}
               cleanupSettings();
               reject(bindingErr);
             }
@@ -279,7 +557,7 @@ export class ClaudeAgentProvider {
         }
       };
 
-      const processLine = async line => {
+      const processLine = async (line) => {
         const trimmed = line.trim();
         if (!trimmed) return;
         let event;
@@ -295,33 +573,59 @@ export class ClaudeAgentProvider {
 
         switch (event.type) {
           case 'assistant': {
-            const message = event.message;
-            if (message && Array.isArray(message.content)) {
-              for (const block of message.content) {
-                if (block.type === 'thinking' && block.thinking) {
-                  if (emitReasoningDelta) emitReasoningDelta(block.thinking);
-                } else if (block.type === 'text' && block.text) {
-                  sendTextDelta(block.text);
-                } else if (block.type === 'tool_use') {
-                  activeTool = {
-                    id: block.id,
-                    name: block.name,
-                    input: block.input || {},
-                  };
-                  if (emitToolStarted) {
-                    emitToolStarted({
-                      toolId: activeTool.id,
-                      toolName: activeTool.name,
-                      input: activeTool.input,
-                    });
+            const contentBlocks = Array.isArray(event.content)
+              ? event.content
+              : Array.isArray(event.message?.content)
+                ? event.message.content
+                : [];
+
+            const containsToolUse = contentBlocks.some((b) => b.type === 'tool_use');
+            if (containsToolUse) {
+              hasExecutedTools = true;
+              flushPendingCommentary();
+            }
+
+            for (const block of contentBlocks) {
+              if (block.type === 'thinking' && block.thinking) {
+                if (emitReasoningDelta) emitReasoningDelta(block.thinking);
+              } else if (block.type === 'text' && block.text) {
+                if (containsToolUse || activeTools.size > 0) {
+                  flushPendingCommentary();
+                  if (commentaryDelta) {
+                    commentaryDelta(block.text, `commentary-${turnId}-${++commentaryCounter}`);
                   }
+                } else {
+                  flushPendingCommentary();
+                  pendingCommentary = {
+                    chunks: [block.text],
+                    id: `commentary-${turnId}-${++commentaryCounter}`,
+                  };
+                }
+              } else if (block.type === 'tool_use') {
+                const toolId = block.id;
+                const toolName = block.name;
+                const input = block.input || {};
+                const { kind, title, description } = mapClaudeTool(toolName, input);
+                activeTools.set(toolId, { id: toolId, name: toolName, kind, title, description, input });
+                if (emitToolStarted) {
+                  emitToolStarted({
+                    toolId,
+                    toolName,
+                    input,
+                    kind,
+                    title,
+                    description,
+                    status: 'active',
+                  });
                 }
               }
             }
-            if (message?.usage && emitUsageUpdated) {
+
+            const usage = event.usage || event.message?.usage;
+            if (usage && emitUsageUpdated) {
               emitUsageUpdated({
-                tokensIn: message.usage.input_tokens,
-                tokensOut: message.usage.output_tokens,
+                tokensIn: usage.input_tokens,
+                tokensOut: usage.output_tokens,
               });
             }
             break;
@@ -335,19 +639,46 @@ export class ClaudeAgentProvider {
               }
             } else if (event.content_block?.type === 'text') {
               if (event.content_block.text) {
-                sendTextDelta(event.content_block.text);
+                if (activeTools.size > 0) {
+                  flushPendingCommentary();
+                  if (commentaryDelta)
+                    commentaryDelta(event.content_block.text, `commentary-${turnId}-${++commentaryCounter}`);
+                } else {
+                  if (pendingCommentary) {
+                    pendingCommentary.chunks.push(event.content_block.text);
+                  } else {
+                    pendingCommentary = {
+                      chunks: [event.content_block.text],
+                      id: `commentary-${turnId}-${++commentaryCounter}`,
+                    };
+                  }
+                }
               }
             } else if (event.content_block?.type === 'tool_use') {
-              activeTool = {
-                id: event.content_block.id,
-                name: event.content_block.name,
-                input: event.content_block.input || {},
-              };
+              hasExecutedTools = true;
+              flushPendingCommentary();
+              const toolId = event.content_block.id;
+              const toolName = event.content_block.name;
+              const input = event.content_block.input || {};
+              const { kind, title, description } = mapClaudeTool(toolName, input);
+              activeTools.set(toolId, {
+                id: toolId,
+                name: toolName,
+                kind,
+                title,
+                description,
+                input,
+                index: event.index,
+              });
               if (emitToolStarted) {
                 emitToolStarted({
-                  toolId: activeTool.id,
-                  toolName: activeTool.name,
-                  input: activeTool.input,
+                  toolId,
+                  toolName,
+                  input,
+                  kind,
+                  title,
+                  description,
+                  status: 'active',
                 });
               }
             }
@@ -360,29 +691,51 @@ export class ClaudeAgentProvider {
               }
             } else if (event.delta?.type === 'text_delta') {
               if (event.delta.text) {
-                sendTextDelta(event.delta.text);
+                if (activeTools.size > 0) {
+                  flushPendingCommentary();
+                  if (commentaryDelta)
+                    commentaryDelta(event.delta.text, `commentary-${turnId}-${commentaryCounter || 1}`);
+                } else {
+                  if (pendingCommentary) {
+                    pendingCommentary.chunks.push(event.delta.text);
+                  } else {
+                    pendingCommentary = {
+                      chunks: [event.delta.text],
+                      id: `commentary-${turnId}-${++commentaryCounter}`,
+                    };
+                  }
+                }
               }
-            } else if (event.delta?.type === 'input_json_delta' && activeTool) {
-              if (emitToolUpdated) {
-                emitToolUpdated({ toolId: activeTool.id });
+            } else if (event.delta?.type === 'input_json_delta') {
+              let targetTool = null;
+              if (typeof event.index === 'number') {
+                for (const t of activeTools.values()) {
+                  if (t.index === event.index) {
+                    targetTool = t;
+                    break;
+                  }
+                }
+              }
+              if (!targetTool && activeTools.size === 1) {
+                targetTool = Array.from(activeTools.values())[0];
+              }
+              if (targetTool && emitToolUpdated) {
+                emitToolUpdated({ toolId: targetTool.id, status: 'active' });
               }
             }
             break;
           }
           case 'content_block_stop': {
-            // A `tool_use` content block finishing only means the model stopped
-            // streaming the call's arguments — the tool has not actually run yet.
-            // The `tool_result` block in the later `user` event (or, if that never
-            // arrives, the `result` fallback below) is the only real terminal signal
-            // for this toolId (owner-decisions.md D6). Emitting anything here would
-            // race or overwrite that real outcome with a synthetic one.
             if (activeThinking) activeThinking = false;
             break;
           }
           case 'message_delta': {
             if (event.delta?.stop_reason === 'tool_deferred') {
               isDeferred = true;
-              deferredPayload = event.deferred_tool_use || event.delta?.deferred_tool_use || activeTool;
+              deferredPayload =
+                event.deferred_tool_use ||
+                event.delta?.deferred_tool_use ||
+                (activeTools.size > 0 ? Array.from(activeTools.values())[0] : null);
             }
             if (event.usage && emitUsageUpdated) {
               emitUsageUpdated({
@@ -393,46 +746,72 @@ export class ClaudeAgentProvider {
             break;
           }
           case 'user': {
-            const message = event.message;
-            if (message && Array.isArray(message.content)) {
-              for (const block of message.content) {
-                if (block.type === 'tool_result' && block.tool_use_id) {
-                  if (emitToolCompleted) {
-                    const output = event.tool_use_result?.stdout
-                      || (typeof block.content === 'string' ? block.content : JSON.stringify(block.content))
-                      || 'executed';
-                    emitToolCompleted({
-                      toolId: block.tool_use_id,
-                      output,
-                      status: block.is_error ? 'failed' : 'completed',
-                    });
-                  }
-                  if (activeTool && activeTool.id === block.tool_use_id) {
-                    activeTool = null;
-                  }
+            const userContent = Array.isArray(event.content)
+              ? event.content
+              : Array.isArray(event.message?.content)
+                ? event.message.content
+                : [];
+
+            for (const block of userContent) {
+              if (block.type === 'tool_result' && block.tool_use_id) {
+                const toolId = block.tool_use_id;
+                const isError = Boolean(block.is_error);
+                const status = isError ? 'failed' : 'completed';
+                const durationMs = block.tool_use_result?.durationMs ?? event.tool_use_result?.durationMs ?? undefined;
+                const output =
+                  event.tool_use_result?.stdout ||
+                  (typeof block.content === 'string'
+                    ? block.content
+                    : block.content !== undefined
+                      ? JSON.stringify(block.content)
+                      : isError
+                        ? 'Tool execution failed'
+                        : 'executed');
+
+                if (emitToolCompleted) {
+                  emitToolCompleted({
+                    toolId,
+                    output,
+                    durationMs,
+                    status,
+                  });
                 }
+                activeTools.delete(toolId);
               }
             }
             break;
           }
 
           case 'result': {
-            if (activeTool) {
-              // The turn ended without a real `tool_result` ever arriving for this
-              // toolId — it never received a successful terminal signal, so it
-              // resolves to 'failed' regardless of the turn's own outcome
-              // (owner-decisions.md D6).
+            for (const [toolId, tool] of activeTools.entries()) {
               if (emitToolCompleted) {
-                emitToolCompleted({ toolId: activeTool.id, output: 'executed', status: 'failed' });
+                emitToolCompleted({ toolId, output: 'executed', status: 'failed', closureReason: 'turn_completed' });
               }
-              activeTool = null;
             }
+            activeTools.clear();
+
             if (event.terminal_reason === 'tool_deferred' || event.stop_reason === 'tool_deferred') {
               isDeferred = true;
-              deferredPayload = event.deferred_tool_use || event.delta?.deferred_tool_use || deferredPayload || activeTool;
+              deferredPayload = event.deferred_tool_use || event.delta?.deferred_tool_use || deferredPayload;
             }
-            if (event.result && typeof event.result === 'string' && !emittedAnyText && !isDeferred) {
-              sendTextDelta(event.result);
+            if (event.subtype === 'error' || event.is_error === true) {
+              const err = new AiError('AI_PROVIDER_ERROR', event.error?.message || event.result || 'Claude turn failed.');
+              cleanupSettings(err);
+              reject(err);
+              return;
+            }
+
+            if (pendingCommentary && pendingCommentary.chunks.length > 0 && !isDeferred) {
+              if (finalAnswerDelta) {
+                for (const chunk of pendingCommentary.chunks) {
+                  finalAnswerDelta(chunk, 'final-answer');
+                }
+              }
+              pendingCommentary = null;
+            } else if (event.result && typeof event.result === 'string' && !isDeferred) {
+              if (finalAnswerDelta) {
+                finalAnswerDelta(event.result, 'final-answer');
+              }
             }
             if (event.usage && emitUsageUpdated) {
               emitUsageUpdated({
@@ -444,8 +823,9 @@ export class ClaudeAgentProvider {
           }
 
           case 'error': {
-            cleanupSettings();
-            reject(new AiError('AI_PROVIDER_ERROR', event.error?.message || 'Claude turn failed.'));
+            const err = new AiError('AI_PROVIDER_ERROR', event.error?.message || 'Claude turn failed.');
+            cleanupSettings(err);
+            reject(err);
             break;
           }
           default:
@@ -455,7 +835,7 @@ export class ClaudeAgentProvider {
 
       let processingQueue = Promise.resolve();
 
-      child.stdout?.on('data', chunk => {
+      child.stdout?.on('data', (chunk) => {
         lineBuffer += chunk.toString();
         const lines = lineBuffer.split('\n');
         lineBuffer = lines.pop() || '';
@@ -466,15 +846,17 @@ export class ClaudeAgentProvider {
             stream: 'stdout',
             line,
           });
-          processingQueue = processingQueue.then(() => processLine(line)).catch(err => {
-            cleanupSettings();
-            reject(err);
-          });
+          processingQueue = processingQueue
+            .then(() => processLine(line))
+            .catch((err) => {
+              cleanupSettings();
+              reject(err);
+            });
         }
       });
 
       let stderrOutput = '';
-      child.stderr?.on('data', chunk => {
+      child.stderr?.on('data', (chunk) => {
         const text = chunk.toString();
         stderrOutput += text;
         this.#rawCapture.recordRawEvent({
@@ -486,21 +868,21 @@ export class ClaudeAgentProvider {
         console.warn(`[claude] [stderr] ${text.trim()}`);
       });
 
-      child.on('error', err => {
+      child.on('error', (err) => {
         console.error(`[claude] [process-error] ${err.message}`);
-        cleanupSettings();
-        reject(new AiError('AI_PROVIDER_PROCESS_ERROR', `Claude process error: ${err.message}`, { cause: err }));
+        const aiErr = new AiError('AI_PROVIDER_PROCESS_ERROR', `Claude process error: ${err.message}`, { cause: err });
+        cleanupSettings(aiErr);
+        reject(aiErr);
       });
 
-      child.on('close', async exitCode => {
+      child.on('close', async (exitCode) => {
         console.log(`[claude] process exited code=${exitCode} isDeferred=${isDeferred}`);
         try {
           await processingQueue;
         } catch (e) {
-          cleanupSettings();
+          cleanupSettings(e);
           return reject(e);
         }
-        cleanupSettings();
         if (lineBuffer.trim()) {
           this.#rawCapture.recordRawEvent({
             sessionId: effectiveSessionId,
@@ -508,28 +890,71 @@ export class ClaudeAgentProvider {
             stream: 'stdout',
             line: lineBuffer,
           });
-          try { await processLine(lineBuffer); } catch (e) { return reject(e); }
+          try {
+            await processLine(lineBuffer);
+          } catch (e) {
+            return reject(e);
+          }
+        }
+
+        for (const [toolId, tool] of activeTools.entries()) {
+          if (emitToolCompleted) {
+            emitToolCompleted({
+              toolId,
+              output: 'executed',
+              status: 'failed',
+              closureReason: exitCode === 0 ? 'turn_completed' : 'process_exit',
+            });
+          }
+        }
+        if (pendingCommentary && pendingCommentary.chunks.length > 0 && !isDeferred) {
+          if (finalAnswerDelta) {
+            for (const chunk of pendingCommentary.chunks) {
+              finalAnswerDelta(chunk, 'final-answer');
+            }
+          }
+          pendingCommentary = null;
         }
 
         await this.#rawCapture.flushRawCaptureBounded(effectiveSessionId);
 
         if (operation.cancelled) {
-          return reject(new AiError('AI_TURN_CANCELLED', 'Claude turn was cancelled.', { status: 409 }));
+          const cancelErr = new AiError('AI_TURN_CANCELLED', 'Claude turn was cancelled.', { status: 409 });
+          cleanupSettings(cancelErr);
+          return reject(cancelErr);
         }
 
         if (isDeferred && deferredPayload) {
+          cleanupSettings();
           const publicInteractionId = `int-${randomUUID()}`;
-          const interaction = {
-            id: publicInteractionId,
-            kind: 'question',
-            questions: deferredPayload.input?.questions?.map((q, idx) => ({
-              id: `q-${idx + 1}`,
-              question: q.question,
-              header: q.header,
-              options: q.options,
-              multiSelect: q.multiSelect,
-            })) || [],
-          };
+          const isQuestion =
+            deferredPayload.name === 'AskUserQuestion' || Array.isArray(deferredPayload.input?.questions);
+
+          let interaction;
+          if (isQuestion) {
+            interaction = {
+              id: publicInteractionId,
+              kind: 'question',
+              questions:
+                deferredPayload.input?.questions?.map((q, idx) => ({
+                  id: `q-${idx + 1}`,
+                  question: q.question,
+                  header: q.header,
+                  options: q.options,
+                  multiSelect: Boolean(q.multiSelect),
+                })) || [],
+            };
+          } else {
+            interaction = {
+              id: publicInteractionId,
+              kind: 'permission',
+              toolName: deferredPayload.name || 'tool',
+              input: deferredPayload.input || {},
+              ...(deferredPayload.input?.command
+                ? { details: `Execute command: ${deferredPayload.input.command}` }
+                : {}),
+            };
+          }
 
           // Durable persistence of private Claude continuation metadata
           try {
@@ -539,7 +964,7 @@ export class ClaudeAgentProvider {
               toolUseId: deferredPayload.id,
               toolName: deferredPayload.name,
               toolInput: deferredPayload.input,
-              kind: 'question',
+              kind: interaction.kind,
             });
           } catch (persistErr) {
             return reject(persistErr);
@@ -559,8 +984,12 @@ export class ClaudeAgentProvider {
 
         if (exitCode !== 0 && !isDeferred) {
           const detail = stderrOutput.trim() || 'Process ended unexpectedly (check server logs for details)';
-          return reject(new AiError('AI_PROVIDER_EXIT_ERROR', `Claude process exited with code ${exitCode}: ${detail}`));
+          const exitErr = new AiError('AI_PROVIDER_EXIT_ERROR', `Claude process exited with code ${exitCode}: ${detail}`);
+          cleanupSettings(exitErr);
+          return reject(exitErr);
         }
+
+        cleanupSettings();
 
         this.#materializedSessions.add(effectiveSessionId);
         resolve({ operation, providerSessionId: effectiveSessionId });
@@ -598,17 +1027,24 @@ export class ClaudeAgentProvider {
     mode,
     signal,
     setOperation,
-    emitDelta,
-    emitTextDelta,
+    emitCommentaryDelta,
     emitReasoningDelta,
+    emitFinalAnswerDelta,
+    setFinalAnswer,
     emitToolStarted,
     emitToolUpdated,
     emitToolCompleted,
+    addToolAction,
     emitUsageUpdated,
     emitEvent,
   } = {}) {
     if (!providerSessionId) {
       throw new AiValidationError("'providerSessionId' is required.");
+    }
+
+    if (mcpInteractionRegistry.hasPending(interactionId)) {
+      mcpInteractionRegistry.resolveResponse(interactionId, response);
+      return { continuesTurn: true };
     }
 
     // Persist resolution in continuation store BEFORE spawning resume
@@ -626,12 +1062,14 @@ export class ClaudeAgentProvider {
         mode,
         signal,
         setOperation,
-        emitDelta,
-        emitTextDelta,
+        emitCommentaryDelta,
         emitReasoningDelta,
+        emitFinalAnswerDelta,
+        setFinalAnswer,
         emitToolStarted,
         emitToolUpdated,
         emitToolCompleted,
+        addToolAction,
         emitUsageUpdated,
         emitEvent,
       });
@@ -645,9 +1083,14 @@ export class ClaudeAgentProvider {
     }
   }
 
-  async cancelTurn({ operation } = {}) {
+  async cancelTurn({ operation, error } = {}) {
     if (!operation) return;
     operation.cancelled = true;
+    const terminalError =
+      error || new AiError('AI_TURN_CANCELLED', 'Claude turn was cancelled.', { status: 409 });
+    if (operation.turnId) {
+      mcpInteractionRegistry.cancelTurn(operation.turnId, terminalError);
+    }
     const child = operation.childProcess;
     if (!child) return;
 
@@ -656,7 +1099,11 @@ export class ClaudeAgentProvider {
       forceGraceMs: this.#forceGraceMs,
     });
     if (!result.terminated) {
-      throw new AiError('AI_PROCESS_TERMINATION_FAILED', 'Failed to terminate Claude CLI process within bounded timeout.', { status: 500 });
+      throw new AiError(
+        'AI_PROCESS_TERMINATION_FAILED',
+        'Failed to terminate Claude CLI process within bounded timeout.',
+        { status: 500 },
+      );
     }
   }
 

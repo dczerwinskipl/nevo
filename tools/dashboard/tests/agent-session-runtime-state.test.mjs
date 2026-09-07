@@ -3,166 +3,371 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
-  resolveSnapshotActivity,
   canStartTurn,
-  eventModifiesTranscriptContent,
-  applyAgentEvent,
-  applyCancelTurnResponse,
+  deriveActivity,
+  applyTurnUpdated,
   shouldSurfaceCancelError,
   shouldSurfaceTurnError,
+  resolveEffectiveReadiness,
+  MISSING_READINESS,
 } from '../ui/features/agent-sessions/runtime/agent-event-reducer.ts';
+import { resolveSessionReadiness } from '../server/ai/sessions/service.mjs';
 import {
   pendingDispatchStore,
   InitialDispatchController,
 } from '../ui/features/agent-sessions/runtime/pending-dispatch-store.ts';
 
 function readRuntimeSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/runtime/agent-session-runtime.ts', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/runtime/agent-session-runtime.ts', import.meta.url)),
+    'utf8',
+  );
 }
 
 function readAgentSessionPageSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)),
+    'utf8',
+  );
 }
-
-test('Issue 1: resolveSnapshotActivity extracts authoritative activity and preserves waitingForUser across reload', () => {
-  // 1. Reload while waitingForUser (activeTurn exists, pendingInteraction exists, status is waitingForUser)
-  const waitingSnapshot = {
-    status: 'waitingForUser',
-    activeTurn: { turnId: 'turn-123', startedAt: '2026-08-23T12:00:00.000Z' },
-    pendingInteraction: { id: 'int-1', kind: 'question', questions: [] },
-  };
-  const activity = resolveSnapshotActivity(waitingSnapshot);
-  assert.equal(activity, 'waitingForUser');
-
-  // 2. Reload while running
-  const runningSnapshot = {
-    status: 'running',
-    activeTurn: { turnId: 'turn-456', startedAt: '2026-08-23T12:00:00.000Z' },
-    pendingInteraction: null,
-  };
-  assert.equal(resolveSnapshotActivity(runningSnapshot), 'running');
-
-  // 3. Reload while idle
-  const idleSnapshot = {
-    status: 'idle',
-    activeTurn: null,
-    pendingInteraction: null,
-  };
-  assert.equal(resolveSnapshotActivity(idleSnapshot), 'idle');
-});
 
 test('Issue 3: canStartTurn prohibits normal send when session is waitingForUser or running', () => {
   const provider = 'opencode';
   const sessionId = 'sess-123';
   const message = 'Hello world';
+  const ready = { status: 'ready', reason: 'idle' };
+  const requiresAttention = { status: 'requiresAttention', reason: 'question_required' };
+  const busy = { status: 'busy', reason: 'turn_in_progress' };
 
-  // Allowed only when idle
-  assert.equal(canStartTurn('idle', provider, sessionId, message), true);
+  // Allowed only when ready
+  assert.equal(canStartTurn(ready, provider, sessionId, message), true);
 
   // Prohibited when waiting for user interaction (Issue 3 blocker)
-  assert.equal(canStartTurn('waitingForUser', provider, sessionId, message), false);
+  assert.equal(canStartTurn(requiresAttention, provider, sessionId, message), false);
 
   // Prohibited when actively running
-  assert.equal(canStartTurn('running', provider, sessionId, message), false);
+  assert.equal(canStartTurn(busy, provider, sessionId, message), false);
 
   // Prohibited when message is whitespace
-  assert.equal(canStartTurn('idle', provider, sessionId, '   '), false);
+  assert.equal(canStartTurn(ready, provider, sessionId, '   '), false);
 });
 
-test('Issue 2: eventModifiesTranscriptContent catches tool output changes while running and ignores telemetry', () => {
-  // tool.updated with output changed while status remains running and duration unchanged
-  const toolUpdatedEvent = {
-    id: 1,
-    seq: 1,
-    type: 'tool.updated',
-    toolId: 'tool-1',
-    status: 'running',
-    output: 'Streaming 100 new lines of log output...',
-    timestamp: '2026-08-23T12:00:00.000Z',
+test('Live readiness transition: ready -> running -> terminal', () => {
+  // 1. Initial ready state: no active/latest turn at all
+  let readiness = resolveSessionReadiness({ turnSnapshot: null });
+  assert.equal(readiness.status, 'ready');
+  assert.equal(canStartTurn(readiness), true);
+  assert.equal(deriveActivity([]), 'idle');
+
+  // 2. User sends turn -> the browser's own optimistic-pending override (the only
+  // client-local readiness value; everything else comes from the server).
+  const optimisticReadiness = { status: 'busy', reason: 'turn_in_progress' };
+  assert.equal(canStartTurn(optimisticReadiness), false, 'Composer must be disabled while turn is in progress');
+
+  // 3. Authoritative turn.updated arrives with an active canonical status
+  const runningTurn = {
+    id: 'turn-100',
+    status: { status: 'active', detail: 'processing', since: '2026-09-06T12:00:00.000Z', source: 'provider' },
+    userMessage: { text: 'Analyze codebase' },
+    work: [],
   };
-  assert.equal(eventModifiesTranscriptContent(toolUpdatedEvent), true, 'Tool output update triggers content revision');
+  let turns = applyTurnUpdated([], runningTurn);
 
-  // tool.started, tool.completed, text.delta
-  assert.equal(eventModifiesTranscriptContent({ id: 2, seq: 2, type: 'tool.started', toolId: 't2', timestamp: '' }), true);
-  assert.equal(eventModifiesTranscriptContent({ id: 3, seq: 3, type: 'tool.completed', toolId: 't2', timestamp: '' }), true);
-  assert.equal(eventModifiesTranscriptContent({ id: 4, seq: 4, type: 'text.delta', delta: 'Hello', timestamp: '' }), true);
-  assert.equal(eventModifiesTranscriptContent({ id: 5, seq: 5, type: 'interaction.requested', timestamp: '' }), true);
-  assert.equal(eventModifiesTranscriptContent({ id: 6, seq: 6, type: 'interaction.resolved', timestamp: '' }), true);
+  readiness = resolveSessionReadiness({ turnSnapshot: runningTurn });
+  assert.equal(readiness.status, 'busy');
+  assert.equal(readiness.details?.turnId, 'turn-100');
+  assert.equal(canStartTurn(readiness), false);
+  assert.equal(deriveActivity(turns), 'running');
 
-  // Telemetry (usage.updated) does NOT increment content revision
-  assert.equal(eventModifiesTranscriptContent({ id: 7, seq: 7, type: 'usage.updated', tokensIn: 100, timestamp: '' }), false);
+  // 4. Authoritative turn.updated arrives with terminal status
+  const completedTurn = {
+    ...runningTurn,
+    status: {
+      status: 'terminal',
+      outcome: 'completed',
+      initiator: 'provider',
+      since: '2026-09-06T12:01:00.000Z',
+      source: 'provider',
+    },
+  };
+  turns = applyTurnUpdated(turns, completedTurn);
+
+  readiness = resolveSessionReadiness({ turnSnapshot: completedTurn });
+  assert.equal(readiness.status, 'ready', 'Readiness immediately transitions to ready upon terminal turn');
+  assert.equal(canStartTurn(readiness), true, 'Composer is re-enabled');
+  assert.equal(deriveActivity(turns), 'idle');
 });
 
-test('Issue 2: applyAgentEvent updates earlier assistant messages by turnId fallback without losing content', () => {
-  const initialMessages = [
-    {
-      id: 'msg-turn-1',
-      role: 'assistant',
-      text: 'First message',
-      turnId: 'turn-1',
-      toolCalls: [{ id: 'tool-earlier', name: 'read_file', input: {}, status: 'running' }],
-      createdAt: '2026-08-23T12:00:00.000Z',
-    },
-    {
-      id: 'msg-turn-2',
-      role: 'assistant',
-      text: 'Second message in different turn',
-      turnId: 'turn-2',
-      createdAt: '2026-08-23T12:00:05.000Z',
-    },
-  ];
+test('Live readiness transition: running -> requiresAttention', () => {
+  const activeTurn = {
+    id: 'turn-101',
+    status: { status: 'active', detail: 'processing', since: '2026-09-06T12:00:00.000Z', source: 'provider' },
+    userMessage: { text: 'Run migration' },
+    work: [],
+  };
 
-  // Tool event arrives with turnId='turn-1' (no messageId). It must attach to the earlier message (index 0).
-  const updated = applyAgentEvent(initialMessages, {
-    id: 10,
-    seq: 10,
-    type: 'tool.completed',
-    turnId: 'turn-1',
-    toolId: 'tool-earlier',
-    status: 'completed',
-    output: 'File contents loaded',
-    durationMs: 250,
-    timestamp: '2026-08-23T12:00:06.000Z',
-  });
+  let readiness = resolveSessionReadiness({ turnSnapshot: activeTurn });
+  assert.equal(readiness.status, 'busy');
+  assert.equal(deriveActivity([activeTurn]), 'running');
 
-  assert.equal(updated.length, 2);
-  assert.equal(updated[0].toolCalls[0].status, 'completed');
-  assert.equal(updated[0].toolCalls[0].output, 'File contents loaded');
-  assert.equal(updated[1].text, 'Second message in different turn', 'Last message remained untouched');
+  // Turn requests user confirmation/question via MCP ask_user or native interaction —
+  // the canonical model carries this on Turn.status.interactionId plus an interaction
+  // Work item, never a compatibility top-level `pendingInteraction`.
+  const attentionTurn = {
+    ...activeTurn,
+    status: {
+      status: 'requiresAttention',
+      reason: 'question',
+      interactionId: 'int-q1',
+      since: '2026-09-06T12:00:10.000Z',
+      source: 'provider',
+    },
+    work: [
+      {
+        id: 'int-q1',
+        seq: 1,
+        createdAt: '2026-09-06T12:00:10.000Z',
+        updatedAt: '2026-09-06T12:00:10.000Z',
+        type: 'interaction',
+        status: 'pending',
+        interaction: {
+          id: 'int-q1',
+          kind: 'question',
+          resumePolicy: 'restart',
+          questions: [{ id: 'q-1', question: 'Proceed with destructive schema migration?', multiSelect: false }],
+        },
+      },
+    ],
+  };
+
+  readiness = resolveSessionReadiness({ turnSnapshot: attentionTurn });
+  assert.equal(readiness.status, 'requiresAttention', 'Readiness transitions immediately to requiresAttention');
+  assert.equal(readiness.reason, 'question_required');
+  assert.equal(readiness.details?.interactionId, 'int-q1');
+  assert.equal(canStartTurn(readiness), false, 'Composer cannot start a new turn while interaction is pending');
+  assert.equal(deriveActivity([attentionTurn]), 'waitingForUser');
+});
+
+test('Live readiness transition: requiresAttention -> continuation', () => {
+  const attentionTurn = {
+    id: 'turn-102',
+    status: {
+      status: 'requiresAttention',
+      reason: 'question',
+      interactionId: 'int-q2',
+      since: '2026-09-06T12:00:10.000Z',
+      source: 'provider',
+    },
+    userMessage: { text: 'Migrate' },
+    work: [],
+  };
+
+  assert.equal(resolveSessionReadiness({ turnSnapshot: attentionTurn }).status, 'requiresAttention');
+  assert.equal(deriveActivity([attentionTurn]), 'waitingForUser');
+
+  // Interaction is answered, turn resumes execution
+  const resumedTurn = {
+    ...attentionTurn,
+    status: { status: 'active', detail: 'processing', since: '2026-09-06T12:00:20.000Z', source: 'provider' },
+  };
+
+  const readiness = resolveSessionReadiness({ turnSnapshot: resumedTurn });
+  assert.equal(readiness.status, 'busy', 'Readiness resumes busy status during continuation');
+  assert.equal(readiness.reason, 'turn_in_progress');
+  assert.equal(deriveActivity([resumedTurn]), 'running');
+  assert.equal(canStartTurn(readiness), false);
+});
+
+test('Task 13 correction: resolveSessionReadiness projects every canonical Turn state correctly for the readiness attached to a turn.updated event', () => {
+  const since = '2026-09-06T12:00:00.000Z';
+  const source = 'provider';
+
+  // active
+  assert.deepEqual(
+    resolveSessionReadiness({
+      turnSnapshot: { id: 't-active', status: { status: 'active', detail: 'processing', since, source }, work: [] },
+    }),
+    { status: 'busy', reason: 'turn_in_progress', details: { turnId: 't-active' } },
+  );
+
+  // waiting (non-terminal, non-attention) also projects to busy
+  assert.equal(
+    resolveSessionReadiness({
+      turnSnapshot: { id: 't-waiting', status: { status: 'waiting', reason: 'tool_result', since, source }, work: [] },
+    }).status,
+    'busy',
+  );
+
+  // requiresAttention / question
+  assert.deepEqual(
+    resolveSessionReadiness({
+      turnSnapshot: {
+        id: 't-question',
+        status: { status: 'requiresAttention', reason: 'question', interactionId: 'int-1', since, source },
+        work: [
+          {
+            id: 'int-1',
+            seq: 1,
+            createdAt: since,
+            updatedAt: since,
+            type: 'interaction',
+            status: 'pending',
+            interaction: { id: 'int-1', kind: 'question', resumePolicy: 'restart', questions: [] },
+          },
+        ],
+      },
+    }),
+    { status: 'requiresAttention', reason: 'question_required', details: { interactionId: 'int-1', kind: 'question' } },
+  );
+
+  // requiresAttention / permission
+  assert.deepEqual(
+    resolveSessionReadiness({
+      turnSnapshot: {
+        id: 't-permission',
+        status: { status: 'requiresAttention', reason: 'permission', interactionId: 'int-2', since, source },
+        work: [
+          {
+            id: 'int-2',
+            seq: 1,
+            createdAt: since,
+            updatedAt: since,
+            type: 'interaction',
+            status: 'pending',
+            interaction: { id: 'int-2', kind: 'permission', resumePolicy: 'restart', toolName: 'Shell' },
+          },
+        ],
+      },
+    }),
+    {
+      status: 'requiresAttention',
+      reason: 'permission_required',
+      details: { interactionId: 'int-2', kind: 'permission' },
+    },
+  );
+
+  // requiresAttention / confirmation
+  assert.deepEqual(
+    resolveSessionReadiness({
+      turnSnapshot: {
+        id: 't-confirmation',
+        status: { status: 'requiresAttention', reason: 'confirmation', interactionId: 'int-3', since, source },
+        work: [
+          {
+            id: 'int-3',
+            seq: 1,
+            createdAt: since,
+            updatedAt: since,
+            type: 'interaction',
+            status: 'pending',
+            interaction: { id: 'int-3', kind: 'confirmation', resumePolicy: 'restart', message: 'Proceed?' },
+          },
+        ],
+      },
+    }),
+    {
+      status: 'requiresAttention',
+      reason: 'confirmation_required',
+      details: { interactionId: 'int-3', kind: 'confirmation' },
+    },
+  );
+
+  // terminal completed
+  assert.deepEqual(
+    resolveSessionReadiness({
+      turnSnapshot: { id: 't-completed', status: { status: 'terminal', outcome: 'completed', initiator: 'provider', since, source }, work: [] },
+    }),
+    { status: 'ready', reason: 'idle' },
+  );
+
+  // terminal cancelled
+  assert.deepEqual(
+    resolveSessionReadiness({
+      turnSnapshot: {
+        id: 't-cancelled',
+        status: {
+          status: 'terminal',
+          outcome: 'cancelled',
+          initiator: 'user',
+          error: { code: 'AI_TURN_CANCELLED', message: 'The turn was cancelled.' },
+          since,
+          source,
+        },
+        work: [],
+      },
+    }),
+    { status: 'ready', reason: 'idle' },
+  );
+});
+
+test('PR #41 correction: resolveEffectiveReadiness fails closed on missing server readiness, never synthesizes ready', () => {
+  const ready = { status: 'ready', reason: 'idle' };
+  const requiresAttention = { status: 'requiresAttention', reason: 'permission_required' };
+
+  // Missing/malformed authoritative readiness on an otherwise-loaded snapshot must
+  // never be treated as ready — it fails closed to `unavailable`.
+  const missing = resolveEffectiveReadiness(null, false);
+  assert.deepEqual(missing, MISSING_READINESS);
+  assert.equal(missing.status, 'unavailable');
+  assert.equal(canStartTurn(missing), false, 'missing readiness must not enable the composer');
+
+  // Missing readiness combined with an optimistic send stays non-ready either way.
+  assert.equal(resolveEffectiveReadiness(null, true).status, 'busy');
+  assert.equal(canStartTurn(resolveEffectiveReadiness(null, true)), false);
+
+  // A loaded, authoritative `ready` state enables send.
+  assert.deepEqual(resolveEffectiveReadiness(ready, false), ready);
+  assert.equal(canStartTurn(resolveEffectiveReadiness(ready, false)), true);
+
+  // Optimistic pending only ever restricts — it overrides an authoritative `ready`
+  // immediately after a successful POST, before the first turn.updated arrives.
+  const optimisticOverRead = resolveEffectiveReadiness(ready, true);
+  assert.equal(optimisticOverRead.status, 'busy');
+  assert.equal(canStartTurn(optimisticOverRead), false, 'optimistic send immediately disables send');
+
+  // The first authoritative turn.updated (optimisticPending cleared) replaces the
+  // optimistic override with whatever the server actually reports, even if still busy.
+  assert.deepEqual(resolveEffectiveReadiness(requiresAttention, false), requiresAttention);
+  assert.equal(canStartTurn(resolveEffectiveReadiness(requiresAttention, false)), false);
+
+  // A later terminal turn.updated carrying authoritative `ready` re-enables send.
+  assert.equal(canStartTurn(resolveEffectiveReadiness(ready, false)), true);
 });
 
 test('Issue 2 & Race Safety: Terminal SSE before POST response never leaves stale activeTurnId', () => {
-  let activity = 'idle';
+  const readyReadiness = { status: 'ready', reason: 'idle' };
+  const busyReadiness = { status: 'busy', reason: 'turn_in_progress' };
+  let readiness = readyReadiness;
   let activeTurnId = null;
   const terminalTurnIds = new Set();
 
   function onSend(msg) {
-    if (!canStartTurn(activity, 'opencode', 'sess-1', msg)) return false;
-    activity = 'running';
+    if (!canStartTurn(readiness, 'opencode', 'sess-1', msg)) return false;
+    readiness = busyReadiness;
     activeTurnId = null;
     return true;
   }
 
   function onSseTurnStarted(turnId) {
-    activity = 'running';
+    readiness = busyReadiness;
     activeTurnId = turnId;
   }
 
   function onSseTurnCompleted(turnId) {
     terminalTurnIds.add(turnId);
-    activity = 'idle';
+    readiness = readyReadiness;
     activeTurnId = null;
   }
 
   function onPostResponse(turnId) {
-    if (turnId && !terminalTurnIds.has(turnId) && activity === 'running') {
+    if (turnId && !terminalTurnIds.has(turnId) && readiness.status === 'busy') {
       activeTurnId = turnId;
     }
   }
 
   // 1. User sends turn 1
   assert.equal(onSend('Turn 1 message'), true);
-  assert.equal(activity, 'running');
+  assert.equal(readiness.status, 'busy');
 
   // 2. Fast SSE turn.started arrives
   onSseTurnStarted('turn-1');
@@ -170,12 +375,12 @@ test('Issue 2 & Race Safety: Terminal SSE before POST response never leaves stal
 
   // 3. Fast SSE turn.completed arrives BEFORE POST response
   onSseTurnCompleted('turn-1');
-  assert.equal(activity, 'idle');
+  assert.equal(readiness.status, 'ready');
   assert.equal(activeTurnId, null);
 
   // 4. POST response arrives late
   onPostResponse('turn-1');
-  assert.equal(activity, 'idle');
+  assert.equal(readiness.status, 'ready');
   assert.equal(activeTurnId, null, 'activeTurnId was NOT resurrected');
 
   // 5. Subsequent send cannot cancel with turn-1
@@ -183,132 +388,78 @@ test('Issue 2 & Race Safety: Terminal SSE before POST response never leaves stal
   assert.equal(activeTurnId, null, 'Turn 2 does not inherit stale turn-1 ID');
 });
 
-test('Cancel Turn: HTTP 500 error preserves running state and activeTurnId, surfaces error, and remains retryable', () => {
-  let activity = 'running';
-  let activeTurnId = 'turn-123';
-  const terminalTurnIds = new Set();
+test('Live readiness transition: cancel -> terminal -> ready', () => {
+  const activeTurn = {
+    id: 'turn-103',
+    status: { status: 'active', detail: 'processing', since: '2026-09-06T12:00:00.000Z', source: 'user' },
+    userMessage: { text: 'Long task' },
+    work: [],
+  };
 
-  // 1. Cancel fails with HTTP 500
-  const failResult = applyCancelTurnResponse({
-    turnId: 'turn-123',
-    response: { ok: false, status: 500 },
-    errorData: { error: { message: 'Internal server error while interrupting provider' } },
-    currentActiveTurnId: activeTurnId,
-    currentActivity: activity,
-    terminalTurnIds,
-  });
+  assert.equal(resolveSessionReadiness({ turnSnapshot: activeTurn }).status, 'busy');
 
-  assert.equal(failResult.nextActivity, 'running', 'Activity must remain running on HTTP 500');
-  assert.equal(failResult.nextActiveTurnId, 'turn-123', 'activeTurnId must remain intact for retry');
-  assert.equal(terminalTurnIds.has('turn-123'), false, 'turnId must NOT be added to terminalTurnIds');
-  assert.ok(failResult.error instanceof Error);
-  assert.match(failResult.error.message, /Internal server error/);
+  // User cancels turn; server cancels and emits terminal snapshot with outcome cancelled
+  const cancelledTurn = {
+    ...activeTurn,
+    status: {
+      status: 'terminal',
+      outcome: 'cancelled',
+      error: { code: 'AI_TURN_CANCELLED', message: 'The turn was cancelled by the user.' },
+      initiator: 'user',
+      since: '2026-09-06T12:00:05.000Z',
+      source: 'user',
+    },
+  };
+  const turns = applyTurnUpdated([activeTurn], cancelledTurn);
 
-  // 2. Subsequent retry with success transitions to idle
-  const retryResult = applyCancelTurnResponse({
-    turnId: 'turn-123',
-    response: { ok: true, status: 200 },
-    errorData: null,
-    currentActiveTurnId: failResult.nextActiveTurnId,
-    currentActivity: failResult.nextActivity,
-    terminalTurnIds,
-  });
-
-  assert.equal(retryResult.nextActivity, 'idle');
-  assert.equal(retryResult.nextActiveTurnId, null);
-  assert.equal(terminalTurnIds.has('turn-123'), true);
+  const readiness = resolveSessionReadiness({ turnSnapshot: cancelledTurn });
+  assert.equal(readiness.status, 'ready', 'Readiness returns to ready immediately after cancellation');
+  assert.equal(deriveActivity(turns), 'idle');
+  assert.equal(canStartTurn(readiness), true, 'Composer is re-enabled');
+  assert.equal(shouldSurfaceTurnError(cancelledTurn.status.error), false, 'Cancellation does not surface error toast');
 });
 
-test('Cancel Turn: HTTP 409 conflict error preserves running state and surfaces error', () => {
-  let activity = 'running';
-  let activeTurnId = 'turn-456';
-  const terminalTurnIds = new Set();
+test('Live readiness transition: initial busy -> terminal -> ready without page reload', () => {
+  // Session opened while a turn is already executing on the server
+  const activeTurn = {
+    id: 'turn-104',
+    status: { status: 'active', detail: 'processing', since: '2026-09-06T12:00:00.000Z', source: 'user' },
+    userMessage: { text: 'In flight' },
+    work: [],
+  };
 
-  const conflictResult = applyCancelTurnResponse({
-    turnId: 'turn-456',
-    response: { ok: false, status: 409 },
-    errorData: { error: { message: 'Turn is in uncancelable state' } },
-    currentActiveTurnId: activeTurnId,
-    currentActivity: activity,
-    terminalTurnIds,
-  });
+  let readiness = resolveSessionReadiness({ turnSnapshot: activeTurn });
+  assert.equal(readiness.status, 'busy');
+  assert.equal(canStartTurn(readiness), false);
 
-  assert.equal(conflictResult.nextActivity, 'running');
-  assert.equal(conflictResult.nextActiveTurnId, 'turn-456');
-  assert.equal(terminalTurnIds.has('turn-456'), false);
-  assert.ok(conflictResult.error instanceof Error);
-  assert.match(conflictResult.error.message, /Turn is in uncancelable state/);
+  // Live SSE turn.updated arrives completing the turn
+  const completedTurn = {
+    ...activeTurn,
+    status: {
+      status: 'terminal',
+      outcome: 'completed',
+      initiator: 'provider',
+      since: '2026-09-06T12:02:00.000Z',
+      source: 'provider',
+    },
+  };
+
+  readiness = resolveSessionReadiness({ turnSnapshot: completedTurn });
+  assert.equal(readiness.status, 'ready', 'Transition from initial busy to ready does not require page reload');
+  assert.equal(canStartTurn(readiness), true);
 });
 
-test('Cancel Turn: Successful cancel transitions to idle, clears activeTurnId, and updates terminalTurnIds', () => {
-  let activity = 'running';
-  let activeTurnId = 'turn-789';
-  const terminalTurnIds = new Set();
+test('Static health overrides turn state: corrupt persistence and disabled provider', () => {
+  const corruptReadiness = resolveSessionReadiness({ transcript: { health: 'corrupt' } });
+  const readOnlyReadiness = resolveSessionReadiness({ descriptor: { enabled: false } });
 
-  const successResult = applyCancelTurnResponse({
-    turnId: 'turn-789',
-    response: { ok: true, status: 200 },
-    errorData: null,
-    currentActiveTurnId: activeTurnId,
-    currentActivity: activity,
-    terminalTurnIds,
-  });
+  // Even with no turns or terminal turns, corrupt persistence remains unavailable
+  assert.equal(corruptReadiness.status, 'unavailable');
+  assert.equal(canStartTurn(corruptReadiness), false);
 
-  assert.equal(successResult.nextActivity, 'idle');
-  assert.equal(successResult.nextActiveTurnId, null);
-  assert.equal(terminalTurnIds.has('turn-789'), true);
-});
-
-test('Cancel Turn: Race where turn.failed SSE arrives before late HTTP 409 response', () => {
-  let activity = 'running';
-  let activeTurnId = 'turn-race-409';
-  const terminalTurnIds = new Set();
-
-  // 1. SSE turn.failed arrives first
-  terminalTurnIds.add('turn-race-409');
-  activity = 'idle';
-  activeTurnId = null;
-
-  // 2. Late HTTP 409 response arrives
-  const lateResult = applyCancelTurnResponse({
-    turnId: 'turn-race-409',
-    response: { ok: false, status: 409 },
-    errorData: { error: { message: 'Cannot cancel finished turn' } },
-    currentActiveTurnId: activeTurnId,
-    currentActivity: activity,
-    terminalTurnIds,
-  });
-
-  assert.equal(lateResult.nextActivity, 'idle', 'Activity must remain idle');
-  assert.equal(lateResult.nextActiveTurnId, null);
-  assert.equal(lateResult.error, undefined, 'Must NOT return or surface an error for a stale cancel response');
-  assert.equal(terminalTurnIds.has('turn-race-409'), true);
-});
-
-test('Cancel Turn: Race where turn.completed SSE arrives before late HTTP 500 response', () => {
-  let activity = 'running';
-  let activeTurnId = 'turn-race-500';
-  const terminalTurnIds = new Set();
-
-  // 1. SSE turn.completed arrives first
-  terminalTurnIds.add('turn-race-500');
-  activity = 'idle';
-  activeTurnId = null;
-
-  // 2. Late HTTP 500 response arrives
-  const lateResult = applyCancelTurnResponse({
-    turnId: 'turn-race-500',
-    response: { ok: false, status: 500 },
-    errorData: { error: { message: 'Internal server error' } },
-    currentActiveTurnId: activeTurnId,
-    currentActivity: activity,
-    terminalTurnIds,
-  });
-
-  assert.equal(lateResult.nextActivity, 'idle', 'Activity must remain idle');
-  assert.equal(lateResult.nextActiveTurnId, null);
-  assert.equal(lateResult.error, undefined, 'Must NOT return or surface an error for a stale cancel response');
-  assert.equal(terminalTurnIds.has('turn-race-500'), true);
+  // Disabled provider remains readOnly
+  assert.equal(readOnlyReadiness.status, 'readOnly');
+  assert.equal(canStartTurn(readOnlyReadiness), false);
 });
 
 test('Cancel Turn: shouldSurfaceCancelError behaviorally suppresses late network errors after terminal SSE', () => {
@@ -319,7 +470,7 @@ test('Cancel Turn: shouldSurfaceCancelError behaviorally suppresses late network
   assert.equal(
     shouldSurfaceCancelError(turnId, terminalTurnIds),
     true,
-    'Error must be surfaced while turn is still active/running'
+    'Error must be surfaced while turn is still active/running',
   );
 
   // Scenario 2: terminal SSE arrives before fetch rejects -> error must be suppressed
@@ -327,7 +478,7 @@ test('Cancel Turn: shouldSurfaceCancelError behaviorally suppresses late network
   assert.equal(
     shouldSurfaceCancelError(turnId, terminalTurnIds),
     false,
-    'Late error must be suppressed when turn is already terminal'
+    'Late error must be suppressed when turn is already terminal',
   );
 });
 
@@ -337,18 +488,26 @@ test('AgentSessionPage disables normal composer send when session cannot start t
   // submitMessage requires assistant.canStartTurn
   assert.match(agentSessionPageSource, /!assistant\.canStartTurn/);
 
-  // AgentSessionComposer has disabled and placeholder configured
-  assert.match(agentSessionPageSource, /disabled=\{!assistant\.canStartTurn \|\| !isProviderAvailable\}/);
-  assert.match(agentSessionPageSource, /placeholder=\{assistant\.activity === 'waitingForUser' \? 'Odpowiedz na pytanie powyżej…' : undefined\}/);
+  // AgentSessionComposer has disabled and placeholder configured from the canonical
+  // runtime's own readiness/activity.
+  assert.match(agentSessionPageSource, /disabled=\{!activeRuntime\.canStartTurn \|\| !isProviderAvailable\}/);
+  assert.match(
+    agentSessionPageSource,
+    /activeRuntime\.readiness\?\.status === 'requiresAttention' \|\|[\s\S]*?activeRuntime\.activity === 'waitingForUser'[\s\S]*?\? 'Odpowiedz na pytanie powyżej…'/,
+  );
 });
 
 test('Finding 1: Runtime exposes explicit readiness contract and rejects send while loading', () => {
   const runtimeSource = readRuntimeSource();
 
-  // Exposes isReady and canStartTurn derived state
-  assert.ok(runtimeSource.includes('const exposedIsReady = Boolean(isSnapshotLoaded && !exposedLoadError && activity === \'idle\');'));
+  // Exposes isReady, canStartTurn, and readiness derived state
+  assert.match(
+    runtimeSource,
+    /const exposedIsReady = Boolean\(\s*isSnapshotLoaded &&\s*!exposedLoadError/,
+  );
   assert.ok(runtimeSource.includes('isReady: exposedIsReady'));
   assert.ok(runtimeSource.includes('canStartTurn: exposedCanStartTurn'));
+  assert.ok(runtimeSource.includes('readiness: exposedReadiness'));
 
   // handleSendTurn explicitly throws if snapshot is still loading
   assert.ok(runtimeSource.includes('Cannot start turn while the session snapshot is loading.'));
@@ -357,7 +516,10 @@ test('Finding 1: Runtime exposes explicit readiness contract and rejects send wh
 
 test('Finding 1: Initial prompt delivery waits for session readiness, delivers exactly once, and handles failures', () => {
   const agentSessionPageSource = readAgentSessionPageSource();
-  const initialDispatchSource = readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/runtime/pending-dispatch-store.ts', import.meta.url)), 'utf8');
+  const initialDispatchSource = readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/runtime/pending-dispatch-store.ts', import.meta.url)),
+    'utf8',
+  );
 
   // AgentSessionPage uses useInitialDispatch
   assert.match(agentSessionPageSource, /useInitialDispatch/);
@@ -380,28 +542,28 @@ test('Cancel Turn: shouldSurfaceTurnError suppresses user-facing onError for exp
   assert.equal(
     shouldSurfaceTurnError({ code: 'AI_TURN_CANCELLED', message: 'The turn was cancelled.' }),
     false,
-    'AI_TURN_CANCELLED must NOT surface as an error toast to the user'
+    'AI_TURN_CANCELLED must NOT surface as an error toast to the user',
   );
 
   // B. Real provider failure -> onError called
   assert.equal(
     shouldSurfaceTurnError({ code: 'AI_PROVIDER_ERROR', message: 'Model overloaded' }),
     true,
-    'AI_PROVIDER_ERROR must surface to user'
+    'AI_PROVIDER_ERROR must surface to user',
   );
 
   // C. Turn timeout -> onError called
   assert.equal(
     shouldSurfaceTurnError({ code: 'AI_TURN_TIMEOUT', message: 'Turn timed out after 300000ms' }),
     true,
-    'AI_TURN_TIMEOUT must surface to user'
+    'AI_TURN_TIMEOUT must surface to user',
   );
 
   // D. Turn interrupted or protocol error -> onError called
   assert.equal(
     shouldSurfaceTurnError({ code: 'AI_TURN_INTERRUPTED', message: 'Interrupted unexpectedly' }),
     true,
-    'AI_TURN_INTERRUPTED must surface to user'
+    'AI_TURN_INTERRUPTED must surface to user',
   );
 
   // E. Null / undefined error -> no error
@@ -414,7 +576,11 @@ test('BLOCKING: AgentSessionPage and useAgentSessionRuntime wire user-visible er
 
   // AgentSessionPage must wire onError into useAgentSessionRuntime and maintain user-visible runtimeError
   assert.match(agentSessionPageSource, /onError:\s*\(err\)\s*=>\s*\{\s*setRuntimeError\(err\.message\);\s*\}/);
-  assert.match(agentSessionPageSource, /const displayError = initialDispatch\.displayError \|\| runtimeError \|\| null;/);
+  // displayError uses the authoritative error channel.
+  assert.match(
+    agentSessionPageSource,
+    /const displayError = initialDispatch\.displayError \|\| runtimeError \|\| null;/,
+  );
 
   // Behavioral test: simulate runtime error callback pipeline
   let surfacedError = null;
@@ -525,7 +691,7 @@ test('BLOCKING: Action/error lifecycle: Recovery action failing again clears old
   const mockAssistant = {
     isReady: true,
     sendTurn: async (_prompt, _opts) => {
-      clearedAtStart = (runtimeError === null);
+      clearedAtStart = runtimeError === null;
       await new Promise((r) => setTimeout(r, 5));
       runtimeError = currentErrorMessage;
       throw new Error(currentErrorMessage);
@@ -567,11 +733,20 @@ test('BLOCKING: Action/error lifecycle: Recovery action failing again clears old
 test('BLOCKING: Action/error lifecycle: Cancel and interaction retry clear previous runtime error on explicit attempt (C)', async () => {
   const agentSessionPageSource = readAgentSessionPageSource();
 
-  // Verify AgentSessionPage wires action wrappers that clear runtimeError before starting
-  assert.match(agentSessionPageSource, /const handleCancelTurn = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/);
-  assert.match(agentSessionPageSource, /const handleRespondInteraction = useCallback\(async \(interactionId: string, response: unknown\) => \{\s*setRuntimeError\(null\);/);
+  // Verify AgentSessionPage wires action wrappers that clear runtimeError before starting attempt.
+  assert.match(
+    agentSessionPageSource,
+    /const handleCancelTurn = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);\s*try \{\s*await assistant\.cancelTurn\(\);/,
+  );
+  assert.match(
+    agentSessionPageSource,
+    /const handleRespondInteraction = useCallback\(\s*async \(interactionId: string, response: unknown\) => \{\s*setRuntimeError\(null\);\s*try \{\s*await assistant\.respondInteraction\(/,
+  );
   assert.match(agentSessionPageSource, /const handleReload = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/);
-  assert.match(agentSessionPageSource, /const handleRetryInitial = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/);
+  assert.match(
+    agentSessionPageSource,
+    /const handleRetryInitial = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/,
+  );
 
   // Behavioral test for cancel recovery:
   let runtimeError = 'Cancel failed: 500 Internal Server Error';
@@ -618,4 +793,162 @@ test('BLOCKING: Action/error lifecycle: Cancel and interaction retry clear previ
   interactionSucceeds = true;
   await executeInteractionAttempt();
   assert.equal(runtimeError, null, 'Runtime error must not survive successful interaction response');
+});
+
+// ── task 11 (semantic Work chat), AC6: the canonical runtime mounts unconditionally, never gated by a representation switch ──
+
+function turn(status) {
+  return { id: 't1', status, work: [], historicalWork: [], activityCount: 0, currentActivity: null, finalAnswer: null };
+}
+
+test('V2 AC6: deriveActivity maps canonical Turn status to session activity honestly, matching V1 vocabulary', () => {
+  assert.equal(deriveActivity([]), 'idle', 'no turns at all is idle');
+  assert.equal(
+    deriveActivity([turn({ status: 'terminal', outcome: 'completed' })]),
+    'idle',
+    'a terminal latest turn is idle',
+  );
+  assert.equal(deriveActivity([turn({ status: 'active', detail: 'processing' })]), 'running');
+  assert.equal(deriveActivity([turn({ status: 'waiting', reason: 'provider_response' })]), 'running');
+  assert.equal(deriveActivity([turn({ status: 'cancelling', initiator: 'user' })]), 'running');
+  assert.equal(
+    deriveActivity([turn({ status: 'requiresAttention', reason: 'permission', interactionId: 'i1' })]),
+    'waitingForUser',
+  );
+});
+
+test('AC6: the runtime stays mounted unconditionally at top level', () => {
+  const pageSource = readAgentSessionPageSource();
+
+  // The runtime hook is called unconditionally at the top level
+  assert.match(pageSource, /const assistant = useAgentSessionRuntime\(\{/);
+});
+
+
+// ── task 11 correction: historical user messages travel with the canonical Turn, no
+// duplicate long-lived client cache ────────────────────────────────────────────────
+
+function readTranscriptSource() {
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/work/agent-session-transcript.tsx', import.meta.url)),
+    'utf8',
+  );
+}
+
+test('V2 correction: the V2 runtime hook keeps no long-lived turnPrompts cache and does not special-case turn.started', () => {
+  const source = readRuntimeSource();
+  assert.doesNotMatch(source, /turnPrompts/, 'the removed duplicate client-side transcript cache must not return');
+  assert.doesNotMatch(
+    source,
+    /event\.type === 'turn\.started'/,
+    'user-visible text must come from the canonical Turn, not a live-only event',
+  );
+  // The only client-side duplicate of server state left is the short optimistic gap value.
+  assert.match(source, /optimisticPending/);
+});
+
+test("V2 correction: the transcript renders each turn's own canonical userMessage, with only a short-lived optimistic fallback", () => {
+  const source = readTranscriptSource();
+  assert.match(
+    source,
+    /turn\.userMessage && <UserMessageBubble text=\{turn\.userMessage\.text\}/,
+    'every turn renders its own canonical userMessage — live, reloaded, or migrated',
+  );
+  assert.match(
+    source,
+    /\{optimisticUserMessage && \(/,
+    'the optimistic value is a separate, clearly-scoped fallback for the POST-to-snapshot gap only',
+  );
+  assert.match(source, /<UserMessageBubble text=\{optimisticUserMessage\} \/>/);
+});
+
+test('Terminal-error visibility correction: the transcript tells TurnWorkPanel which turn is the latest, so only that turn gets the prominent error treatment', () => {
+  const source = readTranscriptSource();
+  assert.match(
+    source,
+    /isLatestTurn=\{index === turns\.length - 1\}/,
+    'only the most recent turn is eligible for the prominent, toast-styled terminal-error notice — every earlier turn (which may also have failed) gets the quieter, permanent record instead',
+  );
+});
+
+test('V2 correction: a session loaded only from the HTTP snapshot (no turn.started SSE observed) still has userMessage available per turn', () => {
+  // Mirrors the real regression: turns persisted before the current browser tab opened
+  // (or before a dashboard restart) must still render their user message, because it now
+  // travels on the canonical Turn itself rather than being reconstructed from live events.
+  const turn1 = {
+    id: 't1',
+    userMessage: { text: 'Initial prompt', createdAt: '' },
+    work: [],
+    historicalWork: [],
+    activityCount: 0,
+    currentActivity: null,
+    finalAnswer: { id: 'f1', text: 'Done.', status: 'completed', createdAt: '', updatedAt: '' },
+    status: { status: 'terminal', outcome: 'completed', initiator: 'provider', since: '', source: '' },
+  };
+  const turn2 = {
+    id: 't2',
+    userMessage: { text: 'Follow-up', createdAt: '' },
+    work: [],
+    historicalWork: [],
+    activityCount: 0,
+    currentActivity: null,
+    finalAnswer: null,
+    status: { status: 'terminal', outcome: 'failed', initiator: 'provider', since: '', source: '' },
+  };
+  const turnsFromHttpSnapshotOnly = [turn1, turn2];
+
+  // No SSE events were ever observed — this is exactly the shape a fresh `GET .../chat`
+  // response produces. Both turns must still carry a renderable userMessage.
+  for (const turn of turnsFromHttpSnapshotOnly) {
+    assert.ok(turn.userMessage?.text, `turn ${turn.id} must have a user-visible message from the HTTP snapshot alone`);
+  }
+  assert.equal(turnsFromHttpSnapshotOnly[0].userMessage.text, 'Initial prompt');
+  assert.equal(turnsFromHttpSnapshotOnly[1].userMessage.text, 'Follow-up');
+});
+
+// ── task 11 correction (P0): V2 initial hydration must be one atomic snapshot commit,
+// with SSE resuming from the snapshot's own cursor — never replaying full history ─────
+
+test('V2 correction: the snapshot load is one atomic setTurns commit, not an empty-start-plus-replay', () => {
+  const source = readRuntimeSource();
+  // Exactly one setTurns call inside the successful-fetch path, fed directly from the
+  // HTTP payload — no reduce/accumulate loop reconstructing turns from events. (The
+  // catch branch's own `setTurns([])` reset on load failure is a separate, unrelated
+  // call and is intentionally excluded from this count.)
+  const trySuccessBody = source.slice(
+    source.indexOf('const payload = await fetchAgentSessionChat'),
+    source.indexOf('} catch (err) {'),
+  );
+  const setTurnsCalls = trySuccessBody.match(/setTurns\(/g) || [];
+  assert.equal(setTurnsCalls.length, 1, 'the snapshot branch must commit turns exactly once');
+  assert.match(trySuccessBody, /setTurns\(payload\.turns \|\| \[\]\)/);
+});
+
+test('V2 correction: SSE resumes from the snapshot cursor (lastEventSeq), never a hardcoded 0', () => {
+  const source = readRuntimeSource();
+  const loadSnapshotBody = source.slice(
+    source.indexOf('async function loadSnapshot'),
+    source.indexOf('loadSnapshot();'),
+  );
+  assert.match(
+    loadSnapshotBody,
+    /lastSeqRef\.current = payload\.session\.lastEventSeq \|\| 0;/,
+    'the replay cursor must come from the snapshot itself — a session with prior history must never resubscribe from 0',
+  );
+  assert.doesNotMatch(
+    loadSnapshotBody,
+    /lastSeqRef\.current = 0;\s*$/m,
+    'must not unconditionally reset the cursor to 0 on every load',
+  );
+});
+
+test('V2 correction: the /chat route response carries lastEventSeq for the client to resume from', () => {
+  const routesSource = readFileSync(
+    fileURLToPath(new URL('../server/ai/sessions/routes.mjs', import.meta.url)),
+    'utf8',
+  );
+  const chatRouteBody = routesSource.slice(
+    routesSource.indexOf("'/api/agent-sessions/:provider/:providerSessionId/chat'"),
+  );
+  assert.match(chatRouteBody, /lastEventSeq: details\.lastEventSeq \|\| 0/);
 });

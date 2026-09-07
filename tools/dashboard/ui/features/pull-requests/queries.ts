@@ -12,7 +12,7 @@ import type {
   PullRequestFullDiffPayload,
   PullRequestsPayload,
 } from './types';
-import type { SpecificationSummary } from '@/features/specifications/types';
+import type { PullRequestScope } from './types';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -33,8 +33,8 @@ export const PULL_REQUEST_FULL_DIFF_QUERY_KEY = ['nevo-spec-pull-request-full-di
 // interval well above the old 30s, plus refetch-on-focus/explicit refresh.
 const PULL_REQUEST_SAFETY_REFRESH_MS = 5 * 60_000;
 
-async function fetchPullRequests(specification: SpecificationSummary) {
-  const response = await fetch(`/api/specs/${specification.source}/${encodeURIComponent(specification.slug)}/pull-requests`, {
+async function fetchPullRequests(scope: PullRequestScope) {
+  const response = await fetch(`/api/specs/${scope.source}/${encodeURIComponent(scope.slug)}/pull-requests`, {
     cache: 'no-store',
   });
   if (!response.ok) throw new Error(`Pull request API: ${response.status}`);
@@ -44,10 +44,10 @@ async function fetchPullRequests(specification: SpecificationSummary) {
 // PR-list metadata refresh is independent of specs-changed (D5): initial
 // fetch + refetch-on-window-focus + explicit refresh + a slow safety
 // interval, never the SSE watcher (it structurally can't see a GitHub push).
-export function usePullRequests(specification: SpecificationSummary, enabled = true) {
+export function usePullRequests(scope: PullRequestScope, enabled = true) {
   const query = useQuery({
-    queryKey: [...PULL_REQUEST_QUERY_KEY, specification.source, specification.slug],
-    queryFn: () => fetchPullRequests(specification),
+    queryKey: [...PULL_REQUEST_QUERY_KEY, scope.source, scope.slug],
+    queryFn: () => fetchPullRequests(scope),
     enabled,
     staleTime: 60_000,
     refetchInterval: enabled ? PULL_REQUEST_SAFETY_REFRESH_MS : false,
@@ -65,9 +65,9 @@ export function usePullRequests(specification: SpecificationSummary, enabled = t
   };
 }
 
-async function fetchPullRequestFiles(specification: SpecificationSummary, number: number) {
+async function fetchPullRequestFiles(scope: PullRequestScope, number: number) {
   const response = await fetch(
-    `/api/specs/${specification.source}/${encodeURIComponent(specification.slug)}/pull-requests/${number}/files`,
+    `/api/specs/${scope.source}/${encodeURIComponent(scope.slug)}/pull-requests/${number}/files`,
     { cache: 'no-store' },
   );
   if (!response.ok) throw new Error(`Pull request files API: ${response.status}`);
@@ -78,10 +78,10 @@ async function fetchPullRequestFiles(specification: SpecificationSummary, number
 // isn't headSha-scoped) — a new PR version simply gets a fresh cache entry,
 // so "re-open the same PR at the same headSha costs nothing" holds without
 // any extra invalidation wiring (area pull-request-file-and-diff-loading).
-export function usePullRequestFiles(specification: SpecificationSummary, pullRequest: AvailablePullRequest, enabled = true) {
+export function usePullRequestFiles(scope: PullRequestScope, pullRequest: AvailablePullRequest, enabled = true) {
   const query = useQuery({
-    queryKey: [...PULL_REQUEST_FILES_QUERY_KEY, specification.source, specification.slug, pullRequest.number, pullRequest.headSha],
-    queryFn: () => fetchPullRequestFiles(specification, pullRequest.number),
+    queryKey: [...PULL_REQUEST_FILES_QUERY_KEY, scope.source, scope.slug, pullRequest.number, pullRequest.headSha],
+    queryFn: () => fetchPullRequestFiles(scope, pullRequest.number),
     enabled,
     staleTime: Infinity,
     retry: 2,
@@ -96,9 +96,9 @@ export function usePullRequestFiles(specification: SpecificationSummary, pullReq
   };
 }
 
-async function fetchFileDiffsBatch(specification: SpecificationSummary, number: number, paths: string[], headSha: string | null) {
+async function fetchFileDiffsBatch(scope: PullRequestScope, number: number, paths: string[], headSha: string | null) {
   const response = await fetch(
-    `/api/specs/${specification.source}/${encodeURIComponent(specification.slug)}/pull-requests/${number}/file-diffs`,
+    `/api/specs/${scope.source}/${encodeURIComponent(scope.slug)}/pull-requests/${number}/file-diffs`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -144,7 +144,7 @@ export interface FileDiffRequest {
  *     dedup for items still in the previous set (bug #3 fix).
  */
 export function usePullRequestFileDiffs(
-  specification: SpecificationSummary,
+  scope: PullRequestScope,
   pullRequest: AvailablePullRequest,
 ): BatchQueriesHandle<FileDiffRequest, PullRequestFile | null> {
   return useBatchQueries<FileDiffRequest, PullRequestFile[], PullRequestFile | null>({
@@ -166,7 +166,7 @@ export function usePullRequestFileDiffs(
     ],
     fetchBatch: (requests) =>
       fetchFileDiffsBatch(
-        specification,
+        scope,
         pullRequest.number,
         requests.map((r) => r.path),
         pullRequest.headSha,
@@ -204,9 +204,7 @@ export function useProgressiveDiffPreload(
         const chunk = requests.slice(i, i + batchSize);
         preload(chunk);
         // Wait for all items in the current chunk to settle before scheduling next chunk
-        await Promise.allSettled(
-          chunk.map((req) => load(req).catch(() => {})),
-        );
+        await Promise.allSettled(chunk.map((req) => load(req).catch(() => {})));
       }
     }
 
@@ -218,9 +216,9 @@ export function useProgressiveDiffPreload(
   }, [enabled, requests, preload, load, batchSize]);
 }
 
-async function fetchFullDiff(specification: SpecificationSummary, number: number) {
+async function fetchFullDiff(scope: PullRequestScope, number: number) {
   const response = await fetch(
-    `/api/specs/${specification.source}/${encodeURIComponent(specification.slug)}/pull-requests/${number}/diff`,
+    `/api/specs/${scope.source}/${encodeURIComponent(scope.slug)}/pull-requests/${number}/diff`,
     { cache: 'no-store' },
   );
   if (!response.ok) throw new Error(`Pull request diff API: ${response.status}`);
@@ -233,16 +231,16 @@ async function fetchFullDiff(specification: SpecificationSummary, number: number
 //
 // headSha is included in the query key (bug #2 fix) — a new push to the same PR
 // produces a different headSha → different cache entry → stale diff is never shown.
-export function useFullDiff(specification: SpecificationSummary, pullRequest: AvailablePullRequest) {
+export function useFullDiff(scope: PullRequestScope, pullRequest: AvailablePullRequest) {
   const query = useQuery({
     queryKey: [
       ...PULL_REQUEST_FULL_DIFF_QUERY_KEY,
-      specification.source,
-      specification.slug,
+      scope.source,
+      scope.slug,
       pullRequest.number,
       pullRequest.headSha ?? '',
     ],
-    queryFn: () => fetchFullDiff(specification, pullRequest.number),
+    queryFn: () => fetchFullDiff(scope, pullRequest.number),
     enabled: false,
     staleTime: Infinity,
     retry: 1,

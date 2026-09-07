@@ -161,9 +161,7 @@ export class TurnEventStream {
   getTurnEvents(turnId, afterSequence = 0) {
     const cursor = Number(afterSequence) || 0;
     const events = this.#turnEvents.get(turnId) || [];
-    return events
-      .filter(event => (event.id ?? event.seq ?? 0) > cursor)
-      .map(event => structuredClone(event));
+    return events.filter((event) => (event.id ?? event.seq ?? 0) > cursor).map((event) => structuredClone(event));
   }
 
   subscribeToTurn(turnId, { afterSequence = 0, onEvent, isTerminal = false } = {}) {

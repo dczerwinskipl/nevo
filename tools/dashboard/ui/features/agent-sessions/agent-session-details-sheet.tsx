@@ -1,19 +1,17 @@
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/shared/ui/sheet';
 import { AgentSessionDetails } from './agent-session-details';
 import type { SessionTaskItem } from './session-tasks';
 import type { AgentExecutionMode, AgentSession, TaskNavigationTarget } from './types';
-import type { SpecificationSummary } from '@/features/specifications/types';
+
+export interface AgentSessionSpecContext {
+  title?: string;
+  slug?: string;
+}
 
 export interface AgentSessionDetailsSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  spec?: SpecificationSummary | null;
+  spec?: AgentSessionSpecContext | null;
   session?: AgentSession | null;
   tasks: SessionTaskItem[];
   provider: string;
@@ -42,9 +40,7 @@ export function AgentSessionDetailsSheet({
       <SheetContent side="right" className="w-full sm:max-w-md">
         <SheetHeader>
           <SheetTitle>Szczegóły sesji</SheetTitle>
-          <SheetDescription>
-            Kontekst wykonania i powiązania aktywnej sesji AI
-          </SheetDescription>
+          <SheetDescription>Kontekst wykonania i powiązania aktywnej sesji AI</SheetDescription>
         </SheetHeader>
         <div className="mt-4">
           <AgentSessionDetails

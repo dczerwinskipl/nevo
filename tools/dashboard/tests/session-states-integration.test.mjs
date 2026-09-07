@@ -8,11 +8,17 @@ function readTypesSource() {
 }
 
 function readAgentSessionListSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-list.tsx', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-list.tsx', import.meta.url)),
+    'utf8',
+  );
 }
 
 function readAgentSessionPageSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)),
+    'utf8',
+  );
 }
 
 test('Task 09: AgentSessionStatus type is narrowed to exactly idle | running | waitingForUser', () => {

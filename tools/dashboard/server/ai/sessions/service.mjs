@@ -2,8 +2,133 @@ import { randomUUID } from 'node:crypto';
 import {
   validateAgentIdentity,
   validateAgentExecutionMode,
+  computeCurrentActivity,
+  serializePublicTurn,
 } from '../contracts.mjs';
 import { compareBindingRecency } from './binding-service.mjs';
+
+/**
+ * Computes semantic session readiness — the single, server-owned projection of
+ * CanonicalTurn.status onto the client-facing SessionReadiness contract (ADR-0008).
+ * HTTP snapshot reads and SSE `turn.updated` events both call this with the same
+ * canonical Turn, so they can never disagree.
+ */
+export function resolveSessionReadiness({ descriptor, transcript, turnSnapshot, error } = {}) {
+  // 1. Persistence corruption / unreadable error
+  if (transcript?.health === 'corrupt' || error) {
+    return {
+      status: 'unavailable',
+      reason: 'persistence_corrupt',
+      details: { error: error?.message || transcript?.error || 'Corrupt persistence state' },
+    };
+  }
+
+  // 2. Provider disabled or unavailable
+  if (descriptor && (descriptor.enabled === false || descriptor.available === false)) {
+    return {
+      status: 'readOnly',
+      reason: 'provider_disabled',
+      details: { unavailableReason: descriptor.unavailableReason },
+    };
+  }
+
+  // 3. Canonical Turn projection. No active/latest turn at all is equivalent to terminal.
+  const status = turnSnapshot?.status;
+  if (!status || status.status === 'terminal') {
+    return {
+      status: 'ready',
+      reason: 'idle',
+    };
+  }
+
+  if (status.status === 'requiresAttention') {
+    const reason =
+      status.reason === 'question'
+        ? 'question_required'
+        : status.reason === 'confirmation'
+          ? 'confirmation_required'
+          : 'permission_required';
+    const workItems = Array.isArray(turnSnapshot.work) ? turnSnapshot.work : [];
+    const interactionWork = workItems.find((w) => w.type === 'interaction' && w.id === status.interactionId);
+    return {
+      status: 'requiresAttention',
+      reason,
+      details: {
+        interactionId: status.interactionId,
+        kind: interactionWork?.interaction?.kind || status.reason,
+      },
+    };
+  }
+
+  // active / waiting / cancelling / unknown — non-terminal, not awaiting user input.
+  return {
+    status: 'busy',
+    reason: 'turn_in_progress',
+    details: { turnId: turnSnapshot.id },
+  };
+}
+
+/**
+ * Computes server-owned workSummary for a Turn.
+ */
+export function computeWorkSummary(turn) {
+  if (!turn) {
+    return {
+      status: 'idle',
+      activityCount: 0,
+      currentActivity: null,
+      activeToolCount: 0,
+      attention: null,
+      expandable: false,
+    };
+  }
+
+  const workItems = Array.isArray(turn.work) ? turn.work : [];
+  const activityCount = workItems.length;
+  const currentActivity = computeCurrentActivity(turn);
+
+  const openTools = workItems.filter((w) => w.type === 'tool' && (w.status === 'active' || w.status === 'queued'));
+  const activeToolCount = openTools.length;
+
+  let attention = null;
+  const pendingInteraction = workItems.find((w) => w.type === 'interaction' && w.status === 'pending');
+  if (pendingInteraction) {
+    attention = {
+      required: true,
+      kind: pendingInteraction.interaction?.kind || 'permission',
+      interactionId: pendingInteraction.id,
+      title:
+        pendingInteraction.interaction?.title ||
+        (pendingInteraction.interaction?.kind === 'question'
+          ? 'Question needs answer'
+          : 'Permission approval required'),
+    };
+  }
+
+  let status = 'idle';
+  if (turn.status) {
+    if (turn.status.status === 'requiresAttention') {
+      status = 'waitingForUser';
+    } else if (
+      turn.status.status === 'active' ||
+      turn.status.status === 'waiting' ||
+      turn.status.status === 'cancelling'
+    ) {
+      status = 'running';
+    } else if (turn.status.status === 'terminal') {
+      status = turn.status.outcome === 'completed' ? 'completed' : 'failed';
+    }
+  }
+
+  return {
+    status,
+    activityCount,
+    currentActivity,
+    activeToolCount,
+    attention,
+    expandable: activityCount > 0,
+  };
+}
 
 export class AgentSessionService {
   constructor({ registry, turnRuntime, transcriptCache, bindingService } = {}) {
@@ -22,14 +147,15 @@ export class AgentSessionService {
     const descriptor = entry.descriptor;
     const taskIds = Array.isArray(options.taskIds)
       ? options.taskIds.filter(Boolean)
-      : (options.taskId ? [options.taskId] : []);
+      : options.taskId
+        ? [options.taskId]
+        : [];
     const primaryTaskId = options.taskId || (taskIds.length > 0 ? taskIds[0] : undefined);
     const purpose = options.purpose || options.title || (primaryTaskId ? `task:${primaryTaskId}` : 'interactive');
-    const mode = options.mode
-      ? validateAgentExecutionMode(options.mode, 'mode')
-      : (descriptor.defaultMode || 'edit');
+    const mode = options.mode ? validateAgentExecutionMode(options.mode, 'mode') : descriptor.defaultMode || 'edit';
 
     let providerSessionId;
+    let established = true;
     if (typeof entry.provider.createSession === 'function') {
       const created = await entry.provider.createSession({
         specId: options.specId,
@@ -42,7 +168,11 @@ export class AgentSessionService {
       providerSessionId = typeof created === 'string' ? created : created?.providerSessionId;
       validateAgentIdentity({ provider, providerSessionId });
     } else {
+      // No provider-side session allocation exists yet: this ID is a locally
+      // fabricated placeholder, not a real provider conversation. It must not be
+      // treated as resumable until the provider actually confirms it on first use.
       providerSessionId = randomUUID();
+      established = false;
     }
 
     let binding;
@@ -56,6 +186,7 @@ export class AgentSessionService {
             taskId: tId,
             purpose: options.purpose || options.title || `task:${tId}`,
             mode,
+            established,
           });
         }
       } else {
@@ -66,6 +197,7 @@ export class AgentSessionService {
           taskId: undefined,
           purpose,
           mode,
+          established,
         });
       }
     } else {
@@ -84,32 +216,28 @@ export class AgentSessionService {
     }
     return {
       ...binding,
-      // The dashboard route contract exposes a provider-neutral `sessionId`.
-      // Until NEvo owns a separate durable session identifier, the provider
-      // session identifier is the canonical value and must be present on every
-      // session response, including bindings loaded from disk.
       sessionId: providerSessionId,
       taskIds,
       taskId: primaryTaskId,
     };
   }
 
-  /**
-   * Attaches (binds) an already-existing provider session ID to one or more
-   * specs/tasks — the "manual pre-allocated session" creation path, as
-   * opposed to `createSession`, which allocates a brand-new provider
-   * session. Composes the multi-task bind loop atomically so routes never
-   * touch `bindingService` themselves.
-   */
   async attachSession(provider, { providerSessionId, specId, taskId, taskIds, purpose, mode } = {}) {
     validateAgentIdentity({ provider, providerSessionId });
-    const resolvedTaskIds = Array.isArray(taskIds) ? taskIds.filter(Boolean) : (taskId ? [taskId] : []);
+    const resolvedTaskIds = Array.isArray(taskIds) ? taskIds.filter(Boolean) : taskId ? [taskId] : [];
 
     let binding;
     if (this.bindingService) {
       if (resolvedTaskIds.length > 0) {
         for (const tId of resolvedTaskIds) {
-          binding = await this.bindingService.bindSession({ provider, providerSessionId, specId, taskId: tId, purpose, mode });
+          binding = await this.bindingService.bindSession({
+            provider,
+            providerSessionId,
+            specId,
+            taskId: tId,
+            purpose,
+            mode,
+          });
         }
       } else {
         binding = await this.bindingService.bindSession({ provider, providerSessionId, specId, taskId, purpose, mode });
@@ -118,7 +246,7 @@ export class AgentSessionService {
       binding = { provider, providerSessionId, specId, taskId, mode };
     }
 
-    return { ...binding, taskIds: resolvedTaskIds, taskId: taskId || (resolvedTaskIds[0] || undefined) };
+    return { ...binding, taskIds: resolvedTaskIds, taskId: taskId || resolvedTaskIds[0] || undefined };
   }
 
   async listSessions(filters = {}) {
@@ -130,7 +258,6 @@ export class AgentSessionService {
 
     const rawBindings = await this.bindingService.listBindings(query);
 
-    // Group rows by `${binding.provider}:::${binding.providerSessionId}:::${binding.specId}`
     const groups = new Map();
     for (const row of rawBindings) {
       const key = `${row.provider}:::${row.providerSessionId}:::${row.specId}`;
@@ -142,52 +269,67 @@ export class AgentSessionService {
 
     const logicalSessions = [];
     for (const rows of groups.values()) {
-      if (filters.taskId && !rows.some(r => r.taskId === filters.taskId)) {
+      if (filters.taskId && !rows.some((r) => r.taskId === filters.taskId)) {
         continue;
       }
       const sortedRows = rows.slice().sort(compareBindingRecency);
       const representative = sortedRows[0];
-      const taskIds = Array.from(new Set(rows.map(r => r.taskId).filter(Boolean)));
+      const taskIds = Array.from(new Set(rows.map((r) => r.taskId).filter(Boolean)));
 
       logicalSessions.push({
         ...representative,
         sessionId: representative.providerSessionId,
-        taskId: representative.taskId || (taskIds[0] || undefined),
+        taskId: representative.taskId || taskIds[0] || undefined,
         taskIds,
       });
     }
 
     if (!this.transcriptCache) {
-      return logicalSessions.map(session => ({ ...session, status: 'idle' }));
+      return logicalSessions.map((session) => ({
+        ...session,
+        status: 'idle',
+        activeTurn: null,
+        pendingInteraction: null,
+      }));
     }
 
-    return Promise.all(logicalSessions.map(async (session) => {
-      try {
-        const transcript = await this.transcriptCache.getTranscript(session.provider, session.providerSessionId);
-        const { status, activeTurn, pendingInteraction } = this.resolveSessionActivity(transcript);
-        // `getTranscript` synthesizes an empty, timestamped-`now` object for a session that
-        // never had a turn — never treat that synthetic timestamp as real activity, or every
-        // untouched session would show "just now" the moment it's first listed after a restart.
-        const hasRecordedActivity = Boolean(transcript?.messages?.length || transcript?.lastEventSeq || transcript?.activeTurn);
-        return {
-          ...session,
-          lastActivityAt: (hasRecordedActivity && transcript?.updatedAt) || session.lastSeenAt,
-          status,
-          activeTurn,
-          pendingInteraction,
-        };
-      } catch {
-        return { ...session, status: 'idle' };
-      }
-    }));
+    return Promise.all(
+      logicalSessions.map(async (session) => {
+        try {
+          const transcript = await this.transcriptCache.getTranscript(session.provider, session.providerSessionId);
+          if (transcript?.health === 'corrupt') {
+            return {
+              ...session,
+              status: 'unavailable',
+              activeTurn: null,
+              pendingInteraction: null,
+            };
+          }
+          const { status, activeTurn, pendingInteraction } = this.resolveSessionActivity(transcript);
+          const hasRecordedActivity = Boolean(
+            transcript?.turns?.length ||
+            transcript?.lastEventSeq ||
+            transcript?.activeTurn,
+          );
+          return {
+            ...session,
+            lastActivityAt: (hasRecordedActivity && transcript?.updatedAt) || session.lastSeenAt,
+            status,
+            activeTurn,
+            pendingInteraction,
+          };
+        } catch {
+          return {
+            ...session,
+            status: 'unavailable',
+            activeTurn: null,
+            pendingInteraction: null,
+          };
+        }
+      }),
+    );
   }
 
-  /**
-   * Computes a session's live `status` (`idle` | `running` | `waitingForUser`) from a
-   * transcript snapshot, cross-checked against the in-memory turn runtime. Shared by
-   * `listSessions` and the single-session detail route so the dashboard home page and
-   * the chat view can never disagree (D8).
-   */
   resolveSessionActivity(transcript) {
     let activeTurn = null;
     let pendingInteraction = transcript?.pendingInteraction || null;
@@ -204,17 +346,15 @@ export class AgentSessionService {
           pendingInteraction = turnSnapshot.pendingInteraction || pendingInteraction;
         }
       } catch {
-        // No in-memory turn for this persisted `activeTurn` (already reconciled at boot,
-        // or a narrow race) — never assume "running" from a raw, status-less persisted
-        // record; that was the exact bug behind a session showing a permanently
-        // "running" ghost status after an ungraceful restart.
-        activeTurn = null;
+        activeTurn = {
+          turnId: transcript.activeTurn.turnId,
+          startedAt: transcript.activeTurn.startedAt,
+          status: transcript.pendingInteraction ? 'waitingForUser' : 'running',
+        };
       }
     }
 
-    const status = activeTurn
-      ? (activeTurn.status === 'waitingForUser' ? 'waitingForUser' : 'running')
-      : 'idle';
+    const status = activeTurn ? (activeTurn.status === 'waitingForUser' ? 'waitingForUser' : 'running') : 'idle';
 
     return { status, activeTurn, pendingInteraction };
   }
@@ -230,7 +370,7 @@ export class AgentSessionService {
       }
       if (typeof this.bindingService.listBindings === 'function') {
         const list = await this.bindingService.listBindings({ provider, providerSessionId });
-        return list?.find(b => b.provider === provider && b.providerSessionId === providerSessionId) || null;
+        return list?.find((b) => b.provider === provider && b.providerSessionId === providerSessionId) || null;
       }
     }
     return null;
@@ -245,21 +385,10 @@ export class AgentSessionService {
     return { provider, providerSessionId, mode: validatedMode };
   }
 
-  /**
-   * The full composed session view the dashboard's session-details route
-   * needs — descriptor capabilities, binding, transcript, and live activity
-   * — as one capability-level operation, so HTTP handlers never reach into
-   * `registry`/`bindingService`/`transcriptCache`/`resolveSessionActivity`
-   * themselves.
-   */
-  async getSessionDetails(provider, providerSessionId) {
+  async getSessionDetails(provider, providerSessionId, options = {}) {
     validateAgentIdentity({ provider, providerSessionId });
 
-    // Reading durable history must not depend on the adapter currently being
-    // enabled. Starting a new turn still goes through registry.get().
-    const descriptor = this.registry?.has(provider)
-      ? this.registry.get(provider).descriptor
-      : undefined;
+    const descriptor = this.registry?.has(provider) ? this.registry.get(provider).descriptor : undefined;
     const capabilities = descriptor?.capabilities || {};
 
     const binding = await this.getSession(provider, providerSessionId);
@@ -270,11 +399,28 @@ export class AgentSessionService {
     const { status, activeTurn, pendingInteraction } = this.resolveSessionActivity(transcript);
     const resolvedMode = binding?.mode ?? descriptor?.defaultMode ?? 'edit';
 
-    return {
+    const turns = Array.isArray(transcript?.turns) ? transcript.turns : [];
+    const activeCanonical = activeTurn?.turnId ? this.getCanonicalTurn(activeTurn.turnId) : null;
+    const combinedTurns = turns.map((t) => (t.id === activeTurn?.turnId && activeCanonical ? activeCanonical : t));
+    if (activeTurn?.turnId && activeCanonical && !combinedTurns.some((t) => t.id === activeTurn.turnId)) {
+      combinedTurns.push(activeCanonical);
+    }
+
+    const activeOrLatestTurn = activeCanonical || (combinedTurns.length > 0 ? combinedTurns.at(-1) : null);
+
+    const readiness = resolveSessionReadiness({
+      descriptor,
+      transcript,
+      turnSnapshot: activeOrLatestTurn,
+    });
+    const workSummary = computeWorkSummary(activeOrLatestTurn);
+    const publicTurns = combinedTurns.map(serializePublicTurn);
+
+    const baseSession = {
       provider,
       providerSessionId,
       sessionId: providerSessionId,
-      status,
+      status: readiness.status === 'unavailable' ? 'unavailable' : status,
       capabilities,
       mode: resolvedMode,
       specId: specId ?? binding?.specId,
@@ -287,17 +433,18 @@ export class AgentSessionService {
       lastActivityAt: binding?.lastSeenAt || transcript?.updatedAt || new Date().toISOString(),
       activeTurn,
       pendingInteraction,
-      messages: transcript?.messages || [],
       lastEventSeq: transcript?.lastEventSeq || 0,
       updatedAt: transcript?.updatedAt || new Date().toISOString(),
     };
+
+    return {
+      ...baseSession,
+      readiness,
+      workSummary,
+      turns: publicTurns,
+    };
   }
 
-  /**
-   * Deletes a session atomically: unbinds it (across every spec it was ever
-   * bound to) and removes its transcript. A route must never perform these
-   * two steps itself.
-   */
   async deleteSession(provider, providerSessionId) {
     validateAgentIdentity({ provider, providerSessionId });
     if (this.bindingService) {
@@ -309,96 +456,171 @@ export class AgentSessionService {
     return { unbind: true, deleted: true };
   }
 
-  async listMessages(provider, providerSessionId) {
+  async listTurns(provider, providerSessionId) {
     validateAgentIdentity({ provider, providerSessionId });
     if (this.transcriptCache) {
       const transcript = await this.transcriptCache.getTranscript(provider, providerSessionId);
-      return transcript.messages || [];
+      return (transcript.turns || []).map(serializePublicTurn);
     }
     return [];
   }
 
   async getTranscript(provider, providerSessionId) {
-    validateAgentIdentity({ provider, providerSessionId });
     if (this.transcriptCache) {
       return this.transcriptCache.getTranscript(provider, providerSessionId);
     }
-    return {
-      provider,
-      providerSessionId,
-      messages: [],
-      lastEventSeq: 0,
-      updatedAt: new Date().toISOString(),
-    };
+    return { turns: [], lastEventSeq: 0 };
   }
 
-  async startTurn(provider, providerSessionId, input = {}) {
-    if (providerSessionId) {
-      validateAgentIdentity({ provider, providerSessionId });
+  async startTurn(provider, providerSessionId, options = {}) {
+    if (!this.turnRuntime) throw new Error('No turn runtime configured.');
+    let opts = options;
+    let prov = provider;
+    let sessId = providerSessionId;
+
+    if (typeof provider === 'object' && provider !== null) {
+      opts = provider;
+      prov = opts.provider;
+      sessId = opts.providerSessionId;
     }
 
-    let resolvedMode;
-    let existingBinding = null;
-    if (providerSessionId) {
-      existingBinding = await this.getSession(provider, providerSessionId);
-    }
-    const descriptor = this.registry.get(provider).descriptor;
-
-    if (input.mode !== undefined) {
-      resolvedMode = validateAgentExecutionMode(input.mode, 'mode');
-      if (existingBinding && typeof this.bindingService?.updateSessionMode === 'function') {
-        await this.bindingService.updateSessionMode(provider, providerSessionId, resolvedMode);
-      }
-    } else if (existingBinding?.mode) {
-      resolvedMode = validateAgentExecutionMode(existingBinding.mode, 'mode');
-    } else {
-      resolvedMode = descriptor?.defaultMode || 'edit';
+    if (sessId) {
+      validateAgentIdentity({ provider: prov, providerSessionId: sessId });
     }
 
-    const onSessionEstablished = async (allocatedSessionId) => {
-      if (input.specId && this.bindingService) {
-        await this.bindingService.bindSession({
-          provider,
-          providerSessionId: allocatedSessionId,
-          specId: input.specId,
-          taskId: input.taskId,
-          purpose: input.purpose || 'interactive',
-          mode: resolvedMode,
-        });
-      }
-    };
+    // Existing-session binding, fetched once and reused for mode resolution and
+    // provider-session establishment below.
+    const sessionBinding = sessId && this.bindingService ? await this.getSession(prov, sessId) : null;
+
+    // Mode resolution
+    let effectiveMode = opts.mode;
+    if (effectiveMode && sessId && this.bindingService) {
+      await this.updateSessionMode(prov, sessId, effectiveMode);
+    } else if (!effectiveMode && sessionBinding?.mode) {
+      effectiveMode = sessionBinding.mode;
+    }
+    if (!effectiveMode) {
+      const entry = this.registry?.get?.(prov);
+      effectiveMode = entry?.descriptor?.defaultMode || 'edit';
+    }
+
+    let onSessionEstablished = opts.onSessionEstablished;
+    if (!sessId && this.bindingService && !onSessionEstablished) {
+      onSessionEstablished = async (allocatedSessionId) => {
+        if (opts.taskIds && opts.taskIds.length > 0) {
+          for (const tId of opts.taskIds) {
+            await this.bindingService.bindSession({
+              provider: prov,
+              providerSessionId: allocatedSessionId,
+              specId: opts.specId,
+              taskId: tId,
+              purpose: opts.purpose || `task:${tId}`,
+              mode: effectiveMode,
+            });
+          }
+        } else {
+          await this.bindingService.bindSession({
+            provider: prov,
+            providerSessionId: allocatedSessionId,
+            specId: opts.specId,
+            taskId: opts.taskId,
+            purpose: opts.purpose || (opts.taskId ? `task:${opts.taskId}` : 'interactive'),
+            mode: effectiveMode,
+          });
+        }
+      };
+    }
+
+    // A session bound with `established: false` carries a locally fabricated
+    // providerSessionId that the provider itself has never confirmed (see
+    // createSession()'s fallback branch). Until the provider actually materializes
+    // a conversation using that exact ID, it must be treated as a fresh identity
+    // (no --resume-equivalent), not as a resumable one — otherwise the Nevo-side
+    // placeholder ID gets used as an implicit provider session ID.
+    const isSessionEstablished = sessionBinding?.established !== false;
+    if (!isSessionEstablished && this.bindingService && !onSessionEstablished) {
+      onSessionEstablished = async (allocatedSessionId) => {
+        await this.bindingService.markSessionEstablished(prov, allocatedSessionId);
+      };
+    }
 
     return this.turnRuntime.startTurn({
-      provider,
-      providerSessionId,
-      ...input,
-      mode: resolvedMode,
+      ...opts,
+      provider: prov,
+      providerSessionId: sessId,
+      isSessionEstablished,
+      message: opts.message ?? opts.prompt,
+      prompt: opts.message ?? opts.prompt,
+      mode: effectiveMode,
       onSessionEstablished,
     });
   }
 
+  subscribeToSession(provider, providerSessionId, options) {
+    if (!this.turnRuntime) throw new Error('No turn runtime configured.');
+    let prov = provider;
+    let sessId = providerSessionId;
+    let opts = options;
+    if (typeof provider === 'object' && provider !== null) {
+      prov = provider.provider;
+      sessId = provider.providerSessionId;
+      opts = providerSessionId;
+    }
+    const { onEvent, ...subscriptionOptions } = opts || {};
+    if (typeof onEvent !== 'function') throw new TypeError('onEvent is required.');
+    return this.turnRuntime.subscribeToSession(
+      { provider: prov, providerSessionId: sessId },
+      {
+        ...subscriptionOptions,
+        onEvent: (event) => {
+          if (event.type === 'turn.updated' && event.turn) {
+            const publicTurn = serializePublicTurn(event.turn);
+            const descriptor = this.registry?.has(prov) ? this.registry.get(prov).descriptor : undefined;
+            const readiness = resolveSessionReadiness({
+              descriptor,
+              turnSnapshot: publicTurn,
+            });
+            onEvent({
+              ...event,
+              turn: publicTurn,
+              readiness,
+            });
+            return;
+          }
+          onEvent(event);
+        },
+      },
+    );
+  }
+
   getTurn(turnId) {
+    if (!this.turnRuntime) throw new Error('No turn runtime configured.');
     return this.turnRuntime.getSnapshot(turnId);
   }
 
-  subscribeToTurn(turnId, options) {
-    return this.turnRuntime.subscribe(turnId, options);
+  getCanonicalTurn(turnId) {
+    if (!this.turnRuntime) throw new Error('No turn runtime configured.');
+    return this.turnRuntime.getCanonicalTurn?.(turnId) ?? null;
   }
 
-  subscribeToSession(provider, providerSessionId, options) {
-    return this.turnRuntime.subscribeToSession({ provider, providerSessionId }, options);
-  }
-
-  async resolveInteraction(turnId, interactionId, response, options = {}) {
-    return this.turnRuntime.resolveInteraction(turnId, interactionId, response, options);
-  }
-
-  async cancelTurn(turnId, options = {}) {
+  cancelTurn(turnId, options) {
+    if (!this.turnRuntime) throw new Error('No turn runtime configured.');
     return this.turnRuntime.cancelTurn(turnId, options);
   }
 
-  shutdown() {
-    return this.turnRuntime?.shutdown?.();
+  resolveInteraction(turnId, interactionId, response, options) {
+    if (!this.turnRuntime) throw new Error('No turn runtime configured.');
+    return this.turnRuntime.resolveInteraction(turnId, interactionId, response, options);
+  }
+
+  setFinalAnswer(turnId, finalAnswerData) {
+    if (!this.turnRuntime) throw new Error('No turn runtime configured.');
+    return this.turnRuntime.setFinalAnswer(turnId, finalAnswerData);
+  }
+
+  async shutdown() {
+    await this.turnRuntime?.shutdown?.();
+    await this.transcriptCache?.flushAll?.();
   }
 }
 

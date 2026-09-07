@@ -4,11 +4,17 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 function readAgentSessionHeaderSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-header.tsx', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-header.tsx', import.meta.url)),
+    'utf8',
+  );
 }
 
 function readAgentSessionPageSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)), 'utf8');
+  return readFileSync(
+    fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)),
+    'utf8',
+  );
 }
 
 test('Task 05 / Issue 4: AgentSessionHeader component contains only essentials (back, title, compact status, details)', () => {

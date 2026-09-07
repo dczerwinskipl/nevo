@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { Readable, Writable } from 'node:stream';
+import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,14 +11,19 @@ import {
   ClaudeAgentProvider,
   createClaudeAgentProvider,
   CLAUDE_CAPABILITIES,
+  mapClaudeTool,
 } from '../server/ai/providers/claude/provider.mjs';
+import { mcpInteractionRegistry } from '../server/ai/interactions/mcp/index.mjs';
+import { TurnLifecycleCoordinator } from '../server/ai/sessions/turns/coordinator.mjs';
 
 function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5, sessionId, ignoreSignal = false } = {}) {
   const child = new EventEmitter();
   child.exitCode = null;
   child.signalCode = null;
   child.stdin = new Writable({
-    write(chunk, encoding, callback) { callback(); },
+    write(chunk, encoding, callback) {
+      callback();
+    },
   });
   child.stdout = new Readable({
     read() {},
@@ -57,7 +64,7 @@ function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5, sessio
         } catch {}
       }
       child.stdout.push(`${line}\n`);
-      if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+      if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
     }
     if (!child.killed) {
       child.stdout.push(null);
@@ -83,7 +90,11 @@ function createHangingMockProcess({ ignoreSignal = false } = {}) {
   child.exitCode = null;
   child.signalCode = null;
   child.killCalls = [];
-  child.stdin = new Writable({ write(chunk, encoding, callback) { callback(); } });
+  child.stdin = new Writable({
+    write(chunk, encoding, callback) {
+      callback();
+    },
+  });
   child.stdout = new Readable({ read() {} });
   child.stderr = new Readable({ read() {} });
 
@@ -107,14 +118,21 @@ function createHangingMockProcess({ ignoreSignal = false } = {}) {
   return child;
 }
 
-
 test('ClaudeAgentProvider declares capabilities', () => {
-  const provider = createClaudeAgentProvider();
+  const provider = createClaudeAgentProvider({
+    mcpEndpointUrl: 'http://127.0.0.1:4318/mcp',
+  });
   assert.equal(provider.descriptor.id, 'claude');
   assert.equal(provider.descriptor.capabilities.interactiveQuestions, true);
   assert.equal(provider.descriptor.capabilities.interactivePermissions, false);
+  assert.equal(provider.descriptor.capabilities.interactiveConfirmations, false);
   assert.equal(provider.descriptor.capabilities.resumeSession, true);
 
+  // Dynamic capability truthfulness: false without endpoint or when disabled
+  const disabledProvider = createClaudeAgentProvider({
+    mcpEndpointUrl: null,
+  });
+  assert.equal(disabledProvider.descriptor.capabilities.interactiveQuestions, false);
 });
 
 test('new Claude conversation uses --session-id and returns generated providerSessionId', async () => {
@@ -181,11 +199,14 @@ test('spawn failure before establishment does not call setProviderSessionId', as
   });
 
   await assert.rejects(
-    () => provider.startTurn({
-      turnId: 'turn-spawn-fail',
-      message: 'Hello',
-      setProviderSessionId: id => { established = id; },
-    }),
+    () =>
+      provider.startTurn({
+        turnId: 'turn-spawn-fail',
+        message: 'Hello',
+        setProviderSessionId: (id) => {
+          established = id;
+        },
+      }),
     { name: 'AiError' },
   );
 
@@ -199,11 +220,14 @@ test('provider process failure before session materialization rejects before est
   });
 
   await assert.rejects(
-    () => provider.startTurn({
-      turnId: 'turn-exit-fail',
-      message: 'Hello',
-      setProviderSessionId: id => { established = id; },
-    }),
+    () =>
+      provider.startTurn({
+        turnId: 'turn-exit-fail',
+        message: 'Hello',
+        setProviderSessionId: (id) => {
+          established = id;
+        },
+      }),
     { name: 'AiError' },
   );
 
@@ -224,7 +248,9 @@ test('successful establishment calls setProviderSessionId upon first stream even
   const result = await provider.startTurn({
     turnId: 'turn-success',
     message: 'Hello',
-    setProviderSessionId: async id => { established = id; },
+    setProviderSessionId: async (id) => {
+      established = id;
+    },
   });
 
   assert.ok(established);
@@ -264,7 +290,11 @@ test('failure before successful first Claude invocation does not cause retry to 
   const capturedCalls = [];
   let shouldFail = true;
   const lines = [
-    JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: 'success on retry' } }),
+    JSON.stringify({
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'text', text: 'success on retry' },
+    }),
     JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
   ];
 
@@ -279,10 +309,9 @@ test('failure before successful first Claude invocation does not cause retry to 
   });
 
   // Attempt 1 fails
-  await assert.rejects(
-    () => provider.startTurn({ turnId: 'turn-fail', message: 'Initial prompt' }),
-    { name: 'AiError' },
-  );
+  await assert.rejects(() => provider.startTurn({ turnId: 'turn-fail', message: 'Initial prompt' }), {
+    name: 'AiError',
+  });
   assert.equal(capturedCalls.length, 1);
   assert.ok(capturedCalls[0].args.includes('--session-id'));
 
@@ -322,19 +351,30 @@ test('externally attached existing providerSessionId still uses --resume', async
 
 test('ClaudeAgentProvider parses stream-json output and emits deltas and reasoning', async () => {
   const lines = [
-    JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: 'Analyzing codebase...' } }),
-    JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: ' planning changes' } }),
+    JSON.stringify({
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'thinking', thinking: 'Analyzing codebase...' },
+    }),
+    JSON.stringify({
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'thinking_delta', thinking: ' planning changes' },
+    }),
     JSON.stringify({ type: 'content_block_stop', index: 0 }),
     JSON.stringify({ type: 'content_block_start', index: 1, content_block: { type: 'text', text: 'Here is ' } }),
     JSON.stringify({ type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'the solution.' } }),
     JSON.stringify({ type: 'content_block_stop', index: 1 }),
-    JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { input_tokens: 50, output_tokens: 25 } }),
+    JSON.stringify({
+      type: 'message_delta',
+      delta: { stop_reason: 'end_turn' },
+      usage: { input_tokens: 50, output_tokens: 25 },
+    }),
   ];
 
   const provider = createClaudeAgentProvider({
     spawnProcess: (executable, args) => createMockProcess(lines, { sessionId: extractSessionId(args) }),
   });
-
 
   const textDeltas = [];
   const reasoningDeltas = [];
@@ -344,9 +384,12 @@ test('ClaudeAgentProvider parses stream-json output and emits deltas and reasoni
     turnId: 'turn-test-1',
     providerSessionId: 'sess-test-1',
     message: 'Hello Claude',
-    emitTextDelta: text => textDeltas.push(text),
-    emitReasoningDelta: text => reasoningDeltas.push(text),
-    emitUsageUpdated: u => { usage = u; },
+    emitCommentaryDelta: (text) => textDeltas.push(text),
+    emitFinalAnswerDelta: (text) => textDeltas.push(text),
+    emitReasoningDelta: (text) => reasoningDeltas.push(text),
+    emitUsageUpdated: (u) => {
+      usage = u;
+    },
   });
 
   assert.deepEqual(textDeltas, ['Here is ', 'the solution.']);
@@ -371,9 +414,7 @@ for (const mode of ['ask', 'edit', 'agent']) {
           id: `toolu_q_${mode}`,
           name: 'AskUserQuestion',
           input: {
-            questions: [
-              { question: `Choose style in ${mode}?`, header: 'Style', multiSelect: false },
-            ],
+            questions: [{ question: `Choose style in ${mode}?`, header: 'Style', multiSelect: false }],
           },
         },
       }),
@@ -398,7 +439,11 @@ for (const mode of ['ask', 'edit', 'agent']) {
     assert.ok(result.interaction);
     assert.equal(result.interaction.kind, 'question');
     assert.equal(result.interaction.questions[0].question, `Choose style in ${mode}?`);
-    assert.notEqual(result.interaction.id, `toolu_q_${mode}`, 'Public interaction id must be decoupled from internal toolUseId');
+    assert.notEqual(
+      result.interaction.id,
+      `toolu_q_${mode}`,
+      'Public interaction id must be decoupled from internal toolUseId',
+    );
     assert.ok(result.interaction.id.startsWith('int-'));
   });
 }
@@ -412,7 +457,6 @@ test('ClaudeAgentProvider supports turn cancellation', async () => {
   const provider = createClaudeAgentProvider({
     spawnProcess: (executable, args) => createMockProcess(lines, { delayMs: 50, sessionId: extractSessionId(args) }),
   });
-
 
   const turnPromise = provider.startTurn({
     turnId: 'turn-cancel-1',
@@ -559,7 +603,10 @@ test('Claude ask mode contract simulation: provider correctly processes blocked 
     JSON.stringify({
       type: 'content_block_start',
       index: 0,
-      content_block: { type: 'text', text: 'Plan mode active: inspecting codebase. File writes are not permitted in plan mode.' },
+      content_block: {
+        type: 'text',
+        text: 'Plan mode active: inspecting codebase. File writes are not permitted in plan mode.',
+      },
     }),
     JSON.stringify({
       type: 'content_block_start',
@@ -575,12 +622,14 @@ test('Claude ask mode contract simulation: provider correctly processes blocked 
       type: 'user',
       message: {
         role: 'user',
-        content: [{
-          type: 'tool_result',
-          tool_use_id: 'tool_edit_01',
-          is_error: true,
-          content: 'Permission denied: file modification is disabled in plan mode.',
-        }],
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'tool_edit_01',
+            is_error: true,
+            content: 'Permission denied: file modification is disabled in plan mode.',
+          },
+        ],
       },
     }),
     JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
@@ -603,7 +652,8 @@ test('Claude ask mode contract simulation: provider correctly processes blocked 
     providerSessionId: 'sess-ask-1',
     message: 'Please review architecture',
     mode: 'ask',
-    emitTextDelta: (delta) => textDeltas.push(delta),
+    emitCommentaryDelta: (delta) => textDeltas.push(delta),
+    emitFinalAnswerDelta: (delta) => textDeltas.push(delta),
     emitToolStarted: (tool) => toolsStarted.push(tool),
     emitToolCompleted: (tool) => toolsCompleted.push(tool),
   });
@@ -746,9 +796,11 @@ test('cancelTurn stops at SIGINT when the process responds within the grace peri
   const startPromise = provider.startTurn({
     turnId: 'turn-cancel-graceful',
     message: 'hello',
-    setOperation: op => { operation = op; },
+    setOperation: (op) => {
+      operation = op;
+    },
   });
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.ok(operation, 'setOperation must be called before cancelTurn can be exercised');
 
   await provider.cancelTurn({ operation });
@@ -767,9 +819,11 @@ test('cancelTurn escalates to a forceful SIGKILL when SIGINT is ignored past the
   const startPromise = provider.startTurn({
     turnId: 'turn-cancel-escalate',
     message: 'hello',
-    setOperation: op => { operation = op; },
+    setOperation: (op) => {
+      operation = op;
+    },
   });
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.ok(operation, 'setOperation must be called before cancelTurn can be exercised');
 
   await provider.cancelTurn({ operation });
@@ -783,7 +837,11 @@ test('Claude cancelTurn waits for terminal child state before reporting completi
   child.exitCode = null;
   child.signalCode = null;
   child.killCalls = [];
-  child.stdin = new Writable({ write(chunk, encoding, cb) { cb(); } });
+  child.stdin = new Writable({
+    write(chunk, encoding, cb) {
+      cb();
+    },
+  });
   child.stdout = new Readable({ read() {} });
   child.stderr = new Readable({ read() {} });
 
@@ -802,9 +860,11 @@ test('Claude cancelTurn waits for terminal child state before reporting completi
   const startPromise = provider.startTurn({
     turnId: 'turn-cancel-hold-claude',
     message: 'hello',
-    setOperation: op => { operation = op; },
+    setOperation: (op) => {
+      operation = op;
+    },
   });
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.ok(operation);
 
   let cancelCompleted = false;
@@ -812,7 +872,7 @@ test('Claude cancelTurn waits for terminal child state before reporting completi
     cancelCompleted = true;
   });
 
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(cancelCompleted, false, 'cancelTurn must not report completion before process exits');
 
   // Trigger process exit
@@ -831,7 +891,11 @@ test('Claude cancelTurn bounded cancellation fails cleanly when child ignores al
   child.exitCode = null;
   child.signalCode = null;
   child.killCalls = [];
-  child.stdin = new Writable({ write(chunk, encoding, cb) { cb(); } });
+  child.stdin = new Writable({
+    write(chunk, encoding, cb) {
+      cb();
+    },
+  });
   child.stdout = new Readable({ read() {} });
   child.stderr = new Readable({ read() {} });
   child.kill = (signal) => {
@@ -850,12 +914,14 @@ test('Claude cancelTurn bounded cancellation fails cleanly when child ignores al
   const startPromise = provider.startTurn({
     turnId: 'turn-cancel-unresponsive',
     message: 'hello',
-    setOperation: op => { operation = op; },
+    setOperation: (op) => {
+      operation = op;
+    },
   });
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   await assert.rejects(
     () => provider.cancelTurn({ operation }),
-    err => err.code === 'AI_PROCESS_TERMINATION_FAILED'
+    (err) => err.code === 'AI_PROCESS_TERMINATION_FAILED',
   );
   assert.deepEqual(child.killCalls, ['SIGINT', 'SIGKILL']);
 });
@@ -864,7 +930,11 @@ test('Claude raw capture: records stdout, stderr, and stdin to ndjson when enabl
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-claude-raw-'));
   try {
     const stdoutLines = [
-      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'Hello world' }] }, session_id: 'claude-sess-1' }),
+      JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'Hello world' }] },
+        session_id: 'claude-sess-1',
+      }),
       JSON.stringify({ type: 'result', result: 'Hello world', session_id: 'claude-sess-1' }),
     ];
 
@@ -887,14 +957,17 @@ test('Claude raw capture: records stdout, stderr, and stdin to ndjson when enabl
 
     await provider.flushRawCapture('claude-sess-1');
     const content = await readFile(rawPath, 'utf8');
-    const lines = content.trim().split('\n').map(l => JSON.parse(l));
+    const lines = content
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l));
 
     assert.ok(lines.length >= 3, 'Expected at least stdin, stdout assistant, and stdout result');
     assert.equal(lines[0].stream, 'stdin');
     assert.equal(lines[0].providerSessionId, 'claude-sess-1');
     assert.equal(lines[0].turnId, 'turn-raw-test-1');
 
-    const assistantLine = lines.find(l => l.stream === 'stdout' && l.raw?.type === 'assistant');
+    const assistantLine = lines.find((l) => l.stream === 'stdout' && l.raw?.type === 'assistant');
     assert.ok(assistantLine);
     assert.equal(assistantLine.providerSessionId, 'claude-sess-1');
 
@@ -910,9 +983,7 @@ test('Claude raw capture: records stdout, stderr, and stdin to ndjson when enabl
 test('Claude raw capture: disabled by default does not write raw files', async () => {
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-claude-noraw-'));
   try {
-    const stdoutLines = [
-      JSON.stringify({ type: 'result', result: 'Done', session_id: 'claude-sess-2' }),
-    ];
+    const stdoutLines = [JSON.stringify({ type: 'result', result: 'Done', session_id: 'claude-sess-2' })];
 
     const child = createMockProcess(stdoutLines, { sessionId: 'claude-sess-2' });
     const provider = createClaudeAgentProvider({
@@ -937,7 +1008,11 @@ test('Claude raw capture: graceful shutdown flushes pending raw diagnostics', as
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-claude-dispose-'));
   try {
     const stdoutLines = [
-      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'Finishing' }] }, session_id: 'claude-sess-dispose' }),
+      JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'Finishing' }] },
+        session_id: 'claude-sess-dispose',
+      }),
       JSON.stringify({ type: 'result', result: 'Finishing', session_id: 'claude-sess-dispose' }),
     ];
 
@@ -958,10 +1033,719 @@ test('Claude raw capture: graceful shutdown flushes pending raw diagnostics', as
 
     const rawPath = provider.getRawCapturePath('claude-sess-dispose');
     const content = await readFile(rawPath, 'utf8');
-    const lines = content.trim().split('\n').map(l => JSON.parse(l));
+    const lines = content
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l));
 
-    assert.ok(lines.some(l => l.providerSessionId === 'claude-sess-dispose' && l.raw?.type === 'result'));
+    assert.ok(lines.some((l) => l.providerSessionId === 'claude-sess-dispose' && l.raw?.type === 'result'));
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('mapClaudeTool maps tools to normalized kinds, titles, and descriptions', () => {
+  assert.deepEqual(mapClaudeTool('Bash', { command: 'git status' }), {
+    kind: 'command',
+    title: 'Run command',
+    subject: 'git status',
+    description: 'git status',
+  });
+  assert.deepEqual(mapClaudeTool('Read', { file_path: 'path/to/file.ts' }), {
+    kind: 'read',
+    title: 'Read file',
+    subject: 'file.ts',
+    description: 'path/to/file.ts',
+  });
+  assert.deepEqual(mapClaudeTool('Glob', { pattern: 'specs/**/*' }), {
+    kind: 'list',
+    title: 'List files',
+    subject: 'specs/**/*',
+    description: 'specs/**/*',
+  });
+  assert.deepEqual(mapClaudeTool('WebSearch', { url: 'https://example.com' }), {
+    kind: 'web',
+    title: 'Web search / fetch',
+    subject: 'example.com',
+    description: 'https://example.com',
+  });
+  assert.deepEqual(mapClaudeTool('mcp__github__search_issues', { q: 'bug' }), {
+    kind: 'other',
+    title: 'mcp__github__search_issues',
+    subject: undefined,
+    description: undefined,
+  });
+  assert.deepEqual(mapClaudeTool('CustomWidgetTool', { foo: 'bar' }), {
+    kind: 'other',
+    title: 'CustomWidgetTool',
+    subject: undefined,
+    description: undefined,
+  });
+});
+
+test('Claude parallel tool calls from fixture are tracked independently and do not complete on content_block_stop', async () => {
+  const fixturePath = new URL('./fixtures/claude/parallel-tool-calls.json', import.meta.url);
+  const fixtureContent = await readFile(fixturePath, 'utf8');
+  const lines = fixtureContent.trim().split('\n').filter(Boolean);
+
+  const toolsStarted = [];
+  const toolsCompleted = [];
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => createMockProcess(lines, { sessionId: extractSessionId(args) }),
+  });
+
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-parallel-1',
+    provider: 'claude',
+    providerSessionId: 'sess-parallel-1',
+    mode: 'edit',
+  });
+
+  await provider.startTurn({
+    turnId: 'turn-parallel-1',
+    providerSessionId: 'sess-parallel-1',
+    message: 'Read two files in parallel',
+    emitToolStarted: (tool) => {
+      toolsStarted.push(tool);
+      coordinator.recordToolStarted(tool);
+    },
+    emitToolCompleted: (tool) => {
+      toolsCompleted.push(tool);
+      coordinator.recordToolCompleted(tool);
+    },
+  });
+
+  assert.equal(toolsStarted.length, 2);
+  assert.equal(toolsStarted[0].toolId, 'toolu_parallel_01');
+  assert.equal(toolsStarted[0].toolName, 'Read');
+  assert.equal(toolsStarted[0].kind, 'read');
+  assert.equal(toolsStarted[1].toolId, 'toolu_parallel_02');
+  assert.equal(toolsStarted[1].toolName, 'Read');
+  assert.equal(toolsStarted[1].kind, 'read');
+
+  // Both tools were closed as failed/inferred_closed on result event since no tool_result arrived
+  assert.equal(toolsCompleted.length, 2);
+  assert.equal(toolsCompleted[0].toolId, 'toolu_parallel_01');
+  assert.equal(toolsCompleted[0].status, 'failed');
+  assert.equal(toolsCompleted[1].toolId, 'toolu_parallel_02');
+  assert.equal(toolsCompleted[1].status, 'failed');
+});
+
+test('Claude evidence replay: Turn 1 (429 rate limit error) maps to authoritative failure', async () => {
+  const evidencePath = new URL('./fixtures/evidence/claude-evidence.json', import.meta.url);
+  const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
+  const turn1Events = evidence.turns[0].rawEvents.map((e) => JSON.stringify(e));
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => createMockProcess(turn1Events, { sessionId: extractSessionId(args) }),
+  });
+
+  await assert.rejects(
+    () =>
+      provider.startTurn({
+        turnId: 'turn-evidence-1',
+        providerSessionId: evidence.sessionId,
+        message: evidence.turns[0].userMessage,
+      }),
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      return true;
+    },
+  );
+});
+
+test('Claude evidence replay: Turn 2 maps exact Work order, parallel tools, durations, and terminal completion', async () => {
+  const evidencePath = new URL('./fixtures/evidence/claude-evidence.json', import.meta.url);
+  const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
+  const turn2Events = evidence.turns[1].rawEvents.map((e) => JSON.stringify(e));
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => createMockProcess(turn2Events, { sessionId: extractSessionId(args) }),
+  });
+
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-evidence-2',
+    provider: 'claude',
+    providerSessionId: evidence.sessionId,
+    mode: 'edit',
+  });
+
+  const textDeltas = [];
+  const reasoningDeltas = [];
+  const toolsStarted = [];
+  const toolsCompleted = [];
+
+  const result = await provider.startTurn({
+    turnId: 'turn-evidence-2',
+    providerSessionId: evidence.sessionId,
+    message: evidence.turns[1].userMessage,
+    emitCommentaryDelta: (text, id) => {
+      textDeltas.push(text);
+      coordinator.recordCommentaryDelta(text, id);
+    },
+    emitFinalAnswerDelta: (text, id) => {
+      textDeltas.push(text);
+      coordinator.recordFinalAnswerDelta(text, id);
+    },
+    emitReasoningDelta: (reasoning) => {
+      reasoningDeltas.push(reasoning);
+      coordinator.recordReasoningDelta(reasoning);
+    },
+    emitToolStarted: (tool) => {
+      toolsStarted.push(tool);
+      coordinator.recordToolStarted(tool);
+    },
+    emitToolCompleted: (tool) => {
+      toolsCompleted.push(tool);
+      coordinator.recordToolCompleted(tool);
+    },
+  });
+
+  coordinator.settleTerminal({ outcome: 'completed' });
+  const snapshot = coordinator.getCanonicalSnapshot();
+
+  assert.equal(snapshot.provider, 'claude');
+  assert.equal(snapshot.status.status, 'terminal');
+  assert.equal(snapshot.status.outcome, 'completed');
+
+  // Verify Work items order: 2 commentary blocks + 3 tool items = 5 items total in work[]
+  assert.equal(snapshot.work.length, 5);
+  // 1: Commentary before tools
+  assert.equal(snapshot.work[0].type, 'commentary');
+  assert.ok(snapshot.work[0].text.includes('Starting diagnostic check'));
+
+  // 2 & 3: Parallel tools Bash & Glob
+  assert.equal(snapshot.work[1].type, 'tool');
+  assert.equal(snapshot.work[1].id, 'toolu_01Bash');
+  assert.equal(snapshot.work[1].kind, 'command');
+  assert.equal(snapshot.work[1].status, 'completed');
+  assert.equal(snapshot.work[1].durationMs, 350);
+
+  assert.equal(snapshot.work[2].type, 'tool');
+  assert.equal(snapshot.work[2].id, 'toolu_02Glob');
+  assert.equal(snapshot.work[2].kind, 'list');
+  assert.equal(snapshot.work[2].status, 'completed');
+  assert.equal(snapshot.work[2].durationMs, 220);
+
+  // 4: Commentary between tools
+  assert.equal(snapshot.work[3].type, 'commentary');
+  assert.ok(snapshot.work[3].text.includes('Repository is clean'));
+
+  // 5: Read tool
+  assert.equal(snapshot.work[4].type, 'tool');
+  assert.equal(snapshot.work[4].id, 'toolu_03Read');
+  assert.equal(snapshot.work[4].kind, 'read');
+  assert.equal(snapshot.work[4].status, 'completed');
+  assert.equal(snapshot.work[4].durationMs, 45);
+
+  // Final Answer outside work[]
+  assert.ok(snapshot.finalAnswer);
+  assert.equal(snapshot.finalAnswer.status, 'completed');
+  assert.ok(snapshot.finalAnswer.text.includes('Diagnostic test complete'));
+
+  // Ensure no Claude-private IDs leaked in public model fields
+  const serialized = JSON.stringify(snapshot);
+  assert.ok(!serialized.includes('rawPayload'));
+  assert.ok(!serialized.includes('providerRequestId'));
+});
+
+test('Claude tool failure followed by recovery completes turn successfully', async () => {
+  const lines = [
+    JSON.stringify({
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'tool_use', id: 'tool_fail_1', name: 'Bash', input: { command: 'cat missing.txt' } },
+    }),
+    JSON.stringify({ type: 'content_block_stop', index: 0 }),
+    JSON.stringify({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'tool_fail_1',
+            is_error: true,
+            content: 'cat: missing.txt: No such file or directory',
+          },
+        ],
+      },
+    }),
+    JSON.stringify({
+      type: 'content_block_start',
+      index: 1,
+      content_block: { type: 'tool_use', id: 'tool_recover_2', name: 'Bash', input: { command: 'echo "recovered"' } },
+    }),
+    JSON.stringify({ type: 'content_block_stop', index: 1 }),
+    JSON.stringify({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'tool_recover_2', is_error: false, content: 'recovered\n' }],
+      },
+    }),
+    JSON.stringify({
+      type: 'content_block_start',
+      index: 2,
+      content_block: { type: 'text', text: 'Recovered successfully.' },
+    }),
+    JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
+    JSON.stringify({ type: 'result', subtype: 'success', terminal_reason: 'completed' }),
+  ];
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => createMockProcess(lines, { sessionId: extractSessionId(args) }),
+  });
+
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-recover-1',
+    provider: 'claude',
+    providerSessionId: 'sess-recover-1',
+    mode: 'edit',
+  });
+
+  const toolsCompleted = [];
+
+  await provider.startTurn({
+    turnId: 'turn-recover-1',
+    providerSessionId: 'sess-recover-1',
+    message: 'Try reading missing file then recover',
+    emitCommentaryDelta: (text) => coordinator.recordCommentaryDelta(text),
+    emitFinalAnswerDelta: (text) => coordinator.recordFinalAnswerDelta(text),
+    emitToolStarted: (tool) => coordinator.recordToolStarted(tool),
+    emitToolCompleted: (tool) => {
+      toolsCompleted.push(tool);
+      coordinator.recordToolCompleted(tool);
+    },
+  });
+
+  coordinator.settleTerminal({ outcome: 'completed' });
+  const snapshot = coordinator.getCanonicalSnapshot();
+
+  assert.equal(toolsCompleted.length, 2);
+  assert.equal(toolsCompleted[0].toolId, 'tool_fail_1');
+  assert.equal(toolsCompleted[0].status, 'failed');
+  assert.equal(toolsCompleted[1].toolId, 'tool_recover_2');
+  assert.equal(toolsCompleted[1].status, 'completed');
+
+  assert.equal(snapshot.status.status, 'terminal');
+  assert.equal(snapshot.status.outcome, 'completed');
+});
+
+test('Claude permission deferral maps to kind permission with decoupled interaction ID', async () => {
+  const fixturePath = new URL('./fixtures/claude/permission-prompt-deferred.json', import.meta.url);
+  const fixtureContent = await readFile(fixturePath, 'utf8');
+  const lines = fixtureContent.trim().split('\n').filter(Boolean);
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => createMockProcess(lines, { sessionId: extractSessionId(args) }),
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-perm-1',
+    providerSessionId: 'sess-perm-1',
+    message: 'Run npm build',
+  });
+
+  assert.equal(result.isDeferred, true);
+  assert.ok(result.interaction);
+  assert.equal(result.interaction.kind, 'permission');
+  assert.equal(result.interaction.toolName, 'Bash');
+  assert.equal(result.interaction.input?.command, 'npm --prefix tools/dashboard run build');
+  assert.ok(result.interaction.id.startsWith('int-'));
+  assert.notEqual(result.interaction.id, 'toolu_perm_01');
+});
+
+// Regression: a long Bash command/heredoc (very common — multi-line git commits,
+// generated scripts) used to map its full raw text into `description` with no length
+// bound. The canonical model caps ToolInvocation.description at 1000 chars, so this
+// failed the entire Turn's validation ("'tool.description' must be a string of at most
+// 1000 characters") rather than just being a long label — the raw command survives
+// separately, unbounded, in `input.command` (an expandable technical detail, C5).
+test('mapClaudeTool truncates a Bash description well under the canonical 1000-char limit, preserving the kind/title', () => {
+  const longCommand = 'echo "line"\n'.repeat(200); // well over 1000 chars
+  const mapped = mapClaudeTool('Bash', { command: longCommand });
+  assert.equal(mapped.kind, 'command');
+  assert.equal(mapped.title, 'Run command');
+  assert.ok(mapped.description.length <= 300, 'description must be bounded');
+  assert.ok(mapped.description.length < longCommand.length, 'must actually be truncated, not passed through');
+  assert.ok(mapped.description.endsWith('…'));
+});
+
+test('mapClaudeTool leaves a short Bash description unchanged', () => {
+  const mapped = mapClaudeTool('Bash', { command: 'npm test' });
+  assert.equal(mapped.description, 'npm test');
+});
+
+test('mapClaudeTool: a truncated description always validates against the canonical ToolInvocation model', async () => {
+  const { validateToolInvocationWorkItem } = await import('../server/ai/model/work-items.mjs');
+  const longCommand = 'x'.repeat(5000);
+  const mapped = mapClaudeTool('Bash', { command: longCommand });
+  const validated = validateToolInvocationWorkItem({
+    id: 't1',
+    seq: 1,
+    toolName: 'Bash',
+    kind: mapped.kind,
+    title: mapped.title,
+    description: mapped.description,
+    input: { command: longCommand },
+    status: 'active',
+  });
+  assert.equal(validated.description, mapped.description);
+  // The full, untruncated command remains available separately for Work Details.
+  assert.equal(validated.input.command, longCommand);
+});
+
+test('Claude CLI spawns with --mcp-config and --append-system-prompt for MCP interaction bridge', async () => {
+  const capturedCalls = [];
+  const lines = [
+    JSON.stringify({ type: 'init', session_id: 'claude-sess-mcp' }),
+    JSON.stringify({ type: 'result', subtype: 'success' }),
+  ];
+
+  let inspectedMcpConfig = null;
+  let inspectedSettings = null;
+  const provider = createClaudeAgentProvider({
+    mcpEndpointUrl: 'http://127.0.0.1:4318/mcp',
+    spawnProcess: (executable, args) => {
+      capturedCalls.push({ executable, args });
+      const mcpIndex = args.indexOf('--mcp-config');
+      if (mcpIndex !== -1 && args[mcpIndex + 1]) {
+        try {
+          inspectedMcpConfig = JSON.parse(readFileSync(args[mcpIndex + 1], 'utf-8'));
+        } catch {}
+      }
+      const settingsIndex = args.indexOf('--settings');
+      if (settingsIndex !== -1 && args[settingsIndex + 1]) {
+        try {
+          inspectedSettings = JSON.parse(readFileSync(args[settingsIndex + 1], 'utf-8'));
+        } catch {}
+      }
+      return createMockProcess(lines, { sessionId: 'claude-sess-mcp' });
+    },
+  });
+
+  await provider.startTurn({
+    turnId: 'turn-mcp-1',
+    message: 'Hello Claude',
+  });
+
+  assert.equal(capturedCalls.length, 1);
+  const args = capturedCalls[0].args;
+  assert.ok(args.includes('--mcp-config'), 'Args must include --mcp-config');
+  assert.ok(args.includes('--append-system-prompt'), 'Args must include --append-system-prompt');
+  assert.ok(args.includes('--settings'), 'Args must include --settings');
+  const mcpPath = args[args.indexOf('--mcp-config') + 1];
+  assert.ok(mcpPath, '--mcp-config must have a valid path');
+  assert.ok(inspectedMcpConfig?.mcpServers?.nevo, 'MCP config must define nevo server');
+  assert.equal(inspectedMcpConfig.mcpServers.nevo.url, 'http://127.0.0.1:4318/mcp', 'MCP config url must be clean URL without token parameter');
+  assert.ok(inspectedMcpConfig.mcpServers.nevo.headers['x-nevo-interaction-token'], 'MCP config headers must contain x-nevo-interaction-token');
+  assert.equal(inspectedMcpConfig.mcpServers.nevo.args, undefined, 'No stdio child bridge process should be configured');
+  assert.deepEqual(
+    inspectedSettings?.permissions?.allow,
+    ['mcp__nevo__ask_user'],
+    'Claude MCP permissions must strictly allow only mcp__nevo__ask_user (least privilege)',
+  );
+});
+
+test('Claude MCP bridge round-trip: requestInteraction is resolved via respondInteraction with continuesTurn: true', async () => {
+  mcpInteractionRegistry.clear();
+  let requestedInteraction = null;
+  const hangingChild = createHangingMockProcess();
+
+  let capturedOperation = null;
+  const provider = createClaudeAgentProvider({
+    mcpEndpointUrl: 'http://127.0.0.1:4318/mcp',
+    spawnProcess: () => hangingChild,
+  });
+
+  const turnPromise = provider.startTurn({
+    turnId: 'turn-bridge-rt-1',
+    providerSessionId: 'sess-bridge-rt-1',
+    message: 'Start complex task',
+    setOperation: (op) => {
+      capturedOperation = op;
+    },
+    requestInteraction: (neutral) => {
+      requestedInteraction = {
+        ...neutral,
+        id: 'int-bridge-123',
+      };
+      return Promise.resolve(requestedInteraction);
+    },
+  });
+
+  // Turn is active and registered with mcpInteractionRegistry
+  const activeTurn = mcpInteractionRegistry.getActiveTurn({ turnId: 'turn-bridge-rt-1' });
+  assert.ok(activeTurn, 'Active turn must be registered in mcpInteractionRegistry');
+  assert.ok(activeTurn.token, 'Active turn must have correlation token');
+
+  // MCP tool invokes requestInteraction and waits via registry
+  await activeTurn.requestInteraction({
+    kind: 'question',
+    questions: [
+      {
+        question: 'Do you want to proceed with file modification?',
+        options: [{ label: 'Yes', description: 'Yes' }, { label: 'No', description: 'No' }],
+        multiSelect: false,
+      },
+    ],
+  });
+
+  mcpInteractionRegistry.registerPending('int-bridge-123', {
+    turnId: 'turn-bridge-rt-1',
+    provider: 'claude',
+    providerSessionId: 'sess-bridge-rt-1',
+  });
+  const askPromise = mcpInteractionRegistry.waitForResponse('int-bridge-123');
+
+  assert.ok(requestedInteraction, 'requestInteraction must be invoked');
+  assert.equal(requestedInteraction.kind, 'question');
+  assert.equal(requestedInteraction.questions[0].question, 'Do you want to proceed with file modification?');
+  assert.ok(mcpInteractionRegistry.hasPending('int-bridge-123'), 'Interaction must be pending in registry');
+
+  // Dashboard UI responds to interaction
+  const responsePayload = {
+    answers: [{ questionId: 'q1', value: 'Yes' }],
+  };
+
+  const respondResult = await provider.respondInteraction({
+    turnId: 'turn-bridge-rt-1',
+    providerSessionId: 'sess-bridge-rt-1',
+    interactionId: 'int-bridge-123',
+    response: responsePayload,
+  });
+
+  // Provider indicates turn is still live
+  assert.equal(respondResult.continuesTurn, true);
+  assert.equal(mcpInteractionRegistry.hasPending('int-bridge-123'), false);
+
+  // askPromise resolves with the answered payload
+  const answeredBridgeResult = await askPromise;
+  assert.deepEqual(answeredBridgeResult, responsePayload);
+
+  // Clean up hanging process
+  hangingChild.emit('close', 0);
+  await turnPromise;
+  mcpInteractionRegistry.clear();
+});
+
+test('Claude MCP bridge interaction cancellation: cancelTurn terminates waiting interaction promise with AI_TURN_CANCELLED', async () => {
+  mcpInteractionRegistry.clear();
+  const hangingChild = createHangingMockProcess();
+
+  let capturedOperation = null;
+  const provider = createClaudeAgentProvider({
+    mcpEndpointUrl: 'http://127.0.0.1:4318/mcp',
+    spawnProcess: () => hangingChild,
+  });
+
+  const turnPromise = provider.startTurn({
+    turnId: 'turn-bridge-cancel-1',
+    providerSessionId: 'sess-bridge-cancel-1',
+    message: 'Start task to be cancelled',
+    setOperation: (op) => {
+      capturedOperation = op;
+    },
+    requestInteraction: (neutral) =>
+      Promise.resolve({
+        ...neutral,
+        id: 'int-cancel-123',
+      }),
+  });
+
+  const activeTurn = mcpInteractionRegistry.getActiveTurn({ turnId: 'turn-bridge-cancel-1' });
+  assert.ok(activeTurn);
+
+  await activeTurn.requestInteraction({
+    kind: 'question',
+    questions: [{ question: 'Awaiting confirmation before destructive action' }],
+  });
+
+  mcpInteractionRegistry.registerPending('int-cancel-123', {
+    turnId: 'turn-bridge-cancel-1',
+    provider: 'claude',
+    providerSessionId: 'sess-bridge-cancel-1',
+  });
+  const askPromise = mcpInteractionRegistry.waitForResponse('int-cancel-123');
+
+  assert.ok(mcpInteractionRegistry.hasPending('int-cancel-123'));
+
+  // Attach rejection assertion BEFORE cancelling so rejection is never unhandled
+  const rejectionAssertion = assert.rejects(
+    askPromise,
+    (err) => {
+      assert.equal(err.code, 'AI_TURN_CANCELLED');
+      return true;
+    },
+  );
+
+  // Cancel turn via provider
+  await provider.cancelTurn({ operation: capturedOperation });
+
+  await rejectionAssertion;
+
+  assert.equal(mcpInteractionRegistry.hasPending('int-cancel-123'), false);
+  try {
+    await turnPromise;
+  } catch {}
+  mcpInteractionRegistry.clear();
+});
+
+test('Claude provider exit cleanup: child process crash/exit rejects pending ask_user waiter immediately', async () => {
+  mcpInteractionRegistry.clear();
+  const hangingChild = createHangingMockProcess();
+
+  const provider = createClaudeAgentProvider({
+    mcpEndpointUrl: 'http://127.0.0.1:4318/mcp',
+    spawnProcess: () => hangingChild,
+  });
+
+  const turnPromise = provider.startTurn({
+    turnId: 'turn-crash-cleanup-1',
+    providerSessionId: 'sess-crash-cleanup-1',
+    message: 'Task that will crash while interaction is pending',
+    requestInteraction: (neutral) =>
+      Promise.resolve({
+        ...neutral,
+        id: 'int-crash-123',
+      }),
+  });
+
+  const activeTurn = mcpInteractionRegistry.getActiveTurn({ turnId: 'turn-crash-cleanup-1' });
+  assert.ok(activeTurn);
+
+  await activeTurn.requestInteraction({
+    kind: 'question',
+    questions: [{ question: 'Will you approve this before crash?' }],
+  });
+
+  mcpInteractionRegistry.registerPending('int-crash-123', {
+    turnId: 'turn-crash-cleanup-1',
+    provider: 'claude',
+    providerSessionId: 'sess-crash-cleanup-1',
+  });
+  const askPromise = mcpInteractionRegistry.waitForResponse('int-crash-123');
+
+  assert.ok(mcpInteractionRegistry.hasPending('int-crash-123'));
+
+  const rejectionAssertion = assert.rejects(
+    askPromise,
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_EXIT_ERROR');
+      return true;
+    },
+  );
+
+  // Child process crashes with non-zero exit code
+  hangingChild.exitCode = 1;
+  hangingChild.emit('close', 1);
+
+  await rejectionAssertion;
+  assert.equal(mcpInteractionRegistry.hasPending('int-crash-123'), false);
+  assert.equal(mcpInteractionRegistry.getActiveTurn({ turnId: 'turn-crash-cleanup-1' }), null);
+
+  await assert.rejects(turnPromise, (err) => {
+    assert.equal(err.code, 'AI_PROVIDER_EXIT_ERROR');
+    return true;
+  });
+
+  mcpInteractionRegistry.clear();
+});
+
+test('Claude question heuristics rejection: question marks in assistant text do not trigger requestInteraction', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', session_id: 'sess-heuristic-1' }),
+    JSON.stringify({
+      type: 'assistant',
+      content: [{ type: 'text', text: 'Should I proceed with the refactoring? Please let me know.' }],
+    }),
+    JSON.stringify({ type: 'result', subtype: 'success' }),
+  ];
+
+  let requestInteractionCalled = false;
+  const commentaryDeltas = [];
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-heuristic-1',
+    message: 'Check refactoring question',
+    emitCommentaryDelta: (t) => commentaryDeltas.push(t),
+    requestInteraction: () => {
+      requestInteractionCalled = true;
+      throw new Error('requestInteraction must not be called from text parsing');
+    },
+  });
+
+  assert.equal(result.status || 'completed', 'completed');
+  assert.equal(requestInteractionCalled, false, 'Text containing ? must never trigger requestInteraction');
+});
+
+test('Claude TLS security: NODE_TLS_REJECT_UNAUTHORIZED is never set; NODE_EXTRA_CA_CERTS is passed for HTTPS', async () => {
+  let capturedEnv1 = null;
+  const lines = [
+    JSON.stringify({ type: 'init', session_id: 'sess-tls-1' }),
+    JSON.stringify({ type: 'result', subtype: 'success' }),
+  ];
+
+  // 1. HTTPS endpoint without custom cert -> NODE_TLS_REJECT_UNAUTHORIZED must NOT be set
+  const providerHttpsNoCert = createClaudeAgentProvider({
+    mcpEndpointUrl: 'https://127.0.0.1:4318/mcp',
+    tlsCertPath: '/nonexistent/cert.pem',
+    spawnProcess: (executable, args, options) => {
+      capturedEnv1 = options.env;
+      return createMockProcess(lines);
+    },
+  });
+
+  await providerHttpsNoCert.startTurn({
+    turnId: 'turn-tls-1',
+    message: 'Test HTTPS TLS',
+  });
+
+  assert.equal(
+    capturedEnv1.NODE_TLS_REJECT_UNAUTHORIZED,
+    undefined,
+    'NODE_TLS_REJECT_UNAUTHORIZED must NEVER be set to 0 or any value',
+  );
+
+  // 2. HTTPS endpoint with existing cert file -> NODE_EXTRA_CA_CERTS is set
+  const dummyCertPath = join(tmpdir(), `test-ca-cert-${randomUUID()}.pem`);
+  writeFileSync(dummyCertPath, '---BEGIN CERTIFICATE---\ndummy\n---END CERTIFICATE---', 'utf-8');
+
+  try {
+    let capturedEnv2 = null;
+    const providerHttpsWithCert = createClaudeAgentProvider({
+      mcpEndpointUrl: 'https://127.0.0.1:4318/mcp',
+      tlsCertPath: dummyCertPath,
+      spawnProcess: (executable, args, options) => {
+        capturedEnv2 = options.env;
+        return createMockProcess(lines);
+      },
+    });
+
+    await providerHttpsWithCert.startTurn({
+      turnId: 'turn-tls-2',
+      message: 'Test HTTPS TLS with cert',
+    });
+
+    assert.equal(
+      capturedEnv2.NODE_TLS_REJECT_UNAUTHORIZED,
+      undefined,
+      'NODE_TLS_REJECT_UNAUTHORIZED must NEVER be set',
+    );
+    assert.equal(
+      capturedEnv2.NODE_EXTRA_CA_CERTS,
+      dummyCertPath,
+      'NODE_EXTRA_CA_CERTS must point to the configured TLS cert file',
+    );
+  } finally {
+    try {
+      unlinkSync(dummyCertPath);
+    } catch {}
   }
 });

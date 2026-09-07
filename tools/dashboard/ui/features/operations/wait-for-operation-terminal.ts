@@ -97,10 +97,12 @@ export function waitForOperationTerminal(
         // On connection drop or error, fall back to a snapshot poll to check if finished.
         // A failed fallback poll is not itself fatal — the browser's automatic
         // EventSource reconnect, a later poll, or the timeout will resolve this.
-        fetchOperationSnapshot(operationId).then((snap) => {
-          if (settled) return;
-          observeSnapshot(snap);
-        }).catch(() => {});
+        fetchOperationSnapshot(operationId)
+          .then((snap) => {
+            if (settled) return;
+            observeSnapshot(snap);
+          })
+          .catch(() => {});
       };
     })();
   });

@@ -61,10 +61,7 @@ function registerStaticAssets(app, distDir) {
     // raw `http.ServerResponse`) as the first argument — use `reply.header`,
     // not `res.setHeader`.
     setHeaders: (reply, path) => {
-      reply.header(
-        'cache-control',
-        path.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable',
-      );
+      reply.header('cache-control', path.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable');
     },
   });
 }
@@ -111,7 +108,8 @@ function registerSharedOperationRuntime(app) {
  * instance directly via `app.inject()` without opening a network port.
  */
 export async function buildDashboardApp({ config = {} } = {}) {
-  const app = Fastify({ logger: false, bodyLimit: 4096, exposeHeadRoutes: false });
+  const tlsOptions = config.tls ? { http2: true, https: config.tls } : {};
+  const app = Fastify({ logger: false, bodyLimit: 4096, exposeHeadRoutes: false, ...tlsOptions });
 
   await registerGlobalHttpInfrastructure(app);
   registerSharedOperationRuntime(app);

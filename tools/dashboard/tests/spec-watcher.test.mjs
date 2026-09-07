@@ -22,8 +22,13 @@ function fakeWatcher() {
     // Resolves on a microtask, like chokidar's own close() (a real Promise,
     // never synchronous) — but without an artificial macrotask delay, so
     // tests that don't care about timing can await it in a couple of ticks.
-    close: () => Promise.resolve().then(() => { closed = true; }),
-    get closed() { return closed; },
+    close: () =>
+      Promise.resolve().then(() => {
+        closed = true;
+      }),
+    get closed() {
+      return closed;
+    },
   };
 }
 
@@ -42,11 +47,14 @@ test('notifies subscribers when a relevant file changes', async () => {
   const hub = createSpecChangeWatcher({
     roots: [{ path: root, prefix: 'specs/active' }],
     debounceMs: 1,
-    watchFactory: () => { watcher = fakeWatcher(); return watcher; },
+    watchFactory: () => {
+      watcher = fakeWatcher();
+      return watcher;
+    },
   });
 
   try {
-    const received = new Promise(resolvePromise => hub.subscribe(resolvePromise));
+    const received = new Promise((resolvePromise) => hub.subscribe(resolvePromise));
     watcher.emitAll('change', join(root, 'sample', 'overview.md'));
     const event = await received;
     assert.equal(event.type, 'specs-changed');
@@ -67,11 +75,14 @@ test('a root with no prefix supplied omits the files field rather than guessing 
     // prefix means the caller genuinely doesn't want files attributed.
     roots: [{ path: activeRoot }],
     debounceMs: 1,
-    watchFactory: () => { watcher = fakeWatcher(); return watcher; },
+    watchFactory: () => {
+      watcher = fakeWatcher();
+      return watcher;
+    },
   });
 
   try {
-    const received = new Promise(resolvePromise => hub.subscribe(resolvePromise));
+    const received = new Promise((resolvePromise) => hub.subscribe(resolvePromise));
     watcher.emitAll('change', join(activeRoot, 'sample-change', 'tasks', '01-x.md'));
     const event = await received;
     assert.equal(event.files, undefined);
@@ -88,11 +99,14 @@ test('maps a changed file to its caller-supplied prefix, not a global constant l
   const hub = createSpecChangeWatcher({
     roots: [{ path: activeRoot, prefix: 'specs/active' }],
     debounceMs: 1,
-    watchFactory: () => { watcher = fakeWatcher(); return watcher; },
+    watchFactory: () => {
+      watcher = fakeWatcher();
+      return watcher;
+    },
   });
 
   try {
-    const received = new Promise(resolvePromise => hub.subscribe(resolvePromise));
+    const received = new Promise((resolvePromise) => hub.subscribe(resolvePromise));
     watcher.emitAll('change', join(activeRoot, 'dashboard-loading-and-progress', 'tasks', '01-x.md'));
     const event = await received;
     assert.deepEqual(event.files, ['specs/active/dashboard-loading-and-progress/tasks/01-x.md']);
@@ -109,11 +123,14 @@ test('a differently-configured root (e.g. a custom archive directory) uses its o
   const hub = createSpecChangeWatcher({
     roots: [{ path: archiveRoot, prefix: 'specs/archive' }],
     debounceMs: 1,
-    watchFactory: () => { watcher = fakeWatcher(); return watcher; },
+    watchFactory: () => {
+      watcher = fakeWatcher();
+      return watcher;
+    },
   });
 
   try {
-    const received = new Promise(resolvePromise => hub.subscribe(resolvePromise));
+    const received = new Promise((resolvePromise) => hub.subscribe(resolvePromise));
     watcher.emitAll('change', join(archiveRoot, 'old-change', 'overview.md'));
     const event = await received;
     assert.deepEqual(event.files, ['specs/archive/old-change/overview.md']);
@@ -130,11 +147,14 @@ test('batches multiple files changed within one debounce window into a single ev
   const hub = createSpecChangeWatcher({
     roots: [{ path: root, prefix: 'specs/active' }],
     debounceMs: 20,
-    watchFactory: () => { watcher = fakeWatcher(); return watcher; },
+    watchFactory: () => {
+      watcher = fakeWatcher();
+      return watcher;
+    },
   });
 
   try {
-    const received = new Promise(resolvePromise => hub.subscribe(resolvePromise));
+    const received = new Promise((resolvePromise) => hub.subscribe(resolvePromise));
     watcher.emitAll('change', join(root, 'sample-change', 'tasks', '01-x.md'));
     watcher.emitAll('change', join(root, 'sample-change', 'tasks', '02-y.md'));
     const event = await received;
@@ -152,11 +172,14 @@ test('falls back to the coarse case when the watcher cannot name the changed fil
   const hub = createSpecChangeWatcher({
     roots: [{ path: root, prefix: 'specs/active' }],
     debounceMs: 1,
-    watchFactory: () => { watcher = fakeWatcher(); return watcher; },
+    watchFactory: () => {
+      watcher = fakeWatcher();
+      return watcher;
+    },
   });
 
   try {
-    const received = new Promise(resolvePromise => hub.subscribe(resolvePromise));
+    const received = new Promise((resolvePromise) => hub.subscribe(resolvePromise));
     watcher.emitAll('change', null);
     const event = await received;
     assert.equal(event.type, 'specs-changed');
@@ -181,14 +204,14 @@ test('close() awaits every underlying watcher close() — shutdown does not reso
   let resolveUnderlyingClose;
   const controlledCloseWatcher = {
     on: () => {},
-    close: () => new Promise(resolve => { resolveUnderlyingClose = resolve; }),
+    close: () =>
+      new Promise((resolve) => {
+        resolveUnderlyingClose = resolve;
+      }),
   };
   const immediateWatcher = fakeWatcher();
 
-  const watcherFactories = [
-    () => controlledCloseWatcher,
-    () => immediateWatcher,
-  ];
+  const watcherFactories = [() => controlledCloseWatcher, () => immediateWatcher];
   let callIndex = 0;
   const hub = createSpecChangeWatcher({
     roots: [
@@ -200,7 +223,9 @@ test('close() awaits every underlying watcher close() — shutdown does not reso
 
   try {
     let closeResolved = false;
-    const closePromise = hub.close().then(() => { closeResolved = true; });
+    const closePromise = hub.close().then(() => {
+      closeResolved = true;
+    });
 
     // Give the event loop a couple of ticks — close() must still be pending
     // because controlledCloseWatcher's own close() hasn't resolved yet.

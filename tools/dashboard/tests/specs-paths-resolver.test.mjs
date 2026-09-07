@@ -75,5 +75,7 @@ test('resolveSpecsPaths: an explicit leaf override changes only that leaf', () =
 
 test('resolveSpecsPaths: the returned object is frozen', () => {
   const paths = resolveSpecsPaths();
-  assert.throws(() => { paths.activeDir = '/tmp/should-not-work'; }, /Cannot assign|read.only/i);
+  assert.throws(() => {
+    paths.activeDir = '/tmp/should-not-work';
+  }, /Cannot assign|read.only/i);
 });

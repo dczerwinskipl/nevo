@@ -15,7 +15,7 @@ async function waitFor(runtime, turnId, predicate) {
   for (let index = 0; index < 100; index += 1) {
     const value = runtime.getSnapshot(turnId);
     if (predicate(value)) return value;
-    await new Promise(resolve => setTimeout(resolve, 5));
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
   assert.fail('Timed out waiting for mock turn.');
 }
@@ -33,24 +33,35 @@ test('normal, permission, and question flows stream and continue through the sha
   const { runtime } = fixture();
   // 1. Initial turn creates session atomically
   const normal = await runtime.startTurn({ provider: 'mock', message: 'hello' });
-  const normalDone = await waitFor(runtime, normal.turnId, value => value.status === 'completed');
-  assert.ok(normalDone.events.filter(event => event.type === 'text.delta').length >= 12);
+  const normalDone = await waitFor(runtime, normal.turnId, (value) => value.status === 'completed');
+  assert.ok(normalDone.events.filter((event) => event.type === 'text.delta').length >= 12);
   assert.ok(normalDone.providerSessionId);
 
   // 2. Permission turn
-  const permission = await runtime.startTurn({ provider: 'mock', providerSessionId: 'sess-permission', message: 'please request permission' });
-  const permissionWait = await waitFor(runtime, permission.turnId, value => value.pendingInteraction);
+  const permission = await runtime.startTurn({
+    provider: 'mock',
+    providerSessionId: 'sess-permission',
+    message: 'please request permission',
+  });
+  const permissionWait = await waitFor(runtime, permission.turnId, (value) => value.pendingInteraction);
   assert.deepEqual(permissionWait.pendingInteraction.input, { command: 'npm --prefix tools/dashboard test' });
   assert.ok(JSON.stringify(permissionWait.pendingInteraction.input).length < 200);
   await runtime.resolveInteraction(permission.turnId, permissionWait.pendingInteraction.id, { decision: 'allow' });
-  await waitFor(runtime, permission.turnId, value => value.status === 'completed');
+  await waitFor(runtime, permission.turnId, (value) => value.status === 'completed');
 
   // 3. Question turn
-  const question = await runtime.startTurn({ provider: 'mock', providerSessionId: 'sess-question', message: 'ask a question' });
-  const questionWait = await waitFor(runtime, question.turnId, value => value.pendingInteraction);
+  const question = await runtime.startTurn({
+    provider: 'mock',
+    providerSessionId: 'sess-question',
+    message: 'ask a question',
+  });
+  const questionWait = await waitFor(runtime, question.turnId, (value) => value.pendingInteraction);
   const [style, checks] = questionWait.pendingInteraction.questions;
   await runtime.resolveInteraction(question.turnId, questionWait.pendingInteraction.id, {
-    answers: [{ questionId: style.id, value: 'Focused' }, { questionId: checks.id, value: ['Tests', 'Build'] }],
+    answers: [
+      { questionId: style.id, value: 'Focused' },
+      { questionId: checks.id, value: ['Tests', 'Build'] },
+    ],
   });
-  await waitFor(runtime, question.turnId, value => value.status === 'completed');
+  await waitFor(runtime, question.turnId, (value) => value.status === 'completed');
 });

@@ -2,12 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryKey, QueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
-import {
-  SpecificationSummary,
-  SpecificationIndex,
-  SpecificationManifest,
-  TaskStatusesPayload,
-} from './types';
+import { SpecificationSummary, SpecificationIndex, SpecificationManifest, TaskStatusesPayload } from './types';
 
 export const SPECIFICATION_INDEX_QUERY_KEY = ['nevo-specification-index'] as const;
 // Exported: owned here only because the cross-domain SSE invalidation
@@ -45,16 +40,16 @@ export function handleSpecsChanged(queryClient: ReturnType<typeof useQueryClient
     return;
   }
 
-  const changedSlugs = new Set(files.map(path => path.split('/')[2]).filter(Boolean));
+  const changedSlugs = new Set(files.map((path) => path.split('/')[2]).filter(Boolean));
   void queryClient.invalidateQueries({
-    predicate: query => {
+    predicate: (query) => {
       const key = query.queryKey as QueryKey;
       if (key[0] !== MANIFEST_QUERY_KEY[0]) return false;
       return changedSlugs.has(String(key[2]));
     },
   });
   void queryClient.invalidateQueries({
-    predicate: query => {
+    predicate: (query) => {
       const key = query.queryKey as QueryKey;
       if (key[0] !== DOCUMENT_QUERY_KEY[0]) return false;
       const manifest = queryClient.getQueryData<SpecificationManifest>([MANIFEST_QUERY_KEY[0], key[1], key[2]]);
@@ -63,9 +58,11 @@ export function handleSpecsChanged(queryClient: ReturnType<typeof useQueryClient
         manifest.overview,
         ...manifest.areas,
         ...manifest.tasks,
-        ...(manifest.sections || []).flatMap(s => s.type === 'document' ? (s.document ? [s.document] : []) : s.documents),
+        ...(manifest.sections || []).flatMap((s) =>
+          s.type === 'document' ? (s.document ? [s.document] : []) : s.documents,
+        ),
       ];
-      const matchingDoc = allDocs.find(d => d?.docId === key[3]);
+      const matchingDoc = allDocs.find((d) => d?.docId === key[3]);
       return Boolean(matchingDoc?.path && files.includes(matchingDoc.path));
     },
   });
@@ -89,7 +86,7 @@ export function useSpecificationIndex() {
     const events = new EventSource('/api/events');
     events.onopen = () => setConnectionStatus('connected');
     events.addEventListener('connected', () => setConnectionStatus('connected'));
-    events.addEventListener('specs-changed', rawEvent => {
+    events.addEventListener('specs-changed', (rawEvent) => {
       const detail = JSON.parse((rawEvent as MessageEvent).data) as SpecsChangedEvent;
       handleSpecsChanged(queryClient, detail);
     });
@@ -117,9 +114,12 @@ export function useSpecificationIndex() {
 }
 
 async function fetchTaskStatuses(specification: SpecificationSummary) {
-  const response = await fetch(`/api/specs/${specification.source}/${encodeURIComponent(specification.slug)}/task-statuses`, {
-    cache: 'no-store',
-  });
+  const response = await fetch(
+    `/api/specs/${specification.source}/${encodeURIComponent(specification.slug)}/task-statuses`,
+    {
+      cache: 'no-store',
+    },
+  );
   if (!response.ok) throw new Error(`Task statuses API: ${response.status}`);
   return (await response.json()) as TaskStatusesPayload;
 }
@@ -183,7 +183,9 @@ export function useCreateSpecification() {
       });
       if (!response.ok) {
         let errPayload: { error?: string; code?: string } = {};
-        try { errPayload = await response.json(); } catch {}
+        try {
+          errPayload = await response.json();
+        } catch {}
         throw new Error(errPayload.error || `Specification creation failed (${response.status})`);
       }
       return (await response.json()) as CreateSpecificationResult;

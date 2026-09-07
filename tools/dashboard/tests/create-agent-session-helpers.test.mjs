@@ -11,58 +11,52 @@ import {
 import { useAgentSessionRuntime } from '../ui/features/agent-sessions/runtime/agent-session-runtime.ts';
 
 test('turn idempotency keys work when randomUUID is unavailable on an HTTP VPN origin', () => {
-  assert.equal(createTurnIdempotencyKey({
-    cryptoSource: {},
-    now: () => 1234,
-    random: () => 0.5,
-  }), 'ui-ya-i');
+  assert.equal(
+    createTurnIdempotencyKey({
+      cryptoSource: {},
+      now: () => 1234,
+      random: () => 0.5,
+    }),
+    'ui-ya-i',
+  );
 
-  assert.equal(createTurnIdempotencyKey({
-    cryptoSource: { randomUUID: () => 'stable-uuid' },
-  }), 'ui-stable-uuid');
+  assert.equal(
+    createTurnIdempotencyKey({
+      cryptoSource: { randomUUID: () => 'stable-uuid' },
+    }),
+    'ui-stable-uuid',
+  );
 });
 
 test('selected stable task IDs and specification context are prepended to the initial prompt', () => {
   assert.equal(
     initialPromptWithTaskContext(' Review these tasks. ', ['task-a', 'task-b']),
-    'Context: tasks task-a, task-b\n\nReview these tasks.'
+    'Context: tasks task-a, task-b\n\nReview these tasks.',
   );
   assert.equal(initialPromptWithTaskContext(' General review. ', []), 'General review.');
   assert.equal(initialPromptWithTaskContext('   ', ['task-a']), null);
 
-  const specPrompt = initialPromptWithTaskContext(
-    'Please analyze this task.',
-    ['task-1'],
-    {
-      slug: 'my-feature',
-      title: 'My Feature',
-      tasks: [{ id: 'task-1', title: 'First Task' }],
-    }
-  );
+  const specPrompt = initialPromptWithTaskContext('Please analyze this task.', ['task-1'], {
+    slug: 'my-feature',
+    title: 'My Feature',
+    tasks: [{ id: 'task-1', title: 'First Task' }],
+  });
   assert.ok(specPrompt?.includes("[NEvo Context: Specification 'my-feature']"));
   assert.ok(specPrompt?.includes('Title: "My Feature"'));
   assert.ok(specPrompt?.includes('Location: specs/active/my-feature/'));
   assert.ok(specPrompt?.includes('Focus Tasks: task-1 ("First Task")'));
   assert.ok(specPrompt?.includes('Please analyze this task.'));
 
-  const emptyMsgSpecPrompt = initialPromptWithTaskContext(
-    '',
-    [],
-    { slug: 'my-feature', title: 'My Feature' }
-  );
+  const emptyMsgSpecPrompt = initialPromptWithTaskContext('', [], { slug: 'my-feature', title: 'My Feature' });
   assert.ok(emptyMsgSpecPrompt?.includes("[NEvo Context: Specification 'my-feature']"));
   assert.ok(emptyMsgSpecPrompt?.includes('Scope: Full specification'));
 
-  const planningPrompt = initialPromptWithTaskContext(
-    '',
-    [],
-    {
-      slug: 'my-feature',
-      title: 'My Feature',
-      goal: 'Build awesome things',
-      isPlanning: true,
-    }
-  );
+  const planningPrompt = initialPromptWithTaskContext('', [], {
+    slug: 'my-feature',
+    title: 'My Feature',
+    goal: 'Build awesome things',
+    isPlanning: true,
+  });
   assert.ok(planningPrompt?.includes("[NEvo Context: Specification 'my-feature']"));
   assert.ok(planningPrompt?.includes('Status: draft (skeleton created: change.yaml, overview.md)'));
   assert.ok(planningPrompt?.includes('Goal: Build awesome things'));
@@ -70,23 +64,26 @@ test('selected stable task IDs and specification context are prepended to the in
 });
 
 test('persisted assistant messages replace their streamed version by stable message ID', () => {
-  assert.deepEqual(composeTranscriptMessages(
-    [{ id: 'assistant-1', role: 'assistant', text: 'Complete response.' }],
-    'Pending question',
-    {
-      'assistant-1': 'Complete response',
-      'assistant-2': 'Still streaming',
-    },
-  ), [
-    { id: 'assistant-1', role: 'assistant', text: 'Complete response.' },
-    { id: 'optimistic-user', role: 'user', text: 'Pending question' },
-    { id: 'assistant-2', role: 'assistant', text: 'Still streaming' },
-  ]);
+  assert.deepEqual(
+    composeTranscriptMessages(
+      [{ id: 'assistant-1', role: 'assistant', text: 'Complete response.' }],
+      'Pending question',
+      {
+        'assistant-1': 'Complete response',
+        'assistant-2': 'Still streaming',
+      },
+    ),
+    [
+      { id: 'assistant-1', role: 'assistant', text: 'Complete response.' },
+      { id: 'optimistic-user', role: 'user', text: 'Pending question' },
+      { id: 'assistant-2', role: 'assistant', text: 'Still streaming' },
+    ],
+  );
 });
 
 test('browser EventSource dispatches named SSE events only to addEventListener, not onmessage', async () => {
-  const { subscribeAgentEventSource, SUPPORTED_AGENT_EVENT_TYPES } = await import('../ui/features/agent-sessions/runtime/agent-event-source.ts');
-  const { applyAgentEvent } = await import('../ui/features/agent-sessions/runtime/agent-event-reducer.ts');
+  const { subscribeAgentEventSource, SUPPORTED_AGENT_EVENT_TYPES } =
+    await import('../ui/features/agent-sessions/runtime/agent-event-source.ts');
 
   // Minimal standard-compliant EventTarget mock for browser EventSource
   class MockEventSource {
@@ -125,7 +122,9 @@ test('browser EventSource dispatches named SSE events only to addEventListener, 
   // 1. Verify that onmessage-only does NOT catch named SSE events (proving the regression)
   const buggySource = new MockEventSource();
   let buggyReceived = false;
-  buggySource.onmessage = () => { buggyReceived = true; };
+  buggySource.onmessage = () => {
+    buggyReceived = true;
+  };
   buggySource.dispatchEvent('text.delta', { type: 'text.delta', seq: 1, text: 'hello' });
   assert.equal(buggyReceived, false, 'onmessage must not receive named SSE event text.delta');
 
@@ -141,33 +140,19 @@ test('browser EventSource dispatches named SSE events only to addEventListener, 
   }
 
   assert.equal(receivedEvents.length, SUPPORTED_AGENT_EVENT_TYPES.length);
-  assert.deepEqual(receivedEvents.map(e => e.type), Array.from(SUPPORTED_AGENT_EVENT_TYPES));
+  assert.deepEqual(
+    receivedEvents.map((e) => e.type),
+    Array.from(SUPPORTED_AGENT_EVENT_TYPES),
+  );
 
-  // 3. Verify applyAgentEvent state reduction — every event for one turn carries the
-  // same turnId (the real, current-schema wire shape: contracts.mjs requires turnId on
-  // every event), which is what correlates text/reasoning/tool activity into one message.
-  let messages = [];
-  messages = applyAgentEvent(messages, { id: 1, seq: 1, type: 'text.delta', turnId: '1', messageId: 'msg-1', text: 'Hello ' });
-  messages = applyAgentEvent(messages, { id: 2, seq: 2, type: 'text.delta', turnId: '1', messageId: 'msg-1', text: 'World' });
-  messages = applyAgentEvent(messages, { id: 3, seq: 3, type: 'reasoning.delta', turnId: '1', messageId: 'msg-1', text: 'Deep thought' });
-  messages = applyAgentEvent(messages, { id: 4, seq: 4, type: 'progress.delta', turnId: '1', progressId: 'progress-1', text: 'Checking files' });
-  messages = applyAgentEvent(messages, { id: 5, seq: 5, type: 'tool.started', turnId: '1', toolId: 'tool-a', toolName: 'test_tool', input: { a: 1 } });
-  messages = applyAgentEvent(messages, { id: 6, seq: 6, type: 'tool.completed', turnId: '1', toolId: 'tool-a', output: { success: true }, status: 'completed' });
-
-  assert.equal(messages[0].text, 'Hello World');
-  assert.equal(messages[0].text.includes('Checking files'), false);
-  assert.equal(messages[0].reasoning, 'Deep thought');
-  assert.equal(messages[0].toolCalls?.length, 1);
-  assert.equal(messages[0].toolCalls[0].status, 'completed');
-  assert.deepEqual(messages[0].toolCalls[0].output, { success: true });
-
-  // 4. Verify unsubscribe cleans up listeners and closes EventSource
+  // 3. Verify unsubscribe cleans up listeners and closes EventSource
   unsubscribe();
   assert.equal(source.closed, true);
 });
 
 test('classifySessionLoadError distinguishes network, 404 not found, and general HTTP failures', async () => {
-  const { classifySessionLoadError, AgentSessionLoadError } = await import('../ui/features/agent-sessions/runtime/agent-session-transport.ts');
+  const { classifySessionLoadError, AgentSessionLoadError } =
+    await import('../ui/features/agent-sessions/runtime/agent-session-transport.ts');
 
   // 1. Network / fetch failures
   const netErr1 = classifySessionLoadError(new TypeError('Failed to fetch'), 'claude', 'sess-1');
@@ -196,7 +181,8 @@ test('classifySessionLoadError distinguishes network, 404 not found, and general
 });
 
 test('fetchAgentSessionSnapshot parses snapshots and wraps HTTP and network errors with exact classification', async () => {
-  const { fetchAgentSessionSnapshot } = await import('../ui/features/agent-sessions/runtime/agent-session-transport.ts');
+  const { fetchAgentSessionSnapshot } =
+    await import('../ui/features/agent-sessions/runtime/agent-session-transport.ts');
 
   // 1. Successful snapshot
   const mockFetchSuccess = async (url) => {
@@ -236,7 +222,7 @@ test('fetchAgentSessionSnapshot parses snapshots and wraps HTTP and network erro
       assert.equal(err.title, 'Sesja nie znaleziona');
       assert.ok(err.message.includes('sess-404'));
       return true;
-    }
+    },
   );
 
   // 3. 500 Internal Server Error
@@ -255,7 +241,7 @@ test('fetchAgentSessionSnapshot parses snapshots and wraps HTTP and network erro
       assert.equal(err.title, 'Błąd serwera (500)');
       assert.equal(err.message, 'Database failure');
       return true;
-    }
+    },
   );
 
   // 4. Network fetch rejection
@@ -269,7 +255,7 @@ test('fetchAgentSessionSnapshot parses snapshots and wraps HTTP and network erro
       assert.equal(err.kind, 'network');
       assert.equal(err.title, 'Nie można połączyć z dashboardem');
       return true;
-    }
+    },
   );
 });
 
@@ -292,7 +278,9 @@ function createHookHarness() {
         namespaceURI: 'http://www.w3.org/1999/xhtml',
         setAttribute: () => {},
         removeAttribute: () => {},
-        appendChild: (c) => { c.parentNode = el; },
+        appendChild: (c) => {
+          c.parentNode = el;
+        },
         removeChild: () => {},
         insertBefore: () => {},
         addEventListener: () => {},
@@ -396,9 +384,9 @@ test('real useAgentSessionRuntime mounting: EventSource lifecycle during snapsho
         session: {
           provider: 'claude',
           providerSessionId: 'sess-retry-test',
-          messages: [{ id: 'm1', role: 'user', text: 'hello' }],
           lastEventSeq: 42,
         },
+        turns: [{ id: 'turn-1', userMessage: { id: 'm1', text: 'hello' } }],
       }),
     };
   };
@@ -415,13 +403,15 @@ test('real useAgentSessionRuntime mounting: EventSource lifecycle during snapsho
 
   assert.equal(harness.result.loadError?.kind, 'not_found');
   assert.equal(harness.result.sessionDetails, null);
-  assert.deepEqual(harness.result.messages, []);
+  assert.deepEqual(harness.result.turns, []);
   assert.equal(errorsReceived.length, 0, 'onError must NOT be called on snapshot load failure');
   assert.equal(sseEvents.length, 0, 'No EventSource should be opened when snapshot fails');
 
   // 2. Trigger retry while snapshot fetch is in-flight
   failSnapshot = false;
-  blockFetchPromise = new Promise((resolve) => { resolveInflightFetch = resolve; });
+  blockFetchPromise = new Promise((resolve) => {
+    resolveInflightFetch = resolve;
+  });
 
   const retryPromise = harness.act(async () => {
     void harness.result.reload();
@@ -439,7 +429,7 @@ test('real useAgentSessionRuntime mounting: EventSource lifecycle during snapsho
   assert.equal(sseEvents[0].action, 'open');
   assert.ok(sseEvents[0].url.includes('sess-retry-test') && sseEvents[0].url.includes('after=42'));
   assert.equal(harness.result.sessionDetails?.providerSessionId, 'sess-retry-test');
-  assert.equal(harness.result.messages.length, 1);
+  assert.equal(harness.result.turns.length, 1);
   assert.equal(harness.result.loadError, null);
 });
 
@@ -469,9 +459,9 @@ test('real useAgentSessionRuntime mounting: session switch A -> failed B -> retr
           session: {
             provider: 'claude',
             providerSessionId: 'sess-A',
-            messages: [{ id: 'ma', role: 'user', text: 'msg in A' }],
             lastEventSeq: 10,
           },
+          turns: [{ id: 'ta', userMessage: { id: 'ma', text: 'msg in A' } }],
         }),
       };
     }
@@ -491,9 +481,9 @@ test('real useAgentSessionRuntime mounting: session switch A -> failed B -> retr
           session: {
             provider: 'claude',
             providerSessionId: 'sess-B',
-            messages: [{ id: 'mb', role: 'user', text: 'msg in B' }],
             lastEventSeq: 5,
           },
+          turns: [{ id: 'tb', userMessage: { id: 'mb', text: 'msg in B' } }],
         }),
       };
     }
@@ -505,7 +495,7 @@ test('real useAgentSessionRuntime mounting: session switch A -> failed B -> retr
   // 1. Successfully load session A
   await harness.render({ provider: 'claude', providerSessionId: 'sess-A' });
   assert.equal(harness.result.sessionDetails?.providerSessionId, 'sess-A');
-  assert.equal(harness.result.messages[0].text, 'msg in A');
+  assert.equal(harness.result.turns[0].userMessage.text, 'msg in A');
   assert.equal(sseEvents.length, 1);
   assert.ok(sseEvents[0].url.includes('sess-A') && sseEvents[0].url.includes('after=10'));
 
@@ -520,7 +510,7 @@ test('real useAgentSessionRuntime mounting: session switch A -> failed B -> retr
 
   // No stale state from session A remains visible or associated with B
   assert.equal(harness.result.sessionDetails, null);
-  assert.deepEqual(harness.result.messages, []);
+  assert.deepEqual(harness.result.turns, []);
   assert.equal(harness.result.loadError?.kind, 'http');
   assert.equal(harness.result.loadError?.status, 500);
 
@@ -531,7 +521,7 @@ test('real useAgentSessionRuntime mounting: session switch A -> failed B -> retr
   });
 
   assert.equal(harness.result.sessionDetails?.providerSessionId, 'sess-B');
-  assert.equal(harness.result.messages[0].text, 'msg in B');
+  assert.equal(harness.result.turns[0].userMessage.text, 'msg in B');
   assert.equal(harness.result.loadError, null);
 
   // EventSource for B opens with B's snapshot cursor (after=5)
@@ -545,7 +535,9 @@ test('real useAgentSessionRuntime mounting: error domain separation between snap
   const harness = createHookHarness();
 
   globalThis.EventSource = class MockEventSource {
-    constructor(url) { this.url = url; }
+    constructor(url) {
+      this.url = url;
+    }
     addEventListener() {}
     removeEventListener() {}
     close() {}
@@ -577,7 +569,10 @@ test('real useAgentSessionRuntime mounting: error domain separation between snap
           providerSessionId: 'sess-domain-test',
           messages: [],
           lastEventSeq: 0,
+          readiness: { status: 'ready', reason: 'idle' },
         },
+        readiness: { status: 'ready', reason: 'idle' },
+        turns: [],
       }),
     };
   };
@@ -613,4 +608,87 @@ test('real useAgentSessionRuntime mounting: error domain separation between snap
 
   assert.equal(errorsReceived.length, 1);
   assert.equal(errorsReceived[0], 'Turn execution conflict');
+});
+
+test('real useAgentSessionRuntime mounting: a turn.updated event omitting readiness fails closed, never preserves the prior value', async () => {
+  const harness = createHookHarness();
+
+  class MockEventSource {
+    constructor(url) {
+      this.url = url;
+      this.listeners = new Map();
+      this.onmessage = null;
+      MockEventSource.current = this;
+    }
+    addEventListener(type, listener) {
+      if (!this.listeners.has(type)) this.listeners.set(type, new Set());
+      this.listeners.get(type).add(listener);
+    }
+    removeEventListener(type, listener) {
+      this.listeners.get(type)?.delete(listener);
+    }
+    dispatchEvent(type, data) {
+      const event = { type, data: JSON.stringify(data) };
+      this.onmessage?.(event);
+      for (const listener of this.listeners.get(type) || []) listener(event);
+    }
+    close() {}
+  }
+  globalThis.EventSource = MockEventSource;
+
+  globalThis.fetch = async (url, options) => {
+    if (options?.method === 'POST' && url.includes('/turns')) {
+      return { ok: true, status: 202, json: async () => ({ turnId: 'turn-fail-closed-1' }) };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        session: {
+          provider: 'claude',
+          providerSessionId: 'sess-fail-closed',
+          lastEventSeq: 0,
+          readiness: { status: 'ready', reason: 'idle' },
+        },
+        readiness: { status: 'ready', reason: 'idle' },
+        turns: [],
+      }),
+    };
+  };
+
+  // 1. Snapshot loads with authoritative ready.
+  await harness.render({ provider: 'claude', providerSessionId: 'sess-fail-closed' });
+  assert.equal(harness.result.readiness?.status, 'ready');
+  assert.equal(harness.result.canStartTurn, true);
+
+  // 2. Optimistic send immediately overrides to busy.
+  await harness.act(async () => {
+    await harness.result.sendTurn('Hello');
+  });
+  assert.equal(harness.result.readiness?.status, 'busy');
+  assert.equal(harness.result.canStartTurn, false);
+
+  // 3. A turn.updated event omitting the required `readiness` field arrives. It must
+  // clear the authoritative value to missing/unavailable — never silently keep the
+  // stale `busy` (or any other previously-known) readiness in place.
+  await harness.act(async () => {
+    MockEventSource.current.dispatchEvent('turn.updated', {
+      type: 'turn.updated',
+      seq: 1,
+      turn: {
+        id: 'turn-fail-closed-1',
+        status: { status: 'active', detail: 'processing', since: '', source: 'provider' },
+        work: [],
+        historicalWork: [],
+        activityCount: 0,
+        currentActivity: null,
+        finalAnswer: null,
+      },
+      // readiness intentionally omitted — malformed/incomplete event.
+    });
+  });
+
+  assert.equal(harness.result.readiness?.status, 'unavailable');
+  assert.equal(harness.result.readiness?.reason, 'readiness_unavailable');
+  assert.equal(harness.result.canStartTurn, false, 'a turn.updated missing readiness must never leave send enabled');
 });

@@ -28,7 +28,7 @@ test('composed server routes all major capability route groups', async () => {
     const providers = await fetch(`${baseUrl}/api/agent-providers`);
     assert.equal(providers.status, 200);
   } finally {
-    await new Promise(resolvePromise => server.close(resolvePromise));
+    await new Promise((resolvePromise) => server.close(resolvePromise));
   }
 });
 
@@ -49,7 +49,7 @@ test('handles unknown /api/* fallback with 404 JSON', async () => {
     assert.equal(nestedUnknown.status, 404);
     assert.deepEqual(await nestedUnknown.json(), { error: 'API route not found' });
   } finally {
-    await new Promise(resolvePromise => server.close(resolvePromise));
+    await new Promise((resolvePromise) => server.close(resolvePromise));
   }
 });
 
@@ -63,7 +63,7 @@ test('handles static asset serving and missing distDir fallback', async () => {
     const body = await res.json();
     assert.equal(body.error, 'Dashboard assets not found');
   } finally {
-    await new Promise(resolvePromise => serverMissing.close(resolvePromise));
+    await new Promise((resolvePromise) => serverMissing.close(resolvePromise));
   }
 
   const tmpDist = join(tmpdir(), `nevo-dist-test-${Date.now()}`);
@@ -98,7 +98,7 @@ test('handles static asset serving and missing distDir fallback', async () => {
     assert.equal(rebuiltRes.status, 200);
     assert.match(await rebuiltRes.text(), /rebuilt/);
   } finally {
-    await new Promise(resolvePromise => serverWithDist.close(resolvePromise));
+    await new Promise((resolvePromise) => serverWithDist.close(resolvePromise));
     rmSync(tmpDist, { recursive: true, force: true });
   }
 });
@@ -121,7 +121,7 @@ test('the shared operationRuntime decoration is shut down when the app closes', 
 
   assert.throws(
     () => runtime.createOperation(),
-    err => err.status === 503,
+    (err) => err.status === 503,
     'operationRuntime was shut down when the app closed',
   );
 });

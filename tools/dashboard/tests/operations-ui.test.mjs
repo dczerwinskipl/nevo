@@ -80,9 +80,7 @@ test('Dashboard Operations UI Integration and Contract (Task 07)', async (t) => 
 
     runtime.recordEvent(opId, {
       type: 'operation.started',
-      steps: [
-        { id: 'verify-task', label: 'Verify task implementation' },
-      ],
+      steps: [{ id: 'verify-task', label: 'Verify task implementation' }],
     });
 
     const initialEvents = runtime.getEvents(opId, 0);
@@ -124,10 +122,13 @@ test('Dashboard Operations UI Integration and Contract (Task 07)', async (t) => 
     assert.equal(emitted.stepId, 'approve-task');
 
     const snap = runtime.getSnapshot(opId);
-    const approveStep = snap.steps.find(s => s.id === 'approve-task');
+    const approveStep = snap.steps.find((s) => s.id === 'approve-task');
     assert.ok(approveStep);
     assert.equal(approveStep.status, 'running');
     // No spurious step with id matching the numeric transport ID was created
-    assert.equal(snap.steps.find(s => s.id === String(emitted.id)), undefined);
+    assert.equal(
+      snap.steps.find((s) => s.id === String(emitted.id)),
+      undefined,
+    );
   });
 });

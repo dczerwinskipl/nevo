@@ -1,9 +1,14 @@
 import { useState } from 'react';
-import { Check, ShieldAlert, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import type { AgentInteraction, AgentPermissionInteraction, AgentQuestionInteraction } from '../types';
-import { cn } from '@/lib/utils';
+import { Check, HelpCircle, ShieldAlert, X } from 'lucide-react';
+import { Button } from '@/shared/ui/button';
+import { Card } from '@/shared/ui/card';
+import type {
+  AgentConfirmationInteraction,
+  AgentInteraction,
+  AgentPermissionInteraction,
+  AgentQuestionInteraction,
+} from '../types';
+import { cn } from '@/shared/lib/utils';
 
 export function PermissionPrompt({
   interaction,
@@ -15,36 +20,25 @@ export function PermissionPrompt({
   onResolve: (response: unknown) => void;
 }) {
   return (
-    <Card className="border-[var(--warning-border)] bg-[var(--warning-muted)] p-4 shadow-sm">
+    <Card className="border-status-warning/25 bg-status-warning/10 p-4 shadow-sm">
       <div className="flex gap-3">
-        <ShieldAlert className="mt-0.5 size-5 shrink-0 text-[var(--warning)]" />
+        <ShieldAlert className="mt-0.5 size-5 shrink-0 text-status-warning" />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-[var(--foreground)]">
-            Wymagana zgoda: <span className="font-mono text-[var(--accent)]">{interaction.toolName}</span>
+          <p className="text-sm font-semibold text-fg-primary">
+            Wymagana zgoda: <span className="font-mono text-accent">{interaction.toolName}</span>
           </p>
-          {interaction.details && (
-            <p className="mt-1 text-xs text-[var(--muted)]">{interaction.details}</p>
-          )}
+          {interaction.details && <p className="mt-1 text-xs text-fg-muted">{interaction.details}</p>}
           {interaction.input && (
-            <pre className="mt-3 max-h-40 overflow-auto rounded-lg border border-[var(--border)] bg-black/30 p-3 font-mono text-[10px] text-[var(--muted-strong)]">
+            <pre className="mt-3 max-h-40 overflow-auto rounded-lg border border-border bg-background p-3 font-mono text-[10px] text-fg-secondary">
               {JSON.stringify(interaction.input, null, 2)}
             </pre>
           )}
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              disabled={disabled}
-              onClick={() => onResolve({ decision: 'allow' })}
-            >
+            <Button size="sm" disabled={disabled} onClick={() => onResolve({ decision: 'allow' })}>
               <Check className="mr-1.5 size-3.5" />
               Zezwól
             </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={disabled}
-              onClick={() => onResolve({ decision: 'deny' })}
-            >
+            <Button size="sm" variant="secondary" disabled={disabled} onClick={() => onResolve({ decision: 'deny' })}>
               <X className="mr-1.5 size-3.5" />
               Odmów
             </Button>
@@ -73,12 +67,12 @@ export function QuestionPrompt({
   });
 
   return (
-    <Card className="border-[color-mix(in_srgb,var(--accent)_25%,var(--border))] bg-[var(--surface-raised)] p-4 shadow-sm">
-      <p className="text-sm font-semibold text-[var(--foreground)]">Pytania do Ciebie</p>
+    <Card className="border-accent/25 bg-surface-raised p-4 shadow-sm">
+      <p className="text-sm font-semibold text-fg-primary">Pytania do Ciebie</p>
       <div className="mt-4 space-y-5">
         {interaction.questions.map((question) => (
           <fieldset key={question.id}>
-            <legend className="text-xs font-semibold text-[var(--foreground)]">
+            <legend className="text-xs font-semibold text-fg-primary">
               {question.header ? `${question.header}: ` : ''}
               {question.question}
             </legend>
@@ -86,9 +80,7 @@ export function QuestionPrompt({
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 {question.options.map((option) => {
                   const current = answers[question.id];
-                  const checked = Array.isArray(current)
-                    ? current.includes(option.label)
-                    : current === option.label;
+                  const checked = Array.isArray(current) ? current.includes(option.label) : current === option.label;
 
                   return (
                     <label
@@ -96,8 +88,8 @@ export function QuestionPrompt({
                       className={cn(
                         'flex cursor-pointer gap-2 rounded-lg border p-3 text-xs transition-colors',
                         checked
-                          ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] text-[var(--foreground)]'
-                          : 'border-[var(--border)] text-[var(--muted-strong)] hover:border-white/20'
+                          ? 'border-accent bg-accent/8 text-fg-primary'
+                          : 'border-border text-fg-secondary hover:border-border-strong',
                       )}
                     >
                       <input
@@ -108,9 +100,7 @@ export function QuestionPrompt({
                           setCustomAnswers((prev) => ({ ...prev, [question.id]: '' }));
                           setAnswers((prev) => {
                             if (!question.multiSelect) return { ...prev, [question.id]: option.label };
-                            const values = Array.isArray(prev[question.id])
-                              ? (prev[question.id] as string[])
-                              : [];
+                            const values = Array.isArray(prev[question.id]) ? (prev[question.id] as string[]) : [];
                             return {
                               ...prev,
                               [question.id]: checked
@@ -123,9 +113,7 @@ export function QuestionPrompt({
                       <span>
                         <span className="font-semibold">{option.label}</span>
                         {option.description && (
-                          <span className="mt-1 block text-[10px] leading-4 text-[var(--muted)]">
-                            {option.description}
-                          </span>
+                          <span className="mt-1 block text-[10px] leading-4 text-fg-muted">{option.description}</span>
                         )}
                       </span>
                     </label>
@@ -135,14 +123,12 @@ export function QuestionPrompt({
                 <label
                   className={cn(
                     'rounded-lg border p-3 text-xs sm:col-span-2',
-                    customAnswers[question.id]
-                      ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]'
-                      : 'border-[var(--border)]'
+                    customAnswers[question.id] ? 'border-accent bg-accent/8' : 'border-border',
                   )}
                 >
-                  <span className="font-semibold text-[var(--foreground)]">Inna odpowiedź</span>
+                  <span className="font-semibold text-fg-primary">Inna odpowiedź</span>
                   <input
-                    className="mt-2 h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-base outline-none focus:border-[var(--accent)] sm:text-xs"
+                    className="mt-2 h-9 w-full rounded-lg border border-border bg-surface px-3 text-base outline-none focus:border-accent sm:text-xs"
                     placeholder="Wpisz własną odpowiedź…"
                     value={customAnswers[question.id] || ''}
                     onChange={(event) => {
@@ -150,11 +136,7 @@ export function QuestionPrompt({
                       setCustomAnswers((prev) => ({ ...prev, [question.id]: value }));
                       setAnswers((prev) => ({
                         ...prev,
-                        [question.id]: question.multiSelect
-                          ? value.trim()
-                            ? [value]
-                            : []
-                          : value,
+                        [question.id]: question.multiSelect ? (value.trim() ? [value] : []) : value,
                       }));
                     }}
                   />
@@ -162,11 +144,9 @@ export function QuestionPrompt({
               </div>
             ) : (
               <input
-                className="mt-2 h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-base outline-none focus:border-[var(--accent)] sm:text-sm"
+                className="mt-2 h-10 w-full rounded-lg border border-border bg-surface px-3 text-base outline-none focus:border-accent sm:text-sm"
                 value={typeof answers[question.id] === 'string' ? (answers[question.id] as string) : ''}
-                onChange={(event) =>
-                  setAnswers((prev) => ({ ...prev, [question.id]: event.target.value }))
-                }
+                onChange={(event) => setAnswers((prev) => ({ ...prev, [question.id]: event.target.value }))}
               />
             )}
           </fieldset>
@@ -187,6 +167,51 @@ export function QuestionPrompt({
       >
         Wyślij odpowiedzi
       </Button>
+    </Card>
+  );
+}
+
+export function ConfirmationPrompt({
+  interaction,
+  disabled = false,
+  onResolve,
+}: {
+  interaction: AgentConfirmationInteraction | Extract<AgentInteraction, { kind: 'confirmation' }>;
+  disabled?: boolean;
+  onResolve: (response: unknown) => void;
+}) {
+  return (
+    <Card className="border-accent/25 bg-surface-raised p-4 shadow-sm">
+      <div className="flex gap-3">
+        <HelpCircle className="mt-0.5 size-5 shrink-0 text-accent" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-fg-primary">{interaction.title || 'Wymagane potwierdzenie'}</p>
+          {interaction.message && <p className="mt-1 text-xs text-fg-secondary">{interaction.message}</p>}
+          {interaction.details && <p className="mt-1 text-xs text-fg-muted">{interaction.details}</p>}
+          {interaction.payload !== undefined && (
+            <pre className="mt-3 max-h-40 overflow-auto rounded-lg border border-border bg-background p-3 font-mono text-[10px] text-fg-secondary">
+              {typeof interaction.payload === 'string'
+                ? interaction.payload
+                : JSON.stringify(interaction.payload, null, 2)}
+            </pre>
+          )}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button size="sm" disabled={disabled} onClick={() => onResolve({ confirmed: true, decision: 'confirm' })}>
+              <Check className="mr-1.5 size-3.5" />
+              Potwierdź
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={disabled}
+              onClick={() => onResolve({ confirmed: false, decision: 'cancel' })}
+            >
+              <X className="mr-1.5 size-3.5" />
+              Anuluj
+            </Button>
+          </div>
+        </div>
+      </div>
     </Card>
   );
 }

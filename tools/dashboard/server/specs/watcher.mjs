@@ -21,11 +21,7 @@ export function isRelevantSpecPath(fileName) {
  * this module has no opinion on where specs actually live or what a
  * "specs/active"-shaped prefix means; it just watches what it's told.
  */
-export function createSpecChangeWatcher({
-  roots = [],
-  watchFactory = watch,
-  debounceMs = 80,
-} = {}) {
+export function createSpecChangeWatcher({ roots = [], watchFactory = watch, debounceMs = 80 } = {}) {
   const subscribers = new Set();
   const watchers = [];
   let timer = null;
@@ -37,7 +33,7 @@ export function createSpecChangeWatcher({
   // true whenever a change in this debounce window has no attributable file.
   let pendingUnattributed = false;
 
-  const notify = detail => {
+  const notify = (detail) => {
     if (closed) return;
     pendingEventType = detail?.eventType ?? pendingEventType;
     if (detail?.file) pendingFiles.add(detail.file);
@@ -65,7 +61,7 @@ export function createSpecChangeWatcher({
       if (!isRelevantSpecPath(fileName)) return;
       notify({ eventType, file: fileName && prefix ? `${prefix}/${fileName}` : null });
     });
-    watcher.on('error', error => {
+    watcher.on('error', (error) => {
       console.error(`[server] error watching specification files under ${root}:`, error);
     });
     watchers.push(watcher);
@@ -85,7 +81,7 @@ export function createSpecChangeWatcher({
       closed = true;
       clearTimeout(timer);
       subscribers.clear();
-      await Promise.all(watchers.map(watcher => watcher.close?.()));
+      await Promise.all(watchers.map((watcher) => watcher.close?.()));
     },
   };
 }

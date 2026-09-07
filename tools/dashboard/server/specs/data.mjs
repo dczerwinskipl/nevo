@@ -1,22 +1,16 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { open as openFile, readdir as readdirAsync, readFile as readFileAsync, stat as statAsync } from 'node:fs/promises';
+import {
+  open as openFile,
+  readdir as readdirAsync,
+  readFile as readFileAsync,
+  stat as statAsync,
+} from 'node:fs/promises';
 import { basename, extname, relative, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 
-import {
-  ACTIVE_DIR,
-  ARCHIVE_DIR,
-  loadChange,
-  listChanges,
-  listChangesAsync,
-} from '../../../specs/store.mjs';
+import { ACTIVE_DIR, ARCHIVE_DIR, loadChange, listChanges, listChangesAsync } from '../../../specs/store.mjs';
 import { isTaskReady } from '../../../specs/lifecycle-primitives.mjs';
-import {
-  SPEC_STAGES,
-  isCompletedStatus,
-  isTerminalStatus,
-  stageForStatus,
-} from './status-stages.mjs';
+import { SPEC_STAGES, isCompletedStatus, isTerminalStatus, stageForStatus } from './status-stages.mjs';
 import { DEFAULT_SPEC_SECTIONS } from './spec-sections.mjs';
 import { REPOSITORY_ROOT } from '../infrastructure/paths.mjs';
 
@@ -56,13 +50,16 @@ export function extractOverviewSummary(markdown, fallbackTitle = 'Specification 
   if (!markdown?.trim()) return `Specification: ${fallbackTitle}`;
 
   const preferred = ['Summary', 'Context', 'Goal', 'Problem']
-    .map(heading => sectionBody(markdown, heading))
+    .map((heading) => sectionBody(markdown, heading))
     .find(Boolean);
   const withoutFrontMatter = stripFrontMatter(markdown)
     .replace(/^#\s+.*$/m, '')
     .trim();
   const source = preferred || withoutFrontMatter;
-  const paragraph = source.split(/\r?\n\s*\r?\n/).map(toPlainText).find(Boolean);
+  const paragraph = source
+    .split(/\r?\n\s*\r?\n/)
+    .map(toPlainText)
+    .find(Boolean);
   return truncate(paragraph || `Specification: ${fallbackTitle}`);
 }
 
@@ -107,29 +104,33 @@ async function collectRelevantFilesAsync(dir) {
     return [];
   }
   const files = [];
-  await Promise.all(entries.map(async entry => {
-    const fullPath = resolve(dir, entry.name);
-    if (entry.isDirectory()) {
-      const children = await collectRelevantFilesAsync(fullPath);
-      files.push(...children);
-    } else if (/\.(?:md|ya?ml)$/i.test(entry.name)) {
-      files.push(fullPath);
-    }
-  }));
+  await Promise.all(
+    entries.map(async (entry) => {
+      const fullPath = resolve(dir, entry.name);
+      if (entry.isDirectory()) {
+        const children = await collectRelevantFilesAsync(fullPath);
+        files.push(...children);
+      } else if (/\.(?:md|ya?ml)$/i.test(entry.name)) {
+        files.push(fullPath);
+      }
+    }),
+  );
   return files;
 }
 
 async function latestModifiedAtAsync(changeDir) {
   const files = await collectRelevantFilesAsync(changeDir);
   if (!files.length) return new Date().toISOString();
-  const stats = await Promise.all(files.map(async file => {
-    try {
-      const s = await statAsync(file);
-      return s.mtimeMs;
-    } catch {
-      return 0;
-    }
-  }));
+  const stats = await Promise.all(
+    files.map(async (file) => {
+      try {
+        const s = await statAsync(file);
+        return s.mtimeMs;
+      } catch {
+        return 0;
+      }
+    }),
+  );
   const valid = stats.filter(Number.isFinite);
   return new Date(valid.length ? Math.max(...valid) : Date.now()).toISOString();
 }
@@ -147,7 +148,7 @@ function collectRelevantFiles(dir) {
 
 function latestModifiedAt(changeDir) {
   const timestamps = collectRelevantFiles(changeDir)
-    .map(file => statSync(file).mtimeMs)
+    .map((file) => statSync(file).mtimeMs)
     .filter(Number.isFinite);
   return new Date(timestamps.length ? Math.max(...timestamps) : Date.now()).toISOString();
 }
@@ -222,8 +223,8 @@ async function listMarkdownFiles(dir) {
     return [];
   }
   return entries
-    .filter(entry => entry.isFile() && extname(entry.name).toLowerCase() === '.md')
-    .map(entry => safeChildPath(dir, entry.name))
+    .filter((entry) => entry.isFile() && extname(entry.name).toLowerCase() === '.md')
+    .map((entry) => safeChildPath(dir, entry.name))
     .filter(Boolean)
     .sort((a, b) => basename(a).localeCompare(basename(b)));
 }
@@ -257,17 +258,19 @@ async function resolveSectionDirectory(change, section, repoRoot) {
   const dirPath = safeChildPath(change._dir, section.dir);
   const files = dirPath ? await listMarkdownFiles(dirPath) : [];
   const prefix = section.docIdPrefix || section.id;
-  const documents = await Promise.all(files.map(filePath => {
-    const id = basename(filePath, extname(filePath));
-    return manifestDocument({
-      id,
-      docId: `${prefix}:${id}`,
-      kind: section.id,
-      filePath,
-      fallbackTitle: id.replace(/[-_]+/g, ' '),
-      repoRoot,
-    });
-  }));
+  const documents = await Promise.all(
+    files.map((filePath) => {
+      const id = basename(filePath, extname(filePath));
+      return manifestDocument({
+        id,
+        docId: `${prefix}:${id}`,
+        kind: section.id,
+        filePath,
+        fallbackTitle: id.replace(/[-_]+/g, ' '),
+        repoRoot,
+      });
+    }),
+  );
   return documents;
 }
 
@@ -299,7 +302,7 @@ export async function loadSpecificationManifest({
   if (!change) return null;
 
   const sections = await Promise.all(
-    sectionsConfig.map(async section => {
+    sectionsConfig.map(async (section) => {
       if (section.type === 'document') {
         const document = await resolveSectionDocument(change, section, repoRoot);
         return {
@@ -326,38 +329,42 @@ export async function loadSpecificationManifest({
         };
       }
       return null;
-    })
-  ).then(list => list.filter(Boolean));
+    }),
+  ).then((list) => list.filter(Boolean));
 
-  const specSection = sections.find(s => s.id === 'specification');
-  const overview = specSection?.document || await manifestDocument({
-    id: 'overview',
-    docId: 'overview',
-    kind: 'overview',
-    filePath: safeChildPath(change._dir, 'overview.md'),
-    fallbackTitle: change.title || change._slug,
-    repoRoot,
-  });
+  const specSection = sections.find((s) => s.id === 'specification');
+  const overview =
+    specSection?.document ||
+    (await manifestDocument({
+      id: 'overview',
+      docId: 'overview',
+      kind: 'overview',
+      filePath: safeChildPath(change._dir, 'overview.md'),
+      fallbackTitle: change.title || change._slug,
+      repoRoot,
+    }));
 
-  const areasSection = sections.find(s => s.id === 'areas');
+  const areasSection = sections.find((s) => s.id === 'areas');
   const areas = areasSection?.documents || [];
 
-  const tasks = await Promise.all(change.tasks.map(task => {
-    const filePath = safeChildPath(change._dir, task.file);
-    return manifestDocument({
-      id: task.id,
-      docId: `task:${task.id}`,
-      kind: 'task',
-      filePath,
-      fallbackTitle: task.id,
-      repoRoot,
-      metadata: {
-        status: task.status || 'draft',
-        order: task.order ?? null,
-        dependsOn: task.depends_on || [],
-      },
-    });
-  }));
+  const tasks = await Promise.all(
+    change.tasks.map((task) => {
+      const filePath = safeChildPath(change._dir, task.file);
+      return manifestDocument({
+        id: task.id,
+        docId: `task:${task.id}`,
+        kind: 'task',
+        filePath,
+        fallbackTitle: task.id,
+        repoRoot,
+        metadata: {
+          status: task.status || 'draft',
+          order: task.order ?? null,
+          dependsOn: task.depends_on || [],
+        },
+      });
+    }),
+  );
   tasks.sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER));
 
   return {
@@ -377,8 +384,12 @@ export async function loadSpecificationManifest({
 /** Resolve one manifest `docId` to `{ filePath, kind, id, fallbackTitle, metadata }`, or `null` if unknown/unsafe. */
 function resolveDocumentTarget(change, docId, sectionsConfig = DEFAULT_SPEC_SECTIONS) {
   if (docId === 'overview') {
-    const specSection = sectionsConfig.find(s => s.id === 'specification');
-    const candidates = specSection ? (Array.isArray(specSection.file) ? specSection.file : [specSection.file]) : ['overview.md', 'spec.md'];
+    const specSection = sectionsConfig.find((s) => s.id === 'specification');
+    const candidates = specSection
+      ? Array.isArray(specSection.file)
+        ? specSection.file
+        : [specSection.file]
+      : ['overview.md', 'spec.md'];
     let chosenPath = null;
     for (const candidate of candidates) {
       const candidatePath = safeChildPath(change._dir, candidate);
@@ -401,7 +412,7 @@ function resolveDocumentTarget(change, docId, sectionsConfig = DEFAULT_SPEC_SECT
 
   if (docId.startsWith('task:')) {
     const id = docId.slice('task:'.length);
-    const task = change.tasks.find(t => t.id === id);
+    const task = change.tasks.find((t) => t.id === id);
     if (!task) return null;
     return {
       filePath: safeChildPath(change._dir, task.file),
@@ -419,9 +430,7 @@ function resolveDocumentTarget(change, docId, sectionsConfig = DEFAULT_SPEC_SECT
   // Check configured sections
   for (const section of sectionsConfig) {
     if (section.type === 'document') {
-      const isMatch = docId === section.id
-        || docId === (section.docId || section.id)
-        || docId === `doc:${section.id}`;
+      const isMatch = docId === section.id || docId === (section.docId || section.id) || docId === `doc:${section.id}`;
       if (isMatch) {
         const candidates = Array.isArray(section.file) ? section.file : [section.file];
         let chosenPath = null;
@@ -540,8 +549,8 @@ export async function loadSpecificationDocument({
 // never a per-task file read) ───────────────────────────────────────────────
 
 function taskStatusProjection(task, change) {
-  const dependencyStatuses = new Map(change.tasks.map(item => [item.id, item.status]));
-  const blockedBy = (task.depends_on || []).filter(id => {
+  const dependencyStatuses = new Map(change.tasks.map((item) => [item.id, item.status]));
+  const blockedBy = (task.depends_on || []).filter((id) => {
     const status = dependencyStatuses.get(id);
     return !['implemented', 'verified', 'archived'].includes(status);
   });
@@ -558,12 +567,7 @@ function taskStatusProjection(task, change) {
   };
 }
 
-export function loadTaskStatuses({
-  source,
-  slug,
-  activeDir = ACTIVE_DIR,
-  archiveDir = ARCHIVE_DIR,
-} = {}) {
+export function loadTaskStatuses({ source, slug, activeDir = ACTIVE_DIR, archiveDir = ARCHIVE_DIR } = {}) {
   let baseDir = sourceDirectory(source, activeDir, archiveDir);
   if (!baseDir || typeof slug !== 'string' || !/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) return null;
 
@@ -584,7 +588,7 @@ export function loadTaskStatuses({
   if (!change) return null;
 
   const tasks = change.tasks
-    .map(task => taskStatusProjection(task, change))
+    .map((task) => taskStatusProjection(task, change))
     .sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER));
   const revision = createHash('sha1').update(JSON.stringify(tasks)).digest('hex');
 
@@ -599,8 +603,8 @@ export function loadTaskStatuses({
 
 async function taskProjectionAsync(change, task, repoRoot) {
   const filePath = safeChildPath(change._dir, task.file);
-  const dependencyStatuses = new Map(change.tasks.map(item => [item.id, item.status]));
-  const blockedBy = (task.depends_on || []).filter(id => {
+  const dependencyStatuses = new Map(change.tasks.map((item) => [item.id, item.status]));
+  const blockedBy = (task.depends_on || []).filter((id) => {
     const status = dependencyStatuses.get(id);
     return !['implemented', 'verified', 'archived'].includes(status);
   });
@@ -624,23 +628,24 @@ async function taskProjectionAsync(change, task, repoRoot) {
 async function changeProjectionAsync(change, source, repoRoot) {
   const overviewPath = safeChildPath(change._dir, 'overview.md');
   const [tasks, overviewContent, updatedAt] = await Promise.all([
-    Promise.all(change.tasks.map(task => taskProjectionAsync(change, task, repoRoot)))
-      .then(list => list.sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER))),
+    Promise.all(change.tasks.map((task) => taskProjectionAsync(change, task, repoRoot))).then((list) =>
+      list.sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER)),
+    ),
     readOptionalAsync(overviewPath),
     latestModifiedAtAsync(change._dir),
   ]);
 
-  const actionableTasks = tasks.filter(task => task.status !== 'abandoned');
+  const actionableTasks = tasks.filter((task) => task.status !== 'abandoned');
   const actionableCount = actionableTasks.length;
-  const completedCount = tasks.filter(task => isCompletedStatus(task.status)).length;
+  const completedCount = tasks.filter((task) => isCompletedStatus(task.status)).length;
   const stageCounts = Object.fromEntries(
-    SPEC_STAGES.map(stage => [stage.id, actionableTasks.filter(task => task.stage === stage.id).length]),
+    SPEC_STAGES.map((stage) => [stage.id, actionableTasks.filter((task) => task.stage === stage.id).length]),
   );
-  const activeTask = tasks.find(task => task.status === 'in-implementation');
-  const readyTask = tasks.find(task => task.ready);
-  const lanes = SPEC_STAGES.map(stage => ({
+  const activeTask = tasks.find((task) => task.status === 'in-implementation');
+  const readyTask = tasks.find((task) => task.ready);
+  const lanes = SPEC_STAGES.map((stage) => ({
     ...stage,
-    tasks: tasks.filter(task => task.stage === stage.id),
+    tasks: tasks.filter((task) => task.stage === stage.id),
   }));
 
   return {
@@ -648,7 +653,7 @@ async function changeProjectionAsync(change, source, repoRoot) {
     specId: change.spec_id ?? null,
     slug: change._slug,
     title: change.title || change._slug,
-    status: source === 'archive' ? 'archived' : (change.status || 'draft'),
+    status: source === 'archive' ? 'archived' : change.status || 'draft',
     source,
     priority: change.priority ?? null,
     created: change.created ?? null,
@@ -663,10 +668,10 @@ async function changeProjectionAsync(change, source, repoRoot) {
       total: tasks.length,
       actionable: actionableCount,
       completed: completedCount,
-      abandoned: tasks.filter(task => task.status === 'abandoned').length,
-      inImplementation: tasks.filter(task => task.status === 'in-implementation').length,
-      inReview: tasks.filter(task => task.status === 'implemented').length,
-      ready: tasks.filter(task => task.ready).length,
+      abandoned: tasks.filter((task) => task.status === 'abandoned').length,
+      inImplementation: tasks.filter((task) => task.status === 'in-implementation').length,
+      inReview: tasks.filter((task) => task.status === 'implemented').length,
+      ready: tasks.filter((task) => task.ready).length,
       stageCounts,
       progress: actionableCount ? Math.round((completedCount / actionableCount) * 100) : 0,
     },
@@ -674,10 +679,16 @@ async function changeProjectionAsync(change, source, repoRoot) {
 }
 
 function activeSort(a, b) {
-  const rank = new Map([['in-implementation', 0], ['approved', 1], ['draft', 2]]);
-  return (rank.get(a.status) ?? 9) - (rank.get(b.status) ?? 9)
-    || (a.priority ?? 999) - (b.priority ?? 999)
-    || a.title.localeCompare(b.title);
+  const rank = new Map([
+    ['in-implementation', 0],
+    ['approved', 1],
+    ['draft', 2],
+  ]);
+  return (
+    (rank.get(a.status) ?? 9) - (rank.get(b.status) ?? 9) ||
+    (a.priority ?? 999) - (b.priority ?? 999) ||
+    a.title.localeCompare(b.title)
+  );
 }
 
 export async function loadDashboardData({
@@ -691,10 +702,12 @@ export async function loadDashboardData({
   ]);
 
   const [active, archive] = await Promise.all([
-    Promise.all(activeChanges.map(change => changeProjectionAsync(change, 'active', repoRoot)))
-      .then(list => list.sort(activeSort)),
-    Promise.all(archiveChanges.map(change => changeProjectionAsync(change, 'archive', repoRoot)))
-      .then(list => list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))),
+    Promise.all(activeChanges.map((change) => changeProjectionAsync(change, 'active', repoRoot))).then((list) =>
+      list.sort(activeSort),
+    ),
+    Promise.all(archiveChanges.map((change) => changeProjectionAsync(change, 'archive', repoRoot))).then((list) =>
+      list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    ),
   ]);
 
   return {

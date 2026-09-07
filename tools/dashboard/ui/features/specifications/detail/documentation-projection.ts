@@ -118,10 +118,8 @@ export function computeVisibleTabs(manifest: SpecificationManifest | null | unde
   const hasDocs = Boolean(
     (manifest?.sections && manifest.sections.some((s) => s.available)) ||
     manifest?.overview?.available ||
-    (manifest?.areas && manifest.areas.length > 0)
+    (manifest?.areas && manifest.areas.length > 0),
   );
 
-  return hasDocs
-    ? [SPEC_TABS.overview, SPEC_TABS.docs, SPEC_TABS.changes]
-    : [SPEC_TABS.overview, SPEC_TABS.changes];
+  return hasDocs ? [SPEC_TABS.overview, SPEC_TABS.docs, SPEC_TABS.changes] : [SPEC_TABS.overview, SPEC_TABS.changes];
 }

@@ -13,7 +13,7 @@ async function readJson(path) {
 }
 
 function methodsFrom(schema) {
-  return new Set((schema.oneOf ?? []).flatMap(entry => entry?.properties?.method?.enum ?? []));
+  return new Set((schema.oneOf ?? []).flatMap((entry) => entry?.properties?.method?.enum ?? []));
 }
 
 function requireMethods(actual, required, category, errors) {
@@ -24,13 +24,16 @@ function requireMethods(actual, required, category, errors) {
 
 function resolveLocalRef(root, ref) {
   if (typeof ref !== 'string' || !ref.startsWith('#/')) return null;
-  return ref.slice(2).split('/').reduce((value, segment) => value?.[segment.replaceAll('~1', '/').replaceAll('~0', '~')], root);
+  return ref
+    .slice(2)
+    .split('/')
+    .reduce((value, segment) => value?.[segment.replaceAll('~1', '/').replaceAll('~0', '~')], root);
 }
 
 function stringEnumValues(node, root, seen = new Set()) {
   if (!node || typeof node !== 'object' || seen.has(node)) return new Set();
   seen.add(node);
-  const values = new Set((node.enum ?? []).filter(value => typeof value === 'string'));
+  const values = new Set((node.enum ?? []).filter((value) => typeof value === 'string'));
   const referenced = resolveLocalRef(root, node.$ref);
   if (referenced) for (const value of stringEnumValues(referenced, root, seen)) values.add(value);
   for (const key of ['oneOf', 'anyOf', 'allOf']) {
@@ -69,7 +72,12 @@ export async function verifyGeneratedSchemaDirectory(schemaRoot, baseline) {
   requireMethods(methodsFrom(clientRequests), baseline.methods.clientRequests, 'client request', errors);
   requireMethods(methodsFrom(clientNotifications), baseline.methods.clientNotifications, 'client notification', errors);
   requireMethods(methodsFrom(serverNotifications), baseline.methods.serverNotifications, 'server notification', errors);
-  requireMethods(methodsFrom(serverNotifications), baseline.observedProviderGlobalNotifications, 'observed global notification', errors);
+  requireMethods(
+    methodsFrom(serverNotifications),
+    baseline.observedProviderGlobalNotifications,
+    'observed global notification',
+    errors,
+  );
   requireMethods(methodsFrom(serverRequests), baseline.methods.serverRequests, 'server request', errors);
 
   for (const [relativePath, requiredProperties] of Object.entries(baseline.types)) {
@@ -88,7 +96,6 @@ export async function verifyGeneratedSchemaDirectory(schemaRoot, baseline) {
     }
   }
 
-
   for (const [relativePath, variants] of Object.entries(baseline.taggedVariants ?? {})) {
     let schema;
     try {
@@ -104,13 +111,15 @@ export async function verifyGeneratedSchemaDirectory(schemaRoot, baseline) {
         continue;
       }
       for (const [property, expectedValues] of Object.entries(variant.optionalPropertyEnums ?? {})) {
-        const compatible = matches.some(match => {
+        const compatible = matches.some((match) => {
           if (!match.properties?.[property] || match.required?.includes(property)) return false;
           const actual = stringEnumValues(match.properties[property], schema);
-          return expectedValues.every(value => actual.has(value));
+          return expectedValues.every((value) => actual.has(value));
         });
         if (!compatible) {
-          errors.push(`type '${relativePath}' ${variant.tag}='${variant.value}' no longer has optional '${property}' with values ${expectedValues.join(', ')}`);
+          errors.push(
+            `type '${relativePath}' ${variant.tag}='${variant.value}' no longer has optional '${property}' with values ${expectedValues.join(', ')}`,
+          );
         }
       }
     }
@@ -128,14 +137,10 @@ function commandResult(command, args, options = {}) {
   });
 }
 
-export async function verifyCodexSchema({
-  executable = 'codex',
-  strict = false,
-  baselinePath = BASELINE_PATH,
-} = {}) {
+export async function verifyCodexSchema({ executable = 'codex', strict = false, baselinePath = BASELINE_PATH } = {}) {
   const baseline = await readJson(baselinePath);
   const resolved = resolveCodexCommand(executable);
-  const runCodex = args => commandResult(resolved.executable, [...resolved.argsPrefix, ...args]);
+  const runCodex = (args) => commandResult(resolved.executable, [...resolved.argsPrefix, ...args]);
   const versionProbe = runCodex(['--version']);
   if (versionProbe.error?.code === 'ENOENT' || versionProbe.status === 9009) {
     if (strict) throw new Error(`Codex executable '${executable}' was not found.`);
@@ -188,7 +193,7 @@ async function main() {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  main().catch(error => {
+  main().catch((error) => {
     console.error(error.message);
     process.exitCode = 1;
   });

@@ -1,7 +1,7 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 
 export function MarkdownContent({ markdown, className }: { markdown: string; className?: string }) {
   return (
@@ -10,9 +10,11 @@ export function MarkdownContent({ markdown, className }: { markdown: string; cla
         remarkPlugins={[remarkGfm]}
         components={{
           a: ({ children, ...props }) => (
-            <a {...props} target="_blank" rel="noreferrer noopener">{children}</a>
+            <a {...props} target="_blank" rel="noreferrer noopener">
+              {children}
+            </a>
           ),
-          input: props => <input {...props} disabled />,
+          input: (props) => <input {...props} disabled />,
         }}
       >
         {markdown}

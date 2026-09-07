@@ -55,6 +55,46 @@ node tools/specs.mjs start <change-slug> <task-id>
 This creates the branch and sets the task to `in-implementation`. Do not create branches
 manually.
 
+## Discovering documentation with `tools/docs.mjs find`
+
+Use the discovery CLI to quickly locate the right documentation without scanning entire directories:
+
+### 1. Topic and keyword discovery (`--query`)
+
+Search across document IDs, titles, summaries, `read_when` triggers, file paths, and related references:
+
+```bash
+# Find development guidelines covering color tokens and status
+node tools/docs.mjs find --query "semantic color status tokens" --type development
+
+# Get machine-readable metadata in JSON format
+node tools/docs.mjs find --query "composition" --format json
+```
+
+Query search performs case-insensitive normalized matching, ranks exact matches higher, and sorts deterministically.
+
+### 2. File and path routing discovery (`--path`)
+
+Determine which guidelines and architectural documents govern a specific source or UI path using `docs/routing.generated.json`:
+
+```bash
+# Discover documentation governing a foundation story
+node tools/docs.mjs find --path tools/dashboard/ui/foundations/colors.stories.tsx
+
+# Discover documentation governing an AI feature module
+node tools/docs.mjs find --path tools/dashboard/ui/features/agent-sessions/work-v2
+```
+
+Path matching evaluates path globs and directory hierarchies against the repository routing rules, returning the relevant documents along with matching rule IDs and reasons.
+
+### 3. Combining filters
+
+You can combine `--query`, `--path`, and `--type` to pinpoint exact documents:
+
+```bash
+node tools/docs.mjs find --path tools/dashboard/ui/components/ui/button.tsx --query "cva variant" --type development
+```
+
 ## Finding framework documentation
 
 For a specific kind of framework task (modifying message dispatch, adding a transport,

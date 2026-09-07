@@ -30,9 +30,9 @@ function satisfiesMinVersion(versionStr, minStr = '2.1.89') {
 function parseStreamJson(content) {
   return content
     .split('\n')
-    .map(line => line.trim())
+    .map((line) => line.trim())
     .filter(Boolean)
-    .map(line => JSON.parse(line));
+    .map((line) => JSON.parse(line));
 }
 
 test('claude version requirement parser correctly enforces min version >= 2.1.89', () => {
@@ -49,7 +49,7 @@ test('AskUserQuestion deferred fixture extracts and maps to normalized question 
   const content = await readFile(join(FIXTURES_DIR, 'ask-user-question-deferred.json'), 'utf-8');
   const events = parseStreamJson(content);
 
-  const deltaEvent = events.find(e => e.type === 'message_delta' && e.delta?.stop_reason === 'tool_deferred');
+  const deltaEvent = events.find((e) => e.type === 'message_delta' && e.delta?.stop_reason === 'tool_deferred');
   assert.ok(deltaEvent, 'Found tool_deferred message_delta');
   assert.equal(deltaEvent.deferred_tool_use.name, 'AskUserQuestion');
 
@@ -78,13 +78,13 @@ test('AskUserQuestion resumed fixture streams text deltas and completes turn', a
   const content = await readFile(join(FIXTURES_DIR, 'ask-user-question-resumed.json'), 'utf-8');
   const events = parseStreamJson(content);
 
-  const textBlocks = events.filter(e => e.type === 'content_block_start' && e.content_block?.type === 'text');
+  const textBlocks = events.filter((e) => e.type === 'content_block_start' && e.content_block?.type === 'text');
   assert.ok(textBlocks.length > 0);
 
-  const deltas = events.filter(e => e.type === 'content_block_delta' && e.delta?.type === 'text_delta');
+  const deltas = events.filter((e) => e.type === 'content_block_delta' && e.delta?.type === 'text_delta');
   assert.ok(deltas.length > 0);
 
-  const completion = events.find(e => e.type === 'message_delta' && e.delta?.stop_reason === 'end_turn');
+  const completion = events.find((e) => e.type === 'message_delta' && e.delta?.stop_reason === 'end_turn');
   assert.ok(completion);
 });
 
@@ -92,7 +92,7 @@ test('native permission prompt deferred fixture maps to normalized permission in
   const content = await readFile(join(FIXTURES_DIR, 'permission-prompt-deferred.json'), 'utf-8');
   const events = parseStreamJson(content);
 
-  const deltaEvent = events.find(e => e.type === 'message_delta' && e.delta?.stop_reason === 'tool_deferred');
+  const deltaEvent = events.find((e) => e.type === 'message_delta' && e.delta?.stop_reason === 'tool_deferred');
   assert.ok(deltaEvent);
   assert.equal(deltaEvent.deferred_tool_use.name, 'Bash');
 
@@ -112,13 +112,11 @@ test('parallel tool calls fixture parses multiple concurrent tool uses and compl
   const content = await readFile(join(FIXTURES_DIR, 'parallel-tool-calls.json'), 'utf-8');
   const events = parseStreamJson(content);
 
-  const toolUseBlocks = events.filter(e => e.type === 'content_block_start' && e.content_block?.type === 'tool_use');
+  const toolUseBlocks = events.filter((e) => e.type === 'content_block_start' && e.content_block?.type === 'tool_use');
   assert.equal(toolUseBlocks.length, 2);
   assert.equal(toolUseBlocks[0].content_block?.name, 'Read');
   assert.equal(toolUseBlocks[1].content_block?.name, 'Read');
 
-  const endTurnDelta = events.find(e => e.type === 'message_delta' && e.delta?.stop_reason === 'end_turn');
+  const endTurnDelta = events.find((e) => e.type === 'message_delta' && e.delta?.stop_reason === 'end_turn');
   assert.ok(endTurnDelta);
 });
-
-

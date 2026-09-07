@@ -1,0 +1,148 @@
+{
+  "provider": "codex",
+  "version": "0.149.0",
+  "sessionId": "01a057b1-60a4-73e2-8833-7501ac253c73",
+  "turnId": "01a057b1-63b1-73e0-8c25-68d76c7f22d8",
+  "rawEvents": [
+    {
+      "method": "item/started",
+      "params": {
+        "item": { "type": "reasoning", "id": "rs_01", "summary": [], "content": [] }
+      }
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": { "type": "reasoning", "id": "rs_01", "summary": ["Analyzed diagnostic scope"], "content": [] }
+      }
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": { "type": "agentMessage", "id": "msg_01", "text": "", "phase": "commentary" }
+      }
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": { "itemId": "msg_01", "delta": "Sprawdzę repozytorium i uruchomię polecenie narzędziowe." }
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "agentMessage",
+          "id": "msg_01",
+          "text": "Sprawdzę repozytorium i uruchomię polecenie narzędziowe.",
+          "phase": "commentary"
+        }
+      }
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "commandExecution",
+          "id": "exec-01",
+          "command": "node tools/specs.mjs next",
+          "cwd": "D:\\repos\\git\\nevo",
+          "status": "inProgress",
+          "commandActions": [{ "type": "unknown", "command": "node tools/specs.mjs next" }]
+        }
+      }
+    },
+    {
+      "method": "item/commandExecution/outputDelta",
+      "params": { "itemId": "exec-01", "delta": "node : CommandNotFoundException\r\n" }
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "commandExecution",
+          "id": "exec-01",
+          "status": "failed",
+          "exitCode": 1,
+          "durationMs": 1200,
+          "aggregatedOutput": "node : CommandNotFoundException\r\n"
+        }
+      }
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": { "type": "agentMessage", "id": "msg_02", "text": "", "phase": "commentary" }
+      }
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": { "itemId": "msg_02", "delta": "Wykryto brak środowiska node w PATH. Sprawdzam stan Git bez node." }
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "agentMessage",
+          "id": "msg_02",
+          "text": "Wykryto brak środowiska node w PATH. Sprawdzam stan Git bez node.",
+          "phase": "commentary"
+        }
+      }
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "commandExecution",
+          "id": "exec-02",
+          "command": "git status --porcelain",
+          "cwd": "D:\\repos\\git\\nevo",
+          "status": "inProgress",
+          "commandActions": [{ "type": "unknown", "command": "git status --porcelain" }]
+        }
+      }
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "commandExecution",
+          "id": "exec-02",
+          "status": "completed",
+          "exitCode": 0,
+          "durationMs": 350,
+          "aggregatedOutput": ""
+        }
+      }
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": { "type": "agentMessage", "id": "msg_final", "text": "", "phase": "final_answer" }
+      }
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "itemId": "msg_final",
+        "delta": "Diagnostyka zakończona pomyślnie. Stan repozytorium czysty, zidentyfikowano brak PATH node."
+      }
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "agentMessage",
+          "id": "msg_final",
+          "text": "Diagnostyka zakończona pomyślnie. Stan repozytorium czysty, zidentyfikowano brak PATH node.",
+          "phase": "final_answer"
+        }
+      }
+    },
+    {
+      "method": "turn/completed",
+      "params": {
+        "turn": { "id": "01a057b1-63b1-73e0-8c25-68d76c7f22d8", "status": "completed", "durationMs": 45000 }
+      }
+    }
+  ]
+}

@@ -173,9 +173,9 @@ export async function gatherFinalizeFactsAsync(branch, change, emitter = null, r
   };
 }
 
-export async function runPostMergeCheckAsync(root, branch, computeCheckFailures, { signal = null } = {}) {
+export async function runPostMergeCheckAsync(root, branch, computeCheckFailures, { signal = null, baseBranch = 'main' } = {}) {
   await runGitAsync(root, ['fetch', 'origin'], { signal });
-  await runGitAsync(root, ['checkout', 'main'], { signal });
+  await runGitAsync(root, ['checkout', baseBranch], { signal });
   await runGitAsync(root, ['pull', '--ff-only'], { signal });
   const mergedSha = await runGitAsync(root, ['rev-parse', 'HEAD'], { signal });
 
@@ -294,7 +294,8 @@ export async function finalizeChange({
   progress.stepCompleted({ id: 'push-and-merge' });
 
   progress.stepStarted({ id: 'post-merge-check', label: 'Post-merge check' });
-  const postMerge = await runPostMergeCheckAsync(gitRoot, branch, gatherPostMergeCheckFailures, { signal });
+  const baseBranch = facts.pr?.baseRefName || 'main';
+  const postMerge = await runPostMergeCheckAsync(gitRoot, branch, gatherPostMergeCheckFailures, { signal, baseBranch });
   if (!postMerge.ok) {
     progress.stepFailed({ id: 'post-merge-check', error: 'Post-merge check failed' });
     progress.operationFailed({ error: 'Post-merge check failed' });

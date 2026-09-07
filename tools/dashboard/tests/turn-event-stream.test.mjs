@@ -65,7 +65,7 @@ test('TurnEventStream: session replay after cursor and multi-turn subscriber', (
     {
       afterSequence: 1,
       onEvent: (event) => sessionReceived.push(event),
-    }
+    },
   );
 
   assert.equal(sessionReceived.length, 1);

@@ -4,6 +4,7 @@
 
 | ID | Title | Status | Priority | Created |
 |---|---|---|---|---|
+| `ai-session-issues-and-diagnostics` | AI session issues and diagnostics | archived | 10 | 2026-08-30 |
 | `ai-sessions-live-chat-integration` | AI sessions and live chat integration | archived | 10 | 2026-08-15 |
 | `architecture-documentation` | Architecture documentation | archived | 10 | 2026-08-01 |
 | `chat-ux-improvements-pt1` | Chat UX Improvements pt1 | archived | 10 | 2026-08-21 |
@@ -21,4 +22,6 @@
 | `openai-codex-provider-support` | OpenAI Codex provider support | archived | 10 | 2026-08-22 |
 | `query-support-and-handler-registration-hardening` | Query support and handler-registration hardening | archived | 10 | 2026-08-08 |
 | `refaktoring-tooli` | Tools refactoring according to Node and React guidelines | archived | 10 | 2026-08-25 |
+| `semantic-color-tokens-with-tailwind-css-4` | Semantic Color Tokens with Tailwind CSS 4 | archived | 10 | 2026-09-03 |
+| `storybook-for-nevo-ai` | Storybook for Nevo AI | archived | 10 | 2026-09-02 |
 | `ux-improvements-version-1` | UX Improvements version 1 | archived | 10 | 2026-08-19 |

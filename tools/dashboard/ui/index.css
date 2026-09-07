@@ -1,68 +1,75 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+@theme static {
+  --color-*: initial;
+
+  /* Neutral foundation */
+  --color-background: #090a0d;
+  --color-surface: #0f1116;
+  --color-surface-raised: #14171d;
+  --color-surface-hover: #191d24;
+  --color-border: #252a33;
+  --color-border-strong: #343b47;
+
+  /* Foreground hierarchy */
+  --color-fg-primary: #f1f3f5;
+  --color-fg-secondary: #c7cdd6;
+  --color-fg-muted: #929baa;
+  --color-fg-on-accent: #f8fafc;
+
+  /* Interaction */
+  --color-accent: #3882f6;
+  --color-accent-solid: #1d4ed8;
+
+  /* Canonical status */
+  --color-status-success: #35c76f;
+  --color-status-warning: #f59e0b;
+  --color-status-error: #ef4444;
+  --color-status-attention: #a78bfa;
+  --color-status-info: #06b6d4;
+
+  /* Action role */
+  --color-action-destructive: #ef4444;
+
+  /* Provider / workflow */
+  --color-provider-claude: #fb923c;
+  --color-provider-antigravity: #60a5fa;
+  --color-workflow-design: #8b5cf6;
+
+  /* Overlay */
+  --color-backdrop: rgb(0 0 0 / 70%);
+}
+
+@theme static inline {
+  --color-status-active: var(--color-accent);
+  --color-status-neutral: var(--color-fg-muted);
+  --color-diff-addition: var(--color-status-success);
+  --color-diff-deletion: var(--color-status-error);
+}
 
 :root {
   color-scheme: dark;
-  /* Neutral foundation. These values must never be derived from --accent. */
-  --background: #090a0d;
-  --surface: #0f1116;
-  --surface-raised: #14171d;
-  --surface-hover: #191d24;
-  --border: #252a33;
-  --border-strong: #343b47;
-  --foreground: #f1f3f5;
-  --muted: #929baa;
-  --muted-strong: #c7cdd6;
-
-  /* Interaction and active state. */
-  --accent: #3882f6;
-  --accent-strong: #1d4ed8;
-  --accent-foreground: #f8fafc;
-  --accent-muted: color-mix(in srgb, var(--accent) 10%, transparent);
-  --accent-border: color-mix(in srgb, var(--accent) 35%, var(--border));
-
-  /* Semantic state. */
-  --success: #35c76f;
-  --success-strong: #7bdc99;
-  --success-muted: color-mix(in srgb, var(--success) 10%, transparent);
-  --success-border: color-mix(in srgb, var(--success) 28%, var(--border));
-  --warning: #f59e0b;
-  --warning-strong: #fcd34d;
-  --warning-muted: color-mix(in srgb, var(--warning) 10%, transparent);
-  --warning-border: color-mix(in srgb, var(--warning) 28%, var(--border));
-  --danger: #ef4444;
-  --danger-strong: #fca5a5;
-  --danger-muted: color-mix(in srgb, var(--danger) 10%, transparent);
-  --danger-border: color-mix(in srgb, var(--danger) 28%, var(--border));
-  --info: #06b6d4;
-  --info-strong: #67e8f9;
-  --info-muted: color-mix(in srgb, var(--info) 10%, transparent);
-  --info-border: color-mix(in srgb, var(--info) 28%, var(--border));
-
-  /* Lane presentation. Workflow configuration selects a lane; lanes select tokens. */
-  --lane-new: var(--muted);
-  --lane-design: #8b5cf6;
-  --lane-ready: var(--info);
-  --lane-implementation: var(--accent);
-  --lane-review: var(--warning);
-  --lane-done: var(--success);
-  --lane-danger: var(--danger);
-
-  --cat-1: #fb923c;
-  --cat-2: #60a5fa;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
 
 * {
   box-sizing: border-box;
-  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-color: var(--color-border-strong) transparent;
   scrollbar-width: thin;
 }
 
 html {
   min-width: 320px;
-  background: var(--background);
+  background: var(--color-background);
 }
 
 body {
@@ -71,9 +78,8 @@ body {
   margin: 0;
   background:
     radial-gradient(circle at 22% -10%, rgba(255, 255, 255, 0.025), transparent 28rem),
-    radial-gradient(circle at 80% 115%, rgba(255, 255, 255, 0.018), transparent 32rem),
-    var(--background);
-  color: var(--foreground);
+    radial-gradient(circle at 80% 115%, rgba(255, 255, 255, 0.018), transparent 32rem), var(--color-background);
+  color: var(--color-fg-primary);
 }
 
 body::before {
@@ -85,7 +91,7 @@ body::before {
     linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
   background-size: 42px 42px;
   mask-image: linear-gradient(to bottom, black, transparent 70%);
-  content: "";
+  content: '';
   pointer-events: none;
 }
 
@@ -99,92 +105,152 @@ button {
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--accent) 30%, transparent);
-  color: var(--accent-foreground);
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+  color: var(--color-fg-on-accent);
 }
 
 .markdown-body {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  color: var(--muted-strong);
+  color: var(--color-fg-secondary);
   font-size: 0.925rem;
   line-height: 1.75;
   overflow-wrap: anywhere;
 }
 
-.markdown-body > :first-child { margin-top: 0; }
-.markdown-body > :last-child { margin-bottom: 0; }
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+.markdown-body > :last-child {
+  margin-bottom: 0;
+}
 .markdown-body h1,
 .markdown-body h2,
 .markdown-body h3,
 .markdown-body h4 {
   margin: 1.8em 0 0.65em;
-  color: var(--foreground);
+  color: var(--color-fg-primary);
   font-weight: 650;
   line-height: 1.25;
   letter-spacing: -0.02em;
 }
-.markdown-body h1 { font-size: 1.75rem; }
-.markdown-body h2 { border-bottom: 1px solid var(--border); padding-bottom: 0.45rem; font-size: 1.3rem; }
-.markdown-body h3 { font-size: 1.08rem; }
-.markdown-body h4 { font-size: 0.95rem; }
+.markdown-body h1 {
+  font-size: 1.75rem;
+}
+.markdown-body h2 {
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0.45rem;
+  font-size: 1.3rem;
+}
+.markdown-body h3 {
+  font-size: 1.08rem;
+}
+.markdown-body h4 {
+  font-size: 0.95rem;
+}
 .markdown-body p,
 .markdown-body ul,
 .markdown-body ol,
 .markdown-body blockquote,
 .markdown-body pre,
-.markdown-body table { margin: 0.9rem 0; }
+.markdown-body table {
+  margin: 0.9rem 0;
+}
 .markdown-body ul,
-.markdown-body ol { padding-left: 1.5rem; }
-.markdown-body ul { list-style: disc; }
-.markdown-body ol { list-style: decimal; }
-.markdown-body li + li { margin-top: 0.25rem; }
-.markdown-body a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
-.markdown-body strong { color: var(--foreground); font-weight: 650; }
+.markdown-body ol {
+  padding-left: 1.5rem;
+}
+.markdown-body ul {
+  list-style: disc;
+}
+.markdown-body ol {
+  list-style: decimal;
+}
+.markdown-body li + li {
+  margin-top: 0.25rem;
+}
+.markdown-body a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.markdown-body strong {
+  color: var(--color-fg-primary);
+  font-weight: 650;
+}
 .markdown-body blockquote {
-  border-left: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
   padding-left: 1rem;
-  color: var(--muted);
+  color: var(--color-fg-muted);
 }
 .markdown-body code {
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   border-radius: 0.35rem;
-  background: var(--background);
+  background: var(--color-background);
   padding: 0.12rem 0.35rem;
-  color: var(--muted-strong);
-  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  color: var(--color-fg-secondary);
+  font-family: 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
   font-size: 0.84em;
 }
 .markdown-body pre {
   max-width: 100%;
   overflow-x: auto;
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   border-radius: 0.8rem;
-  background: var(--background);
+  background: var(--color-background);
   padding: 1rem;
 }
-.markdown-body pre code { border: 0; background: transparent; padding: 0; color: inherit; }
-.markdown-body .contains-task-list { list-style: none; padding-left: 0; }
-.markdown-body input[type="checkbox"] { margin-right: 0.5rem; accent-color: var(--accent); }
-.markdown-body table { display: block; width: max-content; min-width: 100%; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.markdown-body pre code {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+.markdown-body .contains-task-list {
+  list-style: none;
+  padding-left: 0;
+}
+.markdown-body input[type='checkbox'] {
+  margin-right: 0.5rem;
+  accent-color: var(--color-accent);
+}
+.markdown-body table {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
 .markdown-body th,
-.markdown-body td { border: 1px solid var(--border); padding: 0.55rem 0.75rem; text-align: left; }
-.markdown-body th { background: var(--surface-raised); color: var(--foreground); }
-.markdown-body hr { margin: 1.8rem 0; border: 0; border-top: 1px solid var(--border); }
+.markdown-body td {
+  border: 1px solid var(--color-border);
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+}
+.markdown-body th {
+  background: var(--color-surface-raised);
+  color: var(--color-fg-primary);
+}
+.markdown-body hr {
+  margin: 1.8rem 0;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+}
 
 .nevo-diff-view {
-  scrollbar-color: var(--border-strong) var(--background);
+  scrollbar-color: var(--color-border-strong) var(--color-background);
   scrollbar-gutter: stable;
 }
 
 .nevo-diff-view .diff-tailwindcss-wrapper {
   min-width: 680px;
-  background: var(--surface);
-  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  background: var(--color-surface);
+  font-family: 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
 }
 
-.nevo-diff-view [data-mode="old"],
-.nevo-diff-view [data-mode="new"] {
+.nevo-diff-view [data-mode='old'],
+.nevo-diff-view [data-mode='new'] {
   min-width: 0;
 }

@@ -8,13 +8,7 @@ import type {
   SpecificationManifest,
   SpecificationOwnerAction,
 } from '../types';
-import {
-  ACTIONS_QUERY_KEY,
-  DOCUMENT_QUERY_KEY,
-  invalidateSpecificationQueries,
-  MANIFEST_QUERY_KEY,
-} from '../queries';
-import { invalidatePullRequestQueries } from '@/features/pull-requests/queries';
+import { ACTIONS_QUERY_KEY, DOCUMENT_QUERY_KEY, invalidateSpecificationQueries, MANIFEST_QUERY_KEY } from '../queries';
 
 async function fetchSpecificationManifest(specification: SpecificationSummary) {
   const response = await fetch(`/api/specs/${specification.source}/${encodeURIComponent(specification.slug)}/content`, {
@@ -76,16 +70,21 @@ export function useSpecificationDocument(specification: SpecificationSummary, do
 }
 
 async function fetchSpecificationActions(specification: SpecificationSummary) {
-  const response = await fetch(`/api/specs/active/${encodeURIComponent(specification.slug)}/actions`, { cache: 'no-store' });
+  const response = await fetch(`/api/specs/active/${encodeURIComponent(specification.slug)}/actions`, {
+    cache: 'no-store',
+  });
   if (!response.ok) throw new Error(`Specification actions API: ${response.status}`);
   return (await response.json()) as SpecificationActionsPayload;
 }
 
-async function executeSpecificationAction(specification: SpecificationSummary, request: {
-  action: SpecificationOwnerAction;
-  taskId?: string;
-  confirmed?: boolean;
-}) {
+async function executeSpecificationAction(
+  specification: SpecificationSummary,
+  request: {
+    action: SpecificationOwnerAction;
+    taskId?: string;
+    confirmed?: boolean;
+  },
+) {
   const response = await fetch(`/api/specs/active/${encodeURIComponent(specification.slug)}/actions`, {
     method: 'POST',
     headers: {
@@ -95,11 +94,18 @@ async function executeSpecificationAction(specification: SpecificationSummary, r
     body: JSON.stringify(request),
   });
   const payload = (await response.json()) as SpecificationActionResult | { error?: string };
-  if (!response.ok) throw new Error('error' in payload && payload.error ? payload.error : `Specification action API: ${response.status}`);
+  if (!response.ok)
+    throw new Error(
+      'error' in payload && payload.error ? payload.error : `Specification action API: ${response.status}`,
+    );
   return payload as SpecificationActionResult;
 }
 
-export function useSpecificationActions(specification: SpecificationSummary, enabled = true) {
+export function useSpecificationActions(
+  specification: SpecificationSummary,
+  enabled = true,
+  onSyncSuccess?: () => Promise<unknown> | void,
+) {
   const queryClient = useQueryClient();
   const active = enabled && specification.source === 'active';
   const query = useQuery({
@@ -112,18 +118,14 @@ export function useSpecificationActions(specification: SpecificationSummary, ena
     retry: 1,
   });
   const mutation = useMutation({
-    mutationFn: (request: { action: SpecificationOwnerAction; taskId?: string; confirmed?: boolean }) => (
-      executeSpecificationAction(specification, request)
-    ),
+    mutationFn: (request: { action: SpecificationOwnerAction; taskId?: string; confirmed?: boolean }) =>
+      executeSpecificationAction(specification, request),
     onSuccess: async (result) => {
       // If the action returned an async operationId, invalidation is deferred
       // until the operation reaches terminal status (operation.completed / operation.failed).
       // If no operationId was returned (direct synchronous legacy), invalidate immediately.
       if (!result?.operationId) {
-        await Promise.all([
-          invalidateSpecificationQueries(queryClient),
-          invalidatePullRequestQueries(queryClient),
-        ]);
+        await Promise.all([invalidateSpecificationQueries(queryClient), onSyncSuccess?.()]);
       }
     },
   });

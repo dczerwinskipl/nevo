@@ -26,7 +26,7 @@ function matcher(glob: string): (path: string) => boolean {
 }
 
 function matchesAny(path: string, globs: string[]): boolean {
-  return globs.some(glob => matcher(glob)(path));
+  return globs.some((glob) => matcher(glob)(path));
 }
 
 /**
@@ -53,12 +53,12 @@ function bucket(paths: string[], nameFor: (path: string) => string): FileGroup[]
     }
     buckets.get(name)!.push(path);
   }
-  return order.map(name => ({ name, paths: buckets.get(name)! }));
+  return order.map((name) => ({ name, paths: buckets.get(name)! }));
 }
 
 /** Natural repo structure — each file's own containing directory, sorted alphabetically. Requires no config (AC5). */
 function groupByDirectory(paths: string[]): FileGroup[] {
-  const groups = bucket(paths, path => {
+  const groups = bucket(paths, (path) => {
     const index = path.lastIndexOf('/');
     return index === -1 ? '(root)' : path.slice(0, index);
   });
@@ -70,10 +70,14 @@ function groupFlat(paths: string[]): FileGroup[] {
   return paths.length ? [{ name: 'Wszystkie pliki', paths: [...paths] }] : [];
 }
 
-export function groupFiles(paths: string[], mode: GroupByMode, config: ChangeViewConfig | undefined | null): FileGroup[] {
+export function groupFiles(
+  paths: string[],
+  mode: GroupByMode,
+  config: ChangeViewConfig | undefined | null,
+): FileGroup[] {
   if (mode === 'flat') return groupFlat(paths);
   if (mode === 'directory') return groupByDirectory(paths);
-  return bucket(paths, path => assignGroup(path, config));
+  return bucket(paths, (path) => assignGroup(path, config));
 }
 
 /** A lockfile is tracked as its own concept, never auto-folded into "generated" (area doc). */
@@ -83,7 +87,7 @@ export function isLockfile(path: string, config: GeneratedFilesConfig | undefine
 
 export function isGeneratedFile(path: string, config: GeneratedFilesConfig | undefined | null): boolean {
   if (isLockfile(path, config)) return false;
-  const globs = (config?.rules ?? []).flatMap(rule => rule.paths ?? []);
+  const globs = (config?.rules ?? []).flatMap((rule) => rule.paths ?? []);
   return matchesAny(path, globs);
 }
 

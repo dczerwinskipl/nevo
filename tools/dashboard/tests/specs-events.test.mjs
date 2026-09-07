@@ -36,7 +36,7 @@ test('full app: GET /api/events opens an SSE stream and POST falls through to th
 
     controller.abort();
   } finally {
-    await new Promise(resolvePromise => server.close(resolvePromise));
+    await new Promise((resolvePromise) => server.close(resolvePromise));
   }
 });
 
@@ -58,7 +58,9 @@ test('specs events: SSE subscribes to the watcher, forwards its events, and unsu
   const fakeWatcher = {
     subscribe: (fn) => {
       subscriber = fn;
-      return () => { unsubscribed = true; };
+      return () => {
+        unsubscribed = true;
+      };
     },
     close: () => {},
   };
@@ -82,7 +84,7 @@ test('specs events: SSE subscribes to the watcher, forwards its events, and unsu
     assert.match(decoder.decode(secondChunk), /event: specs-changed/);
 
     controller.abort();
-    await new Promise(r => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 50));
     assert.equal(unsubscribed, true);
   } finally {
     await app.close();
@@ -92,7 +94,9 @@ test('specs events: SSE subscribes to the watcher, forwards its events, and unsu
 test('specs events: server shutdown closes open SSE connections and cleans subscriptions exactly once without client disconnect', async () => {
   let unsubscribeCallCount = 0;
   const fakeWatcher = {
-    subscribe: () => () => { unsubscribeCallCount++; },
+    subscribe: () => () => {
+      unsubscribeCallCount++;
+    },
     close: () => {},
   };
 
@@ -115,7 +119,9 @@ test('specs events: server shutdown closes open SSE connections and cleans subsc
   const readPromise = reader.read();
   const { done: streamEnded } = await Promise.race([
     readPromise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for stream end on shutdown')), 5000)),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Timed out waiting for stream end on shutdown')), 5000),
+    ),
   ]);
   assert.equal(streamEnded, true, 'SSE stream was closed by server shutdown');
 
@@ -125,9 +131,11 @@ test('specs events: server shutdown closes open SSE connections and cleans subsc
   assert.equal(unsubscribeCallCount, 1, 'watcher subscriber was cleaned up exactly once');
 });
 
-test('specs events: app.close() awaits the watcher\'s own close() rather than firing-and-forgetting it', async () => {
+test("specs events: app.close() awaits the watcher's own close() rather than firing-and-forgetting it", async () => {
   let resolveWatcherClose;
-  const watcherCloseCalled = new Promise(resolve => { resolveWatcherClose = resolve; });
+  const watcherCloseCalled = new Promise((resolve) => {
+    resolveWatcherClose = resolve;
+  });
   let watcherClosed = false;
   const controlledWatcher = {
     subscribe: () => () => {},
@@ -135,7 +143,9 @@ test('specs events: app.close() awaits the watcher\'s own close() rather than fi
       // Only resolves once the test explicitly releases it — proves
       // app.close() itself is blocked on this promise, not just the
       // low-level chokidar wrapper in isolation.
-      return watcherCloseCalled.then(() => { watcherClosed = true; });
+      return watcherCloseCalled.then(() => {
+        watcherClosed = true;
+      });
     },
   };
 
@@ -143,7 +153,9 @@ test('specs events: app.close() awaits the watcher\'s own close() rather than fi
   await app.listen({ port: 0 });
 
   let closeResolved = false;
-  const closePromise = app.close().then(() => { closeResolved = true; });
+  const closePromise = app.close().then(() => {
+    closeResolved = true;
+  });
 
   await Promise.resolve();
   await Promise.resolve();
@@ -153,10 +165,10 @@ test('specs events: app.close() awaits the watcher\'s own close() rather than fi
   resolveWatcherClose();
   await closePromise;
   assert.equal(closeResolved, true);
-  assert.equal(watcherClosed, true, 'app.close() waited for the watcher\'s close() to actually settle');
+  assert.equal(watcherClosed, true, "app.close() waited for the watcher's close() to actually settle");
 });
 
-test('specs events: a configured activeDir/archiveDir is what the watcher actually watches, not the real repo\'s specs/ tree', async () => {
+test("specs events: a configured activeDir/archiveDir is what the watcher actually watches, not the real repo's specs/ tree", async () => {
   const tmpRoot = await mkdtemp(join(tmpdir(), 'nevo-specs-watcher-config-'));
   const activeDir = join(tmpRoot, 'active');
   const archiveDir = join(tmpRoot, 'archive');
@@ -190,7 +202,7 @@ test('specs events: a configured activeDir/archiveDir is what the watcher actual
     assert.match(buffered, /event: connected/);
 
     // Allow watcher initialization to settle before writing test file
-    await new Promise(r => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 100));
 
     await writeFile(join(activeDir, 'sample-change.yaml'), 'id: sample-change\n');
 
@@ -206,11 +218,13 @@ test('specs events: a configured activeDir/archiveDir is what the watcher actual
 
     buffered = await Promise.race([
       readEvent,
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for specs-changed event over SSE')), 5000)),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Timed out waiting for specs-changed event over SSE')), 5000),
+      ),
     ]);
 
     assert.match(buffered, /event: specs-changed/);
-    const dataLine = buffered.split('\n').find(line => line.startsWith('data:'));
+    const dataLine = buffered.split('\n').find((line) => line.startsWith('data:'));
     const payload = JSON.parse(dataLine.slice('data:'.length).trim());
     assert.deepEqual(payload.files, ['specs/active/sample-change.yaml']);
 

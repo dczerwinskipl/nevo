@@ -7,7 +7,7 @@ import {
   validatedSessionId,
 } from './http.mjs';
 import { authorize } from '../access-policy.mjs';
-import { AiValidationError, validateAiMessage } from '../contracts.mjs';
+import { AiValidationError } from '../contracts.mjs';
 
 const SESSION_CREATE_BODY_LIMIT = 16_384;
 const SESSION_PATCH_BODY_LIMIT = 4_096;
@@ -40,7 +40,11 @@ export default async function sessionRoutes(fastify, { service, accessPolicy }) 
     if (body.providerSessionId) {
       const providerSessionId = validatedSessionId(body.providerSessionId);
       if (body.taskId && !TURN_PATTERN.test(body.taskId)) throw new AiValidationError('Invalid task ID.');
-      if (body.taskIds !== undefined && (!Array.isArray(body.taskIds) || body.taskIds.some(taskId => typeof taskId !== 'string' || !TURN_PATTERN.test(taskId)))) {
+      if (
+        body.taskIds !== undefined &&
+        (!Array.isArray(body.taskIds) ||
+          body.taskIds.some((taskId) => typeof taskId !== 'string' || !TURN_PATTERN.test(taskId)))
+      ) {
         throw new AiValidationError('Task IDs must be an array of stable IDs.');
       }
       const session = await service.attachSession(provider, {
@@ -55,14 +59,20 @@ export default async function sessionRoutes(fastify, { service, accessPolicy }) 
       return;
     }
 
-    if (body.taskIds !== undefined && (!Array.isArray(body.taskIds) || body.taskIds.some(taskId => typeof taskId !== 'string' || !TURN_PATTERN.test(taskId)))) {
+    if (
+      body.taskIds !== undefined &&
+      (!Array.isArray(body.taskIds) ||
+        body.taskIds.some((taskId) => typeof taskId !== 'string' || !TURN_PATTERN.test(taskId)))
+    ) {
       throw new AiValidationError('Task IDs must be an array of stable IDs.');
     }
     if (body.taskId !== undefined && !TURN_PATTERN.test(body.taskId)) {
       throw new AiValidationError('Invalid task ID.');
     }
 
-    console.log(`[ai] [session:create] provider=${provider} specId=${body.specId} taskId=${body.taskId || '-'}${body.mode ? ` mode=${body.mode}` : ''}`);
+    console.log(
+      `[ai] [session:create] provider=${provider} specId=${body.specId} taskId=${body.taskId || '-'}${body.mode ? ` mode=${body.mode}` : ''}`,
+    );
     const session = await service.createSession(provider, {
       specId: body.specId,
       taskId: body.taskId,
@@ -78,34 +88,70 @@ export default async function sessionRoutes(fastify, { service, accessPolicy }) 
     const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
     const providerSessionId = validatedSessionId(request.params.providerSessionId);
     authorize(accessPolicy, 'read', request);
-    reply.send({ session: await service.getSessionDetails(provider, providerSessionId) });
+    const session = await service.getSessionDetails(provider, providerSessionId);
+    reply.send({ session });
   });
 
-  fastify.patch('/api/agent-sessions/:provider/:providerSessionId', { bodyLimit: SESSION_PATCH_BODY_LIMIT }, async (request, reply) => {
+  fastify.get('/api/agent-sessions/:provider/:providerSessionId/chat', async (request, reply) => {
     const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
     const providerSessionId = validatedSessionId(request.params.providerSessionId);
-    authorize(accessPolicy, 'control', request);
-    const body = assertBodyObject(request.body);
-    if (body.mode) {
-      const session = await service.updateSessionMode(provider, providerSessionId, body.mode);
-      reply.send({ session });
-      return;
-    }
-    reply.send({ ok: true });
+    authorize(accessPolicy, 'read', request);
+    const details = await service.getSessionDetails(provider, providerSessionId);
+    reply.send({
+      session: {
+        provider: details.provider,
+        providerSessionId: details.providerSessionId,
+        sessionId: details.sessionId,
+        status: details.status,
+        readiness: details.readiness,
+        mode: details.mode,
+        capabilities: details.capabilities,
+        specId: details.specId,
+        taskId: details.taskId,
+        taskIds: details.taskIds,
+        title: details.title,
+        createdAt: details.createdAt,
+        lastActivityAt: details.lastActivityAt,
+        // Authoritative SSE replay cursor for this snapshot — the browser must resume
+        // from here, never from 0, or it will visibly replay the entire historical
+        // event stream on every load.
+        lastEventSeq: details.lastEventSeq || 0,
+      },
+      turns: details.turns || [],
+      workSummary: details.workSummary,
+      readiness: details.readiness,
+    });
   });
+
+  fastify.get('/api/agent-sessions/:provider/:providerSessionId/turns', async (request, reply) => {
+    const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
+    const providerSessionId = validatedSessionId(request.params.providerSessionId);
+    authorize(accessPolicy, 'read', request);
+    const turns = await service.listTurns(provider, providerSessionId);
+    reply.send({ turns });
+  });
+
+  fastify.patch(
+    '/api/agent-sessions/:provider/:providerSessionId',
+    { bodyLimit: SESSION_PATCH_BODY_LIMIT },
+    async (request, reply) => {
+      const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
+      const providerSessionId = validatedSessionId(request.params.providerSessionId);
+      authorize(accessPolicy, 'control', request);
+      const body = assertBodyObject(request.body);
+      if (body.mode) {
+        const session = await service.updateSessionMode(provider, providerSessionId, body.mode);
+        reply.send({ session });
+        return;
+      }
+      reply.send({ ok: true });
+    },
+  );
 
   fastify.delete('/api/agent-sessions/:provider/:providerSessionId', async (request, reply) => {
     const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
     const providerSessionId = validatedSessionId(request.params.providerSessionId);
     authorize(accessPolicy, 'control', request);
     reply.send(await service.deleteSession(provider, providerSessionId));
-  });
-
-  fastify.get('/api/agent-sessions/:provider/:providerSessionId/messages', async (request, reply) => {
-    authorize(accessPolicy, 'read', request);
-    const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
-    const sessionId = validatedSessionId(request.params.providerSessionId);
-    const messages = (await service.listMessages(provider, sessionId)).map(validateAiMessage);
-    reply.send({ messages });
   });
 }

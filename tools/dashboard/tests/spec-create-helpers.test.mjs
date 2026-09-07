@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { slugifyTitle, resolveDefaultPlanningMode, SPEC_TYPES_OPTIONS } from '../ui/features/specifications/create/create-specification-helpers.ts';
+import {
+  slugifyTitle,
+  resolveDefaultPlanningMode,
+  SPEC_TYPES_OPTIONS,
+} from '../ui/screens/specification-console/create-specification/create-specification-helpers.ts';
 
 test('slugifyTitle converts titles to canonical kebab-case slugs', () => {
   assert.equal(slugifyTitle('Multi-Provider Agent Sessions'), 'multi-provider-agent-sessions');
@@ -12,7 +16,7 @@ test('slugifyTitle converts titles to canonical kebab-case slugs', () => {
 });
 
 test('SPEC_TYPES_OPTIONS contains standard, architectural, small, exploratory options', () => {
-  const ids = SPEC_TYPES_OPTIONS.map(o => o.id);
+  const ids = SPEC_TYPES_OPTIONS.map((o) => o.id);
   assert.deepEqual(ids, ['standard', 'architectural', 'small', 'exploratory']);
 });
 
@@ -23,7 +27,7 @@ test('resolveDefaultPlanningMode adheres strictly to safety invariant (Task 13 &
       supportedModes: ['ask', 'edit', 'agent'],
       defaultMode: 'edit',
     }),
-    'ask'
+    'ask',
   );
 
   // 2. Provider without ask initializes to its declared default mode
@@ -32,7 +36,7 @@ test('resolveDefaultPlanningMode adheres strictly to safety invariant (Task 13 &
       supportedModes: ['edit', 'agent'],
       defaultMode: 'edit',
     }),
-    'edit'
+    'edit',
   );
 
   // 3. Provider declaring defaultMode: 'agent' without ask never silently escalates to 'agent'
@@ -41,7 +45,7 @@ test('resolveDefaultPlanningMode adheres strictly to safety invariant (Task 13 &
       supportedModes: ['edit', 'agent'],
       defaultMode: 'agent',
     }),
-    'edit'
+    'edit',
   );
 
   // 4. Missing/invalid default mode safely falls back to 'edit'
@@ -49,14 +53,14 @@ test('resolveDefaultPlanningMode adheres strictly to safety invariant (Task 13 &
     resolveDefaultPlanningMode({
       supportedModes: ['edit', 'agent'],
     }),
-    'edit'
+    'edit',
   );
   assert.equal(
     resolveDefaultPlanningMode({
       supportedModes: ['edit', 'agent'],
       defaultMode: 'unknown',
     }),
-    'edit'
+    'edit',
   );
 
   // 5. Missing/null provider safely resolves to default supported 'ask'

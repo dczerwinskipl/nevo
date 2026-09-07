@@ -58,7 +58,7 @@ test('postStartTurn throws the server-provided error message on failure', async 
     (err) => {
       assert.equal(err.message, 'Turn execution conflict');
       return true;
-    }
+    },
   );
 });
 
@@ -66,7 +66,9 @@ test('postStartTurn falls back to a status-coded message when the error body is 
   globalThis.fetch = async () => ({
     ok: false,
     status: 500,
-    json: async () => { throw new Error('not json'); },
+    json: async () => {
+      throw new Error('not json');
+    },
   });
 
   await assert.rejects(
@@ -74,7 +76,7 @@ test('postStartTurn falls back to a status-coded message when the error body is 
     (err) => {
       assert.equal(err.message, 'Failed to start turn (500)');
       return true;
-    }
+    },
   );
 });
 
@@ -122,6 +124,6 @@ test('postRespondInteraction throws the server-provided error message on failure
     (err) => {
       assert.equal(err.message, 'Interaction store unavailable');
       return true;
-    }
+    },
   );
 });

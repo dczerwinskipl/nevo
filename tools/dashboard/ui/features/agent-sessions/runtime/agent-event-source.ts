@@ -1,19 +1,7 @@
 import type { AgentEvent } from '../types.ts';
 
 export const SUPPORTED_AGENT_EVENT_TYPES = [
-  'turn.started',
-  'message.started',
-  'text.delta',
-  'progress.delta',
-  'reasoning.delta',
-  'tool.started',
-  'tool.updated',
-  'tool.completed',
-  'interaction.requested',
-  'interaction.resolved',
-  'usage.updated',
-  'turn.completed',
-  'turn.failed',
+  'turn.updated',
 ] as const;
 
 export type SupportedAgentEventType = (typeof SUPPORTED_AGENT_EVENT_TYPES)[number];
@@ -28,7 +16,7 @@ export interface AgentEventSourceLike {
 }
 
 /**
- * Subscribes to all supported named AgentEvent types as well as generic onmessage fallback.
+ * Subscribes to supported named AgentEvent types as well as generic onmessage fallback.
  * Returns an unsubscribe / cleanup function.
  */
 export function subscribeAgentEventSource(
@@ -78,8 +66,7 @@ export interface AgentEventStreamHandlers {
  * named-event subscription via `subscribeAgentEventSource`, cleanup on disconnect).
  * Takes an injectable `createEventSource` so this — and thus the live-stream lifecycle
  * a session runtime depends on — is testable with a fake `AgentEventSourceLike` and no
- * real browser `EventSource`, `@assistant-ui/react`, or React at all (area
- * ai-assistant-chat-and-runtime-feature-slice, task 07).
+ * real browser `EventSource` or React at all.
  */
 export function connectAgentEventStream(
   url: string,

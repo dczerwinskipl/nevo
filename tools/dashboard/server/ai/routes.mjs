@@ -18,6 +18,7 @@ import sessionRoutes from './sessions/routes.mjs';
 import turnRoutes from './sessions/turns/routes.mjs';
 import interactionRoutes from './sessions/interactions/routes.mjs';
 import aiEventRoutes from './sessions/events/routes.mjs';
+import { mcpRoutes, mcpInteractionRegistry } from './interactions/mcp/index.mjs';
 
 import { createTrustedNetworkAiAccessPolicy } from './access-policy.mjs';
 import { aiErrorHandler } from './sessions/http.mjs';
@@ -31,43 +32,67 @@ import { aiErrorHandler } from './sessions/http.mjs';
  * configured/worktree root relocates the whole AI capability together;
  * no provider independently falls back to the real repository root.
  */
-export function createDefaultAgentSessionService({ root = REPOSITORY_ROOT, dataLoader, providerConfigPath } = {}) {
+export function createDefaultAgentSessionService({
+  root = REPOSITORY_ROOT,
+  dataLoader,
+  providerConfigPath,
+  mcpEndpointResolver,
+} = {}) {
   const providerConfig = loadAgentProvidersConfig({ repoRoot: root, filePath: providerConfigPath });
   const data = dataLoader ? dataLoader() : {};
-  const demonstration = data.active?.find(specification => specification.slug === 'multi-provider-agent-sessions' && specification.specId)
-    || data.active?.find(specification => specification.slug === 'ai-sessions-live-chat-integration' && specification.specId)
-    || data.active?.find(specification => specification.specId);
+  const demonstration =
+    data.active?.find(
+      (specification) => specification.slug === 'multi-provider-agent-sessions' && specification.specId,
+    ) ||
+    data.active?.find(
+      (specification) => specification.slug === 'ai-sessions-live-chat-integration' && specification.specId,
+    ) ||
+    data.active?.find((specification) => specification.specId);
   const providers = [];
   for (const providerId of providerConfig.providerOrder) {
     if (!providerConfig.providers[providerId].enabled) continue;
     switch (providerId) {
       case 'claude':
-        providers.push(new ClaudeAgentProvider({
-          cwd: root,
-          rawCaptureEnabled: providerConfig.providers.claude?.rawCaptureEnabled,
-          rawCaptureDir: providerConfig.providers.claude?.rawCaptureDir,
-        }));
+        providers.push(
+          new ClaudeAgentProvider({
+            cwd: root,
+            rawCaptureEnabled: providerConfig.providers.claude?.rawCaptureEnabled,
+            rawCaptureDir: providerConfig.providers.claude?.rawCaptureDir,
+            mcpEndpointUrl: mcpEndpointResolver,
+          }),
+        );
         break;
       case 'antigravity':
-        providers.push(new AntigravityAgentProvider({
-          cwd: root,
-          mappingFilePath: resolve(root, '.nevo-ai-local', 'antigravity-sessions.json'),
-          rawCaptureEnabled: providerConfig.providers.antigravity?.rawCaptureEnabled,
-          rawCaptureDir: providerConfig.providers.antigravity?.rawCaptureDir,
-        }));
+        providers.push(
+          new AntigravityAgentProvider({
+            cwd: root,
+            mappingFilePath: resolve(root, '.nevo-ai-local', 'antigravity-sessions.json'),
+            printTimeoutSeconds: providerConfig.providers.antigravity?.printTimeoutSeconds,
+            rawCaptureEnabled: providerConfig.providers.antigravity?.rawCaptureEnabled,
+            rawCaptureDir: providerConfig.providers.antigravity?.rawCaptureDir,
+          }),
+        );
         break;
       case 'codex':
-        providers.push(new CodexAgentProvider({
-          cwd: root,
-          rawCaptureEnabled: providerConfig.providers.codex?.rawCaptureEnabled,
-          rawCaptureDir: providerConfig.providers.codex?.rawCaptureDir,
-        }));
+        providers.push(
+          new CodexAgentProvider({
+            cwd: root,
+            rawCaptureEnabled: providerConfig.providers.codex?.rawCaptureEnabled,
+            rawCaptureDir: providerConfig.providers.codex?.rawCaptureDir,
+          }),
+        );
         break;
       case 'mock':
-        providers.push(createMockAgentProvider(demonstration ? {
-          specId: demonstration.specId,
-          taskIds: demonstration.tasks?.map(task => task.id) || [],
-        } : {}));
+        providers.push(
+          createMockAgentProvider(
+            demonstration
+              ? {
+                  specId: demonstration.specId,
+                  taskIds: demonstration.tasks?.map((task) => task.id) || [],
+                }
+              : {},
+          ),
+        );
         break;
     }
   }
@@ -92,15 +117,36 @@ export function createDefaultAgentSessionService({ root = REPOSITORY_ROOT, dataL
  * routed through `buildDashboardApp()`'s `config`; real usage never passes
  * them, so the real defaults below always apply.
  */
-export default async function aiRoutes(fastify, { config = {}, service: serviceOverride, accessPolicy: accessPolicyOverride } = {}) {
+export default async function aiRoutes(
+  fastify,
+  { config = {}, service: serviceOverride, accessPolicy: accessPolicyOverride } = {},
+) {
   const root = config.root ?? REPOSITORY_ROOT;
-  const service = serviceOverride ?? createDefaultAgentSessionService({ root });
+
+  const resolveFastifyMcpUrl = () => {
+    if (process.env.NEVO_MCP_ENDPOINT_URL) {
+      return process.env.NEVO_MCP_ENDPOINT_URL;
+    }
+    const addr = fastify.server?.address?.();
+    if (!addr || typeof addr !== 'object' || !addr.port) {
+      return null;
+    }
+    const protocol = fastify.initialConfig?.https ? 'https' : 'http';
+    return `${protocol}://127.0.0.1:${addr.port}/mcp`;
+  };
+
+  const service = serviceOverride ?? createDefaultAgentSessionService({ root, mcpEndpointResolver: resolveFastifyMcpUrl });
+  const claudeProvider = service?.registry?.getProvider?.('claude');
+  if (claudeProvider && typeof claudeProvider.configureMcpEndpoint === 'function') {
+    claudeProvider.configureMcpEndpoint(resolveFastifyMcpUrl);
+  }
+
   const accessPolicy = accessPolicyOverride ?? createTrustedNetworkAiAccessPolicy();
 
   let reconciliationPromise = null;
   const ensureReconciled = () => {
     if (!reconciliationPromise) {
-      reconciliationPromise = Promise.resolve(service.turnRuntime?.reconcileOrphanedTurns?.()).catch(err => {
+      reconciliationPromise = Promise.resolve(service.turnRuntime?.reconcileOrphanedTurns?.()).catch((err) => {
         console.error(`[ai] [reconcile] boot-time turn reconciliation failed: ${err.message}`);
       });
     }
@@ -121,11 +167,13 @@ export default async function aiRoutes(fastify, { config = {}, service: serviceO
   await fastify.register(turnRoutes, deps);
   await fastify.register(interactionRoutes, deps);
   await fastify.register(aiEventRoutes, deps);
+  await fastify.register(mcpRoutes);
 
   // Owned here: this capability constructed (or was given) the AI service
   // and is the only one that knows how to shut it down.
   fastify.addHook('onClose', async () => {
     try {
+      mcpInteractionRegistry.shutdown();
       await (service?.shutdown?.() ?? service?.turnRuntime?.shutdown?.());
     } catch (err) {
       console.error('[server] error shutting down AI service:', err);

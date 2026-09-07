@@ -20,10 +20,14 @@ function runHookSubprocess(inputObject, { cwd = process.cwd() } = {}) {
 
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', d => { stdout += d.toString(); });
-    child.stderr.on('data', d => { stderr += d.toString(); });
+    child.stdout.on('data', (d) => {
+      stdout += d.toString();
+    });
+    child.stderr.on('data', (d) => {
+      stderr += d.toString();
+    });
 
-    child.on('close', code => {
+    child.on('close', (code) => {
       if (code !== 0) {
         return reject(new Error(`Hook subprocess exited with code ${code}: ${stderr}`));
       }
@@ -77,16 +81,16 @@ test('Hook subprocess: AskUserQuestion without resolved response returns defer',
 test('Hook subprocess: AskUserQuestion with resolved response maps answers to question text and returns allow + updatedInput', async () => {
   const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-hook-test-'));
   try {
-    const store = createClaudeContinuationStore({ baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') });
+    const store = createClaudeContinuationStore({
+      baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations'),
+    });
     store.saveDeferred({
       providerSessionId: 'sess-q-resolve',
       interactionId: 'int-12345',
       toolUseId: 'toolu_q_99',
       toolName: 'AskUserQuestion',
       toolInput: {
-        questions: [
-          { question: 'What database do you prefer?', header: 'DB', options: ['PostgreSQL', 'SQLite'] },
-        ],
+        questions: [{ question: 'What database do you prefer?', header: 'DB', options: ['PostgreSQL', 'SQLite'] }],
       },
     });
 
@@ -98,24 +102,23 @@ test('Hook subprocess: AskUserQuestion with resolved response maps answers to qu
       },
     });
 
-    const result = await runHookSubprocess({
-      session_id: 'sess-q-resolve',
-      hook_event_name: 'PreToolUse',
-      tool_name: 'AskUserQuestion',
-      tool_input: {
-        questions: [
-          { question: 'What database do you prefer?', header: 'DB', options: ['PostgreSQL', 'SQLite'] },
-        ],
+    const result = await runHookSubprocess(
+      {
+        session_id: 'sess-q-resolve',
+        hook_event_name: 'PreToolUse',
+        tool_name: 'AskUserQuestion',
+        tool_input: {
+          questions: [{ question: 'What database do you prefer?', header: 'DB', options: ['PostgreSQL', 'SQLite'] }],
+        },
+        tool_use_id: 'toolu_q_99',
       },
-      tool_use_id: 'toolu_q_99',
-    }, { cwd: tmpBase });
+      { cwd: tmpBase },
+    );
 
     assert.equal(result.hookSpecificOutput?.hookEventName, 'PreToolUse');
     assert.equal(result.hookSpecificOutput?.permissionDecision, 'allow');
     assert.deepEqual(result.hookSpecificOutput?.updatedInput, {
-      questions: [
-        { question: 'What database do you prefer?', header: 'DB', options: ['PostgreSQL', 'SQLite'] },
-      ],
+      questions: [{ question: 'What database do you prefer?', header: 'DB', options: ['PostgreSQL', 'SQLite'] }],
       answers: {
         'What database do you prefer?': 'PostgreSQL',
       },
@@ -134,7 +137,9 @@ test('Hook subprocess: AskUserQuestion with resolved response maps answers to qu
 test('Hook subprocess: same tool input but mismatched tool_use_id fails correlation and returns defer', async () => {
   const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-hook-sameinput-'));
   try {
-    const store = createClaudeContinuationStore({ baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') });
+    const store = createClaudeContinuationStore({
+      baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations'),
+    });
     const sameInput = { questions: [{ question: 'Which database?', options: ['PostgreSQL', 'SQLite'] }] };
 
     store.saveDeferred({
@@ -152,13 +157,16 @@ test('Hook subprocess: same tool input but mismatched tool_use_id fails correlat
     });
 
     // Incoming hook has tool_use_id: 'tool-B' with EXACT SAME INPUT
-    const result = await runHookSubprocess({
-      session_id: 'sess-same-input',
-      hook_event_name: 'PreToolUse',
-      tool_name: 'AskUserQuestion',
-      tool_use_id: 'tool-B',
-      tool_input: sameInput,
-    }, { cwd: tmpBase });
+    const result = await runHookSubprocess(
+      {
+        session_id: 'sess-same-input',
+        hook_event_name: 'PreToolUse',
+        tool_name: 'AskUserQuestion',
+        tool_use_id: 'tool-B',
+        tool_input: sameInput,
+      },
+      { cwd: tmpBase },
+    );
 
     // Must return defer for unresolved tool-B because toolUseId does not match!
     assert.deepEqual(result, {
@@ -180,7 +188,9 @@ test('Hook subprocess: same tool input but mismatched tool_use_id fails correlat
 test('Hook subprocess: retry after delivery returns the same decision until parent execution completes', async () => {
   const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-hook-retry-delivered-'));
   try {
-    const store = createClaudeContinuationStore({ baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') });
+    const store = createClaudeContinuationStore({
+      baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations'),
+    });
     const toolInput = { questions: [{ question: 'Deploy env?', options: ['Staging', 'Prod'] }] };
 
     store.saveDeferred({
@@ -198,13 +208,16 @@ test('Hook subprocess: retry after delivery returns the same decision until pare
     });
 
     // 1st hook invocation: executes and marks delivered
-    const result1 = await runHookSubprocess({
-      session_id: 'sess-retry-del',
-      hook_event_name: 'PreToolUse',
-      tool_name: 'AskUserQuestion',
-      tool_use_id: 'tool-del-1',
-      tool_input: toolInput,
-    }, { cwd: tmpBase });
+    const result1 = await runHookSubprocess(
+      {
+        session_id: 'sess-retry-del',
+        hook_event_name: 'PreToolUse',
+        tool_name: 'AskUserQuestion',
+        tool_use_id: 'tool-del-1',
+        tool_input: toolInput,
+      },
+      { cwd: tmpBase },
+    );
 
     assert.equal(result1.hookSpecificOutput?.permissionDecision, 'allow');
     assert.deepEqual(result1.hookSpecificOutput?.updatedInput?.answers, {
@@ -216,13 +229,16 @@ test('Hook subprocess: retry after delivery returns the same decision until pare
 
     // Resumed process fails before completion.
     // 2nd hook invocation (retry): executes again and returns the exact same allow decision
-    const result2 = await runHookSubprocess({
-      session_id: 'sess-retry-del',
-      hook_event_name: 'PreToolUse',
-      tool_name: 'AskUserQuestion',
-      tool_use_id: 'tool-del-1',
-      tool_input: toolInput,
-    }, { cwd: tmpBase });
+    const result2 = await runHookSubprocess(
+      {
+        session_id: 'sess-retry-del',
+        hook_event_name: 'PreToolUse',
+        tool_name: 'AskUserQuestion',
+        tool_use_id: 'tool-del-1',
+        tool_input: toolInput,
+      },
+      { cwd: tmpBase },
+    );
 
     assert.equal(result2.hookSpecificOutput?.permissionDecision, 'allow');
     assert.deepEqual(result2.hookSpecificOutput?.updatedInput?.answers, {

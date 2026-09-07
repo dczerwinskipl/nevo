@@ -255,40 +255,36 @@ describe('Recovery', () => {
     assert.match(inspection.missing[0], /REC-02/);
   });
 
-  test('REC-03 (stale generated file) — real detect-then-regenerate-then-clean cycle against the real repo indexes', () => {
+  test('REC-03 (stale generated file) — real detect-then-regenerate-then-clean cycle against isolated indexes', () => {
     // Exercises the actual REC-03 scenario end-to-end (buildSpecsIndexes/
-    // checkSpecsIndexes/writeSpecsIndexes, tools/specs/service.mjs) instead of
-    // feeding a synthetic { ok: false } object into the generic postcondition
-    // classifier — the previous version of this test never touched real
-    // staleness-detection code at all. Operates on the real repo's generated
-    // files (checkSpecsIndexes has no fixture-root parameter) but always
-    // restores the original content, pass or fail.
-    const originalActive = readFileSync(ACTIVE_INDEX_MD, 'utf8');
-    const originalArchive = readFileSync(ARCHIVE_INDEX_MD, 'utf8');
-    const originalJson = readFileSync(INDEX_JSON, 'utf8');
+    // checkSpecsIndexes/writeSpecsIndexes) against an isolated copy in a
+    // temporary directory so parallel tests (such as cli-smoke's specs check)
+    // do not observe in-flight corruption of the repository's real index files.
+    const tempDir = mkdtempSync(join(tmpdir(), 'nevo-rec03-'));
     try {
-      assert.deepEqual(checkSpecsIndexes(), [], 'precondition: repo indexes must already be current before this test corrupts them');
+      const activeIndexMd = join(tempDir, 'active.generated.md');
+      const archiveIndexMd = join(tempDir, 'archive.generated.md');
+      const indexJson = join(tempDir, 'index.generated.json');
 
-      writeFileSyncNode(ACTIVE_INDEX_MD, `${originalActive}\n<!-- REC-03 test: deliberately stale -->\n`);
-      const stale = checkSpecsIndexes();
+      const originalActive = readFileSync(ACTIVE_INDEX_MD, 'utf8');
+      const originalArchive = readFileSync(ARCHIVE_INDEX_MD, 'utf8');
+      const originalJson = readFileSync(INDEX_JSON, 'utf8');
+
+      writeFileSyncNode(activeIndexMd, originalActive);
+      writeFileSyncNode(archiveIndexMd, originalArchive);
+      writeFileSyncNode(indexJson, originalJson);
+
+      const paths = { activeIndexMd, archiveIndexMd, indexJson };
+      assert.deepEqual(checkSpecsIndexes(paths), [], 'precondition: repo indexes must already be current before this test corrupts them');
+
+      writeFileSyncNode(activeIndexMd, `${originalActive}\n<!-- REC-03 test: deliberately stale -->\n`);
+      const stale = checkSpecsIndexes(paths);
       assert.ok(stale.includes('stale: specs/active.generated.md'), 'corrupting the file must be detected as stale (REC-03 precondition)');
 
-      // The proposed recovery: "Regenerate the index." writeSpecsIndexes
-      // rewrites all three files together — archive.generated.md/index.generated.json
-      // were never corrupted, so this also proves regeneration is a real no-op
-      // for content that was already current (only the JSON's own `generated`
-      // timestamp field moves, which checkSpecsIndexes deliberately ignores).
-      writeSpecsIndexes(buildSpecsIndexes());
-      assert.deepEqual(checkSpecsIndexes(), [], 'regenerating must clear every reported staleness (REC-03 automatic repair)');
+      writeSpecsIndexes(buildSpecsIndexes(), paths);
+      assert.deepEqual(checkSpecsIndexes(paths), [], 'regenerating must clear every reported staleness (REC-03 automatic repair)');
     } finally {
-      // Restore all three byte-for-byte (not just the corrupted one) — the
-      // JSON's `generated` timestamp changed even though its content didn't,
-      // and leaving that drift behind would dirty the real working tree on
-      // every test run.
-      writeFileSyncNode(ACTIVE_INDEX_MD, originalActive);
-      writeFileSyncNode(ARCHIVE_INDEX_MD, originalArchive);
-      writeFileSyncNode(INDEX_JSON, originalJson);
-      assert.deepEqual(checkSpecsIndexes(), [], 'the repo must be left exactly as found, regardless of assertion outcome above');
+      rmSync(tempDir, { recursive: true, force: true });
     }
   });
 
