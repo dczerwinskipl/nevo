@@ -4,6 +4,7 @@
 
 | ID | Title | Status | Priority | Created |
 |---|---|---|---|---|
+| `ai-session-issues-and-diagnostics` | AI session issues and diagnostics | archived | 10 | 2026-08-30 |
 | `ai-sessions-live-chat-integration` | AI sessions and live chat integration | archived | 10 | 2026-08-15 |
 | `architecture-documentation` | Architecture documentation | archived | 10 | 2026-08-01 |
 | `chat-ux-improvements-pt1` | Chat UX Improvements pt1 | archived | 10 | 2026-08-21 |
