@@ -36,7 +36,7 @@ test('serves exact specification manifest routes without leaking lookup failures
     const missing = await fetch(`${baseUrl}/api/specs/archive/missing-nonexistent-slug/content`);
     assert.equal(missing.status, 404);
     assert.deepEqual(await missing.json(), { error: 'Specification content not found' });
-    const mutation = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/content`, {
+    const mutation = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/content`, {
       method: 'POST',
     });
     assert.equal(mutation.status, 404);
@@ -54,11 +54,11 @@ test('serves exact per-document content routes without leaking lookup failures',
     assert.equal(payload.docId, 'overview');
     assert.ok(payload.markdown.length > 0);
     const missing = await fetch(
-      `${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/content/task%3Amissing-task-id`,
+      `${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/content/task%3Amissing-task-id`,
     );
     assert.equal(missing.status, 404);
     assert.deepEqual(await missing.json(), { error: 'Specification document not found' });
-    const mutation = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/content/overview`, {
+    const mutation = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/content/overview`, {
       method: 'POST',
     });
     assert.equal(mutation.status, 404);
@@ -78,7 +78,7 @@ test('serves a small, fast task-statuses route without leaking lookup failures',
     assert.ok(Array.isArray(payload.tasks));
     const missing = await fetch(`${baseUrl}/api/specs/archive/missing-nonexistent-slug/task-statuses`);
     assert.equal(missing.status, 404);
-    const mutation = await fetch(`${baseUrl}/api/specs/active/ai-session-issues-and-diagnostics/task-statuses`, {
+    const mutation = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/task-statuses`, {
       method: 'POST',
     });
     assert.equal(mutation.status, 404);
@@ -119,7 +119,7 @@ test('serves active-only lifecycle gates and executes explicit validated actions
       body: JSON.stringify({ action: 'nonexistent-action' }),
     });
     assert.equal(unknownAction.status, 400);
-    const archived = await fetch(`${baseUrl}/api/specs/archive/ai-session-issues-and-diagnostics/actions`, {
+    const archived = await fetch(`${baseUrl}/api/specs/archive/${ARCHIVED_FIXTURE_SLUG}/actions`, {
       method: 'POST',
     });
     assert.equal(archived.status, 404);
