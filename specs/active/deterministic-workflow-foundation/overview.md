@@ -34,12 +34,14 @@ Provide a robust, modular foundation for migrating Nevo from agent-orchestrated 
 ## Non-goals
 
 - Full migration of all four specification workflows in this specification (the engine supports all four classes, but only one vertical path is proven end-to-end here).
-- Removing existing semi-deterministic CLI commands or task lifecycle commands.
+- Removing existing semi-deterministic CLI commands or task lifecycle commands (they remain operational; see D16's migration map for what's superseded, not removed).
 - Rewriting all agent skills or Claude/Cursor command adapters in this change.
 - Automatic migration or rewriting of existing active/archived specification files.
-- Implementing broad provider-neutral VCS abstractions (GitHub/GitLab PR automation) or live chat session tracking (deferred to dedicated follow-up specifications).
+- Full GitHub/GitLab PR-automation abstraction, and any GitLab implementation, remain out of scope — but the minimal local-Git-plus-configurable-remote-provider boundary required by deterministic finalization (D12) is explicitly **in** scope, narrowing (not repeating) the earlier broader exclusion. Live chat session tracking remains deferred to a dedicated follow-up specification.
 - Replacing Git wrappers with a complex third-party Git framework.
 - Redesigning unrelated dashboard UI/UX or adding speculative plugin systems.
+- Implementing an optional progress-checkpoint command (`workflow step save` / `workflow save-progress`, D17) — the source-control/action boundary is designed to support it later; the command itself is left for a follow-up specification.
+- Batch execution (`batch-*`) is not given a deterministic-workflow equivalent in this foundation (D16).
 
 ## Classification
 
@@ -65,16 +67,22 @@ Provide a robust, modular foundation for migrating Nevo from agent-orchestrated 
 - **C8.** Human verification must be a first-class, machine-readable workflow state (`status: blocked`, `reason: human-verification-required`); an agent cannot self-satisfy or bypass a human verification gate.
 - **C9.** Workflow definitions must be configurable and declarative (expressing steps, actions, entry/exit gates, and finalize actions), with support for the four specification classes (Standard, Architectural, Small, Exploratory).
 - **C10.** Implementation must follow horizontal slices: all new workflow infrastructure lives in cohesive modules under `tools/specs/workflow/` with dedicated unit and integration tests; existing large command files must not grow into larger god objects.
+- **C11.** `workflow step start` must return a compiled `StepContext` (D10) aggregating action/gate contracts into one step-level payload — the agent must not be required to inspect individual actions to discover their input schemas. The finish contract exposed at start must be the same aggregation `step finish`/`step finish --check` later report (D10's consequence).
+- **C12.** `workflow step finish --check` (or an equivalent dry-run form) must be strictly non-mutating (same invariant as C2). `workflow step finish` itself, called with missing required inputs, must return `status: "input-required"` plus the same factual planning payload without performing any mutation (D11) — a separate preflight call is never mandatory in the happy path.
+- **C13.** Source control is a workflow capability, split into a local Git layer (repository/worktree state, changed/staged files, current branch, commit, push, and reconciliation facts such as "is commit X already on the configured remote branch") and a separately configured remote provider (currently `github` only), both built on the existing `tools/lib/git.mjs`/`tools/lib/github.mjs` rather than new abstractions (D12). Source control, local push, and the remote provider must each be independently enable/disable-able.
+- **C14.** For a task-completing step, the progress commit must include both the agent's implementation and Nevo's own task/spec completion-state update — task metadata must never be left dirty immediately after a successful finalize (D13).
+- **C15.** Every mutating multi-stage finish operation must be durably resumable: a stable `operationId`, a fixed per-stage status vocabulary (`pending`/`running`/`completed`/`failed`/`unknown`), and reconciliation of `unknown` external side effects against real state before retrying — never blind repetition of a completed side effect, and never a claim of full distributed-transaction semantics (D14).
+- **C16.** Push completion must persist achieved state, not just command invocation: the expected commit SHA alongside remote/branch/status, so "has this been pushed" is answerable deterministically at any later time (D15).
 
 ## Affected Areas
 
-- **Manifest Schemas & Validation:** `tools/specs/validation.mjs`, `tools/specs/service.mjs`, `change.yaml` schema updates for `workflow` mode, version, and definition reference.
-- **Workflow Definitions & Loader:** Repository-local configuration in `.nevo-ai/workflows/` with loader/schema in `tools/specs/workflow/definitions/` and scaffolding templates in `tools/specs/workflow/templates/`.
-- **Composable Actions:** `tools/specs/workflow/contracts.mjs`, `tools/specs/workflow/registry.mjs`, `tools/specs/workflow/actions/commit-and-push.mjs`, `tools/specs/workflow/actions/verify-output.mjs`.
+- **Manifest Schemas & Validation:** `tools/specs/validation.mjs`, `tools/specs/service.mjs`, `change.yaml` schema updates for `workflow` mode/version/definition, and the new `execution.finish_operation` block (D14).
+- **Workflow Definitions & Loader:** Repository-local configuration in `.nevo-ai/workflows/` with loader/schema in `tools/specs/workflow/definitions/` and scaffolding templates in `tools/specs/workflow/templates/`; extended with the `sourceControl` capability configuration (D12).
+- **Composable Actions:** `tools/specs/workflow/contracts.mjs`, `tools/specs/workflow/registry.mjs`, source-control action(s) in `tools/specs/workflow/actions/` built on `tools/lib/git.mjs`/`tools/lib/github.mjs`, `tools/specs/workflow/actions/verify-output.mjs`.
 - **Deterministic Gates:** `tools/specs/workflow/gates/` implementing `GateContract` with `inspect` vs `verify` separation, `CommandGate`, `MarkdownGate`, and `HumanVerificationGate`.
-- **Step Orchestration & Next-Step Service:** `tools/specs/workflow/step-runner.mjs` and `next-step.mjs` evaluating steps, actions, gates, and valid transitions.
-- **CLI Dispatch:** `tools/specs.mjs` integration delegating to the new workflow engine and exposing `--check` and `workflow next-step` commands.
-- **Test Infrastructure:** `tools/tests/` comprehensive test suites for contracts, engine, gates, actions, next-step queries, and compatibility.
+- **Step Lifecycle Orchestration:** `tools/specs/workflow/step-runner.mjs` and successor modules compiling `StepContext` at start, non-mutating finish planning, and the durable/resumable finish operation (D10, D11, D14) — reusing `WorkflowEngine.checkStep`/`executeStep` (Task 03) rather than re-implementing aggregation.
+- **CLI Dispatch:** `tools/specs.mjs` integration delegating to the new workflow engine and exposing `workflow step start` / `workflow step finish [--check]` (D9) as the agent-facing surface.
+- **Test Infrastructure:** `tools/tests/` comprehensive test suites for contracts, engine, gates, actions, step start/finish, durable-finish retry/reconciliation, and compatibility.
 
 ## Proposed Architecture
 
@@ -214,62 +222,162 @@ export class GateContract {
     "reason": "human-verification-required",
     "gateType": "human",
     "message": "Step 'implementation' requires explicit human verification",
-    "signoff": { "requiredRole": "owner", "taskId": "04-concrete-action-commit-and-push" }
+    "signoff": { "requiredRole": "owner", "taskId": "04-source-control-capability" }
   }
   ```
   The workflow engine halts progression until explicit human confirmation is provided through an operator command (`node tools/specs.mjs workflow verify-human <change> <task> --confirm`).
 
-### 6. Deterministic Next Step Query Service
+### 6. Agent Interaction Model: `workflow step start` / `workflow step finish` (D9)
 
-Agents query the workflow engine to discover the exact state and next actions:
-`node tools/specs.mjs workflow next-step <change> [task]`
-Response:
+The normal agent flow is exactly two calls, with the runtime owning everything between them:
+```text
+workflow step start <change> [task]
+...agent performs bounded work...
+workflow step finish <change> [task]
+```
+The runtime resolves the current step from `change`/`task` state whenever it can do so unambiguously; an explicit step id remains available for diagnostics/manual override but is never required in the normal flow. The agent never discovers or orchestrates individual actions, gates, Git/`gh` commands, or transition rules — it supplies only the semantic inputs the workflow's finish contract asks for. Internal primitives (`WorkflowEngine.checkStep`/`executeStep`, gate `inspect`/`verify`) remain and are composed underneath this surface; they are not separately exposed as agent-facing commands (superseding the original `next-step`/`execute-step` design from this section before it was implemented).
+
+### 7. `workflow step start` — Compiled `StepContext` (D10)
+
+```text
+node tools/specs.mjs workflow step start <change> [task]
+```
+Returns a compiled `StepContext` aggregating everything the agent needs to begin work, reusing `WorkflowEngine.checkStep`'s action/gate aggregation (Task 03) rather than a second implementation:
 ```json
 {
   "change": "deterministic-workflow-foundation",
-  "task": "01-workflow-schema-and-compatibility",
+  "task": "06-step-orchestration-and-next-step-service",
   "workflowMode": "deterministic",
   "currentStep": "implementation",
-  "availableActions": ["implement-task", "finalize-task"],
+  "stepStatus": "in-progress",
+  "instructions": "Implement within allowed_paths; entry gates already satisfied.",
+  "entryState": { "blockers": [] },
+  "expectedWork": { "allowedPaths": ["tools/specs/workflow/step-runner.mjs", "..."] },
+  "context": { "changedFiles": [], "currentBranch": "feature/deterministic-workflow-foundation", "sourceControl": { "enabled": true } },
+  "finishContract": {
+    "requiredInputs": {
+      "commit.title": { "type": "string", "required": true, "description": "Conventional commit title" },
+      "commit.message": { "type": "string", "required": false, "description": "Extended commit body" }
+    },
+    "gates": [
+      { "id": "test-suite", "type": "command" },
+      { "id": "human-review", "type": "human" }
+    ]
+  },
+  "nextStepGuidance": { "onSuccess": "verified" }
+}
+```
+`finishContract.requiredInputs` is the same aggregation `workflow step finish`/`workflow step finish --check` report later (C11) — computed once, from the same source, not maintained twice. If source control is disabled, or a finalize action isn't part of the configured step, its inputs are simply absent from this aggregation.
+
+### 8. `workflow step finish` — Non-Mutating Planning and `input-required` (D11)
+
+```text
+node tools/specs.mjs workflow step finish <change> [task] [--check]
+```
+`--check` is strictly non-mutating (C12, same invariant as action `check`/gate `inspect`) and reports the current concrete finish plan:
+```json
+{
+  "status": "input-required",
+  "requiredInputs": {
+    "commit.title": { "required": true },
+    "commit.message": { "required": false }
+  },
+  "sourceControl": {
+    "changedFiles": ["tools/specs/workflow/step-runner.mjs"],
+    "stagedFiles": [],
+    "existingCommits": [],
+    "currentBranch": "feature/deterministic-workflow-foundation",
+    "unpushedCommits": []
+  },
   "gates": [
     { "id": "test-suite", "type": "command", "status": "passed" },
     { "id": "human-review", "type": "human", "status": "blocked", "reason": "human-verification-required" }
   ],
-  "blockedReason": "human-verification-required",
-  "nextAllowedTransitions": ["verify"],
-  "recommendedCommand": "node tools/specs.mjs workflow execute-step deterministic-workflow-foundation 01-workflow-schema-and-compatibility finalize --inputs-file=inputs.json"
+  "plannedOperations": ["verify-gates", "update-task-status", "commit-progress", "push", "transition"],
+  "blockers": ["human-verification-required"]
+}
+```
+Calling `workflow step finish` directly (no `--check`) with every required input supplied completes the step in one call. Calling it with missing inputs returns this same `status: "input-required"` payload and performs zero mutation — `--check` is available for inspection/automation but is never mandatory in the happy path (C12).
+
+### 9. Source Control as a Workflow Capability (D12)
+
+Two layers, both built on the repository's existing infrastructure — no new Git or GitHub abstraction:
+
+- **Local Git capability** (`tools/lib/git.mjs`, extended, not replaced): repository/worktree state, changed/staged files, current branch, relevant commits, commit, push, and a reconciliation primitive answering "is commit `X` already present on the configured remote branch."
+- **Remote provider** (`tools/lib/github.mjs`, the repository's one existing GitHub integration): configured explicitly, used only for provider-specific capability when `remote.enabled` — GitHub is the only implemented provider; GitLab remains unimplemented, only the boundary for it exists.
+
+Configuration (exact schema location is a Task 04 implementation detail; semantics are fixed here):
+```yaml
+sourceControl:
+  enabled: true
+  git:
+    enabled: true
+    push: true
+  remote:
+    enabled: true
+    provider: github
+```
+Source control, local push, and the remote provider are each independently enable/disable-able (C13).
+
+### 10. Finalize Ordering and Durable, Resumable Finish Execution (D13, D14)
+
+For a task-completing step, the externally visible order is fixed (C14):
+```text
+validate supplied inputs
+→ verify required gates
+→ perform/update task/spec completion state
+→ commit the resulting implementation + Nevo metadata/status changes together
+→ push when configured
+→ confirm remote state
+→ persist/complete workflow transition
+→ return completed state + next step
+```
+The resulting progress commit always includes both the agent's work and Nevo's own task/spec status update — never a separate, later commit for metadata.
+
+Every mutating finish operation persists a durable record so a crash, timeout, lost response, or provider/network failure never forces blind repetition of a side effect (C15). This is a resumability foundation, not a distributed-transaction guarantee. Persisted alongside the existing `execution.suspension` block, orthogonal to task lifecycle status:
+```json
+{
+  "operationId": "...",
+  "status": "running",
+  "operations": [
+    { "id": "verify-gates", "status": "completed" },
+    { "id": "update-task", "status": "completed" },
+    { "id": "commit", "status": "completed", "result": { "sha": "abc123" } },
+    { "id": "push", "status": "unknown" },
+    { "id": "transition", "status": "pending" }
+  ]
+}
+```
+Per-stage status is one of `pending` / `running` / `completed` / `failed` / `unknown`. On retry, Nevo loads the existing record, keeps every `completed` stage's side effect, and reconciles any `unknown` stage against real state before deciding what still needs to run — e.g. a `push` left `unknown` is reconciled by checking whether the recorded commit SHA is already on the expected remote branch (via the Task 04 reconciliation primitive); if yes, `push` becomes `completed` and execution continues; if not, it becomes `pending` and the push is (re-)performed. A commit is never re-created once its SHA is known. A repeated `workflow step finish` after full success returns the already-completed result and current next step rather than repeating finalize actions.
+
+Push completion persists achieved state, not just invocation (C16, D15):
+```json
+{
+  "commit": { "sha": "abc123", "status": "completed" },
+  "push": { "remote": "origin", "branch": "feature/foo", "expectedSha": "abc123", "status": "completed" }
 }
 ```
 
-### 7. Vertical Proof-of-Concept: Implementation/Finalize Fragment
+### 11. Legacy Lifecycle: Operational, Explicitly Superseded (D16)
 
-To prove the complete architecture in Stage 1:
-```yaml
-implementation:
-  exitGates:
-    - type: command
-      action: test
-    - type: human
-      required: true
-  finalize:
-    - id: verify-task-output
-    - id: commit-and-push
-```
-The PoC validates:
-1. Workflow definition loading & validation,
-2. Action discovery & composition,
-3. Non-mutating action check,
-4. Required input schemas & factual context,
-5. Aggregated multi-action check,
-6. Explicit execute inputs with fail-closed missing input rejection,
-7. Gate inspection without automatically running verification tests,
-8. Explicit test verification execution,
-9. Explicit human verification blocker,
-10. Markdown verification gate support,
-11. Deterministic transition only after gates pass,
-12. Coexistence with legacy flow.
+Every legacy command listed in C1 keeps working unchanged. New agent workflows build on the deterministic step lifecycle rather than the legacy commands. The migration map (written into `docs/development/workflow-engine.md` by Task 07):
 
-### 8. Horizontal Slice Directory Structure
+| Legacy concept | Deterministic replacement |
+|---|---|
+| `start` | `workflow step start` |
+| `complete` / `finalize` | `workflow step finish` |
+| `verify` / `self-check` | Configured exit gates (`verify`) |
+| `approve` (human sign-off) | `HumanVerificationGate` |
+| Legacy-orchestrated Git commit/push (`handleFinalize`/`handleArchive` calling `git.commitAll`/`git.push` directly) | Source-control finalize action (Task 04), sequenced per section 10 |
+| `batch-*` | Not superseded in this foundation — out of scope |
+
+Legacy code identified as removable in a future cleanup specification once migration is proven: the direct `git.commitAll`/`git.push` calls inside `handleFinalize`/`handleArchive` in `tools/specs.mjs`, and — much later — the legacy lifecycle handlers themselves once no active/future specification depends on `mode: legacy`.
+
+### 12. Deferred Extension Point: Progress Checkpoint (D17)
+
+Not implemented in this foundation. The source-control action boundary (section 9) is designed so a future, small `workflow step save` / `workflow save-progress` operation could commit/push (per source-control configuration) without requiring exit-gate satisfaction or a task-completion transition, reusing the same durable-operation mechanism from section 10. Left for a follow-up specification.
+
+### 13. Horizontal Slice Directory Structure
 
 All new components reside in small, single-responsibility modules under `tools/specs/workflow/`:
 ```text
@@ -280,14 +388,15 @@ tools/specs/workflow/
   registry.mjs           # Action and Gate registries
   engine.mjs             # Aggregated check runner and execution engine
   step-runner.mjs        # Step lifecycle evaluation and gate checking
-  next-step.mjs          # "What next?" query service
+  step-context.mjs       # Compiled StepContext at `step start` (D10)
+  finish-operation.mjs   # Non-mutating finish planning + durable/resumable finish execution (D11, D14)
   definitions/
-    schema.mjs           # Workflow definition JSON/YAML schema
+    schema.mjs           # Workflow definition JSON/YAML schema (+ sourceControl config, D12)
     loader.mjs           # Definition loader, parser, and validator
     standard.yaml        # Standard workflow definition
   actions/
     index.mjs            # Built-in actions exporter
-    commit-and-push.mjs  # Fail-closed commit-and-push action
+    commit-and-push.mjs  # Fail-closed source-control commit/push action (D12)
     verify-output.mjs    # Verification artifact check action
   gates/
     index.mjs            # Built-in gates exporter
@@ -304,14 +413,14 @@ tools/specs/workflow/
   Implement `ActionContract`, `ActionCheckResult`, `ActionExecuteResult`, and parameter schema validator in `tools/specs/workflow/contracts.mjs` and `errors.mjs`.
 - **Task 03 — Action Registry, Composition & Aggregated Check Engine (`tasks/03-action-registry-and-aggregated-checks.md`):**
   Implement `ActionRegistry` and the aggregated check engine in `tools/specs/workflow/registry.mjs` and `engine.mjs` ensuring strict action boundary preservation during multi-action step checks.
-- **Task 04 — Concrete Action Implementation: Fail-Closed `commit-and-push` Action (`tasks/04-concrete-action-commit-and-push.md`):**
-  Implement fail-closed `commit-and-push` in `tools/specs/workflow/actions/commit-and-push.mjs` requiring explicit file selection (`include`/`exclude`), non-mutating check with Git context, and fail-closed execution.
+- **Task 04 — Source-Control Capability (`tasks/04-source-control-capability.md`, renamed from "Concrete Action Implementation: Fail-Closed `commit-and-push` Action"):**
+  Implement the `sourceControl`/`git`/`remote` configuration boundary (D12), extend `tools/lib/git.mjs` with a remote-reconciliation primitive, and implement the fail-closed commit/push action in `tools/specs/workflow/actions/commit-and-push.mjs` — explicit file selection (`include`/`exclude`), non-mutating check with Git context (including push/reconciliation facts), and a result shape carrying commit SHA and push status (D15) ready for Task 06's durable finish operation to persist.
 - **Task 05 — Deterministic Gate Abstraction with Inspection/Verification Separation (`tasks/05-deterministic-gates-and-human-verification.md`):**
   Implement `GateContract` with separate `inspect(context)` and `verify(context)` methods, `CommandGate`, `MarkdownGate`, and `HumanVerificationGate` under `tools/specs/workflow/gates/`.
-- **Task 06 — Deterministic Step Orchestration & "What Next" Inspection Service (`tasks/06-step-orchestration-and-next-step-service.md`):**
-  Implement step orchestration in `tools/specs/workflow/step-runner.mjs` and next-step query service in `tools/specs/workflow/next-step.mjs` determining current step, available actions, gates, and valid transitions.
-- **Task 07 — CLI Integration, Vertical Finalize PoC & Coexistence Verification (`tasks/07-cli-integration-and-vertical-poc.md`):**
-  Integrate workflow commands and `--check` into `tools/specs.mjs`, prove the multi-step finalize flow with `commit-and-push` end-to-end, and verify zero regressions across all legacy test suites.
+- **Task 06 — Step Lifecycle Orchestration: `StepContext`, Finish Planning & Durable Finish Execution (`tasks/06-step-orchestration-and-next-step-service.md`):**
+  Implement the compiled `StepContext` at `step start` (D10), non-mutating finish planning with `input-required` support (D11), and the durable/resumable finish operation with `execution.finish_operation` persistence and reconciliation (D14) — sequencing task/spec completion-state update before the progress commit (D13), and extending `tools/specs/validation.mjs` with schema support for the new persisted block.
+- **Task 07 — CLI Integration, `step start`/`step finish` Vertical PoC & Coexistence Verification (`tasks/07-cli-integration-and-vertical-poc.md`):**
+  Integrate `workflow step start` / `workflow step finish [--check]` (D9) into `tools/specs.mjs`, prove the full finalize flow (gates → task/spec status update → commit → push → transition, including an interrupted-and-resumed retry) end-to-end, verify zero regressions across all legacy test suites, and write the legacy/deterministic migration map (D16) into `docs/development/workflow-engine.md`.
 
 ## Acceptance Criteria & Verification
 
@@ -323,10 +432,15 @@ tools/specs/workflow/
 - Action `--check` is verified to be 100% non-mutating across all filesystem, Git, and metadata state.
 - Action `--check` returns explicit `requiredInputs` schemas and separate `context` facts.
 - Aggregated checks on multi-action steps preserve action boundaries and data structures.
-- Action execution strictly fails closed when required inputs are omitted or invalid; `commit-and-push` strictly fails closed if explicit file selection is missing.
+- Action execution strictly fails closed when required inputs are omitted or invalid; the source-control commit/push action strictly fails closed if explicit file selection is missing.
 - Gate inspection (`inspect`) never executes verification commands; gate verification (`verify`) executes tests/checks explicitly.
 - Human verification gate reliably blocks workflow progression with machine-readable `blocked` / `human-verification-required` status and cannot be bypassed.
 - Command and Markdown gates correctly validate exit conditions.
-- `next-step` query provides complete deterministic guidance (current step, actions, gates, inputs, transitions) without agent heuristics.
-- Vertical PoC (`finalize` step with `commit-and-push` and test gate) executes successfully under deterministic mode.
+- `workflow step start` returns a compiled `StepContext` (current step, task/spec identity, entry state/blockers, factual context, finish contract, next-step guidance) without requiring the agent to inspect individual actions (C11).
+- `workflow step finish --check` is verified 100% non-mutating; `workflow step finish` with missing required inputs returns `input-required` with zero mutation (C12).
+- The progress commit for a task-completing step includes both the implementation and the task/spec completion-state update — never a separate later commit for metadata (C14).
+- A multi-stage finish operation is durably resumable: interrupting after task-metadata update, after commit creation, with an ambiguous push result, and after a successful push but before transition, each resume without duplicating a completed side effect (C15).
+- Push completion state (`expectedSha`, remote, branch, status) is verified sufficient to answer "is this pushed" deterministically after an interruption (C16).
+- Vertical PoC (`step start` → work → `step finish`, including an interrupted-and-resumed retry) executes successfully under deterministic mode, and legacy specifications continue running unaffected (coexistence).
+- `docs/development/workflow-engine.md` documents the engine architecture and the legacy/deterministic migration map (D16).
 - Full test suite `node --test tools/tests/*.test.mjs` passes with zero failures.

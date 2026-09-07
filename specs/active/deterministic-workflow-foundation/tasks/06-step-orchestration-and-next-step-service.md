@@ -10,45 +10,130 @@ context:
     - tools/specs/workflow/contracts.mjs
     - tools/specs/workflow/registry.mjs
     - tools/specs/workflow/engine.mjs
+    - tools/lib/cli-errors.mjs
   optional:
     - docs/ai/specification-workflow.md
+    - tools/specs/lifecycle.mjs
 allowed_paths:
   - tools/specs/workflow/step-runner.mjs
-  - tools/specs/workflow/next-step.mjs
+  - tools/specs/workflow/step-context.mjs
+  - tools/specs/workflow/finish-operation.mjs
   - tools/specs/workflow/definitions/**
   - tools/specs/workflow/index.mjs
+  - tools/specs/validation.mjs
+  - tools/specs/lifecycle.mjs
   - tools/tests/workflow-next-step.test.mjs
+  - tools/tests/workflow-finish-operation.test.mjs
 forbidden_paths:
   - src/**
   - tests/NEvo.*/**
 semantic_references:
-  decisions: [D5, D6, D7]
-  constraints: [C3, C4, C7, C8, C9, C10]
+  decisions: [D5, D6, D7, D9, D10, D11, D13, D14, D15, D17]
+  constraints: [C3, C4, C7, C8, C9, C10, C11, C12, C14, C15, C16]
 ---
 
-# Task: Step orchestration and next-step query service
+# Task: Step lifecycle orchestration — compiled `StepContext`, finish planning, and durable finish execution
 
 ## Goal
 
-Implement declarative step orchestration in `tools/specs/workflow/step-runner.mjs` and build the deterministic "What next?" query service in `tools/specs/workflow/next-step.mjs` that supplies agents with complete, factual next-step guidance directly from runtime state without running verification tests during queries.
+Implement the step lifecycle orchestration layer behind the agent-facing
+`workflow step start` / `workflow step finish [--check]` surface (D9):
+
+1. **`StepContext` compilation at start (D10):** aggregate action/gate contracts (reusing
+   `WorkflowEngine.checkStep`, Task 03 — never re-implementing that aggregation) into one
+   step-level payload: current step, task/spec identity, workflow state, step
+   instructions, entry state/blockers, expected work, factual context (including
+   source-control context when enabled), the finish contract (`requiredInputs` aggregated
+   across finalize actions, e.g. `commit.title` required / `commit.message` optional),
+   and next-step guidance.
+2. **Non-mutating finish planning with happy-path `input-required` (D11):** a `--check`
+   form that is strictly non-mutating (C12), and `workflow step finish` itself returning
+   `status: "input-required"` (with the same factual planning payload, zero mutation) when
+   required inputs are missing — never requiring a separate preflight call in the happy
+   path.
+3. **Durable, resumable finish execution (D14):** a fixed-order finalize sequence
+   (`verify-gates → update-task → commit → push → transition`, per the finalize ordering
+   invariant D13 — task/spec completion state is updated *before* the progress commit, and
+   both land in the same commit) executed under a durable, persisted operation record
+   (`execution.finish_operation`, structurally parallel to the existing
+   `execution.suspension` block) with a fixed per-stage status vocabulary (`pending` /
+   `running` / `completed` / `failed` / `unknown`) and reconciliation of `unknown` stages
+   against real state on retry (never repeating a completed side effect, in particular
+   never re-creating a commit). A repeated `workflow step finish` after full success
+   returns the already-completed result and current next step.
+4. Current/next-step resolution — replacing the original `next-step` query design (D9)
+   with this two-call surface; the underlying step-definition evaluation (entry/exit
+   gates, transitions) is unchanged from the original design and is reused, not
+   redesigned.
 
 ## Implementation constraints
 
-- Support composing declarative steps with entry gates, actions, exit gates, finalize actions, and transitions.
-- The `getNextStep` service must inspect change state, active step, gate inspection results (via `gate.inspect()`), action checks, and human verification status.
-- Return structured payload containing `currentStep`, `availableActions`, `requiredChecks`, `requiredInputs`, `humanVerificationStatus`, `nextAllowedTransitions`, and `blockedReason`.
-- Do not bake Standard-specific assumptions into the engine; allow pluggable workflow definitions.
+- Support composing declarative steps with entry gates, actions, exit gates, finalize
+  actions, and transitions (unchanged from the original design).
+- `StepContext` compilation and finish planning must call gate `inspect()`, never
+  `verify()` — read-only calls must never run verification commands (C7/C8, reaffirmed).
+- The finish contract computed at `step start` and the `requiredInputs` reported by
+  `step finish`/`step finish --check` must be the same aggregation, computed by the same
+  code path — not two independently maintained implementations that could drift.
+- Extend `tools/specs/validation.mjs` with schema support for the new
+  `execution.finish_operation` block (shape: `operationId`, `status`, `operations[]` each
+  with `id`/`status`/optional `result`) — this extends a shared module used across the
+  whole `specs.mjs` surface; it must not touch or weaken Task 01's own already-verified
+  acceptance criteria or task file.
+- Reuse existing task/spec completion-state transition logic (`tools/specs/lifecycle.mjs`)
+  for the `update-task` stage rather than duplicating status-transition logic inside the
+  workflow module.
+- The `commit`/`push` finish stages call the Task 04 source-control action and persist its
+  `outputs.commit`/`outputs.push` shape (D15) directly into the operation record's stage
+  results — no reshaping in between.
+- Reconciliation for an `unknown` `push` stage must use the Task 04 local-Git
+  reconciliation primitive (`tools/lib/git.mjs`) to check whether the recorded commit SHA
+  is already on the expected remote branch, and must never issue a second commit.
+- Do not bake Standard-specific assumptions into the engine; allow pluggable workflow
+  definitions (unchanged from the original design).
 
 ## Acceptance criteria
 
-1. `StepRunner` evaluates entry gates, action readiness, exit gates, and finalize actions for a given step definition. `automated: node --test tools/tests/workflow-next-step.test.mjs`
-2. `getNextStep` returns complete machine-readable state without requiring the caller to infer workflow rules from prose. `automated: node --test tools/tests/workflow-next-step.test.mjs`
-3. If human verification is required, `getNextStep` indicates `blockedReason: 'human-verification-required'` and reflects the blocking gate state. `automated: node --test tools/tests/workflow-next-step.test.mjs`
-4. If an action check requires inputs, `getNextStep` surfaces the parameter schemas and runtime context facts while preserving action boundaries. `automated: node --test tools/tests/workflow-next-step.test.mjs`
-5. Unit tests verify step progression and next-step resolution across multiple step configurations and states without executing test gates during inspection. `automated: node --test tools/tests/workflow-next-step.test.mjs`
+1. `workflow step start` returns a compiled `StepContext` containing current step,
+   task/spec identity, workflow state, entry state/blockers, factual context, and a finish
+   contract aggregating `requiredInputs` across the step's finalize actions, without
+   requiring the caller to separately inspect individual actions. `automated: node --test tools/tests/workflow-next-step.test.mjs`
+2. `workflow step finish --check` is verified non-mutating against filesystem, Git, and
+   manifest state, and reports changed files, staged/untracked state, relevant commits,
+   branch/HEAD, push status, planned operations, required inputs, and which are missing.
+   `automated: node --test tools/tests/workflow-next-step.test.mjs`
+3. `workflow step finish` called with missing required inputs returns
+   `status: "input-required"` with the same planning payload as `--check` and performs
+   zero mutation (no partial commit, no partial task-status update). `automated: node --test tools/tests/workflow-next-step.test.mjs`
+4. If human verification is required and unrecorded, both `step start`'s `StepContext` and
+   a `step finish` attempt report the blocking human-verification state; the transition is
+   not performed. `automated: node --test tools/tests/workflow-next-step.test.mjs`
+5. Given complete valid inputs, `workflow step finish` executes the fixed stage order
+   (`verify-gates → update-task → commit → push → transition`), and the resulting commit
+   contains both the implementation changes and the task/spec status update (D13).
+   `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
+6. A finish operation interrupted after the `update-task` stage, when retried, does not
+   re-run `update-task` and proceeds to `commit`. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
+7. A finish operation interrupted after `commit` completes (SHA recorded) but before
+   `push`, when retried, does not create a second commit and proceeds to `push`.
+   `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
+8. A finish operation left with `push: unknown` (ambiguous push result), when retried,
+   reconciles against real remote state: if the recorded SHA is already on the remote
+   branch, `push` resolves to `completed` without re-pushing; if not, `push` resolves to
+   `pending` and is performed. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
+9. A finish operation interrupted after a successful `push` but before `transition`, when
+   retried, does not re-push and completes only the `transition` stage.
+   `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
+10. A `workflow step finish` call made after the operation record already shows full
+    success returns the already-completed result and current next step without repeating
+    any finalize action. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
+11. Unit tests verify step progression and next-step resolution across multiple step
+    configurations and states without executing test gates during inspection.
+    `automated: node --test tools/tests/workflow-next-step.test.mjs`
 
 ## Verification
 
 ```text
 node --test tools/tests/workflow-next-step.test.mjs
+node --test tools/tests/workflow-finish-operation.test.mjs
 ```

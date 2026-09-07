@@ -77,3 +77,134 @@
 - **Consequences:** Establishes the reference pattern for all future actions.
 - **Date:** 2026-08-18
 - **Affected artifacts:** `areas/concrete-actions-and-vertical-poc.md`, tasks 04, 07
+
+## D9: Target agent interaction model — `step start` / `step finish` as the only required primitives
+
+- **Question:** Should the deterministic workflow expose its underlying actions, gates, and transitions directly to the agent, or a smaller compiled surface?
+- **Options considered:** Expose `next-step`/`execute-step`/per-action `check`/`execute` as separate agent-facing calls (original Task 06/07 shape) | a minimal two-call contract (`workflow step start`, `workflow step finish`) with the engine compiling everything else internally.
+- **Decision:** The normal agent flow is exactly `workflow step start <change> [task]` → bounded work → `workflow step finish <change> [task]`. The runtime resolves the current step from `change`/`task` state without requiring an explicit step id in the common case; explicit step ids remain available for diagnostics/manual override. The agent never discovers or orchestrates individual actions, gates, Git/`gh` commands, or transition rules itself.
+- **Rationale:** Nevo owns the process; the agent owns only the bounded work and the semantic inputs the workflow asks for. A chatty, primitive-level protocol reintroduces the same orchestration burden this specification exists to remove.
+- **Consequences:** `next-step`/`execute-step` from the original Task 06/07 design are superseded before ever being implemented — `step start`/`step finish` are the real CLI surface; internal step-runner/engine primitives (`checkStep`, `executeStep`, gate `inspect`/`verify`) remain and are composed *underneath* the two-call surface, not exposed as separate agent-facing commands.
+- **Date:** 2026-09-07
+- **Affected artifacts:** `overview.md`, `areas/workflow-engine-and-next-step.md`, tasks 06, 07
+
+## D10: Compiled `StepContext` at `step start`
+
+- **Question:** What must `step start` return so the agent can begin bounded work without further workflow discovery?
+- **Options considered:** Return only the current step id/status, leaving the agent to call `checkStep`/inspect gates itself | return a compiled `StepContext` aggregating everything the agent needs in one call.
+- **Decision:** `step start` returns a compiled `StepContext`: current step id, task/spec identity, workflow state, step instructions/behavior, entry state and blockers, available/expected work, factual runtime context (including source-control context when enabled), the finish contract (aggregated `requiredInputs` from finalize actions, e.g. `commit.title` required / `commit.message` optional), and next-step guidance where meaningful. The agent must not need to inspect individual actions to discover their schemas — the step orchestration layer aggregates action/gate contracts into this one step-level contract, reusing `WorkflowEngine.checkStep`'s aggregation (Task 03) rather than re-implementing it.
+- **Rationale:** Matches D9 — the agent begins work from one call's output, not a sequence of discovery calls.
+- **Consequences:** The finish contract shape (`requiredInputs` aggregated across finalize actions) must be computable *before* any work happens, and must match exactly what `step finish`/`step finish --check` later reports — the two are the same aggregation, evaluated at two different times, not two different implementations.
+- **Date:** 2026-09-07
+- **Affected artifacts:** `overview.md`, `areas/workflow-engine-and-next-step.md`, task 06
+
+## D11: Non-mutating finish planning, and `step finish` itself returns `input-required` without partial mutation
+
+- **Question:** How does the agent discover what `step finish` still needs, and does discovering it require a separate call in the happy path?
+- **Options considered:** Require a mandatory `step finish --check` before every real `step finish` | make `--check` optional/diagnostic, and have `step finish` itself return a structured `input-required` result (aggregating current changed files, staged/untracked state, relevant commits, branch/HEAD, push status, planned operations, and missing inputs) instead of partially mutating when inputs are missing.
+- **Decision:** `step finish --check` (or an equivalent dry-run form) is available for inspection/automation and is strictly non-mutating (same invariant as the existing action `check(context)` / gate `inspect(config, context)`, C2). It is never mandatory: calling `step finish` directly with all required inputs completes normally in one call; calling it with missing inputs returns `status: "input-required"` plus the same factual planning payload `--check` would have returned, and performs zero mutation.
+- **Rationale:** Preserves the low-call happy path (`step start` → work → `step finish`) from D9 while still giving the agent a safe way to discover missing inputs without guessing or repeating side effects.
+- **Consequences:** The `input-required` code path and the `--check` code path must share one planning implementation — they differ only in whether the caller intended to also execute when inputs turn out to be complete.
+- **Date:** 2026-09-07
+- **Affected artifacts:** `overview.md`, `areas/workflow-engine-and-next-step.md`, task 06
+
+## D12: Source control as a workflow capability — local Git vs. remote GitHub provider, reusing existing infrastructure
+
+- **Question:** How should Task 04 evolve from a single `commit-and-push` action into the minimal source-control capability the deterministic workflow needs, without building a general VCS abstraction?
+- **Options considered:** Keep `commit-and-push` as the only source-control surface, with push-confirmation logic embedded in it | introduce a full pluggable VCS provider framework supporting arbitrary future backends now | split into two conceptual layers — a local Git capability (repo/worktree state, commit, push, and reconciliation facts such as "is this SHA already on the configured remote branch") and a separately configured remote provider (currently `github` only), both built on the repository's existing `tools/lib/git.mjs` and `tools/lib/github.mjs` rather than new abstractions.
+- **Decision:** Adopt the two-layer split. `tools/lib/git.mjs` (already used by the legacy `finalize`/`archive` paths for `commitAll`/`push`) is extended, not replaced, with whatever reconciliation primitive Task 04 needs (e.g. "is commit X reachable from `origin/<branch>`"). `tools/lib/github.mjs` (already the repository's one GitHub integration, used today by PR/review tooling) remains the sole GitHub abstraction — Task 04 does not create a second one. Configuration takes the shape:
+  ```yaml
+  sourceControl:
+    enabled: true
+    git:
+      enabled: true
+      push: true
+    remote:
+      enabled: true
+      provider: github
+  ```
+  Source control can be disabled entirely, or push disabled while local commits remain enabled, independently of whether a remote provider is configured. The exact schema location (workflow definition vs. per-change manifest) and field names are a Task 04 implementation detail, not re-litigated here. Task 04 is renamed from "Concrete action implementation: fail-closed commit-and-push" to "Source-control capability" to stop implying a single action is the whole scope.
+- **Rationale:** Matches specification requirement 3 exactly: reuse existing Git/GitHub infrastructure, keep a clean two-layer capability boundary, and avoid building a universal VCS framework this foundation does not need. GitLab or any other provider stays unimplemented — only the boundary that could later accept one is established.
+- **Consequences:** GitHub-provider-specific *mutating* operations (e.g. opening a PR) are still out of scope for this action — Task 04 only needs the config boundary plus local Git commit/push/reconciliation, since ordinary step finalization never requires a GitHub write beyond what `push` already achieves.
+- **Date:** 2026-09-07
+- **Affected artifacts:** `overview.md` (non-goals, constraints), `areas/concrete-actions-and-vertical-poc.md`, task 04 (renamed)
+
+## D13: Finalize ordering invariant — the progress commit includes task/spec completion state
+
+- **Question:** In what order must finalize operations run so that a completed step's commit reflects both the agent's work and Nevo's own bookkeeping?
+- **Options considered:** Commit the agent's work first, update task/spec status afterward in a second, separate commit | update task/spec completion state, then commit both the implementation and the metadata update together, then push.
+- **Decision:** The externally visible order for a task-completing step is: validate supplied inputs → verify required gates → perform/update task/spec completion state → commit the resulting implementation plus Nevo metadata/status changes together → push when configured → confirm remote state → persist/complete the workflow transition → return completed state and next step. Internal sequencing may vary for failure recovery (D14), but this order is the invariant callers can rely on.
+- **Rationale:** Avoids ever leaving task metadata dirty immediately after a successful finalize — a real failure mode when metadata and implementation are committed separately (a crash between the two commits leaves an inconsistent repo state).
+- **Consequences:** The source-control finalize action(s) (Task 04) must be sequenced *after* task/spec status mutation in the finish operation's stage list (Task 06), not before it and not as a caller-supplied ordering choice.
+- **Date:** 2026-09-07
+- **Affected artifacts:** `overview.md`, `areas/concrete-actions-and-vertical-poc.md`, tasks 04, 06
+
+## D14: Durable, resumable finish execution — operation state model and reconciliation
+
+- **Question:** How does a multi-stage finish operation survive a crash, timeout, or lost response without either repeating a completed side effect or getting stuck?
+- **Options considered:** No durability — a retried `step finish` simply re-runs every finalize action from scratch | a full distributed-transaction/saga framework | a minimal durable operation record: a stable `operationId`, a fixed per-stage status vocabulary (`pending`/`running`/`completed`/`failed`/`unknown`), and reconciliation logic that inspects real state before deciding what still needs to run.
+- **Decision:** Adopt the minimal durable operation record, persisted per task alongside the existing `execution.suspension` block (same `change.yaml` task entry, same "orthogonal to lifecycle status" pattern established for suspensions) as a new `execution.finish_operation` block:
+  ```yaml
+  execution:
+    finish_operation:
+      operationId: <opaque id>
+      status: pending | running | completed | failed
+      operations:
+        - id: verify-gates
+          status: completed | failed | pending | running
+        - id: update-task
+          status: completed
+        - id: commit
+          status: completed
+          result: { sha: abc123 }
+        - id: push
+          status: unknown
+        - id: transition
+          status: pending
+  ```
+  On retry, Nevo loads the existing record, treats `completed` stages as done, and reconciles any `unknown` stage against real external state before deciding whether it is actually `completed` or still `pending` — e.g. a `push` left `unknown` after a crash is reconciled by checking (via the Task 04 Git reconciliation primitive from D12) whether the recorded commit SHA is already present on the expected remote branch. It never re-creates a commit that already exists. A repeated `step finish` after the operation record shows full success returns the already-completed result and current next step rather than repeating finalize actions.
+- **Rationale:** Matches specification requirement 6 exactly — a foundation-level resumability invariant, not a claim of exactly-once distributed semantics. `unknown` is the state that makes reconciliation meaningful: it marks an external side effect whose outcome Nevo did not confirm, as distinct from `failed` (confirmed not to have happened) or `completed` (confirmed to have happened).
+- **Consequences:** This introduces one new persisted manifest field (`execution.finish_operation`), which needs schema support in `tools/specs/validation.mjs` — extending that shared module, not rewriting Task 01's own already-verified acceptance criteria or task file. Task 06 owns this addition.
+- **Date:** 2026-09-07
+- **Affected artifacts:** `overview.md`, `areas/workflow-engine-and-next-step.md`, task 06
+
+## D15: Push completion represents achieved state, not command invocation
+
+- **Question:** What must be persisted about a push so Nevo can answer, deterministically and later, "has the expected commit actually reached the remote?"
+- **Options considered:** Persist only "push succeeded: true/false" at the moment the push command returned | persist the specific expected commit SHA alongside the push's remote/branch/status, so the claim can be re-verified against current remote state at any later time (not just trusted from the original command's exit code).
+- **Decision:** Persist `{ commit: { sha, status }, push: { remote, branch, expectedSha, status } }` as part of the finish operation's `commit`/`push` stage results (D14). `expectedSha` is what makes reconciliation (D14) and any later "is this pushed" query answerable without re-trusting a possibly-stale in-memory result.
+- **Rationale:** Matches specification requirement 7. This is also exactly what the reconciliation step in D14 needs as its input.
+- **Consequences:** None beyond D14 — this decision defines the payload shape D14's `push` stage carries.
+- **Date:** 2026-09-07
+- **Affected artifacts:** `overview.md`, task 04, task 06
+
+## D16: Legacy lifecycle stays operational, explicitly marked superseded
+
+- **Question:** Should any legacy lifecycle command be removed or altered as part of establishing the deterministic step lifecycle?
+- **Options considered:** Remove or alter legacy commands (`start`, `complete`, `verify`, `approve`, `self-check`, `finalize`, `batch-*`) now that a deterministic replacement exists | leave every legacy command fully operational and unaltered, and instead document a migration/deprecation map naming the deterministic replacement for each.
+- **Decision:** Leave all legacy commands operational and unaltered (already required by C1). Document the following migration map (Task 07 writes it into `docs/development/workflow-engine.md`; this table is the specification-level source of truth for it):
+
+  | Legacy concept | Deterministic replacement |
+  |---|---|
+  | `start` | `workflow step start` |
+  | `complete` / `finalize` | `workflow step finish` |
+  | `verify` / `self-check` | Configured exit gates (`CommandGate`/`MarkdownGate` `verify`) |
+  | `approve` (human sign-off) | `HumanVerificationGate` (human verification remains first-class and blocking either way) |
+  | Manual/legacy-orchestrated Git commit + push (legacy `finalize`/`archive` calling `git.commitAll`/`git.push` directly in `tools/specs.mjs`) | Source-control finalize action(s) (Task 04), sequenced per D13 |
+  | `batch-*` | Not superseded in this foundation — batch execution has no deterministic-workflow equivalent yet; explicitly out of scope |
+
+  Concrete legacy code identified as removable in a future cleanup specification, once migration is proven: the direct `git.commitAll`/`git.push` calls inside `handleFinalize`/`handleArchive` in `tools/specs.mjs` (once every migrated change finalizes through the source-control finalize action instead), and, much later, the legacy lifecycle handlers themselves once no active/future specification depends on `mode: legacy`.
+- **Rationale:** Matches specification requirement 10 — legacy must keep working during migration (C1), but the direction of travel must be unambiguous so new work builds on the deterministic lifecycle rather than the legacy one.
+- **Consequences:** This specification's own acceptance criteria (Task 07) require the migration map to actually be written into `docs/development/workflow-engine.md`, not merely stated here.
+- **Date:** 2026-09-07
+- **Affected artifacts:** `overview.md`, task 07, `docs/development/workflow-engine.md` (written by Task 07's implementation)
+
+## D17: Optional progress checkpoint (`step save`) is a documented extension point, not built now
+
+- **Question:** Should this foundation implement an optional mid-step checkpoint command now, given the source-control/action boundary is already being designed?
+- **Options considered:** Implement `workflow step save`/`workflow save-progress` now, alongside `step start`/`step finish` | design the source-control/action boundary so this is a small, obvious future addition, and explicitly leave the command itself for a follow-up specification.
+- **Decision:** Defer implementation. `step start`/`step finish` (D9) are the only commands this foundation builds. The source-control action boundary from D12 (an independently invocable commit/push capability, not entangled with gate verification or task-completion transition) is what would let a future `step save` skip exit-gate/transition requirements and reuse the same durable-operation mechanism from D14 — Task 06's area doc records this as an explicit extension point.
+- **Rationale:** Matches specification requirement 9's own instruction to keep this small if it would materially increase scope. Building the checkpoint action's boundary correctly now is cheap; building and testing a whole additional command is not "small."
+- **Consequences:** A new non-goal is added to `overview.md` naming this explicitly, so it isn't mistaken for an oversight later.
+- **Date:** 2026-09-07
+- **Affected artifacts:** `overview.md` (non-goals), `areas/workflow-engine-and-next-step.md`
