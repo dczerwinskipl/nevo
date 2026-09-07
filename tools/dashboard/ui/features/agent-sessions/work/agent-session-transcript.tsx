@@ -153,10 +153,14 @@ export const AgentSessionTranscript = forwardRef<AgentSessionTranscriptHandle, A
               sole source for the chat bubble; it is present on every turn (live,
               reloaded, or migrated from legacy persistence), so this renders identically
               regardless of how the page was loaded. */}
-          {turns.map((turn) => (
+          {turns.map((turn, index) => (
             <div key={turn.id} className="w-full min-w-0 space-y-1.5">
               {turn.userMessage && <UserMessageBubble text={turn.userMessage.text} />}
-              <TurnWorkPanel turn={turn} onRespondInteraction={onRespondInteraction} />
+              <TurnWorkPanel
+                turn={turn}
+                isLatestTurn={index === turns.length - 1}
+                onRespondInteraction={onRespondInteraction}
+              />
             </div>
           ))}
 

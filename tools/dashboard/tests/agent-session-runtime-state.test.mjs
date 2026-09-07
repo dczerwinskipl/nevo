@@ -862,6 +862,15 @@ test("V2 correction: the transcript renders each turn's own canonical userMessag
   assert.match(source, /<UserMessageBubble text=\{optimisticUserMessage\} \/>/);
 });
 
+test('Terminal-error visibility correction: the transcript tells TurnWorkPanel which turn is the latest, so only that turn gets the prominent error treatment', () => {
+  const source = readTranscriptSource();
+  assert.match(
+    source,
+    /isLatestTurn=\{index === turns\.length - 1\}/,
+    'only the most recent turn is eligible for the prominent, toast-styled terminal-error notice — every earlier turn (which may also have failed) gets the quieter, permanent record instead',
+  );
+});
+
 test('V2 correction: a session loaded only from the HTTP snapshot (no turn.started SSE observed) still has userMessage available per turn', () => {
   // Mirrors the real regression: turns persisted before the current browser tab opened
   // (or before a dashboard restart) must still render their user message, because it now

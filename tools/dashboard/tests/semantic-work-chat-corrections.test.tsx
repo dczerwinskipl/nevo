@@ -89,7 +89,7 @@ describe('Canonical Chat Surface Component Tests (RTL renders)', () => {
       status: { status: 'terminal', outcome: 'completed' },
     };
 
-    render(<TurnWorkPanel turn={turn} onRespondInteraction={vi.fn()} />);
+    render(<TurnWorkPanel turn={turn} isLatestTurn onRespondInteraction={vi.fn()} />);
 
     // Expand Level 2 by clicking the WorkIndicator toggle button
     const indicatorButton = screen.getByRole('button', { name: /work · 1 action · completed/i });
@@ -118,6 +118,74 @@ describe('Canonical Chat Surface Component Tests (RTL renders)', () => {
     fireEvent.click(detailsButton);
     expect(screen.getByText('Work Details')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /wróć do listy/i })).not.toBeInTheDocument();
+  });
+
+  it('Terminal-error visibility correction: a failed turn shows its own error message per-turn — prominently for the latest turn, quietly otherwise — regardless of live vs. reload', () => {
+    const failedTurnEarlier: CanonicalTurn = {
+      id: 'turn-quota-earlier',
+      work: [],
+      historicalWork: [],
+      currentActivity: null,
+      activityCount: 0,
+      finalAnswer: null,
+      status: {
+        status: 'terminal',
+        outcome: 'failed',
+        error: { code: 'AI_PROVIDER_ERROR', message: 'Individual quota reached. Resets in 23m32s.' },
+      },
+    };
+    const failedTurnLatest: CanonicalTurn = {
+      id: 'turn-quota-latest',
+      work: [],
+      historicalWork: [],
+      currentActivity: null,
+      activityCount: 0,
+      finalAnswer: null,
+      status: {
+        status: 'terminal',
+        outcome: 'failed',
+        error: { code: 'AI_PROVIDER_ERROR', message: 'Authentication token expired. Please re-authenticate.' },
+      },
+    };
+
+    // This is exactly the reload scenario: no live SSE event ever fires `onError`, so
+    // whatever is shown must come from the turns themselves, not a transient toast.
+    render(
+      <AgentSessionTranscript
+        turns={[failedTurnEarlier, failedTurnLatest]}
+        isLoading={false}
+        hasSessionDetails={true}
+        contentRevision={1}
+      />,
+    );
+
+    // Both turns' own error messages are visible — a session can have failed more than once.
+    expect(screen.getByText('Individual quota reached. Resets in 23m32s.')).toBeInTheDocument();
+    expect(screen.getByText('Authentication token expired. Please re-authenticate.')).toBeInTheDocument();
+
+    // Only the latest turn gets the prominent, toast-styled "Komunikat agenta" treatment.
+    expect(screen.getAllByText('Komunikat agenta')).toHaveLength(1);
+  });
+
+  it('Terminal-error visibility correction: a quiet cancellation never shows an error notice on the turn itself', () => {
+    const cancelledTurn: CanonicalTurn = {
+      id: 'turn-cancelled',
+      work: [],
+      historicalWork: [],
+      currentActivity: null,
+      activityCount: 0,
+      finalAnswer: null,
+      status: {
+        status: 'terminal',
+        outcome: 'cancelled',
+        error: { code: 'AI_TURN_CANCELLED', message: 'The turn was cancelled by the user.' },
+      },
+    };
+
+    render(<TurnWorkPanel turn={cancelledTurn} isLatestTurn onRespondInteraction={vi.fn()} />);
+
+    expect(screen.queryByText('The turn was cancelled by the user.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Komunikat agenta')).not.toBeInTheDocument();
   });
 
   it('Gap 3: ToolGroupRow renders compound ToolActions nested under their invocation in Level 2', () => {
