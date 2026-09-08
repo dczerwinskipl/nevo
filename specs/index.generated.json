@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-08T10:30:45.865Z",
+  "generated": "2026-09-08T10:31:36.567Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -235,7 +235,7 @@
           "id": "cli-integration-and-vertical-poc",
           "order": 7,
           "file": "tasks/07-cli-integration-and-vertical-poc.md",
-          "status": "in-implementation",
+          "status": "implemented",
           "depends_on": [
             "source-control-capability",
             "step-orchestration-and-next-step-service"
