@@ -14,7 +14,7 @@ import { normalizeSourceControlConfig } from './definitions/schema.mjs';
 import { defaultActionRegistry, defaultGateRegistry } from './registry.mjs';
 import { defaultWorkflowEngine } from './engine.mjs';
 import { resolveCurrentStepName, inspectGates, verifyGates, allGatesPassed } from './step-runner.mjs';
-import { aggregateFinalizeCheck, buildFinishContract } from './step-context.mjs';
+import { aggregateFinalizeCheck, buildFinishContract, normalizeSourceControlFacts } from './step-context.mjs';
 import { WorkflowError, PreconditionError } from './errors.mjs';
 import * as git from '../../lib/git.mjs';
 
@@ -128,8 +128,34 @@ export async function planFinish({
   gateRegistry = defaultGateRegistry,
   actionRegistry = defaultActionRegistry,
 } = {}) {
-  const stepName = resolveCurrentStepName(definition, task);
+  const changeSlug = change._slug || change.id;
+  const existingRecord = context.repoRoot ? loadOperationRecord(context.repoRoot, changeSlug, task.id) : null;
+
+  // An in-flight (not yet `completed`) operation record's own `step` is authoritative
+  // over re-deriving the step from the task's *current* status: `update-task` may have
+  // already moved the tracked status to the transition target before the operation as a
+  // whole finished (the exact crash window C18 exists to recover from) — re-deriving
+  // from current status alone would then wrongly conclude "already complete" and abandon
+  // an operation still mid-flight (commit/push/transition stages still pending).
+  const stepName = (existingRecord && existingRecord.status !== 'completed')
+    ? existingRecord.step
+    : resolveCurrentStepName(definition, task);
+
   if (!stepName) {
+    if (existingRecord?.status === 'completed') {
+      return {
+        status: 'completed',
+        stepName: existingRecord.step,
+        requiredInputs: {},
+        missingInputs: [],
+        resolvedInputs: existingRecord.resolvedInputs || {},
+        conflicts: [],
+        sourceControl: null,
+        plannedOperations: FINISH_STAGE_IDS,
+        blockers: [],
+        existingRecord,
+      };
+    }
     return {
       status: 'already-complete',
       stepName: null,
@@ -148,14 +174,17 @@ export async function planFinish({
   const finalizeCheck = await aggregateFinalizeCheck(step, context, { engine, actionRegistry });
   const requiredInputs = buildFinishContract(finalizeCheck);
   const exitGateResults = await inspectGates(step.exitGates, context, { gateRegistry });
-  const blockers = exitGateResults.filter(g => g.status !== 'passed');
+  // Only a definitively 'blocked'/'failed' gate blocks planning — a command gate's
+  // 'pending' inspect status (not yet verify()'d) must not, or the finalize sequence
+  // that actually runs and records it could never be reached (deadlock). Gates execute
+  // deterministically: inspect() during planning, verify() only during actual finalize
+  // execution (see `ensureVerifyGates` below).
+  const blockers = exitGateResults.filter(g => g.status === 'blocked' || g.status === 'failed');
 
-  const changeSlug = change._slug || change.id;
-  const existingRecord = context.repoRoot ? loadOperationRecord(context.repoRoot, changeSlug, task.id) : null;
   const { resolved, conflicts } = mergeResolvedInputs(existingRecord?.resolvedInputs, inputs);
   const missingInputs = computeMissingInputs(requiredInputs, resolved);
 
-  const sourceControlFacts = finalizeCheck.actions['commit-and-push']?.context ?? null;
+  const sourceControlFacts = normalizeSourceControlFacts(finalizeCheck.actions['commit-and-push']?.context);
   const sourceControl = sourceControlFacts && context.repoRoot
     ? { ...sourceControlFacts, head: git.getCurrentRevision(context.repoRoot) }
     : sourceControlFacts;

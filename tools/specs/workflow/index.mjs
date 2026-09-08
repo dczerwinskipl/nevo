@@ -104,6 +104,7 @@ export {
 export {
   aggregateFinalizeCheck,
   buildFinishContract,
+  normalizeSourceControlFacts,
   compileStepContext,
 } from './step-context.mjs';
 

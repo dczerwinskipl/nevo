@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-06T14:47:54.453Z",
+  "generated": "2026-09-08T10:29:29.474Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -820,6 +820,24 @@
         "development.react-component-guidelines",
         "development.nevo-ai-ux-guidelines",
         "development.nevo-interaction-model"
+      ]
+    },
+    {
+      "file": "docs/development/workflow-engine.md",
+      "id": "development.workflow-engine",
+      "type": "development",
+      "title": "Deterministic workflow engine",
+      "status": "current",
+      "read_when": [
+        "implementing a new workflow action or gate",
+        "wiring a new `workflow` CLI command",
+        "debugging a step start/finish call or an interrupted finish operation",
+        "deciding whether new work should use the deterministic engine or the legacy lifecycle"
+      ],
+      "summary": "The deterministic workflow engine under tools/specs/workflow/: composable action/gate contracts, the compiled StepContext, non-mutating finish planning, the durable/resumable finish operation, the source-control capability boundary, the agent-facing vs. operator-facing CLI surface, and the legacy/deterministic migration map.",
+      "related": [
+        "development.node-tooling-guidelines",
+        "development.git-workflow"
       ]
     },
     {

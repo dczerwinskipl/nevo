@@ -43,6 +43,23 @@ export async function aggregateFinalizeCheck(step, context, { engine = defaultWo
 }
 
 /**
+ * `CommitAndPushAction.check()` returns two differently-shaped `context` payloads
+ * depending on `sourceControl.enabled` (`commit-and-push.mjs`): disabled returns
+ * `{ sourceControl: {...inert config} }`, enabled returns a flat factual object
+ * (`changedFiles`, `currentBranch`, ...) with no `sourceControl` key at all. Both
+ * `StepContext.context.sourceControl` and finish planning's `sourceControl` field need
+ * one consistent flat shape regardless of which branch produced it — this unwraps the
+ * disabled branch's nesting rather than doubly re-wrapping it.
+ *
+ * @param {object|undefined} rawContext
+ * @returns {object|null}
+ */
+export function normalizeSourceControlFacts(rawContext) {
+  if (!rawContext) return null;
+  return Object.prototype.hasOwnProperty.call(rawContext, 'sourceControl') ? rawContext.sourceControl : rawContext;
+}
+
+/**
  * Flattens per-action `requiredInputs` schemas (Task 03's `checkStep` aggregation) into
  * one step-level map keyed by parameter name (D10) — e.g. `commit.title` required,
  * `commit.message` optional. The finalize actions this foundation defines never declare
@@ -113,8 +130,12 @@ export async function compileStepContext({
   const exitGateResults = await inspectGates(step.exitGates, context, { gateRegistry });
   const finalizeCheck = await aggregateFinalizeCheck(step, context, { engine, actionRegistry });
   const requiredInputs = buildFinishContract(finalizeCheck);
-  const blockers = entryGateResults.filter(g => g.status !== 'passed');
-  const sourceControlContext = finalizeCheck.actions['commit-and-push']?.context ?? null;
+  // Only a definitively 'blocked'/'failed' gate blocks — 'pending' (a command gate that
+  // simply hasn't been verify()'d yet) must not, or planning could never reach the
+  // execution that would actually run and record it (see the identical reasoning in
+  // finish-operation.mjs's planFinish).
+  const blockers = entryGateResults.filter(g => g.status === 'blocked' || g.status === 'failed');
+  const sourceControlContext = normalizeSourceControlFacts(finalizeCheck.actions['commit-and-push']?.context);
 
   return {
     change: changeId,
