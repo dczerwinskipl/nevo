@@ -13,6 +13,7 @@ workflow:
 branch:
   mode: per-change
   prefix: feature
+  name: feature/deterministic-workflow-foundation-v2
 
 tasks:
   - id: workflow-schema-and-compatibility
