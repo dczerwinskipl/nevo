@@ -21,19 +21,21 @@ forbidden_paths:
   - tools/dashboard/**
   - tools/specs/context.mjs
 semantic_references:
-  decisions: [D10, D22]
-  constraints: [C11]
+  decisions: [D10, D22, D25]
+  constraints: [C11, C25]
   dependency_contracts: [multi-step-workflow-progression]
 ---
 
-# Task: `StepContext` knowledge/skill/file hints
+# Task: `StepContext` knowledge/skill/file hints and step behavior contract
 
 ## Goal
 
 Add the `instructions`/`expectedWork`/relevant-docs fields `overview.md` §7's original
 `StepContext` example already illustrated but Task 06 never implemented (D22,
-`areas/multi-step-workflow-orchestration.md` §6) — making `step start` the agent's
-actual primary discovery surface, not merely a step/gate/finish-contract aggregator.
+`areas/multi-step-workflow-orchestration.md` §6), **and** surface each step's own
+configured behavior contract (D25, `areas/multi-step-workflow-orchestration.md` §10) —
+making `step start` the agent's actual primary discovery surface for both task-level and
+step-level expectations, not merely a step/gate/finish-contract aggregator.
 
 1. `expectedWork`: the current task's own `allowed_paths`/`forbidden_paths`.
 2. `instructions`: a short, structurally-derived summary (entry-blocker count, which
@@ -41,6 +43,11 @@ actual primary discovery surface, not merely a step/gate/finish-contract aggrega
 3. A relevant-docs hint field, populated from whatever deterministic routing-rule
    matching `tools/specs/context.mjs` already computes for the legacy context packet
    against the same task's `allowed_paths` — reused as-is, not reimplemented.
+4. `stepContract`: whichever of the current step's own `purpose`/`expectedWork`/`hints`
+   (D25, added to the schema by Task 08) the workflow definition declares — surfaced
+   verbatim, alongside (never merged into or confused with) the task-level fields above.
+   A step declaring none of these fields simply omits `stepContract`, never a fabricated
+   default.
 
 ## Implementation constraints
 
@@ -68,11 +75,19 @@ actual primary discovery surface, not merely a step/gate/finish-contract aggrega
    `tools/specs/context.mjs`'s existing routing-rule matching for the task's
    `allowed_paths`, empty/absent when that matching produces nothing (never fabricated).
    `automated: node --test tools/tests/workflow-next-step.test.mjs`
-4. All fields `compileStepContext()` returned before this task are unchanged in shape
+4. `StepContext.stepContract` reflects the current step's own configured
+   `purpose`/`expectedWork`/`hints` (D25) when the workflow definition declares them for
+   that step, and is absent (not a fabricated empty object) when the step declares none.
+   `automated: node --test tools/tests/workflow-next-step.test.mjs`
+5. Two steps in the same fixture definition with different `purpose`/`expectedWork`/
+   `hints` produce correspondingly different `StepContext.stepContract` values —
+   confirming the field reflects the *current* step's own configuration, not a
+   definition-wide constant. `automated: node --test tools/tests/workflow-next-step.test.mjs`
+6. All fields `compileStepContext()` returned before this task are unchanged in shape
    and value — regression-checked against the existing Task 06/08 `StepContext`
    assertions. `automated: node --test tools/tests/workflow-next-step.test.mjs`
-5. `docs/development/workflow-engine.md`'s `StepContext` example reflects the new
-   fields. `automated: node tools/docs.mjs check`
+7. `docs/development/workflow-engine.md`'s `StepContext` example reflects the new
+   fields, including `stepContract`. `automated: node tools/docs.mjs check`
 
 ## Verification
 

@@ -23,8 +23,8 @@ forbidden_paths:
   - tools/specs.mjs
   - .nevo-ai/workflows/**
 semantic_references:
-  decisions: [D9, D18, D19, D20]
-  constraints: [C14, C17, C18, C19, C21, C22]
+  decisions: [D9, D18, D19, D20, D23, D24, D26]
+  constraints: [C14, C17, C18, C19, C21, C22, C23, C24, C26]
   dependency_contracts: [production-multi-step-standard-workflow, step-context-knowledge-hints, fail-closed-workflow-definition-resolution]
 ---
 
@@ -34,9 +34,9 @@ semantic_references:
 
 Prove, end-to-end and via the public CLI only, that a fixture workflow definition with
 **at least three** distinct steps actually drives an agent through all of them —
-closing the one thing Tasks 01-10 individually generalize/enable but never collectively
+closing the one thing Tasks 01-11 individually generalize/enable but never collectively
 demonstrate together (`areas/multi-step-workflow-orchestration.md` §7). This is the
-acceptance test for the whole multi-step correction (D18-D22), the same role Task 07
+acceptance test for the whole multi-step correction (D18-D27), the same role Task 07
 played for the single-step foundation.
 
 ## Implementation constraints
@@ -92,7 +92,19 @@ played for the single-step foundation.
 9. A second, differently-shaped fixture definition (different step names/count) run
    through the identical CLI code path produces a correspondingly different resolved
    sequence — proving no engine code encodes a specific sequence. `automated: node --test tools/tests/workflow-multi-step-e2e.test.mjs`
-10. Full repository test suite passes with zero failures. `automated: node --test tools/tests/*.test.mjs`
+10. **Step-aware operation identity, driven via CLI (D23):** after step A's
+    `workflow step finish` completes, step B's `workflow step start` then
+    `workflow step finish` actually executes B's finalize sequence (its own commit is
+    produced) rather than returning A's cached completed result — the exact regression
+    named in the owner's review of the first draft of this correction. `automated: node --test tools/tests/workflow-multi-step-e2e.test.mjs`
+11. **Step/gate-scoped human verification, driven via CLI (D24):** a fixture with human
+    gates configured on two different steps requires a separate `verify-human --confirm`
+    for each — confirming one does not satisfy the other. `automated: node --test tools/tests/workflow-multi-step-e2e.test.mjs`
+12. **Version compatibility (D26):** a fixture change whose `workflow.version` does not
+    match its loaded definition's `version` fails `step start`/`step finish` with an
+    explicit error, driven via the same CLI handlers as every other scenario in this
+    file. `automated: node --test tools/tests/workflow-multi-step-e2e.test.mjs`
+13. Full repository test suite passes with zero failures. `automated: node --test tools/tests/*.test.mjs`
 
 ## Verification
 
