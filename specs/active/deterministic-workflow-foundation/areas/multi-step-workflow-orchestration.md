@@ -10,7 +10,7 @@ other configured sequence — driving an agent through all of them via repeated 
 step start` / `workflow step finish` cycles, with the workflow definition (never the
 agent, never hardcoded engine logic) deciding what happens next at every step boundary.
 
-This area covers Tasks 08-12. See D18-D27 in `owner-decisions.md` for the decisions
+This area covers Tasks 08-12. See D18-D31 in `owner-decisions.md` for the decisions
 behind it, and `overview.md` §14 for the summary of what's already good (unchanged) vs.
 what's genuinely new.
 
@@ -19,13 +19,23 @@ task state (Option 3), not runtime-local storage — it is long-lived workflow/d
 progress, unlike the finish-operation record's transient, single-call crash-recovery
 state (D14).
 
-This area doc was itself revised once, after a second review found five further gaps in
-the first draft of Tasks 08-12 (§§8-12 below, D23-D27) — finish-operation identity
-wasn't step-aware, human-verification sign-off wasn't step/gate-scoped, workflow
-definitions had no way to tell the agent what a *specific* step expects, nothing checked
-workflow-definition version compatibility, and the schema silently tolerated more than
-one transition per step while an entry step was only an implicit convention. §§1-7 below
-are the first draft's content (still correct); §§8-12 are the additions.
+This area doc has been revised twice since its first draft:
+
+- **First revision** (§§8-12, D23-D27): finish-operation identity wasn't step-aware,
+  human-verification sign-off wasn't step/gate-scoped, workflow definitions had no way
+  to tell the agent what a *specific* step expects, nothing checked workflow-definition
+  version compatibility, and the schema silently tolerated more than one transition per
+  step while an entry step was only an implicit convention.
+- **Second revision** (§§13-15 and refinements within §§3, 5, 9, 11, D28-D31): terminal
+  vs. fresh-task resolution was still ambiguous, D24's storage-side scoping had no query
+  path that could actually reach it, step/gate identifiers had no safety/uniqueness
+  contract before being embedded in filesystem paths, a terminal transition target
+  wasn't validated against any real vocabulary (a typo could reach `task.status`), the
+  version check compared the wrong (raw vs. effective) field, and Task 10's step
+  decomposition was wrongly left to implementer discretion instead of owner approval.
+
+§§1-7 are the first draft's content (still correct); §§8-15, plus the in-place
+refinements to §§3/5/9/11, are the corrections.
 
 ## 1. Why task `status` cannot represent step progress (D18)
 
@@ -86,16 +96,20 @@ definition's own `steps` map keys first:
   transition: write `workflow_progress.current_step = X` (append a `history` entry),
   leave `task.status` untouched.
 - **`X` matches no declared step name** → this is the terminal case, exactly as today's
-  single-step `standard.yaml` (`to: verified`) already behaves: write `task.status = X`,
-  and clear/finalize `workflow_progress` (the workflow is done; `current_step` no longer
-  applies).
+  single-step `standard.yaml` (`to: verified`) already behaves: write `task.status = X`.
+  `workflow_progress.current_step` is **not** cleared or nulled at this point — see §13
+  for exactly why, and for the precedence rule that makes leaving it populated safe.
 
 This requires no new schema field on `transitions` itself and is fully backward
 compatible — re-derive today's exact behavior as the degenerate one-step case. A
 definition must not declare a step whose name collides with a terminal status value used
 elsewhere as a `to` target in the *same* definition (validation error, not a silent
 "advance to the step" resolution when a terminal write was intended) — Task 08 adds this
-check.
+check. **`X` must additionally be a real member of the repository's canonical task-status
+vocabulary** (`TASK_STATUSES`, `tools/specs/lifecycle-primitives.mjs`) whenever it isn't a
+step name — a typo (`to: verifed`) fails validation at load time rather than silently
+becoming an invalid status once written (D19's refinement; see also §15 for the parallel
+identifier-safety rule for step/gate names themselves).
 
 ## 4. Fail-closed action/gate resolution (D20)
 
@@ -128,17 +142,22 @@ than the one declared.
   style test YAML) that referenced `verify-task-output` for illustrative purposes drops
   it too, since it would now fail to load.
 
-## 5. Production-quality multi-step `standard.yaml` (Task 10)
+## 5. Production-quality multi-step `standard.yaml` (Task 10, owner-approval gated — D31)
 
 Today's `standard.yaml` is a single-step placeholder (`implementation -> verified`) that
 exists to prove the *engine*, not to be Nevo's real Standard-change workflow. Task 10
 replaces it with a genuine multi-step sequence — each step independently declaring its
-own `entryGates`/`actions`/`exitGates`/`finalize`/`transitions`. **Exact step names,
-count, and gate composition are Task 10's own implementation decision**, not fixed by
-this area doc — informed by Nevo's existing review/verification practice (the legacy
-`approve`/self-check/human-verification concepts this specification's D16 migration map
-already names), but not prescribed here. A illustrative (non-binding) shape, matching
-the kind of sequence the owner described when commissioning this correction:
+own `entryGates`/`actions`/`exitGates`/`finalize`/`transitions`, plus a real `purpose`/
+`expectedWork`/`hints` behavior contract (D25) and an explicit `entryStep` (D27).
+
+**Exact step names, count, and gate composition are a product/process decision, not
+implementer discretion (D31)** — Task 10 *proposes* a concrete decomposition, records it
+as its own `owner-decisions.md` entry, and **stops for explicit owner approval** before
+writing `.nevo-ai/workflows/standard.yaml` if that decomposition isn't already approved.
+This area doc intentionally does not pre-select the shape either; the illustrative
+sketch below is a non-binding example only, informed by Nevo's existing
+review/verification practice (the legacy `approve`/self-check/human-verification
+concepts D16's migration map already names):
 
 ```yaml
 steps:
@@ -155,9 +174,11 @@ steps:
     transitions: [{ to: verified }]
 ```
 
-Whoever starts Task 10 must record the real step decomposition as its own decision
-entry (`owner-decisions.md`) before implementing it, per this skill's decision-policy —
-this area doc intentionally does not pre-select it.
+Whoever starts Task 10 records the real step decomposition as its own decision entry
+(`owner-decisions.md`) and gets it explicitly approved *before* implementing it — an
+implementer may still freely decide low-level representation details inside an approved
+decomposition (exact YAML formatting, which existing doc a `hints` entry references),
+never the step sequence or gate ownership itself (D31).
 
 ## 6. `StepContext` knowledge/skill/file hints (D22, Task 11)
 
@@ -261,9 +282,13 @@ optional `--gate <id>` for the rare case where a step has more than one unmet hu
 and disambiguation is required (fail closed rather than guessing which one the operator
 means). Every existing invariant is preserved: the agent has no code path that writes
 this file; `verify-human` is the one, separate operator command; the record is
-file-backed and durable across process invocations (`HumanVerificationGate.inspect`/
-`.verify`, Task 05, are unchanged — only how *this* CLI-facing store keys its own file
-changes).
+file-backed and durable across process invocations.
+
+**This scoping is only reachable end-to-end because the query contract itself is
+extended (D29) — see §14.** Storage-side scoping alone (this section) would be
+meaningless if the query reaching that storage never carried step/gate identity in the
+first place; `HumanVerificationGate.inspect`/`.verify` (`gates/human-gate.mjs`, Task 05)
+themselves change, which is why Task 08's `allowed_paths` includes that file.
 
 ## 10. Declarative step behavior contract (D25, Tasks 08/10/11)
 
@@ -304,15 +329,19 @@ default.
 
 ## 11. Fail-closed workflow-definition version compatibility (D26, Task 08)
 
-`resolveWorkflowMode(change)` already returns `change.workflow.version`; the loaded
-definition already carries its own `version`. Nothing compares them today. **Fix:** the
+`resolveWorkflowMode(change)` (`compatibility.mjs`, Task 01) already computes the
+*effective* workflow version — including the `workflow_mode: deterministic` shorthand
+path, which has no `change.workflow.version` field at all and defaults to `1`. The
+loaded definition carries its own `version`. Nothing compares them today. **Fix:** the
 same runtime-resolution path `step start`/`step finish` already use to load both values
-asserts `change.workflow.version === definition.version` before doing anything else — a
-mismatch throws an explicit `WorkflowDefinitionError` naming both versions. This is a
-per-call guard, not migration infrastructure: no upgrade paths, no multi-version support,
-nothing speculative. A long-lived task sitting at `workflow_progress.current_step` for
-days must never silently keep resolving against a `standard.yaml` that was incompatibly
-changed underneath it while it waited.
+asserts `resolveWorkflowMode(change).version === definition.version` before doing
+anything else — **not** the raw `change.workflow.version` field directly, which would
+wrongly demand a field the shorthand manifest shape never has. A mismatch throws an
+explicit `WorkflowDefinitionError` naming both versions. This is a per-call guard, not
+migration infrastructure: no upgrade paths, no multi-version support, nothing
+speculative. A long-lived task sitting at `workflow_progress.current_step` for days must
+never silently keep resolving against a `standard.yaml` that was incompatibly changed
+underneath it while it waited.
 
 ## 12. Transition cardinality and explicit entry step (D27, Tasks 08/10)
 
@@ -332,3 +361,78 @@ one — an explicit validation error instead of silently-different behavior:
   identically, satisfying Task 08's own non-regression requirement. Task 10's new
   multi-step Standard definition must set `entryStep` explicitly — a freshly-authored
   multi-step definition has no excuse to rely on implicit key ordering.
+
+## 13. Terminal/completed state precedence (D28, Task 08)
+
+Resolution order, first match wins — this is the exact rule that replaces the earlier,
+ambiguous "current_step, else entryStep" description:
+
+1. **`task.status` already equals one of the definition's valid terminal transition
+   targets** (any step's one transition whose `to` resolves to a task-status per §3's
+   refined validation) → the workflow is complete: resolved current step is `null`.
+   This is checked *first*, before `workflow_progress` is even read.
+2. **Else, `task.workflow_progress.current_step` exists** → use it.
+3. **Else** → resolve `entryStep` (§12) — a task that has never touched this workflow.
+
+`workflow_progress` is **never cleared or nulled** at terminal completion — `current_step`
+keeps naming the last real step, and `history` gains one final entry recording the
+terminal transition. Rule 1 always short-circuits before this stale-looking
+`current_step` would ever be consulted again, so leaving it populated is both safe and
+the only way to satisfy "preserve history rather than deleting evidence" without a
+second, separate archival mechanism. A task whose workflow just finished must never look
+identical, from `step start`'s point of view, to a task that never started it — rule 1
+vs. rule 3 is exactly what keeps those two states distinguishable.
+
+**Required regression coverage:** step A finishes → step B finishes → step B's terminal
+transition fires → the *next* `workflow step start` call reports the workflow complete
+(rule 1), never re-resolving `entryStep` (rule 3) as if the task were fresh. Unit-level
+in Task 08; end-to-end via CLI in Task 12.
+
+## 14. The human-verification query contract carries full configured identity (D29, Task 08)
+
+§9's storage-side step/gate scoping is only reachable if the *query* that reaches that
+storage carries step/gate identity — it didn't, before this refinement.
+`HumanVerificationGate.inspect(config, context)`/`.verify(config, context)`
+(`gates/human-gate.mjs`, Task 05) build and pass a richer query to whatever reader is
+injected:
+
+```js
+{
+  changeId: context.changeId ?? context.change?.id ?? context.change?.slug ?? null,
+  taskId: context.taskId ?? context.task?.id ?? null,
+  stepId: typeof context.step === 'string' ? context.step : (context.step?.id ?? context.stepId ?? null),
+  gateId: config.id ?? null,
+  scope, targetId, requiredRole, // unchanged, Task 05's existing fields
+}
+```
+
+Purely additive — `resolveHumanScopeTarget`'s existing `scope`/`targetId` computation is
+unchanged, and a reader that only destructures `{ scope, targetId, requiredRole }` (the
+existing `MemoryHumanVerificationReader`, Task 05's own tests) keeps working unmodified.
+`FileHumanVerificationStore` (Task 07/08) is the first reader that actually uses
+`stepId`/`gateId`/`changeId`. This is why Task 08's `allowed_paths` includes
+`gates/human-gate.mjs` — a file Task 05 already implemented and verified, edited here for
+an explicitly-scoped, additive reason, not a redesign of Task 05's own `inspect`/`verify`
+separation or blocking-state contract. The security boundary (C8: caller JSON cannot
+self-satisfy a gate; only the injected trusted reader is authoritative; only
+`verify-human` writes confirmation) is unaffected — this only changes how much
+identifying *fact* the query carries, never how much *authority* the caller has.
+
+## 15. Safe, unique step and gate identifiers (D30, Task 08)
+
+Every step-aware path in §8/§9 embeds user-authored identifiers directly into the
+filesystem. Validated once, at workflow-definition schema time
+(`definitions/schema.mjs`), fail-closed:
+
+- Every `steps` map key, `entryStep` value, and any step-name-shaped `transitions[].to`
+  value must match `^[a-zA-Z0-9_-]+$` — no slashes, backslashes, dots, or empty strings.
+- Any gate's explicit `id` (any gate type) must match the same pattern when present.
+- **A step with more than one `type: human` gate** (across its combined
+  `entryGates`/`exitGates`) must give every one of them an explicit `id`, and those ids
+  must be mutually distinct within that step — two human gates silently sharing (or both
+  defaulting to) `human-review` is a load-time validation error, never a
+  confirms-the-wrong-gate bug discovered later. A step with at most one human gate is
+  unaffected — its `id` stays optional, defaulting exactly as `gateDisplayId`
+  (`step-runner.mjs`, Task 06) already does.
+- `workflow verify-human --gate <id>` (§9) refers to this exact, explicitly-configured
+  `id`.

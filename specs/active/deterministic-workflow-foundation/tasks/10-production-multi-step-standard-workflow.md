@@ -23,8 +23,8 @@ forbidden_paths:
   - tools/dashboard/**
   - tools/specs/workflow/**
 semantic_references:
-  decisions: [D7, D18, D19, D20, D25, D26, D27]
-  constraints: [C9, C21, C22, C25, C26]
+  decisions: [D7, D18, D19, D20, D25, D26, D27, D31]
+  constraints: [C9, C21, C22, C25, C26, C28]
   dependency_contracts: [multi-step-workflow-progression, fail-closed-workflow-definition-resolution]
 ---
 
@@ -41,13 +41,28 @@ contract (D25: `purpose`/`expectedWork`/`hints`) rather than shipping the schema
 Task 08 added with no real content using it, and declares `entryStep` explicitly (D27)
 rather than relying on implicit key ordering.
 
-**Exact step names, count, gate composition, and per-step behavior contract content are
-this task's own implementation decision** — `areas/multi-step-workflow-orchestration.md`
-§§5, 10 give non-binding, illustrative shapes only. Before implementing, record the real
-decomposition as its own entry in `owner-decisions.md` (what steps, what gates each one
-owns, what each step's `purpose`/`expectedWork`/`hints` say, why), following this
-repository's decision-policy — do not silently pick a shape and implement it without
-that record.
+**Naming and sequencing Nevo's own primary specification-review workflow is a
+product/process decision, not an implementation detail this task decides silently
+(D31).** This task's own `allowed_paths` deliberately do **not** include
+`owner-decisions.md` — recording and approving the decomposition is not something Task
+10's implementation itself does; it is a **precondition** to Task 10 being approved and
+started at all:
+
+1. **Before Task 10 is approved/started:** the concrete Standard step decomposition —
+   step names, count, which gates each step owns, and each step's
+   `purpose`/`expectedWork`/`hints` content — is proposed (informed by Nevo's existing
+   review/verification practice, the `approve`/self-check/human-verification concepts
+   D16's migration map already names) and recorded as its own `owner-decisions.md`
+   entry via a specification-refinement pass (`/nevo-ai:spec-refine`), then **explicitly
+   approved by the owner**. `areas/multi-step-workflow-orchestration.md` §§5, 10 give
+   non-binding, illustrative shapes only — they are not the proposal, and do not
+   substitute for it.
+2. **Task 10 itself implements only the already-approved decomposition.** If no such
+   approved entry exists in `owner-decisions.md` yet, Task 10 is not ready to be
+   approved/started — this is checked before implementation begins, not discovered
+   partway through it. An implementer may still freely decide low-level representation
+   details inside the approved shape (exact YAML formatting, which existing doc a
+   `hints` entry references) — never the step sequence or gate ownership itself.
 
 ## Implementation constraints
 
@@ -57,6 +72,10 @@ that record.
   stop and report the gap rather than reaching outside `allowed_paths` to patch it —
   that would mean Task 08/09 has its own defect to fix in a follow-up, not something
   this task should route around.
+- Do not implement against a decomposition that isn't already recorded in
+  `owner-decisions.md` as approved — if the context packet's `owner-decisions.md` has no
+  such entry, stop and report that the prerequisite spec-refine/approval step hasn't
+  happened yet, rather than inventing a shape to unblock implementation.
 - Every step must declare its own `entryGates`/`exitGates` independently — do not reuse
   one step's gate configuration as a stand-in for another's.
 - The final step's transition target must be a task lifecycle status value (the
@@ -74,13 +93,15 @@ that record.
   if the doc still describes the old single-step version verbatim.
 - This task must not be started before Task 08 and Task 09 are both implemented — it
   depends on the generalized resolver and the fail-closed validation to safely author
-  and prove a real multi-step definition.
+  and prove a real multi-step definition — **and** before the Standard step
+  decomposition is proposed, recorded, and explicitly approved per D31 above.
 
 ## Acceptance criteria
 
-1. `owner-decisions.md` records the real step decomposition for Standard (names, gate
-   ownership per step, `purpose`/`expectedWork`/`hints` content, rationale) before the
-   definition is implemented. `automated: node tools/docs.mjs validate`
+1. `owner-decisions.md` already records an owner-approved step decomposition for
+   Standard (names, gate ownership per step, `purpose`/`expectedWork`/`hints` content,
+   rationale) — checked as a precondition before this task's implementation begins, not
+   written by this task itself (D31). `automated: node tools/docs.mjs validate`
 2. `.nevo-ai/workflows/standard.yaml` declares at least three steps, each with its own
    gates and exactly one transition, an explicit `entryStep`, and the final step's
    transition targets a genuine terminal task-status value. `automated: node tools/specs.mjs validate`

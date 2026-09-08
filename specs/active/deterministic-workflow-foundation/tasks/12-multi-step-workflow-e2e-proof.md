@@ -23,8 +23,8 @@ forbidden_paths:
   - tools/specs.mjs
   - .nevo-ai/workflows/**
 semantic_references:
-  decisions: [D9, D18, D19, D20, D23, D24, D26]
-  constraints: [C14, C17, C18, C19, C21, C22, C23, C24, C26]
+  decisions: [D9, D18, D19, D20, D23, D24, D26, D28, D29, D30]
+  constraints: [C14, C17, C18, C19, C21, C22, C23, C24, C26, C27, C28]
   dependency_contracts: [production-multi-step-standard-workflow, step-context-knowledge-hints, fail-closed-workflow-definition-resolution]
 ---
 
@@ -36,7 +36,7 @@ Prove, end-to-end and via the public CLI only, that a fixture workflow definitio
 **at least three** distinct steps actually drives an agent through all of them —
 closing the one thing Tasks 01-11 individually generalize/enable but never collectively
 demonstrate together (`areas/multi-step-workflow-orchestration.md` §7). This is the
-acceptance test for the whole multi-step correction (D18-D27), the same role Task 07
+acceptance test for the whole multi-step correction (D18-D31), the same role Task 07
 played for the single-step foundation.
 
 ## Implementation constraints
@@ -79,9 +79,11 @@ played for the single-step foundation.
 5. C is gated by a `HumanVerificationGate`; `step finish` against C reports it blocked
    and mutates nothing; only `workflow verify-human --confirm` satisfies it; a
    subsequent `step finish` then completes C. `automated: node --test tools/tests/workflow-multi-step-e2e.test.mjs`
-6. Finishing C reaches the terminal case: `task.status` is written, `workflow_progress`
-   is finalized, and the next `step start` reports the workflow already complete.
-   `automated: node --test tools/tests/workflow-multi-step-e2e.test.mjs`
+6. **Terminal precedence, driven via CLI (D28):** finishing C reaches the terminal case —
+   `task.status` is written, `workflow_progress.current_step` is left populated (naming
+   the last real step, never cleared/nulled), and the next `workflow step start` reports
+   the workflow already complete — never re-resolving `entryStep` as if the task were
+   starting fresh. `automated: node --test tools/tests/workflow-multi-step-e2e.test.mjs`
 7. Retry/resume semantics hold per individual step: an interruption crafted during step
    B's finalize (via the finish-operation record, per the constraints above) does not
    affect step A's already-completed, already-committed progress, and resuming B
@@ -100,11 +102,15 @@ played for the single-step foundation.
 11. **Step/gate-scoped human verification, driven via CLI (D24):** a fixture with human
     gates configured on two different steps requires a separate `verify-human --confirm`
     for each — confirming one does not satisfy the other. `automated: node --test tools/tests/workflow-multi-step-e2e.test.mjs`
-12. **Version compatibility (D26):** a fixture change whose `workflow.version` does not
-    match its loaded definition's `version` fails `step start`/`step finish` with an
-    explicit error, driven via the same CLI handlers as every other scenario in this
-    file. `automated: node --test tools/tests/workflow-multi-step-e2e.test.mjs`
-13. Full repository test suite passes with zero failures. `automated: node --test tools/tests/*.test.mjs`
+12. **Safe, unique identifiers, driven via CLI (D30):** the fixture definitions in this
+    file use only valid `^[a-zA-Z0-9_-]+$` step/gate ids; a step configured with two
+    human gates gives each an explicit, distinct `id`, and `verify-human --gate <id>`
+    against each confirms only that exact gate. `automated: node --test tools/tests/workflow-multi-step-e2e.test.mjs`
+13. **Version compatibility (D26):** a fixture change whose effective `workflow.version`
+    (`resolveWorkflowMode(change).version`) does not match its loaded definition's
+    `version` fails `step start`/`step finish` with an explicit error, driven via the
+    same CLI handlers as every other scenario in this file. `automated: node --test tools/tests/workflow-multi-step-e2e.test.mjs`
+14. Full repository test suite passes with zero failures. `automated: node --test tools/tests/*.test.mjs`
 
 ## Verification
 
