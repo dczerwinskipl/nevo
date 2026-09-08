@@ -100,9 +100,11 @@ tasks:
   - id: source-control-capability
     order: 4
     file: tasks/04-source-control-capability.md
-    status: approved
+    status: in-implementation
     depends_on:
       - composable-actions-and-contracts
+    implementation:
+      baseline_revision: b9829706d52ff2957375d391bc99c80d3d58a697
 
   - id: deterministic-gates-and-human-verification
     order: 5
