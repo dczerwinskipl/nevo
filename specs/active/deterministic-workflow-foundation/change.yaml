@@ -100,11 +100,27 @@ tasks:
   - id: source-control-capability
     order: 4
     file: tasks/04-source-control-capability.md
-    status: in-implementation
+    status: implemented
     depends_on:
       - composable-actions-and-contracts
     implementation:
       baseline_revision: b9829706d52ff2957375d391bc99c80d3d58a697
+      review_revision: de08d2a01997ab05b57049dc4610613f4d725ee4
+      changed_paths:
+        - tools/lib/git.mjs
+        - tools/specs/workflow/actions/commit-and-push.mjs
+        - tools/specs/workflow/actions/index.mjs
+        - tools/specs/workflow/definitions/schema.mjs
+        - tools/specs/workflow/index.mjs
+        - tools/tests/workflow-action-commit-push.test.mjs
+      worktree_patch_fingerprint: d00c0da415e3c9374e328aab5a9556e38540bf484fbfd68c0b54f1e521e412ee
+    self_check:
+      fingerprint: 2c4af4b748af490d5387ae4d534272ad31f59243f256a53ea8ec255351bede89
+      revision: de08d2a01997ab05b57049dc4610613f4d725ee4
+      commands:
+        - command: node --test tools/tests/workflow-action-commit-push.test.mjs
+          exit_code: 0
+      status: passed
 
   - id: deterministic-gates-and-human-verification
     order: 5

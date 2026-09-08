@@ -131,6 +131,93 @@ export function validateTransitionDefinition(transition, label, errors) {
   }
 }
 
+const KNOWN_REMOTE_PROVIDERS = new Set(['github']);
+
+/**
+ * Validates an optional `sourceControl` workflow-definition block (D12/C13). Hierarchical,
+ * not three independent flags: `enabled` gates everything, `push` is only meaningful when
+ * `enabled: true`, `remote.enabled`/`remote.provider` are only meaningful when
+ * `push: true`. `remote.enabled: true` with `push: false` is a fail-closed validation
+ * error (D12 refinement) — never silently normalized to a different configuration.
+ *
+ * @param {object} sourceControl - `sourceControl` definition object (validation is a
+ *   no-op when this is `undefined` — omitting it entirely means "no automation")
+ * @param {string} label - Context label for error messages
+ * @param {string[]} errors - Output error collector
+ */
+export function validateSourceControlConfig(sourceControl, label, errors) {
+  if (sourceControl === undefined) return;
+
+  if (!isPlainObject(sourceControl)) {
+    errors.push(`${label}.sourceControl: must be an object`);
+    return;
+  }
+
+  if (sourceControl.enabled !== undefined && typeof sourceControl.enabled !== 'boolean') {
+    errors.push(`${label}.sourceControl.enabled: must be a boolean`);
+  }
+
+  if (sourceControl.push !== undefined && typeof sourceControl.push !== 'boolean') {
+    errors.push(`${label}.sourceControl.push: must be a boolean`);
+  }
+
+  if (sourceControl.remote === undefined) return;
+
+  if (!isPlainObject(sourceControl.remote)) {
+    errors.push(`${label}.sourceControl.remote: must be an object`);
+    return;
+  }
+
+  const remote = sourceControl.remote;
+
+  if (remote.enabled !== undefined && typeof remote.enabled !== 'boolean') {
+    errors.push(`${label}.sourceControl.remote.enabled: must be a boolean`);
+  }
+
+  if (remote.provider !== undefined && (typeof remote.provider !== 'string' || !remote.provider.trim())) {
+    errors.push(`${label}.sourceControl.remote.provider: must be a non-empty string`);
+  }
+
+  if (remote.enabled === true) {
+    if (typeof remote.provider !== 'string' || !KNOWN_REMOTE_PROVIDERS.has(remote.provider)) {
+      errors.push(
+        `${label}.sourceControl.remote.provider: must be one of: ${[...KNOWN_REMOTE_PROVIDERS].join(', ')} when remote.enabled is true (got '${remote.provider}')`
+      );
+    }
+
+    // D12 refinement: fail closed, never silently normalized to remote.enabled: false.
+    if (sourceControl.push === false) {
+      errors.push(
+        `${label}.sourceControl: remote.enabled: true is invalid when push: false — a remote provider cannot confirm a push that never happens`
+      );
+    }
+  }
+}
+
+/**
+ * Normalizes a validated `sourceControl` block into its full, explicit hierarchical shape.
+ * Never called on an invalid config (the `remote.enabled: true` + `push: false`
+ * contradiction is rejected by `validateSourceControlConfig` before normalization ever
+ * runs) — so this only ever *collapses* an inapplicable value down to its inert default
+ * (e.g. `push` specified under a disabled `sourceControl`), it never resolves a conflict.
+ *
+ * @param {object} [sourceControl] - Raw `sourceControl` definition object
+ * @returns {{ enabled: boolean, push: boolean, remote: { enabled: boolean, provider: string|null } }}
+ */
+export function normalizeSourceControlConfig(sourceControl) {
+  const enabled = isPlainObject(sourceControl) && sourceControl.enabled === true;
+  const push = enabled && sourceControl.push === true;
+  const remoteEnabled = push && isPlainObject(sourceControl?.remote) && sourceControl.remote.enabled === true;
+  return {
+    enabled,
+    push,
+    remote: {
+      enabled: remoteEnabled,
+      provider: remoteEnabled ? sourceControl.remote.provider : null,
+    },
+  };
+}
+
 /**
  * Validates an entire workflow definition object.
  * Enforces action ID uniqueness within individual step action lists.
@@ -155,6 +242,8 @@ export function validateWorkflowDefinition(definition, options = {}) {
   if (typeof definition.id !== 'string' || !definition.id.trim()) {
     errors.push(`${label}: missing or invalid 'id'`);
   }
+
+  validateSourceControlConfig(definition.sourceControl, label, errors);
 
   if (!isPlainObject(definition.steps) || Object.keys(definition.steps).length === 0) {
     errors.push(`${label}: 'steps' must be an object with at least one step`);
@@ -265,6 +354,7 @@ export function normalizeWorkflowDefinition(definition) {
     title: definition.title || definition.id,
     type: definition.type || 'standard',
     version: definition.version || 1,
+    sourceControl: normalizeSourceControlConfig(definition.sourceControl),
     steps: normalizedSteps,
   };
 }

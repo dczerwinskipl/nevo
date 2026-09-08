@@ -57,6 +57,9 @@ export {
   defaultGateRegistry,
 } from './registry.mjs';
 
+// Importing this triggers CommitAndPushAction's auto-registration into defaultActionRegistry.
+export { CommitAndPushAction } from './actions/index.mjs';
+
 export {
   WorkflowEngine,
   defaultWorkflowEngine,
@@ -67,6 +70,8 @@ export {
   validateGateDefinition,
   validateActionReference,
   validateTransitionDefinition,
+  validateSourceControlConfig,
+  normalizeSourceControlConfig,
   validateWorkflowDefinition,
   normalizeWorkflowDefinition,
 } from './definitions/schema.mjs';
