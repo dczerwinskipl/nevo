@@ -27,6 +27,8 @@ AI must transition from being the workflow orchestrator to being a bounded execu
 
 This specification builds the foundation for configurable deterministic workflows. Rather than postponing workflow definitions to a future stage, this specification establishes a real, executable declarative workflow definition model, composable action contracts, non-mutating checks with parameter schemas, factual context extraction, deterministic gate contracts with separate inspection and execution, machine-readable human verification, and a complete vertical proof-of-concept, while preserving the existing legacy workflow during migration.
 
+**Status after Tasks 01-07 (corrected 2026-09-08 — see D18-D22).** Tasks 01-07 deliver and prove, end-to-end, exactly **one** workflow step's full lifecycle: entry gates, an action, exit gates (command + human verification), a durable multi-*stage* finalize sequence (`verify-gates -> update-task -> commit -> push -> transition`), and a single terminal transition — plus the composable action/gate contracts, the `workflow step start`/`step finish [--check]`/`verify-human --confirm` CLI surface, and legacy coexistence, all of which are sound and are built upon, not redesigned, below. They do **not** yet prove an agent moving through *several distinct, differently-configured workflow steps* in one deterministic run (e.g. `implementation -> review -> quality -> human-approval -> complete`) — `resolveCurrentStepName` (Task 06) explicitly assumes exactly one step exists. Tasks 08-12 (added by this correction) close that gap: persisted multi-step progress (D18/D19), fail-closed resolution of configured actions/gates (D20), a production-quality multi-step `standard` definition (Task 10), the `StepContext` knowledge/hint fields the original design already called for but Task 06 never implemented (D22), and a real multi-step end-to-end proof (Task 12). The change is **not** complete merely because Tasks 01-07 are implemented.
+
 ## Goal
 
 Provide a robust, modular foundation for migrating Nevo from agent-orchestrated semi-deterministic workflows to CLI-driven deterministic workflows using configurable declarative workflow definitions, composable actions, non-mutating checks, structured parameter schemas, factual runtime context, deterministic gates with separate inspection and execution, explicit machine-readable human verification, and fail-closed file selection, while preserving legacy flow compatibility.
@@ -76,6 +78,9 @@ Provide a robust, modular foundation for migrating Nevo from agent-orchestrated 
 - **C17.** After a successful task-completing `workflow step finish` with source control enabled: (a) task/spec Git-tracked metadata reflects the completed state, (b) the implementation and that tracked metadata update are contained in the one progress commit (C14), (c) the expected commit is confirmed on the configured remote when push is enabled (C16), and (d) the Git worktree is not left dirty solely because Nevo updated its own internal finish-operation bookkeeping after the commit — that bookkeeping is runtime-only state (C15/D14) and never itself produces a Git-visible change.
 - **C18.** A mutating stage found in `running` state during recovery is never trusted at face value and never blindly reset to `pending` — it is always reconciled first, using persisted pre-mutation intent (D14's `update-task`/`commit` intent, D15's `push` `expectedSha`) plus real current state, exactly like an `unknown` stage. When reconciliation cannot prove the outcome either way, the stage is reported as `unknown` and the operation blocks for reconciliation rather than guessing or repeating the side effect.
 - **C19.** The caller's resolved finish inputs (`commit.title`/`commit.message`/`include`/`exclude`, or the applicable subset) are persisted into the operation record once, before the first mutating stage executes. A resumed `workflow step finish` for an existing in-flight operation uses these persisted inputs without requiring resupply; supplying inputs that conflict with what is already persisted for that `operationId` is a deterministic, reported error — never a silent substitution of the operation's established intent (D14).
+- **C20.** A workflow definition step that references an action id with no registered `ActionContract`, or a gate configuration whose type has no registered `GateContract`, must fail closed with an explicit, reported error at load/resolution time — never silently drop the reference and proceed with a smaller, different workflow than the one declared (D20).
+- **C21.** A task's current position within a multi-step workflow definition is durable, deterministic, cross-session state — persisted as `workflow_progress` on the task's `change.yaml` entry, distinct from and never overloading the task's legacy lifecycle `status` (D18). It is written in the same progress commit as the implementation and any terminal `status` change (C14's existing invariant, generalized).
+- **C22.** A step transition's `to` value is resolved against the workflow definition's own declared step names first: a match advances `workflow_progress.current_step` to that step (task `status` unchanged); no match is the terminal case, written to task `status` exactly as today (D19). A workflow definition must not declare a step whose name collides with a task lifecycle status value used as a terminal transition target — this is a definition validation error, not a silently-ambiguous resolution.
 
 ## Affected Areas
 
@@ -87,6 +92,7 @@ Provide a robust, modular foundation for migrating Nevo from agent-orchestrated 
 - **Runtime Execution State:** `.nevo-ai-local/workflow-operations/<change>/<task>.json`, following the existing git-ignored local-storage convention already used by `tools/dashboard/server/ai/sessions/binding-service.mjs` (atomic temp-file-then-rename JSON writes) — reused as a pattern, not as a code dependency between `tools/specs/workflow/` and `tools/dashboard/`.
 - **CLI Dispatch:** `tools/specs.mjs` integration delegating to the new workflow engine and exposing `workflow step start` / `workflow step finish [--check]` (D9, agent-facing) and `workflow verify-human <change> <task> --confirm` (operator-facing) as the complete public surface.
 - **Test Infrastructure:** `tools/tests/` comprehensive test suites for contracts, engine, gates, actions, step start/finish, the operator human-verification command, durable-finish retry/reconciliation, and compatibility.
+- **Multi-Step Workflow Orchestration (Tasks 08-12, D18-D22):** `tools/specs/validation.mjs` (new `workflow_progress` schema block), `tools/specs/workflow/step-runner.mjs`/`step-context.mjs`/`finish-operation.mjs` (generalized step/transition resolution, fail-closed action/gate resolution, knowledge/hint fields), `tools/specs/workflow/definitions/loader.mjs` (load-time fail-closed action/gate validation), `.nevo-ai/workflows/standard.yaml` (real multi-step definition, `verify-task-output` removed), `docs/development/workflow-engine.md` (updated). See `areas/multi-step-workflow-orchestration.md`.
 
 ## Proposed Architecture
 
@@ -455,6 +461,45 @@ tools/specs/workflow/
     human-gate.mjs       # Machine-readable human verification gate
 ```
 
+### 14. Remaining Scope: True Multi-Step Workflow Orchestration (D18-D22)
+
+Tasks 01-07 prove one workflow step end-to-end; they do not prove a workflow *definition*
+with several distinct steps actually driving an agent through all of them via repeated
+`step start`/`step finish` cycles, because `resolveCurrentStepName` (Task 06) explicitly
+assumes exactly one step exists and the current `.nevo-ai/workflows/standard.yaml`
+declares only `implementation -> verified`. Detailed architecture, the fixture
+definitions, and per-task acceptance criteria for closing this gap live in
+`areas/multi-step-workflow-orchestration.md` (Tasks 08-12). Summary of what changes and
+what does not:
+
+**Built on top of, unchanged:** `ActionContract`/`GateContract` (sections 3, 5),
+`inspect`/`verify` separation, fail-closed required inputs (C6), the `step
+start`/`step finish [--check]` two-call surface (section 6), the durable finish
+operation and per-stage reconciliation (section 10), the source-control capability
+boundary (section 9), the operator-only `verify-human` command, and legacy coexistence
+(section 11).
+
+**Genuinely new:**
+- **Persisted multi-step progress (D18/D19, C21/C22):** a `workflow_progress` field on
+  the task's `change.yaml` entry, distinct from task lifecycle `status`, tracking which
+  declared step a task is currently on; a transition's `to` resolves against the
+  definition's own step names first, falling back to "terminal lifecycle status" only
+  when no step matches.
+- **Fail-closed definition/action/gate resolution (D20, C20):** every action id and gate
+  type a workflow definition references must be registered, or loading/resolving it
+  fails closed — no more silent filtering of unregistered references
+  (`verify-task-output` is removed from `standard.yaml` rather than tolerated).
+- **A production-quality multi-step `standard.yaml`:** replacing today's single-step
+  placeholder with a real sequence of independently-gated steps (exact step names are an
+  implementation decision for Task 10, not fixed here).
+- **`StepContext` knowledge/hint fields (D22):** `instructions`/`expectedWork`
+  (`allowed_paths`/`forbidden_paths`) and deterministically-sourced relevant-docs hints,
+  reusing existing context-packet/routing infrastructure — no free-form generated prose.
+- **A real multi-step end-to-end CLI proof (Task 12):** at least three distinct steps,
+  each with its own gates, proving persisted progress across steps, a human gate
+  blocking only its own configured step, retry/resume per step, and that swapping the
+  fixture workflow definition changes the sequence without any engine code change.
+
 ## Implementation Decomposition
 
 - **Task 01 — Declarative Workflow Definition Schema, Parser & Compatibility Model (`tasks/01-workflow-schema-and-compatibility.md`):**
@@ -471,6 +516,16 @@ tools/specs/workflow/
   Implement the compiled `StepContext` at `step start` (D10), non-mutating finish planning with `input-required` support (D11), and the durable/resumable finish operation with reconciliation (D14) persisted to `.nevo-ai-local/workflow-operations/<change>/<task>.json` (never `change.yaml`) — sequencing task/spec completion-state update before the progress commit (D13), persisting per-stage intent/pre-state and resolved finish inputs before each mutation so a stage found `running` on recovery is reconciled rather than blindly retried or reset (C18/C19), and satisfying C17 (a clean tracked repository state plus a completed runtime operation state at the end of a successful finish).
 - **Task 07 — CLI Integration, `step start`/`step finish` Vertical PoC & Coexistence Verification (`tasks/07-cli-integration-and-vertical-poc.md`):**
   Integrate `workflow step start` / `workflow step finish [--check]` (D9, agent-facing) and `workflow verify-human <change> <task> --confirm` (operator-facing) into `tools/specs.mjs`, prove the full finalize flow — including the terminal-only human-verification sequence (blocked → operator confirms → finish completes) — end-to-end using only public CLI commands, through gates → task/spec status update → commit → push → transition, including an interrupted-and-resumed retry, verify zero regressions across all legacy test suites, and write the legacy/deterministic migration map (D16) into `docs/development/workflow-engine.md`.
+- **Task 08 — Persisted Multi-Step Workflow Progress & Generalized Transition Resolution (`tasks/08-multi-step-workflow-progression.md`):**
+  Add the `workflow_progress` schema block to `change.yaml` (`tools/specs/validation.mjs`), generalize step/transition resolution so `to` is checked against the definition's own step names before falling back to a terminal lifecycle-status write (D18/D19), and extend the `update-task` finalize stage's crash-window reconciliation (C18) to the generalized model — all while keeping today's single-step `standard.yaml` and every Task 06/07 test passing unmodified.
+- **Task 09 — Fail-Closed Workflow Definition/Action/Gate Resolution (`tasks/09-fail-closed-workflow-definition-resolution.md`):**
+  Remove the tolerant unregistered-action filter from `step-context.mjs`, make `loadWorkflowDefinition` fail closed on any action id with no registered `ActionContract`, and remove `verify-task-output` from `.nevo-ai/workflows/standard.yaml` (D20).
+- **Task 10 — Production-Quality Multi-Step Standard Workflow Definition (`tasks/10-production-multi-step-standard-workflow.md`):**
+  Design and ship a real multi-step `.nevo-ai/workflows/standard.yaml` (exact steps are this task's own implementation decision, informed by Nevo's existing review/verification practice), each step independently gated, proving the schema/engine genuinely support N steps for the primary specification class.
+- **Task 11 — `StepContext` Knowledge/Skill/File Hints (`tasks/11-step-context-knowledge-hints.md`):**
+  Add the `instructions`/`expectedWork`/relevant-docs fields `overview.md` originally illustrated but Task 06 never implemented (D22), sourced deterministically from existing task-frontmatter and context-packet/routing infrastructure.
+- **Task 12 — Real Multi-Step CLI/E2E Proof (`tasks/12-multi-step-workflow-e2e-proof.md`):**
+  Prove, via CLI only, a fixture workflow definition with at least three distinct steps: persisted progress across steps, per-step gate scoping, a human gate blocking only its own step, retry/resume semantics holding per step, no agent-side orchestration of transition rules, and reconfigurability without engine code changes.
 
 ## Acceptance Criteria & Verification
 
@@ -500,3 +555,10 @@ tools/specs/workflow/
 - Vertical PoC (`step start` → work → `step finish`, including an interrupted-and-resumed retry) executes successfully under deterministic mode, and legacy specifications continue running unaffected (coexistence).
 - `docs/development/workflow-engine.md` documents the engine architecture and the legacy/deterministic migration map (D16).
 - Full test suite `node --test tools/tests/*.test.mjs` passes with zero failures.
+- **Remaining scope (Tasks 08-12, added 2026-09-08 — see D18-D22):**
+  - A task's position within a multi-step workflow definition is durable, cross-session, Git-tracked state (`workflow_progress`), distinct from and never overloading task lifecycle `status` (C21).
+  - A step transition's `to` resolves against the definition's own declared step names before falling back to a terminal lifecycle-status write; today's single-step `standard.yaml` behaves identically before and after this generalization (C22).
+  - A workflow definition referencing an unregistered action id or gate type fails closed at load/resolution time — no configured action or gate silently disappears from execution (C20).
+  - `.nevo-ai/workflows/standard.yaml` declares a real multi-step sequence, each step independently gated, replacing today's single-step placeholder.
+  - `StepContext` includes `instructions`/`expectedWork` (the task's own `allowed_paths`/`forbidden_paths`) and deterministically-sourced relevant-docs hints, reusing existing context-packet/routing infrastructure rather than free-form generated prose.
+  - A real, ≥3-step fixture workflow is proven end-to-end via CLI only: `step start` resolves each step in turn; finishing a step persists progress and the next `step start` resolves the next step; gates belong to their own configured step; a human gate blocks only its own step and only the operator command satisfies it; retry/resume semantics hold across individual steps, not just within one step's finalize sequence; no agent-side orchestration of transition rules; and swapping the fixture definition changes the sequence without any engine code change.

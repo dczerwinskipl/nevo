@@ -215,6 +215,45 @@ tasks:
           exit_code: 0
       status: passed
 
+  - id: multi-step-workflow-progression
+    order: 8
+    file: tasks/08-multi-step-workflow-progression.md
+    status: draft
+    depends_on:
+      - step-orchestration-and-next-step-service
+      - cli-integration-and-vertical-poc
+
+  - id: fail-closed-workflow-definition-resolution
+    order: 9
+    file: tasks/09-fail-closed-workflow-definition-resolution.md
+    status: draft
+    depends_on:
+      - multi-step-workflow-progression
+
+  - id: production-multi-step-standard-workflow
+    order: 10
+    file: tasks/10-production-multi-step-standard-workflow.md
+    status: draft
+    depends_on:
+      - multi-step-workflow-progression
+      - fail-closed-workflow-definition-resolution
+
+  - id: step-context-knowledge-hints
+    order: 11
+    file: tasks/11-step-context-knowledge-hints.md
+    status: draft
+    depends_on:
+      - multi-step-workflow-progression
+
+  - id: multi-step-workflow-e2e-proof
+    order: 12
+    file: tasks/12-multi-step-workflow-e2e-proof.md
+    status: draft
+    depends_on:
+      - production-multi-step-standard-workflow
+      - step-context-knowledge-hints
+      - fail-closed-workflow-definition-resolution
+
 spec_id: 11c1c495-7548-44ac-a63a-d868dd1b7507
 pull_requests:
   - provider: github

@@ -83,6 +83,12 @@ Implement the step lifecycle orchestration layer behind the agent-facing
    gates, transitions) is unchanged from the original design and is reused, not
    redesigned.
 
+**Scope note (D21, added 2026-09-08):** `resolveCurrentStepName` as implemented here
+assumes exactly one declared step exists — a deliberate, minimal foundation for the
+single-step vertical PoC (Task 07), not a claim of general multi-step resolution.
+Generalizing it to real multi-step workflow progression is Task 08's separate, later
+scope.
+
 ## Implementation constraints
 
 - Support composing declarative steps with entry gates, actions, exit gates, finalize
