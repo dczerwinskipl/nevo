@@ -92,3 +92,26 @@ export {
   GateBlockedError,
   WorkflowDefinitionError,
 } from './errors.mjs';
+
+export {
+  resolveCurrentStepName,
+  gateDisplayId,
+  inspectGates,
+  verifyGates,
+  allGatesPassed,
+} from './step-runner.mjs';
+
+export {
+  aggregateFinalizeCheck,
+  buildFinishContract,
+  compileStepContext,
+} from './step-context.mjs';
+
+export {
+  FINISH_STAGE_IDS,
+  loadOperationRecord,
+  saveOperationRecord,
+  mergeResolvedInputs,
+  planFinish,
+  finishStep,
+} from './finish-operation.mjs';

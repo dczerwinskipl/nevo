@@ -152,13 +152,31 @@ tasks:
   - id: step-orchestration-and-next-step-service
     order: 6
     file: tasks/06-step-orchestration-and-next-step-service.md
-    status: in-implementation
+    status: implemented
     depends_on:
       - action-registry-and-aggregated-checks
       - deterministic-gates-and-human-verification
       - source-control-capability
     implementation:
       baseline_revision: 96ef847186fbb9a6d899ed5289396ba167d8f94e
+      review_revision: c44bada0b7a3becab369b2e2c5dd83de06402175
+      changed_paths:
+        - tools/specs/workflow/finish-operation.mjs
+        - tools/specs/workflow/index.mjs
+        - tools/specs/workflow/step-context.mjs
+        - tools/specs/workflow/step-runner.mjs
+        - tools/tests/workflow-finish-operation.test.mjs
+        - tools/tests/workflow-next-step.test.mjs
+      worktree_patch_fingerprint: 5a6ca39fbc1f5bb42530d1cd060ce2ba5e7befb024e0a29b428a6d2c49ef8b9c
+    self_check:
+      fingerprint: d5a2c7fc0aa254d0ef7d3a762b8b937cd71e41d8d2c6890aef99f59048799d50
+      revision: c44bada0b7a3becab369b2e2c5dd83de06402175
+      commands:
+        - command: node --test tools/tests/workflow-next-step.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/workflow-finish-operation.test.mjs
+          exit_code: 0
+      status: passed
 
   - id: cli-integration-and-vertical-poc
     order: 7
