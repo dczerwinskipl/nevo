@@ -30,7 +30,7 @@ import {
   KNOWN_COMMAND_ACTIONS,
 } from '../specs/workflow/definitions/schema.mjs';
 
-import { validateWorkflowConfiguration, validateSpecs } from '../specs/validation.mjs';
+import { validateWorkflowConfiguration, validateSpecs, validateWorkflowProgress } from '../specs/validation.mjs';
 import { WorkflowDefinitionError, WorkflowError } from '../specs/workflow/errors.mjs';
 
 const REPO_ROOT = resolve(process.cwd());
@@ -731,9 +731,272 @@ title: "No Steps"
   });
 });
 
+describe('Safe, unique step and gate identifiers (D30, task 08 AC12)', () => {
+  function stepWith(overrides) {
+    return {
+      id: 'ids-v1',
+      steps: {
+        implementation: {
+          actions: [{ id: 'a' }],
+          transitions: [{ to: 'verified' }],
+          ...overrides,
+        },
+      },
+    };
+  }
+
+  test('a step key containing "/" fails validation', () => {
+    const raw = { id: 'ids-v1', steps: { 'bad/step': { actions: [], transitions: [{ to: 'verified' }] } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /must be a non-empty identifier matching/.test(e)));
+  });
+
+  test('an empty step key fails validation', () => {
+    const raw = { id: 'ids-v1', steps: { '': { actions: [], transitions: [{ to: 'verified' }] } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /must be a non-empty identifier matching/.test(e)));
+  });
+
+  test('entryStep containing invalid characters fails validation', () => {
+    const raw = { ...stepWith({}), entryStep: 'not a safe id' };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /entryStep: must be a non-empty identifier matching/.test(e)));
+  });
+
+  test('entryStep naming an undeclared step fails validation (also AC15)', () => {
+    const raw = { ...stepWith({}), entryStep: 'no-such-step' };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /entryStep: 'no-such-step' does not name a declared step/.test(e)));
+  });
+
+  test('a gate\'s explicit id containing invalid characters fails validation', () => {
+    const raw = stepWith({ exitGates: [{ type: 'human', required: true, id: 'not a safe id' }] });
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /exitGates\[0\]\.id: must be a non-empty identifier matching/.test(e)));
+  });
+
+  test('a step declaring two human gates with no ids at all fails validation', () => {
+    const raw = stepWith({
+      entryGates: [{ type: 'human', required: true }],
+      exitGates: [{ type: 'human', required: true }],
+    });
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /2 human-verification gates.*explicit, unique 'id'/.test(e)));
+  });
+
+  test('a step declaring two human gates with the same explicit id fails validation', () => {
+    const raw = stepWith({
+      entryGates: [{ type: 'human', required: true, id: 'review' }],
+      exitGates: [{ type: 'human', required: true, id: 'review' }],
+    });
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /duplicate human-verification gate id 'review'/.test(e)));
+  });
+
+  test('a step declaring two human gates with distinct explicit ids is valid', () => {
+    const raw = stepWith({
+      entryGates: [{ type: 'human', required: true, id: 'entry-review' }],
+      exitGates: [{ type: 'human', required: true, id: 'exit-review' }],
+    });
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, true, errors.join('; '));
+  });
+});
+
+describe('Transition cardinality and terminal-target correctness (D19 refined/D27, task 08 AC14/AC16/AC17)', () => {
+  test('a step declaring zero transitions fails validation', () => {
+    const raw = { id: 'card-v1', steps: { implementation: { actions: [{ id: 'a' }], transitions: [] } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /transitions: must declare exactly one transition, got 0/.test(e)));
+  });
+
+  test('a step declaring more than one transition fails validation', () => {
+    const raw = {
+      id: 'card-v1',
+      steps: { implementation: { actions: [{ id: 'a' }], transitions: [{ to: 'verified' }, { to: 'archived' }] } },
+    };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /transitions: must declare exactly one transition, got 2/.test(e)));
+  });
+
+  test('a step declaring exactly one transition validates successfully', () => {
+    const raw = { id: 'card-v1', steps: { implementation: { actions: [{ id: 'a' }], transitions: [{ to: 'verified' }] } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, true, errors.join('; '));
+  });
+
+  test('a step name colliding with a terminal status value fails to load (AC16)', () => {
+    const raw = {
+      id: 'collide-v1',
+      steps: {
+        verified: { actions: [{ id: 'a' }], transitions: [{ to: 'implemented' }] },
+      },
+    };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /step name collides with a terminal lifecycle status/.test(e)));
+  });
+
+  test('a transition target that is a typo of a terminal status fails validation (AC17)', () => {
+    const raw = { id: 'typo-v1', steps: { implementation: { actions: [{ id: 'a' }], transitions: [{ to: 'verifed' }] } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /transition target 'verifed' is neither a declared step nor a member of/.test(e)));
+  });
+
+  test('a transition target that is a real but non-terminal status fails validation (AC17)', () => {
+    for (const target of ['approved', 'in-implementation']) {
+      const raw = { id: 'nonterm-v1', steps: { implementation: { actions: [{ id: 'a' }], transitions: [{ to: target }] } } };
+      const { valid, errors } = validateWorkflowDefinition(raw);
+      assert.equal(valid, false, `expected '${target}' to be rejected`);
+      assert.ok(errors.some(e => new RegExp(`transition target '${target}' is neither a declared step nor a member of`).test(e)));
+    }
+  });
+
+  test('a transition target naming another declared step is valid, never reaching setTaskStatus (AC17 contrast)', () => {
+    const raw = {
+      id: 'multi-v1',
+      steps: {
+        stepA: { actions: [{ id: 'a' }], transitions: [{ to: 'stepB' }] },
+        stepB: { actions: [{ id: 'a' }], transitions: [{ to: 'verified' }] },
+      },
+    };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, true, errors.join('; '));
+  });
+});
+
 describe('Repository-wide spec validation (AC6)', () => {
   test('validateSpecs passes with zero errors across all repository changes', () => {
     const errors = validateSpecs();
     assert.deepEqual(errors, [], `Expected zero validation errors, got: ${errors.join(', ')}`);
+  });
+});
+
+describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => {
+  test('absent workflow_progress is a no-op, regardless of workflow mode', () => {
+    const errors = [];
+    validateWorkflowProgress({ id: 'c' }, { id: 't1' }, errors, 'label');
+    validateWorkflowProgress({ id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } }, { id: 't1' }, errors, 'label');
+    assert.deepEqual(errors, []);
+  });
+
+  test('present on a legacy (non-deterministic) change is an explicit validation error (AC19)', () => {
+    const errors = [];
+    const change = { id: 'c' }; // no workflow config at all -> resolves to legacy
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', history: [] } };
+    validateWorkflowProgress(change, task, errors, 'label');
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /workflow_progress is present but this change resolves to workflow mode 'legacy'/);
+  });
+
+  test('present on an explicit workflow_mode: deterministic shorthand is accepted (no legacy false-positive)', () => {
+    const errors = [];
+    const change = { id: 'c', workflow_mode: 'deterministic', type: 'standard' };
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', history: [] } };
+    validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
+    assert.deepEqual(errors, []);
+  });
+
+  test('current_step must be a non-empty string', () => {
+    const errors = [];
+    const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } };
+    validateWorkflowProgress(change, { id: 't1', workflow_progress: { current_step: '' } }, errors, 'label');
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /current_step must be a non-empty string/);
+  });
+
+  test('history must be an array when present', () => {
+    const errors = [];
+    const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } };
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', history: 'not-an-array' } };
+    validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /workflow_progress\.history must be an array/);
+  });
+
+  test('current_step naming a real step in the resolved definition is accepted', () => {
+    const errors = [];
+    const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } };
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', history: [] } };
+    validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
+    assert.deepEqual(errors, []);
+  });
+
+  test('current_step naming no declared step in the resolved definition fails closed (AC1)', () => {
+    const errors = [];
+    const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } };
+    const task = { id: 't1', workflow_progress: { current_step: 'not-a-real-step', history: [] } };
+    validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /current_step 'not-a-real-step' does not name a step declared in workflow definition/);
+  });
+
+  test('an unresolvable workflow definition is reported instead of throwing uncaught', () => {
+    const errors = [];
+    const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'no-such-definition' } };
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', history: [] } };
+    validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /could not resolve workflow definition 'no-such-definition'/);
+  });
+
+  test('wired into validateSpecs() itself (the same function `node tools/specs.mjs validate` calls), via an isolated fixture repository', () => {
+    const activeDir = mkdtempSync(join(tmpdir(), 'nevo-wp-validate-active-'));
+    const archiveDir = join(activeDir, 'no-archive-here');
+    try {
+      const legacyDir = join(activeDir, 'legacy-change');
+      mkdirSync(legacyDir, { recursive: true });
+      writeFileSync(join(legacyDir, 'change.yaml'), [
+        'id: legacy-change', 'title: Legacy', 'status: draft', '',
+        'tasks:', '  - id: t1', '    order: 1', '    status: in-implementation',
+        '    workflow_progress:', '      current_step: implementation', '      history: []', '',
+      ].join('\n'));
+
+      const badStepDir = join(activeDir, 'bad-step-change');
+      mkdirSync(badStepDir, { recursive: true });
+      writeFileSync(join(badStepDir, 'change.yaml'), [
+        'id: bad-step-change', 'title: Bad Step', 'status: draft',
+        'workflow:', '  mode: deterministic', '  definition: standard', '',
+        'tasks:', '  - id: t1', '    order: 1', '    status: in-implementation',
+        '    workflow_progress:', '      current_step: not-a-real-step', '      history: []', '',
+      ].join('\n'));
+
+      const goodDir = join(activeDir, 'good-change');
+      mkdirSync(goodDir, { recursive: true });
+      writeFileSync(join(goodDir, 'change.yaml'), [
+        'id: good-change', 'title: Good', 'status: draft',
+        'workflow:', '  mode: deterministic', '  definition: standard', '',
+        'tasks:', '  - id: t1', '    order: 1', '    status: in-implementation',
+        '    workflow_progress:', '      current_step: implementation', '      history: []', '',
+      ].join('\n'));
+
+      const errors = validateSpecs({ activeDir, archiveDir });
+
+      const wpErrors = errors.filter(e => /workflow_progress/.test(e));
+      assert.ok(
+        wpErrors.some(e => e.includes('legacy-change') && /resolves to workflow mode 'legacy'/.test(e)),
+        `Expected a legacy-mode workflow_progress error, got: ${wpErrors.join(' | ')}`
+      );
+      assert.ok(
+        wpErrors.some(e => e.includes('bad-step-change') && /does not name a step declared/.test(e)),
+        `Expected an unresolvable current_step error, got: ${wpErrors.join(' | ')}`
+      );
+      assert.ok(
+        !wpErrors.some(e => e.includes('good-change')),
+        `good-change should not raise a workflow_progress error, got: ${wpErrors.join(' | ')}`
+      );
+    } finally {
+      rmSync(activeDir, { recursive: true, force: true });
+    }
   });
 });

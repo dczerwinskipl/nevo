@@ -197,11 +197,11 @@ export function validateStepBehaviorContract(stepConfig, stepLabel, errors) {
   if (stepConfig.expectedWork !== undefined) {
     if (!isPlainObject(stepConfig.expectedWork)) {
       errors.push(`${stepLabel}.expectedWork: must be an object`);
-    } else if (
-      stepConfig.expectedWork.summary !== undefined &&
-      (typeof stepConfig.expectedWork.summary !== 'string' || !stepConfig.expectedWork.summary.trim())
-    ) {
-      errors.push(`${stepLabel}.expectedWork.summary: must be a non-empty string when present`);
+    } else if (typeof stepConfig.expectedWork.summary !== 'string' || !stepConfig.expectedWork.summary.trim()) {
+      // D25: expectedWork is "at minimum a summary string" — summary is required whenever
+      // expectedWork is declared at all, not merely validated-if-present. `expectedWork: {}`
+      // must fail, not silently pass as an empty-but-valid contract.
+      errors.push(`${stepLabel}.expectedWork.summary: must be a non-empty string`);
     }
   }
 

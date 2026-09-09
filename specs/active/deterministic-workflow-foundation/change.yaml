@@ -224,10 +224,11 @@ tasks:
       - cli-integration-and-vertical-poc
     implementation:
       baseline_revision: cd663eb04bf3dbfdda9f88d2f326e615ae452c6a
-      review_revision: cd663eb04bf3dbfdda9f88d2f326e615ae452c6a
+      review_revision: d88cd0d4910fd00ae89aa41009bf9dde2e20959d
       changed_paths:
         - .nevo-ai/workflows/exploratory.yaml
         - tools/specs/store.mjs
+        - tools/specs/validation.mjs
         - tools/specs/workflow/cli.mjs
         - tools/specs/workflow/compatibility.mjs
         - tools/specs/workflow/definitions/schema.mjs
@@ -237,15 +238,17 @@ tasks:
         - tools/specs/workflow/step-context.mjs
         - tools/specs/workflow/step-runner.mjs
         - tools/specs/workflow/templates/exploratory.yaml
+        - tools/tests/store.test.mjs
         - tools/tests/workflow-cli.test.mjs
         - tools/tests/workflow-compatibility.test.mjs
         - tools/tests/workflow-e2e.test.mjs
         - tools/tests/workflow-finish-operation.test.mjs
+        - tools/tests/workflow-gates.test.mjs
         - tools/tests/workflow-next-step.test.mjs
-      worktree_patch_fingerprint: 71b16d5dcb608197bfa060f6a336d18f41979796f4cb9b54fc4994b7d35ef91f
+      worktree_patch_fingerprint: b1b2c3e6e67416e56bd4aa8410f912026960b41d60e667891fe787b258b39bce
     self_check:
       fingerprint: 629e1050723de4a5a087f708bfb9513ca55394669c338881802c05bb0368ca09
-      revision: cd663eb04bf3dbfdda9f88d2f326e615ae452c6a
+      revision: d88cd0d4910fd00ae89aa41009bf9dde2e20959d
       commands:
         - command: node --test tools/tests/workflow-next-step.test.mjs
           exit_code: 0

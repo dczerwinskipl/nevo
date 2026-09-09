@@ -567,4 +567,57 @@ describe('HumanVerificationGate trusted state and adversarial context rejection'
     assert.equal(changeRes.status, 'blocked');
     assert.equal(changeRes.reason, 'missing-scope-identity');
   });
+
+  test('inspect()/verify() build and pass the extended changeId/taskId/stepId/gateId query alongside scope/targetId/requiredRole (D29, task 08 AC9)', async () => {
+    const capturedQueries = [];
+    class SpyReader extends HumanVerificationReader {
+      getSignoff(query) {
+        capturedQueries.push(query);
+        return { confirmed: true, scope: query.scope, targetId: query.targetId, role: 'owner' };
+      }
+    }
+    const gate = new HumanVerificationGate({ verificationReader: new SpyReader() });
+    const config = { required: true, scope: 'task', role: 'owner', id: 'my-gate' };
+    const context = { changeId: 'my-change', taskId: 'my-task', stepId: 'my-step' };
+
+    const inspectResult = await gate.inspect(config, context);
+    assert.equal(inspectResult.status, 'passed');
+    assert.equal(capturedQueries.length, 1);
+    assert.deepEqual(capturedQueries[0], {
+      scope: 'task', targetId: 'my-task', requiredRole: 'owner',
+      changeId: 'my-change', taskId: 'my-task', stepId: 'my-step', gateId: 'my-gate',
+    });
+
+    const verifyResult = await gate.verify(config, context);
+    assert.equal(verifyResult.passed, true);
+    assert.equal(capturedQueries.length, 2);
+    assert.deepEqual(capturedQueries[1], capturedQueries[0]);
+  });
+
+  test('a reader that only reads the original scope/targetId/requiredRole fields (Task 05 contract) still works unmodified (D29 additive guarantee)', async () => {
+    // MemoryHumanVerificationReader.getSignoff destructures only {scope, targetId,
+    // requiredRole} — proving the extended fields are additive, not a breaking change to
+    // the pre-existing reader contract.
+    const reader = new MemoryHumanVerificationReader([{ confirmed: true, scope: 'task', targetId: 'legacy-task', role: 'owner' }]);
+    const gate = new HumanVerificationGate({ verificationReader: reader });
+    const result = await gate.inspect({ required: true, scope: 'task' }, { taskId: 'legacy-task' });
+    assert.equal(result.status, 'passed');
+  });
+
+  test('changeId/taskId/stepId/gateId are null, never invented, when context/config do not supply them', async () => {
+    const capturedQueries = [];
+    class SpyReader extends HumanVerificationReader {
+      getSignoff(query) {
+        capturedQueries.push(query);
+        return null;
+      }
+    }
+    const gate = new HumanVerificationGate({ verificationReader: new SpyReader() });
+    await gate.inspect({ required: true, scope: 'task' }, { taskId: 'bare-task' });
+
+    assert.equal(capturedQueries[0].changeId, null);
+    assert.equal(capturedQueries[0].stepId, null);
+    assert.equal(capturedQueries[0].gateId, null);
+    assert.equal(capturedQueries[0].taskId, 'bare-task');
+  });
 });

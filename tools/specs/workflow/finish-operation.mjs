@@ -335,7 +335,14 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
     const task = requireTask(change, taskId);
 
     if (isInternalTransition) {
-      const currentStepValue = task.workflow_progress?.current_step;
+      // D28: a fresh task with no workflow_progress yet is still effectively sitting on
+      // entryStep — the same precedence resolveCurrentStepName already applies for a
+      // live `step start`/`step finish` call. Comparing intent.fromStep against the raw
+      // `undefined` here (instead of the effective position) would misclassify a crash
+      // between "intent persisted" and "workflow_progress actually written" for a task's
+      // very first internal transition as an unrelated/ambiguous state, when it is in
+      // fact the exact "never happened — safe to redo" case.
+      const currentStepValue = resolveCurrentStepName(definition, task);
       if (currentStepValue === stage.intent.toStep) {
         stage.status = 'completed';
         stage.result = { toStep: stage.intent.toStep };

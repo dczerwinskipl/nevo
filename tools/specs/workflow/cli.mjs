@@ -166,7 +166,12 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
   if (!targetId) {
     throw new CliError(`Could not resolve identity for scope '${scope}' — verify-human cannot record a signoff without an explicit target`);
   }
+  // The gate's own configured role (D29) — HumanVerificationGate.inspect() requires
+  // `requiredRole = config.role || 'owner'` to match the persisted signoff's role
+  // exactly; hardcoding 'owner' here would make a configured non-owner gate (e.g.
+  // 'reviewer', 'architect') permanently unsatisfiable via this CLI.
+  const role = gateConfig.role || 'owner';
   const store = new FileHumanVerificationStore({ repoRoot: context.repoRoot, change: change._slug, task: task.id });
-  const record = store.confirm({ scope, targetId, role: 'owner', stepId: stepName, gateId: gateConfig.id || null });
+  const record = store.confirm({ scope, targetId, role, stepId: stepName, gateId: gateConfig.id || null });
   return emit({ change: changeSlug, task: taskId, confirmed: true, record }, opts);
 }

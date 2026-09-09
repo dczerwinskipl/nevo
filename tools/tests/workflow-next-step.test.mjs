@@ -120,6 +120,43 @@ describe('resolveCurrentStepName (AC15)', () => {
   });
 });
 
+describe('Multi-step current-step resolution and terminal precedence (task 08 AC2, AC5)', () => {
+  const MULTI_STEP_RAW = {
+    id: 'multi-v1',
+    steps: {
+      stepA: { actions: [{ id: 'a' }], transitions: [{ to: 'stepB' }] },
+      stepB: { actions: [{ id: 'a' }], transitions: [{ to: 'verified' }] },
+    },
+  };
+  const MULTI_STEP_DEFINITION = normalizeWorkflowDefinition(MULTI_STEP_RAW);
+
+  test('a task with no workflow_progress at all resolves the definition\'s entry step, not just "the first step" by accident', () => {
+    assert.equal(resolveCurrentStepName(MULTI_STEP_DEFINITION, { status: 'in-implementation' }), 'stepA');
+  });
+
+  test('a task with workflow_progress.current_step resolves exactly that step, never re-deriving entryStep', () => {
+    const task = { status: 'in-implementation', workflow_progress: { current_step: 'stepB', history: [] } };
+    assert.equal(resolveCurrentStepName(MULTI_STEP_DEFINITION, task), 'stepB');
+  });
+
+  test('terminal precedence: task.status already terminal resolves complete even against a stale current_step (AC5)', () => {
+    const task = {
+      status: 'verified',
+      workflow_progress: { current_step: 'stepB', history: [{ step: 'stepB', completed_at: 'x', transitioned_to: 'verified' }] },
+    };
+    assert.equal(resolveCurrentStepName(MULTI_STEP_DEFINITION, task), null, 'must never re-resolve entryStep once status is terminal');
+  });
+
+  test('a task whose status is already terminal with no workflow_progress at all also resolves complete (today\'s single-step case, AC5)', () => {
+    assert.equal(resolveCurrentStepName(MULTI_STEP_DEFINITION, { status: 'verified' }), null);
+  });
+
+  test('workflow_progress.current_step naming an undeclared step throws, never silently resolved to something else', () => {
+    const task = { status: 'in-implementation', workflow_progress: { current_step: 'no-such-step' } };
+    assert.throws(() => resolveCurrentStepName(MULTI_STEP_DEFINITION, task), /does not name a step declared/);
+  });
+});
+
 describe('compileStepContext — StepContext at `workflow step start` (AC1)', () => {
   let ctx;
 
@@ -317,5 +354,67 @@ describe('Blocking human-verification state is reported, never self-satisfied (A
 
     const statusAfter = execFileSync('git', ['-C', ctx.repo, 'status', '--porcelain'], { encoding: 'utf8' });
     assert.equal(statusBefore, statusAfter);
+  });
+});
+
+describe('Declarative per-step behavior contract — schema validation only (D25, AC11)', () => {
+  test('a step declaring purpose/expectedWork/hints loads and validates successfully', () => {
+    const definition = buildDefinition({
+      purpose: 'Implement the approved task scope.',
+      expectedWork: { summary: 'Write the code, then run the verification commands.' },
+      hints: [{ type: 'doc', ref: 'docs/example.md' }, { type: 'skill', ref: 'nevo-ai-spec-workflow' }],
+    });
+    assert.equal(definition.steps.implementation.purpose, 'Implement the approved task scope.');
+    assert.deepEqual(definition.steps.implementation.expectedWork, { summary: 'Write the code, then run the verification commands.' });
+    assert.equal(definition.steps.implementation.hints.length, 2);
+  });
+
+  test('purpose must be a non-empty string when declared', () => {
+    const raw = { ...RAW_DEFINITION, steps: { implementation: { ...RAW_DEFINITION.steps.implementation, purpose: '   ' } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /\.purpose: must be a non-empty string/.test(e)));
+  });
+
+  test('expectedWork must be an object', () => {
+    const raw = { ...RAW_DEFINITION, steps: { implementation: { ...RAW_DEFINITION.steps.implementation, expectedWork: 'not an object' } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /\.expectedWork: must be an object/.test(e)));
+  });
+
+  test('expectedWork: {} fails validation — summary is required whenever expectedWork is declared at all', () => {
+    const raw = { ...RAW_DEFINITION, steps: { implementation: { ...RAW_DEFINITION.steps.implementation, expectedWork: {} } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /\.expectedWork\.summary: must be a non-empty string/.test(e)));
+  });
+
+  test('expectedWork.summary must be a non-empty string, not just present', () => {
+    const raw = { ...RAW_DEFINITION, steps: { implementation: { ...RAW_DEFINITION.steps.implementation, expectedWork: { summary: '   ' } } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /\.expectedWork\.summary: must be a non-empty string/.test(e)));
+  });
+
+  test('hints entries with an invalid type fail validation', () => {
+    const raw = { ...RAW_DEFINITION, steps: { implementation: { ...RAW_DEFINITION.steps.implementation, hints: [{ type: 'video', ref: 'x' }] } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /\.hints\[0\]\.type: must be one of/.test(e)));
+  });
+
+  test('hints entries missing ref fail validation', () => {
+    const raw = { ...RAW_DEFINITION, steps: { implementation: { ...RAW_DEFINITION.steps.implementation, hints: [{ type: 'doc' }] } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /\.hints\[0\]\.ref: must be a non-empty string/.test(e)));
+  });
+
+  test('hints must be an array', () => {
+    const raw = { ...RAW_DEFINITION, steps: { implementation: { ...RAW_DEFINITION.steps.implementation, hints: 'not-an-array' } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /\.hints: must be an array/.test(e)));
   });
 });
