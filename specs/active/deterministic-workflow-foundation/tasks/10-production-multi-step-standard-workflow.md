@@ -78,9 +78,10 @@ started at all:
   happened yet, rather than inventing a shape to unblock implementation.
 - Every step must declare its own `entryGates`/`exitGates` independently — do not reuse
   one step's gate configuration as a stand-in for another's.
-- The final step's transition target must be a task lifecycle status value (the
-  terminal case, D19) — never accidentally another step's name. Every step declares
-  exactly one `transitions` entry (D27) — the schema now rejects zero or more than one.
+- The final step's transition target must be a genuine `TERMINAL_STATUSES` member (D19
+  refined) — never accidentally another step's name, and never a non-terminal status
+  like `approved`/`in-implementation`. Every step declares exactly one `transitions`
+  entry (D27) — the schema now rejects zero or more than one.
 - Declare `entryStep` explicitly at the definition's top level (D27) — do not rely on
   implicit first-key ordering for a freshly-authored multi-step definition.
 - Every step declares its own `purpose`/`expectedWork`/`hints` (D25) — real, authored
@@ -98,13 +99,18 @@ started at all:
 
 ## Acceptance criteria
 
-1. `owner-decisions.md` already records an owner-approved step decomposition for
-   Standard (names, gate ownership per step, `purpose`/`expectedWork`/`hints` content,
-   rationale) — checked as a precondition before this task's implementation begins, not
-   written by this task itself (D31). `automated: node tools/docs.mjs validate`
+1. **Manual precondition, not machine-verifiable (D31):** `owner-decisions.md` already
+   contains a real **Decision** entry (not merely an "Options considered" draft) naming
+   the Standard step decomposition (names, gate ownership per step,
+   `purpose`/`expectedWork`/`hints` content, rationale), and the owner has explicitly
+   approved it — confirmed by whoever runs `/nevo-ai:task-start` for this task reading
+   that entry and the conversation that produced it, before starting implementation.
+   No automated command proves owner approval — this is a human judgment call, not a
+   fact `node tools/docs.mjs validate` (which does not even scan
+   `specs/active/**/owner-decisions.md`) or any other tool can check. `manual: verify a genuine Decision entry for the Standard step decomposition exists in owner-decisions.md and is recorded as owner-approved before running task-start`
 2. `.nevo-ai/workflows/standard.yaml` declares at least three steps, each with its own
    gates and exactly one transition, an explicit `entryStep`, and the final step's
-   transition targets a genuine terminal task-status value. `automated: node tools/specs.mjs validate`
+   transition targets a genuine `TERMINAL_STATUSES` member. `automated: node tools/specs.mjs validate`
 3. Loading the new definition succeeds under Task 09's fail-closed validation (every
    action id and gate type referenced is registered) and Task 08's version-compatibility
    check (the definition's `version` matches what `standard`-mode changes declare).

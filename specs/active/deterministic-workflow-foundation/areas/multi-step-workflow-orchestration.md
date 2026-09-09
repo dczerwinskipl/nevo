@@ -10,7 +10,7 @@ other configured sequence — driving an agent through all of them via repeated 
 step start` / `workflow step finish` cycles, with the workflow definition (never the
 agent, never hardcoded engine logic) deciding what happens next at every step boundary.
 
-This area covers Tasks 08-12. See D18-D31 in `owner-decisions.md` for the decisions
+This area covers Tasks 08-12. See D18-D32 in `owner-decisions.md` for the decisions
 behind it, and `overview.md` §14 for the summary of what's already good (unchanged) vs.
 what's genuinely new.
 
@@ -19,7 +19,7 @@ task state (Option 3), not runtime-local storage — it is long-lived workflow/d
 progress, unlike the finish-operation record's transient, single-call crash-recovery
 state (D14).
 
-This area doc has been revised twice since its first draft:
+This area doc has been revised three times since its first draft:
 
 - **First revision** (§§8-12, D23-D27): finish-operation identity wasn't step-aware,
   human-verification sign-off wasn't step/gate-scoped, workflow definitions had no way
@@ -33,6 +33,14 @@ This area doc has been revised twice since its first draft:
   wasn't validated against any real vocabulary (a typo could reach `task.status`), the
   version check compared the wrong (raw vs. effective) field, and Task 10's step
   decomposition was wrongly left to implementer discretion instead of owner approval.
+- **Third revision** (§16 and refinements within §§2, 3, D19/D28 correction, D32): the
+  terminal-target vocabulary was too permissive (`TASK_STATUSES` instead of the
+  narrower `TERMINAL_STATUSES` — `to: approved`/`to: in-implementation` would have
+  wrongly validated), `store.mjs` was required-but-not-writable by Task 08 despite
+  `finish-operation.mjs` needing an atomic two-field write it doesn't own, the
+  legacy-mode `workflow_progress` rule was stated three different ways across this doc
+  and Task 08, and Task 10's owner-approval prerequisite was implied to be provable by
+  `node tools/docs.mjs validate` alone.
 
 §§1-7 are the first draft's content (still correct); §§8-15, plus the in-place
 refinements to §§3/5/9/11, are the corrections.
@@ -79,13 +87,19 @@ tasks:
   `implementation.changed_paths`/`review_revision` already are: reconstructing what
   happened without re-deriving it from Git log archaeology. Minimal shape; extend only
   if a concrete future need requires it — no speculative fields.
-- Validation (`tools/specs/validation.mjs`): `current_step`, when present, must name an
-  actual step in the task's resolved workflow definition — a task record can never point
-  at a step its own definition doesn't declare. Meaningless (and rejected) on a task
-  whose change is not `workflow.mode: deterministic`.
+- Validation (`tools/specs/validation.mjs`), fail closed: `current_step`, when present,
+  must name an actual step in the task's resolved workflow definition — a task record
+  can never point at a step its own definition doesn't declare. **`workflow_progress` is
+  valid only on a task whose change is `workflow.mode: deterministic`** — present on any
+  other change, it is an explicit validation *error*, not a silently-ignored/meaningless
+  field (this is the one authoritative rule; see D18's consequence and Task 08 §"Legacy
+  coexistence").
 - Written by the same `update-task` finalize stage (Task 06) that already writes
-  `task.status`, in the same `change.yaml` read-modify-write, so it lands in the same
-  progress commit as the implementation (C14 unchanged, generalized).
+  `task.status`, in the same `change.yaml` read-modify-write — via a single, narrow,
+  store-owned mutation helper (§16) that can set `status` and/or `workflow_progress`
+  atomically in one `updateYamlFile` call, so both land in the same progress commit as
+  the implementation (C14 unchanged, generalized). `finish-operation.mjs` calls this
+  helper; it does not perform its own YAML read-modify-write.
 
 ## 3. Transition-target resolution: step name vs. terminal status (D19)
 
@@ -105,11 +119,15 @@ compatible — re-derive today's exact behavior as the degenerate one-step case.
 definition must not declare a step whose name collides with a terminal status value used
 elsewhere as a `to` target in the *same* definition (validation error, not a silent
 "advance to the step" resolution when a terminal write was intended) — Task 08 adds this
-check. **`X` must additionally be a real member of the repository's canonical task-status
-vocabulary** (`TASK_STATUSES`, `tools/specs/lifecycle-primitives.mjs`) whenever it isn't a
-step name — a typo (`to: verifed`) fails validation at load time rather than silently
-becoming an invalid status once written (D19's refinement; see also §15 for the parallel
-identifier-safety rule for step/gate names themselves).
+check. **`X` must additionally be a real member of the repository's canonical *terminal*
+status vocabulary** — `TERMINAL_STATUSES` (`tools/specs/lifecycle-primitives.mjs`:
+`implemented`/`verified`/`archived`/`abandoned`), **not** the broader `TASK_STATUSES`
+(which also contains `draft`/`approved`/`in-implementation` — states a task passes
+*through*, never a legitimate finalize-transition destination) — whenever `X` isn't a
+step name. `to: approved`, `to: in-implementation`, and a typo like `to: verifed` are
+all rejected identically, at load time, before any of them could reach `setTaskStatus`
+(D19's refinement; see also §15 for the parallel identifier-safety rule for step/gate
+names themselves).
 
 ## 4. Fail-closed action/gate resolution (D20)
 
@@ -436,3 +454,30 @@ filesystem. Validated once, at workflow-definition schema time
   (`step-runner.mjs`, Task 06) already does.
 - `workflow verify-human --gate <id>` (§9) refers to this exact, explicitly-configured
   `id`.
+
+## 16. Atomic task-state write ownership (D32, Task 08)
+
+`update-task` (Task 06) needs to write, in one `change.yaml` read-modify-write, whichever
+of two things a given transition requires: a `workflow_progress` update (step advance)
+and/or a `task.status` change (terminal case) — and per D28, sometimes conceptually
+both matter for history even though only one is the "active" write for a given
+transition. `tools/specs/store.mjs`'s existing `setTaskStatus(change, taskId, status)`
+only ever sets one field per call; two separate calls would be two separate
+`updateYamlFile` read-modify-writes — reintroducing exactly the "crash between two
+writes leaves an inconsistent state" failure class D13 already eliminated for
+implementation-vs-status commits.
+
+**Fix:** add one new, narrow, `store.mjs`-owned helper —
+`setTaskWorkflowState(change, taskId, { status, workflowProgress })` — that applies
+whichever of `status`/`workflowProgress` is provided (either, or both) inside a single
+`updateYamlFile` mutation, following the exact same structural-YAML-preserving pattern
+`setTaskStatus` already uses (`doc.get('tasks', true)`, find the task item, `.set(...)`
+per field). `finish-operation.mjs`'s `update-task` stage calls this helper — it does
+**not** grow its own YAML mutation logic; `tools/specs/workflow/finish-operation.mjs`
+has no direct dependency on the `yaml` library or `updateYamlFile` today, and this
+decision keeps it that way. `setTaskStatus` itself is unchanged and keeps serving every
+legacy caller that only ever needed the one field.
+
+This is why Task 08's `allowed_paths` includes `tools/specs/store.mjs` (previously only
+`context.required`, read-only) — Task 08 is the task that actually needs this atomic,
+two-field write capability to exist.

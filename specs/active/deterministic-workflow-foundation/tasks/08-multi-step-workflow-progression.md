@@ -33,11 +33,13 @@ allowed_paths:
   - tools/specs/workflow/definitions/schema.mjs
   - tools/specs/workflow/definitions/loader.mjs
   - tools/specs/workflow/index.mjs
+  - tools/specs/store.mjs
   - tools/tests/workflow-next-step.test.mjs
   - tools/tests/workflow-finish-operation.test.mjs
   - tools/tests/workflow-cli.test.mjs
   - tools/tests/workflow-e2e.test.mjs
   - tools/tests/workflow-gates.test.mjs
+  - tools/tests/store.test.mjs
 forbidden_paths:
   - src/**
   - tests/NEvo.*/**
@@ -47,7 +49,7 @@ forbidden_paths:
   - tools/specs/workflow/gates/command-gate.mjs
   - tools/specs/workflow/gates/markdown-gate.mjs
 semantic_references:
-  decisions: [D13, D14, D18, D19, D20, D23, D24, D25, D26, D27, D28, D29, D30]
+  decisions: [D13, D14, D18, D19, D20, D23, D24, D25, D26, D27, D28, D29, D30, D32]
   constraints: [C14, C18, C20, C21, C22, C23, C24, C25, C26, C27, C28]
   dependency_contracts: [step-orchestration-and-next-step-service, cli-integration-and-vertical-poc]
 ---
@@ -58,7 +60,7 @@ semantic_references:
 
 Generalize the engine from its current single-step assumption to real multi-step
 progression, and close the identity/versioning/cardinality/validation gaps a real
-multi-step workflow exposes (`areas/multi-step-workflow-orchestration.md` §§1-3, 8-15):
+multi-step workflow exposes (`areas/multi-step-workflow-orchestration.md` §§1-3, 8-16):
 
 1. **Persisted step progress (D18, approved — Git-tracked).** Add a `workflow_progress`
    schema block to a task's `change.yaml` entry — `current_step` plus an append-only
@@ -67,7 +69,7 @@ multi-step workflow exposes (`areas/multi-step-workflow-orchestration.md` §§1-
    (1) if `task.status` already equals one of the definition's valid terminal transition
    targets, the workflow is complete — resolved step is `null`; (2) else if
    `task.workflow_progress.current_step` exists, use it; (3) else resolve `entryStep`
-   (item 8 below). `workflow_progress` is **never cleared or nulled** at terminal
+   (item 9 below). `workflow_progress` is **never cleared or nulled** at terminal
    completion — `current_step` keeps naming the last real step, `history` gains one
    final entry — rule (1) always short-circuits before it would matter again.
 3. **Generalized transition resolution (D19, refined).** Resolve a step's one
@@ -75,15 +77,20 @@ multi-step workflow exposes (`areas/multi-step-workflow-orchestration.md` §§1-
    advances `workflow_progress.current_step` (task `status` unchanged, `history`
    appended); no match is the terminal case — write `task.status` exactly as today. A
    `to` value that is neither a declared step name nor a member of the repository's
-   canonical `TASK_STATUSES` (`tools/specs/lifecycle-primitives.mjs`) fails
-   `validateWorkflowDefinition` at load time — a typo (`to: verifed`) must never reach
+   canonical **`TERMINAL_STATUSES`** (`tools/specs/lifecycle-primitives.mjs`:
+   `implemented`/`verified`/`archived`/`abandoned`) fails `validateWorkflowDefinition`
+   at load time — this rejects both a typo (`to: verifed`) and a *non-terminal* status
+   (`to: approved`, `to: in-implementation`) identically; neither must ever reach
    `setTaskStatus`. This must reproduce today's single-step behavior exactly as the
    degenerate case.
-4. **Generalized `update-task` reconciliation (C18).** The persisted `intent` becomes a
-   discriminated union — `{ kind: 'step', fromStep, toStep }` for an internal
-   transition, or `{ kind: 'status', fromState, toState }` for a terminal one (today's
-   only case) — reconciliation logic for each follows the same
-   fromState/toState-vs-current-state comparison Task 06 already implemented.
+4. **Generalized `update-task` reconciliation (C18), via the atomic store helper
+   (D32).** The persisted `intent` becomes a discriminated union — `{ kind: 'step',
+   fromStep, toStep }` for an internal transition, or `{ kind: 'status', fromState,
+   toState }` for a terminal one (today's only case) — reconciliation logic for each
+   follows the same fromState/toState-vs-current-state comparison Task 06 already
+   implemented. The actual write (item 1) is applied via `setTaskWorkflowState` (see
+   item 11 below) — never a second, ad hoc `updateYamlFile` call inside
+   `finish-operation.mjs`.
 5. **Step-aware finish-operation identity (D23).** The durable finish-operation record
    path becomes `.nevo-ai-local/workflow-operations/<change>/<task>/<step>.json` (was
    `<change>/<task>.json`) — `loadOperationRecord`/`saveOperationRecord` gain a `step`
@@ -126,6 +133,20 @@ multi-step workflow exposes (`areas/multi-step-workflow-orchestration.md` §§1-
     same pattern when present. A step with more than one `type: human` gate must give
     every one an explicit, mutually-distinct `id` — never two silently sharing (or both
     defaulting to) `human-review`.
+11. **Atomic, store-owned task-state mutation (D32).** Add
+    `setTaskWorkflowState(change, taskId, { status, workflowProgress })` to
+    `tools/specs/store.mjs` — applies whichever of `status`/`workflowProgress` is
+    provided inside one `updateYamlFile` mutation, following the exact same
+    structural-YAML-preserving pattern `setTaskStatus` already uses.
+    `finish-operation.mjs`'s `update-task` stage calls this helper for every write
+    (step-advance and terminal alike) — it gains no direct dependency on the `yaml`
+    library or `updateYamlFile`. `setTaskStatus` itself is unchanged, still used by
+    every legacy (non-deterministic) caller.
+12. **Fail-closed legacy-mode rejection (D18 consequence).** `workflow_progress` present
+    on a task whose change is not `workflow.mode: deterministic` is an explicit
+    `tools/specs/validation.mjs` validation **error** — never a silently-ignored or
+    silently-tolerated field. This is the one authoritative rule; nothing else in this
+    task's own text should describe it differently.
 
 ## Implementation constraints
 
@@ -136,8 +157,11 @@ multi-step workflow exposes (`areas/multi-step-workflow-orchestration.md` §§1-
   definitions constructed inline, never editing the shipped `standard.yaml`.
 - `workflow_progress` validation (`tools/specs/validation.mjs`) must reject a
   `current_step` value that names no step in the task's resolved workflow definition —
-  fail closed (C6/C20) — and must be a no-op (never required, never validated) for a
-  change whose `workflow.mode` is not `deterministic`.
+  fail closed (C6/C20). **`workflow_progress` present at all on a task whose change is
+  not `workflow.mode: deterministic` is itself a validation error** — fail closed, never
+  a silent no-op/ignore (this is the one authoritative rule for legacy coexistence; see
+  item 12 above — do not describe this differently anywhere else in this task, its
+  tests, or its acceptance criteria).
 - A workflow definition must not declare a step whose name collides with any terminal
   status value used as a `to` target elsewhere in the same definition — validate this at
   definition-load time (`definitions/schema.mjs`), not at transition-resolution time.
@@ -157,12 +181,15 @@ multi-step workflow exposes (`areas/multi-step-workflow-orchestration.md` §§1-
   its own assertions to the new step-aware paths, since those paths are this module's
   own internal implementation detail, not a public contract anything outside
   `tools/specs/workflow/` depends on.
-- Reuse `tools/specs/store.mjs`'s existing `updateYamlFile`-based write path (the same
-  one `setTaskStatus` uses) for writing `workflow_progress` — do not invent a second
-  `change.yaml` write mechanism.
-- The `update-task` finalize stage still writes both the implementation and the
+- Write `task.status`/`workflow_progress` exclusively through the new
+  `setTaskWorkflowState` helper (item 11, D32) — `finish-operation.mjs` must not call
+  `updateYamlFile` directly, and must not duplicate `setTaskWorkflowState`'s
+  structural-YAML-preserving logic locally. `setTaskStatus` remains for legacy callers
+  only; `update-task` does not call it.
+- The `update-task` finalize stage writes both the implementation and the
   workflow-position update (step advance and/or terminal status) in the *same*
-  `change.yaml` read-modify-write and the *same* progress commit (C14 unchanged).
+  `change.yaml` read-modify-write (one `setTaskWorkflowState` call) and the *same*
+  progress commit (C14 unchanged).
 - The version-compatibility check (item 8) is a guard, not a framework: one equality
   comparison against `resolveWorkflowMode(change).version`, one error type, no migration
   tooling, no multi-version resolution.
@@ -177,9 +204,11 @@ multi-step workflow exposes (`areas/multi-step-workflow-orchestration.md` §§1-
 ## Acceptance criteria
 
 1. `change.yaml` accepts an optional per-task `workflow_progress: { current_step,
-   history: [...] }` block; `node tools/specs.mjs validate` rejects a `current_step` that
-   names no step in the task's resolved workflow definition, and rejects/ignores the
-   field consistently on a non-deterministic-mode change. `automated: node --test tools/tests/workflow-next-step.test.mjs`
+   history: [...] }` block on a `workflow.mode: deterministic` change; `node
+   tools/specs.mjs validate` rejects a `current_step` that names no step in the task's
+   resolved workflow definition; `node tools/specs.mjs validate` **rejects** (explicit
+   validation error, not a silent ignore) a `workflow_progress` field present on any
+   change that is not `workflow.mode: deterministic`. `automated: node --test tools/tests/workflow-next-step.test.mjs`
 2. Given a ≥2-step fixture workflow definition, current-step resolution resolves the
    entry step for a task with no `workflow_progress`, and resolves whatever
    `current_step` names for a task that already has one. `automated: node --test tools/tests/workflow-next-step.test.mjs`
@@ -249,12 +278,24 @@ multi-step workflow exposes (`areas/multi-step-workflow-orchestration.md` §§1-
 16. A definition declaring a step name that collides with a terminal status value used
     elsewhere as a `to` target in the same definition fails to load, with an explicit
     error naming the collision. `automated: node --test tools/tests/workflow-next-step.test.mjs`
-17. **Terminal target must be a real lifecycle status (D19, refined):** a transition
-    `to` value that is neither a declared step name nor a member of `TASK_STATUSES`
-    (`tools/specs/lifecycle-primitives.mjs`) — e.g. a typo like `to: verifed` — fails
-    `validateWorkflowDefinition` at load time; it is never reached by `setTaskStatus` and
-    never written into `change.yaml`. `automated: node --test tools/tests/workflow-next-step.test.mjs`
-18. Every existing Task 06/07 test continues passing (with only the internal
+17. **Terminal target must be a real *terminal* lifecycle status (D19, refined):** a
+    transition `to` value that is neither a declared step name nor a member of
+    `TERMINAL_STATUSES` (`tools/specs/lifecycle-primitives.mjs`:
+    `implemented`/`verified`/`archived`/`abandoned`) fails `validateWorkflowDefinition`
+    at load time — covering both a typo (`to: verifed`) and a real-but-non-terminal
+    status (`to: approved`, `to: in-implementation`); neither is ever reached by
+    `setTaskStatus` or written into `change.yaml`. `automated: node --test tools/tests/workflow-next-step.test.mjs`
+18. **Atomic task-state write (D32):** `setTaskWorkflowState(change, taskId, { status,
+    workflowProgress })` (`tools/specs/store.mjs`) applies both fields (when both are
+    given) in a single `updateYamlFile` call — verified by asserting the resulting
+    `change.yaml` diff/commit contains both changes together, never as two separate
+    writes; supplying only one of the two fields leaves the other untouched.
+    `automated: node --test tools/tests/store.test.mjs`
+19. **Legacy coexistence, fail-closed (D18 consequence):** a `workflow_progress` field
+    present on a task belonging to a change that is not `workflow.mode: deterministic`
+    fails `node tools/specs.mjs validate` with an explicit error — never silently
+    ignored, never silently accepted. `automated: node --test tools/tests/workflow-next-step.test.mjs`
+20. Every existing Task 06/07 test continues passing (with only the internal
     operation-record/human-verification path assertions updated to the new step-aware
     paths, per the implementation constraints) against the real, unchanged
     `.nevo-ai/workflows/standard.yaml`. `automated: node --test tools/tests/workflow-next-step.test.mjs tools/tests/workflow-finish-operation.test.mjs tools/tests/workflow-cli.test.mjs tools/tests/workflow-e2e.test.mjs tools/tests/workflow-gates.test.mjs`

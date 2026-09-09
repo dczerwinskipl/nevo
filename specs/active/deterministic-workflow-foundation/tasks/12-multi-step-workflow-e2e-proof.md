@@ -36,7 +36,7 @@ Prove, end-to-end and via the public CLI only, that a fixture workflow definitio
 **at least three** distinct steps actually drives an agent through all of them —
 closing the one thing Tasks 01-11 individually generalize/enable but never collectively
 demonstrate together (`areas/multi-step-workflow-orchestration.md` §7). This is the
-acceptance test for the whole multi-step correction (D18-D31), the same role Task 07
+acceptance test for the whole multi-step correction (D18-D32), the same role Task 07
 played for the single-step foundation.
 
 ## Implementation constraints
