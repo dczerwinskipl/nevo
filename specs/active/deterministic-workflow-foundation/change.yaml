@@ -218,16 +218,10 @@ tasks:
   - id: multi-step-workflow-progression
     order: 8
     file: tasks/08-multi-step-workflow-progression.md
-    status: draft
+    status: approved
     depends_on:
       - step-orchestration-and-next-step-service
       - cli-integration-and-vertical-poc
-    execution:
-      suspension:
-        kind: confirm-required
-        code: REC-07
-        previous_action: approve
-        created_at: 2026-09-09T08:22:55.374Z
 
   - id: fail-closed-workflow-definition-resolution
     order: 9
