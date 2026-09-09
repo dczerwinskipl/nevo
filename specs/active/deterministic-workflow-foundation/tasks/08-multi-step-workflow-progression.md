@@ -40,16 +40,24 @@ allowed_paths:
   - tools/tests/workflow-e2e.test.mjs
   - tools/tests/workflow-gates.test.mjs
   - tools/tests/store.test.mjs
+  - .nevo-ai/workflows/exploratory.yaml
+  - tools/specs/workflow/templates/exploratory.yaml
+  - tools/tests/workflow-compatibility.test.mjs
 forbidden_paths:
   - src/**
   - tests/NEvo.*/**
   - tools/dashboard/**
-  - .nevo-ai/workflows/**
+  - .nevo-ai/workflows/standard.yaml
+  - .nevo-ai/workflows/architectural.yaml
+  - .nevo-ai/workflows/small.yaml
+  - tools/specs/workflow/templates/standard.yaml
+  - tools/specs/workflow/templates/architectural.yaml
+  - tools/specs/workflow/templates/small.yaml
   - tools/specs/workflow/gates/contracts.mjs
   - tools/specs/workflow/gates/command-gate.mjs
   - tools/specs/workflow/gates/markdown-gate.mjs
 semantic_references:
-  decisions: [D13, D14, D18, D19, D20, D23, D24, D25, D26, D27, D28, D29, D30, D32]
+  decisions: [D13, D14, D18, D19, D20, D23, D24, D25, D26, D27, D28, D29, D30, D32, D33]
   constraints: [C6, C14, C18, C20, C21, C22, C23, C24, C25, C26, C27, C28]
   dependency_contracts: [step-orchestration-and-next-step-service, cli-integration-and-vertical-poc]
 ---
