@@ -50,7 +50,7 @@ forbidden_paths:
   - tools/specs/workflow/gates/markdown-gate.mjs
 semantic_references:
   decisions: [D13, D14, D18, D19, D20, D23, D24, D25, D26, D27, D28, D29, D30, D32]
-  constraints: [C14, C18, C20, C21, C22, C23, C24, C25, C26, C27, C28]
+  constraints: [C6, C14, C18, C20, C21, C22, C23, C24, C25, C26, C27, C28]
   dependency_contracts: [step-orchestration-and-next-step-service, cli-integration-and-vertical-poc]
 ---
 
