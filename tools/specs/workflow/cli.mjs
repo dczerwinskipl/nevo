@@ -11,13 +11,15 @@
 
 import { requireChange, requireTask, ROOT, ACTIVE_DIR } from '../store.mjs';
 import { CliError } from '../../lib/cli-errors.mjs';
-import { resolveWorkflowMode } from './compatibility.mjs';
+import { resolveWorkflowMode, assertWorkflowVersionCompatible } from './compatibility.mjs';
 import { loadWorkflowDefinition } from './definitions/loader.mjs';
 import { compileStepContext } from './step-context.mjs';
 import { planFinish, finishStep } from './finish-operation.mjs';
+import { resolveCurrentStepName, gateDisplayId } from './step-runner.mjs';
 import { createDefaultGateRegistry } from './registry.mjs';
 import { MemoryCommandVerificationStore } from './gates/command-gate.mjs';
 import { FileHumanVerificationStore } from './human-verification-store.mjs';
+import { resolveHumanScopeTarget } from './gates/human-gate.mjs';
 // Side-effect import: registers CommitAndPushAction into defaultActionRegistry. Without
 // this, `defaultActionRegistry` (registry.mjs) starts empty and `aggregateFinalizeCheck`
 // would silently filter 'commit-and-push' out as "not yet registered" (step-context.mjs),
@@ -42,8 +44,9 @@ function resolveDefaultTask(change) {
 export function resolveWorkflowRuntime(changeSlug, taskId, { activeDir = ACTIVE_DIR, repoRoot = ROOT } = {}) {
   const change = requireChange(changeSlug, activeDir);
   const task = taskId ? requireTask(change, taskId) : resolveDefaultTask(change);
-  const { definition: definitionName } = resolveWorkflowMode(change);
-  const definition = loadWorkflowDefinition(definitionName, { repoRoot });
+  const resolvedMode = resolveWorkflowMode(change);
+  const definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot });
+  assertWorkflowVersionCompatible(resolvedMode, definition);
 
   const context = {
     repoRoot,
@@ -110,15 +113,60 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
   return emit(result, opts);
 }
 
+/**
+ * Resolves which human-verification gate on the task's current step `verify-human`
+ * should confirm (D24/D29/D30). A step declaring exactly one human gate needs no
+ * disambiguation; a step declaring more than one (each guaranteed an explicit,
+ * mutually-distinct `id` by D30's schema validation) requires the caller's `--gate <id>`
+ * to select one — fails closed, listing the real ids, rather than guessing.
+ *
+ * @param {object} definition
+ * @param {object} task
+ * @param {string} stepName
+ * @param {string|undefined} gateIdOption - The operator's `--gate <id>` value, if given
+ */
+function resolveHumanGateForConfirmation(definition, task, stepName, gateIdOption) {
+  const step = definition.steps[stepName];
+  const humanGates = [...step.entryGates, ...step.exitGates].filter(g => g.type === 'human');
+  if (humanGates.length === 0) {
+    throw new CliError(`Step '${stepName}' declares no human-verification gate for task '${task.id}' — nothing to confirm`);
+  }
+  if (humanGates.length === 1) {
+    const [gate] = humanGates;
+    if (gateIdOption && gate.id && gateIdOption !== gate.id) {
+      throw new CliError(`--gate '${gateIdOption}' does not match step '${stepName}''s configured gate id '${gate.id}'`);
+    }
+    return gate;
+  }
+  const ids = humanGates.map(gateDisplayId);
+  if (!gateIdOption) {
+    throw new CliError(
+      `Step '${stepName}' declares ${humanGates.length} human-verification gates (${ids.join(', ')}) — specify --gate <id> to disambiguate which one to confirm`
+    );
+  }
+  const match = humanGates.find(g => g.id === gateIdOption);
+  if (!match) {
+    throw new CliError(`--gate '${gateIdOption}' does not match any human-verification gate on step '${stepName}' (${ids.join(', ')})`);
+  }
+  return match;
+}
+
 export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
   if (!opts.confirm) {
     throw new CliError('workflow verify-human requires --confirm — this command is the only path that can satisfy a human-verification gate (C8)');
   }
-  const activeDir = opts.activeDir || ACTIVE_DIR;
-  const repoRoot = opts.repoRoot || ROOT;
-  const change = requireChange(changeSlug, activeDir);
-  const task = requireTask(change, taskId);
-  const store = new FileHumanVerificationStore({ repoRoot, change: change._slug, task: task.id });
-  const record = store.confirm({ scope: 'task', targetId: task.id, role: 'owner' });
+  const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
+  const stepName = resolveCurrentStepName(definition, task);
+  if (!stepName) {
+    throw new CliError(`Task '${task.id}' has already reached a terminal workflow status — there is no current step requiring human verification`);
+  }
+  const gateConfig = resolveHumanGateForConfirmation(definition, task, stepName, opts.gate);
+  const scope = gateConfig.scope || 'task';
+  const targetId = resolveHumanScopeTarget(scope, { ...context, stepId: stepName });
+  if (!targetId) {
+    throw new CliError(`Could not resolve identity for scope '${scope}' — verify-human cannot record a signoff without an explicit target`);
+  }
+  const store = new FileHumanVerificationStore({ repoRoot: context.repoRoot, change: change._slug, task: task.id });
+  const record = store.confirm({ scope, targetId, role: 'owner', stepId: stepName, gateId: gateConfig.id || null });
   return emit({ change: changeSlug, task: taskId, confirmed: true, record }, opts);
 }

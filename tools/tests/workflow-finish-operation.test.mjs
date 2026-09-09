@@ -155,10 +155,10 @@ describe('finishStep — happy path executes the fixed stage order (AC5)', () =>
   });
 
   test('the operation record is persisted only under .nevo-ai-local/workflow-operations/, never in change.yaml (AC16)', () => {
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation');
     assert.ok(record);
     assert.equal(record.status, 'completed');
-    const recordPath = join(fx.repo, '.nevo-ai-local', 'workflow-operations', 'demo-change', 'demo-task.json');
+    const recordPath = join(fx.repo, '.nevo-ai-local', 'workflow-operations', 'demo-change', 'demo-task', 'implementation.json');
     assert.ok(existsSync(recordPath));
     const changeYaml = readFileSync(join(fx.activeDir, 'demo-change', 'change.yaml'), 'utf8');
     assert.ok(!changeYaml.includes('operationId'));
@@ -208,7 +208,7 @@ describe('finishStep — recovering an update-task stage found running (AC6)', (
     assert.equal(result.status, 'completed');
     assert.equal(taskStatus(fx.activeDir), 'verified');
 
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation');
     const updateTaskStage = record.operations.find(o => o.id === 'update-task');
     assert.equal(updateTaskStage.status, 'completed');
     // The intent must be exactly what was crafted, not recomputed from the (already-moved)
@@ -253,7 +253,7 @@ describe('finishStep — recovering a commit stage found running (AC7)', () => {
     assert.equal(result.status, 'completed');
     assert.equal(commitCount(fx.repo), commitsBefore, 'no second commit must be created');
 
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation');
     const commitStage = record.operations.find(o => o.id === 'commit');
     assert.equal(commitStage.status, 'completed');
     assert.equal(commitStage.result.sha, commitSha);
@@ -423,7 +423,7 @@ describe('finishStep — resolved-inputs persistence and conflict detection (AC1
       PreconditionError
     );
 
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation');
     assert.equal(record.resolvedInputs['commit.title'], RESOLVED_INPUTS['commit.title']);
     assert.equal(record.operations.find(o => o.id === 'update-task').status, 'pending');
   });
@@ -470,7 +470,7 @@ describe('finishStep — unresolvable ambiguity is reported, never guessed (AC13
     assert.equal(result.status, 'reconciliation-required');
     assert.equal(result.stage, 'update-task');
 
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation');
     assert.equal(record.operations.find(o => o.id === 'update-task').status, 'unknown');
     assert.equal(record.operations.find(o => o.id === 'commit').status, 'pending', 'no further stage may execute');
 

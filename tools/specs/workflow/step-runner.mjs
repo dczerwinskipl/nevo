@@ -7,32 +7,71 @@ import { defaultGateRegistry } from './registry.mjs';
 import { WorkflowError } from './errors.mjs';
 
 /**
- * Resolves the name of the current step for a task within a normalized workflow
- * definition (`definitions/schema.mjs`'s `normalizeWorkflowDefinition` output).
- *
- * This foundation's workflow definitions (`.nevo-ai/workflows/*.yaml`) declare exactly
- * one step; resolution is unambiguous by construction — a task not yet at that step's
- * own transition target is on that one step, and a task already at a transition target
- * has no further declared step. A future multi-step definition would extend this to
- * walk `transitions` against task state transitively; not needed for this foundation's
- * one proven vertical path (D7's remaining specification classes are out of scope here).
+ * Every step's one transition target (D27) that does *not* name another declared step —
+ * i.e. every value this definition can legitimately write as a terminal task `status`
+ * (D19 refined: each such value is already guaranteed, by schema validation, to be a
+ * member of `TERMINAL_STATUSES`). Reused by resolution (below) and by the durable finish
+ * operation to classify a transition as step-internal vs. terminal.
  *
  * @param {object} definition - Normalized workflow definition
- * @param {{status: string}} task - The task whose current step is being resolved
+ * @returns {Set<string>}
+ */
+export function collectTerminalTargets(definition) {
+  const stepNames = new Set(Object.keys(definition?.steps || {}));
+  const terminals = new Set();
+  for (const step of Object.values(definition?.steps || {})) {
+    const to = step.transitions?.[0]?.to;
+    if (to && !stepNames.has(to)) terminals.add(to);
+  }
+  return terminals;
+}
+
+/**
+ * Resolves the name of the current step for a task within a normalized, multi-step
+ * workflow definition (`definitions/schema.mjs`'s `normalizeWorkflowDefinition` output),
+ * per the explicit, ordered precedence D28 establishes:
+ *
+ * 1. If `task.status` already equals one of this definition's valid terminal transition
+ *    targets (`collectTerminalTargets`), the workflow is complete — returns `null`. This
+ *    is checked *before* `workflow_progress` is even consulted, so a task whose finish
+ *    already reached a terminal status can never be mistaken for one that never started
+ *    (`workflow_progress.current_step` is deliberately never cleared at completion — see
+ *    D28 — so trusting it first would otherwise re-resolve a *stale*, no-longer-relevant
+ *    step name here).
+ * 2. Else, if `task.workflow_progress.current_step` names a real declared step, use it —
+ *    an in-flight, not-yet-terminal task's own persisted position is authoritative.
+ * 3. Else, resolve the definition's `entryStep` (D27) — a task that has never advanced
+ *    within this workflow at all.
+ *
+ * @param {object} definition - Normalized workflow definition
+ * @param {{status: string, workflow_progress?: {current_step?: string}}} task - The task
+ *   whose current step is being resolved
  * @returns {string|null} The current step name, or `null` if the task has already
- *   transitioned past every declared step
+ *   reached a terminal transition target
  */
 export function resolveCurrentStepName(definition, task) {
   const stepEntries = Object.entries(definition?.steps || {});
   if (stepEntries.length === 0) {
     throw new WorkflowError(`Workflow definition '${definition?.id}' has no steps`);
   }
-  const [firstStepName, firstStep] = stepEntries[0];
-  const transitionTargets = new Set((firstStep.transitions || []).map(t => t.to));
-  if (transitionTargets.has(task?.status)) {
+
+  const terminalTargets = collectTerminalTargets(definition);
+  if (terminalTargets.has(task?.status)) {
     return null;
   }
-  return firstStepName;
+
+  const currentStep = task?.workflow_progress?.current_step;
+  if (currentStep) {
+    if (!Object.prototype.hasOwnProperty.call(definition.steps, currentStep)) {
+      throw new WorkflowError(
+        `Task's workflow_progress.current_step '${currentStep}' does not name a step declared in ` +
+        `workflow definition '${definition?.id}'`
+      );
+    }
+    return currentStep;
+  }
+
+  return definition.entryStep || stepEntries[0][0];
 }
 
 /** Deterministic, human-readable id for a gate config that has no explicit `id`. */

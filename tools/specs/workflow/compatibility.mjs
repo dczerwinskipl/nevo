@@ -1,6 +1,6 @@
 // Pure workflow mode resolution and legacy fallback logic.
 
-import { WorkflowError } from './errors.mjs';
+import { WorkflowError, WorkflowDefinitionError } from './errors.mjs';
 
 export const WORKFLOW_MODES = new Set(['legacy', 'deterministic']);
 export const DEFAULT_WORKFLOW_MODE = 'legacy';
@@ -68,4 +68,28 @@ export function resolveWorkflowMode(change = {}, options = {}) {
     definition: change?.type || DEFAULT_WORKFLOW_DEFINITION,
     isExplicit: false,
   };
+}
+
+/**
+ * Fail-closed workflow-definition version compatibility (D26). Compares the *effective*
+ * resolved version (`resolveWorkflowMode(change).version` — already correctly defaulted
+ * for the `workflow_mode: deterministic` shorthand, which carries no raw
+ * `change.workflow.version` field at all) against the loaded definition's own `version`.
+ * A long-lived task sitting at `workflow_progress.current_step` must never silently keep
+ * resolving against a definition that was incompatibly changed underneath it — this is a
+ * per-call guard, not migration infrastructure: one equality comparison, one error type,
+ * no upgrade paths.
+ *
+ * @param {{ version: number }} resolvedMode - `resolveWorkflowMode(change)`'s own return value
+ * @param {{ id: string, version: number }} definition - Normalized workflow definition
+ * @throws {WorkflowDefinitionError} On a version mismatch, naming both values
+ */
+export function assertWorkflowVersionCompatible(resolvedMode, definition) {
+  if (resolvedMode.version !== definition.version) {
+    throw new WorkflowDefinitionError(
+      `Workflow version mismatch: change declares effective workflow version ${resolvedMode.version}, ` +
+      `but the loaded definition '${definition.id}' is version ${definition.version} — bump both deliberately, ` +
+      `never resolve automatically.`
+    );
+  }
 }

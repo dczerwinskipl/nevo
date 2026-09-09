@@ -13,4 +13,4 @@ steps:
       - type: human
         required: true
     transitions:
-      - to: refined
+      - to: verified

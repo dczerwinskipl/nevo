@@ -126,8 +126,11 @@ export async function compileStepContext({
   }
 
   const step = definition.steps[stepName];
-  const entryGateResults = await inspectGates(step.entryGates, context, { gateRegistry });
-  const exitGateResults = await inspectGates(step.exitGates, context, { gateRegistry });
+  // D29: gate inspection needs the resolved step identity in context so a
+  // HumanVerificationGate can build its query with real stepId/gateId identity.
+  const gateContext = { ...context, stepId: stepName };
+  const entryGateResults = await inspectGates(step.entryGates, gateContext, { gateRegistry });
+  const exitGateResults = await inspectGates(step.exitGates, gateContext, { gateRegistry });
   const finalizeCheck = await aggregateFinalizeCheck(step, context, { engine, actionRegistry });
   const requiredInputs = buildFinishContract(finalizeCheck);
   // Only a definitively 'blocked'/'failed' gate blocks — 'pending' (a command gate that

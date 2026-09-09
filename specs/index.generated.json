@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-09T08:26:55.861Z",
+  "generated": "2026-09-09T12:31:37.730Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -288,11 +288,57 @@
           "id": "multi-step-workflow-progression",
           "order": 8,
           "file": "tasks/08-multi-step-workflow-progression.md",
-          "status": "approved",
+          "status": "implemented",
           "depends_on": [
             "step-orchestration-and-next-step-service",
             "cli-integration-and-vertical-poc"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "cd663eb04bf3dbfdda9f88d2f326e615ae452c6a",
+            "review_revision": "cd663eb04bf3dbfdda9f88d2f326e615ae452c6a",
+            "changed_paths": [
+              ".nevo-ai/workflows/exploratory.yaml",
+              "tools/specs/store.mjs",
+              "tools/specs/workflow/cli.mjs",
+              "tools/specs/workflow/compatibility.mjs",
+              "tools/specs/workflow/definitions/schema.mjs",
+              "tools/specs/workflow/finish-operation.mjs",
+              "tools/specs/workflow/gates/human-gate.mjs",
+              "tools/specs/workflow/human-verification-store.mjs",
+              "tools/specs/workflow/step-context.mjs",
+              "tools/specs/workflow/step-runner.mjs",
+              "tools/specs/workflow/templates/exploratory.yaml",
+              "tools/tests/workflow-cli.test.mjs",
+              "tools/tests/workflow-compatibility.test.mjs",
+              "tools/tests/workflow-e2e.test.mjs",
+              "tools/tests/workflow-finish-operation.test.mjs",
+              "tools/tests/workflow-next-step.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "71b16d5dcb608197bfa060f6a336d18f41979796f4cb9b54fc4994b7d35ef91f"
+          },
+          "self_check": {
+            "fingerprint": "629e1050723de4a5a087f708bfb9513ca55394669c338881802c05bb0368ca09",
+            "revision": "cd663eb04bf3dbfdda9f88d2f326e615ae452c6a",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-next-step.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-finish-operation.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "fail-closed-workflow-definition-resolution",

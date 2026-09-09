@@ -2,14 +2,15 @@
 // `workflow step finish [--check]` (D11/D14). Fixed finalize stage order
 // (`verify-gates -> update-task -> commit -> push -> transition`, D13) executed under a
 // durable operation record persisted at
-// `.nevo-ai-local/workflow-operations/<change>/<task>.json` — runtime execution state,
-// never part of `change.yaml` (D14 correction, C17).
+// `.nevo-ai-local/workflow-operations/<change>/<task>/<step>.json` (D23 — step-aware
+// identity, generalized from the original single-step `<change>/<task>.json`) — runtime
+// execution state, never part of `change.yaml` (D14 correction, C17).
 
-import { mkdirSync, writeFileSync, renameSync, existsSync, readFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, renameSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-import { requireChange, requireTask, setTaskStatus } from '../store.mjs';
+import { requireChange, requireTask, setTaskWorkflowState } from '../store.mjs';
 import { normalizeSourceControlConfig } from './definitions/schema.mjs';
 import { defaultActionRegistry, defaultGateRegistry } from './registry.mjs';
 import { defaultWorkflowEngine } from './engine.mjs';
@@ -20,18 +21,22 @@ import * as git from '../../lib/git.mjs';
 
 export const FINISH_STAGE_IDS = ['verify-gates', 'update-task', 'commit', 'push', 'transition'];
 
-// ── Durable operation record I/O ────────────────────────────────────────────
+// ── Durable operation record I/O (D23: step-aware identity) ─────────────────
 // Same on-disk convention (git-ignored local runtime directory, atomic
 // temp-file-then-rename writes) established by
 // `tools/dashboard/server/ai/sessions/binding-service.mjs` — reused as a pattern, not as
 // a new code dependency from this module on `tools/dashboard/`.
 
-function operationFilePath(repoRoot, changeSlug, taskId) {
-  return join(repoRoot, '.nevo-ai-local', 'workflow-operations', changeSlug, `${taskId}.json`);
+function operationsDir(repoRoot, changeSlug, taskId) {
+  return join(repoRoot, '.nevo-ai-local', 'workflow-operations', changeSlug, taskId);
 }
 
-export function loadOperationRecord(repoRoot, changeSlug, taskId) {
-  const file = operationFilePath(repoRoot, changeSlug, taskId);
+function operationFilePath(repoRoot, changeSlug, taskId, stepName) {
+  return join(operationsDir(repoRoot, changeSlug, taskId), `${stepName}.json`);
+}
+
+export function loadOperationRecord(repoRoot, changeSlug, taskId, stepName) {
+  const file = operationFilePath(repoRoot, changeSlug, taskId, stepName);
   if (!existsSync(file)) return null;
   try {
     return JSON.parse(readFileSync(file, 'utf8'));
@@ -41,11 +46,43 @@ export function loadOperationRecord(repoRoot, changeSlug, taskId) {
 }
 
 export function saveOperationRecord(repoRoot, record) {
-  const file = operationFilePath(repoRoot, record.change, record.task);
+  const file = operationFilePath(repoRoot, record.change, record.task, record.step);
   mkdirSync(dirname(file), { recursive: true });
   const tempFile = `${file}.${randomUUID()}.tmp`;
   writeFileSync(tempFile, JSON.stringify(record, null, 2), 'utf8');
   renameSync(tempFile, file);
+}
+
+/**
+ * Finds this task's one in-flight (not yet `completed`) operation record, regardless of
+ * which step it belongs to (D23). A task can only ever be mid-finish on one step at a
+ * time, but which step that is may no longer match a *fresh* `resolveCurrentStepName`
+ * resolution if `update-task` already advanced the tracked position before the rest of
+ * the operation finished (the exact crash window C18/D28 exist to recover from) — so
+ * "the current step" and "the step with an in-flight operation" can genuinely differ for
+ * one retried call, and only a scan (not a guess) finds the right one.
+ *
+ * @returns {object|null} The in-flight record, or `null` if none exists
+ */
+export function findInFlightOperationRecord(repoRoot, changeSlug, taskId) {
+  const dir = operationsDir(repoRoot, changeSlug, taskId);
+  if (!existsSync(dir)) return null;
+  let files;
+  try {
+    files = readdirSync(dir).filter(f => f.endsWith('.json') && !f.includes('.tmp'));
+  } catch {
+    return null;
+  }
+  for (const file of files) {
+    let record;
+    try {
+      record = JSON.parse(readFileSync(join(dir, file), 'utf8'));
+    } catch {
+      continue;
+    }
+    if (record && record.status !== 'completed') return record;
+  }
+  return null;
 }
 
 function createOperationRecord({ change, task, step, resolvedInputs }) {
@@ -64,6 +101,10 @@ function findStage(record, id) {
   const stage = record.operations.find(o => o.id === id);
   if (!stage) throw new WorkflowError(`Finish-operation record missing stage '${id}'`);
   return stage;
+}
+
+function isStepName(definition, name) {
+  return Object.prototype.hasOwnProperty.call(definition?.steps || {}, name);
 }
 
 // ── Resolved-inputs persistence and conflict detection (C19) ───────────────
@@ -129,31 +170,35 @@ export async function planFinish({
   actionRegistry = defaultActionRegistry,
 } = {}) {
   const changeSlug = change._slug || change.id;
-  const existingRecord = context.repoRoot ? loadOperationRecord(context.repoRoot, changeSlug, task.id) : null;
 
-  // An in-flight (not yet `completed`) operation record's own `step` is authoritative
-  // over re-deriving the step from the task's *current* status: `update-task` may have
-  // already moved the tracked status to the transition target before the operation as a
-  // whole finished (the exact crash window C18 exists to recover from) — re-deriving
-  // from current status alone would then wrongly conclude "already complete" and abandon
-  // an operation still mid-flight (commit/push/transition stages still pending).
-  const stepName = (existingRecord && existingRecord.status !== 'completed')
-    ? existingRecord.step
-    : resolveCurrentStepName(definition, task);
+  // D23: an in-flight record (regardless of which step it belongs to) is authoritative
+  // over re-deriving the step from the task's *current* status/workflow_progress —
+  // `update-task` may have already moved the tracked position before the operation as a
+  // whole finished.
+  const inFlight = context.repoRoot ? findInFlightOperationRecord(context.repoRoot, changeSlug, task.id) : null;
+  const stepName = inFlight ? inFlight.step : resolveCurrentStepName(definition, task);
 
   if (!stepName) {
-    if (existingRecord?.status === 'completed') {
+    // D28: task.status is already terminal. workflow_progress.current_step is never
+    // cleared at completion, so it still names the step whose finish reached that
+    // terminal transition — the same file `findInFlightOperationRecord` would have
+    // scanned past (status: 'completed') is exactly what an idempotent repeat needs.
+    const lastStep = task?.workflow_progress?.current_step || null;
+    const lastRecord = (context.repoRoot && lastStep)
+      ? loadOperationRecord(context.repoRoot, changeSlug, task.id, lastStep)
+      : null;
+    if (lastRecord?.status === 'completed') {
       return {
         status: 'completed',
-        stepName: existingRecord.step,
+        stepName: lastStep,
         requiredInputs: {},
         missingInputs: [],
-        resolvedInputs: existingRecord.resolvedInputs || {},
+        resolvedInputs: lastRecord.resolvedInputs || {},
         conflicts: [],
         sourceControl: null,
         plannedOperations: FINISH_STAGE_IDS,
         blockers: [],
-        existingRecord,
+        existingRecord: lastRecord,
       };
     }
     return {
@@ -170,10 +215,15 @@ export async function planFinish({
     };
   }
 
+  const existingRecord = inFlight || (context.repoRoot ? loadOperationRecord(context.repoRoot, changeSlug, task.id, stepName) : null);
+
   const step = definition.steps[stepName];
   const finalizeCheck = await aggregateFinalizeCheck(step, context, { engine, actionRegistry });
   const requiredInputs = buildFinishContract(finalizeCheck);
-  const exitGateResults = await inspectGates(step.exitGates, context, { gateRegistry });
+  // D29: gate inspection needs the resolved step identity in context so a
+  // HumanVerificationGate can build its query with real stepId identity.
+  const gateContext = { ...context, stepId: stepName };
+  const exitGateResults = await inspectGates(step.exitGates, gateContext, { gateRegistry });
   // Only a definitively 'blocked'/'failed' gate blocks planning — a command gate's
   // 'pending' inspect status (not yet verify()'d) must not, or the finalize sequence
   // that actually runs and records it could never be reached (deadlock). Gates execute
@@ -220,11 +270,13 @@ function buildCompletionResult(record) {
   const commitStage = findStage(record, 'commit');
   const pushStage = findStage(record, 'push');
   const updateTaskStage = findStage(record, 'update-task');
+  const intent = updateTaskStage.intent;
   return {
     operationId: record.operationId,
     commit: commitStage.result ? { ...commitStage.result, status: commitStage.status } : null,
     push: pushStage.result ? { ...pushStage.result, status: pushStage.status } : null,
-    taskStatus: updateTaskStage.intent?.toState,
+    taskStatus: intent?.kind === 'status' ? intent.toState : undefined,
+    nextStep: intent?.kind === 'step' ? intent.toStep : undefined,
   };
 }
 
@@ -243,7 +295,8 @@ async function ensureVerifyGates(record, step, context, gateRegistry, repoRoot) 
   const stage = findStage(record, 'verify-gates');
   if (stage.status === 'completed') return;
 
-  const results = await verifyGates(step.exitGates, context, { gateRegistry });
+  const gateContext = { ...context, stepId: record.step };
+  const results = await verifyGates(step.exitGates, gateContext, { gateRegistry });
   if (!allGatesPassed(results)) {
     stage.status = 'failed';
     stage.result = { gates: results };
@@ -261,47 +314,94 @@ async function ensureVerifyGates(record, step, context, gateRegistry, repoRoot) 
   saveOperationRecord(repoRoot, record);
 }
 
-async function ensureUpdateTask(record, step, activeDir, changeSlug, taskId, repoRoot) {
+/**
+ * Generalized `update-task` stage (D18/D19/D28/D32): the record's own `step` (never
+ * re-derived) tells us which step just finished; that step's one transition (D27) tells
+ * us whether this is an internal step-advance or a terminal status write. Either way,
+ * both the mutation and its own `workflow_progress.history` entry are applied atomically
+ * via `setTaskWorkflowState` (D32) — never a second, separate write.
+ */
+async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskId, repoRoot) {
   const stage = findStage(record, 'update-task');
   if (stage.status === 'completed') return;
 
-  const toState = step.transitions[0]?.to;
-  if (!toState) {
-    throw new WorkflowError(`Step has no transition target for update-task`);
-  }
+  const stepName = record.step;
+  const step = definition.steps[stepName];
+  const to = step.transitions[0].to; // exactly one, guaranteed by D27 schema validation
+  const isInternalTransition = isStepName(definition, to);
 
   if (stage.status === 'running' || stage.status === 'unknown') {
     const change = requireChange(changeSlug, activeDir);
-    const currentStatus = requireTask(change, taskId).status;
-    if (currentStatus === stage.intent.toState) {
-      stage.status = 'completed';
-      stage.result = { toState: stage.intent.toState };
-      saveOperationRecord(repoRoot, record);
-      return;
+    const task = requireTask(change, taskId);
+
+    if (isInternalTransition) {
+      const currentStepValue = task.workflow_progress?.current_step;
+      if (currentStepValue === stage.intent.toStep) {
+        stage.status = 'completed';
+        stage.result = { toStep: stage.intent.toStep };
+        saveOperationRecord(repoRoot, record);
+        return;
+      }
+      if (currentStepValue !== stage.intent.fromStep) {
+        stage.status = 'unknown';
+        record.status = 'blocked';
+        saveOperationRecord(repoRoot, record);
+        throw new FinishStageOutcome({
+          status: 'reconciliation-required',
+          stage: 'update-task',
+          details: { kind: 'step', fromStep: stage.intent.fromStep, toStep: stage.intent.toStep, currentStep: currentStepValue },
+        });
+      }
+      // currentStepValue === fromStep: the advance never happened — safe to redo below.
+    } else {
+      if (task.status === stage.intent.toState) {
+        stage.status = 'completed';
+        stage.result = { toState: stage.intent.toState };
+        saveOperationRecord(repoRoot, record);
+        return;
+      }
+      if (task.status !== stage.intent.fromState) {
+        stage.status = 'unknown';
+        record.status = 'blocked';
+        saveOperationRecord(repoRoot, record);
+        throw new FinishStageOutcome({
+          status: 'reconciliation-required',
+          stage: 'update-task',
+          details: { kind: 'status', fromState: stage.intent.fromState, toState: stage.intent.toState, currentState: task.status },
+        });
+      }
+      // task.status === fromState: the write never happened — safe to redo below.
     }
-    if (currentStatus !== stage.intent.fromState) {
-      stage.status = 'unknown';
-      record.status = 'blocked';
-      saveOperationRecord(repoRoot, record);
-      throw new FinishStageOutcome({
-        status: 'reconciliation-required',
-        stage: 'update-task',
-        details: { fromState: stage.intent.fromState, toState: stage.intent.toState, currentState: currentStatus },
-      });
-    }
-    // currentStatus === fromState: the write never happened — safe to (re)execute below.
   }
 
   const change = requireChange(changeSlug, activeDir);
-  const fromState = requireTask(change, taskId).status;
-  stage.intent = { fromState, toState };
-  stage.status = 'running';
-  saveOperationRecord(repoRoot, record);
+  const task = requireTask(change, taskId);
+  const history = Array.isArray(task.workflow_progress?.history) ? task.workflow_progress.history : [];
+  // D28: workflow_progress is never cleared, even for a terminal transition — the final
+  // history entry is what preserves "which step led to completion" as audit evidence.
+  const newHistory = [...history, { step: stepName, completed_at: new Date().toISOString(), transitioned_to: to }];
 
-  setTaskStatus(change, taskId, toState);
+  if (isInternalTransition) {
+    stage.intent = { kind: 'step', fromStep: stepName, toStep: to };
+    stage.status = 'running';
+    saveOperationRecord(repoRoot, record);
 
-  stage.status = 'completed';
-  stage.result = { toState };
+    setTaskWorkflowState(change, taskId, { workflowProgress: { current_step: to, history: newHistory } });
+
+    stage.status = 'completed';
+    stage.result = { toStep: to };
+  } else {
+    stage.intent = { kind: 'status', fromState: task.status, toState: to };
+    stage.status = 'running';
+    saveOperationRecord(repoRoot, record);
+
+    // D28: current_step keeps naming the step that just finished (stepName), not to —
+    // there is no step to advance to once the workflow has reached a terminal status.
+    setTaskWorkflowState(change, taskId, { status: to, workflowProgress: { current_step: stepName, history: newHistory } });
+
+    stage.status = 'completed';
+    stage.result = { toState: to };
+  }
   saveOperationRecord(repoRoot, record);
 }
 
@@ -402,14 +502,27 @@ async function ensurePush(record, context, repoRoot) {
   saveOperationRecord(repoRoot, record);
 }
 
-async function ensureTransition(record, step) {
+/** Runtime-only and idempotent (D13's consequence) — never writes `change.yaml` again;
+ * the task/spec status change already happened and was already committed by
+ * `update-task`/`commit`. Just re-derives the next-step response from the already-
+ * persisted `update-task` intent. */
+async function ensureTransition(record) {
   const stage = findStage(record, 'transition');
   if (stage.status === 'completed') return;
+
   const updateTaskStage = findStage(record, 'update-task');
+  const intent = updateTaskStage.intent;
+  let nextStepGuidance = null;
+  if (intent?.kind === 'step') {
+    nextStepGuidance = { onSuccess: intent.toStep };
+  } else if (intent?.kind === 'status') {
+    nextStepGuidance = { onSuccess: intent.toState };
+  }
+
   stage.status = 'completed';
   stage.result = {
-    nextStepGuidance: step.transitions[0] ? { onSuccess: step.transitions[0].to } : null,
-    taskStatus: updateTaskStage.intent?.toState,
+    nextStepGuidance,
+    taskStatus: intent?.kind === 'status' ? intent.toState : undefined,
   };
 }
 
@@ -485,14 +598,14 @@ export async function finishStep({
     saveOperationRecord(repoRoot, record);
   }
 
-  const step = definition.steps[plan.stepName];
+  const step = definition.steps[record.step];
 
   try {
     await ensureVerifyGates(record, step, context, gateRegistry, repoRoot);
-    await ensureUpdateTask(record, step, resolvedActiveDir, changeSlug, task.id, repoRoot);
+    await ensureUpdateTask(record, definition, resolvedActiveDir, changeSlug, task.id, repoRoot);
     await ensureCommit(record, context, repoRoot);
     await ensurePush(record, context, repoRoot);
-    await ensureTransition(record, step);
+    await ensureTransition(record);
   } catch (err) {
     if (err instanceof FinishStageOutcome) {
       return err.payload;

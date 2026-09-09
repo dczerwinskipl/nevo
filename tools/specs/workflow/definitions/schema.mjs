@@ -1,12 +1,33 @@
 // Declarative workflow definition schema and validation.
 
 import { defaultCommandCatalog, CommandCatalog } from '../gates/command-catalog.mjs';
+import { TERMINAL_STATUSES } from '../../lifecycle-primitives.mjs';
 
 export const KNOWN_GATE_TYPES = new Set(['command', 'markdown', 'human']);
 export const KNOWN_COMMAND_ACTIONS = defaultCommandCatalog.asSet();
 
+// D30: safe identifier contract for every workflow-definition-declared logical
+// id — step keys, `entryStep`, a step-name-shaped transition target, and any
+// gate's explicit `id`. No slashes/backslashes (these ids are embedded directly
+// into filesystem paths for the durable finish-operation record, D23, and the
+// human-verification signoff store, D24), no empty strings.
+export const SAFE_IDENTIFIER_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+// D25: structured, declarative per-step behavior contract — never engine-generated prose.
+const HINT_TYPES = new Set(['doc', 'skill', 'file']);
+
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** D30: shared safe-identifier check — fails closed on anything but a non-empty
+ * `^[a-zA-Z0-9_-]+$` string. */
+export function validateSafeIdentifier(value, label, errors) {
+  if (typeof value !== 'string' || !SAFE_IDENTIFIER_PATTERN.test(value)) {
+    errors.push(`${label}: must be a non-empty identifier matching ${SAFE_IDENTIFIER_PATTERN} (no slashes, dots, or empty), got '${JSON.stringify(value)}'`);
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -35,6 +56,14 @@ export function validateGateDefinition(gate, label, errors, { knownGates, comman
   if (!allowedGateTypes.has(gate.type)) {
     errors.push(`${label}: unknown gate type '${gate.type}' (expected one of: ${[...allowedGateTypes].join(', ')})`);
     return;
+  }
+
+  // D30: a gate's explicit `id` (any type) must itself be a safe identifier — it may be
+  // embedded into the human-verification signoff path (D24) regardless of gate type
+  // consistency, and a malformed id is a configuration error at the same boundary as an
+  // unsafe step name.
+  if (gate.id !== undefined) {
+    validateSafeIdentifier(gate.id, `${label}.id`, errors);
   }
 
   if (gate.type === 'command') {
@@ -118,16 +147,81 @@ export function validateActionReference(action, label, errors, { knownActions } 
 }
 
 /**
- * Validates a workflow transition definition.
+ * Validates a workflow transition definition (D19, refined; D30).
+ *
+ * A transition's `to` must be exactly one of: another declared step name in the same
+ * definition, or a member of the repository's canonical *terminal* status vocabulary
+ * (`TERMINAL_STATUSES` — `implemented`/`verified`/`archived`/`abandoned`), never the
+ * broader `TASK_STATUSES` (which also contains non-terminal states like `draft`/
+ * `approved`/`in-implementation` that a finalize transition can never legitimately
+ * target). Anything else — a typo, or a real-but-non-terminal status — fails validation
+ * here, at load time, so it can never reach `setTaskWorkflowState`/`change.yaml`.
  *
  * @param {string|object} transition - Transition target or object
  * @param {string} label - Context label for error messages
  * @param {string[]} errors - Output error collector
+ * @param {object} [options]
+ * @param {Set<string>} [options.stepNames] - Every step name declared in this definition
  */
-export function validateTransitionDefinition(transition, label, errors) {
+export function validateTransitionDefinition(transition, label, errors, { stepNames } = {}) {
   const target = typeof transition === 'string' ? transition : transition?.to;
   if (typeof target !== 'string' || !target.trim()) {
     errors.push(`${label}: transition must specify a non-empty target 'to'`);
+    return;
+  }
+  if (!validateSafeIdentifier(target, `${label}.to`, errors)) return;
+  if (stepNames && !stepNames.has(target) && !TERMINAL_STATUSES.has(target)) {
+    errors.push(
+      `${label}: transition target '${target}' is neither a declared step nor a member of ` +
+      `TERMINAL_STATUSES (${[...TERMINAL_STATUSES].join(', ')})`
+    );
+  }
+}
+
+/**
+ * Validates a step's optional declarative behavior contract (D25) — `purpose` (string),
+ * `expectedWork` (object, at minimum a `summary` string), `hints` (array of
+ * `{ type: 'doc'|'skill'|'file', ref: string }`). All three are author-provided,
+ * structured data — this validates shape only; consuming/surfacing them is a later
+ * task's scope.
+ *
+ * @param {object} stepConfig
+ * @param {string} stepLabel
+ * @param {string[]} errors
+ */
+export function validateStepBehaviorContract(stepConfig, stepLabel, errors) {
+  if (stepConfig.purpose !== undefined && (typeof stepConfig.purpose !== 'string' || !stepConfig.purpose.trim())) {
+    errors.push(`${stepLabel}.purpose: must be a non-empty string`);
+  }
+
+  if (stepConfig.expectedWork !== undefined) {
+    if (!isPlainObject(stepConfig.expectedWork)) {
+      errors.push(`${stepLabel}.expectedWork: must be an object`);
+    } else if (
+      stepConfig.expectedWork.summary !== undefined &&
+      (typeof stepConfig.expectedWork.summary !== 'string' || !stepConfig.expectedWork.summary.trim())
+    ) {
+      errors.push(`${stepLabel}.expectedWork.summary: must be a non-empty string when present`);
+    }
+  }
+
+  if (stepConfig.hints !== undefined) {
+    if (!Array.isArray(stepConfig.hints)) {
+      errors.push(`${stepLabel}.hints: must be an array`);
+    } else {
+      stepConfig.hints.forEach((hint, idx) => {
+        if (!isPlainObject(hint)) {
+          errors.push(`${stepLabel}.hints[${idx}]: must be an object`);
+          return;
+        }
+        if (!HINT_TYPES.has(hint.type)) {
+          errors.push(`${stepLabel}.hints[${idx}].type: must be one of ${[...HINT_TYPES].join(', ')}, got '${hint.type}'`);
+        }
+        if (typeof hint.ref !== 'string' || !hint.ref.trim()) {
+          errors.push(`${stepLabel}.hints[${idx}].ref: must be a non-empty string`);
+        }
+      });
+    }
   }
 }
 
@@ -250,6 +344,29 @@ export function validateWorkflowDefinition(definition, options = {}) {
     return { valid: false, errors };
   }
 
+  const stepNames = new Set(Object.keys(definition.steps));
+
+  // D30: every step key must be a safe identifier. D19 refined: a step name must never
+  // collide with a terminal status — that step's own transitions could then never
+  // express "finish with this terminal status" unambiguously in this definition.
+  for (const stepName of stepNames) {
+    validateSafeIdentifier(stepName, `${label}.steps['${stepName}']`, errors);
+    if (TERMINAL_STATUSES.has(stepName)) {
+      errors.push(
+        `${label}.steps['${stepName}']: step name collides with a terminal lifecycle status ` +
+        `(${[...TERMINAL_STATUSES].join(', ')}) — no transition in this definition could ever target ` +
+        `that terminal status unambiguously`
+      );
+    }
+  }
+
+  // D27: explicit, optional entry step — when present, must name a real declared step.
+  if (definition.entryStep !== undefined) {
+    if (validateSafeIdentifier(definition.entryStep, `${label}.entryStep`, errors) && !stepNames.has(definition.entryStep)) {
+      errors.push(`${label}.entryStep: '${definition.entryStep}' does not name a declared step`);
+    }
+  }
+
   for (const [stepName, stepConfig] of Object.entries(definition.steps)) {
     const stepLabel = `${label}.steps.${stepName}`;
 
@@ -316,14 +433,38 @@ export function validateWorkflowDefinition(definition, options = {}) {
       }
     }
 
-    if (stepConfig.transitions !== undefined) {
-      if (!Array.isArray(stepConfig.transitions)) {
-        errors.push(`${stepLabel}.transitions: must be an array`);
-      } else {
-        stepConfig.transitions.forEach((t, idx) => {
-          validateTransitionDefinition(t, `${stepLabel}.transitions[${idx}]`, errors);
-        });
-      }
+    // D27: exactly one transition per step — every step, not a "non-terminal" subset
+    // (there is no separate schema shape for terminal vs. non-terminal; "terminal" is
+    // derived at resolution time from whether the one transition's `to` matches a step).
+    if (!Array.isArray(stepConfig.transitions) || stepConfig.transitions.length !== 1) {
+      const got = Array.isArray(stepConfig.transitions) ? stepConfig.transitions.length : 'none';
+      errors.push(`${stepLabel}.transitions: must declare exactly one transition, got ${got}`);
+    } else {
+      validateTransitionDefinition(stepConfig.transitions[0], `${stepLabel}.transitions[0]`, errors, { stepNames });
+    }
+
+    validateStepBehaviorContract(stepConfig, stepLabel, errors);
+
+    // D30: a step with more than one human-verification gate must give each an
+    // explicit, mutually-distinct `id` — never two silently sharing (or both
+    // defaulting to) the same display id.
+    const humanGates = [...(stepConfig.entryGates || []), ...(stepConfig.exitGates || [])]
+      .filter(g => isPlainObject(g) && g.type === 'human');
+    if (humanGates.length > 1) {
+      const seenIds = new Set();
+      humanGates.forEach((gate, idx) => {
+        if (typeof gate.id !== 'string' || !gate.id.trim()) {
+          errors.push(
+            `${stepLabel}: step declares ${humanGates.length} human-verification gates — each must have an ` +
+            `explicit, unique 'id' (missing on human gate ${idx})`
+          );
+          return;
+        }
+        if (seenIds.has(gate.id)) {
+          errors.push(`${stepLabel}: duplicate human-verification gate id '${gate.id}' — ids must be mutually distinct within a step`);
+        }
+        seenIds.add(gate.id);
+      });
     }
   }
 
@@ -338,6 +479,7 @@ export function validateWorkflowDefinition(definition, options = {}) {
  */
 export function normalizeWorkflowDefinition(definition) {
   const normalizedSteps = {};
+  const stepNames = Object.keys(definition.steps || {});
 
   for (const [stepName, stepConfig] of Object.entries(definition.steps || {})) {
     normalizedSteps[stepName] = {
@@ -346,6 +488,9 @@ export function normalizeWorkflowDefinition(definition) {
       exitGates: (stepConfig.exitGates || []).map(g => (typeof g === 'string' ? { type: g } : { ...g })),
       finalize: (stepConfig.finalize || []).map(a => (typeof a === 'string' ? { id: a } : { ...a })),
       transitions: (stepConfig.transitions || []).map(t => (typeof t === 'string' ? { to: t } : { ...t })),
+      ...(stepConfig.purpose !== undefined ? { purpose: stepConfig.purpose } : {}),
+      ...(stepConfig.expectedWork !== undefined ? { expectedWork: stepConfig.expectedWork } : {}),
+      ...(stepConfig.hints !== undefined ? { hints: stepConfig.hints } : {}),
     };
   }
 
@@ -355,6 +500,11 @@ export function normalizeWorkflowDefinition(definition) {
     type: definition.type || 'standard',
     version: definition.version || 1,
     sourceControl: normalizeSourceControlConfig(definition.sourceControl),
+    // D27: explicit entryStep when declared; otherwise the first declared step key —
+    // an ordering convention already implicit in how this function itself iterates
+    // `definition.steps`, made an explicit, always-present field so consumers
+    // (`step-runner.mjs`) never need to know about the fallback themselves.
+    entryStep: definition.entryStep || stepNames[0],
     steps: normalizedSteps,
   };
 }

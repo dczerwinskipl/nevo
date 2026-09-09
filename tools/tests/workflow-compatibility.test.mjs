@@ -3,7 +3,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -299,6 +299,27 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit re
     assert.ok(templates.includes('architectural'), 'architectural template exists');
   });
 
+  test('every built-in initialization template validates under the corrected schema (D19/D27), including exploratory', () => {
+    const templates = listBuiltInWorkflowTemplates();
+    assert.ok(templates.includes('exploratory'), 'exploratory template exists');
+
+    for (const name of templates) {
+      const content = readFileSync(join(TEMPLATES_DIR, `${name}.yaml`), 'utf8');
+      const def = parseWorkflowDefinition(content);
+      assert.ok(def.id);
+      assert.ok(Object.keys(def.steps).length > 0);
+    }
+  });
+
+  test('the shipped exploratory workflow (repository-local and template) both terminate at a real TERMINAL_STATUSES value, never the stale "refined" placeholder', () => {
+    const repoDef = loadWorkflowDefinition('exploratory', { repoRoot: REPO_ROOT });
+    assert.equal(repoDef.steps.discovery.transitions[0].to, 'verified');
+
+    const templateContent = readFileSync(join(TEMPLATES_DIR, 'exploratory.yaml'), 'utf8');
+    const templateDef = parseWorkflowDefinition(templateContent);
+    assert.equal(templateDef.steps.discovery.transitions[0].to, 'verified');
+  });
+
   test('missing configured definition fails closed with structured WorkflowDefinitionError', () => {
     assert.throws(
       () => loadWorkflowDefinition('non-existent-workflow', { repoRoot: REPO_ROOT }),
@@ -341,13 +362,13 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit re
 
       writeFileSync(
         join(repoA, WORKFLOWS_REL_DIR, 'standard.yaml'),
-        'id: standard-repo-a\ntitle: "Repo A Workflow"\nsteps:\n  build:\n    actions: [{ id: compile }]\n',
+        'id: standard-repo-a\ntitle: "Repo A Workflow"\nsteps:\n  build:\n    actions: [{ id: compile }]\n    transitions: [{ to: verified }]\n',
         'utf8'
       );
 
       writeFileSync(
         join(repoB, WORKFLOWS_REL_DIR, 'standard.yaml'),
-        'id: standard-repo-b\ntitle: "Repo B Workflow"\nsteps:\n  test:\n    actions: [{ id: run-tests }]\n',
+        'id: standard-repo-b\ntitle: "Repo B Workflow"\nsteps:\n  test:\n    actions: [{ id: run-tests }]\n    transitions: [{ to: verified }]\n',
         'utf8'
       );
 
@@ -458,7 +479,7 @@ steps:
       - type: command
         action: test
     transitions:
-      - to: step2
+      - to: verified
 `;
     const def = parseWorkflowDefinition(yaml);
     assert.equal(def.id, 'custom-v1');
@@ -511,9 +532,13 @@ steps:
   step1:
     actions:
       - id: run-check
+    transitions:
+      - to: step2
   step2:
     actions:
       - id: run-check
+    transitions:
+      - to: verified
 `;
     const def = parseWorkflowDefinition(yaml);
     assert.equal(def.id, 'custom-v1');
@@ -531,6 +556,8 @@ steps:
         action: test
       - type: command
         action: build
+    transitions:
+      - to: verified
 `;
     const def = parseWorkflowDefinition(yaml);
     assert.equal(def.id, 'custom-v1');
@@ -563,6 +590,8 @@ steps:
     exitGates:
       - type: command
         action: lint
+    transitions:
+      - to: verified
 `;
     const def = parseWorkflowDefinition(yaml, { knownCommandActions: new Set(['test', 'build', 'lint']) });
     assert.equal(def.id, 'custom-v1');
@@ -578,6 +607,8 @@ steps:
     exitGates:
       - type: command
         action: implement-task
+    transitions:
+      - to: verified
 `;
     // 'implement-task' is in knownActions, but NOT in knownCommandActions
     assert.throws(
@@ -602,6 +633,8 @@ steps:
     exitGates:
       - type: command
         command: "npm run test:unit"
+    transitions:
+      - to: verified
 `;
     const def = parseWorkflowDefinition(yaml, { knownActions: new Set(['implement-task']) });
     assert.equal(def.id, 'custom-v1');

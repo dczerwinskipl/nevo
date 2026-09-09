@@ -173,7 +173,10 @@ describe('compileStepContext — StepContext at `workflow step start` (AC1)', ()
   });
 
   test('reports entry-gate blockers when an entry gate is unmet', async () => {
-    const definition = buildDefinition({ entryGates: [{ type: 'human', required: true }] });
+    const definition = buildDefinition({
+      entryGates: [{ type: 'human', required: true, id: 'entry-review' }],
+      exitGates: [{ type: 'command', action: 'test' }, { type: 'human', required: true, id: 'exit-review' }],
+    });
     const gateRegistry = makeGateRegistry({ humanConfirmed: false });
     const context = { repoRoot: ctx.repo, taskId: task.id, sourceControl: { enabled: false } };
 
