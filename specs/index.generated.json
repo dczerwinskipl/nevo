@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-10T11:06:46.626Z",
+  "generated": "2026-09-10T11:07:27.171Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -288,7 +288,7 @@
           "id": "multi-step-workflow-progression",
           "order": 8,
           "file": "tasks/08-multi-step-workflow-progression.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "step-orchestration-and-next-step-service",
             "cli-integration-and-vertical-poc"

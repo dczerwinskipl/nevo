@@ -218,7 +218,7 @@ tasks:
   - id: multi-step-workflow-progression
     order: 8
     file: tasks/08-multi-step-workflow-progression.md
-    status: implemented
+    status: verified
     depends_on:
       - step-orchestration-and-next-step-service
       - cli-integration-and-vertical-poc
