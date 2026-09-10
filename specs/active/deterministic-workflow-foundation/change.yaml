@@ -263,7 +263,7 @@ tasks:
   - id: fail-closed-workflow-definition-resolution
     order: 9
     file: tasks/09-fail-closed-workflow-definition-resolution.md
-    status: draft
+    status: approved
     depends_on:
       - multi-step-workflow-progression
 

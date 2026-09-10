@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-10T11:07:27.171Z",
+  "generated": "2026-09-10T11:26:17.773Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -347,7 +347,7 @@
           "id": "fail-closed-workflow-definition-resolution",
           "order": 9,
           "file": "tasks/09-fail-closed-workflow-definition-resolution.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "multi-step-workflow-progression"
           ]
