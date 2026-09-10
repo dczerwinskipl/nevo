@@ -224,7 +224,7 @@ tasks:
       - cli-integration-and-vertical-poc
     implementation:
       baseline_revision: cd663eb04bf3dbfdda9f88d2f326e615ae452c6a
-      review_revision: d88cd0d4910fd00ae89aa41009bf9dde2e20959d
+      review_revision: e5a6499037506a2ff5fed580051787df19374377
       changed_paths:
         - .nevo-ai/workflows/exploratory.yaml
         - tools/specs/store.mjs
@@ -245,10 +245,10 @@ tasks:
         - tools/tests/workflow-finish-operation.test.mjs
         - tools/tests/workflow-gates.test.mjs
         - tools/tests/workflow-next-step.test.mjs
-      worktree_patch_fingerprint: b1b2c3e6e67416e56bd4aa8410f912026960b41d60e667891fe787b258b39bce
+      worktree_patch_fingerprint: null
     self_check:
       fingerprint: 629e1050723de4a5a087f708bfb9513ca55394669c338881802c05bb0368ca09
-      revision: d88cd0d4910fd00ae89aa41009bf9dde2e20959d
+      revision: e5a6499037506a2ff5fed580051787df19374377
       commands:
         - command: node --test tools/tests/workflow-next-step.test.mjs
           exit_code: 0
