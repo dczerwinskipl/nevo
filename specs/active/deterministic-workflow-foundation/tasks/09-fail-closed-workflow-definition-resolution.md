@@ -26,12 +26,16 @@ allowed_paths:
   - .nevo-ai/workflows/architectural.yaml
   - .nevo-ai/workflows/small.yaml
   - .nevo-ai/workflows/exploratory.yaml
+  - tools/specs/workflow/templates/standard.yaml
+  - tools/specs/workflow/templates/architectural.yaml
+  - tools/specs/workflow/templates/small.yaml
+  - tools/specs/workflow/templates/exploratory.yaml
 forbidden_paths:
   - src/**
   - tests/NEvo.*/**
   - tools/dashboard/**
 semantic_references:
-  decisions: [D2, D7, D20, D34, D35]
+  decisions: [D2, D7, D20, D34, D35, D36]
   constraints: [C6, C9, C20]
   dependency_contracts: [multi-step-workflow-progression]
 ---

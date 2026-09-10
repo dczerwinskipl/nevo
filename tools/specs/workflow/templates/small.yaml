@@ -6,8 +6,6 @@ version: 1
 steps:
   implementation:
     entryGates: []
-    actions:
-      - id: implement-task
     exitGates:
       - type: command
         action: test

@@ -32,6 +32,7 @@ import {
 
 import { validateWorkflowConfiguration, validateSpecs, validateWorkflowProgress } from '../specs/validation.mjs';
 import { WorkflowDefinitionError, WorkflowError } from '../specs/workflow/errors.mjs';
+import { defaultActionRegistry } from '../specs/workflow/registry.mjs';
 // D34 (task 09): loadWorkflowDefinition now defaults knownActions from
 // defaultActionRegistry.list() (D20/C20, fail-closed action resolution) — this file
 // calls loadWorkflowDefinition directly against the real .nevo-ai/workflows/standard.yaml,
@@ -314,6 +315,52 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit re
       const def = parseWorkflowDefinition(content);
       assert.ok(def.id);
       assert.ok(Object.keys(def.steps).length > 0);
+    }
+  });
+
+  test('every built-in initialization template validates against the real, registered-action vocabulary (D20/D36) — a template must never be invalid the moment it is copied into a real repository', () => {
+    const knownActions = defaultActionRegistry.list();
+    assert.ok(knownActions.includes('commit-and-push'), 'sanity: the real registry must have at least commit-and-push registered for this test to mean anything');
+
+    const templates = listBuiltInWorkflowTemplates();
+    for (const name of templates) {
+      const content = readFileSync(join(TEMPLATES_DIR, `${name}.yaml`), 'utf8');
+      // parseWorkflowDefinition(content) alone (no knownActions) previously let this pass
+      // even when a template referenced a dead, unregistered action id — this is the
+      // exact registry-aware contract loadWorkflowDefinition applies to a real, on-disk
+      // definition (D20), and a template's whole purpose is to become exactly that the
+      // moment it's copied into .nevo-ai/workflows/.
+      const def = parseWorkflowDefinition(content, { knownActions });
+      assert.ok(def.id, `template '${name}' must validate against the real registered-action vocabulary`);
+    }
+  });
+
+  test('reintroducing a dead action id into a template fails the registry-aware validation unless it is actually registered (D36)', () => {
+    const knownActions = defaultActionRegistry.list();
+    for (const [templateName, deadActionId] of [
+      ['standard', 'implement-task'],
+      ['standard', 'verify-task-output'],
+      ['architectural', 'implement-task'],
+      ['architectural', 'verify-task-output'],
+      ['small', 'implement-task'],
+      ['exploratory', 'discover-scope'],
+    ]) {
+      assert.ok(!knownActions.includes(deadActionId), `precondition: '${deadActionId}' must not actually be registered`);
+      const content = readFileSync(join(TEMPLATES_DIR, `${templateName}.yaml`), 'utf8');
+      const injected = content.replace(
+        /^(steps:\r?\n(?: {2}\S.*\r?\n)?)/m,
+        `$1    actions:\n      - id: ${deadActionId}\n`
+      );
+      assert.notEqual(injected, content, `precondition: injection regex must actually match template '${templateName}'`);
+      assert.throws(
+        () => parseWorkflowDefinition(injected, { knownActions }),
+        (err) => {
+          assert.ok(err instanceof WorkflowDefinitionError);
+          assert.match(err.message, new RegExp(`unknown action '${deadActionId}'`));
+          return true;
+        },
+        `template '${templateName}' should reject a reintroduced '${deadActionId}' action reference`
+      );
     }
   });
 
