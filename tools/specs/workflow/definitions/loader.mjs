@@ -7,6 +7,7 @@ import { parse } from 'yaml';
 
 import { WorkflowDefinitionError } from '../errors.mjs';
 import { validateWorkflowDefinition, normalizeWorkflowDefinition } from './schema.mjs';
+import { defaultActionRegistry } from '../registry.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -127,10 +128,23 @@ export function parseWorkflowDefinition(yamlContent, options = {}) {
  * Loads, parses, and validates a repository-local workflow definition from <repo-root>/.nevo-ai/workflows/<name>.yaml.
  * Requires explicit options.repoRoot and fails closed without falling back to built-in templates.
  *
+ * D20/C20: unlike `parseWorkflowDefinition` (pure, filesystem-independent, and used
+ * directly by tests that supply their own `knownActions`), this function defaults
+ * `knownActions` from the real, already-registered `defaultActionRegistry.list()` when
+ * the caller doesn't supply one — so a real, on-disk workflow definition referencing an
+ * unregistered action id fails closed at load time, never silently loading with fewer
+ * declared actions than it names. **Ordering requirement**: this default is only
+ * meaningful if every real `ActionContract` has already been registered before this
+ * function runs — `tools/specs/workflow/cli.mjs`'s own `import './actions/index.mjs'`
+ * side effect (which registers `CommitAndPushAction`) is what guarantees this for every
+ * real CLI invocation; a caller importing this module directly without that side effect
+ * having run would see a validation error for every real action id.
+ *
  * @param {string} name - Workflow definition name (e.g. 'standard')
  * @param {object} options - Loader and validation options
  * @param {string} options.repoRoot - Explicit repository root directory
- * @param {Set<string>|Array<string>} [options.knownActions] - Optional set of registered action IDs
+ * @param {Set<string>|Array<string>} [options.knownActions] - Optional set of registered
+ *   action IDs; defaults to `defaultActionRegistry.list()` when omitted
  * @param {Set<string>|Array<string>} [options.knownCommandActions] - Optional set of allowed command alias actions
  * @param {Set<string>|Array<string>} [options.knownGates] - Optional set of allowed gate types
  * @returns {object} Normalized workflow definition
@@ -170,7 +184,8 @@ export function loadWorkflowDefinition(name, options = {}) {
     );
   }
 
-  return parseWorkflowDefinition(content, options);
+  const knownActions = options.knownActions ?? defaultActionRegistry.list();
+  return parseWorkflowDefinition(content, { ...options, knownActions });
 }
 
 /**

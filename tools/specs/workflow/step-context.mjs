@@ -8,27 +8,15 @@ import { defaultActionRegistry } from './registry.mjs';
 import { resolveCurrentStepName, inspectGates } from './step-runner.mjs';
 import { WorkflowError } from './errors.mjs';
 
-// `.nevo-ai/workflows/standard.yaml`'s `finalize` list still declares `verify-task-output`
-// (a placeholder from the original design), but only `commit-and-push` (Task 04) has a
-// registered ActionContract implementation in this foundation — the remaining
-// specification classes are out of scope here (D7). Aggregating `WorkflowEngine.checkStep`
-// over the raw finalize list would hard-fail on the unregistered action id via
-// `ActionRegistry.require`; filtering to already-registered actions before aggregating
-// keeps the one proven vertical path working without inventing a placeholder action
-// outside this task's `allowed_paths`. Documented here as a deliberate implementation
-// decision, not silent scope creep.
-function registeredFinalizeActions(finalize, actionRegistry) {
-  return (finalize || []).filter(entry => {
-    const id = typeof entry === 'string' ? entry : entry?.id;
-    return actionRegistry.has(id);
-  });
-}
-
 /**
- * Runs `WorkflowEngine.checkStep` over a step's *registered* finalize actions only.
+ * Runs `WorkflowEngine.checkStep` over a step's full, unfiltered finalize action list.
  * Shared by `StepContext` compilation and finish planning (`finish-operation.mjs`) so
  * both compute the exact same aggregation via the exact same code path — never two
- * independently maintained implementations that could drift.
+ * independently maintained implementations that could drift. A finalize entry
+ * referencing an unregistered action id is never silently dropped (D20/C20) — it fails
+ * closed via `WorkflowEngine.checkStep`'s own existing `ActionRegistry.require` error
+ * (Task 03); `loadWorkflowDefinition` (`definitions/loader.mjs`) is the earlier,
+ * load-time gate that should catch this first in normal operation.
  *
  * @param {object} step - Normalized step definition (`{ finalize, ... }`)
  * @param {object} context - Runtime environmental context passed through to actions
@@ -38,8 +26,7 @@ function registeredFinalizeActions(finalize, actionRegistry) {
  * @returns {Promise<{ step: string, ready: boolean, actions: Record<string, object> }>}
  */
 export async function aggregateFinalizeCheck(step, context, { engine = defaultWorkflowEngine, actionRegistry = defaultActionRegistry } = {}) {
-  const finalize = registeredFinalizeActions(step?.finalize, actionRegistry);
-  return engine.checkStep({ name: 'finalize', actions: finalize }, context);
+  return engine.checkStep({ name: 'finalize', actions: step?.finalize || [] }, context);
 }
 
 /**

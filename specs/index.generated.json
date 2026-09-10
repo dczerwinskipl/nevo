@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-10T11:26:17.773Z",
+  "generated": "2026-09-10T13:21:46.060Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -347,10 +347,47 @@
           "id": "fail-closed-workflow-definition-resolution",
           "order": 9,
           "file": "tasks/09-fail-closed-workflow-definition-resolution.md",
-          "status": "approved",
+          "status": "implemented",
           "depends_on": [
             "multi-step-workflow-progression"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "009592ef8517d335fc111c368e54a571920d6950",
+            "review_revision": "009592ef8517d335fc111c368e54a571920d6950",
+            "changed_paths": [
+              ".nevo-ai/workflows/architectural.yaml",
+              ".nevo-ai/workflows/exploratory.yaml",
+              ".nevo-ai/workflows/small.yaml",
+              ".nevo-ai/workflows/standard.yaml",
+              "tools/specs/workflow/definitions/loader.mjs",
+              "tools/specs/workflow/step-context.mjs",
+              "tools/tests/workflow-cli.test.mjs",
+              "tools/tests/workflow-compatibility.test.mjs",
+              "tools/tests/workflow-e2e.test.mjs",
+              "tools/tests/workflow-finish-operation.test.mjs",
+              "tools/tests/workflow-next-step.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "f4233f35ca352c0d0a878d4509a9120bc55c0cc344771d646e67d60dc0b0b5e1"
+          },
+          "self_check": {
+            "fingerprint": "56c96f042be0fbd902f9b8ae8540ac5a24c132b3346227b22af13f62060bc0c5",
+            "revision": "009592ef8517d335fc111c368e54a571920d6950",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-next-step.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "production-multi-step-standard-workflow",

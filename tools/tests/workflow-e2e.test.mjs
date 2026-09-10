@@ -52,15 +52,12 @@ sourceControl:
 steps:
   implementation:
     entryGates: []
-    actions:
-      - id: implement-task
     exitGates:
       - type: command
         command: "node -e \\"process.exit(0)\\""
       - type: human
         required: true
     finalize:
-      - id: verify-task-output
       - id: commit-and-push
     transitions:
       - to: verified

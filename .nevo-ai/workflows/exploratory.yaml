@@ -5,8 +5,6 @@ version: 1
 steps:
   discovery:
     entryGates: []
-    actions:
-      - id: discover-scope
     exitGates:
       - type: markdown
         file: discovery.md

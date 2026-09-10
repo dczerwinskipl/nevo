@@ -32,6 +32,12 @@ import {
 
 import { validateWorkflowConfiguration, validateSpecs, validateWorkflowProgress } from '../specs/validation.mjs';
 import { WorkflowDefinitionError, WorkflowError } from '../specs/workflow/errors.mjs';
+// D34 (task 09): loadWorkflowDefinition now defaults knownActions from
+// defaultActionRegistry.list() (D20/C20, fail-closed action resolution) — this file
+// calls loadWorkflowDefinition directly against the real .nevo-ai/workflows/standard.yaml,
+// so its own registry must be populated first, exactly like cli.mjs's own side-effect
+// import already guarantees for real CLI usage.
+import '../specs/workflow/actions/index.mjs';
 
 const REPO_ROOT = resolve(process.cwd());
 
@@ -262,11 +268,11 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit re
     assert.ok(standardDef.steps.implementation);
 
     const impl = standardDef.steps.implementation;
-    assert.deepEqual(impl.actions, [{ id: 'implement-task' }]);
+    assert.deepEqual(impl.actions, []);
     assert.equal(impl.exitGates.length, 2);
     assert.deepEqual(impl.exitGates[0], { type: 'command', action: 'test' });
     assert.deepEqual(impl.exitGates[1], { type: 'human', required: true });
-    assert.deepEqual(impl.finalize, [{ id: 'verify-task-output' }, { id: 'commit-and-push' }]);
+    assert.deepEqual(impl.finalize, [{ id: 'commit-and-push' }]);
     assert.deepEqual(impl.transitions, [{ to: 'verified' }]);
   });
 
@@ -362,13 +368,13 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit re
 
       writeFileSync(
         join(repoA, WORKFLOWS_REL_DIR, 'standard.yaml'),
-        'id: standard-repo-a\ntitle: "Repo A Workflow"\nsteps:\n  build:\n    actions: [{ id: compile }]\n    transitions: [{ to: verified }]\n',
+        'id: standard-repo-a\ntitle: "Repo A Workflow"\nsteps:\n  build:\n    transitions: [{ to: verified }]\n',
         'utf8'
       );
 
       writeFileSync(
         join(repoB, WORKFLOWS_REL_DIR, 'standard.yaml'),
-        'id: standard-repo-b\ntitle: "Repo B Workflow"\nsteps:\n  test:\n    actions: [{ id: run-tests }]\n    transitions: [{ to: verified }]\n',
+        'id: standard-repo-b\ntitle: "Repo B Workflow"\nsteps:\n  test:\n    transitions: [{ to: verified }]\n',
         'utf8'
       );
 

@@ -22,12 +22,16 @@ allowed_paths:
   - tools/tests/workflow-finish-operation.test.mjs
   - tools/tests/workflow-cli.test.mjs
   - tools/tests/workflow-e2e.test.mjs
+  - tools/tests/workflow-compatibility.test.mjs
+  - .nevo-ai/workflows/architectural.yaml
+  - .nevo-ai/workflows/small.yaml
+  - .nevo-ai/workflows/exploratory.yaml
 forbidden_paths:
   - src/**
   - tests/NEvo.*/**
   - tools/dashboard/**
 semantic_references:
-  decisions: [D2, D7, D20]
+  decisions: [D2, D7, D20, D34, D35]
   constraints: [C6, C9, C20]
   dependency_contracts: [multi-step-workflow-progression]
 ---

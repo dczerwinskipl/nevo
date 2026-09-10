@@ -36,7 +36,7 @@ const RAW_DEFINITION = {
         { type: 'command', action: 'test' },
         { type: 'human', required: true },
       ],
-      finalize: [{ id: 'verify-task-output' }, { id: 'commit-and-push' }],
+      finalize: [{ id: 'commit-and-push' }],
       transitions: [{ to: 'verified' }],
     },
   },

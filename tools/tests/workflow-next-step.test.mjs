@@ -6,7 +6,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -21,7 +21,15 @@ import {
   resolveCurrentStepName,
   inspectGates,
   verifyGates,
+  aggregateFinalizeCheck,
+  loadWorkflowDefinition,
+  WorkflowError,
+  WorkflowDefinitionError,
 } from '../specs/workflow/index.mjs';
+// Registers CommitAndPushAction into defaultActionRegistry — required for
+// loadWorkflowDefinition's knownActions default (D20/D34) to include the one real
+// registered action, exactly as the real CLI's own cli.mjs import already guarantees.
+import '../specs/workflow/actions/index.mjs';
 
 const RAW_DEFINITION = {
   id: 'standard-v1',
@@ -36,10 +44,10 @@ const RAW_DEFINITION = {
         { type: 'command', action: 'test' },
         { type: 'human', required: true },
       ],
-      // Mirrors .nevo-ai/workflows/standard.yaml: `verify-task-output` has no registered
-      // ActionContract implementation in this foundation and must be tolerated, not
-      // hard-fail the aggregation (see step-context.mjs's `registeredFinalizeActions`).
-      finalize: [{ id: 'verify-task-output' }, { id: 'commit-and-push' }],
+      // verify-task-output was removed from the shipped standard.yaml (Task 09, D20) —
+      // fixtures no longer reference it either, since aggregateFinalizeCheck now fails
+      // closed on any unregistered finalize action.
+      finalize: [{ id: 'commit-and-push' }],
       transitions: [{ to: 'verified' }],
     },
   },
@@ -416,5 +424,72 @@ describe('Declarative per-step behavior contract — schema validation only (D25
     const { valid, errors } = validateWorkflowDefinition(raw);
     assert.equal(valid, false);
     assert.ok(errors.some(e => /\.hints: must be an array/.test(e)));
+  });
+});
+
+describe('Fail-closed action/gate resolution (D20, task 09 AC1/AC2)', () => {
+  test('aggregateFinalizeCheck no longer filters unregistered finalize actions — the full list is aggregated, failing closed via ActionRegistry.require (AC1)', async () => {
+    const step = { finalize: [{ id: 'commit-and-push' }, { id: 'not-a-real-action' }] };
+    await assert.rejects(
+      () => aggregateFinalizeCheck(step, {}),
+      (err) => {
+        assert.ok(err instanceof WorkflowError);
+        assert.match(err.message, /Unknown action 'not-a-real-action'/);
+        return true;
+      }
+    );
+  });
+
+  test('aggregateFinalizeCheck aggregates every registered finalize action when none are unregistered', async () => {
+    const step = { finalize: [{ id: 'commit-and-push' }] };
+    const result = await aggregateFinalizeCheck(step, { sourceControl: { enabled: false } });
+    assert.ok('commit-and-push' in result.actions);
+  });
+
+  test('loadWorkflowDefinition rejects a real, on-disk definition referencing an unregistered action id at load time, naming it explicitly (AC2)', () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'nevo-fail-closed-loader-'));
+    try {
+      const workflowsDir = join(repoRoot, '.nevo-ai', 'workflows');
+      mkdirSync(workflowsDir, { recursive: true });
+      writeFileSync(join(workflowsDir, 'custom.yaml'), [
+        'id: custom-v1', 'steps:', '  implementation:', '    finalize:',
+        '      - id: not-a-real-action', '    transitions:', '      - to: verified', '',
+      ].join('\n'));
+
+      assert.throws(
+        () => loadWorkflowDefinition('custom', { repoRoot }),
+        (err) => {
+          assert.ok(err instanceof WorkflowDefinitionError);
+          assert.match(err.message, /unknown action 'not-a-real-action'/);
+          return true;
+        }
+      );
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('loadWorkflowDefinition loads cleanly when every referenced action is actually registered', () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'nevo-fail-closed-loader-ok-'));
+    try {
+      const workflowsDir = join(repoRoot, '.nevo-ai', 'workflows');
+      mkdirSync(workflowsDir, { recursive: true });
+      writeFileSync(join(workflowsDir, 'custom.yaml'), [
+        'id: custom-v1', 'steps:', '  implementation:', '    finalize:',
+        '      - id: commit-and-push', '    transitions:', '      - to: verified', '',
+      ].join('\n'));
+
+      const definition = loadWorkflowDefinition('custom', { repoRoot });
+      assert.equal(definition.id, 'custom-v1');
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('an unregistered gate type still fails exactly as before (regression check, AC5 — pre-existing schema validation, not newly added)', () => {
+    const raw = { ...RAW_DEFINITION, steps: { implementation: { ...RAW_DEFINITION.steps.implementation, exitGates: [{ type: 'not-a-real-gate-type' }] } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /unknown gate type 'not-a-real-gate-type'/.test(e)));
   });
 });
