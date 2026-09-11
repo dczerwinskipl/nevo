@@ -108,7 +108,17 @@ reimplemented) by `step-context.mjs` and `finish-operation.mjs`.
   "change": "my-change", "task": "my-task", "workflowMode": "deterministic",
   "currentStep": "implementation", "stepStatus": "in-progress",
   "runtimeState": "active", "semanticStatus": "implementing",
+  "instructions": "Work within declared allowed_paths (src/**); entry gates already satisfied.",
   "entryState": { "blockers": [] },
+  "expectedWork": { "allowedPaths": ["src/**"], "forbiddenPaths": ["tests/**"] },
+  "relevantDocs": [
+    { "ruleId": "CIM-01", "docRef": "docs/reference/packages/NEvo.Core.md", "pathGlob": "src/NEvo.Core/**" }
+  ],
+  "stepContract": {
+    "purpose": "Implement the bounded work within allowed_paths.",
+    "expectedWork": { "summary": "Code and unit tests satisfying acceptance criteria." },
+    "hints": [ { "type": "doc", "ref": "docs/development/workflow-engine.md" } ]
+  },
   "context": { "sourceControl": { "changedFiles": ["..."], "currentBranch": "..." } },
   "finishContract": {
     "requiredInputs": { "commit.title": { "type": "string", "required": true, "...": "..." } },
@@ -118,16 +128,27 @@ reimplemented) by `step-context.mjs` and `finish-operation.mjs`.
 }
 ```
 
-`finishContract.requiredInputs` flattens every finalize action's `requiredInputs` schemas
-into one step-level map keyed by parameter name (`buildFinishContract`) — the agent never
-inspects individual finalize actions itself. `finishContract.gates` and
-`entryState.blockers` are `inspect()` results, never `verify()` — StepContext compilation
-never runs a real verification command. Only a definitively `blocked`/`failed` gate
-counts as a blocker; a command gate's `pending` status (not yet `verify()`'d) does not —
-otherwise planning could never reach the finalize execution that would actually run and
-record it. `runtimeState`/`semanticStatus` resolve from the same position — `semanticStatus`
-is the current step's declared `status.active`/`status.completed` identifier (see
-"Multi-step position" below), never a separately persisted value.
+- `expectedWork`: the task's own `allowed_paths` and `forbidden_paths` sourced deterministically
+  from task frontmatter (using the same parsing mechanism as the legacy context packet).
+- `instructions`: a short, structurally-derived summary string reflecting entry-blocker count
+  and in-scope allowed paths — never free-form AI-authored prose.
+- `relevantDocs`: machine-readable documentation hints populated from `docs/routing.generated.json`
+  matching the task's `allowedPaths` against routing rules (`path_glob` overlap via
+  `tools/specs/context.mjs`); empty (`[]`) when no routing rules match (never fabricated).
+- `stepContract`: surfaces the current step's configured `purpose`, `expectedWork`, and `hints`
+  (D25) verbatim from the workflow definition; omitted when the current step declares none
+  (never a fabricated empty object).
+- `finishContract.requiredInputs`: flattens every finalize action's `requiredInputs` schemas
+  into one step-level map keyed by parameter name (`buildFinishContract`) — the agent never
+  inspects individual finalize actions itself.
+- `finishContract.gates` and `entryState.blockers`: `inspect()` results, never `verify()` —
+  StepContext compilation never runs a real verification command. Only a definitively
+  `blocked`/`failed` gate counts as a blocker; a command gate's `pending` status (not yet
+  `verify()`'d) does not — otherwise planning could never reach the finalize execution that
+  would actually run and record it.
+- `runtimeState`/`semanticStatus`: resolve from the same position — `semanticStatus` is the
+  current step's declared `status.active`/`status.completed` identifier (see "Multi-step
+  position" below), never a separately persisted value.
 
 Every registered finalize action a step's `finalize` list references is aggregated —
 an unregistered action id fails closed at workflow-definition load time

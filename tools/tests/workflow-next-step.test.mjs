@@ -784,3 +784,340 @@ describe('Fail-closed action/gate resolution (D20, task 09 AC1/AC2)', () => {
     assert.ok(errors.some(e => /unknown gate type 'not-a-real-gate-type'/.test(e)));
   });
 });
+
+describe('StepContext knowledge hints and step behavior contract (Task 12, D22, D25)', () => {
+  let ctx;
+
+  before(() => {
+    ctx = makeRepoPair('nevo-task12-hints');
+  });
+
+  after(() => cleanupRepoPair(ctx));
+
+  test('AC1: StepContext.expectedWork matches task frontmatter allowed_paths and forbidden_paths', async () => {
+    const activeDir = mkdtempSync(join(tmpdir(), 'nevo-task12-ac1-'));
+    try {
+      const changeDir = join(activeDir, 'ac1-change');
+      const tasksDir = join(changeDir, 'tasks');
+      mkdirSync(tasksDir, { recursive: true });
+      writeFileSync(join(changeDir, 'change.yaml'), [
+        'id: ac1-change',
+        'title: "AC1 Change"',
+        'type: standard',
+        'status: draft',
+        'tasks:',
+        '  - id: t1',
+        '    order: 1',
+        '    file: tasks/01-t1.md',
+        '    status: in-implementation',
+      ].join('\n'));
+      writeFileSync(join(tasksDir, '01-t1.md'), [
+        '---',
+        'id: ac1-change.t1',
+        'allowed_paths:',
+        '  - src/NEvo.Core/**',
+        '  - tests/NEvo.Core.Tests/**',
+        'forbidden_paths:',
+        '  - src/NEvo.Messaging/**',
+        '---',
+        '# Task content',
+      ].join('\n'));
+
+      const changeObj = { id: 'ac1-change', _slug: 'ac1-change', _dir: changeDir };
+      const taskObj = {
+        id: 't1',
+        file: 'tasks/01-t1.md',
+        status: 'in-implementation',
+        workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+      };
+      const definition = buildDefinition();
+      const gateRegistry = makeGateRegistry();
+      const context = { repoRoot: ctx.repo, taskId: taskObj.id, sourceControl: { enabled: false } };
+
+      const stepContext = await compileStepContext({ change: changeObj, task: taskObj, definition, context, gateRegistry });
+
+      assert.ok(stepContext.expectedWork, 'expectedWork must be present on StepContext');
+      assert.deepEqual(stepContext.expectedWork.allowedPaths, ['src/NEvo.Core/**', 'tests/NEvo.Core.Tests/**']);
+      assert.deepEqual(stepContext.expectedWork.forbiddenPaths, ['src/NEvo.Messaging/**']);
+    } finally {
+      rmSync(activeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('AC1 (in-memory): StepContext.expectedWork uses in-memory task allowedPaths/forbiddenPaths when no file exists', async () => {
+    const memoryTask = {
+      id: 'mem-task',
+      status: 'in-implementation',
+      allowedPaths: ['tools/specs/**'],
+      forbiddenPaths: ['src/**'],
+      workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+    };
+    const definition = buildDefinition();
+    const gateRegistry = makeGateRegistry();
+    const context = { repoRoot: ctx.repo, taskId: memoryTask.id, sourceControl: { enabled: false } };
+
+    const stepContext = await compileStepContext({ change, task: memoryTask, definition, context, gateRegistry });
+    assert.deepEqual(stepContext.expectedWork.allowedPaths, ['tools/specs/**']);
+    assert.deepEqual(stepContext.expectedWork.forbiddenPaths, ['src/**']);
+  });
+
+  test('AC2: StepContext.instructions is structurally derived and changes deterministically with entry blockers and allowed paths', async () => {
+    const definitionNoBlockers = buildDefinition({ entryGates: [] });
+    const gateRegistry = makeGateRegistry();
+    const taskWithPaths = {
+      id: 'task-ac2',
+      status: 'in-implementation',
+      allowedPaths: ['src/NEvo.Core/**'],
+      workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+    };
+    const context = { repoRoot: ctx.repo, taskId: taskWithPaths.id, sourceControl: { enabled: false } };
+
+    // 0 blockers, with allowed paths
+    const sc1 = await compileStepContext({ change, task: taskWithPaths, definition: definitionNoBlockers, context, gateRegistry });
+    assert.ok(typeof sc1.instructions === 'string' && sc1.instructions.length > 0);
+    assert.match(sc1.instructions, /src\/NEvo\.Core\/\*\*/);
+    assert.match(sc1.instructions, /entry gates already satisfied/i);
+
+    // 1 blocker, with allowed paths
+    const definitionBlocked = buildDefinition({
+      entryGates: [{ type: 'human', required: true, id: 'entry-human-gate' }],
+      exitGates: [{ type: 'command', action: 'test' }, { type: 'human', required: true, id: 'exit-human-gate' }],
+    });
+    const gateRegistryBlocked = makeGateRegistry({ humanConfirmed: false });
+    const sc2 = await compileStepContext({ change, task: taskWithPaths, definition: definitionBlocked, context, gateRegistry: gateRegistryBlocked });
+    assert.match(sc2.instructions, /src\/NEvo\.Core\/\*\*/);
+    assert.match(sc2.instructions, /1 entry blocker\(s\) outstanding/);
+    assert.match(sc2.instructions, /entry-human-gate/);
+
+    // Assert sc1.instructions and sc2.instructions differ deterministically based on blocker count
+    assert.notEqual(sc1.instructions, sc2.instructions);
+
+    // Different allowed paths changes instructions deterministically
+    const taskDifferentPaths = {
+      id: 'task-ac2-diff',
+      status: 'in-implementation',
+      allowedPaths: ['tools/specs/**', 'docs/**'],
+      workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+    };
+    const sc3 = await compileStepContext({ change, task: taskDifferentPaths, definition: definitionNoBlockers, context, gateRegistry });
+    assert.match(sc3.instructions, /tools\/specs\/\*\*, docs\/\*\*/);
+    assert.notEqual(sc1.instructions, sc3.instructions);
+  });
+
+  test('AC3: StepContext.relevantDocs is populated from routing-rule matching for allowed_paths', async () => {
+    const taskMatching = {
+      id: 'task-ac3-match',
+      status: 'in-implementation',
+      allowedPaths: ['src/NEvo.Core/**'],
+      workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+    };
+    const definition = buildDefinition();
+    const gateRegistry = makeGateRegistry();
+    const context = { repoRoot: ctx.repo, taskId: taskMatching.id, sourceControl: { enabled: false } };
+
+    const scMatch = await compileStepContext({ change, task: taskMatching, definition, context, gateRegistry });
+    assert.ok(Array.isArray(scMatch.relevantDocs));
+    assert.ok(scMatch.relevantDocs.length > 0, 'relevantDocs must not be empty when routing rules match allowedPaths');
+    // CIM-01 in docs/routing.generated.json matches src/NEvo.Core/** -> docs/reference/packages/NEvo.Core.md
+    const cim01 = scMatch.relevantDocs.find(d => d.ruleId === 'CIM-01' || d.rule_id === 'CIM-01');
+    assert.ok(cim01, 'CIM-01 must be present in relevantDocs');
+    assert.equal(cim01.docRef, 'docs/reference/packages/NEvo.Core.md');
+
+    // When matching produces nothing, relevantDocs is empty (never fabricated)
+    const taskNoMatch = {
+      id: 'task-ac3-nomatch',
+      status: 'in-implementation',
+      allowedPaths: ['nonexistent/unmatched/path/**'],
+      workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+    };
+    const scNoMatch = await compileStepContext({ change, task: taskNoMatch, definition, context, gateRegistry });
+    assert.ok(Array.isArray(scNoMatch.relevantDocs));
+    assert.equal(scNoMatch.relevantDocs.length, 0, 'relevantDocs must be empty when no routing rules match');
+  });
+
+  test('AC3 (pure): relevantDocs matches via custom routingIndex and preserves structural shape', async () => {
+    const taskCustom = {
+      id: 'task-ac3-custom',
+      status: 'in-implementation',
+      allowedPaths: ['custom/path/**'],
+      workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+    };
+    const definition = buildDefinition();
+    const gateRegistry = makeGateRegistry();
+    const customIndex = {
+      rules: [
+        { rule_id: 'CUSTOM-01', path_glob: 'custom/**', doc_ref: 'docs/custom.md', source: 'docs/ai/custom.md' },
+        { rule_id: 'OTHER-01', path_glob: 'other/**', doc_ref: 'docs/other.md', source: 'docs/ai/other.md' },
+      ],
+    };
+    const context = {
+      repoRoot: ctx.repo,
+      taskId: taskCustom.id,
+      routingIndex: customIndex,
+      sourceControl: { enabled: false },
+    };
+
+    const sc = await compileStepContext({ change, task: taskCustom, definition, context, gateRegistry });
+    assert.equal(sc.relevantDocs.length, 1);
+    assert.equal(sc.relevantDocs[0].ruleId, 'CUSTOM-01');
+    assert.equal(sc.relevantDocs[0].docRef, 'docs/custom.md');
+    assert.equal(sc.relevantDocs[0].pathGlob, 'custom/**');
+    // alias access check
+    assert.equal(sc.relevantDocs[0].rule_id, 'CUSTOM-01');
+    assert.equal(sc.relevantDocs[0].doc_ref, 'docs/custom.md');
+  });
+
+  test('AC4: StepContext.stepContract reflects configured purpose/expectedWork/hints and is absent when step declares none', async () => {
+    // 1. Step with purpose, expectedWork, hints
+    const rawWithContract = {
+      id: 'contract-v1',
+      steps: {
+        implementation: {
+          status: { active: 'implementing', completed: 'implemented' },
+          purpose: 'Implement the bounded work within allowed_paths.',
+          expectedWork: { summary: 'Code and focused tests.' },
+          hints: [
+            { type: 'doc', ref: 'docs/development/workflow-engine.md' },
+            { type: 'skill', ref: 'code-review' },
+          ],
+          entryGates: [],
+          finalize: [{ id: 'commit-and-push' }],
+          transitions: [{ to: 'verified' }],
+        },
+      },
+    };
+    const { valid: v1, errors: e1 } = validateWorkflowDefinition(rawWithContract);
+    assert.ok(v1, `valid definition expected: ${e1.join('; ')}`);
+    const defWithContract = normalizeWorkflowDefinition(rawWithContract);
+
+    const gateRegistry = makeGateRegistry();
+    const context = { repoRoot: ctx.repo, taskId: task.id, sourceControl: { enabled: false } };
+
+    const scWithContract = await compileStepContext({ change, task, definition: defWithContract, context, gateRegistry });
+    assert.ok('stepContract' in scWithContract, 'stepContract must be present when declared');
+    assert.equal(scWithContract.stepContract.purpose, 'Implement the bounded work within allowed_paths.');
+    assert.deepEqual(scWithContract.stepContract.expectedWork, { summary: 'Code and focused tests.' });
+    assert.deepEqual(scWithContract.stepContract.hints, [
+      { type: 'doc', ref: 'docs/development/workflow-engine.md' },
+      { type: 'skill', ref: 'code-review' },
+    ]);
+
+    // 2. Step with NONE of purpose/expectedWork/hints -> stepContract is absent (not an empty object)
+    const defWithoutContract = buildDefinition(); // RAW_DEFINITION declares none of purpose/expectedWork/hints
+    const scWithoutContract = await compileStepContext({ change, task, definition: defWithoutContract, context, gateRegistry });
+    assert.equal('stepContract' in scWithoutContract, false, 'stepContract must be absent when step declares none');
+    assert.equal(scWithoutContract.stepContract, undefined);
+
+    // 3. Step with only purpose -> stepContract contains purpose only, no empty objects for expectedWork/hints
+    const rawPurposeOnly = {
+      id: 'purpose-only-v1',
+      steps: {
+        implementation: {
+          status: { active: 'implementing', completed: 'implemented' },
+          purpose: 'Purpose only.',
+          entryGates: [],
+          finalize: [{ id: 'commit-and-push' }],
+          transitions: [{ to: 'verified' }],
+        },
+      },
+    };
+    const defPurposeOnly = normalizeWorkflowDefinition(rawPurposeOnly);
+    const scPurposeOnly = await compileStepContext({ change, task, definition: defPurposeOnly, context, gateRegistry });
+    assert.deepEqual(scPurposeOnly.stepContract, { purpose: 'Purpose only.' });
+  });
+
+  test('AC5: Two steps in the same fixture definition produce different stepContract values based on current step', async () => {
+    const rawMultiStep = {
+      id: 'multi-step-contracts-v1',
+      version: 1,
+      entryStep: 'implementation',
+      steps: {
+        implementation: {
+          status: { active: 'implementing', completed: 'implemented' },
+          purpose: 'Implement the bounded work within allowed_paths.',
+          expectedWork: { summary: 'Code and unit tests.' },
+          hints: [{ type: 'doc', ref: 'docs/dev/guidelines.md' }],
+          entryGates: [],
+          finalize: [{ id: 'commit-and-push' }],
+          transitions: [{ to: 'review' }],
+        },
+        review: {
+          status: { active: 'reviewing', completed: 'reviewed' },
+          purpose: 'Confirm implementation meets acceptance criteria.',
+          expectedWork: { summary: 'Read-only review findings.' },
+          hints: [{ type: 'skill', ref: 'code-review' }],
+          entryGates: [],
+          finalize: [{ id: 'commit-and-push' }],
+          transitions: [{ to: 'verified' }],
+        },
+      },
+    };
+    const { valid, errors } = validateWorkflowDefinition(rawMultiStep);
+    assert.ok(valid, `fixture must validate: ${errors.join('; ')}`);
+    const defMultiStep = normalizeWorkflowDefinition(rawMultiStep);
+    const gateRegistry = makeGateRegistry();
+    const context = { repoRoot: ctx.repo, taskId: 'demo-task', sourceControl: { enabled: false } };
+
+    // Task on step 'implementation'
+    const taskStep1 = {
+      id: 'demo-task',
+      status: 'in-implementation',
+      workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+    };
+    const scStep1 = await compileStepContext({ change, task: taskStep1, definition: defMultiStep, context, gateRegistry });
+    assert.equal(scStep1.currentStep, 'implementation');
+    assert.equal(scStep1.stepContract.purpose, 'Implement the bounded work within allowed_paths.');
+    assert.deepEqual(scStep1.stepContract.expectedWork, { summary: 'Code and unit tests.' });
+    assert.deepEqual(scStep1.stepContract.hints, [{ type: 'doc', ref: 'docs/dev/guidelines.md' }]);
+
+    // Task on step 'review'
+    const taskStep2 = {
+      id: 'demo-task',
+      status: 'in-implementation',
+      workflow_progress: {
+        current_step: 'review',
+        state: 'active',
+        history: [{ step: 'implementation', completed_at: '2026-09-11T12:00:00Z', transitioned_to: 'review' }],
+      },
+    };
+    const scStep2 = await compileStepContext({ change, task: taskStep2, definition: defMultiStep, context, gateRegistry });
+    assert.equal(scStep2.currentStep, 'review');
+    assert.equal(scStep2.stepContract.purpose, 'Confirm implementation meets acceptance criteria.');
+    assert.deepEqual(scStep2.stepContract.expectedWork, { summary: 'Read-only review findings.' });
+    assert.deepEqual(scStep2.stepContract.hints, [{ type: 'skill', ref: 'code-review' }]);
+
+    // Confirming scStep1.stepContract and scStep2.stepContract are completely different
+    assert.notDeepEqual(scStep1.stepContract, scStep2.stepContract);
+  });
+
+  test('AC6: All pre-existing fields keep exact shape and value (regression check)', async () => {
+    const definition = buildDefinition();
+    const gateRegistry = makeGateRegistry();
+    const context = { repoRoot: ctx.repo, taskId: task.id, sourceControl: { enabled: true, push: false } };
+
+    const stepContext = await compileStepContext({ change, task, definition, context, gateRegistry });
+
+    // Assert pre-existing fields are preserved exactly
+    assert.equal(stepContext.change, 'demo-change');
+    assert.equal(stepContext.task, 'demo-task');
+    assert.equal(stepContext.workflowMode, 'deterministic');
+    assert.equal(stepContext.currentStep, 'implementation');
+    assert.equal(stepContext.stepStatus, 'in-progress');
+    assert.equal(stepContext.runtimeState, 'active');
+    assert.equal(stepContext.semanticStatus, 'implementing');
+    assert.deepEqual(stepContext.entryState, { blockers: [] });
+    assert.ok(stepContext.context.sourceControl);
+    assert.equal(stepContext.context.sourceControl.currentBranch, 'main');
+    assert.ok(stepContext.finishContract.requiredInputs);
+    assert.ok(Array.isArray(stepContext.finishContract.gates));
+    assert.deepEqual(stepContext.nextStepGuidance, { onSuccess: 'verified' });
+
+    // Plus new fields are present
+    assert.ok(typeof stepContext.instructions === 'string');
+    assert.ok(stepContext.expectedWork);
+    assert.ok(Array.isArray(stepContext.expectedWork.allowedPaths));
+    assert.ok(Array.isArray(stepContext.expectedWork.forbiddenPaths));
+    assert.ok(Array.isArray(stepContext.relevantDocs));
+    assert.equal(stepContext.stepContract, undefined);
+  });
+});

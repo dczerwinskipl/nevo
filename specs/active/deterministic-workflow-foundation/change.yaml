@@ -378,10 +378,27 @@ tasks:
   - id: step-context-knowledge-hints
     order: 12
     file: tasks/12-step-context-knowledge-hints.md
-    status: approved
+    status: implemented
     depends_on:
       - multi-step-workflow-progression
       - step-active-completed-lifecycle
+    implementation:
+      baseline_revision: 016c7c7fbf50bcad95ee87067d4084feb88cbb12
+      review_revision: 016c7c7fbf50bcad95ee87067d4084feb88cbb12
+      changed_paths:
+        - docs/development/workflow-engine.md
+        - tools/specs/workflow/step-context.mjs
+        - tools/tests/workflow-next-step.test.mjs
+      worktree_patch_fingerprint: be4dba552f0564507986b1a01061006f43d9586500cbae82a827016c81a7e022
+    self_check:
+      fingerprint: 1cbd780e4da83fb4c0ffd2bb0fec40dfb05eccd2d4090352d7b3217da1fa462d
+      revision: 016c7c7fbf50bcad95ee87067d4084feb88cbb12
+      commands:
+        - command: node --test tools/tests/workflow-next-step.test.mjs
+          exit_code: 0
+        - command: node tools/docs.mjs check
+          exit_code: 0
+      status: passed
 
   - id: multi-step-workflow-e2e-proof
     order: 13

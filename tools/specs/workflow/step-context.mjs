@@ -3,11 +3,15 @@
 // (Task 03) and `GateContract.inspect()` (Task 05) into one step-level payload —
 // this module aggregates, it never re-implements, that underlying evaluation.
 
+import { existsSync } from 'node:fs';
 import { defaultWorkflowEngine } from './engine.mjs';
 import { defaultActionRegistry } from './registry.mjs';
 import { resolveWorkflowPosition, resolveSemanticStatus, inspectGates } from './step-runner.mjs';
 import { WorkflowError } from './errors.mjs';
-import { setTaskWorkflowState } from '../store.mjs';
+import { setTaskWorkflowState, ACTIVE_DIR } from '../store.mjs';
+import { resolveWithinBase } from '../../lib/fs.mjs';
+import { parseFrontMatterFile } from '../../lib/yaml.mjs';
+import { loadRoutingIndex, pathGlobsOverlap } from '../context.mjs';
 // D37 correction: read via `operation-record.mjs` directly (not `finish-operation.mjs`,
 // which itself imports from this module — importing it here would create a cycle).
 import { loadOperationRecord } from './operation-record.mjs';
@@ -154,6 +158,118 @@ export function ensureStepActivated(change, task, definition, context = {}) {
 }
 
 /**
+ * Resolves the task's declared scope (`allowedPaths` and `forbiddenPaths`).
+ * Sourced deterministically from the task markdown file's frontmatter using the
+ * same mechanism as the legacy context packet (`resolveWithinBase`, `parseFrontMatterFile`),
+ * or directly from in-memory task properties when present (e.g. in test fixtures).
+ *
+ * @param {object} change
+ * @param {object} task
+ * @param {object} [context]
+ * @returns {{ allowedPaths: string[], forbiddenPaths: string[] }}
+ */
+export function resolveTaskScope(change, task, context = {}) {
+  let allowedPaths = task?.allowedPaths || task?.allowed_paths;
+  let forbiddenPaths = task?.forbiddenPaths || task?.forbidden_paths;
+
+  if ((allowedPaths === undefined || forbiddenPaths === undefined) && task?.file) {
+    const changeDir = change?._dir
+      || (context.activeDir ? resolveWithinBase(context.activeDir, change?.id || change?._slug) : null)
+      || ((change?.id || change?._slug) ? resolveWithinBase(ACTIVE_DIR, change.id || change._slug) : null);
+
+    if (changeDir && existsSync(changeDir)) {
+      const taskFile = resolveWithinBase(changeDir, task.file);
+      if (existsSync(taskFile)) {
+        const taskFm = parseFrontMatterFile(taskFile);
+        if (allowedPaths === undefined) allowedPaths = taskFm.allowed_paths;
+        if (forbiddenPaths === undefined) forbiddenPaths = taskFm.forbidden_paths;
+      }
+    }
+  }
+
+  return {
+    allowedPaths: Array.isArray(allowedPaths) ? allowedPaths : [],
+    forbiddenPaths: Array.isArray(forbiddenPaths) ? forbiddenPaths : [],
+  };
+}
+
+/**
+ * Derives a short, structural summary instruction from entry blockers and allowed paths (D22).
+ * Never free-form AI-authored text — changes deterministically with blocker count and paths in scope.
+ *
+ * @param {string[]} allowedPaths
+ * @param {Array<object>} blockers
+ * @returns {string}
+ */
+export function deriveInstructions(allowedPaths = [], blockers = []) {
+  const blockerCount = blockers.length;
+  const pathsSummary = allowedPaths.length > 0
+    ? `declared allowed_paths (${allowedPaths.join(', ')})`
+    : 'allowed paths';
+
+  if (blockerCount === 0) {
+    return `Work within ${pathsSummary}; entry gates already satisfied.`;
+  }
+
+  const blockerList = blockers.map(b => b.id || b.gateType || 'gate').join(', ');
+  return `Work within ${pathsSummary}; ${blockerCount} entry blocker(s) outstanding (${blockerList}).`;
+}
+
+/**
+ * Resolves relevant-docs hints by matching the task's `allowedPaths` against the
+ * machine-readable routing rules index (`docs/routing.generated.json`), reusing
+ * `tools/specs/context.mjs`'s deterministic `pathGlobsOverlap` logic (D22, AC3).
+ *
+ * @param {string[]} allowedPaths
+ * @param {object|null} routingIndex
+ * @returns {Array<{ ruleId: string, docRef: string, pathGlob: string }>}
+ */
+export function resolveRelevantDocs(allowedPaths = [], routingIndex = null) {
+  if (!routingIndex || !Array.isArray(routingIndex.rules) || !allowedPaths.length) {
+    return [];
+  }
+  const matched = routingIndex.rules.filter(rule =>
+    allowedPaths.some(ap => pathGlobsOverlap(ap, rule.path_glob))
+  );
+  return matched.map(rule => {
+    const item = {
+      ruleId: rule.rule_id,
+      docRef: rule.doc_ref,
+      pathGlob: rule.path_glob,
+    };
+    Object.defineProperty(item, 'rule_id', { value: rule.rule_id, enumerable: false });
+    Object.defineProperty(item, 'doc_ref', { value: rule.doc_ref, enumerable: false });
+    return item;
+  });
+}
+
+/**
+ * Extracts a step's declarative behavior contract (`purpose`, `expectedWork`, `hints`)
+ * declared in the workflow definition (D25). If the step declares none of these fields,
+ * returns `undefined` so that `stepContract` is omitted from `StepContext` rather than
+ * producing a fabricated empty object.
+ *
+ * @param {object} step - Normalized step definition
+ * @returns {object|undefined}
+ */
+export function buildStepContract(step) {
+  if (!step) return undefined;
+  const hasPurpose = step.purpose !== undefined;
+  const hasExpectedWork = step.expectedWork !== undefined;
+  const hasHints = step.hints !== undefined;
+
+  if (!hasPurpose && !hasExpectedWork && !hasHints) {
+    return undefined;
+  }
+
+  const contract = {};
+  if (hasPurpose) contract.purpose = step.purpose;
+  if (hasExpectedWork) contract.expectedWork = step.expectedWork;
+  if (hasHints) contract.hints = step.hints;
+  return contract;
+}
+
+/**
  * Compiles the full `StepContext` returned by `workflow step start` (D10): current step,
  * task/spec identity, workflow state, entry state/blockers, factual context (including
  * source-control context when enabled), the finish contract (`requiredInputs` aggregated
@@ -188,6 +304,10 @@ export async function compileStepContext({
   const { task: effectiveTask, position } = ensureStepActivated(change, task, definition, context);
 
   if (position.phase === 'terminal') {
+    const { allowedPaths, forbiddenPaths } = resolveTaskScope(change, effectiveTask, context);
+    const routingIndex = context.routingIndex !== undefined ? context.routingIndex : loadRoutingIndex();
+    const relevantDocs = resolveRelevantDocs(allowedPaths, routingIndex);
+
     return {
       change: changeId,
       task: effectiveTask.id,
@@ -196,7 +316,13 @@ export async function compileStepContext({
       stepStatus: 'complete',
       runtimeState: 'completed',
       semanticStatus: resolveSemanticStatus(definition, effectiveTask),
+      instructions: 'Workflow complete; all steps finished.',
       entryState: { blockers: [] },
+      expectedWork: {
+        allowedPaths,
+        forbiddenPaths,
+      },
+      relevantDocs,
       context: {},
       finishContract: { requiredInputs: {}, gates: [] },
       nextStepGuidance: null,
@@ -219,6 +345,12 @@ export async function compileStepContext({
   const blockers = entryGateResults.filter(g => g.status === 'blocked' || g.status === 'failed');
   const sourceControlContext = normalizeSourceControlFacts(finalizeCheck.actions['commit-and-push']?.context);
 
+  const { allowedPaths, forbiddenPaths } = resolveTaskScope(change, effectiveTask, context);
+  const instructions = deriveInstructions(allowedPaths, blockers);
+  const routingIndex = context.routingIndex !== undefined ? context.routingIndex : loadRoutingIndex();
+  const relevantDocs = resolveRelevantDocs(allowedPaths, routingIndex);
+  const stepContract = buildStepContract(step);
+
   return {
     change: changeId,
     task: effectiveTask.id,
@@ -227,7 +359,14 @@ export async function compileStepContext({
     stepStatus: blockers.length ? 'blocked' : 'in-progress',
     runtimeState: 'active',
     semanticStatus: resolveSemanticStatus(definition, effectiveTask),
+    instructions,
     entryState: { blockers },
+    expectedWork: {
+      allowedPaths,
+      forbiddenPaths,
+    },
+    relevantDocs,
+    ...(stepContract !== undefined ? { stepContract } : {}),
     context: sourceControlContext ? { sourceControl: sourceControlContext } : {},
     finishContract: {
       requiredInputs,
