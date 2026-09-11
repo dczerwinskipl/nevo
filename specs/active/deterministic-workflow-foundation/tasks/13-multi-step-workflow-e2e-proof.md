@@ -23,9 +23,9 @@ forbidden_paths:
   - tools/specs.mjs
   - .nevo-ai/workflows/**
 semantic_references:
-  decisions: [D9, D18, D19, D20, D23, D24, D26, D28, D29, D30]
+  decisions: [D9, D18, D19, D20, D23, D24, D26, D28, D29, D30, D37]
   constraints: [C14, C17, C18, C19, C21, C22, C23, C24, C26, C27, C28]
-  dependency_contracts: [production-multi-step-standard-workflow, step-context-knowledge-hints, fail-closed-workflow-definition-resolution]
+  dependency_contracts: [production-multi-step-standard-workflow, step-context-knowledge-hints, fail-closed-workflow-definition-resolution, step-active-completed-lifecycle]
 ---
 
 # Task: Real multi-step CLI/E2E proof
@@ -34,15 +34,15 @@ semantic_references:
 
 Prove, end-to-end and via the public CLI only, that a fixture workflow definition with
 **at least three** distinct steps actually drives an agent through all of them —
-closing the one thing Tasks 01-11 individually generalize/enable but never collectively
+closing the one thing Tasks 01-12 individually generalize/enable but never collectively
 demonstrate together (`areas/multi-step-workflow-orchestration.md` §7). This is the
-acceptance test for the whole multi-step correction (D18-D32), the same role Task 07
+acceptance test for the whole multi-step correction (D18-D37), the same role Task 07
 played for the single-step foundation.
 
 ## Implementation constraints
 
 - **This task adds no new engine code** — `allowed_paths` is test files and docs only.
-  If proving the scenario reveals a real defect in Tasks 08-11's implementation, fix it
+  If proving the scenario reveals a real defect in Tasks 08-12's implementation, fix it
   by returning to the task that owns the affected file (do not patch engine code from
   inside this task's `allowed_paths`), and report the defect explicitly rather than
   working around it in the test.
@@ -68,10 +68,15 @@ played for the single-step foundation.
 ## Acceptance criteria
 
 1. `workflow step start` resolves step A for a fresh task on a ≥3-step fixture
-   definition. `automated: node --test tools/tests/workflow-multi-step-e2e.test.mjs`
-2. Finishing A (`workflow step finish`) persists `workflow_progress.current_step = B` in
-   the same commit as the implementation, and the next `workflow step start` resolves B,
-   not A. `automated: node --test tools/tests/workflow-multi-step-e2e.test.mjs`
+   definition, persisting `current_step: A, state: active` (D37 case A). `automated: node --test tools/tests/workflow-multi-step-e2e.test.mjs`
+2. **Active/completed checkpoint (D37):** finishing A (`workflow step finish`) persists
+   `workflow_progress.state = completed` on step A — `current_step` stays `A` — in the
+   same commit as the implementation, appending a `history` entry with
+   `transitioned_to: B`; a `workflow step start` call *before* this finish (case B,
+   resume) and a repeated `step finish` call *after* it (already-completed, non-actionable,
+   no finalize re-run) are both exercised. Only the *next* `workflow step start` call
+   actually activates B (`current_step: B, state: active`, no new `history` entry) —
+   resolving B, not A. `automated: node --test tools/tests/workflow-multi-step-e2e.test.mjs`
 3. A gate configured on step B has no effect on finishing step A, and vice versa —
    verified by configuring a failing/blocking gate on one step only and confirming the
    other step's finish is unaffected. `automated: node --test tools/tests/workflow-multi-step-e2e.test.mjs`
@@ -79,11 +84,14 @@ played for the single-step foundation.
 5. C is gated by a `HumanVerificationGate`; `step finish` against C reports it blocked
    and mutates nothing; only `workflow verify-human --confirm` satisfies it; a
    subsequent `step finish` then completes C. `automated: node --test tools/tests/workflow-multi-step-e2e.test.mjs`
-6. **Terminal precedence, driven via CLI (D28):** finishing C reaches the terminal case —
-   `task.status` is written, `workflow_progress.current_step` is left populated (naming
-   the last real step, never cleared/nulled), and the next `workflow step start` reports
-   the workflow already complete — never re-resolving `entryStep` as if the task were
-   starting fresh. `automated: node --test tools/tests/workflow-multi-step-e2e.test.mjs`
+6. **Terminal precedence, driven via CLI (D28, corrected by D37):** finishing C reaches
+   the terminal case — `task.status` is written, `workflow_progress.state = completed`
+   and `current_step` is left populated (naming the last real step, never
+   cleared/nulled), all atomically, and the next `workflow step start` reports the
+   workflow already complete — never re-resolving `entryStep` as if the task were
+   starting fresh, and never consulting `task.status` to make that determination (D37 —
+   position resolution is a pure function of `workflow_progress`/`definition`).
+   `automated: node --test tools/tests/workflow-multi-step-e2e.test.mjs`
 7. Retry/resume semantics hold per individual step: an interruption crafted during step
    B's finalize (via the finish-operation record, per the constraints above) does not
    affect step A's already-completed, already-committed progress, and resuming B

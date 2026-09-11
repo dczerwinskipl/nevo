@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-10T18:15:37.594Z",
+  "generated": "2026-09-11T09:41:47.210Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -394,9 +394,9 @@
           }
         },
         {
-          "id": "production-multi-step-standard-workflow",
+          "id": "step-active-completed-lifecycle",
           "order": 10,
-          "file": "tasks/10-production-multi-step-standard-workflow.md",
+          "file": "tasks/10-step-active-completed-lifecycle.md",
           "status": "draft",
           "depends_on": [
             "multi-step-workflow-progression",
@@ -404,23 +404,36 @@
           ]
         },
         {
-          "id": "step-context-knowledge-hints",
+          "id": "production-multi-step-standard-workflow",
           "order": 11,
-          "file": "tasks/11-step-context-knowledge-hints.md",
+          "file": "tasks/11-production-multi-step-standard-workflow.md",
           "status": "draft",
           "depends_on": [
-            "multi-step-workflow-progression"
+            "multi-step-workflow-progression",
+            "fail-closed-workflow-definition-resolution",
+            "step-active-completed-lifecycle"
+          ]
+        },
+        {
+          "id": "step-context-knowledge-hints",
+          "order": 12,
+          "file": "tasks/12-step-context-knowledge-hints.md",
+          "status": "draft",
+          "depends_on": [
+            "multi-step-workflow-progression",
+            "step-active-completed-lifecycle"
           ]
         },
         {
           "id": "multi-step-workflow-e2e-proof",
-          "order": 12,
-          "file": "tasks/12-multi-step-workflow-e2e-proof.md",
+          "order": 13,
+          "file": "tasks/13-multi-step-workflow-e2e-proof.md",
           "status": "draft",
           "depends_on": [
             "production-multi-step-standard-workflow",
             "step-context-knowledge-hints",
-            "fail-closed-workflow-definition-resolution"
+            "fail-closed-workflow-definition-resolution",
+            "step-active-completed-lifecycle"
           ]
         }
       ]

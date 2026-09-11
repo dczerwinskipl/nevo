@@ -298,29 +298,40 @@ tasks:
           exit_code: 0
       status: passed
 
-  - id: production-multi-step-standard-workflow
+  - id: step-active-completed-lifecycle
     order: 10
-    file: tasks/10-production-multi-step-standard-workflow.md
+    file: tasks/10-step-active-completed-lifecycle.md
     status: draft
     depends_on:
       - multi-step-workflow-progression
       - fail-closed-workflow-definition-resolution
 
-  - id: step-context-knowledge-hints
+  - id: production-multi-step-standard-workflow
     order: 11
-    file: tasks/11-step-context-knowledge-hints.md
+    file: tasks/11-production-multi-step-standard-workflow.md
     status: draft
     depends_on:
       - multi-step-workflow-progression
+      - fail-closed-workflow-definition-resolution
+      - step-active-completed-lifecycle
+
+  - id: step-context-knowledge-hints
+    order: 12
+    file: tasks/12-step-context-knowledge-hints.md
+    status: draft
+    depends_on:
+      - multi-step-workflow-progression
+      - step-active-completed-lifecycle
 
   - id: multi-step-workflow-e2e-proof
-    order: 12
-    file: tasks/12-multi-step-workflow-e2e-proof.md
+    order: 13
+    file: tasks/13-multi-step-workflow-e2e-proof.md
     status: draft
     depends_on:
       - production-multi-step-standard-workflow
       - step-context-knowledge-hints
       - fail-closed-workflow-definition-resolution
+      - step-active-completed-lifecycle
 
 spec_id: 11c1c495-7548-44ac-a63a-d868dd1b7507
 pull_requests:

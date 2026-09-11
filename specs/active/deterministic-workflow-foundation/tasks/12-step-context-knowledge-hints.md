@@ -21,9 +21,9 @@ forbidden_paths:
   - tools/dashboard/**
   - tools/specs/context.mjs
 semantic_references:
-  decisions: [D10, D22, D25]
+  decisions: [D10, D22, D25, D37]
   constraints: [C11, C25]
-  dependency_contracts: [multi-step-workflow-progression]
+  dependency_contracts: [multi-step-workflow-progression, step-active-completed-lifecycle]
 ---
 
 # Task: `StepContext` knowledge/skill/file hints and step behavior contract
@@ -48,6 +48,10 @@ step-level expectations, not merely a step/gate/finish-contract aggregator.
    verbatim, alongside (never merged into or confused with) the task-level fields above.
    A step declaring none of these fields simply omits `stepContract`, never a fabricated
    default.
+
+This task builds on Task 10's `runtimeState`/`semanticStatus` fields (D37) — already
+present on `StepContext` by the time this task starts — without duplicating or
+recomputing that resolution; it only adds the task-level/step-contract fields above.
 
 ## Implementation constraints
 
@@ -84,8 +88,9 @@ step-level expectations, not merely a step/gate/finish-contract aggregator.
    confirming the field reflects the *current* step's own configuration, not a
    definition-wide constant. `automated: node --test tools/tests/workflow-next-step.test.mjs`
 6. All fields `compileStepContext()` returned before this task are unchanged in shape
-   and value — regression-checked against the existing Task 06/08 `StepContext`
-   assertions. `automated: node --test tools/tests/workflow-next-step.test.mjs`
+   and value — regression-checked against the existing Task 06/08/10 `StepContext`
+   assertions (including Task 10's `runtimeState`/`semanticStatus`, D37).
+   `automated: node --test tools/tests/workflow-next-step.test.mjs`
 7. `docs/development/workflow-engine.md`'s `StepContext` example reflects the new
    fields, including `stepContract`. `automated: node tools/docs.mjs check`
 

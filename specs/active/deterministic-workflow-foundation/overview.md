@@ -27,7 +27,7 @@ AI must transition from being the workflow orchestrator to being a bounded execu
 
 This specification builds the foundation for configurable deterministic workflows. Rather than postponing workflow definitions to a future stage, this specification establishes a real, executable declarative workflow definition model, composable action contracts, non-mutating checks with parameter schemas, factual context extraction, deterministic gate contracts with separate inspection and execution, machine-readable human verification, and a complete vertical proof-of-concept, while preserving the existing legacy workflow during migration.
 
-**Status after Tasks 01-07 (corrected 2026-09-08, revised 2026-09-08 — see D18-D32).** Tasks 01-07 deliver and prove, end-to-end, exactly **one** workflow step's full lifecycle: entry gates, an action, exit gates (command + human verification), a durable multi-*stage* finalize sequence (`verify-gates -> update-task -> commit -> push -> transition`), and a single terminal transition — plus the composable action/gate contracts, the `workflow step start`/`step finish [--check]`/`verify-human --confirm` CLI surface, and legacy coexistence, all of which are sound and are built upon, not redesigned, below. They do **not** yet prove an agent moving through *several distinct, differently-configured workflow steps* in one deterministic run (e.g. `implementation -> review -> quality -> human-approval -> complete`) — `resolveCurrentStepName` (Task 06) explicitly assumes exactly one step exists. Tasks 08-12 (added by this correction, then hardened twice more after further review found first five, then six more, identity/versioning/cardinality/validation gaps) close that gap: owner-approved, Git-tracked multi-step progress with an explicit, unambiguous terminal/completed precedence (D18/D19/D28), step-aware finish-operation identity (D23) and step/gate-scoped human-verification identity backed by an extended trusted query contract (D24/D29) so one step's or gate's state can never be mistaken for another's, fail-closed resolution of configured actions/gates (D20), workflow-definition versions compared as their effective (not raw) value (D26), exactly-one-transition-per-step with a real-status-only terminal target and an explicit entry step (D27, D19 refined), safe/unique step and gate identifiers validated at schema time (D30), a declarative per-step behavior contract (D25) and the task-level `StepContext` knowledge/hint fields the original design already called for but Task 06 never implemented (D22), a production-quality multi-step `standard` definition gated on explicit owner approval of its step decomposition (Task 10, D31), and a real multi-step end-to-end proof (Task 12). The change is **not** complete merely because Tasks 01-07 are implemented.
+**Status after Tasks 01-07 (corrected 2026-09-08, revised 2026-09-08, further corrected 2026-09-11 — see D18-D37).** Tasks 01-07 deliver and prove, end-to-end, exactly **one** workflow step's full lifecycle: entry gates, an action, exit gates (command + human verification), a durable multi-*stage* finalize sequence (`verify-gates -> update-task -> commit -> push -> transition`), and a single terminal transition — plus the composable action/gate contracts, the `workflow step start`/`step finish [--check]`/`verify-human --confirm` CLI surface, and legacy coexistence, all of which are sound and are built upon, not redesigned, below. They do **not** yet prove an agent moving through *several distinct, differently-configured workflow steps* in one deterministic run (e.g. `implementation -> review -> quality -> human-approval -> complete`) — `resolveCurrentStepName` (Task 06) explicitly assumes exactly one step exists. Tasks 08-13 (added by this correction, then hardened twice more after further review found first five, then six more, identity/versioning/cardinality/validation gaps, then corrected a fourth time — D37 — to add a runtime `active`/`completed` step-state axis so `step finish` no longer immediately advances `current_step`) close that gap: owner-approved, Git-tracked multi-step progress with an explicit, unambiguous terminal/completed precedence (D18/D19/D28, position resolution corrected by D37 to no longer consult `task.status`), step-aware finish-operation identity (D23) and step/gate-scoped human-verification identity backed by an extended trusted query contract (D24/D29) so one step's or gate's state can never be mistaken for another's, fail-closed resolution of configured actions/gates (D20), workflow-definition versions compared as their effective (not raw) value (D26), exactly-one-transition-per-step with a real-status-only terminal target and an explicit entry step (D27, D19 refined — the internal-transition write itself corrected by D37 to no longer move `current_step` at `finish` time), safe/unique step and gate identifiers validated at schema time (D30), a declarative per-step behavior contract (D25) and the task-level `StepContext` knowledge/hint fields the original design already called for but Task 06 never implemented (D22), a runtime `active`/`completed` step-state axis making `step start` the sole point that advances `current_step` (Task 10, D37), a production-quality multi-step `standard` definition gated on explicit owner approval of its step decomposition (Task 11, D31), and a real multi-step end-to-end proof (Task 13). The change is **not** complete merely because Tasks 01-07 are implemented.
 
 ## Goal
 
@@ -98,7 +98,7 @@ Provide a robust, modular foundation for migrating Nevo from agent-orchestrated 
 - **Runtime Execution State:** `.nevo-ai-local/workflow-operations/<change>/<task>.json`, following the existing git-ignored local-storage convention already used by `tools/dashboard/server/ai/sessions/binding-service.mjs` (atomic temp-file-then-rename JSON writes) — reused as a pattern, not as a code dependency between `tools/specs/workflow/` and `tools/dashboard/`.
 - **CLI Dispatch:** `tools/specs.mjs` integration delegating to the new workflow engine and exposing `workflow step start` / `workflow step finish [--check]` (D9, agent-facing) and `workflow verify-human <change> <task> --confirm` (operator-facing) as the complete public surface.
 - **Test Infrastructure:** `tools/tests/` comprehensive test suites for contracts, engine, gates, actions, step start/finish, the operator human-verification command, durable-finish retry/reconciliation, and compatibility.
-- **Multi-Step Workflow Orchestration (Tasks 08-12, D18-D32):** `tools/specs/validation.mjs` (new `workflow_progress` schema block), `tools/specs/workflow/step-runner.mjs`/`step-context.mjs`/`finish-operation.mjs` (generalized step/transition resolution, fail-closed action/gate resolution, step-aware operation identity, knowledge/hint and step-contract fields), `tools/specs/workflow/human-verification-store.mjs` (step/gate-scoped sign-off identity), `tools/specs/workflow/cli.mjs` (version-compatibility guard, `--gate` disambiguation), `tools/specs/workflow/definitions/loader.mjs`/`schema.mjs` (load-time fail-closed action/gate validation, transition cardinality, `entryStep`, step-behavior-contract schema), `.nevo-ai/workflows/standard.yaml` (real multi-step definition, `verify-task-output` removed), `docs/development/workflow-engine.md` (updated). See `areas/multi-step-workflow-orchestration.md`.
+- **Multi-Step Workflow Orchestration (Tasks 08-13, D18-D37):** `tools/specs/validation.mjs` (new `workflow_progress` schema block, extended with `state`), `tools/specs/workflow/step-runner.mjs`/`step-context.mjs`/`finish-operation.mjs` (generalized step/transition resolution, fail-closed action/gate resolution, step-aware operation identity, knowledge/hint and step-contract fields, runtime `active`/`completed` state axis and the mutating `step start`, D37), `tools/specs/workflow/human-verification-store.mjs` (step/gate-scoped sign-off identity), `tools/specs/workflow/cli.mjs` (version-compatibility guard, `--gate` disambiguation), `tools/specs/workflow/definitions/loader.mjs`/`schema.mjs` (load-time fail-closed action/gate validation, transition cardinality, `entryStep`, step-behavior-contract schema, per-step `status.active`/`status.completed` schema), `.nevo-ai/workflows/*.yaml` and matching templates (real multi-step Standard definition, `verify-task-output` removed, `status.active`/`status.completed` added to every shipped definition), `docs/development/workflow-engine.md` (updated). See `areas/multi-step-workflow-orchestration.md`.
 
 ## Proposed Architecture
 
@@ -467,7 +467,7 @@ tools/specs/workflow/
     human-gate.mjs       # Machine-readable human verification gate
 ```
 
-### 14. Remaining Scope: True Multi-Step Workflow Orchestration (D18-D32)
+### 14. Remaining Scope: True Multi-Step Workflow Orchestration (D18-D37)
 
 Tasks 01-07 prove one workflow step end-to-end; they do not prove a workflow *definition*
 with several distinct steps actually driving an agent through all of them via repeated
@@ -475,7 +475,7 @@ with several distinct steps actually driving an agent through all of them via re
 assumes exactly one step exists and the current `.nevo-ai/workflows/standard.yaml`
 declares only `implementation -> verified`. Detailed architecture, the fixture
 definitions, and per-task acceptance criteria for closing this gap live in
-`areas/multi-step-workflow-orchestration.md` (Tasks 08-12). Summary of what changes and
+`areas/multi-step-workflow-orchestration.md` (Tasks 08-13). Summary of what changes and
 what does not:
 
 **Built on top of, unchanged:** `ActionContract`/`GateContract` (sections 3, 5),
@@ -525,23 +525,35 @@ boundary (section 9), the operator-only `verify-human` command, and legacy coexi
 - **Safe, unique step and gate identifiers (D30, C28):** every step key, `entryStep`
   value, and gate `id` is validated against a safe pattern at schema time; a step with
   more than one human gate must give each an explicit, distinct `id`.
+- **A runtime `active`/`completed` step-state axis, `step start` as the sole activation
+  point (D37, Task 10):** `workflow_progress` gains a `state` field; `finish`'s internal
+  transition sets `state: completed` on the step that just finished (leaving
+  `current_step` unchanged and recording `transitioned_to` in `history`) instead of
+  immediately advancing `current_step`; the *next* `workflow step start` call is what
+  actually activates the named target step. Position/semantic-status resolution becomes
+  a pure function of `(workflow_progress, definition)` — `task.status` is no longer
+  consulted to determine workflow position (a strict simplification of D28). Each step's
+  `status: { active, completed }` (new, required schema field) supplies the resolved
+  semantic status text — never a redundant, separately-persisted third field.
 - **A production-quality multi-step `standard.yaml`, gated on owner approval (D31):**
   replacing today's single-step placeholder with a real sequence of independently-gated
   steps, each with a real authored behavior contract and an explicit `entryStep` — the
   step decomposition itself is a product decision proposed and recorded via
-  spec-refine, then explicitly approved, *before* Task 10 implements it — never
+  spec-refine, then explicitly approved, *before* Task 11 implements it — never
   implementer discretion.
 - **`StepContext` knowledge/hint fields (D22) and step behavior contract (D25):**
   `instructions`/`expectedWork` (`allowed_paths`/`forbidden_paths`) and
   deterministically-sourced relevant-docs hints at the task level, plus the current
-  step's own configured `stepContract`, reusing existing context-packet/routing
-  infrastructure — no free-form generated prose anywhere in this surface.
-- **A real multi-step end-to-end CLI proof (Task 12):** at least three distinct steps,
-  each with its own gates, proving persisted progress across steps, step-aware operation
-  identity, step-scoped human-gate confirmation, a human gate blocking only its own
-  configured step, version-mismatch fail-closure, retry/resume per step, and that
-  swapping the fixture workflow definition changes the sequence without any engine code
-  change.
+  step's own configured `stepContract`, plus the D37 `runtimeState`/`semanticStatus`
+  fields, reusing existing context-packet/routing infrastructure — no free-form
+  generated prose anywhere in this surface.
+- **A real multi-step end-to-end CLI proof (Task 13):** at least three distinct steps,
+  each with its own gates, proving persisted progress across steps (including the
+  active/completed checkpoint between a step's completion and the next step's
+  activation, D37), step-aware operation identity, step-scoped human-gate confirmation,
+  a human gate blocking only its own configured step, version-mismatch fail-closure,
+  retry/resume per step, and that swapping the fixture workflow definition changes the
+  sequence without any engine code change.
 
 ## Implementation Decomposition
 
@@ -563,12 +575,14 @@ boundary (section 9), the operator-only `verify-human` command, and legacy coexi
   Add the `workflow_progress` schema block to `change.yaml` (`tools/specs/validation.mjs`, fail-closed rejected on non-deterministic-mode changes), generalize step/transition resolution so `to` is checked against the definition's own step names before falling back to a terminal lifecycle-status write that must be a genuine `TERMINAL_STATUSES` member, never a typo or a non-terminal status (D18/D19), with an explicit terminal/completed precedence checked before `workflow_progress`/`entryStep` (D28), add the atomic `setTaskWorkflowState` helper to `tools/specs/store.mjs` so `status`/`workflow_progress` update together in one write (D32) and extend the `update-task` finalize stage's crash-window reconciliation (C18) to call it, make the durable finish-operation record step-aware (D23), extend `HumanVerificationGate`'s trusted query contract (`gates/human-gate.mjs`) and make the persisted human-verification sign-off step/gate-scoped (D29/D24), add schema support (validation only) for a per-step behavior contract (D25) and for safe/unique step and gate identifiers (D30), enforce fail-closed *effective* workflow-definition version compatibility (D26), and require exactly one transition per step plus an explicit optional `entryStep` field (D27) — all while keeping today's single-step `standard.yaml` and every Task 06/07 test passing unmodified.
 - **Task 09 — Fail-Closed Workflow Definition/Action/Gate Resolution (`tasks/09-fail-closed-workflow-definition-resolution.md`):**
   Remove the tolerant unregistered-action filter from `step-context.mjs`, make `loadWorkflowDefinition` fail closed on any action id with no registered `ActionContract`, and remove `verify-task-output` from `.nevo-ai/workflows/standard.yaml` (D20).
-- **Task 10 — Production-Quality Multi-Step Standard Workflow Definition (`tasks/10-production-multi-step-standard-workflow.md`):**
+- **Task 10 — Runtime `active`/`completed` Step-State Axis (`tasks/10-step-active-completed-lifecycle.md`, new — D37):**
+  Add `workflow_progress.state`; make `workflow step start` the sole point that advances `current_step` (fresh/resume/activate-next/terminal cases); correct `finish`'s internal-transition case to set `state: completed` on the step that just finished instead of advancing `current_step`; correct position/semantic-status resolution to a pure function of `(workflow_progress, definition)` that no longer consults `task.status`; correct the `update-task` crash-reconciliation intent to compare `state` instead of `current_step`; add the required per-step `status: { active, completed }` schema field and migrate the four already-shipped one-step definitions/templates to declare it. Depends on Tasks 08 and 09; gates Task 11.
+- **Task 11 — Production-Quality Multi-Step Standard Workflow Definition (`tasks/11-production-multi-step-standard-workflow.md`):**
   Design and ship a real multi-step `.nevo-ai/workflows/standard.yaml`, each step independently gated, each with a real authored `purpose`/`expectedWork`/`hints` behavior contract (D25) and an explicit `entryStep` (D27) — but only *after* the step decomposition itself has been proposed, recorded, and explicitly approved by the owner via a preceding spec-refine pass (D31); this task's own scope is implementation against that already-approved shape, proving the schema/engine genuinely support N steps for the primary specification class.
-- **Task 11 — `StepContext` Knowledge/Skill/File Hints & Step Behavior Contract (`tasks/11-step-context-knowledge-hints.md`):**
+- **Task 12 — `StepContext` Knowledge/Skill/File Hints & Step Behavior Contract (`tasks/12-step-context-knowledge-hints.md`):**
   Add the `instructions`/`expectedWork`/relevant-docs fields `overview.md` originally illustrated but Task 06 never implemented (D22), sourced deterministically from existing task-frontmatter and context-packet/routing infrastructure, and surface the current step's own configured `purpose`/`expectedWork`/`hints` behavior contract (D25) as `StepContext.stepContract`.
-- **Task 12 — Real Multi-Step CLI/E2E Proof (`tasks/12-multi-step-workflow-e2e-proof.md`):**
-  Prove, via CLI only, a fixture workflow definition with at least three distinct steps: persisted progress across steps with correct terminal precedence (D28), step-aware finish-operation identity (D23), step/gate-scoped human verification with safe/unique identifiers (D24/D30), a human gate blocking only its own step, fail-closed effective-version-mismatch rejection (D26), retry/resume semantics holding per step, no agent-side orchestration of transition rules, and reconfigurability without engine code changes.
+- **Task 13 — Real Multi-Step CLI/E2E Proof (`tasks/13-multi-step-workflow-e2e-proof.md`):**
+  Prove, via CLI only, a fixture workflow definition with at least three distinct steps: persisted progress across steps with correct terminal precedence and the active/completed checkpoint (D28, D37), step-aware finish-operation identity (D23), step/gate-scoped human verification with safe/unique identifiers (D24/D30), a human gate blocking only its own step, fail-closed effective-version-mismatch rejection (D26), retry/resume semantics holding per step, no agent-side orchestration of transition rules, and reconfigurability without engine code changes.
 
 ## Acceptance Criteria & Verification
 
@@ -598,9 +612,10 @@ boundary (section 9), the operator-only `verify-human` command, and legacy coexi
 - Vertical PoC (`step start` → work → `step finish`, including an interrupted-and-resumed retry) executes successfully under deterministic mode, and legacy specifications continue running unaffected (coexistence).
 - `docs/development/workflow-engine.md` documents the engine architecture and the legacy/deterministic migration map (D16).
 - Full test suite `node --test tools/tests/*.test.mjs` passes with zero failures.
-- **Remaining scope (Tasks 08-12, added 2026-09-08, revised twice 2026-09-08 — see D18-D32):**
+- **Remaining scope (Tasks 08-13, added 2026-09-08, revised twice 2026-09-08, corrected 2026-09-11 — see D18-D37):**
   - A task's position within a multi-step workflow definition is durable, cross-session, Git-tracked state (`workflow_progress`), distinct from and never overloading task lifecycle `status` (C21, D18 owner-approved).
-  - Current-step resolution checks task `status` against the definition's valid terminal targets *before* consulting `workflow_progress`/`entryStep` — a completed task never looks fresh again, and `workflow_progress` is never cleared, only appended to (C27, D28).
+  - `workflow_progress` carries a runtime `state: active | completed` axis distinct from the step itself; `workflow step start` is the sole operation that ever advances `current_step` (fresh → entry step; an already-`active` step resumes with no mutation; a `completed` step whose transition names another step activates that step; a `completed` step whose transition is terminal reports the workflow already complete); `workflow step finish`'s internal-transition case sets `state: completed` on the step that just finished without moving `current_step` (D37).
+  - Current-step/semantic-status resolution is a pure function of `(workflow_progress, definition)` alone — `task.status` is no longer consulted to determine workflow position (a completed task never looks fresh again because `state`/the step's terminal transition already disambiguate it), and `workflow_progress` is never cleared, only appended to on completion (C27, D28, corrected by D37).
   - A step transition's `to` resolves against the definition's own declared step names before falling back to a terminal lifecycle-status write that must be a genuine member of the repository's `TERMINAL_STATUSES` (never the broader `TASK_STATUSES` — `to: approved`/`to: in-implementation` are rejected exactly like a typo) — never reaching `task.status` otherwise; every step declares exactly one transition, and an optional explicit `entryStep` names the workflow's entry point; today's single-step `standard.yaml` behaves identically before and after this generalization (C22).
   - A workflow definition referencing an unregistered action id or gate type fails closed at load/resolution time — no configured action or gate silently disappears from execution (C20).
   - A durable finish-operation record belongs to exactly one workflow step (keyed by `(change, task, step)`) — a completed record from one step can never short-circuit another step's finish; the trusted human-verification query contract carries full `(change, task, step, gate)` identity, and a persisted sign-off is scoped to the exact `(change, task, step, gate, role)` it was given for — confirming one human gate never satisfies an unrelated one (C23/C24).
