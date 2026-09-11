@@ -411,8 +411,10 @@
 - **Decision:** Require owner approval first, as a *precondition to Task 11 even being approved/started* — not as internal phases inside Task 11's own implementation. The propose-and-record step happens via a preceding `/nevo-ai:spec-refine` pass: (1) propose a concrete Standard step decomposition (names, per-step gate ownership, `purpose`/`expectedWork`/`hints` content, and — per D37 — each step's `status: { active, completed }` pair) informed by Nevo's existing review/verification practice (the `approve`/self-check/human-verification concepts D16's migration map already names); (2) record the proposal in `owner-decisions.md` as its own entry; (3) **stop and wait for explicit owner approval** — this is exactly the "present options, wait" pattern this repository's own decision-policy already requires for a T-classified change touching workflow/process shape. Only once that entry is approved does Task 11 implement `.nevo-ai/workflows/standard.yaml` against it. Task 11's own `allowed_paths` deliberately exclude `owner-decisions.md` — it cannot perform steps (1)-(3) itself even if an implementing agent wanted to. An implementer may still freely decide low-level representation details *inside* an approved decomposition (exact YAML formatting, which existing doc a `hints` entry references) — never the step sequence, gate ownership, or semantic-status identifiers themselves.
 - **Rationale:** A specification-review workflow's actual steps and gates are a process decision with real, ongoing consequences for how every future Standard change gets reviewed — materially different from (and more consequential than) the schema/engine plumbing Tasks 08-10 own, which is why those tasks were never given this same stop-and-propose requirement. Silently picking the shape inside one implementation task would let a single agent turn decide Nevo's own review process without the owner ever explicitly seeing the proposal as a decision.
 - **Consequences:** Task 11 is not approvable/startable until `owner-decisions.md` already contains an approved decomposition entry — this is checked before `/nevo-ai:task-start`, not discovered partway through implementation — **and** until Task 10 (the D37 lifecycle correction) is itself verified, since Task 11's steps now also declare `status: { active, completed }` (D37) and depend on the corrected engine to run correctly. There is no automated command that can verify "the owner approved this" (that is a human judgment, recorded in the decision entry and the conversation that produced it) — Task 11's own acceptance criteria treat this as a manual precondition, not something `node tools/docs.mjs validate` or any other tool proves. Tasks 12/13, which depend on Task 11's output, cannot meaningfully start until the real definition exists.
-- **Date:** 2026-09-08 (corrected 2026-09-08 — moved the propose/record/approve steps out of the task's own execution; renumbered from Task 10 to Task 11 2026-09-11, D37)
+- **Date:** 2026-09-08 (corrected 2026-09-08 — moved the propose/record/approve steps out of the task's own execution; renumbered from Task 10 to Task 11 2026-09-11, D37; precondition satisfied by D39 2026-09-11)
 - **Affected artifacts:** `owner-decisions.md`, `areas/multi-step-workflow-orchestration.md`, task 11
+
+> **Precondition satisfied (D39, 2026-09-11):** The Standard step decomposition required by this decision was proposed and explicitly owner-approved in D39, establishing the concrete 3-step sequence (`implementation` -> `review` -> `human-verification` -> `verified`), its semantic statuses, gate ownership, behavioral metadata, and finalize behavior. Task 11 is unblocked for approval and start.
 
 ## D32: Atomic task-state mutation is a narrow, store-owned helper — never duplicated YAML logic in `finish-operation.mjs`
 
@@ -550,3 +552,73 @@
 - **Consequences:** Task 12's `allowed_paths` gains `tools/specs/context.mjs`; `forbidden_paths` drops `tools/specs/context.mjs`. Existing `buildContextPacket()` output and `routingWarnings` behavior are unchanged.
 - **Date:** 2026-09-11
 - **Affected artifacts:** `owner-decisions.md`, task 12, `tools/specs/context.mjs`, `tools/specs/workflow/step-context.mjs`
+
+## D39: Production multi-step Standard workflow decomposition (Task 11)
+
+- **Question:** D31 established that naming, sequencing, and gate-composing Nevo's production Standard specification workflow (`.nevo-ai/workflows/standard.yaml`) is an owner-approved product/process decision, requiring an explicit approved decomposition before Task 11 can be approved and started. What is the approved step decomposition, semantic-status model, behavioral metadata, gate composition, finalize behavior, and terminal transition for the production Standard workflow?
+- **Options considered:**
+  1. *Retain single-step placeholder (`implementation -> verified`).* Rejected: purely an engine testing vehicle; fails to model independent quality review and explicit owner sign-off as distinct, observable lifecycle checkpoints.
+  2. *Granular multi-step pipeline with ceremonial stages (`refine -> implementation -> review -> quality-gate -> human-verification -> complete -> verified`).* Rejected: excessive fragmentation. A pre-implementation `refine` step (`refining -> ready`) is an orthogonal future capability; separate "quality-gate" and "complete" steps duplicate what step-level exit gates and the D37 `active`/`completed` runtime state already provide cleanly without protocol bloat.
+  3. *Three real work phases (`implementation -> review -> human-verification -> verified`).* Selected: mirrors Nevo's actual engineering discipline: bounded implementation, independent quality and test verification (with scope for corrective edits), and explicit owner verification sign-off.
+- **Decision:** Adopt a three-step production workflow with explicit `entryStep: implementation` and exactly one transition per step:
+  1. **`implementation`**:
+     - `status: { active: implementing, completed: implemented }`
+     - `purpose`: "Perform the approved implementation work for the task within declared scope."
+     - `expectedWork`: `{ summary: "Modify code, tests, and documentation within allowed_paths to satisfy task acceptance criteria." }`
+     - `hints`:
+       - `{ type: doc, ref: docs/development/workflow-engine.md }`
+       - `{ type: doc, ref: docs/ai/task-execution-policy.md }`
+     - `entryGates: []`
+     - `exitGates: [{ type: command, action: test }]`
+     - `finalize: [{ id: commit-and-push }]`
+     - `transitions: [{ to: review }]`
+  2. **`review`**:
+     - `status: { active: reviewing, completed: reviewed }`
+     - `purpose`: "Perform an independent quality review of the implementation against task acceptance criteria, applying corrective fixes if gaps are found."
+     - `expectedWork`: `{ summary: "Audit implementation and test coverage, apply corrective edits within allowed_paths, and confirm automated verification passes." }`
+     - `hints`:
+       - `{ type: doc, ref: docs/ai/specification-workflow.md }`
+       - `{ type: doc, ref: docs/development/testing-strategy.md }`
+     - `entryGates: []`
+     - `exitGates: [{ type: command, action: test }]`
+     - `finalize: [{ id: commit-and-push }]`
+     - `transitions: [{ to: human-verification }]`
+  3. **`human-verification`**:
+     - `status: { active: awaiting-human-verification, completed: completed }`
+     - `purpose`: "Explicit owner/user acceptance sign-off after automated implementation and independent review have completed."
+     - `expectedWork`: `{ summary: "Confirm readiness with the repository owner and record explicit human verification sign-off." }`
+     - `hints`:
+       - `{ type: doc, ref: docs/ai/specification-workflow.md }`
+       - `{ type: doc, ref: docs/development/workflow-engine.md }`
+     - `entryGates: []`
+     - `exitGates: [{ type: human, required: true, id: owner-acceptance }]`
+     - `finalize: [{ id: commit-and-push }]`
+     - `transitions: [{ to: verified }]`
+
+  **Visible lifecycle progression:**
+  `new` -> `implementing` -> `implemented` -> `reviewing` -> `reviewed` -> `awaiting-human-verification` -> `completed`.
+
+  **Canonical task lifecycle separation:**
+  The final workflow transition targets the canonical coarse task status `verified`. The semantic workflow status (`completed`) and coarse repository lifecycle status (`task.status: verified`) operate on separate axes. Coarse `task.status` is never replaced with `completed`.
+
+  **Step responsibilities:**
+  - `implementation` owns core code/test changes and base automated verification.
+  - `review` is active, not passive or ceremonial: the agent inspects the implementation and acceptance criteria, identifies correctness/architecture/test gaps, applies corrective implementation edits if needed, and re-verifies tests before finishing this step.
+  - `human-verification` represents explicit owner/user acceptance. It requires sign-off via the existing operator-facing `workflow verify-human --confirm` mechanism before `workflow step finish` can succeed.
+
+  **Behavioral metadata:**
+  Every step declares structured `purpose`, `expectedWork.summary`, and `hints` conforming to Task 12's `StepContext` contract. Hints reference only real, existing repository documents.
+
+  **Gates and finalize behavior:**
+  - Uses only existing registered action IDs (`commit-and-push`) and gate types (`command`, `human`). No placeholder or unregistered actions are introduced (preserving Task 09 fail-closed validation).
+  - Preserves Task 10 lifecycle semantics: step finish never activates the next step; step start performs activation; the active/completed checkpoint remains observable; terminal finish atomically writes workflow completed state and sets canonical `task.status: verified`.
+  - Preserves Task 12 StepContext behavior.
+  - Finalize on `human-verification` retains `commit-and-push`: finishing the terminal step mutates tracked workflow/task state (`workflow_progress.state: completed` + canonical `task.status: verified`). That terminal state must participate in the normal commit/push lifecycle rather than remain as an uncommitted tracked mutation.
+
+  **Future extensibility:**
+  A future prepend step such as `refine: { active: refining, completed: ready }` remains architecturally supported without modifying engine code.
+- **Rationale:** Aligns with Nevo's real engineering discipline while avoiding ceremonial step proliferation. Active review ensures defects are caught and corrected before human engagement. Human verification provides unambiguous sign-off via trusted recorded state.
+- **Consequences:** Fulfills the D31 prerequisite, unblocking Task 11 for approval and start. Task 11's specification is refined to reference this exact decomposition. Both `.nevo-ai/workflows/standard.yaml` and `tools/specs/workflow/templates/standard.yaml` will be authored to this structure in Task 11.
+- **Date:** 2026-09-11
+- **Affected artifacts:** `owner-decisions.md`, `tasks/11-production-multi-step-standard-workflow.md`, `areas/multi-step-workflow-orchestration.md`, `overview.md`, `.nevo-ai/workflows/standard.yaml`, `tools/specs/workflow/templates/standard.yaml`
+

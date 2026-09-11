@@ -182,7 +182,7 @@ than the one declared.
   style test YAML) that referenced `verify-task-output` for illustrative purposes drops
   it too, since it would now fail to load.
 
-## 5. Production-quality multi-step `standard.yaml` (Task 11, owner-approval gated — D31)
+## 5. Production-quality multi-step `standard.yaml` (Task 11, owner-approval gated — D31, D39)
 
 Today's `standard.yaml` is a single-step placeholder (`implementation -> verified`) that
 exists to prove the *engine*, not to be Nevo's real Standard-change workflow. Task 11
@@ -190,35 +190,86 @@ replaces it with a genuine multi-step sequence — each step independently decla
 own `entryGates`/`actions`/`exitGates`/`finalize`/`transitions`, plus a real `purpose`/
 `expectedWork`/`hints` behavior contract (D25) and an explicit `entryStep` (D27).
 
-**Exact step names, count, and gate composition are a product/process decision, not
-implementer discretion (D31)** — Task 11 *proposes* a concrete decomposition, records it
-as its own `owner-decisions.md` entry, and **stops for explicit owner approval** before
-writing `.nevo-ai/workflows/standard.yaml` if that decomposition isn't already approved.
-This area doc intentionally does not pre-select the shape either; the illustrative
-sketch below is a non-binding example only, informed by Nevo's existing
-review/verification practice (the legacy `approve`/self-check/human-verification
-concepts D16's migration map already names):
+**Exact step names, count, and gate composition are an owner-approved product/process
+decision, not implementer discretion (D31)** — satisfied by **Decision D39**, which
+established the concrete three-step decomposition:
 
 ```yaml
+id: standard-v1
+title: "Standard Specification Workflow"
+type: standard
+version: 1
+entryStep: implementation
 steps:
   implementation:
-    exitGates: [{ type: command, action: test }]
-    finalize: [{ id: commit-and-push }]
-    transitions: [{ to: review }]
-  review:
+    status:
+      active: implementing
+      completed: implemented
+    purpose: "Perform the approved implementation work for the task within declared scope."
+    expectedWork:
+      summary: "Modify code, tests, and documentation within allowed_paths to satisfy task acceptance criteria."
+    hints:
+      - type: doc
+        ref: docs/development/workflow-engine.md
+      - type: doc
+        ref: docs/ai/task-execution-policy.md
     entryGates: []
-    exitGates: [{ type: human, required: true, role: reviewer }]
-    finalize: [{ id: commit-and-push }]
-    transitions: [{ to: complete }]
-  complete:
-    transitions: [{ to: verified }]
+    exitGates:
+      - type: command
+        action: test
+    finalize:
+      - id: commit-and-push
+    transitions:
+      - to: review
+
+  review:
+    status:
+      active: reviewing
+      completed: reviewed
+    purpose: "Perform an independent quality review of the implementation against task acceptance criteria, applying corrective fixes if gaps are found."
+    expectedWork:
+      summary: "Audit implementation and test coverage, apply corrective edits within allowed_paths, and confirm automated verification passes."
+    hints:
+      - type: doc
+        ref: docs/ai/specification-workflow.md
+      - type: doc
+        ref: docs/development/testing-strategy.md
+    entryGates: []
+    exitGates:
+      - type: command
+        action: test
+    finalize:
+      - id: commit-and-push
+    transitions:
+      - to: human-verification
+
+  human-verification:
+    status:
+      active: awaiting-human-verification
+      completed: completed
+    purpose: "Explicit owner/user acceptance sign-off after automated implementation and independent review have completed."
+    expectedWork:
+      summary: "Confirm readiness with the repository owner and record explicit human verification sign-off."
+    hints:
+      - type: doc
+        ref: docs/ai/specification-workflow.md
+      - type: doc
+        ref: docs/development/workflow-engine.md
+    entryGates: []
+    exitGates:
+      - type: human
+        required: true
+        id: owner-acceptance
+    finalize:
+      - id: commit-and-push
+    transitions:
+      - to: verified
 ```
 
-Whoever starts Task 11 records the real step decomposition as its own decision entry
-(`owner-decisions.md`) and gets it explicitly approved *before* implementing it — an
-implementer may still freely decide low-level representation details inside an approved
-decomposition (exact YAML formatting, which existing doc a `hints` entry references),
-never the step sequence or gate ownership itself (D31).
+Task 11 implements `.nevo-ai/workflows/standard.yaml` and its initialization template
+against this exact approved shape (D39). An implementer may still decide minor low-level
+representation details inside the approved shape (e.g. exact YAML formatting), but never
+the step sequence, gate ownership, or semantic-status identifiers themselves (D31).
 
 ## 6. `StepContext` knowledge/skill/file hints (D22, Task 12)
 

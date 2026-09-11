@@ -8,7 +8,7 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: a719cf568dc4ab0a518127561e00817bddfa583a4c47e772d6cb0ed1fa9fbf8e
+spec_fingerprint: 190655e8a94e71805583135da9984626f95558a7cb0d735d176907652de3e93f
 task_fingerprints:
   workflow-schema-and-compatibility: d738c1893138d7d069d04b9a419830f1895d7cb89a1a22eeb36b189fbb7c74f7
   composable-actions-and-contracts: 6a2a04e45ad6608eaaec3f1bc97ad11858471f515d02b8c77fc70efae5ec001a
@@ -20,7 +20,7 @@ task_fingerprints:
   multi-step-workflow-progression: fc922dd0a2ec4b2da397db6cb1e8d4c9f9011f311d6b8d7786f1daeffdc1aa95
   fail-closed-workflow-definition-resolution: 2c2fb175e443013df08e28cc279e6596394c8978ee3fb597edc01bc0e4cf2609
   step-active-completed-lifecycle: c43e5fa80380647192ae1cf9a8925a2a01ee4e6d1d29697e23184106f6b3d762
-  production-multi-step-standard-workflow: cc2f23f2760ded6302ea17f49871c21be6e1e510cc938a88bb1bab6b84f9015e
+  production-multi-step-standard-workflow: 66dfd45213422c1d29f57ce820fd535d8e756eaf8feab12917dad50289938c11
   step-context-knowledge-hints: 0ace8b373149b3cd1cab8c145195b488c10c069f1e7aebc34db0e7b2da2cdb88
   multi-step-workflow-e2e-proof: d4a5f09a8b489e224e13d6122fa522ea41fbf7cb4cd67eb491029009a0608dfd
 ---
@@ -29,20 +29,15 @@ task_fingerprints:
 
 ## Verdict
 
-`ready-for-approval` — full `--all` re-read of the whole specification, following the
-D37 lifecycle correction (owner-directed 2026-09-11) and verification of Task 10
-(`step-active-completed-lifecycle`). Zero findings this run.
+`ready-for-approval` — re-read of the specification following Task 12 verification
+and Task 11 refinement under owner-approved decision D39. Zero findings this run.
 
 ## Implementation readiness
 
 - May implementation start now? No — `implementation_allowed: false`.
-- Are the relevant tasks `approved` in `change.yaml`? No — Task 12
-  (`step-context-knowledge-hints`) and Tasks 11, 13 remain `status: draft`. Tasks
-  01-10 are all `verified`.
-- What has to happen first? Owner approval of Task 12 — its dependencies (08, 10) are
-  both verified, allowing Task 12 to proceed independently of Task 11. Task 11
-  additionally still needs its own separate D31 decomposition-approval precondition
-  before it can start/be approved.
+- Are the relevant tasks `approved` in `change.yaml`? No — Tasks 11 and 13 remain `status: draft`. Tasks 01-10 and Task 12 are all `verified`.
+- What has to happen first? Owner approval of Task 11 — its D31 precondition has been
+  explicitly satisfied by Decision D39 (approved 3-step sequence: `implementation` -> `review` -> `human-verification` -> `verified`). Task 11 is now ready for owner approval and start.
 
 ## Findings
 
