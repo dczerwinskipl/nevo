@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-11T16:11:57.911Z",
+  "generated": "2026-09-11T16:25:00.974Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -507,17 +507,18 @@
           ],
           "implementation": {
             "baseline_revision": "016c7c7fbf50bcad95ee87067d4084feb88cbb12",
-            "review_revision": "016c7c7fbf50bcad95ee87067d4084feb88cbb12",
+            "review_revision": "6dddabae7a72f9dd370ddbeac2c4805ba4052889",
             "changed_paths": [
               "docs/development/workflow-engine.md",
+              "tools/specs/context.mjs",
               "tools/specs/workflow/step-context.mjs",
               "tools/tests/workflow-next-step.test.mjs"
             ],
-            "worktree_patch_fingerprint": "be4dba552f0564507986b1a01061006f43d9586500cbae82a827016c81a7e022"
+            "worktree_patch_fingerprint": "8c8cb6c304d106daaa412a06f1fc61b3a2a395d8633a0bc485053a4ecfefeefe"
           },
           "self_check": {
-            "fingerprint": "1cbd780e4da83fb4c0ffd2bb0fec40dfb05eccd2d4090352d7b3217da1fa462d",
-            "revision": "016c7c7fbf50bcad95ee87067d4084feb88cbb12",
+            "fingerprint": "0ace8b373149b3cd1cab8c145195b488c10c069f1e7aebc34db0e7b2da2cdb88",
+            "revision": "6dddabae7a72f9dd370ddbeac2c4805ba4052889",
             "commands": [
               {
                 "command": "node --test tools/tests/workflow-next-step.test.mjs",

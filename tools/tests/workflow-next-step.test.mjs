@@ -30,7 +30,13 @@ import {
   WorkflowError,
   WorkflowDefinitionError,
 } from '../specs/workflow/index.mjs';
-import { requireChange, requireTask } from '../specs/store.mjs';
+import { requireChange, requireTask, ROOT } from '../specs/store.mjs';
+import {
+  matchRoutingRules,
+  resolveTaskScope,
+  buildContextPacket,
+  computeRoutingWarnings,
+} from '../specs/context.mjs';
 // Registers CommitAndPushAction into defaultActionRegistry — required for
 // loadWorkflowDefinition's knownActions default (D20/D34) to include the one real
 // registered action, exactly as the real CLI's own cli.mjs import already guarantees.
@@ -1119,5 +1125,123 @@ describe('StepContext knowledge hints and step behavior contract (Task 12, D22, 
     assert.ok(Array.isArray(stepContext.expectedWork.forbiddenPaths));
     assert.ok(Array.isArray(stepContext.relevantDocs));
     assert.equal(stepContext.stepContract, undefined);
+  });
+
+  test('D38: buildContextPacket and compileStepContext share resolveTaskScope with zero divergence', async () => {
+    const activeDir = mkdtempSync(join(tmpdir(), 'nevo-d38-scope-'));
+    try {
+      const changeDir = join(activeDir, 'd38-change');
+      const tasksDir = join(changeDir, 'tasks');
+      mkdirSync(tasksDir, { recursive: true });
+      writeFileSync(join(changeDir, 'change.yaml'), [
+        'id: d38-change',
+        'title: "D38 Change"',
+        'type: standard',
+        'status: draft',
+        'tasks:',
+        '  - id: t1',
+        '    order: 1',
+        '    file: tasks/01-t1.md',
+        '    status: in-implementation',
+      ].join('\n'));
+      writeFileSync(join(changeDir, 'owner-decisions.md'), '## D1: Demo\n\nText.\n');
+      writeFileSync(join(tasksDir, '01-t1.md'), [
+        '---',
+        'id: d38-change.t1',
+        'allowed_paths:',
+        '  - src/NEvo.Core/**',
+        '  - tools/specs/**',
+        'forbidden_paths:',
+        '  - tests/**',
+        '---',
+        '# Task content',
+      ].join('\n'));
+
+      const changeObj = { id: 'd38-change', _slug: 'd38-change', _dir: changeDir };
+      const taskObj = {
+        id: 't1',
+        file: 'tasks/01-t1.md',
+        status: 'in-implementation',
+        workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+      };
+
+      // 1. Resolve via resolveTaskScope directly
+      const directScope = resolveTaskScope(changeObj, taskObj);
+
+      // 2. Resolve via legacy buildContextPacket
+      const legacyPacket = buildContextPacket(changeObj, taskObj);
+
+      // 3. Resolve via compileStepContext
+      const definition = buildDefinition();
+      const gateRegistry = makeGateRegistry();
+      const context = { repoRoot: ctx.repo, taskId: taskObj.id, sourceControl: { enabled: false } };
+      const stepContext = await compileStepContext({ change: changeObj, task: taskObj, definition, context, gateRegistry });
+
+      // Prove that all three resolve identical allowed/forbidden paths
+      assert.deepEqual(directScope.allowedPaths, ['src/NEvo.Core/**', 'tools/specs/**']);
+      assert.deepEqual(directScope.forbiddenPaths, ['tests/**']);
+      assert.deepEqual(legacyPacket.allowed_paths, directScope.allowedPaths);
+      assert.deepEqual(legacyPacket.forbidden_paths, directScope.forbiddenPaths);
+      assert.deepEqual(stepContext.expectedWork.allowedPaths, directScope.allowedPaths);
+      assert.deepEqual(stepContext.expectedWork.forbiddenPaths, directScope.forbiddenPaths);
+    } finally {
+      rmSync(activeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('D38: computeRoutingWarnings and compileStepContext share matchRoutingRules with zero divergence', async () => {
+    const customIndex = {
+      rules: [
+        { rule_id: 'R1', path_glob: 'src/NEvo.Core/**', doc_ref: 'docs/core.md', source: 'docs/ai/rules.md' },
+        { rule_id: 'R2', path_glob: 'src/NEvo.Messaging/**', doc_ref: 'docs/messaging.md', source: 'docs/ai/rules.md' },
+        { rule_id: 'R3', path_glob: 'tools/specs/**', doc_ref: 'docs/specs.md', source: 'docs/ai/rules.md' },
+      ],
+    };
+
+    const allowedPaths = ['src/NEvo.Core/Foo.cs', 'tools/specs/bar.mjs'];
+
+    // 1. Direct matchRoutingRules
+    const matchedRules = matchRoutingRules(customIndex, allowedPaths);
+    assert.equal(matchedRules.length, 2);
+    assert.deepEqual(matchedRules.map(r => r.rule_id), ['R1', 'R3']);
+
+    // 2. computeRoutingWarnings consumes matchRoutingRules:
+    // When declared context is empty, warnings are produced for each matched rule
+    const warnings = computeRoutingWarnings(customIndex, allowedPaths, []);
+    assert.equal(warnings.length, 2);
+    assert.match(warnings[0], /R1/);
+    assert.match(warnings[1], /R3/);
+
+    // 3. compileStepContext consumes matchRoutingRules via projectRelevantDocs:
+    const memoryTask = {
+      id: 'divergence-task',
+      status: 'in-implementation',
+      allowedPaths,
+      workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+    };
+    const definition = buildDefinition();
+    const gateRegistry = makeGateRegistry();
+    const context = {
+      repoRoot: ctx.repo,
+      taskId: memoryTask.id,
+      routingIndex: customIndex,
+      sourceControl: { enabled: false },
+    };
+    const sc = await compileStepContext({ change, task: memoryTask, definition, context, gateRegistry });
+
+    assert.equal(sc.relevantDocs.length, 2);
+    assert.deepEqual(sc.relevantDocs.map(d => d.ruleId), ['R1', 'R3']);
+    assert.deepEqual(sc.relevantDocs.map(d => d.docRef), ['docs/core.md', 'docs/specs.md']);
+    assert.deepEqual(sc.relevantDocs.map(d => d.pathGlob), ['src/NEvo.Core/**', 'tools/specs/**']);
+  });
+
+  test('D38: architectural boundary: step-context.mjs delegates to context.mjs and owns no duplicate glob/frontmatter code', () => {
+    const stepContextCode = readFileSync(join(ROOT, 'tools', 'specs', 'workflow', 'step-context.mjs'), 'utf8');
+    // Must NOT import parseFrontMatterFile or resolveWithinBase
+    assert.doesNotMatch(stepContextCode, /parseFrontMatterFile/);
+    assert.doesNotMatch(stepContextCode, /resolveWithinBase/);
+    // Must import matchRoutingRules and resolveTaskScope from context.mjs
+    assert.match(stepContextCode, /import\s*\{[^}]*matchRoutingRules[^}]*\}\s*from\s*['"]\.\.\/context\.mjs['"]/);
+    assert.match(stepContextCode, /import\s*\{[^}]*resolveTaskScope[^}]*\}\s*from\s*['"]\.\.\/context\.mjs['"]/);
   });
 });

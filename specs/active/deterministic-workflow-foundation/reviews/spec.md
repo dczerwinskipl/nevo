@@ -21,7 +21,7 @@ task_fingerprints:
   fail-closed-workflow-definition-resolution: 2c2fb175e443013df08e28cc279e6596394c8978ee3fb597edc01bc0e4cf2609
   step-active-completed-lifecycle: c43e5fa80380647192ae1cf9a8925a2a01ee4e6d1d29697e23184106f6b3d762
   production-multi-step-standard-workflow: cc2f23f2760ded6302ea17f49871c21be6e1e510cc938a88bb1bab6b84f9015e
-  step-context-knowledge-hints: 1cbd780e4da83fb4c0ffd2bb0fec40dfb05eccd2d4090352d7b3217da1fa462d
+  step-context-knowledge-hints: 0ace8b373149b3cd1cab8c145195b488c10c069f1e7aebc34db0e7b2da2cdb88
   multi-step-workflow-e2e-proof: d4a5f09a8b489e224e13d6122fa522ea41fbf7cb4cd67eb491029009a0608dfd
 ---
 

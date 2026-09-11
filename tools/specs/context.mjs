@@ -29,6 +29,22 @@ export function loadRoutingIndex() {
   return JSON.parse(readUtf8(ROUTING_INDEX_FILE));
 }
 
+/**
+ * Matches a list of path globs against the routing rules index (D22, D38).
+ * Pure: routingIndex is the loaded JSON object (or null), paths is an array of path globs.
+ * Returns the matching rule objects from routingIndex.rules.
+ *
+ * @param {object|null} routingIndex
+ * @param {string[]} paths
+ * @returns {Array<object>}
+ */
+export function matchRoutingRules(routingIndex, paths = []) {
+  if (!routingIndex || !Array.isArray(routingIndex.rules) || !paths?.length) return [];
+  return routingIndex.rules.filter(rule =>
+    paths.some(p => pathGlobsOverlap(p, rule.path_glob))
+  );
+}
+
 // A context_exceptions entry validly suppresses its warning only when: its
 // `decision` resolves to a currently active (non-superseded) owner decision,
 // and `reason` is a non-empty string.
@@ -53,9 +69,7 @@ export function computeRoutingWarnings(
   const exempted = new Set(
     contextExceptions.filter(e => isActiveContextException(e, decisionsMap)).map(e => e.omitted)
   );
-  const matched = (routingIndex.rules || []).filter(rule =>
-    (allowedPaths || []).some(ap => pathGlobsOverlap(ap, rule.path_glob))
-  );
+  const matched = matchRoutingRules(routingIndex, allowedPaths);
   if (!matched.length) {
     return ['no routing rule matched — verify context manually'];
   }
@@ -64,11 +78,61 @@ export function computeRoutingWarnings(
     .map(rule => `routing rule '${rule.rule_id}' (${rule.path_glob}) suggests '${rule.doc_ref}' — not in this task's declared context`);
 }
 
+// ── Task frontmatter and scope resolution (D22, D38) ───────────────────────
+
+/**
+ * Loads and parses task frontmatter from disk (D38).
+ * Pure with respect to change/task descriptors; reads the task file if present.
+ *
+ * @param {object} change
+ * @param {object} task
+ * @param {object} [options]
+ * @param {string} [options.activeDir]
+ * @returns {object}
+ */
+export function loadTaskFrontMatter(change, task, options = {}) {
+  if (!task?.file) return {};
+  const activeDir = options?.activeDir || ACTIVE_DIR;
+  const changeDir = change?._dir
+    || (change?.id || change?._slug ? resolveWithinBase(activeDir, change.id || change._slug) : null);
+  if (!changeDir || !existsSync(changeDir)) return {};
+  const taskFile = resolveWithinBase(changeDir, task.file);
+  return existsSync(taskFile) ? parseFrontMatterFile(taskFile) : {};
+}
+
+/**
+ * Resolves the task's declared scope (`allowedPaths` and `forbiddenPaths`) (D22, D38).
+ * Sourced deterministically from in-memory task properties when present (e.g. in test fixtures),
+ * or from the task markdown file's frontmatter using loadTaskFrontMatter.
+ *
+ * @param {object} change
+ * @param {object} task
+ * @param {object} [options]
+ * @returns {{ allowedPaths: string[], forbiddenPaths: string[] }}
+ */
+export function resolveTaskScope(change, task, options = {}) {
+  let allowedPaths = task?.allowedPaths || task?.allowed_paths;
+  let forbiddenPaths = task?.forbiddenPaths || task?.forbidden_paths;
+
+  if (allowedPaths === undefined || forbiddenPaths === undefined) {
+    const taskFm = loadTaskFrontMatter(change, task, options);
+    if (allowedPaths === undefined) allowedPaths = taskFm.allowed_paths;
+    if (forbiddenPaths === undefined) forbiddenPaths = taskFm.forbidden_paths;
+  }
+
+  const res = {
+    allowedPaths: Array.isArray(allowedPaths) ? allowedPaths : [],
+    forbiddenPaths: Array.isArray(forbiddenPaths) ? forbiddenPaths : [],
+  };
+  Object.defineProperty(res, 'allowed_paths', { value: res.allowedPaths, enumerable: false });
+  Object.defineProperty(res, 'forbidden_paths', { value: res.forbiddenPaths, enumerable: false });
+  return res;
+}
+
 // ── Context packet ─────────────────────────────────────────────────────────
 
 export function buildContextPacket(change, task) {
-  const taskFile = task.file ? resolveWithinBase(change._dir, task.file) : null;
-  const taskFm = taskFile ? parseFrontMatterFile(taskFile) : {};
+  const taskFm = loadTaskFrontMatter(change, task);
 
   const branchMode = change.branch?.mode || 'per-change';
   const prefix = change.branch?.prefix || 'feature';
@@ -82,10 +146,11 @@ export function buildContextPacket(change, task) {
   const contextOptional = (taskFm.context?.optional || []).map(p =>
     p.startsWith('../') ? join('specs/active', change._slug, p).replace(/\\/g, '/') : p
   );
-  const allowedPaths = taskFm.allowed_paths || [];
+  const { allowedPaths, forbiddenPaths } = resolveTaskScope(change, task);
   const consequentialPaths = taskFm.consequential_paths || [];
   const contextExceptions = taskFm.context_exceptions || [];
-  const decisionsMap = parseOwnerDecisions(readIfExists(join(change._dir, 'owner-decisions.md')));
+  const decisionsDir = change._dir || (change.id || change._slug ? resolveWithinBase(ACTIVE_DIR, change.id || change._slug) : null);
+  const decisionsMap = parseOwnerDecisions(decisionsDir ? readIfExists(join(decisionsDir, 'owner-decisions.md')) : '');
 
   return {
     change: { id: change.id, title: change.title, specId: change.spec_id ?? null },
@@ -97,7 +162,7 @@ export function buildContextPacket(change, task) {
     allowed_paths: allowedPaths,
     consequential_paths: consequentialPaths,
     context_exceptions: contextExceptions,
-    forbidden_paths: taskFm.forbidden_paths || [],
+    forbidden_paths: forbiddenPaths,
     branch,
     routingWarnings: computeRoutingWarnings(
       loadRoutingIndex(),

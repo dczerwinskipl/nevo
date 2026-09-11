@@ -13,15 +13,15 @@ context:
     - docs/development/workflow-engine.md
 allowed_paths:
   - tools/specs/workflow/step-context.mjs
+  - tools/specs/context.mjs
   - tools/tests/workflow-next-step.test.mjs
   - docs/development/workflow-engine.md
 forbidden_paths:
   - src/**
   - tests/NEvo.*/**
   - tools/dashboard/**
-  - tools/specs/context.mjs
 semantic_references:
-  decisions: [D10, D22, D25, D37]
+  decisions: [D10, D22, D25, D37, D38]
   constraints: [C11, C25]
   dependency_contracts: [multi-step-workflow-progression, step-active-completed-lifecycle]
 ---
@@ -55,10 +55,12 @@ recomputing that resolution; it only adds the task-level/step-contract fields ab
 
 ## Implementation constraints
 
-- **Read, never modify, `tools/specs/context.mjs`** — this task consumes its existing
-  routing/context-packet logic (e.g. whatever function produces `routingWarnings`/doc
-  matches for the legacy context packet) as a library call; it does not fork or
-  duplicate that logic inside `tools/specs/workflow/`.
+- **Single owner for context/routing logic (D38)**: `tools/specs/context.mjs` is included in
+  `allowed_paths` via D38 scope amendment to export unified, reusable pure helpers
+  (`loadTaskFrontMatter`, `resolveTaskScope`, `matchRoutingRules`). `compileStepContext`
+  consumes these helpers directly — it does not independently parse task frontmatter or
+  filter `routingIndex.rules` inside `tools/specs/workflow/`. `pathGlobsOverlap` remains
+  owned in one place (`context.mjs`).
 - No new prompt-generation surface: every value in the new fields must be traceable to
   an existing deterministic source (task frontmatter, routing-rule output) — if a
   desired hint has no such source today, leave it out rather than inventing one.
