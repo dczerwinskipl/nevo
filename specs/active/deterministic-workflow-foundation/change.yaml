@@ -425,7 +425,7 @@ tasks:
   - id: multi-step-workflow-e2e-proof
     order: 13
     file: tasks/13-multi-step-workflow-e2e-proof.md
-    status: implemented
+    status: verified
     depends_on:
       - production-multi-step-standard-workflow
       - step-context-knowledge-hints

@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-11T18:05:05.344Z",
+  "generated": "2026-09-11T18:13:53.661Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -567,7 +567,7 @@
           "id": "multi-step-workflow-e2e-proof",
           "order": 13,
           "file": "tasks/13-multi-step-workflow-e2e-proof.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "production-multi-step-standard-workflow",
             "step-context-knowledge-hints",
