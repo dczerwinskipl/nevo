@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-11T10:22:55.184Z",
+  "generated": "2026-09-11T11:14:37.618Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -235,30 +235,39 @@
           "id": "cli-integration-and-vertical-poc",
           "order": 7,
           "file": "tasks/07-cli-integration-and-vertical-poc.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "source-control-capability",
             "step-orchestration-and-next-step-service"
           ],
           "implementation": {
             "baseline_revision": "4df2cde82a3e81d4e3b715b5413a2927818ea0e8",
-            "review_revision": "4df2cde82a3e81d4e3b715b5413a2927818ea0e8",
+            "review_revision": "ab8ed8041dd3eaa2b4f28a38075af39db0c7b074",
             "changed_paths": [
               "docs/development/workflow-engine.md",
               "tools/specs.mjs",
               "tools/specs/workflow/cli.mjs",
+              "tools/specs/workflow/compatibility.mjs",
+              "tools/specs/workflow/definitions/loader.mjs",
+              "tools/specs/workflow/definitions/schema.mjs",
               "tools/specs/workflow/finish-operation.mjs",
+              "tools/specs/workflow/gates/human-gate.mjs",
               "tools/specs/workflow/human-verification-store.mjs",
               "tools/specs/workflow/index.mjs",
               "tools/specs/workflow/step-context.mjs",
+              "tools/specs/workflow/step-runner.mjs",
+              "tools/specs/workflow/templates/architectural.yaml",
+              "tools/specs/workflow/templates/exploratory.yaml",
+              "tools/specs/workflow/templates/small.yaml",
+              "tools/specs/workflow/templates/standard.yaml",
               "tools/tests/workflow-cli.test.mjs",
               "tools/tests/workflow-e2e.test.mjs"
             ],
-            "worktree_patch_fingerprint": "c57f8c418a05b729cd403471a290d564e1aa00e4bf5c064b109df26a45253a92"
+            "worktree_patch_fingerprint": null
           },
           "self_check": {
-            "fingerprint": "5fddc7cb6c3603e40faf2175be5c2743d8903c61d0456eab48f614fffcbca059",
-            "revision": "4df2cde82a3e81d4e3b715b5413a2927818ea0e8",
+            "fingerprint": "08f3891e54d23998af597eb5454049fc02eae44f5f6d1532db44918a4a9933d8",
+            "revision": "ab8ed8041dd3eaa2b4f28a38075af39db0c7b074",
             "commands": [
               {
                 "command": "node --test tools/tests/workflow-cli.test.mjs",
