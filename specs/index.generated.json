@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-11T16:48:47.719Z",
+  "generated": "2026-09-11T17:00:27.233Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -489,7 +489,7 @@
           "id": "production-multi-step-standard-workflow",
           "order": 11,
           "file": "tasks/11-production-multi-step-standard-workflow.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "multi-step-workflow-progression",
             "fail-closed-workflow-definition-resolution",

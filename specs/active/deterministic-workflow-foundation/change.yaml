@@ -369,7 +369,7 @@ tasks:
   - id: production-multi-step-standard-workflow
     order: 11
     file: tasks/11-production-multi-step-standard-workflow.md
-    status: draft
+    status: approved
     depends_on:
       - multi-step-workflow-progression
       - fail-closed-workflow-definition-resolution
