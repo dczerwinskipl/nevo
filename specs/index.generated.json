@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-11T15:57:51.434Z",
+  "generated": "2026-09-11T16:00:40.605Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -500,7 +500,7 @@
           "id": "step-context-knowledge-hints",
           "order": 12,
           "file": "tasks/12-step-context-knowledge-hints.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "multi-step-workflow-progression",
             "step-active-completed-lifecycle"
