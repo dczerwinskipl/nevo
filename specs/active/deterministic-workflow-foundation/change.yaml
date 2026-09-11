@@ -310,7 +310,7 @@ tasks:
   - id: step-active-completed-lifecycle
     order: 10
     file: tasks/10-step-active-completed-lifecycle.md
-    status: implemented
+    status: verified
     depends_on:
       - multi-step-workflow-progression
       - fail-closed-workflow-definition-resolution

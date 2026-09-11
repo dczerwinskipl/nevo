@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-11T15:26:07.831Z",
+  "generated": "2026-09-11T15:57:51.434Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -406,7 +406,7 @@
           "id": "step-active-completed-lifecycle",
           "order": 10,
           "file": "tasks/10-step-active-completed-lifecycle.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "multi-step-workflow-progression",
             "fail-closed-workflow-definition-resolution"
