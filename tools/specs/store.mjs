@@ -118,16 +118,21 @@ export function setTaskStatus(change, taskId, status) {
  * `status` and/or `workflow_progress` to one task in a single `change.yaml`
  * read-modify-write, so a multi-step workflow's `update-task` finalize stage never needs
  * two separate writes (and therefore two separate commits/crash windows) to land a step
- * advance and/or a terminal status change together. Either field may be omitted; at
+ * completion and/or a terminal status change together. Either field may be omitted; at
  * least one must be provided. `setTaskStatus` remains unchanged for legacy
  * (non-deterministic) callers that only ever need the one field.
+ *
+ * Also the sole write path for `workflow step start`'s own activation mutation (D37,
+ * `step-context.mjs`'s `ensureStepActivated`) — a single call with only
+ * `workflowProgress` provided.
  *
  * @param {object} change - Loaded change manifest (`change._file` required)
  * @param {string} taskId
  * @param {object} params
  * @param {string} [params.status] - New task lifecycle status
- * @param {{ current_step: string, history: Array<object> }} [params.workflowProgress] -
- *   New `workflow_progress` value (replaces the whole block, not a partial merge)
+ * @param {{ current_step: string, state: 'active'|'completed', history: Array<object> }} [params.workflowProgress] -
+ *   New `workflow_progress` value (replaces the whole block, not a partial merge) — `state`
+ *   is D37's runtime active/completed axis, required whenever `workflow_progress` is set.
  */
 export function setTaskWorkflowState(change, taskId, { status, workflowProgress } = {}) {
   if (status === undefined && workflowProgress === undefined) {

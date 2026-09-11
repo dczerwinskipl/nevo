@@ -241,18 +241,20 @@ export function validateSelfCheck(task, errors, label, { isArchive = false } = {
 }
 
 /**
- * D18/D19/D28 (task 08, multi-step-workflow-progression): `workflow_progress` is new,
- * Git-tracked task state that only ever makes sense on a `workflow.mode: deterministic`
- * change. Fail closed both ways (AC1/AC19): present on a change that does not resolve to
+ * D18/D19/D28 (task 08, multi-step-workflow-progression), `state` axis added by D37
+ * (task 10, step-active-completed-lifecycle): `workflow_progress` is new, Git-tracked
+ * task state that only ever makes sense on a `workflow.mode: deterministic` change.
+ * Fail closed both ways (AC1/AC19): present on a change that does not resolve to
  * deterministic mode is an explicit validation error — never silently ignored or
  * tolerated as a harmless extra field — and, on a deterministic change,
  * `current_step` must actually name a real step in the *resolved* workflow definition,
  * so a typo'd or stale value is caught here rather than only surfacing the first time
- * the workflow engine happens to run against this task (`resolveCurrentStepName` would
- * throw at that point, but validation is the earlier, repository-wide gate). Per D28,
- * `current_step` is never cleared once a task reaches a terminal status — it keeps
- * naming the last real step — so this check applies unconditionally, not only while the
- * task is still in-progress.
+ * the workflow engine happens to run against this task (`resolveWorkflowPosition` would
+ * throw at that point, but validation is the earlier, repository-wide gate). `state`
+ * must be exactly `active` or `completed` (D37) — required whenever `workflow_progress`
+ * is present, never inferred. Per D28, `current_step`/`state` are never cleared once a
+ * task reaches a terminal status — they keep naming/describing the last real step — so
+ * this check applies unconditionally, not only while the task is still in-progress.
  */
 export function validateWorkflowProgress(change, task, errors, label, { repoRoot = ROOT } = {}) {
   if (task.workflow_progress === undefined) return;
@@ -271,10 +273,16 @@ export function validateWorkflowProgress(change, task, errors, label, { repoRoot
     return;
   }
 
-  const { current_step: currentStep, history } = task.workflow_progress;
+  const { current_step: currentStep, state, history } = task.workflow_progress;
   if (typeof currentStep !== 'string' || !currentStep.trim()) {
     errors.push(`${label}: workflow_progress.current_step must be a non-empty string`);
     return;
+  }
+  // D37: the runtime active/completed state axis — required whenever workflow_progress
+  // is present at all; never inferred/defaulted (fail-closed, same standard as every
+  // other deterministic-workflow field).
+  if (state !== 'active' && state !== 'completed') {
+    errors.push(`${label}: workflow_progress.state must be 'active' or 'completed', got '${JSON.stringify(state)}'`);
   }
   if (history !== undefined && !Array.isArray(history)) {
     errors.push(`${label}: workflow_progress.history must be an array`);

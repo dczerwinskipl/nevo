@@ -51,6 +51,9 @@ sourceControl:
   push: true
 steps:
   implementation:
+    status:
+      active: implementing
+      completed: implemented
     entryGates: []
     exitGates:
       - type: command
@@ -201,6 +204,9 @@ describe('Vertical PoC — interrupted-and-resumed finish via the CLI (AC4, AC6,
     // runtime/execution state (not a spec file) — crafting it directly is this
     // subsystem's own supported resumability mechanism (Task 06), not a substitute for
     // driving the change/task through the CLI.
+    // D37: a human-verification exit gate is only meaningful for an active step —
+    // activate it first via the normal CLI entry point.
+    await handleWorkflowStepStart('demo-change', 'demo-task', { ...RT, activeDir: fx.activeDir, repoRoot: fx.root });
     handleWorkflowVerifyHuman('demo-change', 'demo-task', { ...RT, confirm: true, activeDir: fx.activeDir, repoRoot: fx.root });
 
     const change = requireChange('demo-change', fx.activeDir);

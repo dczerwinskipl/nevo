@@ -15,7 +15,7 @@ import {
   handleWorkflowStepFinish,
   handleWorkflowVerifyHuman,
 } from '../specs/workflow/cli.mjs';
-import { requireChange, setTaskWorkflowState } from '../specs/store.mjs';
+import { requireChange, requireTask, setTaskWorkflowState } from '../specs/store.mjs';
 import { WorkflowDefinitionError } from '../specs/workflow/errors.mjs';
 
 const CHANGE_YAML = `id: demo-change
@@ -41,6 +41,9 @@ sourceControl:
   push: false
 steps:
   implementation:
+    status:
+      active: implementing
+      completed: implemented
     entryGates: []
     exitGates:
       - type: command
@@ -75,6 +78,9 @@ sourceControl:
   enabled: false
 steps:
   implementation:
+    status:
+      active: implementing
+      completed: implemented
     entryGates: []
     exitGates:
       - type: human
@@ -111,6 +117,9 @@ sourceControl:
   enabled: false
 steps:
   implementation:
+    status:
+      active: implementing
+      completed: implemented
     entryGates: []
     exitGates:
       - type: human
@@ -144,6 +153,9 @@ sourceControl:
   enabled: false
 steps:
   stepA:
+    status:
+      active: a-active
+      completed: a-completed
     entryGates: []
     exitGates:
       - type: human
@@ -153,10 +165,61 @@ steps:
     transitions:
       - to: stepB
   stepB:
+    status:
+      active: b-active
+      completed: b-completed
     entryGates: []
     exitGates:
       - type: human
         required: true
+    finalize:
+      - id: commit-and-push
+    transitions:
+      - to: verified
+`;
+
+const SEQUENCE_CHANGE_YAML = `id: demo-change
+title: "Demo change"
+type: standard
+status: draft
+workflow:
+  mode: deterministic
+  definition: vertical-poc-sequence
+tasks:
+  - id: demo-task
+    order: 1
+    file: tasks/01-demo.md
+    status: in-implementation
+`;
+
+const SEQUENCE_WORKFLOW_YAML = `id: vertical-poc-sequence
+title: "Vertical PoC Sequence"
+type: standard
+version: 1
+sourceControl:
+  enabled: true
+  push: false
+steps:
+  stepA:
+    status:
+      active: a-active
+      completed: a-completed
+    entryGates: []
+    exitGates:
+      - type: command
+        command: "node -e \\"process.exit(0)\\""
+    finalize:
+      - id: commit-and-push
+    transitions:
+      - to: stepB
+  stepB:
+    status:
+      active: b-active
+      completed: b-completed
+    entryGates: []
+    exitGates:
+      - type: command
+        command: "node -e \\"process.exit(0)\\""
     finalize:
       - id: commit-and-push
     transitions:
@@ -248,6 +311,11 @@ describe('CLI surface: workflow step start / step finish / verify-human (AC1)', 
   });
 
   test('workflow verify-human requires --confirm and otherwise persists a durable signoff record', async () => {
+    // D37: a human-verification exit gate is only meaningful for an *active* step —
+    // activate it first (a prior test in this suite already did, but assert it's a
+    // harmless resume either way).
+    await handleWorkflowStepStart('demo-change', 'demo-task', { activeDir: fx.activeDir, repoRoot: fx.root, silent: true });
+
     assert.throws(() => handleWorkflowVerifyHuman('demo-change', 'demo-task', {
       activeDir: fx.activeDir, repoRoot: fx.root, silent: true,
     }), /--confirm/);
@@ -271,12 +339,14 @@ describe('CLI surface: workflow step start / step finish / verify-human (AC1)', 
 
 describe('workflow verify-human --gate disambiguation on a step with multiple human gates (D24/D29/D30, AC10)', () => {
   let fx;
-  before(() => {
+  before(async () => {
     fx = makeFixture('nevo-cli-multi-gate', {
       changeYaml: MULTI_GATE_CHANGE_YAML,
       workflowId: 'vertical-poc-multi-gate',
       workflowYaml: MULTI_GATE_WORKFLOW_YAML,
     });
+    // D37: a human-verification exit gate is only meaningful for an active step.
+    await handleWorkflowStepStart('demo-change', 'demo-task', { activeDir: fx.activeDir, repoRoot: fx.root, silent: true });
   });
   after(() => rmSync(fx.root, { recursive: true, force: true }));
 
@@ -360,7 +430,9 @@ describe('confirming step A\'s human gate never satisfies an independently-confi
   after(() => rmSync(fx.root, { recursive: true, force: true }));
 
   test('confirming stepA leaves stepB\'s own gate unmet once the task advances there', async () => {
-    // Task starts on stepA (no workflow_progress yet — resolves to entryStep).
+    // D37: `step start` activates stepA (entry step) before its human gate is
+    // meaningful to confirm.
+    await handleWorkflowStepStart('demo-change', 'demo-task', { activeDir: fx.activeDir, repoRoot: fx.root, silent: true });
     const confirmA = handleWorkflowVerifyHuman('demo-change', 'demo-task', { confirm: true, activeDir: fx.activeDir, repoRoot: fx.root, silent: true });
     assert.equal(confirmA.confirmed, true);
 
@@ -370,7 +442,7 @@ describe('confirming step A\'s human gate never satisfies an independently-confi
     // Advance the task to stepB directly (the finalize sequence itself is exhaustively
     // tested elsewhere; this test isolates the storage-scoping guarantee).
     const change = requireChange('demo-change', fx.activeDir);
-    setTaskWorkflowState(change, 'demo-task', { workflowProgress: { current_step: 'stepB', history: [] } });
+    setTaskWorkflowState(change, 'demo-task', { workflowProgress: { current_step: 'stepB', state: 'active', history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }] } });
 
     const stepBContext = await handleWorkflowStepStart('demo-change', 'demo-task', { activeDir: fx.activeDir, repoRoot: fx.root, silent: true });
     assert.equal(stepBContext.currentStep, 'stepB');
@@ -384,6 +456,76 @@ describe('confirming step A\'s human gate never satisfies an independently-confi
     assert.equal(confirmB.confirmed, true);
     const stepBContextAfter = await handleWorkflowStepStart('demo-change', 'demo-task', { activeDir: fx.activeDir, repoRoot: fx.root, silent: true });
     assert.equal(stepBContextAfter.finishContract.gates.find(g => g.gateType === 'human').status, 'passed');
+  });
+});
+
+describe('Multi-step CLI sequence: new -> active(A) -> completed(A) -> active(B) -> completed(B) -> terminal (D37, task 10 AC11)', () => {
+  let fx;
+  before(() => {
+    fx = makeFixture('nevo-cli-sequence', {
+      changeYaml: SEQUENCE_CHANGE_YAML,
+      workflowId: 'vertical-poc-sequence',
+      workflowYaml: SEQUENCE_WORKFLOW_YAML,
+    });
+  });
+  after(() => rmSync(fx.root, { recursive: true, force: true }));
+
+  test('drives the full sequence entirely through handleWorkflowStepStart/handleWorkflowStepFinish, no internal resolution function called', async () => {
+    // new -> active(A)
+    const startA = await handleWorkflowStepStart('demo-change', 'demo-task', { activeDir: fx.activeDir, repoRoot: fx.root, silent: true });
+    assert.equal(startA.currentStep, 'stepA');
+    assert.equal(startA.runtimeState, 'active');
+    assert.equal(startA.semanticStatus, 'a-active');
+
+    // resume: a second step start while still active is a harmless no-op, same result.
+    const resumeA = await handleWorkflowStepStart('demo-change', 'demo-task', { activeDir: fx.activeDir, repoRoot: fx.root, silent: true });
+    assert.equal(resumeA.currentStep, 'stepA');
+    assert.equal(resumeA.runtimeState, 'active');
+
+    // active(A) -> completed(A): finish never advances current_step (D37).
+    writeFileSync(join(fx.root, 'feature-a.txt'), 'work on stepA\n');
+    const finishA = await handleWorkflowStepFinish('demo-change', 'demo-task', {
+      activeDir: fx.activeDir, repoRoot: fx.root, silent: true, title: 'Finish stepA', include: '*',
+    });
+    assert.equal(finishA.status, 'completed');
+
+    const taskAfterA = requireTask(requireChange('demo-change', fx.activeDir), 'demo-task');
+    assert.equal(taskAfterA.workflow_progress.current_step, 'stepA', 'D37: finish never advances current_step');
+    assert.equal(taskAfterA.workflow_progress.state, 'completed');
+
+    // repeated finish on the completed step is non-actionable — no new commit.
+    const commitsBeforeRepeat = git(fx.root, ['rev-list', '--count', 'HEAD']).trim();
+    const repeatFinishA = await handleWorkflowStepFinish('demo-change', 'demo-task', { activeDir: fx.activeDir, repoRoot: fx.root, silent: true });
+    assert.equal(repeatFinishA.status, 'completed');
+    assert.equal(git(fx.root, ['rev-list', '--count', 'HEAD']).trim(), commitsBeforeRepeat);
+
+    // completed(A) -> active(B): only the next step start activates the next step.
+    const startB = await handleWorkflowStepStart('demo-change', 'demo-task', { activeDir: fx.activeDir, repoRoot: fx.root, silent: true });
+    assert.equal(startB.currentStep, 'stepB');
+    assert.equal(startB.runtimeState, 'active');
+    assert.equal(startB.semanticStatus, 'b-active');
+    const taskAfterActivateB = requireTask(requireChange('demo-change', fx.activeDir), 'demo-task');
+    assert.equal(taskAfterActivateB.workflow_progress.history.length, 1, 'activating the next step appends no history entry');
+
+    // active(B) -> completed(B) + terminal (stepB's transition target is `verified`).
+    writeFileSync(join(fx.root, 'feature-b.txt'), 'work on stepB\n');
+    const finishB = await handleWorkflowStepFinish('demo-change', 'demo-task', {
+      activeDir: fx.activeDir, repoRoot: fx.root, silent: true, title: 'Finish stepB', include: '*',
+    });
+    assert.equal(finishB.status, 'completed');
+
+    const taskAfterB = requireTask(requireChange('demo-change', fx.activeDir), 'demo-task');
+    assert.equal(taskAfterB.status, 'verified');
+    assert.equal(taskAfterB.workflow_progress.current_step, 'stepB');
+    assert.equal(taskAfterB.workflow_progress.state, 'completed');
+    assert.equal(taskAfterB.workflow_progress.history.length, 2);
+
+    // terminal: a further step start reports complete, mutates nothing.
+    const terminalStart = await handleWorkflowStepStart('demo-change', 'demo-task', { activeDir: fx.activeDir, repoRoot: fx.root, silent: true });
+    assert.equal(terminalStart.currentStep, null);
+    assert.equal(terminalStart.stepStatus, 'complete');
+    assert.equal(terminalStart.runtimeState, 'completed');
+    assert.equal(terminalStart.semanticStatus, 'b-completed');
   });
 });
 

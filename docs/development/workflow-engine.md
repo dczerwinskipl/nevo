@@ -100,14 +100,14 @@ reimplemented) by `step-context.mjs` and `finish-operation.mjs`.
 
 ## `StepContext` at `workflow step start`
 
-`compileStepContext()` (`step-context.mjs`) resolves the task's current step
-(`resolveCurrentStepName` — this foundation's workflow definitions declare exactly one
-step; a task already at the step's transition target has no further step) and compiles:
+`compileStepContext()` (`step-context.mjs`) resolves the task's position
+(`resolveWorkflowPosition`, `step-runner.mjs`) and compiles:
 
 ```json
 {
   "change": "my-change", "task": "my-task", "workflowMode": "deterministic",
   "currentStep": "implementation", "stepStatus": "in-progress",
+  "runtimeState": "active", "semanticStatus": "implementing",
   "entryState": { "blockers": [] },
   "context": { "sourceControl": { "changedFiles": ["..."], "currentBranch": "..." } },
   "finishContract": {
@@ -125,13 +125,37 @@ inspects individual finalize actions itself. `finishContract.gates` and
 never runs a real verification command. Only a definitively `blocked`/`failed` gate
 counts as a blocker; a command gate's `pending` status (not yet `verify()`'d) does not —
 otherwise planning could never reach the finalize execution that would actually run and
-record it.
+record it. `runtimeState`/`semanticStatus` resolve from the same position — `semanticStatus`
+is the current step's declared `status.active`/`status.completed` identifier (see
+"Multi-step position" below), never a separately persisted value.
 
-`.nevo-ai/workflows/standard.yaml`'s `finalize` list still names `verify-task-output`, a
-placeholder with no registered `ActionContract` in this foundation — `step-context.mjs`'s
-`aggregateFinalizeCheck` filters finalize entries down to already-registered actions
-before calling `WorkflowEngine.checkStep`, rather than hard-failing on the unregistered
-placeholder.
+Every registered finalize action a step's `finalize` list references is aggregated —
+an unregistered action id fails closed at workflow-definition load time
+(`loadWorkflowDefinition`), never silently dropped from execution.
+
+### Multi-step position: `step start` activates, `step finish` only completes
+
+A task's position is `workflow_progress: { current_step, state, history }` on its
+`change.yaml` entry — `state` is `active` or `completed`, never a third, separately
+persisted status field (the semantic status above is always derived from
+`(current_step, state, definition)`).
+
+- **`workflow step start`** is the *only* operation that ever advances `current_step`:
+  a fresh task activates the definition's `entryStep`; an already-`active` step resumes
+  with no mutation; a `completed` step whose transition names another step activates
+  that step; a `completed` step whose transition is terminal reports the workflow
+  already complete. Every activation is a single atomic `workflow_progress` write with
+  no other durable side effect.
+- **`workflow step finish`** on an active step never advances `current_step` — it sets
+  `state: completed` on the step that just finished and records the transition target
+  in `history`. Only the *next* `step start` call activates that target. A terminal
+  transition is the one exception where `finish` also writes the task's terminal
+  `status`, atomically with `state: completed`, in the same write.
+- A repeated `step finish` against an already-`completed` step is non-actionable — it
+  never re-runs finalize actions or re-evaluates gates.
+
+This means a task can sit observably between "step A's work is done" and "step B has
+actually begun" — a real, resumable checkpoint the model above exists to represent.
 
 ## Finish planning and durable finish execution
 

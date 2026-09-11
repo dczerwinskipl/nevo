@@ -15,7 +15,7 @@ import { resolveWorkflowMode, assertWorkflowVersionCompatible } from './compatib
 import { loadWorkflowDefinition } from './definitions/loader.mjs';
 import { compileStepContext } from './step-context.mjs';
 import { planFinish, finishStep } from './finish-operation.mjs';
-import { resolveCurrentStepName, gateDisplayId } from './step-runner.mjs';
+import { resolveActiveStepName, gateDisplayId } from './step-runner.mjs';
 import { createDefaultGateRegistry } from './registry.mjs';
 import { MemoryCommandVerificationStore } from './gates/command-gate.mjs';
 import { FileHumanVerificationStore } from './human-verification-store.mjs';
@@ -156,9 +156,13 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
     throw new CliError('workflow verify-human requires --confirm — this command is the only path that can satisfy a human-verification gate (C8)');
   }
   const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
-  const stepName = resolveCurrentStepName(definition, task);
+  // D37: a human-verification gate is one of a step's *exit* gates, evaluated during
+  // `finish` — only meaningful while that step is actually active. A step whose work is
+  // already done (awaiting the next `step start`) or a workflow that's fully complete
+  // has nothing outstanding to confirm.
+  const stepName = resolveActiveStepName(definition, task);
   if (!stepName) {
-    throw new CliError(`Task '${task.id}' has already reached a terminal workflow status — there is no current step requiring human verification`);
+    throw new CliError(`Task '${task.id}' has no currently active workflow step — there is nothing requiring human verification right now`);
   }
   const gateConfig = resolveHumanGateForConfirmation(definition, task, stepName, opts.gate);
   const scope = gateConfig.scope || 'task';

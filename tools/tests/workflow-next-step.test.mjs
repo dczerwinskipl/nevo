@@ -6,7 +6,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -17,8 +17,11 @@ import {
   normalizeWorkflowDefinition,
   validateWorkflowDefinition,
   compileStepContext,
+  ensureStepActivated,
   planFinish,
-  resolveCurrentStepName,
+  resolveWorkflowPosition,
+  resolveSemanticStatus,
+  resolveActiveStepName,
   inspectGates,
   verifyGates,
   aggregateFinalizeCheck,
@@ -26,6 +29,7 @@ import {
   WorkflowError,
   WorkflowDefinitionError,
 } from '../specs/workflow/index.mjs';
+import { requireChange, requireTask } from '../specs/store.mjs';
 // Registers CommitAndPushAction into defaultActionRegistry — required for
 // loadWorkflowDefinition's knownActions default (D20/D34) to include the one real
 // registered action, exactly as the real CLI's own cli.mjs import already guarantees.
@@ -38,6 +42,7 @@ const RAW_DEFINITION = {
   version: 1,
   steps: {
     implementation: {
+      status: { active: 'implementing', completed: 'implemented' },
       entryGates: [],
       actions: [{ id: 'implement-task' }],
       exitGates: [
@@ -96,24 +101,73 @@ function cleanupRepoPair({ repo, remote }) {
   rmSync(remote, { recursive: true, force: true });
 }
 
+/**
+ * A real, on-disk `change.yaml` (D37 activation tests, unlike the plain in-memory
+ * `change`/`task` fixtures below, need a writable `change._file` — `ensureStepActivated`
+ * calls `setTaskWorkflowState`, which performs a real structural YAML write).
+ */
+function makeChangeFixture() {
+  const activeDir = mkdtempSync(join(tmpdir(), 'nevo-activation-'));
+  const changeDir = join(activeDir, 'demo-change');
+  mkdirSync(changeDir, { recursive: true });
+  writeFileSync(join(changeDir, 'change.yaml'), [
+    'id: demo-change',
+    'title: "Demo"',
+    'type: standard',
+    'status: draft',
+    'workflow:',
+    '  mode: deterministic',
+    '  version: 1',
+    'tasks:',
+    '  - id: demo-task',
+    '    order: 1',
+    '    status: in-implementation',
+    '',
+  ].join('\n'));
+  return activeDir;
+}
+
+function cleanupChangeFixture(activeDir) {
+  rmSync(activeDir, { recursive: true, force: true });
+}
+
+// Plain in-memory fixtures for every test that never triggers a real mutation (i.e.
+// never resolves to `resolveWorkflowPosition`'s `new`/`completed` phases) — `task`
+// already carries `state: 'active'` so `ensureStepActivated`/`compileStepContext` never
+// call `setTaskWorkflowState`, and `change` never needs a real `_file`.
 const change = { id: 'demo-change', _slug: 'demo-change' };
-const task = { id: 'demo-task', status: 'in-implementation' };
+const task = {
+  id: 'demo-task',
+  status: 'in-implementation',
+  workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+};
 
-describe('resolveCurrentStepName (AC15)', () => {
-  test('resolves the single declared step when the task has not yet reached its transition target', () => {
+describe('resolveWorkflowPosition / resolveActiveStepName / resolveSemanticStatus (D37, task 10 AC9)', () => {
+  test('no workflow_progress at all resolves phase "new" — nothing active yet', () => {
     const definition = buildDefinition();
-    assert.equal(resolveCurrentStepName(definition, { status: 'in-implementation' }), 'implementation');
+    assert.deepEqual(resolveWorkflowPosition(definition, { status: 'in-implementation' }), { phase: 'new' });
+    assert.equal(resolveActiveStepName(definition, { status: 'in-implementation' }), null);
+    assert.equal(resolveSemanticStatus(definition, { status: 'in-implementation' }), 'new');
   });
 
-  test('resolves null once the task has already reached the transition target', () => {
+  test('state: active resolves the active step and its declared status.active', () => {
     const definition = buildDefinition();
-    assert.equal(resolveCurrentStepName(definition, { status: 'verified' }), null);
+    const activeTask = { workflow_progress: { current_step: 'implementation', state: 'active', history: [] } };
+    assert.deepEqual(resolveWorkflowPosition(definition, activeTask), { phase: 'active', step: 'implementation' });
+    assert.equal(resolveActiveStepName(definition, activeTask), 'implementation');
+    assert.equal(resolveSemanticStatus(definition, activeTask), 'implementing');
   });
 
-  test('resolves the step for a definition with a different transition target name', () => {
-    const definition = buildDefinition({ transitions: [{ to: 'archived' }] });
-    assert.equal(resolveCurrentStepName(definition, { status: 'in-implementation' }), 'implementation');
-    assert.equal(resolveCurrentStepName(definition, { status: 'archived' }), null);
+  test('state: completed with a terminal transition resolves phase "terminal" and status.completed — task.status is never consulted', () => {
+    const definition = buildDefinition();
+    const completedTask = {
+      // Deliberately a non-terminal task.status — proves resolution never reads it (D37).
+      status: 'in-implementation',
+      workflow_progress: { current_step: 'implementation', state: 'completed', history: [] },
+    };
+    assert.deepEqual(resolveWorkflowPosition(definition, completedTask), { phase: 'terminal', step: 'implementation' });
+    assert.equal(resolveActiveStepName(definition, completedTask), null);
+    assert.equal(resolveSemanticStatus(definition, completedTask), 'implemented');
   });
 
   test('inspectGates never invokes verify() (read-only calls must not run verification commands, C7/C8)', async () => {
@@ -128,40 +182,124 @@ describe('resolveCurrentStepName (AC15)', () => {
   });
 });
 
-describe('Multi-step current-step resolution and terminal precedence (task 08 AC2, AC5)', () => {
+describe('Multi-step position resolution (D37, task 10 AC2/AC4/AC9)', () => {
   const MULTI_STEP_RAW = {
     id: 'multi-v1',
     steps: {
-      stepA: { actions: [{ id: 'a' }], transitions: [{ to: 'stepB' }] },
-      stepB: { actions: [{ id: 'a' }], transitions: [{ to: 'verified' }] },
+      stepA: {
+        status: { active: 'a-active', completed: 'a-completed' },
+        actions: [{ id: 'a' }],
+        transitions: [{ to: 'stepB' }],
+      },
+      stepB: {
+        status: { active: 'b-active', completed: 'b-completed' },
+        actions: [{ id: 'a' }],
+        transitions: [{ to: 'verified' }],
+      },
     },
   };
   const MULTI_STEP_DEFINITION = normalizeWorkflowDefinition(MULTI_STEP_RAW);
 
-  test('a task with no workflow_progress at all resolves the definition\'s entry step, not just "the first step" by accident', () => {
-    assert.equal(resolveCurrentStepName(MULTI_STEP_DEFINITION, { status: 'in-implementation' }), 'stepA');
+  test('a task with no workflow_progress at all resolves phase "new" — entry-step activation is `step start`\'s job, not resolution\'s (D37)', () => {
+    assert.deepEqual(resolveWorkflowPosition(MULTI_STEP_DEFINITION, {}), { phase: 'new' });
   });
 
-  test('a task with workflow_progress.current_step resolves exactly that step, never re-deriving entryStep', () => {
-    const task = { status: 'in-implementation', workflow_progress: { current_step: 'stepB', history: [] } };
-    assert.equal(resolveCurrentStepName(MULTI_STEP_DEFINITION, task), 'stepB');
+  test('state: active resolves exactly that step, never re-deriving entryStep', () => {
+    const task = { workflow_progress: { current_step: 'stepB', state: 'active', history: [] } };
+    assert.deepEqual(resolveWorkflowPosition(MULTI_STEP_DEFINITION, task), { phase: 'active', step: 'stepB' });
   });
 
-  test('terminal precedence: task.status already terminal resolves complete even against a stale current_step (AC5)', () => {
+  test('state: completed with a transition naming another step resolves phase "completed" — awaiting the next `step start` (D37 case C)', () => {
+    const task = { workflow_progress: { current_step: 'stepA', state: 'completed', history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }] } };
+    assert.deepEqual(resolveWorkflowPosition(MULTI_STEP_DEFINITION, task), { phase: 'completed', step: 'stepA', nextStep: 'stepB' });
+    assert.equal(resolveActiveStepName(MULTI_STEP_DEFINITION, task), null, 'nothing is active until the next step start');
+  });
+
+  test('terminal precedence: state completed + terminal transition resolves complete even with a non-terminal task.status (AC9, corrects D28)', () => {
     const task = {
-      status: 'verified',
-      workflow_progress: { current_step: 'stepB', history: [{ step: 'stepB', completed_at: 'x', transitioned_to: 'verified' }] },
+      status: 'in-implementation',
+      workflow_progress: { current_step: 'stepB', state: 'completed', history: [{ step: 'stepB', completed_at: 'x', transitioned_to: 'verified' }] },
     };
-    assert.equal(resolveCurrentStepName(MULTI_STEP_DEFINITION, task), null, 'must never re-resolve entryStep once status is terminal');
-  });
-
-  test('a task whose status is already terminal with no workflow_progress at all also resolves complete (today\'s single-step case, AC5)', () => {
-    assert.equal(resolveCurrentStepName(MULTI_STEP_DEFINITION, { status: 'verified' }), null);
+    assert.deepEqual(resolveWorkflowPosition(MULTI_STEP_DEFINITION, task), { phase: 'terminal', step: 'stepB' });
   });
 
   test('workflow_progress.current_step naming an undeclared step throws, never silently resolved to something else', () => {
-    const task = { status: 'in-implementation', workflow_progress: { current_step: 'no-such-step' } };
-    assert.throws(() => resolveCurrentStepName(MULTI_STEP_DEFINITION, task), /does not name a step declared/);
+    const task = { workflow_progress: { current_step: 'no-such-step', state: 'active' } };
+    assert.throws(() => resolveWorkflowPosition(MULTI_STEP_DEFINITION, task), /does not name a step declared/);
+  });
+});
+
+describe('`workflow step start` activation (D37, task 10 AC1/AC2/AC4)', () => {
+  let activeDir;
+
+  before(() => { activeDir = makeChangeFixture(); });
+  after(() => cleanupChangeFixture(activeDir));
+
+  const MULTI_STEP_DEFINITION = normalizeWorkflowDefinition({
+    id: 'multi-v1',
+    entryStep: 'stepA',
+    steps: {
+      stepA: { status: { active: 'a-active', completed: 'a-completed' }, transitions: [{ to: 'stepB' }] },
+      stepB: { status: { active: 'b-active', completed: 'b-completed' }, transitions: [{ to: 'verified' }] },
+    },
+  });
+
+  test('fresh (case A): activates entryStep, persisting current_step/state atomically (AC1)', () => {
+    const change = requireChange('demo-change', activeDir);
+    const task = requireTask(change, 'demo-task');
+
+    const { task: effectiveTask, position } = ensureStepActivated(change, task, MULTI_STEP_DEFINITION);
+
+    assert.deepEqual(position, { phase: 'active', step: 'stepA' });
+    assert.deepEqual(effectiveTask.workflow_progress, { current_step: 'stepA', state: 'active', history: [] });
+
+    const persisted = requireTask(requireChange('demo-change', activeDir), 'demo-task');
+    assert.deepEqual(persisted.workflow_progress, { current_step: 'stepA', state: 'active', history: [] });
+  });
+
+  test('resume (case B): an already-active step returns the same position, writing nothing (AC2, no duplicate mutation)', () => {
+    const change = requireChange('demo-change', activeDir);
+    const task = requireTask(change, 'demo-task'); // already stepA/active from the previous test
+    const before = readFileSync(join(activeDir, 'demo-change', 'change.yaml'), 'utf8');
+
+    const { position } = ensureStepActivated(change, task, MULTI_STEP_DEFINITION);
+
+    assert.deepEqual(position, { phase: 'active', step: 'stepA' });
+    const after = readFileSync(join(activeDir, 'demo-change', 'change.yaml'), 'utf8');
+    assert.equal(before, after, 'resuming an already-active step must not touch change.yaml at all');
+  });
+
+  test('completed internal (case C): activates the named target step, appending no history entry (AC4)', () => {
+    const change = requireChange('demo-change', activeDir);
+    // Simulate `finish` having just completed stepA (D37: current_step stays stepA).
+    const completedTask = {
+      ...requireTask(change, 'demo-task'),
+      workflow_progress: { current_step: 'stepA', state: 'completed', history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }] },
+    };
+
+    const { task: effectiveTask, position } = ensureStepActivated(change, completedTask, MULTI_STEP_DEFINITION);
+
+    assert.deepEqual(position, { phase: 'active', step: 'stepB' });
+    assert.deepEqual(effectiveTask.workflow_progress, {
+      current_step: 'stepB',
+      state: 'active',
+      history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }],
+    });
+  });
+
+  test('terminal (case D): no activation possible, no mutation', () => {
+    const change = requireChange('demo-change', activeDir);
+    const terminalTask = {
+      ...requireTask(change, 'demo-task'),
+      workflow_progress: { current_step: 'stepB', state: 'completed', history: [{ step: 'stepB', completed_at: 'x', transitioned_to: 'verified' }] },
+    };
+    const before = readFileSync(join(activeDir, 'demo-change', 'change.yaml'), 'utf8');
+
+    const { position } = ensureStepActivated(change, terminalTask, MULTI_STEP_DEFINITION);
+
+    assert.deepEqual(position, { phase: 'terminal', step: 'stepB' });
+    const after = readFileSync(join(activeDir, 'demo-change', 'change.yaml'), 'utf8');
+    assert.equal(before, after, 'a terminal workflow must never be mutated by step start');
   });
 });
 
@@ -186,6 +324,8 @@ describe('compileStepContext — StepContext at `workflow step start` (AC1)', ()
     assert.equal(stepContext.workflowMode, 'deterministic');
     assert.equal(stepContext.currentStep, 'implementation');
     assert.equal(stepContext.stepStatus, 'in-progress');
+    assert.equal(stepContext.runtimeState, 'active');
+    assert.equal(stepContext.semanticStatus, 'implementing');
     assert.deepEqual(stepContext.entryState.blockers, []);
     assert.deepEqual(stepContext.nextStepGuidance, { onSuccess: 'verified' });
 
@@ -236,11 +376,18 @@ describe('compileStepContext — StepContext at `workflow step start` (AC1)', ()
     const definition = buildDefinition();
     const gateRegistry = makeGateRegistry();
     const context = { repoRoot: ctx.repo, taskId: task.id, sourceControl: { enabled: false } };
+    const terminalTask = {
+      id: 'demo-task',
+      status: 'verified',
+      workflow_progress: { current_step: 'implementation', state: 'completed', history: [{ step: 'implementation', completed_at: 'x', transitioned_to: 'verified' }] },
+    };
 
-    const stepContext = await compileStepContext({ change, task: { id: 'demo-task', status: 'verified' }, definition, context, gateRegistry });
+    const stepContext = await compileStepContext({ change, task: terminalTask, definition, context, gateRegistry });
 
     assert.equal(stepContext.currentStep, null);
     assert.equal(stepContext.stepStatus, 'complete');
+    assert.equal(stepContext.runtimeState, 'completed');
+    assert.equal(stepContext.semanticStatus, 'implemented');
   });
 });
 
@@ -427,6 +574,52 @@ describe('Declarative per-step behavior contract — schema validation only (D25
   });
 });
 
+describe('Per-step semantic-status schema — required, safe identifiers (D37, task 10 AC10)', () => {
+  test('a step missing status fails validation', () => {
+    const { status, ...withoutStatus } = RAW_DEFINITION.steps.implementation;
+    const raw = { ...RAW_DEFINITION, steps: { implementation: withoutStatus } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /\.status: must be an object with 'active' and 'completed' identifiers/.test(e)));
+  });
+
+  test('status.active/status.completed must be non-empty safe identifiers', () => {
+    const raw = { ...RAW_DEFINITION, steps: { implementation: { ...RAW_DEFINITION.steps.implementation, status: { active: '', completed: 'implemented' } } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /\.status\.active: must be a non-empty identifier/.test(e)));
+  });
+
+  test('status.active/status.completed reject a value containing a path separator', () => {
+    const raw = { ...RAW_DEFINITION, steps: { implementation: { ...RAW_DEFINITION.steps.implementation, status: { active: 'implementing', completed: 'im/plemented' } } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /\.status\.completed: must be a non-empty identifier/.test(e)));
+  });
+
+  test('a valid, distinct status pair validates successfully and survives normalization', () => {
+    const definition = buildDefinition();
+    assert.deepEqual(definition.steps.implementation.status, { active: 'implementing', completed: 'implemented' });
+  });
+});
+
+describe('Shipped-workflow migration — status truthfully describes each definition\'s real step (D37, task 10 AC13)', () => {
+  const repoRoot = join(import.meta.dirname, '..', '..');
+
+  test('standard/architectural/small declare status on their implementation step', () => {
+    for (const name of ['standard', 'architectural', 'small']) {
+      const definition = loadWorkflowDefinition(name, { repoRoot });
+      assert.deepEqual(definition.steps.implementation.status, { active: 'implementing', completed: 'implemented' }, `${name}.yaml`);
+    }
+  });
+
+  test('exploratory declares status on its discovery step, not implementation (it has no such step)', () => {
+    const definition = loadWorkflowDefinition('exploratory', { repoRoot });
+    assert.equal(definition.steps.implementation, undefined);
+    assert.deepEqual(definition.steps.discovery.status, { active: 'discovering', completed: 'discovered' });
+  });
+});
+
 describe('Fail-closed action/gate resolution (D20, task 09 AC1/AC2)', () => {
   test('aggregateFinalizeCheck no longer filters unregistered finalize actions — the full list is aggregated, failing closed via ActionRegistry.require (AC1)', async () => {
     const step = { finalize: [{ id: 'commit-and-push' }, { id: 'not-a-real-action' }] };
@@ -452,7 +645,9 @@ describe('Fail-closed action/gate resolution (D20, task 09 AC1/AC2)', () => {
       const workflowsDir = join(repoRoot, '.nevo-ai', 'workflows');
       mkdirSync(workflowsDir, { recursive: true });
       writeFileSync(join(workflowsDir, 'custom.yaml'), [
-        'id: custom-v1', 'steps:', '  implementation:', '    finalize:',
+        'id: custom-v1', 'steps:', '  implementation:',
+        '    status:', '      active: implementing', '      completed: implemented',
+        '    finalize:',
         '      - id: not-a-real-action', '    transitions:', '      - to: verified', '',
       ].join('\n'));
 
@@ -475,7 +670,9 @@ describe('Fail-closed action/gate resolution (D20, task 09 AC1/AC2)', () => {
       const workflowsDir = join(repoRoot, '.nevo-ai', 'workflows');
       mkdirSync(workflowsDir, { recursive: true });
       writeFileSync(join(workflowsDir, 'custom.yaml'), [
-        'id: custom-v1', 'steps:', '  implementation:', '    finalize:',
+        'id: custom-v1', 'steps:', '  implementation:',
+        '    status:', '      active: implementing', '      completed: implemented',
+        '    finalize:',
         '      - id: commit-and-push', '    transitions:', '      - to: verified', '',
       ].join('\n'));
 

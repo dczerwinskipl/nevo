@@ -415,13 +415,13 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit re
 
       writeFileSync(
         join(repoA, WORKFLOWS_REL_DIR, 'standard.yaml'),
-        'id: standard-repo-a\ntitle: "Repo A Workflow"\nsteps:\n  build:\n    transitions: [{ to: verified }]\n',
+        'id: standard-repo-a\ntitle: "Repo A Workflow"\nsteps:\n  build:\n    status: { active: building, completed: built }\n    transitions: [{ to: verified }]\n',
         'utf8'
       );
 
       writeFileSync(
         join(repoB, WORKFLOWS_REL_DIR, 'standard.yaml'),
-        'id: standard-repo-b\ntitle: "Repo B Workflow"\nsteps:\n  test:\n    transitions: [{ to: verified }]\n',
+        'id: standard-repo-b\ntitle: "Repo B Workflow"\nsteps:\n  test:\n    status: { active: testing, completed: tested }\n    transitions: [{ to: verified }]\n',
         'utf8'
       );
 
@@ -526,6 +526,9 @@ id: custom-v1
 title: "Custom Workflow"
 steps:
   step1:
+    status:
+      active: step1-active
+      completed: step1-completed
     actions:
       - id: custom-action
     exitGates:
@@ -583,11 +586,17 @@ steps:
 id: custom-v1
 steps:
   step1:
+    status:
+      active: step1-active
+      completed: step1-completed
     actions:
       - id: run-check
     transitions:
       - to: step2
   step2:
+    status:
+      active: step2-active
+      completed: step2-completed
     actions:
       - id: run-check
     transitions:
@@ -604,6 +613,9 @@ steps:
 id: custom-v1
 steps:
   step1:
+    status:
+      active: step1-active
+      completed: step1-completed
     exitGates:
       - type: command
         action: test
@@ -640,6 +652,9 @@ steps:
 id: custom-v1
 steps:
   step1:
+    status:
+      active: step1-active
+      completed: step1-completed
     exitGates:
       - type: command
         action: lint
@@ -681,6 +696,9 @@ steps:
 id: custom-v1
 steps:
   step1:
+    status:
+      active: step1-active
+      completed: step1-completed
     actions:
       - id: implement-task
     exitGates:
@@ -790,6 +808,7 @@ describe('Safe, unique step and gate identifiers (D30, task 08 AC12)', () => {
       id: 'ids-v1',
       steps: {
         implementation: {
+          status: { active: 'implementing', completed: 'implemented' },
           actions: [{ id: 'a' }],
           transitions: [{ to: 'verified' }],
           ...overrides,
@@ -882,7 +901,7 @@ describe('Transition cardinality and terminal-target correctness (D19 refined/D2
   });
 
   test('a step declaring exactly one transition validates successfully', () => {
-    const raw = { id: 'card-v1', steps: { implementation: { actions: [{ id: 'a' }], transitions: [{ to: 'verified' }] } } };
+    const raw = { id: 'card-v1', steps: { implementation: { status: { active: 'implementing', completed: 'implemented' }, actions: [{ id: 'a' }], transitions: [{ to: 'verified' }] } } };
     const { valid, errors } = validateWorkflowDefinition(raw);
     assert.equal(valid, true, errors.join('; '));
   });
@@ -919,8 +938,8 @@ describe('Transition cardinality and terminal-target correctness (D19 refined/D2
     const raw = {
       id: 'multi-v1',
       steps: {
-        stepA: { actions: [{ id: 'a' }], transitions: [{ to: 'stepB' }] },
-        stepB: { actions: [{ id: 'a' }], transitions: [{ to: 'verified' }] },
+        stepA: { status: { active: 'a-active', completed: 'a-completed' }, actions: [{ id: 'a' }], transitions: [{ to: 'stepB' }] },
+        stepB: { status: { active: 'b-active', completed: 'b-completed' }, actions: [{ id: 'a' }], transitions: [{ to: 'verified' }] },
       },
     };
     const { valid, errors } = validateWorkflowDefinition(raw);
@@ -955,9 +974,17 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
   test('present on an explicit workflow_mode: deterministic shorthand is accepted (no legacy false-positive)', () => {
     const errors = [];
     const change = { id: 'c', workflow_mode: 'deterministic', type: 'standard' };
-    const task = { id: 't1', workflow_progress: { current_step: 'implementation', history: [] } };
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', state: 'active', history: [] } };
     validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
     assert.deepEqual(errors, []);
+  });
+
+  test('state must be "active" or "completed" (D37)', () => {
+    const errors = [];
+    const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } };
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', state: 'bogus' } };
+    validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
+    assert.ok(errors.some(e => /workflow_progress\.state must be 'active' or 'completed'/.test(e)));
   });
 
   test('current_step must be a non-empty string', () => {
@@ -971,7 +998,7 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
   test('history must be an array when present', () => {
     const errors = [];
     const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } };
-    const task = { id: 't1', workflow_progress: { current_step: 'implementation', history: 'not-an-array' } };
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', state: 'active', history: 'not-an-array' } };
     validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
     assert.equal(errors.length, 1);
     assert.match(errors[0], /workflow_progress\.history must be an array/);
@@ -980,7 +1007,7 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
   test('current_step naming a real step in the resolved definition is accepted', () => {
     const errors = [];
     const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } };
-    const task = { id: 't1', workflow_progress: { current_step: 'implementation', history: [] } };
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', state: 'active', history: [] } };
     validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
     assert.deepEqual(errors, []);
   });
@@ -988,7 +1015,7 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
   test('current_step naming no declared step in the resolved definition fails closed (AC1)', () => {
     const errors = [];
     const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } };
-    const task = { id: 't1', workflow_progress: { current_step: 'not-a-real-step', history: [] } };
+    const task = { id: 't1', workflow_progress: { current_step: 'not-a-real-step', state: 'active', history: [] } };
     validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
     assert.equal(errors.length, 1);
     assert.match(errors[0], /current_step 'not-a-real-step' does not name a step declared in workflow definition/);
@@ -997,7 +1024,7 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
   test('an unresolvable workflow definition is reported instead of throwing uncaught', () => {
     const errors = [];
     const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'no-such-definition' } };
-    const task = { id: 't1', workflow_progress: { current_step: 'implementation', history: [] } };
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', state: 'active', history: [] } };
     validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
     assert.equal(errors.length, 1);
     assert.match(errors[0], /could not resolve workflow definition 'no-such-definition'/);
@@ -1030,7 +1057,7 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
         'id: good-change', 'title: Good', 'status: draft',
         'workflow:', '  mode: deterministic', '  definition: standard', '',
         'tasks:', '  - id: t1', '    order: 1', '    status: in-implementation',
-        '    workflow_progress:', '      current_step: implementation', '      history: []', '',
+        '    workflow_progress:', '      current_step: implementation', '      state: active', '      history: []', '',
       ].join('\n'));
 
       const errors = validateSpecs({ activeDir, archiveDir });

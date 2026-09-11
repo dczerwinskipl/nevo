@@ -4,6 +4,9 @@ type: standard
 version: 1
 steps:
   implementation:
+    status:
+      active: implementing
+      completed: implemented
     entryGates: []
     exitGates:
       - type: command

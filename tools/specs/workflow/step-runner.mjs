@@ -7,71 +7,94 @@ import { defaultGateRegistry } from './registry.mjs';
 import { WorkflowError } from './errors.mjs';
 
 /**
- * Every step's one transition target (D27) that does *not* name another declared step —
- * i.e. every value this definition can legitimately write as a terminal task `status`
- * (D19 refined: each such value is already guaranteed, by schema validation, to be a
- * member of `TERMINAL_STATUSES`). Reused by resolution (below) and by the durable finish
- * operation to classify a transition as step-internal vs. terminal.
+ * Resolves a task's exact position within a normalized, multi-step workflow definition
+ * (D37) — a pure function of `(workflow_progress, definition)` alone. `task.status` is
+ * never consulted (this corrects D28's original `task.status`-first precedence, which
+ * existed only because `workflow_progress.current_step` alone couldn't distinguish "just
+ * finished, about to advance" from "fresh" — the explicit `state` field below removes
+ * that ambiguity structurally):
+ *
+ * - No `workflow_progress` at all → `{ phase: 'new' }` — the task has never touched this
+ *   workflow; `workflow step start` resolves the definition's `entryStep` (D27).
+ * - `state: 'active'` → `{ phase: 'active', step }` — `current_step` is in progress; not
+ *   yet finished.
+ * - `state: 'completed'` and the step's one transition (D27) names another declared step
+ *   → `{ phase: 'completed', step, nextStep }` — `current_step`'s work is done, awaiting
+ *   the *next* `workflow step start` call to activate `nextStep`.
+ * - `state: 'completed'` and the step's one transition names no declared step (terminal,
+ *   D19 refined) → `{ phase: 'terminal', step }` — the workflow is complete.
+ *
+ * `workflow_progress` is never cleared at terminal completion (D28) — `current_step`
+ * keeps naming the final completed step, which is exactly what the `terminal` phase
+ * above still reports.
  *
  * @param {object} definition - Normalized workflow definition
- * @returns {Set<string>}
+ * @param {{workflow_progress?: {current_step?: string, state?: 'active'|'completed'}}} task
+ * @returns {{phase: 'new'} | {phase: 'active', step: string} | {phase: 'completed', step: string, nextStep: string} | {phase: 'terminal', step: string}}
  */
-export function collectTerminalTargets(definition) {
-  const stepNames = new Set(Object.keys(definition?.steps || {}));
-  const terminals = new Set();
-  for (const step of Object.values(definition?.steps || {})) {
-    const to = step.transitions?.[0]?.to;
-    if (to && !stepNames.has(to)) terminals.add(to);
-  }
-  return terminals;
-}
-
-/**
- * Resolves the name of the current step for a task within a normalized, multi-step
- * workflow definition (`definitions/schema.mjs`'s `normalizeWorkflowDefinition` output),
- * per the explicit, ordered precedence D28 establishes:
- *
- * 1. If `task.status` already equals one of this definition's valid terminal transition
- *    targets (`collectTerminalTargets`), the workflow is complete — returns `null`. This
- *    is checked *before* `workflow_progress` is even consulted, so a task whose finish
- *    already reached a terminal status can never be mistaken for one that never started
- *    (`workflow_progress.current_step` is deliberately never cleared at completion — see
- *    D28 — so trusting it first would otherwise re-resolve a *stale*, no-longer-relevant
- *    step name here).
- * 2. Else, if `task.workflow_progress.current_step` names a real declared step, use it —
- *    an in-flight, not-yet-terminal task's own persisted position is authoritative.
- * 3. Else, resolve the definition's `entryStep` (D27) — a task that has never advanced
- *    within this workflow at all.
- *
- * @param {object} definition - Normalized workflow definition
- * @param {{status: string, workflow_progress?: {current_step?: string}}} task - The task
- *   whose current step is being resolved
- * @returns {string|null} The current step name, or `null` if the task has already
- *   reached a terminal transition target
- */
-export function resolveCurrentStepName(definition, task) {
+export function resolveWorkflowPosition(definition, task) {
   const stepEntries = Object.entries(definition?.steps || {});
   if (stepEntries.length === 0) {
     throw new WorkflowError(`Workflow definition '${definition?.id}' has no steps`);
   }
 
-  const terminalTargets = collectTerminalTargets(definition);
-  if (terminalTargets.has(task?.status)) {
-    return null;
-  }
-
   const currentStep = task?.workflow_progress?.current_step;
-  if (currentStep) {
-    if (!Object.prototype.hasOwnProperty.call(definition.steps, currentStep)) {
-      throw new WorkflowError(
-        `Task's workflow_progress.current_step '${currentStep}' does not name a step declared in ` +
-        `workflow definition '${definition?.id}'`
-      );
-    }
-    return currentStep;
+  if (!currentStep) {
+    return { phase: 'new' };
   }
 
-  return definition.entryStep || stepEntries[0][0];
+  if (!Object.prototype.hasOwnProperty.call(definition.steps, currentStep)) {
+    throw new WorkflowError(
+      `Task's workflow_progress.current_step '${currentStep}' does not name a step declared in ` +
+      `workflow definition '${definition?.id}'`
+    );
+  }
+
+  if (task.workflow_progress.state !== 'completed') {
+    return { phase: 'active', step: currentStep };
+  }
+
+  const step = definition.steps[currentStep];
+  const to = step.transitions[0].to; // exactly one, guaranteed by D27 schema validation
+  const isInternalTransition = Object.prototype.hasOwnProperty.call(definition.steps, to);
+  return isInternalTransition
+    ? { phase: 'completed', step: currentStep, nextStep: to }
+    : { phase: 'terminal', step: currentStep };
+}
+
+/**
+ * The semantic status D37's four-case model resolves to — always derived, never a
+ * separately persisted third field: `new` when the task has never touched this
+ * workflow, else the current step's own declared `status.active`/`status.completed`
+ * (`definitions/schema.mjs`'s required per-step `status` field), chosen by runtime
+ * `state`.
+ *
+ * @param {object} definition - Normalized workflow definition
+ * @param {object} task
+ * @returns {string}
+ */
+export function resolveSemanticStatus(definition, task) {
+  const position = resolveWorkflowPosition(definition, task);
+  if (position.phase === 'new') return 'new';
+  const step = definition.steps[position.step];
+  return position.phase === 'active' ? step.status.active : step.status.completed;
+}
+
+/**
+ * The step currently being worked on, if any — `null` when there is nothing active
+ * (task never started, its current step already finished and is awaiting the next
+ * `step start`, or the workflow is fully complete). Used by callers that only care
+ * "is there an active step right now" (`finish`'s own resolution, the operator-facing
+ * `verify-human` command) — never `resolveWorkflowPosition`'s richer phase distinction,
+ * which those callers don't need.
+ *
+ * @param {object} definition - Normalized workflow definition
+ * @param {object} task
+ * @returns {string|null}
+ */
+export function resolveActiveStepName(definition, task) {
+  const position = resolveWorkflowPosition(definition, task);
+  return position.phase === 'active' ? position.step : null;
 }
 
 /** Deterministic, human-readable id for a gate config that has no explicit `id`. */

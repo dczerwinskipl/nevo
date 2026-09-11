@@ -310,10 +310,12 @@ tasks:
   - id: step-active-completed-lifecycle
     order: 10
     file: tasks/10-step-active-completed-lifecycle.md
-    status: approved
+    status: in-implementation
     depends_on:
       - multi-step-workflow-progression
       - fail-closed-workflow-definition-resolution
+    implementation:
+      baseline_revision: 80e76e5c797eab33a231d1b0c567cc487daa9ad0
 
   - id: production-multi-step-standard-workflow
     order: 11

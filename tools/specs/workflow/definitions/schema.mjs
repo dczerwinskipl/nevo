@@ -225,6 +225,25 @@ export function validateStepBehaviorContract(stepConfig, stepLabel, errors) {
   }
 }
 
+/**
+ * D37: every step declares a *required* `status: { active, completed }` pair — the
+ * semantic-status identifiers `workflow step start`/`step finish` resolve to for that
+ * step's runtime `active`/`completed` state. Unlike the optional D25 behavior contract
+ * (`purpose`/`expectedWork`/`hints`), this is required: a step with no declared status
+ * has no way to report a meaningful semantic status at all, and no code path
+ * synthesizes a placeholder for one that omits it (fail-closed, no silent default).
+ * Both identifiers are validated against the same `SAFE_IDENTIFIER_PATTERN` (D30) as
+ * every other workflow-definition-declared logical id.
+ */
+export function validateStepStatusContract(stepConfig, stepLabel, errors) {
+  if (!isPlainObject(stepConfig.status)) {
+    errors.push(`${stepLabel}.status: must be an object with 'active' and 'completed' identifiers`);
+    return;
+  }
+  validateSafeIdentifier(stepConfig.status.active, `${stepLabel}.status.active`, errors);
+  validateSafeIdentifier(stepConfig.status.completed, `${stepLabel}.status.completed`, errors);
+}
+
 const KNOWN_REMOTE_PROVIDERS = new Set(['github']);
 
 /**
@@ -444,6 +463,7 @@ export function validateWorkflowDefinition(definition, options = {}) {
     }
 
     validateStepBehaviorContract(stepConfig, stepLabel, errors);
+    validateStepStatusContract(stepConfig, stepLabel, errors);
 
     // D30: a step with more than one human-verification gate must give each an
     // explicit, mutually-distinct `id` — never two silently sharing (or both
@@ -491,6 +511,9 @@ export function normalizeWorkflowDefinition(definition) {
       ...(stepConfig.purpose !== undefined ? { purpose: stepConfig.purpose } : {}),
       ...(stepConfig.expectedWork !== undefined ? { expectedWork: stepConfig.expectedWork } : {}),
       ...(stepConfig.hints !== undefined ? { hints: stepConfig.hints } : {}),
+      // D37: required per-step semantic-status pair — always present on a validated
+      // definition (`validateStepStatusContract`), unlike the optional D25 fields above.
+      ...(isPlainObject(stepConfig.status) ? { status: { active: stepConfig.status.active, completed: stepConfig.status.completed } } : {}),
     };
   }
 

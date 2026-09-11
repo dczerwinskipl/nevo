@@ -94,7 +94,9 @@ export {
 } from './errors.mjs';
 
 export {
-  resolveCurrentStepName,
+  resolveWorkflowPosition,
+  resolveSemanticStatus,
+  resolveActiveStepName,
   gateDisplayId,
   inspectGates,
   verifyGates,
@@ -105,6 +107,7 @@ export {
   aggregateFinalizeCheck,
   buildFinishContract,
   normalizeSourceControlFacts,
+  ensureStepActivated,
   compileStepContext,
 } from './step-context.mjs';
 

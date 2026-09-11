@@ -5,8 +5,9 @@
 
 import { defaultWorkflowEngine } from './engine.mjs';
 import { defaultActionRegistry } from './registry.mjs';
-import { resolveCurrentStepName, inspectGates } from './step-runner.mjs';
+import { resolveWorkflowPosition, resolveSemanticStatus, inspectGates } from './step-runner.mjs';
 import { WorkflowError } from './errors.mjs';
+import { setTaskWorkflowState } from '../store.mjs';
 
 /**
  * Runs `WorkflowEngine.checkStep` over a step's full, unfiltered finalize action list.
@@ -67,10 +68,55 @@ export function buildFinishContract(finalizeCheckResult) {
 }
 
 /**
+ * D37: `workflow step start` is the sole operation that ever advances
+ * `workflow_progress.current_step`. Resolves the task's current position (D37's four
+ * cases) and, for the two cases that require activation — `new` (fresh, no
+ * `workflow_progress` yet) and `completed` (the current step already finished, its one
+ * transition names another declared step) — performs exactly one atomic
+ * `workflow_progress` write via `setTaskWorkflowState` (D32). `active` (resume) and
+ * `terminal` never mutate anything.
+ *
+ * This is deliberately *not* a new durable multi-stage operation (unlike `finish`,
+ * D14/D23) — a single atomic write needs none: a crash before the write means the next
+ * call re-resolves the identical case and writes the identical value; a crash after
+ * means the next call resolves `active` (resume) and returns the current `StepContext`.
+ * Idempotent by construction, not by a second protocol.
+ *
+ * @param {object} change - Change manifest (requires `._file` for the store write)
+ * @param {object} task - Task record
+ * @param {object} definition - Normalized workflow definition
+ * @returns {{ task: object, position: {phase: 'active', step: string} | {phase: 'terminal', step: string} }}
+ *   The *effective* task (unchanged for `active`/`terminal`; a locally-updated view
+ *   carrying the just-written `workflow_progress` for `new`/`completed`, avoiding a
+ *   redundant re-read of what the caller already knows it wrote) and its now-resolved
+ *   position, always `active` or `terminal` after this call.
+ */
+export function ensureStepActivated(change, task, definition) {
+  const position = resolveWorkflowPosition(definition, task);
+  if (position.phase !== 'new' && position.phase !== 'completed') {
+    return { task, position };
+  }
+
+  const targetStep = position.phase === 'new' ? definition.entryStep : position.nextStep;
+  // D37: starting the next step never appends a `history` entry — `history` records
+  // completions only, never activations.
+  const history = task.workflow_progress?.history || [];
+  const workflowProgress = { current_step: targetStep, state: 'active', history };
+  setTaskWorkflowState(change, task.id, { workflowProgress });
+
+  return {
+    task: { ...task, workflow_progress: workflowProgress },
+    position: { phase: 'active', step: targetStep },
+  };
+}
+
+/**
  * Compiles the full `StepContext` returned by `workflow step start` (D10): current step,
  * task/spec identity, workflow state, entry state/blockers, factual context (including
  * source-control context when enabled), the finish contract (`requiredInputs` aggregated
- * across finalize actions, plus the exit gates that must pass), and next-step guidance.
+ * across finalize actions, plus the exit gates that must pass), next-step guidance, and
+ * the resolved runtime state/semantic status (D37) — activating the step first
+ * (`ensureStepActivated`) when the task's position requires it.
  *
  * @param {object} params
  * @param {object} params.change - Change manifest (requires `.id` or `._slug`)
@@ -96,15 +142,17 @@ export async function compileStepContext({
   if (!definition) throw new WorkflowError('compileStepContext requires a normalized workflow definition');
 
   const changeId = change.id || change._slug;
-  const stepName = resolveCurrentStepName(definition, task);
+  const { task: effectiveTask, position } = ensureStepActivated(change, task, definition);
 
-  if (!stepName) {
+  if (position.phase === 'terminal') {
     return {
       change: changeId,
-      task: task.id,
+      task: effectiveTask.id,
       workflowMode: 'deterministic',
       currentStep: null,
       stepStatus: 'complete',
+      runtimeState: 'completed',
+      semanticStatus: resolveSemanticStatus(definition, effectiveTask),
       entryState: { blockers: [] },
       context: {},
       finishContract: { requiredInputs: {}, gates: [] },
@@ -112,6 +160,7 @@ export async function compileStepContext({
     };
   }
 
+  const stepName = position.step;
   const step = definition.steps[stepName];
   // D29: gate inspection needs the resolved step identity in context so a
   // HumanVerificationGate can build its query with real stepId/gateId identity.
@@ -129,10 +178,12 @@ export async function compileStepContext({
 
   return {
     change: changeId,
-    task: task.id,
+    task: effectiveTask.id,
     workflowMode: 'deterministic',
     currentStep: stepName,
     stepStatus: blockers.length ? 'blocked' : 'in-progress',
+    runtimeState: 'active',
+    semanticStatus: resolveSemanticStatus(definition, effectiveTask),
     entryState: { blockers },
     context: sourceControlContext ? { sourceControl: sourceControlContext } : {},
     finishContract: {

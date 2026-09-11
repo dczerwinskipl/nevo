@@ -4,6 +4,9 @@ type: exploratory
 version: 1
 steps:
   discovery:
+    status:
+      active: discovering
+      completed: discovered
     entryGates: []
     exitGates:
       - type: markdown

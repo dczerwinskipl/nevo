@@ -18,7 +18,8 @@ import {
   loadOperationRecord,
   saveOperationRecord,
   PreconditionError,
-  resolveCurrentStepName,
+  resolveWorkflowPosition,
+  ensureStepActivated,
 } from '../specs/workflow/index.mjs';
 import { requireChange, requireTask, setTaskStatus, setTaskWorkflowState } from '../specs/store.mjs';
 import { getCurrentRevision, getCommitInfo } from '../lib/git.mjs';
@@ -30,6 +31,7 @@ const RAW_DEFINITION = {
   version: 1,
   steps: {
     implementation: {
+      status: { active: 'implementing', completed: 'implemented' },
       entryGates: [],
       actions: [{ id: 'implement-task' }],
       exitGates: [
@@ -54,6 +56,7 @@ const THREE_STEP_RAW_DEFINITION = {
   version: 1,
   steps: {
     stepA: {
+      status: { active: 'a-active', completed: 'a-completed' },
       entryGates: [],
       actions: [],
       exitGates: [],
@@ -61,6 +64,7 @@ const THREE_STEP_RAW_DEFINITION = {
       transitions: [{ to: 'stepB' }],
     },
     stepB: {
+      status: { active: 'b-active', completed: 'b-completed' },
       entryGates: [],
       actions: [],
       exitGates: [],
@@ -68,6 +72,7 @@ const THREE_STEP_RAW_DEFINITION = {
       transitions: [{ to: 'stepC' }],
     },
     stepC: {
+      status: { active: 'c-active', completed: 'c-completed' },
       entryGates: [],
       actions: [],
       exitGates: [],
@@ -145,10 +150,16 @@ function commitCount(repo) {
 
 const RESOLVED_INPUTS = { 'commit.title': 'Finish task 06', 'commit.message': 'Body', include: ['*'], exclude: [] };
 
+// D37: `finish` only ever operates on an *active* step — `workflow_progress` must
+// already show the relevant step as `state: 'active'` (as `step start`/
+// `ensureStepActivated` would have left it) before a fresh `finishStep` call (no
+// pre-existing operation record) can find anything to do. Tests that craft their own
+// in-flight operation record bypass this entirely (`findInFlightOperationRecord`
+// resolves the step directly from the record, never from this `task` object).
 function baseParams(fx, gateRegistry, { push = true } = {}) {
   return {
     change: { id: 'demo-change', _slug: 'demo-change' },
-    task: { id: 'demo-task', status: 'in-implementation' },
+    task: { id: 'demo-task', status: 'in-implementation', workflow_progress: { current_step: 'implementation', state: 'active', history: [] } },
     definition: DEFINITION,
     context: { repoRoot: fx.repo, activeDir: fx.activeDir, taskId: 'demo-task', sourceControl: { enabled: true, push } },
     activeDir: fx.activeDir,
@@ -159,7 +170,7 @@ function baseParams(fx, gateRegistry, { push = true } = {}) {
 function threeStepParams(fx, gateRegistry, { push = true } = {}) {
   return {
     change: { id: 'demo-change', _slug: 'demo-change' },
-    task: { id: 'demo-task', status: 'in-implementation' },
+    task: { id: 'demo-task', status: 'in-implementation', workflow_progress: { current_step: 'stepA', state: 'active', history: [] } },
     definition: THREE_STEP_DEFINITION,
     context: { repoRoot: fx.repo, activeDir: fx.activeDir, taskId: 'demo-task', sourceControl: { enabled: true, push } },
     activeDir: fx.activeDir,
@@ -230,9 +241,14 @@ describe('finishStep — recovering an update-task stage found running (AC6)', (
 
   test('recognizes the mutation already happened, marks update-task completed without repeating it, and proceeds to commit', async () => {
     const change = freshChange(fx.activeDir);
-    setTaskStatus(change, 'demo-task', 'verified');
+    // D37: the atomic write is task.status + workflow_progress.state together — both
+    // must already reflect "completed" for reconciliation to recognize it happened.
+    setTaskWorkflowState(change, 'demo-task', {
+      status: 'verified',
+      workflowProgress: { current_step: 'implementation', state: 'completed', history: [{ step: 'implementation', completed_at: 'x', transitioned_to: 'verified' }] },
+    });
 
-    const craftedIntent = { fromState: 'in-implementation', toState: 'verified' };
+    const craftedIntent = { fromState: 'active', toState: 'completed' };
     saveOperationRecord(fx.repo, {
       operationId: 'crafted-op-1',
       change: 'demo-change',
@@ -264,17 +280,19 @@ describe('finishStep — recovering an update-task stage found running (AC6)', (
   });
 });
 
-describe('finishStep — step-kind (internal-transition) update-task reconciliation uses the effective workflow position (D28)', () => {
+describe('finishStep — update-task reconciliation compares workflow_progress.state, not current_step (D37, task 10 AC8)', () => {
   let fx;
   before(() => { fx = makeFixture('nevo-finish-stepkind'); });
   after(() => cleanupFixture(fx));
 
-  test('a crash on a task\'s very first internal transition (no workflow_progress yet) is safely redone, not reported ambiguous', async () => {
-    // Task has never advanced within this workflow at all — no workflow_progress field
-    // exists — but by D28/resolveCurrentStepName's own precedence that means it is
-    // still effectively sitting on entryStep (stepA). A crash that persisted the
-    // update-task intent as 'running' before the tracked write happened must reconcile
-    // against that effective position, not the raw `undefined`.
+  test('a crash before the tracked write (state still active) is safely redone, not reported ambiguous', async () => {
+    // step start already activated stepA (workflow_progress.state: 'active') before
+    // this finish attempt began — the crash happened after persisting the 'running'
+    // intent but before the tracked write. current_step stays stepA throughout (D37);
+    // only `state` moves to 'completed'.
+    const change = freshChange(fx.activeDir);
+    setTaskWorkflowState(change, 'demo-task', { workflowProgress: { current_step: 'stepA', state: 'active', history: [] } });
+
     saveOperationRecord(fx.repo, {
       operationId: 'crafted-stepkind-1',
       change: 'demo-change',
@@ -284,7 +302,7 @@ describe('finishStep — step-kind (internal-transition) update-task reconciliat
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
         { id: 'verify-gates', status: 'completed', result: { gates: [] } },
-        { id: 'update-task', status: 'running', intent: { kind: 'step', fromStep: 'stepA', toStep: 'stepB' } },
+        { id: 'update-task', status: 'running', intent: { fromState: 'active', toState: 'completed' } },
         { id: 'commit', status: 'pending' },
         { id: 'push', status: 'pending' },
         { id: 'transition', status: 'pending' },
@@ -296,19 +314,22 @@ describe('finishStep — step-kind (internal-transition) update-task reconciliat
 
     assert.equal(result.status, 'completed');
     const task = requireTask(freshChange(fx.activeDir), 'demo-task');
-    assert.equal(task.workflow_progress.current_step, 'stepB');
+    assert.equal(task.workflow_progress.current_step, 'stepA', 'D37: finish never advances current_step');
+    assert.equal(task.workflow_progress.state, 'completed');
     assert.equal(task.status, 'in-implementation', 'an internal transition never touches task.status');
 
     const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA');
     assert.equal(record.operations.find(o => o.id === 'update-task').status, 'completed');
   });
 
-  test('already-advanced-to-toStep is recognized as completed without repeating the write', async () => {
-    // The mutation already happened (workflow_progress.current_step is already the
-    // crafted intent's toStep) — update-task must recognize this and move on to commit,
-    // never re-derive or repeat the write.
+  test('already-completed (state already "completed" at this step) is recognized without repeating the write', async () => {
+    // The mutation already happened — workflow_progress.state is already 'completed' at
+    // this operation's own step (current_step is still stepB, D37) — update-task must
+    // recognize this and move on to commit, never re-derive or repeat the write.
     const change = freshChange(fx.activeDir);
-    setTaskWorkflowState(change, 'demo-task', { workflowProgress: { current_step: 'stepC', history: [] } });
+    setTaskWorkflowState(change, 'demo-task', {
+      workflowProgress: { current_step: 'stepB', state: 'completed', history: [{ step: 'stepB', completed_at: 'x', transitioned_to: 'stepC' }] },
+    });
 
     saveOperationRecord(fx.repo, {
       operationId: 'crafted-stepkind-2',
@@ -319,7 +340,7 @@ describe('finishStep — step-kind (internal-transition) update-task reconciliat
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
         { id: 'verify-gates', status: 'completed', result: { gates: [] } },
-        { id: 'update-task', status: 'running', intent: { kind: 'step', fromStep: 'stepB', toStep: 'stepC' } },
+        { id: 'update-task', status: 'running', intent: { fromState: 'active', toState: 'completed' } },
         { id: 'commit', status: 'pending' },
         { id: 'push', status: 'pending' },
         { id: 'transition', status: 'pending' },
@@ -334,14 +355,16 @@ describe('finishStep — step-kind (internal-transition) update-task reconciliat
     const updateTaskStage = record.operations.find(o => o.id === 'update-task');
     assert.equal(updateTaskStage.status, 'completed');
     // Recognized via reconciliation, not re-derived — the intent stays exactly as crafted.
-    assert.deepEqual(updateTaskStage.intent, { kind: 'step', fromStep: 'stepB', toStep: 'stepC' });
+    assert.deepEqual(updateTaskStage.intent, { fromState: 'active', toState: 'completed' });
     const task = requireTask(freshChange(fx.activeDir), 'demo-task');
-    assert.equal(task.workflow_progress.current_step, 'stepC');
+    assert.equal(task.workflow_progress.current_step, 'stepB', 'D37: still stepB — finish never advances current_step');
   });
 
-  test('an unrelated tracked position (neither fromStep nor toStep) is reported unknown, never guessed', async () => {
+  test('an unrelated tracked position (current_step no longer matches this operation\'s own step) is reported unknown, never guessed', async () => {
     const change = freshChange(fx.activeDir);
-    setTaskWorkflowState(change, 'demo-task', { workflowProgress: { current_step: 'stepC', history: [] } });
+    // Simulates a genuinely ambiguous recovery: the tracked position has moved to a
+    // different step entirely, which this stepA-scoped operation cannot explain.
+    setTaskWorkflowState(change, 'demo-task', { workflowProgress: { current_step: 'stepC', state: 'active', history: [] } });
 
     saveOperationRecord(fx.repo, {
       operationId: 'crafted-stepkind-3',
@@ -352,7 +375,7 @@ describe('finishStep — step-kind (internal-transition) update-task reconciliat
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
         { id: 'verify-gates', status: 'completed', result: { gates: [] } },
-        { id: 'update-task', status: 'running', intent: { kind: 'step', fromStep: 'stepA', toStep: 'stepB' } },
+        { id: 'update-task', status: 'running', intent: { fromState: 'active', toState: 'completed' } },
         { id: 'commit', status: 'pending' },
         { id: 'push', status: 'pending' },
         { id: 'transition', status: 'pending' },
@@ -365,6 +388,8 @@ describe('finishStep — step-kind (internal-transition) update-task reconciliat
     assert.equal(result.status, 'reconciliation-required');
     assert.equal(result.stage, 'update-task');
     assert.equal(result.details.currentStep, 'stepC');
+    assert.equal(result.details.fromState, 'active');
+    assert.equal(result.details.toState, 'completed');
 
     const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA');
     assert.equal(record.operations.find(o => o.id === 'update-task').status, 'unknown');
@@ -372,22 +397,30 @@ describe('finishStep — step-kind (internal-transition) update-task reconciliat
   });
 });
 
-describe('finishStep — full multi-hop happy path across two internal transitions then terminal (task 08 AC2/AC3/AC4/AC5/AC7/AC8)', () => {
+describe('finishStep — full multi-hop happy path driven by alternating step start / step finish (D37, task 10 AC1-AC6)', () => {
   let fx;
   before(() => { fx = makeFixture('nevo-finish-multihop'); });
   after(() => cleanupFixture(fx));
 
-  test('stepA -> stepB -> stepC -> verified: each internal transition advances workflow_progress in the same commit as the implementation change, and the final finish is the terminal write', async () => {
-    // stepA -> stepB
+  test('stepA -> stepB -> stepC -> verified: `step start` activates each step, `finish` only completes it, and the terminal finish is the final write', async () => {
+    // step start (case A): fresh task activates the entry step, stepA.
+    let change = freshChange(fx.activeDir);
+    let { task: activeTask } = ensureStepActivated(change, requireTask(change, 'demo-task'), THREE_STEP_DEFINITION);
+    assert.equal(activeTask.workflow_progress.current_step, 'stepA');
+    assert.equal(activeTask.workflow_progress.state, 'active');
+
+    // finish stepA (active internal -> same current_step/completed, D37).
     writeFileSync(join(fx.repo, 'feature-a.txt'), 'work on stepA\n');
     let gateRegistry = makeGateRegistry();
-    let result = await finishStep({ ...threeStepParams(fx, gateRegistry), inputs: { ...RESOLVED_INPUTS, 'commit.title': 'Finish stepA' } });
+    let result = await finishStep({ ...threeStepParams(fx, gateRegistry), task: activeTask, inputs: { ...RESOLVED_INPUTS, 'commit.title': 'Finish stepA' } });
     assert.equal(result.status, 'completed');
 
     let task = requireTask(freshChange(fx.activeDir), 'demo-task');
-    assert.equal(task.workflow_progress.current_step, 'stepB', 'AC3: internal transition advances current_step');
-    assert.equal(task.status, 'in-implementation', 'AC3: an internal transition never touches task.status');
+    assert.equal(task.workflow_progress.current_step, 'stepA', 'D37: finish never advances current_step — only the next step start does');
+    assert.equal(task.workflow_progress.state, 'completed');
+    assert.equal(task.status, 'in-implementation', 'an internal transition never touches task.status');
     assert.equal(task.workflow_progress.history.length, 1);
+    assert.equal(task.workflow_progress.history[0].transitioned_to, 'stepB');
 
     // AC7: the implementation change and the workflow-position update landed in the same commit.
     const headShaA = getCurrentRevision(fx.repo);
@@ -400,22 +433,36 @@ describe('finishStep — full multi-hop happy path across two internal transitio
     const stepARecordBefore = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA');
     assert.equal(stepARecordBefore.status, 'completed');
 
-    // stepB -> stepC (AC8: a distinct operation, actually executes stepB's own finalize).
-    // Each call re-fetches the task fresh from change.yaml, exactly as the real CLI's
-    // resolveWorkflowRuntime does on every invocation — a stale, hand-held task object
-    // (still reporting no workflow_progress) would wrongly re-resolve to stepA's entryStep.
+    // A repeated finish against the already-completed stepA is non-actionable — no
+    // finalize action re-runs, no new commit (AC7: completed-step retry).
+    const commitsBeforeRepeat = commitCount(fx.repo);
+    const repeat = await finishStep({ ...threeStepParams(fx, gateRegistry), task, inputs: {} });
+    assert.equal(repeat.status, 'completed');
+    assert.equal(commitCount(fx.repo), commitsBeforeRepeat, 'a repeated finish on a completed step must not create a new commit');
+
+    // step start (case C): stepA is completed and its transition names stepB — activate it.
+    change = freshChange(fx.activeDir);
+    ({ task: activeTask } = ensureStepActivated(change, task, THREE_STEP_DEFINITION));
+    assert.equal(activeTask.workflow_progress.current_step, 'stepB');
+    assert.equal(activeTask.workflow_progress.state, 'active');
+    const afterActivateB = requireTask(freshChange(fx.activeDir), 'demo-task');
+    assert.equal(afterActivateB.workflow_progress.current_step, 'stepB');
+    assert.equal(afterActivateB.workflow_progress.history.length, 1, 'D37: activating the next step appends no history entry');
+
+    // finish stepB (AC8: a distinct operation, actually executes stepB's own finalize).
     writeFileSync(join(fx.repo, 'feature-b.txt'), 'work on stepB\n');
     gateRegistry = makeGateRegistry();
     result = await finishStep({
       ...threeStepParams(fx, gateRegistry),
-      task: requireTask(freshChange(fx.activeDir), 'demo-task'),
+      task: activeTask,
       inputs: { ...RESOLVED_INPUTS, 'commit.title': 'Finish stepB' },
     });
     assert.equal(result.status, 'completed');
     assert.notEqual(result.result.commit.sha, headShaA, 'AC8: stepB must produce its own, distinct commit — never a cached stepA result');
 
     task = requireTask(freshChange(fx.activeDir), 'demo-task');
-    assert.equal(task.workflow_progress.current_step, 'stepC');
+    assert.equal(task.workflow_progress.current_step, 'stepB', 'D37: still stepB — finish never advances current_step');
+    assert.equal(task.workflow_progress.state, 'completed');
     assert.equal(task.status, 'in-implementation');
     assert.equal(task.workflow_progress.history.length, 2);
 
@@ -424,23 +471,39 @@ describe('finishStep — full multi-hop happy path across two internal transitio
     const stepBRecord = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepB');
     assert.equal(stepBRecord.status, 'completed');
 
-    // stepC -> verified (terminal, AC4)
+    // step start: activate stepC.
+    change = freshChange(fx.activeDir);
+    ({ task: activeTask } = ensureStepActivated(change, task, THREE_STEP_DEFINITION));
+    assert.equal(activeTask.workflow_progress.current_step, 'stepC');
+    assert.equal(activeTask.workflow_progress.state, 'active');
+
+    // finish stepC -> verified (terminal, active terminal -> same current_step/completed + terminal task.status).
     writeFileSync(join(fx.repo, 'feature-c.txt'), 'work on stepC\n');
     gateRegistry = makeGateRegistry();
     result = await finishStep({
       ...threeStepParams(fx, gateRegistry),
-      task: requireTask(freshChange(fx.activeDir), 'demo-task'),
+      task: activeTask,
       inputs: { ...RESOLVED_INPUTS, 'commit.title': 'Finish stepC' },
     });
     assert.equal(result.status, 'completed');
 
     task = requireTask(freshChange(fx.activeDir), 'demo-task');
-    assert.equal(task.status, 'verified', 'AC4: a terminal transition writes task.status exactly as today\'s single-step behavior does');
-    assert.equal(task.workflow_progress.current_step, 'stepC', 'AC4: workflow_progress is never cleared/nulled at completion');
-    assert.equal(task.workflow_progress.history.length, 3, 'AC4: history gains a final entry recording the terminal transition');
+    assert.equal(task.status, 'verified', 'a terminal transition writes task.status exactly as today\'s single-step behavior does');
+    assert.equal(task.workflow_progress.current_step, 'stepC', 'workflow_progress is never cleared/nulled at completion');
+    assert.equal(task.workflow_progress.state, 'completed');
+    assert.equal(task.workflow_progress.history.length, 3, 'history gains a final entry recording the terminal transition');
 
-    // AC5: the next resolution must report complete, never re-resolving entryStep as if fresh.
-    assert.equal(resolveCurrentStepName(THREE_STEP_DEFINITION, task), null);
+    // The next resolution must report complete, never re-resolving entryStep as if fresh —
+    // and never consulting task.status to do so (D37 corrects D28's precedence).
+    assert.deepEqual(resolveWorkflowPosition(THREE_STEP_DEFINITION, task), { phase: 'terminal', step: 'stepC' });
+
+    // step start on a terminal task reports complete and writes nothing.
+    const beforeTerminalStart = readFileSync(join(fx.activeDir, 'demo-change', 'change.yaml'), 'utf8');
+    change = freshChange(fx.activeDir);
+    const { position: terminalPosition } = ensureStepActivated(change, task, THREE_STEP_DEFINITION);
+    assert.deepEqual(terminalPosition, { phase: 'terminal', step: 'stepC' });
+    const afterTerminalStart = readFileSync(join(fx.activeDir, 'demo-change', 'change.yaml'), 'utf8');
+    assert.equal(beforeTerminalStart, afterTerminalStart, 'step start against a terminal workflow must not mutate change.yaml');
   });
 });
 
@@ -671,10 +734,10 @@ describe('finishStep — unresolvable ambiguity is reported, never guessed (AC13
   before(() => { fx = makeFixture('nevo-finish-unknown'); });
   after(() => cleanupFixture(fx));
 
-  test('update-task found running whose current state matches neither fromState nor toState is reported unknown', async () => {
-    const change = freshChange(fx.activeDir);
-    setTaskStatus(change, 'demo-task', 'approved');
-
+  test('update-task found running whose tracked workflow_progress is absent/unrelated to this step is reported unknown', async () => {
+    // No workflow_progress at all on disk (D37: `state` is only ever meaningful when
+    // current_step also matches this operation's own step) — an ambiguous recovery,
+    // never guessed as either "never happened" or "already done".
     saveOperationRecord(fx.repo, {
       operationId: 'crafted-op-7',
       change: 'demo-change',
@@ -684,7 +747,7 @@ describe('finishStep — unresolvable ambiguity is reported, never guessed (AC13
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
         { id: 'verify-gates', status: 'pending' },
-        { id: 'update-task', status: 'running', intent: { fromState: 'in-implementation', toState: 'verified' } },
+        { id: 'update-task', status: 'running', intent: { fromState: 'active', toState: 'completed' } },
         { id: 'commit', status: 'pending' },
         { id: 'push', status: 'pending' },
         { id: 'transition', status: 'pending' },
@@ -701,8 +764,7 @@ describe('finishStep — unresolvable ambiguity is reported, never guessed (AC13
     assert.equal(record.operations.find(o => o.id === 'update-task').status, 'unknown');
     assert.equal(record.operations.find(o => o.id === 'commit').status, 'pending', 'no further stage may execute');
 
-    // Clean up so the next test in this suite starts from a known task state.
-    setTaskStatus(freshChange(fx.activeDir), 'demo-task', 'in-implementation');
+    // Clean up so the next test in this suite starts from a known state.
     rmSync(join(fx.repo, '.nevo-ai-local'), { recursive: true, force: true });
   });
 

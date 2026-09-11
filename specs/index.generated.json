@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-11T11:21:52.560Z",
+  "generated": "2026-09-11T14:46:01.841Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -406,11 +406,14 @@
           "id": "step-active-completed-lifecycle",
           "order": 10,
           "file": "tasks/10-step-active-completed-lifecycle.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "multi-step-workflow-progression",
             "fail-closed-workflow-definition-resolution"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "80e76e5c797eab33a231d1b0c567cc487daa9ad0"
+          }
         },
         {
           "id": "production-multi-step-standard-workflow",
