@@ -1,50 +1,56 @@
 ---
 review-of: spec
 change: deterministic-workflow-foundation
-generated: 2026-09-10
+generated: 2026-09-11
 verdict: ready-for-approval
 ready_for_approval: true
 implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 0b137a43325434252bf9de0f2cdcb276cd1cab0ff4cc4f28cc7e162b26948a3e
+spec_fingerprint: a719cf568dc4ab0a518127561e00817bddfa583a4c47e772d6cb0ed1fa9fbf8e
 task_fingerprints:
   workflow-schema-and-compatibility: d738c1893138d7d069d04b9a419830f1895d7cb89a1a22eeb36b189fbb7c74f7
   composable-actions-and-contracts: 6a2a04e45ad6608eaaec3f1bc97ad11858471f515d02b8c77fc70efae5ec001a
   action-registry-and-aggregated-checks: 01b344de2df410fc722b37bc37b7b394af569447cfd1f70bdfd91b9d72666023
-  source-control-capability: e35b7a1cb750c8754d6275f63d723cd3cd69e94bce1847406eba673c9d93425e
+  source-control-capability: 7b750b45138e12727fe8b3d86161198f4dcbcd365972e30849a276edbde7e8f7
   deterministic-gates-and-human-verification: 04887f1a2aa260440ac97cf4c13e6e7d58edaa08bcda8c4919d600f1bfbb42fe
-  step-orchestration-and-next-step-service: ffc4327fd53586199d7bfc2c15b3af3e8a38adc55c635481a724365d6a760aeb
-  cli-integration-and-vertical-poc: e16676b7bfb5b03ea8ee83537e1bf9d456316a0a5af73b4ad29691b0229bdef7
-  multi-step-workflow-progression: 629e1050723de4a5a087f708bfb9513ca55394669c338881802c05bb0368ca09
-  fail-closed-workflow-definition-resolution: 9d49584f264b5dc9c26ca6a8e50e1c2d1b962824e7b5dcbc7523a1b0f599e26c
-  production-multi-step-standard-workflow: 86981d15641675ba7849a4dacb88b7d8080d54bb02d23893bc50496856ebc79a
-  step-context-knowledge-hints: 63685232a7403102c775b5a947ab4297fe4a21833a7370095a8ba473b78530ce
-  multi-step-workflow-e2e-proof: 328fd340a5f03fda14e28c188b1a0185adc67eeed578a57e1e03fa00c831422d
+  step-orchestration-and-next-step-service: 78744830bff2637879160b613824fb1a3c984b2342aba54580ce41d00055e727
+  cli-integration-and-vertical-poc: 08f3891e54d23998af597eb5454049fc02eae44f5f6d1532db44918a4a9933d8
+  multi-step-workflow-progression: fc922dd0a2ec4b2da397db6cb1e8d4c9f9011f311d6b8d7786f1daeffdc1aa95
+  fail-closed-workflow-definition-resolution: 2c2fb175e443013df08e28cc279e6596394c8978ee3fb597edc01bc0e4cf2609
+  step-active-completed-lifecycle: d1f6043f005c7414d3aa922642fb99a936614eb9357463f8e9de2afeccec7776
+  production-multi-step-standard-workflow: 54b6aa772371e1508b4972038b6c71c454be2709100580efb898af31e3d7a512
+  step-context-knowledge-hints: cda269329c6af2a21a36d66bf5b5f3bd1d668598ecc0c0ac2a93574709b6acfd
+  multi-step-workflow-e2e-proof: 9f27a9545246606e846af2291c18c770817b1b02e52a260d2c140ee0774b3bb7
 ---
 
 # Review: deterministic-workflow-foundation
 
 ## Verdict
 
-`ready-for-approval` — fresh full re-read of the whole specification. `spec_fingerprint`
-is byte-identical to the 2026-09-09 baseline, confirming the specification's substance
-(`change.yaml`'s structural fields, `overview.md`, both `areas/` files, all twelve task
-files) is unchanged since that review; only per-task implementation/self-check state has
-moved (Task 08 is now `verified`, having gone through a full implementation and a
-corrective pass with an independent `task-review`, both already recorded in
-`reviews/multi-step-workflow-progression.md`). Zero findings this run.
+`ready-for-approval` — full `--all` re-read of the whole specification, following the
+D37 lifecycle correction (owner-directed 2026-09-11) and its own corrective pass fixing
+the contradictions that correction first introduced (C22/C27 vs. the old Task 08
+contracts, the exploratory `implementation`-step misstatement, the Task 10→13
+renumbering sweep, and D37's own D23-vs-D14/C18 heading). `spec_fingerprint` and every
+task fingerprint changed from the 2026-09-10 baseline (expected — `overview.md`,
+`owner-decisions.md`, both area-doc-adjacent files, and every task from 07 onward were
+touched by this session's work); Tasks 01-09 also moved from `implemented`/`draft` to
+`verified` in the interim (04, 06, 07, 09 this session), unrelated to and unaffected by
+this review. Zero findings this run.
 
 ## Implementation readiness
 
 - May implementation start now? No — `implementation_allowed: false`.
-- Are the relevant tasks `approved` in `change.yaml`? No — Tasks 09, 10, 11, 12 remain
-  `status: draft` (Tasks 01, 02, 03, 05, 08 are `verified`; Tasks 04, 06, 07 remain
-  `implemented`, awaiting owner verification — unaffected by this review).
-- What has to happen first? Nothing further from this review — owner approval of Task 09
-  (next in the user's explicit sequencing: 08 → 09 → 11, then Task 10 gated on a separate
-  decomposition-approval step per D31, then 12).
+- Are the relevant tasks `approved` in `change.yaml`? No — Task 10
+  (`step-active-completed-lifecycle`) and Tasks 11-13 remain `status: draft`. Tasks
+  01-09 are all `verified`.
+- What has to happen first? Owner approval of Task 10 — the next task in dependency
+  order, and the prerequisite D37 itself requires before Task 11 (production Standard
+  workflow) can start. Task 11 additionally still needs its own separate D31
+  decomposition-approval precondition before *it* can start/be approved — unaffected by
+  this review, and not a blocker for approving Task 10 now.
 
 ## Findings
 
@@ -55,34 +61,59 @@ Non-gating repository check: passed (`node tools/specs.mjs check`, `node tools/d
 
 ## Specification quality assessment
 
-Re-read `overview.md`, `owner-decisions.md` (D1-D33), both area docs, `change.yaml`, and
-Task 09 in full, fresh, this run (Tasks 10-12 re-confirmed against the identical
-`spec_fingerprint`, since their own files are untouched since the 2026-09-09 full read
-that already validated them task-by-task).
+Re-read `change.yaml`, `overview.md`, `owner-decisions.md` (D1-D37), both `areas/` files,
+and all thirteen task files in full, fresh, this run — full `--all` scope, not `--changed`,
+given how broadly D37 and its correction touched the specification.
 
-- Task 09's scope (fail-closed action-reference resolution, D20/C20) is narrow, internally
-  consistent, and still accurate against the current code: `step-context.mjs`'s
-  `registeredFinalizeActions`/`aggregateFinalizeCheck` and
-  `definitions/loader.mjs`'s `loadWorkflowDefinition` (with its still-unpopulated
-  `knownActions` option) are exactly as Task 09's own text describes them, unaffected by
-  Task 08's multi-step generalization landing in between. Its `depends_on` correctly
-  names `multi-step-workflow-progression`, now `verified`.
-- Task 09's `semantic_references` (D2, D7, D20; C6, C9, C20) all resolve, none superseded.
-- Task 11's scope remains narrow and unaffected by Task 08's expansion, per the prior
-  review's already-recorded assessment (unchanged since, per the matching
-  `spec_fingerprint`).
-- Task 10's owner-approval gate (D31) is unaffected and still pending the separate
-  decomposition-approval step, as the user's own governing instruction requires.
-- D33 (recorded 2026-09-09, Task 08's exact-file scope amendment) is fully consistent
-  with the rest of `owner-decisions.md` and does not affect Tasks 09-12's own declared
-  scope or semantic references.
+- **D37's model is now internally consistent.** `overview.md`'s C22/C27 state the
+  corrected active/completed semantics (internal `finish` never advances `current_step`;
+  only `step start` does; position resolution never consults `task.status`); the new C29
+  states `step start`'s four-case activation contract explicitly. No remaining prose
+  anywhere in `overview.md`, `owner-decisions.md`, or the area doc describes the
+  superseded immediate-advance/`task.status`-first model as current — every historical
+  mention is annotated as corrected (D19, D28's own entries; D37's Consequences list).
+- **Exploratory migration mapping is truthful.** D37, the area doc §17, and Task 10's
+  Goal item 9/AC13 all correctly state `exploratory` declares a `discovery` step (not
+  `implementation`) and map it to `status: { active: discovering, completed:
+  discovered }`, distinct from `standard`/`architectural`/`small`'s `implementation:
+  { active: implementing, completed: implemented }`. No `refining`/`ready` pair
+  introduced.
+- **Task renumbering is complete and unambiguous.** Every "Task 10/11/12" reference in
+  D22, D25, D27, D31, D36, D28, D8, D18, D21, and the already-implemented Tasks 07/08
+  now names the current task number, with historical annotation ("originally Task 10
+  before D37") where the surrounding sentence is itself historical narrative. D31
+  explicitly states the owner-approved Standard decomposition is a precondition of
+  **Task 11**, not the new Task 10, via its own renumbering note plus every normative
+  occurrence in its body.
+- **D37's heading matches its own body.** Retitled to name D18/D19/D28 (semantics
+  corrected) and D14/C18 (`update-task` reconciliation corrected), with D23 explicitly
+  stated unaffected — consistent with the Consequences section, which already said the
+  same thing.
+- **Task 10's own scope is narrow and coherent**: schema (`status` per step),
+  store (`workflow_progress.state`), resolution (position/semantic-status as a pure
+  function of `workflow_progress`+definition), the `step start` mutation path, `finish`'s
+  corrected internal-transition write, crash-reconciliation intent, `StepContext`
+  additions, and the four-file shipped-definition/template migration — all traceable to
+  D37 and cross-referenced correctly. `allowed_paths`/`forbidden_paths` correctly exclude
+  `gates/**` (beyond `human-gate.mjs`, not touched by this task), `actions/**`,
+  `.nevo-ai/workflows/**` beyond the four exact files the migration needs, matching the
+  D33-D36 precedent this task cites for that exact-file exception.
+- **Dependency chain is truthful**: Task 10 depends on 08, 09 (both `verified`); Task 11
+  depends on 08, 09, 10; Task 12 depends on 08, 10; Task 13 depends on 09, 10, 11, 12 —
+  matches `change.yaml` exactly, and matches the prose in `overview.md`'s Implementation
+  Decomposition and the area doc.
 
 ## Semantic-reference completeness
 
-Task 09: every reference load-bearing, nothing missing. No other task in scope for this
-run's re-read.
+Task 10: `decisions` (D9, D10, D13, D14, D18, D19, D22, D23, D25, D28, D30, D32, D37),
+`constraints` (C6, C11, C14, C15, C17, C18, C19, C21, C22, C27, C28, C29), and
+`dependency_contracts` (multi-step-workflow-progression, fail-closed-workflow-definition-
+resolution) all resolve and are load-bearing against the task's own Goal/constraints
+text — nothing missing, nothing declared-but-unused. Tasks 11-13's own semantic
+references (re-checked this run, full scope) resolve identically to the prior review's
+already-recorded assessment, now against their current (post-renumbering) content.
 
 ## Next steps
 
-Approve Task 09 (`/nevo-ai:spec-approve deterministic-workflow-foundation
-fail-closed-workflow-definition-resolution`), per the user's explicit sequencing.
+Approve Task 10 (`/nevo-ai:spec-approve deterministic-workflow-foundation
+step-active-completed-lifecycle`).
