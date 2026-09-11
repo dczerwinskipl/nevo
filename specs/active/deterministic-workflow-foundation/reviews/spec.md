@@ -22,7 +22,7 @@ task_fingerprints:
   step-active-completed-lifecycle: c43e5fa80380647192ae1cf9a8925a2a01ee4e6d1d29697e23184106f6b3d762
   production-multi-step-standard-workflow: e09098f60ba9e68534d7b2c94166374f3a4e5d1a053b6d920b54bacf95fc2c3d
   step-context-knowledge-hints: 0ace8b373149b3cd1cab8c145195b488c10c069f1e7aebc34db0e7b2da2cdb88
-  multi-step-workflow-e2e-proof: d4a5f09a8b489e224e13d6122fa522ea41fbf7cb4cd67eb491029009a0608dfd
+  multi-step-workflow-e2e-proof: cb2ca7c4c74cb00d2680233650d7d0bbb048cb570d03237ed6a75821a52e25c8
 ---
 
 # Review: deterministic-workflow-foundation
