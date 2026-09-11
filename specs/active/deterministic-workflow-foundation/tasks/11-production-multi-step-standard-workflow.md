@@ -17,13 +17,14 @@ allowed_paths:
   - tools/specs/workflow/templates/standard.yaml
   - docs/development/workflow-engine.md
   - tools/tests/workflow-e2e.test.mjs
+  - tools/tests/workflow-compatibility.test.mjs
 forbidden_paths:
   - src/**
   - tests/NEvo.*/**
   - tools/dashboard/**
   - tools/specs/workflow/**
 semantic_references:
-  decisions: [D7, D18, D19, D20, D25, D26, D27, D31, D37, D39]
+  decisions: [D7, D18, D19, D20, D25, D26, D27, D31, D37, D39, D40]
   constraints: [C9, C21, C22, C25, C26, C28]
   dependency_contracts: [multi-step-workflow-progression, fail-closed-workflow-definition-resolution, step-active-completed-lifecycle]
 ---
@@ -142,9 +143,11 @@ Each step declares:
 5. `docs/development/workflow-engine.md` reflects the real 3-step shape (no stale
    single-step example left as if it were current).
    `automated: node tools/docs.mjs check`
-6. Every existing test in the test suite passes without modification, proving the new
-   Standard workflow definition integrates cleanly without regressing earlier engine or
-   fixture behaviors.
+6. Existing tests in the test suite remain unaffected except for the explicitly
+   identified stale assertion in `tools/tests/workflow-compatibility.test.mjs` against the
+   production Standard definition, which is updated to validate the D39 shape (D40),
+   proving the new Standard workflow definition integrates cleanly without regressing
+   earlier engine or fixture behaviors.
    `automated: node --test tools/tests/*.test.mjs`
 
 ## Verification

@@ -266,15 +266,35 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit re
     const standardDef = loadWorkflowDefinition('standard', { repoRoot: REPO_ROOT });
     assert.equal(standardDef.id, 'standard-v1');
     assert.equal(standardDef.type, 'standard');
+    assert.equal(standardDef.entryStep, 'implementation');
     assert.ok(standardDef.steps.implementation);
 
+    // 1. implementation step
     const impl = standardDef.steps.implementation;
+    assert.deepEqual(impl.status, { active: 'implementing', completed: 'implemented' });
     assert.deepEqual(impl.actions, []);
-    assert.equal(impl.exitGates.length, 2);
+    assert.equal(impl.exitGates.length, 1);
     assert.deepEqual(impl.exitGates[0], { type: 'command', action: 'test' });
-    assert.deepEqual(impl.exitGates[1], { type: 'human', required: true });
     assert.deepEqual(impl.finalize, [{ id: 'commit-and-push' }]);
-    assert.deepEqual(impl.transitions, [{ to: 'verified' }]);
+    assert.deepEqual(impl.transitions, [{ to: 'review' }]);
+
+    // 2. review step (D39)
+    assert.ok(standardDef.steps.review);
+    const rev = standardDef.steps.review;
+    assert.deepEqual(rev.status, { active: 'reviewing', completed: 'reviewed' });
+    assert.equal(rev.exitGates.length, 1);
+    assert.deepEqual(rev.exitGates[0], { type: 'command', action: 'test' });
+    assert.deepEqual(rev.finalize, [{ id: 'commit-and-push' }]);
+    assert.deepEqual(rev.transitions, [{ to: 'human-verification' }]);
+
+    // 3. human-verification step (D39)
+    assert.ok(standardDef.steps['human-verification']);
+    const hv = standardDef.steps['human-verification'];
+    assert.deepEqual(hv.status, { active: 'awaiting-human-verification', completed: 'completed' });
+    assert.equal(hv.exitGates.length, 1);
+    assert.deepEqual(hv.exitGates[0], { type: 'human', required: true, id: 'owner-acceptance' });
+    assert.deepEqual(hv.finalize, [{ id: 'commit-and-push' }]);
+    assert.deepEqual(hv.transitions, [{ to: 'verified' }]);
   });
 
   test('repository definitions exist in .nevo-ai/workflows/ and parse cleanly', () => {

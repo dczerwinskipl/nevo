@@ -622,3 +622,17 @@
 - **Date:** 2026-09-11
 - **Affected artifacts:** `owner-decisions.md`, `tasks/11-production-multi-step-standard-workflow.md`, `areas/multi-step-workflow-orchestration.md`, `overview.md`, `.nevo-ai/workflows/standard.yaml`, `tools/specs/workflow/templates/standard.yaml`
 
+## D40: Task 11 scope amendment to align `workflow-compatibility.test.mjs` with production Standard workflow (D39)
+
+- **Question:** Task 01's test `standard resolves from .nevo-ai/workflows/standard.yaml with explicit repoRoot` in `tools/tests/workflow-compatibility.test.mjs` directly asserts on the obsolete 1-step `standard.yaml` structure (`exitGates.length: 2`, `impl.exitGates[1]` is human, `impl.transitions` is `to: verified`). Task 11 replaces that production definition with the approved 3-step sequence (D39: `implementation` -> `review` -> `human-verification` -> `verified`). Should Task 11's scope be amended to update this compatibility test to reflect the real production definition?
+- **Options considered:**
+  1. *Decouple the test to an isolated fixture containing the obsolete 1-step shape.* Rejected: defeats the purpose of the test, which exists to prove that the real repository-local `standard.yaml` resolves correctly with explicit `repoRoot`.
+  2. *Revert or bend the production definition to satisfy the historical test.* Rejected: violates D39 and undermines the core goal of Task 11.
+  3. *Amend Task 11 scope (D40) to include `tools/tests/workflow-compatibility.test.mjs` in `allowed_paths`.* Selected: follows the exact precedent of D33, D34, and D36. Updates the test narrowly to validate the D39 shape (`implementation.exitGates` => `command: test` only, `implementation.transition` => `review`, and assert `review` and `human-verification` steps exist with their D39 contracts) while preserving the test's original purpose (repository-local workflow resolution with explicit `repoRoot`).
+- **Decision:** Option 3. Amend Task 11's scope to include `tools/tests/workflow-compatibility.test.mjs`. Update the test assertions to match the D39 3-step Standard workflow definition. Amend Task 11 AC6 to explicitly state that existing tests remain unaffected except for this identified stale assertion against the production Standard definition.
+- **Rationale:** The failing assertions encode the obsolete pre-D39 production Standard workflow shape. Task 11 intentionally replaces that production definition, so the compatibility test that loads the real repository-local `standard.yaml` must continue validating the real production definition rather than preserve historical one-step assertions.
+- **Consequences:** Task 11 `allowed_paths` gains `tools/tests/workflow-compatibility.test.mjs`. `change.yaml` and task 11 specification are updated. The compatibility test passes truthfully against the production workflow.
+- **Date:** 2026-09-11
+- **Affected artifacts:** `owner-decisions.md`, `tasks/11-production-multi-step-standard-workflow.md`, `change.yaml`, `tools/tests/workflow-compatibility.test.mjs`
+
+

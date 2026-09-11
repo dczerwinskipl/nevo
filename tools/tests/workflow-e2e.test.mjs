@@ -12,7 +12,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -27,6 +27,8 @@ import { requireChange, requireTask, loadChange } from '../specs/store.mjs';
 import { handleStart } from '../specs/start/cli.mjs';
 import { handleComplete } from '../specs/complete/cli.mjs';
 import { getCurrentRevision, getCommitInfo } from '../lib/git.mjs';
+import { loadWorkflowDefinition, parseWorkflowDefinition } from '../specs/workflow/definitions/loader.mjs';
+import { defaultActionRegistry } from '../specs/workflow/registry.mjs';
 
 const CHANGE_YAML = `id: demo-change
 title: "Demo change"
@@ -321,3 +323,246 @@ describe('Legacy coexistence — zero regressions for specifications without wor
     assert.equal(requireTask(requireChange('legacy-change', activeDir), 't1').status, 'implemented');
   });
 });
+
+describe('Production multi-step Standard workflow definition (Task 11, D31, D39)', () => {
+  const repoRoot = join(import.meta.dirname, '..', '..');
+
+  test('AC2, AC3: .nevo-ai/workflows/standard.yaml loads cleanly and validates against registered actions/gates and schema', () => {
+    const def = loadWorkflowDefinition('standard', { repoRoot });
+
+    assert.equal(def.id, 'standard-v1');
+    assert.equal(def.title, 'Standard Specification Workflow');
+    assert.equal(def.type, 'standard');
+    assert.equal(def.version, 1);
+    assert.equal(def.entryStep, 'implementation');
+
+    const stepNames = Object.keys(def.steps);
+    assert.deepEqual(stepNames, ['implementation', 'review', 'human-verification']);
+
+    // 1. implementation step
+    const impl = def.steps.implementation;
+    assert.deepEqual(impl.status, { active: 'implementing', completed: 'implemented' });
+    assert.equal(impl.exitGates.length, 1);
+    assert.deepEqual(impl.exitGates[0], { type: 'command', action: 'test' });
+    assert.deepEqual(impl.finalize, [{ id: 'commit-and-push' }]);
+    assert.deepEqual(impl.transitions, [{ to: 'review' }]);
+
+    // 2. review step
+    const rev = def.steps.review;
+    assert.deepEqual(rev.status, { active: 'reviewing', completed: 'reviewed' });
+    assert.equal(rev.exitGates.length, 1);
+    assert.deepEqual(rev.exitGates[0], { type: 'command', action: 'test' });
+    assert.deepEqual(rev.finalize, [{ id: 'commit-and-push' }]);
+    assert.deepEqual(rev.transitions, [{ to: 'human-verification' }]);
+
+    // 3. human-verification step
+    const hv = def.steps['human-verification'];
+    assert.deepEqual(hv.status, { active: 'awaiting-human-verification', completed: 'completed' });
+    assert.equal(hv.exitGates.length, 1);
+    assert.deepEqual(hv.exitGates[0], { type: 'human', required: true, id: 'owner-acceptance' });
+    assert.deepEqual(hv.finalize, [{ id: 'commit-and-push' }]);
+    assert.deepEqual(hv.transitions, [{ to: 'verified' }]);
+  });
+
+  test('AC2: tools/specs/workflow/templates/standard.yaml matches .nevo-ai/workflows/standard.yaml identically', () => {
+    const templateContent = readFileSync(join(repoRoot, 'tools', 'specs', 'workflow', 'templates', 'standard.yaml'), 'utf8');
+    const templateDef = parseWorkflowDefinition(templateContent, { knownActions: defaultActionRegistry.list() });
+    const repoDef = loadWorkflowDefinition('standard', { repoRoot });
+
+    assert.deepEqual(templateDef, repoDef);
+  });
+
+  test('AC4: every step declares authored purpose, expectedWork.summary, and hints referencing real repository documents', () => {
+    const def = loadWorkflowDefinition('standard', { repoRoot });
+
+    for (const [stepName, stepConfig] of Object.entries(def.steps)) {
+      assert.ok(typeof stepConfig.purpose === 'string' && stepConfig.purpose.trim().length > 0, `${stepName}.purpose must be non-empty string`);
+      assert.ok(typeof stepConfig.expectedWork?.summary === 'string' && stepConfig.expectedWork.summary.trim().length > 0, `${stepName}.expectedWork.summary must be non-empty string`);
+      assert.ok(Array.isArray(stepConfig.hints) && stepConfig.hints.length > 0, `${stepName}.hints must be a non-empty array`);
+
+      for (const hint of stepConfig.hints) {
+        assert.equal(hint.type, 'doc', `${stepName} hint must be type: doc`);
+        assert.ok(typeof hint.ref === 'string' && hint.ref.trim().length > 0, `${stepName} hint ref must be non-empty`);
+        const docPath = join(repoRoot, hint.ref);
+        assert.ok(existsSync(docPath), `${stepName} hint references non-existent doc: ${hint.ref}`);
+      }
+    }
+  });
+
+  describe('3-step Standard workflow full lifecycle execution through CLI (AC2, AC3, D39)', () => {
+    let fx;
+
+    function makeStandardFixture(prefix) {
+      const remote = mkdtempSync(join(tmpdir(), `${prefix}-remote-`));
+      git(remote, ['init', '-q', '--bare', '--initial-branch=main']);
+
+      const root = mkdtempSync(join(tmpdir(), `${prefix}-repo-`));
+      git(root, ['init', '-q', '--initial-branch=main']);
+      git(root, ['config', 'user.email', 'fixture@example.com']);
+      git(root, ['config', 'user.name', 'Fixture']);
+      git(root, ['remote', 'add', 'origin', remote]);
+
+      const activeDir = join(root, 'specs', 'active');
+      const changeDir = join(activeDir, 'standard-change');
+      mkdirSync(join(changeDir, 'tasks'), { recursive: true });
+      writeFileSync(join(changeDir, 'change.yaml'), [
+        'id: standard-change',
+        'title: "Standard Change"',
+        'type: standard',
+        'status: draft',
+        'workflow:',
+        '  mode: deterministic',
+        '  definition: standard',
+        'tasks:',
+        '  - id: standard-task',
+        '    order: 1',
+        '    file: tasks/01-task.md',
+        '    status: in-implementation',
+        '',
+      ].join('\n'));
+
+      writeFileSync(join(changeDir, 'tasks', '01-task.md'), [
+        '---',
+        'id: standard-change.standard-task',
+        'status: draft',
+        'change: standard-change',
+        'allowed_paths:',
+        '  - src/**',
+        'forbidden_paths: []',
+        '---',
+        '# Task: standard task',
+        '',
+      ].join('\n'));
+
+      // Copy real standard.yaml into fixture
+      const workflowsDir = join(root, '.nevo-ai', 'workflows');
+      mkdirSync(workflowsDir, { recursive: true });
+      const standardYamlContent = readFileSync(join(repoRoot, '.nevo-ai', 'workflows', 'standard.yaml'), 'utf8');
+      writeFileSync(join(workflowsDir, 'standard.yaml'), standardYamlContent);
+
+      // Package.json with a test script so `npm test` gate passes
+      writeFileSync(join(root, 'package.json'), JSON.stringify({
+        name: 'fixture-pkg',
+        version: '1.0.0',
+        scripts: { test: 'node -e "process.exit(0)"' },
+      }, null, 2));
+
+      writeFileSync(join(root, '.gitignore'), '.nevo-ai-local/\\n');
+      writeFileSync(join(root, 'root.txt'), 'root\\n');
+      git(root, ['add', '-A']);
+      git(root, ['commit', '-q', '-m', 'initial']);
+      git(root, ['push', '-q', '-u', 'origin', 'main']);
+
+      return { root, remote, activeDir };
+    }
+
+    before(() => { fx = makeStandardFixture('nevo-standard-e2e'); });
+    after(() => cleanup(fx));
+
+    test('Phase 1: step start activates implementation step with semantic status implementing', async () => {
+      const stepContext = await handleWorkflowStepStart('standard-change', 'standard-task', { ...RT, activeDir: fx.activeDir, repoRoot: fx.root });
+      assert.equal(stepContext.currentStep, 'implementation');
+      assert.equal(stepContext.runtimeState, 'active');
+      assert.equal(stepContext.semanticStatus, 'implementing');
+      assert.equal(stepContext.nextStepGuidance.onSuccess, 'review');
+      assert.ok(stepContext.stepContract.purpose.includes('implementation work'));
+    });
+
+    test('Phase 1: step finish completes implementation and transitions to review (state: completed, semantic status: implemented)', async () => {
+      mkdirSync(join(fx.root, 'src'), { recursive: true });
+      writeFileSync(join(fx.root, 'src', 'code.js'), 'export const a = 1;\\n');
+
+      const result = await handleWorkflowStepFinish('standard-change', 'standard-task', {
+        ...RT, activeDir: fx.activeDir, repoRoot: fx.root, title: 'Implement standard task', include: '*',
+      });
+
+      assert.equal(result.status, 'completed');
+      const task = requireTask(requireChange('standard-change', fx.activeDir), 'standard-task');
+      assert.equal(task.status, 'in-implementation');
+      assert.equal(task.workflow_progress.current_step, 'implementation');
+      assert.equal(task.workflow_progress.state, 'completed');
+      assert.equal(task.workflow_progress.history.length, 1);
+      assert.equal(task.workflow_progress.history[0].step, 'implementation');
+      assert.equal(task.workflow_progress.history[0].transitioned_to, 'review');
+    });
+
+    test('Phase 2: step start activates review step with semantic status reviewing', async () => {
+      const stepContext = await handleWorkflowStepStart('standard-change', 'standard-task', { ...RT, activeDir: fx.activeDir, repoRoot: fx.root });
+      assert.equal(stepContext.currentStep, 'review');
+      assert.equal(stepContext.runtimeState, 'active');
+      assert.equal(stepContext.semanticStatus, 'reviewing');
+      assert.equal(stepContext.nextStepGuidance.onSuccess, 'human-verification');
+      assert.ok(stepContext.stepContract.purpose.includes('independent quality review'));
+    });
+
+    test('Phase 2: step finish completes review and transitions to human-verification (state: completed, semantic status: reviewed)', async () => {
+      writeFileSync(join(fx.root, 'src', 'review-fix.js'), '// review pass\\n');
+
+      const result = await handleWorkflowStepFinish('standard-change', 'standard-task', {
+        ...RT, activeDir: fx.activeDir, repoRoot: fx.root, title: 'Review standard task', include: '*',
+      });
+
+      assert.equal(result.status, 'completed');
+      const task = requireTask(requireChange('standard-change', fx.activeDir), 'standard-task');
+      assert.equal(task.status, 'in-implementation');
+      assert.equal(task.workflow_progress.current_step, 'review');
+      assert.equal(task.workflow_progress.state, 'completed');
+      assert.equal(task.workflow_progress.history.length, 2);
+      assert.equal(task.workflow_progress.history[1].step, 'review');
+      assert.equal(task.workflow_progress.history[1].transitioned_to, 'human-verification');
+    });
+
+    test('Phase 3: step start activates human-verification step with semantic status awaiting-human-verification', async () => {
+      const stepContext = await handleWorkflowStepStart('standard-change', 'standard-task', { ...RT, activeDir: fx.activeDir, repoRoot: fx.root });
+      assert.equal(stepContext.currentStep, 'human-verification');
+      assert.equal(stepContext.runtimeState, 'active');
+      assert.equal(stepContext.semanticStatus, 'awaiting-human-verification');
+      assert.equal(stepContext.nextStepGuidance.onSuccess, 'verified');
+      assert.ok(stepContext.stepContract.purpose.includes('Explicit owner/user acceptance'));
+      const humanGate = stepContext.finishContract.gates.find(g => g.gateType === 'human');
+      assert.equal(humanGate.status, 'blocked');
+      assert.equal(humanGate.id, 'owner-acceptance');
+    });
+
+    test('Phase 3: step finish fails closed while human verification gate is unconfirmed', async () => {
+      const attempt = await handleWorkflowStepFinish('standard-change', 'standard-task', {
+        ...RT, activeDir: fx.activeDir, repoRoot: fx.root, title: 'Attempt finish without verification', include: '*',
+      });
+      assert.equal(attempt.status, 'blocked');
+      assert.equal(attempt.blockers[0].gateType, 'human');
+      assert.equal(attempt.blockers[0].id, 'owner-acceptance');
+
+      const task = requireTask(requireChange('standard-change', fx.activeDir), 'standard-task');
+      assert.equal(task.status, 'in-implementation');
+      assert.equal(task.workflow_progress.state, 'active');
+    });
+
+    test('Phase 3: verify-human --confirm satisfies the gate and step finish completes to terminal verified status', async () => {
+      const confirmation = handleWorkflowVerifyHuman('standard-change', 'standard-task', { ...RT, confirm: true, activeDir: fx.activeDir, repoRoot: fx.root });
+      assert.equal(confirmation.confirmed, true);
+
+      const result = await handleWorkflowStepFinish('standard-change', 'standard-task', {
+        ...RT, activeDir: fx.activeDir, repoRoot: fx.root, title: 'Finalize human verification', include: '*',
+      });
+
+      assert.equal(result.status, 'completed');
+      const task = requireTask(requireChange('standard-change', fx.activeDir), 'standard-task');
+      assert.equal(task.status, 'verified');
+      assert.equal(task.workflow_progress.current_step, 'human-verification');
+      assert.equal(task.workflow_progress.state, 'completed');
+      assert.equal(task.workflow_progress.history.length, 3);
+      assert.equal(task.workflow_progress.history[2].step, 'human-verification');
+      assert.equal(task.workflow_progress.history[2].transitioned_to, 'verified');
+
+      const headSha = getCurrentRevision(fx.root);
+      const remoteHead = git(fx.remote, ['rev-parse', 'main']).trim();
+      assert.equal(remoteHead, headSha);
+    });
+
+    test('Phase 3: repeated finish after completion returns already-completed', async () => {
+      const result = await handleWorkflowStepFinish('standard-change', 'standard-task', { ...RT, activeDir: fx.activeDir, repoRoot: fx.root });
+      assert.equal(result.status, 'already-completed');
+    });
+  });
+});
+

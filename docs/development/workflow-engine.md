@@ -124,7 +124,7 @@ reimplemented) by `step-context.mjs` and `finish-operation.mjs`.
     "requiredInputs": { "commit.title": { "type": "string", "required": true, "...": "..." } },
     "gates": [ { "id": "test", "gateType": "command", "status": "pending", "...": "..." } ]
   },
-  "nextStepGuidance": { "onSuccess": "verified" }
+  "nextStepGuidance": { "onSuccess": "review" }
 }
 ```
 
@@ -185,6 +185,52 @@ persisted status field (the semantic status above is always derived from
 
 This means a task can sit observably between "step A's work is done" and "step B has
 actually begun" — a real, resumable checkpoint the model above exists to represent.
+
+## Production Standard specification workflow (`standard.yaml`)
+
+The primary workflow definition for Nevo standard specifications (`.nevo-ai/workflows/standard.yaml`
+and initialization template `tools/specs/workflow/templates/standard.yaml`) decomposes task
+execution into three independently-gated, observable steps:
+
+```text
+implementation -> review -> human-verification -> [terminal: verified]
+```
+
+### 1. `implementation`
+- **Semantic status pair**: `active: implementing`, `completed: implemented`.
+- **Purpose**: Perform the approved implementation work for the task within declared scope.
+- **Expected work**: Modify code, tests, and documentation within `allowed_paths` to satisfy task acceptance criteria.
+- **Hints**: `docs/development/workflow-engine.md`, `docs/ai/task-execution-policy.md`.
+- **Exit gates**: `test` (`CommandGate` via catalog alias).
+- **Finalize**: `commit-and-push`.
+- **Transition**: `to: review`.
+
+### 2. `review`
+- **Semantic status pair**: `active: reviewing`, `completed: reviewed`.
+- **Purpose**: Perform an independent quality review of the implementation against task acceptance criteria, applying corrective fixes if gaps are found.
+- **Expected work**: Audit implementation and test coverage, apply corrective edits within `allowed_paths`, and confirm automated verification passes.
+- **Hints**: `docs/ai/specification-workflow.md`, `docs/development/testing-strategy.md`.
+- **Exit gates**: `test` (`CommandGate` via catalog alias).
+- **Finalize**: `commit-and-push`.
+- **Transition**: `to: human-verification`.
+
+### 3. `human-verification`
+- **Semantic status pair**: `active: awaiting-human-verification`, `completed: completed`.
+- **Purpose**: Explicit owner/user acceptance sign-off after automated implementation and independent review have completed.
+- **Expected work**: Confirm readiness with the repository owner and record explicit human verification sign-off.
+- **Hints**: `docs/ai/specification-workflow.md`, `docs/development/workflow-engine.md`.
+- **Exit gates**: `human` (`HumanVerificationGate`, `required: true`, `id: owner-acceptance`).
+- **Finalize**: `commit-and-push` (persisting terminal completed workflow state and canonical `task.status: verified`).
+- **Transition**: `to: verified` (canonical terminal status).
+
+### Visible lifecycle progression
+```text
+new -> implementing -> implemented -> reviewing -> reviewed -> awaiting-human-verification -> completed
+```
+
+The terminal transition targets canonical `verified` on the coarse `task.status` axis,
+keeping the semantic workflow status axis (`completed`) strictly separated from repository
+lifecycle status.
 
 ## Finish planning and durable finish execution
 

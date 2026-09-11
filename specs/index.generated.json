@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-11T17:00:27.233Z",
+  "generated": "2026-09-11T17:17:08.764Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -489,12 +489,43 @@
           "id": "production-multi-step-standard-workflow",
           "order": 11,
           "file": "tasks/11-production-multi-step-standard-workflow.md",
-          "status": "approved",
+          "status": "implemented",
           "depends_on": [
             "multi-step-workflow-progression",
             "fail-closed-workflow-definition-resolution",
             "step-active-completed-lifecycle"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "1d7f4780b3bba2a307bc509541d55e067c572d1b",
+            "review_revision": "1d7f4780b3bba2a307bc509541d55e067c572d1b",
+            "changed_paths": [
+              ".nevo-ai/workflows/standard.yaml",
+              "docs/development/workflow-engine.md",
+              "tools/specs/workflow/templates/standard.yaml",
+              "tools/tests/workflow-compatibility.test.mjs",
+              "tools/tests/workflow-e2e.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "374c50334cb5bf76ed1e5041d3917eea142f8cdf5cdf6d5790c50022ba89f3aa"
+          },
+          "self_check": {
+            "fingerprint": "e09098f60ba9e68534d7b2c94166374f3a4e5d1a053b6d920b54bacf95fc2c3d",
+            "revision": "1d7f4780b3bba2a307bc509541d55e067c572d1b",
+            "commands": [
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "step-context-knowledge-hints",

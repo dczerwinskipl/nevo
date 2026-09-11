@@ -3,18 +3,69 @@ id: standard-v1
 title: "Standard Specification Workflow"
 type: standard
 version: 1
+entryStep: implementation
 steps:
   implementation:
     status:
       active: implementing
       completed: implemented
+    purpose: "Perform the approved implementation work for the task within declared scope."
+    expectedWork:
+      summary: "Modify code, tests, and documentation within allowed_paths to satisfy task acceptance criteria."
+    hints:
+      - type: doc
+        ref: docs/development/workflow-engine.md
+      - type: doc
+        ref: docs/ai/task-execution-policy.md
     entryGates: []
     exitGates:
       - type: command
         action: test
+    finalize:
+      - id: commit-and-push
+    transitions:
+      - to: review
+
+  review:
+    status:
+      active: reviewing
+      completed: reviewed
+    purpose: "Perform an independent quality review of the implementation against task acceptance criteria, applying corrective fixes if gaps are found."
+    expectedWork:
+      summary: "Audit implementation and test coverage, apply corrective edits within allowed_paths, and confirm automated verification passes."
+    hints:
+      - type: doc
+        ref: docs/ai/specification-workflow.md
+      - type: doc
+        ref: docs/development/testing-strategy.md
+    entryGates: []
+    exitGates:
+      - type: command
+        action: test
+    finalize:
+      - id: commit-and-push
+    transitions:
+      - to: human-verification
+
+  human-verification:
+    status:
+      active: awaiting-human-verification
+      completed: completed
+    purpose: "Explicit owner/user acceptance sign-off after automated implementation and independent review have completed."
+    expectedWork:
+      summary: "Confirm readiness with the repository owner and record explicit human verification sign-off."
+    hints:
+      - type: doc
+        ref: docs/ai/specification-workflow.md
+      - type: doc
+        ref: docs/development/workflow-engine.md
+    entryGates: []
+    exitGates:
       - type: human
         required: true
+        id: owner-acceptance
     finalize:
       - id: commit-and-push
     transitions:
       - to: verified
+
