@@ -316,7 +316,7 @@ tasks:
       - fail-closed-workflow-definition-resolution
     implementation:
       baseline_revision: 80e76e5c797eab33a231d1b0c567cc487daa9ad0
-      review_revision: 67b0a71a4c4cad50d5c1f1ce76d4a4d97d1e307b
+      review_revision: 408a117a45ba72bed7b1252f1c0cd58eb5be4790
       changed_paths:
         - .nevo-ai/workflows/architectural.yaml
         - .nevo-ai/workflows/exploratory.yaml
@@ -329,6 +329,7 @@ tasks:
         - tools/specs/workflow/definitions/schema.mjs
         - tools/specs/workflow/finish-operation.mjs
         - tools/specs/workflow/index.mjs
+        - tools/specs/workflow/operation-record.mjs
         - tools/specs/workflow/step-context.mjs
         - tools/specs/workflow/step-runner.mjs
         - tools/specs/workflow/templates/architectural.yaml
@@ -342,8 +343,8 @@ tasks:
         - tools/tests/workflow-next-step.test.mjs
       worktree_patch_fingerprint: null
     self_check:
-      fingerprint: d1f6043f005c7414d3aa922642fb99a936614eb9357463f8e9de2afeccec7776
-      revision: 67b0a71a4c4cad50d5c1f1ce76d4a4d97d1e307b
+      fingerprint: c43e5fa80380647192ae1cf9a8925a2a01ee4e6d1d29697e23184106f6b3d762
+      revision: 408a117a45ba72bed7b1252f1c0cd58eb5be4790
       commands:
         - command: node --test tools/tests/workflow-next-step.test.mjs
           exit_code: 0
