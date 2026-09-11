@@ -385,7 +385,7 @@ Every `cli.mjs` handler accepts `{ activeDir, repoRoot }` overrides (defaulting 
 repository) — the same pattern `tools/specs/start/operation.mjs`'s `startTask` already
 established — so tests drive these exact handlers end-to-end against a disposable fixture
 repository instead of the real checked-out one (see
-`tools/tests/workflow-cli.test.mjs`/`workflow-e2e.test.mjs`).
+`tools/tests/workflow-cli.test.mjs`/`workflow-e2e.test.mjs`/`workflow-multi-step-e2e.test.mjs`).
 
 ## Legacy/deterministic migration map
 

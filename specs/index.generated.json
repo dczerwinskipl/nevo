@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-11T17:49:45.960Z",
+  "generated": "2026-09-11T18:02:48.591Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -567,13 +567,45 @@
           "id": "multi-step-workflow-e2e-proof",
           "order": 13,
           "file": "tasks/13-multi-step-workflow-e2e-proof.md",
-          "status": "approved",
+          "status": "implemented",
           "depends_on": [
             "production-multi-step-standard-workflow",
             "step-context-knowledge-hints",
             "fail-closed-workflow-definition-resolution",
             "step-active-completed-lifecycle"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "ba82143eee5a8510dc5c6774bbb866539138b605",
+            "review_revision": "ba82143eee5a8510dc5c6774bbb866539138b605",
+            "changed_paths": [
+              "docs/development/workflow-engine.md",
+              "tools/tests/workflow-multi-step-e2e.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "1dd285f16eff97998ad291fbfa3d838990b986e72fac30b7888523a63da12819"
+          },
+          "self_check": {
+            "fingerprint": "768d38741dbad9655b5a4d41094fbb19cfc80f9ec475a8804261eaab56723fdc",
+            "revision": "ba82143eee5a8510dc5c6774bbb866539138b605",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-multi-step-e2e.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         }
       ]
     },
