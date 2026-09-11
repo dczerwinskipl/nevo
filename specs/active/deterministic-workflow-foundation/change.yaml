@@ -100,7 +100,7 @@ tasks:
   - id: source-control-capability
     order: 4
     file: tasks/04-source-control-capability.md
-    status: implemented
+    status: verified
     depends_on:
       - composable-actions-and-contracts
     implementation:
@@ -152,7 +152,7 @@ tasks:
   - id: step-orchestration-and-next-step-service
     order: 6
     file: tasks/06-step-orchestration-and-next-step-service.md
-    status: implemented
+    status: verified
     depends_on:
       - action-registry-and-aggregated-checks
       - deterministic-gates-and-human-verification
@@ -263,7 +263,7 @@ tasks:
   - id: fail-closed-workflow-definition-resolution
     order: 9
     file: tasks/09-fail-closed-workflow-definition-resolution.md
-    status: implemented
+    status: verified
     depends_on:
       - multi-step-workflow-progression
     implementation:
