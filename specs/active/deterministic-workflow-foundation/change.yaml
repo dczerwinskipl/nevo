@@ -378,7 +378,7 @@ tasks:
   - id: step-context-knowledge-hints
     order: 12
     file: tasks/12-step-context-knowledge-hints.md
-    status: implemented
+    status: verified
     depends_on:
       - multi-step-workflow-progression
       - step-active-completed-lifecycle
