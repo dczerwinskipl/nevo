@@ -598,12 +598,22 @@ D10/D22).
 **Schema:** every step in a production deterministic workflow definition must declare
 `status: { active, completed }` — both required, validated against the existing
 `SAFE_IDENTIFIER_PATTERN` (D30), non-empty; not display labels or i18n copy. **Migration
-(fail-closed, no silent default):** the four already-shipped one-step definitions and
-their templates (`standard`, `architectural`, `small`, `exploratory`) gain
-`status: { active: implementing, completed: implemented }` on their one `implementation`
-step, in the same task that introduces this requirement — the same D33-D36 precedent of
-an engine-tightening task also fixing the production-yaml fallout its own stricter schema
-causes. A definition missing `status` fails to load from the moment this ships; there is
+(fail-closed, no silent default; corrected — the four shipped definitions do not all
+share one step name):** the four already-shipped one-step definitions and their
+templates are editable by the same task that introduces this requirement — the same
+D33-D36 precedent of an engine-tightening task also fixing the production-yaml fallout
+its own stricter schema causes — but their one step is not uniformly named
+`implementation`: `standard`/`architectural`/`small` declare an `implementation` step
+(`implementation -> verified`); `exploratory` declares a `discovery` step
+(`discovery -> verified`, unaffected by D33's earlier terminal-target fix). Each gains
+`status` on its own actual step, using identifiers truthful to what that step does:
+- `standard` / `architectural` / `small` — `implementation: { status: { active:
+  implementing, completed: implemented } }`.
+- `exploratory` — `discovery: { status: { active: discovering, completed: discovered
+  } }`.
+
+No `refining`/`ready` pair is introduced — the refine/spec-writing lifecycle Spec Writer
+already owns remains a later, separate product extension. A definition missing `status` fails to load from the moment this ships; there is
 no code path that synthesizes a placeholder.
 
 See D37 in `owner-decisions.md` for the full decision record, including exactly which

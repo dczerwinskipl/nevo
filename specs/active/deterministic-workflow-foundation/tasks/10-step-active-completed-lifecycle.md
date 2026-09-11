@@ -57,7 +57,7 @@ forbidden_paths:
   - tools/specs/workflow/definitions/loader.mjs
 semantic_references:
   decisions: [D9, D10, D13, D14, D18, D19, D22, D23, D25, D28, D30, D32, D37]
-  constraints: [C6, C11, C14, C15, C17, C18, C19, C21, C22, C27, C28]
+  constraints: [C6, C11, C14, C15, C17, C18, C19, C21, C22, C27, C28, C29]
   dependency_contracts: [multi-step-workflow-progression, fail-closed-workflow-definition-resolution]
 ---
 
@@ -158,10 +158,20 @@ finish`'s internal-transition case, position/semantic-status resolution, and the
    as today; `semanticStatus` in that case is the final step's `status.completed` value.
 9. **Migration of the four already-shipped one-step definitions and their templates
    (fail-closed, no silent default — same D33-D36 precedent as Task 09's own
-   scope-amendments).** `standard`, `architectural`, `small`, and `exploratory` (all
-   still `implementation -> verified`) each gain `status: { active: implementing,
-   completed: implemented }` on their one `implementation` step — the exact identifiers
-   this decision's own example specifies, mechanical, no wording judgment deferred. A
+   scope-amendments).** The four shipped definitions do **not** all share one step name:
+   `standard`, `architectural`, and `small` each declare an `implementation` step
+   (`implementation -> verified`); `exploratory` declares a `discovery` step
+   (`discovery -> verified`, unaffected by D33's earlier terminal-target fix). Each
+   gains `status` on its own actual step, using identifiers truthful to what that step
+   does — never a copy-pasted pair that misdescribes it:
+   - `standard` / `architectural` / `small` — `implementation: { status: { active:
+     implementing, completed: implemented } }`.
+   - `exploratory` — `discovery: { status: { active: discovering, completed:
+     discovered } }`.
+
+   These are the exact identifiers D37's own example specifies — mechanical, no wording
+   judgment deferred, and no `refining`/`ready` pair introduced (the refine/spec-writing
+   lifecycle remains a later, separate product extension). A
    definition missing `status` on any step fails to load from the moment this ships.
 
 ## Implementation constraints
@@ -253,10 +263,13 @@ finish`'s internal-transition case, position/semantic-status resolution, and the
     unaffected; `workflow_progress` (with or without `state`) remains forbidden on a
     non-deterministic-mode task exactly as today (D18's consequence, unchanged).
     `automated: node --test tools/tests/workflow-next-step.test.mjs`
-13. **Migration:** `.nevo-ai/workflows/{standard,architectural,small,exploratory}.yaml`
-    and their matching templates each declare `status: { active: implementing,
-    completed: implemented }` on their `implementation` step and load successfully
-    under the corrected, `status`-requiring schema. `automated: node --test tools/tests/workflow-e2e.test.mjs, tools/tests/workflow-compatibility.test.mjs`
+13. **Migration:** `.nevo-ai/workflows/{standard,architectural,small}.yaml` and their
+    matching templates each declare `status: { active: implementing, completed:
+    implemented }` on their `implementation` step; `.nevo-ai/workflows/exploratory.yaml`
+    and its template declare `status: { active: discovering, completed: discovered }`
+    on their `discovery` step (not `implementation` — exploratory has no such step);
+    all four load successfully under the corrected, `status`-requiring schema.
+    `automated: node --test tools/tests/workflow-e2e.test.mjs, tools/tests/workflow-compatibility.test.mjs`
 14. **Atomic task-state write, extended:** `setTaskWorkflowState` continues applying
     `status`/`workflowProgress` (now including `state`) in one `updateYamlFile` call —
     no regression to D32's atomicity guarantee. `automated: node --test tools/tests/store.test.mjs`

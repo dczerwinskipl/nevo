@@ -24,7 +24,7 @@ forbidden_paths:
   - .nevo-ai/workflows/**
 semantic_references:
   decisions: [D9, D18, D19, D20, D23, D24, D26, D28, D29, D30, D37]
-  constraints: [C14, C17, C18, C19, C21, C22, C23, C24, C26, C27, C28]
+  constraints: [C14, C17, C18, C19, C21, C22, C23, C24, C26, C27, C28, C29]
   dependency_contracts: [production-multi-step-standard-workflow, step-context-knowledge-hints, fail-closed-workflow-definition-resolution, step-active-completed-lifecycle]
 ---
 

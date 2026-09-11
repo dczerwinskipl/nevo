@@ -121,8 +121,9 @@ multi-step workflow exposes (`areas/multi-step-workflow-orchestration.md` §§1-
    `definitions/schema.mjs` to accept and validate three new optional per-step fields:
    `purpose` (string), `expectedWork` (object, at minimum a `summary` string),
    `hints` (array of `{ type: 'doc'|'skill'|'file', ref: string }`). This task
-   validates the shape only — authoring real content (Task 10) and wiring it into
-   `StepContext` (Task 11) are explicitly out of scope here.
+   validates the shape only — authoring real content (Task 11, originally Task 10
+   before D37's renumbering) and wiring it into `StepContext` (Task 12, originally
+   Task 11) are explicitly out of scope here.
 8. **Fail-closed *effective* workflow-definition version compatibility (D26, refined).**
    Add a check — callable from `cli.mjs`'s `resolveWorkflowRuntime` — asserting
    `resolveWorkflowMode(change).version === definition.version` before any step
@@ -160,8 +161,9 @@ multi-step workflow exposes (`areas/multi-step-workflow-orchestration.md` §§1-
 
 - **Do not touch `.nevo-ai/workflows/**`** — this task only changes resolution/schema
   *logic*; authoring a real multi-step definition (including real `purpose`/
-  `expectedWork`/`hints` content and an explicit `entryStep`) is Task 10's job, and
-  removing `verify-task-output` is Task 09's job. This task's own tests use fixture
+  `expectedWork`/`hints` content and an explicit `entryStep`) is Task 11's job
+  (originally Task 10 before D37's renumbering), and removing `verify-task-output` is
+  Task 09's job. This task's own tests use fixture
   definitions constructed inline, never editing the shipped `standard.yaml`.
 - `workflow_progress` validation (`tools/specs/validation.mjs`) must reject a
   `current_step` value that names no step in the task's resolved workflow definition —

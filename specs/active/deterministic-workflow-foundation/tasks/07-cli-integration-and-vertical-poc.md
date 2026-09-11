@@ -42,7 +42,7 @@ migration map (D16) in `docs/development/workflow-engine.md`.
 **Scope note (D21, added 2026-09-08):** this proves one workflow step's full lifecycle
 end-to-end, including a fixed multi-*stage* finalize sequence within that one step —
 not an agent moving through several distinct, differently-configured workflow *steps*.
-True multi-step workflow progression is separate, later scope (Tasks 08-12).
+True multi-step workflow progression is separate, later scope (Tasks 08-13, extended 2026-09-11 by D37's Task 10 insertion — originally 08-12).
 
 ## Implementation constraints
 
@@ -113,7 +113,7 @@ True multi-step workflow progression is separate, later scope (Tasks 08-12).
    `StepContext`/finish-planning JSON shapes defined in `areas/workflow-engine-and-next-step.md`.
    `automated: node --test tools/tests/workflow-cli.test.mjs`
 2. Multi-*stage* finalize vertical PoC (five finalize stages within **one** workflow
-   step — see D21; true multi-*step* workflow progression is Tasks 08-12's separate,
+   step — see D21; true multi-*step* workflow progression is Tasks 08-13's separate,
    later scope) executes end-to-end under deterministic mode: `step
    start` returns the finish contract in advance, `step finish --check` aggregates
    non-mutating planning facts, fail-closed rejects missing `commit.title`/`include` via
