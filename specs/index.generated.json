@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-11T14:46:01.841Z",
+  "generated": "2026-09-11T14:55:45.981Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -406,13 +406,82 @@
           "id": "step-active-completed-lifecycle",
           "order": 10,
           "file": "tasks/10-step-active-completed-lifecycle.md",
-          "status": "in-implementation",
+          "status": "implemented",
           "depends_on": [
             "multi-step-workflow-progression",
             "fail-closed-workflow-definition-resolution"
           ],
           "implementation": {
-            "baseline_revision": "80e76e5c797eab33a231d1b0c567cc487daa9ad0"
+            "baseline_revision": "80e76e5c797eab33a231d1b0c567cc487daa9ad0",
+            "review_revision": "e2936274f3675f8796d216b3d04187336ae5d9ad",
+            "changed_paths": [
+              ".nevo-ai/workflows/architectural.yaml",
+              ".nevo-ai/workflows/exploratory.yaml",
+              ".nevo-ai/workflows/small.yaml",
+              ".nevo-ai/workflows/standard.yaml",
+              "docs/development/workflow-engine.md",
+              "tools/specs/store.mjs",
+              "tools/specs/validation.mjs",
+              "tools/specs/workflow/cli.mjs",
+              "tools/specs/workflow/definitions/schema.mjs",
+              "tools/specs/workflow/finish-operation.mjs",
+              "tools/specs/workflow/index.mjs",
+              "tools/specs/workflow/step-context.mjs",
+              "tools/specs/workflow/step-runner.mjs",
+              "tools/specs/workflow/templates/architectural.yaml",
+              "tools/specs/workflow/templates/exploratory.yaml",
+              "tools/specs/workflow/templates/small.yaml",
+              "tools/specs/workflow/templates/standard.yaml",
+              "tools/tests/workflow-cli.test.mjs",
+              "tools/tests/workflow-compatibility.test.mjs",
+              "tools/tests/workflow-e2e.test.mjs",
+              "tools/tests/workflow-finish-operation.test.mjs",
+              "tools/tests/workflow-next-step.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "d1f6043f005c7414d3aa922642fb99a936614eb9357463f8e9de2afeccec7776",
+            "revision": "e2936274f3675f8796d216b3d04187336ae5d9ad",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-next-step.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-finish-operation.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-cli.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-e2e.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/store.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
           }
         },
         {
