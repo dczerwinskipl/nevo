@@ -146,13 +146,21 @@ persisted status field (the semantic status above is always derived from
   that step; a `completed` step whose transition is terminal reports the workflow
   already complete. Every activation is a single atomic `workflow_progress` write with
   no other durable side effect.
+- **Activation guard.** Before activating the next step, `step start` checks whether the
+  just-completed step's own durable finish operation (`finish-operation.mjs`/
+  `operation-record.mjs`) has actually settled. If that step's `update-task` stage
+  already persisted `state: completed` but `commit`/`push`/`transition` haven't run yet
+  (a crash mid-finish), `step start` refuses to activate the next step and fails closed
+  — it never mutates `workflow_progress` and never resumes `commit`/`push` itself; the
+  caller must retry `workflow step finish` for the prior step first.
 - **`workflow step finish`** on an active step never advances `current_step` — it sets
   `state: completed` on the step that just finished and records the transition target
   in `history`. Only the *next* `step start` call activates that target. A terminal
   transition is the one exception where `finish` also writes the task's terminal
   `status`, atomically with `state: completed`, in the same write.
-- A repeated `step finish` against an already-`completed` step is non-actionable — it
-  never re-runs finalize actions or re-evaluates gates.
+- A repeated `step finish` against an already-`completed` step returns
+  `status: "already-completed"` — it never re-runs finalize actions or re-evaluates
+  gates.
 
 This means a task can sit observably between "step A's work is done" and "step B has
 actually begun" — a real, resumable checkpoint the model above exists to represent.
@@ -234,9 +242,11 @@ before deciding what still needs to run — `running` is never blindly reset to 
 record and never re-requires them — calling `step finish` with no inputs at all correctly
 resumes. Supplying a value that conflicts with what's already persisted for that
 `operationId` is a deterministic `PreconditionError`, never a silent overwrite; supplying
-the identical value again is a no-op. A repeated `workflow step finish` after the record
-shows full success returns the already-completed result and current next step without
-repeating any finalize action.
+the identical value again is a no-op. A repeated `workflow step finish` against a step
+whose operation already fully succeeded returns `status: "already-completed"` — distinct
+from the `"completed"` status a first-time success reports — without re-evaluating gates
+or repeating any finalize action; the previous operation's result is still included as
+factual context.
 
 The `commit` stage calls the Task 04 source-control action (below) with `push` forced
 `false` regardless of the real configuration — the `push` stage performs the actual `git

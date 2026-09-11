@@ -493,10 +493,12 @@ describe('Multi-step CLI sequence: new -> active(A) -> completed(A) -> active(B)
     assert.equal(taskAfterA.workflow_progress.current_step, 'stepA', 'D37: finish never advances current_step');
     assert.equal(taskAfterA.workflow_progress.state, 'completed');
 
-    // repeated finish on the completed step is non-actionable — no new commit.
+    // repeated finish on the completed step is non-actionable — no new commit, and the
+    // response is explicitly `already-completed` (AC7), never the ambiguous `completed`
+    // a first-time success returns.
     const commitsBeforeRepeat = git(fx.root, ['rev-list', '--count', 'HEAD']).trim();
     const repeatFinishA = await handleWorkflowStepFinish('demo-change', 'demo-task', { activeDir: fx.activeDir, repoRoot: fx.root, silent: true });
-    assert.equal(repeatFinishA.status, 'completed');
+    assert.equal(repeatFinishA.status, 'already-completed');
     assert.equal(git(fx.root, ['rev-list', '--count', 'HEAD']).trim(), commitsBeforeRepeat);
 
     // completed(A) -> active(B): only the next step start activates the next step.
@@ -526,6 +528,52 @@ describe('Multi-step CLI sequence: new -> active(A) -> completed(A) -> active(B)
     assert.equal(terminalStart.stepStatus, 'complete');
     assert.equal(terminalStart.runtimeState, 'completed');
     assert.equal(terminalStart.semanticStatus, 'b-completed');
+  });
+});
+
+describe('Fail-closed on invalid persisted workflow_progress.state, via the public CLI (AC19, corrective revision)', () => {
+  let fx;
+  before(() => {
+    fx = makeFixture('nevo-cli-invalid-state', {
+      changeYaml: `id: demo-change
+title: "Demo change"
+type: standard
+status: draft
+workflow:
+  mode: deterministic
+  definition: vertical-poc
+tasks:
+  - id: demo-task
+    order: 1
+    file: tasks/01-demo.md
+    status: in-implementation
+    workflow_progress:
+      current_step: implementation
+      state: bogus
+      history: []
+`,
+    });
+  });
+  after(() => rmSync(fx.root, { recursive: true, force: true }));
+
+  test('workflow step start rejects a hand-crafted change.yaml with an invalid state, independent of a prior `specs validate` run', async () => {
+    await assert.rejects(
+      () => handleWorkflowStepStart('demo-change', 'demo-task', { activeDir: fx.activeDir, repoRoot: fx.root, silent: true }),
+      (err) => {
+        assert.equal(err.code, 'INVALID_WORKFLOW_PROGRESS_STATE');
+        return true;
+      }
+    );
+  });
+
+  test('workflow step finish --check rejects it identically', async () => {
+    await assert.rejects(
+      () => handleWorkflowStepFinish('demo-change', 'demo-task', { check: true, activeDir: fx.activeDir, repoRoot: fx.root, silent: true }),
+      (err) => {
+        assert.equal(err.code, 'INVALID_WORKFLOW_PROGRESS_STATE');
+        return true;
+      }
+    );
   });
 });
 

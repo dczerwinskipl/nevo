@@ -8,6 +8,9 @@ import { defaultActionRegistry } from './registry.mjs';
 import { resolveWorkflowPosition, resolveSemanticStatus, inspectGates } from './step-runner.mjs';
 import { WorkflowError } from './errors.mjs';
 import { setTaskWorkflowState } from '../store.mjs';
+// D37 correction: read via `operation-record.mjs` directly (not `finish-operation.mjs`,
+// which itself imports from this module — importing it here would create a cycle).
+import { loadOperationRecord } from './operation-record.mjs';
 
 /**
  * Runs `WorkflowEngine.checkStep` over a step's full, unfiltered finalize action list.
@@ -82,19 +85,59 @@ export function buildFinishContract(finalizeCheckResult) {
  * means the next call resolves `active` (resume) and returns the current `StepContext`.
  * Idempotent by construction, not by a second protocol.
  *
+ * **Activation guard (D37 correction):** the `completed` case must never activate the
+ * next step while the just-completed step's own finish operation hasn't actually
+ * settled — a crash between `update-task` (which sets `state: 'completed'`) and
+ * `commit`/`push`/`transition` would otherwise let this function silently move the task
+ * past an unresolved finish, violating the durable finish/resume contract (D14/D23) the
+ * operation record exists to uphold. Before activating, this checks the just-completed
+ * step's own operation record (`operation-record.mjs`, the same on-disk convention
+ * `finish-operation.mjs` uses — read directly, never through `finish-operation.mjs`
+ * itself, to avoid a circular import); if it exists and isn't `completed`, this throws
+ * rather than activating — it never resumes commit/push itself, it only guards
+ * activation. The caller must retry `workflow step finish` for the prior step first.
+ *
  * @param {object} change - Change manifest (requires `._file` for the store write)
  * @param {object} task - Task record
  * @param {object} definition - Normalized workflow definition
+ * @param {object} [context] - Runtime context; `context.repoRoot` is required whenever
+ *   position resolves to `completed`, to look up the prior step's operation record
  * @returns {{ task: object, position: {phase: 'active', step: string} | {phase: 'terminal', step: string} }}
  *   The *effective* task (unchanged for `active`/`terminal`; a locally-updated view
  *   carrying the just-written `workflow_progress` for `new`/`completed`, avoiding a
  *   redundant re-read of what the caller already knows it wrote) and its now-resolved
  *   position, always `active` or `terminal` after this call.
+ * @throws {WorkflowError} `FINISH_OPERATION_UNRESOLVED` if the just-completed step's own
+ *   finish operation hasn't settled; `REPO_ROOT_REQUIRED` if position resolves to
+ *   `completed` and no `context.repoRoot` was supplied to check it
  */
-export function ensureStepActivated(change, task, definition) {
+export function ensureStepActivated(change, task, definition, context = {}) {
   const position = resolveWorkflowPosition(definition, task);
   if (position.phase !== 'new' && position.phase !== 'completed') {
     return { task, position };
+  }
+
+  if (position.phase === 'completed') {
+    if (!context.repoRoot) {
+      throw new WorkflowError(
+        `Cannot activate the step after '${position.step}' without repoRoot — unable to verify its finish operation has settled`,
+        { code: 'REPO_ROOT_REQUIRED', step: position.step }
+      );
+    }
+    const changeSlug = change.id || change._slug;
+    const priorRecord = loadOperationRecord(context.repoRoot, changeSlug, task.id, position.step);
+    if (priorRecord && priorRecord.status !== 'completed') {
+      throw new WorkflowError(
+        `Step '${position.step}' has an unresolved finish operation (status: '${priorRecord.status}') — ` +
+        `resume it with 'workflow step finish' before starting the next step`,
+        {
+          code: 'FINISH_OPERATION_UNRESOLVED',
+          step: position.step,
+          operationId: priorRecord.operationId,
+          operationStatus: priorRecord.status,
+        }
+      );
+    }
   }
 
   const targetStep = position.phase === 'new' ? definition.entryStep : position.nextStep;
@@ -142,7 +185,7 @@ export async function compileStepContext({
   if (!definition) throw new WorkflowError('compileStepContext requires a normalized workflow definition');
 
   const changeId = change.id || change._slug;
-  const { task: effectiveTask, position } = ensureStepActivated(change, task, definition);
+  const { task: effectiveTask, position } = ensureStepActivated(change, task, definition, context);
 
   if (position.phase === 'terminal') {
     return {

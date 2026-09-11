@@ -186,7 +186,7 @@ describe('Vertical PoC — the full step start / step finish / verify-human sequ
   test('Scenario H1: a repeated step finish after full success returns the already-completed result, no repeated action', async () => {
     const commitsBefore = git(fx.root, ['rev-list', '--count', 'HEAD']).trim();
     const result = await handleWorkflowStepFinish('demo-change', 'demo-task', { ...RT, activeDir: fx.activeDir, repoRoot: fx.root });
-    assert.equal(result.status, 'completed');
+    assert.equal(result.status, 'already-completed');
     assert.equal(result.result.commit.sha, completedSha);
     assert.equal(git(fx.root, ['rev-list', '--count', 'HEAD']).trim(), commitsBefore);
   });

@@ -18,6 +18,7 @@ import {
   validateWorkflowDefinition,
   compileStepContext,
   ensureStepActivated,
+  saveOperationRecord,
   planFinish,
   resolveWorkflowPosition,
   resolveSemanticStatus,
@@ -170,6 +171,22 @@ describe('resolveWorkflowPosition / resolveActiveStepName / resolveSemanticStatu
     assert.equal(resolveSemanticStatus(definition, completedTask), 'implemented');
   });
 
+  test('an invalid persisted state fails closed rather than defaulting to active (AC19, corrective revision)', () => {
+    const definition = buildDefinition();
+    for (const badState of [undefined, '', 'bogus', 'Active', 'ACTIVE']) {
+      const task = { workflow_progress: { current_step: 'implementation', state: badState, history: [] } };
+      assert.throws(
+        () => resolveWorkflowPosition(definition, task),
+        (err) => {
+          assert.ok(err instanceof WorkflowError);
+          assert.equal(err.code, 'INVALID_WORKFLOW_PROGRESS_STATE');
+          return true;
+        },
+        `expected state ${JSON.stringify(badState)} to fail closed`
+      );
+    }
+  });
+
   test('inspectGates never invokes verify() (read-only calls must not run verification commands, C7/C8)', async () => {
     const registry = createDefaultGateRegistry({
       commandRunner: async () => { throw new Error('verify() must never be called by inspectGates'); },
@@ -289,7 +306,9 @@ describe('`workflow step start` activation (D37, task 10 AC1/AC2/AC4)', () => {
       workflow_progress: { current_step: 'stepA', state: 'completed', history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }] },
     };
 
-    const { task: effectiveTask, position } = ensureStepActivated(change, completedTask, MULTI_STEP_DEFINITION);
+    // No operation record exists for stepA in this fixture — the activation guard
+    // (AC18) finds nothing unresolved and lets activation proceed.
+    const { task: effectiveTask, position } = ensureStepActivated(change, completedTask, MULTI_STEP_DEFINITION, { repoRoot: activeDir });
 
     assert.deepEqual(position, { phase: 'active', step: 'stepB' });
     assert.deepEqual(effectiveTask.workflow_progress, {
@@ -297,6 +316,62 @@ describe('`workflow step start` activation (D37, task 10 AC1/AC2/AC4)', () => {
       state: 'active',
       history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }],
     });
+  });
+
+  test('case C requires repoRoot to verify the prior step settled — fails closed rather than guessing', () => {
+    const change = requireChange('demo-change', activeDir);
+    const completedTask = {
+      id: 'demo-task',
+      workflow_progress: { current_step: 'stepA', state: 'completed', history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }] },
+    };
+    assert.throws(
+      () => ensureStepActivated(change, completedTask, MULTI_STEP_DEFINITION),
+      (err) => {
+        assert.equal(err.code, 'REPO_ROOT_REQUIRED');
+        return true;
+      }
+    );
+  });
+
+  test('P1: activation is refused while the just-completed step has an unresolved finish operation (AC18)', () => {
+    const change = requireChange('demo-change', activeDir);
+    const completedTask = {
+      id: 'demo-task',
+      workflow_progress: { current_step: 'stepA', state: 'completed', history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }] },
+    };
+    // Simulates the exact crash window: update-task already persisted state:
+    // 'completed' for stepA, but commit/push/transition never ran.
+    saveOperationRecord(activeDir, {
+      operationId: 'crafted-unresolved-1',
+      change: 'demo-change',
+      task: 'demo-task',
+      step: 'stepA',
+      status: 'running',
+      resolvedInputs: {},
+      operations: [
+        { id: 'verify-gates', status: 'completed', result: { gates: [] } },
+        { id: 'update-task', status: 'completed', intent: { fromState: 'active', toState: 'completed' }, result: { toStep: 'stepB' } },
+        { id: 'commit', status: 'pending' },
+        { id: 'push', status: 'pending' },
+        { id: 'transition', status: 'pending' },
+      ],
+    });
+    const before = readFileSync(join(activeDir, 'demo-change', 'change.yaml'), 'utf8');
+
+    assert.throws(
+      () => ensureStepActivated(change, completedTask, MULTI_STEP_DEFINITION, { repoRoot: activeDir }),
+      (err) => {
+        assert.equal(err.code, 'FINISH_OPERATION_UNRESOLVED');
+        assert.equal(err.details.step, 'stepA');
+        return true;
+      }
+    );
+
+    const after = readFileSync(join(activeDir, 'demo-change', 'change.yaml'), 'utf8');
+    assert.equal(before, after, 'a refused activation must never mutate change.yaml');
+
+    // Clean up the crafted record so it doesn't leak into later tests in this describe block.
+    rmSync(join(activeDir, '.nevo-ai-local'), { recursive: true, force: true });
   });
 
   test('terminal (case D): no activation possible, no mutation', () => {
@@ -612,6 +687,13 @@ describe('Per-step semantic-status schema — required, safe identifiers (D37, t
   test('a valid, distinct status pair validates successfully and survives normalization', () => {
     const definition = buildDefinition();
     assert.deepEqual(definition.steps.implementation.status, { active: 'implementing', completed: 'implemented' });
+  });
+
+  test('status.active and status.completed must be distinct — equal values fail validation (AC10, corrective revision)', () => {
+    const raw = { ...RAW_DEFINITION, steps: { implementation: { ...RAW_DEFINITION.steps.implementation, status: { active: 'implementing', completed: 'implementing' } } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /\.status: 'active' and 'completed' must be distinct/.test(e)));
   });
 });
 

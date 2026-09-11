@@ -434,15 +434,19 @@ describe('finishStep — full multi-hop happy path driven by alternating step st
     assert.equal(stepARecordBefore.status, 'completed');
 
     // A repeated finish against the already-completed stepA is non-actionable — no
-    // finalize action re-runs, no new commit (AC7: completed-step retry).
+    // finalize action re-runs, no new commit, and the response is explicitly
+    // `already-completed` (AC7), never the ambiguous `completed` a first-time success
+    // returns.
     const commitsBeforeRepeat = commitCount(fx.repo);
     const repeat = await finishStep({ ...threeStepParams(fx, gateRegistry), task, inputs: {} });
-    assert.equal(repeat.status, 'completed');
+    assert.equal(repeat.status, 'already-completed');
     assert.equal(commitCount(fx.repo), commitsBeforeRepeat, 'a repeated finish on a completed step must not create a new commit');
 
     // step start (case C): stepA is completed and its transition names stepB — activate it.
+    // stepA's own finish operation is fully settled (asserted above), so the P1
+    // activation guard finds nothing unresolved and lets this proceed.
     change = freshChange(fx.activeDir);
-    ({ task: activeTask } = ensureStepActivated(change, task, THREE_STEP_DEFINITION));
+    ({ task: activeTask } = ensureStepActivated(change, task, THREE_STEP_DEFINITION, { repoRoot: fx.repo }));
     assert.equal(activeTask.workflow_progress.current_step, 'stepB');
     assert.equal(activeTask.workflow_progress.state, 'active');
     const afterActivateB = requireTask(freshChange(fx.activeDir), 'demo-task');
@@ -473,7 +477,7 @@ describe('finishStep — full multi-hop happy path driven by alternating step st
 
     // step start: activate stepC.
     change = freshChange(fx.activeDir);
-    ({ task: activeTask } = ensureStepActivated(change, task, THREE_STEP_DEFINITION));
+    ({ task: activeTask } = ensureStepActivated(change, task, THREE_STEP_DEFINITION, { repoRoot: fx.repo }));
     assert.equal(activeTask.workflow_progress.current_step, 'stepC');
     assert.equal(activeTask.workflow_progress.state, 'active');
 
@@ -500,10 +504,83 @@ describe('finishStep — full multi-hop happy path driven by alternating step st
     // step start on a terminal task reports complete and writes nothing.
     const beforeTerminalStart = readFileSync(join(fx.activeDir, 'demo-change', 'change.yaml'), 'utf8');
     change = freshChange(fx.activeDir);
-    const { position: terminalPosition } = ensureStepActivated(change, task, THREE_STEP_DEFINITION);
+    const { position: terminalPosition } = ensureStepActivated(change, task, THREE_STEP_DEFINITION, { repoRoot: fx.repo });
     assert.deepEqual(terminalPosition, { phase: 'terminal', step: 'stepC' });
     const afterTerminalStart = readFileSync(join(fx.activeDir, 'demo-change', 'change.yaml'), 'utf8');
     assert.equal(beforeTerminalStart, afterTerminalStart, 'step start against a terminal workflow must not mutate change.yaml');
+  });
+});
+
+describe('P1 (D37 corrective revision): step start refuses to activate the next step while the prior step\'s finish operation is unresolved', () => {
+  let fx;
+  before(() => { fx = makeFixture('nevo-finish-activation-guard'); });
+  after(() => cleanupFixture(fx));
+
+  test('crash window (update-task completed, commit still pending) blocks activation; resuming finish settles it, then step start activates the next step', async () => {
+    // step start: activate stepA.
+    let change = freshChange(fx.activeDir);
+    ensureStepActivated(change, requireTask(change, 'demo-task'), THREE_STEP_DEFINITION);
+    assert.equal(requireTask(freshChange(fx.activeDir), 'demo-task').workflow_progress.current_step, 'stepA');
+
+    // Craft the exact crash window the owner described: `update-task` already ran
+    // (workflow_progress shows stepA `state: completed`, transitioned_to: stepB) but
+    // `commit`/`push`/`transition` never did.
+    change = freshChange(fx.activeDir);
+    setTaskWorkflowState(change, 'demo-task', {
+      workflowProgress: { current_step: 'stepA', state: 'completed', history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }] },
+    });
+    saveOperationRecord(fx.repo, {
+      operationId: 'crafted-activation-guard-1',
+      change: 'demo-change',
+      task: 'demo-task',
+      step: 'stepA',
+      status: 'running',
+      resolvedInputs: RESOLVED_INPUTS,
+      operations: [
+        { id: 'verify-gates', status: 'completed', result: { gates: [] } },
+        { id: 'update-task', status: 'completed', intent: { fromState: 'active', toState: 'completed' }, result: { toStep: 'stepB' } },
+        { id: 'commit', status: 'pending' },
+        { id: 'push', status: 'pending' },
+        { id: 'transition', status: 'pending' },
+      ],
+    });
+
+    const taskBefore = requireTask(freshChange(fx.activeDir), 'demo-task');
+    const changeYamlBefore = readFileSync(join(fx.activeDir, 'demo-change', 'change.yaml'), 'utf8');
+
+    // step start must refuse to activate stepB while stepA's operation is unresolved.
+    change = freshChange(fx.activeDir);
+    assert.throws(
+      () => ensureStepActivated(change, taskBefore, THREE_STEP_DEFINITION, { repoRoot: fx.repo }),
+      (err) => {
+        assert.equal(err.code, 'FINISH_OPERATION_UNRESOLVED');
+        assert.equal(err.details.step, 'stepA');
+        return true;
+      }
+    );
+
+    const changeYamlAfter = readFileSync(join(fx.activeDir, 'demo-change', 'change.yaml'), 'utf8');
+    assert.equal(changeYamlBefore, changeYamlAfter, 'a refused activation must never mutate change.yaml');
+    assert.equal(
+      requireTask(freshChange(fx.activeDir), 'demo-task').workflow_progress.current_step,
+      'stepA',
+      'stepB must not be activated'
+    );
+
+    // Retry `workflow step finish` for stepA — this is what actually settles the
+    // operation; `step start` itself never resumes commit/push.
+    writeFileSync(join(fx.repo, 'feature-a.txt'), 'work on stepA\n');
+    const gateRegistry = makeGateRegistry();
+    const finishResult = await finishStep({ ...threeStepParams(fx, gateRegistry), task: taskBefore, inputs: RESOLVED_INPUTS });
+    assert.equal(finishResult.status, 'completed');
+    assert.equal(loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA').status, 'completed');
+
+    // Now `step start` activates stepB normally.
+    change = freshChange(fx.activeDir);
+    const settledTask = requireTask(change, 'demo-task');
+    const { task: activatedTask, position } = ensureStepActivated(change, settledTask, THREE_STEP_DEFINITION, { repoRoot: fx.repo });
+    assert.deepEqual(position, { phase: 'active', step: 'stepB' });
+    assert.equal(activatedTask.workflow_progress.current_step, 'stepB');
   });
 });
 

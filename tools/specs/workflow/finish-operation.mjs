@@ -6,8 +6,6 @@
 // identity, generalized from the original single-step `<change>/<task>.json`) — runtime
 // execution state, never part of `change.yaml` (D14 correction, C17).
 
-import { mkdirSync, writeFileSync, renameSync, existsSync, readFileSync, readdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 import { requireChange, requireTask, setTaskWorkflowState } from '../store.mjs';
@@ -18,75 +16,17 @@ import { resolveActiveStepName, inspectGates, verifyGates, allGatesPassed } from
 import { aggregateFinalizeCheck, buildFinishContract, normalizeSourceControlFacts } from './step-context.mjs';
 import { WorkflowError, PreconditionError } from './errors.mjs';
 import * as git from '../../lib/git.mjs';
+// ── Durable operation record I/O (D23: step-aware identity) ─────────────────
+// Extracted into `operation-record.mjs` (D37 correction) so `step-context.mjs`'s
+// `step start` activation guard can read these records too, without a circular import
+// between this module and `step-context.mjs`.
+import { loadOperationRecord, saveOperationRecord, findInFlightOperationRecord } from './operation-record.mjs';
 
 export const FINISH_STAGE_IDS = ['verify-gates', 'update-task', 'commit', 'push', 'transition'];
 
-// ── Durable operation record I/O (D23: step-aware identity) ─────────────────
-// Same on-disk convention (git-ignored local runtime directory, atomic
-// temp-file-then-rename writes) established by
-// `tools/dashboard/server/ai/sessions/binding-service.mjs` — reused as a pattern, not as
-// a new code dependency from this module on `tools/dashboard/`.
-
-function operationsDir(repoRoot, changeSlug, taskId) {
-  return join(repoRoot, '.nevo-ai-local', 'workflow-operations', changeSlug, taskId);
-}
-
-function operationFilePath(repoRoot, changeSlug, taskId, stepName) {
-  return join(operationsDir(repoRoot, changeSlug, taskId), `${stepName}.json`);
-}
-
-export function loadOperationRecord(repoRoot, changeSlug, taskId, stepName) {
-  const file = operationFilePath(repoRoot, changeSlug, taskId, stepName);
-  if (!existsSync(file)) return null;
-  try {
-    return JSON.parse(readFileSync(file, 'utf8'));
-  } catch (err) {
-    throw new WorkflowError(`Failed to read finish-operation record at '${file}': ${err.message}`);
-  }
-}
-
-export function saveOperationRecord(repoRoot, record) {
-  const file = operationFilePath(repoRoot, record.change, record.task, record.step);
-  mkdirSync(dirname(file), { recursive: true });
-  const tempFile = `${file}.${randomUUID()}.tmp`;
-  writeFileSync(tempFile, JSON.stringify(record, null, 2), 'utf8');
-  renameSync(tempFile, file);
-}
-
-/**
- * Finds this task's one in-flight (not yet `completed`) operation record, regardless of
- * which step it belongs to (D23). A task can only ever be mid-finish on one step at a
- * time, but which step that is may no longer match a *fresh* `resolveActiveStepName`
- * resolution if `update-task` already set `workflow_progress.state = 'completed'` before
- * the rest of the operation finished (D37; the exact crash window C18 exists to recover
- * from) — position resolution would then say the task has *nothing* active (its step
- * looks done, awaiting the next `step start`), even though `commit`/`push`/`transition`
- * are still outstanding for it. So "the currently active step" and "the step with an
- * in-flight operation" can genuinely differ for one retried call, and only a scan (not a
- * guess) finds the right one.
- *
- * @returns {object|null} The in-flight record, or `null` if none exists
- */
-export function findInFlightOperationRecord(repoRoot, changeSlug, taskId) {
-  const dir = operationsDir(repoRoot, changeSlug, taskId);
-  if (!existsSync(dir)) return null;
-  let files;
-  try {
-    files = readdirSync(dir).filter(f => f.endsWith('.json') && !f.includes('.tmp'));
-  } catch {
-    return null;
-  }
-  for (const file of files) {
-    let record;
-    try {
-      record = JSON.parse(readFileSync(join(dir, file), 'utf8'));
-    } catch {
-      continue;
-    }
-    if (record && record.status !== 'completed') return record;
-  }
-  return null;
-}
+// Re-exported so every existing import path (`finish-operation.mjs` directly, or the
+// `index.mjs` barrel) is unaffected by the extraction above.
+export { loadOperationRecord, saveOperationRecord, findInFlightOperationRecord };
 
 function createOperationRecord({ change, task, step, resolvedInputs }) {
   return {
@@ -160,7 +100,10 @@ function computeMissingInputs(requiredInputsMap, resolved) {
  * `workflow step finish` itself (C12).
  *
  * @returns {Promise<object>} Plan payload; `status` is one of `already-complete`,
- *   `blocked`, `input-conflict`, `input-required`, `completed`, `ready`.
+ *   `already-completed`, `blocked`, `input-conflict`, `input-required`, `completed`,
+ *   `ready`. `already-completed` (AC7, D37 correction) is a repeated `finish` against a
+ *   step whose finish operation already fully succeeded — distinct from a first-time
+ *   `completed` result; never re-evaluates gates or re-runs finalize actions.
  */
 export async function planFinish({
   change,
@@ -196,8 +139,12 @@ export async function planFinish({
       ? loadOperationRecord(context.repoRoot, changeSlug, task.id, lastStep)
       : null;
     if (lastRecord?.status === 'completed') {
+      // AC7 (D37 correction): a repeated `finish` against an already-completed step
+      // (no intervening `step start`) must report a status distinct from a newly
+      // successful finish — `already-completed`, never `completed`. The previous
+      // operation's result is still returned as factual context.
       return {
-        status: 'completed',
+        status: 'already-completed',
         stepName: lastStep,
         requiredInputs: {},
         missingInputs: [],
@@ -542,8 +489,9 @@ async function ensureTransition(record) {
  * @param {object} params - Same shape as `planFinish`, plus:
  * @param {string} [params.activeDir] - Base directory containing `change.yaml` (defaults
  *   to `context.activeDir`) — required to reach the change manifest for `update-task`.
- * @returns {Promise<object>} `{ status, ... }` — `already-complete`, `blocked`,
- *   `input-required`, `completed`, or `reconciliation-required`.
+ * @returns {Promise<object>} `{ status, ... }` — `already-complete`, `already-completed`
+ *   (AC7 — a repeated finish against a step whose operation already fully succeeded),
+ *   `blocked`, `input-required`, `completed`, or `reconciliation-required`.
  */
 export async function finishStep({
   change,
@@ -579,6 +527,12 @@ export async function finishStep({
   }
   if (plan.status === 'input-conflict') {
     throw new PreconditionError('Conflicting finish inputs supplied for an in-flight operation', plan.conflicts, null);
+  }
+  if (plan.status === 'already-completed') {
+    // AC7 (D37 correction): distinct from a first-time `completed` result — no gate was
+    // re-evaluated and no finalize action ran for this call; the previous operation's
+    // own result is returned as factual context only.
+    return { status: 'already-completed', result: buildCompletionResult(plan.existingRecord) };
   }
   if (plan.status === 'completed') {
     return { status: 'completed', result: buildCompletionResult(plan.existingRecord) };

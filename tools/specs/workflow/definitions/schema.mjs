@@ -240,8 +240,14 @@ export function validateStepStatusContract(stepConfig, stepLabel, errors) {
     errors.push(`${stepLabel}.status: must be an object with 'active' and 'completed' identifiers`);
     return;
   }
-  validateSafeIdentifier(stepConfig.status.active, `${stepLabel}.status.active`, errors);
-  validateSafeIdentifier(stepConfig.status.completed, `${stepLabel}.status.completed`, errors);
+  const activeValid = validateSafeIdentifier(stepConfig.status.active, `${stepLabel}.status.active`, errors);
+  const completedValid = validateSafeIdentifier(stepConfig.status.completed, `${stepLabel}.status.completed`, errors);
+  // D37 correction (AC10): the two semantic-status identifiers must be distinct — a step
+  // declaring the same value for both leaves `semanticStatus` unable to tell "in
+  // progress" apart from "done," defeating the whole point of the pair.
+  if (activeValid && completedValid && stepConfig.status.active === stepConfig.status.completed) {
+    errors.push(`${stepLabel}.status: 'active' and 'completed' must be distinct, both are '${stepConfig.status.active}'`);
+  }
 }
 
 const KNOWN_REMOTE_PROVIDERS = new Set(['github']);

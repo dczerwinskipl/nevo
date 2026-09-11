@@ -28,9 +28,18 @@ import { WorkflowError } from './errors.mjs';
  * keeps naming the final completed step, which is exactly what the `terminal` phase
  * above still reports.
  *
+ * **Fail-closed on `state` (D37 correction):** the only two valid persisted values are
+ * exactly `'active'` and `'completed'`. Anything else — missing, misspelled, or any
+ * other value — is never silently treated as `'active'`; it throws. Repository-wide
+ * `node tools/specs.mjs validate` already rejects a malformed `state` at the manifest
+ * level (`tools/specs/validation.mjs`), but this runtime path must not depend on that
+ * having already run — a hand-edited or corrupted `change.yaml` must fail closed here
+ * too, the moment any workflow command actually resolves this task's position.
+ *
  * @param {object} definition - Normalized workflow definition
  * @param {{workflow_progress?: {current_step?: string, state?: 'active'|'completed'}}} task
  * @returns {{phase: 'new'} | {phase: 'active', step: string} | {phase: 'completed', step: string, nextStep: string} | {phase: 'terminal', step: string}}
+ * @throws {WorkflowError} if `current_step` is set but `state` is neither `'active'` nor `'completed'`
  */
 export function resolveWorkflowPosition(definition, task) {
   const stepEntries = Object.entries(definition?.steps || {});
@@ -50,8 +59,15 @@ export function resolveWorkflowPosition(definition, task) {
     );
   }
 
-  if (task.workflow_progress.state !== 'completed') {
+  const state = task.workflow_progress.state;
+  if (state === 'active') {
     return { phase: 'active', step: currentStep };
+  }
+  if (state !== 'completed') {
+    throw new WorkflowError(
+      `Task's workflow_progress.state must be 'active' or 'completed' for step '${currentStep}', got ${JSON.stringify(state)}`,
+      { code: 'INVALID_WORKFLOW_PROGRESS_STATE', step: currentStep, state }
+    );
   }
 
   const step = definition.steps[currentStep];

@@ -10,6 +10,7 @@ context:
     - tools/specs/workflow/step-runner.mjs
     - tools/specs/workflow/step-context.mjs
     - tools/specs/workflow/finish-operation.mjs
+    - tools/specs/workflow/operation-record.mjs
     - tools/specs/workflow/cli.mjs
     - tools/specs/workflow/definitions/schema.mjs
     - tools/specs/validation.mjs
@@ -24,6 +25,7 @@ allowed_paths:
   - tools/specs/workflow/step-runner.mjs
   - tools/specs/workflow/step-context.mjs
   - tools/specs/workflow/finish-operation.mjs
+  - tools/specs/workflow/operation-record.mjs
   - tools/specs/workflow/cli.mjs
   - tools/specs/workflow/definitions/schema.mjs
   - tools/specs/workflow/index.mjs
@@ -62,6 +64,38 @@ semantic_references:
 ---
 
 # Task: Runtime `active`/`completed` step-state axis
+
+> **Corrective revision (owner review, 2026-09-11):** the first implementation revision
+> had four remaining correctness gaps, now fixed in place:
+> 1. **P1 — activation must not race an unsettled finish operation.** `step start`'s
+>    case-C activation (`completed` A → `active` B) checked only `workflow_progress`,
+>    never whether A's own durable finish operation had actually settled — a crash
+>    between `update-task` (which persists `state: 'completed'`) and
+>    `commit`/`push`/`transition` would let `step start` silently activate B while A's
+>    finish was still unresolved. `ensureStepActivated` (`step-context.mjs`) now checks
+>    the just-completed step's own operation record before activating; if it exists and
+>    isn't `completed`, it throws (`WorkflowError`, `code: 'FINISH_OPERATION_UNRESOLVED'`)
+>    rather than activating — it never resumes commit/push itself, only guards
+>    activation. The operation-record persistence/query functions were extracted from
+>    `finish-operation.mjs` into a new, narrowly-scoped `operation-record.mjs` so
+>    `step-context.mjs` can read them without a circular import (`finish-operation.mjs`
+>    already imports from `step-context.mjs`); `finish-operation.mjs` re-exports them
+>    unchanged for every existing caller.
+> 2. **AC7 — a repeated `finish` against an already-completed step now returns
+>    `status: 'already-completed'`**, distinct from a first-time `completed` result
+>    (`finish-operation.mjs`'s `planFinish`/`finishStep`), never the ambiguous, identically-
+>    shaped `'completed'` the first revision returned for both cases.
+> 3. **AC10 — `status.active`/`status.completed` must be distinct.** Schema validation
+>    (`definitions/schema.mjs`) now rejects a step whose two semantic-status identifiers
+>    are equal.
+> 4. **Fail-closed on invalid persisted `state`.** `resolveWorkflowPosition`
+>    (`step-runner.mjs`) previously treated any `state` value other than `'completed'` as
+>    `'active'`; it now accepts exactly `'active'`/`'completed'` and throws on anything
+>    else, independent of whether `node tools/specs.mjs validate` has already run.
+>
+> §§1-16 below are the original task text (still the governing scope); this note and the
+> corrected behavior described inline supersede the parts of items 4-6 that described the
+> now-fixed gaps.
 
 ## Goal
 
@@ -281,6 +315,21 @@ finish`'s internal-transition case, position/semantic-status resolution, and the
     `automated: node tools/docs.mjs check`
 17. Full repository tool test suite plus specs/docs validate/check pass with zero
     failures. `automated: node --test tools/tests/*.test.mjs, node tools/specs.mjs validate, node tools/specs.mjs check, node tools/docs.mjs validate`
+18. **Activation guard (P1, corrective revision):** given step A already `state:
+    completed` (its own finish operation's `update-task` stage completed, but
+    `commit`/`push`/`transition` are still `pending`/`running`), `workflow step start`
+    neither mutates `workflow_progress` nor activates the transition target — it fails
+    closed, naming step A and the unresolved operation. `change.yaml` is byte-identical
+    before and after the attempt. Retrying `workflow step finish` for A to settle the
+    operation, then calling `workflow step start` again, activates the target step
+    normally. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
+19. **Fail-closed on invalid persisted `state` (corrective revision):** `workflow_progress`
+    present with `current_step` set but `state` missing, empty, or any value other than
+    `'active'`/`'completed'` makes `resolveWorkflowPosition` throw an explicit error —
+    never silently resolved as `'active'`. Exercised both as a direct resolver call and
+    through a public workflow command (`workflow step start`/`step finish`) against a
+    hand-crafted `change.yaml`, independent of whether `node tools/specs.mjs validate`
+    already ran. `automated: node --test tools/tests/workflow-next-step.test.mjs, tools/tests/workflow-cli.test.mjs`
 
 ## Verification
 
