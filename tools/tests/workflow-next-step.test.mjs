@@ -209,6 +209,18 @@ describe('Multi-step position resolution (D37, task 10 AC2/AC4/AC9)', () => {
     assert.deepEqual(resolveWorkflowPosition(MULTI_STEP_DEFINITION, task), { phase: 'active', step: 'stepB' });
   });
 
+  test('resolveSemanticStatus is step-specific, not a constant (AC9): stepA and stepB resolve to their own distinct declared status pairs', () => {
+    const onStepA = { workflow_progress: { current_step: 'stepA', state: 'active', history: [] } };
+    const onStepB = { workflow_progress: { current_step: 'stepB', state: 'active', history: [] } };
+    assert.equal(resolveSemanticStatus(MULTI_STEP_DEFINITION, onStepA), 'a-active');
+    assert.equal(resolveSemanticStatus(MULTI_STEP_DEFINITION, onStepB), 'b-active');
+
+    const stepACompleted = { workflow_progress: { current_step: 'stepA', state: 'completed', history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }] } };
+    const stepBCompleted = { workflow_progress: { current_step: 'stepB', state: 'completed', history: [{ step: 'stepB', completed_at: 'x', transitioned_to: 'verified' }] } };
+    assert.equal(resolveSemanticStatus(MULTI_STEP_DEFINITION, stepACompleted), 'a-completed');
+    assert.equal(resolveSemanticStatus(MULTI_STEP_DEFINITION, stepBCompleted), 'b-completed');
+  });
+
   test('state: completed with a transition naming another step resolves phase "completed" — awaiting the next `step start` (D37 case C)', () => {
     const task = { workflow_progress: { current_step: 'stepA', state: 'completed', history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }] } };
     assert.deepEqual(resolveWorkflowPosition(MULTI_STEP_DEFINITION, task), { phase: 'completed', step: 'stepA', nextStep: 'stepB' });
