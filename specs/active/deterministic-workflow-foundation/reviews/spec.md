@@ -19,10 +19,10 @@ task_fingerprints:
   cli-integration-and-vertical-poc: 08f3891e54d23998af597eb5454049fc02eae44f5f6d1532db44918a4a9933d8
   multi-step-workflow-progression: fc922dd0a2ec4b2da397db6cb1e8d4c9f9011f311d6b8d7786f1daeffdc1aa95
   fail-closed-workflow-definition-resolution: 2c2fb175e443013df08e28cc279e6596394c8978ee3fb597edc01bc0e4cf2609
-  step-active-completed-lifecycle: d1f6043f005c7414d3aa922642fb99a936614eb9357463f8e9de2afeccec7776
-  production-multi-step-standard-workflow: 54b6aa772371e1508b4972038b6c71c454be2709100580efb898af31e3d7a512
-  step-context-knowledge-hints: cda269329c6af2a21a36d66bf5b5f3bd1d668598ecc0c0ac2a93574709b6acfd
-  multi-step-workflow-e2e-proof: 9f27a9545246606e846af2291c18c770817b1b02e52a260d2c140ee0774b3bb7
+  step-active-completed-lifecycle: c43e5fa80380647192ae1cf9a8925a2a01ee4e6d1d29697e23184106f6b3d762
+  production-multi-step-standard-workflow: cc2f23f2760ded6302ea17f49871c21be6e1e510cc938a88bb1bab6b84f9015e
+  step-context-knowledge-hints: 1cbd780e4da83fb4c0ffd2bb0fec40dfb05eccd2d4090352d7b3217da1fa462d
+  multi-step-workflow-e2e-proof: d4a5f09a8b489e224e13d6122fa522ea41fbf7cb4cd67eb491029009a0608dfd
 ---
 
 # Review: deterministic-workflow-foundation
@@ -30,27 +30,19 @@ task_fingerprints:
 ## Verdict
 
 `ready-for-approval` — full `--all` re-read of the whole specification, following the
-D37 lifecycle correction (owner-directed 2026-09-11) and its own corrective pass fixing
-the contradictions that correction first introduced (C22/C27 vs. the old Task 08
-contracts, the exploratory `implementation`-step misstatement, the Task 10→13
-renumbering sweep, and D37's own D23-vs-D14/C18 heading). `spec_fingerprint` and every
-task fingerprint changed from the 2026-09-10 baseline (expected — `overview.md`,
-`owner-decisions.md`, both area-doc-adjacent files, and every task from 07 onward were
-touched by this session's work); Tasks 01-09 also moved from `implemented`/`draft` to
-`verified` in the interim (04, 06, 07, 09 this session), unrelated to and unaffected by
-this review. Zero findings this run.
+D37 lifecycle correction (owner-directed 2026-09-11) and verification of Task 10
+(`step-active-completed-lifecycle`). Zero findings this run.
 
 ## Implementation readiness
 
 - May implementation start now? No — `implementation_allowed: false`.
-- Are the relevant tasks `approved` in `change.yaml`? No — Task 10
-  (`step-active-completed-lifecycle`) and Tasks 11-13 remain `status: draft`. Tasks
-  01-09 are all `verified`.
-- What has to happen first? Owner approval of Task 10 — the next task in dependency
-  order, and the prerequisite D37 itself requires before Task 11 (production Standard
-  workflow) can start. Task 11 additionally still needs its own separate D31
-  decomposition-approval precondition before *it* can start/be approved — unaffected by
-  this review, and not a blocker for approving Task 10 now.
+- Are the relevant tasks `approved` in `change.yaml`? No — Task 12
+  (`step-context-knowledge-hints`) and Tasks 11, 13 remain `status: draft`. Tasks
+  01-10 are all `verified`.
+- What has to happen first? Owner approval of Task 12 — its dependencies (08, 10) are
+  both verified, allowing Task 12 to proceed independently of Task 11. Task 11
+  additionally still needs its own separate D31 decomposition-approval precondition
+  before it can start/be approved.
 
 ## Findings
 
