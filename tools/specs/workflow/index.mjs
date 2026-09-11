@@ -57,6 +57,9 @@ export {
   defaultGateRegistry,
 } from './registry.mjs';
 
+// Importing this triggers CommitAndPushAction's auto-registration into defaultActionRegistry.
+export { CommitAndPushAction } from './actions/index.mjs';
+
 export {
   WorkflowEngine,
   defaultWorkflowEngine,
@@ -67,6 +70,8 @@ export {
   validateGateDefinition,
   validateActionReference,
   validateTransitionDefinition,
+  validateSourceControlConfig,
+  normalizeSourceControlConfig,
   validateWorkflowDefinition,
   normalizeWorkflowDefinition,
 } from './definitions/schema.mjs';
@@ -87,3 +92,30 @@ export {
   GateBlockedError,
   WorkflowDefinitionError,
 } from './errors.mjs';
+
+export {
+  resolveWorkflowPosition,
+  resolveSemanticStatus,
+  resolveActiveStepName,
+  gateDisplayId,
+  inspectGates,
+  verifyGates,
+  allGatesPassed,
+} from './step-runner.mjs';
+
+export {
+  aggregateFinalizeCheck,
+  buildFinishContract,
+  normalizeSourceControlFacts,
+  ensureStepActivated,
+  compileStepContext,
+} from './step-context.mjs';
+
+export {
+  FINISH_STAGE_IDS,
+  loadOperationRecord,
+  saveOperationRecord,
+  mergeResolvedInputs,
+  planFinish,
+  finishStep,
+} from './finish-operation.mjs';

@@ -3,7 +3,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -30,8 +30,15 @@ import {
   KNOWN_COMMAND_ACTIONS,
 } from '../specs/workflow/definitions/schema.mjs';
 
-import { validateWorkflowConfiguration, validateSpecs } from '../specs/validation.mjs';
+import { validateWorkflowConfiguration, validateSpecs, validateWorkflowProgress } from '../specs/validation.mjs';
 import { WorkflowDefinitionError, WorkflowError } from '../specs/workflow/errors.mjs';
+import { defaultActionRegistry } from '../specs/workflow/registry.mjs';
+// D34 (task 09): loadWorkflowDefinition now defaults knownActions from
+// defaultActionRegistry.list() (D20/C20, fail-closed action resolution) — this file
+// calls loadWorkflowDefinition directly against the real .nevo-ai/workflows/standard.yaml,
+// so its own registry must be populated first, exactly like cli.mjs's own side-effect
+// import already guarantees for real CLI usage.
+import '../specs/workflow/actions/index.mjs';
 
 const REPO_ROOT = resolve(process.cwd());
 
@@ -259,15 +266,35 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit re
     const standardDef = loadWorkflowDefinition('standard', { repoRoot: REPO_ROOT });
     assert.equal(standardDef.id, 'standard-v1');
     assert.equal(standardDef.type, 'standard');
+    assert.equal(standardDef.entryStep, 'implementation');
     assert.ok(standardDef.steps.implementation);
 
+    // 1. implementation step
     const impl = standardDef.steps.implementation;
-    assert.deepEqual(impl.actions, [{ id: 'implement-task' }]);
-    assert.equal(impl.exitGates.length, 2);
+    assert.deepEqual(impl.status, { active: 'implementing', completed: 'implemented' });
+    assert.deepEqual(impl.actions, []);
+    assert.equal(impl.exitGates.length, 1);
     assert.deepEqual(impl.exitGates[0], { type: 'command', action: 'test' });
-    assert.deepEqual(impl.exitGates[1], { type: 'human', required: true });
-    assert.deepEqual(impl.finalize, [{ id: 'verify-task-output' }, { id: 'commit-and-push' }]);
-    assert.deepEqual(impl.transitions, [{ to: 'verified' }]);
+    assert.deepEqual(impl.finalize, [{ id: 'commit-and-push' }]);
+    assert.deepEqual(impl.transitions, [{ to: 'review' }]);
+
+    // 2. review step (D39)
+    assert.ok(standardDef.steps.review);
+    const rev = standardDef.steps.review;
+    assert.deepEqual(rev.status, { active: 'reviewing', completed: 'reviewed' });
+    assert.equal(rev.exitGates.length, 1);
+    assert.deepEqual(rev.exitGates[0], { type: 'command', action: 'test' });
+    assert.deepEqual(rev.finalize, [{ id: 'commit-and-push' }]);
+    assert.deepEqual(rev.transitions, [{ to: 'human-verification' }]);
+
+    // 3. human-verification step (D39)
+    assert.ok(standardDef.steps['human-verification']);
+    const hv = standardDef.steps['human-verification'];
+    assert.deepEqual(hv.status, { active: 'awaiting-human-verification', completed: 'completed' });
+    assert.equal(hv.exitGates.length, 1);
+    assert.deepEqual(hv.exitGates[0], { type: 'human', required: true, id: 'owner-acceptance' });
+    assert.deepEqual(hv.finalize, [{ id: 'commit-and-push' }]);
+    assert.deepEqual(hv.transitions, [{ to: 'verified' }]);
   });
 
   test('repository definitions exist in .nevo-ai/workflows/ and parse cleanly', () => {
@@ -297,6 +324,73 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit re
     const templates = listBuiltInWorkflowTemplates();
     assert.ok(templates.includes('standard'), 'standard template exists');
     assert.ok(templates.includes('architectural'), 'architectural template exists');
+  });
+
+  test('every built-in initialization template validates under the corrected schema (D19/D27), including exploratory', () => {
+    const templates = listBuiltInWorkflowTemplates();
+    assert.ok(templates.includes('exploratory'), 'exploratory template exists');
+
+    for (const name of templates) {
+      const content = readFileSync(join(TEMPLATES_DIR, `${name}.yaml`), 'utf8');
+      const def = parseWorkflowDefinition(content);
+      assert.ok(def.id);
+      assert.ok(Object.keys(def.steps).length > 0);
+    }
+  });
+
+  test('every built-in initialization template validates against the real, registered-action vocabulary (D20/D36) — a template must never be invalid the moment it is copied into a real repository', () => {
+    const knownActions = defaultActionRegistry.list();
+    assert.ok(knownActions.includes('commit-and-push'), 'sanity: the real registry must have at least commit-and-push registered for this test to mean anything');
+
+    const templates = listBuiltInWorkflowTemplates();
+    for (const name of templates) {
+      const content = readFileSync(join(TEMPLATES_DIR, `${name}.yaml`), 'utf8');
+      // parseWorkflowDefinition(content) alone (no knownActions) previously let this pass
+      // even when a template referenced a dead, unregistered action id — this is the
+      // exact registry-aware contract loadWorkflowDefinition applies to a real, on-disk
+      // definition (D20), and a template's whole purpose is to become exactly that the
+      // moment it's copied into .nevo-ai/workflows/.
+      const def = parseWorkflowDefinition(content, { knownActions });
+      assert.ok(def.id, `template '${name}' must validate against the real registered-action vocabulary`);
+    }
+  });
+
+  test('reintroducing a dead action id into a template fails the registry-aware validation unless it is actually registered (D36)', () => {
+    const knownActions = defaultActionRegistry.list();
+    for (const [templateName, deadActionId] of [
+      ['standard', 'implement-task'],
+      ['standard', 'verify-task-output'],
+      ['architectural', 'implement-task'],
+      ['architectural', 'verify-task-output'],
+      ['small', 'implement-task'],
+      ['exploratory', 'discover-scope'],
+    ]) {
+      assert.ok(!knownActions.includes(deadActionId), `precondition: '${deadActionId}' must not actually be registered`);
+      const content = readFileSync(join(TEMPLATES_DIR, `${templateName}.yaml`), 'utf8');
+      const injected = content.replace(
+        /^(steps:\r?\n(?: {2}\S.*\r?\n)?)/m,
+        `$1    actions:\n      - id: ${deadActionId}\n`
+      );
+      assert.notEqual(injected, content, `precondition: injection regex must actually match template '${templateName}'`);
+      assert.throws(
+        () => parseWorkflowDefinition(injected, { knownActions }),
+        (err) => {
+          assert.ok(err instanceof WorkflowDefinitionError);
+          assert.match(err.message, new RegExp(`unknown action '${deadActionId}'`));
+          return true;
+        },
+        `template '${templateName}' should reject a reintroduced '${deadActionId}' action reference`
+      );
+    }
+  });
+
+  test('the shipped exploratory workflow (repository-local and template) both terminate at a real TERMINAL_STATUSES value, never the stale "refined" placeholder', () => {
+    const repoDef = loadWorkflowDefinition('exploratory', { repoRoot: REPO_ROOT });
+    assert.equal(repoDef.steps.discovery.transitions[0].to, 'verified');
+
+    const templateContent = readFileSync(join(TEMPLATES_DIR, 'exploratory.yaml'), 'utf8');
+    const templateDef = parseWorkflowDefinition(templateContent);
+    assert.equal(templateDef.steps.discovery.transitions[0].to, 'verified');
   });
 
   test('missing configured definition fails closed with structured WorkflowDefinitionError', () => {
@@ -341,13 +435,13 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit re
 
       writeFileSync(
         join(repoA, WORKFLOWS_REL_DIR, 'standard.yaml'),
-        'id: standard-repo-a\ntitle: "Repo A Workflow"\nsteps:\n  build:\n    actions: [{ id: compile }]\n',
+        'id: standard-repo-a\ntitle: "Repo A Workflow"\nsteps:\n  build:\n    status: { active: building, completed: built }\n    transitions: [{ to: verified }]\n',
         'utf8'
       );
 
       writeFileSync(
         join(repoB, WORKFLOWS_REL_DIR, 'standard.yaml'),
-        'id: standard-repo-b\ntitle: "Repo B Workflow"\nsteps:\n  test:\n    actions: [{ id: run-tests }]\n',
+        'id: standard-repo-b\ntitle: "Repo B Workflow"\nsteps:\n  test:\n    status: { active: testing, completed: tested }\n    transitions: [{ to: verified }]\n',
         'utf8'
       );
 
@@ -452,13 +546,16 @@ id: custom-v1
 title: "Custom Workflow"
 steps:
   step1:
+    status:
+      active: step1-active
+      completed: step1-completed
     actions:
       - id: custom-action
     exitGates:
       - type: command
         action: test
     transitions:
-      - to: step2
+      - to: verified
 `;
     const def = parseWorkflowDefinition(yaml);
     assert.equal(def.id, 'custom-v1');
@@ -509,11 +606,21 @@ steps:
 id: custom-v1
 steps:
   step1:
+    status:
+      active: step1-active
+      completed: step1-completed
     actions:
       - id: run-check
+    transitions:
+      - to: step2
   step2:
+    status:
+      active: step2-active
+      completed: step2-completed
     actions:
       - id: run-check
+    transitions:
+      - to: verified
 `;
     const def = parseWorkflowDefinition(yaml);
     assert.equal(def.id, 'custom-v1');
@@ -526,11 +633,16 @@ steps:
 id: custom-v1
 steps:
   step1:
+    status:
+      active: step1-active
+      completed: step1-completed
     exitGates:
       - type: command
         action: test
       - type: command
         action: build
+    transitions:
+      - to: verified
 `;
     const def = parseWorkflowDefinition(yaml);
     assert.equal(def.id, 'custom-v1');
@@ -560,9 +672,14 @@ steps:
 id: custom-v1
 steps:
   step1:
+    status:
+      active: step1-active
+      completed: step1-completed
     exitGates:
       - type: command
         action: lint
+    transitions:
+      - to: verified
 `;
     const def = parseWorkflowDefinition(yaml, { knownCommandActions: new Set(['test', 'build', 'lint']) });
     assert.equal(def.id, 'custom-v1');
@@ -578,6 +695,8 @@ steps:
     exitGates:
       - type: command
         action: implement-task
+    transitions:
+      - to: verified
 `;
     // 'implement-task' is in knownActions, but NOT in knownCommandActions
     assert.throws(
@@ -597,11 +716,16 @@ steps:
 id: custom-v1
 steps:
   step1:
+    status:
+      active: step1-active
+      completed: step1-completed
     actions:
       - id: implement-task
     exitGates:
       - type: command
         command: "npm run test:unit"
+    transitions:
+      - to: verified
 `;
     const def = parseWorkflowDefinition(yaml, { knownActions: new Set(['implement-task']) });
     assert.equal(def.id, 'custom-v1');
@@ -698,9 +822,281 @@ title: "No Steps"
   });
 });
 
+describe('Safe, unique step and gate identifiers (D30, task 08 AC12)', () => {
+  function stepWith(overrides) {
+    return {
+      id: 'ids-v1',
+      steps: {
+        implementation: {
+          status: { active: 'implementing', completed: 'implemented' },
+          actions: [{ id: 'a' }],
+          transitions: [{ to: 'verified' }],
+          ...overrides,
+        },
+      },
+    };
+  }
+
+  test('a step key containing "/" fails validation', () => {
+    const raw = { id: 'ids-v1', steps: { 'bad/step': { actions: [], transitions: [{ to: 'verified' }] } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /must be a non-empty identifier matching/.test(e)));
+  });
+
+  test('an empty step key fails validation', () => {
+    const raw = { id: 'ids-v1', steps: { '': { actions: [], transitions: [{ to: 'verified' }] } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /must be a non-empty identifier matching/.test(e)));
+  });
+
+  test('entryStep containing invalid characters fails validation', () => {
+    const raw = { ...stepWith({}), entryStep: 'not a safe id' };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /entryStep: must be a non-empty identifier matching/.test(e)));
+  });
+
+  test('entryStep naming an undeclared step fails validation (also AC15)', () => {
+    const raw = { ...stepWith({}), entryStep: 'no-such-step' };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /entryStep: 'no-such-step' does not name a declared step/.test(e)));
+  });
+
+  test('a gate\'s explicit id containing invalid characters fails validation', () => {
+    const raw = stepWith({ exitGates: [{ type: 'human', required: true, id: 'not a safe id' }] });
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /exitGates\[0\]\.id: must be a non-empty identifier matching/.test(e)));
+  });
+
+  test('a step declaring two human gates with no ids at all fails validation', () => {
+    const raw = stepWith({
+      entryGates: [{ type: 'human', required: true }],
+      exitGates: [{ type: 'human', required: true }],
+    });
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /2 human-verification gates.*explicit, unique 'id'/.test(e)));
+  });
+
+  test('a step declaring two human gates with the same explicit id fails validation', () => {
+    const raw = stepWith({
+      entryGates: [{ type: 'human', required: true, id: 'review' }],
+      exitGates: [{ type: 'human', required: true, id: 'review' }],
+    });
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /duplicate human-verification gate id 'review'/.test(e)));
+  });
+
+  test('a step declaring two human gates with distinct explicit ids is valid', () => {
+    const raw = stepWith({
+      entryGates: [{ type: 'human', required: true, id: 'entry-review' }],
+      exitGates: [{ type: 'human', required: true, id: 'exit-review' }],
+    });
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, true, errors.join('; '));
+  });
+});
+
+describe('Transition cardinality and terminal-target correctness (D19 refined/D27, task 08 AC14/AC16/AC17)', () => {
+  test('a step declaring zero transitions fails validation', () => {
+    const raw = { id: 'card-v1', steps: { implementation: { actions: [{ id: 'a' }], transitions: [] } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /transitions: must declare exactly one transition, got 0/.test(e)));
+  });
+
+  test('a step declaring more than one transition fails validation', () => {
+    const raw = {
+      id: 'card-v1',
+      steps: { implementation: { actions: [{ id: 'a' }], transitions: [{ to: 'verified' }, { to: 'archived' }] } },
+    };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /transitions: must declare exactly one transition, got 2/.test(e)));
+  });
+
+  test('a step declaring exactly one transition validates successfully', () => {
+    const raw = { id: 'card-v1', steps: { implementation: { status: { active: 'implementing', completed: 'implemented' }, actions: [{ id: 'a' }], transitions: [{ to: 'verified' }] } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, true, errors.join('; '));
+  });
+
+  test('a step name colliding with a terminal status value fails to load (AC16)', () => {
+    const raw = {
+      id: 'collide-v1',
+      steps: {
+        verified: { actions: [{ id: 'a' }], transitions: [{ to: 'implemented' }] },
+      },
+    };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /step name collides with a terminal lifecycle status/.test(e)));
+  });
+
+  test('a transition target that is a typo of a terminal status fails validation (AC17)', () => {
+    const raw = { id: 'typo-v1', steps: { implementation: { actions: [{ id: 'a' }], transitions: [{ to: 'verifed' }] } } };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, false);
+    assert.ok(errors.some(e => /transition target 'verifed' is neither a declared step nor a member of/.test(e)));
+  });
+
+  test('a transition target that is a real but non-terminal status fails validation (AC17)', () => {
+    for (const target of ['approved', 'in-implementation']) {
+      const raw = { id: 'nonterm-v1', steps: { implementation: { actions: [{ id: 'a' }], transitions: [{ to: target }] } } };
+      const { valid, errors } = validateWorkflowDefinition(raw);
+      assert.equal(valid, false, `expected '${target}' to be rejected`);
+      assert.ok(errors.some(e => new RegExp(`transition target '${target}' is neither a declared step nor a member of`).test(e)));
+    }
+  });
+
+  test('a transition target naming another declared step is valid, never reaching setTaskStatus (AC17 contrast)', () => {
+    const raw = {
+      id: 'multi-v1',
+      steps: {
+        stepA: { status: { active: 'a-active', completed: 'a-completed' }, actions: [{ id: 'a' }], transitions: [{ to: 'stepB' }] },
+        stepB: { status: { active: 'b-active', completed: 'b-completed' }, actions: [{ id: 'a' }], transitions: [{ to: 'verified' }] },
+      },
+    };
+    const { valid, errors } = validateWorkflowDefinition(raw);
+    assert.equal(valid, true, errors.join('; '));
+  });
+});
+
 describe('Repository-wide spec validation (AC6)', () => {
   test('validateSpecs passes with zero errors across all repository changes', () => {
     const errors = validateSpecs();
     assert.deepEqual(errors, [], `Expected zero validation errors, got: ${errors.join(', ')}`);
+  });
+});
+
+describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => {
+  test('absent workflow_progress is a no-op, regardless of workflow mode', () => {
+    const errors = [];
+    validateWorkflowProgress({ id: 'c' }, { id: 't1' }, errors, 'label');
+    validateWorkflowProgress({ id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } }, { id: 't1' }, errors, 'label');
+    assert.deepEqual(errors, []);
+  });
+
+  test('present on a legacy (non-deterministic) change is an explicit validation error (AC19)', () => {
+    const errors = [];
+    const change = { id: 'c' }; // no workflow config at all -> resolves to legacy
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', history: [] } };
+    validateWorkflowProgress(change, task, errors, 'label');
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /workflow_progress is present but this change resolves to workflow mode 'legacy'/);
+  });
+
+  test('present on an explicit workflow_mode: deterministic shorthand is accepted (no legacy false-positive)', () => {
+    const errors = [];
+    const change = { id: 'c', workflow_mode: 'deterministic', type: 'standard' };
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', state: 'active', history: [] } };
+    validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
+    assert.deepEqual(errors, []);
+  });
+
+  test('state must be "active" or "completed" (D37)', () => {
+    const errors = [];
+    const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } };
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', state: 'bogus' } };
+    validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
+    assert.ok(errors.some(e => /workflow_progress\.state must be 'active' or 'completed'/.test(e)));
+  });
+
+  test('current_step must be a non-empty string', () => {
+    const errors = [];
+    const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } };
+    validateWorkflowProgress(change, { id: 't1', workflow_progress: { current_step: '' } }, errors, 'label');
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /current_step must be a non-empty string/);
+  });
+
+  test('history must be an array when present', () => {
+    const errors = [];
+    const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } };
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', state: 'active', history: 'not-an-array' } };
+    validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /workflow_progress\.history must be an array/);
+  });
+
+  test('current_step naming a real step in the resolved definition is accepted', () => {
+    const errors = [];
+    const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } };
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', state: 'active', history: [] } };
+    validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
+    assert.deepEqual(errors, []);
+  });
+
+  test('current_step naming no declared step in the resolved definition fails closed (AC1)', () => {
+    const errors = [];
+    const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } };
+    const task = { id: 't1', workflow_progress: { current_step: 'not-a-real-step', state: 'active', history: [] } };
+    validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /current_step 'not-a-real-step' does not name a step declared in workflow definition/);
+  });
+
+  test('an unresolvable workflow definition is reported instead of throwing uncaught', () => {
+    const errors = [];
+    const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'no-such-definition' } };
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', state: 'active', history: [] } };
+    validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /could not resolve workflow definition 'no-such-definition'/);
+  });
+
+  test('wired into validateSpecs() itself (the same function `node tools/specs.mjs validate` calls), via an isolated fixture repository', () => {
+    const activeDir = mkdtempSync(join(tmpdir(), 'nevo-wp-validate-active-'));
+    const archiveDir = join(activeDir, 'no-archive-here');
+    try {
+      const legacyDir = join(activeDir, 'legacy-change');
+      mkdirSync(legacyDir, { recursive: true });
+      writeFileSync(join(legacyDir, 'change.yaml'), [
+        'id: legacy-change', 'title: Legacy', 'status: draft', '',
+        'tasks:', '  - id: t1', '    order: 1', '    status: in-implementation',
+        '    workflow_progress:', '      current_step: implementation', '      history: []', '',
+      ].join('\n'));
+
+      const badStepDir = join(activeDir, 'bad-step-change');
+      mkdirSync(badStepDir, { recursive: true });
+      writeFileSync(join(badStepDir, 'change.yaml'), [
+        'id: bad-step-change', 'title: Bad Step', 'status: draft',
+        'workflow:', '  mode: deterministic', '  definition: standard', '',
+        'tasks:', '  - id: t1', '    order: 1', '    status: in-implementation',
+        '    workflow_progress:', '      current_step: not-a-real-step', '      history: []', '',
+      ].join('\n'));
+
+      const goodDir = join(activeDir, 'good-change');
+      mkdirSync(goodDir, { recursive: true });
+      writeFileSync(join(goodDir, 'change.yaml'), [
+        'id: good-change', 'title: Good', 'status: draft',
+        'workflow:', '  mode: deterministic', '  definition: standard', '',
+        'tasks:', '  - id: t1', '    order: 1', '    status: in-implementation',
+        '    workflow_progress:', '      current_step: implementation', '      state: active', '      history: []', '',
+      ].join('\n'));
+
+      const errors = validateSpecs({ activeDir, archiveDir });
+
+      const wpErrors = errors.filter(e => /workflow_progress/.test(e));
+      assert.ok(
+        wpErrors.some(e => e.includes('legacy-change') && /resolves to workflow mode 'legacy'/.test(e)),
+        `Expected a legacy-mode workflow_progress error, got: ${wpErrors.join(' | ')}`
+      );
+      assert.ok(
+        wpErrors.some(e => e.includes('bad-step-change') && /does not name a step declared/.test(e)),
+        `Expected an unresolvable current_step error, got: ${wpErrors.join(' | ')}`
+      );
+      assert.ok(
+        !wpErrors.some(e => e.includes('good-change')),
+        `good-change should not raise a workflow_progress error, got: ${wpErrors.join(' | ')}`
+      );
+    } finally {
+      rmSync(activeDir, { recursive: true, force: true });
+    }
   });
 });

@@ -4,9 +4,10 @@ type: small
 version: 1
 steps:
   implementation:
+    status:
+      active: implementing
+      completed: implemented
     entryGates: []
-    actions:
-      - id: implement-task
     exitGates:
       - type: command
         action: test

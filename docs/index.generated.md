@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-09-06T14:47:54.453Z_
+_Generated: 2026-09-09T05:36:13.065Z_
 
 ## Hub
 
@@ -87,6 +87,7 @@ _Generated: 2026-09-06T14:47:54.453Z_
 | `development.transaction-model` | [Transaction model](development/transaction-model.md) | current | Transaction ownership and commit behavior: what is answered by the code today, and what remains genuinely unresolved. |
 | `development.transport-development` | [Adding a transport](development/transport-development.md) | current | How to add a new transport mechanism to NEvo itself, as distinct from a consumer using an existing one. Worked example: NEvo.Messaging.Web. |
 | `development.ui-ux-guidelines` | [UI and UX guidelines](development/ui-ux-guidelines.md) | current | Portable UI/UX rules for information hierarchy, visual weight, typography, semantic color, progressive disclosure, discovery, interaction hierarchy, responsive behavior, dense content, visual patterns, and composed-screen verification. |
+| `development.workflow-engine` | [Deterministic workflow engine](development/workflow-engine.md) | current | The deterministic workflow engine under tools/specs/workflow/: composable action/gate contracts, the compiled StepContext, non-mutating finish planning, the durable/resumable finish operation, the source-control capability boundary, the agent-facing vs. operator-facing CLI surface, and the legacy/deterministic migration map. |
 
 ## Adr
 

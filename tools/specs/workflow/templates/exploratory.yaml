@@ -5,13 +5,14 @@ type: exploratory
 version: 1
 steps:
   discovery:
+    status:
+      active: discovering
+      completed: discovered
     entryGates: []
-    actions:
-      - id: discover-scope
     exitGates:
       - type: markdown
         file: discovery.md
       - type: human
         required: true
     transitions:
-      - to: refined
+      - to: verified

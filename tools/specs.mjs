@@ -44,6 +44,11 @@ import { handleSelfCheck } from './specs/self-check/cli.mjs';
 import { handleSuggestProvenance, handleApplyProvenance } from './specs/provenance/cli.mjs';
 import { handleBatchStart, handleBatchStatus, handleBatchReview } from './specs/batch/cli.mjs';
 import { handleReviewScope, handleBulkTransition } from './specs/reviews/cli.mjs';
+import {
+  handleWorkflowStepStart,
+  handleWorkflowStepFinish,
+  handleWorkflowVerifyHuman,
+} from './specs/workflow/cli.mjs';
 
 export {
   setTaskSuspension,
@@ -251,6 +256,36 @@ export function buildProgram() {
     .argument('<change>')
     .requiredOption('--failing-sha <sha>', 'The merged SHA the failed post-merge check reported')
     .action((changeSlug, opts) => handleFinalizeRepairBranch(changeSlug, opts));
+
+  const workflow = program.command('workflow')
+    .description('Deterministic workflow engine (D9): agent-facing step start/finish, operator-facing human verification');
+
+  const step = workflow.command('step')
+    .description('Agent-facing step lifecycle calls — StepContext at start, non-mutating/durable finish');
+
+  step.command('start')
+    .description('Compile and print the StepContext (current step, finish contract, entry state) for the current or given task')
+    .argument('<change>')
+    .argument('[task]', 'Defaults to the change\'s one in-implementation task when omitted')
+    .action((changeSlug, taskId) => handleWorkflowStepStart(changeSlug, taskId));
+
+  step.command('finish')
+    .description('Non-mutating finish planning (--check) or durable, resumable finish execution')
+    .argument('<change>')
+    .argument('[task]', 'Defaults to the change\'s one in-implementation task when omitted')
+    .option('--check', 'Report the current finish plan only — never mutates state (C12)')
+    .option('--title <text>', 'commit.title finish input')
+    .option('--message <text>', 'commit.message finish input')
+    .option('--include <patterns>', 'Comma-separated explicit file-selection include patterns')
+    .option('--exclude <patterns>', 'Comma-separated file-selection exclude patterns')
+    .action((changeSlug, taskId, opts) => handleWorkflowStepFinish(changeSlug, taskId, opts));
+
+  workflow.command('verify-human')
+    .description('Operator-only: satisfy a HumanVerificationGate — the only path that can (C8); never reachable from step start/finish')
+    .argument('<change>')
+    .argument('<task>')
+    .option('--confirm', 'Required — records the operator confirmation')
+    .action((changeSlug, taskId, opts) => handleWorkflowVerifyHuman(changeSlug, taskId, opts));
 
   const agentSession = program.command('agent-session')
     .description('AI agent session management');

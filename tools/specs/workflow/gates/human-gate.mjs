@@ -13,6 +13,16 @@ export class HumanVerificationReader {
    * @param {string} query.scope - 'task' | 'step' | 'change'
    * @param {string} query.targetId - Identifier of target task/step/change
    * @param {string} query.requiredRole - Role required (e.g. 'owner')
+   * @param {string|null} [query.changeId] - Change id/slug (D29) — additive, for a
+   *   reader that needs to distinguish which change this query belongs to beyond
+   *   `scope`/`targetId` alone (e.g. a storage path keyed by change)
+   * @param {string|null} [query.taskId] - Task id (D29) — additive, same reasoning
+   * @param {string|null} [query.stepId] - Current workflow step id (D29) — additive; lets
+   *   a reader scope a sign-off to the exact configured step, distinguishing two
+   *   independently-configured human gates across different steps of the same task
+   * @param {string|null} [query.gateId] - The gate's own explicit `id`, when configured
+   *   (D29) — additive; lets a reader distinguish more than one human gate on the same
+   *   step (D30 requires an explicit, unique `id` whenever a step declares more than one)
    * @returns {Promise<object|null>|object|null}
    */
   getSignoff(query) {
@@ -110,6 +120,14 @@ export class HumanVerificationGate extends GateContract {
     // Target identity is resolved strictly by configured scope (no invented "current-step" fallbacks)
     const targetId = resolveHumanScopeTarget(scope, context);
 
+    // D29: additive identity carried alongside scope/targetId so a reader that needs to
+    // distinguish the exact configured step/gate (D24) can — `null` when context/config
+    // don't supply one; never invented here.
+    const changeId = context.changeId ?? context.change?.id ?? context.change?.slug ?? null;
+    const taskId = context.taskId ?? context.task?.id ?? null;
+    const stepId = typeof context.step === 'string' ? context.step : (context.step?.id ?? context.stepId ?? null);
+    const gateId = config.id ?? null;
+
     if (isRequired && !targetId) {
       return new GateInspectionResult({
         gateType: this.type,
@@ -164,7 +182,7 @@ export class HumanVerificationGate extends GateContract {
 
     let signoff = null;
     try {
-      signoff = await reader.getSignoff({ scope, targetId, requiredRole });
+      signoff = await reader.getSignoff({ scope, targetId, requiredRole, changeId, taskId, stepId, gateId });
     } catch (err) {
       return new GateInspectionResult({
         gateType: this.type,

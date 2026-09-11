@@ -113,6 +113,40 @@ export function setTaskStatus(change, taskId, status) {
   });
 }
 
+/**
+ * Atomic, narrow task-state mutation (D32, deterministic-workflow-foundation): applies
+ * `status` and/or `workflow_progress` to one task in a single `change.yaml`
+ * read-modify-write, so a multi-step workflow's `update-task` finalize stage never needs
+ * two separate writes (and therefore two separate commits/crash windows) to land a step
+ * completion and/or a terminal status change together. Either field may be omitted; at
+ * least one must be provided. `setTaskStatus` remains unchanged for legacy
+ * (non-deterministic) callers that only ever need the one field.
+ *
+ * Also the sole write path for `workflow step start`'s own activation mutation (D37,
+ * `step-context.mjs`'s `ensureStepActivated`) — a single call with only
+ * `workflowProgress` provided.
+ *
+ * @param {object} change - Loaded change manifest (`change._file` required)
+ * @param {string} taskId
+ * @param {object} params
+ * @param {string} [params.status] - New task lifecycle status
+ * @param {{ current_step: string, state: 'active'|'completed', history: Array<object> }} [params.workflowProgress] -
+ *   New `workflow_progress` value (replaces the whole block, not a partial merge) — `state`
+ *   is D37's runtime active/completed axis, required whenever `workflow_progress` is set.
+ */
+export function setTaskWorkflowState(change, taskId, { status, workflowProgress } = {}) {
+  if (status === undefined && workflowProgress === undefined) {
+    throw new CliError('setTaskWorkflowState requires at least one of status/workflowProgress');
+  }
+  updateYamlFile(change._file, doc => {
+    const tasks = doc.get('tasks', true);
+    const item = tasks?.items?.find(it => it.get('id') === taskId);
+    if (!item) throw new CliError(`Task '${taskId}' not found in ${change._file}`);
+    if (status !== undefined) item.set('status', status);
+    if (workflowProgress !== undefined) item.set('workflow_progress', workflowProgress);
+  });
+}
+
 /** Structural update: set the change's top-level status in change.yaml. */
 export function setChangeStatus(change, status) {
   updateYamlFile(change._file, doc => doc.set('status', status));

@@ -355,6 +355,82 @@ export function getWorktreeDiff(root, paths = []) {
   return run(root, ['diff', 'HEAD', '--', ...paths]);
 }
 
+// Is `sha` already present on the remote-tracking branch `branch` — i.e. reachable from
+// `origin/<branch>`? Fetches first so the check reflects the remote's real current state,
+// not a possibly-stale local copy of the tracking ref (same reasoning as `getAheadBehind`
+// above). Used by the deterministic-workflow finish operation to reconcile an `unknown`/
+// `running` `push` stage without re-pushing (area concrete-actions-and-vertical-poc,
+// D12/D14): a commit already on the remote branch means the push already succeeded.
+export function isCommitOnRemoteBranch(root, sha, branch) {
+  try {
+    run(root, ['fetch', 'origin', branch]);
+  } catch {
+    return false;
+  }
+  try {
+    run(root, ['merge-base', '--is-ancestor', sha, `origin/${branch}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function isCommitOnRemoteBranchAsync(root, sha, branch, options = {}) {
+  try {
+    await runGitAsync(root, ['fetch', 'origin', branch], options);
+  } catch {
+    return false;
+  }
+  try {
+    await runGitAsync(root, ['merge-base', '--is-ancestor', sha, `origin/${branch}`], options);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// A ref's own SHA, parent SHA (null for a root commit with no parent), and subject line —
+// used by the deterministic-workflow finish operation to reconcile a `commit` stage found
+// `running` on recovery (area concrete-actions-and-vertical-poc, D14): proving that the
+// commit currently at HEAD was produced by the in-flight operation (its parent equals the
+// persisted pre-commit HEAD, and its subject matches the persisted commit title) without
+// creating a second commit. NUL-separated `--format` fields (`%x00`) avoid ambiguity with
+// a subject line that itself contains spaces or punctuation.
+export function getCommitInfo(root, ref = 'HEAD') {
+  const raw = run(root, ['log', '-1', '--format=%H%x00%P%x00%s', ref]);
+  const [sha, parents, subject] = raw.split('\0');
+  const parentSha = parents ? parents.trim().split(/\s+/)[0] : null;
+  return { sha, parentSha: parentSha || null, subject: subject ?? '' };
+}
+
+export async function getCommitInfoAsync(root, ref = 'HEAD', options = {}) {
+  const raw = await runGitAsync(root, ['log', '-1', '--format=%H%x00%P%x00%s', ref], options);
+  const [sha, parents, subject] = raw.split('\0');
+  const parentSha = parents ? parents.trim().split(/\s+/)[0] : null;
+  return { sha, parentSha: parentSha || null, subject: subject ?? '' };
+}
+
+// Commit log entries (`{ sha, subject }`, newest first) reachable from `head` but not
+// `base` — the raw material for a factual "existing commits" / "unpushed commits" action
+// context (area concrete-actions-and-vertical-poc): `getCommitsSince(root, 'origin/foo',
+// 'foo')` answers "what's unpushed", `getCommitsSince(root, baseBranch, 'HEAD')` answers
+// "what's on this branch since it diverged". `base: null` lists every commit reachable
+// from `head` (used when a branch has no upstream and no meaningful base to diff against).
+export function getCommitsSince(root, base, head = 'HEAD') {
+  const range = base ? `${base}..${head}` : head;
+  let out;
+  try {
+    out = run(root, ['log', '--format=%H %s', range]);
+  } catch {
+    return [];
+  }
+  if (!out) return [];
+  return out.split('\n').filter(Boolean).map(line => {
+    const spaceIdx = line.indexOf(' ');
+    return spaceIdx === -1 ? { sha: line, subject: '' } : { sha: line.slice(0, spaceIdx), subject: line.slice(spaceIdx + 1) };
+  });
+}
+
 // Commits whose message mentions `needle` (case-insensitive) — a migration-flow
 // *suggestion* only (area implementation-provenance-and-attribution requirement
 // 8: "commit-message matching may suggest boundaries but is never authoritative"),
