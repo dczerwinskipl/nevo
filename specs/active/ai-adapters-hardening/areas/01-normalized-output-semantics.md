@@ -35,7 +35,7 @@ To eliminate ambiguity, output semantics are structured as a strict four-layer t
                                        │ Normalization & sequence allocation
                                        ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Layer 3: Public AgentEvent Stream (SSE / WebSocket)                         │
+│ Layer 3: Public AgentEvent Stream (Server-Sent Events / SSE)                │
 │ (text.delta, progress.delta, reasoning.delta, tool.*, interaction.*, etc.)  │
 └──────────────────────────────────────┬──────────────────────────────────────┘
                                        │ Projection & accumulator
@@ -52,7 +52,7 @@ To eliminate ambiguity, output semantics are structured as a strict four-layer t
 |---|---|---|---|---|
 | Conversational final response | `final_answer.delta` | `text.delta` | `turn.finalAnswer.text` | Assistant chat bubble surface |
 | Execution narration / progress | `commentary.delta` | `progress.delta` | `WorkItem (type: 'commentary')` | Activity / work log card |
-| Internal chain-of-thought | `reasoning.delta` | `reasoning.delta` | `WorkItem (type: 'reasoning')` | Collapsible reasoning disclosure |
+| Provider-exposed reasoning | `reasoning.delta` | `reasoning.delta` | `WorkItem (type: 'reasoning')` | Collapsible reasoning disclosure |
 | Tool execution lifecycle | Tool dispatch events | `tool.started`, `.updated`, `.completed` | `WorkItem (type: 'tool')` + `actions` | Tool invocation display card |
 | User interaction request | Interaction handle | `interaction.requested`, `.resolved` | `WorkItem (type: 'interaction')` | Interactive prompt panel |
 | Token telemetry & cost | Usage payload | `usage.updated` | `turn.usage` | Telemetry header/footer |

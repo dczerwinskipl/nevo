@@ -58,11 +58,17 @@ Explicitly decouple four nested lifecycles:
 
 ### Current fact
 - None of the three providers (`claude`, `codex`, `agy`) support detached background operations that can be re-attached or polled after process exit. Turn execution requires an active, uninterrupted communication channel.
-- If the communication channel drops or the process disappears, earlier implementations collapsed the turn into `status: 'terminal' (outcome: 'failed')`.
+- If the communication channel drops or the process disappears unexpectedly, earlier implementations collapsed the turn into `status: 'terminal' (outcome: 'failed')`.
+- Indirect signals (such as absence of file writes or filesystem changes) do not prove whether an operation completed, failed, or remains alive.
 
 ### Proposed target
 - Preserve epistemic truth: if an operation handle vanishes and execution state cannot be proven, the turn transitions to `status: 'unknown'` with `reason: 'operation_lost'` and diagnostic code `AI_OPERATION_LOST`.
-- The turn is NOT sealed as failed until an authoritative check proves the process exited without producing output or modifying the workspace.
+- The turn is NOT sealed as failed until authoritative evidence resolves it:
+  1. Provider terminal protocol event (e.g. late completion frame with turn correlation).
+  2. Confirmed provider process exit (verified by OS process check that the specific PID has terminated).
+  3. Provider-supported operation/status query.
+- Unsafe concurrent turn execution is strictly **blocked** for that session while state is unresolved.
+- If Nevo intentionally performs forced cleanup/termination to recover session control, Nevo records its own lifecycle result as `terminal (outcome: 'interrupted', cause: 'forced_cleanup')` once termination is proven, without asserting an unknown provider outcome.
 
 ### Owner decision required
 *Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 7.*

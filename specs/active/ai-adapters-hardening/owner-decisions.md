@@ -19,7 +19,7 @@ Per repository policy, the agent analyzes options, trade-offs, risks, and recomm
 To avoid treating a static list as authoritative availability or breaking when new models appear, the contract distinguishes:
 1. **Authoritative discovered models**: Dynamically queried directly from the provider CLI at runtime (supported by Antigravity via `agy models`).
 2. **Configured / operator models**: Explicitly declared by the workstation operator in `.nevo-ai-local/ai-providers.yaml`.
-3. **Known / recommended model metadata**: Curated advisory metadata (display labels, known traits) shipped with Nevo documentation or provider baselines.
+3. **Known / recommended model metadata**: Curated advisory metadata (display labels, known traits) shipped with Nevo documentation or provider baselines to enable immediate UI suggestions.
 4. **Provider default (omitted override)**: Omitting the model flag / parameter entirely to let the provider CLI or daemon select its native default, rather than hardcoding a named model as Nevo's default without authoritative evidence.
 
 ### Validation behavior for incomplete catalogs
@@ -54,7 +54,7 @@ Define a normalized model descriptor contract (`AgentModelDescriptor`).
 - If no model is specified, Nevo **omits the model override**, letting the provider use its native default.
 - If a requested model is not in the known catalog, Nevo passes it through to the CLI rather than rejecting it, allowing user-specified flags to work immediately.
 - **Implementation cost**: M (Moderate).
-- **Reliability**: High (static fallback guarantees models are available; probe timeout does not break turn execution).
+- **Reliability**: High (static fallback guarantees catalog metadata and UI suggestions remain available even offline or when probes time out; it never asserts that the provider or user account can actually execute that model).
 - **Compatibility risk**: Low (respects each CLI's actual transport capabilities).
 - **Stale-data risk**: Low (Antigravity is dynamic; Claude/Codex accept operator config and unlisted passthrough).
 - **Unlocks**: UI model picker, custom fine-tune support, zero false-rejections on new model releases.
@@ -156,20 +156,24 @@ If a model outputs a conversational question at the end of a turn without an evi
 
 ### Conceptual separation
 1. **Transport / integration capabilities** (Provider level):
-   - Can stream reasoning events (`reasoning.delta`)
-   - Can emit structured tool invocations (`tool.*`)
-   - Can report token usage and cost (`usage.updated`)
+   - Can stream provider-exposed reasoning events (`reasoningEvents: boolean`, emitting `reasoning.delta`)
+   - Can emit structured tool invocations (`toolCalls: boolean`, emitting `tool.*`)
+   - Can report token usage and cost (`usage: boolean`, emitting `usage.updated`)
    - Can perform structured mid-turn interactions (`interactiveQuestions`, `interactivePermissions`, `interactiveConfirmations`)
    - Can resume sessions (`resumeSession`)
    - Can cancel active turns (`cancelTurn`)
 2. **Model traits** (Model descriptor level):
-   - Supports extended reasoning / chain-of-thought
-   - Supports configurable reasoning effort (`low`, `medium`, `high`)
-   - Supports multimodal vision input
-   - Maximum input context token limits
-3. **Effective turn behavior**:
-   - The runtime derives effective capabilities from the combination of both: reasoning events are emitted only if the provider transport can stream them **AND** the active model supports reasoning.
-   - The provider `toolCalls` capability remains the sole canonical flag for tool calling support; redundant flags like `toolCalling` on the model are eliminated unless defined as an explicit model trait distinct from transport.
+   - Supports extended reasoning / thinking output (`supportsReasoning?: boolean`)
+   - Supports configurable reasoning effort (`supportsReasoningEffort?: boolean`, e.g. low/medium/high)
+   - Supports multimodal vision input (`supportsVision?: boolean`)
+   - Maximum input context token limits (`maxContextTokens?: number`)
+   - *Absence of a trait means UNKNOWN, not false.*
+3. **Effective turn behavior and evidence precedence**:
+   - Provider and model catalog metadata may be incomplete or unknown (especially for unlisted or custom models).
+   - **Authoritative runtime evidence always wins over advisory catalog metadata**: if a provider transport emits a valid normalized reasoning event, Nevo accepts and projects it regardless of whether model traits declare true, false, or unknown.
+   - Model traits are used strictly for **pre-turn configuration and UI affordances** (such as offering a reasoning-effort selector in the composer or model settings).
+   - Catalog metadata must **NEVER** be used to discard or suppress evidenced provider output.
+   - Redundant flags such as `toolCalling` on model descriptors are eliminated; `toolCalls` on the provider descriptor remains the sole authoritative flag for tool execution transport. Execution modes (`supportedModes`) belong to provider/integration policy and are not placed on model descriptors.
 
 ### Options
 
@@ -185,12 +189,12 @@ Remove `reasoning` from provider capabilities; put it exclusively on `AgentModel
 - **Reliability**: Low. If an adapter cannot stream reasoning events from the CLI transport, declaring that a model supports reasoning does not allow Nevo to display it.
 - **Forecloses**: Checking whether the transport actually supports reasoning.
 
-#### Option C: Decoupled two-tier capability model (Proposed Target)
-Retain transport capabilities on `AgentProviderDescriptor.capabilities` (including `reasoningEvents: boolean`, `toolCalls: boolean`, `usage: boolean`). Define semantic model traits on `AgentModelDescriptor.traits` (including `supportsReasoning?: boolean`, `supportsReasoningEffort?: boolean`, `supportsVision?: boolean`, `contextTokens?: number`).
-The effective turn capability is evaluated by the runtime as `transport.reasoningEvents && model.supportsReasoning`.
+#### Option C: Decoupled two-tier capability model with runtime evidence precedence (Proposed Target)
+Retain transport capabilities on `AgentProviderDescriptor.capabilities` (including `reasoningEvents: boolean`, `toolCalls: boolean`, `usage: boolean`). Define semantic model traits on `AgentModelDescriptor.traits` (including `supportsReasoning?: boolean`, `supportsReasoningEffort?: boolean`, `supportsVision?: boolean`, `maxContextTokens?: number`).
+Pre-turn UI affordances inspect model traits (e.g. showing reasoning effort controls when `traits.supportsReasoningEffort === true`). During turn execution, runtime evidence takes precedence: any valid reasoning event emitted by the provider is accepted and streamed.
 - **Implementation cost**: S-M.
-- **Reliability**: High. Preserves transport truth while unlocking model-specific UI controls.
-- **Unlocks**: Reasoning effort picker for Claude 3.7 and Gemini 2.0 Flash Thinking, without breaking Claude 3.5.
+- **Reliability**: High. Preserves transport truth while unlocking model-specific UI controls without suppressing valid model output.
+- **Unlocks**: Reasoning effort picker for Claude 3.7 and Gemini 2.0 Flash Thinking, without false-rejection of reasoning from unlisted models.
 - **Forecloses**: Ambiguous duplicate flags.
 
 ### Recommendation
@@ -211,14 +215,14 @@ The effective turn capability is evaluated by the runtime as `transport.reasonin
 ### Four explicit event layers
 1. **Provider-specific protocol events**: Private bytes, JSON-RPC, or NDJSON streamed from the CLI or daemon.
 2. **Internal runtime semantic events**: Dispatched inside the adapter/runtime pipeline (`final_answer.delta`, `commentary.delta`, `tool_update`).
-3. **Public `AgentEvent` events**: Sanitized, sequenced stream sent to the browser over SSE (`text.delta`, `progress.delta`, `reasoning.delta`, `tool.*`, `interaction.*`, `usage.updated`, `turn.*`).
+3. **Public `AgentEvent` events**: Sanitized, sequenced stream sent to the browser over Server-Sent Events (SSE) (`text.delta`, `progress.delta`, `reasoning.delta`, `tool.*`, `interaction.*`, `usage.updated`, `turn.*`).
 4. **`CanonicalTurn` projection**: Durable, queryable turn state (`turn.work: WorkItem[]`, `turn.finalAnswer: FinalAnswer | null`, `turn.status: TurnStatus`, `turn.terminalOutcome`).
 
 ### UI rendering targets
 UI surfaces are described semantically rather than referencing concrete component names:
 - Authoritative conversational response (`text.delta` / `turn.finalAnswer`) -> Chat bubble surface.
 - Execution commentary & progress (`progress.delta` / `WorkItem(type: 'commentary')`) -> Activity log / work stream card.
-- Model chain-of-thought (`reasoning.delta` / `WorkItem(type: 'reasoning')`) -> Collapsible reasoning disclosure container.
+- Provider-exposed reasoning (`reasoning.delta` / `WorkItem(type: 'reasoning')`) -> Collapsible reasoning disclosure container.
 - Tool lifecycle (`tool.*` / `WorkItem(type: 'tool')`) -> Tool invocation display card.
 - User input requests (`interaction.*` / `WorkItem(type: 'interaction')`) -> Interactive prompt panel.
 
@@ -261,7 +265,7 @@ Maintain the four explicit layers: Provider Protocol -> Internal Semantic (`fina
    - Protocol & Execution: `AI_PROTOCOL_ERROR` (502), `AI_UNSUPPORTED_OPERATION` (409), `AI_PROVIDER_EXECUTION_ERROR` (502)
    - Unknown State: `AI_OPERATION_LOST` (500)
 3. **Structured Recovery Hint**: Replaces simplistic `retryable: boolean` with actionable hints:
-   - `'none'`: Unrecoverable; do not retry.
+   - `'none'`: Permanent or deliberate failure; do not retry.
    - `'retry-after-delay'`: Transient; retry after backoff (uses `suggestedDelayMs`).
    - `'new-turn'`: Previous turn failed cleanly; user or agent may submit a new turn in the same session.
    - `'new-session'`: Session state corrupted; must create a fresh session.
@@ -298,11 +302,25 @@ Decouple terminal outcome from failure code. Define the 12 normalized failure co
   - Codex app-server JSON-RPC connection dropped during an in-flight turn.
 - In this state, the operation may have failed, completed without flushing, or may **still be running in the background**.
 - The canonical turn model in `turn-status.mjs` already contains a dedicated status: `status: 'unknown'`.
-- Currently, adapters often collapse this state into `terminal (outcome: 'failed')` with `AI_PROVIDER_ERROR`.
+- Indirect signals (such as absence of file writes or filesystem changes) do **NOT** prove whether a provider operation completed, failed, or remains alive.
 
 ### Epistemic truth invariant
 The contract must preserve epistemic truth: **unknown means unknown**.
 Nevo must never claim `failed`, `cancelled`, or `completed` unless authoritative evidence exists.
+
+### Authoritative reconciliation evidence
+Only authoritative evidence can resolve an unproven state:
+1. Provider terminal protocol event (e.g. late completion/failure frame with confirmed turn correlation).
+2. Confirmed provider process exit (verified by OS process check confirming the specific PID is terminated).
+3. Provider-supported operation/status query (where the protocol natively supports status interrogation).
+4. Another transport-specific authoritative signal.
+
+### Handling unresolved state
+If no authoritative evidence exists:
+- Turn status remains `status: 'unknown'`.
+- Unsafe concurrent turn execution is strictly **blocked** for that session while state is unresolved (preventing conflicting workspace mutations or out-of-order execution).
+- Nevo does **NOT** fabricate a `completed` or `failed` outcome.
+- If Nevo intentionally performs forced cleanup/termination to recover session control (e.g. operator cancellation or recovery supervisor terminating the process tree), Nevo records its own lifecycle result as `terminal (outcome: 'interrupted', cause: 'forced_cleanup')` only after process tree termination is proven, without claiming an unknown provider result.
 
 ### Options
 
@@ -310,20 +328,18 @@ Nevo must never claim `failed`, `cancelled`, or `completed` unless authoritative
 When an operation handle is lost or unproven, transition the turn immediately to `status: 'terminal' (outcome: 'failed')` with code `AI_OPERATION_LOST`.
 - **Implementation cost**: S.
 - **Reliability**: Epistemically false. If the process is still mutating the workspace or completes in the background, Nevo reports a false failure.
-- **Forecloses**: Reconciling or recovering the turn.
+- **Forecloses**: Reconciling or recovering the turn; risks race conditions if user sends a new prompt.
 
-#### Option B: Epistemic truth preservation (Status 'unknown') (Proposed Target)
+#### Option B: Epistemic truth preservation with authoritative reconciliation (Proposed Target)
 When an operation handle is lost and the provider cannot prove completion or exit:
 1. Transition turn status to `status: 'unknown'` with `reason: 'operation_lost'` and diagnostic code `AI_OPERATION_LOST`.
-2. Do **NOT** set `terminalOutcome`. The turn is not terminal until reconciled.
-3. The runtime schedules a bounded verification check:
-   - If the process is confirmed dead with no output: settles as `terminal (outcome: 'failed', cause: 'process_disappeared')`.
-   - If a background write is detected or subsequent turn checks show completion: reconciles state.
-   - If state remains unproven after the watchdog timeout elapses: seals as `terminal (outcome: 'interrupted', cause: 'unproven_state')`.
+2. Do **NOT** set `terminalOutcome`. Block concurrent turns in the session.
+3. Wait for authoritative evidence (terminal protocol event, verified process exit, status query).
+4. If forced termination is executed by Nevo, seal the lifecycle outcome as `interrupted` once termination is verified.
 - **Implementation cost**: M.
-- **Reliability**: High. Truthful representation in UI and logs.
-- **Unlocks**: Preventing race conditions where a user resubmits a prompt while an orphaned process is still modifying files.
-- **Forecloses**: Blindly overwriting session state.
+- **Reliability**: High. Truthful representation in UI and logs; eliminates phantom race conditions.
+- **Unlocks**: Safe session recovery and accurate forensic diagnostics.
+- **Forecloses**: Fabricating fictional outcomes from indirect heuristics.
 
 ### Recommendation
 **Adopt Option B**.

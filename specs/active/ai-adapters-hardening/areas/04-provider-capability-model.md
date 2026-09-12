@@ -98,15 +98,17 @@ classDiagram
 
 2. **Model Traits (`ModelTraits`)**:
    - Intrinsic to specific AI model weights and training.
-   - `supportsReasoning`: Model produces chain-of-thought tokens.
+   - `supportsReasoning`: Model produces provider-exposed reasoning tokens.
    - `supportsReasoningEffort`: Model accepts `low`, `medium`, or `high` reasoning effort configuration (e.g. Claude 3.7 Sonnet, Gemini 2.0 Flash Thinking, o3).
    - `supportsVision`: Model accepts multimodal image attachments.
    - `maxContextTokens`: Maximum context window size.
+   - *Absence of a trait means UNKNOWN, not false.*
 
-3. **Effective Turn Behavior**:
-   - The runtime derives the effective capabilities of a turn from the intersection:
-     - Reasoning stream is active only when `capabilities.reasoningEvents === true` **AND** `model.traits.supportsReasoning === true`.
-     - Reasoning effort controls are shown only when `model.traits.supportsReasoningEffort === true`.
+3. **Effective Turn Behavior and Evidence Precedence**:
+   - Provider and model catalog metadata may be unknown or incomplete.
+   - **Authoritative runtime evidence always wins over advisory metadata**: if the provider emits a valid normalized reasoning event, Nevo accepts and projects it regardless of whether model metadata says true, false, or unknown.
+   - Model traits are used for **pre-turn configuration and UI affordances** (such as whether to offer a reasoning-effort selector in the composer or model options).
+   - Catalog metadata must **NEVER** be used to discard, filter, or suppress evidenced provider output.
 
 ### Owner decision required
 *Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 4.*
@@ -117,11 +119,11 @@ classDiagram
 
 ### Current fact
 - `AGENT_EXECUTION_MODES` in `contracts.mjs` defines `['ask', 'edit', 'agent']` with default `'edit'`.
-- Execution mode is not a provider capability; it is an operator security policy passed to the provider to configure sandbox restrictions and approval boundaries:
+- Execution mode is not a provider capability or model trait; it is an operator security policy passed to the provider to configure sandbox restrictions and approval boundaries:
   - `ask` (Read-only): Sandboxed, no file writes or mutating commands. (Codex: `sandbox: 'read-only'`; Claude: `--permission-mode plan`; Antigravity: `--mode=plan`).
   - `edit` (Workspace write with safeguards): Modifies repository workspace files. (Codex: `sandbox: 'workspace-write'`; Claude: `--permission-mode acceptEdits`; Antigravity: `--mode=accept-edits`).
   - `agent` (Autonomous with escalation): Full workspace access with command execution. (Codex: `on-request` approval; Claude: `--permission-mode bypassPermissions`; Antigravity: `--mode=accept-edits --dangerously-skip-permissions`).
 
 ### Proposed target
 - Maintain `ExecutionMode` as a first-class policy orthogonal to provider capabilities and model traits.
-- The provider descriptor declares `supportedModes: AgentExecutionMode[]` indicating which modes the adapter currently maps.
+- The provider descriptor declares `supportedModes: AgentExecutionMode[]` indicating which modes the adapter currently maps. Model descriptors do NOT carry `supportedModes`.

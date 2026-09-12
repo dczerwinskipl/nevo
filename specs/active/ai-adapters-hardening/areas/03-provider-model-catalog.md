@@ -26,7 +26,8 @@ To preserve truthfulness and prevent false rejections, model information is cate
    - Allows users to specify private fine-tunes, newly released models, or internal endpoints.
 3. **Known / recommended model metadata**:
    - Curated advisory metadata (display labels, known traits) shipped with Nevo for well-known models (e.g. Claude 3.7 Sonnet, o3).
-   - Serves as offline fallback and UI label enrichment.
+   - Serves as offline fallback and UI label/affordance enrichment.
+   - *Static fallback guarantees that catalog metadata and UI suggestions remain available even offline or when dynamic probes time out; it never asserts that the user's specific account or tier can actually execute that model.*
 4. **Provider default (omitted override)**:
    - When no model is explicitly requested by the user, Nevo **omits the model override flag / argument entirely**, allowing the provider CLI or daemon to select its native default.
    - Nevo does NOT hardcode a named model as the default unless authoritative provider evidence exists.
@@ -35,6 +36,13 @@ To preserve truthfulness and prevent false rejections, model information is cate
 - **Permissive passthrough**: A stale static baseline must **NOT** cause a valid provider model to be rejected merely because Nevo does not recognize the identifier.
 - **No false availability**: A statically known model does **NOT** guarantee that the model is actually accessible to the user's specific account or tier.
 - **Validation rule**: If a user specifies a model identifier not found in the local catalog, the adapter emits a warning in traces but passes the model identifier through to the provider CLI. The provider CLI remains the sole authoritative arbiter of model availability and validity.
+
+### Evidence precedence over advisory catalog metadata
+- Provider/model metadata may be unknown, incomplete, or outdated.
+- **Authoritative runtime evidence always wins over advisory metadata**: if the provider emits a valid normalized reasoning event during turn execution, Nevo accepts and projects it regardless of whether model metadata says true, false, or unknown.
+- Model traits are used strictly for **pre-turn configuration and UI affordances** (such as whether to render a reasoning-effort control in the composer).
+- Absence of a known trait means **UNKNOWN**, not false.
+- Catalog metadata must **NEVER** be used to discard, filter, or suppress evidenced provider output.
 
 ### Owner decision required
 *Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 1.*
@@ -51,7 +59,7 @@ Every model is represented by an immutable `AgentModelDescriptor`:
 
 ```typescript
 export interface AgentModelTraits {
-  supportsReasoning?: boolean;       // Generates extended chain-of-thought
+  supportsReasoning?: boolean;       // Generates extended provider-exposed reasoning
   supportsReasoningEffort?: boolean; // Accepts low/medium/high effort configuration
   supportsVision?: boolean;          // Accepts multimodal image attachments
   maxContextTokens?: number;         // Maximum input context window (if known)
@@ -62,12 +70,13 @@ export interface AgentModelDescriptor {
   label: string;                            // Human-readable display label
   isDefault?: boolean;                      // True if evidenced as provider default
   source: 'discovered' | 'configured' | 'known'; // Origin of catalog entry
-  supportedModes?: AgentExecutionMode[];    // Supported execution modes (defaults to ['ask', 'edit', 'agent'])
-  traits?: AgentModelTraits;                // Model-specific inference traits
+  traits?: AgentModelTraits;                // Advisory model traits for pre-turn UI affordances
 }
 ```
 
-*Note on duplication*: Redundant flags such as `toolCalling` on the model are eliminated; tool execution support is governed at the transport level by provider capability `toolCalls`.
+*Notes on responsibility boundaries*:
+- `supportedModes` is removed from `AgentModelDescriptor`; execution modes belong to provider/integration policy (configured on `ProviderDescriptor.supportedModes`), not model descriptors.
+- Redundant flags such as `toolCalling` on the model are eliminated; tool execution support is governed at the transport level by provider capability `toolCalls`.
 
 ### Owner decision required
 *Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 1 and Decision 4.*

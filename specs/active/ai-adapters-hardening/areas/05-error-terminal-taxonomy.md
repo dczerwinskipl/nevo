@@ -13,7 +13,7 @@ Establish a comprehensive, discriminated, provider-neutral error and failure tax
   `completed`, `failed`, `cancelled`, `interrupted`.
 - `TURN_STATUSES` also includes a distinct non-terminal state: `status: 'unknown'`.
 - In current provider adapters, diverse failures (invalid credentials, rate limits, billing quota, network drops, CLI exit 1, and lost process handles) collapse into generic `AI_PROVIDER_ERROR` or `AI_PROVIDER_EXIT_ERROR` (HTTP 502).
-- Cancellation and server interruption are sometimes conflated with request errors, obscuring normal lifecycle terminations.
+- Cancellation and server restart are sometimes conflated with request errors, obscuring normal lifecycle terminations.
 
 ### Proposed target
 Strictly decouple three orthogonal concepts:
@@ -65,17 +65,23 @@ Strictly decouple three orthogonal concepts:
 ### Current fact
 - When an operation drops (e.g. process disappears without exit event, pipe disconnects), current adapters sometimes settle the turn as `status: 'terminal' (outcome: 'failed')`.
 - The turn status enum in `turn-status.mjs` explicitly defines `status: 'unknown'`.
-- Epistemic reality: if the process handle is lost, the operation may still be running in the background modifying files, or it may have completed without sending a close frame. Calling it `failed` is false.
+- Indirect signals (such as workspace changes or absence of file writes) do **NOT** prove whether a provider operation completed, failed, or remains alive.
+- Epistemic reality: if the process handle is lost, the operation may still be running in the background, or it may have completed without sending a close frame. Calling it `failed` is false.
 
 ### Proposed target
 1. **Preserve Epistemic Truth**:
    - If an operation handle vanishes and execution state cannot be proven, the turn transitions to `status: 'unknown'` with `reason: 'operation_lost'` and diagnostic code `AI_OPERATION_LOST`.
    - Nevo does **NOT** set `terminalOutcome`. Unknown means unknown.
-2. **Reconciliation Boundary**:
-   - The runtime initiates a bounded verification probe:
-     - If the process is confirmed dead with no lingering file activity: seals as `terminal (outcome: 'failed', cause: 'process_disappeared')`.
-     - If workspace changes or output are subsequently recovered: reconciles state.
-     - If the state remains unproven after the timeout window expires: seals as `terminal (outcome: 'interrupted', cause: 'unproven_state')`.
+   - Unsafe concurrent turn execution is strictly **blocked** for that session while state is unresolved, preventing conflicting edits or out-of-order execution.
+2. **Authoritative Reconciliation Evidence**:
+   - Only authoritative evidence can resolve an unproven state:
+     - Provider terminal protocol event (e.g. late completion/failure notification with verified turn correlation).
+     - Confirmed provider process exit (verified by OS process check confirming the specific PID is terminated).
+     - Provider-supported operation/status query (where the protocol natively supports status interrogation).
+     - Another transport-specific authoritative signal.
+3. **Handling Forced Cleanup**:
+   - If no authoritative provider evidence arrives and Nevo intentionally performs forced cleanup/termination to recover session control (e.g. operator cancellation or recovery supervisor terminating the process tree):
+   - Nevo records the lifecycle result as `terminal (outcome: 'interrupted', cause: 'forced_cleanup')` only after process tree termination is proven, without claiming an unknown provider result.
 
 ### Owner decision required
 *Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 7.*
