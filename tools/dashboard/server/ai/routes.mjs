@@ -18,7 +18,7 @@ import sessionRoutes from './sessions/routes.mjs';
 import turnRoutes from './sessions/turns/routes.mjs';
 import interactionRoutes from './sessions/interactions/routes.mjs';
 import aiEventRoutes from './sessions/events/routes.mjs';
-import { mcpRoutes, mcpInteractionRegistry } from './interactions/mcp/index.mjs';
+import { mcpInteractionRegistry } from './interactions/mcp/index.mjs';
 
 import { createTrustedNetworkAiAccessPolicy } from './access-policy.mjs';
 import { aiErrorHandler } from './sessions/http.mjs';
@@ -129,12 +129,26 @@ export default async function aiRoutes(
     if (process.env.NEVO_MCP_ENDPOINT_URL) {
       return process.env.NEVO_MCP_ENDPOINT_URL;
     }
+    // Primary: explicit local MCP URL injected at startup by startLocalMcpServer().
+    // This is always http://127.0.0.1:<ephemeralPort>/mcp — no TLS, no cert needed.
+    if (config.localMcpUrl) {
+      return config.localMcpUrl;
+    }
+    // Fallback: derive from the Fastify server address. Used in plain-HTTP test
+    // environments and for the Claude provider which has its own configureMcpEndpoint.
+    // Correctly uses the actual bound address (not hardcoded 127.0.0.1) so it works
+    // when the server is bound to a specific external IP.
     const addr = fastify.server?.address?.();
     if (!addr || typeof addr !== 'object' || !addr.port) {
       return null;
     }
     const protocol = fastify.initialConfig?.https ? 'https' : 'http';
-    return `${protocol}://127.0.0.1:${addr.port}/mcp`;
+    const bindAddress = addr.address;
+    const host =
+      !bindAddress || bindAddress === '0.0.0.0' || bindAddress === '::'
+        ? '127.0.0.1'
+        : bindAddress;
+    return `${protocol}://${host}:${addr.port}/mcp`;
   };
 
   const service = serviceOverride ?? createDefaultAgentSessionService({ root, mcpEndpointResolver: resolveFastifyMcpUrl });
@@ -169,10 +183,15 @@ export default async function aiRoutes(
   await fastify.register(turnRoutes, deps);
   await fastify.register(interactionRoutes, deps);
   await fastify.register(aiEventRoutes, deps);
-  await fastify.register(mcpRoutes);
+  // mcpRoutes is NOT registered here — MCP is served exclusively on the
+  // local-only server started by startLocalMcpServer() in index.mjs.
 
   // Owned here: this capability constructed (or was given) the AI service
-  // and is the only one that knows how to shut it down.
+  // and is the only one that knows how to shut it down. mcpInteractionRegistry
+  // is a shared singleton regardless of which Fastify instance physically
+  // serves its HTTP routes (now the local-only MCP server) — this remains its
+  // one owner, so pending MCP interactions are still rejected cleanly instead
+  // of hanging when the app closes.
   fastify.addHook('onClose', async () => {
     try {
       mcpInteractionRegistry.shutdown();

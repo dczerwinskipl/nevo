@@ -77,7 +77,7 @@ export function QuestionPrompt({
               {question.question}
             </legend>
             {question.options?.length ? (
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <div className="mt-2 flex flex-col gap-2">
                 {question.options.map((option) => {
                   const current = answers[question.id];
                   const checked = Array.isArray(current) ? current.includes(option.label) : current === option.label;
@@ -112,7 +112,7 @@ export function QuestionPrompt({
                       />
                       <span>
                         <span className="font-semibold">{option.label}</span>
-                        {option.description && (
+                        {option.description && option.description !== option.label && (
                           <span className="mt-1 block text-[10px] leading-4 text-fg-muted">{option.description}</span>
                         )}
                       </span>
@@ -122,7 +122,7 @@ export function QuestionPrompt({
 
                 <label
                   className={cn(
-                    'rounded-lg border p-3 text-xs sm:col-span-2',
+                    'rounded-lg border p-3 text-xs',
                     customAnswers[question.id] ? 'border-accent bg-accent/8' : 'border-border',
                   )}
                 >

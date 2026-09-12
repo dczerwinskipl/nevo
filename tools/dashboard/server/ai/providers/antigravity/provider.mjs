@@ -1076,21 +1076,22 @@ export class AntigravityAgentProvider {
       let child;
       try {
         const resolvedEndpoint = this.#resolveMcpEndpointUrl();
+        // Always provide a MCP endpoint — fall back to the configured default so the
+        // bridge is never left without a target URL (e.g. during test construction
+        // before the local MCP server has been started).
+        const effectiveMcpEndpoint = resolvedEndpoint || this.#mcpEndpoint;
         const spawnEnv = {
           ...process.env,
           AGY_INTERACTIVE: '0',
           FORCE_COLOR: '0',
           ...(mcpToken ? { NEVO_INTERACTION_TOKEN: mcpToken } : {}),
-          ...(resolvedEndpoint ? { NEVO_MCP_ENDPOINT: resolvedEndpoint } : {}),
+          NEVO_MCP_ENDPOINT: effectiveMcpEndpoint,
         };
-        // Scoped CA trust must be decided fresh for this endpoint, never inherited from
-        // whatever the parent Nevo process's own ambient environment happens to carry
-        // (e.g. an unrelated NODE_EXTRA_CA_CERTS already set in the operator's shell) —
-        // clear it first, then set it only when this HTTPS endpoint actually needs it.
-        delete spawnEnv.NODE_EXTRA_CA_CERTS;
-        if (resolvedEndpoint?.startsWith('https:') && this.#tlsCertPath && existsSync(this.#tlsCertPath)) {
-          spawnEnv.NODE_EXTRA_CA_CERTS = this.#tlsCertPath;
-        }
+        // NODE_EXTRA_CA_CERTS is left as-is from process.env: the MCP endpoint is
+        // now always http:// (local-only server, no TLS), so no cert injection is
+        // needed. The ambient value may still be used by AGY itself for other HTTPS
+        // requests it makes independently.
+
         const spawnOptions = getProcessTreeSpawnOptions({
           cwd: this.#cwd,
           stdio: ['pipe', 'pipe', 'pipe'],
@@ -1241,8 +1242,16 @@ export class AntigravityAgentProvider {
               payload.message ||
               payload.error?.message ||
               payload.text ||
-              'Antigravity reported an internal step failure with no further detail (step_type: error_message). This usually indicates a problem with the Antigravity CLI or backend rather than with Nevo.';
-            await failTurn(mapAntigravityError(providerMessage, providerMessage));
+              null;
+            if (providerMessage) {
+              // AGY reported a concrete error — surface it as a turn failure.
+              await failTurn(mapAntigravityError(providerMessage, providerMessage));
+              return;
+            }
+            // No content: AGY emits empty error_message steps as routine diagnostic
+            // noise (e.g. MCP bridge tick that received no reply). Log and continue —
+            // the turn is still live and may produce a real result.
+            console.warn('[antigravity] Received empty error_message step — treating as diagnostic noise, continuing turn.');
             return;
           }
           if (payload.text_delta) {

@@ -141,7 +141,7 @@ export const AgentSessionTranscript = forwardRef<AgentSessionTranscriptHandle, A
             </div>
           )}
 
-          {!isLoading && !loadError && turns.length === 0 && (
+          {!isLoading && !loadError && turns.length === 0 && !optimisticUserMessage && (
             <div className="py-20 text-center text-xs text-fg-muted">
               <p className="font-semibold text-fg-primary">Brak wiadomości w sesji</p>
               <p className="mt-1">Wpisz pierwszą wiadomość, aby rozpocząć konwersację z agentem.</p>

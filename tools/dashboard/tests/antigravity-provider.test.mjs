@@ -220,16 +220,45 @@ test('ask_question from jetski stream is mapped as tool call and does not invoke
   assert.equal(toolsCompleted[0].output, 'A1: User Skipped');
 });
 
-// Regression: a step_update with step_type "error_message" was previously silently
-// dropped (no matching text_delta/thought/tool/usage field), so the turn kept waiting
-// with zero recorded activity until the runtime's 5-minute idle watchdog killed it —
-// even though the CLI had already reported a real failure. It must now fail the turn
-// immediately instead of hanging.
-test('Antigravity step_update with step_type "error_message" fails the turn immediately instead of hanging silently', async () => {
+// Behaviour split for step_update with step_type "error_message":
+//
+// EMPTY (no message/text/error): AGY emits these as routine diagnostic noise
+// (e.g. a MCP bridge tick that received no reply). Evidence: real sessions in
+// antigravity_raw show user_input → error_message(DONE, no content) → then the
+// turn would hang silently under the old code. The correct behaviour is to log
+// a warning and continue; the turn is still live.
+//
+// WITH CONTENT: a genuine provider error — fail the turn immediately with the
+// reported message.
+test('Antigravity empty error_message step is treated as diagnostic noise and turn continues', async () => {
+  // Emit empty error_message then a successful result — the turn must complete.
   const child = createMockProcess([
     JSON.stringify({
       event: 'step_update',
       step_update: { conversation_id: 'agy-conv-err1', step_index: 1, state: 'DONE', step_type: 'error_message' },
+    }),
+    JSON.stringify({ type: 'done', result: 'All good despite the noise.' }),
+  ]);
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => child,
+  });
+
+  const result = await provider.startTurn({ turnId: 'turn-err1', message: 'Continue' });
+  assert.ok(result.turnId, 'turn must resolve successfully when error_message carries no content');
+});
+
+test('Antigravity error_message step WITH a concrete message fails the turn immediately', async () => {
+  const child = createMockProcess([
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        conversation_id: 'agy-conv-err2',
+        step_index: 1,
+        state: 'DONE',
+        step_type: 'error_message',
+        message: 'Provider quota exceeded.',
+      },
     }),
   ]);
 
@@ -238,10 +267,10 @@ test('Antigravity step_update with step_type "error_message" fails the turn imme
   });
 
   await assert.rejects(
-    () => provider.startTurn({ turnId: 'turn-err1', message: 'Continue' }),
+    () => provider.startTurn({ turnId: 'turn-err2', message: 'Continue' }),
     (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
-      assert.match(err.message, /error_message/);
+      assert.equal(err.code, 'AI_QUOTA_EXHAUSTED');
+      assert.match(err.message, /quota/i);
       return true;
     },
   );
@@ -3617,49 +3646,30 @@ test('Antigravity MCP capability truth: failure -> degraded, repair -> truthful 
   );
 });
 
-test('Antigravity TLS security: NODE_TLS_REJECT_UNAUTHORIZED is never set; NODE_EXTRA_CA_CERTS is explicitly resolved for HTTPS on a non-default port', async () => {
+// MCP is now served exclusively on a local plain-HTTP server (127.0.0.1, ephemeral
+// port). The AGY bridge subprocess connects over HTTP — no TLS, no cert injection.
+//
+// Invariants that still hold:
+//  - NODE_TLS_REJECT_UNAUTHORIZED is never written (TLS downgrade is forbidden)
+//  - NEVO_MCP_ENDPOINT is always passed (http:// URL)
+//  - NODE_EXTRA_CA_CERTS is left untouched from the parent process env
+test('Antigravity TLS security: NODE_TLS_REJECT_UNAUTHORIZED is never set; NEVO_MCP_ENDPOINT is always passed as http://', async () => {
   const lines = [JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'ok' } })];
+  let capturedEnv = null;
 
-  // 1. HTTPS endpoint but no resolvable cert file -> no NODE_EXTRA_CA_CERTS, and
-  // NODE_TLS_REJECT_UNAUTHORIZED must never be set (TLS verification is never disabled).
-  let capturedEnv1 = null;
-  const providerNoCert = createAntigravityAgentProvider({
-    mcpEndpointUrl: 'https://127.0.0.1:54321/mcp',
-    tlsCertPath: '/nonexistent/cert.pem',
+  const provider = createAntigravityAgentProvider({
+    mcpEndpointUrl: 'http://127.0.0.1:54321/mcp',
     spawnProcess: (executable, args, options) => {
-      capturedEnv1 = options.env;
+      capturedEnv = options.env;
       return createMockProcess(lines);
     },
   });
-  await providerNoCert.startTurn({ turnId: 'turn-agy-tls-1', message: 'Test HTTPS TLS' });
-  assert.equal(capturedEnv1.NODE_TLS_REJECT_UNAUTHORIZED, undefined);
-  assert.equal(capturedEnv1.NODE_EXTRA_CA_CERTS, undefined);
-  // The dynamically resolved endpoint (including its non-default port) still reaches the
-  // child regardless of the cert outcome.
-  assert.equal(capturedEnv1.NEVO_MCP_ENDPOINT, 'https://127.0.0.1:54321/mcp');
 
-  // 2. HTTPS endpoint with a real, resolvable cert file -> NODE_EXTRA_CA_CERTS is set to
-  // it explicitly (never depending on the parent process's own ambient env var), and the
-  // non-default port is preserved end to end.
-  const dummyCertPath = join(tmpdir(), `test-agy-ca-cert-${randomUUID()}.pem`);
-  await writeFile(dummyCertPath, '---BEGIN CERTIFICATE---\ndummy\n---END CERTIFICATE---', 'utf-8');
-  try {
-    let capturedEnv2 = null;
-    const providerWithCert = createAntigravityAgentProvider({
-      mcpEndpointUrl: 'https://127.0.0.1:54321/mcp',
-      tlsCertPath: dummyCertPath,
-      spawnProcess: (executable, args, options) => {
-        capturedEnv2 = options.env;
-        return createMockProcess(lines);
-      },
-    });
-    await providerWithCert.startTurn({ turnId: 'turn-agy-tls-2', message: 'Test HTTPS TLS with cert' });
-    assert.equal(capturedEnv2.NODE_TLS_REJECT_UNAUTHORIZED, undefined);
-    assert.equal(capturedEnv2.NODE_EXTRA_CA_CERTS, dummyCertPath);
-    assert.equal(capturedEnv2.NEVO_MCP_ENDPOINT, 'https://127.0.0.1:54321/mcp');
-  } finally {
-    await unlink(dummyCertPath).catch(() => {});
-  }
+  await provider.startTurn({ turnId: 'turn-agy-tls-1', message: 'Test' });
+
+  assert.equal(capturedEnv.NODE_TLS_REJECT_UNAUTHORIZED, undefined, 'TLS verification must never be disabled');
+  assert.equal(capturedEnv.NEVO_MCP_ENDPOINT, 'http://127.0.0.1:54321/mcp', 'MCP endpoint must always be passed to child');
+  // NODE_EXTRA_CA_CERTS is not touched — whatever is in process.env is inherited as-is.
 });
 
 test('Task 04 - Criterion 5: Stdio MCP bridge forwards requests to /mcp attaching inherited token and resolves ask_user', async () => {

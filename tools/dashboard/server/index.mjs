@@ -93,12 +93,57 @@ export function startHttpRedirectServer({ httpsUrl, host = '127.0.0.1', redirect
   });
 }
 
+/**
+ * Starts a lightweight plain-HTTP Fastify instance bound exclusively to
+ * 127.0.0.1 on an OS-assigned ephemeral port (port: 0). Registers only the
+ * MCP routes — no TLS, no static assets, no autoload, no external exposure.
+ *
+ * Because this runs in the same Node.js process as the main dashboard, it
+ * shares the same in-process mcpInteractionRegistry and mcpSessionManager
+ * state without any IPC or network round-trips.
+ *
+ * Returns { url: 'http://127.0.0.1:<port>/mcp', server: FastifyInstance }.
+ * The caller is responsible for closing the server when the main app shuts down.
+ */
+export async function startLocalMcpServer({ mcpRoutes } = {}) {
+  const { default: Fastify } = await import('fastify');
+  const mcpRoutesPlugin = mcpRoutes ?? (await import('./ai/interactions/mcp/index.mjs')).mcpRoutes;
+
+  const server = Fastify({ logger: false, bodyLimit: 4096, exposeHeadRoutes: false });
+
+  // Register JSON body parser — MCP uses application/json POST bodies.
+  const { registerGlobalHttpInfrastructure } = await import('./infrastructure/http.mjs');
+  await registerGlobalHttpInfrastructure(server);
+
+  await server.register(mcpRoutesPlugin);
+  await server.listen({ port: 0, host: '127.0.0.1' });
+
+  const addr = server.server.address();
+  const url = `http://127.0.0.1:${addr.port}/mcp`;
+  return { url, server };
+}
+
 const isDirectRun = process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
 
 if (isDirectRun) {
   const { host, port, explicitHttpsPort } = dashboardNetworkConfig();
   const tls = loadTlsConfig();
-  const app = await buildDashboardApp({ config: { tls } });
+
+  // Start the local-only MCP server first so its URL is known before the main
+  // app is built — the AI capability reads it from config.localMcpUrl.
+  const localMcp = await startLocalMcpServer();
+  console.log(`NEvo MCP: ${localMcp.url} (local-only, not externally reachable)`);
+
+  const app = await buildDashboardApp({ config: { tls, localMcpUrl: localMcp.url } });
+
+  // Tie the local MCP server lifetime to the main app.
+  app.addHook('onClose', async () => {
+    try {
+      await localMcp.server.close();
+    } catch (err) {
+      console.error('[server] error closing local MCP server:', err.message);
+    }
+  });
 
   if (tls) {
     const httpsPort = resolveHttpsPort({ port, explicitHttpsPort });

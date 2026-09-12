@@ -666,11 +666,13 @@ export class TurnLifecycleCoordinator {
     });
 
     this.#openToolIds.add(toolId);
-    setTurnStatus(this.#turn, {
-      status: 'active',
-      detail: 'tool_execution',
-      subjectId: toolId,
-    });
+    if (this.#turn.status.status !== 'requiresAttention' && !this.#pendingInteractionId) {
+      setTurnStatus(this.#turn, {
+        status: 'active',
+        detail: 'tool_execution',
+        subjectId: toolId,
+      });
+    }
 
     this.#tracer?.record?.({
       source: 'tool',
