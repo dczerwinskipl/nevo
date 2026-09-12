@@ -1,18 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { spawn } from 'node:child_process';
 import {
   isChildTerminated,
+  isProcessAlive,
   waitForChildExit,
   terminateChildProcess,
+  getProcessTreeSpawnOptions,
 } from '../server/ai/providers/process-termination.mjs';
 
-function createMockChild({ ignoreSigint = false, ignoreSigkill = false, exitDelayMs = 0 } = {}) {
+function createMockChild({ ignoreSigint = false, ignoreSigkill = false, exitDelayMs = 0, pid = null } = {}) {
   const emitter = new EventEmitter();
   emitter.killCalls = [];
   emitter.killed = false;
   emitter.exitCode = null;
   emitter.signalCode = null;
+  emitter.pid = pid;
 
   emitter.kill = (signal) => {
     emitter.killCalls.push(signal);
@@ -120,4 +124,67 @@ test('terminateChildProcess: bounded execution does not hang forever if child ig
   assert.equal(result.terminated, false);
   assert.equal(result.signal, 'SIGKILL');
   assert.deepEqual(child.killCalls, ['SIGINT', 'SIGKILL']);
+});
+
+test('getProcessTreeSpawnOptions sets detached on POSIX and false on Windows', () => {
+  const options = getProcessTreeSpawnOptions({ env: { FOO: 'bar' } });
+  assert.equal(options.detached, process.platform !== 'win32');
+  assert.equal(options.env.FOO, 'bar');
+});
+
+test('isProcessAlive tests real process liveness via process.kill(pid, 0)', () => {
+  assert.equal(isProcessAlive(process.pid), true);
+  assert.equal(isProcessAlive(99999999), false);
+  assert.equal(isProcessAlive(null), false);
+  assert.equal(isProcessAlive(-1), false);
+  assert.equal(isProcessAlive(0), false);
+});
+
+test('real process-tree integration: terminates parent and descendant processes', async () => {
+  const parentCode = `
+    const { spawn } = require('node:child_process');
+    const desc = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      stdio: 'ignore',
+      detached: process.platform !== 'win32',
+    });
+    console.log(JSON.stringify({ parentPid: process.pid, descendantPid: desc.pid }));
+    setInterval(() => {}, 1000);
+  `;
+
+  const spawnOptions = getProcessTreeSpawnOptions({ stdio: ['pipe', 'pipe', 'pipe'] });
+  const parent = spawn(process.execPath, ['-e', parentCode], spawnOptions);
+
+  const pids = await new Promise((resolve, reject) => {
+    parent.stdout.once('data', (chunk) => {
+      try {
+        const parsed = JSON.parse(chunk.toString().trim());
+        resolve(parsed);
+      } catch (err) {
+        reject(err);
+      }
+    });
+    parent.once('error', reject);
+  });
+
+  const { parentPid, descendantPid } = pids;
+  assert.ok(parentPid > 0);
+  assert.ok(descendantPid > 0);
+
+  // Both processes are alive initially
+  assert.equal(isProcessAlive(parentPid), true);
+  assert.equal(isProcessAlive(descendantPid), true);
+
+  // Terminate the process tree via terminateChildProcess
+  const result = await terminateChildProcess(parent, { graceMs: 100, forceGraceMs: 2000 });
+  assert.equal(result.terminated, true);
+
+  // Wait briefly for OS to clean up
+  for (let i = 0; i < 20; i++) {
+    if (!isProcessAlive(parentPid) && !isProcessAlive(descendantPid)) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  // Confirm both parent and descendant PIDs are dead via OS check
+  assert.equal(isProcessAlive(parentPid), false);
+  assert.equal(isProcessAlive(descendantPid), false);
 });

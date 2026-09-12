@@ -1,5 +1,5 @@
 import { spawn, execSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import { mkdir, appendFile, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, dirname, resolve } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
@@ -9,8 +9,9 @@ import {
   CapabilityNotSupportedError,
   validateAgentExecutionMode,
 } from '../../contracts.mjs';
-import { terminateChildProcess } from '../process-termination.mjs';
+import { terminateChildProcess, getProcessTreeSpawnOptions } from '../process-termination.mjs';
 import { DEFAULT_ANTIGRAVITY_PRINT_TIMEOUT_SECONDS } from '../config.mjs';
+import { mcpInteractionRegistry, ensureAntigravityMcpRegistered } from '../../interactions/mcp/index.mjs';
 
 const WINDOWS_RESERVED_NAMES = new Set([
   'con',
@@ -96,12 +97,14 @@ export function rawCaptureSessionDirectory(providerSessionId, rawCaptureDir = nu
 
 export const ANTIGRAVITY_CAPABILITIES = Object.freeze({
   interactivePermissions: false,
-  interactiveQuestions: false,
+  interactiveQuestions: true,
   interactiveConfirmations: false,
   resumeSession: true,
   cancelTurn: true,
   toolCalls: true,
   reasoning: true,
+  reasoningEvents: true,
+  canOverrideTurnModel: true,
   usage: true,
 });
 
@@ -113,6 +116,89 @@ export const ANTIGRAVITY_DESCRIPTOR = Object.freeze({
   supportedModes: ['ask', 'edit', 'agent'],
   defaultMode: 'edit',
 });
+
+export function parseAgyModelsOutput(stdout) {
+  if (typeof stdout !== 'string') return [];
+  const lines = stdout.split(/\r?\n/);
+  const models = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('Fetching')) continue;
+    const parts = trimmed.includes('\t') ? trimmed.split('\t') : trimmed.split(/\s{2,}/);
+    if (parts.length >= 1) {
+      const id = parts[0].trim();
+      const label = parts[1] ? parts[1].trim() : id;
+      if (id && !id.includes(' ')) {
+        models.push({
+          id,
+          label,
+          source: 'discovered',
+        });
+      }
+    }
+  }
+  return models;
+}
+
+export function mapAntigravityError(rawError, fallbackMessage = 'Antigravity turn failed.', exitCode = null) {
+  const message =
+    typeof rawError === 'string'
+      ? rawError
+      : rawError?.message
+        ? String(rawError.message)
+        : fallbackMessage;
+
+  const details = {
+    ...(exitCode !== null ? { exitCode } : {}),
+    ...(rawError && typeof rawError === 'object' && rawError.code ? { providerCode: rawError.code } : {}),
+  };
+
+  if (/timeout|timed out|deadline exceeded|ETIMEDOUT/i.test(message) || exitCode === 124) {
+    return new AiError('AI_PROVIDER_TIMEOUT', message, {
+      status: 504,
+      recoveryHint: 'none',
+      details,
+    });
+  }
+
+  if (/unauthorized|auth|credentials|login|api key|authentication failed/i.test(message)) {
+    return new AiError('AI_AUTH_FAILED', message, {
+      status: 401,
+      recoveryHint: 'operator-action',
+      details,
+    });
+  }
+
+  if (/forbidden|sandbox|permission denied|policy denied/i.test(message)) {
+    return new AiError('AI_POLICY_DENIED', message, {
+      status: 403,
+      recoveryHint: 'operator-action',
+      details,
+    });
+  }
+
+  if (/quota|billing|credit|monthly limit|plan limit/i.test(message)) {
+    return new AiError('AI_QUOTA_EXHAUSTED', message, {
+      status: 429,
+      recoveryHint: 'alternate-provider',
+      details,
+    });
+  }
+
+  if (/rate limit|too many requests|tpm|rpm/i.test(message)) {
+    return new AiError('AI_RATE_LIMITED', message, {
+      status: 429,
+      recoveryHint: 'retry-after-delay',
+      details,
+    });
+  }
+
+  return new AiError('AI_PROVIDER_EXECUTION_ERROR', message, {
+    status: 502,
+    recoveryHint: 'new-turn',
+    details,
+  });
+}
 
 const UNKNOWN_TOOL_RESULT_OUTPUT = 'Antigravity did not report a terminal result for this tool.';
 const COMPLETED_TOOL_WITHOUT_OUTPUT = 'Antigravity completed the tool without returning output.';
@@ -381,6 +467,7 @@ export class AntigravityAgentProvider {
   #sessionAliases = new Map();
   #mappingFilePath;
   #availabilityCache = { checkedAt: 0, result: null };
+  #modelsCache = { checkedAt: 0, result: null };
   #cancelGraceMs;
   #forceGraceMs;
   #printTimeoutSeconds;
@@ -391,6 +478,10 @@ export class AntigravityAgentProvider {
   #loggedCaptureSessions = new Set();
   #sessionWriteQueues = new Map();
   #sessionDirMap = new Map();
+  #mcpEndpoint;
+  #ensureMcpRegistered;
+  #mcpRegisterExec;
+  #modelsExecSync;
 
   constructor({
     executable = 'agy',
@@ -405,12 +496,20 @@ export class AntigravityAgentProvider {
     rawCaptureDir = null,
     rawCaptureEnabled = false,
     rawFlushTimeoutMs = 2_000,
+    mcpEndpoint = 'http://127.0.0.1:4318/mcp',
+    ensureMcpRegistered = true,
+    mcpRegisterExec,
+    modelsExecSync,
   } = {}) {
     this.#executable = resolveAgyExecutable(executable);
     this.#cwd = cwd;
     this.#spawnProcess = spawnProcess;
     this.#cancelGraceMs = cancelGraceMs;
     this.#forceGraceMs = forceGraceMs;
+    this.#mcpEndpoint = mcpEndpoint;
+    this.#ensureMcpRegistered = Boolean(ensureMcpRegistered);
+    this.#mcpRegisterExec = mcpRegisterExec || execSync;
+    this.#modelsExecSync = modelsExecSync || execSync;
     if (!Number.isSafeInteger(printTimeoutSeconds) || printTimeoutSeconds <= 0) {
       throw new AiValidationError('Antigravity printTimeoutSeconds must be a positive integer number of seconds.');
     }
@@ -429,6 +528,14 @@ export class AntigravityAgentProvider {
       this.#materializedSessions = new Set(materializedSessions);
     }
     this.#loadSessionAliases();
+    if (this.#ensureMcpRegistered && (spawnProcess === spawn || mcpRegisterExec)) {
+      try {
+        ensureAntigravityMcpRegistered({
+          executable: this.#executable,
+          exec: this.#mcpRegisterExec,
+        });
+      } catch {}
+    }
     this.descriptor = ANTIGRAVITY_DESCRIPTOR;
   }
 
@@ -621,8 +728,33 @@ export class AntigravityAgentProvider {
       const dir = dirname(this.#mappingFilePath);
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
       const obj = Object.fromEntries(this.#sessionAliases.entries());
-      writeFileSync(this.#mappingFilePath, JSON.stringify(obj, null, 2), 'utf8');
+      const tempPath = join(dir, `.antigravity-sessions-${randomUUID()}.tmp`);
+      writeFileSync(tempPath, JSON.stringify(obj, null, 2), 'utf8');
+      renameSync(tempPath, this.#mappingFilePath);
     } catch {}
+  }
+
+  async listModels({ ttlMs = 300_000 } = {}) {
+    const now = Date.now();
+    if (this.#modelsCache.result && now - this.#modelsCache.checkedAt < ttlMs) {
+      return this.#modelsCache.result;
+    }
+    let stdout = '';
+    try {
+      stdout = this.#modelsExecSync(`${this.#executable} models`, {
+        encoding: 'utf8',
+        timeout: 5_000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+    } catch (err) {
+      if (this.#modelsCache.result) return this.#modelsCache.result;
+      throw new AiError('AI_PROVIDER_ERROR', `Failed to discover Antigravity models: ${err.message}`, {
+        cause: err,
+      });
+    }
+    const models = parseAgyModelsOutput(stdout);
+    this.#modelsCache = { checkedAt: now, result: models };
+    return models;
   }
 
   isAvailable({ ttlMs = 30_000 } = {}) {
@@ -646,6 +778,11 @@ export class AntigravityAgentProvider {
     return result;
   }
 
+  async createSession({ mode = 'edit', model } = {}) {
+    validateAgentExecutionMode(mode, this.descriptor.supportedModes, 'antigravity');
+    return { providerSessionId: randomUUID() };
+  }
+
   async startTurn({
     turnId,
     providerSessionId,
@@ -654,24 +791,34 @@ export class AntigravityAgentProvider {
     message,
     prompt,
     mode: rawMode,
+    model,
+    effort,
+    reasoningEffort,
+    signal,
+    setOperation,
     emitCommentaryDelta,
     emitReasoningDelta,
     emitFinalAnswerDelta,
+    setFinalAnswer,
     emitToolStarted,
     emitToolUpdated,
     emitToolCompleted,
     addToolAction,
     emitUsageUpdated,
     requestInteraction,
-    signal,
-    setOperation,
+    emitEvent,
   } = {}) {
-    const inputMessage = message ?? prompt;
-    if (!inputMessage || typeof inputMessage !== 'string') {
-      throw new AiValidationError('A valid message/prompt is required.');
+    if (this.#ensureMcpRegistered && (this.#spawnProcess === spawn || this.#mcpRegisterExec !== execSync)) {
+      try {
+        ensureAntigravityMcpRegistered({
+          executable: this.#executable,
+          exec: this.#mcpRegisterExec,
+        });
+      } catch {}
     }
-    const mode = rawMode ? validateAgentExecutionMode(rawMode) : 'edit';
 
+    const mode = validateAgentExecutionMode(rawMode || 'edit', this.descriptor.supportedModes, 'antigravity');
+    const inputMessage = message || prompt || '';
     const effectiveSessionId = providerSessionId || randomUUID();
     let isSessionEstablished = false;
     let pendingAssistantText = '';
@@ -701,6 +848,14 @@ export class AntigravityAgentProvider {
       let isResolved = false;
       let pendingInteractionPromise = null;
 
+      const mcpToken = randomUUID();
+      mcpInteractionRegistry.registerActiveTurn(turnId, {
+        token: mcpToken,
+        provider: 'antigravity',
+        providerSessionId: effectiveSessionId,
+        requestInteraction,
+      });
+
       const args = [
         '--add-dir',
         this.#cwd,
@@ -725,6 +880,14 @@ export class AntigravityAgentProvider {
 
       if (targetConversationId) {
         args.push('--conversation', targetConversationId);
+      }
+
+      if (model) {
+        args.push('--model', model);
+      }
+      const turnEffort = effort ?? reasoningEffort;
+      if (turnEffort) {
+        args.push('--effort', turnEffort);
       }
 
       args.push('--print', inputMessage);
@@ -827,7 +990,7 @@ export class AntigravityAgentProvider {
 
       let child;
       try {
-        child = this.#spawnProcess(this.#executable, args, {
+        const spawnOptions = getProcessTreeSpawnOptions({
           cwd: this.#cwd,
           stdio: ['pipe', 'pipe', 'pipe'],
           shell: false,
@@ -835,10 +998,14 @@ export class AntigravityAgentProvider {
             ...process.env,
             AGY_INTERACTIVE: '0',
             FORCE_COLOR: '0',
+            NEVO_INTERACTION_TOKEN: mcpToken,
+            NEVO_MCP_ENDPOINT: this.#mcpEndpoint,
           },
         });
+        child = this.#spawnProcess(this.#executable, args, spawnOptions);
         operation.child = child;
       } catch (err) {
+        mcpInteractionRegistry.unregisterActiveTurn(turnId, err);
         this.#activeOperations.delete(turnId);
         const msg =
           err.code === 'ENOENT'
@@ -873,6 +1040,8 @@ export class AntigravityAgentProvider {
         operation.isResolved = true;
         operation.isDone = true;
 
+        mcpInteractionRegistry.unregisterActiveTurn(turnId, error);
+
         if (outcome === 'failed') {
           flushPendingAsCommentary();
         }
@@ -889,9 +1058,6 @@ export class AntigravityAgentProvider {
             status: 'completed',
           });
         }
-
-        // The operation stays owned until process close. The timer above already applies
-        // the existing bounded termination policy if Antigravity does not exit.
       };
 
       const finishTurn = () => settleAuthoritativeTerminal({ outcome: 'completed' });
@@ -904,6 +1070,7 @@ export class AntigravityAgentProvider {
         isDone = true;
         operation.isResolved = true;
         operation.isDone = true;
+        mcpInteractionRegistry.unregisterActiveTurn(turnId, err);
         if (operation.postResultTimer) {
           clearTimeout(operation.postResultTimer);
           operation.postResultTimer = null;
@@ -1481,7 +1648,11 @@ export class AntigravityAgentProvider {
             );
           }
           return failTurn(
-            new AiError('AI_PROVIDER_EXIT_ERROR', `Antigravity process exited with non-zero code ${exitCode}${detail}`),
+            mapAntigravityError(
+              stderrBuffer.trim() || `Antigravity process exited with non-zero code ${exitCode}${detail}`,
+              `Antigravity process exited with non-zero code ${exitCode}${detail}`,
+              exitCode,
+            ),
           );
         }
 
@@ -1539,11 +1710,13 @@ export class AntigravityAgentProvider {
           }
         } finally {
           if (turnId) {
+            mcpInteractionRegistry.cancelTurn(turnId);
             this.#activeOperations.delete(turnId);
           }
         }
       } else {
         if (turnId) {
+          mcpInteractionRegistry.cancelTurn(turnId);
           this.#activeOperations.delete(turnId);
         }
       }
@@ -1556,6 +1729,9 @@ export class AntigravityAgentProvider {
     await Promise.allSettled(
       operations.map(async (operation) => {
         operation.cancelled = true;
+        if (operation.turnId) {
+          mcpInteractionRegistry.cancelTurn(operation.turnId);
+        }
         if (operation.postResultTimer) {
           clearTimeout(operation.postResultTimer);
           operation.postResultTimer = null;
@@ -1573,14 +1749,27 @@ export class AntigravityAgentProvider {
   }
 
   async respondInteraction(firstArg, interactionIdArg, responseArg) {
-    let response = responseArg;
-    if (firstArg && typeof firstArg === 'object' && 'response' in firstArg) {
+    let interactionId;
+    let response;
+
+    if (firstArg && typeof firstArg === 'object' && ('interactionId' in firstArg || 'response' in firstArg)) {
+      interactionId = firstArg.interactionId;
       response = firstArg.response;
+    } else {
+      interactionId = interactionIdArg;
+      response = responseArg;
     }
+
     if (response?.kind === 'permission' || (!response?.answers && response?.decision)) {
       throw new CapabilityNotSupportedError('antigravity', 'interactivePermissions');
     }
-    throw new CapabilityNotSupportedError('antigravity', 'interactiveQuestions');
+
+    if (interactionId && mcpInteractionRegistry.hasPending(interactionId)) {
+      mcpInteractionRegistry.resolveResponse(interactionId, response);
+      return { continuesTurn: true };
+    }
+
+    throw new AiError('AI_INTERACTION_NOT_FOUND', `No pending interaction for '${interactionId}'.`);
   }
 }
 

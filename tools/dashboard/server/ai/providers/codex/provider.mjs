@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { AiError, AiValidationError, validateAgentExecutionMode } from '../../contracts.mjs';
-import { createCodexAppServerClient, resolveCodexCommand } from './app-server-client.mjs';
+import { createCodexAppServerClient, resolveCodexCommand, mapCodexError } from './app-server-client.mjs';
 import { RawCaptureRecorder, rawCaptureSessionDirectory } from '../raw-capture.mjs';
 
 export { rawCaptureSessionDirectory };
@@ -14,6 +14,8 @@ export const CODEX_CAPABILITIES = Object.freeze({
   cancelTurn: true,
   toolCalls: true,
   reasoning: true,
+  reasoningEvents: true,
+  canOverrideTurnModel: true,
   usage: true,
   steerTurn: false,
   planUpdates: false,
@@ -351,9 +353,14 @@ export class CodexAgentProvider {
     return result;
   }
 
-  async createSession({ mode = 'edit' } = {}) {
+  async listModels() {
     this.#assertUsable();
-    return { providerSessionId: await this.#startThread(mode) };
+    return this.#client.listModels();
+  }
+
+  async createSession({ mode = 'edit', model } = {}) {
+    this.#assertUsable();
+    return { providerSessionId: await this.#startThread(mode, { model }) };
   }
 
   async startTurn({
@@ -363,6 +370,9 @@ export class CodexAgentProvider {
     message,
     prompt,
     mode = 'edit',
+    model,
+    effort,
+    reasoningEffort,
     setOperation,
     emitCommentaryDelta,
     emitReasoningDelta,
@@ -384,7 +394,7 @@ export class CodexAgentProvider {
     const validatedMode = validateAgentExecutionMode(mode);
     let threadId = providerSessionId;
     if (!threadId) {
-      threadId = await this.#startThread(validatedMode);
+      threadId = await this.#startThread(validatedMode, { model });
       if (setProviderSessionId) await setProviderSessionId(threadId);
     } else {
       await this.#ensureThreadLoaded(threadId, validatedMode);
@@ -421,11 +431,14 @@ export class CodexAgentProvider {
 
     try {
       const settings = modeSettings(validatedMode, this.#cwd).turn;
+      const turnEffort = effort ?? reasoningEffort;
       const result = requireObject(
         await this.#client.request('turn/start', {
           threadId,
           input: [{ type: 'text', text: input }],
           ...settings,
+          ...(model ? { model } : {}),
+          ...(turnEffort ? { effort: turnEffort } : {}),
         }),
         'turn/start response',
       );
@@ -525,12 +538,13 @@ export class CodexAgentProvider {
     if (this.#disposed) throw new AiError('AI_PROVIDER_DISPOSED', 'Codex provider was disposed.', { status: 503 });
   }
 
-  async #startThread(mode) {
+  async #startThread(mode, { model } = {}) {
     const settings = modeSettings(mode, this.#cwd).thread;
     const result = requireObject(
       await this.#client.request('thread/start', {
         cwd: this.#cwd,
         ...settings,
+        ...(model ? { model } : {}),
       }),
       'thread/start response',
     );
@@ -812,21 +826,17 @@ export class CodexAgentProvider {
       return;
     }
     if (status === 'failed') {
+      const rawError = turn.error || operation.providerError;
       this.#rejectOperation(
         operation,
-        new AiError(
-          'AI_PROVIDER_ERROR',
-          turn.error?.message || operation.providerError?.message || 'Codex turn failed.',
-          { status: 502 },
-        ),
+        rawError
+          ? mapCodexError(rawError, 'turn/start')
+          : new AiError('AI_PROVIDER_ERROR', 'Codex turn failed.', { status: 502 }),
       );
       return;
     }
     if (operation.providerError) {
-      this.#rejectOperation(
-        operation,
-        new AiError('AI_PROVIDER_ERROR', 'Codex reported a terminal provider error.', { status: 502 }),
-      );
+      this.#rejectOperation(operation, mapCodexError(operation.providerError, 'turn/start'));
       return;
     }
 

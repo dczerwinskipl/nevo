@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { PassThrough, Writable } from 'node:stream';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { createCodexAppServerClient } from '../server/ai/providers/codex/app-server-client.mjs';
+import { createCodexAppServerClient, mapCodexError } from '../server/ai/providers/codex/app-server-client.mjs';
 
 const FIXTURE_ROOT = join(fileURLToPath(new URL('.', import.meta.url)), 'fixtures', 'codex-app-server');
 
@@ -195,7 +195,7 @@ test('maps provider request errors without failing later requests', async () => 
   const client = clientWithProcess(child);
 
   await assert.rejects(client.request('thread/start', {}), (error) => {
-    assert.equal(error.code, 'AI_PROVIDER_REQUEST_ERROR');
+    assert.equal(error.code, 'AI_PROVIDER_EXECUTION_ERROR');
     assert.equal(error.details.providerCode, -32000);
     return true;
   });
@@ -663,4 +663,142 @@ test('CodexAppServerClient raw capture: captures stdout and stderr emitted durin
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
+});
+
+test('listModels queries model/list over JSON-RPC and maps to normalized AgentModelDescriptor[] with source discovered', async () => {
+  const child = createFakeProcess({
+    onEnvelope(envelope, process) {
+      respondToInitialize(envelope, process);
+      if (envelope.method === 'model/list') {
+        process.send({
+          id: envelope.id,
+          result: {
+            models: [
+              {
+                id: 'o3-mini',
+                displayName: 'OpenAI o3-mini',
+                isDefault: true,
+                supportedReasoningEfforts: ['low', 'medium', 'high'],
+                defaultReasoningEffort: 'medium',
+                inputModalities: ['text'],
+                maxContextTokens: 200_000,
+              },
+              {
+                id: 'gpt-4o',
+                displayName: 'GPT-4o',
+                isDefault: false,
+                inputModalities: ['text', 'image'],
+              },
+            ],
+          },
+        });
+      }
+    },
+  });
+  const client = clientWithProcess(child);
+  const models = await client.listModels();
+
+  assert.equal(models.length, 2);
+  assert.deepEqual(models[0], {
+    id: 'o3-mini',
+    label: 'OpenAI o3-mini',
+    source: 'discovered',
+    isDefault: true,
+    traits: {
+      supportedReasoningEfforts: ['low', 'medium', 'high'],
+      supportsReasoning: true,
+      defaultReasoningEffort: 'medium',
+      inputModalities: ['text'],
+      maxContextTokens: 200_000,
+    },
+  });
+  assert.deepEqual(models[1], {
+    id: 'gpt-4o',
+    label: 'GPT-4o',
+    source: 'discovered',
+    isDefault: false,
+    traits: {
+      inputModalities: ['text', 'image'],
+      supportsVision: true,
+    },
+  });
+});
+
+test('unlisted model identifiers pass through permissively to app-server requests without local rejection', async () => {
+  let capturedModel = null;
+  const child = createFakeProcess({
+    onEnvelope(envelope, process) {
+      respondToInitialize(envelope, process);
+      if (envelope.method === 'turn/start') {
+        capturedModel = envelope.params?.model;
+        process.send({ id: envelope.id, result: { turn: { id: 'turn-custom', status: 'inProgress' } } });
+      }
+    },
+  });
+  const client = clientWithProcess(child);
+  const customModel = 'custom-private-ft:gpt-4o:v2';
+  const result = await client.request('turn/start', { threadId: 'thread-1', model: customModel });
+
+  assert.equal(capturedModel, customModel);
+  assert.equal(result.turn.id, 'turn-custom');
+});
+
+test('maps error envelopes to discriminated AiError taxonomy codes and structured recovery hints', async () => {
+  const authErr = mapCodexError({ code: 401, message: 'Invalid API key provided' });
+  assert.equal(authErr.code, 'AI_AUTH_FAILED');
+  assert.equal(authErr.recoveryHint, 'operator-action');
+  assert.equal(authErr.status, 401);
+
+  const policyErr = mapCodexError({ code: 'POLICY_DENIED', message: 'Sandbox policy denied write access' });
+  assert.equal(policyErr.code, 'AI_POLICY_DENIED');
+  assert.equal(policyErr.recoveryHint, 'operator-action');
+  assert.equal(policyErr.status, 403);
+
+  const quotaErr = mapCodexError({ message: 'Insufficient quota for this operation' });
+  assert.equal(quotaErr.code, 'AI_QUOTA_EXHAUSTED');
+  assert.equal(quotaErr.recoveryHint, 'alternate-provider');
+  assert.equal(quotaErr.status, 429);
+
+  const rateErr = mapCodexError({ code: 429, message: 'Rate limit exceeded: TPM reached' });
+  assert.equal(rateErr.code, 'AI_RATE_LIMITED');
+  assert.equal(rateErr.recoveryHint, 'retry-after-delay');
+  assert.equal(rateErr.status, 429);
+
+  const protoErr = mapCodexError({ code: -32601, message: 'Method not found' });
+  assert.equal(protoErr.code, 'AI_PROTOCOL_ERROR');
+  assert.equal(protoErr.recoveryHint, 'new-session');
+
+  const unhandledErr = mapCodexError({ code: -32000, message: 'Something completely unexpected' });
+  assert.equal(unhandledErr.code, 'AI_PROVIDER_EXECUTION_ERROR');
+  assert.equal(unhandledErr.recoveryHint, 'new-turn');
+
+  const child = createFakeProcess({
+    onEnvelope(envelope, process) {
+      respondToInitialize(envelope, process);
+      if (envelope.method === 'thread/start') {
+        process.send({ id: envelope.id, error: { code: 'AUTH_FAILED', message: 'Codex login expired' } });
+      }
+    },
+  });
+  const client = clientWithProcess(child);
+  await assert.rejects(client.request('thread/start', {}), (error) => {
+    assert.equal(error.code, 'AI_AUTH_FAILED');
+    assert.equal(error.recoveryHint, 'operator-action');
+    assert.equal(error.status, 401);
+    return true;
+  });
+});
+
+test('Codex app-server daemon process spawns with process-group isolation and terminates cleanly on disposal', async () => {
+  const capture = {};
+  const child = createFakeProcess({ onEnvelope: respondToInitialize });
+  const client = clientWithProcess(child, capture);
+  await client.initialize();
+
+  assert.equal(capture.options.detached, process.platform !== 'win32');
+  assert.equal(capture.options.shell, false);
+  assert.deepEqual(capture.options.stdio, ['pipe', 'pipe', 'pipe']);
+
+  await client.dispose();
+  assert.ok(child.killCalls.length > 0 || child.exitCode !== null);
 });

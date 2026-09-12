@@ -23,6 +23,8 @@ import {
   reconcileOrphanedTurns,
   reconstructTurnState,
 } from './turn-recovery.mjs';
+import { terminateChildProcess } from '../../providers/process-termination.mjs';
+
 
 function publicFailure(error) {
   const normalized = publicAiError(error);
@@ -103,6 +105,7 @@ export class AgentTurnRuntime {
     const s = canonicalStatus.status;
     if (s === 'requiresAttention') return 'waitingForUser';
     if (s === 'active' || s === 'waiting' || s === 'cancelling') return 'running';
+    if (s === 'unknown') return 'unknown';
     if (s === 'terminal') return canonicalStatus.outcome === 'completed' ? 'completed' : 'failed';
     return 'failed';
   }
@@ -153,12 +156,16 @@ export class AgentTurnRuntime {
         const existingId = this.#activeBySession.get(key);
         if (existingId) {
           const existing = this.#turns.get(existingId);
+          if (existing?.coordinator?.status?.status === 'unknown') {
+            throw new AiTurnConflictError(existingId);
+          }
           if (idempotencyKey && existing?.idempotencyKey === idempotencyKey) {
             return { turnId: existingId, idempotent: true };
           }
           throw new AiTurnConflictError(existingId);
         }
       }
+
 
       if (typeof inputMessage !== 'string' || inputMessage.trim().length === 0 || inputMessage.length > 100_000) {
         throw new AiError('AI_VALIDATION_ERROR', 'A non-empty message is required.', { status: 400 });
@@ -410,7 +417,15 @@ export class AgentTurnRuntime {
       if (turnResult && typeof turnResult[Symbol.asyncIterator] === 'function') {
         for await (const event of turnResult) {
           if (this.#isTerminal(state)) break;
-          this.#emit(state, event.type, event);
+          if (event.type === 'commentary.delta' || event.type === 'progress.delta') {
+            this.#emitCommentaryDelta(state, event.text ?? event.delta, event.commentaryId ?? event.progressId);
+          } else if (event.type === 'final_answer.delta' || event.type === 'text.delta') {
+            this.#emitFinalAnswerDelta(state, event.text ?? event.delta, event.finalAnswerId ?? event.messageId);
+          } else if (event.type === 'reasoning.delta') {
+            this.#emitReasoningDelta(state, event.text, event.reasoningId ?? event.messageId);
+          } else {
+            this.#emit(state, event.type, event);
+          }
         }
       } else {
         result = await turnResult;
@@ -439,9 +454,38 @@ export class AgentTurnRuntime {
           rejectEstablished(error);
         } catch {}
       }
-      if (!this.#isTerminal(state)) this.#finish(state, 'turn.failed', error);
+      if (!this.#isTerminal(state)) {
+        if (error?.code === 'AI_OPERATION_LOST' || error?.cause === 'operation_lost') {
+          this.#markOperationLost(state, error);
+        } else {
+          this.#finish(state, 'turn.failed', error);
+        }
+      }
     }
   }
+
+  #markOperationLost(state, error = null) {
+    if (this.#isTerminal(state)) return;
+    const reason = error?.reason || 'operation_lost';
+    const code = error?.code || 'AI_OPERATION_LOST';
+    state.coordinator.markOperationLost({ reason, code, error });
+    this.#notifyProviderState(state);
+    this.#emit(state, 'turn.updated', {
+      turn: state.coordinator.getCanonicalSnapshot(),
+      readiness: { ready: false, reason: 'Turn operation handle lost' },
+    });
+  }
+
+  markTurnOperationLost(turnId, options = {}) {
+    const state = this.#get(turnId);
+    this.#markOperationLost(
+      state,
+      options.error ||
+        new AiError(options.code || 'AI_OPERATION_LOST', options.message || 'Operation handle lost.', { status: 500 }),
+    );
+    return this.getSnapshot(turnId);
+  }
+
 
   async #runContinuation(state, interactionId, interaction, response) {
     try {
@@ -482,7 +526,7 @@ export class AgentTurnRuntime {
       throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid commentary delta.', { status: 502 });
     }
     state.coordinator.recordCommentaryDelta(text, commentaryId);
-    this.#emit(state, 'text.delta', { messageId: commentaryId, text, delta: text });
+    this.#emit(state, 'progress.delta', { progressId: commentaryId, text, delta: text });
   }
 
   #emitFinalAnswerDelta(state, text, finalAnswerId = 'final-answer', confidence = undefined) {
@@ -745,6 +789,79 @@ export class AgentTurnRuntime {
     return this.getSnapshot(turnId);
   }
 
+  async recoverTurn(turnId, options = {}) {
+    const { provider, providerSessionId } = options;
+    let state = this.#turns.get(turnId);
+    if (!state) {
+      state = await this.#restorePersistedTurn({
+        provider,
+        providerSessionId,
+        turnId,
+        checkStaleLiveOp: false,
+      });
+    }
+    if (!state) {
+      state = this.#get(turnId);
+    }
+    if (provider && providerSessionId) {
+      if (state.provider !== provider || (state.providerSessionId || state.sessionId) !== providerSessionId) {
+        throw new AiNotFoundError(`Turn '${turnId}' does not belong to session '${providerSessionId}'.`, {
+          turnId,
+          provider,
+          providerSessionId,
+        });
+      }
+    }
+    if (this.#isTerminal(state)) return this.getSnapshot(turnId);
+
+    const currentStatus = state.coordinator.status.status;
+    if (currentStatus !== 'unknown') {
+      throw new AiError(
+        'AI_INVALID_STATE',
+        `Turn '${turnId}' is in status '${currentStatus}', not 'unknown'. Forced recovery is only valid for unknown turns.`,
+        { status: 409 },
+      );
+    }
+
+    const operation = state.privateOperation;
+    const child =
+      operation?.child ||
+      operation?.childProcess ||
+      (typeof operation?.pid === 'number' ? { pid: operation.pid } : null);
+    if (child?.pid) {
+      try {
+        await terminateChildProcess(child, { forceGraceMs: 1000 });
+      } catch (err) {
+        console.warn(`[ai] [turn:recover] Warning during process termination for turn ${turnId}: ${err?.message || err}`);
+      }
+    } else if (state.agentProvider?.cancelTurn && operation) {
+      try {
+        await state.agentProvider.cancelTurn({
+          turnId: state.turnId,
+          providerSessionId: state.providerSessionId,
+          identity: state.identity,
+          operation,
+        });
+      } catch {}
+    }
+
+    state.abortController.abort();
+    await this.#finish(
+      state,
+      'turn.failed',
+      new AiError('AI_OPERATION_LOST', 'The turn was recovered via forced cleanup.', { status: 409 }),
+      {
+        outcome: 'interrupted',
+        cause: 'forced_cleanup',
+        initiator: 'runtime',
+      },
+    );
+
+    this.#activeBySession.delete(state.key);
+    return this.getSnapshot(turnId);
+  }
+
+
   /**
    * Explicit-cancel termination path — mirrors the pre-watchdog `cancelTurn` behavior
    * exactly: the provider must declare `cancelTurn` capability (throws
@@ -847,7 +964,14 @@ export class AgentTurnRuntime {
         ? structuredClone(state.coordinator.pendingInteraction)
         : null,
       events: this.#eventStream.getTurnEvents(state.turnId, 0),
+      ...(state.coordinator?.status?.status === 'unknown'
+        ? {
+            code: state.coordinator?.operationLostCode || 'AI_OPERATION_LOST',
+            reason: state.coordinator?.status?.reason || 'operation_lost',
+          }
+        : {}),
     };
+
   }
 
   getCanonicalTurn(turnId) {
@@ -929,6 +1053,10 @@ export class AgentTurnRuntime {
     if (state.finished) return Promise.resolve();
     state.finished = true;
 
+    const openToolsBeforeSettle = state.coordinator.turn.work
+      .filter((item) => item.type === 'tool' && (item.status === 'active' || item.status === 'queued'))
+      .map((item) => item.id);
+
     const outcome = options.outcome ?? (type === 'turn.completed' ? 'completed' : 'failed');
     const cause = options.cause ?? error?.code;
     const terminalStatus = state.coordinator.settleTerminal({
@@ -941,6 +1069,19 @@ export class AgentTurnRuntime {
     state.completedAt = this.#timestamp();
     this.#activeBySession.delete(state.key);
     this.#notifyProviderState(state);
+
+    for (const toolId of openToolsBeforeSettle) {
+      const closedItem = state.coordinator.turn.work.find((w) => w.id === toolId);
+      if (closedItem) {
+        this.#emit(state, 'tool.completed', {
+          toolId: closedItem.id,
+          status: 'failed',
+          closureReason: closedItem.closureReason || 'turn_completed',
+          output: closedItem.output ?? null,
+        });
+      }
+    }
+
 
     // Authoritative external event derivation from accepted canonical outcome
     let effectiveEventType = 'turn.completed';

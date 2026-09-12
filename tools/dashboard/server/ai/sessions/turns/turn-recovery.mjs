@@ -140,9 +140,20 @@ export async function reconcileOrphanedTurns(transcriptCache) {
     const transcript = await transcriptCache.getTranscript(provider, providerSessionId);
     if (!transcript?.activeTurn) continue;
     if (transcript.pendingInteraction && transcript.pendingInteraction.resumePolicy !== 'live-operation') continue;
+    const interruptedTurnId = transcript.activeTurn.turnId;
     transcriptCache.markTurnInterrupted(provider, providerSessionId, {
       text: 'Interrupted by server restart.',
+      cause: 'server-restart',
+      outcome: 'interrupted',
     });
+    if (Array.isArray(transcript.turns)) {
+      const activeTurn = transcript.turns.find((t) => t.id === interruptedTurnId);
+      if (activeTurn?.status) {
+        activeTurn.status.status = 'terminal';
+        activeTurn.status.outcome = 'interrupted';
+        activeTurn.status.cause = 'server-restart';
+      }
+    }
     reconciledCount += 1;
   }
   if (reconciledCount > 0 && typeof transcriptCache.flushAll === 'function') {
@@ -150,3 +161,44 @@ export async function reconcileOrphanedTurns(transcriptCache) {
   }
   return { reconciledCount };
 }
+
+/**
+ * Reconciles an unknown or lost turn against new authoritative evidence or proven process termination.
+ *
+ * Rule 1: Authoritative provider protocol evidence (e.g. late terminal frame or query) resolves
+ * the semantic outcome to 'completed' or 'failed'.
+ *
+ * Rule 2: Confirmed process termination (without provider protocol frame) proves only liveness cessation.
+ * It settles the turn as 'interrupted' with cause 'forced_cleanup' or 'process_terminated',
+ * never fabricating an unobserved 'completed' or 'failed' outcome.
+ */
+export function reconcileTurnState(
+  coordinator,
+  { authoritativeOutcome = null, processTerminated = false, error = null, cause = null } = {},
+) {
+  if (coordinator.isTerminal) return coordinator.turn.status;
+
+  if (authoritativeOutcome === 'completed') {
+    return coordinator.reconcileAuthoritativeEvidence({
+      outcome: 'completed',
+      cause: cause || 'provider_confirmed_completed',
+    });
+  }
+
+  if (authoritativeOutcome === 'failed') {
+    return coordinator.reconcileAuthoritativeEvidence({
+      outcome: 'failed',
+      error,
+      cause: cause || error?.code || 'provider_confirmed_failed',
+    });
+  }
+
+  if (processTerminated) {
+    return coordinator.reconcileProcessTermination({
+      cause: cause || 'forced_cleanup',
+    });
+  }
+
+  return coordinator.turn.status;
+}
+

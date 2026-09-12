@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { AiError } from '../../contracts.mjs';
-import { terminateChildProcess, waitForChildExit } from '../process-termination.mjs';
+import { terminateChildProcess, waitForChildExit, getProcessTreeSpawnOptions } from '../process-termination.mjs';
 import { RawCaptureRecorder, rawCaptureSessionDirectory } from '../raw-capture.mjs';
 
 export { rawCaptureSessionDirectory };
@@ -54,6 +54,99 @@ function providerFailure(code, message, details, cause) {
     status: 502,
     details,
     cause,
+  });
+}
+
+export function mapCodexError(envelopeError, fallbackMethod = 'operation') {
+  if (!envelopeError || typeof envelopeError !== 'object') {
+    return new AiError('AI_PROVIDER_EXECUTION_ERROR', `Codex '${fallbackMethod}' failed.`, {
+      status: 502,
+      recoveryHint: 'new-turn',
+      details: { method: fallbackMethod },
+    });
+  }
+  const message =
+    typeof envelopeError.message === 'string' && envelopeError.message.trim()
+      ? envelopeError.message.trim()
+      : `Codex '${fallbackMethod}' request failed.`;
+  const code = envelopeError.code;
+  const rawData = envelopeError.data;
+  const details = {
+    method: fallbackMethod,
+    ...(code === undefined ? {} : { providerCode: code }),
+    ...(rawData === undefined ? {} : { data: rawData }),
+  };
+
+  if (
+    code === 401 ||
+    code === 'AUTH_FAILED' ||
+    code === 'unauthorized' ||
+    /unauthorized|auth|credentials|login|api key|authentication failed/i.test(message)
+  ) {
+    return new AiError('AI_AUTH_FAILED', message, {
+      status: 401,
+      recoveryHint: 'operator-action',
+      details,
+    });
+  }
+
+  if (
+    code === 403 ||
+    code === 'POLICY_DENIED' ||
+    code === 'permission_denied' ||
+    /forbidden|sandbox|permission denied|policy denied|approval required/i.test(message)
+  ) {
+    return new AiError('AI_POLICY_DENIED', message, {
+      status: 403,
+      recoveryHint: 'operator-action',
+      details,
+    });
+  }
+
+  if (
+    code === 'QUOTA_EXHAUSTED' ||
+    code === 'insufficient_quota' ||
+    /quota|billing|credit|monthly limit|plan limit/i.test(message)
+  ) {
+    return new AiError('AI_QUOTA_EXHAUSTED', message, {
+      status: 429,
+      recoveryHint: 'alternate-provider',
+      details,
+    });
+  }
+
+  if (
+    code === 429 ||
+    code === 'RATE_LIMITED' ||
+    code === 'rate_limit_exceeded' ||
+    /rate limit|too many requests|tpm|rpm/i.test(message)
+  ) {
+    return new AiError('AI_RATE_LIMITED', message, {
+      status: 429,
+      recoveryHint: 'retry-after-delay',
+      details,
+    });
+  }
+
+  if (
+    code === -32700 ||
+    code === -32600 ||
+    code === -32601 ||
+    code === -32602 ||
+    code === 'AI_PROTOCOL_ERROR' ||
+    code === 'PROTOCOL_ERROR'
+  ) {
+    return new AiError('AI_PROTOCOL_ERROR', message, {
+      status: 502,
+      recoveryHint: 'new-session',
+      details,
+    });
+  }
+
+  return new AiError('AI_PROVIDER_EXECUTION_ERROR', message, {
+    status: 502,
+    recoveryHint: 'new-turn',
+    details,
   });
 }
 
@@ -198,6 +291,40 @@ export class CodexAppServerClient {
     return this.#sendRequest(method, params);
   }
 
+  async listModels() {
+    const response = await this.request('model/list', {});
+    const rawModels = Array.isArray(response?.models) ? response.models : [];
+    return rawModels.map((m) => {
+      const id = String(m.id || m.model || '');
+      const label = String(m.displayName || m.label || id);
+      const isDefault = typeof m.isDefault === 'boolean' ? m.isDefault : undefined;
+      const traits = {};
+      if (Array.isArray(m.supportedReasoningEfforts) && m.supportedReasoningEfforts.length > 0) {
+        traits.supportedReasoningEfforts = m.supportedReasoningEfforts.map(String);
+        traits.supportsReasoning = true;
+      }
+      if (typeof m.defaultReasoningEffort === 'string') {
+        traits.defaultReasoningEffort = m.defaultReasoningEffort;
+      }
+      if (Array.isArray(m.inputModalities) && m.inputModalities.length > 0) {
+        traits.inputModalities = m.inputModalities.map(String);
+        if (traits.inputModalities.includes('image')) {
+          traits.supportsVision = true;
+        }
+      }
+      if (typeof m.maxContextTokens === 'number') {
+        traits.maxContextTokens = m.maxContextTokens;
+      }
+      return {
+        id,
+        label,
+        source: 'discovered',
+        ...(isDefault !== undefined ? { isDefault } : {}),
+        ...(Object.keys(traits).length > 0 ? { traits } : {}),
+      };
+    });
+  }
+
   onNotification(handler) {
     if (typeof handler !== 'function') throw new TypeError('Notification handler must be a function.');
     this.#assertUsable();
@@ -337,12 +464,17 @@ export class CodexAppServerClient {
 
     let child;
     try {
-      child = this.#spawnProcess(this.#executable, [...this.#argsPrefix, 'app-server', '--listen', 'stdio://'], {
+      const spawnOptions = getProcessTreeSpawnOptions({
         cwd: this.#cwd,
         env: this.#env,
         shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
+      child = this.#spawnProcess(
+        this.#executable,
+        [...this.#argsPrefix, 'app-server', '--listen', 'stdio://'],
+        spawnOptions,
+      );
     } catch (error) {
       const failure = providerFailure(
         'AI_PROVIDER_SPAWN_ERROR',
@@ -637,21 +769,7 @@ export class CodexAppServerClient {
 
     if (hasError) {
       if (!isObject(envelope.error)) throw protocolError('Codex response error must be an object.');
-      pending.reject(
-        new AiError(
-          'AI_PROVIDER_REQUEST_ERROR',
-          typeof envelope.error.message === 'string'
-            ? envelope.error.message
-            : `Codex '${pending.method}' request failed.`,
-          {
-            status: 502,
-            details: {
-              method: pending.method,
-              ...(envelope.error.code === undefined ? {} : { providerCode: envelope.error.code }),
-            },
-          },
-        ),
-      );
+      pending.reject(mapCodexError(envelope.error, pending.method));
       return;
     }
     pending.resolve(envelope.result);

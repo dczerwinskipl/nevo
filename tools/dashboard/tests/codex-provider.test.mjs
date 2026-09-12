@@ -150,6 +150,9 @@ function directTurn(provider, values = {}) {
     providerSessionId: values.providerSessionId,
     message: values.message ?? 'Hello',
     mode: values.mode ?? 'edit',
+    model: values.model,
+    effort: values.effort,
+    reasoningEffort: values.reasoningEffort,
     setProviderSessionId: values.setProviderSessionId,
     setOperation: (value) => {
       operation = value;
@@ -225,11 +228,13 @@ test('declares the exact honest descriptor, mode metadata, and availability', ()
     Object.keys(provider.descriptor.capabilities).sort(),
     [
       'cancelTurn',
+      'canOverrideTurnModel',
       'interactiveConfirmations',
       'interactivePermissions',
       'interactiveQuestions',
       'planUpdates',
       'reasoning',
+      'reasoningEvents',
       'resumeSession',
       'steerTurn',
       'toolCalls',
@@ -237,6 +242,9 @@ test('declares the exact honest descriptor, mode metadata, and availability', ()
     ].sort(),
   );
   assert.deepEqual(provider.descriptor.capabilities, CODEX_CAPABILITIES);
+  assert.equal(provider.descriptor.capabilities.canOverrideTurnModel, true);
+  assert.equal(provider.descriptor.capabilities.toolCalls, true);
+  assert.equal(provider.descriptor.capabilities.reasoningEvents, true);
   assert.equal(provider.descriptor.capabilities.steerTurn, false);
   assert.equal(provider.descriptor.capabilities.planUpdates, false);
   assert.deepEqual(provider.descriptor.supportedModes, ['ask', 'edit', 'agent']);
@@ -1423,4 +1431,83 @@ test('toolDescription: a truncated commandExecution description always validates
     status: 'active',
   });
   assert.equal(validated.description, mapped.description);
+});
+
+test('Turn execution with specified model or reasoning effort passes model and effort in TurnStartParams; omitting preserves defaults', async () => {
+  let capturedTurnParams = null;
+  const client = new FakeCodexClient(async (method, params) => {
+    if (method === 'thread/start') return { thread: { id: 'thread-1' } };
+    if (method === 'turn/start') {
+      capturedTurnParams = params;
+      return { turn: { id: 'codex-turn-1', status: 'inProgress', items: [] } };
+    }
+    throw new Error(`Unexpected method ${method}`);
+  });
+  const provider = createCodexAgentProvider({ client });
+
+  // 1. With model and effort
+  const turn1 = directTurn(provider, {
+    turnId: 'turn-1',
+    model: 'o3-mini',
+    effort: 'high',
+  });
+  await waitFor(() => turn1.operation, Boolean);
+  await completeTurn(client, 'thread-1', 'codex-turn-1');
+  await turn1.promise;
+
+  assert.equal(capturedTurnParams.model, 'o3-mini');
+  assert.equal(capturedTurnParams.effort, 'high');
+
+  // 2. Omitting model and effort preserves provider defaults
+  capturedTurnParams = null;
+  const turn2 = directTurn(provider, {
+    turnId: 'turn-2',
+    providerSessionId: 'thread-1',
+  });
+  await waitFor(() => turn2.operation, Boolean);
+  await completeTurn(client, 'thread-1', 'codex-turn-1');
+  await turn2.promise;
+
+  assert.equal(capturedTurnParams.model, undefined);
+  assert.equal(capturedTurnParams.effort, undefined);
+
+  // 3. With reasoningEffort alias
+  capturedTurnParams = null;
+  const turn3 = directTurn(provider, {
+    turnId: 'turn-3',
+    providerSessionId: 'thread-1',
+    reasoningEffort: 'low',
+  });
+  await waitFor(() => turn3.operation, Boolean);
+  await completeTurn(client, 'thread-1', 'codex-turn-1');
+  await turn3.promise;
+
+  assert.equal(capturedTurnParams.model, undefined);
+  assert.equal(capturedTurnParams.effort, 'low');
+});
+
+test('createSession and initial turn pass model to thread/start when specified', async () => {
+  let capturedThreadParams = null;
+  const client = new FakeCodexClient(async (method, params) => {
+    if (method === 'thread/start') {
+      capturedThreadParams = params;
+      return { thread: { id: 'thread-custom' } };
+    }
+    throw new Error(`Unexpected method ${method}`);
+  });
+  const provider = createCodexAgentProvider({ client });
+
+  const session = await provider.createSession({ model: 'gpt-4o' });
+  assert.equal(session.providerSessionId, 'thread-custom');
+  assert.equal(capturedThreadParams.model, 'gpt-4o');
+});
+
+test('CodexAgentProvider.listModels delegates to client.listModels', async () => {
+  const fakeModels = [{ id: 'o3-mini', label: 'o3-mini', source: 'discovered' }];
+  const client = standardClient();
+  client.listModels = async () => fakeModels;
+  const provider = createCodexAgentProvider({ client });
+
+  const models = await provider.listModels();
+  assert.deepEqual(models, fakeModels);
 });

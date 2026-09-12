@@ -11,6 +11,15 @@ import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs'
 import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
 import { listen } from '../server/index.mjs';
 import { buildAiTestApp } from './helpers/ai-test-app.mjs';
+import { ClaudeAgentProvider } from '../server/ai/providers/claude/provider.mjs';
+import { CodexAgentProvider } from '../server/ai/providers/codex/provider.mjs';
+import { AntigravityAgentProvider } from '../server/ai/providers/antigravity/provider.mjs';
+import {
+  validateProviderDescriptor,
+  validateAgentModelDescriptor,
+  AGENT_CAPABILITIES,
+  AiValidationError,
+} from '../server/ai/contracts.mjs';
 
 const specId = '70609aaf-bb62-40bf-a25e-bec65c583495';
 
@@ -58,7 +67,7 @@ async function closeServer(server) {
   await server?.close?.();
 }
 
-test('dashboard AI payload field and event names stay aligned with the neutral browser contract', async () => {
+test('dashboard AI payload field and event names stay aligned with the neutral browser contract', { timeout: 10000 }, async () => {
   const { server, aiService } = await createServer();
   const baseUrl = await listen(server, { port: 0 });
 
@@ -73,19 +82,25 @@ test('dashboard AI payload field and event names stay aligned with the neutral b
       'capabilities',
       'supportedModes',
       'defaultMode',
+      'models',
+      'health',
     ]);
     exactKeys(providerPayload.providers[0].capabilities, [
+      'canOverrideTurnModel',
       'cancelTurn',
       'interactiveConfirmations',
       'interactivePermissions',
       'interactiveQuestions',
       'planUpdates',
       'reasoning',
+      'reasoningEvents',
       'resumeSession',
       'steerTurn',
       'toolCalls',
       'usage',
     ]);
+    assert.ok(Array.isArray(providerPayload.providers[0].models));
+    exactKeys(providerPayload.providers[0].health, ['enabled', 'installed', 'status']);
     assert.deepEqual(providerPayload.providers[0].supportedModes, ['ask', 'edit', 'agent']);
     assert.equal(providerPayload.providers[0].defaultMode, 'edit');
 
@@ -158,4 +173,75 @@ test('dashboard AI payload field and event names stay aligned with the neutral b
   } finally {
     await closeServer(server);
   }
+});
+
+test('Criterion 3: all adapters conform to updated AgentProviderDescriptor, ProviderCapabilities, and AgentModelDescriptor interfaces', { timeout: 10000 }, () => {
+  const cwd = tmpdir();
+  const claude = new ClaudeAgentProvider({ cwd });
+  const fakeCodexClient = {
+    onNotification: () => () => {},
+    onServerRequest: () => () => {},
+    async listModels() {
+      return [];
+    },
+    async dispose() {},
+  };
+  const codex = new CodexAgentProvider({ cwd, client: fakeCodexClient });
+  const antigravity = new AntigravityAgentProvider({ cwd, ensureMcpRegistered: false });
+  const mock = createMockAgentProvider();
+
+  const providers = [claude, codex, antigravity, mock];
+
+  for (const prov of providers) {
+    const desc = prov.descriptor;
+    assert.ok(desc, `Provider ${desc?.id} must have a descriptor`);
+
+    // Must validate cleanly under validateProviderDescriptor
+    const validated = validateProviderDescriptor(desc);
+    assert.equal(validated.id, desc.id);
+    assert.equal(typeof validated.label, 'string');
+    assert.equal(typeof validated.enabled, 'boolean');
+    assert.equal(typeof validated.available, 'boolean');
+
+    // Capabilities must define all canonical AGENT_CAPABILITIES
+    assert.deepEqual(Object.keys(validated.capabilities).sort(), [...AGENT_CAPABILITIES].sort());
+    for (const cap of AGENT_CAPABILITIES) {
+      assert.equal(typeof validated.capabilities[cap], 'boolean');
+    }
+
+    // Health descriptor
+    assert.ok(validated.health);
+    assert.equal(typeof validated.health.enabled, 'boolean');
+    assert.equal(typeof validated.health.installed, 'boolean');
+    assert.ok(['healthy', 'degraded', 'unavailable'].includes(validated.health.status));
+
+    // Supported modes
+    assert.ok(Array.isArray(validated.supportedModes));
+    assert.ok(validated.supportedModes.length > 0);
+    assert.ok(['ask', 'edit', 'agent'].includes(validated.defaultMode));
+
+    // Model catalog
+    assert.ok(Array.isArray(validated.models));
+    for (const model of validated.models) {
+      const validModel = validateAgentModelDescriptor(model);
+      assert.equal(validModel.id, model.id);
+      assert.ok(['discovered', 'configured', 'known'].includes(validModel.source));
+      assert.equal(typeof validModel.traits, 'object');
+      assert.equal(typeof validModel.traits.reasoning, 'boolean');
+    }
+  }
+
+  // Model catalog validation guards against contract drift
+  assert.throws(
+    () => validateAgentModelDescriptor({ id: '', label: 'Missing ID', source: 'known' }),
+    AiValidationError,
+  );
+  assert.throws(
+    () => validateAgentModelDescriptor({ id: 'm1', label: 'Invalid source', source: 'magic' }),
+    AiValidationError,
+  );
+  assert.throws(
+    () => validateAgentModelDescriptor({ id: 'm1', label: 'Bad traits', source: 'known', traits: { supportsReasoning: 'yes' } }),
+    AiValidationError,
+  );
 });

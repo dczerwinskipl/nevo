@@ -608,6 +608,12 @@ export class AgentSessionService {
     return this.turnRuntime.cancelTurn(turnId, options);
   }
 
+  recoverTurn(turnId, options) {
+    if (!this.turnRuntime) throw new Error('No turn runtime configured.');
+    return this.turnRuntime.recoverTurn(turnId, options);
+  }
+
+
   resolveInteraction(turnId, interactionId, response, options) {
     if (!this.turnRuntime) throw new Error('No turn runtime configured.');
     return this.turnRuntime.resolveInteraction(turnId, interactionId, response, options);

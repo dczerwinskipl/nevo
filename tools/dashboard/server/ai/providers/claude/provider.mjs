@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { AiError, AiValidationError, validateAgentExecutionMode } from '../../contracts.mjs';
 import { createClaudeContinuationStore } from './continuation-store.mjs';
-import { terminateChildProcess } from '../process-termination.mjs';
+import { terminateChildProcess, getProcessTreeSpawnOptions } from '../process-termination.mjs';
 import { RawCaptureRecorder, rawCaptureSessionDirectory } from '../raw-capture.mjs';
 import { mcpInteractionRegistry } from '../../interactions/mcp/index.mjs';
 
@@ -24,8 +24,129 @@ export const CLAUDE_CAPABILITIES = Object.freeze({
   cancelTurn: true,
   toolCalls: true,
   reasoning: true,
+  reasoningEvents: true,
+  canOverrideTurnModel: true,
   usage: true,
 });
+
+export const CLAUDE_CURATED_MODELS = Object.freeze([
+  Object.freeze({
+    id: 'claude-3-7-sonnet-20250219',
+    label: 'Claude 3.7 Sonnet',
+    isDefault: true,
+    source: 'known',
+    traits: Object.freeze({
+      supportsReasoning: true,
+      inputModalities: Object.freeze(['text', 'image']),
+      supportsVision: true,
+    }),
+  }),
+  Object.freeze({
+    id: 'claude-3-5-sonnet-20241022',
+    label: 'Claude 3.5 Sonnet',
+    source: 'known',
+    traits: Object.freeze({
+      supportsReasoning: false,
+      inputModalities: Object.freeze(['text', 'image']),
+      supportsVision: true,
+    }),
+  }),
+  Object.freeze({
+    id: 'claude-3-5-haiku-20241022',
+    label: 'Claude 3.5 Haiku',
+    source: 'known',
+    traits: Object.freeze({
+      supportsReasoning: false,
+      inputModalities: Object.freeze(['text']),
+      supportsVision: false,
+    }),
+  }),
+]);
+
+export function mapClaudeError(rawError, fallbackMessage = 'Claude turn failed.', exitCode = null) {
+  const message =
+    typeof rawError === 'string'
+      ? rawError
+      : rawError?.message
+        ? String(rawError.message)
+        : fallbackMessage;
+
+  const details = {
+    ...(exitCode !== null ? { exitCode } : {}),
+    ...(rawError && typeof rawError === 'object' && rawError.code ? { providerCode: rawError.code } : {}),
+  };
+
+  const statusNumber =
+    typeof rawError === 'object' && rawError !== null
+      ? typeof rawError.status === 'number'
+        ? rawError.status
+        : typeof rawError.code === 'number'
+          ? rawError.code
+          : null
+      : null;
+
+  if (/timeout|timed out|deadline exceeded|ETIMEDOUT/i.test(message) || exitCode === 124) {
+    return new AiError('AI_PROVIDER_TIMEOUT', message, {
+      status: 504,
+      recoveryHint: 'none',
+      details,
+    });
+  }
+
+  if (/unauthorized|auth|credentials|login|api key|authentication failed|not logged in/i.test(message)) {
+    return new AiError('AI_AUTH_FAILED', message, {
+      status: 401,
+      recoveryHint: 'operator-action',
+      details,
+    });
+  }
+
+  if (/forbidden|permission denied|sandbox|policy denied/i.test(message)) {
+    return new AiError('AI_POLICY_DENIED', message, {
+      status: 403,
+      recoveryHint: 'operator-action',
+      details,
+    });
+  }
+
+  if (/quota|credit|billing|monthly limit|plan limit/i.test(message)) {
+    return new AiError('AI_QUOTA_EXHAUSTED', message, {
+      status: 429,
+      recoveryHint: 'alternate-provider',
+      details,
+    });
+  }
+
+  if (statusNumber === 429 || /rate limit|too many requests|tpm|rpm/i.test(message)) {
+    return new AiError('AI_RATE_LIMITED', message, {
+      status: 429,
+      recoveryHint: 'retry-after-delay',
+      details,
+    });
+  }
+
+  if (/protocol error|malformed json|unexpected token/i.test(message)) {
+    return new AiError('AI_PROTOCOL_ERROR', message, {
+      status: 502,
+      recoveryHint: 'new-session',
+      details,
+    });
+  }
+
+  if (rawError?.code === 'ENOENT' || /ENOENT|not found in PATH/i.test(message)) {
+    return new AiError('AI_PROVIDER_PROCESS_ERROR', message, {
+      status: 502,
+      recoveryHint: 'operator-action',
+      details,
+    });
+  }
+
+  return new AiError('AI_PROVIDER_EXECUTION_ERROR', message, {
+    status: 502,
+    recoveryHint: 'new-turn',
+    details,
+  });
+}
 
 // `description` is a concise label for primary UI presentation (C5) — the canonical
 // model bounds it to 1000 chars, and the full untruncated value already survives
@@ -186,6 +307,7 @@ export class ClaudeAgentProvider {
   #mcpEnabled;
   #mcpEndpointUrl;
   #tlsCertPath;
+  #configuredModels = [];
 
   constructor({
     executable = 'claude',
@@ -206,6 +328,7 @@ export class ClaudeAgentProvider {
     mcpEndpointUrl = null,
     bridgePort = null,
     tlsCertPath = null,
+    configuredModels = [],
   } = {}) {
     this.#executable = executable;
     this.#cwd = cwd;
@@ -235,6 +358,7 @@ export class ClaudeAgentProvider {
       rawCaptureEnabled,
       rawFlushTimeoutMs,
     });
+    this.#configuredModels = Array.isArray(configuredModels) ? configuredModels : [];
   }
 
   configureMcpEndpoint(urlOrResolver) {
@@ -274,6 +398,21 @@ export class ClaudeAgentProvider {
       supportedModes: ['ask', 'edit', 'agent'],
       defaultMode: 'edit',
     });
+  }
+
+  async listModels() {
+    const configured = this.#configuredModels.map((m) => ({
+      ...m,
+      source: m.source || 'configured',
+    }));
+    const modelsById = new Map();
+    for (const m of CLAUDE_CURATED_MODELS) {
+      modelsById.set(m.id, m);
+    }
+    for (const m of configured) {
+      modelsById.set(m.id, m);
+    }
+    return Array.from(modelsById.values());
   }
 
   getRawCapturePath(sessionId) {
@@ -397,6 +536,7 @@ export class ClaudeAgentProvider {
       message,
       prompt,
       mode = 'edit',
+      model,
       signal,
       setOperation,
       emitCommentaryDelta,
@@ -435,6 +575,17 @@ export class ClaudeAgentProvider {
       permissionMode,
     ];
 
+    if (typeof model === 'string' && model.trim()) {
+      const trimmedModel = model.trim();
+      args.push('--model', trimmedModel);
+      const isKnown =
+        CLAUDE_CURATED_MODELS.some((m) => m.id === trimmedModel) ||
+        (Array.isArray(this.#configuredModels) && this.#configuredModels.some((m) => m.id === trimmedModel));
+      if (!isKnown) {
+        console.warn(`[claude] unlisted model '${trimmedModel}' passed through permissively to CLI.`);
+      }
+    }
+
     let token = null;
     const resolvedMcpUrl = this.#resolveMcpEndpointUrl();
     if (this.#mcpEnabled && resolvedMcpUrl) {
@@ -457,11 +608,12 @@ export class ClaudeAgentProvider {
         if (resolvedMcpUrl?.startsWith('https:') && this.#tlsCertPath && existsSync(this.#tlsCertPath)) {
           childEnv.NODE_EXTRA_CA_CERTS = this.#tlsCertPath;
         }
-        child = this.#spawnProcess(this.#executable, args, {
+        const spawnOpts = getProcessTreeSpawnOptions({
           cwd: this.#cwd,
           stdio: ['pipe', 'pipe', 'pipe'],
           env: childEnv,
         });
+        child = this.#spawnProcess(this.#executable, args, spawnOpts);
       } catch (err) {
         console.error(`[claude] spawn failed: ${err.message}`);
         try {
@@ -795,7 +947,14 @@ export class ClaudeAgentProvider {
               deferredPayload = event.deferred_tool_use || event.delta?.deferred_tool_use || deferredPayload;
             }
             if (event.subtype === 'error' || event.is_error === true) {
-              const err = new AiError('AI_PROVIDER_ERROR', event.error?.message || event.result || 'Claude turn failed.');
+              const rawMsg =
+                event.error?.message ||
+                event.result ||
+                (event.api_error_status ? `API error ${event.api_error_status}` : 'Claude turn failed.');
+              const err = mapClaudeError(
+                { message: rawMsg, ...(event.api_error_status ? { status: event.api_error_status } : {}) },
+                rawMsg,
+              );
               cleanupSettings(err);
               reject(err);
               return;
@@ -823,7 +982,8 @@ export class ClaudeAgentProvider {
           }
 
           case 'error': {
-            const err = new AiError('AI_PROVIDER_ERROR', event.error?.message || 'Claude turn failed.');
+            const rawMsg = event.error?.message || 'Claude turn failed.';
+            const err = mapClaudeError(rawMsg, rawMsg);
             cleanupSettings(err);
             reject(err);
             break;
@@ -870,7 +1030,7 @@ export class ClaudeAgentProvider {
 
       child.on('error', (err) => {
         console.error(`[claude] [process-error] ${err.message}`);
-        const aiErr = new AiError('AI_PROVIDER_PROCESS_ERROR', `Claude process error: ${err.message}`, { cause: err });
+        const aiErr = mapClaudeError(err, `Claude process error: ${err.message}`);
         cleanupSettings(aiErr);
         reject(aiErr);
       });
@@ -984,7 +1144,7 @@ export class ClaudeAgentProvider {
 
         if (exitCode !== 0 && !isDeferred) {
           const detail = stderrOutput.trim() || 'Process ended unexpectedly (check server logs for details)';
-          const exitErr = new AiError('AI_PROVIDER_EXIT_ERROR', `Claude process exited with code ${exitCode}: ${detail}`);
+          const exitErr = mapClaudeError(detail, `Claude process exited with code ${exitCode}: ${detail}`, exitCode);
           cleanupSettings(exitErr);
           return reject(exitErr);
         }

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { validateCanonicalTurn } from './model/canonical-turn.mjs';
+import { validateAgentModelDescriptor } from './model/model-catalog.mjs';
 
 export const AGENT_CAPABILITIES = Object.freeze([
   'interactivePermissions',
@@ -7,8 +8,10 @@ export const AGENT_CAPABILITIES = Object.freeze([
   'interactiveConfirmations',
   'resumeSession',
   'cancelTurn',
+  'canOverrideTurnModel',
   'toolCalls',
   'reasoning',
+  'reasoningEvents',
   'usage',
   'steerTurn',
   'planUpdates',
@@ -20,8 +23,10 @@ export const DEFAULT_AGENT_CAPABILITIES = Object.freeze({
   interactiveConfirmations: false,
   resumeSession: false,
   cancelTurn: false,
+  canOverrideTurnModel: false,
   toolCalls: false,
   reasoning: false,
+  reasoningEvents: false,
   usage: false,
   steerTurn: false,
   planUpdates: false,
@@ -52,12 +57,88 @@ export const INTERACTION_RESUME_POLICIES = Object.freeze(['restart', 'live-opera
 const EVENT_TYPE_SET = new Set(AGENT_EVENT_TYPES);
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 
+export const AI_FAILURE_CODES = Object.freeze([
+  'AI_AUTH_FAILED',
+  'AI_POLICY_DENIED',
+  'AI_RATE_LIMITED',
+  'AI_QUOTA_EXHAUSTED',
+  'AI_PROVIDER_UNAVAILABLE',
+  'AI_TRANSPORT_ERROR',
+  'AI_PROVIDER_TIMEOUT',
+  'AI_RUNTIME_TIMEOUT',
+  'AI_PROTOCOL_ERROR',
+  'AI_UNSUPPORTED_OPERATION',
+  'AI_OPERATION_LOST',
+  'AI_PROVIDER_EXECUTION_ERROR',
+]);
+
+export const AI_RECOVERY_HINTS = Object.freeze([
+  'none',
+  'retry-after-delay',
+  'new-turn',
+  'new-session',
+  'operator-action',
+  'alternate-provider',
+]);
+
+export const AI_ERROR_HTTP_STATUS = Object.freeze({
+  AI_AUTH_FAILED: 401,
+  AI_POLICY_DENIED: 403,
+  AI_RATE_LIMITED: 429,
+  AI_QUOTA_EXHAUSTED: 429,
+  AI_PROVIDER_UNAVAILABLE: 503,
+  AI_TRANSPORT_ERROR: 502,
+  AI_PROVIDER_TIMEOUT: 504,
+  AI_RUNTIME_TIMEOUT: 504,
+  AI_PROTOCOL_ERROR: 502,
+  AI_UNSUPPORTED_OPERATION: 409,
+  AI_OPERATION_LOST: 500,
+  AI_PROVIDER_EXECUTION_ERROR: 502,
+});
+
+export const DEFAULT_RECOVERY_HINTS = Object.freeze({
+  AI_AUTH_FAILED: 'operator-action',
+  AI_POLICY_DENIED: 'operator-action',
+  AI_RATE_LIMITED: 'retry-after-delay',
+  AI_QUOTA_EXHAUSTED: 'alternate-provider',
+  AI_PROVIDER_UNAVAILABLE: 'retry-after-delay',
+  AI_TRANSPORT_ERROR: 'retry-after-delay',
+  AI_PROVIDER_TIMEOUT: 'none',
+  AI_RUNTIME_TIMEOUT: 'new-turn',
+  AI_PROTOCOL_ERROR: 'new-session',
+  AI_UNSUPPORTED_OPERATION: 'none',
+  AI_OPERATION_LOST: 'none',
+  AI_PROVIDER_EXECUTION_ERROR: 'new-turn',
+});
+
+export function validateAiFailureCode(code, field = 'code') {
+  if (typeof code !== 'string' || !AI_FAILURE_CODES.includes(code)) {
+    throw new AiValidationError(`'${field}' must be one of: ${AI_FAILURE_CODES.join(', ')}.`, {
+      field,
+      value: code,
+    });
+  }
+  return code;
+}
+
+export function validateAiRecoveryHint(hint, field = 'recoveryHint') {
+  if (typeof hint !== 'string' || !AI_RECOVERY_HINTS.includes(hint)) {
+    throw new AiValidationError(`'${field}' must be one of: ${AI_RECOVERY_HINTS.join(', ')}.`, {
+      field,
+      value: hint,
+    });
+  }
+  return hint;
+}
+
 export class AiError extends Error {
-  constructor(code, message, { status = 400, details, cause } = {}) {
+  constructor(code, message, { status, details, cause, recoveryHint, suggestedDelayMs } = {}) {
     super(message, { cause });
     this.name = 'AiError';
     this.code = code;
-    this.status = status;
+    this.status = status ?? AI_ERROR_HTTP_STATUS[code] ?? 400;
+    this.recoveryHint = recoveryHint ?? DEFAULT_RECOVERY_HINTS[code] ?? 'none';
+    if (suggestedDelayMs !== undefined) this.suggestedDelayMs = suggestedDelayMs;
     if (details !== undefined) this.details = details;
   }
 
@@ -66,6 +147,8 @@ export class AiError extends Error {
       error: {
         code: this.code,
         message: this.message,
+        recoveryHint: this.recoveryHint,
+        ...(this.suggestedDelayMs !== undefined ? { suggestedDelayMs: this.suggestedDelayMs } : {}),
         ...(this.details === undefined ? {} : { details: this.details }),
       },
     };
@@ -167,6 +250,11 @@ export function normalizeCapabilities(value, field = 'capabilities') {
   const normalized = {};
   for (const capability of AGENT_CAPABILITIES) {
     normalized[capability] = value[capability] === true;
+  }
+  if (value.reasoningEvents === true) {
+    normalized.reasoning = true;
+  } else if (value.reasoning === true && value.reasoningEvents === undefined) {
+    normalized.reasoningEvents = true;
   }
   return normalized;
 }
@@ -523,6 +611,38 @@ export function validateAgentExecutionMode(mode, field = 'mode') {
   return mode;
 }
 
+export const PROVIDER_HEALTH_STATUSES = Object.freeze(['healthy', 'degraded', 'unavailable']);
+
+export function validateProviderHealth(value, field = 'health') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new AiValidationError(`'${field}' must be an object.`, { field });
+  }
+  if (!PROVIDER_HEALTH_STATUSES.includes(value.status)) {
+    throw new AiValidationError(
+      `'${field}.status' must be one of ${PROVIDER_HEALTH_STATUSES.join(', ')}.`,
+      { field: `${field}.status`, value: value.status },
+    );
+  }
+  const result = {
+    enabled: Boolean(value.enabled),
+    installed: Boolean(value.installed),
+    status: value.status,
+  };
+  if (value.version !== undefined && value.version !== null) {
+    result.version = requiredString(String(value.version), `${field}.version`, { opaque: true, max: 100 });
+  }
+  if (value.authenticated !== undefined && value.authenticated !== null) {
+    result.authenticated = Boolean(value.authenticated);
+  }
+  if (value.unavailableReason !== undefined && value.unavailableReason !== null) {
+    result.unavailableReason = requiredString(String(value.unavailableReason), `${field}.unavailableReason`, {
+      opaque: true,
+      max: 2000,
+    });
+  }
+  return result;
+}
+
 export function validateProviderDescriptor(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new AiValidationError('Provider descriptor must be an object.');
@@ -534,15 +654,32 @@ export function validateProviderDescriptor(value) {
     ? validateAgentExecutionMode(value.defaultMode, 'provider.defaultMode')
     : DEFAULT_AGENT_EXECUTION_MODE;
 
+  const models = Array.isArray(value.models)
+    ? value.models.map((m, i) => validateAgentModelDescriptor(m, `provider.models[${i}]`))
+    : [];
+
+  const health = value.health
+    ? validateProviderHealth(value.health, 'provider.health')
+    : {
+        enabled: value.enabled !== false,
+        installed: value.available !== false,
+        status: value.enabled !== false && value.available !== false ? 'healthy' : 'unavailable',
+        ...(value.unavailableReason ? { unavailableReason: String(value.unavailableReason) } : {}),
+      };
+
   return {
     id: requiredString(value.id, 'provider.id'),
     label: requiredString(value.label, 'provider.label', { opaque: true, max: 100 }),
-    enabled: value.enabled !== false,
-    available: value.available !== false,
-    ...(value.unavailableReason ? { unavailableReason: String(value.unavailableReason) } : {}),
+    enabled: health.enabled,
+    available: health.installed && health.status !== 'unavailable',
+    ...(value.unavailableReason || health.unavailableReason
+      ? { unavailableReason: String(health.unavailableReason || value.unavailableReason) }
+      : {}),
     capabilities: normalizeCapabilities(value.capabilities),
     supportedModes,
     defaultMode,
+    models,
+    health,
   };
 }
 

@@ -14,62 +14,194 @@ tasks:
   - id: neutral-contracts-and-types
     order: 1
     file: tasks/01-neutral-contracts-and-types.md
-    status: draft
+    status: implemented
+    implementation:
+      baseline_revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      review_revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      changed_paths:
+        - tools/dashboard/server/ai/contracts.mjs
+        - tools/dashboard/server/ai/model/index.mjs
+        - tools/dashboard/server/ai/model/model-catalog.mjs
+        - tools/dashboard/server/ai/model/turn-status.mjs
+        - tools/dashboard/tests/ai-contract-drift.test.mjs
+        - tools/dashboard/tests/ai-contracts.test.mjs
+      worktree_patch_fingerprint: 23c0d0b4fb05af4a3686731717395bd7122b3ad950cba7c9794f1d617bd56375
+    self_check:
+      fingerprint: 876916a4430e1c0af3d099021bff02f7b4201ef2d5a95ad0ca12ea595a94ebc4
+      revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      commands:
+        - command: node --test tools/dashboard/tests/ai-contracts.test.mjs
+            tools/dashboard/tests/ai-contract-drift.test.mjs
+          exit_code: 0
+      status: passed
 
   - id: windows-process-tree-termination
     order: 2
     file: tasks/02-windows-process-tree-termination.md
-    status: draft
+    status: implemented
+    implementation:
+      baseline_revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      review_revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      changed_paths:
+        - tools/dashboard/server/ai/providers/process-termination.mjs
+        - tools/dashboard/tests/process-termination.test.mjs
+      worktree_patch_fingerprint: 4791641b20ec4e0043c7537de1d21cfdb2e041b77ba029102901b4b6f1aee4e8
+    self_check:
+      fingerprint: 048eeca28daf7b9f83d5113a153fad5263b583e277441d4809d1328e8893cad3
+      revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      commands:
+        - command: node --test tools/dashboard/tests/process-termination.test.mjs
+          exit_code: 0
+      status: passed
 
   - id: codex-adapter-hardening
     order: 3
     file: tasks/03-codex-adapter-hardening.md
-    status: draft
+    status: implemented
     depends_on:
       - neutral-contracts-and-types
       - windows-process-tree-termination
+    implementation:
+      baseline_revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      review_revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      changed_paths:
+        - tools/dashboard/server/ai/providers/codex/app-server-client.mjs
+        - tools/dashboard/server/ai/providers/codex/provider.mjs
+        - tools/dashboard/tests/codex-app-server-client.test.mjs
+        - tools/dashboard/tests/codex-provider.test.mjs
+      worktree_patch_fingerprint: c603c0e43af9c93fd1c8614f43d89a4d0067288c8afbab07325a177ddbfef3ef
+    self_check:
+      fingerprint: af1456dfbe53efac2fe8fceff507bdfed0e33ef7c8117c6a98aca1b7d09478e8
+      revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      commands:
+        - command: node --test tools/dashboard/tests/codex-provider.test.mjs
+            tools/dashboard/tests/codex-app-server-client.test.mjs
+          exit_code: 0
+      status: passed
 
   - id: antigravity-adapter-hardening
     order: 4
     file: tasks/04-antigravity-adapter-hardening.md
-    status: draft
+    status: implemented
     depends_on:
       - neutral-contracts-and-types
       - windows-process-tree-termination
+    implementation:
+      baseline_revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      review_revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      changed_paths:
+        - tools/dashboard/server/ai/interactions/mcp/antigravity-mcp-bridge.mjs
+        - tools/dashboard/server/ai/interactions/mcp/index.mjs
+        - tools/dashboard/server/ai/providers/antigravity/provider.mjs
+        - tools/dashboard/tests/antigravity-provider.test.mjs
+      worktree_patch_fingerprint: cceb53f625f5a61e0450829e9941d43119d342c851f68e878d72dd056c5da6df
+    self_check:
+      fingerprint: 2dc22cfeb671f4503ed9384732f04c8ce30d7112eb734be23daa531fa623b11d
+      revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      commands:
+        - command: node --test tools/dashboard/tests/antigravity-provider.test.mjs
+          exit_code: 0
+      status: passed
 
   - id: claude-adapter-hardening
     order: 5
     file: tasks/05-claude-adapter-hardening.md
-    status: draft
+    status: implemented
     depends_on:
       - neutral-contracts-and-types
       - windows-process-tree-termination
+    implementation:
+      baseline_revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      review_revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      changed_paths:
+        - tools/dashboard/server/ai/providers/claude/provider.mjs
+        - tools/dashboard/tests/claude-provider.test.mjs
+      worktree_patch_fingerprint: b6f830795016017221f89703b8241477aa2e7b0cae4bc7d7d624b5b4d2a1b08a
+    self_check:
+      fingerprint: f860d4e71571c133e77fab1479684b67c980ab9dc822c2a04013595a42e935c8
+      revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      commands:
+        - command: node --test tools/dashboard/tests/claude-provider.test.mjs
+          exit_code: 0
+      status: passed
 
   - id: event-normalization-pipeline
     order: 6
     file: tasks/06-event-normalization-pipeline.md
-    status: draft
+    status: implemented
     depends_on:
       - neutral-contracts-and-types
       - codex-adapter-hardening
       - antigravity-adapter-hardening
       - claude-adapter-hardening
+    implementation:
+      baseline_revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      review_revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      changed_paths:
+        - tools/dashboard/server/ai/sessions/turns/runtime.mjs
+        - tools/dashboard/server/ai/sessions/turns/turn-event-stream.mjs
+        - tools/dashboard/tests/ai-turn-runtime.test.mjs
+        - tools/dashboard/tests/turn-event-stream.test.mjs
+      worktree_patch_fingerprint: e47cac192d6059bf3757e92e6ebf782a796d65d6a4eb5f95069da330ab0032b0
+    self_check:
+      fingerprint: 9a33934c72b3907e04cb834ece4f4060582e08ff99e6a4b719aca7f664cb25fb
+      revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      commands:
+        - command: node --test tools/dashboard/tests/ai-turn-runtime.test.mjs
+            tools/dashboard/tests/turn-event-stream.test.mjs
+          exit_code: 0
+      status: passed
 
   - id: operation-lifecycle-and-recovery
     order: 7
     file: tasks/07-operation-lifecycle-and-recovery.md
-    status: draft
+    status: implemented
     depends_on:
       - neutral-contracts-and-types
       - windows-process-tree-termination
+    implementation:
+      baseline_revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      review_revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      changed_paths:
+        - tools/dashboard/server/ai/providers/registry.mjs
+        - tools/dashboard/server/ai/sessions/service.mjs
+        - tools/dashboard/server/ai/sessions/turns/coordinator.mjs
+        - tools/dashboard/server/ai/sessions/turns/routes.mjs
+        - tools/dashboard/server/ai/sessions/turns/runtime.mjs
+        - tools/dashboard/server/ai/sessions/turns/turn-recovery.mjs
+        - tools/dashboard/tests/turn-recovery.test.mjs
+      worktree_patch_fingerprint: d2e46dfbb33bde47f79a69e5cdedea06c35e0864e1e03c0a285f69ce1d1c7027
+    self_check:
+      fingerprint: f9a31537d66f2347bcac7db79e2b648255e39aecc089767f512130765150265e
+      revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      commands:
+        - command: node --test tools/dashboard/tests/turn-recovery.test.mjs
+          exit_code: 0
+      status: passed
 
   - id: conformance-and-cross-provider-validation
     order: 8
     file: tasks/08-conformance-and-cross-provider-validation.md
-    status: draft
+    status: implemented
     depends_on:
       - event-normalization-pipeline
       - operation-lifecycle-and-recovery
+    implementation:
+      baseline_revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      review_revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      changed_paths:
+        - docs/development/ai-sessions.md
+        - tools/dashboard/tests/ai-contract-drift.test.mjs
+        - tools/dashboard/tests/cross-provider-conformance.test.mjs
+      worktree_patch_fingerprint: 2d79b48a7e03f33fac2a3e83ca620c26a4f3a3bdfcb12becb765470ec8b3757f
+    self_check:
+      fingerprint: 0c7e6c30df9df552f66bd8d652ca27edf2d5a944d5f923590cf71219979f79db
+      revision: 9c6431f7640c431025e0b4d478287cc44465fffa
+      commands:
+        - command: node --test tools/dashboard/tests/cross-provider-conformance.test.mjs
+            tools/dashboard/tests/ai-contract-drift.test.mjs
+          exit_code: 0
+      status: passed
 
 spec_id: 1dfdbdb5-db41-422b-963f-defd1ec6a1e4
 pull_requests:

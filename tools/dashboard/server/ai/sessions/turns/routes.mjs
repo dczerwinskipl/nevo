@@ -63,7 +63,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy }) {
     },
   );
 
-  // Cancel, correlated to session + turn.
+  // Cancel, correlated to session + turn (supports action: 'cancel' | 'force_cleanup').
   fastify.post(
     '/api/agent-sessions/:provider/:providerSessionId/turns/:turnId/cancel',
     { bodyLimit: CANCEL_BODY_LIMIT },
@@ -72,10 +72,35 @@ export default async function turnRoutes(fastify, { service, accessPolicy }) {
       const providerSessionId = validatedSessionId(request.params.providerSessionId);
       const turnId = validatedSegment(request.params.turnId, TURN_PATTERN, 'turn ID');
       authorize(accessPolicy, 'control', request);
-      // Body content is intentionally unused — only its size contract matters.
+      const body = request.body ? assertBodyObject(request.body) : {};
+      const action = body.action ?? 'cancel';
+      if (action !== 'cancel' && action !== 'force_cleanup') {
+        throw new AiValidationError("Property 'action' must be 'cancel' or 'force_cleanup'.");
+      }
+      if (action === 'force_cleanup') {
+        console.log(`[ai] [turn:recover] action=force_cleanup provider=${provider} session=${providerSessionId} turnId=${turnId}`);
+        const turn = await service.recoverTurn(turnId, { provider, providerSessionId });
+        return reply.send({ turn });
+      }
       console.log(`[ai] [turn:cancel] provider=${provider} session=${providerSessionId} turnId=${turnId}`);
       const turn = await service.cancelTurn(turnId, { provider, providerSessionId });
       reply.send({ turn });
     },
   );
+
+  // Dedicated remote recovery API for unknown / lost turns.
+  fastify.post(
+    '/api/agent-sessions/:provider/:providerSessionId/turns/:turnId/recover',
+    { bodyLimit: CANCEL_BODY_LIMIT },
+    async (request, reply) => {
+      const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
+      const providerSessionId = validatedSessionId(request.params.providerSessionId);
+      const turnId = validatedSegment(request.params.turnId, TURN_PATTERN, 'turn ID');
+      authorize(accessPolicy, 'control', request);
+      console.log(`[ai] [turn:recover] provider=${provider} session=${providerSessionId} turnId=${turnId}`);
+      const turn = await service.recoverTurn(turnId, { provider, providerSessionId });
+      reply.send({ turn });
+    },
+  );
 }
+

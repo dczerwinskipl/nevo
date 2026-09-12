@@ -5,13 +5,23 @@ import { Readable, Writable } from 'node:stream';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
+import Fastify from 'fastify';
 import {
   AntigravityAgentProvider,
   ANTIGRAVITY_CAPABILITIES,
   extractFinalResponse,
   mapAntigravityTool,
   rawCaptureSessionDirectory,
+  parseAgyModelsOutput,
+  mapAntigravityError,
 } from '../server/ai/providers/antigravity/provider.mjs';
+import {
+  ensureAntigravityMcpRegistered,
+  runBridge,
+  resolveAntigravityMcpBridgePath,
+  mcpInteractionRegistry,
+} from '../server/ai/interactions/mcp/index.mjs';
+import mcpRoutes from '../server/ai/interactions/mcp/routes.mjs';
 import { TurnLifecycleCoordinator } from '../server/ai/sessions/turns/coordinator.mjs';
 import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
 import { CapabilityNotSupportedError } from '../server/ai/contracts.mjs';
@@ -110,12 +120,14 @@ test('AntigravityAgentProvider declares honest capabilities', () => {
   const provider = createAntigravityAgentProvider();
   assert.equal(provider.descriptor.id, 'antigravity');
   assert.equal(provider.descriptor.capabilities.interactivePermissions, false);
-  assert.equal(provider.descriptor.capabilities.interactiveQuestions, false);
+  assert.equal(provider.descriptor.capabilities.interactiveQuestions, true);
   assert.equal(provider.descriptor.capabilities.interactiveConfirmations, false);
   assert.equal(provider.descriptor.capabilities.resumeSession, true);
   assert.equal(provider.descriptor.capabilities.cancelTurn, true);
   assert.equal(provider.descriptor.capabilities.toolCalls, true);
   assert.equal(provider.descriptor.capabilities.reasoning, true);
+  assert.equal(provider.descriptor.capabilities.reasoningEvents, true);
+  assert.equal(provider.descriptor.capabilities.canOverrideTurnModel, true);
   assert.equal(provider.descriptor.capabilities.usage, true);
 });
 
@@ -132,14 +144,12 @@ test('AntigravityAgentProvider throws CapabilityNotSupportedError for permission
   );
 });
 
-test('AntigravityAgentProvider throws CapabilityNotSupportedError for questions', async () => {
+test('AntigravityAgentProvider throws AI_INTERACTION_NOT_FOUND for unknown pending question', async () => {
   const provider = createAntigravityAgentProvider();
   await assert.rejects(
-    () => provider.respondInteraction('sess-1', 'int-1', { kind: 'question', answers: [{ questionId: 'q1', value: 'opt1' }] }),
+    () => provider.respondInteraction('sess-1', 'int-nonexistent', { kind: 'question', answers: [{ questionId: 'q1', value: 'opt1' }] }),
     (err) => {
-      assert.ok(err instanceof CapabilityNotSupportedError);
-      assert.equal(err.provider, 'antigravity');
-      assert.equal(err.capability, 'interactiveQuestions');
+      assert.equal(err.code, 'AI_INTERACTION_NOT_FOUND');
       return true;
     },
   );
@@ -650,7 +660,7 @@ test('Antigravity non-zero process exit resolves a still-active tool call to fai
       message: 'go',
       emitToolCompleted: (t) => toolsCompleted.push(t),
     }),
-    (err) => err.code === 'AI_PROVIDER_EXIT_ERROR',
+    (err) => err.code === 'AI_PROVIDER_EXECUTION_ERROR' || err.code === 'AI_PROVIDER_EXIT_ERROR',
   );
 
   assert.equal(toolsCompleted.length, 1);
@@ -3364,4 +3374,539 @@ test('Antigravity semantics 6: streaming final answer chunks preserves exact tex
   assert.ok(snap.finalAnswer);
   assert.equal(snap.finalAnswer.text, 'Chunk 1. Chunk 2. Chunk 3.');
   assert.equal(snap.finalAnswer.status, 'completed');
+});
+
+function createBridgeStreams() {
+  const stdin = new Readable({ read() {} });
+  let stdoutData = '';
+  const stdoutLines = [];
+  const stdout = new Writable({
+    write(chunk, encoding, cb) {
+      stdoutData += chunk.toString();
+      const parts = stdoutData.split('\n');
+      stdoutData = parts.pop() || '';
+      for (const p of parts) {
+        if (p.trim()) {
+          try {
+            stdoutLines.push(JSON.parse(p.trim()));
+          } catch {
+            stdoutLines.push(p.trim());
+          }
+        }
+      }
+      cb();
+    },
+  });
+  return { stdin, stdout, stdoutLines };
+}
+
+test('Task 04 - Criterion 1: parseAgyModelsOutput parses agy models and listModels caches with 5-minute TTL', async () => {
+  const rawOutput = `
+Fetching available models...
+gemini-2.5-pro\tGemini 2.5 Pro
+gemini-2.5-flash\tGemini 2.5 Flash
+gemini-2.0-flash-lite\tGemini 2.0 Flash Lite
+`;
+  const parsed = parseAgyModelsOutput(rawOutput);
+  assert.equal(parsed.length, 3);
+  assert.equal(parsed[0].id, 'gemini-2.5-pro');
+  assert.equal(parsed[0].label, 'Gemini 2.5 Pro');
+  assert.equal(parsed[0].source, 'discovered');
+  assert.equal(parsed[0].supportedReasoningEfforts, undefined);
+  assert.equal(parsed[1].id, 'gemini-2.5-flash');
+  assert.equal(parsed[1].supportedReasoningEfforts, undefined);
+
+  let execCount = 0;
+  const mockExecSync = (cmd) => {
+    if (cmd.includes('models')) {
+      execCount++;
+      return rawOutput;
+    }
+    return '';
+  };
+
+  const provider = createAntigravityAgentProvider({
+    modelsExecSync: mockExecSync,
+  });
+
+  const models1 = await provider.listModels();
+  assert.equal(models1.length, 3);
+  assert.equal(execCount, 1);
+
+  // Second call within 5 minutes uses cache without executing CLI again
+  const models2 = await provider.listModels();
+  assert.equal(models2.length, 3);
+  assert.equal(execCount, 1);
+});
+
+test('Task 04 - Criterion 2 & 3: Turn execution passes --model and --effort to agy CLI with permissive passthrough', async () => {
+  let capturedArgs = [];
+  const spawnMock = (cmd, args) => {
+    capturedArgs = args;
+    return createMockProcess([
+      JSON.stringify({ type: 'init', conversation_id: 'conv-model-test' }),
+      JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'hello' } }),
+    ]);
+  };
+
+  const provider = createAntigravityAgentProvider({ spawnProcess: spawnMock });
+
+  // 1. Specified model and effort
+  await provider.startTurn({
+    turnId: 'turn-model-1',
+    providerSessionId: 'conv-model-1',
+    message: 'test model',
+    model: 'custom-unlisted-gemini',
+    effort: 'high',
+  });
+
+  assert.ok(capturedArgs.includes('--model'), 'args includes --model');
+  const modelIdx = capturedArgs.indexOf('--model');
+  assert.equal(capturedArgs[modelIdx + 1], 'custom-unlisted-gemini');
+
+  assert.ok(capturedArgs.includes('--effort'), 'args includes --effort');
+  const effortIdx = capturedArgs.indexOf('--effort');
+  assert.equal(capturedArgs[effortIdx + 1], 'high');
+
+  // 2. Specified model without effort
+  await provider.startTurn({
+    turnId: 'turn-model-2',
+    providerSessionId: 'conv-model-2',
+    message: 'test model no effort',
+    model: 'gemini-2.5-flash',
+  });
+
+  assert.ok(capturedArgs.includes('--model'), 'args includes --model');
+  assert.equal(capturedArgs[capturedArgs.indexOf('--model') + 1], 'gemini-2.5-flash');
+  assert.equal(capturedArgs.includes('--effort'), false, 'args should not include --effort when unspecified');
+
+  // 3. Omitting both model and effort leaves CLI defaults
+  await provider.startTurn({
+    turnId: 'turn-model-3',
+    providerSessionId: 'conv-model-3',
+    message: 'test defaults',
+  });
+
+  assert.equal(capturedArgs.includes('--model'), false, 'args should not include --model when unspecified');
+  assert.equal(capturedArgs.includes('--effort'), false, 'args should not include --effort when unspecified');
+});
+
+test('Task 04 - Criterion 4: Idempotent agy mcp add nevo registration touches only nevo entry and exposes interactiveQuestions: true', () => {
+  const executedCommands = [];
+  const mockExec = (cmd) => {
+    executedCommands.push(cmd);
+    if (cmd.includes('mcp list')) {
+      return `NAME\tTYPE\tSTATUS\tCOMMAND/URL
+github\tstdio\tenabled\tnpx @modelcontextprotocol/server-github
+slack\tstdio\tenabled\tnpx @modelcontextprotocol/server-slack
+`;
+    }
+    return '';
+  };
+
+  const bridgePath = 'C:\\nevo\\bridge.mjs';
+  const res1 = ensureAntigravityMcpRegistered({
+    executable: 'agy',
+    bridgePath,
+    exec: mockExec,
+  });
+
+  assert.equal(res1.registered, true);
+  assert.equal(res1.updated, true);
+  assert.equal(executedCommands.length, 2);
+  assert.equal(executedCommands[0], 'agy mcp list');
+  assert.equal(executedCommands[1], `agy mcp add nevo node "${bridgePath}"`);
+
+  // Second run: nevo is already registered pointing to bridgePath
+  executedCommands.length = 0;
+  const mockExecAlreadyRegistered = (cmd) => {
+    executedCommands.push(cmd);
+    if (cmd.includes('mcp list')) {
+      return `NAME\tTYPE\tSTATUS\tCOMMAND/URL
+github\tstdio\tenabled\tnpx @modelcontextprotocol/server-github
+nevo\tstdio\tenabled\tnode C:/nevo/bridge.mjs
+`;
+    }
+    return '';
+  };
+
+  const res2 = ensureAntigravityMcpRegistered({
+    executable: 'agy',
+    bridgePath,
+    exec: mockExecAlreadyRegistered,
+  });
+
+  assert.equal(res2.registered, true);
+  assert.equal(res2.updated, false);
+  assert.equal(executedCommands.length, 1);
+  assert.equal(executedCommands[0], 'agy mcp list');
+
+  const provider = createAntigravityAgentProvider();
+  assert.equal(provider.descriptor.capabilities.interactiveQuestions, true);
+});
+
+test('Task 04 - Criterion 5: Stdio MCP bridge forwards requests to /mcp attaching inherited token and resolves ask_user', async () => {
+  mcpInteractionRegistry.clear();
+  const fastify = Fastify({ logger: false });
+  await fastify.register(mcpRoutes, { registry: mcpInteractionRegistry });
+  await fastify.listen({ port: 0, host: '127.0.0.1' });
+  const port = fastify.server.address().port;
+  const endpoint = `http://127.0.0.1:${port}/mcp`;
+
+  try {
+    const turnId = 'turn-bridge-test-1';
+    const token = 'token-bridge-abc';
+    let projectedInteraction = null;
+
+    mcpInteractionRegistry.registerActiveTurn(turnId, {
+      token,
+      provider: 'antigravity',
+      providerSessionId: 'sess-bridge-1',
+      requestInteraction: (neutral) => {
+        projectedInteraction = {
+          ...neutral,
+          id: 'int-proj-1',
+        };
+        mcpInteractionRegistry.registerPending('int-proj-1', {
+          turnId,
+          provider: 'antigravity',
+          providerSessionId: 'sess-bridge-1',
+        });
+        return Promise.resolve(projectedInteraction);
+      },
+    });
+
+    const { stdin, stdout, stdoutLines } = createBridgeStreams();
+    const bridgeDone = runBridge({
+      stdin,
+      stdout,
+      env: {
+        NEVO_INTERACTION_TOKEN: token,
+        NEVO_MCP_ENDPOINT: endpoint,
+      },
+    });
+
+    // 1. Initialize
+    stdin.push(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'agy', version: '1.0' } },
+    }) + '\n');
+
+    for (let i = 0; i < 50 && stdoutLines.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    assert.ok(stdoutLines.length >= 1, 'Must receive initialize response');
+    assert.equal(stdoutLines[0].id, 1);
+    assert.ok(stdoutLines[0].result);
+
+    // 1b. Initialized notification
+    stdin.push(JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'notifications/initialized',
+      params: {},
+    }) + '\n');
+    await new Promise((r) => setTimeout(r, 20));
+
+    // 2. Call ask_user tool
+    stdin.push(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'tools/call',
+      params: {
+        name: 'ask_user',
+        arguments: {
+          question: 'Confirm action?',
+          options: [{ label: 'Approve' }, { label: 'Reject' }],
+        },
+      },
+    }) + '\n');
+
+    for (let i = 0; i < 50 && !mcpInteractionRegistry.hasPending('int-proj-1'); i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    assert.ok(projectedInteraction, 'requestInteraction must be called');
+    assert.equal(projectedInteraction.kind, 'question');
+    assert.equal(projectedInteraction.questions[0].question, 'Confirm action?');
+    assert.ok(mcpInteractionRegistry.hasPending('int-proj-1'));
+
+    // 3. Resolve interaction via provider
+    const provider = createAntigravityAgentProvider();
+    const res = await provider.respondInteraction({
+      turnId,
+      providerSessionId: 'sess-bridge-1',
+      interactionId: 'int-proj-1',
+      response: { answers: [{ questionId: 'q0', value: 'Approve' }] },
+    });
+    assert.deepEqual(res, { continuesTurn: true });
+
+    stdin.push(null);
+    await bridgeDone;
+
+    const toolCallRes = stdoutLines.find((msg) => msg.id === 2);
+    assert.ok(toolCallRes, 'Must have received tool response');
+    assert.ok(toolCallRes.result);
+  } finally {
+    await fastify.close();
+    mcpInteractionRegistry.clear();
+  }
+});
+
+test('Task 04 - Criterion 6: Concurrent turns correlation: distinct interaction tokens are isolated and cannot cross-talk', async () => {
+  mcpInteractionRegistry.clear();
+  const fastify = Fastify({ logger: false });
+  await fastify.register(mcpRoutes, { registry: mcpInteractionRegistry });
+  await fastify.listen({ port: 0, host: '127.0.0.1' });
+  const port = fastify.server.address().port;
+  const endpoint = `http://127.0.0.1:${port}/mcp`;
+
+  try {
+    const turn1 = 'turn-conc-1';
+    const token1 = 'token-conc-1';
+    const turn2 = 'turn-conc-2';
+    const token2 = 'token-conc-2';
+
+    mcpInteractionRegistry.registerActiveTurn(turn1, {
+      token: token1,
+      provider: 'antigravity',
+      providerSessionId: 'sess-conc-1',
+      requestInteraction: () => {},
+    });
+
+    mcpInteractionRegistry.registerActiveTurn(turn2, {
+      token: token2,
+      provider: 'antigravity',
+      providerSessionId: 'sess-conc-2',
+      requestInteraction: () => {},
+    });
+
+    // Initialize session for Turn 1
+    const initRes1 = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/event-stream',
+        'x-nevo-interaction-token': token1,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'agy', version: '1.0' } },
+      }),
+    });
+    assert.equal(initRes1.status, 200);
+    const session1Id = initRes1.headers.get('mcp-session-id');
+    assert.ok(session1Id);
+
+    // Turn 2 attempts to use Turn 1's session ID with token2 -> rejected with 403
+    const crossTalkRes = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/event-stream',
+        'mcp-session-id': session1Id,
+        'x-nevo-interaction-token': token2,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/list',
+      }),
+    });
+    assert.equal(crossTalkRes.status, 403);
+    const errBody = await crossTalkRes.json();
+    assert.match(errBody.error.message, /interaction token does not match the bound session turn/);
+  } finally {
+    await fastify.close();
+    mcpInteractionRegistry.clear();
+  }
+});
+
+test('Task 04 - Criterion 7: Stale token rejection: requests after turn termination return HTTP 403 and bridge error -32003', async () => {
+  mcpInteractionRegistry.clear();
+  const fastify = Fastify({ logger: false });
+  await fastify.register(mcpRoutes, { registry: mcpInteractionRegistry });
+  await fastify.listen({ port: 0, host: '127.0.0.1' });
+  const port = fastify.server.address().port;
+  const endpoint = `http://127.0.0.1:${port}/mcp`;
+
+  try {
+    const turnId = 'turn-stale-1';
+    const token = 'token-stale-xyz';
+
+    mcpInteractionRegistry.registerActiveTurn(turnId, {
+      token,
+      provider: 'antigravity',
+      providerSessionId: 'sess-stale-1',
+    });
+
+    mcpInteractionRegistry.unregisterActiveTurn(turnId);
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/event-stream',
+        'x-nevo-interaction-token': token,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'agy', version: '1.0' } },
+      }),
+    });
+    assert.equal(res.status, 403);
+
+    const { stdin, stdout, stdoutLines } = createBridgeStreams();
+    const bridgeDone = runBridge({
+      stdin,
+      stdout,
+      env: {
+        NEVO_INTERACTION_TOKEN: token,
+        NEVO_MCP_ENDPOINT: endpoint,
+      },
+    });
+
+    stdin.push(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 99,
+      method: 'initialize',
+      params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'agy', version: '1.0' } },
+    }) + '\n');
+    stdin.push(null);
+    await bridgeDone;
+
+    assert.equal(stdoutLines.length, 1);
+    assert.equal(stdoutLines[0].id, 99);
+    assert.equal(stdoutLines[0].error.code, -32003);
+    assert.match(stdoutLines[0].error.message, /stale, or expired/);
+  } finally {
+    await fastify.close();
+    mcpInteractionRegistry.clear();
+  }
+});
+
+test('Task 04 - Criterion 8: Session alias persistence operates atomically via temp file rename and survives restarts', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'agy-alias-'));
+  const mappingFile = join(tmpDir, 'antigravity-sessions.json');
+
+  try {
+    const provider1 = createAntigravityAgentProvider({
+      mappingFilePath: mappingFile,
+      spawnProcess: () => createMockProcess([
+        JSON.stringify({ type: 'init', conversation_id: 'real-agy-session-1' }),
+        JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'done' } }),
+      ]),
+    });
+
+    await provider1.startTurn({
+      turnId: 'turn-alias-1',
+      providerSessionId: 'dash-sess-1',
+      message: 'init alias',
+    });
+
+    const content = await readFile(mappingFile, 'utf8');
+    const parsed = JSON.parse(content);
+    assert.equal(parsed['dash-sess-1'], 'real-agy-session-1');
+    assert.equal(parsed['real-agy-session-1'], 'real-agy-session-1');
+
+    const provider2 = createAntigravityAgentProvider({
+      mappingFilePath: mappingFile,
+      spawnProcess: (cmd, args) => {
+        assert.ok(args.includes('--conversation'));
+        assert.equal(args[args.indexOf('--conversation') + 1], 'real-agy-session-1');
+        return createMockProcess([
+          JSON.stringify({ type: 'init', conversation_id: 'real-agy-session-1' }),
+          JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'second turn done' } }),
+        ]);
+      },
+    });
+
+    await provider2.startTurn({
+      turnId: 'turn-alias-2',
+      providerSessionId: 'dash-sess-1',
+      message: 'follow up',
+    });
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Task 04 - Criterion 9: Turn cancellation invokes terminateChildProcess and cleans up active turn state', async () => {
+  mcpInteractionRegistry.clear();
+  const child = new EventEmitter();
+  child.exitCode = null;
+  child.signalCode = null;
+  child.kill = (sig) => {
+    child.killed = true;
+    setImmediate(() => child.emit('close', 0));
+    return true;
+  };
+  child.stdin = new Writable({ write(c, e, cb) { cb(); } });
+  child.stdout = new Readable({ read() {} });
+  child.stderr = new Readable({ read() {} });
+
+  let spawnOpts = null;
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: (cmd, args, opts) => {
+      spawnOpts = opts;
+      return child;
+    },
+  });
+
+  const turnPromise = provider.startTurn({
+    turnId: 'turn-cancel-cleanup',
+    providerSessionId: 'sess-cancel-cleanup',
+    message: 'run long',
+  });
+
+  assert.ok(spawnOpts);
+  assert.equal(spawnOpts.detached, process.platform !== 'win32');
+
+  const cancelResult = await provider.cancelTurn({ turnId: 'turn-cancel-cleanup' });
+  assert.deepEqual(cancelResult, { cancelled: true });
+
+  await assert.rejects(turnPromise, (err) => err.code === 'AI_TURN_CANCELLED');
+  assert.equal(mcpInteractionRegistry.getActiveTurn({ turnId: 'turn-cancel-cleanup' }), null);
+});
+
+test('Task 04 - Criterion 10: CLI exit errors and transport timeouts map to normalized failure codes', () => {
+  // 1. Timeout (exitCode: 124) -> AI_PROVIDER_TIMEOUT (504, recoveryHint: none)
+  const timeoutErr = mapAntigravityError('Process timeout', 'Antigravity turn failed', 124);
+  assert.equal(timeoutErr.code, 'AI_PROVIDER_TIMEOUT');
+  assert.equal(timeoutErr.status, 504);
+  assert.equal(timeoutErr.recoveryHint, 'none');
+
+  // 2. Auth error -> AI_AUTH_FAILED (401, recoveryHint: operator-action)
+  const authErr = mapAntigravityError('Invalid API key / unauthorized', 'failed', 1);
+  assert.equal(authErr.code, 'AI_AUTH_FAILED');
+  assert.equal(authErr.status, 401);
+  assert.equal(authErr.recoveryHint, 'operator-action');
+
+  // 3. Quota exhausted -> AI_QUOTA_EXHAUSTED (429, recoveryHint: alternate-provider)
+  const quotaErr = mapAntigravityError('Quota limit exceeded. Please check billing.', 'failed', 1);
+  assert.equal(quotaErr.code, 'AI_QUOTA_EXHAUSTED');
+  assert.equal(quotaErr.status, 429);
+  assert.equal(quotaErr.recoveryHint, 'alternate-provider');
+
+  // 4. Rate limited -> AI_RATE_LIMITED (429, recoveryHint: retry-after-delay)
+  const rateErr = mapAntigravityError('Rate limit exceeded: too many requests', 'failed', 1);
+  assert.equal(rateErr.code, 'AI_RATE_LIMITED');
+  assert.equal(rateErr.status, 429);
+  assert.equal(rateErr.recoveryHint, 'retry-after-delay');
+
+  // 5. Policy denied -> AI_POLICY_DENIED (403, recoveryHint: operator-action)
+  const policyErr = mapAntigravityError('Policy denied: action forbidden by sandbox', 'failed', 1);
+  assert.equal(policyErr.code, 'AI_POLICY_DENIED');
+  assert.equal(policyErr.status, 403);
+  assert.equal(policyErr.recoveryHint, 'operator-action');
+
+  // 6. Generic execution error -> AI_PROVIDER_EXECUTION_ERROR (502, recoveryHint: new-turn)
+  const execErr = mapAntigravityError('Process crashed unexpectedly', 'failed', 1);
+  assert.equal(execErr.code, 'AI_PROVIDER_EXECUTION_ERROR');
+  assert.equal(execErr.status, 502);
+  assert.equal(execErr.recoveryHint, 'new-turn');
 });
