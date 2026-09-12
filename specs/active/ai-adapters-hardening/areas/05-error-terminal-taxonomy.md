@@ -70,18 +70,17 @@ Strictly decouple three orthogonal concepts:
    - If an operation handle vanishes and execution state cannot be proven, the turn transitions to `status: 'unknown'` with `reason: 'operation_lost'` and diagnostic code `AI_OPERATION_LOST`.
    - Nevo does **NOT** set `terminalOutcome`. Unknown means unknown.
    - Unsafe concurrent turn execution is strictly **blocked** for that session while state is unresolved, preventing conflicting edits or out-of-order execution.
-2. **Authoritative Reconciliation Evidence**:
-   - Only authoritative evidence can resolve an unproven state:
+2. **Authoritative Reconciliation Evidence for Provider Outcomes**:
+   - Provider semantic outcome (`completed` or `failed`) can ONLY be resolved by authoritative provider evidence:
      - Provider terminal protocol event (e.g. late completion/failure notification with verified turn correlation).
-     - Confirmed provider process exit (verified by OS process check confirming the specific PID is terminated).
      - Provider-supported operation/status query (where the protocol natively supports status interrogation).
-     - Another transport-specific authoritative signal.
-3. **Handling Forced Cleanup**:
-   - If no authoritative provider evidence arrives and Nevo intentionally performs forced cleanup/termination to recover session control (e.g. operator cancellation or recovery supervisor terminating the process tree):
-   - Nevo records the lifecycle result as `terminal (outcome: 'interrupted', cause: 'forced_cleanup')` only after process tree termination is proven, without claiming an unknown provider result.
+3. **Confirmed Process Exit and Forced Cleanup**:
+   - Confirmed provider process exit (verified by OS process check confirming the specific PID is terminated) proves that process liveness has ended; it does **NOT** prove a semantic provider outcome.
+   - If process termination is verified (either following lost connection or via Nevo forced cleanup/cancellation to recover session control) without authoritative provider protocol frames:
+   - Nevo records the lifecycle result as `terminal (outcome: 'interrupted', cause: 'forced_cleanup')` only after process tree termination is proven, without fabricating an unobserved provider result.
 
 ### Owner decision resolution
-- **Adopted (Approved by Owner — Decision 7)**: Epistemic truth preservation and authoritative reconciliation rules are adopted. Forced cleanup settles as `outcome: 'interrupted'`.
+- **Adopted (Approved by Owner — Decision 7)**: Epistemic truth preservation, authoritative reconciliation rules, and process-exit precision are adopted. Forced cleanup settles as `outcome: 'interrupted'`.
 
 ---
 

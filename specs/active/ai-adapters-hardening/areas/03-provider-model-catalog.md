@@ -44,8 +44,17 @@ To preserve truthfulness and prevent false rejections, model information is cate
 - Absence of a known trait means **UNKNOWN**, not false.
 - Catalog metadata must **NEVER** be used to discard, filter, or suppress evidenced provider output.
 
+### Model traits evidence rules (Discovered vs Configured vs Unknown)
+- For every field on `AgentModelDescriptor` and `AgentModelTraits`, distinguish:
+  1. **Authoritatively discovered for that specific model**: Grounded in per-model metadata returned by the provider protocol (e.g. Codex `model/list` exposes `supportedReasoningEfforts` and `defaultReasoningEffort` per model).
+  2. **Configured / advisory**: Supplied by operator configuration in `ai-providers.yaml` or curated baseline.
+  3. **Unknown (`undefined`)**: When no per-model evidence exists, fields remain `undefined`.
+- **Global CLI flags do not imply per-model traits**: The presence of a global CLI option (e.g. `agy --effort` or `claude --model`) proves only transport invocation syntax, NOT per-model capability evidence.
+- Because `agy models` outputs only model ID and display label without per-model effort options, `supportedReasoningEfforts` for Antigravity models must be left `undefined` (unknown) rather than manufactured from `--effort`.
+- The same rule applies to Claude models: traits not declared in operator configuration remain `undefined`.
+
 ### Owner decision resolution
-- **Adopted (Approved by Owner — Decision 1)**: Adapter-owned discovery, permissive passthrough, and best-available-source principles are adopted. Nevo core exposes and consumes `AgentModelDescriptor[]` without owning a hardcoded global catalog.
+- **Adopted (Approved by Owner — Decision 1)**: Adapter-owned discovery, permissive passthrough, best-available-source principles, and model trait evidence rules are adopted. Nevo core exposes and consumes `AgentModelDescriptor[]` without owning a hardcoded global catalog.
 
 ---
 

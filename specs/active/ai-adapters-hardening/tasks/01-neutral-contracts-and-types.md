@@ -22,7 +22,6 @@ allowed_paths:
 forbidden_paths:
   - tools/dashboard/server/ai/providers/**
   - tools/dashboard/server/ai/sessions/**
-  - tools/dashboard/server/ai/runtime/**
   - tools/dashboard/ui/**
   - src/**
   - tests/NEvo.*/**
@@ -39,7 +38,7 @@ Implement the provider-neutral type definitions, schemas, normalizers, and valid
 
 ## Requirements
 
-- Define and export `AgentModelDescriptor` and `AgentModelTraits` schemas, supporting `id`, `label`, `isDefault`, `source` (`'discovered' | 'configured' | 'known'`), and advisory traits (`supportsReasoning`, `supportedReasoningEfforts`, `defaultReasoningEffort`, `inputModalities`, `supportsVision`, `maxContextTokens`).
+- Define and export `AgentModelDescriptor` and `AgentModelTraits` schemas, supporting `id`, `label`, `isDefault`, `source` (`'discovered' | 'configured' | 'known'`), and advisory traits (`supportsReasoning`, `supportedReasoningEfforts`, `defaultReasoningEffort`, `inputModalities`, `supportsVision`, `maxContextTokens`). All trait fields are optional, with `undefined` denoting unknown rather than false; traits must never be manufactured from global CLI syntax flags.
 - Update `ProviderCapabilities` to include `canOverrideTurnModel`, `toolCalls` (authoritative flag), and `reasoningEvents`, separating transport capabilities from model-level traits.
 - Update `AgentProviderDescriptor` to export `models: AgentModelDescriptor[]` and `health: ProviderHealth` (`enabled`, `installed`, `version`, `status`, optional `authenticated`, `unavailableReason`).
 - Define the 12 normalized failure codes (`AI_AUTH_FAILED`, `AI_POLICY_DENIED`, `AI_RATE_LIMITED`, `AI_QUOTA_EXHAUSTED`, `AI_PROVIDER_UNAVAILABLE`, `AI_TRANSPORT_ERROR`, `AI_PROVIDER_TIMEOUT`, `AI_RUNTIME_TIMEOUT`, `AI_PROTOCOL_ERROR`, `AI_UNSUPPORTED_OPERATION`, `AI_OPERATION_LOST`, `AI_PROVIDER_EXECUTION_ERROR`) and `recoveryHint` values (`none`, `retry-after-delay`, `new-turn`, `new-session`, `operator-action`, `alternate-provider`).

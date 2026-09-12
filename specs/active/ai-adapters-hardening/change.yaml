@@ -27,6 +27,7 @@ tasks:
     status: draft
     depends_on:
       - neutral-contracts-and-types
+      - windows-process-tree-termination
 
   - id: antigravity-adapter-hardening
     order: 4

@@ -10,16 +10,20 @@ context:
     - specs/active/ai-adapters-hardening/areas/02-interaction-ask-contract.md
     - specs/active/ai-adapters-hardening/areas/04-provider-capability-model.md
     - docs/development/node-tooling-guidelines.md
-    - tools/dashboard/server/ai/runtime/agent-turn-runtime.mjs
+    - tools/dashboard/server/ai/sessions/turns/runtime.mjs
     - tools/dashboard/server/ai/sessions/turns/turn-event-stream.mjs
   optional:
     - specs/active/ai-adapters-hardening/discovery.md
 allowed_paths:
-  - tools/dashboard/server/ai/runtime/**
+  - tools/dashboard/server/ai/sessions/turns/runtime.mjs
   - tools/dashboard/server/ai/sessions/turns/turn-event-stream.mjs
-  - tools/dashboard/tests/ai-event-pipeline.test.mjs
+  - tools/dashboard/tests/ai-turn-runtime.test.mjs
+  - tools/dashboard/tests/turn-event-stream.test.mjs
 forbidden_paths:
   - tools/dashboard/server/ai/providers/**
+  - tools/dashboard/server/ai/sessions/turns/coordinator.mjs
+  - tools/dashboard/server/ai/sessions/turns/turn-recovery.mjs
+  - tools/dashboard/server/ai/contracts.mjs
   - tools/dashboard/ui/**
   - src/**
   - tests/NEvo.*/**
@@ -33,7 +37,7 @@ semantic_references:
 
 ## Goal
 
-Formalize the four-layer event transformation pipeline in `AgentTurnRuntime` and `TurnEventStream`, enforcing runtime evidence precedence over advisory catalog metadata, strict separation of commentary vs final answer, elimination of text heuristics, and composer fallback for terminal questions.
+Formalize the four-layer event transformation pipeline in `runtime.mjs` and `turn-event-stream.mjs`, enforcing runtime evidence precedence over advisory catalog metadata, strict separation of commentary vs final answer, elimination of text heuristics, and composer fallback for terminal questions.
 
 ## Requirements
 
@@ -49,14 +53,14 @@ Formalize the four-layer event transformation pipeline in `AgentTurnRuntime` and
 
 ## Acceptance criteria
 
-1. Four-layer pipeline transforms internal semantic events into public `AgentEvent` SSE stream without leaking internal or provider-specific envelopes. `automated: node --test tools/dashboard/tests/ai-event-pipeline.test.mjs`
-2. Runtime evidence precedence ensures reasoning deltas from providers are accepted and projected even when model metadata is omitted or unknown. `automated: node --test tools/dashboard/tests/ai-event-pipeline.test.mjs`
-3. Commentary and final answer deltas are preserved as distinct non-interchangeable channels; commentary is never promoted to final answer on completion. `automated: node --test tools/dashboard/tests/ai-event-pipeline.test.mjs`
-4. Regex and text heuristic parsing are strictly prohibited; unevidenced text questions settle as `completed` with `finalAnswer` without fabricating interactions. `automated: node --test tools/dashboard/tests/ai-event-pipeline.test.mjs`
-5. Active or queued tools are authoritatively closed with explicit `closureReason` when a turn terminates. `automated: node --test tools/dashboard/tests/ai-event-pipeline.test.mjs`
+1. Four-layer pipeline transforms internal semantic events into public `AgentEvent` SSE stream without leaking internal or provider-specific envelopes. `automated: node --test tools/dashboard/tests/turn-event-stream.test.mjs`
+2. Runtime evidence precedence ensures reasoning deltas from providers are accepted and projected even when model metadata is omitted or unknown. `automated: node --test tools/dashboard/tests/ai-turn-runtime.test.mjs`
+3. Commentary and final answer deltas are preserved as distinct non-interchangeable channels; commentary is never promoted to final answer on completion. `automated: node --test tools/dashboard/tests/ai-turn-runtime.test.mjs`
+4. Regex and text heuristic parsing are strictly prohibited; unevidenced text questions settle as `completed` with `finalAnswer` without fabricating interactions. `automated: node --test tools/dashboard/tests/ai-turn-runtime.test.mjs`
+5. Active or queued tools are authoritatively closed with explicit `closureReason` when a turn terminates. `automated: node --test tools/dashboard/tests/ai-turn-runtime.test.mjs`
 
 ## Verification
 
 ```text
-node --test tools/dashboard/tests/ai-event-pipeline.test.mjs
+node --test tools/dashboard/tests/ai-turn-runtime.test.mjs tools/dashboard/tests/turn-event-stream.test.mjs
 ```

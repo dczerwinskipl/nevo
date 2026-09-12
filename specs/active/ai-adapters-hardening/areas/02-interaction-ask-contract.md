@@ -11,7 +11,8 @@ Define the provider-neutral interaction contract for mid-turn user input (questi
 ### Current fact
 - The canonical contract in `tools/dashboard/server/ai/contracts.mjs` (`normalizeInteraction`) defines three interaction kinds: `question`, `permission`, and `confirmation`.
 - `INTERACTION_RESUME_POLICIES` defines two policies: `'restart'` and `'live-operation'`.
-- Codex natively supports `question` and `permission` via JSON-RPC. Claude supports `question` via MCP HTTP bridge. Antigravity does not support mid-turn interactions in headless mode.
+- Codex natively supports `question` and `permission` via JSON-RPC. Claude supports `question` via MCP HTTP bridge.
+- Antigravity operates headlessly in print mode (`agy --print <prompt> --output-format stream-json`); live probes confirm it attempts connection to configured MCP servers, but the CLI lacks ephemeral `--mcp-config` support and relies on machine-global `~/.gemini/config/mcp_config.json` without per-invocation isolation or cleanup guarantees.
 
 ### Proposed target
 Retain the three structured interaction kinds:
@@ -88,10 +89,14 @@ Used when the agent seeks high-level acknowledgment of a plan or irreversible wo
    - Codex adapter cancels the underlying pending JSON-RPC request with a declining response. Claude adapter cancels via `mcpInteractionRegistry.cancelTurn()`.
 
 5. **Terminal textual questions (Composer fallback)**:
-   - For headless or non-interactive providers (Antigravity), or when an interactive provider model asks a question in text without triggering an evidenced tool interaction:
+   - When an adapter operates without structured mid-turn question interactions (e.g. Antigravity under Option 1), or when an interactive provider model outputs a question in conversational text without triggering an evidenced tool interaction:
    - The turn completes normally with `status: 'terminal' (outcome: 'completed')` and the question text resides in `finalAnswer`.
    - The user replies using the normal composer, initiating a new turn.
    - No synthetic interaction is fabricated via text regex.
 
 ### Owner decision resolution
-- **Adopted (Approved by Owner — Decision 3)**: Correlation, continuation, and composer fallback policies are adopted. Transport-specific interaction mechanisms are cleanly segregated (Codex stdio JSON-RPC, Claude in-process MCP, Antigravity headless non-interactive with composer fallback).
+- **Adopted for Codex and Claude (Approved by Owner — Decision 3)**: Correlation, continuation, neutral schemas, and zero text heuristics are adopted. Transport mechanisms are segregated (Codex stdio JSON-RPC, Claude in-process Fastify MCP bridge).
+- **Owner Clarification Required for Antigravity**: Because safe ephemeral MCP configuration is not supported by `agy` CLI, Antigravity Ask capability is blocked on owner clarification between:
+  - Option 1: `interactiveQuestions: false` with clean composer fallback (Recommended; zero side effects).
+  - Option 2: Nevo-managed local MCP server with `~/.gemini/config/mcp_config.json` global hooks.
+  - Option 3: Defer structured Ask until upstream `agy` introduces `--mcp-config`.

@@ -34,13 +34,13 @@ Following the implementation of the canonical Turn and Work model (ADR-0008), de
 - [owner-decisions.md](owner-decisions.md): Formally approved owner architectural decisions (D1–D10):
   1. Provider Model Catalog Strategy (Discovered vs Configured vs Known vs Provider Default; Permissive passthrough)
   2. Model Selection Scope (Session persistence; Capability-driven turn switching via `canOverrideTurnModel`)
-  3. Interaction Contract & Headless Adapter Policy (Neutral contract; Codex stdio RPC, Claude MCP bridge, Antigravity headless with composer fallback; no text heuristics)
-  4. Capability Ownership & Decoupling (Transport Capabilities vs Model Traits; Runtime evidence precedence)
+  3. Interaction Contract & Headless Adapter Policy (Neutral contract; Codex stdio RPC, Claude MCP bridge; Antigravity Ask capability blocked on owner clarification; zero text heuristics)
+  4. Capability Ownership & Decoupling (Transport Capabilities vs Model Traits; Runtime evidence precedence; no trait manufacturing from global CLI flags)
   5. Public vs Internal Event Vocabulary & Output Semantics (4-layer transformation pipeline)
   6. Error & Failure Taxonomy vs Terminal Outcomes (Decoupled terminal outcomes, 12 normalized codes, structured recovery hints)
-  7. Lost / Unknown Operation Semantics (Epistemic truth; `status: 'unknown'`; reconciliation via authoritative evidence; forced cleanup settles as `interrupted`)
+  7. Lost / Unknown Operation Semantics (Epistemic truth; `status: 'unknown'`; reconciliation via authoritative evidence; process-exit precision; forced cleanup settles as `interrupted`)
   8. Antigravity Session Identity & Alias Store (Preserved and encapsulated within Antigravity adapter boundary with atomic writes)
-  9. Child Process Lifecycle & Windows Process Tree Termination (OS-aware process tree termination)
+  9. Child Process Lifecycle & Process Tree Termination (Complete OS-aware process tree lifecycle: spawn-side process groups on POSIX and tree termination on Windows)
   10. Provider Availability vs Health Metadata Decoupling (Stable configuration facts vs transient health; per-turn rate-limit isolation)
 - **Area specifications**:
   - [Area 1: Normalized output semantics](areas/01-normalized-output-semantics.md): Four-layer event transformation pipeline, canonical three-level Work hierarchy, orthogonal FinalAnswer, and zero text heuristics.
@@ -62,7 +62,7 @@ Following the implementation of the canonical Turn and Work model (ADR-0008), de
 - **C6.** Headless composer fallback: For non-interactive providers or terminal text questions, turns complete with `finalAnswer` and users continue conversation via the composer.
 - **C7.** Decoupled error taxonomy: Terminal outcomes (`completed`, `failed`, `cancelled`, `interrupted`), normalized failure codes (12 codes), and structured recovery hints are strictly separate fields.
 - **C8.** Epistemic truth on lost operations: Lost operation handles transition to `status: 'unknown'`; they are never falsely marked as `failed` without authoritative evidence.
-- **C9.** Safe process tree termination: Cancellation and timeouts terminate the entire process tree on all platforms (using Windows-native process tree termination on Windows).
+- **C9.** Safe process tree termination: Cancellation and timeouts terminate the entire process tree on all platforms (POSIX process groups established at spawn and Windows-native taskkill/Job Objects).
 - **C10.** Health and error isolation: Per-turn rate limits, quotas, or execution failures must never mark a provider descriptor globally unavailable or uninstalled.
 - **C11.** Private diagnostics isolation: Raw diagnostic capture and logs remain server-side on disk and are strictly forbidden from public HTTP endpoints and SSE streams.
 - **C12.** Atomic file persistence: Local adapter persistence files must use atomic writes (temp file + rename) to protect against corruption during unexpected termination.

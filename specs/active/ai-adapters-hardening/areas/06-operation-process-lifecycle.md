@@ -40,17 +40,21 @@ Explicitly decouple four nested lifecycles:
 
 ### Current fact
 - Claude and Antigravity spawn CLI child processes that frequently spawn compound tool subprocesses (compilers, `git`, `bash`, tests).
+- Codex app-server client spawns the `codex app-server` daemon child process.
 - On Windows, Node.js `child.kill('SIGINT')` or `child.kill('SIGKILL')` calls `TerminateProcess` on the immediate child PID only.
 - Grandchild worker processes are NOT terminated and continue running orphaned, locking repository files and consuming CPU.
+- On POSIX, terminating a process tree via process group signaling (`process.kill(-pid, signal)`) requires that the child was spawned with `detached: true` to become a process group leader.
 
 ### Target architecture
-- Harden `terminateChildProcess()` in `tools/dashboard/server/ai/sessions/turns/process-termination.mjs`:
-  - **On Windows**: Invoke `taskkill.exe /PID <pid> /T /F` or assign the spawned child to a Windows Job Object configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`.
-  - **On POSIX**: Spawn with `detached: true` and terminate the process group via `process.kill(-pid, signal)`.
-  - Verification loop ensures all processes in the tree have exited before completing termination promise.
+- Implement complete OS-aware process tree lifecycle in `tools/dashboard/server/ai/providers/process-termination.mjs`:
+  - **Spawn-side process group establishment**: Expose shared spawn options helper (e.g. `{ detached: process.platform !== 'win32' }`). Claude, Antigravity, and Codex app-server client all use this configuration when spawning child processes.
+  - **Kill-side tree termination**:
+    - **On Windows**: Invoke `taskkill.exe /PID <pid> /T /F` or assign the spawned child to a Windows Job Object configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`.
+    - **On POSIX**: Terminate the process group via `process.kill(-pid, signal)`.
+  - **Post-termination verification**: Polling check confirms the target PID has ceased execution before resolving the termination promise.
 
 ### Owner decision resolution
-- **Adopted (Approved by Owner — Decision 9)**: OS-aware process tree termination is adopted, preventing orphaned worker processes on Windows.
+- **Adopted (Approved by Owner — Decision 9)**: Complete OS-aware process tree lifecycle management (spawn-side process groups and kill-side tree termination) is adopted across all providers that spawn child processes.
 
 ---
 
@@ -63,15 +67,15 @@ Explicitly decouple four nested lifecycles:
 
 ### Target architecture
 - Preserve epistemic truth: if an operation handle vanishes and execution state cannot be proven, the turn transitions to `status: 'unknown'` with `reason: 'operation_lost'` and diagnostic code `AI_OPERATION_LOST`.
-- The turn is NOT sealed as failed until authoritative evidence resolves it:
+- The turn is NOT sealed as completed or failed until authoritative evidence resolves it:
   1. Provider terminal protocol event (e.g. late completion frame with turn correlation).
-  2. Confirmed provider process exit (verified by OS process check that the specific PID has terminated).
-  3. Provider-supported operation/status query.
+  2. Provider-supported operation/status query.
+- Confirmed PID termination proves only that process liveness has ended; it does not prove a semantic provider outcome.
 - Unsafe concurrent turn execution is strictly **blocked** for that session while state is unresolved.
-- If Nevo intentionally performs forced cleanup/termination to recover session control, Nevo records its own lifecycle result as `terminal (outcome: 'interrupted', cause: 'forced_cleanup')` once termination is proven, without asserting an unknown provider outcome.
+- If Nevo intentionally performs forced cleanup/termination to recover session control, Nevo records its own lifecycle result as `terminal (outcome: 'interrupted', cause: 'forced_cleanup')` once termination is proven, without asserting an unobserved provider outcome.
 
 ### Owner decision resolution
-- **Adopted (Approved by Owner — Decision 7)**: Epistemic truth preservation, state reconciliation, and forced cleanup policies are adopted.
+- **Adopted (Approved by Owner — Decision 7)**: Epistemic truth preservation, state reconciliation, process-exit precision, and forced cleanup policies are adopted.
 
 ---
 
@@ -101,7 +105,7 @@ Explicitly decouple four nested lifecycles:
 ### Current fact
 - In `turn-recovery.mjs` (`reconcileOrphanedTurns`):
   - When the server boots, any Turn left in non-terminal status (`active`, `waiting`, `cancelling`) from an ungraceful shutdown is scanned.
-  - Active turns are transitioned to `status: 'terminal' (outcome: 'interrupted', cause: 'server-restart')` with code `AI_TURN_INTERRUPTED`.
+  - Active turns are transitioned to `status: 'terminal' (outcome: 'interrupted', cause: 'server-restart')`.
   - Dangling tools are closed with `closureReason: 'turn_interrupted'`.
   - Interactions with `resumePolicy: 'live-operation'` are marked `interrupted`; interactions with `resumePolicy: 'restart'` remain pending.
 

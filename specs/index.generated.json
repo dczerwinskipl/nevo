@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-12T07:41:52.698Z",
+  "generated": "2026-09-12T08:15:46.636Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -27,7 +27,8 @@
           "file": "tasks/03-codex-adapter-hardening.md",
           "status": "draft",
           "depends_on": [
-            "neutral-contracts-and-types"
+            "neutral-contracts-and-types",
+            "windows-process-tree-termination"
           ]
         },
         {

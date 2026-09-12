@@ -108,7 +108,8 @@ classDiagram
    - `inputModalities`: Supported modalities (e.g. `['text', 'image', 'audio']`).
    - `supportsVision`: Model accepts multimodal image attachments.
    - `maxContextTokens`: Maximum context window size.
-   - *Absence of a trait means UNKNOWN, not false.*
+   - *Absence of a trait means UNKNOWN (`undefined`), not false.*
+   - *Evidence rule: Traits must be grounded in per-model protocol evidence or explicit operator configuration. Global CLI flags (such as `agy --effort`) prove CLI transport capability, not per-model traits, and must not be used to manufacture traits.*
 
 3. **Effective Turn Behavior and Evidence Precedence**:
    - Provider and model catalog metadata may be unknown or incomplete.
