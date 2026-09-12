@@ -831,7 +831,7 @@ export class CodexAgentProvider {
         operation,
         rawError
           ? mapCodexError(rawError, 'turn/start')
-          : new AiError('AI_PROVIDER_ERROR', 'Codex turn failed.', { status: 502 }),
+          : new AiError('AI_PROVIDER_EXECUTION_ERROR', 'Codex turn failed.', { status: 502 }),
       );
       return;
     }

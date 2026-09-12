@@ -134,8 +134,8 @@ export function mapClaudeError(rawError, fallbackMessage = 'Claude turn failed.'
   }
 
   if (rawError?.code === 'ENOENT' || /ENOENT|not found in PATH/i.test(message)) {
-    return new AiError('AI_PROVIDER_PROCESS_ERROR', message, {
-      status: 502,
+    return new AiError('AI_PROVIDER_UNAVAILABLE', message, {
+      status: 503,
       recoveryHint: 'operator-action',
       details,
     });
@@ -624,8 +624,11 @@ export class ClaudeAgentProvider {
             unlinkSync(mcpConfigPath);
           } catch {}
         }
+        const spawnErrorCode = err.code === 'ENOENT' ? 'AI_PROVIDER_UNAVAILABLE' : 'AI_TRANSPORT_ERROR';
+        const status = err.code === 'ENOENT' ? 503 : 502;
+        const recoveryHint = err.code === 'ENOENT' ? 'operator-action' : 'new-turn';
         return reject(
-          new AiError('AI_PROVIDER_SPAWN_ERROR', `Failed to spawn claude CLI: ${err.message}`, { cause: err }),
+          new AiError(spawnErrorCode, `Failed to spawn claude CLI: ${err.message}`, { status, recoveryHint, cause: err }),
         );
       }
 
@@ -1260,9 +1263,9 @@ export class ClaudeAgentProvider {
     });
     if (!result.terminated) {
       throw new AiError(
-        'AI_PROCESS_TERMINATION_FAILED',
+        'AI_OPERATION_LOST',
         'Failed to terminate Claude CLI process within bounded timeout.',
-        { status: 500 },
+        { status: 500, recoveryHint: 'operator-action' },
       );
     }
   }

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  CapabilityNotSupportedError,
   validateAgentIdentity,
   validateAgentExecutionMode,
   computeCurrentActivity,
@@ -138,8 +139,30 @@ export class AgentSessionService {
     this.bindingService = bindingService;
   }
 
-  listProviders() {
-    return this.registry.descriptors();
+  async listProviders({ includeModels = true } = {}) {
+    const descriptors = this.registry.descriptors();
+    if (!includeModels) return descriptors;
+    return Promise.all(
+      descriptors.map(async (desc) => {
+        try {
+          const entry = this.registry.has(desc.id) ? this.registry.get(desc.id) : null;
+          if (entry && typeof entry.provider.listModels === 'function') {
+            const models = await entry.provider.listModels();
+            return {
+              ...desc,
+              models: Array.isArray(models) ? models : [],
+            };
+          }
+          return { ...desc, models: [] };
+        } catch (error) {
+          return {
+            ...desc,
+            models: [],
+            modelsError: error?.message || 'Failed to list models',
+          };
+        }
+      }),
+    );
   }
 
   async createSession(provider, options = {}) {
@@ -163,6 +186,7 @@ export class AgentSessionService {
         taskIds: taskIds.length > 0 ? taskIds : undefined,
         purpose,
         mode,
+        model: options.model,
         title: options.title,
       });
       providerSessionId = typeof created === 'string' ? created : created?.providerSessionId;
@@ -186,6 +210,7 @@ export class AgentSessionService {
             taskId: tId,
             purpose: options.purpose || options.title || `task:${tId}`,
             mode,
+            model: options.model,
             established,
           });
         }
@@ -197,6 +222,7 @@ export class AgentSessionService {
           taskId: undefined,
           purpose,
           mode,
+          model: options.model,
           established,
         });
       }
@@ -209,6 +235,7 @@ export class AgentSessionService {
         taskId: primaryTaskId,
         purpose,
         mode,
+        model: options.model,
         title: options.title || `${provider} session`,
         createdAt: new Date().toISOString(),
         lastSeenAt: new Date().toISOString(),
@@ -219,6 +246,7 @@ export class AgentSessionService {
       sessionId: providerSessionId,
       taskIds,
       taskId: primaryTaskId,
+      model: options.model,
     };
   }
 
@@ -423,6 +451,7 @@ export class AgentSessionService {
       status: readiness.status === 'unavailable' ? 'unavailable' : status,
       capabilities,
       mode: resolvedMode,
+      model: binding?.model ?? null,
       specId: specId ?? binding?.specId,
       taskId: binding?.taskId,
       taskIds,
@@ -504,6 +533,27 @@ export class AgentSessionService {
       effectiveMode = entry?.descriptor?.defaultMode || 'edit';
     }
 
+    // Model resolution
+    let effectiveModel = opts.model;
+    if (sessId && sessionBinding) {
+      if (effectiveModel && sessionBinding.model && effectiveModel !== sessionBinding.model) {
+        const entry = this.registry?.get?.(prov);
+        const canOverride = Boolean(entry?.descriptor?.capabilities?.canOverrideTurnModel);
+        if (!canOverride) {
+          throw new CapabilityNotSupportedError(prov, 'canOverrideTurnModel');
+        }
+        if (this.bindingService) {
+          await this.bindingService.updateSessionModel(prov, sessId, effectiveModel);
+        }
+      } else if (effectiveModel && !sessionBinding.model) {
+        if (this.bindingService) {
+          await this.bindingService.updateSessionModel(prov, sessId, effectiveModel);
+        }
+      } else if (!effectiveModel && sessionBinding.model) {
+        effectiveModel = sessionBinding.model;
+      }
+    }
+
     let onSessionEstablished = opts.onSessionEstablished;
     if (!sessId && this.bindingService && !onSessionEstablished) {
       onSessionEstablished = async (allocatedSessionId) => {
@@ -516,6 +566,7 @@ export class AgentSessionService {
               taskId: tId,
               purpose: opts.purpose || `task:${tId}`,
               mode: effectiveMode,
+              model: effectiveModel,
             });
           }
         } else {
@@ -526,6 +577,7 @@ export class AgentSessionService {
             taskId: opts.taskId,
             purpose: opts.purpose || (opts.taskId ? `task:${opts.taskId}` : 'interactive'),
             mode: effectiveMode,
+            model: effectiveModel,
           });
         }
       };
@@ -552,6 +604,8 @@ export class AgentSessionService {
       message: opts.message ?? opts.prompt,
       prompt: opts.message ?? opts.prompt,
       mode: effectiveMode,
+      model: effectiveModel,
+      effort: opts.effort ?? opts.reasoningEffort,
       onSessionEstablished,
     });
   }

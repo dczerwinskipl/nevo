@@ -280,7 +280,7 @@ test('default dashboard AI service registers no providers when the local config 
   });
   try {
     assert.deepEqual(service.registry.list(), []);
-    assert.deepEqual(service.listProviders(), []);
+    assert.deepEqual(await service.listProviders(), []);
   } finally {
     await service.shutdown();
     await rm(configDir, { recursive: true, force: true });

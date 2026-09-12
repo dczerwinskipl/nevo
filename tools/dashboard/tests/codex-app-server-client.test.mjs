@@ -340,7 +340,7 @@ test('initialization failure fans out to all gated callers', async () => {
   const calls = [client.request('thread/start', {}), client.request('thread/resume', { threadId: 't' })];
   const outcomes = await Promise.allSettled(calls);
   assert.ok(outcomes.every((outcome) => outcome.status === 'rejected'));
-  assert.ok(outcomes.every((outcome) => outcome.reason.code === 'AI_PROVIDER_INITIALIZATION_FAILED'));
+  assert.ok(outcomes.every((outcome) => outcome.reason.code === 'AI_TRANSPORT_ERROR'));
   assert.equal(child.received.filter((message) => message.method === 'initialize').length, 1);
 });
 

@@ -137,10 +137,24 @@ export async function terminateChildProcess(child, options = {}) {
 
   const graceMs = typeof options.graceMs === 'number' ? options.graceMs : 2000;
   const forceGraceMs = typeof options.forceGraceMs === 'number' ? options.forceGraceMs : 2000;
+  const pid = typeof child.pid === 'number' && Number.isInteger(child.pid) && child.pid > 0 ? child.pid : null;
+  const descendantPids = Array.isArray(options.descendantPids)
+    ? options.descendantPids.filter((p) => typeof p === 'number' && Number.isInteger(p) && p > 0)
+    : [];
 
   // Stage 1: Graceful SIGINT
   try {
-    if (typeof child.kill === 'function') {
+    if (process.platform !== 'win32' && pid) {
+      try {
+        process.kill(-pid, 'SIGINT');
+      } catch {
+        if (typeof child.kill === 'function') {
+          child.kill('SIGINT');
+        } else {
+          process.kill(pid, 'SIGINT');
+        }
+      }
+    } else if (typeof child.kill === 'function') {
       child.kill('SIGINT');
     }
   } catch {
@@ -149,12 +163,12 @@ export async function terminateChildProcess(child, options = {}) {
 
   const exitedAfterSigint = await waitForChildExit(child, graceMs);
   if (exitedAfterSigint || isChildTerminated(child)) {
-    return { terminated: true, signal: 'SIGINT' };
+    if (descendantPids.length === 0 || descendantPids.every((p) => !isProcessAlive(p))) {
+      return { terminated: true, signal: 'SIGINT' };
+    }
   }
 
   // Stage 2: Forceful termination escalation (OS-aware process tree termination)
-  const pid = typeof child.pid === 'number' && Number.isInteger(child.pid) && child.pid > 0 ? child.pid : null;
-
   if (process.platform === 'win32' && pid) {
     try {
       await execFileAsync('taskkill.exe', ['/PID', String(pid), '/T', '/F']);
@@ -165,6 +179,13 @@ export async function terminateChildProcess(child, options = {}) {
           child.kill('SIGKILL');
         }
       } catch {}
+    }
+    for (const dPid of descendantPids) {
+      if (isProcessAlive(dPid)) {
+        try {
+          await execFileAsync('taskkill.exe', ['/PID', String(dPid), '/F']);
+        } catch {}
+      }
     }
   } else if (pid) {
     // POSIX process-group kill
@@ -180,6 +201,13 @@ export async function terminateChildProcess(child, options = {}) {
         child.kill('SIGKILL');
       }
     } catch {}
+    for (const dPid of descendantPids) {
+      if (isProcessAlive(dPid)) {
+        try {
+          process.kill(dPid, 'SIGKILL');
+        } catch {}
+      }
+    }
   } else {
     // Mock / non-PID wrapper
     try {
@@ -193,18 +221,19 @@ export async function terminateChildProcess(child, options = {}) {
 
   const exitedAfterSigkill = await waitForChildExit(child, forceGraceMs);
 
-  // Post-termination verification checking that target PID has ceased executing
-  let osConfirmedDead = false;
-  if (pid) {
+  // Stage 3: Post-termination verification checking that target PIDs have ceased executing
+  const allPids = [pid, ...descendantPids].filter(Boolean);
+  let osConfirmedDead = true;
+  if (allPids.length > 0) {
     const deadline = Date.now() + 500;
-    while (isProcessAlive(pid) && Date.now() < deadline) {
+    while (allPids.some((p) => isProcessAlive(p)) && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 50));
     }
-    osConfirmedDead = !isProcessAlive(pid);
+    osConfirmedDead = allPids.every((p) => !isProcessAlive(p));
   }
 
   return {
-    terminated: exitedAfterSigkill || isChildTerminated(child) || osConfirmedDead,
+    terminated: (exitedAfterSigkill || isChildTerminated(child)) && osConfirmedDead,
     signal: 'SIGKILL',
   };
 }

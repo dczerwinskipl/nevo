@@ -109,7 +109,7 @@ class FakeCodexClient {
     };
   }
 
-  fail(error = Object.assign(new Error('client failed'), { code: 'AI_PROVIDER_PROCESS_ERROR' })) {
+  fail(error = Object.assign(new Error('client failed'), { code: 'AI_PROVIDER_EXECUTION_ERROR' })) {
     for (const waiter of [...this.waiters]) waiter.reject(error);
     this.waiters.clear();
   }
@@ -1119,7 +1119,7 @@ for (const status of ['interrupted', 'failed']) {
     await completeTurn(client, 'thread-1', 'codex-turn-1', status);
     await assert.rejects(
       turn.promise,
-      (error) => error.code === (status === 'interrupted' ? 'AI_TURN_INTERRUPTED' : 'AI_PROVIDER_ERROR'),
+      (error) => error.code === (status === 'interrupted' ? 'AI_TURN_INTERRUPTED' : 'AI_PROVIDER_EXECUTION_ERROR'),
     );
     assert.equal(turn.emitted.completed[0].status, 'failed');
   });

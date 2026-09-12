@@ -4,6 +4,9 @@ export function sessionKey(provider, providerSessionId) {
   return `${provider}\u0000${providerSessionId}`;
 }
 
+const PRIVATE_EVENT_FIELD_PATTERN =
+  /provider.*(?:request|event|payload).*id|providerRequestId|rawPayload|rawBytes|childPid|processId|processHandle|childProcess|rpcEnvelope|envelope|transport|^pid$/i;
+
 export function sanitizeEventData(value) {
   if (!value || typeof value !== 'object') return value;
   if (Array.isArray(value)) {
@@ -11,7 +14,7 @@ export function sanitizeEventData(value) {
   }
   const clean = {};
   for (const [key, val] of Object.entries(value)) {
-    if (/provider.*(?:request|event|payload).*id|providerRequestId|rawPayload|rawBytes|envelope|rpcEnvelope/i.test(key)) {
+    if (PRIVATE_EVENT_FIELD_PATTERN.test(key)) {
       continue;
     }
     clean[key] = sanitizeEventData(val);

@@ -45,6 +45,7 @@ export class TurnLifecycleCoordinator {
     provider,
     providerSessionId = null,
     mode = 'edit',
+    model = null,
     prompt = null,
     userMessage = null,
     traceSink = null,
@@ -60,6 +61,7 @@ export class TurnLifecycleCoordinator {
           provider,
           providerSessionId: providerSessionId || null,
           mode,
+          ...(model ? { model } : {}),
         });
     if (prompt && !this.#turn.prompt) {
       this.#turn.prompt = prompt;

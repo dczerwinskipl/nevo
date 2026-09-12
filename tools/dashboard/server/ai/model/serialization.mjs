@@ -1,7 +1,8 @@
 import { AiValidationError } from '../contracts.mjs';
 import { validateCanonicalTurn, computeCurrentActivity } from './canonical-turn.mjs';
 
-const PRIVATE_KEY_PATTERN = /provider.*(?:request|event|payload).*id|providerRequestId|rawPayload/i;
+const PRIVATE_KEY_PATTERN =
+  /provider.*(?:request|event|payload).*id|providerRequestId|rawPayload|rawBytes|childPid|processId|processHandle|childProcess|rpcEnvelope|envelope|transport|^pid$/i;
 
 export function stripProviderPrivateFields(value) {
   if (value == null || typeof value !== 'object') return value;
@@ -62,6 +63,7 @@ export function serializePublicTurn(turn) {
     provider: clean.provider,
     providerSessionId: clean.providerSessionId,
     mode: clean.mode,
+    ...(clean.model ? { model: clean.model } : {}),
     status: clean.status,
     work: clean.work,
     historicalWork,

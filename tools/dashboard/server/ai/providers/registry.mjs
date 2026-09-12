@@ -47,7 +47,7 @@ export class AgentProviderRegistry {
 
   descriptors() {
     return [...this.#providers.values()].map((entry) => {
-      let desc = entry.descriptor;
+      let desc = entry.provider.descriptor || entry.descriptor;
       if (typeof entry.provider.isAvailable === 'function') {
         const avail = entry.provider.isAvailable();
         const installed =
@@ -84,7 +84,10 @@ export class AgentProviderRegistry {
   get(provider) {
     const entry = this.#providers.get(provider);
     if (!entry) throw new AiNotFoundError(`AI provider '${provider}' was not found.`, { provider });
-    return entry;
+    return {
+      provider: entry.provider,
+      descriptor: entry.provider.descriptor || entry.descriptor,
+    };
   }
 
   require(provider, capability, method) {

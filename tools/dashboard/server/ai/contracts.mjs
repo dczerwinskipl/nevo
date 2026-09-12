@@ -685,7 +685,7 @@ export function validateProviderDescriptor(value) {
 
 export function publicAiError(error) {
   if (error instanceof AiError) return error;
-  return new AiError('AI_PROVIDER_ERROR', 'The AI provider operation failed.', { status: 502 });
+  return new AiError('AI_PROVIDER_EXECUTION_ERROR', 'The AI provider operation failed.', { status: 502, cause: error });
 }
 export * from './model/index.mjs';
 export * from './diagnostics/index.mjs';

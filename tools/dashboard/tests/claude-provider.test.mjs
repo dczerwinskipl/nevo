@@ -926,7 +926,7 @@ test('Claude cancelTurn bounded cancellation fails cleanly when child ignores al
   await new Promise((resolve) => setImmediate(resolve));
   await assert.rejects(
     () => provider.cancelTurn({ operation }),
-    (err) => err.code === 'AI_PROCESS_TERMINATION_FAILED',
+    (err) => err.code === 'AI_OPERATION_LOST',
   );
   assert.deepEqual(child.killCalls, ['SIGINT', 'SIGKILL']);
 });
@@ -1945,8 +1945,8 @@ test('mapClaudeError maps non-zero exit codes and messages to normalized failure
 
   // ENOENT / process error
   const enoentErr = mapClaudeError({ code: 'ENOENT', message: 'spawn claude ENOENT' });
-  assert.equal(enoentErr.code, 'AI_PROVIDER_PROCESS_ERROR');
-  assert.equal(enoentErr.status, 502);
+  assert.equal(enoentErr.code, 'AI_PROVIDER_UNAVAILABLE');
+  assert.equal(enoentErr.status, 503);
   assert.equal(enoentErr.recoveryHint, 'operator-action');
 
   // Generic execution error

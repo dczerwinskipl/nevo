@@ -20,8 +20,15 @@ export default async function turnRoutes(fastify, { service, accessPolicy }) {
     const provider = validatedSegment(body.provider, PROVIDER_PATTERN, 'provider ID');
     if (body.specId && !UUID_PATTERN.test(body.specId)) throw new AiValidationError('Invalid specification ID.');
     if (body.taskId && !TURN_PATTERN.test(body.taskId)) throw new AiValidationError('Invalid task ID.');
+    if (body.model !== undefined && (typeof body.model !== 'string' || !body.model.trim())) {
+      throw new AiValidationError('Model must be a non-empty string when provided.');
+    }
+    const effort = body.effort ?? body.reasoningEffort;
+    if (effort !== undefined && (typeof effort !== 'string' || !effort.trim())) {
+      throw new AiValidationError('Effort must be a non-empty string when provided.');
+    }
     console.log(
-      `[ai] [turn:start] provider=${provider} session=new specId=${body.specId || '-'} taskId=${body.taskId || '-'}${body.mode ? ` mode=${body.mode}` : ''}`,
+      `[ai] [turn:start] provider=${provider} session=new specId=${body.specId || '-'} taskId=${body.taskId || '-'}${body.mode ? ` mode=${body.mode}` : ''}${body.model ? ` model=${body.model}` : ''}`,
     );
     const result = await service.startTurn(provider, undefined, {
       message: body.message ?? body.prompt,
@@ -30,6 +37,8 @@ export default async function turnRoutes(fastify, { service, accessPolicy }) {
       taskId: body.taskId,
       purpose: body.purpose,
       mode: body.mode,
+      model: body.model ? body.model.trim() : undefined,
+      effort: effort ? effort.trim() : undefined,
       idempotencyKey: body.idempotencyKey,
     });
     console.log(
@@ -47,13 +56,22 @@ export default async function turnRoutes(fastify, { service, accessPolicy }) {
       const body = assertBodyObject(request.body);
       const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
       const sessionId = validatedSessionId(request.params.providerSessionId);
+      if (body.model !== undefined && (typeof body.model !== 'string' || !body.model.trim())) {
+        throw new AiValidationError('Model must be a non-empty string when provided.');
+      }
+      const effort = body.effort ?? body.reasoningEffort;
+      if (effort !== undefined && (typeof effort !== 'string' || !effort.trim())) {
+        throw new AiValidationError('Effort must be a non-empty string when provided.');
+      }
       console.log(
-        `[ai] [turn:start] provider=${provider} session=${sessionId}${body.mode ? ` mode=${body.mode}` : ''} prompt="${(body.message ?? body.prompt ?? '').slice(0, 60)}"`,
+        `[ai] [turn:start] provider=${provider} session=${sessionId}${body.mode ? ` mode=${body.mode}` : ''}${body.model ? ` model=${body.model}` : ''} prompt="${(body.message ?? body.prompt ?? '').slice(0, 60)}"`,
       );
       const result = await service.startTurn(provider, sessionId, {
         message: body.message ?? body.prompt,
         ...(typeof body.userMessage === 'string' ? { userMessage: body.userMessage } : {}),
         mode: body.mode,
+        model: body.model ? body.model.trim() : undefined,
+        effort: effort ? effort.trim() : undefined,
         ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
       });
       console.log(

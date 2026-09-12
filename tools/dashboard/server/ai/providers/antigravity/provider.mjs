@@ -286,14 +286,20 @@ function mapAntigravityToolRaw(toolName, parameters = {}) {
   const params = parameters && typeof parameters === 'object' ? parameters : {};
 
   switch (name) {
-    case 'ask_question':
+    case 'ask_question': {
+      const qText =
+        params.prompt ||
+        params.question ||
+        (Array.isArray(params.questions) && params.questions[0]?.question) ||
+        undefined;
       return {
         toolName: 'ask_question',
         kind: 'other',
         title: 'Ask question',
-        subject: extractCommandSubject(params.prompt || params.question, params.toolSummary),
-        description: params.prompt || params.question || undefined,
+        subject: extractCommandSubject(qText, params.toolSummary),
+        description: qText || undefined,
       };
+    }
     case 'run_command':
       return {
         toolName: 'run_command',
@@ -431,14 +437,6 @@ function mapAntigravityToolRaw(toolName, parameters = {}) {
         subject: params.Prompt || undefined,
         description: params.DurationSeconds ? `${params.DurationSeconds}s` : params.CronExpression || undefined,
       };
-    case 'ask_question':
-      return {
-        toolName: 'ask_question',
-        kind: 'other',
-        title: 'Ask question',
-        subject: params.toolSummary || undefined,
-        description: undefined,
-      };
     case 'generate_image':
       return {
         toolName: 'generate_image',
@@ -479,8 +477,10 @@ export class AntigravityAgentProvider {
   #sessionWriteQueues = new Map();
   #sessionDirMap = new Map();
   #mcpEndpoint;
+  #mcpEndpointUrl;
   #ensureMcpRegistered;
   #mcpRegisterExec;
+  #mcpRegistrationState = { registered: false, error: null };
   #modelsExecSync;
 
   constructor({
@@ -497,6 +497,7 @@ export class AntigravityAgentProvider {
     rawCaptureEnabled = false,
     rawFlushTimeoutMs = 2_000,
     mcpEndpoint = 'http://127.0.0.1:4318/mcp',
+    mcpEndpointUrl = null,
     ensureMcpRegistered = true,
     mcpRegisterExec,
     modelsExecSync,
@@ -507,6 +508,7 @@ export class AntigravityAgentProvider {
     this.#cancelGraceMs = cancelGraceMs;
     this.#forceGraceMs = forceGraceMs;
     this.#mcpEndpoint = mcpEndpoint;
+    this.#mcpEndpointUrl = mcpEndpointUrl;
     this.#ensureMcpRegistered = Boolean(ensureMcpRegistered);
     this.#mcpRegisterExec = mcpRegisterExec || execSync;
     this.#modelsExecSync = modelsExecSync || execSync;
@@ -529,14 +531,78 @@ export class AntigravityAgentProvider {
     }
     this.#loadSessionAliases();
     if (this.#ensureMcpRegistered && (spawnProcess === spawn || mcpRegisterExec)) {
-      try {
-        ensureAntigravityMcpRegistered({
-          executable: this.#executable,
-          exec: this.#mcpRegisterExec,
-        });
-      } catch {}
+      this.#performMcpRegistration();
+    } else if (this.#ensureMcpRegistered && spawnProcess !== spawn) {
+      this.#mcpRegistrationState = { registered: true, error: null };
     }
-    this.descriptor = ANTIGRAVITY_DESCRIPTOR;
+  }
+
+  configureMcpEndpoint(urlOrResolver) {
+    this.#mcpEndpointUrl = urlOrResolver;
+  }
+
+  #resolveMcpEndpointUrl() {
+    if (typeof this.#mcpEndpointUrl === 'function') {
+      try {
+        return this.#mcpEndpointUrl();
+      } catch {
+        return null;
+      }
+    }
+    if (typeof this.#mcpEndpointUrl === 'string' && this.#mcpEndpointUrl.trim()) {
+      return this.#mcpEndpointUrl.trim();
+    }
+    if (typeof this.#mcpEndpoint === 'string' && this.#mcpEndpoint.trim()) {
+      return this.#mcpEndpoint.trim();
+    }
+    return process.env.NEVO_MCP_ENDPOINT || process.env.NEVO_MCP_ENDPOINT_URL || null;
+  }
+
+  #performMcpRegistration() {
+    if (!this.#ensureMcpRegistered) {
+      this.#mcpRegistrationState = { registered: false, error: null };
+      return this.#mcpRegistrationState;
+    }
+    try {
+      const res = ensureAntigravityMcpRegistered({
+        executable: this.#executable,
+        exec: this.#mcpRegisterExec,
+      });
+      if (res && res.registered) {
+        this.#mcpRegistrationState = { registered: true, error: null };
+      } else {
+        this.#mcpRegistrationState = { registered: false, error: res?.error || new Error('MCP registration failed') };
+      }
+    } catch (err) {
+      this.#mcpRegistrationState = { registered: false, error: err };
+    }
+    return this.#mcpRegistrationState;
+  }
+
+  repairMcpRegistration() {
+    return this.#performMcpRegistration();
+  }
+
+  get capabilities() {
+    const endpointUrl = this.#resolveMcpEndpointUrl();
+    const isMcpRegistered = Boolean(this.#mcpRegistrationState?.registered);
+    const isMcpUsable = Boolean(isMcpRegistered && endpointUrl);
+    return Object.freeze({
+      ...ANTIGRAVITY_CAPABILITIES,
+      interactiveQuestions: isMcpUsable,
+      interactiveConfirmations: false,
+    });
+  }
+
+  get descriptor() {
+    return Object.freeze({
+      id: 'antigravity',
+      label: 'Antigravity / Gemini',
+      enabled: true,
+      capabilities: this.capabilities,
+      supportedModes: ['ask', 'edit', 'agent'],
+      defaultMode: 'edit',
+    });
   }
 
   #resolveSessionDirName(sessionId) {
@@ -748,7 +814,9 @@ export class AntigravityAgentProvider {
       });
     } catch (err) {
       if (this.#modelsCache.result) return this.#modelsCache.result;
-      throw new AiError('AI_PROVIDER_ERROR', `Failed to discover Antigravity models: ${err.message}`, {
+      throw new AiError('AI_PROVIDER_EXECUTION_ERROR', `Failed to discover Antigravity models: ${err.message}`, {
+        status: 502,
+        recoveryHint: 'new-turn',
         cause: err,
       });
     }
@@ -990,28 +1058,36 @@ export class AntigravityAgentProvider {
 
       let child;
       try {
+        const resolvedEndpoint = this.#resolveMcpEndpointUrl();
+        const spawnEnv = {
+          ...process.env,
+          AGY_INTERACTIVE: '0',
+          FORCE_COLOR: '0',
+          ...(mcpToken ? { NEVO_INTERACTION_TOKEN: mcpToken } : {}),
+          ...(resolvedEndpoint ? { NEVO_MCP_ENDPOINT: resolvedEndpoint } : {}),
+        };
+        if (resolvedEndpoint?.startsWith('https:') && process.env.NODE_EXTRA_CA_CERTS) {
+          spawnEnv.NODE_EXTRA_CA_CERTS = process.env.NODE_EXTRA_CA_CERTS;
+        }
         const spawnOptions = getProcessTreeSpawnOptions({
           cwd: this.#cwd,
           stdio: ['pipe', 'pipe', 'pipe'],
           shell: false,
-          env: {
-            ...process.env,
-            AGY_INTERACTIVE: '0',
-            FORCE_COLOR: '0',
-            NEVO_INTERACTION_TOKEN: mcpToken,
-            NEVO_MCP_ENDPOINT: this.#mcpEndpoint,
-          },
+          env: spawnEnv,
         });
         child = this.#spawnProcess(this.#executable, args, spawnOptions);
         operation.child = child;
       } catch (err) {
         mcpInteractionRegistry.unregisterActiveTurn(turnId, err);
         this.#activeOperations.delete(turnId);
+        const spawnErrorCode = err.code === 'ENOENT' ? 'AI_PROVIDER_UNAVAILABLE' : 'AI_TRANSPORT_ERROR';
+        const status = err.code === 'ENOENT' ? 503 : 502;
+        const recoveryHint = err.code === 'ENOENT' ? 'operator-action' : 'new-turn';
         const msg =
           err.code === 'ENOENT'
             ? `Antigravity CLI ('${this.#executable}') not found. Ensure Antigravity CLI ('agy') is installed and available in PATH.`
             : `Failed to spawn Antigravity CLI: ${err.message}`;
-        return reject(new AiError('AI_PROVIDER_SPAWN_ERROR', msg, { cause: err }));
+        return reject(new AiError(spawnErrorCode, msg, { status, recoveryHint, cause: err }));
       }
 
       const childMayBeAlive = () => child && child.exitCode == null && child.signalCode == null;
@@ -1050,7 +1126,7 @@ export class AntigravityAgentProvider {
         await this.#flushRawCaptureBounded(currentSessionId || effectiveSessionId);
 
         if (outcome === 'failed') {
-          reject(error || new AiError('AI_PROVIDER_ERROR', 'Antigravity turn failed.'));
+          reject(error || new AiError('AI_PROVIDER_EXECUTION_ERROR', 'Antigravity turn failed.'));
         } else {
           resolve({
             turnId,
@@ -1138,6 +1214,15 @@ export class AntigravityAgentProvider {
         }
 
         if (eventType === 'step_update') {
+          if (payload.step_type === 'error_message') {
+            const providerMessage =
+              payload.message ||
+              payload.error?.message ||
+              payload.text ||
+              'Antigravity reported an internal step failure with no further detail (step_type: error_message). This usually indicates a problem with the Antigravity CLI or backend rather than with Nevo.';
+            await failTurn(mapAntigravityError(providerMessage, providerMessage));
+            return;
+          }
           if (payload.text_delta) {
             bufferAssistantText(payload.text_delta);
           }
@@ -1431,9 +1516,12 @@ export class AntigravityAgentProvider {
               const errorObj = isTimeout
                 ? new AiError('AI_PROVIDER_TIMEOUT', errorMessage, {
                     status: 504,
+                    recoveryHint: 'none',
                     details: explicitResponse ? { providerResponse: explicitResponse } : undefined,
                   })
-                : new AiError('AI_PROVIDER_ERROR', errorMessage, {
+                : new AiError('AI_PROVIDER_EXECUTION_ERROR', errorMessage, {
+                    status: 502,
+                    recoveryHint: 'new-turn',
                     details: explicitResponse ? { providerResponse: explicitResponse } : undefined,
                   });
               await failAuthoritativeTerminal(errorObj);
@@ -1458,8 +1546,8 @@ export class AntigravityAgentProvider {
             const errorMsg = raw.error?.message || raw.message || 'Antigravity turn failed.';
             const isTimeout = /timeout|timed out|deadline exceeded|ETIMEDOUT/i.test(errorMsg);
             const errorObj = isTimeout
-              ? new AiError('AI_PROVIDER_TIMEOUT', errorMsg, { status: 504 })
-              : new AiError('AI_PROVIDER_ERROR', errorMsg);
+              ? new AiError('AI_PROVIDER_TIMEOUT', errorMsg, { status: 504, recoveryHint: 'none' })
+              : new AiError('AI_PROVIDER_EXECUTION_ERROR', errorMsg, { status: 502, recoveryHint: 'new-turn' });
             await failTurn(errorObj);
             break;
           }
@@ -1530,11 +1618,14 @@ export class AntigravityAgentProvider {
           this.#activeOperations.delete(turnId);
           return;
         }
+        const errCode = err.code === 'ENOENT' ? 'AI_PROVIDER_UNAVAILABLE' : 'AI_PROVIDER_EXECUTION_ERROR';
+        const status = err.code === 'ENOENT' ? 503 : 502;
+        const recoveryHint = err.code === 'ENOENT' ? 'operator-action' : 'new-turn';
         const msg =
           err.code === 'ENOENT'
             ? `Antigravity CLI ('${this.#executable}') not found. Ensure Antigravity CLI ('agy') is installed and available in PATH.`
             : `Antigravity process error: ${err.message}`;
-        await failTurn(new AiError('AI_PROVIDER_PROCESS_ERROR', msg, { cause: err }));
+        await failTurn(new AiError(errCode, msg, { status, recoveryHint, cause: err }));
       });
 
       child.on('close', async (exitCode) => {
@@ -1678,7 +1769,9 @@ export class AntigravityAgentProvider {
         child.stdin.end();
       } catch (err) {
         void failTurn(
-          new AiError('AI_PROVIDER_WRITE_ERROR', `Failed to write to Antigravity stdin: ${err.message}`, {
+          new AiError('AI_TRANSPORT_ERROR', `Failed to write to Antigravity stdin: ${err.message}`, {
+            status: 502,
+            recoveryHint: 'new-turn',
             cause: err,
           }),
         );
@@ -1703,9 +1796,9 @@ export class AntigravityAgentProvider {
           });
           if (!result.terminated) {
             throw new AiError(
-              'AI_PROCESS_TERMINATION_FAILED',
+              'AI_OPERATION_LOST',
               'Failed to terminate Antigravity CLI process within bounded timeout.',
-              { status: 500 },
+              { status: 500, recoveryHint: 'operator-action' },
             );
           }
         } finally {

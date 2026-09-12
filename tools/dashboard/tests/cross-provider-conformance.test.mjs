@@ -784,7 +784,7 @@ test('Criterion 1: Permissive model passthrough, trait representation, and neutr
     });
     const terminal = coordinator.settleTerminal({
       outcome,
-      cause: outcome === 'failed' ? 'AI_PROVIDER_ERROR' : outcome === 'interrupted' ? 'forced_cleanup' : undefined,
+      cause: outcome === 'failed' ? 'AI_PROVIDER_EXECUTION_ERROR' : outcome === 'interrupted' ? 'forced_cleanup' : undefined,
       initiator: outcome === 'cancelled' ? 'user' : 'provider',
     });
     assert.equal(terminal.status, 'terminal');
@@ -971,7 +971,7 @@ test('Criterion 4: Diagnostic privacy ensures raw capture payloads, RPC envelope
   });
 
   stream.emit(turnId, 'turn.failed', {
-    code: 'AI_PROVIDER_ERROR',
+    code: 'AI_PROVIDER_EXECUTION_ERROR',
     message: 'Operation failed',
     rawPayload: 'Traceback (most recent call last): ...',
   });

@@ -292,37 +292,51 @@ export class CodexAppServerClient {
   }
 
   async listModels() {
-    const response = await this.request('model/list', {});
-    const rawModels = Array.isArray(response?.models) ? response.models : [];
-    return rawModels.map((m) => {
-      const id = String(m.id || m.model || '');
-      const label = String(m.displayName || m.label || id);
-      const isDefault = typeof m.isDefault === 'boolean' ? m.isDefault : undefined;
-      const traits = {};
-      if (Array.isArray(m.supportedReasoningEfforts) && m.supportedReasoningEfforts.length > 0) {
-        traits.supportedReasoningEfforts = m.supportedReasoningEfforts.map(String);
-        traits.supportsReasoning = true;
-      }
-      if (typeof m.defaultReasoningEffort === 'string') {
-        traits.defaultReasoningEffort = m.defaultReasoningEffort;
-      }
-      if (Array.isArray(m.inputModalities) && m.inputModalities.length > 0) {
-        traits.inputModalities = m.inputModalities.map(String);
-        if (traits.inputModalities.includes('image')) {
-          traits.supportsVision = true;
+    const allModels = [];
+    let cursor = null;
+    do {
+      const params = cursor ? { cursor } : {};
+      const response = await this.request('model/list', params);
+      const rawModels = Array.isArray(response?.data)
+        ? response.data
+        : (Array.isArray(response?.models) ? response.models : []);
+      for (const m of rawModels) {
+        if (m.hidden) continue;
+        const id = String(m.id || m.model || '');
+        if (!id) continue;
+        const label = String(m.displayName || m.label || id);
+        const isDefault = typeof m.isDefault === 'boolean' ? m.isDefault : undefined;
+        const traits = {};
+        if (Array.isArray(m.supportedReasoningEfforts) && m.supportedReasoningEfforts.length > 0) {
+          traits.supportedReasoningEfforts = m.supportedReasoningEfforts
+            .map((item) => (typeof item === 'string' ? item : item?.reasoningEffort || item?.description))
+            .filter(Boolean)
+            .map(String);
+          traits.supportsReasoning = traits.supportedReasoningEfforts.length > 0;
         }
+        if (typeof m.defaultReasoningEffort === 'string' && m.defaultReasoningEffort.trim()) {
+          traits.defaultReasoningEffort = m.defaultReasoningEffort.trim();
+        }
+        if (Array.isArray(m.inputModalities) && m.inputModalities.length > 0) {
+          traits.inputModalities = m.inputModalities.map(String);
+          if (traits.inputModalities.includes('image')) {
+            traits.supportsVision = true;
+          }
+        }
+        if (typeof m.maxContextTokens === 'number') {
+          traits.maxContextTokens = m.maxContextTokens;
+        }
+        allModels.push({
+          id,
+          label,
+          source: 'discovered',
+          ...(isDefault !== undefined ? { isDefault } : {}),
+          ...(Object.keys(traits).length > 0 ? { traits } : {}),
+        });
       }
-      if (typeof m.maxContextTokens === 'number') {
-        traits.maxContextTokens = m.maxContextTokens;
-      }
-      return {
-        id,
-        label,
-        source: 'discovered',
-        ...(isDefault !== undefined ? { isDefault } : {}),
-        ...(Object.keys(traits).length > 0 ? { traits } : {}),
-      };
-    });
+      cursor = response?.nextCursor || null;
+    } while (cursor);
+    return allModels;
   }
 
   onNotification(handler) {
@@ -407,9 +421,9 @@ export class CodexAppServerClient {
       this.#removeProcessListeners();
       if (!exited) {
         throw new AiError(
-          'AI_PROCESS_TERMINATION_FAILED',
+          'AI_OPERATION_LOST',
           'Failed to terminate Codex app-server within the bounded timeout.',
-          { status: 500 },
+          { status: 500, recoveryHint: 'operator-action' },
         );
       }
     })();
@@ -443,10 +457,10 @@ export class CodexAppServerClient {
         return result;
       } catch (error) {
         const failure =
-          error?.code === 'AI_PROVIDER_PROTOCOL_ERROR'
+          error?.code === 'AI_PROVIDER_PROTOCOL_ERROR' || error?.code === 'AI_PROTOCOL_ERROR'
             ? error
             : providerFailure(
-                'AI_PROVIDER_INITIALIZATION_FAILED',
+                'AI_TRANSPORT_ERROR',
                 'Codex app-server initialization failed.',
                 undefined,
                 error,
@@ -476,8 +490,9 @@ export class CodexAppServerClient {
         spawnOptions,
       );
     } catch (error) {
+      const code = error?.code === 'ENOENT' ? 'AI_PROVIDER_UNAVAILABLE' : 'AI_TRANSPORT_ERROR';
       const failure = providerFailure(
-        'AI_PROVIDER_SPAWN_ERROR',
+        code,
         `Failed to spawn Codex app-server: ${error.message}`,
         undefined,
         error,
@@ -509,7 +524,7 @@ export class CodexAppServerClient {
     const onError = (error) => {
       this.#tripFailure(
         providerFailure(
-          'AI_PROVIDER_PROCESS_ERROR',
+          'AI_PROVIDER_EXECUTION_ERROR',
           `Codex app-server process error: ${error.message}`,
           this.#stderrDetails(),
           error,
@@ -520,7 +535,7 @@ export class CodexAppServerClient {
       if (this.#disposed) return;
       this.#tripFailure(
         providerFailure(
-          'AI_PROVIDER_EXIT_ERROR',
+          'AI_PROVIDER_EXECUTION_ERROR',
           `Codex app-server exited unexpectedly (code ${code ?? 'null'}, signal ${signal ?? 'none'}).`,
           this.#stderrDetails(),
         ),
@@ -561,7 +576,7 @@ export class CodexAppServerClient {
         const failure =
           error instanceof AiError
             ? error
-            : providerFailure('AI_PROVIDER_WRITE_ERROR', 'Failed to write to Codex app-server.', undefined, error);
+            : providerFailure('AI_TRANSPORT_ERROR', 'Failed to write to Codex app-server.', undefined, error);
         this.#tripFailure(failure);
       }
     });
@@ -571,7 +586,7 @@ export class CodexAppServerClient {
     this.#assertUsable();
     const stdin = this.#child?.stdin;
     if (!stdin || stdin.destroyed || stdin.writableEnded) {
-      throw providerFailure('AI_PROVIDER_WRITE_ERROR', 'Codex app-server stdin is not writable.');
+      throw providerFailure('AI_TRANSPORT_ERROR', 'Codex app-server stdin is not writable.');
     }
 
     if (own(envelope, 'method')) {

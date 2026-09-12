@@ -216,6 +216,33 @@ test('ask_question from jetski stream is mapped as tool call and does not invoke
   assert.equal(toolsCompleted[0].output, 'A1: User Skipped');
 });
 
+// Regression: a step_update with step_type "error_message" was previously silently
+// dropped (no matching text_delta/thought/tool/usage field), so the turn kept waiting
+// with zero recorded activity until the runtime's 5-minute idle watchdog killed it —
+// even though the CLI had already reported a real failure. It must now fail the turn
+// immediately instead of hanging.
+test('Antigravity step_update with step_type "error_message" fails the turn immediately instead of hanging silently', async () => {
+  const child = createMockProcess([
+    JSON.stringify({
+      event: 'step_update',
+      step_update: { conversation_id: 'agy-conv-err1', step_index: 1, state: 'DONE', step_type: 'error_message' },
+    }),
+  ]);
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => child,
+  });
+
+  await assert.rejects(
+    () => provider.startTurn({ turnId: 'turn-err1', message: 'Continue' }),
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
+      assert.match(err.message, /error_message/);
+      return true;
+    },
+  );
+});
+
 test('new conversation spawns with stream-json input format and sets providerSessionId upon init', async () => {
   const capturedCalls = [];
   const lines = [
@@ -638,7 +665,7 @@ test('Antigravity cancelTurn bounded cancellation fails cleanly when child ignor
 
   await assert.rejects(
     () => provider.cancelTurn({ turnId: 'turn-cancel-unresponsive-agy', providerSessionId: 'sess-unresponsive' }),
-    (err) => err.code === 'AI_PROCESS_TERMINATION_FAILED',
+    (err) => err.code === 'AI_OPERATION_LOST',
   );
   assert.deepEqual(child.killCalls, ['SIGINT', 'SIGKILL']);
 });
@@ -1117,9 +1144,9 @@ test('Antigravity bounded graceful termination terminates child process if it re
     `${JSON.stringify({ event: 'result', result: { status: 'ERROR', response: '', error: 'Provider terminal failure' } })}\n`,
   );
 
-  // 1. Assert: startTurn rejects promptly with AI_PROVIDER_ERROR
+  // 1. Assert: startTurn rejects promptly with AI_PROVIDER_EXECUTION_ERROR
   await assert.rejects(turnPromise, (err) => {
-    assert.equal(err.code, 'AI_PROVIDER_ERROR');
+    assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
     assert.equal(err.message, 'Provider terminal failure');
     return true;
   });
@@ -1762,7 +1789,7 @@ test('Antigravity error result: event "result" + status "ERROR" + empty response
       });
     },
     (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
       assert.equal(err.message, 'ContentOffset 22500 exceeds line range size 1792');
       return true;
     },
@@ -1815,7 +1842,7 @@ test('Antigravity error result: streamed waiting text plus active run_command pl
         emitToolCompleted: (tool) => toolsCompleted.push(tool),
       }),
     (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
       assert.equal(err.message, 'Verification operation ended without a terminal result');
       return true;
     },
@@ -1901,7 +1928,7 @@ test('Antigravity generic provider error retains process ownership and terminate
   child.stdout.push(`${JSON.stringify({ type: 'error', message: 'Provider stream failed' })}\n`);
 
   await assert.rejects(turnPromise, (err) => {
-    assert.equal(err.code, 'AI_PROVIDER_ERROR');
+    assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
     assert.equal(err.message, 'Provider stream failed');
     return true;
   });
@@ -2018,7 +2045,7 @@ test('Antigravity error result: event "result" + status "FAILED" with non-empty 
         emitCommentaryDelta: (t) => commentaryDeltas.push(t),
       }),
     (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
       assert.equal(err.message, 'Task execution failed');
       assert.equal(err.details?.providerResponse, 'Response generated despite failed status');
       return true;
@@ -2095,7 +2122,7 @@ test('Antigravity error result: event "result" + status "ERROR" preserves usage 
       });
     },
     (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
       assert.equal(err.message, 'Rate limit hit');
       return true;
     },
@@ -2206,7 +2233,7 @@ test('Antigravity quota notice: event "result" + status "ERROR" with quota limit
         emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
       }),
     (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
       assert.match(err.message, /Individual quota reached/);
       return true;
     },
@@ -2258,7 +2285,7 @@ test('Antigravity multi-turn: stale conversation error from previous turn does n
         message: 'Do work 1',
       }),
     (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
       assert.equal(err.message, 'Tool crashed in turn 1');
       return true;
     },
@@ -2310,7 +2337,7 @@ test('Antigravity error result: interrupted streaming with empty result.response
         emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
       }),
     (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
       assert.equal(err.message, 'Błąd po wygenerowaniu tekstu');
       return true;
     },
@@ -2389,7 +2416,7 @@ test('Antigravity generic diagnostic error: event "result" + status "ERROR" with
   assert.deepEqual(finalAnswerDeltas, ['Zadanie zakończone sukcesem.']);
 });
 
-test('Antigravity error with response echoing error message fails turn with AI_PROVIDER_ERROR without commentary', async () => {
+test('Antigravity error with response echoing error message fails turn with AI_PROVIDER_EXECUTION_ERROR without commentary', async () => {
   const lines = [
     JSON.stringify({ type: 'init', conversation_id: 'conv-echo-err' }),
     JSON.stringify({
@@ -2418,7 +2445,7 @@ test('Antigravity error with response echoing error message fails turn with AI_P
         emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
       }),
     (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
       assert.match(err.message, /Authentication token expired/);
       return true;
     },
@@ -2457,7 +2484,7 @@ test('Antigravity error result: still-active tool call is resolved to failed', a
       });
     },
     (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
       assert.equal(err.message, 'Execution failed');
       return true;
     },
@@ -2492,7 +2519,7 @@ test('Antigravity terminal status & is_error matrix: status "FAILED" with empty 
       });
     },
     (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
       assert.equal(err.message, 'Execution failed completely');
       return true;
     },
@@ -2523,7 +2550,7 @@ test('Antigravity terminal status & is_error matrix: is_error true without statu
       });
     },
     (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
       assert.equal(err.message, 'Flagged as error without status string');
       return true;
     },
@@ -2555,7 +2582,7 @@ test('Antigravity terminal status & is_error matrix: status "SUCCESS" + is_error
       });
     },
     (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
       assert.equal(err.message, 'Conflicting status but explicit is_error true');
       return true;
     },
@@ -2584,7 +2611,7 @@ test('Antigravity terminal status & is_error matrix: type "done" with top-level 
       });
     },
     (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
       assert.equal(err.message, 'Done envelope failed');
       return true;
     },
@@ -3284,7 +3311,7 @@ test('Antigravity semantics 5: failed terminal event after commentary preserves 
         emitToolCompleted: (t) => coordinator.recordToolCompleted(t),
       }),
     (err) => {
-      coordinator.settleTerminal({ outcome: 'failed', error: { code: 'AI_PROVIDER_ERROR', message: err.message } });
+      coordinator.settleTerminal({ outcome: 'failed', error: { code: err.code, message: err.message } });
       return true;
     },
   );

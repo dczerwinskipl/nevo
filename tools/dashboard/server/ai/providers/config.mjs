@@ -64,6 +64,36 @@ function parseRawCapture(providerId, providerObj, defaultDir, repoRoot) {
   };
 }
 
+function parseClaudeModels(providerObj) {
+  const raw = providerObj.models ?? providerObj.configured_models;
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    throw configError('providers.claude.models', 'expected an array of model configurations.');
+  }
+  return raw.map((item, index) => {
+    if (typeof item === 'string' && item.trim()) {
+      return {
+        id: item.trim(),
+        label: item.trim(),
+        source: 'configured',
+      };
+    }
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      if (typeof item.id !== 'string' || !item.id.trim()) {
+        throw configError(`providers.claude.models[${index}].id`, 'expected a non-empty string.');
+      }
+      return {
+        id: item.id.trim(),
+        label: typeof item.label === 'string' && item.label.trim() ? item.label.trim() : item.id.trim(),
+        ...(item.traits && typeof item.traits === 'object' && !Array.isArray(item.traits) ? { traits: item.traits } : {}),
+        ...(typeof item.isDefault === 'boolean' ? { isDefault: item.isDefault } : {}),
+        source: typeof item.source === 'string' && item.source.trim() ? item.source.trim() : 'configured',
+      };
+    }
+    throw configError(`providers.claude.models[${index}]`, 'expected a model object or string.');
+  });
+}
+
 function parseAntigravityTransport(providerObj) {
   const transport = requireObject(providerObj.transport, 'providers.antigravity.transport');
   const printTimeoutSeconds = transport.print_timeout_seconds ?? DEFAULT_ANTIGRAVITY_PRINT_TIMEOUT_SECONDS;
@@ -101,6 +131,7 @@ export function loadAgentProvidersConfig({ repoRoot, filePath } = {}) {
   }
 
   const claudeRaw = parseRawCapture('claude', providers.claude ?? {}, DEFAULT_CLAUDE_RAW_DIRECTORY, repoRoot);
+  const claudeModels = parseClaudeModels(providers.claude ?? {});
   const antigravityRaw = parseRawCapture(
     'antigravity',
     providers.antigravity ?? {},
@@ -129,6 +160,7 @@ export function loadAgentProvidersConfig({ repoRoot, filePath } = {}) {
       claude: {
         ...providerConfig.claude,
         ...claudeRaw,
+        configuredModels: claudeModels,
       },
       antigravity: {
         ...providerConfig.antigravity,

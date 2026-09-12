@@ -118,6 +118,9 @@ export class AgentTurnRuntime {
     prompt,
     userMessage,
     mode,
+    model,
+    effort,
+    reasoningEffort,
     idempotencyKey,
     onSessionEstablished,
     isSessionEstablished = true,
@@ -215,6 +218,7 @@ export class AgentTurnRuntime {
         provider,
         providerSessionId: providerSessionId || null,
         mode: validatedMode,
+        model,
         prompt: inputMessage,
         userMessage: displayMessage,
         traceSink: this.traceSink,
@@ -240,6 +244,8 @@ export class AgentTurnRuntime {
         identity: providerSessionId ? { provider, providerSessionId } : undefined,
         key,
         mode: validatedMode,
+        model,
+        effort: effort ?? reasoningEffort,
         idempotencyKey,
         onSessionEstablished,
         isSessionEstablished,
@@ -382,6 +388,8 @@ export class AgentTurnRuntime {
       isSessionEstablished: state.isSessionEstablished,
       identity: state.identity,
       mode: state.mode,
+      model: state.model,
+      effort: state.effort,
       signal: state.abortController.signal,
       setOperation: (operation) => {
         state.privateOperation = operation;
@@ -823,6 +831,9 @@ export class AgentTurnRuntime {
       );
     }
 
+    let cleanupVerified = false;
+    let cleanupError = null;
+
     const operation = state.privateOperation;
     const child =
       operation?.child ||
@@ -830,19 +841,83 @@ export class AgentTurnRuntime {
       (typeof operation?.pid === 'number' ? { pid: operation.pid } : null);
     if (child?.pid) {
       try {
-        await terminateChildProcess(child, { forceGraceMs: 1000 });
+        const termRes = await terminateChildProcess(child, { forceGraceMs: 1000 });
+        if (termRes?.terminated === true) {
+          cleanupVerified = true;
+        } else {
+          cleanupVerified = false;
+          cleanupError = new AiError('AI_OPERATION_LOST', `Process termination could not be verified for turn '${turnId}'.`, {
+            status: 500,
+            recoveryHint: 'operator-action',
+          });
+        }
       } catch (err) {
-        console.warn(`[ai] [turn:recover] Warning during process termination for turn ${turnId}: ${err?.message || err}`);
+        cleanupVerified = false;
+        cleanupError = err instanceof AiError ? err : new AiError('AI_OPERATION_LOST', `Process termination failed for turn '${turnId}': ${err?.message || err}`, {
+          cause: err,
+          status: 500,
+          recoveryHint: 'operator-action',
+        });
       }
-    } else if (state.agentProvider?.cancelTurn && operation) {
+    } else if (state.agentProvider && typeof state.agentProvider.recoverTurn === 'function') {
       try {
-        await state.agentProvider.cancelTurn({
+        const provRes = await state.agentProvider.recoverTurn({
           turnId: state.turnId,
           providerSessionId: state.providerSessionId,
           identity: state.identity,
           operation,
         });
-      } catch {}
+        cleanupVerified = Boolean(provRes?.verified ?? provRes?.success ?? provRes?.terminated);
+        if (!cleanupVerified) {
+          cleanupError = new AiError('AI_OPERATION_LOST', provRes?.error || `Provider recovery could not be verified for turn '${turnId}'.`, {
+            status: 500,
+            recoveryHint: 'operator-action',
+          });
+        }
+      } catch (err) {
+        cleanupVerified = false;
+        cleanupError = err instanceof AiError ? err : new AiError('AI_OPERATION_LOST', `Provider recovery failed for turn '${turnId}': ${err?.message || err}`, {
+          cause: err,
+          status: 500,
+          recoveryHint: 'operator-action',
+        });
+      }
+    } else if (state.agentProvider?.cancelTurn && operation) {
+      try {
+        const cancelRes = await state.agentProvider.cancelTurn({
+          turnId: state.turnId,
+          providerSessionId: state.providerSessionId,
+          identity: state.identity,
+          operation,
+        });
+        cleanupVerified = cancelRes?.success !== false && cancelRes?.cancelled !== false;
+        if (!cleanupVerified) {
+          cleanupError = new AiError('AI_OPERATION_LOST', `Provider turn cancellation could not be verified for turn '${turnId}'.`, {
+            status: 500,
+            recoveryHint: 'operator-action',
+          });
+        }
+      } catch (err) {
+        cleanupVerified = false;
+        cleanupError = err instanceof AiError ? err : new AiError('AI_OPERATION_LOST', `Provider cancellation failed for turn '${turnId}': ${err?.message || err}`, {
+          cause: err,
+          status: 500,
+          recoveryHint: 'operator-action',
+        });
+      }
+    } else {
+      cleanupVerified = false;
+      cleanupError = new AiError('AI_OPERATION_LOST', `Cannot verify cleanup for turn '${turnId}': no active operation handle exists.`, {
+        status: 500,
+        recoveryHint: 'operator-action',
+      });
+    }
+
+    if (!cleanupVerified) {
+      throw (cleanupError || new AiError('AI_OPERATION_LOST', `Cleanup could not be verified for turn '${turnId}'.`, {
+        status: 500,
+        recoveryHint: 'operator-action',
+      }));
     }
 
     state.abortController.abort();

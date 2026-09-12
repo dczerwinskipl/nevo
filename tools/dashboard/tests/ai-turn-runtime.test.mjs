@@ -1218,7 +1218,7 @@ test('Antigravity full path: error result with empty response -> turn.failed, no
       assert.equal(turn.finalAnswer, null, 'assistant turn must not contain placeholder prose');
       const err = turn.terminalOutcome?.error || turn.status?.error;
       assert.deepEqual(err, {
-        code: 'AI_PROVIDER_ERROR',
+        code: 'AI_PROVIDER_EXECUTION_ERROR',
         message: 'ContentOffset 22500 exceeds line range size 1792',
       });
     }

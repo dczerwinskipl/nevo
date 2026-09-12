@@ -59,6 +59,7 @@ export function createDefaultAgentSessionService({
             rawCaptureEnabled: providerConfig.providers.claude?.rawCaptureEnabled,
             rawCaptureDir: providerConfig.providers.claude?.rawCaptureDir,
             mcpEndpointUrl: mcpEndpointResolver,
+            configuredModels: providerConfig.providers.claude?.configuredModels,
           }),
         );
         break;
@@ -70,6 +71,7 @@ export function createDefaultAgentSessionService({
             printTimeoutSeconds: providerConfig.providers.antigravity?.printTimeoutSeconds,
             rawCaptureEnabled: providerConfig.providers.antigravity?.rawCaptureEnabled,
             rawCaptureDir: providerConfig.providers.antigravity?.rawCaptureDir,
+            mcpEndpointUrl: mcpEndpointResolver,
           }),
         );
         break;
