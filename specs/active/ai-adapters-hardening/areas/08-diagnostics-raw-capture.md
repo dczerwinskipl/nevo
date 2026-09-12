@@ -13,7 +13,7 @@ Define the strict boundary between canonical provider-neutral conversation state
 - Raw provider stdout/stderr logs are stored in `.nevo-ai-local/*_raw/`.
 - Antigravity adapter contains a provisional-to-allocated directory migration mechanism when `agy` allocates an ID during streaming.
 
-### Proposed target
+### Target architecture
 Maintain a strict separation of concerns between user-facing state and diagnostic forensics:
 
 ```text
@@ -45,5 +45,5 @@ Maintain a strict separation of concerns between user-facing state and diagnosti
 5. **Sanitized Directory Naming**: Session directory names are sanitized via `rawCaptureSessionDirectory(sessionId)` with Windows reserved-name protection and SHA-256 fallback for invalid characters.
 6. **Sensitivity & Privacy**: Raw diagnostic logs may contain repository paths, prompt contents, or environment details. All raw capture directories (`.nevo-ai-local/*_raw/`) must remain ignored by Git (`.gitignore`).
 
-### Owner decision required
-*Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 8.*
+### Owner decision resolution
+- **Adopted (Approved by Owner — Decision 8)**: The diagnostic boundary is adopted. Session alias persistence (`antigravity-sessions.json`) is preserved and encapsulated within the Antigravity adapter boundary, avoiding unnecessary migration or consolidation into core services.

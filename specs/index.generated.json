@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-11T18:21:11.675Z",
+  "generated": "2026-09-12T07:41:52.698Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -8,7 +8,81 @@
       "status": "draft",
       "priority": 10,
       "created": "2026-08-24",
-      "tasks": []
+      "tasks": [
+        {
+          "id": "neutral-contracts-and-types",
+          "order": 1,
+          "file": "tasks/01-neutral-contracts-and-types.md",
+          "status": "draft"
+        },
+        {
+          "id": "windows-process-tree-termination",
+          "order": 2,
+          "file": "tasks/02-windows-process-tree-termination.md",
+          "status": "draft"
+        },
+        {
+          "id": "codex-adapter-hardening",
+          "order": 3,
+          "file": "tasks/03-codex-adapter-hardening.md",
+          "status": "draft",
+          "depends_on": [
+            "neutral-contracts-and-types"
+          ]
+        },
+        {
+          "id": "antigravity-adapter-hardening",
+          "order": 4,
+          "file": "tasks/04-antigravity-adapter-hardening.md",
+          "status": "draft",
+          "depends_on": [
+            "neutral-contracts-and-types",
+            "windows-process-tree-termination"
+          ]
+        },
+        {
+          "id": "claude-adapter-hardening",
+          "order": 5,
+          "file": "tasks/05-claude-adapter-hardening.md",
+          "status": "draft",
+          "depends_on": [
+            "neutral-contracts-and-types",
+            "windows-process-tree-termination"
+          ]
+        },
+        {
+          "id": "event-normalization-pipeline",
+          "order": 6,
+          "file": "tasks/06-event-normalization-pipeline.md",
+          "status": "draft",
+          "depends_on": [
+            "neutral-contracts-and-types",
+            "codex-adapter-hardening",
+            "antigravity-adapter-hardening",
+            "claude-adapter-hardening"
+          ]
+        },
+        {
+          "id": "operation-lifecycle-and-recovery",
+          "order": 7,
+          "file": "tasks/07-operation-lifecycle-and-recovery.md",
+          "status": "draft",
+          "depends_on": [
+            "neutral-contracts-and-types",
+            "windows-process-tree-termination"
+          ]
+        },
+        {
+          "id": "conformance-and-cross-provider-validation",
+          "order": 8,
+          "file": "tasks/08-conformance-and-cross-provider-validation.md",
+          "status": "draft",
+          "depends_on": [
+            "event-normalization-pipeline",
+            "operation-lifecycle-and-recovery"
+          ]
+        }
+      ]
     },
     {
       "id": "ai-session-issues-and-diagnostics",

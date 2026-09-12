@@ -15,7 +15,7 @@ Establish a comprehensive, discriminated, provider-neutral error and failure tax
 - In current provider adapters, diverse failures (invalid credentials, rate limits, billing quota, network drops, CLI exit 1, and lost process handles) collapse into generic `AI_PROVIDER_ERROR` or `AI_PROVIDER_EXIT_ERROR` (HTTP 502).
 - Cancellation and server restart are sometimes conflated with request errors, obscuring normal lifecycle terminations.
 
-### Proposed target
+### Target architecture
 Strictly decouple three orthogonal concepts:
 1. **Terminal Outcome**: The lifecycle resolution of the Turn (`completed`, `failed`, `cancelled`, `interrupted`). Cancellation is initiated by user/system intent; interruption is caused by server restart; neither is an error.
 2. **Normalized Failure / Reason Code**: Categorical diagnostic reason explaining why a turn failed, was aborted, or became lost.
@@ -29,14 +29,14 @@ Strictly decouple three orthogonal concepts:
 - `'operator-action'`: Action required by workstation operator (e.g. login CLI, update config, grant permissions).
 - `'alternate-provider'`: Quota or model unavailable; caller should route to a secondary provider.
 
-### Owner decision required
-*Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 6.*
+### Owner decision resolution
+- **Adopted (Approved by Owner — Decision 6)**: Decoupling of terminal outcomes, 12 normalized failure codes, and structured recovery hints is adopted.
 
 ---
 
 ## 2. Normalized failure classification matrix
 
-### Proposed target
+### Target architecture
 
 | Code | HTTP | Category | Meaning | Recovery hint | Downstream action |
 |---|---|---|---|---|---|
@@ -55,9 +55,6 @@ Strictly decouple three orthogonal concepts:
 
 *Note*: Cancellation (`outcome: 'cancelled'`) and server restart interruption (`outcome: 'interrupted'`) are lifecycle outcomes; when recorded in audit logs, they carry reasons (`user_cancelled`, `server_restart`), not failure codes.
 
-### Owner decision required
-*Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 6.*
-
 ---
 
 ## 3. Lost and unknown operation semantics (Epistemic truth)
@@ -68,7 +65,7 @@ Strictly decouple three orthogonal concepts:
 - Indirect signals (such as workspace changes or absence of file writes) do **NOT** prove whether a provider operation completed, failed, or remains alive.
 - Epistemic reality: if the process handle is lost, the operation may still be running in the background, or it may have completed without sending a close frame. Calling it `failed` is false.
 
-### Proposed target
+### Target architecture
 1. **Preserve Epistemic Truth**:
    - If an operation handle vanishes and execution state cannot be proven, the turn transitions to `status: 'unknown'` with `reason: 'operation_lost'` and diagnostic code `AI_OPERATION_LOST`.
    - Nevo does **NOT** set `terminalOutcome`. Unknown means unknown.
@@ -83,8 +80,8 @@ Strictly decouple three orthogonal concepts:
    - If no authoritative provider evidence arrives and Nevo intentionally performs forced cleanup/termination to recover session control (e.g. operator cancellation or recovery supervisor terminating the process tree):
    - Nevo records the lifecycle result as `terminal (outcome: 'interrupted', cause: 'forced_cleanup')` only after process tree termination is proven, without claiming an unknown provider result.
 
-### Owner decision required
-*Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 7.*
+### Owner decision resolution
+- **Adopted (Approved by Owner — Decision 7)**: Epistemic truth preservation and authoritative reconciliation rules are adopted. Forced cleanup settles as `outcome: 'interrupted'`.
 
 ---
 

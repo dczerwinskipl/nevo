@@ -47,8 +47,8 @@ The following matrix documents the current factual behavior across Claude Code, 
 | **11. Questions / ask-user** | `interactiveQuestions: true` (via server MCP `/mcp` endpoint and `ask_user` tool). If MCP disabled, `false`. | `interactiveQuestions: true` (native `item/tool/requestUserInput` server request over stdio JSON-RPC). | `interactiveQuestions: false` (in headless stream mode, `ask_question` tool is auto-skipped by CLI as "User Skipped"). | `interactiveQuestions: true` (triggers on prompt containing `'question'`). |
 | **12. Permissions** | `interactivePermissions: false`. Maps execution mode to `--permission-mode` (`plan`, `acceptEdits`, `bypassPermissions`). | `interactivePermissions: true`. App-server requests approvals (`item/commandExecution/requestApproval`, `fileChange`, `permissions`). | `interactivePermissions: false`. Maps mode to `--mode=plan`, `--mode=accept-edits`, or `--dangerously-skip-permissions`. | `interactivePermissions: true` (triggers on prompt containing `'permission'`). |
 | **13. Confirmations** | `interactiveConfirmations: false`. (Contract exists, but provider does not emit confirmations). | `interactiveConfirmations: false`. (Uses permission or question requests instead). | `interactiveConfirmations: false`. (Capability declared false). | `interactiveConfirmations: false`. |
-| **14. Model selection** | Not supported in adapter. CLI supports `--model <model>`, but provider descriptor and `startTurn` omit model parameters. | Not supported in adapter. CLI and app-server accept `model` parameter, but provider passes no model field. | Not supported in adapter. CLI supports `--model <model>`, but provider passes no model field. | Fixed mock models. |
-| **15. Model discovery** | No CLI model listing command (`claude models` does not exist). Requires static catalog or Anthropic API query. | No app-server RPC or CLI listing command (`codex models` does not exist). Requires static catalog or config reflection. | Supported in CLI! `agy models` outputs full table of model IDs and display names. Adapter does not call it. | Static descriptor. |
+| **14. Model selection** | CLI supports `--model <model>` on initial and resumed turns. Provider descriptor currently omits model fields. | Supported natively: `ThreadStartParams.model` and `TurnStartParams.model` / `.effort` override model and effort. | Supported in CLI: `--model <model>` and `--effort <low|medium|high>` on initial and resumed turns. | Fixed mock models. |
+| **15. Model discovery** | No CLI model listing command (`claude models` is an interactive prompt). Requires curated baseline + config. | Supported in app-server! Protocol v2 natively exposes `model/list` returning `Model[]` with reasoning traits and defaults. | Supported in CLI! `agy models` outputs full table of model IDs and display names. | Static descriptor. |
 | **16. Provider availability** | `isAvailable()` probes `where.exe claude` / `which claude` (cached 30s). Returns `available` + `unavailableReason`. | `isAvailable()` executes `codex --version` via `defaultProbeCodexExecutable` (cached 30s). | `isAvailable()` probes `LOCALAPPDATA\agy\bin\agy.exe` or `where.exe agy` (cached 30s). | Always `available: true`. |
 | **17. Auth failure** | Non-zero CLI exit or stderr notice. Mapped to generic `AI_PROVIDER_EXIT_ERROR` (HTTP 502). | App-server initialization or request JSON-RPC error. Mapped to `AI_PROVIDER_ERROR` (HTTP 502). | Non-zero CLI exit or stderr notice. Mapped to generic `AI_PROVIDER_EXIT_ERROR` or `AI_PROVIDER_ERROR`. | Never fails auth. |
 | **18. Quota / rate-limit** | CLI exit or `error` event. Mapped to generic `AI_PROVIDER_ERROR`. | `error` notification. Mapped to generic `AI_PROVIDER_ERROR`. | Emits `status: "ERROR"` with quota notice. If substantive response exists, treated as advisory; else `AI_PROVIDER_ERROR`. | Simulates on specific triggers. |
@@ -87,7 +87,7 @@ The following matrix documents the current factual behavior across Claude Code, 
 13. **Fact**: Currently, `validateProviderDescriptor` accepts only `id`, `label`, `enabled`, `available`, `unavailableReason`, `capabilities`, `supportedModes`, and `defaultMode`. It does not accept any model catalog or model configuration.
 14. **Fact**: Host CLI verification proves that `agy models` outputs a table of available models (e.g. `gemini-3.8-flash-high`, `gemini-3.1-pro-high`, `claude-sonnet-4-6`, `gpt-oss-120b-medium`).
 15. **Fact**: Host CLI verification proves that `claude` accepts `--model <model>`, but has no CLI command to discover or list models.
-16. **Fact**: Host CLI verification proves that `codex` accepts `-m, --model <MODEL>`, but has no CLI command or app-server RPC to list models.
+16. **Fact**: Probing the installed `@openai/codex` package and generating schemas via `codex app-server generate-json-schema --experimental` proves that Codex app-server v2 natively exposes `model/list` returning `models: Model[]` (with `id`, `displayName`, `isDefault`, `inputModalities`, `supportedReasoningEfforts`, `defaultReasoningEffort`, etc.). In addition, `TurnStartParams` natively supports turn-level `model` and `effort` overrides.
 
 ### Error taxonomy and timeouts
 17. **Fact**: When a CLI command fails or exits non-zero, providers throw `AiError('AI_PROVIDER_EXIT_ERROR')` or `AiError('AI_PROVIDER_ERROR')` with HTTP status 502.
@@ -99,9 +99,9 @@ The following matrix documents the current factual behavior across Claude Code, 
 ## Inferences
 
 1. **Inference (Process Tree Leakage)**: Node's `child.kill('SIGINT')` and `child.kill('SIGKILL')` only target the immediate child process. When Claude or Antigravity spawns build tools, bash scripts, or compilers on Windows, terminating the direct CLI process can leave orphaned worker subprocesses consuming CPU and memory.
-2. **Inference (Dual Alias Fragility)**: Maintaining `antigravity-sessions.json` inside the Antigravity provider adapter while `AgentSessionBindingService` manages `sessions/<specId>.json` introduces a split-brain risk: if the alias file is corrupted, moved, or out of sync with durable bindings, session resumption fails.
+2. **Inference (Alias Store Durability)**: `antigravity-sessions.json` already functions reliably across server restarts to bridge provisional client UUIDs to asynchronous conversation IDs allocated by `agy`. Per owner decision D8, preserving and encapsulating it within the Antigravity adapter boundary is sound and avoids unnecessary coupling.
 3. **Inference (Orchestration Blocking)**: Because all failures (auth, quota, network, syntax, timeout) collapse into `AI_PROVIDER_ERROR`, any future automated orchestration (such as retrying transient rate limits or falling back to an alternate provider on quota exhaustion) is impossible without brittle regex parsing of provider error strings.
-4. **Inference (Model Configuration Feasibility)**: Because all three CLIs support passing a target model (`claude --model`, `agy --model`, `codex -m` / `thread/start`), adding model selection to Nevo requires only normalized catalog metadata and flag propagation; it does not require redesigning the execution transports.
+4. **Inference (Model Configuration Feasibility)**: Because all three CLIs support passing a target model (`claude --model`, `agy --model`, `codex -m` / `thread/start` / `turn/start`), adding model selection to Nevo requires only normalized catalog metadata and flag propagation; it does not require redesigning the execution transports.
 
 ---
 
@@ -114,16 +114,18 @@ The following matrix documents the current factual behavior across Claude Code, 
 
 ---
 
-## Open questions for owner decision
+## Approved owner decisions summary
 
-1. **Model Catalog Strategy**: Should Nevo discover models dynamically where supported (`agy models`), accept operator configuration (`ai-providers.yaml`), supply baseline metadata for known models, omit model overrides for provider defaults, and allow unlisted models to pass through without false validation rejections?
-2. **Model Selection Scope**: Should model selection be bound exclusively to session creation (matching Codex protocol and Claude context invariants), or should turn-level model overrides be permitted where an adapter declares native support?
-3. **Interaction Contract & Headless Fallback**: Should Antigravity remain strictly non-interactive (`interactiveQuestions: false`) while establishing a canonical composer fallback for terminal textual questions, rather than fabricating synthetic interactions via regex?
-4. **Capability Ownership & Decoupling**: Should provider transport capabilities (e.g. `reasoningEvents`, `toolCalls`, `usage`) be decoupled from model inference traits (`supportsReasoning`, `supportsReasoningEffort`, `supportsVision`), with effective turn capabilities derived by the runtime?
-5. **Output & Event Vocabulary Layers**: Should Nevo explicitly structure a four-layer event pipeline (Provider Protocol -> Internal Runtime Semantic -> Public AgentEvent -> CanonicalTurn Projection) with semantic rendering targets?
-6. **Error Taxonomy vs Terminal Outcomes**: Should terminal lifecycle outcomes (`completed`, `failed`, `cancelled`, `interrupted`) be decoupled from failure reason codes, and simplistic boolean `retryable` replaced by structured neutral recovery hints (`none`, `retry-after-delay`, `new-turn`, `new-session`, `operator-action`, `alternate-provider`)?
-7. **Lost / Unknown Operation Semantics**: How should lost operations interact with `turn.status: 'unknown'` to preserve epistemic truth without falsely claiming `failed` while background processes may still run?
-8. **Session Alias Convergence**: Should the Antigravity session alias store (`antigravity-sessions.json`) be deprecated and migrated directly into `AgentSessionBindingService` as a first-class alias mechanism?
-9. **Process Tree Termination on Windows**: Should Nevo adopt platform-native process tree termination (`taskkill.exe /F /T /PID` or Job Objects on Windows) to prevent orphaned subprocesses from surviving CLI cancellation?
-10. **Provider Availability vs Health Decoupling**: Should stable configuration facts (`enabled`, `installed`, `version`) be separated from transient observations (`authenticated`, `status`), ensuring per-turn rate limits never mark a provider globally unavailable?
+All 10 architectural questions have been formally resolved and approved by the owner in [owner-decisions.md](owner-decisions.md):
+- **D1 (Model Catalog)**: Adapter-owned discovery via best available source (`model/list` for Codex, `agy models` for Antigravity, curated baseline + config for Claude) with permissive passthrough.
+- **D2 (Model Selection Scope)**: Session persists current model; mid-session model switching governed by adapter capability `canOverrideTurnModel`.
+- **D3 (Interaction Contract)**: Neutral interaction contract; native stdio JSON-RPC for Codex, Fastify MCP bridge for Claude, headless non-interactive for Antigravity with composer fallback. No text heuristics.
+- **D4 (Capabilities vs Traits)**: Separation of transport capabilities (`ProviderCapabilities`) from model traits (`ModelTraits`). Runtime evidence always wins over advisory metadata.
+- **D5 (Output & Event Layers)**: Strict four-layer transformation pipeline (`Provider Protocol` -> `Internal Runtime Semantic` -> `Public AgentEvent` -> `CanonicalTurn Projection`).
+- **D6 (Error Taxonomy & Outcomes)**: Decoupling of terminal outcomes, 12 normalized failure codes, and structured neutral recovery hints.
+- **D7 (Lost Operations)**: Backend owns operation execution; `status: 'unknown'` is a transient reconciliation state. Reconciliation only on authoritative evidence; forced cleanup settles as `outcome: 'interrupted'`.
+- **D8 (Session Persistence)**: Existing working `antigravity-sessions.json` alias persistence is preserved and encapsulated within the Antigravity adapter boundary.
+- **D9 (Child Process Lifecycle)**: OS-aware process tree termination (`taskkill /PID <pid> /T /F` on Windows; process groups on POSIX).
+- **D10 (Provider Health & Availability)**: Decoupling stable facts (`enabled`, `installed`, `version`) from transient observations (`status`, `authenticated`). Rate limits in a turn never mark provider globally unavailable.
+
 

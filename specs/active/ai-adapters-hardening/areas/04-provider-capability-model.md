@@ -34,6 +34,7 @@ classDiagram
         +boolean interactiveConfirmations
         +boolean resumeSession
         +boolean cancelTurn
+        +boolean canOverrideTurnModel
         +boolean toolCalls
         +boolean reasoningEvents
         +boolean usage
@@ -47,7 +48,9 @@ classDiagram
     }
     class ModelTraits {
         +boolean supportsReasoning
-        +boolean supportsReasoningEffort
+        +string[] supportedReasoningEfforts
+        +string defaultReasoningEffort
+        +string[] inputModalities
         +boolean supportsVision
         +number maxContextTokens
     }
@@ -72,8 +75,8 @@ classDiagram
     ModelDescriptor *-- ModelTraits
 ```
 
-### Owner decision required
-*Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 4.*
+### Owner decision resolution
+- **Adopted (Approved by Owner — Decision 4)**: Deconstruction of flat capabilities into transport capabilities and model traits is adopted.
 
 ---
 
@@ -82,7 +85,7 @@ classDiagram
 ### Current fact
 - Adapters currently declare capabilities monolithically. For example, Claude declares `reasoning: true` even though earlier Claude 3.5 models do not emit thinking blocks.
 
-### Proposed target
+### Target architecture
 1. **Transport / Integration Capabilities (`ProviderCapabilities`)**:
    - Inherent to the adapter transport and CLI integration protocol.
    - `interactiveQuestions`: Transport can conduct mid-turn question interactions.
@@ -90,6 +93,7 @@ classDiagram
    - `interactiveConfirmations`: Transport can conduct mid-turn confirmation interactions.
    - `resumeSession`: Transport supports multi-turn session continuation across process exits.
    - `cancelTurn`: Transport supports graceful in-flight cancellation.
+   - `canOverrideTurnModel`: Transport supports switching models within an existing session/turn.
    - `toolCalls`: Transport can parse and stream structured tool invocations. (Sole authoritative flag for tool calling; no duplicate on model).
    - `reasoningEvents`: Transport can capture and stream `reasoning.delta` events from the CLI/daemon stream.
    - `usage`: Transport reports token consumption and cost telemetry.
@@ -99,7 +103,9 @@ classDiagram
 2. **Model Traits (`ModelTraits`)**:
    - Intrinsic to specific AI model weights and training.
    - `supportsReasoning`: Model produces provider-exposed reasoning tokens.
-   - `supportsReasoningEffort`: Model accepts `low`, `medium`, or `high` reasoning effort configuration (e.g. Claude 3.7 Sonnet, Gemini 2.0 Flash Thinking, o3).
+   - `supportedReasoningEfforts`: Array of supported effort levels (e.g. `['low', 'medium', 'high']`).
+   - `defaultReasoningEffort`: Default reasoning effort if unspecified.
+   - `inputModalities`: Supported modalities (e.g. `['text', 'image', 'audio']`).
    - `supportsVision`: Model accepts multimodal image attachments.
    - `maxContextTokens`: Maximum context window size.
    - *Absence of a trait means UNKNOWN, not false.*
@@ -110,8 +116,8 @@ classDiagram
    - Model traits are used for **pre-turn configuration and UI affordances** (such as whether to offer a reasoning-effort selector in the composer or model options).
    - Catalog metadata must **NEVER** be used to discard, filter, or suppress evidenced provider output.
 
-### Owner decision required
-*Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 4.*
+### Owner decision resolution
+- **Adopted (Approved by Owner — Decision 4)**: Transport capabilities, model traits, and runtime evidence precedence are adopted.
 
 ---
 

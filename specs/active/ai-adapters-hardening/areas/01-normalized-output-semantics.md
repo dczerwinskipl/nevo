@@ -58,8 +58,8 @@ To eliminate ambiguity, output semantics are structured as a strict four-layer t
 | Token telemetry & cost | Usage payload | `usage.updated` | `turn.usage` | Telemetry header/footer |
 | Terminal lifecycle state | Settle event | `turn.completed`, `turn.failed` | `turn.status (status: 'terminal')` | Turn status seal & badge |
 
-### Owner decision required
-*Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 5.*
+### Owner decision resolution
+- **Adopted (Approved by Owner — Decision 5)**: Nevo adopts the four-layer event pipeline (`Provider Protocol` -> `Internal Runtime Semantic` -> `Public AgentEvent` -> `CanonicalTurn Projection`). The public SSE stream exposes `text.delta`, `progress.delta`, `reasoning.delta`, `tool.*`, and `interaction.*`, preserving semantic channel separation without flattening into UI heuristics.
 
 ---
 
@@ -72,14 +72,11 @@ To eliminate ambiguity, output semantics are structured as a strict four-layer t
   - **Level 3 (ToolAction)**: Ordered sub-actions within a `tool` WorkItem representing compound operations (read, edit, execute) without inflating the top-level turn `activityCount`.
   - **FinalAnswer**: Kept on `CanonicalTurn.finalAnswer` (`FinalAnswer | null`), strictly orthogonal to Level 2 Work items.
 
-### Proposed target
+### Target architecture
 - Maintain strict orthogonality: commentary cannot morph into final answer merely because a turn finishes, and final answer content cannot be duplicated into a Level 2 commentary work item.
 - When an adapter receives output text, it must route it based on the provider's active phase:
   - Text emitted during tool execution or before tool calls without final completion signals is commentary.
   - Authoritative conversational responses emitted as final completion are final answer text.
-
-### Owner decision required
-*Status: Established in ADR-0008; invariant preserved.*
 
 ---
 
@@ -89,13 +86,13 @@ To eliminate ambiguity, output semantics are structured as a strict four-layer t
 - In early prototypes, user questions or approvals were sometimes guessed by running regular expressions over the model's text stream.
 - The current implementation requires structured interaction events, but fallback behavior when models emit plain text questions requires explicit policy.
 
-### Proposed target
+### Target architecture
 - **Zero Regex Parsing**: The UI and runtime must NEVER parse Markdown or free-form text using heuristics to detect tool calls, questions, approvals, or errors.
 - **Evidenced Transitions**: A state transition to `requiresAttention` requires an explicit, structured `interaction.requested` event from the provider adapter.
-- **Terminal Text Questions**: If a model ends a turn with a conversational question (e.g., *"Should I proceed with option A or B?"*), it is treated as normal `finalAnswer` text, ending the turn cleanly in `status: 'terminal' (outcome: 'completed')`. The user answers by typing in the composer, which starts a new Turn. It must NEVER fabricate an `interaction` WorkItem or hang in `requiresAttention`.
+- **Terminal Text Questions (Composer Fallback)**: If a model ends a turn with a conversational question (e.g., *"Should I proceed with option A or B?"*), it is treated as normal `finalAnswer` text, ending the turn cleanly in `status: 'terminal' (outcome: 'completed')`. The user answers by typing in the composer, which starts a new Turn. It must NEVER fabricate an `interaction` WorkItem or hang in `requiresAttention`.
 
-### Owner decision required
-*Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 3.*
+### Owner decision resolution
+- **Adopted (Approved by Owner — Decision 3)**: Approved without reservation. No regular expressions or text scraping are permitted to fabricate structured interactions. Non-interactive models or conversational text questions settle cleanly with `finalAnswer`, relying on composer fallback.
 
 ---
 
@@ -104,5 +101,6 @@ To eliminate ambiguity, output semantics are structured as a strict four-layer t
 ### Current fact
 - `CanonicalTurn` validation requires that no tool invocation may remain in `active` or `queued` status once the owning Turn is terminal.
 
-### Proposed target
+### Target architecture
 - Tools that are still active or queued when a Turn reaches a terminal boundary must be authoritatively closed by the coordinator with `status: 'failed'` and an explicit `closureReason` (`turn_completed`, `turn_failed`, `turn_cancelled`, `turn_interrupted`, `process_exit`, `timeout`).
+

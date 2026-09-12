@@ -43,14 +43,14 @@ Explicitly decouple four nested lifecycles:
 - On Windows, Node.js `child.kill('SIGINT')` or `child.kill('SIGKILL')` calls `TerminateProcess` on the immediate child PID only.
 - Grandchild worker processes are NOT terminated and continue running orphaned, locking repository files and consuming CPU.
 
-### Proposed target
+### Target architecture
 - Harden `terminateChildProcess()` in `tools/dashboard/server/ai/sessions/turns/process-termination.mjs`:
   - **On Windows**: Invoke `taskkill.exe /PID <pid> /T /F` or assign the spawned child to a Windows Job Object configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`.
   - **On POSIX**: Spawn with `detached: true` and terminate the process group via `process.kill(-pid, signal)`.
   - Verification loop ensures all processes in the tree have exited before completing termination promise.
 
-### Owner decision required
-*Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 9.*
+### Owner decision resolution
+- **Adopted (Approved by Owner — Decision 9)**: OS-aware process tree termination is adopted, preventing orphaned worker processes on Windows.
 
 ---
 
@@ -61,7 +61,7 @@ Explicitly decouple four nested lifecycles:
 - If the communication channel drops or the process disappears unexpectedly, earlier implementations collapsed the turn into `status: 'terminal' (outcome: 'failed')`.
 - Indirect signals (such as absence of file writes or filesystem changes) do not prove whether an operation completed, failed, or remains alive.
 
-### Proposed target
+### Target architecture
 - Preserve epistemic truth: if an operation handle vanishes and execution state cannot be proven, the turn transitions to `status: 'unknown'` with `reason: 'operation_lost'` and diagnostic code `AI_OPERATION_LOST`.
 - The turn is NOT sealed as failed until authoritative evidence resolves it:
   1. Provider terminal protocol event (e.g. late completion frame with turn correlation).
@@ -70,8 +70,8 @@ Explicitly decouple four nested lifecycles:
 - Unsafe concurrent turn execution is strictly **blocked** for that session while state is unresolved.
 - If Nevo intentionally performs forced cleanup/termination to recover session control, Nevo records its own lifecycle result as `terminal (outcome: 'interrupted', cause: 'forced_cleanup')` once termination is proven, without asserting an unknown provider outcome.
 
-### Owner decision required
-*Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 7.*
+### Owner decision resolution
+- **Adopted (Approved by Owner — Decision 7)**: Epistemic truth preservation, state reconciliation, and forced cleanup policies are adopted.
 
 ---
 

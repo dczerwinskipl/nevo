@@ -15,7 +15,7 @@ Define the metadata and health state model for AI providers, separating operator
 - This conflates four distinct operational realities: operator configuration, executable installation, authentication state, and transient operational health.
 - Deriving global provider health from a single failed turn causes false-negatives (e.g. a rate limit on one turn marks the entire provider unavailable in the UI).
 
-### Proposed target
+### Target architecture
 Explicitly decouple stable workstation facts from probe-derived observations:
 
 1. **Stable Facts**:
@@ -42,8 +42,8 @@ export interface ProviderHealth {
 }
 ```
 
-### Owner decision required
-*Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 10.*
+### Owner decision resolution
+- **Adopted (Approved by Owner — Decision 10)**: Decoupling of stable workstation facts from transient health observations and the turn error isolation invariant are adopted.
 
 ---
 

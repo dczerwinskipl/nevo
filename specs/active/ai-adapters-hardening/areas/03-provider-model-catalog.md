@@ -10,20 +10,20 @@ Define a provider-neutral model descriptor and catalog architecture that enables
 
 ### Current fact
 - Currently, `AgentProviderDescriptor` has no model metadata.
-- `agy` natively supports dynamic discovery via `agy models`, listing model IDs and labels.
-- `claude` accepts `--model <model>` on CLI, but has no discovery command.
-- `codex` accepts `-m, --model <MODEL>` on CLI and `model` on `thread/start`, but has no discovery command or RPC.
-- Neither Claude nor Codex integration can authoritatively enumerate all models available to the current user/account.
+- **Google Antigravity**: `agy` natively supports dynamic discovery via `agy models`, listing model IDs and labels.
+- **OpenAI Codex**: Codex app-server v2 protocol natively exposes `model/list` JSON-RPC method, returning `models: Model[]` (`id`, `displayName`, `description`, `isDefault`, `inputModalities`, `supportedReasoningEfforts`, `defaultReasoningEffort`, etc.).
+- **Claude Code**: `claude` accepts `--model <model>` on CLI, but has no discovery subcommand or RPC listing method (`claude models` is parsed as an interactive prompt).
 
-### Proposed target
+### Target architecture
 To preserve truthfulness and prevent false rejections, model information is categorized into four distinct layers:
 
 1. **Authoritative discovered models**:
-   - Discovered dynamically by querying the provider CLI at runtime (supported by Antigravity via `agy models`).
-   - Cached with a 5-minute TTL to prevent process spawning overhead.
+   - Discovered dynamically by querying the provider CLI/daemon at runtime:
+     - Antigravity via `agy models` (cached with a 5-minute TTL).
+     - Codex via `model/list` JSON-RPC query on `CodexAppServerClient`.
 2. **Configured / operator models**:
    - Explicitly configured by the workstation operator in `.nevo-ai-local/ai-providers.yaml`.
-   - Allows users to specify private fine-tunes, newly released models, or internal endpoints.
+   - Allows operators to specify private fine-tunes, newly released models, or custom endpoints.
 3. **Known / recommended model metadata**:
    - Curated advisory metadata (display labels, known traits) shipped with Nevo for well-known models (e.g. Claude 3.7 Sonnet, o3).
    - Serves as offline fallback and UI label/affordance enrichment.
@@ -44,8 +44,8 @@ To preserve truthfulness and prevent false rejections, model information is cate
 - Absence of a known trait means **UNKNOWN**, not false.
 - Catalog metadata must **NEVER** be used to discard, filter, or suppress evidenced provider output.
 
-### Owner decision required
-*Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 1.*
+### Owner decision resolution
+- **Adopted (Approved by Owner — Decision 1)**: Adapter-owned discovery, permissive passthrough, and best-available-source principles are adopted. Nevo core exposes and consumes `AgentModelDescriptor[]` without owning a hardcoded global catalog.
 
 ---
 
@@ -54,23 +54,25 @@ To preserve truthfulness and prevent false rejections, model information is cate
 ### Current fact
 - Provider descriptors currently contain only top-level booleans and execution modes (`ask`, `edit`, `agent`).
 
-### Proposed target
+### Target architecture
 Every model is represented by an immutable `AgentModelDescriptor`:
 
 ```typescript
 export interface AgentModelTraits {
-  supportsReasoning?: boolean;       // Generates extended provider-exposed reasoning
-  supportsReasoningEffort?: boolean; // Accepts low/medium/high effort configuration
-  supportsVision?: boolean;          // Accepts multimodal image attachments
-  maxContextTokens?: number;         // Maximum input context window (if known)
+  supportsReasoning?: boolean;          // Generates extended provider-exposed reasoning
+  supportedReasoningEfforts?: string[]; // e.g. ['low', 'medium', 'high']
+  defaultReasoningEffort?: string;      // Provider default effort level
+  inputModalities?: string[];           // e.g. ['text', 'image', 'audio']
+  supportsVision?: boolean;             // Accepts multimodal image attachments
+  maxContextTokens?: number;            // Maximum input context window (if known)
 }
 
 export interface AgentModelDescriptor {
-  id: string;                               // Provider-local model identifier (e.g. 'claude-3-7-sonnet-20250219', 'gemini-3.8-flash-high')
-  label: string;                            // Human-readable display label
-  isDefault?: boolean;                      // True if evidenced as provider default
+  id: string;                                  // Provider-local model identifier (e.g. 'claude-3-7-sonnet-20250219', 'gemini-3.8-flash-high')
+  label: string;                               // Human-readable display label
+  isDefault?: boolean;                         // True if evidenced as provider default
   source: 'discovered' | 'configured' | 'known'; // Origin of catalog entry
-  traits?: AgentModelTraits;                // Advisory model traits for pre-turn UI affordances
+  traits?: AgentModelTraits;                   // Advisory model traits for pre-turn UI affordances
 }
 ```
 
@@ -78,21 +80,22 @@ export interface AgentModelDescriptor {
 - `supportedModes` is removed from `AgentModelDescriptor`; execution modes belong to provider/integration policy (configured on `ProviderDescriptor.supportedModes`), not model descriptors.
 - Redundant flags such as `toolCalling` on the model are eliminated; tool execution support is governed at the transport level by provider capability `toolCalls`.
 
-### Owner decision required
-*Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 1 and Decision 4.*
+### Owner decision resolution
+- **Adopted (Approved by Owner — Decisions 1 & 4)**: The `AgentModelDescriptor` and `AgentModelTraits` schemas are adopted.
 
 ---
 
 ## 3. Model selection scope
 
 ### Current fact
-- **Codex**: Accepts `model` during `thread/start` (`v2/ThreadStartParams.json`). Resuming a thread (`v2/ThreadResumeParams.json`) restores the thread with its established model. Turn execution (`v2/TurnStartParams.json`) accepts only `{ input, threadId }` — mid-session model switching is NOT supported by the app-server protocol.
-- **Claude**: Accepts `--model <model>`. When resuming an existing session with `--resume <uuid>`, `--model` can be passed, but Claude CLI documentation warns that conversation context is bound to earlier turns.
-- **Antigravity**: Accepts `--model <model>` on initial turns and when resuming via `--conversation <id>`.
+- **OpenAI Codex**: In protocol v2, `ThreadStartParams.model` sets initial thread model. `TurnStartParams.model` explicitly defines: *"Override the model for this turn and subsequent turns."* and `TurnStartParams.effort` defines: *"Override the reasoning effort for this turn and subsequent turns."*. Turn-level model and effort switching are natively supported.
+- **Google Antigravity**: Accepts `--model <model>` and `--effort <low|medium|high>` on initial turns and when resuming via `--conversation <id>`. Turn-level overrides are natively supported.
+- **Claude Code**: Accepts `--model <model>` on initial sessions and on resumed sessions (`--resume <uuid> --model <model>`).
 
-### Proposed target
-- **Session-scoped base**: Model selection is established at session creation (`createSession({ model })`) and recorded in session binding metadata.
-- **Turn override constraint**: To prevent protocol violations on Codex, individual turns inherit the session model by default. If turn-level overrides are enabled, they are governed by an explicit adapter capability (`canOverrideTurnModel`) to prevent sending unsupported parameters to providers.
+### Target architecture
+- **Session-scoped persistence**: Model selection is established at session creation and persisted in session binding metadata (`sessionBinding.model`).
+- **Capability-driven turn switching**: Turn-level model switching is governed by an adapter capability: `canOverrideTurnModel: boolean`.
+- All three providers (`codex`, `antigravity`, `claude`) natively support turn-level model overrides. Where an adapter supports it, `canOverrideTurnModel` is declared `true`.
 
-### Owner decision required
-*Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 2.*
+### Owner decision resolution
+- **Adopted (Approved by Owner — Decision 2)**: Capability-governed model switching is adopted. Nevo does not impose a synthetic session-only restriction where providers natively support turn overrides.
