@@ -116,8 +116,14 @@ The following matrix documents the current factual behavior across Claude Code, 
 
 ## Open questions for owner decision
 
-1. **Model Catalog Strategy**: Should Nevo discover models dynamically from providers that support it (e.g. `agy models`), declare them statically in provider descriptors, or use a hybrid model (static default catalog enriched by runtime discovery)?
-2. **Interaction Bridge Strategy**: Should Antigravity remain strictly non-interactive (`interactiveQuestions: false`), or should Nevo explore an MCP bridge (analogous to Claude's) or degraded prompt continuation for Antigravity in a subsequent change?
-3. **Session Alias Convergence**: Should the Antigravity session alias store (`antigravity-sessions.json`) be deprecated and migrated directly into `AgentSessionBindingService` as a first-class alias mechanism?
-4. **Process Tree Termination on Windows**: Should Nevo adopt platform-native process tree termination (e.g. `taskkill.exe /F /T /PID` on Windows) to prevent orphaned subprocesses from surviving CLI cancellation?
-5. **Error Taxonomy Scope**: Should the normalized error taxonomy distinguish transient vs permanent errors directly in the `AiError` code enum (e.g. `AI_RATE_LIMITED`, `AI_QUOTA_EXHAUSTED`, `AI_AUTH_FAILED`), and expose retryability hints in structured error metadata?
+1. **Model Catalog Strategy**: Should Nevo discover models dynamically where supported (`agy models`), accept operator configuration (`ai-providers.yaml`), supply baseline metadata for known models, omit model overrides for provider defaults, and allow unlisted models to pass through without false validation rejections?
+2. **Model Selection Scope**: Should model selection be bound exclusively to session creation (matching Codex protocol and Claude context invariants), or should turn-level model overrides be permitted where an adapter declares native support?
+3. **Interaction Contract & Headless Fallback**: Should Antigravity remain strictly non-interactive (`interactiveQuestions: false`) while establishing a canonical composer fallback for terminal textual questions, rather than fabricating synthetic interactions via regex?
+4. **Capability Ownership & Decoupling**: Should provider transport capabilities (e.g. `reasoningEvents`, `toolCalls`, `usage`) be decoupled from model inference traits (`supportsReasoning`, `supportsReasoningEffort`, `supportsVision`), with effective turn capabilities derived by the runtime?
+5. **Output & Event Vocabulary Layers**: Should Nevo explicitly structure a four-layer event pipeline (Provider Protocol -> Internal Runtime Semantic -> Public AgentEvent -> CanonicalTurn Projection) with semantic rendering targets?
+6. **Error Taxonomy vs Terminal Outcomes**: Should terminal lifecycle outcomes (`completed`, `failed`, `cancelled`, `interrupted`) be decoupled from failure reason codes, and simplistic boolean `retryable` replaced by structured neutral recovery hints (`none`, `retry-after-delay`, `new-turn`, `new-session`, `operator-action`, `alternate-provider`)?
+7. **Lost / Unknown Operation Semantics**: How should lost operations interact with `turn.status: 'unknown'` to preserve epistemic truth without falsely claiming `failed` while background processes may still run?
+8. **Session Alias Convergence**: Should the Antigravity session alias store (`antigravity-sessions.json`) be deprecated and migrated directly into `AgentSessionBindingService` as a first-class alias mechanism?
+9. **Process Tree Termination on Windows**: Should Nevo adopt platform-native process tree termination (`taskkill.exe /F /T /PID` or Job Objects on Windows) to prevent orphaned subprocesses from surviving CLI cancellation?
+10. **Provider Availability vs Health Decoupling**: Should stable configuration facts (`enabled`, `installed`, `version`) be separated from transient observations (`authenticated`, `status`), ensuring per-turn rate limits never mark a provider globally unavailable?
+

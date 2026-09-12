@@ -2,15 +2,21 @@
 
 ## Purpose
 
-Deconstruct the current unstructured boolean capabilities map (`AgentCapabilities`) into clean, distinct architectural responsibility domains: Provider Capabilities, Model Capabilities, Execution Modes, and Runtime Availability.
+Deconstruct the current unstructured boolean capabilities map (`AgentCapabilities`) into clean, distinct architectural domains: Provider Transport Capabilities, Model Inference Traits, Execution Modes, and Runtime Availability.
 
 ---
 
-## Responsibility domain separation
+## 1. Domain responsibility separation
 
-Currently, `AgentCapabilities` groups 10 disparate concerns into a flat boolean map on the provider descriptor. This conflates transport protocol constraints, model inference traits, security boundaries, and runtime health.
+### Current fact
+- `AgentCapabilities` in `tools/dashboard/server/ai/contracts.mjs` defines a flat list of 10 booleans:
+  `interactivePermissions`, `interactiveQuestions`, `interactiveConfirmations`, `resumeSession`, `cancelTurn`, `toolCalls`, `reasoning`, `usage`, `steerTurn`, `planUpdates`.
+- This mixes transport/protocol abilities of the adapter with intrinsic inference properties of AI model weights.
+- Moving `reasoning` exclusively to the model level breaks transport checks (if an adapter cannot stream reasoning events from the CLI, model support alone is insufficient).
+- Duplicating flags like `toolCalls` (provider) and `toolCalling` (model) creates overlapping, undefined semantics.
 
-The hardened architecture establishes four explicit responsibility boundaries:
+### Proposed target
+Establish explicit responsibility boundaries between transport capabilities and model traits:
 
 ```mermaid
 classDiagram
@@ -29,6 +35,7 @@ classDiagram
         +boolean resumeSession
         +boolean cancelTurn
         +boolean toolCalls
+        +boolean reasoningEvents
         +boolean usage
         +boolean steerTurn
         +boolean planUpdates
@@ -36,12 +43,12 @@ classDiagram
     class ModelDescriptor {
         +string id
         +string label
-        +ModelCapabilities capabilities
+        +ModelTraits traits
     }
-    class ModelCapabilities {
-        +boolean reasoning
-        +boolean reasoningEffort
-        +boolean vision
+    class ModelTraits {
+        +boolean supportsReasoning
+        +boolean supportsReasoningEffort
+        +boolean supportsVision
         +number maxContextTokens
     }
     class ExecutionMode {
@@ -62,49 +69,59 @@ classDiagram
     ProviderDescriptor *-- ModelDescriptor
     ProviderDescriptor *-- ExecutionMode
     ProviderDescriptor *-- ProviderHealth
-    ModelDescriptor *-- ModelCapabilities
+    ModelDescriptor *-- ModelTraits
 ```
 
----
-
-## 1. Provider-level capabilities (`ProviderCapabilities`)
-These represent transport, protocol, and integration invariants inherent to how Nevo connects to the provider. They do NOT vary by model:
-
-- `interactiveQuestions`: Provider transport supports mid-turn interactive questions (Codex via JSON-RPC, Claude via MCP).
-- `interactivePermissions`: Provider transport supports mid-turn interactive permission requests (Codex via JSON-RPC).
-- `interactiveConfirmations`: Provider transport supports mid-turn confirmation interactions.
-- `resumeSession`: Provider supports resuming a persistent conversation across turn boundaries (`--resume`, `--conversation`, `thread/resume`).
-- `cancelTurn`: Provider supports gracefully cancelling an active turn (`cancelTurn()`).
-- `toolCalls`: Provider emits structured tool invocations (`mapClaudeTool`, `mapCodexCommandActions`, `mapAntigravityTool`).
-- `usage`: Provider reports token telemetry (`tokensIn`, `tokensOut`, `cost`).
-- `steerTurn`: Provider supports mid-turn user steering injections without full cancellation.
-- `planUpdates`: Provider emits structured architectural plan or task updates.
+### Owner decision required
+*Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 4.*
 
 ---
 
-## 2. Model-level capabilities (`ModelCapabilities`)
-These represent inference traits determined by the specific AI model weights and training, not the CLI wrapper:
+## 2. Transport capabilities vs model traits
 
-- `reasoning`: Model supports extended chain-of-thought or thinking blocks (e.g. Claude 3.7 Sonnet, o3, Gemini 2.0 Flash Thinking).
-- `reasoningEffort`: Model accepts explicit reasoning effort controls (`low`, `medium`, `high`).
-- `vision`: Model accepts multimodal image attachments.
-- `maxContextTokens`: Maximum context window size supported by the model architecture.
+### Current fact
+- Adapters currently declare capabilities monolithically. For example, Claude declares `reasoning: true` even though earlier Claude 3.5 models do not emit thinking blocks.
+
+### Proposed target
+1. **Transport / Integration Capabilities (`ProviderCapabilities`)**:
+   - Inherent to the adapter transport and CLI integration protocol.
+   - `interactiveQuestions`: Transport can conduct mid-turn question interactions.
+   - `interactivePermissions`: Transport can conduct mid-turn tool permission interactions.
+   - `interactiveConfirmations`: Transport can conduct mid-turn confirmation interactions.
+   - `resumeSession`: Transport supports multi-turn session continuation across process exits.
+   - `cancelTurn`: Transport supports graceful in-flight cancellation.
+   - `toolCalls`: Transport can parse and stream structured tool invocations. (Sole authoritative flag for tool calling; no duplicate on model).
+   - `reasoningEvents`: Transport can capture and stream `reasoning.delta` events from the CLI/daemon stream.
+   - `usage`: Transport reports token consumption and cost telemetry.
+   - `steerTurn`: Transport supports mid-turn prompt redirection.
+   - `planUpdates`: Transport emits structured plan or task progress.
+
+2. **Model Traits (`ModelTraits`)**:
+   - Intrinsic to specific AI model weights and training.
+   - `supportsReasoning`: Model produces chain-of-thought tokens.
+   - `supportsReasoningEffort`: Model accepts `low`, `medium`, or `high` reasoning effort configuration (e.g. Claude 3.7 Sonnet, Gemini 2.0 Flash Thinking, o3).
+   - `supportsVision`: Model accepts multimodal image attachments.
+   - `maxContextTokens`: Maximum context window size.
+
+3. **Effective Turn Behavior**:
+   - The runtime derives the effective capabilities of a turn from the intersection:
+     - Reasoning stream is active only when `capabilities.reasoningEvents === true` **AND** `model.traits.supportsReasoning === true`.
+     - Reasoning effort controls are shown only when `model.traits.supportsReasoningEffort === true`.
+
+### Owner decision required
+*Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 4.*
 
 ---
 
 ## 3. Execution mode policy (`ExecutionMode`)
-Execution mode is NOT a provider capability. It is an **operator intent** and **security policy** passed to the provider to configure sandbox restrictions and approval boundaries:
 
-- `ask` (Read-only): Non-mutating analysis. Sandboxed execution with write access disabled; no approval prompts required. (Codex: `approvalPolicy: 'never'`, `sandbox: 'read-only'`; Claude: `--permission-mode plan`; Antigravity: `--mode=plan`).
-- `edit` (Workspace write with safeguards): Modifies repository workspace files with interactive or confirmation safeguards. (Codex: `approvalPolicy: 'on-request'`, `sandbox: 'workspace-write'`; Claude: `--permission-mode acceptEdits`; Antigravity: `--mode=accept-edits`).
-- `agent` (Autonomous with escalation): Full autonomous repository work with workspace access and explicit escalation for out-of-sandbox operations. (Codex: `on-request` approval with unrestricted roots; Claude: `--permission-mode bypassPermissions`; Antigravity: `--mode=accept-edits --dangerously-skip-permissions`).
+### Current fact
+- `AGENT_EXECUTION_MODES` in `contracts.mjs` defines `['ask', 'edit', 'agent']` with default `'edit'`.
+- Execution mode is not a provider capability; it is an operator security policy passed to the provider to configure sandbox restrictions and approval boundaries:
+  - `ask` (Read-only): Sandboxed, no file writes or mutating commands. (Codex: `sandbox: 'read-only'`; Claude: `--permission-mode plan`; Antigravity: `--mode=plan`).
+  - `edit` (Workspace write with safeguards): Modifies repository workspace files. (Codex: `sandbox: 'workspace-write'`; Claude: `--permission-mode acceptEdits`; Antigravity: `--mode=accept-edits`).
+  - `agent` (Autonomous with escalation): Full workspace access with command execution. (Codex: `on-request` approval; Claude: `--permission-mode bypassPermissions`; Antigravity: `--mode=accept-edits --dangerously-skip-permissions`).
 
----
-
-## 4. Runtime availability and health (`ProviderHealth`)
-Runtime status must never be reported as a capability:
-- A provider that is rate-limited does not lose `toolCalls: true`; it is temporarily `degraded`.
-- A provider missing an API key does not lose `interactiveQuestions: true`; it is `unauthenticated`.
-- A provider whose binary is missing from PATH is `installed: false`.
-
-Separating these four domains ensures that downstream components (composer UI, retry loops, security guards) query the exact domain responsible for the decision.
+### Proposed target
+- Maintain `ExecutionMode` as a first-class policy orthogonal to provider capabilities and model traits.
+- The provider descriptor declares `supportedModes: AgentExecutionMode[]` indicating which modes the adapter currently maps.

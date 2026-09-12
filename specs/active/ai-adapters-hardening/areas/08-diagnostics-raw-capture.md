@@ -6,7 +6,15 @@ Define the strict boundary between canonical provider-neutral conversation state
 
 ---
 
-## Canonical history vs raw diagnostics boundary
+## 1. Canonical history vs raw diagnostics boundary
+
+### Current fact
+- Canonical conversation history is stored in `.nevo-ai-local/transcripts/` as sanitized, provider-neutral JSON.
+- Raw provider stdout/stderr logs are stored in `.nevo-ai-local/*_raw/`.
+- Antigravity adapter contains a provisional-to-allocated directory migration mechanism when `agy` allocates an ID during streaming.
+
+### Proposed target
+Maintain a strict separation of concerns between user-facing state and diagnostic forensics:
 
 ```text
 ┌──────────────────────────────────────────────┐  ┌──────────────────────────────────────────────┐
@@ -20,45 +28,22 @@ Define the strict boundary between canonical provider-neutral conversation state
 └──────────────────────────────────────────────┘  └──────────────────────────────────────────────┘
 ```
 
-### Invariant 1: No browser exposure of raw payloads
-- Raw stdout lines, JSON-RPC envelopes, provider request IDs, and internal error stacks must NEVER be exposed over public HTTP endpoints or SSE event streams.
-- The UI renders only canonical Work items, tool actions, and normalized error summaries.
+#### Diagnostic invariants
+1. **No Browser Exposure**: Raw stdout/stderr lines, JSON-RPC envelopes, and provider request IDs must NEVER be sent over public HTTP endpoints or SSE streams.
+2. **Failure Isolation**: Disk write failures or serialization errors encountered while persisting raw diagnostics must NEVER fail, abort, or delay active Turn execution. Diagnostic writes run in isolated promise queues with error suppression.
+3. **Bounded Flushing**: When a Turn completes, errors, or is cancelled, a bounded flush (`flushRawCaptureBounded(sessionId)`) awaits pending writes up to `rawFlushTimeoutMs` (2,000ms). If the timeout expires, the turn returns while writes continue in the background.
+4. **Dual Identity Correlation**: Every recorded line in `raw.ndjson` carries both the canonical provider session ID and the turn ID:
+   ```json
+   {
+     "capturedAt": "2026-09-12T08:00:00.000Z",
+     "stream": "stdout",
+     "providerSessionId": "c_987654321",
+     "turnId": "turn-12345",
+     "raw": { "type": "step_update", "step_type": "tool", "tool_name": "run_command" }
+   }
+   ```
+5. **Sanitized Directory Naming**: Session directory names are sanitized via `rawCaptureSessionDirectory(sessionId)` with Windows reserved-name protection and SHA-256 fallback for invalid characters.
+6. **Sensitivity & Privacy**: Raw diagnostic logs may contain repository paths, prompt contents, or environment details. All raw capture directories (`.nevo-ai-local/*_raw/`) must remain ignored by Git (`.gitignore`).
 
-### Invariant 2: Failure isolation
-- File write failures, disk-full conditions, or serialization errors encountered while persisting raw diagnostics must NEVER fail, abort, or delay active Turn execution.
-- Diagnostic operations run in isolated promise queues (`#sessionWriteQueues`) with error suppression and console warnings.
-
-### Invariant 3: Bounded flushing on lifecycle boundaries
-- When a Turn completes, errors, or is cancelled, the adapter triggers a bounded flush (`flushRawCaptureBounded(sessionId)`).
-- The flush awaits pending disk writes up to `rawFlushTimeoutMs` (default 2,000ms). If the timeout elapses, the turn returns immediately while writes continue in the background.
-- On dashboard shutdown (`dispose()`), all provider raw queues are flushed with a bounded timeout before child processes are terminated.
-
-### Invariant 4: Dual identity correlation
-- Every recorded line in `raw.ndjson` is an envelope carrying both the canonical provider session ID and the turn ID:
-```json
-{
-  "capturedAt": "2026-09-11T21:45:00.000Z",
-  "stream": "stdout",
-  "providerSessionId": "c_987654321",
-  "turnId": "turn-12345",
-  "raw": { "type": "step_update", "step_type": "tool", "tool_name": "run_command" }
-}
-```
-- Each session directory contains a companion `session.json` metadata file:
-```json
-{
-  "provider": "antigravity",
-  "providerSessionId": "c_987654321"
-}
-```
-
-### Invariant 5: Directory naming & collision resistance
-- The session directory segment is sanitized via `rawCaptureSessionDirectory(sessionId)`:
-  - Valid alphanumeric segments (`^[a-zA-Z0-9_-]+$`, not reserved Windows names like `CON`, `PRN`, `AUX`, `NUL`) are used directly.
-  - Case-collision checks protect against Windows case-insensitive filesystem collisions.
-  - Complex or unsafe IDs are hashed using SHA-256 (`<prefix>-<hash16>`) to prevent directory traversal or file injection.
-
-### Invariant 6: Sensitivity & operator ownership
-- Raw diagnostic logs contain prompts, codebase files, environment paths, and potentially credentials or API keys.
-- All raw capture directories (`.nevo-ai-local/*_raw/`) must be explicitly ignored by Git (`.gitignore`).
-- Raw capture is disabled by default and enabled per provider via `.nevo-ai-local/ai-providers.yaml`.
+### Owner decision required
+*Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 8.*

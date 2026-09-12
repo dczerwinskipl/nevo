@@ -2,26 +2,31 @@
 
 ## Purpose
 
-Define strict lifecycle invariants across provider processes, persistent sessions, Nevo turns, and tool invocations, ensuring predictable process cleanup, robust cancellation, and clean recovery on server restarts.
+Define strict lifecycle invariants across provider processes, persistent sessions, Nevo turns, and tool invocations, ensuring predictable process cleanup, robust cancellation on Windows, and clean recovery on server restarts.
 
 ---
 
-## Four distinct lifecycle domains
+## 1. Four distinct lifecycle domains
 
-Ambiguities in earlier iterations arose from conflating process execution with session identity or turn duration. The hardened architecture explicitly separates four nested lifecycles:
+### Current fact
+- Conflation exists between process lifetime (the running OS child process) and session lifetime (the durable conversation thread).
+- In Claude and Antigravity, each turn spawns a separate OS process. In Codex, a single persistent daemon process serves all turns.
+
+### Proposed target
+Explicitly decouple four nested lifecycles:
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ 1. Provider Session Lifetime (Days / Weeks / Months)                     │
 │    Correlates to (provider, providerSessionId) across many turns        │
 ├─────────────────────────────────────────────────────────────────────────┤
-│ 2. Provider Process Lifetime (Invocation or Daemon)                      │
-│    - Claude / Antigravity: Spans exactly ONE turn (spawn -> exit)       │
-│    - Codex: Spans the ENTIRE dashboard AI service lifecycle (daemon)    │
+│ 2. Provider Process Lifetime (Turn Invocation or Shared Daemon)         │
+│    - Claude / Antigravity: Spans ONE turn (spawn -> exit)               │
+│    - Codex: Spans server lifecycle (persistent daemon)                  │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ 3. Nevo Turn Lifetime (Seconds to Minutes)                              │
-│    Logical unit: User prompt -> Level 2 Work sequence -> FinalAnswer    │
-│    Immutable terminal outcome: completed | failed | cancelled | ...     │
+│    User prompt -> Level 2 Work sequence -> FinalAnswer                  │
+│    Immutable outcome: completed | failed | cancelled | interrupted      │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ 4. Tool / Activity Lifetime (Milliseconds to Seconds)                   │
 │    Individual Level 2 WorkItem + Level 3 ToolAction execution           │
@@ -31,41 +36,71 @@ Ambiguities in earlier iterations arose from conflating process execution with s
 
 ---
 
-## Lifecycle invariants
+## 2. Child process ownership and process tree termination
 
-### 1. Child process ownership & process trees
-- **Direct Child vs Process Tree**: Provider CLI commands (e.g. `claude -p`, `agy`) frequently spawn subprocesses (such as `bash.exe`, `git`, `npm test`, or compilation tools).
-- **Process Tree Cleanup Invariant**:
-  - `terminateChildProcess()` in `process-termination.mjs` must terminate the **entire process tree**, not merely the root child PID.
-  - **On Windows**: Cancellation and forced termination must invoke `taskkill.exe /PID <pid> /T /F` or assign the child to a Windows Job Object configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Relying solely on `child.kill('SIGINT'/'SIGKILL')` is prohibited because Windows maps this to direct process termination, leaving grand-children running orphaned.
-  - **On POSIX**: Processes must be spawned with `detached: true` and terminated via `process.kill(-pid, signal)`.
+### Current fact
+- Claude and Antigravity spawn CLI child processes that frequently spawn compound tool subprocesses (compilers, `git`, `bash`, tests).
+- On Windows, Node.js `child.kill('SIGINT')` or `child.kill('SIGKILL')` calls `TerminateProcess` on the immediate child PID only.
+- Grandchild worker processes are NOT terminated and continue running orphaned, locking repository files and consuming CPU.
 
-### 2. Operation handles & non-resumable execution
-- An active turn possesses an in-memory `operation` handle held by the provider adapter and registered on `state.privateOperation`.
-- **No Detached Polling**: None of the three providers (`claude`, `codex`, `agy`) support detached background operations that can be re-attached or polled after process exit. Turn execution requires an active, uninterrupted communication channel (stdio stream or app-server socket).
-- If the communication channel drops or the process dies unexpectedly, the operation is LOST and cannot be resumed in-place. The turn must transition to `status: 'terminal' (outcome: 'failed', cause: 'process_exit')` with `code: 'AI_PROVIDER_EXECUTION_ERROR'`.
+### Proposed target
+- Harden `terminateChildProcess()` in `tools/dashboard/server/ai/sessions/turns/process-termination.mjs`:
+  - **On Windows**: Invoke `taskkill.exe /PID <pid> /T /F` or assign the spawned child to a Windows Job Object configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`.
+  - **On POSIX**: Spawn with `detached: true` and terminate the process group via `process.kill(-pid, signal)`.
+  - Verification loop ensures all processes in the tree have exited before completing termination promise.
 
-### 3. Timeout ownership
-- **Nevo Protocol Silence Watchdog**: Owned by `TurnLifecycleCoordinator`. Evaluates inactivity every 10–30s. Silence is suppressed while waiting for user interaction or during evidenced tool activity. Firing transitions turn status to `cancelling` and arbitrates `AI_RUNTIME_TIMEOUT`.
-- **Provider Transport Ceilings**: Owned by provider adapters (e.g. Antigravity `--print-timeout`). If fired, the provider reports `AI_PROVIDER_TIMEOUT` with `source: 'antigravity_cli'`.
-- **Arbitration Rule**: If a runtime watchdog fires, it sets `timeoutRequested = true` before calling adapter `cancelTurn()`. Even if the adapter or child process crashes during cancellation, the turn settles with `cause: 'timeout/protocol-silence'`.
+### Owner decision required
+*Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 9.*
 
-### 4. Graceful cancellation escalation
-When `runtime.cancelTurn(turnId)` is invoked:
-1. `TurnLifecycleCoordinator` immediately sets `status: 'cancelling'` and `cancellationRequested = true`.
-2. The coordinator calls `agentProvider.cancelTurn({ operation, turnId })`.
-3. **Claude / Antigravity**: Adapter sends graceful `SIGINT` to child process; waits up to `cancelGraceMs` (5,000ms); if still running, escalates to forceful `SIGKILL` / `taskkill /T /F`; waits up to `forceGraceMs` (2,000ms).
-4. **Codex**: Adapter sends `turn/interrupt` JSON-RPC request to persistent app-server and cancels pending interaction promises; the daemon process remains running.
-5. The coordinator settles the turn as `status: 'terminal' (outcome: 'cancelled')`.
+---
 
-### 5. Server shutdown & restart reconciliation
-- **Shutdown (`dispose`)**:
-  - When the dashboard server terminates, `registry.dispose()` is called.
-  - Claude and Antigravity flush pending raw diagnostic writes within bounded timeout (`rawFlushTimeoutMs: 2000`) and terminate active child processes.
-  - Codex terminates the persistent `codex app-server` daemon process and unsubscribes all listeners.
-- **Boot Reconciliation (`turn-recovery.mjs`)**:
-  - Upon server boot, `reconcileOrphanedTurns()` scans `.nevo-ai-local/transcripts/`.
-  - Any Turn found with non-terminal status (`active`, `waiting`, `cancelling`) was running when the previous server process stopped.
-  - Orphaned turns are deterministically transitioned to `status: 'terminal' (outcome: 'interrupted', cause: 'server-restart')` with `code: 'AI_TURN_INTERRUPTED'`.
-  - Dangling tool invocations are closed with `closureReason: 'turn_interrupted'`.
-  - Pending interactions with `resumePolicy: 'live-operation'` are marked `interrupted`; interactions with `resumePolicy: 'restart'` remain pending and can be answered.
+## 3. Operation handles and lost execution semantics
+
+### Current fact
+- None of the three providers (`claude`, `codex`, `agy`) support detached background operations that can be re-attached or polled after process exit. Turn execution requires an active, uninterrupted communication channel.
+- If the communication channel drops or the process disappears, earlier implementations collapsed the turn into `status: 'terminal' (outcome: 'failed')`.
+
+### Proposed target
+- Preserve epistemic truth: if an operation handle vanishes and execution state cannot be proven, the turn transitions to `status: 'unknown'` with `reason: 'operation_lost'` and diagnostic code `AI_OPERATION_LOST`.
+- The turn is NOT sealed as failed until an authoritative check proves the process exited without producing output or modifying the workspace.
+
+### Owner decision required
+*Status: Awaiting owner approval on [owner-decisions.md](owner-decisions.md) § Decision 7.*
+
+---
+
+## 4. Timeout ownership and cancellation escalation
+
+### Current fact
+- `TurnLifecycleCoordinator` enforces a 5-minute protocol-silence watchdog.
+- Antigravity enforces a provider transport ceiling (`--print-timeout`).
+
+### Proposed target
+1. **Timeout Ownership**:
+   - **Protocol Silence Watchdog**: Owned by `TurnLifecycleCoordinator`. Evaluates inactivity every 10–30s. Firing arbitrates `AI_RUNTIME_TIMEOUT` and initiates cancellation.
+   - **Provider Transport Ceiling**: Owned by provider adapter. If fired, provider reports `AI_PROVIDER_TIMEOUT`.
+   - **Precedence**: If runtime watchdog fires, `timeoutRequested = true` takes immutable precedence over late process exit codes.
+2. **Graceful Cancellation Escalation**:
+   - When `runtime.cancelTurn(turnId)` is invoked:
+     1. Coordinator sets `status: 'cancelling'` and `cancellationRequested = true`.
+     2. Coordinator invokes adapter `cancelTurn()`.
+     3. Adapter issues graceful signal (`SIGINT` on CLI, `turn/interrupt` on Codex); waits up to `cancelGraceMs` (5,000ms).
+     4. If still running, adapter escalates to forceful process tree kill (`taskkill /T /F`); waits up to `forceGraceMs` (2,000ms).
+     5. Coordinator settles turn as `status: 'terminal' (outcome: 'cancelled')`.
+
+---
+
+## 5. Server shutdown and restart reconciliation
+
+### Current fact
+- In `turn-recovery.mjs` (`reconcileOrphanedTurns`):
+  - When the server boots, any Turn left in non-terminal status (`active`, `waiting`, `cancelling`) from an ungraceful shutdown is scanned.
+  - Active turns are transitioned to `status: 'terminal' (outcome: 'interrupted', cause: 'server-restart')` with code `AI_TURN_INTERRUPTED`.
+  - Dangling tools are closed with `closureReason: 'turn_interrupted'`.
+  - Interactions with `resumePolicy: 'live-operation'` are marked `interrupted`; interactions with `resumePolicy: 'restart'` remain pending.
+
+### Proposed target
+- Retain the proven `reconcileOrphanedTurns` invariants.
+- On graceful server disposal (`registry.dispose()`):
+  - Claude and Antigravity flush pending raw diagnostic queues within bounded timeout (`rawFlushTimeoutMs: 2000`) and terminate child process trees.
+  - Codex terminates the persistent `codex app-server` daemon process.
