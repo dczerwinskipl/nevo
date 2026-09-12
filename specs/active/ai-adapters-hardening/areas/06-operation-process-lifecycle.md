@@ -75,12 +75,16 @@ Explicitly decouple four nested lifecycles:
 - Confirmed PID termination proves only that process liveness has ended; it does not prove a semantic provider outcome.
 - Unsafe concurrent turn execution is strictly **blocked** for that session while state is unresolved.
 - **Remote recovery and forced cleanup call path**:
-  - The operator or remote client initiates recovery via HTTP route -> `AgentSessionService` -> `AgentTurnRuntime` -> provider cancellation / process cleanup -> `TurnLifecycleCoordinator`.
-  - The runtime terminates the provider child process tree via `terminateChildProcess()`, confirms process death, and seals the turn lifecycle outcome as `terminal (outcome: 'interrupted', cause: 'forced_cleanup')`.
-  - This strictly distinguishes remote forced recovery (`outcome: 'interrupted', cause: 'forced_cleanup'`) from normal user cancellation (`outcome: 'cancelled', initiator: 'user'`), without asserting an unobserved provider outcome.
+  - The operator or remote client initiates recovery via:
+    `POST /api/agent-sessions/:provider/:providerSessionId/turns/:turnId/recover` (or `POST .../cancel` with body `{ action: 'force_cleanup' }`).
+  - Call path: `routes.mjs` -> `AgentSessionService.recoverTurn()` -> `AgentTurnRuntime.recoverTurn()` -> `terminateChildProcess()` -> `TurnLifecycleCoordinator`.
+  - Validation: verifies turn is currently in non-terminal `status: 'unknown'` (or unprovable lost state).
+  - The runtime terminates the provider child process tree via `terminateChildProcess()`, confirms process death, seals the turn lifecycle outcome as `terminal (outcome: 'interrupted', cause: 'forced_cleanup')`, and releases the session lock (`#activeBySession.delete(...)`).
+  - Distinguishes remote forced recovery (`outcome: 'interrupted', cause: 'forced_cleanup'`) from normal user cancellation (`outcome: 'cancelled', initiator: 'user'`), without asserting an unobserved provider outcome.
+  - Upon completion of forced cleanup, the session is immediately unblocked, allowing remote clients to dispatch subsequent turns without requiring physical workstation access.
 
 ### Owner decision resolution
-- **Adopted (Approved by Owner — Decision 7)**: Epistemic truth preservation, state reconciliation, process-exit precision, and explicit remote forced cleanup call path and semantics are adopted.
+- **Adopted (Approved by Owner — Decision 7)**: Epistemic truth preservation, state reconciliation, process-exit precision, explicit remote recovery API contract (`/recover`), and immediate session unblocking are adopted.
 
 ---
 

@@ -12,7 +12,7 @@ Define the provider-neutral interaction contract for mid-turn user input (questi
 - The canonical contract in `tools/dashboard/server/ai/contracts.mjs` (`normalizeInteraction`) defines three interaction kinds: `question`, `permission`, and `confirmation`.
 - `INTERACTION_RESUME_POLICIES` defines two policies: `'restart'` and `'live-operation'`.
 - Codex natively supports `question` and `permission` via JSON-RPC. Claude supports `question` via MCP HTTP bridge.
-- Antigravity operates headlessly in print mode (`agy --print <prompt> --output-format stream-json`). Live probe verification confirms it connects to configured MCP servers and invokes MCP tools. Antigravity uses machine-global MCP configuration managed through `agy mcp add|list|remove`. Nevo integrates with Antigravity via a durable, idempotently managed MCP server registration (`nevo`) targeting the shared Fastify `/mcp` endpoint.
+- Antigravity operates headlessly in print mode (`agy --print <prompt> --output-format stream-json`). Live probe verification confirms it connects to configured MCP servers and invokes MCP tools. Antigravity uses machine-global MCP configuration managed through `agy mcp add|list|remove`. Live probes confirm `agy` does not interpolate environment variables in configured HTTP headers or `serverUrl`, and direct HTTP requests contain no turn correlation. However, stdio MCP subprocesses spawned by `agy` inherit `process.env`. Nevo integrates with Antigravity via a durable, idempotently managed stdio bridge script (`antigravity-mcp-bridge.mjs`) registered under server name `nevo`, which forwards stdio JSON-RPC to the shared loopback Fastify `/mcp` route attaching the turn-scoped `x-nevo-interaction-token`.
 
 ### Proposed target
 Retain the three structured interaction kinds:
@@ -99,13 +99,14 @@ Used when the agent seeks high-level acknowledgment of a plan or irreversible wo
   - All three providers expose structured question interactions (`interactiveQuestions: true`):
     - **Codex**: Native stdio JSON-RPC.
     - **Claude**: In-process Fastify MCP bridge (`/mcp`) configured via `--mcp-config`.
-    - **Antigravity**: In-process Fastify MCP bridge (`/mcp`) registered durably and idempotently via `agy mcp add nevo <url>` (Option 2).
-  - Durable Antigravity MCP integration:
-    - Avoids fragile startup-add/shutdown-remove lifecycle; does not fail on crashes or abrupt server exit.
+    - **Antigravity**: Loopback Fastify MCP bridge (`/mcp`) via durable stdio bridge script (`antigravity-mcp-bridge.mjs`) registered with `agy`.
+  - Durable Antigravity stdio MCP integration:
+    - Avoids fragile startup-add/shutdown-remove lifecycle; registered once in `~/.gemini/config/mcp_config.json` via `agy mcp add nevo node "<path-to-bridge>"`.
     - Uses deterministic server identity: `nevo`.
-    - Reuses the existing server-owned Fastify MCP route (`/mcp`) and `mcpInteractionRegistry`.
-    - On adapter initialization and turn preparation, checks if `nevo` registration exists and points to the active server endpoint (via `agy mcp list`). If missing, mismatched, or stale, updates via `agy mcp add nevo http://127.0.0.1:<port>/mcp`.
-    - Strictly touches its own entry (`nevo`) and never mutates, disables, or deletes unrelated user-configured MCP servers.
-    - Single persistent entry eliminates per-turn/per-session churn.
+    - `AntigravityAgentProvider` spawns `agy` with `NEVO_INTERACTION_TOKEN` and `NEVO_MCP_ENDPOINT` in the child environment block.
+    - When `agy` connects to MCP, it spawns `node antigravity-mcp-bridge.mjs`, which inherits the token and endpoint, connects to the Fastify `/mcp` HTTP endpoint, and attaches `x-nevo-interaction-token: <NEVO_INTERACTION_TOKEN>`.
+    - Concurrency isolation: each turn has its own process tree and isolated environment block; concurrent turns never leak or cross-correlate tokens.
+    - Strict turn binding: Fastify `/mcp` validates the token against `mcpInteractionRegistry.getActiveTurnByToken(token)`. When a turn terminates, its token is unbound; stale requests receive HTTP 403 Forbidden.
+    - Safe isolation: never touches unrelated user MCP servers. If `agy` is run outside Nevo, the bridge detects missing token and exits cleanly without exposing tools.
   - Composer fallback is retained as a fallback for ordinary conversational questions at turn end that did not invoke the structured `ask_user` tool.
   - Zero text heuristics: no regex pattern matching to fabricate interactions from final text.

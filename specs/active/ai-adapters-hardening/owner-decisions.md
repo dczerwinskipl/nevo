@@ -50,25 +50,39 @@ All decisions below (D1 through D10) have been reviewed with the repository owne
 - **Claude Code**: Supports structured questions via an in-process Fastify HTTP MCP bridge (`/mcp` + `ask_user` tool) configured via `--mcp-config`. Mid-turn permissions are not supported over MCP.
 - **Google Antigravity**:
   - Live probe verification confirms that in headless print mode (`agy --print <prompt> --output-format stream-json`), `agy` connects to registered MCP servers and invokes MCP tools.
-  - `agy` CLI does not provide an ephemeral `--mcp-config` flag; MCP configuration is stored in `~/.gemini/config/mcp_config.json` and managed natively via `agy mcp add|remove|list`.
+  - `agy` CLI has no `--mcp-config` or `--mcp-server` CLI flags for per-invocation MCP configuration. Configuration is stored globally in `~/.gemini/config/mcp_config.json` via `agy mcp add|remove|list`.
+  - Live probe verification confirms that `agy` does **NOT** perform environment variable interpolation in configured HTTP headers or `serverUrl` (e.g. `${VAR}` in `--header` or `serverUrl` is transmitted as literal text).
+  - In direct HTTP MCP mode, requests from `agy` (`Go-http-client/1.1`) contain no process PID, session ID, or turn correlation in headers or JSON-RPC body.
+  - However, for stdio MCP servers (`agy mcp add <name> <command> [args...]`), `agy` spawns the child process and the child process **inherits `process.env`** from the `agy` process.
   - In headless print mode without MCP, `agy` auto-skips interactive prompts.
 
 ### Owner decision
 1. **Neutral interaction model**: Nevo UI and runtime maintain one neutral structured interaction model (`question`, `permission`, `confirmation`).
 2. **Provider-neutral Ask coverage across all three providers**:
    - **Codex**: Native structured JSON-RPC Ask.
-   - **Claude**: Nevo-owned loopback MCP Ask bridge (`/mcp`).
-   - **Antigravity**: Nevo-owned loopback MCP Ask bridge registered in `agy` configuration.
-   All three providers expose the same neutral Nevo interaction contract to runtime and UI.
-3. **Durable, idempotent Antigravity MCP lifecycle management (Option 2 — APPROVED BY OWNER)**:
+   - **Claude**: Nevo-owned loopback MCP Ask bridge (`/mcp`) configured via `--mcp-config`.
+   - **Antigravity**: Nevo-owned loopback MCP Ask bridge via durable stdio bridge process.
+   All three providers expose the same neutral Nevo interaction contract to runtime and UI (`interactiveQuestions: true`).
+3. **Durable, idempotent Antigravity MCP integration (Option 2 — APPROVED BY OWNER)**:
    - Antigravity structured Ask MUST be supported via durable, idempotently managed MCP configuration.
-   - **Do NOT design as transient startup-add/shutdown-remove**: abnormal process termination (crashes, SIGKILL) would leave stale configurations.
    - **Deterministic registration identity**: The registration uses a fixed, deterministic server name: `nevo`.
-   - **Shared MCP server reuse**: Antigravity reuses the existing server-owned Fastify MCP service at `/mcp` and `mcpInteractionRegistry`, rather than creating a duplicate server implementation.
-   - **Idempotent verification and reconciliation**: When the Antigravity adapter initializes or prepares turn execution, it inspects whether registration `nevo` exists and points to the current active server endpoint (using official `agy mcp list`). If missing, mismatched, or stale, it updates the entry via `agy mcp add nevo http://127.0.0.1:<port>/mcp`.
-   - **Safe configuration isolation**: Nevo manages strictly its own named entry (`nevo`) and NEVER mutates, disables, or deletes unrelated user-configured MCP servers.
-   - **No per-turn/per-session churn**: A single persistent Nevo entry is maintained, avoiding accumulating dead registrations.
-   - **Capability declaration**: Antigravity declares `interactiveQuestions: true` when the managed MCP integration is active and valid. If the MCP bridge is temporarily unavailable or invalid, health/capabilities truthfully reflect this rather than fabricating synthetic interactions.
+   - **Durable stdio MCP bridge with environment-inherited turn correlation**:
+     - `agy` is registered once with a dedicated stdio bridge script:
+       `agy mcp add nevo node "<nevo-root>/tools/dashboard/server/ai/interactions/mcp/antigravity-mcp-bridge.mjs"`
+     - On adapter initialization and turn preparation, `AntigravityAgentProvider` inspects `agy mcp list`; if `nevo` is missing or points to an outdated script path, it idempotently updates the entry.
+     - When executing a turn, `AntigravityAgentProvider` spawns `agy` with child environment variables:
+       `NEVO_INTERACTION_TOKEN = <turn-token>`
+       `NEVO_MCP_ENDPOINT = http://127.0.0.1:<port>/mcp`
+     - When `agy` connects to MCP, it spawns `node antigravity-mcp-bridge.mjs` as a child process. The bridge inherits `NEVO_INTERACTION_TOKEN` and `NEVO_MCP_ENDPOINT` directly from `agy`'s environment block.
+     - The bridge connects stdio JSON-RPC to the Fastify `/mcp` HTTP endpoint, forwarding requests while attaching the mandatory `x-nevo-interaction-token: <NEVO_INTERACTION_TOKEN>` header.
+   - **Invariants preserved**:
+     - **Durable & idempotent**: Registered once in `mcp_config.json`; no per-turn file mutation, no ungraceful exit cleanup fragility.
+     - **No unrelated config mutation**: Strictly manages only the `nevo` server key; never touches user-configured MCP servers.
+     - **Concurrency isolation**: Each concurrent turn runs in its own OS process with an isolated environment block. Two concurrent Antigravity turns carry distinct tokens and cannot cross-talk or steal sessions.
+     - **Strict single-turn binding & stale token rejection**: Fastify `/mcp` validates the token against `mcpInteractionRegistry.getActiveTurnByToken(token)`. When a turn terminates, its token is invalidated. Stale or delayed requests receive HTTP 403 Forbidden.
+     - **Zero tool leakage outside Nevo**: If `agy` is run by a developer in an independent shell outside Nevo, `NEVO_INTERACTION_TOKEN` is absent; the bridge exits cleanly or returns `{ tools: [] }`, preventing errors or unexpected tool exposure.
+     - **No text heuristics**: Structured MCP JSON-RPC protocol end-to-end.
+     - **Unweakened MCP security**: The existing `/mcp` route security model remains intact with mandatory interaction tokens on initialization and subsequent requests.
 4. **Composer fallback**: Retained as a fallback for ordinary textual questions emitted by models at turn end that did not invoke the structured `ask_user` tool.
 5. **No text heuristics**: Do not use regular expressions or text scraping to pretend arbitrary final text is a structured interaction work item.
 
@@ -194,8 +208,16 @@ Decouple the three concepts into separate fields:
      - Provider terminal protocol event (e.g. late completion frame with turn correlation).
      - Provider-supported status query.
 5. **Remote recovery / forced cleanup**:
-   - The user/operator can remotely trigger a recovery/abort action through the backend API.
-   - When Nevo performs forced cleanup and verifies that the process tree is terminated, Nevo seals its own lifecycle outcome as `terminal (outcome: 'interrupted', cause: 'forced_cleanup')`, without fabricating an unobserved provider result.
+   - **Explicit API contract**:
+     - **Normal cancellation** (`POST /api/agent-sessions/:provider/:providerSessionId/turns/:turnId/cancel`):
+       - User-initiated abort on active or waiting turns.
+       - Settles turn as `terminal (outcome: 'cancelled', initiator: 'user')`.
+     - **Remote forced recovery** (`POST /api/agent-sessions/:provider/:providerSessionId/turns/:turnId/recover` or `POST .../cancel` with explicit `{ action: 'force_cleanup' }`):
+       - Remote client or supervisor initiated recovery for turns in `status: 'unknown'` (or unprovable lost state).
+       - Call path: `routes.mjs` -> `AgentSessionService.recoverTurn()` -> `AgentTurnRuntime.recoverTurn()` -> `terminateChildProcess()` -> `TurnLifecycleCoordinator`.
+       - Verifies child process tree termination via `terminateChildProcess()`.
+       - Transitions coordinator state to `terminal (outcome: 'interrupted', cause: 'forced_cleanup')` without asserting an unobserved provider result.
+       - Releases session turn lock in `AgentTurnRuntime` (`#activeBySession`), immediately unblocking subsequent turn dispatch on that session without requiring physical workstation access.
 
 *Status: APPROVED BY OWNER.*
 

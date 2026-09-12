@@ -34,11 +34,11 @@ Following the implementation of the canonical Turn and Work model (ADR-0008), de
 - [owner-decisions.md](owner-decisions.md): Formally approved owner architectural decisions (D1–D10):
   1. Provider Model Catalog Strategy (Discovered vs Configured vs Known vs Provider Default; Permissive passthrough)
   2. Model Selection Scope (Session persistence; Capability-driven turn switching via `canOverrideTurnModel`)
-  3. Interaction Contract & Durable MCP Bridge (Neutral contract; Codex stdio RPC; Claude loopback MCP bridge; Antigravity loopback MCP bridge via durable, idempotent `agy mcp` management; zero text heuristics)
+  3. Interaction Contract & Durable MCP Bridge (Neutral contract; Codex stdio RPC; Claude loopback MCP bridge; Antigravity loopback MCP bridge via durable stdio bridge script; zero text heuristics)
   4. Capability Ownership & Decoupling (Transport Capabilities vs Model Traits; Runtime evidence precedence; no trait manufacturing from global CLI flags)
   5. Public vs Internal Event Vocabulary & Output Semantics (4-layer transformation pipeline)
   6. Error & Failure Taxonomy vs Terminal Outcomes (Decoupled terminal outcomes, 12 normalized codes, structured recovery hints)
-  7. Lost / Unknown Operation Semantics (Epistemic truth; `status: 'unknown'`; reconciliation via authoritative evidence; process-exit precision; forced cleanup settles as `interrupted`)
+  7. Lost / Unknown Operation Semantics (Epistemic truth; `status: 'unknown'`; reconciliation via authoritative evidence; process-exit precision; dedicated remote recovery API contract settling as `interrupted`)
   8. Antigravity Session Identity & Alias Store (Preserved and encapsulated within Antigravity adapter boundary with atomic writes)
   9. Child Process Lifecycle & Process Tree Termination (Complete OS-aware process tree lifecycle: spawn-side process groups on POSIX and tree termination on Windows)
   10. Provider Availability vs Health Metadata Decoupling (Stable configuration facts vs transient health; per-turn rate-limit isolation)
