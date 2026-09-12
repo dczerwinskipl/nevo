@@ -118,7 +118,10 @@ function createHangingMockProcess({ ignoreSignal = false } = {}) {
 }
 
 test('AntigravityAgentProvider declares honest capabilities', () => {
-  const provider = createAntigravityAgentProvider();
+  // Hermetic: must not depend on whether the real `agy` CLI happens to be installed and
+  // already registered on whatever machine runs this test (it passed locally where `agy`
+  // is installed with an existing `nevo` entry, but failed on CI, where it isn't).
+  const provider = createAntigravityAgentProvider({ mcpRegisterExec: () => '' });
   assert.equal(provider.descriptor.id, 'antigravity');
   assert.equal(provider.descriptor.capabilities.interactivePermissions, false);
   assert.equal(provider.descriptor.capabilities.interactiveQuestions, true);
@@ -133,7 +136,7 @@ test('AntigravityAgentProvider declares honest capabilities', () => {
 });
 
 test('AntigravityAgentProvider throws CapabilityNotSupportedError for permissions', async () => {
-  const provider = createAntigravityAgentProvider();
+  const provider = createAntigravityAgentProvider({ mcpRegisterExec: () => '' });
   await assert.rejects(
     () => provider.respondInteraction('sess-1', 'int-1', { kind: 'permission', decision: 'allow' }),
     (err) => {
@@ -146,7 +149,7 @@ test('AntigravityAgentProvider throws CapabilityNotSupportedError for permission
 });
 
 test('AntigravityAgentProvider throws AI_INTERACTION_NOT_FOUND for unknown pending question', async () => {
-  const provider = createAntigravityAgentProvider();
+  const provider = createAntigravityAgentProvider({ mcpRegisterExec: () => '' });
   await assert.rejects(
     () => provider.respondInteraction('sess-1', 'int-nonexistent', { kind: 'question', answers: [{ questionId: 'q1', value: 'opt1' }] }),
     (err) => {
@@ -443,7 +446,7 @@ test('cancelTurn escalates to a forceful SIGKILL when SIGINT is ignored past the
 });
 
 test('can be registered and retrieved in AgentProviderRegistry', () => {
-  const provider = createAntigravityAgentProvider();
+  const provider = createAntigravityAgentProvider({ mcpRegisterExec: () => '' });
   const registry = createAgentProviderRegistry([provider]);
   assert.ok(registry.has('antigravity'));
   assert.equal(registry.get('antigravity').descriptor.label, 'Antigravity / Gemini');
@@ -465,7 +468,7 @@ test('AntigravityAgentProvider reports availability correctly based on CLI probe
 });
 
 test('AntigravityAgentProvider advertises supportedModes and defaultMode', () => {
-  const provider = createAntigravityAgentProvider();
+  const provider = createAntigravityAgentProvider({ mcpRegisterExec: () => '' });
   assert.deepEqual(provider.descriptor.supportedModes, ['ask', 'edit', 'agent']);
   assert.equal(provider.descriptor.defaultMode, 'edit');
 });
@@ -3746,7 +3749,7 @@ test('Task 04 - Criterion 5: Stdio MCP bridge forwards requests to /mcp attachin
     assert.ok(mcpInteractionRegistry.hasPending('int-proj-1'));
 
     // 3. Resolve interaction via provider
-    const provider = createAntigravityAgentProvider();
+    const provider = createAntigravityAgentProvider({ mcpRegisterExec: () => '' });
     const res = await provider.respondInteraction({
       turnId,
       providerSessionId: 'sess-bridge-1',
