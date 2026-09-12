@@ -36,7 +36,7 @@ Validate end-to-end conformance across Claude Code, OpenAI Codex, Google Antigra
   - Consistent terminal outcome arbitration across all adapters (`completed`, `failed`, `cancelled`, `interrupted`).
   - Permissive model passthrough behavior and model trait representation.
   - Consistent error taxonomy mapping and neutral recovery hints.
-  - Interaction contract consistency (Codex native RPC, Claude Fastify MCP bridge, Antigravity per clarified D3 resolution).
+  - Interaction contract consistency: verify structured Ask (`interactiveQuestions: true`) and canonical `question` interaction schema across all three providers (Codex native RPC, Claude Fastify MCP bridge, and Antigravity durable MCP bridge).
   - Diagnostic isolation: assert that raw stdout/stderr lines, JSON-RPC envelopes, and private provider handles are never leaked to public SSE streams or HTTP API payloads.
 - Update `tools/dashboard/tests/ai-contract-drift.test.mjs` to prevent regressions in provider descriptors, capability schemas, and model catalogs.
 - Update architecture documentation in `docs/development/` to record the hardened AI adapter contracts, model catalogs, lifecycle models, and process tree termination guarantees.
@@ -44,9 +44,10 @@ Validate end-to-end conformance across Claude Code, OpenAI Codex, Google Antigra
 ## Acceptance criteria
 
 1. Conformance suite passes across Claude, Codex, Antigravity, and Mock adapters, demonstrating identical contract semantics. `automated: node --test tools/dashboard/tests/cross-provider-conformance.test.mjs`
-2. Contract drift suite verifies that all adapters conform to the updated `AgentProviderDescriptor`, `ProviderCapabilities`, and `AgentModelDescriptor` interfaces. `automated: node --test tools/dashboard/tests/ai-contract-drift.test.mjs`
-3. Diagnostic privacy tests confirm that raw capture payloads and private provider IDs are never exposed over public SSE streams or HTTP endpoints. `automated: node --test tools/dashboard/tests/cross-provider-conformance.test.mjs`
-4. Architecture documentation in `docs/development/` accurately reflects the four-layer event pipeline, model catalog discovery, error taxonomy, and process lifecycle. `inspection: documentation review`
+2. Conformance tests verify structured question interaction handling and response correlation across all three providers (Codex, Claude, and Antigravity). `automated: node --test tools/dashboard/tests/cross-provider-conformance.test.mjs`
+3. Contract drift suite verifies that all adapters conform to the updated `AgentProviderDescriptor`, `ProviderCapabilities`, and `AgentModelDescriptor` interfaces. `automated: node --test tools/dashboard/tests/ai-contract-drift.test.mjs`
+4. Diagnostic privacy tests confirm that raw capture payloads and private provider IDs are never exposed over public SSE streams or HTTP endpoints. `automated: node --test tools/dashboard/tests/cross-provider-conformance.test.mjs`
+5. Architecture documentation in `docs/development/` accurately reflects the four-layer event pipeline, model catalog discovery, error taxonomy, and process lifecycle. `inspection: documentation review`
 
 ## Verification
 

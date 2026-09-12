@@ -34,7 +34,7 @@ Following the implementation of the canonical Turn and Work model (ADR-0008), de
 - [owner-decisions.md](owner-decisions.md): Formally approved owner architectural decisions (D1–D10):
   1. Provider Model Catalog Strategy (Discovered vs Configured vs Known vs Provider Default; Permissive passthrough)
   2. Model Selection Scope (Session persistence; Capability-driven turn switching via `canOverrideTurnModel`)
-  3. Interaction Contract & Headless Adapter Policy (Neutral contract; Codex stdio RPC, Claude MCP bridge; Antigravity Ask capability blocked on owner clarification; zero text heuristics)
+  3. Interaction Contract & Durable MCP Bridge (Neutral contract; Codex stdio RPC; Claude loopback MCP bridge; Antigravity loopback MCP bridge via durable, idempotent `agy mcp` management; zero text heuristics)
   4. Capability Ownership & Decoupling (Transport Capabilities vs Model Traits; Runtime evidence precedence; no trait manufacturing from global CLI flags)
   5. Public vs Internal Event Vocabulary & Output Semantics (4-layer transformation pipeline)
   6. Error & Failure Taxonomy vs Terminal Outcomes (Decoupled terminal outcomes, 12 normalized codes, structured recovery hints)
@@ -59,7 +59,7 @@ Following the implementation of the canonical Turn and Work model (ADR-0008), de
 - **C3.** Runtime evidence precedence: Authoritative runtime protocol evidence always overrides advisory metadata or static catalog traits. Catalog metadata must never suppress evidenced provider output.
 - **C4.** Capability-driven switching: Turn-level model selection is governed by the adapter capability `canOverrideTurnModel`.
 - **C5.** Zero text heuristics: Interaction requests, tool calls, and errors must never be inferred by regex parsing of arbitrary text streams.
-- **C6.** Headless composer fallback: For non-interactive providers or terminal text questions, turns complete with `finalAnswer` and users continue conversation via the composer.
+- **C6.** Structured Ask & composer fallback: All three providers expose structured question interactions (`interactiveQuestions: true`). For un-tooled terminal conversational questions, turns complete with `finalAnswer` and users continue conversation via the composer without text heuristics.
 - **C7.** Decoupled error taxonomy: Terminal outcomes (`completed`, `failed`, `cancelled`, `interrupted`), normalized failure codes (12 codes), and structured recovery hints are strictly separate fields.
 - **C8.** Epistemic truth on lost operations: Lost operation handles transition to `status: 'unknown'`; they are never falsely marked as `failed` without authoritative evidence.
 - **C9.** Safe process tree termination: Cancellation and timeouts terminate the entire process tree on all platforms (POSIX process groups established at spawn and Windows-native taskkill/Job Objects).
@@ -73,9 +73,9 @@ Following the implementation of the canonical Turn and Work model (ADR-0008), de
 2. **AC2: Unified model catalog & discovery**: Provider descriptors expose `models: AgentModelDescriptor[]`. Antigravity enriches its catalog dynamically via `agy models` with 5-minute caching; Codex queries native `model/list`; Claude provides curated baseline metadata with operator overrides; unlisted models pass through permissively; omitted models preserve provider defaults.
 3. **AC3: Durable adapter session encapsulation**: Antigravity encapsulates its asynchronous conversation alias mapping (`antigravity-sessions.json`) with atomic file writes (`tempFile` + `rename`) within the adapter boundary; session identity survives server restarts without leaking adapter internals into core services.
 4. **AC4: Windows process tree termination**: `terminateChildProcess()` terminates the entire process tree on Windows using `taskkill.exe /PID <pid> /T /F` or Job Objects, preventing orphaned child processes upon cancellation or timeout.
-5. **AC5: Decoupled capability and health models**: `AgentProviderDescriptor` separates transport `capabilities` (including `canOverrideTurnModel`, `toolCalls`, `reasoningEvents`), `models` (inference traits), `supportedModes` (security policies), and `health` (`enabled`, `installed`, `authenticated`, `status`).
+5. **AC5: Decoupled capability and health models**: `AgentProviderDescriptor` separates transport `capabilities` (including `interactiveQuestions: true` across all three providers, `canOverrideTurnModel`, `toolCalls`, `reasoningEvents`), `models` (inference traits), `supportedModes` (security policies), and `health` (`enabled`, `installed`, `authenticated`, `status`).
 6. **AC6: Four-layer output pipeline & evidence precedence**: Public SSE stream exposes normalized channels (`text.delta`, `progress.delta`, `reasoning.delta`, `tool.*`, `interaction.*`). Runtime evidence overrides advisory metadata; non-interactive questions settle cleanly as `completed` with `finalAnswer` for composer reply.
-7. **AC7: Conformance suite validation**: Cross-provider conformance test suite verifies identical output semantics, interaction contracts, and terminal arbitration across Claude, Codex, and Antigravity.
+7. **AC7: Conformance suite validation**: Cross-provider conformance test suite verifies identical output semantics, interaction contracts (including structured Ask across all three providers), and terminal arbitration across Claude, Codex, and Antigravity.
 
 ## Out of scope
 

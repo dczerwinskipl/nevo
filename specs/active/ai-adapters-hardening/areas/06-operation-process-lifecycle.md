@@ -52,9 +52,11 @@ Explicitly decouple four nested lifecycles:
     - **On Windows**: Invoke `taskkill.exe /PID <pid> /T /F` or assign the spawned child to a Windows Job Object configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`.
     - **On POSIX**: Terminate the process group via `process.kill(-pid, signal)`.
   - **Post-termination verification**: Polling check confirms the target PID has ceased execution before resolving the termination promise.
+  - **Verification testing**: Automated verification in `process-termination.test.mjs` must not rely solely on mock process wrappers. It must include an integration test that spawns a real parent process that itself spawns a long-running descendant process, terminates the tree via `terminateChildProcess()`, and explicitly verifies via OS liveness checks (`process.kill(pid, 0)`) that both parent and descendant PIDs are dead.
+  - **Epistemic boundary**: Confirmed process tree termination proves only that OS process liveness has ended; it does NOT prove the semantic provider result (completed vs failed).
 
 ### Owner decision resolution
-- **Adopted (Approved by Owner — Decision 9)**: Complete OS-aware process tree lifecycle management (spawn-side process groups and kill-side tree termination) is adopted across all providers that spawn child processes.
+- **Adopted (Approved by Owner — Decision 9)**: Complete OS-aware process tree lifecycle management (spawn-side process groups, kill-side tree termination, and real parent->descendant automated tests) is adopted across all providers that spawn child processes.
 
 ---
 
@@ -72,10 +74,13 @@ Explicitly decouple four nested lifecycles:
   2. Provider-supported operation/status query.
 - Confirmed PID termination proves only that process liveness has ended; it does not prove a semantic provider outcome.
 - Unsafe concurrent turn execution is strictly **blocked** for that session while state is unresolved.
-- If Nevo intentionally performs forced cleanup/termination to recover session control, Nevo records its own lifecycle result as `terminal (outcome: 'interrupted', cause: 'forced_cleanup')` once termination is proven, without asserting an unobserved provider outcome.
+- **Remote recovery and forced cleanup call path**:
+  - The operator or remote client initiates recovery via HTTP route -> `AgentSessionService` -> `AgentTurnRuntime` -> provider cancellation / process cleanup -> `TurnLifecycleCoordinator`.
+  - The runtime terminates the provider child process tree via `terminateChildProcess()`, confirms process death, and seals the turn lifecycle outcome as `terminal (outcome: 'interrupted', cause: 'forced_cleanup')`.
+  - This strictly distinguishes remote forced recovery (`outcome: 'interrupted', cause: 'forced_cleanup'`) from normal user cancellation (`outcome: 'cancelled', initiator: 'user'`), without asserting an unobserved provider outcome.
 
 ### Owner decision resolution
-- **Adopted (Approved by Owner — Decision 7)**: Epistemic truth preservation, state reconciliation, process-exit precision, and forced cleanup policies are adopted.
+- **Adopted (Approved by Owner — Decision 7)**: Epistemic truth preservation, state reconciliation, process-exit precision, and explicit remote forced cleanup call path and semantics are adopted.
 
 ---
 

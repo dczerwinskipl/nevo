@@ -2,9 +2,7 @@
 
 This document records the official owner architectural decisions for `ai-adapters-hardening` in accordance with `docs/ai/specification-workflow.md` § "Solution option analysis" and ADR-0003.
 
-Decisions D1, D2, D4, D5, D6, D7, D8, D9, and D10 have been reviewed with the repository owner and are **APPROVED** as the authoritative foundation for the target architecture and implementation task decomposition.
-
-Decision D3 is **APPROVED** for OpenAI Codex (native stdio JSON-RPC) and Claude Code (in-process Fastify HTTP MCP bridge). The structured Ask capability for Google Antigravity is recorded with verified runtime and lifecycle findings and marked as an **OWNER BLOCKER REQUIRING CLARIFICATION**.
+All decisions below (D1 through D10) have been reviewed with the repository owner and are **APPROVED** as the authoritative foundation for the target architecture and implementation task decomposition. There are no remaining owner blockers.
 
 ---
 
@@ -51,31 +49,30 @@ Decision D3 is **APPROVED** for OpenAI Codex (native stdio JSON-RPC) and Claude 
 - **OpenAI Codex**: Natively supports structured questions (`item/tool/requestUserInput`) and approvals (`item/commandExecution/requestApproval`, `fileChange/requestApproval`, `permissions/requestApproval`) over bidirectional stdio JSON-RPC.
 - **Claude Code**: Supports structured questions via an in-process Fastify HTTP MCP bridge (`/mcp` + `ask_user` tool) configured via `--mcp-config`. Mid-turn permissions are not supported over MCP.
 - **Google Antigravity**:
-  - Live probe verification confirms that in headless print mode (`agy --print <prompt> --output-format stream-json`), `agy` *does* attempt to connect to registered MCP servers and invoke MCP tools.
-  - However, `agy` CLI has **no** `--mcp-config` or `--mcp-server` command-line flag for ephemeral or per-invocation configuration.
-  - MCP configuration is strictly machine-global, persisted in `~/.gemini/config/mcp_config.json` via `agy mcp add`.
-  - `agy` provides no command-line flag or execution-time filter to restrict or select MCP servers per invocation. Every MCP server registered in `mcp_config.json` is contacted by every `agy` invocation across all projects and terminal sessions.
-  - Global registration mutates the developer's permanent workstation configuration, causes port allocation and collision hazards across concurrent sessions, and risks leaving orphaned dead server entries in `mcp_config.json` if Nevo crashes or is terminated forcefully.
+  - Live probe verification confirms that in headless print mode (`agy --print <prompt> --output-format stream-json`), `agy` connects to registered MCP servers and invokes MCP tools.
+  - `agy` CLI does not provide an ephemeral `--mcp-config` flag; MCP configuration is stored in `~/.gemini/config/mcp_config.json` and managed natively via `agy mcp add|remove|list`.
   - In headless print mode without MCP, `agy` auto-skips interactive prompts.
 
-### Owner decision principles
+### Owner decision
 1. **Neutral interaction model**: Nevo UI and runtime maintain one neutral structured interaction model (`question`, `permission`, `confirmation`).
-2. **Transport selection hierarchy**:
-   - Prefer native provider interaction mechanisms when one exists and maps cleanly (Codex stdio JSON-RPC).
-   - Where native interaction is absent but the provider supports MCP safely and deterministically, provide a Nevo-owned MCP bridge (Claude Fastify MCP bridge).
-   - Composer fallback is a fallback, not an automatic target: used when structured interaction cannot be safely provided.
-3. **No text heuristics**: Do not use regular expressions or text scraping to pretend arbitrary final text is a structured interaction work item.
+2. **Provider-neutral Ask coverage across all three providers**:
+   - **Codex**: Native structured JSON-RPC Ask.
+   - **Claude**: Nevo-owned loopback MCP Ask bridge (`/mcp`).
+   - **Antigravity**: Nevo-owned loopback MCP Ask bridge registered in `agy` configuration.
+   All three providers expose the same neutral Nevo interaction contract to runtime and UI.
+3. **Durable, idempotent Antigravity MCP lifecycle management (Option 2 — APPROVED BY OWNER)**:
+   - Antigravity structured Ask MUST be supported via durable, idempotently managed MCP configuration.
+   - **Do NOT design as transient startup-add/shutdown-remove**: abnormal process termination (crashes, SIGKILL) would leave stale configurations.
+   - **Deterministic registration identity**: The registration uses a fixed, deterministic server name: `nevo`.
+   - **Shared MCP server reuse**: Antigravity reuses the existing server-owned Fastify MCP service at `/mcp` and `mcpInteractionRegistry`, rather than creating a duplicate server implementation.
+   - **Idempotent verification and reconciliation**: When the Antigravity adapter initializes or prepares turn execution, it inspects whether registration `nevo` exists and points to the current active server endpoint (using official `agy mcp list`). If missing, mismatched, or stale, it updates the entry via `agy mcp add nevo http://127.0.0.1:<port>/mcp`.
+   - **Safe configuration isolation**: Nevo manages strictly its own named entry (`nevo`) and NEVER mutates, disables, or deletes unrelated user-configured MCP servers.
+   - **No per-turn/per-session churn**: A single persistent Nevo entry is maintained, avoiding accumulating dead registrations.
+   - **Capability declaration**: Antigravity declares `interactiveQuestions: true` when the managed MCP integration is active and valid. If the MCP bridge is temporarily unavailable or invalid, health/capabilities truthfully reflect this rather than fabricating synthetic interactions.
+4. **Composer fallback**: Retained as a fallback for ordinary textual questions emitted by models at turn end that did not invoke the structured `ask_user` tool.
+5. **No text heuristics**: Do not use regular expressions or text scraping to pretend arbitrary final text is a structured interaction work item.
 
-### Current status and owner clarification blocker
-- **Codex stdio JSON-RPC**: APPROVED.
-- **Claude Fastify MCP bridge**: APPROVED.
-- **Antigravity structured Ask**: **BLOCKED: OWNER CLARIFICATION REQUIRED**.
-  Because safe, isolated, ephemeral MCP configuration is not supported by the current `agy` CLI, three architectural options are presented for owner resolution:
-  - **Option 1 (Composer fallback — Recommended)**: Declare `interactiveQuestions: false` for Antigravity. When a model outputs a conversational question at the end of a turn, it settles cleanly as `completed` with `finalAnswer`, allowing the user to reply via the composer in the subsequent turn. This avoids all machine-global configuration mutations, port collisions, and cleanup failure modes.
-  - **Option 2 (Nevo-managed MCP with global registration hooks)**: Implement a Nevo-managed local MCP server registered via `agy mcp add` on adapter startup and removed on shutdown, with startup/shutdown synchronization and ungraceful exit recovery in `~/.gemini/config/mcp_config.json`. This introduces workstation-wide configuration mutation and cleanup fragility if Nevo is killed ungracefully.
-  - **Option 3 (Await upstream ephemeral CLI flag)**: Defer Antigravity structured Ask support until upstream `agy` CLI introduces an ephemeral per-process flag (e.g. `--mcp-config <file>`). Until then, `interactiveQuestions` remains false.
-
-*Status: Codex and Claude APPROVED; Antigravity Ask BLOCKED on owner clarification.*
+*Status: APPROVED BY OWNER.*
 
 ---
 
@@ -236,7 +233,9 @@ Decouple the three concepts into separate fields:
      - POSIX: `process.kill(-pid, signal)` targeting the process group.
      - Post-termination verification confirms the target PID is no longer alive before resolving.
 2. **All child spawns covered**: Claude CLI, Antigravity CLI, and Codex app-server daemon all spawn child processes and must all adopt the shared spawn configuration and tree termination helper.
-3. **Encapsulated behind runtime**: Implementation details remain hidden behind `tools/dashboard/server/ai/providers/process-termination.mjs`.
+3. **Rigorous process-tree verification test**: Automated verification in `process-termination.test.mjs` must not rely solely on mock process wrappers. It must include an integration test that spawns a real parent process that itself spawns a long-running descendant process, terminates the tree via the helper, and explicitly verifies via OS liveness checks (`process.kill(pid, 0)`) that both parent and descendant PIDs are dead.
+4. **Liveness cessation vs semantic outcome**: Process tree termination proves only that OS process liveness has ended; it does NOT prove the semantic provider result (completed vs failed). That boundary is maintained by `AgentTurnRuntime` and `TurnLifecycleCoordinator`.
+5. **Encapsulated behind runtime**: Implementation details remain hidden behind `tools/dashboard/server/ai/providers/process-termination.mjs`.
 
 *Status: APPROVED BY OWNER.*
 

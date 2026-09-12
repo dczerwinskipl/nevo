@@ -45,7 +45,8 @@ Harden `tools/dashboard/server/ai/providers/process-termination.mjs` to establis
   - For processes spawned with process-group leadership (`detached: true`), target the process group via `process.kill(-pid, signal)` on forceful escalation.
 - Implement post-termination verification checking that the target PID has ceased executing before resolving the termination promise.
 - Handle edge cases cleanly: process already exited, access denied errors, invalid PIDs, and missing system binaries.
-- Provide comprehensive automated tests with mock processes verifying spawn options, tree termination logic, escalation timeouts, and error handling.
+- Epistemic boundary: Document that process tree termination proves only that OS process liveness has ended; it does not determine or assert semantic provider result.
+- Automated tests in `tools/dashboard/tests/process-termination.test.mjs` must not rely solely on mock EventEmitter wrappers. Include a real integration test that spawns a parent process that itself spawns a long-running descendant process, terminates the tree via `terminateChildProcess()`, and confirms via OS liveness checks (`process.kill(pid, 0)`) that both parent and descendant PIDs are dead.
 
 ## Acceptance criteria
 
@@ -55,6 +56,7 @@ Harden `tools/dashboard/server/ai/providers/process-termination.mjs` to establis
 4. Graceful termination timeout fires and escalates to forceful termination when the root process fails to exit within `graceMs`. `automated: node --test tools/dashboard/tests/process-termination.test.mjs`
 5. If a target process has already exited prior to termination invocation, the function resolves cleanly without throwing uncaught errors. `automated: node --test tools/dashboard/tests/process-termination.test.mjs`
 6. Process exit verification confirms PID termination before resolving the promise. `automated: node --test tools/dashboard/tests/process-termination.test.mjs`
+7. Real process-tree integration test spawns a parent process that launches a long-running descendant process, terminates the tree via `terminateChildProcess()`, and confirms via OS liveness checks (`process.kill(pid, 0)`) that both parent and descendant PIDs are dead. `automated: node --test tools/dashboard/tests/process-termination.test.mjs`
 
 ## Verification
 

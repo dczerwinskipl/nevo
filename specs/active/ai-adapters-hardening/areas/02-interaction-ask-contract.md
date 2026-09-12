@@ -12,7 +12,7 @@ Define the provider-neutral interaction contract for mid-turn user input (questi
 - The canonical contract in `tools/dashboard/server/ai/contracts.mjs` (`normalizeInteraction`) defines three interaction kinds: `question`, `permission`, and `confirmation`.
 - `INTERACTION_RESUME_POLICIES` defines two policies: `'restart'` and `'live-operation'`.
 - Codex natively supports `question` and `permission` via JSON-RPC. Claude supports `question` via MCP HTTP bridge.
-- Antigravity operates headlessly in print mode (`agy --print <prompt> --output-format stream-json`); live probes confirm it attempts connection to configured MCP servers, but the CLI lacks ephemeral `--mcp-config` support and relies on machine-global `~/.gemini/config/mcp_config.json` without per-invocation isolation or cleanup guarantees.
+- Antigravity operates headlessly in print mode (`agy --print <prompt> --output-format stream-json`). Live probe verification confirms it connects to configured MCP servers and invokes MCP tools. Antigravity uses machine-global MCP configuration managed through `agy mcp add|list|remove`. Nevo integrates with Antigravity via a durable, idempotently managed MCP server registration (`nevo`) targeting the shared Fastify `/mcp` endpoint.
 
 ### Proposed target
 Retain the three structured interaction kinds:
@@ -86,17 +86,26 @@ Used when the agent seeks high-level acknowledgment of a plan or irreversible wo
 
 4. **Cancellation while interaction is pending**:
    - If a user cancels a Turn while an interaction is pending, `TurnLifecycleCoordinator` immediately transitions the turn status to `cancelling`, transitions the interaction WorkItem to `status: 'cancelled'`, and invokes adapter `cancelTurn()`.
-   - Codex adapter cancels the underlying pending JSON-RPC request with a declining response. Claude adapter cancels via `mcpInteractionRegistry.cancelTurn()`.
+   - Codex adapter cancels the underlying pending JSON-RPC request with a declining response. Claude and Antigravity adapters cancel pending MCP interactions via `mcpInteractionRegistry.cancelTurn()`.
 
 5. **Terminal textual questions (Composer fallback)**:
-   - When an adapter operates without structured mid-turn question interactions (e.g. Antigravity under Option 1), or when an interactive provider model outputs a question in conversational text without triggering an evidenced tool interaction:
+   - When an interactive provider model outputs a question in conversational text without triggering a structured tool interaction:
    - The turn completes normally with `status: 'terminal' (outcome: 'completed')` and the question text resides in `finalAnswer`.
    - The user replies using the normal composer, initiating a new turn.
    - No synthetic interaction is fabricated via text regex.
 
 ### Owner decision resolution
-- **Adopted for Codex and Claude (Approved by Owner — Decision 3)**: Correlation, continuation, neutral schemas, and zero text heuristics are adopted. Transport mechanisms are segregated (Codex stdio JSON-RPC, Claude in-process Fastify MCP bridge).
-- **Owner Clarification Required for Antigravity**: Because safe ephemeral MCP configuration is not supported by `agy` CLI, Antigravity Ask capability is blocked on owner clarification between:
-  - Option 1: `interactiveQuestions: false` with clean composer fallback (Recommended; zero side effects).
-  - Option 2: Nevo-managed local MCP server with `~/.gemini/config/mcp_config.json` global hooks.
-  - Option 3: Defer structured Ask until upstream `agy` introduces `--mcp-config`.
+- **Adopted across all three providers (Approved by Owner — Decision 3)**:
+  - All three providers expose structured question interactions (`interactiveQuestions: true`):
+    - **Codex**: Native stdio JSON-RPC.
+    - **Claude**: In-process Fastify MCP bridge (`/mcp`) configured via `--mcp-config`.
+    - **Antigravity**: In-process Fastify MCP bridge (`/mcp`) registered durably and idempotently via `agy mcp add nevo <url>` (Option 2).
+  - Durable Antigravity MCP integration:
+    - Avoids fragile startup-add/shutdown-remove lifecycle; does not fail on crashes or abrupt server exit.
+    - Uses deterministic server identity: `nevo`.
+    - Reuses the existing server-owned Fastify MCP route (`/mcp`) and `mcpInteractionRegistry`.
+    - On adapter initialization and turn preparation, checks if `nevo` registration exists and points to the active server endpoint (via `agy mcp list`). If missing, mismatched, or stale, updates via `agy mcp add nevo http://127.0.0.1:<port>/mcp`.
+    - Strictly touches its own entry (`nevo`) and never mutates, disables, or deletes unrelated user-configured MCP servers.
+    - Single persistent entry eliminates per-turn/per-session churn.
+  - Composer fallback is retained as a fallback for ordinary conversational questions at turn end that did not invoke the structured `ask_user` tool.
+  - Zero text heuristics: no regex pattern matching to fabricate interactions from final text.
