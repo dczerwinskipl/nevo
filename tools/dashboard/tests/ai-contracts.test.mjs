@@ -35,6 +35,21 @@ import {
   assertValidCanonicalTurn,
   assertWorkOrderIntegrity,
   assertToolActionHierarchy,
+  AI_FAILURE_CODES,
+  AI_RECOVERY_HINTS,
+  AI_ERROR_HTTP_STATUS,
+  DEFAULT_RECOVERY_HINTS,
+  AiError,
+  validateAiFailureCode,
+  validateAiRecoveryHint,
+  PROVIDER_HEALTH_STATUSES,
+  validateProviderHealth,
+  MODEL_SOURCES,
+  validateAgentModelDescriptor,
+  validateAgentModelTraits,
+  createAgentModelDescriptor,
+  normalizeModelIdentifier,
+  permissiveModelPassthrough,
 } from '../server/ai/contracts.mjs';
 import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
 import { createAgentSessionService } from '../server/ai/sessions/service.mjs';
@@ -593,6 +608,70 @@ test('Execution mode precedence: turn.mode > session.mode > provider.defaultMode
   assert.equal(fakeBindings.get('sess-ask').mode, 'agent');
 });
 
+test('startTurn permissive model passthrough: an unrecognized model is not blocked but is warned about', async () => {
+  const executedModels = [];
+  const provider = {
+    descriptor: {
+      id: 'model-passthrough',
+      label: 'Model Passthrough',
+      capabilities: { ...capabilities, canOverrideTurnModel: true },
+      defaultMode: 'edit',
+      supportedModes: ['ask', 'edit', 'agent'],
+    },
+    async startTurn({ model }) {
+      executedModels.push(model);
+    },
+    async cancelTurn() {},
+    async listModels() {
+      return [{ id: 'known-model', label: 'Known Model', source: 'known' }];
+    },
+  };
+
+  const fakeBindings = new Map();
+  const bindingService = {
+    async getBinding(p, sid) {
+      return fakeBindings.get(sid) || null;
+    },
+    async bindSession({ provider, providerSessionId, specId, mode, model }) {
+      const rec = { provider, providerSessionId, specId, mode, model };
+      fakeBindings.set(providerSessionId, rec);
+      return rec;
+    },
+    async updateSessionModel(p, sid, model) {
+      const rec = fakeBindings.get(sid) || { provider: p, providerSessionId: sid };
+      rec.model = model;
+      fakeBindings.set(sid, rec);
+      return rec;
+    },
+  };
+
+  const registry = createAgentProviderRegistry([provider]);
+  const turnRuntime = createAgentTurnRuntime({ registry });
+  const service = createAgentSessionService({ registry, turnRuntime, bindingService });
+
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (msg) => warnings.push(msg);
+  try {
+    await service.startTurn('model-passthrough', 'sess-1', { message: 'hi', model: 'totally-unrecognized-model' });
+    assert.equal(executedModels[0], 'totally-unrecognized-model', 'unrecognized model must still reach the provider');
+    // The advisory warning is fire-and-forget (a slow/failing catalog fetch must never
+    // delay or fail turn admission), so give its microtask a tick to run.
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(
+      warnings.some((w) => /Unrecognized model identifier 'totally-unrecognized-model'/.test(w)),
+      'an unrecognized model must produce an advisory warning, not a silent no-op',
+    );
+
+    warnings.length = 0;
+    await service.startTurn('model-passthrough', 'sess-2', { message: 'hi', model: 'known-model' });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(warnings.length, 0, 'a known model must not warn');
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
 test('canonical TurnStatus validates all discriminated union variants and rejects invalid shapes', () => {
   // 1. active
   const activeStatus = validateTurnStatus({ status: 'active', detail: 'tool_execution', subjectId: 'tool-1' });
@@ -970,3 +1049,315 @@ test('public serialization strips provider-private fields and enforces clean DTO
     name: 'AiValidationError',
   });
 });
+
+test('AgentModelDescriptor and AgentModelTraits validate sources and advisory traits', () => {
+  // 1. Full descriptor with all trait metadata
+  const full = validateAgentModelDescriptor({
+    id: 'claude-3-7-sonnet-20250219',
+    label: 'Claude 3.7 Sonnet',
+    isDefault: true,
+    source: 'discovered',
+    traits: {
+      supportsReasoning: true,
+      supportedReasoningEfforts: ['low', 'medium', 'high'],
+      defaultReasoningEffort: 'medium',
+      inputModalities: ['text', 'image'],
+      supportsVision: true,
+      maxContextTokens: 200_000,
+    },
+  });
+  assert.equal(full.id, 'claude-3-7-sonnet-20250219');
+  assert.equal(full.label, 'Claude 3.7 Sonnet');
+  assert.equal(full.isDefault, true);
+  assert.equal(full.source, 'discovered');
+  assert.equal(full.traits.supportsReasoning, true);
+  assert.deepEqual(full.traits.supportedReasoningEfforts, ['low', 'medium', 'high']);
+  assert.equal(full.traits.defaultReasoningEffort, 'medium');
+  assert.deepEqual(full.traits.inputModalities, ['text', 'image']);
+  assert.equal(full.traits.supportsVision, true);
+  assert.equal(full.traits.maxContextTokens, 200_000);
+
+  // 2. Validate all sources
+  for (const source of MODEL_SOURCES) {
+    const desc = validateAgentModelDescriptor({ id: 'm1', label: 'Model 1', source });
+    assert.equal(desc.source, source);
+    // Undefined traits are not fabricated
+    assert.equal(desc.traits, undefined);
+  }
+
+  // 3. Rejects invalid source
+  assert.throws(
+    () => validateAgentModelDescriptor({ id: 'm1', label: 'Model 1', source: 'invented' }),
+    { name: 'AiValidationError' },
+  );
+
+  // 4. Undefined traits mean UNKNOWN, not false
+  const minimalTraits = validateAgentModelTraits({});
+  assert.equal(minimalTraits, undefined);
+
+  const partialTraits = validateAgentModelTraits({ supportsReasoning: true });
+  assert.equal(partialTraits.supportsReasoning, true);
+  assert.equal(partialTraits.supportsVision, undefined);
+  assert.equal(partialTraits.supportedReasoningEfforts, undefined);
+
+  // 5. Invalid trait types throw
+  assert.throws(() => validateAgentModelTraits({ supportsReasoning: 'yes' }), { name: 'AiValidationError' });
+  assert.throws(() => validateAgentModelTraits({ supportedReasoningEfforts: 'high' }), { name: 'AiValidationError' });
+  assert.throws(() => validateAgentModelTraits({ maxContextTokens: -100 }), { name: 'AiValidationError' });
+  assert.throws(() => validateAgentModelTraits({ maxContextTokens: 'lots' }), { name: 'AiValidationError' });
+
+  // 6. Factory helper
+  const created = createAgentModelDescriptor({
+    id: 'gpt-4o',
+    label: 'GPT-4o',
+    source: 'configured',
+  });
+  assert.equal(created.id, 'gpt-4o');
+  assert.equal(created.source, 'configured');
+});
+
+test('ProviderCapabilities includes canOverrideTurnModel, toolCalls, and reasoningEvents decoupled from traits', () => {
+  // Required capability keys exist
+  assert.ok(AGENT_CAPABILITIES.includes('canOverrideTurnModel'));
+  assert.ok(AGENT_CAPABILITIES.includes('toolCalls'));
+  assert.ok(AGENT_CAPABILITIES.includes('reasoningEvents'));
+
+  // Default is false
+  assert.equal(DEFAULT_AGENT_CAPABILITIES.canOverrideTurnModel, false);
+  assert.equal(DEFAULT_AGENT_CAPABILITIES.toolCalls, false);
+  assert.equal(DEFAULT_AGENT_CAPABILITIES.reasoningEvents, false);
+
+  // Normalization properly sets them
+  const normalized = normalizeCapabilities({
+    canOverrideTurnModel: true,
+    toolCalls: true,
+    reasoningEvents: true,
+  });
+  assert.equal(normalized.canOverrideTurnModel, true);
+  assert.equal(normalized.toolCalls, true);
+  assert.equal(normalized.reasoningEvents, true);
+  assert.equal(normalized.steerTurn, false);
+
+  // Provider descriptor carries capabilities and models separately
+  const desc = validateProviderDescriptor({
+    id: 'test-prov',
+    label: 'Test Provider',
+    capabilities: { canOverrideTurnModel: true, toolCalls: true, reasoningEvents: true },
+    models: [
+      { id: 'm-1', label: 'Model 1', source: 'discovered', traits: { supportsReasoning: true } },
+    ],
+  });
+  assert.equal(desc.capabilities.canOverrideTurnModel, true);
+  assert.equal(desc.capabilities.toolCalls, true);
+  assert.equal(desc.capabilities.reasoningEvents, true);
+  assert.equal(desc.models.length, 1);
+  assert.equal(desc.models[0].traits.supportsReasoning, true);
+  // Model does NOT carry transport capabilities
+  assert.equal('toolCalls' in desc.models[0], false);
+  assert.equal('canOverrideTurnModel' in desc.models[0], false);
+});
+
+test('ProviderHealth validates decoupled configuration and operational health status', () => {
+  // 1. Valid healthy provider
+  const healthy = validateProviderHealth({
+    enabled: true,
+    installed: true,
+    version: '0.149.0',
+    status: 'healthy',
+    authenticated: true,
+  });
+  assert.deepEqual(healthy, {
+    enabled: true,
+    installed: true,
+    version: '0.149.0',
+    status: 'healthy',
+    authenticated: true,
+  });
+
+  // 2. Degraded provider with reason
+  const degraded = validateProviderHealth({
+    enabled: true,
+    installed: true,
+    status: 'degraded',
+    unavailableReason: 'Rate limit threshold approaching.',
+  });
+  assert.equal(degraded.status, 'degraded');
+  assert.equal(degraded.unavailableReason, 'Rate limit threshold approaching.');
+  assert.equal(degraded.authenticated, undefined);
+
+  // 3. Unavailable provider
+  const unavailable = validateProviderHealth({
+    enabled: true,
+    installed: false,
+    status: 'unavailable',
+    unavailableReason: 'Binary not found in PATH.',
+  });
+  assert.equal(unavailable.status, 'unavailable');
+
+  // 4. Invalid status throws
+  assert.throws(
+    () => validateProviderHealth({ enabled: true, installed: true, status: 'offline' }),
+    { name: 'AiValidationError' },
+  );
+
+  // 5. Integration with validateProviderDescriptor
+  const desc = validateProviderDescriptor({
+    id: 'prov-with-health',
+    label: 'Provider With Health',
+    capabilities: {},
+    health: {
+      enabled: true,
+      installed: true,
+      version: '1.0.0',
+      status: 'healthy',
+    },
+  });
+  assert.equal(desc.health.status, 'healthy');
+  assert.equal(desc.health.version, '1.0.0');
+});
+
+test('12 normalized failure codes, HTTP status mapping, and 6 recovery hints', () => {
+  // Exactly 12 failure codes
+  assert.equal(AI_FAILURE_CODES.length, 12);
+  const expectedCodes = [
+    'AI_AUTH_FAILED',
+    'AI_POLICY_DENIED',
+    'AI_RATE_LIMITED',
+    'AI_QUOTA_EXHAUSTED',
+    'AI_PROVIDER_UNAVAILABLE',
+    'AI_TRANSPORT_ERROR',
+    'AI_PROVIDER_TIMEOUT',
+    'AI_RUNTIME_TIMEOUT',
+    'AI_PROTOCOL_ERROR',
+    'AI_UNSUPPORTED_OPERATION',
+    'AI_OPERATION_LOST',
+    'AI_PROVIDER_EXECUTION_ERROR',
+  ];
+  assert.deepEqual([...AI_FAILURE_CODES], expectedCodes);
+
+  // Exactly 6 recovery hints
+  assert.equal(AI_RECOVERY_HINTS.length, 6);
+  const expectedHints = [
+    'none',
+    'retry-after-delay',
+    'new-turn',
+    'new-session',
+    'operator-action',
+    'alternate-provider',
+  ];
+  assert.deepEqual([...AI_RECOVERY_HINTS], expectedHints);
+
+  // HTTP status mapping
+  assert.equal(AI_ERROR_HTTP_STATUS.AI_AUTH_FAILED, 401);
+  assert.equal(AI_ERROR_HTTP_STATUS.AI_POLICY_DENIED, 403);
+  assert.equal(AI_ERROR_HTTP_STATUS.AI_RATE_LIMITED, 429);
+  assert.equal(AI_ERROR_HTTP_STATUS.AI_QUOTA_EXHAUSTED, 429);
+  assert.equal(AI_ERROR_HTTP_STATUS.AI_PROVIDER_UNAVAILABLE, 503);
+  assert.equal(AI_ERROR_HTTP_STATUS.AI_TRANSPORT_ERROR, 502);
+  assert.equal(AI_ERROR_HTTP_STATUS.AI_PROVIDER_TIMEOUT, 504);
+  assert.equal(AI_ERROR_HTTP_STATUS.AI_RUNTIME_TIMEOUT, 504);
+  assert.equal(AI_ERROR_HTTP_STATUS.AI_PROTOCOL_ERROR, 502);
+  assert.equal(AI_ERROR_HTTP_STATUS.AI_UNSUPPORTED_OPERATION, 409);
+  assert.equal(AI_ERROR_HTTP_STATUS.AI_OPERATION_LOST, 500);
+  assert.equal(AI_ERROR_HTTP_STATUS.AI_PROVIDER_EXECUTION_ERROR, 502);
+
+  // Code & hint validators
+  for (const code of AI_FAILURE_CODES) {
+    assert.equal(validateAiFailureCode(code), code);
+    assert.ok(AI_ERROR_HTTP_STATUS[code] !== undefined);
+    assert.ok(AI_RECOVERY_HINTS.includes(DEFAULT_RECOVERY_HINTS[code]));
+  }
+  for (const hint of AI_RECOVERY_HINTS) {
+    assert.equal(validateAiRecoveryHint(hint), hint);
+  }
+  assert.throws(() => validateAiFailureCode('UNKNOWN_CODE'), { name: 'AiValidationError' });
+  assert.throws(() => validateAiRecoveryHint('reboot-machine'), { name: 'AiValidationError' });
+
+  // AiError builds structured JSON with recovery hints
+  const rateLimitErr = new AiError('AI_RATE_LIMITED', 'Rate limit exceeded.', {
+    suggestedDelayMs: 3000,
+  });
+  assert.equal(rateLimitErr.status, 429);
+  assert.equal(rateLimitErr.recoveryHint, 'retry-after-delay');
+  assert.equal(rateLimitErr.suggestedDelayMs, 3000);
+  assert.deepEqual(rateLimitErr.toJSON(), {
+    error: {
+      code: 'AI_RATE_LIMITED',
+      message: 'Rate limit exceeded.',
+      recoveryHint: 'retry-after-delay',
+      suggestedDelayMs: 3000,
+    },
+  });
+});
+
+test('Permissive model passthrough normalizer accepts unlisted model identifiers without validation failure', () => {
+  const catalog = [
+    { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet', source: 'known' },
+    { id: 'claude-3-7-sonnet', label: 'Claude 3.7 Sonnet', source: 'discovered' },
+  ];
+
+  const warnings = [];
+  const warnCapture = (msg) => warnings.push(msg);
+
+  // Known model passes through without warning
+  const known = normalizeModelIdentifier('claude-3-7-sonnet', catalog, { onWarning: warnCapture });
+  assert.equal(known, 'claude-3-7-sonnet');
+  assert.equal(warnings.length, 0);
+
+  // Unlisted model passes through WITH warning, NO error thrown
+  const unlisted = normalizeModelIdentifier('claude-4-future-unlisted', catalog, { onWarning: warnCapture });
+  assert.equal(unlisted, 'claude-4-future-unlisted');
+  assert.equal(warnings.length, 1);
+  assert.ok(warnings[0].includes('claude-4-future-unlisted'));
+
+  // Empty catalog does not warn
+  const emptyWarnings = [];
+  const anyModel = normalizeModelIdentifier('any-model-id', [], { onWarning: (m) => emptyWarnings.push(m) });
+  assert.equal(anyModel, 'any-model-id');
+  assert.equal(emptyWarnings.length, 0);
+
+  // Missing / undefined model returns undefined
+  assert.equal(normalizeModelIdentifier(undefined), undefined);
+  assert.equal(normalizeModelIdentifier(null), undefined);
+  assert.equal(normalizeModelIdentifier(''), undefined);
+
+  // Non-string or oversized string throws validation error
+  assert.throws(() => normalizeModelIdentifier(123), { name: 'AiValidationError' });
+  assert.throws(() => normalizeModelIdentifier('a'.repeat(300)), { name: 'AiValidationError' });
+});
+
+test('Terminal outcomes remain decoupled from failure codes and recovery hints', () => {
+  // Completed lifecycle outcome: no error code
+  const completed = createTurnStatus('terminal', { outcome: 'completed', initiator: 'provider' });
+  assert.equal(completed.outcome, 'completed');
+  assert.equal(completed.error, undefined);
+
+  // User cancellation: lifecycle outcome, not an error
+  const cancelled = createTurnStatus('terminal', { outcome: 'cancelled', initiator: 'user' });
+  assert.equal(cancelled.outcome, 'cancelled');
+  assert.equal(cancelled.initiator, 'user');
+  assert.equal(cancelled.error, undefined);
+
+  // Server restart interruption: lifecycle outcome, not an error
+  const interrupted = createTurnStatus('terminal', { outcome: 'interrupted', initiator: 'restart' });
+  assert.equal(interrupted.outcome, 'interrupted');
+  assert.equal(interrupted.initiator, 'restart');
+  assert.equal(interrupted.error, undefined);
+
+  // Failed outcome carries failure code and recovery hint
+  const failed = createTurnStatus('terminal', {
+    outcome: 'failed',
+    initiator: 'provider',
+    error: {
+      code: 'AI_PROVIDER_UNAVAILABLE',
+      message: 'Service is down.',
+      recoveryHint: 'retry-after-delay',
+      suggestedDelayMs: 5000,
+    },
+  });
+  assert.equal(failed.outcome, 'failed');
+  assert.equal(failed.error.code, 'AI_PROVIDER_UNAVAILABLE');
+  assert.equal(failed.error.recoveryHint, 'retry-after-delay');
+  assert.equal(failed.error.suggestedDelayMs, 5000);
+});
+

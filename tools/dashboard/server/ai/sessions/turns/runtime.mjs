@@ -23,6 +23,8 @@ import {
   reconcileOrphanedTurns,
   reconstructTurnState,
 } from './turn-recovery.mjs';
+import { terminateChildProcess } from '../../providers/process-termination.mjs';
+
 
 function publicFailure(error) {
   const normalized = publicAiError(error);
@@ -103,6 +105,7 @@ export class AgentTurnRuntime {
     const s = canonicalStatus.status;
     if (s === 'requiresAttention') return 'waitingForUser';
     if (s === 'active' || s === 'waiting' || s === 'cancelling') return 'running';
+    if (s === 'unknown') return 'unknown';
     if (s === 'terminal') return canonicalStatus.outcome === 'completed' ? 'completed' : 'failed';
     return 'failed';
   }
@@ -115,6 +118,9 @@ export class AgentTurnRuntime {
     prompt,
     userMessage,
     mode,
+    model,
+    effort,
+    reasoningEffort,
     idempotencyKey,
     onSessionEstablished,
     isSessionEstablished = true,
@@ -153,12 +159,16 @@ export class AgentTurnRuntime {
         const existingId = this.#activeBySession.get(key);
         if (existingId) {
           const existing = this.#turns.get(existingId);
+          if (existing?.coordinator?.status?.status === 'unknown') {
+            throw new AiTurnConflictError(existingId);
+          }
           if (idempotencyKey && existing?.idempotencyKey === idempotencyKey) {
             return { turnId: existingId, idempotent: true };
           }
           throw new AiTurnConflictError(existingId);
         }
       }
+
 
       if (typeof inputMessage !== 'string' || inputMessage.trim().length === 0 || inputMessage.length > 100_000) {
         throw new AiError('AI_VALIDATION_ERROR', 'A non-empty message is required.', { status: 400 });
@@ -208,6 +218,7 @@ export class AgentTurnRuntime {
         provider,
         providerSessionId: providerSessionId || null,
         mode: validatedMode,
+        model,
         prompt: inputMessage,
         userMessage: displayMessage,
         traceSink: this.traceSink,
@@ -233,6 +244,8 @@ export class AgentTurnRuntime {
         identity: providerSessionId ? { provider, providerSessionId } : undefined,
         key,
         mode: validatedMode,
+        model,
+        effort: effort ?? reasoningEffort,
         idempotencyKey,
         onSessionEstablished,
         isSessionEstablished,
@@ -375,6 +388,8 @@ export class AgentTurnRuntime {
       isSessionEstablished: state.isSessionEstablished,
       identity: state.identity,
       mode: state.mode,
+      model: state.model,
+      effort: state.effort,
       signal: state.abortController.signal,
       setOperation: (operation) => {
         state.privateOperation = operation;
@@ -410,7 +425,15 @@ export class AgentTurnRuntime {
       if (turnResult && typeof turnResult[Symbol.asyncIterator] === 'function') {
         for await (const event of turnResult) {
           if (this.#isTerminal(state)) break;
-          this.#emit(state, event.type, event);
+          if (event.type === 'commentary.delta' || event.type === 'progress.delta') {
+            this.#emitCommentaryDelta(state, event.text ?? event.delta, event.commentaryId ?? event.progressId);
+          } else if (event.type === 'final_answer.delta' || event.type === 'text.delta') {
+            this.#emitFinalAnswerDelta(state, event.text ?? event.delta, event.finalAnswerId ?? event.messageId);
+          } else if (event.type === 'reasoning.delta') {
+            this.#emitReasoningDelta(state, event.text, event.reasoningId ?? event.messageId);
+          } else {
+            this.#emit(state, event.type, event);
+          }
         }
       } else {
         result = await turnResult;
@@ -439,9 +462,38 @@ export class AgentTurnRuntime {
           rejectEstablished(error);
         } catch {}
       }
-      if (!this.#isTerminal(state)) this.#finish(state, 'turn.failed', error);
+      if (!this.#isTerminal(state)) {
+        if (error?.code === 'AI_OPERATION_LOST' || error?.cause === 'operation_lost') {
+          this.#markOperationLost(state, error);
+        } else {
+          this.#finish(state, 'turn.failed', error);
+        }
+      }
     }
   }
+
+  #markOperationLost(state, error = null) {
+    if (this.#isTerminal(state)) return;
+    const reason = error?.reason || 'operation_lost';
+    const code = error?.code || 'AI_OPERATION_LOST';
+    state.coordinator.markOperationLost({ reason, code, error });
+    this.#notifyProviderState(state);
+    this.#emit(state, 'turn.updated', {
+      turn: state.coordinator.getCanonicalSnapshot(),
+      readiness: { ready: false, reason: 'Turn operation handle lost' },
+    });
+  }
+
+  markTurnOperationLost(turnId, options = {}) {
+    const state = this.#get(turnId);
+    this.#markOperationLost(
+      state,
+      options.error ||
+        new AiError(options.code || 'AI_OPERATION_LOST', options.message || 'Operation handle lost.', { status: 500 }),
+    );
+    return this.getSnapshot(turnId);
+  }
+
 
   async #runContinuation(state, interactionId, interaction, response) {
     try {
@@ -479,16 +531,16 @@ export class AgentTurnRuntime {
   #emitCommentaryDelta(state, text, commentaryId = `commentary-${state.turnId}`) {
     if (this.#isTerminal(state)) return;
     if (typeof text !== 'string' || text.length === 0 || text.length > 50_000) {
-      throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid commentary delta.', { status: 502 });
+      throw new AiError('AI_PROTOCOL_ERROR', 'Provider emitted an invalid commentary delta.', { status: 502 });
     }
     state.coordinator.recordCommentaryDelta(text, commentaryId);
-    this.#emit(state, 'text.delta', { messageId: commentaryId, text, delta: text });
+    this.#emit(state, 'progress.delta', { progressId: commentaryId, text, delta: text });
   }
 
   #emitFinalAnswerDelta(state, text, finalAnswerId = 'final-answer', confidence = undefined) {
     if (this.#isTerminal(state)) return;
     if (typeof text !== 'string' || text.length === 0 || text.length > 50_000) {
-      throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid final answer delta.', {
+      throw new AiError('AI_PROTOCOL_ERROR', 'Provider emitted an invalid final answer delta.', {
         status: 502,
       });
     }
@@ -504,7 +556,7 @@ export class AgentTurnRuntime {
   #emitReasoningDelta(state, text, messageId = `reasoning-${state.turnId}`, representation = 'raw_text') {
     if (this.#isTerminal(state)) return;
     if (typeof text !== 'string' || text.length === 0 || text.length > 50_000) {
-      throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid reasoning delta.', { status: 502 });
+      throw new AiError('AI_PROTOCOL_ERROR', 'Provider emitted an invalid reasoning delta.', { status: 502 });
     }
     state.coordinator.recordReasoningDelta(text, messageId, representation);
     this.#emit(state, 'reasoning.delta', { messageId, text });
@@ -746,6 +798,187 @@ export class AgentTurnRuntime {
   }
 
   /**
+   * Attempts to prove that a turn's provider-side operation has actually stopped, using
+   * the strongest evidence available: a raw child PID (OS-level liveness check via
+   * `terminateChildProcess`), an authoritative provider-level `recoverTurn()` (required
+   * for providers whose `cancelTurn()` ack alone doesn't prove termination — e.g. Codex's
+   * `turn/interrupt` ack precedes, and doesn't guarantee, actual cessation), or as a last
+   * resort `cancelTurn()`'s own return value. Returns `{ verified: false, error }` rather
+   * than throwing so callers can decide whether to surface the failure or record it.
+   */
+  async #verifyProviderCleanup(state, { forceGraceMs = 1000 } = {}) {
+    const operation = state.privateOperation;
+    const child =
+      operation?.child ||
+      operation?.childProcess ||
+      (typeof operation?.pid === 'number' ? { pid: operation.pid } : null);
+
+    if (child?.pid) {
+      try {
+        const termRes = await terminateChildProcess(child, { forceGraceMs });
+        if (termRes?.terminated === true) return { verified: true };
+        return {
+          verified: false,
+          error: new AiError(
+            'AI_OPERATION_LOST',
+            `Process termination could not be verified for turn '${state.turnId}'.`,
+            { status: 500, recoveryHint: 'operator-action' },
+          ),
+        };
+      } catch (err) {
+        return {
+          verified: false,
+          error:
+            err instanceof AiError
+              ? err
+              : new AiError(
+                  'AI_OPERATION_LOST',
+                  `Process termination failed for turn '${state.turnId}': ${err?.message || err}`,
+                  { cause: err, status: 500, recoveryHint: 'operator-action' },
+                ),
+        };
+      }
+    }
+
+    if (state.agentProvider && typeof state.agentProvider.recoverTurn === 'function') {
+      try {
+        const provRes = await state.agentProvider.recoverTurn({
+          turnId: state.turnId,
+          providerSessionId: state.providerSessionId,
+          identity: state.identity,
+          operation,
+        });
+        const verified = Boolean(provRes?.verified ?? provRes?.success ?? provRes?.terminated);
+        if (verified) return { verified: true };
+        return {
+          verified: false,
+          error: new AiError(
+            'AI_OPERATION_LOST',
+            provRes?.error || `Provider recovery could not be verified for turn '${state.turnId}'.`,
+            { status: 500, recoveryHint: 'operator-action' },
+          ),
+        };
+      } catch (err) {
+        return {
+          verified: false,
+          error:
+            err instanceof AiError
+              ? err
+              : new AiError(
+                  'AI_OPERATION_LOST',
+                  `Provider recovery failed for turn '${state.turnId}': ${err?.message || err}`,
+                  { cause: err, status: 500, recoveryHint: 'operator-action' },
+                ),
+        };
+      }
+    }
+
+    if (state.agentProvider?.cancelTurn && operation) {
+      try {
+        const cancelRes = await state.agentProvider.cancelTurn({
+          turnId: state.turnId,
+          providerSessionId: state.providerSessionId,
+          identity: state.identity,
+          operation,
+        });
+        const verified = cancelRes?.success !== false && cancelRes?.cancelled !== false;
+        if (verified) return { verified: true };
+        return {
+          verified: false,
+          error: new AiError(
+            'AI_OPERATION_LOST',
+            `Provider turn cancellation could not be verified for turn '${state.turnId}'.`,
+            { status: 500, recoveryHint: 'operator-action' },
+          ),
+        };
+      } catch (err) {
+        return {
+          verified: false,
+          error:
+            err instanceof AiError
+              ? err
+              : new AiError(
+                  'AI_OPERATION_LOST',
+                  `Provider cancellation failed for turn '${state.turnId}': ${err?.message || err}`,
+                  { cause: err, status: 500, recoveryHint: 'operator-action' },
+                ),
+        };
+      }
+    }
+
+    return {
+      verified: false,
+      error: new AiError(
+        'AI_OPERATION_LOST',
+        `Cannot verify cleanup for turn '${state.turnId}': no active operation handle exists.`,
+        { status: 500, recoveryHint: 'operator-action' },
+      ),
+    };
+  }
+
+  async recoverTurn(turnId, options = {}) {
+    const { provider, providerSessionId } = options;
+    let state = this.#turns.get(turnId);
+    if (!state) {
+      state = await this.#restorePersistedTurn({
+        provider,
+        providerSessionId,
+        turnId,
+        checkStaleLiveOp: false,
+      });
+    }
+    if (!state) {
+      state = this.#get(turnId);
+    }
+    if (provider && providerSessionId) {
+      if (state.provider !== provider || (state.providerSessionId || state.sessionId) !== providerSessionId) {
+        throw new AiNotFoundError(`Turn '${turnId}' does not belong to session '${providerSessionId}'.`, {
+          turnId,
+          provider,
+          providerSessionId,
+        });
+      }
+    }
+    if (this.#isTerminal(state)) return this.getSnapshot(turnId);
+
+    const currentStatus = state.coordinator.status.status;
+    if (currentStatus !== 'unknown') {
+      throw new AiError(
+        'AI_INVALID_STATE',
+        `Turn '${turnId}' is in status '${currentStatus}', not 'unknown'. Forced recovery is only valid for unknown turns.`,
+        { status: 409 },
+      );
+    }
+
+    const { verified: cleanupVerified, error: cleanupError } = await this.#verifyProviderCleanup(state, {
+      forceGraceMs: 1000,
+    });
+
+    if (!cleanupVerified) {
+      throw (cleanupError || new AiError('AI_OPERATION_LOST', `Cleanup could not be verified for turn '${turnId}'.`, {
+        status: 500,
+        recoveryHint: 'operator-action',
+      }));
+    }
+
+    state.abortController.abort();
+    await this.#finish(
+      state,
+      'turn.failed',
+      new AiError('AI_OPERATION_LOST', 'The turn was recovered via forced cleanup.', { status: 409 }),
+      {
+        outcome: 'interrupted',
+        cause: 'forced_cleanup',
+        initiator: 'runtime',
+      },
+    );
+
+    this.#activeBySession.delete(state.key);
+    return this.getSnapshot(turnId);
+  }
+
+
+  /**
    * Explicit-cancel termination path — mirrors the pre-watchdog `cancelTurn` behavior
    * exactly: the provider must declare `cancelTurn` capability (throws
    * `CapabilityNotSupportedError` when missing), and provider-level cancellation errors
@@ -766,9 +999,11 @@ export class AgentTurnRuntime {
   }
 
   /**
-   * Best-effort termination path used by the idle watchdog: a hung turn must still reach
-   * a terminal state even when the provider doesn't declare `cancelTurn` capability, or
-   * provider-level cancellation itself fails.
+   * Idle-watchdog termination path. A hung turn must still reach a terminal state, but
+   * only once the provider's operation is *proven* stopped — an unverifiable/failed
+   * cancellation must not free the session lock while the underlying provider operation
+   * may still be alive (it transitions to `unknown`/`AI_OPERATION_LOST` and stays locked,
+   * exposed to remote recovery, exactly like a lost operation discovered any other way).
    */
   async #timeoutRunningTurn(state, error) {
     if (state.finished) return;
@@ -777,23 +1012,68 @@ export class AgentTurnRuntime {
       initiator: 'runtime',
     });
     if (!accepted) return;
+
     const entry = this.registry.get(state.provider);
-    if (state.privateOperation && entry?.provider?.cancelTurn) {
+    let verified = true;
+    let cleanupError = null;
+
+    if (state.privateOperation) {
+      const context = {
+        turnId: state.turnId,
+        providerSessionId: state.providerSessionId,
+        identity: state.identity,
+        operation: state.privateOperation,
+      };
       try {
-        await entry.provider.cancelTurn({
-          turnId: state.turnId,
-          providerSessionId: state.providerSessionId,
-          identity: state.identity,
-          operation: state.privateOperation,
-        });
-      } catch {}
+        if (typeof entry?.provider?.recoverTurn === 'function') {
+          // A provider-level recoverTurn (required where a bare cancelTurn ack doesn't
+          // prove the underlying operation actually stopped, e.g. Codex's turn/interrupt)
+          // is stronger evidence than cancelTurn's own return value.
+          const res = await entry.provider.recoverTurn(context);
+          verified = Boolean(res?.verified ?? res?.success ?? res?.terminated);
+          if (!verified) {
+            cleanupError = new AiError(
+              'AI_OPERATION_LOST',
+              res?.error || 'Provider cleanup could not be verified after idle timeout.',
+              { status: 500, recoveryHint: 'operator-action' },
+            );
+          }
+        } else if (typeof entry?.provider?.cancelTurn === 'function') {
+          await entry.provider.cancelTurn(context);
+          verified = true;
+        } else {
+          verified = false;
+          cleanupError = new AiError(
+            'AI_OPERATION_LOST',
+            'Cannot verify cleanup: provider does not support cancellation.',
+            { status: 500, recoveryHint: 'operator-action' },
+          );
+        }
+      } catch (err) {
+        verified = false;
+        cleanupError =
+          err instanceof AiError
+            ? err
+            : new AiError(
+                'AI_OPERATION_LOST',
+                `Provider cleanup failed after idle timeout: ${err?.message || err}`,
+                { cause: err, status: 500, recoveryHint: 'operator-action' },
+              );
+      }
     }
+
     state.abortController.abort();
-    await this.#finish(state, 'turn.failed', error, {
-      outcome: 'failed',
-      initiator: 'runtime',
-      cause: 'timeout/protocol-silence',
-    });
+
+    if (verified) {
+      await this.#finish(state, 'turn.failed', error, {
+        outcome: 'failed',
+        initiator: 'runtime',
+        cause: 'timeout/protocol-silence',
+      });
+      return;
+    }
+
+    this.#markOperationLost(state, cleanupError);
   }
 
   #checkIdleTurns() {
@@ -805,7 +1085,7 @@ export class AgentTurnRuntime {
       if (check.fired) {
         void this.#timeoutRunningTurn(
           state,
-          new AiError('AI_TURN_TIMEOUT', 'The turn was cancelled because it stopped responding.', { status: 504 }),
+          new AiError('AI_RUNTIME_TIMEOUT', 'The turn was cancelled because it stopped responding.', { status: 504 }),
         );
       }
     }
@@ -847,7 +1127,14 @@ export class AgentTurnRuntime {
         ? structuredClone(state.coordinator.pendingInteraction)
         : null,
       events: this.#eventStream.getTurnEvents(state.turnId, 0),
+      ...(state.coordinator?.status?.status === 'unknown'
+        ? {
+            code: state.coordinator?.operationLostCode || 'AI_OPERATION_LOST',
+            reason: state.coordinator?.status?.reason || 'operation_lost',
+          }
+        : {}),
     };
+
   }
 
   getCanonicalTurn(turnId) {
@@ -929,6 +1216,10 @@ export class AgentTurnRuntime {
     if (state.finished) return Promise.resolve();
     state.finished = true;
 
+    const openToolsBeforeSettle = state.coordinator.turn.work
+      .filter((item) => item.type === 'tool' && (item.status === 'active' || item.status === 'queued'))
+      .map((item) => item.id);
+
     const outcome = options.outcome ?? (type === 'turn.completed' ? 'completed' : 'failed');
     const cause = options.cause ?? error?.code;
     const terminalStatus = state.coordinator.settleTerminal({
@@ -942,6 +1233,19 @@ export class AgentTurnRuntime {
     this.#activeBySession.delete(state.key);
     this.#notifyProviderState(state);
 
+    for (const toolId of openToolsBeforeSettle) {
+      const closedItem = state.coordinator.turn.work.find((w) => w.id === toolId);
+      if (closedItem) {
+        this.#emit(state, 'tool.completed', {
+          toolId: closedItem.id,
+          status: 'failed',
+          closureReason: closedItem.closureReason || 'turn_completed',
+          output: closedItem.output ?? null,
+        });
+      }
+    }
+
+
     // Authoritative external event derivation from accepted canonical outcome
     let effectiveEventType = 'turn.completed';
     let eventData = {};
@@ -953,7 +1257,7 @@ export class AgentTurnRuntime {
       effectiveEventType = 'turn.failed';
       const terminalErr = terminalStatus.error;
       const status =
-        terminalErr?.code === 'AI_TURN_TIMEOUT'
+        terminalErr?.code === 'AI_RUNTIME_TIMEOUT'
           ? 504
           : terminalErr?.code === 'AI_TURN_CANCELLED'
             ? 409

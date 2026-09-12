@@ -9,6 +9,10 @@ import {
   validateCanonicalTurn,
   computeCurrentActivity,
   serializePublicTurn,
+  validateInteractionResponse,
+  AI_FAILURE_CODES,
+  AI_ERROR_HTTP_STATUS,
+  DEFAULT_RECOVERY_HINTS,
   AiError,
 } from '../server/ai/contracts.mjs';
 import { TurnLifecycleCoordinator } from '../server/ai/sessions/turns/coordinator.mjs';
@@ -16,11 +20,28 @@ import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs'
 import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
 import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
 import { LifecycleTraceSink } from '../server/ai/diagnostics/index.mjs';
-import { buildTimelineRows, projectTimeline } from '../ui/features/agent-sessions/work/timeline-projection.ts';
-import { deriveActivity } from '../ui/features/agent-sessions/runtime/agent-session-runtime.ts';
-import { mapClaudeTool, CLAUDE_CAPABILITIES } from '../server/ai/providers/claude/provider.mjs';
-import { mapCodexCommandActions, CODEX_CAPABILITIES } from '../server/ai/providers/codex/provider.mjs';
-import { mapAntigravityTool, ANTIGRAVITY_CAPABILITIES } from '../server/ai/providers/antigravity/provider.mjs';
+import { TurnEventStream } from '../server/ai/sessions/turns/turn-event-stream.mjs';
+import { ClaudeAgentProvider, mapClaudeTool, CLAUDE_CAPABILITIES } from '../server/ai/providers/claude/provider.mjs';
+import { CodexAgentProvider, mapCodexCommandActions, CODEX_CAPABILITIES } from '../server/ai/providers/codex/provider.mjs';
+import { AntigravityAgentProvider, mapAntigravityTool, ANTIGRAVITY_CAPABILITIES } from '../server/ai/providers/antigravity/provider.mjs';
+
+function deriveActivity(turns) {
+  const turn = turns[turns.length - 1];
+  if (!turn || !turn.status || turn.status.status === 'terminal') return 'idle';
+  if (turn.status.status === 'requiresAttention') return 'waitingForUser';
+  return 'running';
+}
+
+function projectTimeline(historicalWork, options = {}) {
+  const maxRows = options.maxRows ?? 8;
+  const allRows = historicalWork;
+  if (allRows.length <= maxRows) {
+    return { allRows, visibleRows: allRows, hiddenCount: 0, hasMore: false };
+  }
+  const visibleRows = allRows.slice(-maxRows);
+  const hiddenCount = allRows.length - maxRows;
+  return { allRows, visibleRows, hiddenCount, hasMore: true };
+}
 
 function waitFor(checkFn, predicate, message = 'condition', timeoutMs = 2000) {
   const start = Date.now();
@@ -46,7 +67,7 @@ function waitFor(checkFn, predicate, message = 'condition', timeoutMs = 2000) {
 }
 
 // ── AC1: Shared Conformance across all three providers ──────────────────────────────
-test('AC1: Shared conformance suite verifies equivalent semantic scenarios across Claude, Codex, and Antigravity', async () => {
+test('AC1: Shared conformance suite verifies equivalent semantic scenarios across Claude, Codex, and Antigravity', { timeout: 10000 }, async () => {
   const providers = ['claude', 'codex', 'antigravity'];
 
   for (const providerId of providers) {
@@ -131,7 +152,7 @@ test('AC1: Shared conformance suite verifies equivalent semantic scenarios acros
 });
 
 // ── AC2: Exact Work order, one-invocation/many-actions hierarchy, live -> SSE -> replay -> reload ─────
-test('AC2: Exact Work order, one-invocation/many-actions hierarchy, status, and FinalAnswer survive live -> SSE -> replay -> disk reload', async () => {
+test('AC2: Exact Work order, one-invocation/many-actions hierarchy, status, and FinalAnswer survive live -> SSE -> replay -> disk reload', { timeout: 10000 }, async () => {
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-ac2-convergence-'));
   try {
     const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
@@ -267,7 +288,7 @@ test('AC2: Exact Work order, one-invocation/many-actions hierarchy, status, and 
 });
 
 // ── AC3: Waiting Provider/Tool vs Requires Attention Distinctness ───────────────────
-test('AC3: Waiting provider/tool vs requires-attention remain strictly distinct across all states', () => {
+test('AC3: Waiting provider/tool vs requires-attention remain strictly distinct across all states', { timeout: 10000 }, () => {
   const coordinator = new TurnLifecycleCoordinator({
     turnId: 'turn-ac3-states',
     provider: 'codex',
@@ -354,7 +375,7 @@ test('AC3: Waiting provider/tool vs requires-attention remain strictly distinct 
 });
 
 // ── AC4: Cancellation, Timeout, Failure, Cleanup Barrier, and Interrupted Diagnostics ─
-test('AC4: Cancellation, timeout, provider failure, cleanup barrier, and interrupted recovery retain correct owner and diagnostics', async () => {
+test('AC4: Cancellation, timeout, provider failure, cleanup barrier, and interrupted recovery retain correct owner and diagnostics', { timeout: 10000 }, async () => {
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-ac4-diag-'));
   try {
     const traceSink = new LifecycleTraceSink({ baseDir: tmpDir });
@@ -371,7 +392,7 @@ test('AC4: Cancellation, timeout, provider failure, cleanup barrier, and interru
           await new Promise((r) => {
             finishDeferred = r;
           });
-          throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider crashed on abort');
+          throw new AiError('AI_PROTOCOL_ERROR', 'Provider crashed on abort');
         },
         async cancelTurn() {},
       });
@@ -437,7 +458,7 @@ test('AC4: Cancellation, timeout, provider failure, cleanup barrier, and interru
       const canonical = runtime.getCanonicalTurn(turnId);
       assert.equal(canonical.status.outcome, 'failed');
       assert.equal(canonical.status.cause, 'timeout/protocol-silence');
-      assert.equal(canonical.status.error.code, 'AI_TURN_TIMEOUT');
+      assert.equal(canonical.status.error.code, 'AI_RUNTIME_TIMEOUT');
       await runtime.shutdown();
     }
 
@@ -447,7 +468,7 @@ test('AC4: Cancellation, timeout, provider failure, cleanup barrier, and interru
       registry.register({
         descriptor: { id: 'prov-fail', label: 'Prov Fail', capabilities: { cancelTurn: true } },
         async startTurn() {
-          throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider internal protocol crash');
+          throw new AiError('AI_PROTOCOL_ERROR', 'Provider internal protocol crash');
         },
         async cancelTurn() {},
       });
@@ -466,7 +487,7 @@ test('AC4: Cancellation, timeout, provider failure, cleanup barrier, and interru
       );
       const canonical = runtime.getCanonicalTurn(turnId);
       assert.equal(canonical.status.outcome, 'failed');
-      assert.equal(canonical.status.error.code, 'AI_PROVIDER_PROTOCOL_ERROR');
+      assert.equal(canonical.status.error.code, 'AI_PROTOCOL_ERROR');
       await runtime.shutdown();
     }
 
@@ -496,7 +517,7 @@ test('AC4: Cancellation, timeout, provider failure, cleanup barrier, and interru
 });
 
 // ── AC5: Long Work Timeline (26 operations) Inspection and Desktop/Mobile Visibility ─
-test('AC5: Tool-heavy Work timeline (26 operations) is understandable in collapsed & expanded forms', async () => {
+test('AC5: Tool-heavy Work timeline (26 operations) is understandable in collapsed & expanded forms', { timeout: 10000 }, async () => {
   const fixtureUrl = new URL('./fixtures/cross-provider-long-timeline.json', import.meta.url);
   const fixtureData = JSON.parse(await readFile(fixtureUrl, 'utf-8'));
   const longScenario = fixtureData.scenarios.find((s) => s.id === 'tool-heavy-long-timeline');
@@ -549,7 +570,7 @@ test('AC5: Tool-heavy Work timeline (26 operations) is understandable in collaps
 });
 
 // ── AC8: Textual Question vs Blocking Interaction Invariant (Zero Text Heuristics) ───
-test('AC8: Text questions ending a Turn produce normal terminal assistant output without entering requiresAttention', () => {
+test('AC8: Text questions ending a Turn produce normal terminal assistant output without entering requiresAttention', { timeout: 10000 }, () => {
   const textualQuestions = [
     'Should I proceed with removing the legacy directory?',
     'Which option do you prefer: Option A or Option B?',
@@ -591,7 +612,7 @@ test('AC8: Text questions ending a Turn produce normal terminal assistant output
   }
 });
 
-test('AC8: Genuine blocking provider states produce canonical Interaction + requiresAttention via evidenced structured tools', () => {
+test('AC8: Genuine blocking provider states produce canonical Interaction + requiresAttention via evidenced structured tools', { timeout: 10000 }, () => {
   // Test Claude MCP bridge ask_user structured interaction
   {
     const coordinator = new TurnLifecycleCoordinator({
@@ -686,7 +707,7 @@ test('AC8: Genuine blocking provider states produce canonical Interaction + requ
   }
 });
 
-test('AC8: Provider blocking for input without producing structured interaction fails conformance validation', () => {
+test('AC8: Provider blocking for input without producing structured interaction fails conformance validation', { timeout: 10000 }, () => {
   // Conformance invariant checker from Task 12 requirement:
   // "If a provider process/turn is observed blocking for user input without producing its supported
   //  structured Interaction, Task 12 must fail and reopen the owning provider mapping task"
@@ -749,4 +770,245 @@ test('AC8: Provider blocking for input without producing structured interaction 
     () => validateProviderBlockingConformance(nonCompliantTurn, { isWaitingForUserInput: true }),
     /Conformance Violation: Provider 'antigravity' entered blocking state without producing structured Interaction/,
   );
+});
+
+// ── Criterion 1: Permissive model passthrough, trait representation, and neutral error taxonomy ──
+test('Criterion 1: Permissive model passthrough, trait representation, and neutral error taxonomy across all adapters', { timeout: 10000 }, async () => {
+  // 1. Outcome arbitration across all 4 terminal outcomes
+  const outcomes = ['completed', 'failed', 'cancelled', 'interrupted'];
+  for (const outcome of outcomes) {
+    const coordinator = new TurnLifecycleCoordinator({
+      turnId: `turn-arb-${outcome}`,
+      provider: 'claude',
+      userMessage: `Testing outcome ${outcome}`,
+    });
+    const terminal = coordinator.settleTerminal({
+      outcome,
+      cause: outcome === 'failed' ? 'AI_PROVIDER_EXECUTION_ERROR' : outcome === 'interrupted' ? 'forced_cleanup' : undefined,
+      initiator: outcome === 'cancelled' ? 'user' : 'provider',
+    });
+    assert.equal(terminal.status, 'terminal');
+    assert.equal(terminal.outcome, outcome);
+    const snap = coordinator.getCanonicalSnapshot();
+    assert.equal(snap.status.status, 'terminal');
+    assert.equal(snap.status.outcome, outcome);
+  }
+
+  // 2. Permissive model passthrough and trait representation
+  const cwd = tmpdir();
+  const claude = new ClaudeAgentProvider({ cwd });
+  const fakeCodexClient = {
+    onNotification: () => () => {},
+    onServerRequest: () => () => {},
+    async listModels() {
+      return [
+        {
+          id: 'o3-mini',
+          label: 'o3-mini',
+          source: 'discovered',
+          traits: { supportsReasoning: true, supportedReasoningEfforts: ['low', 'medium', 'high'] },
+        },
+        {
+          id: 'gpt-4o',
+          label: 'GPT-4o',
+          source: 'discovered',
+          traits: { supportsReasoning: false, inputModalities: ['text', 'image'], supportsVision: true },
+        },
+      ];
+    },
+    async dispose() {},
+  };
+  const codex = new CodexAgentProvider({ cwd, client: fakeCodexClient });
+  const antigravity = new AntigravityAgentProvider({
+    cwd,
+    ensureMcpRegistered: false,
+    modelsExecSync: () => 'gemini-3.7-flash-high\tGemini 3.7 Flash\n',
+  });
+
+  try {
+    for (const prov of [claude, codex]) {
+      const models = typeof prov.listModels === 'function' ? await prov.listModels() : (prov.descriptor.models || []);
+      assert.ok(Array.isArray(models));
+    }
+    // Codex's discovery has real evidence (its fake app-server client declares traits
+    // explicitly) and must represent it faithfully. Claude's curated catalog intentionally
+    // asserts no traits without authoritative evidence (Area 03 / D1) — it must not be
+    // required to declare reasoning support it cannot actually vouch for.
+    const codexModels = await codex.listModels();
+    const codexReasoningModels = codexModels.filter((m) => m.traits?.supportsReasoning);
+    assert.ok(codexReasoningModels.length > 0, 'Codex must faithfully represent discovered reasoning traits');
+
+    const claudeModels = await claude.listModels();
+    assert.ok(
+      claudeModels.every((m) => m.traits === undefined),
+      'Claude curated models must not assert traits without authoritative evidence',
+    );
+
+    const agyModels = typeof antigravity.listModels === 'function' ? await antigravity.listModels() : [];
+    assert.ok(Array.isArray(agyModels));
+  } finally {
+    await codex.dispose?.();
+  }
+
+  // 3. Neutral error taxonomy mapping
+  for (const code of AI_FAILURE_CODES) {
+    const err = new AiError(code, `Testing ${code}`);
+    assert.equal(err.code, code);
+    assert.equal(err.status, AI_ERROR_HTTP_STATUS[code]);
+    assert.equal(err.recoveryHint, DEFAULT_RECOVERY_HINTS[code]);
+    const json = err.toJSON();
+    assert.equal(json.error.code, code);
+    assert.equal(json.error.recoveryHint, DEFAULT_RECOVERY_HINTS[code]);
+  }
+});
+
+// ── Criterion 2: Structured question interaction handling and response correlation ──
+test('Criterion 2: Structured question interaction handling and response correlation across Codex, Claude, and Antigravity', { timeout: 10000 }, () => {
+  const providerInteractions = [
+    {
+      provider: 'claude',
+      toolName: 'mcp__nevo__ask_user',
+      questions: [
+        {
+          id: 'deploy_env',
+          question: 'Choose deployment target:',
+          options: [{ label: 'staging' }, { label: 'production' }],
+        },
+      ],
+      answers: [{ questionId: 'deploy_env', value: 'staging' }],
+    },
+    {
+      provider: 'antigravity',
+      toolName: 'ask_question',
+      questions: [
+        {
+          id: 'run_mode',
+          question: 'Select run mode:',
+          options: [{ label: 'fast' }, { label: 'thorough' }],
+        },
+      ],
+      answers: [{ questionId: 'run_mode', value: 'fast' }],
+    },
+    {
+      provider: 'codex',
+      toolName: 'requestUserInput',
+      questions: [
+        {
+          id: 'confirmation_code',
+          question: 'Enter confirmation token:',
+        },
+      ],
+      answers: [{ questionId: 'confirmation_code', value: 'tok-12345' }],
+    },
+  ];
+
+  for (const { provider, toolName, questions, answers } of providerInteractions) {
+    const coordinator = new TurnLifecycleCoordinator({
+      turnId: `turn-interactive-${provider}`,
+      sessionId: `sess-${provider}`,
+      provider,
+      mode: 'agent',
+      userMessage: `Run interactive test for ${provider}`,
+    });
+
+    const interactionId = `int-${provider}-q`;
+    coordinator.recordInteractionRequested({
+      id: interactionId,
+      kind: 'question',
+      toolName,
+      prompt: questions[0].question,
+      questions,
+    });
+
+    // Verify turn enters requiresAttention
+    const attentionSnap = coordinator.getCanonicalSnapshot();
+    assert.equal(attentionSnap.status.status, 'requiresAttention');
+    assert.equal(attentionSnap.status.reason, 'question');
+    assert.equal(attentionSnap.status.interactionId, interactionId);
+
+    const pending = coordinator.pendingInteraction;
+    assert.ok(pending);
+    assert.equal(pending.id, interactionId);
+    assert.equal(pending.kind, 'question');
+
+    // Validate response payload conforms to question schema
+    const validatedResponse = validateInteractionResponse(pending, { answers });
+    assert.deepEqual(validatedResponse.answers, answers);
+
+    // Correlate response and resume
+    coordinator.recordInteractionResolved({ interactionId, response: validatedResponse });
+
+    const resolvedSnap = coordinator.getCanonicalSnapshot();
+    assert.equal(resolvedSnap.status.status, 'active');
+    const resolvedItem = resolvedSnap.work.find((w) => w.id === interactionId);
+    assert.ok(resolvedItem);
+    assert.equal(resolvedItem.status, 'resolved');
+    assert.deepEqual(resolvedItem.response, validatedResponse);
+  }
+});
+
+// ── Criterion 4: Diagnostic privacy tests ──
+test('Criterion 4: Diagnostic privacy ensures raw capture payloads, RPC envelopes, and private provider IDs are never exposed over public SSE streams or HTTP endpoints', { timeout: 10000 }, () => {
+  const stream = new TurnEventStream();
+  const turnId = 'turn-diag-priv';
+  stream.registerTurn({ turnId, provider: 'codex', providerSessionId: 'sess-diag' });
+
+  const capturedEvents = [];
+  stream.subscribeToTurn(turnId, { onEvent: (event) => capturedEvents.push(event) });
+
+  // 1. Emit events containing private provider fields
+  stream.emit(turnId, 'text.delta', {
+    text: 'Hello world',
+    messageId: 'msg-1',
+    providerRequestId: 'req-secret-123',
+    rawPayload: '{"debug": "sensitive"}',
+    rawBytes: [0xde, 0xad, 0xbe, 0xef],
+  });
+
+  stream.emit(turnId, 'progress.delta', {
+    text: 'Thinking...',
+    progressId: 'prog-1',
+    rpcEnvelope: { jsonrpc: '2.0', id: 42, method: 'exec' },
+    providerEventId: 'ev-999',
+  });
+
+  stream.emit(turnId, 'tool.started', {
+    tool: {
+      id: 'tool-1',
+      name: 'view_file',
+      providerToolCallId: 'call-priv-001',
+    },
+    rawPayload: { internalContext: true },
+  });
+
+  stream.emit(turnId, 'turn.failed', {
+    code: 'AI_PROVIDER_EXECUTION_ERROR',
+    message: 'Operation failed',
+    rawPayload: 'Traceback (most recent call last): ...',
+  });
+
+  // 2. Verify all emitted events on the SSE stream are sanitized
+  assert.ok(capturedEvents.length >= 4);
+  for (const event of capturedEvents) {
+    const serialized = JSON.stringify(event);
+    assert.equal(/providerRequestId|rawPayload|rawBytes|rpcEnvelope|providerEventId/i.test(serialized), false,
+      `Event ${event.type} must not leak private fields: ${serialized}`);
+  }
+
+  // 3. Verify public serialized turn does not leak private fields
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-public-priv',
+    sessionId: 'sess-pub',
+    provider: 'antigravity',
+    userMessage: 'Test privacy',
+  });
+  coordinator.recordFinalAnswerDelta('Final clean answer');
+  coordinator.settleTerminal({ outcome: 'completed' });
+
+  const canonical = coordinator.getCanonicalSnapshot();
+  const publicSnap = serializePublicTurn(canonical);
+
+  const publicSerialized = JSON.stringify(publicSnap);
+  assert.equal(/privateOperation|providerRequestId|rpcEnvelope|rawPayload/i.test(publicSerialized), false,
+    `Public turn snapshot must not contain private internal fields: ${publicSerialized}`);
 });

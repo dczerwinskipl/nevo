@@ -34,6 +34,8 @@ export class TurnLifecycleCoordinator {
   #timeoutRequested = false;
   #timeoutInitiator = null;
   #timeoutCause = null;
+  #operationLostCode = null;
+  #operationLostReason = null;
   #onTurnUpdated = null;
   #pendingUpdateTimer = null;
 
@@ -43,6 +45,7 @@ export class TurnLifecycleCoordinator {
     provider,
     providerSessionId = null,
     mode = 'edit',
+    model = null,
     prompt = null,
     userMessage = null,
     traceSink = null,
@@ -58,6 +61,7 @@ export class TurnLifecycleCoordinator {
           provider,
           providerSessionId: providerSessionId || null,
           mode,
+          ...(model ? { model } : {}),
         });
     if (prompt && !this.#turn.prompt) {
       this.#turn.prompt = prompt;
@@ -166,6 +170,15 @@ export class TurnLifecycleCoordinator {
     return this.#pendingInteractionId;
   }
 
+  get operationLostCode() {
+    return this.#operationLostCode;
+  }
+
+  get operationLostReason() {
+    return this.#operationLostReason;
+  }
+
+
   get pendingInteraction() {
     if (!this.#pendingInteractionId || this.isTerminal) return null;
     const item = this.#turn.work.find(
@@ -251,6 +264,64 @@ export class TurnLifecycleCoordinator {
     this.#notifyTurnUpdated({ semantic: true });
     return after;
   }
+
+  /**
+   * Transition turn to status: 'unknown' when provider handle drops unexpectedly.
+   */
+  markOperationLost({ reason = 'operation_lost', code = 'AI_OPERATION_LOST' } = {}) {
+    if (this.isTerminal) return this.#turn.status;
+    this.#operationLostCode = code;
+    this.#operationLostReason = reason;
+    // An unverified timeout intent that lands here is abandoned, not pending: the turn
+    // is now parked in `unknown` for manual/remote recovery, not mid-race with a normal
+    // provider completion. Clearing it lets a later, deliberate `recoverTurn()` settle
+    // with its own outcome (`interrupted`/`forced_cleanup`) instead of being silently
+    // re-arbitrated back to the original timeout's `failed`/`AI_RUNTIME_TIMEOUT`. The
+    // watchdog itself will not re-fire on this turn regardless, since
+    // `checkProtocolSilence()` separately suppresses any turn already in `unknown`.
+    this.#timeoutRequested = false;
+    this.#timeoutInitiator = null;
+    this.#timeoutCause = null;
+    this.#tracer?.record?.({
+      source: 'coordinator',
+      event: 'operation.lost',
+      subjectId: this.#turn.id,
+      disposition: 'accepted',
+      metadata: { reason, code },
+    });
+    return this.requestStatusTransition({
+      status: 'unknown',
+      reason,
+    }, { source: 'coordinator', initiator: 'runtime' });
+  }
+
+  /**
+   * Reconcile turn outcome via authoritative provider protocol evidence.
+   */
+  reconcileAuthoritativeEvidence({ outcome, error, cause } = {}) {
+    if (this.isTerminal) return this.#turn.status;
+    if (outcome === 'completed') {
+      return this.settleTerminal({ outcome: 'completed', initiator: 'provider', cause });
+    }
+    if (outcome === 'failed') {
+      return this.settleTerminal({ outcome: 'failed', initiator: 'provider', error, cause });
+    }
+    throw new TypeError("Authoritative outcome must be 'completed' or 'failed'.");
+  }
+
+  /**
+   * Reconcile confirmed process termination.
+   * Process termination proves liveness cessation, never fabricating provider completion or failure.
+   */
+  reconcileProcessTermination({ cause = 'forced_cleanup' } = {}) {
+    if (this.isTerminal) return this.#turn.status;
+    return this.settleTerminal({
+      outcome: 'interrupted',
+      initiator: 'runtime',
+      cause,
+    });
+  }
+
 
   #closeDanglingTools(outcome = 'failed', cause = null) {
     let closureReason = 'turn_failed';
@@ -595,11 +666,13 @@ export class TurnLifecycleCoordinator {
     });
 
     this.#openToolIds.add(toolId);
-    setTurnStatus(this.#turn, {
-      status: 'active',
-      detail: 'tool_execution',
-      subjectId: toolId,
-    });
+    if (this.#turn.status.status !== 'requiresAttention' && !this.#pendingInteractionId) {
+      setTurnStatus(this.#turn, {
+        status: 'active',
+        detail: 'tool_execution',
+        subjectId: toolId,
+      });
+    }
 
     this.#tracer?.record?.({
       source: 'tool',
@@ -919,6 +992,16 @@ export class TurnLifecycleCoordinator {
     if (this.isTerminal || timeoutMs <= 0) return { fired: false };
 
     // 1. Suppression checks
+    if (this.#turn.status.status === 'unknown') {
+      this.#tracer?.record?.({
+        source: 'coordinator',
+        event: 'timeout.suppressed',
+        disposition: 'suppressed',
+        timeout: { kind: 'protocol-silence', suppressionReason: 'operation_unknown' },
+      });
+      return { fired: false, suppressed: 'operation_unknown' };
+    }
+
     if (this.isCancelling || this.#cancellationRequested) {
       this.#tracer?.record?.({
         source: 'coordinator',
@@ -1046,7 +1129,7 @@ export class TurnLifecycleCoordinator {
       };
     } else if (effectiveCause === 'timeout/protocol-silence' || effectiveCause === 'AI_TURN_TIMEOUT') {
       effectiveError = {
-        code: 'AI_TURN_TIMEOUT',
+        code: 'AI_RUNTIME_TIMEOUT',
         message: 'The turn was cancelled because it stopped responding.',
       };
     } else {

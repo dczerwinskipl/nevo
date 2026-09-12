@@ -90,11 +90,13 @@ Claude Code is integrated through non-interactive process invocations (`claude -
 
 ### Antigravity / Gemini CLI integration
 
-The Antigravity provider spawns `agy` in headless streaming mode (`--output-format stream-json`). Turns are resumed using `--resume <providerSessionId>`. Capabilities are declared honestly:
-- `interactiveQuestions: false`: Headless streaming mode does not support interactive question prompts in the current CLI transport; question requests fail fast with `CapabilityNotSupportedError`.
-- `interactivePermissions: false`: Antigravity relies on autonomous execution policy.
-- `diagnostic raw capture`: Exact raw stdout and stderr lines can be recorded before any provider
-  processing for protocol analysis.
+The Antigravity provider spawns `agy` in headless streaming mode (`--output-format stream-json`). Conversations are resumed using `--conversation <id>` (the real, currently verified CLI contract — not `--resume`, which this provider does not use). Capabilities are declared honestly and re-checked, not frozen at construction:
+- `interactiveQuestions`: Truthfully reflects whether the durable stdio MCP bridge is actually registered and usable, not a static `true`. Nevo registers one durable, machine-global `nevo` MCP server entry pointing at the bridge script itself (`agy mcp add nevo node <bridgePath>`) — never a direct HTTP URL, and never the dashboard's own changing host/port. The turn-scoped, currently-resolved `/mcp` endpoint and a short-lived correlation token are instead passed to the `agy` child process as environment variables (`NEVO_MCP_ENDPOINT`, `NEVO_INTERACTION_TOKEN`) at spawn time. The bridge process reads those from its own environment and attaches the token when it forwards MCP requests over HTTP to `/mcp`; a token from a since-terminated turn is rejected (HTTP 403 / JSON-RPC `-32003`), isolating stale correlations. When Antigravity models call `ask_question`, the bridge correlates the tool invocation to the active turn, creating a canonical `interaction.requested` (`kind: 'question'`) in the turn's Work hierarchy; when the user responds in the dashboard, the tool unblocks and Antigravity continues in the same logical Turn. Registration is checked/repaired through one stateful path (constructor, each turn start, and an explicit `repairMcpRegistration()`) so a registration that breaks between turns is never left reporting a stale `true`.
+- `interactivePermissions: false`: Antigravity relies on its autonomous CLI execution policy.
+- `canOverrideTurnModel: true`: Allows selecting or overriding the model dynamically for new turns.
+- `diagnostic raw capture`: Exact raw stdout and stderr lines can be recorded before any provider processing for protocol analysis.
+- Transport security uses scoped certificate trust (`NODE_EXTRA_CA_CERTS` resolved explicitly from the dashboard's own configured certificate, the same source Claude's bridge uses) for HTTPS `/mcp` endpoints, never disabling TLS verification and never depending on the parent process's own ambient environment.
+
 
 ### Local AI provider configuration
 
@@ -224,6 +226,82 @@ and reports the exact Codex version. Without
 Codex installed, the non-strict command reports a clear skip. Version-specific runtime
 evidence and the distinction between observation and contract remain in
 [Codex app-server protocol research](codex-app-server-research.md).
+
+## Four-layer event normalization pipeline
+
+The AI runtime enforces a strict four-layer architecture for streaming deltas, work items, and public events:
+
+1. **Layer 1: Provider-Private Representations**:
+   Raw stdio bytes, process handles, JSON-RPC envelopes, and provider-specific frames (e.g. Codex app-server JSONL, Claude hook stdout/stderr, Antigravity streaming JSON). These never escape the provider adapter boundary.
+2. **Layer 2: Internal Semantic Events**:
+   Internal events emitted by adapters into `TurnLifecycleCoordinator`:
+   - `final_answer.delta`: Assistant final answer text deltas.
+   - `commentary.delta`: Ephemeral operational narration.
+   - `reasoning.delta`: Internal reasoning/thinking tokens.
+   - `tool.started`, `tool.updated`, `tool.completed`: Structured tool calls.
+   - `interaction.requested`, `interaction.resolved`: Human-in-the-loop interactions.
+   - Channel separation: `commentary` narration is strictly separated from `finalAnswer` text and is never promoted into assistant final answers.
+3. **Layer 3: Server-Canonical Events**:
+   Normalized, sanitized events emitted on `TurnEventStream` and dispatched over SSE:
+   - `final_answer.delta` maps to `text.delta` (with canonical `messageId`).
+   - `commentary.delta` maps to `progress.delta` (with canonical `progressId`).
+   - Strict sanitization: all provider-private fields (`providerRequestId`, `rawPayload`, `rawBytes`, `rpcEnvelope`, `providerEventId`, `childPid`) are stripped before emission.
+   - Authoritative Tool Closure: on turn completion or failure, any lingering active/queued tools are authoritatively finalized with `status: 'failed'` and an explicit `closureReason` (`turn_completed`, `turn_failed`), preventing dangling tool spinners in clients.
+4. **Layer 4: Browser Presentation**:
+   Projections consumed by React and Redux UI stores.
+
+## Model catalogs, trait representation, and permissive overrides
+
+- **Provider-Owned Discovery**:
+  Each provider adapter implements `listModels()`:
+  - Claude Code exposes curated models (`CLAUDE_CURATED_MODELS`) supplemented by user configuration.
+  - Codex discovers models dynamically from the running app-server via `model/list`.
+  - Antigravity discovers models dynamically via the `agy models` CLI command.
+- **Permissive Model Passthrough**:
+  Providers declaring `canOverrideTurnModel: true` allow operators to pass arbitrary custom model identifiers without framework rejection. Validations fail open rather than enforcing rigid enums.
+- **Advisory Model Traits**:
+  Models declare optional, evidence-based traits (`validateAgentModelTraits`):
+  - `supportsReasoning`: Boolean indicating whether reasoning tokens or thinking is supported.
+  - `supportedReasoningEfforts`: List of valid reasoning effort tiers (e.g. `['low', 'medium', 'high']`).
+  - `defaultReasoningEffort`: Default reasoning tier.
+  - `inputModalities`: Supported inputs (e.g. `['text', 'image']`).
+  - `supportsVision`: Boolean indicating image/vision input capability.
+  - `maxContextTokens`: Maximum context window size.
+
+## Canonical error taxonomy and neutral recovery hints
+
+Failures across all adapters are categorized into canonical `AI_FAILURE_CODES` with deterministic HTTP statuses and neutral recovery hints:
+
+| Failure Code | HTTP Status | Neutral Recovery Hint | Description |
+|---|---|---|---|
+| `AI_AUTH_FAILED` | 401 | `operator-action` | Missing or expired credentials / API keys. |
+| `AI_POLICY_DENIED` | 403 | `operator-action` | Operation forbidden by provider safety policy or permissions. |
+| `AI_RATE_LIMITED` | 429 | `retry-after-delay` | Rate limit (TPM/RPM) exceeded. Per-turn failure isolated from provider descriptor health. |
+| `AI_QUOTA_EXHAUSTED` | 429 | `alternate-provider` | Account quota depleted. |
+| `AI_PROVIDER_UNAVAILABLE`| 503 | `retry-after-delay` | Provider service unavailable or down. |
+| `AI_TRANSPORT_ERROR` | 502 | `retry-after-delay` | Network connection drop or HTTP proxy error. |
+| `AI_PROVIDER_TIMEOUT` | 504 | `none` | Provider-side execution or print timeout exceeded. |
+| `AI_RUNTIME_TIMEOUT` | 504 | `new-turn` | Turn idle watchdog timeout (inactivity with no tools/user pending). |
+| `AI_PROTOCOL_ERROR` | 502 | `new-session` | Malformed JSON-RPC or protocol frame violation. |
+| `AI_UNSUPPORTED_OPERATION`| 409 | `none` | Capability not supported by provider. |
+| `AI_OPERATION_LOST` | 500 | `none` | Communication handle or process dropped without terminal protocol frame. |
+| `AI_PROVIDER_EXECUTION_ERROR`| 502 | `new-turn` | General process exit failure or crash. |
+
+**Error Isolation**: Per-turn failures (such as a 429 rate limit or unexpected process exit) never mutate provider descriptor health (`installed: false` or `enabled: false`). Descriptor availability reflects installation and authentication facts only.
+
+## Process lifecycle, tree termination, and turn recovery
+
+- **Cross-Platform Process Tree Termination**:
+  When a turn is cancelled, timed out, or force-cleaned, `terminateChildProcess` terminates the entire process tree:
+  - **Windows**: Uses `taskkill /pid <pid> /T /F` to reliably tear down parent and descendant processes (e.g. `cmd.exe`, `powershell.exe`, compiler subprocesses) without leaving zombie processes holding filesystem locks.
+  - **POSIX**: Sends `SIGTERM` to the negative process group ID (`-pid`), escalating to `SIGKILL` after a configurable grace timeout (`forceGraceMs`).
+- **Epistemic Truth & Operation Lost**:
+  If a provider process exits or communication drops without an authoritative terminal frame, the turn enters `status: 'unknown'` with code `AI_OPERATION_LOST`. The runtime never fabricates `outcome: 'failed'` or `outcome: 'completed'` without protocol evidence.
+- **Remote Turn Recovery**:
+  While a turn is in `status: 'unknown'`, session turn queues reject new turns (`409 Conflict`). Remote clients can invoke the recovery API:
+  - `POST /api/agent-sessions/:provider/:providerSessionId/turns/:turnId/recover`
+  - Or `POST .../turns/:turnId/cancel` with `{ action: 'force_cleanup' }`.
+  Recovery terminates any residual process trees, settles the canonical turn as `outcome: 'interrupted'` with `cause: 'forced_cleanup'`, and releases the session turn lock (`#activeBySession`), allowing remote clients to resume work without physical machine access.
 
 ## Verify the integration
 

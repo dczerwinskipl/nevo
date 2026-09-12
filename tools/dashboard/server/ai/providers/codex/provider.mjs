@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { AiError, AiValidationError, validateAgentExecutionMode } from '../../contracts.mjs';
-import { createCodexAppServerClient, resolveCodexCommand } from './app-server-client.mjs';
+import { createCodexAppServerClient, resolveCodexCommand, mapCodexError } from './app-server-client.mjs';
 import { RawCaptureRecorder, rawCaptureSessionDirectory } from '../raw-capture.mjs';
 
 export { rawCaptureSessionDirectory };
@@ -14,6 +14,8 @@ export const CODEX_CAPABILITIES = Object.freeze({
   cancelTurn: true,
   toolCalls: true,
   reasoning: true,
+  reasoningEvents: true,
+  canOverrideTurnModel: true,
   usage: true,
   steerTurn: false,
   planUpdates: false,
@@ -32,7 +34,7 @@ const TOOL_TYPES = new Set(['commandExecution', 'fileChange', 'mcpToolCall', 'dy
 const AGENT_MESSAGE_PHASES = new Set(['commentary', 'final_answer']);
 
 function protocolError(message, details) {
-  return new AiError('AI_PROVIDER_PROTOCOL_ERROR', message, { status: 502, details });
+  return new AiError('AI_PROTOCOL_ERROR', message, { status: 502, details });
 }
 
 function requireObject(value, label) {
@@ -279,6 +281,7 @@ export class CodexAgentProvider {
   #unsubscribeNotification;
   #unsubscribeServerRequest;
   #rawCapture;
+  #recoveryVerificationTimeoutMs;
 
   constructor({
     executable = 'codex',
@@ -289,9 +292,11 @@ export class CodexAgentProvider {
     rawCaptureDir = null,
     rawCaptureEnabled = false,
     rawFlushTimeoutMs = 2_000,
+    recoveryVerificationTimeoutMs = 3_000,
   } = {}) {
     this.#executable = executable;
     this.#cwd = cwd;
+    this.#recoveryVerificationTimeoutMs = recoveryVerificationTimeoutMs;
     this.#rawCapture =
       client?.rawCapture ??
       new RawCaptureRecorder({
@@ -351,9 +356,14 @@ export class CodexAgentProvider {
     return result;
   }
 
-  async createSession({ mode = 'edit' } = {}) {
+  async listModels() {
     this.#assertUsable();
-    return { providerSessionId: await this.#startThread(mode) };
+    return this.#client.listModels();
+  }
+
+  async createSession({ mode = 'edit', model } = {}) {
+    this.#assertUsable();
+    return { providerSessionId: await this.#startThread(mode, { model }) };
   }
 
   async startTurn({
@@ -363,6 +373,9 @@ export class CodexAgentProvider {
     message,
     prompt,
     mode = 'edit',
+    model,
+    effort,
+    reasoningEffort,
     setOperation,
     emitCommentaryDelta,
     emitReasoningDelta,
@@ -384,7 +397,7 @@ export class CodexAgentProvider {
     const validatedMode = validateAgentExecutionMode(mode);
     let threadId = providerSessionId;
     if (!threadId) {
-      threadId = await this.#startThread(validatedMode);
+      threadId = await this.#startThread(validatedMode, { model });
       if (setProviderSessionId) await setProviderSessionId(threadId);
     } else {
       await this.#ensureThreadLoaded(threadId, validatedMode);
@@ -421,11 +434,14 @@ export class CodexAgentProvider {
 
     try {
       const settings = modeSettings(validatedMode, this.#cwd).turn;
+      const turnEffort = effort ?? reasoningEffort;
       const result = requireObject(
         await this.#client.request('turn/start', {
           threadId,
           input: [{ type: 'text', text: input }],
           ...settings,
+          ...(model ? { model } : {}),
+          ...(turnEffort ? { effort: turnEffort } : {}),
         }),
         'turn/start response',
       );
@@ -510,6 +526,42 @@ export class CodexAgentProvider {
     return { cancelled: true };
   }
 
+  /**
+   * Authoritative recovery for a turn stuck in `unknown`: unlike `cancelTurn()`, whose
+   * `turn/interrupt` ACK only proves the app-server *accepted* the request — not that the
+   * turn actually stopped — this waits (bounded) for the authoritative `turn/completed`
+   * notification that settles `operation.terminalPromise` before reporting `verified`.
+   * Per D7, an ACK alone must never unlock a session; only this proof may.
+   */
+  async recoverTurn({ providerSessionId, turnId, operation: passedOp } = {}) {
+    const operation =
+      passedOp ||
+      (providerSessionId ? this.#operationsByThread.get(providerSessionId) : null) ||
+      (turnId ? [...this.#operationsByThread.values()].find((op) => op.turnId === turnId) : null);
+
+    if (!operation || operation.settled) return { verified: true };
+
+    try {
+      await this.#client.request('turn/interrupt', {
+        threadId: operation.threadId,
+        turnId: operation.codexTurnId,
+      });
+    } catch {
+      // The interrupt request itself failing is not authoritative either way — only the
+      // bounded wait below for a genuine terminal notification decides verification.
+    }
+
+    const settledInTime = await Promise.race([
+      operation.terminalPromise.then(
+        () => true,
+        () => true,
+      ),
+      new Promise((resolve) => setTimeout(() => resolve(false), this.#recoveryVerificationTimeoutMs)),
+    ]);
+
+    return { verified: settledInTime && operation.settled };
+  }
+
   dispose() {
     if (this.#disposePromise) return this.#disposePromise;
     this.#disposed = true;
@@ -525,12 +577,13 @@ export class CodexAgentProvider {
     if (this.#disposed) throw new AiError('AI_PROVIDER_DISPOSED', 'Codex provider was disposed.', { status: 503 });
   }
 
-  async #startThread(mode) {
+  async #startThread(mode, { model } = {}) {
     const settings = modeSettings(mode, this.#cwd).thread;
     const result = requireObject(
       await this.#client.request('thread/start', {
         cwd: this.#cwd,
         ...settings,
+        ...(model ? { model } : {}),
       }),
       'thread/start response',
     );
@@ -812,21 +865,17 @@ export class CodexAgentProvider {
       return;
     }
     if (status === 'failed') {
+      const rawError = turn.error || operation.providerError;
       this.#rejectOperation(
         operation,
-        new AiError(
-          'AI_PROVIDER_ERROR',
-          turn.error?.message || operation.providerError?.message || 'Codex turn failed.',
-          { status: 502 },
-        ),
+        rawError
+          ? mapCodexError(rawError, 'turn/start')
+          : new AiError('AI_PROVIDER_EXECUTION_ERROR', 'Codex turn failed.', { status: 502 }),
       );
       return;
     }
     if (operation.providerError) {
-      this.#rejectOperation(
-        operation,
-        new AiError('AI_PROVIDER_ERROR', 'Codex reported a terminal provider error.', { status: 502 }),
-      );
+      this.#rejectOperation(operation, mapCodexError(operation.providerError, 'turn/start'));
       return;
     }
 

@@ -1,11 +1,32 @@
 import { randomUUID } from 'node:crypto';
 import {
+  AiValidationError,
+  CapabilityNotSupportedError,
   validateAgentIdentity,
   validateAgentExecutionMode,
   computeCurrentActivity,
   serializePublicTurn,
 } from '../contracts.mjs';
+import { validateAgentModelDescriptor, normalizeModelIdentifier } from '../model/model-catalog.mjs';
 import { compareBindingRecency } from './binding-service.mjs';
+
+/**
+ * Validates a provider-supplied dynamic model catalog entry by entry so one malformed
+ * model descriptor degrades gracefully (dropped, with an advisory warning) instead of
+ * either corrupting the public catalog with an invalid `AgentModelDescriptor` or
+ * throwing away the whole provider's model list over a single bad entry.
+ */
+function validateModelCatalog(models, providerId) {
+  const valid = [];
+  for (const model of Array.isArray(models) ? models : []) {
+    try {
+      valid.push(validateAgentModelDescriptor(model, `${providerId}.models[]`));
+    } catch (err) {
+      console.warn(`[ai] Dropping invalid model descriptor from provider '${providerId}': ${err?.message || err}`);
+    }
+  }
+  return valid;
+}
 
 /**
  * Computes semantic session readiness — the single, server-owned projection of
@@ -138,8 +159,30 @@ export class AgentSessionService {
     this.bindingService = bindingService;
   }
 
-  listProviders() {
-    return this.registry.descriptors();
+  async listProviders({ includeModels = true } = {}) {
+    const descriptors = this.registry.descriptors();
+    if (!includeModels) return descriptors;
+    return Promise.all(
+      descriptors.map(async (desc) => {
+        try {
+          const entry = this.registry.has(desc.id) ? this.registry.get(desc.id) : null;
+          if (entry && typeof entry.provider.listModels === 'function') {
+            const models = await entry.provider.listModels();
+            return {
+              ...desc,
+              models: validateModelCatalog(models, desc.id),
+            };
+          }
+          return { ...desc, models: [] };
+        } catch (error) {
+          return {
+            ...desc,
+            models: [],
+            modelsError: error?.message || 'Failed to list models',
+          };
+        }
+      }),
+    );
   }
 
   async createSession(provider, options = {}) {
@@ -163,6 +206,7 @@ export class AgentSessionService {
         taskIds: taskIds.length > 0 ? taskIds : undefined,
         purpose,
         mode,
+        model: options.model,
         title: options.title,
       });
       providerSessionId = typeof created === 'string' ? created : created?.providerSessionId;
@@ -186,6 +230,7 @@ export class AgentSessionService {
             taskId: tId,
             purpose: options.purpose || options.title || `task:${tId}`,
             mode,
+            model: options.model,
             established,
           });
         }
@@ -197,6 +242,7 @@ export class AgentSessionService {
           taskId: undefined,
           purpose,
           mode,
+          model: options.model,
           established,
         });
       }
@@ -209,6 +255,7 @@ export class AgentSessionService {
         taskId: primaryTaskId,
         purpose,
         mode,
+        model: options.model,
         title: options.title || `${provider} session`,
         createdAt: new Date().toISOString(),
         lastSeenAt: new Date().toISOString(),
@@ -219,10 +266,11 @@ export class AgentSessionService {
       sessionId: providerSessionId,
       taskIds,
       taskId: primaryTaskId,
+      model: options.model,
     };
   }
 
-  async attachSession(provider, { providerSessionId, specId, taskId, taskIds, purpose, mode } = {}) {
+  async attachSession(provider, { providerSessionId, specId, taskId, taskIds, purpose, mode, model } = {}) {
     validateAgentIdentity({ provider, providerSessionId });
     const resolvedTaskIds = Array.isArray(taskIds) ? taskIds.filter(Boolean) : taskId ? [taskId] : [];
 
@@ -237,13 +285,22 @@ export class AgentSessionService {
             taskId: tId,
             purpose,
             mode,
+            model,
           });
         }
       } else {
-        binding = await this.bindingService.bindSession({ provider, providerSessionId, specId, taskId, purpose, mode });
+        binding = await this.bindingService.bindSession({
+          provider,
+          providerSessionId,
+          specId,
+          taskId,
+          purpose,
+          mode,
+          model,
+        });
       }
     } else {
-      binding = { provider, providerSessionId, specId, taskId, mode };
+      binding = { provider, providerSessionId, specId, taskId, mode, model };
     }
 
     return { ...binding, taskIds: resolvedTaskIds, taskId: taskId || resolvedTaskIds[0] || undefined };
@@ -385,6 +442,26 @@ export class AgentSessionService {
     return { provider, providerSessionId, mode: validatedMode };
   }
 
+  /**
+   * Overrides the durable current/last selected model for an existing session (D2:
+   * capability-driven — a provider that does not declare `canOverrideTurnModel` must
+   * not silently emulate mid-session switching).
+   */
+  async updateSessionModel(provider, providerSessionId, model) {
+    validateAgentIdentity({ provider, providerSessionId });
+    if (typeof model !== 'string' || !model.trim()) {
+      throw new AiValidationError("'model' must be a non-empty string.", { field: 'model' });
+    }
+    const entry = this.registry?.get?.(provider);
+    if (!entry?.descriptor?.capabilities?.canOverrideTurnModel) {
+      throw new CapabilityNotSupportedError(provider, 'canOverrideTurnModel');
+    }
+    if (this.bindingService) {
+      return this.bindingService.updateSessionModel(provider, providerSessionId, model.trim());
+    }
+    return { provider, providerSessionId, model: model.trim() };
+  }
+
   async getSessionDetails(provider, providerSessionId, options = {}) {
     validateAgentIdentity({ provider, providerSessionId });
 
@@ -423,6 +500,7 @@ export class AgentSessionService {
       status: readiness.status === 'unavailable' ? 'unavailable' : status,
       capabilities,
       mode: resolvedMode,
+      model: binding?.model ?? null,
       specId: specId ?? binding?.specId,
       taskId: binding?.taskId,
       taskIds,
@@ -504,6 +582,41 @@ export class AgentSessionService {
       effectiveMode = entry?.descriptor?.defaultMode || 'edit';
     }
 
+    // Model resolution
+    let effectiveModel = opts.model;
+    if (sessId && sessionBinding) {
+      if (effectiveModel && sessionBinding.model && effectiveModel !== sessionBinding.model) {
+        const entry = this.registry?.get?.(prov);
+        const canOverride = Boolean(entry?.descriptor?.capabilities?.canOverrideTurnModel);
+        if (!canOverride) {
+          throw new CapabilityNotSupportedError(prov, 'canOverrideTurnModel');
+        }
+        if (this.bindingService) {
+          await this.bindingService.updateSessionModel(prov, sessId, effectiveModel);
+        }
+      } else if (effectiveModel && !sessionBinding.model) {
+        if (this.bindingService) {
+          await this.bindingService.updateSessionModel(prov, sessId, effectiveModel);
+        }
+      } else if (!effectiveModel && sessionBinding.model) {
+        effectiveModel = sessionBinding.model;
+      }
+    }
+
+    // Permissive passthrough (D1): an unrecognized model must never block a turn on a
+    // provider that allows arbitrary overrides, but it should still be advisory-visible.
+    // Best-effort and fire-and-forget — a slow/failing catalog fetch must never delay or
+    // fail turn admission over a warning.
+    if (effectiveModel) {
+      const entry = this.registry?.get?.(prov);
+      if (entry?.provider && typeof entry.provider.listModels === 'function') {
+        entry.provider
+          .listModels()
+          .then((catalog) => normalizeModelIdentifier(effectiveModel, catalog))
+          .catch(() => {});
+      }
+    }
+
     let onSessionEstablished = opts.onSessionEstablished;
     if (!sessId && this.bindingService && !onSessionEstablished) {
       onSessionEstablished = async (allocatedSessionId) => {
@@ -516,6 +629,7 @@ export class AgentSessionService {
               taskId: tId,
               purpose: opts.purpose || `task:${tId}`,
               mode: effectiveMode,
+              model: effectiveModel,
             });
           }
         } else {
@@ -526,6 +640,7 @@ export class AgentSessionService {
             taskId: opts.taskId,
             purpose: opts.purpose || (opts.taskId ? `task:${opts.taskId}` : 'interactive'),
             mode: effectiveMode,
+            model: effectiveModel,
           });
         }
       };
@@ -552,6 +667,8 @@ export class AgentSessionService {
       message: opts.message ?? opts.prompt,
       prompt: opts.message ?? opts.prompt,
       mode: effectiveMode,
+      model: effectiveModel,
+      effort: opts.effort ?? opts.reasoningEffort,
       onSessionEstablished,
     });
   }
@@ -607,6 +724,12 @@ export class AgentSessionService {
     if (!this.turnRuntime) throw new Error('No turn runtime configured.');
     return this.turnRuntime.cancelTurn(turnId, options);
   }
+
+  recoverTurn(turnId, options) {
+    if (!this.turnRuntime) throw new Error('No turn runtime configured.');
+    return this.turnRuntime.recoverTurn(turnId, options);
+  }
+
 
   resolveInteraction(turnId, interactionId, response, options) {
     if (!this.turnRuntime) throw new Error('No turn runtime configured.');

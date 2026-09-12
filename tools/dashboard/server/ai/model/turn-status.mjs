@@ -119,6 +119,12 @@ export function validateTurnStatus(value) {
               error: {
                 code: requiredString(value.error.code, 'status.error.code', 100),
                 message: requiredString(value.error.message, 'status.error.message', 2000),
+                ...(value.error.recoveryHint
+                  ? { recoveryHint: optionalString(value.error.recoveryHint, 'status.error.recoveryHint', 100) }
+                  : {}),
+                ...(typeof value.error.suggestedDelayMs === 'number'
+                  ? { suggestedDelayMs: value.error.suggestedDelayMs }
+                  : {}),
               },
             }
           : {}),

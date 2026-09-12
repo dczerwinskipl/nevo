@@ -108,7 +108,17 @@ export class SessionTranscriptCacheService {
    * Finalizes an orphaned activeTurn left behind by a session whose owning turn was
    * never terminated (e.g. ungraceful server restart).
    */
-  markTurnInterrupted(provider, providerSessionId, { text, createdAt = new Date().toISOString() } = {}) {
+  markTurnInterrupted(
+    provider,
+    providerSessionId,
+    {
+      text,
+      cause = 'turn_interrupted',
+      initiator = 'shutdown',
+      outcome = 'interrupted',
+      createdAt = new Date().toISOString(),
+    } = {},
+  ) {
     validateAgentIdentity({ provider, providerSessionId });
     const key = this.#key(provider, providerSessionId);
     const state = this.#inMemory.get(key);
@@ -122,12 +132,12 @@ export class SessionTranscriptCacheService {
     if (Array.isArray(state.turns)) {
       const activeTurn = state.turns.find((t) => t.id === interruptedTurnId);
       if (activeTurn) {
-        closeDanglingTurnWork(activeTurn, 'interrupted', 'turn_interrupted');
+        closeDanglingTurnWork(activeTurn, outcome, cause);
         activeTurn.status = {
           status: 'terminal',
-          outcome: 'interrupted',
-          initiator: 'shutdown',
-          cause: 'turn_interrupted',
+          outcome,
+          initiator,
+          cause,
           error: { code: 'AI_TURN_INTERRUPTED', message: text || 'Interrupted by server restart.' },
         };
         activeTurn.completedAt = normalizeTimestamp(createdAt, 'completedAt');

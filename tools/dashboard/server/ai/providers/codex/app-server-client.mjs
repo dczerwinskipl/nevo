@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { AiError } from '../../contracts.mjs';
-import { terminateChildProcess, waitForChildExit } from '../process-termination.mjs';
+import { terminateChildProcess, waitForChildExit, getProcessTreeSpawnOptions } from '../process-termination.mjs';
 import { RawCaptureRecorder, rawCaptureSessionDirectory } from '../raw-capture.mjs';
 
 export { rawCaptureSessionDirectory };
@@ -43,7 +43,7 @@ function own(value, key) {
 }
 
 function protocolError(message, details) {
-  return new AiError('AI_PROVIDER_PROTOCOL_ERROR', message, {
+  return new AiError('AI_PROTOCOL_ERROR', message, {
     status: 502,
     details,
   });
@@ -54,6 +54,99 @@ function providerFailure(code, message, details, cause) {
     status: 502,
     details,
     cause,
+  });
+}
+
+export function mapCodexError(envelopeError, fallbackMethod = 'operation') {
+  if (!envelopeError || typeof envelopeError !== 'object') {
+    return new AiError('AI_PROVIDER_EXECUTION_ERROR', `Codex '${fallbackMethod}' failed.`, {
+      status: 502,
+      recoveryHint: 'new-turn',
+      details: { method: fallbackMethod },
+    });
+  }
+  const message =
+    typeof envelopeError.message === 'string' && envelopeError.message.trim()
+      ? envelopeError.message.trim()
+      : `Codex '${fallbackMethod}' request failed.`;
+  const code = envelopeError.code;
+  const rawData = envelopeError.data;
+  const details = {
+    method: fallbackMethod,
+    ...(code === undefined ? {} : { providerCode: code }),
+    ...(rawData === undefined ? {} : { data: rawData }),
+  };
+
+  if (
+    code === 401 ||
+    code === 'AUTH_FAILED' ||
+    code === 'unauthorized' ||
+    /unauthorized|auth|credentials|login|api key|authentication failed/i.test(message)
+  ) {
+    return new AiError('AI_AUTH_FAILED', message, {
+      status: 401,
+      recoveryHint: 'operator-action',
+      details,
+    });
+  }
+
+  if (
+    code === 403 ||
+    code === 'POLICY_DENIED' ||
+    code === 'permission_denied' ||
+    /forbidden|sandbox|permission denied|policy denied|approval required/i.test(message)
+  ) {
+    return new AiError('AI_POLICY_DENIED', message, {
+      status: 403,
+      recoveryHint: 'operator-action',
+      details,
+    });
+  }
+
+  if (
+    code === 'QUOTA_EXHAUSTED' ||
+    code === 'insufficient_quota' ||
+    /quota|billing|credit|monthly limit|plan limit/i.test(message)
+  ) {
+    return new AiError('AI_QUOTA_EXHAUSTED', message, {
+      status: 429,
+      recoveryHint: 'alternate-provider',
+      details,
+    });
+  }
+
+  if (
+    code === 429 ||
+    code === 'RATE_LIMITED' ||
+    code === 'rate_limit_exceeded' ||
+    /rate limit|too many requests|tpm|rpm/i.test(message)
+  ) {
+    return new AiError('AI_RATE_LIMITED', message, {
+      status: 429,
+      recoveryHint: 'retry-after-delay',
+      details,
+    });
+  }
+
+  if (
+    code === -32700 ||
+    code === -32600 ||
+    code === -32601 ||
+    code === -32602 ||
+    code === 'AI_PROTOCOL_ERROR' ||
+    code === 'PROTOCOL_ERROR'
+  ) {
+    return new AiError('AI_PROTOCOL_ERROR', message, {
+      status: 502,
+      recoveryHint: 'new-session',
+      details,
+    });
+  }
+
+  return new AiError('AI_PROVIDER_EXECUTION_ERROR', message, {
+    status: 502,
+    recoveryHint: 'new-turn',
+    details,
   });
 }
 
@@ -198,6 +291,54 @@ export class CodexAppServerClient {
     return this.#sendRequest(method, params);
   }
 
+  async listModels() {
+    const allModels = [];
+    let cursor = null;
+    do {
+      const params = cursor ? { cursor } : {};
+      const response = await this.request('model/list', params);
+      const rawModels = Array.isArray(response?.data)
+        ? response.data
+        : (Array.isArray(response?.models) ? response.models : []);
+      for (const m of rawModels) {
+        if (m.hidden) continue;
+        const id = String(m.id || m.model || '');
+        if (!id) continue;
+        const label = String(m.displayName || m.label || id);
+        const isDefault = typeof m.isDefault === 'boolean' ? m.isDefault : undefined;
+        const traits = {};
+        if (Array.isArray(m.supportedReasoningEfforts) && m.supportedReasoningEfforts.length > 0) {
+          traits.supportedReasoningEfforts = m.supportedReasoningEfforts
+            .map((item) => (typeof item === 'string' ? item : item?.reasoningEffort || item?.description))
+            .filter(Boolean)
+            .map(String);
+          traits.supportsReasoning = traits.supportedReasoningEfforts.length > 0;
+        }
+        if (typeof m.defaultReasoningEffort === 'string' && m.defaultReasoningEffort.trim()) {
+          traits.defaultReasoningEffort = m.defaultReasoningEffort.trim();
+        }
+        if (Array.isArray(m.inputModalities) && m.inputModalities.length > 0) {
+          traits.inputModalities = m.inputModalities.map(String);
+          if (traits.inputModalities.includes('image')) {
+            traits.supportsVision = true;
+          }
+        }
+        if (typeof m.maxContextTokens === 'number') {
+          traits.maxContextTokens = m.maxContextTokens;
+        }
+        allModels.push({
+          id,
+          label,
+          source: 'discovered',
+          ...(isDefault !== undefined ? { isDefault } : {}),
+          ...(Object.keys(traits).length > 0 ? { traits } : {}),
+        });
+      }
+      cursor = response?.nextCursor || null;
+    } while (cursor);
+    return allModels;
+  }
+
   onNotification(handler) {
     if (typeof handler !== 'function') throw new TypeError('Notification handler must be a function.');
     this.#assertUsable();
@@ -280,9 +421,9 @@ export class CodexAppServerClient {
       this.#removeProcessListeners();
       if (!exited) {
         throw new AiError(
-          'AI_PROCESS_TERMINATION_FAILED',
+          'AI_OPERATION_LOST',
           'Failed to terminate Codex app-server within the bounded timeout.',
-          { status: 500 },
+          { status: 500, recoveryHint: 'operator-action' },
         );
       }
     })();
@@ -316,10 +457,10 @@ export class CodexAppServerClient {
         return result;
       } catch (error) {
         const failure =
-          error?.code === 'AI_PROVIDER_PROTOCOL_ERROR'
+          error?.code === 'AI_PROTOCOL_ERROR'
             ? error
             : providerFailure(
-                'AI_PROVIDER_INITIALIZATION_FAILED',
+                'AI_TRANSPORT_ERROR',
                 'Codex app-server initialization failed.',
                 undefined,
                 error,
@@ -337,15 +478,21 @@ export class CodexAppServerClient {
 
     let child;
     try {
-      child = this.#spawnProcess(this.#executable, [...this.#argsPrefix, 'app-server', '--listen', 'stdio://'], {
+      const spawnOptions = getProcessTreeSpawnOptions({
         cwd: this.#cwd,
         env: this.#env,
         shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
+      child = this.#spawnProcess(
+        this.#executable,
+        [...this.#argsPrefix, 'app-server', '--listen', 'stdio://'],
+        spawnOptions,
+      );
     } catch (error) {
+      const code = error?.code === 'ENOENT' ? 'AI_PROVIDER_UNAVAILABLE' : 'AI_TRANSPORT_ERROR';
       const failure = providerFailure(
-        'AI_PROVIDER_SPAWN_ERROR',
+        code,
         `Failed to spawn Codex app-server: ${error.message}`,
         undefined,
         error,
@@ -377,7 +524,7 @@ export class CodexAppServerClient {
     const onError = (error) => {
       this.#tripFailure(
         providerFailure(
-          'AI_PROVIDER_PROCESS_ERROR',
+          'AI_PROVIDER_EXECUTION_ERROR',
           `Codex app-server process error: ${error.message}`,
           this.#stderrDetails(),
           error,
@@ -388,7 +535,7 @@ export class CodexAppServerClient {
       if (this.#disposed) return;
       this.#tripFailure(
         providerFailure(
-          'AI_PROVIDER_EXIT_ERROR',
+          'AI_PROVIDER_EXECUTION_ERROR',
           `Codex app-server exited unexpectedly (code ${code ?? 'null'}, signal ${signal ?? 'none'}).`,
           this.#stderrDetails(),
         ),
@@ -429,7 +576,7 @@ export class CodexAppServerClient {
         const failure =
           error instanceof AiError
             ? error
-            : providerFailure('AI_PROVIDER_WRITE_ERROR', 'Failed to write to Codex app-server.', undefined, error);
+            : providerFailure('AI_TRANSPORT_ERROR', 'Failed to write to Codex app-server.', undefined, error);
         this.#tripFailure(failure);
       }
     });
@@ -439,7 +586,7 @@ export class CodexAppServerClient {
     this.#assertUsable();
     const stdin = this.#child?.stdin;
     if (!stdin || stdin.destroyed || stdin.writableEnded) {
-      throw providerFailure('AI_PROVIDER_WRITE_ERROR', 'Codex app-server stdin is not writable.');
+      throw providerFailure('AI_TRANSPORT_ERROR', 'Codex app-server stdin is not writable.');
     }
 
     if (own(envelope, 'method')) {
@@ -637,21 +784,7 @@ export class CodexAppServerClient {
 
     if (hasError) {
       if (!isObject(envelope.error)) throw protocolError('Codex response error must be an object.');
-      pending.reject(
-        new AiError(
-          'AI_PROVIDER_REQUEST_ERROR',
-          typeof envelope.error.message === 'string'
-            ? envelope.error.message
-            : `Codex '${pending.method}' request failed.`,
-          {
-            status: 502,
-            details: {
-              method: pending.method,
-              ...(envelope.error.code === undefined ? {} : { providerCode: envelope.error.code }),
-            },
-          },
-        ),
-      );
+      pending.reject(mapCodexError(envelope.error, pending.method));
       return;
     }
     pending.resolve(envelope.result);
@@ -733,7 +866,7 @@ export class CodexAppServerClient {
     const failure =
       error instanceof AiError
         ? error
-        : providerFailure('AI_PROVIDER_PROTOCOL_ERROR', 'Codex app-server client failed.', undefined, error);
+        : providerFailure('AI_PROTOCOL_ERROR', 'Codex app-server client failed.', undefined, error);
     this.#failure = failure;
     for (const pending of this.#pendingRequests.values()) pending.reject(failure);
     this.#pendingRequests.clear();

@@ -109,7 +109,7 @@ class FakeCodexClient {
     };
   }
 
-  fail(error = Object.assign(new Error('client failed'), { code: 'AI_PROVIDER_PROCESS_ERROR' })) {
+  fail(error = Object.assign(new Error('client failed'), { code: 'AI_PROVIDER_EXECUTION_ERROR' })) {
     for (const waiter of [...this.waiters]) waiter.reject(error);
     this.waiters.clear();
   }
@@ -150,6 +150,9 @@ function directTurn(provider, values = {}) {
     providerSessionId: values.providerSessionId,
     message: values.message ?? 'Hello',
     mode: values.mode ?? 'edit',
+    model: values.model,
+    effort: values.effort,
+    reasoningEffort: values.reasoningEffort,
     setProviderSessionId: values.setProviderSessionId,
     setOperation: (value) => {
       operation = value;
@@ -225,11 +228,13 @@ test('declares the exact honest descriptor, mode metadata, and availability', ()
     Object.keys(provider.descriptor.capabilities).sort(),
     [
       'cancelTurn',
+      'canOverrideTurnModel',
       'interactiveConfirmations',
       'interactivePermissions',
       'interactiveQuestions',
       'planUpdates',
       'reasoning',
+      'reasoningEvents',
       'resumeSession',
       'steerTurn',
       'toolCalls',
@@ -237,6 +242,9 @@ test('declares the exact honest descriptor, mode metadata, and availability', ()
     ].sort(),
   );
   assert.deepEqual(provider.descriptor.capabilities, CODEX_CAPABILITIES);
+  assert.equal(provider.descriptor.capabilities.canOverrideTurnModel, true);
+  assert.equal(provider.descriptor.capabilities.toolCalls, true);
+  assert.equal(provider.descriptor.capabilities.reasoningEvents, true);
   assert.equal(provider.descriptor.capabilities.steerTurn, false);
   assert.equal(provider.descriptor.capabilities.planUpdates, false);
   assert.deepEqual(provider.descriptor.supportedModes, ['ask', 'edit', 'agent']);
@@ -311,7 +319,7 @@ test('turn/start rejects an identity that conflicts with an earlier turn/started
 
   await assert.rejects(
     directTurn(provider, { providerSessionId: 'thread-1' }).promise,
-    (error) => error.code === 'AI_PROVIDER_PROTOCOL_ERROR' && /identity/.test(error.message),
+    (error) => error.code === 'AI_PROTOCOL_ERROR' && /identity/.test(error.message),
   );
 });
 
@@ -619,7 +627,7 @@ test('fails closed with diagnostic details when a successful turn has an unfinis
   });
   await completeTurn(client);
   await assert.rejects(turn.promise, (error) => {
-    assert.equal(error.code, 'AI_PROVIDER_PROTOCOL_ERROR');
+    assert.equal(error.code, 'AI_PROTOCOL_ERROR');
     assert.match(error.message, /private-final/);
     assert.deepEqual(error.details, {
       codexTurnId: 'codex-turn-1',
@@ -647,7 +655,7 @@ test('fails closed when the final legacy agent message lacks authoritative compl
   await assert.rejects(
     turn.promise,
     (error) =>
-      error.code === 'AI_PROVIDER_PROTOCOL_ERROR' &&
+      error.code === 'AI_PROTOCOL_ERROR' &&
       error.details?.itemId === 'legacy-final' &&
       error.details?.agentMessagePhase === null,
   );
@@ -725,10 +733,10 @@ test('ignores unrelated correlated events and fails closed on conflicting final 
       item: { id: 'm', type: 'agentMessage', text: 'different' },
       completedAtMs: 2,
     }),
-    (error) => error.code === 'AI_PROVIDER_PROTOCOL_ERROR',
+    (error) => error.code === 'AI_PROTOCOL_ERROR',
   );
-  client.fail(Object.assign(new Error('protocol failed'), { code: 'AI_PROVIDER_PROTOCOL_ERROR' }));
-  await assert.rejects(turn.promise, (error) => error.code === 'AI_PROVIDER_PROTOCOL_ERROR');
+  client.fail(Object.assign(new Error('protocol failed'), { code: 'AI_PROTOCOL_ERROR' }));
+  await assert.rejects(turn.promise, (error) => error.code === 'AI_PROTOCOL_ERROR');
 });
 
 for (const [method, params, response, expected] of [
@@ -878,6 +886,52 @@ test('cancellation requested during turn/start waits for the Codex turn id and t
   });
   await completeTurn(client, 'thread-1', 'codex-turn-1', 'interrupted');
   await assert.rejects(turn.promise, (error) => error.code === 'AI_TURN_CANCELLED');
+});
+
+test('recoverTurn: turn/interrupt acknowledged but no terminal evidence arrives -> recovery is unverified', async () => {
+  const client = standardClient();
+  const provider = createCodexAgentProvider({ client, recoveryVerificationTimeoutMs: 30 });
+  const turn = directTurn(provider, { providerSessionId: 'thread-1' });
+  await waitFor(() => turn.operation, Boolean, 'provisional operation');
+
+  // turn/interrupt is ACKed by the standard client (returns {}), but no turn/completed
+  // notification ever follows — this must NOT be treated as verified cleanup.
+  const result = await provider.recoverTurn({ providerSessionId: 'thread-1', operation: turn.operation });
+  assert.equal(result.verified, false);
+  assert.equal(turn.operation.settled, false, 'the operation must remain unsettled without authoritative evidence');
+
+  await provider.cancelTurn({ operation: turn.operation });
+  await completeTurn(client, 'thread-1', 'codex-turn-1', 'interrupted');
+  await assert.rejects(turn.promise, (error) => error.code === 'AI_TURN_CANCELLED');
+});
+
+test('recoverTurn: authoritative turn/completed notification within the bound verifies cleanup', async () => {
+  const client = standardClient();
+  const provider = createCodexAgentProvider({ client, recoveryVerificationTimeoutMs: 3000 });
+  const turn = directTurn(provider, { providerSessionId: 'thread-1' });
+  await waitFor(() => turn.operation, Boolean, 'provisional operation');
+
+  const recovery = provider.recoverTurn({ providerSessionId: 'thread-1', operation: turn.operation });
+  await tick();
+  // The authoritative terminal notification arrives shortly after the interrupt request.
+  await completeTurn(client, 'thread-1', 'codex-turn-1', 'interrupted');
+
+  const result = await recovery;
+  assert.equal(result.verified, true);
+  assert.equal(turn.operation.settled, true);
+  await assert.rejects(turn.promise, (error) => error.code === 'AI_TURN_INTERRUPTED');
+});
+
+test('recoverTurn: an already-settled operation is trivially verified', async () => {
+  const client = standardClient();
+  const provider = createCodexAgentProvider({ client });
+  const turn = directTurn(provider, { providerSessionId: 'thread-1' });
+  await waitFor(() => turn.operation, Boolean, 'provisional operation');
+  await completeTurn(client, 'thread-1', 'codex-turn-1', 'completed');
+  await turn.promise;
+
+  const result = await provider.recoverTurn({ providerSessionId: 'thread-1', operation: turn.operation });
+  assert.equal(result.verified, true);
 });
 
 test('runtime integration keeps a persistent Codex interaction waiting until real completion', async () => {
@@ -1067,7 +1121,7 @@ test('failed/interrupted turns, unfinished tools, client failure, and disposal n
   await assert.rejects(
     unfinished.promise,
     (error) =>
-      error.code === 'AI_PROVIDER_PROTOCOL_ERROR' &&
+      error.code === 'AI_PROTOCOL_ERROR' &&
       error.details?.itemId === 'tool' &&
       error.details?.itemType === 'fileChange' &&
       error.details?.turnStatus === 'completed',
@@ -1111,7 +1165,7 @@ for (const status of ['interrupted', 'failed']) {
     await completeTurn(client, 'thread-1', 'codex-turn-1', status);
     await assert.rejects(
       turn.promise,
-      (error) => error.code === (status === 'interrupted' ? 'AI_TURN_INTERRUPTED' : 'AI_PROVIDER_ERROR'),
+      (error) => error.code === (status === 'interrupted' ? 'AI_TURN_INTERRUPTED' : 'AI_PROVIDER_EXECUTION_ERROR'),
     );
     assert.equal(turn.emitted.completed[0].status, 'failed');
   });
@@ -1423,4 +1477,83 @@ test('toolDescription: a truncated commandExecution description always validates
     status: 'active',
   });
   assert.equal(validated.description, mapped.description);
+});
+
+test('Turn execution with specified model or reasoning effort passes model and effort in TurnStartParams; omitting preserves defaults', async () => {
+  let capturedTurnParams = null;
+  const client = new FakeCodexClient(async (method, params) => {
+    if (method === 'thread/start') return { thread: { id: 'thread-1' } };
+    if (method === 'turn/start') {
+      capturedTurnParams = params;
+      return { turn: { id: 'codex-turn-1', status: 'inProgress', items: [] } };
+    }
+    throw new Error(`Unexpected method ${method}`);
+  });
+  const provider = createCodexAgentProvider({ client });
+
+  // 1. With model and effort
+  const turn1 = directTurn(provider, {
+    turnId: 'turn-1',
+    model: 'o3-mini',
+    effort: 'high',
+  });
+  await waitFor(() => turn1.operation, Boolean);
+  await completeTurn(client, 'thread-1', 'codex-turn-1');
+  await turn1.promise;
+
+  assert.equal(capturedTurnParams.model, 'o3-mini');
+  assert.equal(capturedTurnParams.effort, 'high');
+
+  // 2. Omitting model and effort preserves provider defaults
+  capturedTurnParams = null;
+  const turn2 = directTurn(provider, {
+    turnId: 'turn-2',
+    providerSessionId: 'thread-1',
+  });
+  await waitFor(() => turn2.operation, Boolean);
+  await completeTurn(client, 'thread-1', 'codex-turn-1');
+  await turn2.promise;
+
+  assert.equal(capturedTurnParams.model, undefined);
+  assert.equal(capturedTurnParams.effort, undefined);
+
+  // 3. With reasoningEffort alias
+  capturedTurnParams = null;
+  const turn3 = directTurn(provider, {
+    turnId: 'turn-3',
+    providerSessionId: 'thread-1',
+    reasoningEffort: 'low',
+  });
+  await waitFor(() => turn3.operation, Boolean);
+  await completeTurn(client, 'thread-1', 'codex-turn-1');
+  await turn3.promise;
+
+  assert.equal(capturedTurnParams.model, undefined);
+  assert.equal(capturedTurnParams.effort, 'low');
+});
+
+test('createSession and initial turn pass model to thread/start when specified', async () => {
+  let capturedThreadParams = null;
+  const client = new FakeCodexClient(async (method, params) => {
+    if (method === 'thread/start') {
+      capturedThreadParams = params;
+      return { thread: { id: 'thread-custom' } };
+    }
+    throw new Error(`Unexpected method ${method}`);
+  });
+  const provider = createCodexAgentProvider({ client });
+
+  const session = await provider.createSession({ model: 'gpt-4o' });
+  assert.equal(session.providerSessionId, 'thread-custom');
+  assert.equal(capturedThreadParams.model, 'gpt-4o');
+});
+
+test('CodexAgentProvider.listModels delegates to client.listModels', async () => {
+  const fakeModels = [{ id: 'o3-mini', label: 'o3-mini', source: 'discovered' }];
+  const client = standardClient();
+  client.listModels = async () => fakeModels;
+  const provider = createCodexAgentProvider({ client });
+
+  const models = await provider.listModels();
+  assert.deepEqual(models, fakeModels);
 });

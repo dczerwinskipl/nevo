@@ -2,3 +2,9 @@ export { mcpInteractionRegistry, McpInteractionRegistry } from './interaction-re
 export { mcpSessionManager, McpSessionManager } from './session-manager.mjs';
 export { createNevoMcpServer, formatInteractionAnswer } from './mcp-server.mjs';
 export { default as mcpRoutes } from './routes.mjs';
+export {
+  ensureAntigravityMcpRegistered,
+  resolveAntigravityMcpBridgePath,
+  runBridge,
+  runBridge as runAntigravityMcpBridge,
+} from './antigravity-mcp-bridge.mjs';

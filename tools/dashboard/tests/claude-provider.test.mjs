@@ -11,6 +11,8 @@ import {
   ClaudeAgentProvider,
   createClaudeAgentProvider,
   CLAUDE_CAPABILITIES,
+  CLAUDE_CURATED_MODELS,
+  mapClaudeError,
   mapClaudeTool,
 } from '../server/ai/providers/claude/provider.mjs';
 import { mcpInteractionRegistry } from '../server/ai/interactions/mcp/index.mjs';
@@ -127,6 +129,9 @@ test('ClaudeAgentProvider declares capabilities', () => {
   assert.equal(provider.descriptor.capabilities.interactivePermissions, false);
   assert.equal(provider.descriptor.capabilities.interactiveConfirmations, false);
   assert.equal(provider.descriptor.capabilities.resumeSession, true);
+  assert.equal(provider.descriptor.capabilities.canOverrideTurnModel, true);
+  assert.equal(provider.descriptor.capabilities.toolCalls, true);
+  assert.equal(provider.descriptor.capabilities.reasoningEvents, true);
 
   // Dynamic capability truthfulness: false without endpoint or when disabled
   const disabledProvider = createClaudeAgentProvider({
@@ -921,7 +926,7 @@ test('Claude cancelTurn bounded cancellation fails cleanly when child ignores al
   await new Promise((resolve) => setImmediate(resolve));
   await assert.rejects(
     () => provider.cancelTurn({ operation }),
-    (err) => err.code === 'AI_PROCESS_TERMINATION_FAILED',
+    (err) => err.code === 'AI_OPERATION_LOST',
   );
   assert.deepEqual(child.killCalls, ['SIGINT', 'SIGKILL']);
 });
@@ -1149,7 +1154,7 @@ test('Claude evidence replay: Turn 1 (429 rate limit error) maps to authoritativ
         message: evidence.turns[0].userMessage,
       }),
     (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.code, 'AI_RATE_LIMITED');
       return true;
     },
   );
@@ -1630,26 +1635,26 @@ test('Claude provider exit cleanup: child process crash/exit rejects pending ask
 
   assert.ok(mcpInteractionRegistry.hasPending('int-crash-123'));
 
-  const rejectionAssertion = assert.rejects(
+  const askRejection = assert.rejects(
     askPromise,
     (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_EXIT_ERROR');
+      assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
       return true;
     },
   );
+
+  const turnRejection = assert.rejects(turnPromise, (err) => {
+    assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
+    return true;
+  });
 
   // Child process crashes with non-zero exit code
   hangingChild.exitCode = 1;
   hangingChild.emit('close', 1);
 
-  await rejectionAssertion;
+  await Promise.all([askRejection, turnRejection]);
   assert.equal(mcpInteractionRegistry.hasPending('int-crash-123'), false);
   assert.equal(mcpInteractionRegistry.getActiveTurn({ turnId: 'turn-crash-cleanup-1' }), null);
-
-  await assert.rejects(turnPromise, (err) => {
-    assert.equal(err.code, 'AI_PROVIDER_EXIT_ERROR');
-    return true;
-  });
 
   mcpInteractionRegistry.clear();
 });
@@ -1712,6 +1717,11 @@ test('Claude TLS security: NODE_TLS_REJECT_UNAUTHORIZED is never set; NODE_EXTRA
     undefined,
     'NODE_TLS_REJECT_UNAUTHORIZED must NEVER be set to 0 or any value',
   );
+  assert.equal(
+    capturedEnv1.NODE_EXTRA_CA_CERTS,
+    undefined,
+    'must never leak an ambient NODE_EXTRA_CA_CERTS from the parent process when no cert could be resolved',
+  );
 
   // 2. HTTPS endpoint with existing cert file -> NODE_EXTRA_CA_CERTS is set
   const dummyCertPath = join(tmpdir(), `test-ca-cert-${randomUUID()}.pem`);
@@ -1749,3 +1759,237 @@ test('Claude TLS security: NODE_TLS_REJECT_UNAUTHORIZED is never set; NODE_EXTRA
     } catch {}
   }
 });
+
+test('Claude adapter exposes curated and configured models as AgentModelDescriptor[]', async () => {
+  const providerDefault = createClaudeAgentProvider();
+  const defaultModels = await providerDefault.listModels();
+  assert.ok(Array.isArray(defaultModels));
+  assert.ok(defaultModels.length >= 3);
+
+  // Curated entries provide identity/display metadata only — no invented `isDefault` or
+  // `traits` without authoritative evidence (Area 03 / D1).
+  const sonnet = defaultModels.find((m) => m.id === 'claude-sonnet-5');
+  assert.ok(sonnet);
+  assert.equal(sonnet.label, 'Claude Sonnet 5');
+  assert.equal(sonnet.source, 'known');
+  assert.equal(sonnet.isDefault, undefined);
+  assert.equal(sonnet.traits, undefined);
+
+  const opus = defaultModels.find((m) => m.id === 'claude-opus-5');
+  assert.ok(opus);
+  assert.equal(opus.source, 'known');
+  assert.equal(opus.isDefault, undefined);
+
+  const haiku = defaultModels.find((m) => m.id === 'claude-haiku-4-5-20251001');
+  assert.ok(haiku);
+  assert.equal(haiku.source, 'known');
+
+  // With operator-configured models
+  const providerWithConfig = createClaudeAgentProvider({
+    configuredModels: [
+      {
+        id: 'claude-custom-ft',
+        label: 'Custom Fine-tune',
+        traits: { supportsReasoning: true },
+      },
+    ],
+  });
+  const mergedModels = await providerWithConfig.listModels();
+  const custom = mergedModels.find((m) => m.id === 'claude-custom-ft');
+  assert.ok(custom);
+  assert.equal(custom.label, 'Custom Fine-tune');
+  assert.equal(custom.source, 'configured');
+  assert.equal(custom.traits?.supportsReasoning, true);
+});
+
+test('Turn execution with specified model passes --model flag to claude; omitting leaves provider defaults', async () => {
+  const capturedCalls = [];
+  const lines = [
+    JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: 'ok' } }),
+    JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
+  ];
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args, options) => {
+      capturedCalls.push({ executable, args, options });
+      return createMockProcess(lines, { sessionId: extractSessionId(args) });
+    },
+  });
+
+  // 1. Omitted model: no --model flag passed
+  await provider.startTurn({
+    turnId: 'turn-model-default',
+    message: 'Hello default model',
+  });
+  assert.equal(capturedCalls.length, 1);
+  assert.equal(capturedCalls[0].args.includes('--model'), false);
+
+  // 2. Specified model on new turn: --model passed
+  await provider.startTurn({
+    turnId: 'turn-model-specified',
+    message: 'Hello specific model',
+    model: 'claude-3-7-sonnet-20250219',
+  });
+  assert.equal(capturedCalls.length, 2);
+  const callArgs = capturedCalls[1].args;
+  const modelIdx = callArgs.indexOf('--model');
+  assert.notEqual(modelIdx, -1);
+  assert.equal(callArgs[modelIdx + 1], 'claude-3-7-sonnet-20250219');
+
+  // 3. Specified model on resumed turn: --model passed alongside --resume
+  await provider.startTurn({
+    turnId: 'turn-model-resumed',
+    providerSessionId: 'existing-sess-123',
+    message: 'Hello resumed specific model',
+    model: 'claude-3-5-haiku-20241022',
+  });
+  assert.equal(capturedCalls.length, 3);
+  const resumeArgs = capturedCalls[2].args;
+  const resumeModelIdx = resumeArgs.indexOf('--model');
+  assert.notEqual(resumeModelIdx, -1);
+  assert.equal(resumeArgs[resumeModelIdx + 1], 'claude-3-5-haiku-20241022');
+  assert.ok(resumeArgs.includes('--resume'));
+});
+
+test('Permissive passthrough allows unlisted model strings to pass to --model without validation failure', async () => {
+  const capturedCalls = [];
+  const lines = [
+    JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: 'passthrough ok' } }),
+    JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
+  ];
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args, options) => {
+      capturedCalls.push({ executable, args, options });
+      return createMockProcess(lines, { sessionId: extractSessionId(args) });
+    },
+  });
+
+  const unlistedModel = 'claude-future-model-4.0-preview';
+  await provider.startTurn({
+    turnId: 'turn-unlisted-model',
+    message: 'Testing permissive model passthrough',
+    model: unlistedModel,
+  });
+
+  assert.equal(capturedCalls.length, 1);
+  const callArgs = capturedCalls[0].args;
+  const modelIdx = callArgs.indexOf('--model');
+  assert.notEqual(modelIdx, -1);
+  assert.equal(callArgs[modelIdx + 1], unlistedModel);
+});
+
+test('Turn cancellation invokes OS-aware process tree termination with process-group isolation', async () => {
+  let capturedSpawnOptions = null;
+  const hangingChild = createHangingMockProcess();
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args, options) => {
+      capturedSpawnOptions = options;
+      return hangingChild;
+    },
+  });
+
+  let operationRef = null;
+  const turnPromise = provider.startTurn({
+    turnId: 'turn-cancel-tree',
+    message: 'Cancel tree test',
+    setOperation: (op) => {
+      operationRef = op;
+    },
+  });
+
+  await new Promise((r) => setImmediate(r));
+  assert.ok(capturedSpawnOptions);
+  assert.equal(capturedSpawnOptions.detached, process.platform !== 'win32');
+
+  assert.ok(operationRef);
+  await provider.cancelTurn({ operation: operationRef });
+  assert.ok(hangingChild.killed);
+
+  await assert.rejects(turnPromise, (err) => {
+    assert.equal(err.code, 'AI_TURN_CANCELLED');
+    return true;
+  });
+});
+
+test('mapClaudeError maps non-zero exit codes and messages to normalized failure codes and recovery hints', () => {
+  // Timeout
+  const timeoutErr = mapClaudeError('Request timed out waiting for upstream', 'Fallback', 124);
+  assert.equal(timeoutErr.code, 'AI_PROVIDER_TIMEOUT');
+  assert.equal(timeoutErr.status, 504);
+  assert.equal(timeoutErr.recoveryHint, 'none');
+
+  // Auth failed
+  const authErr = mapClaudeError('Unauthorized: Please run claude login or set ANTHROPIC_API_KEY');
+  assert.equal(authErr.code, 'AI_AUTH_FAILED');
+  assert.equal(authErr.status, 401);
+  assert.equal(authErr.recoveryHint, 'operator-action');
+
+  // Policy denied
+  const policyErr = mapClaudeError('Sandbox policy denied operation');
+  assert.equal(policyErr.code, 'AI_POLICY_DENIED');
+  assert.equal(policyErr.status, 403);
+  assert.equal(policyErr.recoveryHint, 'operator-action');
+
+  // Quota exhausted
+  const quotaErr = mapClaudeError('Monthly credit quota limit reached');
+  assert.equal(quotaErr.code, 'AI_QUOTA_EXHAUSTED');
+  assert.equal(quotaErr.status, 429);
+  assert.equal(quotaErr.recoveryHint, 'alternate-provider');
+
+  // Rate limited
+  const rateLimitErr = mapClaudeError('Rate limit exceeded: TPM ceiling hit', 'Fallback', null);
+  assert.equal(rateLimitErr.code, 'AI_RATE_LIMITED');
+  assert.equal(rateLimitErr.status, 429);
+  assert.equal(rateLimitErr.recoveryHint, 'retry-after-delay');
+
+  // Protocol error
+  const protocolErr = mapClaudeError('Protocol error: unexpected token in stream-json');
+  assert.equal(protocolErr.code, 'AI_PROTOCOL_ERROR');
+  assert.equal(protocolErr.status, 502);
+  assert.equal(protocolErr.recoveryHint, 'new-session');
+
+  // ENOENT / process error
+  const enoentErr = mapClaudeError({ code: 'ENOENT', message: 'spawn claude ENOENT' });
+  assert.equal(enoentErr.code, 'AI_PROVIDER_UNAVAILABLE');
+  assert.equal(enoentErr.status, 503);
+  assert.equal(enoentErr.recoveryHint, 'operator-action');
+
+  // Generic execution error
+  const execErr = mapClaudeError('Unknown internal failure', 'Fallback', 1);
+  assert.equal(execErr.code, 'AI_PROVIDER_EXECUTION_ERROR');
+  assert.equal(execErr.status, 502);
+  assert.equal(execErr.recoveryHint, 'new-turn');
+  assert.equal(execErr.details.exitCode, 1);
+});
+
+test('CLI non-zero exit with auth failure maps to AI_AUTH_FAILED during turn execution', async () => {
+  const child = new EventEmitter();
+  child.stdin = new Writable({ write(c, e, cb) { cb(); } });
+  child.stdout = new Readable({ read() {} });
+  child.stderr = new Readable({ read() {} });
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: () => {
+      setImmediate(() => {
+        child.stderr.push('Error: Authentication failed. Please login to continue.\n');
+        child.stderr.push(null);
+        child.stdout.push(null);
+        child.emit('close', 1);
+      });
+      return child;
+    },
+  });
+
+  await assert.rejects(
+    () => provider.startTurn({ turnId: 'turn-auth-fail', message: 'Hi' }),
+    (err) => {
+      assert.equal(err.code, 'AI_AUTH_FAILED');
+      assert.equal(err.status, 401);
+      assert.equal(err.recoveryHint, 'operator-action');
+      return true;
+    },
+  );
+});
+

@@ -4,3 +4,4 @@ export * from './final-answer.mjs';
 export * from './canonical-turn.mjs';
 export * from './serialization.mjs';
 export * from './fixtures.mjs';
+export * from './model-catalog.mjs';
