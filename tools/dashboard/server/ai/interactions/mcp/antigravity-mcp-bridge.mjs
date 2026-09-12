@@ -1,7 +1,7 @@
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 export function resolveAntigravityMcpBridgePath() {
   return fileURLToPath(new URL('./antigravity-mcp-bridge.mjs', import.meta.url));
@@ -13,16 +13,19 @@ export function resolveAntigravityMcpBridgePath() {
  *
  * Checks `agy mcp list` and updates only if missing or pointing to an outdated path.
  * Strictly touches only the `nevo` entry; never modifies or removes unrelated user servers.
+ *
+ * Uses argument-array process invocation (`execFile`-style), not shell-string
+ * interpolation, so `executable`/`bridgePath` are never parsed by a shell.
  */
 export function ensureAntigravityMcpRegistered({
   executable = 'agy',
   bridgePath = resolveAntigravityMcpBridgePath(),
-  exec = execSync,
+  exec = execFileSync,
 } = {}) {
   try {
     let listOutput = '';
     try {
-      listOutput = exec(`${executable} mcp list`, {
+      listOutput = exec(executable, ['mcp', 'list'], {
         encoding: 'utf8',
         timeout: 5000,
         stdio: ['ignore', 'pipe', 'ignore'],
@@ -45,7 +48,7 @@ export function ensureAntigravityMcpRegistered({
       }
     }
 
-    exec(`${executable} mcp add nevo node "${bridgePath}"`, {
+    exec(executable, ['mcp', 'add', 'nevo', 'node', bridgePath], {
       encoding: 'utf8',
       timeout: 5000,
       stdio: ['ignore', 'pipe', 'ignore'],

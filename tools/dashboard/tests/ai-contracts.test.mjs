@@ -608,6 +608,70 @@ test('Execution mode precedence: turn.mode > session.mode > provider.defaultMode
   assert.equal(fakeBindings.get('sess-ask').mode, 'agent');
 });
 
+test('startTurn permissive model passthrough: an unrecognized model is not blocked but is warned about', async () => {
+  const executedModels = [];
+  const provider = {
+    descriptor: {
+      id: 'model-passthrough',
+      label: 'Model Passthrough',
+      capabilities: { ...capabilities, canOverrideTurnModel: true },
+      defaultMode: 'edit',
+      supportedModes: ['ask', 'edit', 'agent'],
+    },
+    async startTurn({ model }) {
+      executedModels.push(model);
+    },
+    async cancelTurn() {},
+    async listModels() {
+      return [{ id: 'known-model', label: 'Known Model', source: 'known' }];
+    },
+  };
+
+  const fakeBindings = new Map();
+  const bindingService = {
+    async getBinding(p, sid) {
+      return fakeBindings.get(sid) || null;
+    },
+    async bindSession({ provider, providerSessionId, specId, mode, model }) {
+      const rec = { provider, providerSessionId, specId, mode, model };
+      fakeBindings.set(providerSessionId, rec);
+      return rec;
+    },
+    async updateSessionModel(p, sid, model) {
+      const rec = fakeBindings.get(sid) || { provider: p, providerSessionId: sid };
+      rec.model = model;
+      fakeBindings.set(sid, rec);
+      return rec;
+    },
+  };
+
+  const registry = createAgentProviderRegistry([provider]);
+  const turnRuntime = createAgentTurnRuntime({ registry });
+  const service = createAgentSessionService({ registry, turnRuntime, bindingService });
+
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (msg) => warnings.push(msg);
+  try {
+    await service.startTurn('model-passthrough', 'sess-1', { message: 'hi', model: 'totally-unrecognized-model' });
+    assert.equal(executedModels[0], 'totally-unrecognized-model', 'unrecognized model must still reach the provider');
+    // The advisory warning is fire-and-forget (a slow/failing catalog fetch must never
+    // delay or fail turn admission), so give its microtask a tick to run.
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(
+      warnings.some((w) => /Unrecognized model identifier 'totally-unrecognized-model'/.test(w)),
+      'an unrecognized model must produce an advisory warning, not a silent no-op',
+    );
+
+    warnings.length = 0;
+    await service.startTurn('model-passthrough', 'sess-2', { message: 'hi', model: 'known-model' });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(warnings.length, 0, 'a known model must not warn');
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
 test('canonical TurnStatus validates all discriminated union variants and rejects invalid shapes', () => {
   // 1. active
   const activeStatus = validateTurnStatus({ status: 'active', detail: 'tool_execution', subjectId: 'tool-1' });

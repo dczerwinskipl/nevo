@@ -239,7 +239,7 @@ test('a server-request handler throw before answering sends one safe error and f
 
   const outcomes = await Promise.allSettled([pending, waiter]);
   assert.ok(outcomes.every((outcome) => outcome.status === 'rejected'));
-  assert.ok(outcomes.every((outcome) => outcome.reason.code === 'AI_PROVIDER_PROTOCOL_ERROR'));
+  assert.ok(outcomes.every((outcome) => outcome.reason.code === 'AI_PROTOCOL_ERROR'));
   const responses = child.received.filter((message) => message.id === 'approval-handler-failed');
   assert.deepEqual(responses, [
     {
@@ -253,7 +253,7 @@ test('a server-request handler throw before answering sends one safe error and f
   await tick();
   assert.equal(client.pendingRequestCount, 0);
   assert.equal(client.activeWaiterCount, 0);
-  await assert.rejects(client.request('thread/start', {}), (error) => error.code === 'AI_PROVIDER_PROTOCOL_ERROR');
+  await assert.rejects(client.request('thread/start', {}), (error) => error.code === 'AI_PROTOCOL_ERROR');
 });
 
 test('a server-request handler throw after answering does not send a second response and still fails closed', async () => {
@@ -272,7 +272,7 @@ test('a server-request handler throw after answering does not send a second resp
 
   child.send({ id: 'approval-answered-then-failed', method: 'item/commandExecution/requestApproval', params: {} });
 
-  await assert.rejects(pending, (error) => error.code === 'AI_PROVIDER_PROTOCOL_ERROR');
+  await assert.rejects(pending, (error) => error.code === 'AI_PROTOCOL_ERROR');
   assert.deepEqual(
     child.received.filter((message) => message.id === 'approval-answered-then-failed'),
     [{ id: 'approval-answered-then-failed', result: { decision: 'accept' } }],
@@ -297,7 +297,7 @@ test('a second server-request response is protocol corruption and rejects active
   await tick();
   child.send({ id: 'approval-1', method: 'item/fileChange/requestApproval', params: {} });
 
-  await assert.rejects(pending, (error) => error.code === 'AI_PROVIDER_PROTOCOL_ERROR');
+  await assert.rejects(pending, (error) => error.code === 'AI_PROTOCOL_ERROR');
   assert.ok(pendingId);
   assert.equal(child.received.filter((message) => message.id === 'approval-1').length, 1);
 });
@@ -320,11 +320,11 @@ for (const [name, corrupt] of [
     const pending = client.request('turn/start', { threadId: 'thread-1', input: [] });
     await tick();
     child.sendRaw(corrupt);
-    await assert.rejects(pending, (error) => error.code === 'AI_PROVIDER_PROTOCOL_ERROR');
+    await assert.rejects(pending, (error) => error.code === 'AI_PROTOCOL_ERROR');
     child.send({ id: pendingId, result: { shouldNotResolve: true } });
     await tick();
     assert.equal(client.pendingRequestCount, 0);
-    await assert.rejects(client.request('thread/start', {}), (error) => error.code === 'AI_PROVIDER_PROTOCOL_ERROR');
+    await assert.rejects(client.request('thread/start', {}), (error) => error.code === 'AI_PROTOCOL_ERROR');
   });
 }
 

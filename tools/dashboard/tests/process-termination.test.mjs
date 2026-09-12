@@ -141,11 +141,13 @@ test('isProcessAlive tests real process liveness via process.kill(pid, 0)', () =
 });
 
 test('real process-tree integration: terminates parent and descendant processes', async () => {
+  // The descendant deliberately does NOT set its own `detached`/process-group option —
+  // it must inherit the parent's process group (the normal provider-child -> descendant
+  // topology), not create a separate group that a group-targeted kill can't reach.
   const parentCode = `
     const { spawn } = require('node:child_process');
     const desc = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
       stdio: 'ignore',
-      detached: process.platform !== 'win32',
     });
     console.log(JSON.stringify({ parentPid: process.pid, descendantPid: desc.pid }));
     setInterval(() => {}, 1000);
@@ -187,4 +189,54 @@ test('real process-tree integration: terminates parent and descendant processes'
   // Confirm both parent and descendant PIDs are dead via OS check
   assert.equal(isProcessAlive(parentPid), false);
   assert.equal(isProcessAlive(descendantPid), false);
+});
+
+test('real process-tree integration: a descendant that outlives the parent past the graceful stage is still proven dead', async () => {
+  // The descendant ignores SIGINT (installs a no-op handler) so it survives Stage 1's
+  // graceful attempt and can only be reaped by Stage 2's forceful escalation — this is
+  // exactly the scenario the old implementation got wrong: once the parent exited (or was
+  // killed) first, it declared victory without any group-wide liveness proof, leaving this
+  // kind of descendant alive and undetected.
+  const parentCode = `
+    const { spawn } = require('node:child_process');
+    const desc = spawn(process.execPath, ['-e', 'process.on("SIGINT", () => {}); setInterval(() => {}, 1000);'], {
+      stdio: 'ignore',
+    });
+    console.log(JSON.stringify({ parentPid: process.pid, descendantPid: desc.pid }));
+    setInterval(() => {}, 1000);
+  `;
+
+  const spawnOptions = getProcessTreeSpawnOptions({ stdio: ['pipe', 'pipe', 'pipe'] });
+  const parent = spawn(process.execPath, ['-e', parentCode], spawnOptions);
+
+  const pids = await new Promise((resolve, reject) => {
+    parent.stdout.once('data', (chunk) => {
+      try {
+        resolve(JSON.parse(chunk.toString().trim()));
+      } catch (err) {
+        reject(err);
+      }
+    });
+    parent.once('error', reject);
+  });
+
+  const { parentPid, descendantPid } = pids;
+  assert.equal(isProcessAlive(parentPid), true);
+  assert.equal(isProcessAlive(descendantPid), true);
+
+  const result = await terminateChildProcess(parent, { graceMs: 100, forceGraceMs: 2000 });
+  assert.equal(result.terminated, true, 'termination must not report success while any group member remains alive');
+  // On POSIX, a SIGINT-ignoring descendant forces escalation to SIGKILL; on Windows,
+  // `taskkill /T /F` is tree-aware and forceful from Stage 1, so no escalation is needed.
+  // The signal used is an implementation detail — the invariant under test is `terminated`
+  // and, below, that the descendant is *actually* dead rather than presumed dead.
+  assert.ok(['SIGINT', 'SIGKILL'].includes(result.signal));
+
+  for (let i = 0; i < 20; i++) {
+    if (!isProcessAlive(parentPid) && !isProcessAlive(descendantPid)) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  assert.equal(isProcessAlive(parentPid), false);
+  assert.equal(isProcessAlive(descendantPid), false, 'the SIGINT-ignoring descendant must actually be dead, not just presumed dead from the parent exiting');
 });

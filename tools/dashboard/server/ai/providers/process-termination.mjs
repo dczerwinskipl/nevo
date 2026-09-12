@@ -54,6 +54,31 @@ export function isProcessAlive(pid) {
 }
 
 /**
+ * POSIX-only: checks whether ANY process remains in the process group `pgid`, using
+ * `kill(-pgid, 0)` — a kernel-level query that covers every member of the group, not
+ * just a specific tracked PID. This is what makes tree-liveness verification possible
+ * without the caller having to know every descendant PID: as long as descendants
+ * inherited the group (the normal case — see `getProcessTreeSpawnOptions`), a `SIGINT`/
+ * `SIGKILL` sent to `-pgid` reaches them too, and this check proves whether any of them
+ * are still alive after signalling, not just the original group leader.
+ *
+ * @param {number} pgid
+ * @returns {boolean}
+ */
+export function isProcessGroupAlive(pgid) {
+  if (process.platform === 'win32') return false;
+  if (!pgid || typeof pgid !== 'number' || !Number.isInteger(pgid) || pgid <= 0) {
+    return false;
+  }
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (err) {
+    return err?.code === 'EPERM';
+  }
+}
+
+/**
  * Check if a child process has already reached a terminal state.
  *
  * @param {import('node:child_process').ChildProcess | object} child
@@ -118,11 +143,23 @@ export function waitForChildExit(child, timeoutMs) {
 
 /**
  * Terminate a child process using an OS-aware bounded two-stage escalation policy:
- * - Stage 1: Graceful SIGINT with bounded graceMs wait
- * - Stage 2: Forceful termination with bounded forceGraceMs wait
- *   - Windows: taskkill.exe /PID <pid> /T /F (terminates root and all descendants)
- *   - POSIX: process.kill(-pid, 'SIGKILL') (terminates process group)
- * - Stage 3: Post-termination OS liveness verification
+ * - Stage 1 (POSIX): graceful `SIGINT` to the owned process group, bounded `graceMs` wait.
+ * - Stage 1 (Windows): `taskkill /PID <pid> /T /F` immediately. Windows has no real SIGINT
+ *   delivery for arbitrary child processes — `child.kill('SIGINT')` just force-terminates
+ *   the root alone (via TerminateProcess) with no grace and, critically, no tree awareness,
+ *   which is exactly how a still-alive descendant used to go undetected: the root died
+ *   instantly, the bounded wait below immediately saw it as terminated, and the tree-aware
+ *   `taskkill /T` escalation in the old Stage 2 never ran at all. Running the tree-aware
+ *   kill up front — while the root PID is still guaranteed valid — is the only way taskkill
+ *   can still discover its descendants; once the root PID exits (or worse, gets recycled by
+ *   the OS to an unrelated process), `taskkill /PID <pid> /T` can no longer find them.
+ * - Stage 2: forceful escalation if Stage 1 didn't prove the tree gone.
+ *   - Windows: retries `taskkill /PID <pid> /T /F`.
+ *   - POSIX: `process.kill(-pid, 'SIGKILL')` (terminates the process group).
+ * - Stage 3: post-termination liveness verification — POSIX checks the OWNED PROCESS GROUP
+ *   (`isProcessGroupAlive`, not just a specific tracked PID) so a descendant that inherited
+ *   the group but ignored `SIGINT` is still caught even when the caller never enumerated
+ *   descendant PIDs. `descendantPids` remains supported for callers that do track them.
  *
  * @param {import('node:child_process').ChildProcess | object} child
  * @param {object} [options]
@@ -142,36 +179,57 @@ export async function terminateChildProcess(child, options = {}) {
     ? options.descendantPids.filter((p) => typeof p === 'number' && Number.isInteger(p) && p > 0)
     : [];
 
-  // Stage 1: Graceful SIGINT
-  try {
-    if (process.platform !== 'win32' && pid) {
+  const isWindows = process.platform === 'win32';
+  let windowsTreeKillVerified = false;
+
+  // Stage 1: graceful (POSIX) / tree-aware (Windows) termination attempt
+  if (isWindows && pid) {
+    try {
+      await execFileAsync('taskkill.exe', ['/PID', String(pid), '/T', '/F']);
+      windowsTreeKillVerified = true;
+    } catch {
+      // Process may already have exited (race), PID may be stale, or taskkill itself may
+      // be unavailable — fall back to a root-only kill; Stage 2 will retry the tree kill.
       try {
-        process.kill(-pid, 'SIGINT');
-      } catch {
-        if (typeof child.kill === 'function') {
-          child.kill('SIGINT');
-        } else {
-          process.kill(pid, 'SIGINT');
-        }
-      }
-    } else if (typeof child.kill === 'function') {
-      child.kill('SIGINT');
+        if (typeof child.kill === 'function') child.kill();
+      } catch {}
     }
-  } catch {
-    if (isChildTerminated(child)) return { terminated: true, signal: 'SIGINT' };
+  } else if (!isWindows && pid) {
+    try {
+      process.kill(-pid, 'SIGINT');
+    } catch {
+      if (typeof child.kill === 'function') {
+        child.kill('SIGINT');
+      } else {
+        try {
+          process.kill(pid, 'SIGINT');
+        } catch {}
+      }
+    }
+  } else if (typeof child.kill === 'function') {
+    child.kill('SIGINT');
   }
 
-  const exitedAfterSigint = await waitForChildExit(child, graceMs);
-  if (exitedAfterSigint || isChildTerminated(child)) {
-    if (descendantPids.length === 0 || descendantPids.every((p) => !isProcessAlive(p))) {
+  const exitedAfterStage1 = await waitForChildExit(child, graceMs);
+  if (exitedAfterStage1 || isChildTerminated(child)) {
+    if (isWindows) {
+      if (windowsTreeKillVerified || descendantPids.every((p) => !isProcessAlive(p))) {
+        return { terminated: true, signal: 'SIGINT' };
+      }
+    } else if (pid) {
+      if (!isProcessGroupAlive(pid) && descendantPids.every((p) => !isProcessAlive(p))) {
+        return { terminated: true, signal: 'SIGINT' };
+      }
+    } else if (descendantPids.length === 0 || descendantPids.every((p) => !isProcessAlive(p))) {
       return { terminated: true, signal: 'SIGINT' };
     }
   }
 
   // Stage 2: Forceful termination escalation (OS-aware process tree termination)
-  if (process.platform === 'win32' && pid) {
+  if (isWindows && pid) {
     try {
       await execFileAsync('taskkill.exe', ['/PID', String(pid), '/T', '/F']);
+      windowsTreeKillVerified = true;
     } catch {
       // taskkill may fail if process already exited or PID is invalid; fall back to child.kill
       try {
@@ -221,15 +279,17 @@ export async function terminateChildProcess(child, options = {}) {
 
   const exitedAfterSigkill = await waitForChildExit(child, forceGraceMs);
 
-  // Stage 3: Post-termination verification checking that target PIDs have ceased executing
+  // Stage 3: Post-termination verification checking that target PIDs/groups have ceased executing
   const allPids = [pid, ...descendantPids].filter(Boolean);
   let osConfirmedDead = true;
-  if (allPids.length > 0) {
+  if (allPids.length > 0 || (!isWindows && pid)) {
     const deadline = Date.now() + 500;
-    while (allPids.some((p) => isProcessAlive(p)) && Date.now() < deadline) {
+    const stillAlive = () =>
+      allPids.some((p) => isProcessAlive(p)) || (!isWindows && pid && isProcessGroupAlive(pid));
+    while (stillAlive() && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 50));
     }
-    osConfirmedDead = allPids.every((p) => !isProcessAlive(p));
+    osConfirmedDead = !stillAlive();
   }
 
   return {

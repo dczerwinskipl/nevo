@@ -392,7 +392,7 @@ test('AC4: Cancellation, timeout, provider failure, cleanup barrier, and interru
           await new Promise((r) => {
             finishDeferred = r;
           });
-          throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider crashed on abort');
+          throw new AiError('AI_PROTOCOL_ERROR', 'Provider crashed on abort');
         },
         async cancelTurn() {},
       });
@@ -458,7 +458,7 @@ test('AC4: Cancellation, timeout, provider failure, cleanup barrier, and interru
       const canonical = runtime.getCanonicalTurn(turnId);
       assert.equal(canonical.status.outcome, 'failed');
       assert.equal(canonical.status.cause, 'timeout/protocol-silence');
-      assert.equal(canonical.status.error.code, 'AI_TURN_TIMEOUT');
+      assert.equal(canonical.status.error.code, 'AI_RUNTIME_TIMEOUT');
       await runtime.shutdown();
     }
 
@@ -468,7 +468,7 @@ test('AC4: Cancellation, timeout, provider failure, cleanup barrier, and interru
       registry.register({
         descriptor: { id: 'prov-fail', label: 'Prov Fail', capabilities: { cancelTurn: true } },
         async startTurn() {
-          throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider internal protocol crash');
+          throw new AiError('AI_PROTOCOL_ERROR', 'Provider internal protocol crash');
         },
         async cancelTurn() {},
       });
@@ -487,7 +487,7 @@ test('AC4: Cancellation, timeout, provider failure, cleanup barrier, and interru
       );
       const canonical = runtime.getCanonicalTurn(turnId);
       assert.equal(canonical.status.outcome, 'failed');
-      assert.equal(canonical.status.error.code, 'AI_PROVIDER_PROTOCOL_ERROR');
+      assert.equal(canonical.status.error.code, 'AI_PROTOCOL_ERROR');
       await runtime.shutdown();
     }
 
@@ -829,10 +829,21 @@ test('Criterion 1: Permissive model passthrough, trait representation, and neutr
     for (const prov of [claude, codex]) {
       const models = typeof prov.listModels === 'function' ? await prov.listModels() : (prov.descriptor.models || []);
       assert.ok(Array.isArray(models));
-      // Curated models with reasoning traits
-      const reasoningModels = models.filter((m) => m.traits?.supportsReasoning);
-      assert.ok(reasoningModels.length > 0, `Provider ${prov.descriptor.id} must declare models with reasoning traits`);
     }
+    // Codex's discovery has real evidence (its fake app-server client declares traits
+    // explicitly) and must represent it faithfully. Claude's curated catalog intentionally
+    // asserts no traits without authoritative evidence (Area 03 / D1) — it must not be
+    // required to declare reasoning support it cannot actually vouch for.
+    const codexModels = await codex.listModels();
+    const codexReasoningModels = codexModels.filter((m) => m.traits?.supportsReasoning);
+    assert.ok(codexReasoningModels.length > 0, 'Codex must faithfully represent discovered reasoning traits');
+
+    const claudeModels = await claude.listModels();
+    assert.ok(
+      claudeModels.every((m) => m.traits === undefined),
+      'Claude curated models must not assert traits without authoritative evidence',
+    );
+
     const agyModels = typeof antigravity.listModels === 'function' ? await antigravity.listModels() : [];
     assert.ok(Array.isArray(agyModels));
   } finally {

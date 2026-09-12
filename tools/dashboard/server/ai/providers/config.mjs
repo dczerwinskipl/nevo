@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { parseYamlFile } from '../../../../lib/yaml.mjs';
+import { validateAgentModelTraits } from '../model/model-catalog.mjs';
+import { AiValidationError } from '../contracts.mjs';
 
 export const DEFAULT_ANTIGRAVITY_RAW_DIRECTORY = '.nevo-ai-local/antigravity_raw';
 export const DEFAULT_CLAUDE_RAW_DIRECTORY = '.nevo-ai-local/claude_raw';
@@ -71,6 +73,9 @@ function parseClaudeModels(providerObj) {
     throw configError('providers.claude.models', 'expected an array of model configurations.');
   }
   return raw.map((item, index) => {
+    // `source` is never read from operator config: every entry here is, by construction,
+    // operator-supplied, so its provenance is always truthfully `configured` — an operator
+    // cannot claim `known`/`discovered` for their own entry (source spoofing).
     if (typeof item === 'string' && item.trim()) {
       return {
         id: item.trim(),
@@ -82,12 +87,26 @@ function parseClaudeModels(providerObj) {
       if (typeof item.id !== 'string' || !item.id.trim()) {
         throw configError(`providers.claude.models[${index}].id`, 'expected a non-empty string.');
       }
+      if (item.isDefault !== undefined && typeof item.isDefault !== 'boolean') {
+        throw configError(`providers.claude.models[${index}].isDefault`, 'expected true or false.');
+      }
+      let traits;
+      if (item.traits !== undefined) {
+        try {
+          traits = validateAgentModelTraits(item.traits, `providers.claude.models[${index}].traits`);
+        } catch (err) {
+          if (err instanceof AiValidationError) {
+            throw configError(`providers.claude.models[${index}].traits`, err.message);
+          }
+          throw err;
+        }
+      }
       return {
         id: item.id.trim(),
         label: typeof item.label === 'string' && item.label.trim() ? item.label.trim() : item.id.trim(),
-        ...(item.traits && typeof item.traits === 'object' && !Array.isArray(item.traits) ? { traits: item.traits } : {}),
+        ...(traits !== undefined ? { traits } : {}),
         ...(typeof item.isDefault === 'boolean' ? { isDefault: item.isDefault } : {}),
-        source: typeof item.source === 'string' && item.source.trim() ? item.source.trim() : 'configured',
+        source: 'configured',
       };
     }
     throw configError(`providers.claude.models[${index}]`, 'expected a model object or string.');

@@ -43,7 +43,7 @@ function own(value, key) {
 }
 
 function protocolError(message, details) {
-  return new AiError('AI_PROVIDER_PROTOCOL_ERROR', message, {
+  return new AiError('AI_PROTOCOL_ERROR', message, {
     status: 502,
     details,
   });
@@ -457,7 +457,7 @@ export class CodexAppServerClient {
         return result;
       } catch (error) {
         const failure =
-          error?.code === 'AI_PROVIDER_PROTOCOL_ERROR' || error?.code === 'AI_PROTOCOL_ERROR'
+          error?.code === 'AI_PROTOCOL_ERROR'
             ? error
             : providerFailure(
                 'AI_TRANSPORT_ERROR',
@@ -866,7 +866,7 @@ export class CodexAppServerClient {
     const failure =
       error instanceof AiError
         ? error
-        : providerFailure('AI_PROVIDER_PROTOCOL_ERROR', 'Codex app-server client failed.', undefined, error);
+        : providerFailure('AI_PROTOCOL_ERROR', 'Codex app-server client failed.', undefined, error);
     this.#failure = failure;
     for (const pending of this.#pendingRequests.values()) pending.reject(failure);
     this.#pendingRequests.clear();

@@ -34,7 +34,7 @@ const TOOL_TYPES = new Set(['commandExecution', 'fileChange', 'mcpToolCall', 'dy
 const AGENT_MESSAGE_PHASES = new Set(['commentary', 'final_answer']);
 
 function protocolError(message, details) {
-  return new AiError('AI_PROVIDER_PROTOCOL_ERROR', message, { status: 502, details });
+  return new AiError('AI_PROTOCOL_ERROR', message, { status: 502, details });
 }
 
 function requireObject(value, label) {
@@ -281,6 +281,7 @@ export class CodexAgentProvider {
   #unsubscribeNotification;
   #unsubscribeServerRequest;
   #rawCapture;
+  #recoveryVerificationTimeoutMs;
 
   constructor({
     executable = 'codex',
@@ -291,9 +292,11 @@ export class CodexAgentProvider {
     rawCaptureDir = null,
     rawCaptureEnabled = false,
     rawFlushTimeoutMs = 2_000,
+    recoveryVerificationTimeoutMs = 3_000,
   } = {}) {
     this.#executable = executable;
     this.#cwd = cwd;
+    this.#recoveryVerificationTimeoutMs = recoveryVerificationTimeoutMs;
     this.#rawCapture =
       client?.rawCapture ??
       new RawCaptureRecorder({
@@ -521,6 +524,42 @@ export class CodexAgentProvider {
       if (!operation.settled) throw error;
     }
     return { cancelled: true };
+  }
+
+  /**
+   * Authoritative recovery for a turn stuck in `unknown`: unlike `cancelTurn()`, whose
+   * `turn/interrupt` ACK only proves the app-server *accepted* the request — not that the
+   * turn actually stopped — this waits (bounded) for the authoritative `turn/completed`
+   * notification that settles `operation.terminalPromise` before reporting `verified`.
+   * Per D7, an ACK alone must never unlock a session; only this proof may.
+   */
+  async recoverTurn({ providerSessionId, turnId, operation: passedOp } = {}) {
+    const operation =
+      passedOp ||
+      (providerSessionId ? this.#operationsByThread.get(providerSessionId) : null) ||
+      (turnId ? [...this.#operationsByThread.values()].find((op) => op.turnId === turnId) : null);
+
+    if (!operation || operation.settled) return { verified: true };
+
+    try {
+      await this.#client.request('turn/interrupt', {
+        threadId: operation.threadId,
+        turnId: operation.codexTurnId,
+      });
+    } catch {
+      // The interrupt request itself failing is not authoritative either way — only the
+      // bounded wait below for a genuine terminal notification decides verification.
+    }
+
+    const settledInTime = await Promise.race([
+      operation.terminalPromise.then(
+        () => true,
+        () => true,
+      ),
+      new Promise((resolve) => setTimeout(() => resolve(false), this.#recoveryVerificationTimeoutMs)),
+    ]);
+
+    return { verified: settledInTime && operation.settled };
   }
 
   dispose() {

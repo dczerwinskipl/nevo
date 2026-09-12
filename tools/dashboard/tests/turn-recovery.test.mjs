@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import Fastify from 'fastify';
 import turnRoutes from '../server/ai/sessions/turns/routes.mjs';
 import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs';
 import { createAgentSessionService } from '../server/ai/sessions/service.mjs';
 import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
+import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
 import { TurnLifecycleCoordinator } from '../server/ai/sessions/turns/coordinator.mjs';
 import {
   findPersistedActiveTurn,
@@ -637,45 +641,62 @@ test('Criterion 7: per-turn rate limits and process crashes do not mutate provid
 });
 
 test('Criterion 8: server restart boot reconciliation correctly marks orphaned active turns as terminal (outcome: "interrupted", cause: "server-restart") and preserves pending restart-capable interactions', async () => {
-  const sessions = [
-    { provider: 'fake', providerSessionId: 'sess-reconcile-boot' },
-  ];
-
-  const transcript = {
-    activeTurn: { turnId: 'turn-boot-orphan' },
-    pendingInteraction: { id: 'inter-keep', resumePolicy: 'restart' },
-    turns: [
-      {
-        id: 'turn-boot-orphan',
-        status: { status: 'active', detail: 'processing' },
-        work: [],
+  // Uses the REAL transcript cache end to end — persist a genuinely active turn, simulate
+  // an ungraceful restart (fresh cache instance over the same files), reconcile, then
+  // reload from disk. `getTranscript()` always returns a `structuredClone`; a fix that
+  // only mutated that clone and assumed `flushAll()` persisted it would pass a test built
+  // on a non-cloning hand-rolled mock, but fail this one.
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-reconcile-real-cache-'));
+  try {
+    const provider = {
+      descriptor: { id: 'fake', label: 'Fake', capabilities: { cancelTurn: true } },
+      async startTurn({ signal, emitCommentaryDelta }) {
+        emitCommentaryDelta?.('working...', 'c1');
+        await new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
       },
-    ],
-  };
+      async cancelTurn() {},
+    };
 
-  let markedOptions = null;
-  const mockCache = {
-    async listPersistedSessions() {
-      return sessions;
-    },
-    async getTranscript(p, s) {
-      return transcript;
-    },
-    markTurnInterrupted(p, s, options) {
-      markedOptions = options;
-    },
-    async flushAll() {},
-  };
+    const originalCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const originalRuntime = createAgentTurnRuntime({
+      registry: createAgentProviderRegistry([provider]),
+      transcriptCache: originalCache,
+    });
+    const { turnId } = await originalRuntime.startTurn({
+      provider: 'fake',
+      providerSessionId: 'sess-reconcile-boot',
+      message: 'hang',
+    });
+    // Wait for the turn to actually produce activity so it's genuinely persisted active,
+    // not just admitted.
+    for (let i = 0; i < 100; i += 1) {
+      const snap = originalRuntime.getSnapshot(turnId);
+      if (snap.events.length >= 2) break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    // Simulate an ungraceful process exit: flush what's on disk without ever finishing
+    // the turn (the in-memory runtime is discarded, not gracefully shut down).
+    await originalCache.flush('fake', 'sess-reconcile-boot');
 
-  transcript.pendingInteraction.resumePolicy = 'live-operation';
-  const result = await reconcileOrphanedTurns(mockCache);
-  assert.equal(result.reconciledCount, 1);
-  assert.equal(markedOptions?.cause, 'server-restart');
-  assert.equal(markedOptions?.outcome, 'interrupted');
+    // Fresh process: a brand-new transcript cache instance over the same on-disk files.
+    const freshCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const result = await reconcileOrphanedTurns(freshCache);
+    assert.equal(result.reconciledCount, 1);
 
-  const turn = transcript.turns[0];
-  assert.equal(turn.status.status, 'terminal');
-  assert.equal(turn.status.outcome, 'interrupted');
-  assert.equal(turn.status.cause, 'server-restart');
+    // Reload from disk with yet another fresh instance to prove the write actually landed
+    // on disk, not merely in whichever in-memory object happened to be mutated.
+    const reloadedCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const transcript = await reloadedCache.getTranscript('fake', 'sess-reconcile-boot');
+    assert.equal(transcript.activeTurn, undefined);
+    const turn = transcript.turns.find((t) => t.id === turnId);
+    assert.equal(turn.status.status, 'terminal');
+    assert.equal(turn.status.outcome, 'interrupted');
+    assert.equal(turn.status.cause, 'server-restart', 'must be the intended server-restart cause, not the hardcoded turn_interrupted default');
+
+    originalRuntime.shutdown();
+  } finally {
+    await new Promise((r) => setTimeout(r, 25));
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
 });
 

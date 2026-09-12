@@ -834,7 +834,7 @@ test('a tool still running when its turn fails resolves to failed', async () => 
   }
 });
 
-test('idle watchdog fails a silent turn via the provider cancel path with AI_TURN_TIMEOUT', async () => {
+test('idle watchdog fails a silent turn via the provider cancel path with AI_RUNTIME_TIMEOUT', async () => {
   const fixture = createFixture({
     runtimeOptions: { idleTimeoutMs: 30, idleCheckIntervalMs: 5, clock: () => new Date() },
   });
@@ -855,7 +855,7 @@ test('idle watchdog fails a silent turn via the provider cancel path with AI_TUR
     'idle timeout',
   );
   assert.equal(snapshot.events.filter((event) => event.type === 'turn.failed').length, 1);
-  assert.equal(snapshot.events.at(-1).error.code, 'AI_TURN_TIMEOUT');
+  assert.equal(snapshot.events.at(-1).error.code, 'AI_RUNTIME_TIMEOUT');
   assert.equal(fixture.cancels, 1);
   fixture.runtime.shutdown();
 });
@@ -934,6 +934,7 @@ test('boot reconciliation finalizes an orphaned persisted activeTurn as AI_TURN_
     const orphanTurn = transcript.turns.find((t) => t.id === turnId);
     assert.equal(orphanTurn.status.status, 'terminal');
     assert.equal(orphanTurn.status.outcome, 'interrupted');
+    assert.equal(orphanTurn.status.cause, 'server-restart');
     assert.equal(orphanTurn.status.error.message, 'Interrupted by server restart.');
     fresh.runtime.shutdown();
   } finally {
@@ -1646,7 +1647,7 @@ test('regression (Issue 2): a tool that opens and then goes fully silent eventua
     (v) => v.status === 'failed',
     'protocol-silence timeout with an open but silent tool',
   );
-  assert.equal(failedSnapshot.events.at(-1).error.code, 'AI_TURN_TIMEOUT');
+  assert.equal(failedSnapshot.events.at(-1).error.code, 'AI_RUNTIME_TIMEOUT');
   const failedTurn = runtime.getCanonicalTurn(turnId);
   assert.equal(failedTurn.status.status, 'terminal');
   assert.equal(failedTurn.status.cause, 'timeout/protocol-silence');

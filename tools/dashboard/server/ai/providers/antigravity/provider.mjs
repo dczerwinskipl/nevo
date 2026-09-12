@@ -1,7 +1,8 @@
-import { spawn, execSync } from 'node:child_process';
+import { spawn, execSync, execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import { mkdir, appendFile, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { randomUUID, createHash } from 'node:crypto';
 import {
   AiError,
@@ -12,6 +13,9 @@ import {
 import { terminateChildProcess, getProcessTreeSpawnOptions } from '../process-termination.mjs';
 import { DEFAULT_ANTIGRAVITY_PRINT_TIMEOUT_SECONDS } from '../config.mjs';
 import { mcpInteractionRegistry, ensureAntigravityMcpRegistered } from '../../interactions/mcp/index.mjs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const WINDOWS_RESERVED_NAMES = new Set([
   'con',
@@ -482,6 +486,7 @@ export class AntigravityAgentProvider {
   #mcpRegisterExec;
   #mcpRegistrationState = { registered: false, error: null };
   #modelsExecSync;
+  #tlsCertPath;
 
   constructor({
     executable = 'agy',
@@ -501,6 +506,7 @@ export class AntigravityAgentProvider {
     ensureMcpRegistered = true,
     mcpRegisterExec,
     modelsExecSync,
+    tlsCertPath = null,
   } = {}) {
     this.#executable = resolveAgyExecutable(executable);
     this.#cwd = cwd;
@@ -510,8 +516,20 @@ export class AntigravityAgentProvider {
     this.#mcpEndpoint = mcpEndpoint;
     this.#mcpEndpointUrl = mcpEndpointUrl;
     this.#ensureMcpRegistered = Boolean(ensureMcpRegistered);
-    this.#mcpRegisterExec = mcpRegisterExec || execSync;
+    this.#mcpRegisterExec = mcpRegisterExec || execFileSync;
     this.#modelsExecSync = modelsExecSync || execSync;
+    // Explicitly resolved, scoped local-certificate trust — the same source Claude's
+    // bridge uses — rather than depending on the parent Nevo process's own ambient
+    // `NODE_EXTRA_CA_CERTS` already being set (it may not be, even when the dashboard
+    // itself is genuinely running HTTPS with this exact certificate).
+    this.#tlsCertPath =
+      tlsCertPath ||
+      process.env.NEVO_TLS_CERT_PATH ||
+      (existsSync(resolve(this.#cwd, 'tools', 'dashboard', 'config', 'tls-cert.pem'))
+        ? resolve(this.#cwd, 'tools', 'dashboard', 'config', 'tls-cert.pem')
+        : existsSync(resolve(__dirname, '..', '..', '..', 'config', 'tls-cert.pem'))
+          ? resolve(__dirname, '..', '..', '..', 'config', 'tls-cert.pem')
+          : null);
     if (!Number.isSafeInteger(printTimeoutSeconds) || printTimeoutSeconds <= 0) {
       throw new AiValidationError('Antigravity printTimeoutSeconds must be a positive integer number of seconds.');
     }
@@ -876,13 +894,12 @@ export class AntigravityAgentProvider {
     requestInteraction,
     emitEvent,
   } = {}) {
-    if (this.#ensureMcpRegistered && (this.#spawnProcess === spawn || this.#mcpRegisterExec !== execSync)) {
-      try {
-        ensureAntigravityMcpRegistered({
-          executable: this.#executable,
-          exec: this.#mcpRegisterExec,
-        });
-      } catch {}
+    if (this.#ensureMcpRegistered && (this.#spawnProcess === spawn || this.#mcpRegisterExec !== execFileSync)) {
+      // Route through the single stateful registration path (not a second, state-blind
+      // attempt) so a registration that has gone stale since construction — or since the
+      // last repair — is truthfully reflected in `capabilities.interactiveQuestions`
+      // rather than leaving it frozen at whatever the constructor observed.
+      this.#performMcpRegistration();
     }
 
     const mode = validateAgentExecutionMode(rawMode || 'edit', this.descriptor.supportedModes, 'antigravity');
@@ -1066,8 +1083,13 @@ export class AntigravityAgentProvider {
           ...(mcpToken ? { NEVO_INTERACTION_TOKEN: mcpToken } : {}),
           ...(resolvedEndpoint ? { NEVO_MCP_ENDPOINT: resolvedEndpoint } : {}),
         };
-        if (resolvedEndpoint?.startsWith('https:') && process.env.NODE_EXTRA_CA_CERTS) {
-          spawnEnv.NODE_EXTRA_CA_CERTS = process.env.NODE_EXTRA_CA_CERTS;
+        // Scoped CA trust must be decided fresh for this endpoint, never inherited from
+        // whatever the parent Nevo process's own ambient environment happens to carry
+        // (e.g. an unrelated NODE_EXTRA_CA_CERTS already set in the operator's shell) —
+        // clear it first, then set it only when this HTTPS endpoint actually needs it.
+        delete spawnEnv.NODE_EXTRA_CA_CERTS;
+        if (resolvedEndpoint?.startsWith('https:') && this.#tlsCertPath && existsSync(this.#tlsCertPath)) {
+          spawnEnv.NODE_EXTRA_CA_CERTS = this.#tlsCertPath;
         }
         const spawnOptions = getProcessTreeSpawnOptions({
           cwd: this.#cwd,
@@ -1513,17 +1535,8 @@ export class AntigravityAgentProvider {
                 bufferAssistantText(explicitResponse);
               }
               flushPendingAsCommentary();
-              const errorObj = isTimeout
-                ? new AiError('AI_PROVIDER_TIMEOUT', errorMessage, {
-                    status: 504,
-                    recoveryHint: 'none',
-                    details: explicitResponse ? { providerResponse: explicitResponse } : undefined,
-                  })
-                : new AiError('AI_PROVIDER_EXECUTION_ERROR', errorMessage, {
-                    status: 502,
-                    recoveryHint: 'new-turn',
-                    details: explicitResponse ? { providerResponse: explicitResponse } : undefined,
-                  });
+              const errorObj = mapAntigravityError(errorMessage, errorMessage);
+              if (explicitResponse) errorObj.details = { ...(errorObj.details || {}), providerResponse: explicitResponse };
               await failAuthoritativeTerminal(errorObj);
               break;
             }
@@ -1544,11 +1557,7 @@ export class AntigravityAgentProvider {
 
           case 'error': {
             const errorMsg = raw.error?.message || raw.message || 'Antigravity turn failed.';
-            const isTimeout = /timeout|timed out|deadline exceeded|ETIMEDOUT/i.test(errorMsg);
-            const errorObj = isTimeout
-              ? new AiError('AI_PROVIDER_TIMEOUT', errorMsg, { status: 504, recoveryHint: 'none' })
-              : new AiError('AI_PROVIDER_EXECUTION_ERROR', errorMsg, { status: 502, recoveryHint: 'new-turn' });
-            await failTurn(errorObj);
+            await failTurn(mapAntigravityError(errorMsg, errorMsg));
             break;
           }
 

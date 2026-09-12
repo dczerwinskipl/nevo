@@ -272,6 +272,16 @@ export class TurnLifecycleCoordinator {
     if (this.isTerminal) return this.#turn.status;
     this.#operationLostCode = code;
     this.#operationLostReason = reason;
+    // An unverified timeout intent that lands here is abandoned, not pending: the turn
+    // is now parked in `unknown` for manual/remote recovery, not mid-race with a normal
+    // provider completion. Clearing it lets a later, deliberate `recoverTurn()` settle
+    // with its own outcome (`interrupted`/`forced_cleanup`) instead of being silently
+    // re-arbitrated back to the original timeout's `failed`/`AI_RUNTIME_TIMEOUT`. The
+    // watchdog itself will not re-fire on this turn regardless, since
+    // `checkProtocolSilence()` separately suppresses any turn already in `unknown`.
+    this.#timeoutRequested = false;
+    this.#timeoutInitiator = null;
+    this.#timeoutCause = null;
     this.#tracer?.record?.({
       source: 'coordinator',
       event: 'operation.lost',
@@ -980,6 +990,16 @@ export class TurnLifecycleCoordinator {
     if (this.isTerminal || timeoutMs <= 0) return { fired: false };
 
     // 1. Suppression checks
+    if (this.#turn.status.status === 'unknown') {
+      this.#tracer?.record?.({
+        source: 'coordinator',
+        event: 'timeout.suppressed',
+        disposition: 'suppressed',
+        timeout: { kind: 'protocol-silence', suppressionReason: 'operation_unknown' },
+      });
+      return { fired: false, suppressed: 'operation_unknown' };
+    }
+
     if (this.isCancelling || this.#cancellationRequested) {
       this.#tracer?.record?.({
         source: 'coordinator',
@@ -1107,7 +1127,7 @@ export class TurnLifecycleCoordinator {
       };
     } else if (effectiveCause === 'timeout/protocol-silence' || effectiveCause === 'AI_TURN_TIMEOUT') {
       effectiveError = {
-        code: 'AI_TURN_TIMEOUT',
+        code: 'AI_RUNTIME_TIMEOUT',
         message: 'The turn was cancelled because it stopped responding.',
       };
     } else {

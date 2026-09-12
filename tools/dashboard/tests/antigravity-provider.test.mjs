@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { Readable, Writable } from 'node:stream';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
 import {
   AntigravityAgentProvider,
@@ -2122,7 +2123,7 @@ test('Antigravity error result: event "result" + status "ERROR" preserves usage 
       });
     },
     (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
+      assert.equal(err.code, 'AI_RATE_LIMITED');
       assert.equal(err.message, 'Rate limit hit');
       return true;
     },
@@ -2233,7 +2234,7 @@ test('Antigravity quota notice: event "result" + status "ERROR" with quota limit
         emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
       }),
     (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
+      assert.equal(err.code, 'AI_QUOTA_EXHAUSTED');
       assert.match(err.message, /Individual quota reached/);
       return true;
     },
@@ -2416,7 +2417,7 @@ test('Antigravity generic diagnostic error: event "result" + status "ERROR" with
   assert.deepEqual(finalAnswerDeltas, ['Zadanie zakończone sukcesem.']);
 });
 
-test('Antigravity error with response echoing error message fails turn with AI_PROVIDER_EXECUTION_ERROR without commentary', async () => {
+test('Antigravity error with response echoing error message fails turn with AI_AUTH_FAILED without commentary', async () => {
   const lines = [
     JSON.stringify({ type: 'init', conversation_id: 'conv-echo-err' }),
     JSON.stringify({
@@ -2445,7 +2446,7 @@ test('Antigravity error with response echoing error message fails turn with AI_P
         emitFinalAnswerDelta: (t) => finalAnswerDeltas.push(t),
       }),
     (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_EXECUTION_ERROR');
+      assert.equal(err.code, 'AI_AUTH_FAILED');
       assert.match(err.message, /Authentication token expired/);
       return true;
     },
@@ -3519,10 +3520,12 @@ test('Task 04 - Criterion 2 & 3: Turn execution passes --model and --effort to a
 });
 
 test('Task 04 - Criterion 4: Idempotent agy mcp add nevo registration touches only nevo entry and exposes interactiveQuestions: true', () => {
-  const executedCommands = [];
-  const mockExec = (cmd) => {
-    executedCommands.push(cmd);
-    if (cmd.includes('mcp list')) {
+  // Argument-array (execFile-style) invocation — never a shell-interpolated command
+  // string — so `executable`/`bridgePath` are never parsed by a shell.
+  const executedCalls = [];
+  const mockExec = (file, args) => {
+    executedCalls.push([file, ...args]);
+    if (args.join(' ').includes('mcp list')) {
       return `NAME\tTYPE\tSTATUS\tCOMMAND/URL
 github\tstdio\tenabled\tnpx @modelcontextprotocol/server-github
 slack\tstdio\tenabled\tnpx @modelcontextprotocol/server-slack
@@ -3540,15 +3543,15 @@ slack\tstdio\tenabled\tnpx @modelcontextprotocol/server-slack
 
   assert.equal(res1.registered, true);
   assert.equal(res1.updated, true);
-  assert.equal(executedCommands.length, 2);
-  assert.equal(executedCommands[0], 'agy mcp list');
-  assert.equal(executedCommands[1], `agy mcp add nevo node "${bridgePath}"`);
+  assert.equal(executedCalls.length, 2);
+  assert.deepEqual(executedCalls[0], ['agy', 'mcp', 'list']);
+  assert.deepEqual(executedCalls[1], ['agy', 'mcp', 'add', 'nevo', 'node', bridgePath]);
 
   // Second run: nevo is already registered pointing to bridgePath
-  executedCommands.length = 0;
-  const mockExecAlreadyRegistered = (cmd) => {
-    executedCommands.push(cmd);
-    if (cmd.includes('mcp list')) {
+  executedCalls.length = 0;
+  const mockExecAlreadyRegistered = (file, args) => {
+    executedCalls.push([file, ...args]);
+    if (args.join(' ').includes('mcp list')) {
       return `NAME\tTYPE\tSTATUS\tCOMMAND/URL
 github\tstdio\tenabled\tnpx @modelcontextprotocol/server-github
 nevo\tstdio\tenabled\tnode C:/nevo/bridge.mjs
@@ -3565,11 +3568,95 @@ nevo\tstdio\tenabled\tnode C:/nevo/bridge.mjs
 
   assert.equal(res2.registered, true);
   assert.equal(res2.updated, false);
-  assert.equal(executedCommands.length, 1);
-  assert.equal(executedCommands[0], 'agy mcp list');
+  assert.equal(executedCalls.length, 1);
+  assert.deepEqual(executedCalls[0], ['agy', 'mcp', 'list']);
 
-  const provider = createAntigravityAgentProvider();
+  // Hermetic: must never invoke the real `agy` CLI or touch the developer's actual
+  // machine-global MCP config. Constructing with a real `spawnProcess` (the default) but
+  // no `mcpRegisterExec` override would do exactly that.
+  const provider = createAntigravityAgentProvider({ mcpRegisterExec: mockExecAlreadyRegistered });
   assert.equal(provider.descriptor.capabilities.interactiveQuestions, true);
+});
+
+test('Antigravity MCP capability truth: failure -> degraded, repair -> truthful recovery, later failure -> truthful degradation again', () => {
+  let mode = 'fail';
+  const statefulExec = () => {
+    if (mode === 'fail') throw new Error('agy mcp add failed');
+    if (mode === 'list-only-no-nevo') {
+      return 'NAME\tTYPE\tSTATUS\tCOMMAND/URL\ngithub\tstdio\tenabled\tnpx server-github\n';
+    }
+    return '';
+  };
+
+  const provider = createAntigravityAgentProvider({ mcpRegisterExec: statefulExec });
+
+  // 1. Registration failed at construction time -> capability truthfully degraded.
+  assert.equal(
+    provider.descriptor.capabilities.interactiveQuestions,
+    false,
+    'a failed registration must not report interactiveQuestions: true',
+  );
+
+  // 2. Repair succeeds -> capability becomes truthfully usable.
+  mode = 'ok';
+  const repairResult = provider.repairMcpRegistration();
+  assert.equal(repairResult.registered, true);
+  assert.equal(provider.descriptor.capabilities.interactiveQuestions, true);
+
+  // 3. A later registration attempt fails again (e.g. config corrupted between turns) —
+  // the descriptor must not remain frozen at the earlier successful state.
+  mode = 'fail';
+  provider.repairMcpRegistration();
+  assert.equal(
+    provider.descriptor.capabilities.interactiveQuestions,
+    false,
+    'a later failure must not leave a stale interactiveQuestions: true',
+  );
+});
+
+test('Antigravity TLS security: NODE_TLS_REJECT_UNAUTHORIZED is never set; NODE_EXTRA_CA_CERTS is explicitly resolved for HTTPS on a non-default port', async () => {
+  const lines = [JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'ok' } })];
+
+  // 1. HTTPS endpoint but no resolvable cert file -> no NODE_EXTRA_CA_CERTS, and
+  // NODE_TLS_REJECT_UNAUTHORIZED must never be set (TLS verification is never disabled).
+  let capturedEnv1 = null;
+  const providerNoCert = createAntigravityAgentProvider({
+    mcpEndpointUrl: 'https://127.0.0.1:54321/mcp',
+    tlsCertPath: '/nonexistent/cert.pem',
+    spawnProcess: (executable, args, options) => {
+      capturedEnv1 = options.env;
+      return createMockProcess(lines);
+    },
+  });
+  await providerNoCert.startTurn({ turnId: 'turn-agy-tls-1', message: 'Test HTTPS TLS' });
+  assert.equal(capturedEnv1.NODE_TLS_REJECT_UNAUTHORIZED, undefined);
+  assert.equal(capturedEnv1.NODE_EXTRA_CA_CERTS, undefined);
+  // The dynamically resolved endpoint (including its non-default port) still reaches the
+  // child regardless of the cert outcome.
+  assert.equal(capturedEnv1.NEVO_MCP_ENDPOINT, 'https://127.0.0.1:54321/mcp');
+
+  // 2. HTTPS endpoint with a real, resolvable cert file -> NODE_EXTRA_CA_CERTS is set to
+  // it explicitly (never depending on the parent process's own ambient env var), and the
+  // non-default port is preserved end to end.
+  const dummyCertPath = join(tmpdir(), `test-agy-ca-cert-${randomUUID()}.pem`);
+  await writeFile(dummyCertPath, '---BEGIN CERTIFICATE---\ndummy\n---END CERTIFICATE---', 'utf-8');
+  try {
+    let capturedEnv2 = null;
+    const providerWithCert = createAntigravityAgentProvider({
+      mcpEndpointUrl: 'https://127.0.0.1:54321/mcp',
+      tlsCertPath: dummyCertPath,
+      spawnProcess: (executable, args, options) => {
+        capturedEnv2 = options.env;
+        return createMockProcess(lines);
+      },
+    });
+    await providerWithCert.startTurn({ turnId: 'turn-agy-tls-2', message: 'Test HTTPS TLS with cert' });
+    assert.equal(capturedEnv2.NODE_TLS_REJECT_UNAUTHORIZED, undefined);
+    assert.equal(capturedEnv2.NODE_EXTRA_CA_CERTS, dummyCertPath);
+    assert.equal(capturedEnv2.NEVO_MCP_ENDPOINT, 'https://127.0.0.1:54321/mcp');
+  } finally {
+    await unlink(dummyCertPath).catch(() => {});
+  }
 });
 
 test('Task 04 - Criterion 5: Stdio MCP bridge forwards requests to /mcp attaching inherited token and resolves ask_user', async () => {

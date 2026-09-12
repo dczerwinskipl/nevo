@@ -319,7 +319,7 @@ test('turn/start rejects an identity that conflicts with an earlier turn/started
 
   await assert.rejects(
     directTurn(provider, { providerSessionId: 'thread-1' }).promise,
-    (error) => error.code === 'AI_PROVIDER_PROTOCOL_ERROR' && /identity/.test(error.message),
+    (error) => error.code === 'AI_PROTOCOL_ERROR' && /identity/.test(error.message),
   );
 });
 
@@ -627,7 +627,7 @@ test('fails closed with diagnostic details when a successful turn has an unfinis
   });
   await completeTurn(client);
   await assert.rejects(turn.promise, (error) => {
-    assert.equal(error.code, 'AI_PROVIDER_PROTOCOL_ERROR');
+    assert.equal(error.code, 'AI_PROTOCOL_ERROR');
     assert.match(error.message, /private-final/);
     assert.deepEqual(error.details, {
       codexTurnId: 'codex-turn-1',
@@ -655,7 +655,7 @@ test('fails closed when the final legacy agent message lacks authoritative compl
   await assert.rejects(
     turn.promise,
     (error) =>
-      error.code === 'AI_PROVIDER_PROTOCOL_ERROR' &&
+      error.code === 'AI_PROTOCOL_ERROR' &&
       error.details?.itemId === 'legacy-final' &&
       error.details?.agentMessagePhase === null,
   );
@@ -733,10 +733,10 @@ test('ignores unrelated correlated events and fails closed on conflicting final 
       item: { id: 'm', type: 'agentMessage', text: 'different' },
       completedAtMs: 2,
     }),
-    (error) => error.code === 'AI_PROVIDER_PROTOCOL_ERROR',
+    (error) => error.code === 'AI_PROTOCOL_ERROR',
   );
-  client.fail(Object.assign(new Error('protocol failed'), { code: 'AI_PROVIDER_PROTOCOL_ERROR' }));
-  await assert.rejects(turn.promise, (error) => error.code === 'AI_PROVIDER_PROTOCOL_ERROR');
+  client.fail(Object.assign(new Error('protocol failed'), { code: 'AI_PROTOCOL_ERROR' }));
+  await assert.rejects(turn.promise, (error) => error.code === 'AI_PROTOCOL_ERROR');
 });
 
 for (const [method, params, response, expected] of [
@@ -886,6 +886,52 @@ test('cancellation requested during turn/start waits for the Codex turn id and t
   });
   await completeTurn(client, 'thread-1', 'codex-turn-1', 'interrupted');
   await assert.rejects(turn.promise, (error) => error.code === 'AI_TURN_CANCELLED');
+});
+
+test('recoverTurn: turn/interrupt acknowledged but no terminal evidence arrives -> recovery is unverified', async () => {
+  const client = standardClient();
+  const provider = createCodexAgentProvider({ client, recoveryVerificationTimeoutMs: 30 });
+  const turn = directTurn(provider, { providerSessionId: 'thread-1' });
+  await waitFor(() => turn.operation, Boolean, 'provisional operation');
+
+  // turn/interrupt is ACKed by the standard client (returns {}), but no turn/completed
+  // notification ever follows — this must NOT be treated as verified cleanup.
+  const result = await provider.recoverTurn({ providerSessionId: 'thread-1', operation: turn.operation });
+  assert.equal(result.verified, false);
+  assert.equal(turn.operation.settled, false, 'the operation must remain unsettled without authoritative evidence');
+
+  await provider.cancelTurn({ operation: turn.operation });
+  await completeTurn(client, 'thread-1', 'codex-turn-1', 'interrupted');
+  await assert.rejects(turn.promise, (error) => error.code === 'AI_TURN_CANCELLED');
+});
+
+test('recoverTurn: authoritative turn/completed notification within the bound verifies cleanup', async () => {
+  const client = standardClient();
+  const provider = createCodexAgentProvider({ client, recoveryVerificationTimeoutMs: 3000 });
+  const turn = directTurn(provider, { providerSessionId: 'thread-1' });
+  await waitFor(() => turn.operation, Boolean, 'provisional operation');
+
+  const recovery = provider.recoverTurn({ providerSessionId: 'thread-1', operation: turn.operation });
+  await tick();
+  // The authoritative terminal notification arrives shortly after the interrupt request.
+  await completeTurn(client, 'thread-1', 'codex-turn-1', 'interrupted');
+
+  const result = await recovery;
+  assert.equal(result.verified, true);
+  assert.equal(turn.operation.settled, true);
+  await assert.rejects(turn.promise, (error) => error.code === 'AI_TURN_INTERRUPTED');
+});
+
+test('recoverTurn: an already-settled operation is trivially verified', async () => {
+  const client = standardClient();
+  const provider = createCodexAgentProvider({ client });
+  const turn = directTurn(provider, { providerSessionId: 'thread-1' });
+  await waitFor(() => turn.operation, Boolean, 'provisional operation');
+  await completeTurn(client, 'thread-1', 'codex-turn-1', 'completed');
+  await turn.promise;
+
+  const result = await provider.recoverTurn({ providerSessionId: 'thread-1', operation: turn.operation });
+  assert.equal(result.verified, true);
 });
 
 test('runtime integration keeps a persistent Codex interaction waiting until real completion', async () => {
@@ -1075,7 +1121,7 @@ test('failed/interrupted turns, unfinished tools, client failure, and disposal n
   await assert.rejects(
     unfinished.promise,
     (error) =>
-      error.code === 'AI_PROVIDER_PROTOCOL_ERROR' &&
+      error.code === 'AI_PROTOCOL_ERROR' &&
       error.details?.itemId === 'tool' &&
       error.details?.itemType === 'fileChange' &&
       error.details?.turnStatus === 'completed',

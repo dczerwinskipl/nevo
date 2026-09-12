@@ -137,23 +137,19 @@ export async function reconcileOrphanedTurns(transcriptCache) {
   const sessions = await transcriptCache.listPersistedSessions();
   let reconciledCount = 0;
   for (const { provider, providerSessionId } of sessions) {
+    // `getTranscript()` always returns a `structuredClone` — it is read-only evidence for
+    // the `activeTurn`/`pendingInteraction` check below, never something to mutate and
+    // expect `flushAll()` to persist. The actual canonical state change happens entirely
+    // through `markTurnInterrupted()`, which mutates the transcript cache's own live
+    // in-memory state and marks it dirty for the flush below.
     const transcript = await transcriptCache.getTranscript(provider, providerSessionId);
     if (!transcript?.activeTurn) continue;
     if (transcript.pendingInteraction && transcript.pendingInteraction.resumePolicy !== 'live-operation') continue;
-    const interruptedTurnId = transcript.activeTurn.turnId;
     transcriptCache.markTurnInterrupted(provider, providerSessionId, {
       text: 'Interrupted by server restart.',
       cause: 'server-restart',
       outcome: 'interrupted',
     });
-    if (Array.isArray(transcript.turns)) {
-      const activeTurn = transcript.turns.find((t) => t.id === interruptedTurnId);
-      if (activeTurn?.status) {
-        activeTurn.status.status = 'terminal';
-        activeTurn.status.outcome = 'interrupted';
-        activeTurn.status.cause = 'server-restart';
-      }
-    }
     reconciledCount += 1;
   }
   if (reconciledCount > 0 && typeof transcriptCache.flushAll === 'function') {

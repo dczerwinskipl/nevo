@@ -1717,6 +1717,11 @@ test('Claude TLS security: NODE_TLS_REJECT_UNAUTHORIZED is never set; NODE_EXTRA
     undefined,
     'NODE_TLS_REJECT_UNAUTHORIZED must NEVER be set to 0 or any value',
   );
+  assert.equal(
+    capturedEnv1.NODE_EXTRA_CA_CERTS,
+    undefined,
+    'must never leak an ambient NODE_EXTRA_CA_CERTS from the parent process when no cert could be resolved',
+  );
 
   // 2. HTTPS endpoint with existing cert file -> NODE_EXTRA_CA_CERTS is set
   const dummyCertPath = join(tmpdir(), `test-ca-cert-${randomUUID()}.pem`);
@@ -1761,21 +1766,23 @@ test('Claude adapter exposes curated and configured models as AgentModelDescript
   assert.ok(Array.isArray(defaultModels));
   assert.ok(defaultModels.length >= 3);
 
-  const sonnet37 = defaultModels.find((m) => m.id === 'claude-3-7-sonnet-20250219');
-  assert.ok(sonnet37);
-  assert.equal(sonnet37.label, 'Claude 3.7 Sonnet');
-  assert.equal(sonnet37.source, 'known');
-  assert.equal(sonnet37.isDefault, true);
-  assert.equal(sonnet37.traits?.supportsReasoning, true);
+  // Curated entries provide identity/display metadata only — no invented `isDefault` or
+  // `traits` without authoritative evidence (Area 03 / D1).
+  const sonnet = defaultModels.find((m) => m.id === 'claude-sonnet-5');
+  assert.ok(sonnet);
+  assert.equal(sonnet.label, 'Claude Sonnet 5');
+  assert.equal(sonnet.source, 'known');
+  assert.equal(sonnet.isDefault, undefined);
+  assert.equal(sonnet.traits, undefined);
 
-  const sonnet35 = defaultModels.find((m) => m.id === 'claude-3-5-sonnet-20241022');
-  assert.ok(sonnet35);
-  assert.equal(sonnet35.source, 'known');
-  assert.equal(sonnet35.traits?.supportsReasoning, false);
+  const opus = defaultModels.find((m) => m.id === 'claude-opus-5');
+  assert.ok(opus);
+  assert.equal(opus.source, 'known');
+  assert.equal(opus.isDefault, undefined);
 
-  const haiku35 = defaultModels.find((m) => m.id === 'claude-3-5-haiku-20241022');
-  assert.ok(haiku35);
-  assert.equal(haiku35.source, 'known');
+  const haiku = defaultModels.find((m) => m.id === 'claude-haiku-4-5-20251001');
+  assert.ok(haiku);
+  assert.equal(haiku.source, 'known');
 
   // With operator-configured models
   const providerWithConfig = createClaudeAgentProvider({

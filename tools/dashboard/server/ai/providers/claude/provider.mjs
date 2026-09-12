@@ -5,6 +5,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { AiError, AiValidationError, validateAgentExecutionMode } from '../../contracts.mjs';
+import { createAgentModelDescriptor } from '../../model/model-catalog.mjs';
 import { createClaudeContinuationStore } from './continuation-store.mjs';
 import { terminateChildProcess, getProcessTreeSpawnOptions } from '../process-termination.mjs';
 import { RawCaptureRecorder, rawCaptureSessionDirectory } from '../raw-capture.mjs';
@@ -29,38 +30,19 @@ export const CLAUDE_CAPABILITIES = Object.freeze({
   usage: true,
 });
 
+// Curated identity/display metadata only (D1/Area 03): no `isDefault` is asserted for any
+// entry, and no `traits` are invented — this codebase has no authoritative evidence (CLI
+// documentation, `--help` output, or operator configuration) of these models' reasoning,
+// vision, or context-window characteristics, so traits stay genuinely unknown rather than
+// guessed. Re-verified against the installed Claude CLI's `--model` help text, which
+// confirms only the current naming scheme (`claude-<family>-<version>`, e.g.
+// `claude-fable-5`) and family aliases (`fable`, `opus`, `sonnet`) — it does not expose an
+// exhaustive model list, so these IDs come from Anthropic's own current-model guidance for
+// this environment, not from guessing.
 export const CLAUDE_CURATED_MODELS = Object.freeze([
-  Object.freeze({
-    id: 'claude-3-7-sonnet-20250219',
-    label: 'Claude 3.7 Sonnet',
-    isDefault: true,
-    source: 'known',
-    traits: Object.freeze({
-      supportsReasoning: true,
-      inputModalities: Object.freeze(['text', 'image']),
-      supportsVision: true,
-    }),
-  }),
-  Object.freeze({
-    id: 'claude-3-5-sonnet-20241022',
-    label: 'Claude 3.5 Sonnet',
-    source: 'known',
-    traits: Object.freeze({
-      supportsReasoning: false,
-      inputModalities: Object.freeze(['text', 'image']),
-      supportsVision: true,
-    }),
-  }),
-  Object.freeze({
-    id: 'claude-3-5-haiku-20241022',
-    label: 'Claude 3.5 Haiku',
-    source: 'known',
-    traits: Object.freeze({
-      supportsReasoning: false,
-      inputModalities: Object.freeze(['text']),
-      supportsVision: false,
-    }),
-  }),
+  Object.freeze({ id: 'claude-opus-5', label: 'Claude Opus 5', source: 'known' }),
+  Object.freeze({ id: 'claude-sonnet-5', label: 'Claude Sonnet 5', source: 'known' }),
+  Object.freeze({ id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', source: 'known' }),
 ]);
 
 export function mapClaudeError(rawError, fallbackMessage = 'Claude turn failed.', exitCode = null) {
@@ -401,10 +383,11 @@ export class ClaudeAgentProvider {
   }
 
   async listModels() {
-    const configured = this.#configuredModels.map((m) => ({
-      ...m,
-      source: m.source || 'configured',
-    }));
+    // `source` is never trusted from the operator-configured entry itself — it is always
+    // truthfully forced to 'configured' here, never spoofable as 'known'/'discovered'.
+    const configured = this.#configuredModels.map((m) =>
+      createAgentModelDescriptor({ id: m.id, label: m.label, isDefault: m.isDefault, traits: m.traits, source: 'configured' }),
+    );
     const modelsById = new Map();
     for (const m of CLAUDE_CURATED_MODELS) {
       modelsById.set(m.id, m);
@@ -605,6 +588,9 @@ export class ClaudeAgentProvider {
       let child;
       try {
         const childEnv = { ...process.env, CLAUDE_INTERACTIVE: '0' };
+        // Scoped CA trust must be decided fresh for this endpoint, never inherited from
+        // whatever the parent Nevo process's own ambient environment happens to carry.
+        delete childEnv.NODE_EXTRA_CA_CERTS;
         if (resolvedMcpUrl?.startsWith('https:') && this.#tlsCertPath && existsSync(this.#tlsCertPath)) {
           childEnv.NODE_EXTRA_CA_CERTS = this.#tlsCertPath;
         }
