@@ -72,3 +72,8 @@ tasks:
       - operation-lifecycle-and-recovery
 
 spec_id: 1dfdbdb5-db41-422b-963f-defd1ec6a1e4
+pull_requests:
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 47
