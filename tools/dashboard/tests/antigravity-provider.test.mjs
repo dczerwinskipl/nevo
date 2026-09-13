@@ -494,6 +494,17 @@ test('AntigravityAgentProvider reports availability correctly based on CLI probe
   const avail = missingProvider.isAvailable();
   assert.equal(avail.available, false);
   assert.ok(avail.unavailableReason.includes('agy'));
+  assert.match(avail.unavailableReason, /not found in PATH/);
+
+  // Probe timeout distinction: a slow/loaded system must not be misreported
+  // as "not installed" — the operator-facing message must say so honestly.
+  const timeoutProvider = new AntigravityAgentProvider({
+    executable: 'agy',
+    probeExecutable: () => ({ ok: false, reason: 'timeout', timeoutMs: 5000 }),
+  });
+  const timeoutAvail = timeoutProvider.isAvailable();
+  assert.equal(timeoutAvail.available, false);
+  assert.match(timeoutAvail.unavailableReason, /probe timed out after 5000ms/);
 });
 
 test('AntigravityAgentProvider advertises supportedModes and defaultMode', () => {

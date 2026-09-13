@@ -224,16 +224,24 @@ function resolveAgyExecutable(name) {
   return name;
 }
 
-export function defaultProbeAntigravityExecutable(executable) {
+export function defaultProbeAntigravityExecutable(executable, { timeoutMs = 5_000 } = {}) {
   try {
     if (existsSync(executable)) {
-      return true;
+      return { ok: true, resolvedPath: executable };
     }
     const probe = process.platform === 'win32' ? `where.exe "${executable}"` : `which "${executable}"`;
-    execSync(probe, { stdio: 'ignore', timeout: 1500 });
-    return true;
-  } catch {
-    return false;
+    const stdout = execSync(probe, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: timeoutMs,
+    });
+    const resolvedPath = stdout ? stdout.trim().split(/\r?\n/)[0]?.trim() : undefined;
+    return { ok: true, resolvedPath };
+  } catch (err) {
+    if (err.code === 'ETIMEDOUT' || err.signal === 'SIGTERM' || err.killed) {
+      return { ok: false, reason: 'timeout', timeoutMs };
+    }
+    return { ok: false, reason: 'not-found', error: err?.message || String(err) };
   }
 }
 
@@ -843,23 +851,36 @@ export class AntigravityAgentProvider {
     return models;
   }
 
-  isAvailable({ ttlMs = 30_000 } = {}) {
+  isAvailable({ ttlMs = 30_000, timeoutMs = 5_000 } = {}) {
     const now = Date.now();
     if (this.#availabilityCache.result && now - this.#availabilityCache.checkedAt < ttlMs) {
       return this.#availabilityCache.result;
     }
-    let available = false;
+    let probeResult;
     try {
-      available = Boolean(this.#probeExecutable(this.#executable));
-    } catch {
-      available = false;
+      probeResult = this.#probeExecutable(this.#executable, { timeoutMs });
+    } catch (err) {
+      probeResult = { ok: false, reason: 'error', error: err?.message || String(err) };
     }
-    const result = available
-      ? { available: true }
-      : {
-          available: false,
-          unavailableReason: `Antigravity CLI ('${this.#executable}') is not found in PATH. Install Antigravity CLI ('agy') to enable this provider.`,
-        };
+
+    if (typeof probeResult === 'boolean') {
+      probeResult = { ok: probeResult, reason: probeResult ? undefined : 'not-found' };
+    }
+
+    let result;
+    if (probeResult?.ok) {
+      result = { available: true };
+    } else if (probeResult?.reason === 'timeout') {
+      result = {
+        available: false,
+        unavailableReason: `Antigravity CLI ('${this.#executable}') probe timed out after ${probeResult.timeoutMs || timeoutMs}ms (system under heavy load).`,
+      };
+    } else {
+      result = {
+        available: false,
+        unavailableReason: `Antigravity CLI ('${this.#executable}') is not found in PATH. Install Antigravity CLI ('agy') to enable this provider.`,
+      };
+    }
     this.#availabilityCache = { checkedAt: now, result };
     return result;
   }

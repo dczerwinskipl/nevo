@@ -254,6 +254,30 @@ test('declares the exact honest descriptor, mode metadata, and availability', ()
   const missing = createCodexAgentProvider({ client: standardClient(), probeExecutable: () => false });
   assert.equal(missing.isAvailable().available, false);
   assert.match(missing.isAvailable().unavailableReason, /Codex CLI/);
+  assert.match(missing.isAvailable().unavailableReason, /not found in PATH/);
+
+  // Probe timeout distinction
+  const timeoutProvider = createCodexAgentProvider({
+    client: standardClient(),
+    probeExecutable: () => ({ ok: false, reason: 'timeout', timeoutMs: 5000 }),
+  });
+  const timeoutAvail = timeoutProvider.isAvailable();
+  assert.equal(timeoutAvail.available, false);
+  assert.match(timeoutAvail.unavailableReason, /probe timed out after 5000ms/);
+
+  // Fast path: launcher verified on disk uses fast-path without probing again
+  let probeCallCount = 0;
+  const fastPathProvider = createCodexAgentProvider({
+    client: standardClient(),
+    probeExecutable: () => {
+      probeCallCount++;
+      return { ok: true, command: { executable: process.execPath, argsPrefix: [process.execPath] } };
+    },
+  });
+  assert.equal(fastPathProvider.isAvailable().available, true);
+  assert.equal(probeCallCount, 1);
+  assert.equal(fastPathProvider.isAvailable({ ttlMs: 0 }).available, true);
+  assert.equal(probeCallCount, 1, 'Should use fast path via existsSync without calling probeExecutable again');
 });
 
 test('createSession binds only authoritative thread.id and maps safe mode settings', async () => {

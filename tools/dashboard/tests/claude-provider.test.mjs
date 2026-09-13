@@ -487,6 +487,31 @@ test('ClaudeAgentProvider reports availability correctly based on CLI probe', ()
   const avail = missingProvider.isAvailable();
   assert.equal(avail.available, false);
   assert.ok(avail.unavailableReason.includes('claude'));
+  assert.match(avail.unavailableReason, /not found in PATH/);
+
+  // Probe timeout distinction
+  const timeoutProvider = new ClaudeAgentProvider({
+    executable: 'claude',
+    probeExecutable: () => ({ ok: false, reason: 'timeout', timeoutMs: 5000 }),
+  });
+  const timeoutAvail = timeoutProvider.isAvailable();
+  assert.equal(timeoutAvail.available, false);
+  assert.match(timeoutAvail.unavailableReason, /probe timed out after 5000ms/);
+
+  // Fast path: once resolved to an existing file, probe is not called again
+  let probeCallCount = 0;
+  const fastPathProvider = new ClaudeAgentProvider({
+    executable: 'claude',
+    probeExecutable: () => {
+      probeCallCount++;
+      return { ok: true, resolvedPath: process.execPath };
+    },
+  });
+  assert.equal(fastPathProvider.isAvailable().available, true);
+  assert.equal(probeCallCount, 1);
+  // Force cache expiration to check fast-path
+  assert.equal(fastPathProvider.isAvailable({ ttlMs: 0 }).available, true);
+  assert.equal(probeCallCount, 1, 'Should use fast path via existsSync without calling probeExecutable again');
 });
 
 test('ClaudeAgentProvider advertises supportedModes and defaultMode', () => {

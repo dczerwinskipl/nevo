@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { AiError, AiValidationError, validateAgentExecutionMode } from '../../contracts.mjs';
 import { createCodexAppServerClient, resolveCodexCommand, mapCodexError } from './app-server-client.mjs';
@@ -85,18 +86,30 @@ function modeSettings(mode, cwd) {
   }
 }
 
-export function defaultProbeCodexExecutable(executable = 'codex') {
+export function defaultProbeCodexExecutable(executable = 'codex', { timeoutMs = 5_000 } = {}) {
   try {
     const command = resolveCodexCommand(executable);
     const result = spawnSync(command.executable, [...command.argsPrefix, '--version'], {
       encoding: 'utf8',
       shell: false,
       windowsHide: true,
-      timeout: 1_500,
+      timeout: timeoutMs,
     });
-    return !result.error && result.status === 0;
-  } catch {
-    return false;
+    if (result.error) {
+      if (result.error.code === 'ETIMEDOUT' || result.error.name === 'TimeoutError') {
+        return { ok: false, reason: 'timeout', timeoutMs, command };
+      }
+      return { ok: false, reason: 'error', error: result.error.message || String(result.error), command };
+    }
+    if (result.status !== 0) {
+      return { ok: false, reason: 'failed', exitCode: result.status, command };
+    }
+    return { ok: true, version: result.stdout?.trim() || undefined, command };
+  } catch (err) {
+    if (err.code === 'ETIMEDOUT') {
+      return { ok: false, reason: 'timeout', timeoutMs };
+    }
+    return { ok: false, reason: 'not-found', error: err?.message || String(err) };
   }
 }
 
@@ -273,6 +286,7 @@ export class CodexAgentProvider {
   #executable;
   #probeExecutable;
   #availabilityCache = { checkedAt: 0, result: null };
+  #resolvedCommand = null;
   #loadedThreads = new Set();
   #operationsByThread = new Map();
   #interactions = new Map();
@@ -335,23 +349,47 @@ export class CodexAgentProvider {
     return this.#rawCapture.flushRawCapture(sessionId);
   }
 
-  isAvailable({ ttlMs = 30_000 } = {}) {
+  isAvailable({ ttlMs = 30_000, timeoutMs = 5_000 } = {}) {
     const now = Date.now();
     if (this.#availabilityCache.result && now - this.#availabilityCache.checkedAt < ttlMs) {
       return this.#availabilityCache.result;
     }
-    let available = false;
-    try {
-      available = Boolean(this.#probeExecutable(this.#executable));
-    } catch {
-      available = false;
+
+    const launcherPath = this.#resolvedCommand?.argsPrefix?.[0];
+    if (launcherPath && existsSync(launcherPath)) {
+      const result = { available: true };
+      this.#availabilityCache = { checkedAt: now, result };
+      return result;
     }
-    const result = available
-      ? { available: true }
-      : {
-          available: false,
-          unavailableReason: `OpenAI Codex CLI ('${this.#executable}') is not found in PATH. Install Codex CLI to enable this provider.`,
-        };
+
+    let probeResult;
+    try {
+      probeResult = this.#probeExecutable(this.#executable, { timeoutMs });
+    } catch (err) {
+      probeResult = { ok: false, reason: 'error', error: err?.message || String(err) };
+    }
+
+    if (typeof probeResult === 'boolean') {
+      probeResult = { ok: probeResult, reason: probeResult ? undefined : 'not-found' };
+    }
+
+    let result;
+    if (probeResult?.ok) {
+      if (probeResult.command) {
+        this.#resolvedCommand = probeResult.command;
+      }
+      result = { available: true };
+    } else if (probeResult?.reason === 'timeout') {
+      result = {
+        available: false,
+        unavailableReason: `OpenAI Codex CLI ('${this.#executable}') probe timed out after ${probeResult.timeoutMs || timeoutMs}ms (system under heavy load).`,
+      };
+    } else {
+      result = {
+        available: false,
+        unavailableReason: `OpenAI Codex CLI ('${this.#executable}') is not found in PATH. Install Codex CLI to enable this provider.`,
+      };
+    }
     this.#availabilityCache = { checkedAt: now, result };
     return result;
   }

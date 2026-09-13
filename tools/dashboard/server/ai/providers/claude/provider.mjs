@@ -264,13 +264,24 @@ export function mapClaudeTool(toolName = '', input = {}) {
   };
 }
 
-export function defaultProbeClaudeExecutable(executable) {
+export function defaultProbeClaudeExecutable(executable = 'claude', { timeoutMs = 5_000 } = {}) {
   try {
+    if (existsSync(executable)) {
+      return { ok: true, resolvedPath: executable };
+    }
     const probe = process.platform === 'win32' ? `where.exe "${executable}"` : `which "${executable}"`;
-    execSync(probe, { stdio: 'ignore', timeout: 1500 });
-    return true;
-  } catch {
-    return false;
+    const stdout = execSync(probe, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: timeoutMs,
+    });
+    const resolvedPath = stdout ? stdout.trim().split(/\r?\n/)[0]?.trim() : undefined;
+    return { ok: true, resolvedPath };
+  } catch (err) {
+    if (err.code === 'ETIMEDOUT' || err.signal === 'SIGTERM' || err.killed) {
+      return { ok: false, reason: 'timeout', timeoutMs };
+    }
+    return { ok: false, reason: 'not-found', error: err?.message || String(err) };
   }
 }
 
@@ -282,6 +293,7 @@ export class ClaudeAgentProvider {
   #hookScriptPath;
   #materializedSessions = new Set();
   #availabilityCache = { checkedAt: 0, result: null };
+  #resolvedExecutablePath = null;
   #cancelGraceMs;
   #forceGraceMs;
   #probeExecutable;
@@ -406,23 +418,46 @@ export class ClaudeAgentProvider {
     return this.#rawCapture.flushRawCapture(sessionId);
   }
 
-  isAvailable({ ttlMs = 30_000 } = {}) {
+  isAvailable({ ttlMs = 30_000, timeoutMs = 5_000 } = {}) {
     const now = Date.now();
     if (this.#availabilityCache.result && now - this.#availabilityCache.checkedAt < ttlMs) {
       return this.#availabilityCache.result;
     }
-    let available = false;
-    try {
-      available = Boolean(this.#probeExecutable(this.#executable));
-    } catch {
-      available = false;
+
+    if (this.#resolvedExecutablePath && existsSync(this.#resolvedExecutablePath)) {
+      const result = { available: true };
+      this.#availabilityCache = { checkedAt: now, result };
+      return result;
     }
-    const result = available
-      ? { available: true }
-      : {
-          available: false,
-          unavailableReason: `Claude Code CLI ('${this.#executable}') is not found in PATH. Install Claude Code CLI to enable this provider.`,
-        };
+
+    let probeResult;
+    try {
+      probeResult = this.#probeExecutable(this.#executable, { timeoutMs });
+    } catch (err) {
+      probeResult = { ok: false, reason: 'error', error: err?.message || String(err) };
+    }
+
+    if (typeof probeResult === 'boolean') {
+      probeResult = { ok: probeResult, reason: probeResult ? undefined : 'not-found' };
+    }
+
+    let result;
+    if (probeResult?.ok) {
+      if (probeResult.resolvedPath) {
+        this.#resolvedExecutablePath = probeResult.resolvedPath;
+      }
+      result = { available: true };
+    } else if (probeResult?.reason === 'timeout') {
+      result = {
+        available: false,
+        unavailableReason: `Claude Code CLI ('${this.#executable}') probe timed out after ${probeResult.timeoutMs || timeoutMs}ms (system under heavy load).`,
+      };
+    } else {
+      result = {
+        available: false,
+        unavailableReason: `Claude Code CLI ('${this.#executable}') is not found in PATH. Install Claude Code CLI to enable this provider.`,
+      };
+    }
     this.#availabilityCache = { checkedAt: now, result };
     return result;
   }

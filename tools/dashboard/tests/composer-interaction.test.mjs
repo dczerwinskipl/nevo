@@ -337,6 +337,15 @@ test('Task 07 / Composer status precedence: loadError > provider unavailable > i
     resolveComposerPlaceholder({ isProviderAvailable: false, isRunning: true, disabled: true }),
     'Provider CLI niedostępny (brak w PATH)',
   );
+  assert.equal(
+    resolveComposerPlaceholder({
+      isProviderAvailable: false,
+      unavailableReason: "Claude Code CLI ('claude') probe timed out after 5000ms (system under heavy load).",
+      isRunning: true,
+      disabled: true,
+    }),
+    'Provider CLI niedostępny (przekroczono limit czasu odpowiedzi)',
+  );
 
   // 5. Load error takes top precedence
   assert.equal(

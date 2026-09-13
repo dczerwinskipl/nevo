@@ -99,6 +99,7 @@ export function resolveComposerKeyAction({
 export interface ResolveComposerPlaceholderOptions {
   loadError?: unknown;
   isProviderAvailable?: boolean;
+  unavailableReason?: string;
   isRunning?: boolean;
   hasActiveTurn?: boolean;
   disabled?: boolean;
@@ -117,6 +118,7 @@ export interface ResolveComposerPlaceholderOptions {
 export function resolveComposerPlaceholder({
   loadError,
   isProviderAvailable = true,
+  unavailableReason,
   isRunning = false,
   hasActiveTurn = false,
   disabled = false,
@@ -128,7 +130,12 @@ export function resolveComposerPlaceholder({
       ? 'Sesja nie została znaleziona...'
       : 'Serwer dashboardu jest niedostępny...';
   }
-  if (!isProviderAvailable) return 'Provider CLI niedostępny (brak w PATH)';
+  if (!isProviderAvailable) {
+    if (unavailableReason && /timed out|timeout|limit czasu/i.test(unavailableReason)) {
+      return 'Provider CLI niedostępny (przekroczono limit czasu odpowiedzi)';
+    }
+    return 'Provider CLI niedostępny (brak w PATH)';
+  }
   if (isRunning || hasActiveTurn) return 'Turn trwa…';
   if (disabled) return 'Ta sesja jest tylko do odczytu';
   return 'Napisz wiadomość…';
