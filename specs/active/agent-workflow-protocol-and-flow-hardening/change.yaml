@@ -1,0 +1,37 @@
+# Specification manifest for agent-workflow-protocol-and-flow-hardening
+id: agent-workflow-protocol-and-flow-hardening
+title: "Agent workflow protocol and flow hardening"
+type: standard
+status: draft
+priority: 10
+created: 2026-09-13
+spec_id: 3aa4f1ac-0daf-4906-8275-9a9d9c84c3cd
+
+workflow:
+  mode: deterministic
+  version: 1
+
+branch:
+  mode: per-change
+  prefix: feature
+  name: feature/agent-workflow-protocol-and-flow-hardening
+
+tasks:
+  - id: workflow-protocol-git-hardening-and-human-decisions
+    order: 1
+    file: tasks/01-workflow-protocol-git-hardening-and-human-decisions.md
+    status: draft
+
+  - id: session-task-binding-and-workflow-server-endpoints
+    order: 2
+    file: tasks/02-session-task-binding-and-workflow-server-endpoints.md
+    status: draft
+    depends_on:
+      - workflow-protocol-git-hardening-and-human-decisions
+
+  - id: chat-surface-workflow-actions-and-composer-modes
+    order: 3
+    file: tasks/03-chat-surface-workflow-actions-and-composer-modes.md
+    status: draft
+    depends_on:
+      - session-task-binding-and-workflow-server-endpoints
