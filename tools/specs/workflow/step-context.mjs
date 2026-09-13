@@ -55,23 +55,139 @@ export function normalizeSourceControlFacts(rawContext) {
 }
 
 /**
- * Flattens per-action `requiredInputs` schemas (Task 03's `checkStep` aggregation) into
- * one step-level map keyed by parameter name (D10) — e.g. `commit.title` required,
- * `commit.message` optional. The finalize actions this foundation defines never declare
- * colliding names; a future step definition whose finalize actions do collide is out of
- * scope here and would need explicit per-action namespacing, not silent overwrite.
+ * Builds canonical `finishContract.parameters` (Task 03, D3/D4) unifying finalize action
+ * parameter schemas with workflow-level parameters (`result`, `artifacts`).
  *
  * @param {{ actions: Record<string, { requiredInputs: Array<object> }> }} finalizeCheckResult
- * @returns {Record<string, object>}
+ * @param {object} [step] - Normalized step definition
+ * @returns {Record<string, object>} Canonical parameters schema map
  */
-export function buildFinishContract(finalizeCheckResult) {
-  const requiredInputs = {};
-  for (const actionResult of Object.values(finalizeCheckResult.actions)) {
-    for (const schema of actionResult.requiredInputs) {
-      requiredInputs[schema.name] = schema;
+export function buildFinishContract(finalizeCheckResult, step = null) {
+  const parameters = {};
+  if (finalizeCheckResult?.actions) {
+    for (const actionResult of Object.values(finalizeCheckResult.actions)) {
+      if (Array.isArray(actionResult.requiredInputs)) {
+        for (const schema of actionResult.requiredInputs) {
+          const s = { ...schema };
+          if (s.type === 'array' && !s.items) {
+            s.items = { type: 'string' };
+          }
+          parameters[schema.name] = s;
+        }
+      }
     }
   }
-  return requiredInputs;
+
+  // Compose workflow-level parameters
+  const transitions = step?.transitions || [];
+  const isConditional = transitions.length > 1 || (transitions.length === 1 && transitions[0].value !== undefined);
+
+  if (isConditional) {
+    const allowedValues = transitions.map(t => t.value).filter(Boolean);
+    parameters.result = {
+      type: 'enum',
+      required: true,
+      allowedValues,
+      description: 'Semantic completion result selecting the next workflow transition.',
+    };
+  }
+
+  parameters.artifacts = {
+    type: 'array',
+    items: { type: 'string' },
+    required: false,
+    description: 'Optional list of artifact reference strings (e.g. file paths) associated with this completion.',
+  };
+
+  return parameters;
+}
+
+/**
+ * Validates finish inputs against canonical `finishContract.parameters` schema.
+ *
+ * @param {object} inputs
+ * @param {Record<string, object>} parameters
+ * @param {object} [options]
+ * @param {boolean} [options.allowMissing=false] - Whether to allow missing required inputs (e.g. in --check mode)
+ */
+export function validateFinishInputs(inputs, parameters, { allowMissing = false } = {}) {
+  if (!inputs || typeof inputs !== 'object' || Array.isArray(inputs)) {
+    throw new WorkflowError('Finish inputs must be a non-null object', { code: 'INVALID_INPUT_JSON' });
+  }
+
+  // 1. Unknown properties check
+  for (const key of Object.keys(inputs)) {
+    if (!Object.prototype.hasOwnProperty.call(parameters, key)) {
+      throw new WorkflowError(`Unknown finish input property '${key}'`, {
+        code: 'UNKNOWN_INPUT_PROPERTY',
+        property: key,
+      });
+    }
+  }
+
+  // 2. Required properties check
+  if (!allowMissing) {
+    for (const [name, schema] of Object.entries(parameters)) {
+      if (schema.required) {
+        if (inputs[name] === undefined || inputs[name] === null || inputs[name] === '') {
+          throw new WorkflowError(`Missing required finish input '${name}'`, {
+            code: 'MISSING_REQUIRED_INPUT',
+            property: name,
+          });
+        }
+      }
+    }
+  }
+
+  // 3. Property type validation
+  for (const [name, value] of Object.entries(inputs)) {
+    if (value === undefined || value === null) continue;
+    const schema = parameters[name];
+    if (!schema) continue;
+
+    if (schema.type === 'string') {
+      if (typeof value !== 'string') {
+        throw new WorkflowError(`Finish input '${name}' must be a string`, {
+          code: 'INVALID_INPUT_TYPE',
+          property: name,
+        });
+      }
+      if (schema.constraints?.minLength && value.length < schema.constraints.minLength) {
+        throw new WorkflowError(
+          `Finish input '${name}' must have minimum length ${schema.constraints.minLength}`,
+          { code: 'INVALID_INPUT_VALUE', property: name }
+        );
+      }
+    } else if (schema.type === 'array') {
+      if (!Array.isArray(value)) {
+        throw new WorkflowError(`Finish input '${name}' must be an array`, {
+          code: 'INVALID_INPUT_TYPE',
+          property: name,
+        });
+      }
+      if (schema.items?.type === 'string') {
+        if (!value.every(item => typeof item === 'string')) {
+          throw new WorkflowError(`Finish input '${name}' items must be strings`, {
+            code: 'INVALID_INPUT_TYPE',
+            property: name,
+          });
+        }
+      }
+    } else if (schema.type === 'enum') {
+      if (typeof value !== 'string') {
+        throw new WorkflowError(`Finish input '${name}' must be a string`, {
+          code: 'INVALID_INPUT_TYPE',
+          property: name,
+        });
+      }
+      if (Array.isArray(schema.allowedValues) && !schema.allowedValues.includes(value)) {
+        throw new WorkflowError(
+          `Finish input '${name}' value '${value}' is not allowed (must be one of: ${schema.allowedValues.join(', ')})`,
+          { code: 'INVALID_INPUT_VALUE', property: name, allowedValues: schema.allowedValues }
+        );
+      }
+    }
+  }
 }
 
 /**
@@ -274,6 +390,15 @@ export async function compileStepContext({
   const changeId = change.id || change._slug;
   const { task: effectiveTask, position } = ensureStepActivated(change, task, definition, context);
 
+  const protocol = {
+    authoritative: true,
+    noDirectStateMutation: true,
+    doNotInferNextStep: true,
+    logicalCompletionPerAttempt: true,
+    resumableFinish: true,
+    stopOnHumanGate: true,
+  };
+
   if (position.phase === 'terminal') {
     const { allowedPaths, forbiddenPaths } = resolveTaskScope(change, effectiveTask, context);
     const routingIndex = context.routingIndex !== undefined ? context.routingIndex : loadRoutingIndex();
@@ -284,10 +409,12 @@ export async function compileStepContext({
       task: effectiveTask.id,
       workflowMode: 'deterministic',
       currentStep: null,
+      attempt: position.attempt,
       stepStatus: 'complete',
       runtimeState: 'completed',
       semanticStatus: resolveSemanticStatus(definition, effectiveTask),
       instructions: 'Workflow complete; all steps finished.',
+      protocol,
       entryState: { blockers: [] },
       expectedWork: {
         allowedPaths,
@@ -295,7 +422,7 @@ export async function compileStepContext({
       },
       relevantDocs,
       context: {},
-      finishContract: { requiredInputs: {}, gates: [] },
+      finishContract: { parameters: {}, requiredInputs: {}, gates: [] },
       nextStepGuidance: null,
     };
   }
@@ -307,8 +434,10 @@ export async function compileStepContext({
   const gateContext = { ...context, stepId: stepName, attempt: position.attempt };
   const entryGateResults = await inspectGates(step.entryGates, gateContext, { gateRegistry });
   const exitGateResults = await inspectGates(step.exitGates, gateContext, { gateRegistry });
-  const finalizeCheck = await aggregateFinalizeCheck(step, context, { engine, actionRegistry });
-  const requiredInputs = buildFinishContract(finalizeCheck);
+  const actionContext = { ...context, sourceControl: context.sourceControl ?? definition.sourceControl };
+  const finalizeCheck = await aggregateFinalizeCheck(step, actionContext, { engine, actionRegistry });
+  const parameters = buildFinishContract(finalizeCheck, step);
+  const isUnconditional = step.transitions?.length === 1 && step.transitions[0].value === undefined;
   // Only a definitively 'blocked'/'failed' gate blocks — 'pending' (a command gate that
   // simply hasn't been verify()'d yet) must not, or planning could never reach the
   // execution that would actually run and record it (see the identical reasoning in
@@ -327,10 +456,12 @@ export async function compileStepContext({
     task: effectiveTask.id,
     workflowMode: 'deterministic',
     currentStep: stepName,
+    attempt: position.attempt,
     stepStatus: blockers.length ? 'blocked' : 'in-progress',
     runtimeState: 'active',
     semanticStatus: resolveSemanticStatus(definition, effectiveTask),
     instructions,
+    protocol,
     entryState: { blockers },
     expectedWork: {
       allowedPaths,
@@ -340,13 +471,14 @@ export async function compileStepContext({
     ...(stepContract !== undefined ? { stepContract } : {}),
     context: sourceControlContext ? { sourceControl: sourceControlContext } : {},
     finishContract: {
-      requiredInputs,
+      parameters,
+      requiredInputs: parameters,
       // Enriched with inspected status (not just static id/type descriptors) so a blocking
       // human-verification (or other unmet exit gate) state is visible directly on
       // StepContext, matching the requirement that both `step start` and a `step finish`
       // attempt report the same blocking state (D9 clarification).
       gates: exitGateResults,
     },
-    nextStepGuidance: step.transitions[0] ? { onSuccess: step.transitions[0].to } : null,
+    nextStepGuidance: isUnconditional ? { onSuccess: step.transitions[0].to } : null,
   };
 }
