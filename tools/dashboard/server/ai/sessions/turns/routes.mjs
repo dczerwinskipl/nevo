@@ -20,8 +20,15 @@ export default async function turnRoutes(fastify, { service, accessPolicy }) {
     const provider = validatedSegment(body.provider, PROVIDER_PATTERN, 'provider ID');
     if (body.specId && !UUID_PATTERN.test(body.specId)) throw new AiValidationError('Invalid specification ID.');
     if (body.taskId && !TURN_PATTERN.test(body.taskId)) throw new AiValidationError('Invalid task ID.');
+    if (body.model !== undefined && (typeof body.model !== 'string' || !body.model.trim())) {
+      throw new AiValidationError('Model must be a non-empty string when provided.');
+    }
+    const effort = body.effort ?? body.reasoningEffort;
+    if (effort !== undefined && (typeof effort !== 'string' || !effort.trim())) {
+      throw new AiValidationError('Effort must be a non-empty string when provided.');
+    }
     console.log(
-      `[ai] [turn:start] provider=${provider} session=new specId=${body.specId || '-'} taskId=${body.taskId || '-'}${body.mode ? ` mode=${body.mode}` : ''}`,
+      `[ai] [turn:start] provider=${provider} session=new specId=${body.specId || '-'} taskId=${body.taskId || '-'}${body.mode ? ` mode=${body.mode}` : ''}${body.model ? ` model=${body.model}` : ''}`,
     );
     const result = await service.startTurn(provider, undefined, {
       message: body.message ?? body.prompt,
@@ -30,6 +37,8 @@ export default async function turnRoutes(fastify, { service, accessPolicy }) {
       taskId: body.taskId,
       purpose: body.purpose,
       mode: body.mode,
+      model: body.model ? body.model.trim() : undefined,
+      effort: effort ? effort.trim() : undefined,
       idempotencyKey: body.idempotencyKey,
     });
     console.log(
@@ -47,13 +56,22 @@ export default async function turnRoutes(fastify, { service, accessPolicy }) {
       const body = assertBodyObject(request.body);
       const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
       const sessionId = validatedSessionId(request.params.providerSessionId);
+      if (body.model !== undefined && (typeof body.model !== 'string' || !body.model.trim())) {
+        throw new AiValidationError('Model must be a non-empty string when provided.');
+      }
+      const effort = body.effort ?? body.reasoningEffort;
+      if (effort !== undefined && (typeof effort !== 'string' || !effort.trim())) {
+        throw new AiValidationError('Effort must be a non-empty string when provided.');
+      }
       console.log(
-        `[ai] [turn:start] provider=${provider} session=${sessionId}${body.mode ? ` mode=${body.mode}` : ''} prompt="${(body.message ?? body.prompt ?? '').slice(0, 60)}"`,
+        `[ai] [turn:start] provider=${provider} session=${sessionId}${body.mode ? ` mode=${body.mode}` : ''}${body.model ? ` model=${body.model}` : ''} prompt="${(body.message ?? body.prompt ?? '').slice(0, 60)}"`,
       );
       const result = await service.startTurn(provider, sessionId, {
         message: body.message ?? body.prompt,
         ...(typeof body.userMessage === 'string' ? { userMessage: body.userMessage } : {}),
         mode: body.mode,
+        model: body.model ? body.model.trim() : undefined,
+        effort: effort ? effort.trim() : undefined,
         ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
       });
       console.log(
@@ -63,7 +81,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy }) {
     },
   );
 
-  // Cancel, correlated to session + turn.
+  // Cancel, correlated to session + turn (supports action: 'cancel' | 'force_cleanup').
   fastify.post(
     '/api/agent-sessions/:provider/:providerSessionId/turns/:turnId/cancel',
     { bodyLimit: CANCEL_BODY_LIMIT },
@@ -72,10 +90,35 @@ export default async function turnRoutes(fastify, { service, accessPolicy }) {
       const providerSessionId = validatedSessionId(request.params.providerSessionId);
       const turnId = validatedSegment(request.params.turnId, TURN_PATTERN, 'turn ID');
       authorize(accessPolicy, 'control', request);
-      // Body content is intentionally unused — only its size contract matters.
+      const body = request.body ? assertBodyObject(request.body) : {};
+      const action = body.action ?? 'cancel';
+      if (action !== 'cancel' && action !== 'force_cleanup') {
+        throw new AiValidationError("Property 'action' must be 'cancel' or 'force_cleanup'.");
+      }
+      if (action === 'force_cleanup') {
+        console.log(`[ai] [turn:recover] action=force_cleanup provider=${provider} session=${providerSessionId} turnId=${turnId}`);
+        const turn = await service.recoverTurn(turnId, { provider, providerSessionId });
+        return reply.send({ turn });
+      }
       console.log(`[ai] [turn:cancel] provider=${provider} session=${providerSessionId} turnId=${turnId}`);
       const turn = await service.cancelTurn(turnId, { provider, providerSessionId });
       reply.send({ turn });
     },
   );
+
+  // Dedicated remote recovery API for unknown / lost turns.
+  fastify.post(
+    '/api/agent-sessions/:provider/:providerSessionId/turns/:turnId/recover',
+    { bodyLimit: CANCEL_BODY_LIMIT },
+    async (request, reply) => {
+      const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
+      const providerSessionId = validatedSessionId(request.params.providerSessionId);
+      const turnId = validatedSegment(request.params.turnId, TURN_PATTERN, 'turn ID');
+      authorize(accessPolicy, 'control', request);
+      console.log(`[ai] [turn:recover] provider=${provider} session=${providerSessionId} turnId=${turnId}`);
+      const turn = await service.recoverTurn(turnId, { provider, providerSessionId });
+      reply.send({ turn });
+    },
+  );
 }
+

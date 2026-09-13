@@ -28,6 +28,7 @@ export interface AgentSessionChatSurfaceProps {
   hasActiveTurn?: boolean;
   canCancel?: boolean;
   isProviderAvailable?: boolean;
+  unavailableReason?: string;
   disabled?: boolean;
   placeholder?: string;
 
@@ -68,6 +69,7 @@ export const AgentSessionChatSurface = forwardRef<AgentSessionChatSurfaceHandle,
       hasActiveTurn,
       canCancel = false,
       isProviderAvailable = true,
+      unavailableReason,
       disabled = false,
       placeholder,
       keyboardOpen = false,
@@ -154,6 +156,7 @@ export const AgentSessionChatSurface = forwardRef<AgentSessionChatSurfaceHandle,
               hasActiveTurn={hasActiveTurn}
               canCancel={canCancel}
               isProviderAvailable={isProviderAvailable}
+              unavailableReason={unavailableReason}
               disabled={disabled}
               placeholder={placeholder}
               loadError={loadError}

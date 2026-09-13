@@ -136,10 +136,13 @@ export function createNevoMcpServer(
     const formattedOptions =
       Array.isArray(args.options) && args.options.length > 0
         ? args.options.map((opt) => {
-            if (typeof opt === 'string') return { label: opt, description: opt };
+            if (typeof opt === 'string') return { label: opt };
+            const label = String(opt.label || opt.text || opt.title || '');
+            const rawDesc = opt.description || opt.desc;
+            const description = rawDesc && String(rawDesc) !== label ? String(rawDesc) : undefined;
             return {
-              label: String(opt.label || opt.text || opt.title || ''),
-              description: String(opt.description || opt.desc || opt.label || opt.text || ''),
+              label,
+              ...(description ? { description } : {}),
             };
           })
         : undefined;

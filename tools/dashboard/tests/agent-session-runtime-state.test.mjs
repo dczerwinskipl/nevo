@@ -554,9 +554,9 @@ test('Cancel Turn: shouldSurfaceTurnError suppresses user-facing onError for exp
 
   // C. Turn timeout -> onError called
   assert.equal(
-    shouldSurfaceTurnError({ code: 'AI_TURN_TIMEOUT', message: 'Turn timed out after 300000ms' }),
+    shouldSurfaceTurnError({ code: 'AI_RUNTIME_TIMEOUT', message: 'Turn timed out after 300000ms' }),
     true,
-    'AI_TURN_TIMEOUT must surface to user',
+    'AI_RUNTIME_TIMEOUT must surface to user',
   );
 
   // D. Turn interrupted or protocol error -> onError called

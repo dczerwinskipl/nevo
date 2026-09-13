@@ -249,7 +249,7 @@ export type WorkItem = CommentaryWorkItem | ReasoningWorkItem | ToolInvocationWo
 export interface FinalAnswer {
   id: string;
   text: string;
-  status: 'pending' | 'streaming' | 'completed' | 'absent';
+  status: 'pending' | 'streaming' | 'completed' | 'absent' | 'interrupted';
   confidence?: string;
   createdAt: string;
   updatedAt: string;

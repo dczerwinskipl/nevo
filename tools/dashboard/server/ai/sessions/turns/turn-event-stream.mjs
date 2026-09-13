@@ -4,6 +4,52 @@ export function sessionKey(provider, providerSessionId) {
   return `${provider}\u0000${providerSessionId}`;
 }
 
+const PRIVATE_EVENT_FIELD_PATTERN =
+  /provider.*(?:request|event|payload).*id|providerRequestId|rawPayload|rawBytes|childPid|processId|processHandle|childProcess|rpcEnvelope|envelope|transport|^pid$/i;
+
+export function sanitizeEventData(value) {
+  if (!value || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    return value.map(sanitizeEventData);
+  }
+  const clean = {};
+  for (const [key, val] of Object.entries(value)) {
+    if (PRIVATE_EVENT_FIELD_PATTERN.test(key)) {
+      continue;
+    }
+    clean[key] = sanitizeEventData(val);
+  }
+  return clean;
+}
+
+export function normalizeLayer2ToLayer3Event(rawType, rawData = {}) {
+  let type = rawType;
+  let data = sanitizeEventData(rawData);
+
+  if (rawType === 'final_answer.delta') {
+    type = 'text.delta';
+    const messageId = data.finalAnswerId || data.messageId || 'final-answer';
+    const text = data.text ?? data.delta ?? '';
+    const delta = data.delta ?? data.text ?? '';
+    delete data.finalAnswerId;
+    data.messageId = messageId;
+    data.text = text;
+    data.delta = delta;
+  } else if (rawType === 'commentary.delta') {
+    type = 'progress.delta';
+    const progressId = data.commentaryId || data.progressId || 'progress';
+    const text = data.text ?? data.delta ?? '';
+    const delta = data.delta ?? data.text ?? '';
+    delete data.commentaryId;
+    data.progressId = progressId;
+    data.text = text;
+    data.delta = delta;
+  }
+
+  return { type, data };
+}
+
+
 /**
  * Manages low-level Agent Turn event mechanics:
  * - Owns per-turn event buffers and subscribers
@@ -103,15 +149,16 @@ export class TurnEventStream {
   }
 
   emit(turnId, type, data = {}) {
+    const { type: publicType, data: cleanData } = normalizeLayer2ToLayer3Event(type, data);
     const seq = this.allocateNextSeq(turnId);
     const timestamp = this.#timestamp();
     const event = {
       id: seq,
       seq,
-      type,
+      type: publicType,
       turnId,
       timestamp,
-      ...structuredClone(data),
+      ...structuredClone(cleanData),
     };
 
     let events = this.#turnEvents.get(turnId);

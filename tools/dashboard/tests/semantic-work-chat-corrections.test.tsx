@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { AgentSessionTranscript } from '../ui/features/agent-sessions/work/agent-session-transcript';
 import { TurnWorkPanel } from '../ui/features/agent-sessions/work/turn-work-panel';
+import { FinalAnswerView } from '../ui/features/agent-sessions/work/final-answer-view';
 import { WorkIndicator } from '../ui/features/agent-sessions/work/work-indicator';
 import { WorkTimeline } from '../ui/features/agent-sessions/work/work-timeline';
 import { ConfirmationPrompt } from '../ui/features/agent-sessions/interactions/interaction-prompt';
@@ -12,6 +13,7 @@ import type {
   AgentConfirmationInteraction,
   CanonicalTurn,
   CommentaryWorkItem,
+  FinalAnswer,
   ToolInvocationWorkItem,
 } from '../ui/features/agent-sessions/types';
 
@@ -552,6 +554,47 @@ describe('Canonical Chat Surface Component Tests (RTL renders)', () => {
 
       expect(screen.getByText('Dostawca')).toBeInTheDocument();
       expect(screen.getByText('antigravity')).toBeInTheDocument();
+    });
+  });
+
+  describe('PR #47 final correction: interrupted FinalAnswer is truthfully preserved, not absent or completed', () => {
+    function buildFinalAnswer(overrides: Partial<FinalAnswer>): FinalAnswer {
+      return {
+        id: 'final-answer',
+        text: 'Zacommitowane i wypchniete przed przerwaniem.',
+        status: 'streaming',
+        createdAt: '2026-09-13T09:14:00Z',
+        updatedAt: '2026-09-13T09:14:00Z',
+        ...overrides,
+      };
+    }
+
+    it('renders the emitted text and an "interrupted" caption for status=interrupted, with no spinner', () => {
+      render(<FinalAnswerView finalAnswer={buildFinalAnswer({ status: 'interrupted' })} />);
+
+      expect(screen.getByText('Zacommitowane i wypchniete przed przerwaniem.')).toBeInTheDocument();
+      expect(screen.getByText(/przerwano/i)).toBeInTheDocument();
+      expect(document.querySelector('.animate-spin')).toBeNull();
+    });
+
+    it('renders streaming text without its own spinner (Work is the single "still working" indicator)', () => {
+      render(<FinalAnswerView finalAnswer={buildFinalAnswer({ status: 'streaming' })} />);
+
+      expect(screen.getByText('Zacommitowane i wypchniete przed przerwaniem.')).toBeInTheDocument();
+      expect(document.querySelector('.animate-spin')).toBeNull();
+    });
+
+    it('renders nothing for status=absent, even though this exact contradiction (absent + non-empty text) must never occur server-side', () => {
+      const { container } = render(
+        <FinalAnswerView finalAnswer={buildFinalAnswer({ status: 'absent', text: 'should never be shown' })} />,
+      );
+      expect(container).toBeEmptyDOMElement();
+    });
+
+    it('a completed answer never carries the interrupted caption', () => {
+      render(<FinalAnswerView finalAnswer={buildFinalAnswer({ status: 'completed', completedAt: '2026-09-13T09:14:05Z' })} />);
+      expect(screen.getByText('Zacommitowane i wypchniete przed przerwaniem.')).toBeInTheDocument();
+      expect(screen.queryByText(/przerwano/i)).toBeNull();
     });
   });
 });

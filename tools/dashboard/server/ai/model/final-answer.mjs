@@ -1,6 +1,6 @@
 import { AiValidationError, normalizeTimestamp } from '../contracts.mjs';
 
-export const FINAL_ANSWER_STATUSES = Object.freeze(['pending', 'streaming', 'completed', 'absent']);
+export const FINAL_ANSWER_STATUSES = Object.freeze(['pending', 'streaming', 'completed', 'absent', 'interrupted']);
 
 function rejectProviderFields(value, path = 'finalAnswer') {
   for (const [key, child] of Object.entries(value || {})) {

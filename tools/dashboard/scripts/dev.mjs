@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import { createServer as createViteServer } from 'vite';
 
-import { buildDashboardApp, listen } from '../server/index.mjs';
+import { buildDashboardRuntime, listen } from '../server/index.mjs';
 import { dashboardNetworkConfig } from '../config/network.mjs';
 
 // Package/process orchestration for local development: starts the Fastify
@@ -12,10 +12,16 @@ import { dashboardNetworkConfig } from '../config/network.mjs';
 // server/ contains only server-owned runtime/application code — and not a
 // generic service container either: it only ever orchestrates these two
 // application boundaries.
+//
+// Uses the same `buildDashboardRuntime` composition as production/direct
+// startup (index.mjs) — this is what starts the loopback-only local MCP
+// server and wires its URL in; without it, structured Ask silently breaks in
+// `npm run dev` because the AI capability would resolve an MCP endpoint on
+// this API server, which never serves `/mcp`.
 const dashboardRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const { host, port: uiPort, apiPort } = dashboardNetworkConfig();
 
-const apiServer = await buildDashboardApp();
+const { app: apiServer } = await buildDashboardRuntime();
 const apiUrl = await listen(apiServer, { host, port: apiPort });
 process.env.NEVO_DASHBOARD_API_URL = apiUrl;
 

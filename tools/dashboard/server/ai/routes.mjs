@@ -18,7 +18,7 @@ import sessionRoutes from './sessions/routes.mjs';
 import turnRoutes from './sessions/turns/routes.mjs';
 import interactionRoutes from './sessions/interactions/routes.mjs';
 import aiEventRoutes from './sessions/events/routes.mjs';
-import { mcpRoutes, mcpInteractionRegistry } from './interactions/mcp/index.mjs';
+import { mcpInteractionRegistry } from './interactions/mcp/index.mjs';
 
 import { createTrustedNetworkAiAccessPolicy } from './access-policy.mjs';
 import { aiErrorHandler } from './sessions/http.mjs';
@@ -59,6 +59,7 @@ export function createDefaultAgentSessionService({
             rawCaptureEnabled: providerConfig.providers.claude?.rawCaptureEnabled,
             rawCaptureDir: providerConfig.providers.claude?.rawCaptureDir,
             mcpEndpointUrl: mcpEndpointResolver,
+            configuredModels: providerConfig.providers.claude?.configuredModels,
           }),
         );
         break;
@@ -70,6 +71,7 @@ export function createDefaultAgentSessionService({
             printTimeoutSeconds: providerConfig.providers.antigravity?.printTimeoutSeconds,
             rawCaptureEnabled: providerConfig.providers.antigravity?.rawCaptureEnabled,
             rawCaptureDir: providerConfig.providers.antigravity?.rawCaptureDir,
+            mcpEndpointUrl: mcpEndpointResolver,
           }),
         );
         break;
@@ -124,15 +126,43 @@ export default async function aiRoutes(
   const root = config.root ?? REPOSITORY_ROOT;
 
   const resolveFastifyMcpUrl = () => {
+    // Explicit operator override — an advanced escape hatch, not the normal path.
+    // Setting this is the operator's own decision to route MCP traffic somewhere
+    // other than the loopback-only local server below (e.g. a remote/shared MCP
+    // endpoint). Its semantics: the operator is responsible for that endpoint's
+    // reachability from every spawned provider child and, if it is `https://`,
+    // for that child's own TLS trust — nothing here injects a certificate for
+    // it. This is not a claim that the endpoint is "always local HTTP"; that
+    // guarantee applies only to the unoverridden path below.
     if (process.env.NEVO_MCP_ENDPOINT_URL) {
       return process.env.NEVO_MCP_ENDPOINT_URL;
     }
+    // Authoritative production endpoint: the loopback-only local MCP server
+    // that `buildDashboardRuntime()` starts before this capability is built
+    // (see server/index.mjs). Always `http://127.0.0.1:<ephemeralPort>/mcp` —
+    // no TLS, no certificate ever needed for it.
+    if (config.localMcpUrl) {
+      return config.localMcpUrl;
+    }
+    // Test-only / bare-construction fallback. Reached only when this capability
+    // was registered directly (e.g. the `buildAiTestApp` test helper) without
+    // going through `buildDashboardRuntime()`, so no local MCP server exists.
+    // Real runtime (index.mjs direct-run and scripts/dev.mjs) always supplies
+    // `config.localMcpUrl` and never reaches this branch — `/mcp` is not served
+    // by the main dashboard Fastify instance in real deployments, so a URL
+    // derived from its own address is only meaningful to a test that also
+    // registers `mcpRoutes` on this same bare instance.
     const addr = fastify.server?.address?.();
     if (!addr || typeof addr !== 'object' || !addr.port) {
       return null;
     }
     const protocol = fastify.initialConfig?.https ? 'https' : 'http';
-    return `${protocol}://127.0.0.1:${addr.port}/mcp`;
+    const bindAddress = addr.address;
+    const host =
+      !bindAddress || bindAddress === '0.0.0.0' || bindAddress === '::'
+        ? '127.0.0.1'
+        : bindAddress;
+    return `${protocol}://${host}:${addr.port}/mcp`;
   };
 
   const service = serviceOverride ?? createDefaultAgentSessionService({ root, mcpEndpointResolver: resolveFastifyMcpUrl });
@@ -167,10 +197,15 @@ export default async function aiRoutes(
   await fastify.register(turnRoutes, deps);
   await fastify.register(interactionRoutes, deps);
   await fastify.register(aiEventRoutes, deps);
-  await fastify.register(mcpRoutes);
+  // mcpRoutes is NOT registered here — MCP is served exclusively on the
+  // local-only server started by startLocalMcpServer() in index.mjs.
 
   // Owned here: this capability constructed (or was given) the AI service
-  // and is the only one that knows how to shut it down.
+  // and is the only one that knows how to shut it down. mcpInteractionRegistry
+  // is a shared singleton regardless of which Fastify instance physically
+  // serves its HTTP routes (now the local-only MCP server) — this remains its
+  // one owner, so pending MCP interactions are still rejected cleanly instead
+  // of hanging when the app closes.
   fastify.addHook('onClose', async () => {
     try {
       mcpInteractionRegistry.shutdown();

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { buildDashboardApp, listen } from '../server/index.mjs';
+import { buildDashboardApp, buildDashboardRuntime, listen } from '../server/index.mjs';
 
 const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
 
@@ -112,6 +112,45 @@ test('handles static asset serving and missing distDir fallback', async () => {
 // app.mjs actually calls it when the app closes. Each other capability's own
 // shutdown wiring (eventHub, AI service) is covered by that capability's own
 // slice-level tests (events.test.mjs, ai-server.test.mjs).
+// This is the composition every real entrypoint uses (index.mjs's direct-run
+// branch and scripts/dev.mjs alike) — proves the loopback-only local MCP
+// server actually works through it, not just through index.mjs's own
+// hand-wiring, which `npm run dev` never called at all before this fixed it
+// (it built the app with no `config.localMcpUrl`, so the resolved MCP URL
+// pointed at this same main API server, which has never served `/mcp`).
+test('buildDashboardRuntime(): local MCP server is reachable, /mcp is not exposed on the main dashboard server, and it closes with the runtime', { timeout: 30000 }, async () => {
+  const { app, localMcpUrl } = await buildDashboardRuntime({ config: { distDir: NONEXISTENT_DIST } });
+  const baseUrl = await listen(app, { port: 0 });
+
+  try {
+    assert.match(localMcpUrl, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/, 'local MCP URL is loopback-only plain HTTP');
+
+    // 1. The resolved provider MCP endpoint is actually reachable and speaking
+    // the MCP transport boundary (a non-initialization request without a
+    // session ID gets the transport's own well-formed JSON-RPC 400, not a
+    // connection failure).
+    const mcpRes = await fetch(localMcpUrl);
+    assert.equal(mcpRes.status, 400);
+    const mcpBody = await mcpRes.json();
+    assert.equal(mcpBody.jsonrpc, '2.0');
+
+    // 2. /mcp is NOT exposed by the main, externally-bound dashboard server.
+    const mainAppMcp = await fetch(`${baseUrl}/mcp`);
+    assert.equal(mainAppMcp.status, 404);
+
+    // 3. The AI capability actually resolved this same local server as its MCP
+    // endpoint (not a stale/derived fallback).
+    const providers = await fetch(`${baseUrl}/api/agent-providers`);
+    assert.equal(providers.status, 200);
+  } finally {
+    await new Promise((resolvePromise) => app.close(resolvePromise));
+  }
+
+  // 4. Closing the runtime (the main app) also closes the local MCP server —
+  // the same port must no longer accept connections.
+  await assert.rejects(() => fetch(localMcpUrl), /fetch failed|ECONNREFUSED/);
+});
+
 test('the shared operationRuntime decoration is shut down when the app closes', async () => {
   const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const runtime = server.operationRuntime;

@@ -15,9 +15,11 @@ function requiredString(value, field, max = 256) {
   return value.trim();
 }
 
+const PRIVATE_FIELD_PATTERN = /provider.*(?:request|event|payload).*id|providerRequestId|rawPayload|rawBytes|childPid|processId|processHandle|childProcess|rpcEnvelope|envelope|transport|^pid$/i;
+
 function rejectProviderFields(value, path = 'turn') {
   for (const [key, child] of Object.entries(value || {})) {
-    if (/provider.*(?:request|event|payload).*id|providerRequestId|rawPayload/i.test(key)) {
+    if (PRIVATE_FIELD_PATTERN.test(key)) {
       throw new AiValidationError(`Provider-private field '${key}' is not allowed in canonical turn.`, {
         field: `${path}.${key}`,
       });
@@ -119,6 +121,7 @@ export function validateCanonicalTurn(value) {
     // browser renders as the turn's chat bubble. They are equal for a plain composer
     // send and diverge only when the caller enriches the initial-dispatch prompt.
     ...(value.prompt ? { prompt: requiredString(value.prompt, 'turn.prompt', 100_000) } : {}),
+    ...(value.model ? { model: requiredString(value.model, 'turn.model', 256) } : {}),
     ...(value.userMessage
       ? {
           userMessage: {
@@ -150,6 +153,7 @@ export function createCanonicalTurn({
   provider,
   providerSessionId,
   mode = DEFAULT_AGENT_EXECUTION_MODE,
+  model,
   status = createTurnStatus('active', { detail: 'startup' }),
   createdAt = new Date().toISOString(),
 }) {
@@ -160,6 +164,7 @@ export function createCanonicalTurn({
     provider,
     providerSessionId,
     mode,
+    ...(model ? { model } : {}),
     status: typeof status === 'string' ? createTurnStatus(status) : status,
     work: [],
     activityCount: 0,

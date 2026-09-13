@@ -26,6 +26,7 @@ test('AI provider config disables every provider and raw capture when the local 
           enabled: false,
           rawCaptureEnabled: false,
           rawCaptureDir: resolve(repoRoot, DEFAULT_CLAUDE_RAW_DIRECTORY),
+          configuredModels: [],
         },
         antigravity: {
           enabled: false,

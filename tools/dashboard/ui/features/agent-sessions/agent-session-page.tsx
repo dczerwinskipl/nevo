@@ -257,6 +257,7 @@ export function AgentSessionPage({
         hasActiveTurn={activeRuntime.hasActiveTurn}
         canCancel={activeRuntime.canCancelTurn}
         isProviderAvailable={isProviderAvailable}
+        unavailableReason={providerInfo?.unavailableReason}
         disabled={!activeRuntime.canStartTurn || !isProviderAvailable}
         placeholder={
           activeRuntime.readiness?.status === 'requiresAttention' || activeRuntime.activity === 'waitingForUser'

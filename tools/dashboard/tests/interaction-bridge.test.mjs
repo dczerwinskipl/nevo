@@ -1291,7 +1291,7 @@ test('Terminal cause propagation: MCP waiter receives authoritative error code a
     });
   }
 
-  // 3. Timeout -> AI_TURN_TIMEOUT
+  // 3. Timeout -> AI_RUNTIME_TIMEOUT
   {
     const registry = new McpInteractionRegistry();
     registry.registerActiveTurn('turn-prop-timeout', {
@@ -1306,11 +1306,11 @@ test('Terminal cause propagation: MCP waiter receives authoritative error code a
       providerSessionId: 'sess-prop-timeout',
     });
     const waiter = registry.waitForResponse('int-prop-timeout');
-    const timeoutErr = new AiError('AI_TURN_TIMEOUT', 'The turn was cancelled because it stopped responding.', { status: 504 });
+    const timeoutErr = new AiError('AI_RUNTIME_TIMEOUT', 'The turn was cancelled because it stopped responding.', { status: 504 });
     registry.cancelTurn('turn-prop-timeout', timeoutErr);
 
     await assert.rejects(waiter, (err) => {
-      assert.equal(err.code, 'AI_TURN_TIMEOUT');
+      assert.equal(err.code, 'AI_RUNTIME_TIMEOUT');
       assert.equal(err.status, 504);
       return true;
     });

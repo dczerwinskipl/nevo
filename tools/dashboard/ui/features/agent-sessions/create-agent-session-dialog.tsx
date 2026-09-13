@@ -252,7 +252,12 @@ export function CreateAgentSessionDialog({ specification, onClose, onCreated }: 
 
             {!isSelectedProviderAvailable && selectedProviderObj && (
               <div className="mt-3 rounded-xl border border-status-warning/25 bg-status-warning/10 p-3 text-xs text-status-warning">
-                <p className="font-semibold">Provider niedostępny w systemie</p>
+                <p className="font-semibold">
+                  {selectedProviderObj.unavailableReason &&
+                  /timed out|timeout|limit czasu/i.test(selectedProviderObj.unavailableReason)
+                    ? 'Przekroczono limit czasu weryfikacji CLI'
+                    : 'Provider niedostępny w systemie'}
+                </p>
                 <p className="mt-0.5 text-[11px] text-status-warning/80">
                   {selectedProviderObj.unavailableReason ||
                     'Brak wymaganego narzędzia CLI w zmiennej środowiskowej PATH.'}

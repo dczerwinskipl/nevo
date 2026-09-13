@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createTurnEventStream } from '../server/ai/sessions/turns/turn-event-stream.mjs';
+import { validateAgentEvent } from '../server/ai/contracts.mjs';
 
 test('TurnEventStream: monotonic per-session sequencing across turns', () => {
   const stream = createTurnEventStream();
@@ -145,3 +146,61 @@ test('TurnEventStream: dynamic session binding propagates existing and future ev
   assert.equal(cacheApplied[0].s, 'sess-dynamic');
   assert.equal(cacheApplied[0].ev.seq, 2);
 });
+
+test('TurnEventStream: transforms Layer 2 internal semantic events into Layer 3 public AgentEvents', () => {
+  const stream = createTurnEventStream();
+  stream.registerTurn({ turnId: 'turn-layer-transform', provider: 'fake', providerSessionId: 'sess-layers' });
+
+  // final_answer.delta -> text.delta
+  const textEvent = stream.emit('turn-layer-transform', 'final_answer.delta', {
+    finalAnswerId: 'fa-test-1',
+    text: 'Hello from model',
+  });
+  assert.equal(textEvent.type, 'text.delta');
+  assert.equal(textEvent.messageId, 'fa-test-1');
+  assert.equal(textEvent.text, 'Hello from model');
+  assert.equal(textEvent.finalAnswerId, undefined);
+  assert.doesNotThrow(() => validateAgentEvent(textEvent));
+
+  // commentary.delta -> progress.delta
+  const progEvent = stream.emit('turn-layer-transform', 'commentary.delta', {
+    commentaryId: 'comm-test-1',
+    text: 'Reading codebase...',
+  });
+  assert.equal(progEvent.type, 'progress.delta');
+  assert.equal(progEvent.progressId, 'comm-test-1');
+  assert.equal(progEvent.text, 'Reading codebase...');
+  assert.equal(progEvent.commentaryId, undefined);
+  assert.doesNotThrow(() => validateAgentEvent(progEvent));
+});
+
+test('TurnEventStream: strips provider-specific envelopes and internal private fields without leaking to SSE stream', () => {
+  const stream = createTurnEventStream();
+  stream.registerTurn({ turnId: 'turn-sanitize', provider: 'fake', providerSessionId: 'sess-sanitize' });
+
+  const event = stream.emit('turn-sanitize', 'final_answer.delta', {
+    finalAnswerId: 'fa-clean',
+    text: 'Sanitized answer',
+    providerRequestId: 'req-secret-123',
+    rawPayload: { internalJsonRpc: true },
+    providerPayloadId: 'raw-id-999',
+    rawBytes: Buffer.from('internal'),
+    nested: {
+      providerRequestId: 'nested-leak',
+      safeKey: 'keep-me',
+    },
+  });
+
+  assert.equal(event.type, 'text.delta');
+  assert.equal(event.text, 'Sanitized answer');
+  assert.equal(event.providerRequestId, undefined);
+  assert.equal(event.rawPayload, undefined);
+  assert.equal(event.providerPayloadId, undefined);
+  assert.equal(event.rawBytes, undefined);
+  assert.equal(event.nested?.providerRequestId, undefined);
+  assert.equal(event.nested?.safeKey, 'keep-me');
+
+  // Must pass public AgentEvent contract validation without provider leakage error
+  assert.doesNotThrow(() => validateAgentEvent(event));
+});
+

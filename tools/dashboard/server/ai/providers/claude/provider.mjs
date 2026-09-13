@@ -5,8 +5,9 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { AiError, AiValidationError, validateAgentExecutionMode } from '../../contracts.mjs';
+import { createAgentModelDescriptor } from '../../model/model-catalog.mjs';
 import { createClaudeContinuationStore } from './continuation-store.mjs';
-import { terminateChildProcess } from '../process-termination.mjs';
+import { terminateChildProcess, getProcessTreeSpawnOptions } from '../process-termination.mjs';
 import { RawCaptureRecorder, rawCaptureSessionDirectory } from '../raw-capture.mjs';
 import { mcpInteractionRegistry } from '../../interactions/mcp/index.mjs';
 
@@ -24,8 +25,110 @@ export const CLAUDE_CAPABILITIES = Object.freeze({
   cancelTurn: true,
   toolCalls: true,
   reasoning: true,
+  reasoningEvents: true,
+  canOverrideTurnModel: true,
   usage: true,
 });
+
+// Curated identity/display metadata only (D1/Area 03): no `isDefault` is asserted for any
+// entry, and no `traits` are invented — this codebase has no authoritative evidence (CLI
+// documentation, `--help` output, or operator configuration) of these models' reasoning,
+// vision, or context-window characteristics, so traits stay genuinely unknown rather than
+// guessed. Re-verified against the installed Claude CLI's `--model` help text, which
+// confirms only the current naming scheme (`claude-<family>-<version>`, e.g.
+// `claude-fable-5`) and family aliases (`fable`, `opus`, `sonnet`) — it does not expose an
+// exhaustive model list, so these IDs come from Anthropic's own current-model guidance for
+// this environment, not from guessing.
+export const CLAUDE_CURATED_MODELS = Object.freeze([
+  Object.freeze({ id: 'claude-opus-5', label: 'Claude Opus 5', source: 'known' }),
+  Object.freeze({ id: 'claude-sonnet-5', label: 'Claude Sonnet 5', source: 'known' }),
+  Object.freeze({ id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', source: 'known' }),
+]);
+
+export function mapClaudeError(rawError, fallbackMessage = 'Claude turn failed.', exitCode = null) {
+  const message =
+    typeof rawError === 'string'
+      ? rawError
+      : rawError?.message
+        ? String(rawError.message)
+        : fallbackMessage;
+
+  const details = {
+    ...(exitCode !== null ? { exitCode } : {}),
+    ...(rawError && typeof rawError === 'object' && rawError.code ? { providerCode: rawError.code } : {}),
+  };
+
+  const statusNumber =
+    typeof rawError === 'object' && rawError !== null
+      ? typeof rawError.status === 'number'
+        ? rawError.status
+        : typeof rawError.code === 'number'
+          ? rawError.code
+          : null
+      : null;
+
+  if (/timeout|timed out|deadline exceeded|ETIMEDOUT/i.test(message) || exitCode === 124) {
+    return new AiError('AI_PROVIDER_TIMEOUT', message, {
+      status: 504,
+      recoveryHint: 'none',
+      details,
+    });
+  }
+
+  if (/unauthorized|auth|credentials|login|api key|authentication failed|not logged in/i.test(message)) {
+    return new AiError('AI_AUTH_FAILED', message, {
+      status: 401,
+      recoveryHint: 'operator-action',
+      details,
+    });
+  }
+
+  if (/forbidden|permission denied|sandbox|policy denied/i.test(message)) {
+    return new AiError('AI_POLICY_DENIED', message, {
+      status: 403,
+      recoveryHint: 'operator-action',
+      details,
+    });
+  }
+
+  if (/quota|credit|billing|monthly limit|plan limit/i.test(message)) {
+    return new AiError('AI_QUOTA_EXHAUSTED', message, {
+      status: 429,
+      recoveryHint: 'alternate-provider',
+      details,
+    });
+  }
+
+  if (statusNumber === 429 || /rate limit|too many requests|tpm|rpm/i.test(message)) {
+    return new AiError('AI_RATE_LIMITED', message, {
+      status: 429,
+      recoveryHint: 'retry-after-delay',
+      details,
+    });
+  }
+
+  if (/protocol error|malformed json|unexpected token/i.test(message)) {
+    return new AiError('AI_PROTOCOL_ERROR', message, {
+      status: 502,
+      recoveryHint: 'new-session',
+      details,
+    });
+  }
+
+  if (rawError?.code === 'ENOENT' || /ENOENT|not found in PATH/i.test(message)) {
+    return new AiError('AI_PROVIDER_UNAVAILABLE', message, {
+      status: 503,
+      recoveryHint: 'operator-action',
+      details,
+    });
+  }
+
+  return new AiError('AI_PROVIDER_EXECUTION_ERROR', message, {
+    status: 502,
+    recoveryHint: 'new-turn',
+    details,
+  });
+}
 
 // `description` is a concise label for primary UI presentation (C5) — the canonical
 // model bounds it to 1000 chars, and the full untruncated value already survives
@@ -161,13 +264,24 @@ export function mapClaudeTool(toolName = '', input = {}) {
   };
 }
 
-export function defaultProbeClaudeExecutable(executable) {
+export function defaultProbeClaudeExecutable(executable = 'claude', { timeoutMs = 5_000 } = {}) {
   try {
+    if (existsSync(executable)) {
+      return { ok: true, resolvedPath: executable };
+    }
     const probe = process.platform === 'win32' ? `where.exe "${executable}"` : `which "${executable}"`;
-    execSync(probe, { stdio: 'ignore', timeout: 1500 });
-    return true;
-  } catch {
-    return false;
+    const stdout = execSync(probe, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: timeoutMs,
+    });
+    const resolvedPath = stdout ? stdout.trim().split(/\r?\n/)[0]?.trim() : undefined;
+    return { ok: true, resolvedPath };
+  } catch (err) {
+    if (err.code === 'ETIMEDOUT' || err.signal === 'SIGTERM' || err.killed) {
+      return { ok: false, reason: 'timeout', timeoutMs };
+    }
+    return { ok: false, reason: 'not-found', error: err?.message || String(err) };
   }
 }
 
@@ -179,6 +293,7 @@ export class ClaudeAgentProvider {
   #hookScriptPath;
   #materializedSessions = new Set();
   #availabilityCache = { checkedAt: 0, result: null };
+  #resolvedExecutablePath = null;
   #cancelGraceMs;
   #forceGraceMs;
   #probeExecutable;
@@ -186,6 +301,7 @@ export class ClaudeAgentProvider {
   #mcpEnabled;
   #mcpEndpointUrl;
   #tlsCertPath;
+  #configuredModels = [];
 
   constructor({
     executable = 'claude',
@@ -206,6 +322,7 @@ export class ClaudeAgentProvider {
     mcpEndpointUrl = null,
     bridgePort = null,
     tlsCertPath = null,
+    configuredModels = [],
   } = {}) {
     this.#executable = executable;
     this.#cwd = cwd;
@@ -235,6 +352,7 @@ export class ClaudeAgentProvider {
       rawCaptureEnabled,
       rawFlushTimeoutMs,
     });
+    this.#configuredModels = Array.isArray(configuredModels) ? configuredModels : [];
   }
 
   configureMcpEndpoint(urlOrResolver) {
@@ -276,6 +394,22 @@ export class ClaudeAgentProvider {
     });
   }
 
+  async listModels() {
+    // `source` is never trusted from the operator-configured entry itself — it is always
+    // truthfully forced to 'configured' here, never spoofable as 'known'/'discovered'.
+    const configured = this.#configuredModels.map((m) =>
+      createAgentModelDescriptor({ id: m.id, label: m.label, isDefault: m.isDefault, traits: m.traits, source: 'configured' }),
+    );
+    const modelsById = new Map();
+    for (const m of CLAUDE_CURATED_MODELS) {
+      modelsById.set(m.id, m);
+    }
+    for (const m of configured) {
+      modelsById.set(m.id, m);
+    }
+    return Array.from(modelsById.values());
+  }
+
   getRawCapturePath(sessionId) {
     return this.#rawCapture.getRawCapturePath(sessionId);
   }
@@ -284,23 +418,46 @@ export class ClaudeAgentProvider {
     return this.#rawCapture.flushRawCapture(sessionId);
   }
 
-  isAvailable({ ttlMs = 30_000 } = {}) {
+  isAvailable({ ttlMs = 30_000, timeoutMs = 5_000 } = {}) {
     const now = Date.now();
     if (this.#availabilityCache.result && now - this.#availabilityCache.checkedAt < ttlMs) {
       return this.#availabilityCache.result;
     }
-    let available = false;
-    try {
-      available = Boolean(this.#probeExecutable(this.#executable));
-    } catch {
-      available = false;
+
+    if (this.#resolvedExecutablePath && existsSync(this.#resolvedExecutablePath)) {
+      const result = { available: true };
+      this.#availabilityCache = { checkedAt: now, result };
+      return result;
     }
-    const result = available
-      ? { available: true }
-      : {
-          available: false,
-          unavailableReason: `Claude Code CLI ('${this.#executable}') is not found in PATH. Install Claude Code CLI to enable this provider.`,
-        };
+
+    let probeResult;
+    try {
+      probeResult = this.#probeExecutable(this.#executable, { timeoutMs });
+    } catch (err) {
+      probeResult = { ok: false, reason: 'error', error: err?.message || String(err) };
+    }
+
+    if (typeof probeResult === 'boolean') {
+      probeResult = { ok: probeResult, reason: probeResult ? undefined : 'not-found' };
+    }
+
+    let result;
+    if (probeResult?.ok) {
+      if (probeResult.resolvedPath) {
+        this.#resolvedExecutablePath = probeResult.resolvedPath;
+      }
+      result = { available: true };
+    } else if (probeResult?.reason === 'timeout') {
+      result = {
+        available: false,
+        unavailableReason: `Claude Code CLI ('${this.#executable}') probe timed out after ${probeResult.timeoutMs || timeoutMs}ms (system under heavy load).`,
+      };
+    } else {
+      result = {
+        available: false,
+        unavailableReason: `Claude Code CLI ('${this.#executable}') is not found in PATH. Install Claude Code CLI to enable this provider.`,
+      };
+    }
     this.#availabilityCache = { checkedAt: now, result };
     return result;
   }
@@ -397,6 +554,7 @@ export class ClaudeAgentProvider {
       message,
       prompt,
       mode = 'edit',
+      model,
       signal,
       setOperation,
       emitCommentaryDelta,
@@ -435,6 +593,17 @@ export class ClaudeAgentProvider {
       permissionMode,
     ];
 
+    if (typeof model === 'string' && model.trim()) {
+      const trimmedModel = model.trim();
+      args.push('--model', trimmedModel);
+      const isKnown =
+        CLAUDE_CURATED_MODELS.some((m) => m.id === trimmedModel) ||
+        (Array.isArray(this.#configuredModels) && this.#configuredModels.some((m) => m.id === trimmedModel));
+      if (!isKnown) {
+        console.warn(`[claude] unlisted model '${trimmedModel}' passed through permissively to CLI.`);
+      }
+    }
+
     let token = null;
     const resolvedMcpUrl = this.#resolveMcpEndpointUrl();
     if (this.#mcpEnabled && resolvedMcpUrl) {
@@ -454,14 +623,18 @@ export class ClaudeAgentProvider {
       let child;
       try {
         const childEnv = { ...process.env, CLAUDE_INTERACTIVE: '0' };
+        // Scoped CA trust must be decided fresh for this endpoint, never inherited from
+        // whatever the parent Nevo process's own ambient environment happens to carry.
+        delete childEnv.NODE_EXTRA_CA_CERTS;
         if (resolvedMcpUrl?.startsWith('https:') && this.#tlsCertPath && existsSync(this.#tlsCertPath)) {
           childEnv.NODE_EXTRA_CA_CERTS = this.#tlsCertPath;
         }
-        child = this.#spawnProcess(this.#executable, args, {
+        const spawnOpts = getProcessTreeSpawnOptions({
           cwd: this.#cwd,
           stdio: ['pipe', 'pipe', 'pipe'],
           env: childEnv,
         });
+        child = this.#spawnProcess(this.#executable, args, spawnOpts);
       } catch (err) {
         console.error(`[claude] spawn failed: ${err.message}`);
         try {
@@ -472,8 +645,11 @@ export class ClaudeAgentProvider {
             unlinkSync(mcpConfigPath);
           } catch {}
         }
+        const spawnErrorCode = err.code === 'ENOENT' ? 'AI_PROVIDER_UNAVAILABLE' : 'AI_TRANSPORT_ERROR';
+        const status = err.code === 'ENOENT' ? 503 : 502;
+        const recoveryHint = err.code === 'ENOENT' ? 'operator-action' : 'new-turn';
         return reject(
-          new AiError('AI_PROVIDER_SPAWN_ERROR', `Failed to spawn claude CLI: ${err.message}`, { cause: err }),
+          new AiError(spawnErrorCode, `Failed to spawn claude CLI: ${err.message}`, { status, recoveryHint, cause: err }),
         );
       }
 
@@ -795,7 +971,14 @@ export class ClaudeAgentProvider {
               deferredPayload = event.deferred_tool_use || event.delta?.deferred_tool_use || deferredPayload;
             }
             if (event.subtype === 'error' || event.is_error === true) {
-              const err = new AiError('AI_PROVIDER_ERROR', event.error?.message || event.result || 'Claude turn failed.');
+              const rawMsg =
+                event.error?.message ||
+                event.result ||
+                (event.api_error_status ? `API error ${event.api_error_status}` : 'Claude turn failed.');
+              const err = mapClaudeError(
+                { message: rawMsg, ...(event.api_error_status ? { status: event.api_error_status } : {}) },
+                rawMsg,
+              );
               cleanupSettings(err);
               reject(err);
               return;
@@ -823,7 +1006,8 @@ export class ClaudeAgentProvider {
           }
 
           case 'error': {
-            const err = new AiError('AI_PROVIDER_ERROR', event.error?.message || 'Claude turn failed.');
+            const rawMsg = event.error?.message || 'Claude turn failed.';
+            const err = mapClaudeError(rawMsg, rawMsg);
             cleanupSettings(err);
             reject(err);
             break;
@@ -870,7 +1054,7 @@ export class ClaudeAgentProvider {
 
       child.on('error', (err) => {
         console.error(`[claude] [process-error] ${err.message}`);
-        const aiErr = new AiError('AI_PROVIDER_PROCESS_ERROR', `Claude process error: ${err.message}`, { cause: err });
+        const aiErr = mapClaudeError(err, `Claude process error: ${err.message}`);
         cleanupSettings(aiErr);
         reject(aiErr);
       });
@@ -984,7 +1168,7 @@ export class ClaudeAgentProvider {
 
         if (exitCode !== 0 && !isDeferred) {
           const detail = stderrOutput.trim() || 'Process ended unexpectedly (check server logs for details)';
-          const exitErr = new AiError('AI_PROVIDER_EXIT_ERROR', `Claude process exited with code ${exitCode}: ${detail}`);
+          const exitErr = mapClaudeError(detail, `Claude process exited with code ${exitCode}: ${detail}`, exitCode);
           cleanupSettings(exitErr);
           return reject(exitErr);
         }
@@ -1100,9 +1284,9 @@ export class ClaudeAgentProvider {
     });
     if (!result.terminated) {
       throw new AiError(
-        'AI_PROCESS_TERMINATION_FAILED',
+        'AI_OPERATION_LOST',
         'Failed to terminate Claude CLI process within bounded timeout.',
-        { status: 500 },
+        { status: 500, recoveryHint: 'operator-action' },
       );
     }
   }

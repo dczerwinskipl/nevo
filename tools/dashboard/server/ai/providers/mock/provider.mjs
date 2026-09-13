@@ -8,9 +8,11 @@ const MOCK_CAPABILITIES = Object.freeze({
   cancelTurn: true,
   toolCalls: true,
   reasoning: true,
+  reasoningEvents: true,
   usage: true,
   steerTurn: false,
   planUpdates: false,
+  canOverrideTurnModel: false,
 });
 
 function padded(value) {

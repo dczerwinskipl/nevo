@@ -33,6 +33,7 @@ export interface AgentSessionComposerProps {
   hasActiveTurn?: boolean;
   canCancel?: boolean;
   isProviderAvailable?: boolean;
+  unavailableReason?: string;
   disabled?: boolean;
   loadError?: unknown;
   currentMode: AgentExecutionMode;
@@ -48,6 +49,7 @@ export function AgentSessionComposer({
   hasActiveTurn,
   canCancel = true,
   isProviderAvailable = true,
+  unavailableReason,
   disabled = false,
   loadError,
   currentMode,
@@ -75,6 +77,7 @@ export function AgentSessionComposer({
   const resolvedPlaceholder = resolveComposerPlaceholder({
     loadError,
     isProviderAvailable,
+    unavailableReason,
     isRunning,
     hasActiveTurn,
     disabled,

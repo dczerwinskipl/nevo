@@ -93,12 +93,79 @@ export function startHttpRedirectServer({ httpsUrl, host = '127.0.0.1', redirect
   });
 }
 
+/**
+ * Starts a lightweight plain-HTTP Fastify instance bound exclusively to
+ * 127.0.0.1 on an OS-assigned ephemeral port (port: 0). Registers only the
+ * MCP routes — no TLS, no static assets, no autoload, no external exposure.
+ *
+ * Because this runs in the same Node.js process as the main dashboard, it
+ * shares the same in-process mcpInteractionRegistry and mcpSessionManager
+ * state without any IPC or network round-trips.
+ *
+ * Returns { url: 'http://127.0.0.1:<port>/mcp', server: FastifyInstance }.
+ * The caller is responsible for closing the server when the main app shuts down.
+ */
+export async function startLocalMcpServer({ mcpRoutes } = {}) {
+  const { default: Fastify } = await import('fastify');
+  const mcpRoutesPlugin = mcpRoutes ?? (await import('./ai/interactions/mcp/index.mjs')).mcpRoutes;
+
+  const server = Fastify({ logger: false, bodyLimit: 4096, exposeHeadRoutes: false });
+
+  // Register JSON body parser — MCP uses application/json POST bodies.
+  const { registerGlobalHttpInfrastructure } = await import('./infrastructure/http.mjs');
+  await registerGlobalHttpInfrastructure(server);
+
+  await server.register(mcpRoutesPlugin);
+  await server.listen({ port: 0, host: '127.0.0.1' });
+
+  const addr = server.server.address();
+  const url = `http://127.0.0.1:${addr.port}/mcp`;
+  return { url, server };
+}
+
+/**
+ * The one reusable runtime/startup composition for every real entrypoint that
+ * needs a fully working dashboard — direct production/dev-server startup
+ * (`index.mjs`'s `isDirectRun` branch) and `scripts/dev.mjs` alike. Neither
+ * entrypoint hand-wires the local MCP server + `buildDashboardApp` +
+ * lifecycle-tying sequence itself; both call this instead, so there is
+ * exactly one place that can get that composition wrong.
+ *
+ * Starts the loopback-only local MCP server *before* building the main app
+ * (so its URL is known in time for `config.localMcpUrl`), builds the app with
+ * that URL wired in, and ties the local MCP server's lifetime to the main
+ * app's `onClose` hook — closing the main app always closes the local MCP
+ * server too, in dev and in production alike.
+ *
+ * `config` is forwarded to `buildDashboardApp` as-is except `localMcpUrl`,
+ * which this function always supplies itself — a caller-supplied
+ * `config.localMcpUrl` would silently disagree with the local MCP server this
+ * same call just started, so it is intentionally not accepted here.
+ */
+export async function buildDashboardRuntime({ config = {} } = {}) {
+  const localMcp = await startLocalMcpServer();
+  console.log(`NEvo MCP: ${localMcp.url} (local-only, not externally reachable)`);
+
+  const app = await buildDashboardApp({ config: { ...config, localMcpUrl: localMcp.url } });
+
+  app.addHook('onClose', async () => {
+    try {
+      await localMcp.server.close();
+    } catch (err) {
+      console.error('[server] error closing local MCP server:', err.message);
+    }
+  });
+
+  return { app, localMcpUrl: localMcp.url };
+}
+
 const isDirectRun = process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
 
 if (isDirectRun) {
   const { host, port, explicitHttpsPort } = dashboardNetworkConfig();
   const tls = loadTlsConfig();
-  const app = await buildDashboardApp({ config: { tls } });
+
+  const { app } = await buildDashboardRuntime({ config: { tls } });
 
   if (tls) {
     const httpsPort = resolveHttpsPort({ port, explicitHttpsPort });

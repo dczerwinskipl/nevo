@@ -47,23 +47,47 @@ export class AgentProviderRegistry {
 
   descriptors() {
     return [...this.#providers.values()].map((entry) => {
-      let desc = entry.descriptor;
+      let desc = entry.provider.descriptor || entry.descriptor;
       if (typeof entry.provider.isAvailable === 'function') {
         const avail = entry.provider.isAvailable();
+        const installed =
+          avail?.installed !== undefined
+            ? Boolean(avail.installed)
+            : (desc.health?.installed ?? (avail?.available !== false));
+        const status = avail?.status || (installed ? 'healthy' : 'unavailable');
+        const health = {
+          ...desc.health,
+          enabled: desc.enabled !== false,
+          installed,
+          status,
+          ...(avail?.version ? { version: avail.version } : (desc.health?.version ? { version: desc.health.version } : {})),
+          ...(avail?.authenticated !== undefined
+            ? { authenticated: avail.authenticated }
+            : (desc.health?.authenticated !== undefined ? { authenticated: desc.health.authenticated } : {})),
+          ...(avail?.unavailableReason
+            ? { unavailableReason: String(avail.unavailableReason) }
+            : (desc.health?.unavailableReason ? { unavailableReason: desc.health.unavailableReason } : {})),
+        };
         desc = {
           ...desc,
-          available: avail?.available !== false,
-          ...(avail?.unavailableReason ? { unavailableReason: String(avail.unavailableReason) } : {}),
+          enabled: health.enabled,
+          available: health.installed && health.status !== 'unavailable',
+          health,
+          ...(health.unavailableReason ? { unavailableReason: health.unavailableReason } : {}),
         };
       }
       return desc;
     });
   }
 
+
   get(provider) {
     const entry = this.#providers.get(provider);
     if (!entry) throw new AiNotFoundError(`AI provider '${provider}' was not found.`, { provider });
-    return entry;
+    return {
+      provider: entry.provider,
+      descriptor: entry.provider.descriptor || entry.descriptor,
+    };
   }
 
   require(provider, capability, method) {

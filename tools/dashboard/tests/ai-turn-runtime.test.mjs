@@ -834,7 +834,7 @@ test('a tool still running when its turn fails resolves to failed', async () => 
   }
 });
 
-test('idle watchdog fails a silent turn via the provider cancel path with AI_TURN_TIMEOUT', async () => {
+test('idle watchdog fails a silent turn via the provider cancel path with AI_RUNTIME_TIMEOUT', async () => {
   const fixture = createFixture({
     runtimeOptions: { idleTimeoutMs: 30, idleCheckIntervalMs: 5, clock: () => new Date() },
   });
@@ -855,7 +855,7 @@ test('idle watchdog fails a silent turn via the provider cancel path with AI_TUR
     'idle timeout',
   );
   assert.equal(snapshot.events.filter((event) => event.type === 'turn.failed').length, 1);
-  assert.equal(snapshot.events.at(-1).error.code, 'AI_TURN_TIMEOUT');
+  assert.equal(snapshot.events.at(-1).error.code, 'AI_RUNTIME_TIMEOUT');
   assert.equal(fixture.cancels, 1);
   fixture.runtime.shutdown();
 });
@@ -934,6 +934,7 @@ test('boot reconciliation finalizes an orphaned persisted activeTurn as AI_TURN_
     const orphanTurn = transcript.turns.find((t) => t.id === turnId);
     assert.equal(orphanTurn.status.status, 'terminal');
     assert.equal(orphanTurn.status.outcome, 'interrupted');
+    assert.equal(orphanTurn.status.cause, 'server-restart');
     assert.equal(orphanTurn.status.error.message, 'Interrupted by server restart.');
     fresh.runtime.shutdown();
   } finally {
@@ -1218,7 +1219,7 @@ test('Antigravity full path: error result with empty response -> turn.failed, no
       assert.equal(turn.finalAnswer, null, 'assistant turn must not contain placeholder prose');
       const err = turn.terminalOutcome?.error || turn.status?.error;
       assert.deepEqual(err, {
-        code: 'AI_PROVIDER_ERROR',
+        code: 'AI_PROVIDER_EXECUTION_ERROR',
         message: 'ContentOffset 22500 exceeds line range size 1792',
       });
     }
@@ -1646,7 +1647,7 @@ test('regression (Issue 2): a tool that opens and then goes fully silent eventua
     (v) => v.status === 'failed',
     'protocol-silence timeout with an open but silent tool',
   );
-  assert.equal(failedSnapshot.events.at(-1).error.code, 'AI_TURN_TIMEOUT');
+  assert.equal(failedSnapshot.events.at(-1).error.code, 'AI_RUNTIME_TIMEOUT');
   const failedTurn = runtime.getCanonicalTurn(turnId);
   assert.equal(failedTurn.status.status, 'terminal');
   assert.equal(failedTurn.status.cause, 'timeout/protocol-silence');
@@ -2071,3 +2072,213 @@ test('regression: cross-provider smoke test for Claude, Codex, and Antigravity e
   assert.equal(turn.status.outcome, 'completed');
   runtime.shutdown();
 });
+
+test('Criterion 2: runtime evidence precedence ensures reasoning deltas are accepted and projected when model metadata is omitted or unknown', async () => {
+  const reasoningProvider = {
+    descriptor: {
+      id: 'reasoning-evidence-provider',
+      label: 'Reasoning Provider',
+      capabilities: { ...capabilities, reasoningEvents: true },
+      models: [
+        {
+          id: 'unlisted-or-no-reasoning-model',
+          label: 'Model without reasoning metadata',
+          source: 'known',
+          traits: { supportsReasoning: false }, // explicitly advisory false
+        },
+      ],
+    },
+    async startTurn({ emitReasoningDelta, emitFinalAnswerDelta }) {
+      emitReasoningDelta('Authoritative thinking emitted by provider transport');
+      emitFinalAnswerDelta('Final calculated response.');
+    },
+    async cancelTurn() {},
+  };
+
+  const registry = createAgentProviderRegistry([reasoningProvider]);
+  const runtime = createAgentTurnRuntime({ registry });
+
+  const { turnId } = await runtime.startTurn({
+    provider: 'reasoning-evidence-provider',
+    providerSessionId: 'sess-evidence-precedence',
+    message: 'calculate',
+  });
+
+  const snapshot = await waitFor(
+    () => runtime.getSnapshot(turnId),
+    (v) => v.status === 'completed',
+    'completed',
+  );
+
+  assert.equal(snapshot.status, 'completed');
+  const turn = runtime.getCanonicalTurn(turnId);
+  const reasoningItem = turn.work.find((w) => w.type === 'reasoning');
+  assert.ok(reasoningItem, 'Reasoning work item must be projected despite advisory model trait');
+  assert.equal(reasoningItem.text, 'Authoritative thinking emitted by provider transport');
+  assert.equal(turn.finalAnswer?.text, 'Final calculated response.');
+
+  // Check event stream contains reasoning.delta
+  const reasoningEvent = snapshot.events.find((e) => e.type === 'reasoning.delta');
+  assert.ok(reasoningEvent, 'reasoning.delta event must be emitted on public stream');
+  assert.equal(reasoningEvent.text, 'Authoritative thinking emitted by provider transport');
+  runtime.shutdown();
+});
+
+test('Criterion 3: commentary and final answer deltas are distinct non-interchangeable channels; commentary is never promoted to final answer', async () => {
+  const commentaryOnlyProvider = {
+    descriptor: { id: 'commentary-only-provider', label: 'Commentary Provider', capabilities },
+    async startTurn({ emitCommentaryDelta }) {
+      emitCommentaryDelta('Executing background task...');
+      emitCommentaryDelta('Step completed.');
+      // Turn finishes without emitFinalAnswerDelta
+    },
+    async cancelTurn() {},
+  };
+
+  const registry = createAgentProviderRegistry([commentaryOnlyProvider]);
+  const runtime = createAgentTurnRuntime({ registry });
+
+  const { turnId } = await runtime.startTurn({
+    provider: 'commentary-only-provider',
+    providerSessionId: 'sess-commentary-distinction',
+    message: 'do background work',
+  });
+
+  const snapshot = await waitFor(
+    () => runtime.getSnapshot(turnId),
+    (v) => v.status === 'completed',
+    'completed',
+  );
+
+  assert.equal(snapshot.status, 'completed');
+  const turn = runtime.getCanonicalTurn(turnId);
+
+  // Commentary items exist in work
+  const commentaryItems = turn.work.filter((w) => w.type === 'commentary');
+  assert.ok(commentaryItems.length > 0, 'Commentary work items must exist');
+  assert.ok(commentaryItems.some((w) => w.text?.includes('Executing background task...')));
+
+  // Final answer must remain null, never fabricated or promoted from commentary
+  assert.equal(turn.finalAnswer, null, 'Commentary must never be promoted to final answer on completion');
+
+  // Verify events emitted progress.delta, not text.delta
+  const progressEvents = snapshot.events.filter((e) => e.type === 'progress.delta');
+  const textEvents = snapshot.events.filter((e) => e.type === 'text.delta');
+  assert.ok(progressEvents.length > 0, 'progress.delta events must be emitted for commentary');
+  assert.equal(textEvents.length, 0, 'No text.delta events should be emitted when there is no final answer');
+  runtime.shutdown();
+});
+
+test('Criterion 4: regex and text heuristic parsing are strictly prohibited; conversational text questions settle as completed with finalAnswer', async () => {
+  const conversationalQuestionProvider = {
+    descriptor: { id: 'question-provider', label: 'Question Provider', capabilities },
+    async startTurn({ emitFinalAnswerDelta }) {
+      // Model asks a question in plain text at turn end
+      emitFinalAnswerDelta('Should I proceed with option A or option B? Let me know what you prefer.');
+    },
+    async cancelTurn() {},
+  };
+
+  const registry = createAgentProviderRegistry([conversationalQuestionProvider]);
+  const runtime = createAgentTurnRuntime({ registry });
+
+  const { turnId } = await runtime.startTurn({
+    provider: 'question-provider',
+    providerSessionId: 'sess-composer-fallback',
+    message: 'which option?',
+  });
+
+  const snapshot = await waitFor(
+    () => runtime.getSnapshot(turnId),
+    (v) => v.status === 'completed',
+    'completed',
+  );
+
+  // Settles cleanly as completed with finalAnswer, NO synthetic interaction fabricated
+  assert.equal(snapshot.status, 'completed');
+  assert.equal(snapshot.pendingInteraction, null);
+  const turn = runtime.getCanonicalTurn(turnId);
+  assert.equal(turn.status.status, 'terminal');
+  assert.equal(turn.status.outcome, 'completed');
+  assert.equal(turn.finalAnswer?.text, 'Should I proceed with option A or option B? Let me know what you prefer.');
+  assert.equal(turn.work.some((w) => w.type === 'interaction'), false, 'Must not fabricate synthetic interaction from text');
+  runtime.shutdown();
+});
+
+test('Criterion 5: active or queued tools are authoritatively closed with explicit closureReason when turn terminates', async () => {
+  // Test 1: Turn completes while tool is open
+  const completingWithOpenToolProvider = {
+    descriptor: { id: 'open-tool-provider', label: 'Open Tool Provider', capabilities },
+    async startTurn({ emitToolStarted, emitFinalAnswerDelta }) {
+      emitToolStarted({ toolId: 't-dangle-complete', toolName: 'background_job' });
+      emitFinalAnswerDelta('Finished without closing tool.');
+    },
+    async cancelTurn() {},
+  };
+
+  const registry = createAgentProviderRegistry([completingWithOpenToolProvider]);
+  const runtime = createAgentTurnRuntime({ registry });
+
+  const { turnId: turnId1 } = await runtime.startTurn({
+    provider: 'open-tool-provider',
+    providerSessionId: 'sess-open-tool-complete',
+    message: 'run job',
+  });
+
+  const snapshot1 = await waitFor(
+    () => runtime.getSnapshot(turnId1),
+    (v) => v.status === 'completed',
+    'completed',
+  );
+  assert.equal(snapshot1.status, 'completed');
+  const turn1 = runtime.getCanonicalTurn(turnId1);
+  const tool1 = turn1.work.find((w) => w.id === 't-dangle-complete');
+  assert.ok(tool1, 'Tool work item must exist');
+  assert.equal(tool1.status, 'failed', 'Open tool must be authoritatively closed as failed');
+  assert.equal(tool1.closureReason, 'turn_completed', 'Closure reason must be turn_completed');
+
+  const toolCompletedEvent1 = snapshot1.events.find((e) => e.type === 'tool.completed' && e.toolId === 't-dangle-complete');
+  assert.ok(toolCompletedEvent1, 'tool.completed event must be emitted on public stream');
+  assert.equal(toolCompletedEvent1.status, 'failed');
+  assert.equal(toolCompletedEvent1.closureReason, 'turn_completed');
+
+  // Test 2: Turn fails while tool is open
+  const failingWithOpenToolProvider = {
+    descriptor: { id: 'failing-tool-provider', label: 'Failing Tool Provider', capabilities },
+    async startTurn({ emitToolStarted }) {
+      emitToolStarted({ toolId: 't-dangle-fail', toolName: 'failing_job' });
+      throw new Error('Unrecoverable provider error');
+    },
+    async cancelTurn() {},
+  };
+
+  const registry2 = createAgentProviderRegistry([failingWithOpenToolProvider]);
+  const runtime2 = createAgentTurnRuntime({ registry: registry2 });
+
+  const { turnId: turnId2 } = await runtime2.startTurn({
+    provider: 'failing-tool-provider',
+    providerSessionId: 'sess-open-tool-fail',
+    message: 'fail job',
+  });
+
+  const snapshot2 = await waitFor(
+    () => runtime2.getSnapshot(turnId2),
+    (v) => v.status === 'failed',
+    'failed',
+  );
+  assert.equal(snapshot2.status, 'failed');
+  const turn2 = runtime2.getCanonicalTurn(turnId2);
+  const tool2 = turn2.work.find((w) => w.id === 't-dangle-fail');
+  assert.ok(tool2);
+  assert.equal(tool2.status, 'failed');
+  assert.equal(tool2.closureReason, 'turn_failed');
+
+  const toolCompletedEvent2 = snapshot2.events.find((e) => e.type === 'tool.completed' && e.toolId === 't-dangle-fail');
+  assert.ok(toolCompletedEvent2);
+  assert.equal(toolCompletedEvent2.status, 'failed');
+  assert.equal(toolCompletedEvent2.closureReason, 'turn_failed');
+
+  runtime.shutdown();
+  runtime2.shutdown();
+});
+

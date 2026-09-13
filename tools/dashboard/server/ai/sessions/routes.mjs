@@ -37,6 +37,10 @@ export default async function sessionRoutes(fastify, { service, accessPolicy }) 
     const provider = validatedSegment(body.provider, PROVIDER_PATTERN, 'provider ID');
     if (!UUID_PATTERN.test(body.specId || '')) throw new AiValidationError('Invalid specification ID.');
 
+    if (body.model !== undefined && (typeof body.model !== 'string' || !body.model.trim())) {
+      throw new AiValidationError('Invalid model.');
+    }
+
     if (body.providerSessionId) {
       const providerSessionId = validatedSessionId(body.providerSessionId);
       if (body.taskId && !TURN_PATTERN.test(body.taskId)) throw new AiValidationError('Invalid task ID.');
@@ -54,6 +58,7 @@ export default async function sessionRoutes(fastify, { service, accessPolicy }) 
         taskIds: body.taskIds,
         purpose: body.purpose,
         mode: body.mode,
+        model: body.model ? body.model.trim() : undefined,
       });
       reply.code(201).send({ session });
       return;
@@ -71,13 +76,14 @@ export default async function sessionRoutes(fastify, { service, accessPolicy }) 
     }
 
     console.log(
-      `[ai] [session:create] provider=${provider} specId=${body.specId} taskId=${body.taskId || '-'}${body.mode ? ` mode=${body.mode}` : ''}`,
+      `[ai] [session:create] provider=${provider} specId=${body.specId} taskId=${body.taskId || '-'}${body.mode ? ` mode=${body.mode}` : ''}${body.model ? ` model=${body.model}` : ''}`,
     );
     const session = await service.createSession(provider, {
       specId: body.specId,
       taskId: body.taskId,
       taskIds: body.taskIds,
       mode: body.mode,
+      model: body.model ? body.model.trim() : undefined,
       ...(body.title === undefined ? {} : { title: body.title }),
       ...(body.purpose === undefined ? {} : { purpose: body.purpose }),
     });
@@ -105,6 +111,7 @@ export default async function sessionRoutes(fastify, { service, accessPolicy }) 
         status: details.status,
         readiness: details.readiness,
         mode: details.mode,
+        model: details.model,
         capabilities: details.capabilities,
         specId: details.specId,
         taskId: details.taskId,
@@ -141,6 +148,11 @@ export default async function sessionRoutes(fastify, { service, accessPolicy }) 
       const body = assertBodyObject(request.body);
       if (body.mode) {
         const session = await service.updateSessionMode(provider, providerSessionId, body.mode);
+        reply.send({ session });
+        return;
+      }
+      if (body.model) {
+        const session = await service.updateSessionModel(provider, providerSessionId, body.model);
         reply.send({ session });
         return;
       }

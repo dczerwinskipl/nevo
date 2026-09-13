@@ -142,8 +142,13 @@ export function AgentSessionRow({
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-fg-muted">
           <ProviderBadge provider={session.provider} />
           {!isAvailable && (
-            <span className="inline-flex items-center gap-1 rounded-md bg-status-warning/10 px-1.5 py-0.5 text-[9px] font-semibold text-status-warning">
-              CLI niedostępne
+            <span
+              className="inline-flex items-center gap-1 rounded-md bg-status-warning/10 px-1.5 py-0.5 text-[9px] font-semibold text-status-warning"
+              title={providerInfo?.unavailableReason}
+            >
+              {providerInfo?.unavailableReason && /timed out|timeout|limit czasu/i.test(providerInfo.unavailableReason)
+                ? 'Timeout CLI'
+                : 'CLI niedostępne'}
             </span>
           )}
           {timeStr && (

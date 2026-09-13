@@ -283,6 +283,7 @@ export class AgentSessionBindingService {
     taskId,
     purpose,
     mode,
+    model,
     createdAt,
     lastSeenAt,
     established,
@@ -296,6 +297,9 @@ export class AgentSessionBindingService {
     }
     if (mode !== undefined) {
       validateAgentExecutionMode(mode, 'mode');
+    }
+    if (model !== undefined && (typeof model !== 'string' || !model.trim())) {
+      throw new AiValidationError("'model' must be a non-empty string when provided.", { field: 'model' });
     }
 
     const now = new Date().toISOString();
@@ -314,6 +318,7 @@ export class AgentSessionBindingService {
       exactTaskMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
       if (purpose !== undefined) exactTaskMatch.purpose = purpose;
       if (mode !== undefined) exactTaskMatch.mode = mode;
+      if (model !== undefined) exactTaskMatch.model = model.trim();
       if (established !== undefined) {
         if (established === false) exactTaskMatch.established = false;
         else delete exactTaskMatch.established;
@@ -336,6 +341,7 @@ export class AgentSessionBindingService {
         specOnlyMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
         if (purpose !== undefined) specOnlyMatch.purpose = purpose;
         if (mode !== undefined) specOnlyMatch.mode = mode;
+        if (model !== undefined) specOnlyMatch.model = model.trim();
         if (established !== undefined) {
           if (established === false) specOnlyMatch.established = false;
           else delete specOnlyMatch.established;
@@ -355,6 +361,7 @@ export class AgentSessionBindingService {
         existingSessionMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
         if (purpose !== undefined) existingSessionMatch.purpose = purpose;
         if (mode !== undefined) existingSessionMatch.mode = mode;
+        if (model !== undefined) existingSessionMatch.model = model.trim();
         if (established !== undefined) {
           if (established === false) existingSessionMatch.established = false;
           else delete existingSessionMatch.established;
@@ -371,6 +378,7 @@ export class AgentSessionBindingService {
       ...(taskId ? { taskId } : {}),
       ...(purpose ? { purpose } : {}),
       ...(mode ? { mode } : {}),
+      ...(model ? { model: model.trim() } : {}),
       ...(established === false ? { established: false } : {}),
       createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
       lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
@@ -381,7 +389,7 @@ export class AgentSessionBindingService {
     return structuredClone(newBinding);
   }
 
-  bindSessionSync({ provider, providerSessionId, specId, taskId, purpose, mode, createdAt, lastSeenAt } = {}) {
+  bindSessionSync({ provider, providerSessionId, specId, taskId, purpose, mode, model, createdAt, lastSeenAt } = {}) {
     const identity = validateAgentIdentity({ provider, providerSessionId });
     if (!specId || typeof specId !== 'string' || !UUID_RE.test(specId)) {
       throw new AiValidationError("'specId' must be a valid canonical UUID.", { field: 'specId' });
@@ -391,6 +399,9 @@ export class AgentSessionBindingService {
     }
     if (mode !== undefined) {
       validateAgentExecutionMode(mode, 'mode');
+    }
+    if (model !== undefined && (typeof model !== 'string' || !model.trim())) {
+      throw new AiValidationError("'model' must be a non-empty string when provided.", { field: 'model' });
     }
 
     const now = new Date().toISOString();
@@ -408,6 +419,7 @@ export class AgentSessionBindingService {
       exactTaskMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
       if (purpose !== undefined) exactTaskMatch.purpose = purpose;
       if (mode !== undefined) exactTaskMatch.mode = mode;
+      if (model !== undefined) exactTaskMatch.model = model.trim();
       this.#persistForSpecSync(specId, bindings);
       return structuredClone(exactTaskMatch);
     }
@@ -425,6 +437,7 @@ export class AgentSessionBindingService {
         specOnlyMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
         if (purpose !== undefined) specOnlyMatch.purpose = purpose;
         if (mode !== undefined) specOnlyMatch.mode = mode;
+        if (model !== undefined) specOnlyMatch.model = model.trim();
         this.#persistForSpecSync(specId, bindings);
         return structuredClone(specOnlyMatch);
       }
@@ -439,6 +452,7 @@ export class AgentSessionBindingService {
         existingSessionMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
         if (purpose !== undefined) existingSessionMatch.purpose = purpose;
         if (mode !== undefined) existingSessionMatch.mode = mode;
+        if (model !== undefined) existingSessionMatch.model = model.trim();
         this.#persistForSpecSync(specId, bindings);
         return structuredClone(existingSessionMatch);
       }
@@ -451,6 +465,7 @@ export class AgentSessionBindingService {
       ...(taskId ? { taskId } : {}),
       ...(purpose ? { purpose } : {}),
       ...(mode ? { mode } : {}),
+      ...(model ? { model: model.trim() } : {}),
       createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
       lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
     };
@@ -533,6 +548,58 @@ export class AgentSessionBindingService {
       const now = new Date().toISOString();
       for (const match of matches) {
         match.mode = validatedMode;
+        match.lastSeenAt = now;
+      }
+      this.#persistForSpecSync(specId, specBindings);
+      return {
+        ...structuredClone(matches[0]),
+        taskIds: currentBinding.taskIds,
+      };
+    }
+    return null;
+  }
+
+  async updateSessionModel(provider, providerSessionId, model) {
+    validateAgentIdentity({ provider, providerSessionId });
+    if (typeof model !== 'string' || !model.trim()) {
+      throw new AiValidationError("'model' must be a non-empty string.", { field: 'model' });
+    }
+    const currentBinding = await this.resolveCurrentBinding(provider, providerSessionId);
+    if (!currentBinding) return null;
+
+    const specId = currentBinding.specId;
+    const specBindings = await this.#loadForSpec(specId);
+    const matches = specBindings.filter((b) => b.provider === provider && b.providerSessionId === providerSessionId);
+    if (matches.length > 0) {
+      const now = new Date().toISOString();
+      for (const match of matches) {
+        match.model = model.trim();
+        match.lastSeenAt = now;
+      }
+      await this.#persistForSpec(specId, specBindings);
+      return {
+        ...structuredClone(matches[0]),
+        taskIds: currentBinding.taskIds,
+      };
+    }
+    return null;
+  }
+
+  updateSessionModelSync(provider, providerSessionId, model) {
+    validateAgentIdentity({ provider, providerSessionId });
+    if (typeof model !== 'string' || !model.trim()) {
+      throw new AiValidationError("'model' must be a non-empty string.", { field: 'model' });
+    }
+    const currentBinding = this.resolveCurrentBindingSync(provider, providerSessionId);
+    if (!currentBinding) return null;
+
+    const specId = currentBinding.specId;
+    const specBindings = this.#loadForSpecSync(specId);
+    const matches = specBindings.filter((b) => b.provider === provider && b.providerSessionId === providerSessionId);
+    if (matches.length > 0) {
+      const now = new Date().toISOString();
+      for (const match of matches) {
+        match.model = model.trim();
         match.lastSeenAt = now;
       }
       this.#persistForSpecSync(specId, specBindings);

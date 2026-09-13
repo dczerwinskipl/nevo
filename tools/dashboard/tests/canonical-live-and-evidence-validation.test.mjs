@@ -296,7 +296,7 @@ test('Part A3: Terminal arbitration: timeout intent prevails over subsequent pro
           finishDeferred = r;
         });
         // Provider throws during/after cleanup
-        throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider internal protocol crash');
+        throw new AiError('AI_PROTOCOL_ERROR', 'Provider internal protocol crash');
       },
       async cancelTurn() {
         // cleanup hook
@@ -342,7 +342,7 @@ test('Part A3: Terminal arbitration: timeout intent prevails over subsequent pro
     const failedEvents = sessionEvents.filter((e) => e.type === 'turn.failed');
     assert.equal(failedEvents.length, 1, 'Exactly one turn.failed must be emitted');
     const failedEvent = failedEvents[0];
-    assert.equal(failedEvent.error.code, 'AI_TURN_TIMEOUT');
+    assert.equal(failedEvent.error.code, 'AI_RUNTIME_TIMEOUT');
     assert.equal(
       sessionEvents.some((e) => e.type === 'turn.completed'),
       false,
@@ -353,8 +353,8 @@ test('Part A3: Terminal arbitration: timeout intent prevails over subsequent pro
     assert.equal(canonical.status.status, 'terminal');
     assert.equal(canonical.status.outcome, 'failed');
     assert.equal(canonical.status.cause, 'timeout/protocol-silence');
-    assert.equal(canonical.status.error.code, 'AI_TURN_TIMEOUT');
-    assert.equal(canonical.terminalOutcome.error.code, 'AI_TURN_TIMEOUT');
+    assert.equal(canonical.status.error.code, 'AI_RUNTIME_TIMEOUT');
+    assert.equal(canonical.terminalOutcome.error.code, 'AI_RUNTIME_TIMEOUT');
 
     // 3. Persisted Turn & Fresh Reload assertion
     await transcriptCache.flush('fake-timeout-err', 'sess-timeout-err-1');
@@ -365,8 +365,8 @@ test('Part A3: Terminal arbitration: timeout intent prevails over subsequent pro
     assert.equal(persistedTurn.status.status, 'terminal');
     assert.equal(persistedTurn.status.outcome, 'failed');
     assert.equal(persistedTurn.status.cause, 'timeout/protocol-silence');
-    assert.equal(persistedTurn.status.error.code, 'AI_TURN_TIMEOUT');
-    assert.equal(persistedTurn.terminalOutcome.error.code, 'AI_TURN_TIMEOUT');
+    assert.equal(persistedTurn.status.error.code, 'AI_RUNTIME_TIMEOUT');
+    assert.equal(persistedTurn.terminalOutcome.error.code, 'AI_RUNTIME_TIMEOUT');
 
     // 4. Equal across all read paths
     assert.deepEqual(canonical.status.error, persistedTurn.status.error);
@@ -399,7 +399,7 @@ test('Part A3: Terminal arbitration: user cancellation prevails over subsequent 
           finishDeferred = r;
         });
         // Provider throws during cancellation cleanup
-        throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider crashed on abort');
+        throw new AiError('AI_PROTOCOL_ERROR', 'Provider crashed on abort');
       },
       async cancelTurn() {
         // cancellation hook
@@ -536,18 +536,161 @@ test('Part A3: Timeout intent idempotency: slow cancelTurn with multiple watchdo
     // Assert: provider cancelTurn was invoked EXACTLY ONCE
     assert.equal(cancelTurnCallCount, 1, 'Provider cancelTurn must be called at most once');
 
-    // Assert: exactly one turn.failed was emitted with AI_TURN_TIMEOUT
+    // Assert: exactly one turn.failed was emitted with AI_RUNTIME_TIMEOUT
     const failedEvents = sessionEvents.filter((e) => e.type === 'turn.failed');
     assert.equal(failedEvents.length, 1, 'Exactly one turn.failed must be emitted');
-    assert.equal(failedEvents[0].error.code, 'AI_TURN_TIMEOUT');
+    assert.equal(failedEvents[0].error.code, 'AI_RUNTIME_TIMEOUT');
 
     // Assert: canonical status is failed with timeout/protocol-silence
     const canonical = runtime.getCanonicalTurn(turnId);
     assert.equal(canonical.status.outcome, 'failed');
     assert.equal(canonical.status.cause, 'timeout/protocol-silence');
-    assert.equal(canonical.status.error.code, 'AI_TURN_TIMEOUT');
+    assert.equal(canonical.status.error.code, 'AI_RUNTIME_TIMEOUT');
+
+    // Assert: verified cleanup released the session lock — a new turn is accepted, not conflicted.
+    const { turnId: nextTurnId } = await runtime.startTurn({
+      provider: 'fake-slow-timeout',
+      providerSessionId: 'sess-slow-1',
+      message: 'Next turn after verified cleanup',
+    });
+    assert.notEqual(nextTurnId, turnId);
 
     unsub();
+    await runtime.shutdown();
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Part A3: idle watchdog with unverifiable provider cleanup stays unknown/AI_OPERATION_LOST and keeps the session blocked', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-timeout-unverified-'));
+  try {
+    const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const registry = createAgentProviderRegistry();
+
+    registry.register({
+      descriptor: {
+        id: 'fake-unverifiable-timeout',
+        label: 'Fake Unverifiable Timeout',
+        capabilities: { cancelTurn: true },
+      },
+      async startTurn(ctx) {
+        ctx.setOperation({ id: 'op-1' });
+        ctx.emitCommentaryDelta('Hanging work...', 'msg-hang');
+        await new Promise(() => {});
+      },
+      async cancelTurn() {
+        // The provider itself cannot confirm the operation actually stopped.
+        throw new AiError('AI_TRANSPORT_ERROR', 'Lost connection while cancelling.', { status: 502 });
+      },
+    });
+
+    const runtime = createAgentTurnRuntime({
+      registry,
+      transcriptCache,
+      idleTimeoutMs: 25,
+      idleCheckIntervalMs: 10,
+    });
+
+    const { turnId } = await runtime.startTurn({
+      provider: 'fake-unverifiable-timeout',
+      providerSessionId: 'sess-unverified-1',
+      message: 'Hanging turn test',
+    });
+
+    await waitFor(
+      () => runtime.getSnapshot(turnId),
+      (snap) => snap.status === 'unknown',
+      'unverified idle timeout transitions to unknown',
+    );
+
+    const canonical = runtime.getCanonicalTurn(turnId);
+    assert.equal(canonical.status.status, 'unknown');
+    assert.notEqual(canonical.status.status, 'terminal');
+
+    // The session lock must remain held: a next turn is rejected as a conflict, not admitted.
+    await assert.rejects(
+      runtime.startTurn({
+        provider: 'fake-unverifiable-timeout',
+        providerSessionId: 'sess-unverified-1',
+        message: 'Should be blocked',
+      }),
+      (err) => err.code === 'AI_TURN_CONFLICT' || err.turnId === turnId || /already has a live turn/i.test(err.message),
+    );
+
+    await runtime.shutdown();
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Part A3: recoverTurn on an unknown turn verifies cleanup, settles interrupted/forced_cleanup, and unlocks the session', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-timeout-then-recover-'));
+  try {
+    const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const registry = createAgentProviderRegistry();
+
+    let cancelAttempts = 0;
+    registry.register({
+      descriptor: {
+        id: 'fake-recoverable-timeout',
+        label: 'Fake Recoverable Timeout',
+        capabilities: { cancelTurn: true },
+      },
+      async startTurn(ctx) {
+        ctx.setOperation({ id: 'op-1' });
+        ctx.emitCommentaryDelta('Hanging work...', 'msg-hang');
+        await new Promise(() => {});
+      },
+      async cancelTurn() {
+        cancelAttempts += 1;
+        // First (watchdog) attempt cannot confirm cessation; a later explicit
+        // recovery attempt succeeds (e.g. an operator retried after investigating).
+        if (cancelAttempts === 1) {
+          throw new AiError('AI_TRANSPORT_ERROR', 'Lost connection while cancelling.', { status: 502 });
+        }
+        return { cancelled: true };
+      },
+    });
+
+    const runtime = createAgentTurnRuntime({
+      registry,
+      transcriptCache,
+      idleTimeoutMs: 25,
+      idleCheckIntervalMs: 10,
+    });
+
+    const { turnId } = await runtime.startTurn({
+      provider: 'fake-recoverable-timeout',
+      providerSessionId: 'sess-recoverable-1',
+      message: 'Hanging turn test',
+    });
+
+    await waitFor(
+      () => runtime.getSnapshot(turnId),
+      (snap) => snap.status === 'unknown',
+      'unverified idle timeout transitions to unknown',
+    );
+
+    const recovered = await runtime.recoverTurn(turnId, {
+      provider: 'fake-recoverable-timeout',
+      providerSessionId: 'sess-recoverable-1',
+    });
+    assert.equal(recovered.status, 'failed');
+
+    const canonical = runtime.getCanonicalTurn(turnId);
+    assert.equal(canonical.status.status, 'terminal');
+    assert.equal(canonical.status.outcome, 'interrupted');
+    assert.equal(canonical.status.cause, 'forced_cleanup');
+
+    // The session lock is released: a new turn is accepted, not conflicted.
+    const { turnId: nextTurnId } = await runtime.startTurn({
+      provider: 'fake-recoverable-timeout',
+      providerSessionId: 'sess-recoverable-1',
+      message: 'Next turn after recovery',
+    });
+    assert.notEqual(nextTurnId, turnId);
+
     await runtime.shutdown();
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
