@@ -35,3 +35,8 @@ tasks:
     status: draft
     depends_on:
       - session-task-binding-and-workflow-server-endpoints
+pull_requests:
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 51
