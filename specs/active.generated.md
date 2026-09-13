@@ -4,4 +4,3 @@
 
 | ID | Title | Status | Priority | Created |
 |---|---|---|---|---|
-| `ai-adapters-hardening` | AI adapters hardening | draft | 10 | 2026-08-24 |
