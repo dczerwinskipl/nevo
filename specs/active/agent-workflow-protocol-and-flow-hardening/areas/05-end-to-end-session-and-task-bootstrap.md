@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Define the complete, unambiguous runtime execution lifecycle from the moment an operator selects a task in the Nevo dashboard through agent process spawning, trusted execution identity propagation, CLI auto-binding, step execution, review, human verification, rejection/retry loops, and final verification. This area bridges the user interface, session management runtime, provider child-process adapters, and the deterministic workflow engine into an unbroken, auditable pipeline.
+Define the complete, unambiguous runtime execution lifecycle from the moment an operator selects a task in the Nevo dashboard through agent process spawning, trusted execution identity propagation, CLI auto-binding, step execution, review, human verification, rejection/retry loops, and final verification. Session ID is never an agent-authored input or command parameter; it is exclusively resolved from trusted ambient runtime context. This area bridges the user interface, session management runtime, provider child-process adapters, and the deterministic workflow engine into an unbroken, auditable pipeline.
 
 ---
 
 ## 1. End-to-End Execution Sequence
 
-The standard happy-path and rejection-loop lifecycle spans six distinct phases across five architectural boundaries:
+The standard happy-path and rejection-loop lifecycle spans seven distinct phases across five architectural boundaries:
 
 ```text
 Dashboard UI                Server Session API             Provider Process              Workflow CLI             Engine / Git
@@ -33,8 +33,8 @@ Dashboard UI                Server Session API             Provider Process     
      │                              │◄────────────────────────────┼───────────────────────────┼─ bindSessionSync()     │
      │                              │                             │◄─ 12. return StepContext ─┤                        │
      │                              │                             ├─ 13. Implement changes    │                        │
-     │                              │                             ├─ 14. step finish ────────►│                        │
-     │                              │                             │                           ├─ 15. Commit/tag branch │
+     │                              │                             ├─ 14. step finish --input─►│                        │
+     │                              │                             │     '{"commit.title":...}'├─ 15. Commit/tag branch │
      │                              │                             │                           ├─ 16. Advance state:    │
      │                              │                             │                           │      in-review         │
      │                              │                             │◄─ 17. Exit 0 ─────────────┤                        │
@@ -42,6 +42,51 @@ Dashboard UI                Server Session API             Provider Process     
      │◄─ 19. SSE: turn finished ────┤                             │                           │                        │
      │   Task status: in-review     │                             │                           │                        │
      │   Action: [ Start review ]   │                             │                           │                        │
+```
+
+### Review Loop and Verification Branching Diagram
+
+```text
+Review & Human Decision State Flow:
+====================================
+
+      ┌─────────────────────────────────────────────────────────────┐
+      │                        in-review                            │
+      │   Reviewer runs: workflow step start <change> <task>        │
+      │   Audits code, tests, documentation against criteria        │
+      └──────────────────────────────┬──────────────────────────────┘
+                                     │
+                 ┌───────────────────┴───────────────────┐
+                 │                                       │
+     [Case A: Review Fails]                  [Case B: Review Passes]
+                 │                                       │
+  Reviewer finishes via --input:          Reviewer finishes via --input:
+  '{"result":"fail","feedback":...}'      '{"result":"pass"}'
+                 │                                       │
+                 ▼                                       ▼
+  ┌──────────────────────────────┐        ┌──────────────────────────────┐
+  │      in-implementation       │        │ awaiting-human-verification  │
+  │         (attempt N+1)        │        │   No AI turn running         │
+  │   StepContext contains       │        │   Dashboard renders:         │
+  │   review findings & feedback │        │   [ Approve ]                │
+  │   UI: [ Start implementation]│        │   [ Request changes ]        │
+  └──────────────────────────────┘        └──────────────┬───────────────┘
+                                                         │
+                                     ┌───────────────────┴───────────────────┐
+                                     │                                       │
+                         [Human: Request Changes]                    [Human: Approve]
+                                     │                                       │
+                         POST .../human-decision                 POST .../human-decision
+                         {decision: 'request-changes'}           {decision: 'approve'}
+                                     │                                       │
+                                     ▼                                       ▼
+                      ┌──────────────────────────────┐        ┌──────────────────────────────┐
+                      │      in-implementation       │        │           verified           │
+                      │         (attempt N+1)        │        │          (terminal)          │
+                      │   StepContext contains       │        │   Clean noop commit recorded │
+                      │   human requestedChanges     │        │   Badge: ✓ Verified          │
+                      │   UI: [ Start implementation]│        │   Next task unblocked        │
+                      └──────────────────────────────┘        └──────────────────────────────┘
 ```
 
 ### Phase-by-Phase Trace
@@ -66,7 +111,7 @@ Dashboard UI                Server Session API             Provider Process     
    - `AgentSessionBindingService.bindSession` writes an initial binding entry to `.nevo-ai-local/sessions/<specId>.json` recording `sessionId`, `provider`, `providerSessionId`, `specId`, `taskId: '03'`, and `established`.
 4. **Client Navigation & Prompt Enqueueing:** The server returns `{ session }`. The dashboard calls `queueAgentSessionInitialDispatch`:
    - `userMessage`: `"Implement task 03: <title>"` (visible in chat transcript bubbles).
-   - `prompt`: Injected hidden protocol header (see Section 4) concatenated with task requirements.
+   - `prompt`: Injected hidden protocol header (see Section 5) concatenated with task requirements.
    - Dashboard navigates to `/specs/active/<slug>/sessions/<provider>/<providerSessionId>`.
 
 #### Phase B: Ambient Environment Injection & Turn Execution
@@ -77,7 +122,7 @@ Dashboard UI                Server Session API             Provider Process     
    - `NEVO_AGENT_PROVIDER`: The provider name (e.g. `'claude'`).
    - `NEVO_SPEC_ID`: The specification UUID.
    - `NEVO_TASK_ID`: The current selected task ID (`'03'`).
-   *(See Section 3 for provider adapter spawn integration).*
+   *(See Section 4 for provider adapter spawn integration).*
 7. **Agent Turn Startup:** The agent process starts. The model sees the prompt and protocol header directing it to begin by invoking the workflow CLI.
 
 #### Phase C: Deterministic Step Start & Auto-Binding
@@ -88,14 +133,14 @@ Dashboard UI                Server Session API             Provider Process     
 9. **Zero-Guess Discovery & Auto-Binding:** `tools/specs.mjs` executes `autoBindAgentSession`. `readAgentExecutionContext` extracts `NEVO_SESSION_ID` and `NEVO_AGENT_PROVIDER` from `process.env`.
    - `autoBindAgentSession` calls `bindingService.bindSessionSync`, recording `taskId: '03'`, `step: 'implementation'`, and `attempt: 1` on the binding record.
    - The agent does not need to author, inspect, or pass any session flags.
-10. **Authoritative StepContext:** The CLI executes `allocateAttempt` or `resolveActiveAttempt`, validates git clean baselines, compiles `StepContext`, and outputs it as JSON/YAML. The agent treats `StepContext` as authoritative for `allowed_paths`, `forbidden_paths`, and exit criteria.
+10. **Authoritative StepContext:** The CLI executes `allocateAttempt` or `resolveActiveAttempt`, validates git clean baselines, compiles `StepContext`, and outputs it as JSON/YAML. The agent treats `StepContext` as authoritative for `allowed_paths`, `forbidden_paths`, exit criteria, and parameters required by `finishContract`.
 11. **Provider Session Confirmation:** When Claude outputs its first streaming event or turn completion, `setProviderSessionId(allocatedId)` triggers `bindingService.markSessionEstablished`. The native provider ID is linked without mutating the canonical `sessionId`.
 
 #### Phase D: Implementation Finish & Handover to Review
 12. **Work Execution:** The agent implements code, runs tests, and verifies changes within `allowed_paths`.
-13. **Step Finish:** The agent runs:
+13. **Step Finish via finishContract:** The agent inspects `StepContext.finishContract.parameters` and runs:
     ```bash
-    node tools/specs.mjs workflow step finish agent-workflow-protocol-and-flow-hardening 03 --result success
+    node tools/specs.mjs workflow step finish agent-workflow-protocol-and-flow-hardening 03 --input '{"commit.title":"feat: implement task 03"}'
     ```
 14. **Git Hardening & Transition:**
     - Workflow engine verifies git status: modified files match `allowed_paths`, forbidden paths untouched.
@@ -105,7 +150,7 @@ Dashboard UI                Server Session API             Provider Process     
     - Working tree postcondition: clean.
 15. **Agent Stops:** The CLI exits with code 0. Following the protocol instruction, the agent issues a brief summary and **stops**. No autonomous turn or handover is attempted.
 
-#### Phase E: Review Initiation & Rejection
+#### Phase E: Review Initiation & Review Failure Loop (`review -> implementation` attempt 2)
 16. **UI State Projection:** The turn ends. The dashboard receives the updated manifest:
     - Task 03 status: `in-review`.
     - Current step: `review`.
@@ -117,51 +162,61 @@ Dashboard UI                Server Session API             Provider Process     
 18. **Review Step Start:** Reviewer runs `node tools/specs.mjs workflow step start <slug> 03`.
     - CLI auto-binds review session using ambient `NEVO_SESSION_ID`.
     - Workflow engine checks `change.yaml`: current step is `review`, attempt 1.
-    - CLI returns `StepContext` for `step: 'review'`, specifying review guidelines and read-only / test execution scope.
+    - CLI returns `StepContext` for `step: 'review'`, specifying review guidelines, read-only/test execution scope, and declaring `finishContract.parameters` (`result: 'pass' | 'fail'`, `feedback`, `artifacts`).
 19. **Review Evaluation & Findings:** Reviewer runs tests, discovers a flaw, and writes findings to `specs/active/<slug>/reviews/task-03-attempt-1.md`.
-20. **Review Finish with Rejection:** Reviewer runs:
+20. **Review Finish with Rejection:** Reviewer executes finish with generic `--input` conforming to `finishContract`:
     ```bash
-    node tools/specs.mjs workflow step finish <slug> 03 --result needs-changes --feedback "Unit tests fail in auth middleware boundary." --artifacts specs/active/<slug>/reviews/task-03-attempt-1.md
+    node tools/specs.mjs workflow step finish <slug> 03 --input '{"result":"fail","feedback":"Unit tests fail in auth middleware boundary.","artifacts":["specs/active/<slug>/reviews/task-03-attempt-1.md"]}'
     ```
-21. **Transition to Human Verification:**
+21. **Transition to Implementation Attempt 2:**
     - CLI verifies commit HEAD matches implementation commit (reviewer did not author illegitimate code edits).
-    - `standard.yaml` routing rule transitions task to `awaiting-human-verification` with `humanDecisionRequired: true`.
+    - `standard.yaml` routing rule (`value: fail -> to: implementation`) transitions task directly back to `implementation` attempt 2.
     - Review findings and feedback are appended to `workflow_progress.history`.
     - Reviewer agent stops.
-
-#### Phase F: Human Decision & Attempt 2 Loop
-22. **Human Verification Without Agent:**
-    - Task 03 status: `awaiting-human-verification`.
-    - No AI turn is running.
-    - Dashboard renders workflow action surface above composer: `Task 03 · Human verification · Attempt 1` with buttons `[ Request changes ]` and `[ Approve ]`.
-23. **Operator Rejection:** Operator clicks `[ Request changes ]`.
-    - Composer switches into `request-changes` mode with prominent banner and placeholder: `"Provide specific feedback and required corrections for attempt 2..."`.
-    - Operator enters rationale: `"Fix error handling in middleware edge case."` and clicks `[ Send & reject ]`.
-24. **Backend Human Decision Transition:**
-    - Client sends `POST /api/specs/:slug/tasks/03/workflow/human-decision` with `{ decision: 'request-changes', feedback: '...' }`.
-    - Server invokes `handleWorkflowVerifyHuman` / `finishStep` with `result: 'fail'`.
-    - Engine records human rejection in history, resets step to `implementation`, and increments to attempt 2.
     - UI receives update: Task 03 status is `in-implementation` (attempt 2), `availableActions: ['start-implementation']`.
-25. **Attempt 2 Initiation:** Operator clicks `[ Start implementation ]` (reusing conversation or opening fresh session).
+
+#### Phase F: Implementation Attempt 2 & Review Pass (`review -> human-verification`)
+22. **Attempt 2 Initiation:** Operator clicks `[ Start implementation ]` (reusing conversation or opening fresh session).
     - Turn starts with enriched prompt.
     - Agent runs `node tools/specs.mjs workflow step start <slug> 03`.
     - Engine compiles `StepContext` for attempt 2, containing `previousTransition`:
       ```yaml
       previousTransition:
-        from: human-verification
+        from: review
         attempt: 1
         result: fail
-        requestedChanges: "Fix error handling in middleware edge case."
-        reviewFeedback: "Unit tests fail in auth middleware boundary."
-        reviewArtifacts:
+        feedback: "Unit tests fail in auth middleware boundary."
+        artifacts:
           - specs/active/agent-workflow-protocol-and-flow-hardening/reviews/task-03-attempt-1.md
       ```
-26. **Resolution & Approval:**
-    - Agent fixes the issue and calls `step finish --result success`.
-    - Reviewer runs review attempt 2, tests pass, calls `step finish --result success`.
-    - Task transitions to `awaiting-human-verification`.
-    - Operator clicks `[ Approve ]`.
-    - Server transitions task to `verified`.
+23. **Implementation 2 Finish:** Agent fixes the issue and runs:
+    ```bash
+    node tools/specs.mjs workflow step finish <slug> 03 --input '{"commit.title":"fix: address auth middleware edge case"}'
+    ```
+    Task transitions to `review` attempt 2.
+24. **Review 2 Passes:** Reviewer runs `node tools/specs.mjs workflow step start <slug> 03`. Tests pass cleanly. Reviewer runs:
+    ```bash
+    node tools/specs.mjs workflow step finish <slug> 03 --input '{"result":"pass"}'
+    ```
+    - `standard.yaml` routing rule (`value: pass -> to: human-verification`) transitions task to `awaiting-human-verification`.
+    - Review findings are recorded in history; reviewer agent stops.
+
+#### Phase G: Human Verification & Rejection/Approval Loops
+25. **Human Verification Without Agent:**
+    - Task 03 status: `awaiting-human-verification`.
+    - No AI turn is running.
+    - Dashboard renders workflow action surface above composer: `Task 03 · Human verification · Attempt 1` with buttons `[ Request changes ]` and `[ Approve ]`.
+26. **Human Rejection Loop (if changes needed):**
+    - Operator clicks `[ Request changes ]`.
+    - Composer switches into `request-changes` mode with prominent banner and placeholder: `"Provide specific feedback and required corrections for attempt 3..."`.
+    - Operator enters rationale: `"Refine logging format in middleware."` and clicks `[ Send & reject ]`.
+    - Client sends `POST /api/specs/:slug/tasks/03/workflow/human-decision` with `{ decision: 'request-changes', feedback: '...' }`.
+    - Server invokes `finishStep` with `result: 'fail'`. Task transitions back to `implementation` attempt 3 with human feedback in `workflow_progress.history`.
+27. **Human Approval:**
+    - When implementation and review succeed, operator inspects diff and clicks `[ Approve ]`.
+    - Client sends `POST /api/specs/:slug/tasks/03/workflow/human-decision` with `{ decision: 'approve' }`.
+    - Server invokes `finishStep` with `result: 'pass'`. Clean tree noop commit executes.
+    - Task status transitions to `verified`.
     - Task 03 is complete. If Task 04 exists and was blocked by 03, Task 04 becomes unblocked and ready for work.
 
 ---
@@ -298,15 +353,15 @@ The JSON/YAML output returned by that command contains your authoritative StepCo
 Rules:
 1. Do not manually edit change.yaml or manifest files.
 2. Do not run manual git commit, git push, or git tag commands.
-3. When implementation and verification are complete, run:
-   node tools/specs.mjs workflow step finish agent-workflow-protocol-and-flow-hardening 03 --result success
+3. When implementation and verification are complete, inspect StepContext.finishContract.parameters and run:
+   node tools/specs.mjs workflow step finish agent-workflow-protocol-and-flow-hardening 03 --input '{"commit.title":"feat: implement task 03"}'
 4. After successful step finish, summarize your work and STOP.
 ```
 
 ### Injection Frequency Rules
 - Injected on the **first turn** when a session is assigned to a task.
 - Injected when the operator explicitly switches the active task in a multi-task session.
-- Injected on the first turn of a new attempt (e.g. Attempt 2 after human changes requested).
+- Injected on the first turn of a new attempt (e.g. Attempt 2 after changes requested).
 - **Not injected** on intermediate conversational turns within the same active attempt (e.g. user answering an agent's question or providing clarification).
 
 ---
@@ -344,9 +399,9 @@ Even if `taskIds` contains `['01', '02', '03']`, the session executes only the `
 2. **Automatic Step Resolution:** When the reviewer runs `workflow step start <slug> 03`, the workflow engine inspects `change.yaml`. Because the task is in `in-review`, the engine resolves `step: 'review'`, `attempt: 1` automatically.
 3. **Evidence Durability (`D6`):**
    - If review fails, findings are written to a markdown artifact: `specs/active/<slug>/reviews/task-03-attempt-1.md`.
-   - The reviewer finishes with:
+   - The reviewer finishes via generic `--input` conforming to `StepContext.finishContract`:
      ```bash
-     node tools/specs.mjs workflow step finish <slug> 03 --result needs-changes --feedback "..." --artifacts "..."
+     node tools/specs.mjs workflow step finish <slug> 03 --input '{"result":"fail","feedback":"...","artifacts":["specs/active/<slug>/reviews/task-03-attempt-1.md"]}'
      ```
    - The engine copies feedback and artifact links into `workflow_progress.history`. When implementation attempt 2 starts, `compileStepContext` projects these findings into `previousTransition`.
 
@@ -354,7 +409,7 @@ Even if `taskIds` contains `['01', '02', '03']`, the session executes only the `
 
 ## 8. Human Decision Lifecycle Without an Agent
 
-1. When review passes, or when review fails and flags `humanDecisionRequired: true`, the task enters `awaiting-human-verification`.
+1. When review passes, the task enters `awaiting-human-verification`.
 2. **No Active AI Turn:** At this boundary, no agent is executing. The dashboard derives actionable state directly from the authoritative manifest and projects `availableActions: ['approve', 'request-changes']`.
 3. **Direct Application Execution (`D7`):**
    - `[ Approve ]`: Dispatches `POST /api/specs/:slug/tasks/:taskId/workflow/human-decision` with `{ decision: 'approve' }`. Server executes `finishStep(result: 'pass')` -> transitions to `verified`.
@@ -372,16 +427,16 @@ To ensure end-to-end correctness across all layers, Task 03 includes an automate
 3. **Context Injection:** Dispatch turn 1; verify provider spawn environment receives `NEVO_SESSION_ID`. Verify prompt receives `[Nevo Workflow Context]` and transcript receives clean `userMessage`.
 4. **Step Start Auto-Binding:** Simulated agent executes `workflow step start test-spec 01`. Verify `SessionTaskBinding` updates with `step: 'implementation'`, `attempt: 1`.
 5. **Session Established Correlation:** Trigger `onSessionEstablished('provider-native-123')`; verify `providerSessionId` updates and `established` becomes `true` while `sessionId` remains invariant.
-6. **Implementation Finish:** Agent calls `workflow step finish test-spec 01 --result success`. Verify git branch committed, tagged, and manifest status is `in-review`.
+6. **Implementation Finish:** Agent calls `workflow step finish test-spec 01 --input '{"commit.title":"feat: implement task 01"}'`. Verify git branch committed, tagged, and manifest status is `in-review`.
 7. **Agent Stops:** Verify turn concludes and agent process exits.
 8. **Review Initiation:** Dispatch review turn for task `01` (new session). Verify environment receives new `NEVO_SESSION_ID` with same `NEVO_TASK_ID: '01'`.
 9. **Review Step Start:** Reviewer runs `workflow step start test-spec 01`. Verify engine returns StepContext for `step: 'review'`, `attempt: 1`.
-10. **Review Rejection:** Reviewer writes review artifact and calls `workflow step finish test-spec 01 --result needs-changes --feedback 'Unit tests failed'`.
-11. **Human Verification Transition:** Verify commit HEAD matches implementation commit and task transitions to `awaiting-human-verification`.
-12. **Human Request Changes:** Dispatch `POST .../human-decision` with `{ decision: 'request-changes', feedback: 'Fix edge cases' }`. Verify task transitions to `in-implementation` attempt 2.
-13. **Implementation Attempt 2 Start:** Agent runs `workflow step start test-spec 01`. Verify returned `StepContext.previousTransition` contains human feedback and review artifact path.
-14. **Implementation 2 Finish:** Agent completes fix and calls `workflow step finish --result success`. Task advances to `in-review` attempt 2.
-15. **Review 2 Pass:** Reviewer runs `workflow step finish --result success`. Task advances to `awaiting-human-verification`.
-16. **Human Approval:** Dispatch `POST .../human-decision` with `{ decision: 'approve' }`. Verify task transitions to `verified`.
-17. **Git Workspace Purity:** Verify repository status is clean, with tags for attempt 1 and attempt 2.
-18. **Session History Auditing:** Query `AgentSessionBindingService.listSessionsForTask('01')`. Verify all participating implementation and review sessions are listed with accurate step and attempt attribution.
+10. **Review Rejection:** Reviewer writes review artifact and calls `workflow step finish test-spec 01 --input '{"result":"fail","feedback":"Unit tests failed","artifacts":["specs/active/test-spec/reviews/task-01-attempt-1.md"]}'`.
+11. **Review Failure Transition:** Verify commit HEAD matches implementation commit and task transitions directly to `in-implementation` attempt 2.
+12. **Implementation Attempt 2 Start:** Agent runs `workflow step start test-spec 01`. Verify returned `StepContext.previousTransition` contains review feedback and artifact reference.
+13. **Implementation 2 Finish:** Agent completes fix and calls `workflow step finish test-spec 01 --input '{"commit.title":"fix: address review findings"}'`. Task advances to `in-review` attempt 2.
+14. **Review 2 Pass:** Reviewer runs `workflow step finish test-spec 01 --input '{"result":"pass"}'`. Task advances to `awaiting-human-verification`.
+15. **Human Request Changes:** Dispatch `POST .../human-decision` with `{ decision: 'request-changes', feedback: 'Fix edge cases' }`. Verify task transitions to `in-implementation` attempt 3.
+16. **Implementation 3 & Review 3 Pass:** Implementation 3 finishes, review 3 passes, task reaches `awaiting-human-verification`.
+17. **Human Approval:** Dispatch `POST .../human-decision` with `{ decision: 'approve' }`. Verify task transitions to `verified`.
+18. **Git Workspace Purity & Session Auditing:** Verify repository status is clean, tags exist for each attempt, and session history query lists all participating implementation and review sessions without a 1:1 assumption.

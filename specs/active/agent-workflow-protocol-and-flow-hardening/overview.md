@@ -77,7 +77,7 @@ This specification provides the final integration layer: an authoritative provid
 - **C4.** Graceful Zero-Modification Commits: If a step finishes with zero file modifications (clean working tree), finalize must not throw `EMPTY_FILE_SELECTION`; it must record a clean noop commit.
 - **C5.** Dual-Action Human Verification Step: `human-verification` is a first-class decision step branching to `pass -> verified` and `fail -> implementation`. The human action directly executes the finish operation without agent mediation.
 - **C6.** Authoritative Feedback & Review Evidence Delivery: Human rejection feedback and review findings must survive transitions, be persisted in task history, and be projected into `StepContext.previousTransition` on attempt N+1.
-- **C7.** Privacy & Git Invariants for Session Bindings: Session ↔ task bindings must live exclusively in `.nevo-ai-local/sessions/<specId>.json`. No session IDs committed to Git, no database requirement, no agent self-awareness required.
+- **C7.** Privacy & Git Invariants for Session Bindings: Session ↔ task bindings must live exclusively in `.nevo-ai-local/sessions/<specId>.json`. No session IDs committed to Git, no database requirement, no agent self-awareness required. Session ID is never an agent-authored input or command parameter; it is exclusively resolved from trusted ambient runtime context.
 - **C8.** Explicit Routing Intent: Workflow actions triggered from the chat surface must carry explicit metadata (task ID, decision, feedback). AI/NLP must never infer transitions from free-form chat.
 - **C9.** Strict Application Boundary: The UI must never mutate `change.yaml`, synthesize attempts, or evaluate transition graphs directly. All mutations occur through backend application endpoints delegating to the workflow engine.
 - **C10.** Explicit Active Task in Multi-Task Sessions: A chat session may be historically bound to multiple tasks, but exactly one `activeTaskId` is designated for active workflow execution and action rendering at any time.
@@ -155,7 +155,7 @@ The frontend derives visible actions from authoritative backend state via a serv
 - **Terminal Destination (e.g. `human-verification -> verified`):** The task is marked `verified`. No further workflow actions are rendered.
 
 ### 7. Trusted Agent Execution Context & First-Turn Resolution
-- **Identity Mechanism:** When a session is created in `AgentSessionService`, Nevo dashboard server generates a canonical `sessionId` UUID.
+- **Identity Mechanism:** When a session is created in `AgentSessionService`, Nevo dashboard server generates a canonical `sessionId` UUID. Session ID is never an agent-authored input or command parameter; it is exclusively resolved from trusted ambient runtime context.
 - **Environment Inheritance:** This identity is injected into the provider child process environment:
   - `NEVO_SESSION_ID`: Nevo canonical session UUID.
   - `NEVO_AGENT_PROVIDER`: provider name (`claude`, `antigravity`, `codex`, `mock`).
@@ -248,7 +248,7 @@ Step 1: Start Implementation
 
 Step 2: Finish Implementation
   - Agent Action: Modifies files within allowed_paths; runs tests.
-  - CLI Invocation: Agent executes node tools/specs.mjs workflow step finish demo 01 --result success.
+  - CLI Invocation: Agent executes node tools/specs.mjs workflow step finish demo 01 --input '{"commit.title":"feat: implement task 01"}'.
   - Workflow Mutation: finishStep runs commit-and-push (commits all changes), tags attempt-1, updates task state = 'in-review', history records implementation #1.
   - Binding Written: SessionTaskBinding refreshed (lastSeenAt updated).
   - Agent Action: Agent outputs completion summary and STOPs. Turn ends.
@@ -263,35 +263,39 @@ Step 3: Start Review
   - Transition Result: StepContext returned for step=review, attempt=1.
   - Next Visible UI Action: Chat composer shows review turn in progress.
 
-Step 4: Review Failure Loop
+Step 4: Review Failure Loop (review -> implementation attempt 2)
   - Agent Action: Reviewer audits code, runs tests, finds edge case failure, writes review artifact to specs/active/demo/reviews/task-01-attempt-1.md.
-  - CLI Invocation: Agent executes node tools/specs.mjs workflow step finish demo 01 --result needs-changes --feedback "Add error handling" --artifacts specs/active/demo/reviews/task-01-attempt-1.md.
-  - Workflow Mutation: finishStep verifies commit HEAD unchanged; records review #1 fail in history; transitions destination to 'awaiting-human-verification' with humanDecisionRequired: true.
+  - CLI Invocation: Agent executes node tools/specs.mjs workflow step finish demo 01 --input '{"result":"fail","feedback":"Add error handling","artifacts":["specs/active/demo/reviews/task-01-attempt-1.md"]}'.
+  - Workflow Mutation: finishStep verifies commit HEAD unchanged; records review #1 fail in history; transitions destination to 'in-implementation' attempt 2.
   - Agent Action: Review agent STOPs.
-  - Next Visible UI Action: Dashboard renders action surface: "Task 01 · Human verification · Attempt 1" with "[ Request changes ]" and "[ Approve ]".
-
-Step 5: Human Rejection & Attempt 2 Initiation
-  - UI Component/Action: Developer clicks "[ Request changes ]".
-  - Composer Mode: Switches into request-changes mode. Developer enters rationale: "Please address edge case handling." and clicks "[ Send & reject ]".
-  - HTTP Call: POST /api/specs/demo/tasks/01/workflow/human-decision { decision: 'request-changes', feedback: 'Please address edge case handling.' }
-  - Workflow Mutation: Server executes finishStep(result: 'fail'); records human rejection in history; transitions task back to 'implementation' attempt 2.
   - Next Visible UI Action: Dashboard renders "Task 01 · In implementation (Attempt 2)" with "[ Start implementation ]".
 
-Step 6: Implementation Attempt 2
+Step 5: Implementation Attempt 2
   - Developer Action: Clicks "[ Start implementation ]" (reusing session or fresh session).
   - Turn Dispatch: Prompt enriched with [Nevo Workflow Context] attempt=2.
   - CLI Invocation: Agent calls node tools/specs.mjs workflow step start demo 01.
-  - Transition Result: StepContext returned with previousTransition containing human feedback and review artifact reference.
-  - Agent Action: Agent fixes edge case; runs workflow step finish demo 01 --result success -> transitions to 'in-review' attempt 2.
+  - Transition Result: StepContext returned with previousTransition containing review findings and artifact reference.
+  - Agent Action: Agent fixes edge case; runs node tools/specs.mjs workflow step finish demo 01 --input '{"commit.title":"fix: address review findings"}' -> transitions to 'in-review' attempt 2.
   - Next Visible UI Action: Dashboard renders "[ Start review ]".
 
-Step 7: Review Pass
-  - Review Execution: Reviewer runs workflow step start, tests pass, calls workflow step finish demo 01 --result success.
-  - Workflow Mutation: finishStep records review #2 pass in history; transitions to 'human-verification'.
+Step 6: Review Pass (review -> human-verification)
+  - Review Execution: Reviewer runs node tools/specs.mjs workflow step start demo 01, tests pass, calls node tools/specs.mjs workflow step finish demo 01 --input '{"result":"pass"}'.
+  - Workflow Mutation: finishStep records review #2 pass in history; transitions to 'awaiting-human-verification' with humanDecisionRequired: true.
   - Review Agent: STOPs.
   - Next Visible UI Action: Dashboard renders action surface with "[ Request changes ]" and "[ Approve ]".
 
-Step 8: Human Approval (Verified)
+Step 7: Human Rejection & Attempt 3 Initiation
+  - UI Component/Action: Developer clicks "[ Request changes ]".
+  - Composer Mode: Switches into request-changes mode. Developer enters rationale: "Please refine logging format." and clicks "[ Send & reject ]".
+  - HTTP Call: POST /api/specs/demo/tasks/01/workflow/human-decision { decision: 'request-changes', feedback: 'Please refine logging format.' }
+  - Workflow Mutation: Server executes finishStep(result: 'fail'); records human rejection in history; transitions task back to 'in-implementation' attempt 3.
+  - Next Visible UI Action: Dashboard renders "Task 01 · In implementation (Attempt 3)" with "[ Start implementation ]".
+
+Step 8: Implementation Attempt 3 & Review 3 Pass
+  - Developer/Review Actions: Implementation 3 finishes (--input '{"commit.title":"fix: refine logging"}'), review 3 runs and passes (--input '{"result":"pass"}'), task advances to 'awaiting-human-verification'.
+  - Next Visible UI Action: Dashboard renders action surface with "[ Request changes ]" and "[ Approve ]".
+
+Step 9: Human Approval (Verified)
   - UI Component/Action: Developer inspects clean test results and clicks "[ Approve ]".
   - HTTP Call: POST /api/specs/demo/tasks/01/workflow/human-decision { decision: 'approve' }
   - Workflow Mutation: Server calls finishStep(result: 'pass'); clean tree noop commit executes; task status updated to 'verified', state = 'completed'.
@@ -324,18 +328,18 @@ Step 8: Human Approval (Verified)
    2. Nevo establishes trusted execution identity (`sessionId` UUID, `established: false`).
    3. First turn receives deterministic workflow bootstrap header and clean `userMessage`.
    4. Agent-equivalent process runs `workflow step start` -> `SessionTaskBinding` created automatically via ambient `NEVO_SESSION_ID`.
-   5. Implementation finish transitions to `review`; git branch committed and tagged.
+   5. Implementation finish transitions to `review`; git branch committed and tagged (`--input '{"commit.title":"feat: implement task 01"}'`).
    6. Implementation agent stops (no autonomous handover).
    7. Reviewer session explicitly started for task `01`.
    8. Reviewer `step start` resolves `review #1`.
-   9. Review fails, writes review artifact, calls `step finish --result needs-changes --feedback ...`.
-   10. Task transitions to `awaiting-human-verification` with `humanDecisionRequired: true`.
-   11. Human `[ Request changes ]` dispatches `POST .../human-decision` with feedback -> transitions to `implementation #2`.
-   12. Next implementation context receives human feedback in `previousTransition`.
-   13. Implementation #2 finishes -> review #2 runs and passes (`--result success`).
-   14. Human `[ Approve ]` dispatches `POST .../human-decision` -> transitions to `verified`.
-   15. Git working tree is clean.
-   16. Session history queries show all participating tasks and sessions without a 1:1 assumption.
-   17. Task read models project `availableActions` accurately at each boundary.
-   18. Switching active task updates `activeTaskId` without erasing prior task history.
+   9. Review fails, writes review artifact, calls `step finish --input '{"result":"fail","feedback":"Unit tests failed","artifacts":["specs/active/test-spec/reviews/task-01-attempt-1.md"]}'`.
+   10. Task transitions directly to `in-implementation` attempt 2 (commit HEAD verified untouched).
+   11. Next implementation context receives review feedback and artifact in `previousTransition`.
+   12. Implementation #2 finishes -> review #2 runs and passes (`--input '{"result":"pass"}'`).
+   13. Task transitions to `awaiting-human-verification` with `availableActions: ['approve', 'request-changes']`.
+   14. Human `[ Request changes ]` dispatches `POST .../human-decision` with feedback -> transitions to `implementation #3`.
+   15. Implementation #3 finishes and review #3 passes -> task reaches `awaiting-human-verification`.
+   16. Human `[ Approve ]` dispatches `POST .../human-decision` -> transitions to `verified` with clean tree noop commit.
+   17. Git working tree is clean.
+   18. Session history queries show all participating tasks and sessions without a 1:1 assumption.
 

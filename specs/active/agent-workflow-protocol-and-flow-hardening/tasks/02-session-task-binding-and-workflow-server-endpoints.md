@@ -73,7 +73,7 @@ Implement the complete agent execution bootstrap and identity propagation pipeli
   - In `tools/specs.mjs`:
     - Update `autoBindAgentSession` to read `process.env.NEVO_SESSION_ID` and `process.env.NEVO_AGENT_PROVIDER` via `readAgentExecutionContext()`.
     - Call `bindingService.bindSessionSync` to record or update `SessionTaskBinding` with current `taskId`, `step`, and `attempt`.
-    - Do not require the agent to supply or author session ID flags (`--session <id>` is forbidden).
+    - Do not require the agent to supply or author session ID flags (`--session <id>` is forbidden). Session ID is never an agent-authored input or command parameter; it is exclusively resolved from trusted ambient runtime context.
   - In `tools/specs/workflow/cli.mjs`:
     - Ensure `handleWorkflowStepStart` and `handleWorkflowStepFinish` invoke `autoBindAgentSession`.
 - **Session ↔ Task Historical Binding & Task Switching (`D2`, `C10`):**

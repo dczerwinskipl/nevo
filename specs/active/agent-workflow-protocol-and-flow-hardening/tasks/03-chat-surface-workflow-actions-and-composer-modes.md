@@ -99,18 +99,20 @@ Integrate end-to-end workflow execution controls into the dashboard and chat sur
       2. Nevo establishes trusted execution identity (`sessionId` UUID, `established: false`).
       3. First turn receives deterministic workflow bootstrap header and clean `userMessage`.
       4. Agent process runs `workflow step start` -> `SessionTaskBinding` created automatically via ambient `NEVO_SESSION_ID`.
-      5. Implementation finish transitions to `review`; git branch committed and tagged.
+      5. Implementation finish transitions to `review`; git branch committed and tagged (`--input '{"commit.title":"feat: implement task 01"}'`).
       6. Implementation agent stops (no autonomous handover).
       7. Reviewer session explicitly started for task `01`.
       8. Reviewer `step start` resolves `review #1`.
-      9. Review fails, writes review artifact, calls `step finish --result needs-changes --feedback ...`.
-      10. Task transitions to `awaiting-human-verification` with `humanDecisionRequired: true`.
-      11. Human `[ Request changes ]` dispatches `POST .../human-decision` with feedback -> transitions to `implementation #2`.
-      12. Next implementation context receives human feedback in `previousTransition`.
-      13. Implementation #2 finishes -> review #2 runs and passes (`--result success`).
-      14. Human `[ Approve ]` dispatches `POST .../human-decision` -> transitions to `verified`.
-      15. Git working tree is clean.
-      16. Session history queries show all participating tasks and sessions without a 1:1 assumption.
+      9. Review fails, writes review artifact, calls `step finish --input '{"result":"fail","feedback":"Unit tests failed","artifacts":["specs/active/test-spec/reviews/task-01-attempt-1.md"]}'`.
+      10. Task transitions directly to `in-implementation` attempt 2 (commit HEAD verified untouched).
+      11. Next implementation context receives review feedback and artifact in `previousTransition`.
+      12. Implementation #2 finishes -> review #2 runs and passes (`--input '{"result":"pass"}'`).
+      13. Task transitions to `awaiting-human-verification` with `availableActions: ['approve', 'request-changes']`.
+      14. Human `[ Request changes ]` dispatches `POST .../human-decision` with feedback -> transitions to `implementation #3`.
+      15. Implementation #3 finishes and review #3 passes -> task reaches `awaiting-human-verification`.
+      16. Human `[ Approve ]` dispatches `POST .../human-decision` -> transitions to `verified` with clean tree noop commit.
+      17. Git working tree is clean.
+      18. Session history queries show all participating tasks and sessions without a 1:1 assumption.
 
 ## Acceptance criteria
 
