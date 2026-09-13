@@ -12,7 +12,7 @@ import { requireChange, requireTask, setTaskWorkflowState } from '../store.mjs';
 import { normalizeSourceControlConfig } from './definitions/schema.mjs';
 import { defaultActionRegistry, defaultGateRegistry } from './registry.mjs';
 import { defaultWorkflowEngine } from './engine.mjs';
-import { resolveActiveStepName, inspectGates, verifyGates, allGatesPassed } from './step-runner.mjs';
+import { resolveActiveStepName, resolveWorkflowPosition, inspectGates, verifyGates, allGatesPassed } from './step-runner.mjs';
 import { aggregateFinalizeCheck, buildFinishContract, normalizeSourceControlFacts } from './step-context.mjs';
 import { WorkflowError, PreconditionError } from './errors.mjs';
 import * as git from '../../lib/git.mjs';
@@ -28,12 +28,13 @@ export const FINISH_STAGE_IDS = ['verify-gates', 'update-task', 'commit', 'push'
 // `index.mjs` barrel) is unaffected by the extraction above.
 export { loadOperationRecord, saveOperationRecord, findInFlightOperationRecord };
 
-function createOperationRecord({ change, task, step, resolvedInputs }) {
+function createOperationRecord({ change, task, step, attempt, resolvedInputs }) {
   return {
     operationId: randomUUID(),
     change,
     task,
     step,
+    attempt,
     status: 'running',
     resolvedInputs,
     operations: FINISH_STAGE_IDS.map(id => ({ id, status: 'pending' })),
@@ -123,7 +124,9 @@ export async function planFinish({
   // operation's own `update-task` stage `completed` (state: 'completed' already
   // written) while `commit`/`push`/`transition` remain unfinished.
   const inFlight = context.repoRoot ? findInFlightOperationRecord(context.repoRoot, changeSlug, task.id) : null;
-  const stepName = inFlight ? inFlight.step : resolveActiveStepName(definition, task);
+  const position = resolveWorkflowPosition(definition, task);
+  const stepName = inFlight ? inFlight.step : (position.phase === 'active' ? position.step : null);
+  const attempt = inFlight ? inFlight.attempt : position.attempt;
 
   if (!stepName) {
     // D37: no step is currently active — the task never started (`new`), its current
@@ -135,8 +138,9 @@ export async function planFinish({
     // exactly what an idempotent repeat (AC7: finish never re-runs a completed step's
     // finalize) needs.
     const lastStep = task?.workflow_progress?.current_step || null;
-    const lastRecord = (context.repoRoot && lastStep)
-      ? loadOperationRecord(context.repoRoot, changeSlug, task.id, lastStep)
+    const lastAttempt = position.attempt;
+    const lastRecord = (context.repoRoot && lastStep && lastAttempt)
+      ? loadOperationRecord(context.repoRoot, changeSlug, task.id, lastStep, lastAttempt)
       : null;
     if (lastRecord?.status === 'completed') {
       // AC7 (D37 correction): a repeated `finish` against an already-completed step
@@ -146,6 +150,7 @@ export async function planFinish({
       return {
         status: 'already-completed',
         stepName: lastStep,
+        attempt: lastAttempt,
         requiredInputs: {},
         missingInputs: [],
         resolvedInputs: lastRecord.resolvedInputs || {},
@@ -159,6 +164,7 @@ export async function planFinish({
     return {
       status: 'already-complete',
       stepName: null,
+      attempt: null,
       requiredInputs: {},
       missingInputs: [],
       resolvedInputs: {},
@@ -170,14 +176,14 @@ export async function planFinish({
     };
   }
 
-  const existingRecord = inFlight || (context.repoRoot ? loadOperationRecord(context.repoRoot, changeSlug, task.id, stepName) : null);
+  const existingRecord = inFlight || (context.repoRoot ? loadOperationRecord(context.repoRoot, changeSlug, task.id, stepName, attempt) : null);
 
   const step = definition.steps[stepName];
   const finalizeCheck = await aggregateFinalizeCheck(step, context, { engine, actionRegistry });
   const requiredInputs = buildFinishContract(finalizeCheck);
   // D29: gate inspection needs the resolved step identity in context so a
   // HumanVerificationGate can build its query with real stepId identity.
-  const gateContext = { ...context, stepId: stepName };
+  const gateContext = { ...context, stepId: stepName, attempt };
   const exitGateResults = await inspectGates(step.exitGates, gateContext, { gateRegistry });
   // Only a definitively 'blocked'/'failed' gate blocks planning — a command gate's
   // 'pending' inspect status (not yet verify()'d) must not, or the finalize sequence
@@ -210,6 +216,7 @@ export async function planFinish({
   return {
     status,
     stepName,
+    attempt,
     requiredInputs,
     missingInputs,
     resolvedInputs: resolved,
@@ -253,7 +260,7 @@ async function ensureVerifyGates(record, step, context, gateRegistry, repoRoot) 
   const stage = findStage(record, 'verify-gates');
   if (stage.status === 'completed') return;
 
-  const gateContext = { ...context, stepId: record.step };
+  const gateContext = { ...context, stepId: record.step, attempt: record.attempt };
   const results = await verifyGates(step.exitGates, gateContext, { gateRegistry });
   if (!allGatesPassed(results)) {
     stage.status = 'failed';
@@ -294,57 +301,123 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
   if (stage.status === 'completed') return;
 
   const stepName = record.step;
+  const attempt = record.attempt;
   const step = definition.steps[stepName];
   const to = step.transitions[0].to; // exactly one, guaranteed by D27 schema validation
   const isInternalTransition = isStepName(definition, to);
 
-  if (stage.status === 'running' || stage.status === 'unknown') {
-    const change = requireChange(changeSlug, activeDir);
-    const task = requireTask(change, taskId);
-
-    const trackedState = task.workflow_progress?.current_step === stepName
-      ? task.workflow_progress?.state
-      : undefined;
-
-    if (trackedState === 'completed') {
-      stage.status = 'completed';
-      stage.result = isInternalTransition ? { toStep: to } : { toState: to };
-      saveOperationRecord(repoRoot, record);
-      return;
-    }
-    if (trackedState !== 'active') {
-      stage.status = 'unknown';
-      record.status = 'blocked';
-      saveOperationRecord(repoRoot, record);
-      throw new FinishStageOutcome({
-        status: 'reconciliation-required',
-        stage: 'update-task',
-        details: {
-          fromState: 'active',
-          toState: 'completed',
-          step: stepName,
-          currentStep: task.workflow_progress?.current_step ?? null,
-          currentState: task.workflow_progress?.state ?? null,
-        },
-      });
-    }
-    // trackedState === 'active': the write never happened — safe to redo below.
-  }
-
   const change = requireChange(changeSlug, activeDir);
   const task = requireTask(change, taskId);
-  const history = Array.isArray(task.workflow_progress?.history) ? task.workflow_progress.history : [];
-  // D28 (unchanged by D37): workflow_progress is never cleared, even for a terminal
-  // transition — the final history entry is what preserves "which step led to
-  // completion" as audit evidence.
-  const newHistory = [...history, { step: stepName, completed_at: new Date().toISOString(), transitioned_to: to }];
+  const wp = task.workflow_progress;
 
-  stage.intent = { fromState: 'active', toState: 'completed' };
+  if (stage.status === 'running' || stage.status === 'unknown') {
+    const intent = stage.intent;
+    if (intent) {
+      const wpStepMatches = wp?.current_step === (intent.step ?? stepName);
+      const wpAttemptMatches = wp?.current_attempt === undefined || wp?.current_attempt === (intent.attempt ?? attempt);
+      const wpStateMatches = wp?.state === 'completed';
+      const latestHistory = Array.isArray(wp?.history) && wp.history.length > 0 ? wp.history[wp.history.length - 1] : null;
+      const historyMatches = latestHistory
+        && latestHistory.step === (intent.step ?? stepName)
+        && (intent.attempt === undefined || latestHistory.attempt === undefined || latestHistory.attempt === intent.attempt)
+        && latestHistory.transitioned_to === (intent.transitioned_to ?? to)
+        && (intent.result === undefined || latestHistory.result === intent.result)
+        && (intent.artifacts === undefined || JSON.stringify(latestHistory.artifacts) === JSON.stringify(intent.artifacts));
+      const terminalMatches = intent.terminalStatus ? task.status === intent.terminalStatus : true;
+
+      // 1. Write Definitely Happened
+      if (wpStepMatches && wpAttemptMatches && wpStateMatches && historyMatches && terminalMatches) {
+        stage.status = 'completed';
+        stage.result = isInternalTransition ? { toStep: to } : { toState: to };
+        saveOperationRecord(repoRoot, record);
+        return;
+      }
+
+      // 2. Write Definitely Did Not Happen
+      const noHistoryEntry = !Array.isArray(wp?.history) || !wp.history.some(h => h.step === (intent.step ?? stepName) && (intent.attempt === undefined || h.attempt === undefined || h.attempt === intent.attempt));
+      const wpActive = wp?.state === 'active';
+      const terminalNotModified = intent.terminalStatus ? task.status !== intent.terminalStatus : true;
+
+      if (wpStepMatches && wpAttemptMatches && wpActive && noHistoryEntry && terminalNotModified) {
+        // Safe to proceed to the write below
+      } else {
+        // 3. State Inconsistent / Reconciliation Required
+        stage.status = 'unknown';
+        record.status = 'blocked';
+        saveOperationRecord(repoRoot, record);
+        throw new FinishStageOutcome({
+          status: 'reconciliation-required',
+          stage: 'update-task',
+          details: {
+            intent,
+            currentStep: wp?.current_step ?? null,
+            currentAttempt: wp?.current_attempt ?? null,
+            currentState: wp?.state ?? null,
+            latestHistory,
+          },
+        });
+      }
+    } else {
+      const trackedState = wp?.current_step === stepName
+        ? wp?.state
+        : undefined;
+
+      if (trackedState === 'completed') {
+        stage.status = 'completed';
+        stage.result = isInternalTransition ? { toStep: to } : { toState: to };
+        saveOperationRecord(repoRoot, record);
+        return;
+      }
+      if (trackedState !== 'active') {
+        stage.status = 'unknown';
+        record.status = 'blocked';
+        saveOperationRecord(repoRoot, record);
+        throw new FinishStageOutcome({
+          status: 'reconciliation-required',
+          stage: 'update-task',
+          details: {
+            fromState: 'active',
+            toState: 'completed',
+            step: stepName,
+            currentStep: wp?.current_step ?? null,
+            currentState: wp?.state ?? null,
+          },
+        });
+      }
+    }
+  }
+
+  const history = Array.isArray(wp?.history) ? wp.history : [];
+  const entry = {
+    step: stepName,
+    attempt,
+    completed_at: new Date().toISOString(),
+    transitioned_to: to,
+    ...(record.resolvedInputs?.result !== undefined ? { result: record.resolvedInputs.result } : {}),
+    ...(record.resolvedInputs?.artifacts !== undefined ? { artifacts: record.resolvedInputs.artifacts } : {}),
+  };
+  const newHistory = [...history, entry];
+
+  stage.intent = {
+    step: stepName,
+    attempt,
+    fromState: 'active',
+    toState: 'completed',
+    transitioned_to: to,
+    terminalStatus: isInternalTransition ? null : to,
+    ...(record.resolvedInputs?.result !== undefined ? { result: record.resolvedInputs.result } : {}),
+    ...(record.resolvedInputs?.artifacts !== undefined ? { artifacts: record.resolvedInputs.artifacts } : {}),
+  };
   stage.status = 'running';
   saveOperationRecord(repoRoot, record);
 
-  // D37: current_step stays `stepName` in both cases — `finish` never advances it.
-  const workflowProgress = { current_step: stepName, state: 'completed', history: newHistory };
+  const workflowProgress = {
+    current_step: stepName,
+    current_attempt: attempt,
+    state: 'completed',
+    history: newHistory,
+  };
+
   if (isInternalTransition) {
     setTaskWorkflowState(change, taskId, { workflowProgress });
     stage.result = { toStep: to };
@@ -555,7 +628,13 @@ export async function finishStep({
 
   let record = plan.existingRecord;
   if (!record) {
-    record = createOperationRecord({ change: changeSlug, task: task.id, step: plan.stepName, resolvedInputs: plan.resolvedInputs });
+    record = createOperationRecord({
+      change: changeSlug,
+      task: task.id,
+      step: plan.stepName,
+      attempt: plan.attempt,
+      resolvedInputs: plan.resolvedInputs,
+    });
     saveOperationRecord(repoRoot, record);
   }
 

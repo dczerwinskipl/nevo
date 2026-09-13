@@ -129,7 +129,7 @@ export function ensureStepActivated(change, task, definition, context = {}) {
       );
     }
     const changeSlug = change.id || change._slug;
-    const priorRecord = loadOperationRecord(context.repoRoot, changeSlug, task.id, position.step);
+    const priorRecord = loadOperationRecord(context.repoRoot, changeSlug, task.id, position.step, position.attempt);
     if (priorRecord && priorRecord.status !== 'completed') {
       throw new WorkflowError(
         `Step '${position.step}' has an unresolved finish operation (status: '${priorRecord.status}') — ` +
@@ -148,12 +148,13 @@ export function ensureStepActivated(change, task, definition, context = {}) {
   // D37: starting the next step never appends a `history` entry — `history` records
   // completions only, never activations.
   const history = task.workflow_progress?.history || [];
-  const workflowProgress = { current_step: targetStep, state: 'active', history };
+  const currentAttempt = history.filter(h => h.step === targetStep).length + 1;
+  const workflowProgress = { current_step: targetStep, current_attempt: currentAttempt, state: 'active', history };
   setTaskWorkflowState(change, task.id, { workflowProgress });
 
   return {
     task: { ...task, workflow_progress: workflowProgress },
-    position: { phase: 'active', step: targetStep },
+    position: { phase: 'active', step: targetStep, attempt: currentAttempt },
   };
 }
 
@@ -303,7 +304,7 @@ export async function compileStepContext({
   const step = definition.steps[stepName];
   // D29: gate inspection needs the resolved step identity in context so a
   // HumanVerificationGate can build its query with real stepId/gateId identity.
-  const gateContext = { ...context, stepId: stepName };
+  const gateContext = { ...context, stepId: stepName, attempt: position.attempt };
   const entryGateResults = await inspectGates(step.entryGates, gateContext, { gateRegistry });
   const exitGateResults = await inspectGates(step.exitGates, gateContext, { gateRegistry });
   const finalizeCheck = await aggregateFinalizeCheck(step, context, { engine, actionRegistry });

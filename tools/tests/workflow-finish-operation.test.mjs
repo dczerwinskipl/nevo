@@ -213,10 +213,10 @@ describe('finishStep — happy path executes the fixed stage order (AC5)', () =>
   });
 
   test('the operation record is persisted only under .nevo-ai-local/workflow-operations/, never in change.yaml (AC16)', () => {
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation', 1);
     assert.ok(record);
     assert.equal(record.status, 'completed');
-    const recordPath = join(fx.repo, '.nevo-ai-local', 'workflow-operations', 'demo-change', 'demo-task', 'implementation.json');
+    const recordPath = join(fx.repo, '.nevo-ai-local', 'workflow-operations', 'demo-change', 'demo-task', 'implementation', 'attempt-1.json');
     assert.ok(existsSync(recordPath));
     const changeYaml = readFileSync(join(fx.activeDir, 'demo-change', 'change.yaml'), 'utf8');
     assert.ok(!changeYaml.includes('operationId'));
@@ -245,15 +245,16 @@ describe('finishStep — recovering an update-task stage found running (AC6)', (
     // must already reflect "completed" for reconciliation to recognize it happened.
     setTaskWorkflowState(change, 'demo-task', {
       status: 'verified',
-      workflowProgress: { current_step: 'implementation', state: 'completed', history: [{ step: 'implementation', completed_at: 'x', transitioned_to: 'verified' }] },
+      workflowProgress: { current_step: 'implementation', current_attempt: 1, state: 'completed', history: [{ step: 'implementation', attempt: 1, completed_at: 'x', transitioned_to: 'verified' }] },
     });
 
-    const craftedIntent = { fromState: 'active', toState: 'completed' };
+    const craftedIntent = { step: 'implementation', attempt: 1, fromState: 'active', toState: 'completed', transitioned_to: 'verified', terminalStatus: 'verified' };
     saveOperationRecord(fx.repo, {
       operationId: 'crafted-op-1',
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
@@ -271,7 +272,7 @@ describe('finishStep — recovering an update-task stage found running (AC6)', (
     assert.equal(result.status, 'completed');
     assert.equal(taskStatus(fx.activeDir), 'verified');
 
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation', 1);
     const updateTaskStage = record.operations.find(o => o.id === 'update-task');
     assert.equal(updateTaskStage.status, 'completed');
     // The intent must be exactly what was crafted, not recomputed from the (already-moved)
@@ -291,18 +292,19 @@ describe('finishStep — update-task reconciliation compares workflow_progress.s
     // intent but before the tracked write. current_step stays stepA throughout (D37);
     // only `state` moves to 'completed'.
     const change = freshChange(fx.activeDir);
-    setTaskWorkflowState(change, 'demo-task', { workflowProgress: { current_step: 'stepA', state: 'active', history: [] } });
+    setTaskWorkflowState(change, 'demo-task', { workflowProgress: { current_step: 'stepA', current_attempt: 1, state: 'active', history: [] } });
 
     saveOperationRecord(fx.repo, {
       operationId: 'crafted-stepkind-1',
       change: 'demo-change',
       task: 'demo-task',
       step: 'stepA',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
         { id: 'verify-gates', status: 'completed', result: { gates: [] } },
-        { id: 'update-task', status: 'running', intent: { fromState: 'active', toState: 'completed' } },
+        { id: 'update-task', status: 'running', intent: { step: 'stepA', attempt: 1, fromState: 'active', toState: 'completed', transitioned_to: 'stepB', terminalStatus: null } },
         { id: 'commit', status: 'pending' },
         { id: 'push', status: 'pending' },
         { id: 'transition', status: 'pending' },
@@ -318,7 +320,7 @@ describe('finishStep — update-task reconciliation compares workflow_progress.s
     assert.equal(task.workflow_progress.state, 'completed');
     assert.equal(task.status, 'in-implementation', 'an internal transition never touches task.status');
 
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA', 1);
     assert.equal(record.operations.find(o => o.id === 'update-task').status, 'completed');
   });
 
@@ -328,19 +330,21 @@ describe('finishStep — update-task reconciliation compares workflow_progress.s
     // recognize this and move on to commit, never re-derive or repeat the write.
     const change = freshChange(fx.activeDir);
     setTaskWorkflowState(change, 'demo-task', {
-      workflowProgress: { current_step: 'stepB', state: 'completed', history: [{ step: 'stepB', completed_at: 'x', transitioned_to: 'stepC' }] },
+      workflowProgress: { current_step: 'stepB', current_attempt: 1, state: 'completed', history: [{ step: 'stepB', attempt: 1, completed_at: 'x', transitioned_to: 'stepC' }] },
     });
 
+    const craftedIntent = { step: 'stepB', attempt: 1, fromState: 'active', toState: 'completed', transitioned_to: 'stepC', terminalStatus: null };
     saveOperationRecord(fx.repo, {
       operationId: 'crafted-stepkind-2',
       change: 'demo-change',
       task: 'demo-task',
       step: 'stepB',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
         { id: 'verify-gates', status: 'completed', result: { gates: [] } },
-        { id: 'update-task', status: 'running', intent: { fromState: 'active', toState: 'completed' } },
+        { id: 'update-task', status: 'running', intent: { ...craftedIntent } },
         { id: 'commit', status: 'pending' },
         { id: 'push', status: 'pending' },
         { id: 'transition', status: 'pending' },
@@ -351,11 +355,11 @@ describe('finishStep — update-task reconciliation compares workflow_progress.s
     const result = await finishStep({ ...threeStepParams(fx, gateRegistry), inputs: RESOLVED_INPUTS });
 
     assert.equal(result.status, 'completed');
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepB');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepB', 1);
     const updateTaskStage = record.operations.find(o => o.id === 'update-task');
     assert.equal(updateTaskStage.status, 'completed');
     // Recognized via reconciliation, not re-derived — the intent stays exactly as crafted.
-    assert.deepEqual(updateTaskStage.intent, { fromState: 'active', toState: 'completed' });
+    assert.deepEqual(updateTaskStage.intent, craftedIntent);
     const task = requireTask(freshChange(fx.activeDir), 'demo-task');
     assert.equal(task.workflow_progress.current_step, 'stepB', 'D37: still stepB — finish never advances current_step');
   });
@@ -364,18 +368,19 @@ describe('finishStep — update-task reconciliation compares workflow_progress.s
     const change = freshChange(fx.activeDir);
     // Simulates a genuinely ambiguous recovery: the tracked position has moved to a
     // different step entirely, which this stepA-scoped operation cannot explain.
-    setTaskWorkflowState(change, 'demo-task', { workflowProgress: { current_step: 'stepC', state: 'active', history: [] } });
+    setTaskWorkflowState(change, 'demo-task', { workflowProgress: { current_step: 'stepC', current_attempt: 1, state: 'active', history: [] } });
 
     saveOperationRecord(fx.repo, {
       operationId: 'crafted-stepkind-3',
       change: 'demo-change',
       task: 'demo-task',
       step: 'stepA',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
         { id: 'verify-gates', status: 'completed', result: { gates: [] } },
-        { id: 'update-task', status: 'running', intent: { fromState: 'active', toState: 'completed' } },
+        { id: 'update-task', status: 'running', intent: { step: 'stepA', attempt: 1, fromState: 'active', toState: 'completed', transitioned_to: 'stepB', terminalStatus: null } },
         { id: 'commit', status: 'pending' },
         { id: 'push', status: 'pending' },
         { id: 'transition', status: 'pending' },
@@ -388,10 +393,8 @@ describe('finishStep — update-task reconciliation compares workflow_progress.s
     assert.equal(result.status, 'reconciliation-required');
     assert.equal(result.stage, 'update-task');
     assert.equal(result.details.currentStep, 'stepC');
-    assert.equal(result.details.fromState, 'active');
-    assert.equal(result.details.toState, 'completed');
 
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA', 1);
     assert.equal(record.operations.find(o => o.id === 'update-task').status, 'unknown');
     assert.equal(record.operations.find(o => o.id === 'commit').status, 'pending', 'no further stage may execute');
   });
@@ -430,7 +433,7 @@ describe('finishStep — full multi-hop happy path driven by alternating step st
     assert.ok(changedInCommitA.some(p => p.endsWith('change.yaml')));
 
     // AC8: step A's own completed operation record exists and is untouched by what follows.
-    const stepARecordBefore = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA');
+    const stepARecordBefore = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA', 1);
     assert.equal(stepARecordBefore.status, 'completed');
 
     // A repeated finish against the already-completed stepA is non-actionable — no
@@ -470,9 +473,9 @@ describe('finishStep — full multi-hop happy path driven by alternating step st
     assert.equal(task.status, 'in-implementation');
     assert.equal(task.workflow_progress.history.length, 2);
 
-    const stepARecordAfter = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA');
+    const stepARecordAfter = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA', 1);
     assert.deepEqual(stepARecordAfter, stepARecordBefore, 'AC8: step A\'s own completed record file must be untouched by step B\'s finish');
-    const stepBRecord = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepB');
+    const stepBRecord = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepB', 1);
     assert.equal(stepBRecord.status, 'completed');
 
     // step start: activate stepC.
@@ -499,13 +502,13 @@ describe('finishStep — full multi-hop happy path driven by alternating step st
 
     // The next resolution must report complete, never re-resolving entryStep as if fresh —
     // and never consulting task.status to do so (D37 corrects D28's precedence).
-    assert.deepEqual(resolveWorkflowPosition(THREE_STEP_DEFINITION, task), { phase: 'terminal', step: 'stepC' });
+    assert.deepEqual(resolveWorkflowPosition(THREE_STEP_DEFINITION, task), { phase: 'terminal', step: 'stepC', attempt: 1 });
 
     // step start on a terminal task reports complete and writes nothing.
     const beforeTerminalStart = readFileSync(join(fx.activeDir, 'demo-change', 'change.yaml'), 'utf8');
     change = freshChange(fx.activeDir);
     const { position: terminalPosition } = ensureStepActivated(change, task, THREE_STEP_DEFINITION, { repoRoot: fx.repo });
-    assert.deepEqual(terminalPosition, { phase: 'terminal', step: 'stepC' });
+    assert.deepEqual(terminalPosition, { phase: 'terminal', step: 'stepC', attempt: 1 });
     const afterTerminalStart = readFileSync(join(fx.activeDir, 'demo-change', 'change.yaml'), 'utf8');
     assert.equal(beforeTerminalStart, afterTerminalStart, 'step start against a terminal workflow must not mutate change.yaml');
   });
@@ -534,6 +537,7 @@ describe('P1 (D37 corrective revision): step start refuses to activate the next 
       change: 'demo-change',
       task: 'demo-task',
       step: 'stepA',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
@@ -573,13 +577,13 @@ describe('P1 (D37 corrective revision): step start refuses to activate the next 
     const gateRegistry = makeGateRegistry();
     const finishResult = await finishStep({ ...threeStepParams(fx, gateRegistry), task: taskBefore, inputs: RESOLVED_INPUTS });
     assert.equal(finishResult.status, 'completed');
-    assert.equal(loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA').status, 'completed');
+    assert.equal(loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA', 1).status, 'completed');
 
     // Now `step start` activates stepB normally.
     change = freshChange(fx.activeDir);
     const settledTask = requireTask(change, 'demo-task');
     const { task: activatedTask, position } = ensureStepActivated(change, settledTask, THREE_STEP_DEFINITION, { repoRoot: fx.repo });
-    assert.deepEqual(position, { phase: 'active', step: 'stepB' });
+    assert.deepEqual(position, { phase: 'active', step: 'stepB', attempt: 1 });
     assert.equal(activatedTask.workflow_progress.current_step, 'stepB');
   });
 });
@@ -603,6 +607,7 @@ describe('finishStep — recovering a commit stage found running (AC7)', () => {
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
@@ -620,7 +625,7 @@ describe('finishStep — recovering a commit stage found running (AC7)', () => {
     assert.equal(result.status, 'completed');
     assert.equal(commitCount(fx.repo), commitsBefore, 'no second commit must be created');
 
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation', 1);
     const commitStage = record.operations.find(o => o.id === 'commit');
     assert.equal(commitStage.status, 'completed');
     assert.equal(commitStage.result.sha, commitSha);
@@ -647,6 +652,7 @@ describe('finishStep — recovering a push stage found running or unknown (AC8)'
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
@@ -680,6 +686,7 @@ describe('finishStep — recovering a push stage found running or unknown (AC8)'
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
@@ -720,6 +727,7 @@ describe('finishStep — interrupted after a successful push but before transiti
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
@@ -757,6 +765,7 @@ describe('finishStep — resolved-inputs persistence and conflict detection (AC1
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
@@ -790,7 +799,7 @@ describe('finishStep — resolved-inputs persistence and conflict detection (AC1
       PreconditionError
     );
 
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation', 1);
     assert.equal(record.resolvedInputs['commit.title'], RESOLVED_INPUTS['commit.title']);
     assert.equal(record.operations.find(o => o.id === 'update-task').status, 'pending');
   });
@@ -820,6 +829,7 @@ describe('finishStep — unresolvable ambiguity is reported, never guessed (AC13
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
@@ -837,7 +847,7 @@ describe('finishStep — unresolvable ambiguity is reported, never guessed (AC13
     assert.equal(result.status, 'reconciliation-required');
     assert.equal(result.stage, 'update-task');
 
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation', 1);
     assert.equal(record.operations.find(o => o.id === 'update-task').status, 'unknown');
     assert.equal(record.operations.find(o => o.id === 'commit').status, 'pending', 'no further stage may execute');
 
@@ -858,6 +868,7 @@ describe('finishStep — unresolvable ambiguity is reported, never guessed (AC13
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [

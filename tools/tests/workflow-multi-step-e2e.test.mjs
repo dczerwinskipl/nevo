@@ -611,7 +611,7 @@ describe('Step-level retry/resume semantics and crash reconciliation across step
     assert.equal(result.status, 'completed');
     commitShaFirst = getCurrentRevision(fx.root);
 
-    const recordA = loadOperationRecord(fx.root, fx.changeId, fx.taskId, 'step-first');
+    const recordA = loadOperationRecord(fx.root, fx.changeId, fx.taskId, 'step-first', 1);
     assert.ok(recordA);
     assert.equal(recordA.status, 'completed');
   });
@@ -625,6 +625,7 @@ describe('Step-level retry/resume semantics and crash reconciliation across step
       change: fx.changeId,
       task: fx.taskId,
       step: 'step-second',
+      attempt: 1,
       status: 'running',
       resolvedInputs: {
         'commit.title': 'Finish step second resumed',
@@ -653,7 +654,7 @@ describe('Step-level retry/resume semantics and crash reconciliation across step
     );
 
     // Step-first operation record and commit remain completely untouched
-    const recordA = loadOperationRecord(fx.root, fx.changeId, fx.taskId, 'step-first');
+    const recordA = loadOperationRecord(fx.root, fx.changeId, fx.taskId, 'step-first', 1);
     assert.equal(recordA.status, 'completed');
     assert.equal(recordA.step, 'step-first');
 
@@ -674,12 +675,12 @@ describe('Step-level retry/resume semantics and crash reconciliation across step
     const info = getCommitInfo(fx.root, commitShaSecond);
     assert.equal(info.subject, 'Finish step second resumed');
 
-    const recordB = loadOperationRecord(fx.root, fx.changeId, fx.taskId, 'step-second');
+    const recordB = loadOperationRecord(fx.root, fx.changeId, fx.taskId, 'step-second', 1);
     assert.equal(recordB.status, 'completed');
     assert.equal(recordB.step, 'step-second');
 
     // Step-first remains unchanged
-    const recordAAfter = loadOperationRecord(fx.root, fx.changeId, fx.taskId, 'step-first');
+    const recordAAfter = loadOperationRecord(fx.root, fx.changeId, fx.taskId, 'step-first', 1);
     assert.equal(recordAAfter.status, 'completed');
   });
 });

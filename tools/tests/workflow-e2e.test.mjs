@@ -132,7 +132,7 @@ describe('Vertical PoC — the full step start / step finish / verify-human sequ
 
     // Zero mutation: no commit, no task status change, no operation record created.
     assert.equal(requireTask(requireChange('demo-change', fx.activeDir), 'demo-task').status, 'in-implementation');
-    assert.equal(loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation'), null);
+    assert.equal(loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation', 1), null);
   });
 
   test('Scenario D: step finish reports the blocked human gate and mutates nothing; only verify-human --confirm can satisfy it', async () => {
@@ -140,7 +140,7 @@ describe('Vertical PoC — the full step start / step finish / verify-human sequ
       ...RT, activeDir: fx.activeDir, repoRoot: fx.root, title: 'Finish demo task', include: '*',
     });
     assert.equal(attempt.status, 'blocked');
-    assert.equal(loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation'), null, 'no operation record while blocked');
+    assert.equal(loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation', 1), null, 'no operation record while blocked');
 
     const confirmation = handleWorkflowVerifyHuman('demo-change', 'demo-task', { ...RT, confirm: true, activeDir: fx.activeDir, repoRoot: fx.root });
     assert.equal(confirmation.confirmed, true);
@@ -154,7 +154,7 @@ describe('Vertical PoC — the full step start / step finish / verify-human sequ
 
     const attempt = await handleWorkflowStepFinish('demo-change', 'demo-task', { ...RT, activeDir: fx.activeDir, repoRoot: fx.root });
     assert.equal(attempt.status, 'input-required');
-    assert.equal(loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation'), null);
+    assert.equal(loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation', 1), null);
   });
 
   let completedSha;
@@ -181,7 +181,7 @@ describe('Vertical PoC — the full step start / step finish / verify-human sequ
   test('Scenario J: the worktree is clean and the operation record shows fully completed (C17)', () => {
     const status = git(fx.root, ['status', '--porcelain']);
     assert.equal(status, '');
-    const record = loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation');
+    const record = loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation', 1);
     assert.equal(record.status, 'completed');
   });
 
@@ -225,6 +225,7 @@ describe('Vertical PoC — interrupted-and-resumed finish via the CLI (AC4, AC6,
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: { 'commit.title': 'Finish demo task', 'commit.message': '', include: ['*'], exclude: [] },
       operations: [
@@ -239,7 +240,7 @@ describe('Vertical PoC — interrupted-and-resumed finish via the CLI (AC4, AC6,
     // real parent to reconcile against) — overwrite it with the actual parent of the
     // already-made commit so reconciliation has a true precondition to prove.
     const info = getCommitInfo(fx.root, commitSha);
-    const record = loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation');
+    const record = loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation', 1);
     record.operations.find(o => o.id === 'commit').intent = { preCommitHead: info.parentSha };
     saveOperationRecord(fx.root, record);
 
@@ -258,6 +259,7 @@ describe('Vertical PoC — interrupted-and-resumed finish via the CLI (AC4, AC6,
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: { 'commit.title': 'Second finish', 'commit.message': '', include: ['*'], exclude: [] },
       operations: [
@@ -272,7 +274,7 @@ describe('Vertical PoC — interrupted-and-resumed finish via the CLI (AC4, AC6,
     await assert.rejects(() => handleWorkflowStepFinish('demo-change', 'demo-task', {
       ...RT, activeDir: fx.activeDir, repoRoot: fx.root, title: 'A conflicting different title',
     }));
-    const unchangedRecord = loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation');
+    const unchangedRecord = loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation', 1);
     assert.equal(unchangedRecord.resolvedInputs['commit.title'], 'Second finish');
 
     writeFileSync(join(fx.root, 'more-work.txt'), 'more\n');

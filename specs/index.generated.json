@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-13T12:19:49.799Z",
+  "generated": "2026-09-13T12:35:45.911Z",
   "changes": [
     {
       "id": "result-driven-transitions",
@@ -50,10 +50,71 @@
           "id": "attempt-lifecycle-and-scoped-storage",
           "order": 2,
           "file": "tasks/02-attempt-lifecycle-and-scoped-storage.md",
-          "status": "approved",
+          "status": "implemented",
           "depends_on": [
             "workflow-definition-transitions-and-history-validation"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "9597987f809e608f3eef0539c321626e4e9f493c",
+            "review_revision": "9597987f809e608f3eef0539c321626e4e9f493c",
+            "changed_paths": [
+              "specs/active/result-driven-transitions/change.yaml",
+              "tools/specs/validation.mjs",
+              "tools/specs/workflow/cli.mjs",
+              "tools/specs/workflow/finish-operation.mjs",
+              "tools/specs/workflow/human-verification-store.mjs",
+              "tools/specs/workflow/operation-record.mjs",
+              "tools/specs/workflow/step-context.mjs",
+              "tools/specs/workflow/step-runner.mjs",
+              "tools/tests/workflow-e2e.test.mjs",
+              "tools/tests/workflow-finish-operation.test.mjs",
+              "tools/tests/workflow-human-verification.test.mjs",
+              "tools/tests/workflow-multi-step-e2e.test.mjs",
+              "tools/tests/workflow-next-step.test.mjs",
+              "tools/tests/workflow-operation-record.test.mjs",
+              "tools/tests/workflow-step-runner.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "163adc21ba206d9782020d7ca008f04972caf71834aee1fb993be88d3974ae51"
+          },
+          "self_check": {
+            "fingerprint": "58b8cb2467c888ccb3b66ac5009c6d08bd3495b901de52fc3b6e07b8a61ce261",
+            "revision": "9597987f809e608f3eef0539c321626e4e9f493c",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-step-runner.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-operation-record.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-human-verification.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-finish-operation.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-e2e.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-multi-step-e2e.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-next-step.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "canonical-finish-contract-and-generic-cli-input",

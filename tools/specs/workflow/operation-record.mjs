@@ -20,12 +20,15 @@ function operationsDir(repoRoot, changeSlug, taskId) {
   return join(repoRoot, '.nevo-ai-local', 'workflow-operations', changeSlug, taskId);
 }
 
-function operationFilePath(repoRoot, changeSlug, taskId, stepName) {
-  return join(operationsDir(repoRoot, changeSlug, taskId), `${stepName}.json`);
+export function operationFilePath(repoRoot, changeSlug, taskId, stepName, attempt) {
+  if (!stepName || !attempt) {
+    throw new WorkflowError(`operationFilePath requires stepName and attempt (got stepName: '${stepName}', attempt: '${attempt}')`);
+  }
+  return join(operationsDir(repoRoot, changeSlug, taskId), stepName, `attempt-${attempt}.json`);
 }
 
-export function loadOperationRecord(repoRoot, changeSlug, taskId, stepName) {
-  const file = operationFilePath(repoRoot, changeSlug, taskId, stepName);
+export function loadOperationRecord(repoRoot, changeSlug, taskId, stepName, attempt) {
+  const file = operationFilePath(repoRoot, changeSlug, taskId, stepName, attempt);
   if (!existsSync(file)) return null;
   try {
     return JSON.parse(readFileSync(file, 'utf8'));
@@ -35,44 +38,67 @@ export function loadOperationRecord(repoRoot, changeSlug, taskId, stepName) {
 }
 
 export function saveOperationRecord(repoRoot, record) {
-  const file = operationFilePath(repoRoot, record.change, record.task, record.step);
+  if (!record || !record.step || !record.attempt) {
+    throw new WorkflowError(`saveOperationRecord requires record.step and record.attempt to be set`);
+  }
+  const file = operationFilePath(repoRoot, record.change, record.task, record.step, record.attempt);
   mkdirSync(dirname(file), { recursive: true });
   const tempFile = `${file}.${randomUUID()}.tmp`;
   writeFileSync(tempFile, JSON.stringify(record, null, 2), 'utf8');
   renameSync(tempFile, file);
 }
 
+function findJsonFiles(dir) {
+  if (!existsSync(dir)) return [];
+  const entries = readdirSync(dir, { withFileTypes: true });
+  const results = [];
+  for (const entry of entries) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...findJsonFiles(full));
+    } else if (entry.isFile() && entry.name.endsWith('.json') && !entry.name.includes('.tmp')) {
+      results.push(full);
+    }
+  }
+  return results;
+}
+
 /**
  * Finds this task's one in-flight (not yet `completed`) operation record, regardless of
- * which step it belongs to (D23). A task can only ever be mid-finish on one step at a
- * time, but which step that is may no longer match a *fresh* `resolveActiveStepName`
- * resolution if `update-task` already set `workflow_progress.state = 'completed'` before
- * the rest of the operation finished (D37; the exact crash window C18 exists to recover
- * from) — position resolution would then say the task has *nothing* active (its step
- * looks done, awaiting the next `step start`), even though `commit`/`push`/`transition`
- * are still outstanding for it. So "the currently active step" and "the step with an
- * in-flight operation" can genuinely differ for one retried call, and only a scan (not a
- * guess) finds the right one.
+ * which step or attempt it belongs to (D23/C8). A task can only ever be mid-finish on one
+ * step/attempt at a time.
+ *
+ * Invariant: At most one in-flight operation per task.
+ * - 0 uncompleted records -> returns null.
+ * - Exactly 1 uncompleted record -> returns that in-flight record for resumption.
+ * - >= 2 uncompleted records -> fails closed immediately, throwing WorkflowError
+ *   (code: 'MULTIPLE_IN_FLIGHT_OPERATIONS').
  *
  * @returns {object|null} The in-flight record, or `null` if none exists
  */
 export function findInFlightOperationRecord(repoRoot, changeSlug, taskId) {
   const dir = operationsDir(repoRoot, changeSlug, taskId);
   if (!existsSync(dir)) return null;
-  let files;
-  try {
-    files = readdirSync(dir).filter(f => f.endsWith('.json') && !f.includes('.tmp'));
-  } catch {
-    return null;
-  }
-  for (const file of files) {
+  const jsonFiles = findJsonFiles(dir);
+  const uncompleted = [];
+  for (const file of jsonFiles) {
     let record;
     try {
-      record = JSON.parse(readFileSync(join(dir, file), 'utf8'));
+      record = JSON.parse(readFileSync(file, 'utf8'));
     } catch {
       continue;
     }
-    if (record && record.status !== 'completed') return record;
+    if (record && record.status !== 'completed') {
+      uncompleted.push({ record, file });
+    }
   }
-  return null;
+  if (uncompleted.length === 0) return null;
+  if (uncompleted.length === 1) return uncompleted[0].record;
+
+  const paths = uncompleted.map(u => u.file).join(', ');
+  const ids = uncompleted.map(u => u.record.operationId || 'unknown').join(', ');
+  throw new WorkflowError(
+    `Multiple in-flight finish operations found for task '${taskId}' (${uncompleted.length} found: [${ids}] at [${paths}]). Cannot safely resume.`,
+    { code: 'MULTIPLE_IN_FLIGHT_OPERATIONS', change: changeSlug, task: taskId, count: uncompleted.length }
+  );
 }

@@ -15,7 +15,8 @@ import { resolveWorkflowMode, assertWorkflowVersionCompatible } from './compatib
 import { loadWorkflowDefinition } from './definitions/loader.mjs';
 import { compileStepContext } from './step-context.mjs';
 import { planFinish, finishStep } from './finish-operation.mjs';
-import { resolveActiveStepName, gateDisplayId } from './step-runner.mjs';
+import { resolveActiveStepName, resolveWorkflowPosition, gateDisplayId } from './step-runner.mjs';
+import { findInFlightOperationRecord } from './operation-record.mjs';
 import { createDefaultGateRegistry } from './registry.mjs';
 import { MemoryCommandVerificationStore } from './gates/command-gate.mjs';
 import { FileHumanVerificationStore } from './human-verification-store.mjs';
@@ -65,10 +66,16 @@ export function resolveWorkflowRuntime(changeSlug, taskId, { activeDir = ACTIVE_
  * to survive within one `verify()` call's own evaluation (Task 06), and the human
  * sign-off reader is file-backed so it survives across the separate `verify-human`
  * invocation (see `human-verification-store.mjs`). */
-export function buildWorkflowGateRegistry(repoRoot, changeSlug, taskId) {
+export function buildWorkflowGateRegistry(repoRoot, changeSlug, taskId, attempt) {
+  const effectiveAttempt = typeof attempt === 'object' ? attempt?.workflow_progress?.current_attempt : attempt;
   return createDefaultGateRegistry({
     commandVerificationStore: new MemoryCommandVerificationStore(),
-    humanVerificationReader: new FileHumanVerificationStore({ repoRoot, change: changeSlug, task: taskId }),
+    humanVerificationReader: new FileHumanVerificationStore({
+      repoRoot,
+      change: changeSlug,
+      task: taskId,
+      attempt: effectiveAttempt,
+    }),
   });
 }
 
@@ -94,14 +101,18 @@ function emit(payload, opts) {
 
 export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
   const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
-  const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id);
+  const position = resolveWorkflowPosition(definition, task);
+  const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, position.attempt);
   const stepContext = await compileStepContext({ change, task, definition, context, gateRegistry });
   return emit(stepContext, opts);
 }
 
 export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
   const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
-  const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id);
+  const inFlight = context.repoRoot ? findInFlightOperationRecord(context.repoRoot, change._slug, task.id) : null;
+  const position = resolveWorkflowPosition(definition, task);
+  const attempt = inFlight ? inFlight.attempt : position.attempt;
+  const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, attempt);
   const inputs = buildFinishInputs(opts);
 
   if (opts.check) {
@@ -160,13 +171,15 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
   // `finish` — only meaningful while that step is actually active. A step whose work is
   // already done (awaiting the next `step start`) or a workflow that's fully complete
   // has nothing outstanding to confirm.
-  const stepName = resolveActiveStepName(definition, task);
-  if (!stepName) {
+  const position = resolveWorkflowPosition(definition, task);
+  if (position.phase !== 'active') {
     throw new CliError(`Task '${task.id}' has no currently active workflow step — there is nothing requiring human verification right now`);
   }
+  const stepName = position.step;
+  const attempt = position.attempt;
   const gateConfig = resolveHumanGateForConfirmation(definition, task, stepName, opts.gate);
   const scope = gateConfig.scope || 'task';
-  const targetId = resolveHumanScopeTarget(scope, { ...context, stepId: stepName });
+  const targetId = resolveHumanScopeTarget(scope, { ...context, stepId: stepName, attempt });
   if (!targetId) {
     throw new CliError(`Could not resolve identity for scope '${scope}' — verify-human cannot record a signoff without an explicit target`);
   }
@@ -175,7 +188,7 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
   // exactly; hardcoding 'owner' here would make a configured non-owner gate (e.g.
   // 'reviewer', 'architect') permanently unsatisfiable via this CLI.
   const role = gateConfig.role || 'owner';
-  const store = new FileHumanVerificationStore({ repoRoot: context.repoRoot, change: change._slug, task: task.id });
-  const record = store.confirm({ scope, targetId, role, stepId: stepName, gateId: gateConfig.id || null });
+  const store = new FileHumanVerificationStore({ repoRoot: context.repoRoot, change: change._slug, task: task.id, attempt });
+  const record = store.confirm({ scope, targetId, role, stepId: stepName, attempt, gateId: gateConfig.id || null });
   return emit({ change: changeSlug, task: taskId, confirmed: true, record }, opts);
 }

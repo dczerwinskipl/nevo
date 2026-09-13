@@ -160,7 +160,7 @@ describe('resolveWorkflowPosition / resolveActiveStepName / resolveSemanticStatu
   test('state: active resolves the active step and its declared status.active', () => {
     const definition = buildDefinition();
     const activeTask = { workflow_progress: { current_step: 'implementation', state: 'active', history: [] } };
-    assert.deepEqual(resolveWorkflowPosition(definition, activeTask), { phase: 'active', step: 'implementation' });
+    assert.deepEqual(resolveWorkflowPosition(definition, activeTask), { phase: 'active', step: 'implementation', attempt: 1 });
     assert.equal(resolveActiveStepName(definition, activeTask), 'implementation');
     assert.equal(resolveSemanticStatus(definition, activeTask), 'implementing');
   });
@@ -172,7 +172,7 @@ describe('resolveWorkflowPosition / resolveActiveStepName / resolveSemanticStatu
       status: 'in-implementation',
       workflow_progress: { current_step: 'implementation', state: 'completed', history: [] },
     };
-    assert.deepEqual(resolveWorkflowPosition(definition, completedTask), { phase: 'terminal', step: 'implementation' });
+    assert.deepEqual(resolveWorkflowPosition(definition, completedTask), { phase: 'terminal', step: 'implementation', attempt: 1 });
     assert.equal(resolveActiveStepName(definition, completedTask), null);
     assert.equal(resolveSemanticStatus(definition, completedTask), 'implemented');
   });
@@ -229,7 +229,7 @@ describe('Multi-step position resolution (D37, task 10 AC2/AC4/AC9)', () => {
 
   test('state: active resolves exactly that step, never re-deriving entryStep', () => {
     const task = { workflow_progress: { current_step: 'stepB', state: 'active', history: [] } };
-    assert.deepEqual(resolveWorkflowPosition(MULTI_STEP_DEFINITION, task), { phase: 'active', step: 'stepB' });
+    assert.deepEqual(resolveWorkflowPosition(MULTI_STEP_DEFINITION, task), { phase: 'active', step: 'stepB', attempt: 1 });
   });
 
   test('resolveSemanticStatus is step-specific, not a constant (AC9): stepA and stepB resolve to their own distinct declared status pairs', () => {
@@ -246,7 +246,7 @@ describe('Multi-step position resolution (D37, task 10 AC2/AC4/AC9)', () => {
 
   test('state: completed with a transition naming another step resolves phase "completed" — awaiting the next `step start` (D37 case C)', () => {
     const task = { workflow_progress: { current_step: 'stepA', state: 'completed', history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }] } };
-    assert.deepEqual(resolveWorkflowPosition(MULTI_STEP_DEFINITION, task), { phase: 'completed', step: 'stepA', nextStep: 'stepB' });
+    assert.deepEqual(resolveWorkflowPosition(MULTI_STEP_DEFINITION, task), { phase: 'completed', step: 'stepA', attempt: 1, nextStep: 'stepB' });
     assert.equal(resolveActiveStepName(MULTI_STEP_DEFINITION, task), null, 'nothing is active until the next step start');
   });
 
@@ -255,7 +255,7 @@ describe('Multi-step position resolution (D37, task 10 AC2/AC4/AC9)', () => {
       status: 'in-implementation',
       workflow_progress: { current_step: 'stepB', state: 'completed', history: [{ step: 'stepB', completed_at: 'x', transitioned_to: 'verified' }] },
     };
-    assert.deepEqual(resolveWorkflowPosition(MULTI_STEP_DEFINITION, task), { phase: 'terminal', step: 'stepB' });
+    assert.deepEqual(resolveWorkflowPosition(MULTI_STEP_DEFINITION, task), { phase: 'terminal', step: 'stepB', attempt: 1 });
   });
 
   test('workflow_progress.current_step naming an undeclared step throws, never silently resolved to something else', () => {
@@ -285,11 +285,11 @@ describe('`workflow step start` activation (D37, task 10 AC1/AC2/AC4)', () => {
 
     const { task: effectiveTask, position } = ensureStepActivated(change, task, MULTI_STEP_DEFINITION);
 
-    assert.deepEqual(position, { phase: 'active', step: 'stepA' });
-    assert.deepEqual(effectiveTask.workflow_progress, { current_step: 'stepA', state: 'active', history: [] });
+    assert.deepEqual(position, { phase: 'active', step: 'stepA', attempt: 1 });
+    assert.deepEqual(effectiveTask.workflow_progress, { current_step: 'stepA', current_attempt: 1, state: 'active', history: [] });
 
     const persisted = requireTask(requireChange('demo-change', activeDir), 'demo-task');
-    assert.deepEqual(persisted.workflow_progress, { current_step: 'stepA', state: 'active', history: [] });
+    assert.deepEqual(persisted.workflow_progress, { current_step: 'stepA', current_attempt: 1, state: 'active', history: [] });
   });
 
   test('resume (case B): an already-active step returns the same position, writing nothing (AC2, no duplicate mutation)', () => {
@@ -299,7 +299,7 @@ describe('`workflow step start` activation (D37, task 10 AC1/AC2/AC4)', () => {
 
     const { position } = ensureStepActivated(change, task, MULTI_STEP_DEFINITION);
 
-    assert.deepEqual(position, { phase: 'active', step: 'stepA' });
+    assert.deepEqual(position, { phase: 'active', step: 'stepA', attempt: 1 });
     const after = readFileSync(join(activeDir, 'demo-change', 'change.yaml'), 'utf8');
     assert.equal(before, after, 'resuming an already-active step must not touch change.yaml at all');
   });
@@ -316,9 +316,10 @@ describe('`workflow step start` activation (D37, task 10 AC1/AC2/AC4)', () => {
     // (AC18) finds nothing unresolved and lets activation proceed.
     const { task: effectiveTask, position } = ensureStepActivated(change, completedTask, MULTI_STEP_DEFINITION, { repoRoot: activeDir });
 
-    assert.deepEqual(position, { phase: 'active', step: 'stepB' });
+    assert.deepEqual(position, { phase: 'active', step: 'stepB', attempt: 1 });
     assert.deepEqual(effectiveTask.workflow_progress, {
       current_step: 'stepB',
+      current_attempt: 1,
       state: 'active',
       history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }],
     });
@@ -352,6 +353,7 @@ describe('`workflow step start` activation (D37, task 10 AC1/AC2/AC4)', () => {
       change: 'demo-change',
       task: 'demo-task',
       step: 'stepA',
+      attempt: 1,
       status: 'running',
       resolvedInputs: {},
       operations: [
@@ -390,7 +392,7 @@ describe('`workflow step start` activation (D37, task 10 AC1/AC2/AC4)', () => {
 
     const { position } = ensureStepActivated(change, terminalTask, MULTI_STEP_DEFINITION);
 
-    assert.deepEqual(position, { phase: 'terminal', step: 'stepB' });
+    assert.deepEqual(position, { phase: 'terminal', step: 'stepB', attempt: 1 });
     const after = readFileSync(join(activeDir, 'demo-change', 'change.yaml'), 'utf8');
     assert.equal(before, after, 'a terminal workflow must never be mutated by step start');
   });
