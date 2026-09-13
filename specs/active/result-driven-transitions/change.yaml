@@ -26,7 +26,7 @@ tasks:
   - id: workflow-definition-transitions-and-history-validation
     order: 1
     file: tasks/01-workflow-definition-transitions-and-history-validation.md
-    status: draft
+    status: approved
 
   - id: attempt-lifecycle-and-scoped-storage
     order: 2
