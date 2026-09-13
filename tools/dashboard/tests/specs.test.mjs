@@ -9,8 +9,9 @@ import specsRoutes from '../server/specs/routes.mjs';
 import { ACTIVE_FIXTURE_SLUG, ARCHIVED_FIXTURE_SLUG, createSpecificationRouteFixtures } from './helpers/spec-fixtures.mjs';
 
 const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
-test('serves read-only dashboard data and rejects unknown or mutating routes', async () => {
-  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
+test('serves read-only dashboard data and rejects unknown or mutating routes', async (t) => {
+  const fixtures = await createSpecificationRouteFixtures(t);
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST, ...fixtures } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const dashboard = await fetch(`${baseUrl}/api/dashboard`);
