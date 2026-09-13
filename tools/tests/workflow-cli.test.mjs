@@ -19,6 +19,7 @@ import {
 import { requireChange, requireTask, setTaskWorkflowState } from '../specs/store.mjs';
 import { CliError } from '../lib/cli-errors.mjs';
 import { WorkflowDefinitionError, WorkflowError } from '../specs/workflow/errors.mjs';
+import { saveOperationRecord, FINISH_STAGE_IDS } from '../specs/workflow/finish-operation.mjs';
 
 const CHANGE_YAML = `id: demo-change
 title: "Demo change"
@@ -579,6 +580,56 @@ tasks:
         return true;
       }
     );
+  });
+});
+
+describe('in-flight operation precedes workflow_progress resolution via the public CLI (Task 04 AC1, corrective revision)', () => {
+  let fx;
+  before(() => {
+    fx = makeFixture('nevo-cli-inflight-precedence', {
+      // A crash mid-`update-task` write could plausibly leave workflow_progress
+      // unresolvable (here: no current_attempt at all) — exactly the state the in-flight
+      // record's own reconciliation exists to recover through. handleWorkflowStepFinish
+      // must never let resolveWorkflowPosition run — let alone throw — ahead of consulting
+      // the in-flight record for execution identity.
+      changeYaml: `id: demo-change
+title: "Demo change"
+type: standard
+status: draft
+workflow:
+  mode: deterministic
+  definition: vertical-poc
+tasks:
+  - id: demo-task
+    order: 1
+    file: tasks/01-demo.md
+    status: in-implementation
+    workflow_progress:
+      current_step: implementation
+      state: completed
+      history: []
+`,
+    });
+    saveOperationRecord(fx.root, {
+      operationId: 'cli-inflight-precedence',
+      change: 'demo-change',
+      task: 'demo-task',
+      step: 'implementation',
+      attempt: 1,
+      status: 'running',
+      resolvedInputs: {},
+      operations: FINISH_STAGE_IDS.map(id => ({ id, status: 'pending' })),
+    });
+  });
+  after(() => rmSync(fx.root, { recursive: true, force: true }));
+
+  test('workflow step finish --check resumes via the in-flight record instead of throwing on unresolvable workflow_progress', async () => {
+    const plan = await handleWorkflowStepFinish('demo-change', 'demo-task', {
+      check: true, activeDir: fx.activeDir, repoRoot: fx.root, silent: true,
+    });
+    assert.equal(plan.stepName, 'implementation');
+    assert.equal(plan.attempt, 1);
+    assert.notEqual(plan.status, undefined);
   });
 });
 

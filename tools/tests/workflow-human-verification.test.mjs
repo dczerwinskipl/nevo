@@ -84,16 +84,20 @@ describe('FileHumanVerificationStore and attempt scoping (AC6)', () => {
     assert.equal(found2, null, 'attempt 2 query must return null when only attempt 1 is signed off');
   });
 
-  test('HumanVerificationGate verification enforces attempt scoping', async () => {
-    const storeAttempt1 = new FileHumanVerificationStore({
+  test('HumanVerificationGate verification enforces attempt scoping via context.attempt on a single shared store/gate (corrective revision)', async () => {
+    // A single store/gate pair, constructed with no attempt bound at all — attempt
+    // identity must flow entirely through the per-call `context.attempt` the gate query
+    // contract carries, not through hidden reader-instance state (which would trivially
+    // "pass" this test even if the gate never actually threaded attempt through at all).
+    const store = new FileHumanVerificationStore({
       repoRoot: fx.repo,
       change: 'demo-change',
       task: 'demo-task',
-      attempt: 1,
     });
+    const gate = new HumanVerificationGate({ verificationReader: store });
 
     // Confirm on attempt 1 only
-    storeAttempt1.confirm({
+    store.confirm({
       scope: 'task',
       targetId: 'demo-task',
       role: 'owner',
@@ -102,25 +106,17 @@ describe('FileHumanVerificationStore and attempt scoping (AC6)', () => {
       gateId: 'human-review',
     });
 
-    const gate1 = new HumanVerificationGate({ verificationReader: storeAttempt1 });
-    const context = {
+    const baseContext = {
       change: { id: 'demo-change' },
       task: { id: 'demo-task' },
       step: { id: 'review' },
       repoRoot: fx.repo,
     };
 
-    const res1 = await gate1.verify({ id: 'human-review' }, context);
+    const res1 = await gate.verify({ id: 'human-review' }, { ...baseContext, attempt: 1 });
     assert.equal(res1.passed, true);
 
-    const storeAttempt2 = new FileHumanVerificationStore({
-      repoRoot: fx.repo,
-      change: 'demo-change',
-      task: 'demo-task',
-      attempt: 2,
-    });
-    const gate2 = new HumanVerificationGate({ verificationReader: storeAttempt2 });
-    const res2 = await gate2.verify({ id: 'human-review' }, context);
+    const res2 = await gate.verify({ id: 'human-review' }, { ...baseContext, attempt: 2 });
     assert.equal(res2.passed, false);
     assert.equal(res2.status, 'blocked');
   });

@@ -1066,6 +1066,52 @@ describe('Result-driven transitions: planFinish matching and validation (AC1, AC
     assert.equal(plan.attempt, 1);
     rmSync(join(fx.repo, '.nevo-ai-local'), { recursive: true, force: true });
   });
+
+  test('in-flight operation resumes even when workflow_progress cannot be resolved at all (Task 04 AC1: in-flight precedes position resolution, not just the already-completed check)', async () => {
+    const gateRegistry = makeGateRegistry();
+    saveOperationRecord(fx.repo, {
+      operationId: 'inflight-op-precedence-unresolvable',
+      change: 'demo-change',
+      task: 'demo-task',
+      step: 'implementation',
+      attempt: 1,
+      status: 'running',
+      resolvedInputs: RESOLVED_INPUTS,
+      operations: [
+        { id: 'verify-gates', status: 'completed' },
+        { id: 'update-task', status: 'completed' },
+        { id: 'commit', status: 'pending' },
+        { id: 'push', status: 'pending' },
+        { id: 'transition', status: 'pending' },
+      ],
+    });
+
+    // A crash mid-`update-task` write could plausibly leave workflow_progress in a state
+    // resolveWorkflowPosition itself fails closed on (here: no current_attempt at all) —
+    // exactly the state the in-flight record's own reconciliation exists to recover
+    // through. planFinish must never let position resolution run — let alone throw —
+    // ahead of consulting the in-flight record.
+    const unresolvableTask = {
+      id: 'demo-task',
+      status: 'in-implementation',
+      workflow_progress: {
+        current_step: 'implementation',
+        state: 'completed',
+        history: [],
+      },
+    };
+
+    const plan = await planFinish({
+      ...baseParams(fx, gateRegistry),
+      task: unresolvableTask,
+      inputs: RESOLVED_INPUTS,
+    });
+
+    assert.equal(plan.status, 'ready');
+    assert.equal(plan.stepName, 'implementation');
+    assert.equal(plan.attempt, 1);
+    rmSync(join(fx.repo, '.nevo-ai-local'), { recursive: true, force: true });
+  });
 });
 
 describe('Result-driven transitions: resuming and input conflict detection (AC3)', () => {

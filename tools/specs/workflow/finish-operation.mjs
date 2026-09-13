@@ -129,13 +129,17 @@ export async function planFinish({
 } = {}) {
   const changeSlug = change._slug || change.id;
 
-  // D23: an in-flight record (regardless of which step it belongs to) is authoritative
-  // over re-deriving the step from the task's *current* workflow_progress — `finish`
-  // never moves `current_step` itself (D37), but a crash could still leave this
-  // operation's own `update-task` stage `completed` (state: 'completed' already
-  // written) while `commit`/`push`/`transition` remain unfinished.
+  // D23/Task 04 AC1: an in-flight record (regardless of which step it belongs to) is
+  // authoritative over re-deriving the step from the task's *current* workflow_progress —
+  // `finish` never moves `current_step` itself (D37), but a crash could still leave this
+  // operation's own `update-task` stage `completed` (state: 'completed' already written)
+  // while `commit`/`push`/`transition` remain unfinished. `resolveWorkflowPosition` must
+  // not even run when an in-flight record exists: it fails closed on an incoherent
+  // `workflow_progress`, which is exactly the state a crashed `update-task` write can
+  // leave behind — the in-flight record's own reconciliation (`ensureUpdateTask`) is what
+  // resolves that, not workflow-position resolution.
   const inFlight = context.repoRoot ? findInFlightOperationRecord(context.repoRoot, changeSlug, task.id) : null;
-  const position = resolveWorkflowPosition(definition, task);
+  const position = inFlight ? null : resolveWorkflowPosition(definition, task);
   const stepName = inFlight ? inFlight.step : (position.phase === 'active' ? position.step : null);
   const attempt = inFlight ? inFlight.attempt : position.attempt;
 

@@ -157,12 +157,15 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
   const inputs = parseFinishInputs(opts);
   const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
   const inFlight = context.repoRoot ? findInFlightOperationRecord(context.repoRoot, change._slug, task.id) : null;
-  const position = resolveWorkflowPosition(definition, task);
+  // Task 04 AC1: an in-flight record is authoritative over workflow_progress for choosing
+  // execution identity — resolveWorkflowPosition must not even run when one exists (see
+  // the identical reasoning in finish-operation.mjs's planFinish).
+  const position = inFlight ? null : resolveWorkflowPosition(definition, task);
   const stepName = inFlight ? inFlight.step : position.step;
   const attempt = inFlight ? inFlight.attempt : position.attempt;
   const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, attempt);
 
-  const step = (position.phase === 'active' || inFlight) ? definition.steps?.[stepName] : null;
+  const step = (position?.phase === 'active' || inFlight) ? definition.steps?.[stepName] : null;
   if (step) {
     const finalizeCheck = await aggregateFinalizeCheck(step, context);
     const parameters = buildFinishContract(finalizeCheck, step);

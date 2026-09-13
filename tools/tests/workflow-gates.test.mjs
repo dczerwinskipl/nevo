@@ -585,7 +585,7 @@ describe('HumanVerificationGate trusted state and adversarial context rejection'
     assert.equal(capturedQueries.length, 1);
     assert.deepEqual(capturedQueries[0], {
       scope: 'task', targetId: 'my-task', requiredRole: 'owner',
-      changeId: 'my-change', taskId: 'my-task', stepId: 'my-step', gateId: 'my-gate',
+      changeId: 'my-change', taskId: 'my-task', stepId: 'my-step', gateId: 'my-gate', attempt: null,
     });
 
     const verifyResult = await gate.verify(config, context);
@@ -604,7 +604,7 @@ describe('HumanVerificationGate trusted state and adversarial context rejection'
     assert.equal(result.status, 'passed');
   });
 
-  test('changeId/taskId/stepId/gateId are null, never invented, when context/config do not supply them', async () => {
+  test('changeId/taskId/stepId/gateId/attempt are null, never invented, when context/config do not supply them', async () => {
     const capturedQueries = [];
     class SpyReader extends HumanVerificationReader {
       getSignoff(query) {
@@ -618,6 +618,23 @@ describe('HumanVerificationGate trusted state and adversarial context rejection'
     assert.equal(capturedQueries[0].changeId, null);
     assert.equal(capturedQueries[0].stepId, null);
     assert.equal(capturedQueries[0].gateId, null);
+    assert.equal(capturedQueries[0].attempt, null);
     assert.equal(capturedQueries[0].taskId, 'bare-task');
+  });
+
+  test('a signoff scoped to one attempt does not satisfy a query for a different attempt of the same step (attempt identity, corrective revision)', async () => {
+    const reader = new MemoryHumanVerificationReader([
+      { confirmed: true, scope: 'task', targetId: 'attempt-task', role: 'owner', attempt: 1 },
+    ]);
+    const gate = new HumanVerificationGate({ verificationReader: reader });
+
+    const attempt1 = await gate.inspect({ required: true, scope: 'task' }, { taskId: 'attempt-task', attempt: 1 });
+    assert.equal(attempt1.status, 'passed');
+
+    const attempt2 = await gate.inspect({ required: true, scope: 'task' }, { taskId: 'attempt-task', attempt: 2 });
+    assert.equal(attempt2.status, 'blocked');
+
+    const noAttempt = await gate.inspect({ required: true, scope: 'task' }, { taskId: 'attempt-task' });
+    assert.equal(noAttempt.status, 'blocked', 'a query with no attempt at all must not satisfy an attempt-scoped signoff');
   });
 });

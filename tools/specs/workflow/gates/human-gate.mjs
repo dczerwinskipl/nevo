@@ -23,6 +23,11 @@ export class HumanVerificationReader {
    * @param {string|null} [query.gateId] - The gate's own explicit `id`, when configured
    *   (D29) — additive; lets a reader distinguish more than one human gate on the same
    *   step (D30 requires an explicit, unique `id` whenever a step declares more than one)
+   * @param {number|null} [query.attempt] - The current `(step, attempt)` execution
+   *   identity (additive, same tier as `stepId`/`gateId`) — a reader that scopes signoffs
+   *   per attempt (e.g. `FileHumanVerificationStore`) needs this in the query itself
+   *   rather than trusting hidden constructor-bound state, so a signoff confirmed for one
+   *   attempt can never silently satisfy a different one of the same step.
    * @returns {Promise<object|null>|object|null}
    */
   getSignoff(query) {
@@ -52,7 +57,7 @@ export class MemoryHumanVerificationReader extends HumanVerificationReader {
     }
   }
 
-  getSignoff({ scope, targetId, requiredRole }) {
+  getSignoff({ scope, targetId, requiredRole, attempt }) {
     return (
       this._signoffs.find((s) => {
         if (!s || typeof s !== 'object' || s.confirmed !== true) return false;
@@ -60,6 +65,11 @@ export class MemoryHumanVerificationReader extends HumanVerificationReader {
         if (s.targetId !== targetId) return false;
         const role = s.role || s.confirmedBy;
         if (requiredRole && role !== requiredRole) return false;
+        // Additive, like the D29 identity fields below: a signoff that doesn't declare an
+        // attempt at all is unaffected (pre-existing callers/fixtures keep working
+        // unmodified); one that does must match the query's attempt exactly, so a signoff
+        // recorded for one attempt can never satisfy a query for a different attempt.
+        if (s.attempt !== undefined && s.attempt !== attempt) return false;
         return true;
       }) || null
     );
@@ -127,6 +137,7 @@ export class HumanVerificationGate extends GateContract {
     const taskId = context.taskId ?? context.task?.id ?? null;
     const stepId = typeof context.step === 'string' ? context.step : (context.step?.id ?? context.stepId ?? null);
     const gateId = config.id ?? null;
+    const attempt = context.attempt ?? null;
 
     if (isRequired && !targetId) {
       return new GateInspectionResult({
@@ -182,7 +193,7 @@ export class HumanVerificationGate extends GateContract {
 
     let signoff = null;
     try {
-      signoff = await reader.getSignoff({ scope, targetId, requiredRole, changeId, taskId, stepId, gateId });
+      signoff = await reader.getSignoff({ scope, targetId, requiredRole, changeId, taskId, stepId, gateId, attempt });
     } catch (err) {
       return new GateInspectionResult({
         gateType: this.type,
