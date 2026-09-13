@@ -23,7 +23,7 @@ tasks:
     status: implemented
     implementation:
       baseline_revision: e25b915535d8ffa1b152cdee452a3d32c19ca95a
-      review_revision: e25b915535d8ffa1b152cdee452a3d32c19ca95a
+      review_revision: 1d5a47fdcf54ed31daf69fbb17ca9775c5a8aa24
       changed_paths:
         - .nevo-ai/workflows/standard-v1.yaml
         - .nevo-ai/workflows/standard.yaml
@@ -37,14 +37,18 @@ tasks:
         - tools/specs/workflow/step-context.mjs
         - tools/specs/workflow/templates/standard.yaml
         - tools/tests/workflow-action-commit-push.test.mjs
+        - tools/tests/workflow-cli.test.mjs
+        - tools/tests/workflow-compatibility.test.mjs
         - tools/tests/workflow-definitions.test.mjs
         - tools/tests/workflow-e2e-loop.test.mjs
+        - tools/tests/workflow-e2e.test.mjs
         - tools/tests/workflow-human-verification.test.mjs
+        - tools/tests/workflow-next-step.test.mjs
         - tools/tests/workflow-step-context.test.mjs
-      worktree_patch_fingerprint: da7cf955b66a2ad81467e78e7b78aca477340b9230fe4c93c57e10473a47d5f3
+      worktree_patch_fingerprint: 029efc2d11af162f3989adaba89ed6c9ef1bca051cfa2409255f6845a162ea92
     self_check:
-      fingerprint: bb6c7d9f000837a7f905593328879e4714262b2bd1a5c147510eb906d658e2da
-      revision: e25b915535d8ffa1b152cdee452a3d32c19ca95a
+      fingerprint: badbc5ebd6a5a4f3e5a345c20fe80a398f94f6b758750bdb2d3ebca37f7c3558
+      revision: 1d5a47fdcf54ed31daf69fbb17ca9775c5a8aa24
       commands:
         - command: node --test tools/tests/workflow-definitions.test.mjs
           exit_code: 0
