@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Eliminate attempt collisions, false completion short-circuits, and premature gate satisfaction in local runtime storage (`.nevo-ai-local/`). Define attempt-aware crash reconciliation rules for durable stages and enforce a fail-closed multi-record guard.
+Eliminate attempt collisions, false completion short-circuits, and premature gate satisfaction in local runtime storage (`.nevo-ai-local/`). Define exact attempt-aware crash reconciliation rules for durable finish stages and enforce a fail-closed multi-record guard.
 
 ## Durable Finish Operation Scoping (`tools/specs/workflow/operation-record.mjs`)
 
@@ -28,7 +28,21 @@ Durable finish operation records are strictly scoped by step and attempt:
   },
   "operations": [
     { "id": "verify-gates", "status": "completed", "result": { "gates": [] } },
-    { "id": "update-task", "status": "completed", "intent": { "fromState": "active", "toState": "completed" }, "result": { "to": { "kind": "step", "step": "implementation" }, "result": "fail" } },
+    {
+      "id": "update-task",
+      "status": "completed",
+      "intent": {
+        "step": "review",
+        "attempt": 1,
+        "fromState": "active",
+        "toState": "completed",
+        "result": "fail",
+        "transitioned_to": "implementation",
+        "artifacts": ["docs/reviews/audit.md"],
+        "terminalStatus": null
+      },
+      "result": { "to": { "kind": "step", "step": "implementation" }, "result": "fail" }
+    },
     { "id": "commit", "status": "completed", "intent": { "preCommitHead": "..." }, "result": { "sha": "...", "status": "completed" } },
     { "id": "push", "status": "completed", "result": { "remote": "origin", "branch": "...", "expectedSha": "...", "status": "completed" } },
     { "id": "transition", "status": "completed", "result": { "transition": { "from": { "step": "review", "attempt": 1 }, "result": "fail", "to": { "kind": "step", "step": "implementation" } } } }
@@ -48,23 +62,31 @@ and filters for records where `record.status !== 'completed'`.
 
 ## Attempt-Aware Crash Reconciliation (`ensureUpdateTask`)
 
-When an in-flight operation recovers a stage found in `running` or `unknown` state, it must reconcile against real state using the concrete `(record.step, record.attempt)` identity:
+When an in-flight operation recovers a stage found in `running` or `unknown` state, it must reconcile against persisted state using the concrete `(record.step, record.attempt)` identity and the exact logical write intent recorded in `stage.intent`:
 
 1. **Write Definitely Happened:**
-   - `task.workflow_progress.current_step === record.step`
-   - `task.workflow_progress.current_attempt === record.attempt`
+   - `task.workflow_progress.current_step === stage.intent.step`
+   - `task.workflow_progress.current_attempt === stage.intent.attempt`
    - `task.workflow_progress.state === 'completed'`
-   - The latest record in `task.workflow_progress.history` matches `{ step: record.step, attempt: record.attempt }`.
-   - *Action:* Stage status marked `completed`; recovers `stage.result`; proceeds to `commit`.
+   - The latest record in `task.workflow_progress.history` matches `{ step: stage.intent.step, attempt: stage.intent.attempt }`.
+   - The latest history record has:
+     - `transitioned_to === stage.intent.transitioned_to`
+     - `result === stage.intent.result` (or both undefined for unconditional steps)
+     - `artifacts` match `stage.intent.artifacts`
+   - If `stage.intent.terminalStatus` is non-null, `task.status === stage.intent.terminalStatus`.
+   - *Action:* Stage status marked `completed`; recovers `stage.result`; proceeds to subsequent stages.
+
 2. **Write Definitely Did Not Happen:**
-   - `task.workflow_progress.current_step === record.step`
-   - `task.workflow_progress.current_attempt === record.attempt`
+   - `task.workflow_progress.current_step === stage.intent.step`
+   - `task.workflow_progress.current_attempt === stage.intent.attempt`
    - `task.workflow_progress.state === 'active'`
-   - No record exists in `task.workflow_progress.history` for `{ step: record.step, attempt: record.attempt }`.
+   - No record exists in `task.workflow_progress.history` for `{ step: stage.intent.step, attempt: stage.intent.attempt }`.
+   - If `stage.intent.terminalStatus` is non-null, `task.status` has not been modified to that status.
    - *Action:* Safe to execute the atomic `update-task` write.
+
 3. **State Inconsistent / Reconciliation Required:**
-   - Any other permutation (e.g. `history` has the attempt but `state` is `active`, or `current_attempt` does not match `record.attempt`, or another step's attempt was written).
-   - *Action:* Stage marked `unknown`, operation blocks, returns `reconciliation-required`.
+   - Any discrepancy (e.g. `state === 'completed'` but persisted `result` or `transitioned_to` differs from `stage.intent`, or `state === 'active'` but history already contains the attempt, or current attempt does not match `stage.intent.attempt`).
+   - *Action:* Stage marked `unknown`, operation halts, fails closed with `reconciliation-required` error blocking further execution.
 
 ## Human Verification Store Scoping (`tools/specs/workflow/human-verification-store.mjs`)
 

@@ -35,4 +35,17 @@
 - **Rationale:** The AI agent is a bounded executor of discrete steps, not a workflow orchestrator. The agent reports its semantic outcome (e.g. `pass` or `fail`), and Nevo deterministically computes the next step. Exposing destination step names introduces unnecessary cognitive noise and risks prompt injection or agents attempting to orchestrate their own transitions.
 - **Consequences:** `StepContext` contains allowed result values in `finishContract.parameters.result.allowedValues` but omits destination step mappings.
 - **Date:** 2026-09-13
-- **Affected artifacts:** `overview.md`, `areas/04-step-context-and-ai-protocol.md`, task 04
+- **Affected artifacts:** `overview.md`, `areas/04-step-context-and-ai-protocol.md`, task 03
+
+## D4: Stable generic finish transport vs parameter-specific CLI flags
+
+- **Question:** How should `workflow step finish` accept completion parameters (such as `result`, `commit.title`, `commit.message`, `include`, `exclude`, and `artifacts`)?
+- **Options considered:**
+  1. *Parameter-specific CLI flags:* Add dedicated flags for every parameter (e.g. `--result`, `--title`, `--message`, `--include`, `--exclude`, `--artifact`, `--artifacts`).
+  2. *Generic structured input transport:* Expose a small, stable CLI surface accepting a structured JSON payload via `--input <json>` or `--input-file <path>`, where dynamic parameter names and schemas are defined entirely by `finishContract`.
+  3. *Hybrid transport:* Support both dedicated CLI flags and a generic `--input` flag with fallback aliases.
+- **Decision:** Option 2. Generic structured input transport (`--input <json>` and mutually exclusive `--input-file <path>`). Dynamic parameter names are defined by `finishContract`. Workflow and finalize inputs do not receive dedicated CLI flags. No legacy aliases are retained.
+- **Rationale:** CLI flags represent command and transport concerns, whereas completion parameters are dynamic domain inputs governed by step and finalize action schemas. Dedicated flags create an unnecessary second API layer that drifts from `finishContract` and requires updating CLI parsers whenever new finalize actions or parameters are introduced. A single structured input payload ensures future extensibility without CLI changes and provides a unified, unambiguous contract for AI agents.
+- **Consequences:** `workflow step finish` accepts only transport flags (`--check`, `--input`, `--input-file`). Parameter names in `finishContract.parameters` are the exact keys expected in the JSON input payload.
+- **Date:** 2026-09-13
+- **Affected artifacts:** `overview.md`, `areas/05-finish-execution-and-cli.md`, tasks 03, 04

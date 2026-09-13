@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the lifecycle, derivation, invariants, and persistence of step attempts and historical execution records. Ensure that re-entering previously completed steps creates distinct attempt identities, and enforce strict invariants preventing ambiguous, corrupted, or incoherent workflow progress across loops.
+Define the lifecycle, derivation, invariants, and persistence of step attempts and historical execution records. Ensure that re-entering previously completed steps creates distinct attempt identities, canonicalize lightweight artifact tracking, and enforce strict invariants preventing ambiguous, corrupted, or incoherent workflow progress across loops.
 
 ## State Representation in `change.yaml`
 
@@ -34,10 +34,16 @@ workflow_progress:
   - `'active'`: In-progress work on `current_step` (attempt `current_attempt`).
   - `'completed'`: `current_step`'s attempt finished; awaiting next `workflow step start` to activate target.
 - `history`: (array of objects) Completed historical attempts.
+  - `step`: (string) Step identifier.
+  - `attempt`: (integer >= 1) Step attempt counter.
+  - `completed_at`: (ISO 8601 string) Completion timestamp.
+  - `transitioned_to`: (string) Resolved next step name or terminal status.
+  - `result`: (optional string) Explicit semantic result (present only for conditional steps).
+  - `artifacts`: (optional array of strings) Canonical list of artifact reference strings (e.g. file paths or URI identifiers).
 
-## Attempt Invariants
+## Attempt Integrity Invariants
 
-To prevent state drift or ambiguous routing across restarts and loop cycles, the runtime and manifest validator (`validation.mjs`) enforce five integrity invariants:
+To prevent state drift, corruption, or ambiguous routing across restarts and loop cycles, the runtime and manifest validator (`tools/specs/validation.mjs`) enforce six integrity invariants:
 
 1. **Uniqueness:** Every `(step, attempt)` pair is strictly unique in `history`. No duplicate attempt records may exist for the same step.
 2. **Monotonicity & Contiguity:** For any given step `S`, historical attempts must be contiguous integers starting at 1 (`1, 2, ..., N`).
@@ -48,7 +54,9 @@ To prevent state drift or ambiguous routing across restarts and loop cycles, the
    - When `state === 'completed'`, the latest record in `history` (`history[history.length - 1]`) must have `step === current_step` and `attempt === current_attempt`.
 5. **Transition Continuity:**
    - The transition target used to resolve the next step must come strictly from `history[history.length - 1].transitioned_to`.
-   - Any progress payload violating these invariants fails closed with `INCOHERENT_WORKFLOW_PROGRESS`.
+6. **Semantic Definition Matching:**
+   - Every entry in `history` must be semantically valid according to the workflow definition: declared step name, forbidden `result` on unconditional steps, mandatory declared `result` on conditional steps matching the recorded `transitioned_to` target.
+   - Any progress payload violating these invariants fails closed with `INCOHERENT_WORKFLOW_PROGRESS` or `INVALID_WORKFLOW_HISTORY`.
 
 ## Attempt Lifecycle & Derivation
 

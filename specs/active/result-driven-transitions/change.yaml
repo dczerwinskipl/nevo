@@ -23,44 +23,36 @@ pull_requests:
     number: 48
 
 tasks:
-  - id: workflow-definition-transitions
+  - id: workflow-definition-transitions-and-history-validation
     order: 1
-    file: tasks/01-workflow-definition-transitions.md
+    file: tasks/01-workflow-definition-transitions-and-history-validation.md
     status: draft
 
-  - id: attempt-identity-and-history-persistence
+  - id: attempt-lifecycle-and-scoped-storage
     order: 2
-    file: tasks/02-attempt-identity-and-history-persistence.md
+    file: tasks/02-attempt-lifecycle-and-scoped-storage.md
     status: draft
     depends_on:
-      - workflow-definition-transitions
+      - workflow-definition-transitions-and-history-validation
 
-  - id: attempt-scoped-operation-and-verification-stores
+  - id: canonical-finish-contract-and-generic-cli-input
     order: 3
-    file: tasks/03-attempt-scoped-operation-and-verification-stores.md
+    file: tasks/03-canonical-finish-contract-and-generic-cli-input.md
     status: draft
     depends_on:
-      - attempt-identity-and-history-persistence
+      - workflow-definition-transitions-and-history-validation
+      - attempt-lifecycle-and-scoped-storage
 
-  - id: step-context-completion-and-protocol-contract
+  - id: result-driven-finish-and-discriminated-transitions
     order: 4
-    file: tasks/04-step-context-completion-and-protocol-contract.md
+    file: tasks/04-result-driven-finish-and-discriminated-transitions.md
     status: draft
     depends_on:
-      - workflow-definition-transitions
-      - attempt-identity-and-history-persistence
+      - canonical-finish-contract-and-generic-cli-input
 
-  - id: result-driven-finish-and-cli-integration
+  - id: standard-workflow-review-loop-and-e2e-proof
     order: 5
-    file: tasks/05-result-driven-finish-and-cli-integration.md
+    file: tasks/05-standard-workflow-review-loop-and-e2e-proof.md
     status: draft
     depends_on:
-      - attempt-scoped-operation-and-verification-stores
-      - step-context-completion-and-protocol-contract
-
-  - id: standard-workflow-loop-and-multi-attempt-e2e
-    order: 6
-    file: tasks/06-standard-workflow-loop-and-multi-attempt-e2e.md
-    status: draft
-    depends_on:
-      - result-driven-finish-and-cli-integration
+      - result-driven-finish-and-discriminated-transitions
