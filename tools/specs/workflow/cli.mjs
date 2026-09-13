@@ -162,13 +162,7 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
   const attempt = inFlight ? inFlight.attempt : position.attempt;
   const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, attempt);
 
-  if (position.phase !== 'active' && !inFlight) {
-    if (position.phase === 'completed' || position.phase === 'terminal') {
-      return emit({ status: 'already-completed', change: changeSlug, task: task.id }, opts);
-    }
-  }
-
-  const step = definition.steps?.[stepName];
+  const step = (position.phase === 'active' || inFlight) ? definition.steps?.[stepName] : null;
   if (step) {
     const finalizeCheck = await aggregateFinalizeCheck(step, context);
     const parameters = buildFinishContract(finalizeCheck, step);

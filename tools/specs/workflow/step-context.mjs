@@ -423,7 +423,6 @@ export async function compileStepContext({
       relevantDocs,
       context: {},
       finishContract: { parameters: {}, requiredInputs: {}, gates: [] },
-      nextStepGuidance: null,
     };
   }
 
@@ -437,7 +436,6 @@ export async function compileStepContext({
   const actionContext = { ...context, sourceControl: context.sourceControl ?? definition.sourceControl };
   const finalizeCheck = await aggregateFinalizeCheck(step, actionContext, { engine, actionRegistry });
   const parameters = buildFinishContract(finalizeCheck, step);
-  const isUnconditional = step.transitions?.length === 1 && step.transitions[0].value === undefined;
   // Only a definitively 'blocked'/'failed' gate blocks — 'pending' (a command gate that
   // simply hasn't been verify()'d yet) must not, or planning could never reach the
   // execution that would actually run and record it (see the identical reasoning in
@@ -479,6 +477,5 @@ export async function compileStepContext({
       // attempt report the same blocking state (D9 clarification).
       gates: exitGateResults,
     },
-    nextStepGuidance: isUnconditional ? { onSuccess: step.transitions[0].to } : null,
   };
 }

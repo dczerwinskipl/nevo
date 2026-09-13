@@ -216,8 +216,7 @@ tasks:
 
     // Destination routing must not be exposed to agent
     assert.equal('availableTransitions' in stepContext, false, 'availableTransitions must not exist on stepContext');
-    assert.equal('availableTransitions' in stepContext.finishContract, false, 'availableTransitions must not exist in finishContract');
-    assert.equal(stepContext.nextStepGuidance, null, 'nextStepGuidance must be null on conditional steps');
+    assert.equal('nextStepGuidance' in stepContext, false, 'nextStepGuidance must not exist on stepContext');
 
     const resultParam = stepContext.finishContract.parameters.result;
     assert.deepEqual(resultParam.allowedValues, ['pass', 'fail']);

@@ -400,12 +400,12 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
       const intentTerminal = intent.terminalStatus !== undefined ? intent.terminalStatus : (isInternalTransition ? null : to);
 
       const wpStepMatches = wp?.current_step === intentStep;
-      const wpAttemptMatches = wp?.current_attempt === undefined || wp?.current_attempt === intentAttempt;
+      const wpAttemptMatches = wp?.current_attempt === intentAttempt;
       const wpStateMatches = wp?.state === 'completed';
       const latestHistory = Array.isArray(wp?.history) && wp.history.length > 0 ? wp.history[wp.history.length - 1] : null;
       const historyMatches = latestHistory
         && latestHistory.step === intentStep
-        && (intent.attempt === undefined || latestHistory.attempt === undefined || latestHistory.attempt === intentAttempt)
+        && latestHistory.attempt === intentAttempt
         && latestHistory.transitioned_to === intentTo
         && (intent.result === undefined || latestHistory.result === intent.result)
         && ((!intent.artifacts && !latestHistory.artifacts) || JSON.stringify(latestHistory.artifacts || []) === JSON.stringify(intent.artifacts || []));
@@ -420,7 +420,7 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
       }
 
       // 2. Write Definitely Did Not Happen
-      const noHistoryEntry = !Array.isArray(wp?.history) || !wp.history.some(h => h.step === intentStep && (intent.attempt === undefined || h.attempt === undefined || h.attempt === intentAttempt));
+      const noHistoryEntry = !Array.isArray(wp?.history) || !wp.history.some(h => h.step === intentStep && h.attempt === intentAttempt);
       const wpActive = wp?.state === 'active';
       const terminalNotModified = intentTerminal ? task.status !== intentTerminal : true;
 
@@ -628,26 +628,18 @@ async function ensurePush(record, context, repoRoot) {
 
 /** Runtime-only and idempotent (D13's consequence) — never writes `change.yaml` again;
  * the task/spec status change already happened and was already committed by
- * `update-task`/`commit`. Just re-derives the next-step response from the already-
- * persisted `update-task` result — its own `toStep`/`toState` already distinguishes
- * the internal vs. terminal case (D37; `nextStepGuidance` names whichever the
- * transition actually targets — the step D37 activates on the *next* `step start`, or
- * the terminal status just written). */
+ * `update-task`/`commit`. Just records that the transition stage settled; the
+ * authoritative discriminated target is (re)computed from the `update-task` stage's
+ * own `toStep`/`toState` by `buildCompletionResult`, not stored here. */
 async function ensureTransition(record) {
   const stage = findStage(record, 'transition');
   if (stage.status === 'completed') return;
 
   const updateTaskStage = findStage(record, 'update-task');
   const result = updateTaskStage.result;
-  const nextStepGuidance = result?.toStep
-    ? { onSuccess: result.toStep }
-    : result?.toState
-      ? { onSuccess: result.toState }
-      : null;
 
   stage.status = 'completed';
   stage.result = {
-    nextStepGuidance,
     taskStatus: result?.toState,
   };
 }

@@ -76,12 +76,8 @@ function makeFixtureRepo({
     '',
   ].join('\n'));
 
-  // Load repository standard workflow definition with sourceControl enabled for E2E commit/push
-  const rawStandardYaml = readFileSync(join(process.cwd(), '.nevo-ai', 'workflows', 'standard.yaml'), 'utf8');
-  const standardWorkflowYaml = rawStandardYaml.replace(
-    'version: 1',
-    'version: 1\nsourceControl:\n  enabled: true\n  push: true'
-  );
+  // Load repository standard workflow definition — it declares sourceControl itself now.
+  const standardWorkflowYaml = readFileSync(join(process.cwd(), '.nevo-ai', 'workflows', 'standard.yaml'), 'utf8');
   const workflowsDir = join(root, '.nevo-ai', 'workflows');
   mkdirSync(workflowsDir, { recursive: true });
   writeFileSync(join(workflowsDir, 'standard.yaml'), standardWorkflowYaml);

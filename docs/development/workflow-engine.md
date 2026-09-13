@@ -123,8 +123,7 @@ reimplemented) by `step-context.mjs` and `finish-operation.mjs`.
   "finishContract": {
     "requiredInputs": { "commit.title": { "type": "string", "required": true, "...": "..." } },
     "gates": [ { "id": "test", "gateType": "command", "status": "pending", "...": "..." } ]
-  },
-  "nextStepGuidance": { "onSuccess": "review" }
+  }
 }
 ```
 
@@ -242,8 +241,8 @@ Workflow steps declare transitions in one of two forms:
 1. **Unconditional transitions**: single destination step or terminal status without a
    triggering value (`transitions: [{ to: <step|status> }]`). Supplying a `result` input
    at finish time throws `PreconditionError` (`UNEXPECTED_TRANSITION_RESULT`).
-2. **Result-driven conditional transitions**: two or more branches, or a single branch with
-   an explicit trigger value (`transitions: [{ value: 'pass', to: 'human-verification' }, { value: 'fail', to: 'implementation' }]`).
+2. **Result-driven conditional transitions**: two or more branches with explicit trigger values
+   (`transitions: [{ value: 'pass', to: 'human-verification' }, { value: 'fail', to: 'implementation' }]`).
    The caller must supply a valid `result` selecting exactly one branch; missing or invalid
    results fail closed with `PreconditionError` (`INVALID_TRANSITION_RESULT`).
 
@@ -357,7 +356,7 @@ worktree dirty again immediately after a clean finalize.
     { "id": "update-task", "status": "completed", "intent": { "fromState": "in-implementation", "toState": "verified" }, "result": { "toState": "verified" } },
     { "id": "commit", "status": "completed", "intent": { "preCommitHead": "..." }, "result": { "sha": "...", "status": "completed" } },
     { "id": "push", "status": "completed", "result": { "remote": "origin", "branch": "...", "expectedSha": "...", "status": "completed" } },
-    { "id": "transition", "status": "completed", "result": { "nextStepGuidance": { "onSuccess": "verified" } } }
+    { "id": "transition", "status": "completed", "result": { "taskStatus": "verified" } }
   ]
 }
 ```

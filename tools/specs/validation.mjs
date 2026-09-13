@@ -279,10 +279,8 @@ export function validateWorkflowProgress(change, task, errors, label, { repoRoot
     errors.push(`${label}: workflow_progress.current_step must be a non-empty string`);
     return;
   }
-  if (currentAttempt !== undefined) {
-    if (!Number.isInteger(currentAttempt) || currentAttempt < 1) {
-      errors.push(`${label}: workflow_progress.current_attempt must be an integer >= 1`);
-    }
+  if (currentAttempt === undefined || currentAttempt === null || !Number.isInteger(currentAttempt) || currentAttempt < 1) {
+    errors.push(`${label}: workflow_progress.current_attempt must be an integer >= 1`);
   }
   // D37: the runtime active/completed state axis — required whenever workflow_progress
   // is present at all; never inferred/defaulted (fail-closed, same standard as every
@@ -327,21 +325,19 @@ export function validateWorkflowProgress(change, task, errors, label, { repoRoot
         return;
       }
 
-      if (h.attempt !== undefined) {
-        if (!Number.isInteger(h.attempt) || h.attempt < 1) {
-          errors.push(`${hLabel}: INVALID_WORKFLOW_HISTORY: attempt must be an integer >= 1`);
-        } else {
-          const key = `${h.step}:${h.attempt}`;
-          if (seenStepAttempts.has(key)) {
-            errors.push(`${hLabel}: INCOHERENT_WORKFLOW_PROGRESS: duplicate attempt ${h.attempt} for step '${h.step}'`);
-          }
-          seenStepAttempts.add(key);
-
-          if (!stepAttemptLists.has(h.step)) {
-            stepAttemptLists.set(h.step, []);
-          }
-          stepAttemptLists.get(h.step).push(h.attempt);
+      if (h.attempt === undefined || h.attempt === null || !Number.isInteger(h.attempt) || h.attempt < 1) {
+        errors.push(`${hLabel}: INVALID_WORKFLOW_HISTORY: attempt must be an integer >= 1`);
+      } else {
+        const key = `${h.step}:${h.attempt}`;
+        if (seenStepAttempts.has(key)) {
+          errors.push(`${hLabel}: INCOHERENT_WORKFLOW_PROGRESS: duplicate attempt ${h.attempt} for step '${h.step}'`);
         }
+        seenStepAttempts.add(key);
+
+        if (!stepAttemptLists.has(h.step)) {
+          stepAttemptLists.set(h.step, []);
+        }
+        stepAttemptLists.get(h.step).push(h.attempt);
       }
 
       if (h.artifacts !== undefined) {
@@ -436,7 +432,7 @@ export function validateWorkflowProgress(change, task, errors, label, { repoRoot
               `${label}: INCOHERENT_WORKFLOW_PROGRESS: latest history record step '${latest.step}' does not match current_step '${currentStep}'`
             );
           }
-          if (currentAttempt !== undefined && latest.attempt !== undefined && latest.attempt !== currentAttempt) {
+          if (latest.attempt !== currentAttempt) {
             errors.push(
               `${label}: INCOHERENT_WORKFLOW_PROGRESS: latest history record attempt ${latest.attempt} does not match current_attempt ${currentAttempt}`
             );

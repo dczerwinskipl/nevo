@@ -191,7 +191,7 @@ const RESOLVED_INPUTS = { 'commit.title': 'Finish task 06', 'commit.message': 'B
 function baseParams(fx, gateRegistry, { push = true } = {}) {
   return {
     change: { id: 'demo-change', _slug: 'demo-change' },
-    task: { id: 'demo-task', status: 'in-implementation', workflow_progress: { current_step: 'implementation', state: 'active', history: [] } },
+    task: { id: 'demo-task', status: 'in-implementation', workflow_progress: { current_step: 'implementation', current_attempt: 1, state: 'active', history: [] } },
     definition: DEFINITION,
     context: { repoRoot: fx.repo, activeDir: fx.activeDir, taskId: 'demo-task', sourceControl: { enabled: true, push } },
     activeDir: fx.activeDir,
@@ -202,7 +202,7 @@ function baseParams(fx, gateRegistry, { push = true } = {}) {
 function threeStepParams(fx, gateRegistry, { push = true } = {}) {
   return {
     change: { id: 'demo-change', _slug: 'demo-change' },
-    task: { id: 'demo-task', status: 'in-implementation', workflow_progress: { current_step: 'stepA', state: 'active', history: [] } },
+    task: { id: 'demo-task', status: 'in-implementation', workflow_progress: { current_step: 'stepA', current_attempt: 1, state: 'active', history: [] } },
     definition: THREE_STEP_DEFINITION,
     context: { repoRoot: fx.repo, activeDir: fx.activeDir, taskId: 'demo-task', sourceControl: { enabled: true, push } },
     activeDir: fx.activeDir,
@@ -577,7 +577,7 @@ describe('P1 (D37 corrective revision): step start refuses to activate the next 
     // `commit`/`push`/`transition` never did.
     change = freshChange(fx.activeDir);
     setTaskWorkflowState(change, 'demo-task', {
-      workflowProgress: { current_step: 'stepA', state: 'completed', history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }] },
+      workflowProgress: { current_step: 'stepA', current_attempt: 1, state: 'completed', history: [{ step: 'stepA', attempt: 1, completed_at: 'x', transitioned_to: 'stepB' }] },
     });
     saveOperationRecord(fx.repo, {
       operationId: 'crafted-activation-guard-1',

@@ -123,46 +123,37 @@ describe('resolveWorkflowPosition (AC1)', () => {
     });
   });
 
-  test('derives fallback attempt counter when current_attempt is missing', () => {
-    // Active task with history
-    const activeTask = {
+  test('throws WorkflowError when current_attempt is missing or invalid (fail-closed)', () => {
+    // Missing current_attempt
+    const missingAttemptTask = {
       id: 'demo-task',
       status: 'in-implementation',
       workflow_progress: {
         current_step: 'implementation',
         state: 'active',
-        history: [
-          { step: 'implementation', attempt: 1, completed_at: '2026-01-01T00:00:00.000Z', transitioned_to: 'review' },
-        ],
+        history: [],
       },
     };
-    const activePos = resolveWorkflowPosition(DEMO_DEFINITION, activeTask);
-    assert.deepEqual(activePos, {
-      phase: 'active',
-      step: 'implementation',
-      attempt: 2,
-    });
+    assert.throws(
+      () => resolveWorkflowPosition(DEMO_DEFINITION, missingAttemptTask),
+      (err) => err.code === 'INVALID_WORKFLOW_PROGRESS_ATTEMPT'
+    );
 
-    // Completed task with history
-    const completedTask = {
+    // Invalid current_attempt (< 1 or non-integer)
+    const invalidAttemptTask = {
       id: 'demo-task',
-      status: 'verified',
+      status: 'in-implementation',
       workflow_progress: {
-        current_step: 'review',
-        state: 'completed',
-        history: [
-          { step: 'implementation', attempt: 1, completed_at: '2026-01-01T00:00:00.000Z', transitioned_to: 'review' },
-          { step: 'review', attempt: 1, completed_at: '2026-01-01T01:00:00.000Z', transitioned_to: 'implementation' },
-        ],
+        current_step: 'implementation',
+        current_attempt: 0,
+        state: 'active',
+        history: [],
       },
     };
-    const completedPos = resolveWorkflowPosition(DEMO_DEFINITION, completedTask);
-    assert.deepEqual(completedPos, {
-      phase: 'completed',
-      step: 'review',
-      attempt: 1,
-      nextStep: 'implementation',
-    });
+    assert.throws(
+      () => resolveWorkflowPosition(DEMO_DEFINITION, invalidAttemptTask),
+      (err) => err.code === 'INVALID_WORKFLOW_PROGRESS_ATTEMPT'
+    );
   });
 
   test('resolves completed step and attempt from latest history record', () => {
@@ -195,6 +186,7 @@ describe('resolveWorkflowPosition (AC1)', () => {
       status: 'in-implementation',
       workflow_progress: {
         current_step: 'implementation',
+        current_attempt: 1,
         state: 'invalid-state',
       },
     };
@@ -217,6 +209,38 @@ describe('resolveWorkflowPosition (AC1)', () => {
     };
     assert.throws(
       () => resolveWorkflowPosition(DEMO_DEFINITION, incoherentTask),
+      (err) => err.code === 'INCOHERENT_WORKFLOW_PROGRESS'
+    );
+
+    const emptyHistoryTask = {
+      id: 'demo-task',
+      status: 'verified',
+      workflow_progress: {
+        current_step: 'implementation',
+        current_attempt: 1,
+        state: 'completed',
+        history: [],
+      },
+    };
+    assert.throws(
+      () => resolveWorkflowPosition(DEMO_DEFINITION, emptyHistoryTask),
+      (err) => err.code === 'INCOHERENT_WORKFLOW_PROGRESS'
+    );
+
+    const mismatchedStepTask = {
+      id: 'demo-task',
+      status: 'verified',
+      workflow_progress: {
+        current_step: 'implementation',
+        current_attempt: 1,
+        state: 'completed',
+        history: [
+          { step: 'review', attempt: 1, transitioned_to: 'verified' },
+        ],
+      },
+    };
+    assert.throws(
+      () => resolveWorkflowPosition(DEMO_DEFINITION, mismatchedStepTask),
       (err) => err.code === 'INCOHERENT_WORKFLOW_PROGRESS'
     );
   });

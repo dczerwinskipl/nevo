@@ -285,7 +285,10 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit re
     assert.equal(rev.exitGates.length, 1);
     assert.deepEqual(rev.exitGates[0], { type: 'command', action: 'test' });
     assert.deepEqual(rev.finalize, [{ id: 'commit-and-push' }]);
-    assert.deepEqual(rev.transitions, [{ to: 'human-verification' }]);
+    assert.deepEqual(rev.transitions, [
+      { value: 'pass', to: 'human-verification' },
+      { value: 'fail', to: 'implementation' },
+    ]);
 
     // 3. human-verification step (D39)
     assert.ok(standardDef.steps['human-verification']);
@@ -994,7 +997,7 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
   test('present on an explicit workflow_mode: deterministic shorthand is accepted (no legacy false-positive)', () => {
     const errors = [];
     const change = { id: 'c', workflow_mode: 'deterministic', type: 'standard' };
-    const task = { id: 't1', workflow_progress: { current_step: 'implementation', state: 'active', history: [] } };
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', current_attempt: 1, state: 'active', history: [] } };
     validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
     assert.deepEqual(errors, []);
   });
@@ -1018,7 +1021,7 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
   test('history must be an array when present', () => {
     const errors = [];
     const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } };
-    const task = { id: 't1', workflow_progress: { current_step: 'implementation', state: 'active', history: 'not-an-array' } };
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', current_attempt: 1, state: 'active', history: 'not-an-array' } };
     validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
     assert.equal(errors.length, 1);
     assert.match(errors[0], /workflow_progress\.history must be an array/);
@@ -1027,7 +1030,7 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
   test('current_step naming a real step in the resolved definition is accepted', () => {
     const errors = [];
     const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } };
-    const task = { id: 't1', workflow_progress: { current_step: 'implementation', state: 'active', history: [] } };
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', current_attempt: 1, state: 'active', history: [] } };
     validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
     assert.deepEqual(errors, []);
   });
@@ -1035,7 +1038,7 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
   test('current_step naming no declared step in the resolved definition fails closed (AC1)', () => {
     const errors = [];
     const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } };
-    const task = { id: 't1', workflow_progress: { current_step: 'not-a-real-step', state: 'active', history: [] } };
+    const task = { id: 't1', workflow_progress: { current_step: 'not-a-real-step', current_attempt: 1, state: 'active', history: [] } };
     validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
     assert.equal(errors.length, 1);
     assert.match(errors[0], /current_step 'not-a-real-step' does not name a step declared in workflow definition/);
@@ -1044,7 +1047,7 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
   test('an unresolvable workflow definition is reported instead of throwing uncaught', () => {
     const errors = [];
     const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'no-such-definition' } };
-    const task = { id: 't1', workflow_progress: { current_step: 'implementation', state: 'active', history: [] } };
+    const task = { id: 't1', workflow_progress: { current_step: 'implementation', current_attempt: 1, state: 'active', history: [] } };
     validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
     assert.equal(errors.length, 1);
     assert.match(errors[0], /could not resolve workflow definition 'no-such-definition'/);
@@ -1077,7 +1080,7 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
         'id: good-change', 'title: Good', 'status: draft',
         'workflow:', '  mode: deterministic', '  definition: standard', '',
         'tasks:', '  - id: t1', '    order: 1', '    status: in-implementation',
-        '    workflow_progress:', '      current_step: implementation', '      state: active', '      history: []', '',
+        '    workflow_progress:', '      current_step: implementation', '      current_attempt: 1', '      state: active', '      history: []', '',
       ].join('\n'));
 
       const errors = validateSpecs({ activeDir, archiveDir });
@@ -1107,8 +1110,9 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
       id: 't1',
       workflow_progress: {
         current_step: 'implementation',
+        current_attempt: 1,
         state: 'active',
-        history: [{ step: 'undeclared-step', transitioned_to: 'review' }],
+        history: [{ step: 'undeclared-step', attempt: 1, transitioned_to: 'review' }],
       },
     };
     validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
@@ -1124,8 +1128,9 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
       id: 't1',
       workflow_progress: {
         current_step: 'review',
+        current_attempt: 1,
         state: 'active',
-        history: [{ step: 'implementation', result: 'pass', transitioned_to: 'review' }],
+        history: [{ step: 'implementation', attempt: 1, result: 'pass', transitioned_to: 'review' }],
       },
     };
     validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
@@ -1141,8 +1146,9 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
       id: 't1',
       workflow_progress: {
         current_step: 'review',
+        current_attempt: 1,
         state: 'active',
-        history: [{ step: 'implementation', transitioned_to: 'verified' }],
+        history: [{ step: 'implementation', attempt: 1, transitioned_to: 'verified' }],
       },
     };
     validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
@@ -1182,7 +1188,7 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
       const errs1 = [];
       validateWorkflowProgress(
         change,
-        { id: 't1', workflow_progress: { current_step: 'rev', state: 'active', history: [{ step: 'rev', transitioned_to: 'verified' }] } },
+        { id: 't1', workflow_progress: { current_step: 'rev', current_attempt: 2, state: 'active', history: [{ step: 'rev', attempt: 1, transitioned_to: 'verified' }] } },
         errs1,
         'label',
         { repoRoot: tempRepo }
@@ -1193,7 +1199,7 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
       const errs2 = [];
       validateWorkflowProgress(
         change,
-        { id: 't1', workflow_progress: { current_step: 'rev', state: 'active', history: [{ step: 'rev', result: 'blocked', transitioned_to: 'verified' }] } },
+        { id: 't1', workflow_progress: { current_step: 'rev', current_attempt: 2, state: 'active', history: [{ step: 'rev', attempt: 1, result: 'blocked', transitioned_to: 'verified' }] } },
         errs2,
         'label',
         { repoRoot: tempRepo }
@@ -1204,7 +1210,7 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
       const errs3 = [];
       validateWorkflowProgress(
         change,
-        { id: 't1', workflow_progress: { current_step: 'rev', state: 'active', history: [{ step: 'rev', result: 'pass', transitioned_to: 'impl' }] } },
+        { id: 't1', workflow_progress: { current_step: 'rev', current_attempt: 2, state: 'active', history: [{ step: 'rev', attempt: 1, result: 'pass', transitioned_to: 'impl' }] } },
         errs3,
         'label',
         { repoRoot: tempRepo }
@@ -1219,10 +1225,11 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
           id: 't1',
           workflow_progress: {
             current_step: 'impl',
+            current_attempt: 2,
             state: 'active',
             history: [
-              { step: 'impl', transitioned_to: 'rev' },
-              { step: 'rev', result: 'fail', transitioned_to: 'impl' },
+              { step: 'impl', attempt: 1, transitioned_to: 'rev' },
+              { step: 'rev', attempt: 1, result: 'fail', transitioned_to: 'impl' },
             ],
           },
         },

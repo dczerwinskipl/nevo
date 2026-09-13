@@ -292,7 +292,7 @@ describe('CLI surface: workflow step start / step finish / verify-human (AC1)', 
     assert.ok('finishContract' in stepContext);
     assert.ok('requiredInputs' in stepContext.finishContract);
     assert.ok(Array.isArray(stepContext.finishContract.gates));
-    assert.deepEqual(stepContext.nextStepGuidance, { onSuccess: 'verified' });
+    assert.equal('nextStepGuidance' in stepContext, false);
   });
 
   test('workflow step finish --check returns the documented finish-planning shape without mutating', async () => {
@@ -444,7 +444,7 @@ describe('confirming step A\'s human gate never satisfies an independently-confi
     // Advance the task to stepB directly (the finalize sequence itself is exhaustively
     // tested elsewhere; this test isolates the storage-scoping guarantee).
     const change = requireChange('demo-change', fx.activeDir);
-    setTaskWorkflowState(change, 'demo-task', { workflowProgress: { current_step: 'stepB', state: 'active', history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }] } });
+    setTaskWorkflowState(change, 'demo-task', { workflowProgress: { current_step: 'stepB', current_attempt: 1, state: 'active', history: [{ step: 'stepA', attempt: 1, completed_at: 'x', transitioned_to: 'stepB' }] } });
 
     const stepBContext = await handleWorkflowStepStart('demo-change', 'demo-task', { activeDir: fx.activeDir, repoRoot: fx.root, silent: true });
     assert.equal(stepBContext.currentStep, 'stepB');
@@ -553,6 +553,7 @@ tasks:
     status: in-implementation
     workflow_progress:
       current_step: implementation
+      current_attempt: 1
       state: bogus
       history: []
 `,

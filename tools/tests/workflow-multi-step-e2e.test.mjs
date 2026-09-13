@@ -193,7 +193,7 @@ describe('Multi-step workflow end-to-end acceptance proof (AC1, AC2, AC3, AC4, A
     assert.equal(stepContext.currentStep, 'step-a');
     assert.equal(stepContext.runtimeState, 'active');
     assert.equal(stepContext.semanticStatus, 'authoring');
-    assert.equal(stepContext.nextStepGuidance?.onSuccess, 'step-b');
+    assert.equal('nextStepGuidance' in stepContext, false, 'nextStepGuidance must not exist on stepContext');
     assert.equal(stepContext.stepStatus, 'in-progress');
     assert.ok(stepContext.stepContract?.purpose.includes('Author initial task changes'));
 
@@ -234,8 +234,7 @@ describe('Multi-step workflow end-to-end acceptance proof (AC1, AC2, AC3, AC4, A
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
-      title: 'Finish step A',
-      include: '*',
+      input: JSON.stringify({ 'commit.title': 'Finish step A', include: ['*'] }),
     });
 
     assert.equal(result.status, 'completed');
@@ -281,7 +280,7 @@ describe('Multi-step workflow end-to-end acceptance proof (AC1, AC2, AC3, AC4, A
     assert.equal(stepContext.currentStep, 'step-b');
     assert.equal(stepContext.runtimeState, 'active');
     assert.equal(stepContext.semanticStatus, 'auditing');
-    assert.equal(stepContext.nextStepGuidance?.onSuccess, 'step-c');
+    assert.equal('nextStepGuidance' in stepContext, false, 'nextStepGuidance must not exist on stepContext');
     assert.ok(stepContext.stepContract?.purpose.includes('Audit and refine changes'));
 
     const task = requireTask(requireChange(fx.changeId, fx.activeDir), fx.taskId);
@@ -300,8 +299,7 @@ describe('Multi-step workflow end-to-end acceptance proof (AC1, AC2, AC3, AC4, A
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
-      title: 'Finish step B',
-      include: '*',
+      input: JSON.stringify({ 'commit.title': 'Finish step B', include: ['*'] }),
     });
 
     assert.equal(result.status, 'completed');
@@ -334,7 +332,7 @@ describe('Multi-step workflow end-to-end acceptance proof (AC1, AC2, AC3, AC4, A
     assert.equal(stepContext.currentStep, 'step-c');
     assert.equal(stepContext.runtimeState, 'active');
     assert.equal(stepContext.semanticStatus, 'verifying');
-    assert.equal(stepContext.nextStepGuidance?.onSuccess, 'verified');
+    assert.equal('nextStepGuidance' in stepContext, false, 'nextStepGuidance must not exist on stepContext');
 
     const humanGate = stepContext.finishContract.gates.find(g => g.gateType === 'human');
     assert.ok(humanGate, 'human gate must be present in finish contract');
@@ -354,8 +352,7 @@ describe('Multi-step workflow end-to-end acceptance proof (AC1, AC2, AC3, AC4, A
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
-      title: 'Attempt finish C without verification',
-      include: '*',
+      input: JSON.stringify({ 'commit.title': 'Attempt finish C without verification', include: ['*'] }),
     });
 
     assert.equal(attempt.status, 'blocked');
@@ -389,8 +386,7 @@ describe('Multi-step workflow end-to-end acceptance proof (AC1, AC2, AC3, AC4, A
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
-      title: 'Finalize step C',
-      include: '*',
+      input: JSON.stringify({ 'commit.title': 'Finalize step C', include: ['*'] }),
     });
 
     assert.equal(result.status, 'completed');
@@ -425,7 +421,7 @@ describe('Multi-step workflow end-to-end acceptance proof (AC1, AC2, AC3, AC4, A
     assert.equal(stepContext.stepStatus, 'complete');
     assert.equal(stepContext.runtimeState, 'completed');
     assert.ok(stepContext.instructions.includes('Workflow complete'));
-    assert.equal(stepContext.nextStepGuidance, null);
+    assert.equal('nextStepGuidance' in stepContext, false, 'nextStepGuidance must not exist on stepContext');
 
     // Ensure change.yaml was not reverted to entryStep
     const task = requireTask(requireChange(fx.changeId, fx.activeDir), fx.taskId);
@@ -508,8 +504,7 @@ describe('Gate isolation between workflow steps (AC3)', () => {
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
-      title: 'Finish step 1',
-      include: '*',
+      input: JSON.stringify({ 'commit.title': 'Finish step 1', include: ['*'] }),
     });
 
     assert.equal(result1.status, 'completed');
@@ -532,8 +527,7 @@ describe('Gate isolation between workflow steps (AC3)', () => {
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
-      title: 'Attempt finish step 2',
-      include: '*',
+      input: JSON.stringify({ 'commit.title': 'Attempt finish step 2', include: ['*'] }),
     });
 
     assert.equal(result2.status, 'blocked');
@@ -604,8 +598,7 @@ describe('Step-level retry/resume semantics and crash reconciliation across step
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
-      title: 'Finish step first',
-      include: '*',
+      input: JSON.stringify({ 'commit.title': 'Finish step first', include: ['*'] }),
     });
 
     assert.equal(result.status, 'completed');
@@ -648,7 +641,7 @@ describe('Step-level retry/resume semantics and crash reconciliation across step
         ...RT,
         activeDir: fx.activeDir,
         repoRoot: fx.root,
-        title: 'Different conflicting title',
+        input: JSON.stringify({ 'commit.title': 'Different conflicting title' }),
       }),
       /Conflicting finish inputs supplied/
     );
@@ -743,8 +736,7 @@ describe('Step- and gate-scoped human verification sign-off identity (AC11, D24)
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
-      title: 'Finish review',
-      include: '*',
+      input: JSON.stringify({ 'commit.title': 'Finish review', include: ['*'] }),
     });
     assert.equal(blockedReview.status, 'blocked');
     assert.equal(blockedReview.blockers[0].id, 'review-gate');
@@ -757,8 +749,7 @@ describe('Step- and gate-scoped human verification sign-off identity (AC11, D24)
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
-      title: 'Finish review',
-      include: '*',
+      input: JSON.stringify({ 'commit.title': 'Finish review', include: ['*'] }),
     });
     assert.equal(finishReview.status, 'completed');
 
@@ -771,8 +762,7 @@ describe('Step- and gate-scoped human verification sign-off identity (AC11, D24)
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
-      title: 'Finish approval',
-      include: '*',
+      input: JSON.stringify({ 'commit.title': 'Finish approval', include: ['*'] }),
     });
 
     assert.equal(blockedApproval.status, 'blocked');
@@ -785,8 +775,7 @@ describe('Step- and gate-scoped human verification sign-off identity (AC11, D24)
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
-      title: 'Finish approval',
-      include: '*',
+      input: JSON.stringify({ 'commit.title': 'Finish approval', include: ['*'] }),
     });
     assert.equal(finishApproval.status, 'completed');
 
@@ -867,8 +856,7 @@ describe('Multiple human gates on the same step requiring explicit --gate disamb
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
-      title: 'Attempt finish',
-      include: '*',
+      input: JSON.stringify({ 'commit.title': 'Attempt finish', include: ['*'] }),
     });
     assert.equal(stillBlocked.status, 'blocked');
     assert.equal(stillBlocked.blockers.length, 1);
@@ -889,8 +877,7 @@ describe('Multiple human gates on the same step requiring explicit --gate disamb
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
-      title: 'Finish signoff',
-      include: '*',
+      input: JSON.stringify({ 'commit.title': 'Finish signoff', include: ['*'] }),
     });
     assert.equal(finish.status, 'completed');
 
@@ -1097,15 +1084,14 @@ describe('Second, differently-shaped 4-step workflow through identical CLI path 
     assert.equal(ctx1.currentStep, 'intake');
     assert.equal(ctx1.runtimeState, 'active');
     assert.equal(ctx1.semanticStatus, 'ingesting');
-    assert.equal(ctx1.nextStepGuidance?.onSuccess, 'analysis');
+    assert.equal('nextStepGuidance' in ctx1, false, 'nextStepGuidance must not exist on stepContext');
 
     writeFileSync(join(fx.root, 'intake.json'), '{"ingested": true}\n');
     const fin1 = await handleWorkflowStepFinish(fx.changeId, fx.taskId, {
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
-      title: 'Complete intake',
-      include: '*',
+      input: JSON.stringify({ 'commit.title': 'Complete intake', include: ['*'] }),
     });
     assert.equal(fin1.status, 'completed');
 
@@ -1114,15 +1100,14 @@ describe('Second, differently-shaped 4-step workflow through identical CLI path 
     assert.equal(ctx2.currentStep, 'analysis');
     assert.equal(ctx2.runtimeState, 'active');
     assert.equal(ctx2.semanticStatus, 'analyzing');
-    assert.equal(ctx2.nextStepGuidance?.onSuccess, 'execution');
+    assert.equal('nextStepGuidance' in ctx2, false, 'nextStepGuidance must not exist on stepContext');
 
     writeFileSync(join(fx.root, 'analysis.md'), '# Analysis\n');
     const fin2 = await handleWorkflowStepFinish(fx.changeId, fx.taskId, {
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
-      title: 'Complete analysis',
-      include: '*',
+      input: JSON.stringify({ 'commit.title': 'Complete analysis', include: ['*'] }),
     });
     assert.equal(fin2.status, 'completed');
 
@@ -1131,15 +1116,14 @@ describe('Second, differently-shaped 4-step workflow through identical CLI path 
     assert.equal(ctx3.currentStep, 'execution');
     assert.equal(ctx3.runtimeState, 'active');
     assert.equal(ctx3.semanticStatus, 'executing');
-    assert.equal(ctx3.nextStepGuidance?.onSuccess, 'signoff');
+    assert.equal('nextStepGuidance' in ctx3, false, 'nextStepGuidance must not exist on stepContext');
 
     writeFileSync(join(fx.root, 'execution.js'), 'export const executed = true;\n');
     const fin3 = await handleWorkflowStepFinish(fx.changeId, fx.taskId, {
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
-      title: 'Complete execution',
-      include: '*',
+      input: JSON.stringify({ 'commit.title': 'Complete execution', include: ['*'] }),
     });
     assert.equal(fin3.status, 'completed');
 
@@ -1148,15 +1132,14 @@ describe('Second, differently-shaped 4-step workflow through identical CLI path 
     assert.equal(ctx4.currentStep, 'signoff');
     assert.equal(ctx4.runtimeState, 'active');
     assert.equal(ctx4.semanticStatus, 'validating');
-    assert.equal(ctx4.nextStepGuidance?.onSuccess, 'verified');
+    assert.equal('nextStepGuidance' in ctx4, false, 'nextStepGuidance must not exist on stepContext');
 
     // Human verification required
     const signoffBlocked = await handleWorkflowStepFinish(fx.changeId, fx.taskId, {
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
-      title: 'Complete signoff without human',
-      include: '*',
+      input: JSON.stringify({ 'commit.title': 'Complete signoff without human', include: ['*'] }),
     });
     assert.equal(signoffBlocked.status, 'blocked');
 
@@ -1167,8 +1150,7 @@ describe('Second, differently-shaped 4-step workflow through identical CLI path 
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
-      title: 'Complete signoff',
-      include: '*',
+      input: JSON.stringify({ 'commit.title': 'Complete signoff', include: ['*'] }),
     });
     assert.equal(fin4.status, 'completed');
 

@@ -4,6 +4,9 @@ title: "Standard Specification Workflow"
 type: standard
 version: 1
 entryStep: implementation
+sourceControl:
+  enabled: true
+  push: true
 steps:
   implementation:
     status:

@@ -146,7 +146,7 @@ const change = { id: 'demo-change', _slug: 'demo-change' };
 const task = {
   id: 'demo-task',
   status: 'in-implementation',
-  workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+  workflow_progress: { current_step: 'implementation', current_attempt: 1, state: 'active', history: [] },
 };
 
 describe('resolveWorkflowPosition / resolveActiveStepName / resolveSemanticStatus (D37, task 10 AC9)', () => {
@@ -159,7 +159,7 @@ describe('resolveWorkflowPosition / resolveActiveStepName / resolveSemanticStatu
 
   test('state: active resolves the active step and its declared status.active', () => {
     const definition = buildDefinition();
-    const activeTask = { workflow_progress: { current_step: 'implementation', state: 'active', history: [] } };
+    const activeTask = { workflow_progress: { current_step: 'implementation', current_attempt: 1, state: 'active', history: [] } };
     assert.deepEqual(resolveWorkflowPosition(definition, activeTask), { phase: 'active', step: 'implementation', attempt: 1 });
     assert.equal(resolveActiveStepName(definition, activeTask), 'implementation');
     assert.equal(resolveSemanticStatus(definition, activeTask), 'implementing');
@@ -170,7 +170,12 @@ describe('resolveWorkflowPosition / resolveActiveStepName / resolveSemanticStatu
     const completedTask = {
       // Deliberately a non-terminal task.status — proves resolution never reads it (D37).
       status: 'in-implementation',
-      workflow_progress: { current_step: 'implementation', state: 'completed', history: [] },
+      workflow_progress: {
+        current_step: 'implementation',
+        current_attempt: 1,
+        state: 'completed',
+        history: [{ step: 'implementation', attempt: 1, completed_at: 'x', transitioned_to: 'verified' }],
+      },
     };
     assert.deepEqual(resolveWorkflowPosition(definition, completedTask), { phase: 'terminal', step: 'implementation', attempt: 1 });
     assert.equal(resolveActiveStepName(definition, completedTask), null);
@@ -180,7 +185,7 @@ describe('resolveWorkflowPosition / resolveActiveStepName / resolveSemanticStatu
   test('an invalid persisted state fails closed rather than defaulting to active (AC19, corrective revision)', () => {
     const definition = buildDefinition();
     for (const badState of [undefined, '', 'bogus', 'Active', 'ACTIVE']) {
-      const task = { workflow_progress: { current_step: 'implementation', state: badState, history: [] } };
+      const task = { workflow_progress: { current_step: 'implementation', current_attempt: 1, state: badState, history: [] } };
       assert.throws(
         () => resolveWorkflowPosition(definition, task),
         (err) => {
@@ -228,24 +233,24 @@ describe('Multi-step position resolution (D37, task 10 AC2/AC4/AC9)', () => {
   });
 
   test('state: active resolves exactly that step, never re-deriving entryStep', () => {
-    const task = { workflow_progress: { current_step: 'stepB', state: 'active', history: [] } };
+    const task = { workflow_progress: { current_step: 'stepB', current_attempt: 1, state: 'active', history: [] } };
     assert.deepEqual(resolveWorkflowPosition(MULTI_STEP_DEFINITION, task), { phase: 'active', step: 'stepB', attempt: 1 });
   });
 
   test('resolveSemanticStatus is step-specific, not a constant (AC9): stepA and stepB resolve to their own distinct declared status pairs', () => {
-    const onStepA = { workflow_progress: { current_step: 'stepA', state: 'active', history: [] } };
-    const onStepB = { workflow_progress: { current_step: 'stepB', state: 'active', history: [] } };
+    const onStepA = { workflow_progress: { current_step: 'stepA', current_attempt: 1, state: 'active', history: [] } };
+    const onStepB = { workflow_progress: { current_step: 'stepB', current_attempt: 1, state: 'active', history: [] } };
     assert.equal(resolveSemanticStatus(MULTI_STEP_DEFINITION, onStepA), 'a-active');
     assert.equal(resolveSemanticStatus(MULTI_STEP_DEFINITION, onStepB), 'b-active');
 
-    const stepACompleted = { workflow_progress: { current_step: 'stepA', state: 'completed', history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }] } };
-    const stepBCompleted = { workflow_progress: { current_step: 'stepB', state: 'completed', history: [{ step: 'stepB', completed_at: 'x', transitioned_to: 'verified' }] } };
+    const stepACompleted = { workflow_progress: { current_step: 'stepA', current_attempt: 1, state: 'completed', history: [{ step: 'stepA', attempt: 1, completed_at: 'x', transitioned_to: 'stepB' }] } };
+    const stepBCompleted = { workflow_progress: { current_step: 'stepB', current_attempt: 1, state: 'completed', history: [{ step: 'stepB', attempt: 1, completed_at: 'x', transitioned_to: 'verified' }] } };
     assert.equal(resolveSemanticStatus(MULTI_STEP_DEFINITION, stepACompleted), 'a-completed');
     assert.equal(resolveSemanticStatus(MULTI_STEP_DEFINITION, stepBCompleted), 'b-completed');
   });
 
   test('state: completed with a transition naming another step resolves phase "completed" — awaiting the next `step start` (D37 case C)', () => {
-    const task = { workflow_progress: { current_step: 'stepA', state: 'completed', history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }] } };
+    const task = { workflow_progress: { current_step: 'stepA', current_attempt: 1, state: 'completed', history: [{ step: 'stepA', attempt: 1, completed_at: 'x', transitioned_to: 'stepB' }] } };
     assert.deepEqual(resolveWorkflowPosition(MULTI_STEP_DEFINITION, task), { phase: 'completed', step: 'stepA', attempt: 1, nextStep: 'stepB' });
     assert.equal(resolveActiveStepName(MULTI_STEP_DEFINITION, task), null, 'nothing is active until the next step start');
   });
@@ -253,7 +258,7 @@ describe('Multi-step position resolution (D37, task 10 AC2/AC4/AC9)', () => {
   test('terminal precedence: state completed + terminal transition resolves complete even with a non-terminal task.status (AC9, corrects D28)', () => {
     const task = {
       status: 'in-implementation',
-      workflow_progress: { current_step: 'stepB', state: 'completed', history: [{ step: 'stepB', completed_at: 'x', transitioned_to: 'verified' }] },
+      workflow_progress: { current_step: 'stepB', current_attempt: 1, state: 'completed', history: [{ step: 'stepB', attempt: 1, completed_at: 'x', transitioned_to: 'verified' }] },
     };
     assert.deepEqual(resolveWorkflowPosition(MULTI_STEP_DEFINITION, task), { phase: 'terminal', step: 'stepB', attempt: 1 });
   });
@@ -309,7 +314,7 @@ describe('`workflow step start` activation (D37, task 10 AC1/AC2/AC4)', () => {
     // Simulate `finish` having just completed stepA (D37: current_step stays stepA).
     const completedTask = {
       ...requireTask(change, 'demo-task'),
-      workflow_progress: { current_step: 'stepA', state: 'completed', history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }] },
+      workflow_progress: { current_step: 'stepA', current_attempt: 1, state: 'completed', history: [{ step: 'stepA', attempt: 1, completed_at: 'x', transitioned_to: 'stepB' }] },
     };
 
     // No operation record exists for stepA in this fixture — the activation guard
@@ -321,7 +326,7 @@ describe('`workflow step start` activation (D37, task 10 AC1/AC2/AC4)', () => {
       current_step: 'stepB',
       current_attempt: 1,
       state: 'active',
-      history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }],
+      history: [{ step: 'stepA', attempt: 1, completed_at: 'x', transitioned_to: 'stepB' }],
     });
   });
 
@@ -329,7 +334,7 @@ describe('`workflow step start` activation (D37, task 10 AC1/AC2/AC4)', () => {
     const change = requireChange('demo-change', activeDir);
     const completedTask = {
       id: 'demo-task',
-      workflow_progress: { current_step: 'stepA', state: 'completed', history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }] },
+      workflow_progress: { current_step: 'stepA', current_attempt: 1, state: 'completed', history: [{ step: 'stepA', attempt: 1, completed_at: 'x', transitioned_to: 'stepB' }] },
     };
     assert.throws(
       () => ensureStepActivated(change, completedTask, MULTI_STEP_DEFINITION),
@@ -344,7 +349,7 @@ describe('`workflow step start` activation (D37, task 10 AC1/AC2/AC4)', () => {
     const change = requireChange('demo-change', activeDir);
     const completedTask = {
       id: 'demo-task',
-      workflow_progress: { current_step: 'stepA', state: 'completed', history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }] },
+      workflow_progress: { current_step: 'stepA', current_attempt: 1, state: 'completed', history: [{ step: 'stepA', attempt: 1, completed_at: 'x', transitioned_to: 'stepB' }] },
     };
     // Simulates the exact crash window: update-task already persisted state:
     // 'completed' for stepA, but commit/push/transition never ran.
@@ -386,7 +391,7 @@ describe('`workflow step start` activation (D37, task 10 AC1/AC2/AC4)', () => {
     const change = requireChange('demo-change', activeDir);
     const terminalTask = {
       ...requireTask(change, 'demo-task'),
-      workflow_progress: { current_step: 'stepB', state: 'completed', history: [{ step: 'stepB', completed_at: 'x', transitioned_to: 'verified' }] },
+      workflow_progress: { current_step: 'stepB', current_attempt: 1, state: 'completed', history: [{ step: 'stepB', attempt: 1, completed_at: 'x', transitioned_to: 'verified' }] },
     };
     const before = readFileSync(join(activeDir, 'demo-change', 'change.yaml'), 'utf8');
 
@@ -421,8 +426,7 @@ describe('compileStepContext — StepContext at `workflow step start` (AC1)', ()
     assert.equal(stepContext.stepStatus, 'in-progress');
     assert.equal(stepContext.runtimeState, 'active');
     assert.equal(stepContext.semanticStatus, 'implementing');
-    assert.deepEqual(stepContext.entryState.blockers, []);
-    assert.deepEqual(stepContext.nextStepGuidance, { onSuccess: 'verified' });
+    assert.equal('nextStepGuidance' in stepContext, false);
 
     const requiredInputs = stepContext.finishContract.requiredInputs;
     assert.equal(requiredInputs['commit.title'].required, true);
@@ -474,7 +478,7 @@ describe('compileStepContext — StepContext at `workflow step start` (AC1)', ()
     const terminalTask = {
       id: 'demo-task',
       status: 'verified',
-      workflow_progress: { current_step: 'implementation', state: 'completed', history: [{ step: 'implementation', completed_at: 'x', transitioned_to: 'verified' }] },
+      workflow_progress: { current_step: 'implementation', current_attempt: 1, state: 'completed', history: [{ step: 'implementation', attempt: 1, completed_at: 'x', transitioned_to: 'verified' }] },
     };
 
     const stepContext = await compileStepContext({ change, task: terminalTask, definition, context, gateRegistry });
@@ -836,7 +840,7 @@ describe('StepContext knowledge hints and step behavior contract (Task 12, D22, 
         id: 't1',
         file: 'tasks/01-t1.md',
         status: 'in-implementation',
-        workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+        workflow_progress: { current_step: 'implementation', current_attempt: 1, state: 'active', history: [] },
       };
       const definition = buildDefinition();
       const gateRegistry = makeGateRegistry();
@@ -858,7 +862,7 @@ describe('StepContext knowledge hints and step behavior contract (Task 12, D22, 
       status: 'in-implementation',
       allowedPaths: ['tools/specs/**'],
       forbiddenPaths: ['src/**'],
-      workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+      workflow_progress: { current_step: 'implementation', current_attempt: 1, state: 'active', history: [] },
     };
     const definition = buildDefinition();
     const gateRegistry = makeGateRegistry();
@@ -876,7 +880,7 @@ describe('StepContext knowledge hints and step behavior contract (Task 12, D22, 
       id: 'task-ac2',
       status: 'in-implementation',
       allowedPaths: ['src/NEvo.Core/**'],
-      workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+      workflow_progress: { current_step: 'implementation', current_attempt: 1, state: 'active', history: [] },
     };
     const context = { repoRoot: ctx.repo, taskId: taskWithPaths.id, sourceControl: { enabled: false } };
 
@@ -905,7 +909,7 @@ describe('StepContext knowledge hints and step behavior contract (Task 12, D22, 
       id: 'task-ac2-diff',
       status: 'in-implementation',
       allowedPaths: ['tools/specs/**', 'docs/**'],
-      workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+      workflow_progress: { current_step: 'implementation', current_attempt: 1, state: 'active', history: [] },
     };
     const sc3 = await compileStepContext({ change, task: taskDifferentPaths, definition: definitionNoBlockers, context, gateRegistry });
     assert.match(sc3.instructions, /tools\/specs\/\*\*, docs\/\*\*/);
@@ -917,7 +921,7 @@ describe('StepContext knowledge hints and step behavior contract (Task 12, D22, 
       id: 'task-ac3-match',
       status: 'in-implementation',
       allowedPaths: ['src/NEvo.Core/**'],
-      workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+      workflow_progress: { current_step: 'implementation', current_attempt: 1, state: 'active', history: [] },
     };
     const definition = buildDefinition();
     const gateRegistry = makeGateRegistry();
@@ -936,7 +940,7 @@ describe('StepContext knowledge hints and step behavior contract (Task 12, D22, 
       id: 'task-ac3-nomatch',
       status: 'in-implementation',
       allowedPaths: ['nonexistent/unmatched/path/**'],
-      workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+      workflow_progress: { current_step: 'implementation', current_attempt: 1, state: 'active', history: [] },
     };
     const scNoMatch = await compileStepContext({ change, task: taskNoMatch, definition, context, gateRegistry });
     assert.ok(Array.isArray(scNoMatch.relevantDocs));
@@ -948,7 +952,7 @@ describe('StepContext knowledge hints and step behavior contract (Task 12, D22, 
       id: 'task-ac3-custom',
       status: 'in-implementation',
       allowedPaths: ['custom/path/**'],
-      workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+      workflow_progress: { current_step: 'implementation', current_attempt: 1, state: 'active', history: [] },
     };
     const definition = buildDefinition();
     const gateRegistry = makeGateRegistry();
@@ -1070,7 +1074,7 @@ describe('StepContext knowledge hints and step behavior contract (Task 12, D22, 
     const taskStep1 = {
       id: 'demo-task',
       status: 'in-implementation',
-      workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+      workflow_progress: { current_step: 'implementation', current_attempt: 1, state: 'active', history: [] },
     };
     const scStep1 = await compileStepContext({ change, task: taskStep1, definition: defMultiStep, context, gateRegistry });
     assert.equal(scStep1.currentStep, 'implementation');
@@ -1084,8 +1088,9 @@ describe('StepContext knowledge hints and step behavior contract (Task 12, D22, 
       status: 'in-implementation',
       workflow_progress: {
         current_step: 'review',
+        current_attempt: 1,
         state: 'active',
-        history: [{ step: 'implementation', completed_at: '2026-09-11T12:00:00Z', transitioned_to: 'review' }],
+        history: [{ step: 'implementation', attempt: 1, completed_at: '2026-09-11T12:00:00Z', transitioned_to: 'review' }],
       },
     };
     const scStep2 = await compileStepContext({ change, task: taskStep2, definition: defMultiStep, context, gateRegistry });
@@ -1118,7 +1123,7 @@ describe('StepContext knowledge hints and step behavior contract (Task 12, D22, 
     assert.equal(stepContext.context.sourceControl.currentBranch, 'main');
     assert.ok(stepContext.finishContract.requiredInputs);
     assert.ok(Array.isArray(stepContext.finishContract.gates));
-    assert.deepEqual(stepContext.nextStepGuidance, { onSuccess: 'verified' });
+    assert.equal('nextStepGuidance' in stepContext, false);
 
     // Plus new fields are present
     assert.ok(typeof stepContext.instructions === 'string');
@@ -1164,7 +1169,7 @@ describe('StepContext knowledge hints and step behavior contract (Task 12, D22, 
         id: 't1',
         file: 'tasks/01-t1.md',
         status: 'in-implementation',
-        workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+        workflow_progress: { current_step: 'implementation', current_attempt: 1, state: 'active', history: [] },
       };
 
       // 1. Resolve via resolveTaskScope directly
@@ -1219,7 +1224,7 @@ describe('StepContext knowledge hints and step behavior contract (Task 12, D22, 
       id: 'divergence-task',
       status: 'in-implementation',
       allowedPaths,
-      workflow_progress: { current_step: 'implementation', state: 'active', history: [] },
+      workflow_progress: { current_step: 'implementation', current_attempt: 1, state: 'active', history: [] },
     };
     const definition = buildDefinition();
     const gateRegistry = makeGateRegistry();
