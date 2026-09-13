@@ -1,11 +1,10 @@
 # Specification manifest for result-driven-transitions
 id: result-driven-transitions
 title: "Result driven transitions"
-type: standard
+type: architectural
 status: draft
 priority: 10
 created: 2026-09-13
-tasks: []
 spec_id: 8dc23d08-1996-4b13-b058-8005d3f54a92
 
 workflow:
@@ -16,8 +15,52 @@ branch:
   mode: per-change
   prefix: feature
   name: feature/result-driven-transitions
+
 pull_requests:
   - provider: github
     base_url: https://github.com
     repository: dczerwinskipl/nevo
     number: 48
+
+tasks:
+  - id: workflow-definition-transitions
+    order: 1
+    file: tasks/01-workflow-definition-transitions.md
+    status: draft
+
+  - id: attempt-identity-and-history-persistence
+    order: 2
+    file: tasks/02-attempt-identity-and-history-persistence.md
+    status: draft
+    depends_on:
+      - workflow-definition-transitions
+
+  - id: attempt-scoped-operation-and-verification-stores
+    order: 3
+    file: tasks/03-attempt-scoped-operation-and-verification-stores.md
+    status: draft
+    depends_on:
+      - attempt-identity-and-history-persistence
+
+  - id: step-context-completion-and-protocol-contract
+    order: 4
+    file: tasks/04-step-context-completion-and-protocol-contract.md
+    status: draft
+    depends_on:
+      - workflow-definition-transitions
+      - attempt-identity-and-history-persistence
+
+  - id: result-driven-finish-and-cli-integration
+    order: 5
+    file: tasks/05-result-driven-finish-and-cli-integration.md
+    status: draft
+    depends_on:
+      - attempt-scoped-operation-and-verification-stores
+      - step-context-completion-and-protocol-contract
+
+  - id: standard-workflow-loop-and-multi-attempt-e2e
+    order: 6
+    file: tasks/06-standard-workflow-loop-and-multi-attempt-e2e.md
+    status: draft
+    depends_on:
+      - result-driven-finish-and-cli-integration
