@@ -33,27 +33,25 @@ semantic_references:
 
 ## Goal
 
-Implement result-driven finish planning and durable execution in `tools/specs/workflow/finish-operation.mjs`. Enforce logical single completion per `(step, attempt)` while supporting physical resumption, implement attempt-aware crash reconciliation in `ensureUpdateTask` by comparing persisted state against exact logical write intent, and emit structured discriminated transitions cleanly separating internal steps from terminal statuses.
+Implement result-driven finish planning and durable execution in `tools/specs/workflow/finish-operation.mjs`. Enforce in-flight durable operation precedence over completed workflow progress so crashed operations resume rather than short-circuiting, implement attempt-aware crash reconciliation in `ensureUpdateTask` by comparing persisted state against exact logical write intent, pass full resolved inputs (`include`/`exclude`) to finalize actions without duplicating validation, and emit structured discriminated transitions cleanly separating internal steps from terminal statuses.
 
 ## Implementation constraints
 
 - In `tools/specs/workflow/finish-operation.mjs`:
   - In `planFinish`:
-    - Resolve active step and attempt.
-    - If task step is already completed or in a terminal status, return `status: 'already-completed'`.
-    - For conditional steps:
-      - If `inputs.result` is missing, return `status: 'input-required'`, `missingInputs: ['result']`.
-      - If `inputs.result` does not match any declared transition value, throw `PreconditionError` (`INVALID_TRANSITION_RESULT`).
-      - Resolve matching transition: `matched = step.transitions.find(t => t.value === inputs.result)`.
-    - For unconditional steps:
-      - If `inputs.result` is provided, throw `PreconditionError` (`UNEXPECTED_TRANSITION_RESULT`).
-      - Resolve the unconditional transition: `matched = step.transitions[0]`.
+    - Check for an existing in-flight operation record for the task (`findInFlightOperationRecord`).
+    - **Step Authority & Precedence:**
+      - If an in-flight operation exists: its recorded `(step, attempt)` is authoritative for this finish execution, taking precedence over `workflow_progress.state === 'completed'`.
+      - If no in-flight operation exists: resolve active step and attempt from `workflow_progress`. If the logical attempt is already completed (or terminal), return `status: 'already-completed'` without mutation.
+    - Resolve `finishContract` for the authoritative step.
+    - Validate supplied inputs against `finishContract.parameters`:
+      - For conditional steps: if `inputs.result` is missing, return `status: 'input-required'`, `missingInputs: ['result']`. If `inputs.result` is invalid, throw `PreconditionError` (`INVALID_TRANSITION_RESULT`). Match transition: `matched = step.transitions.find(t => t.value === inputs.result)`.
+      - For unconditional steps: if `inputs.result` is supplied, throw `PreconditionError` (`UNEXPECTED_TRANSITION_RESULT`). Match transition: `matched = step.transitions[0]`.
     - Discriminate destination target:
       - If `matched.to` is in `definition.steps` -> `{ kind: 'step', step: matched.to }`.
       - If `matched.to` is in `TERMINAL_STATUSES` -> `{ kind: 'terminal', status: matched.to }`.
-    - In-flight operation conflict detection:
-      - Check for existing in-flight operation record for `(step, attempt)`.
-      - Merge inputs with `mergeResolvedInputs`. If conflicting values are provided for previously recorded inputs, throw `PreconditionError` (`RESOLVED_INPUT_CONFLICT`).
+    - In-flight input merging and conflict detection:
+      - Merge supplied inputs with persisted `resolvedInputs` via `mergeResolvedInputs`. If conflicting values are provided for previously recorded inputs, throw `PreconditionError` (`RESOLVED_INPUT_CONFLICT`).
   - In `finishStep`:
     - Drive the 5-stage pipeline under the attempt-scoped record: `verify-gates` -> `update-task` -> `commit` -> `push` -> `transition`.
     - In `ensureUpdateTask`:
@@ -63,7 +61,9 @@ Implement result-driven finish planning and durable execution in `tools/specs/wo
         - **Write Definitely Did Not Happen:** `current_step === stage.intent.step`, `current_attempt === stage.intent.attempt`, `state === 'active'`, no record in history for `(step, attempt)`, and `task.status` has not been set to `terminalStatus`.
         - **Inconsistency:** Discrepancy marks stage `unknown`, halts execution, and throws `reconciliation-required`.
       - On execute write: append history record `{ step, attempt, completed_at, transitioned_to, result?, artifacts? }`, set `workflow_progress.state = 'completed'`, and if `matched.to` is terminal, update `task.status = matched.to`.
-    - Execute `commit` using `inputs['commit.title']` and optional `inputs['commit.message']`.
+    - In `ensureCommit`:
+      - Execute finalize action (e.g. `commit-and-push`) by passing relevant resolved inputs (`commit.title`, `commit.message`, `include`, `exclude`) and context to `ActionContract.execute(...)`.
+      - Do not duplicate commit-and-push validation or file staging logic inside the workflow engine.
     - Push when enabled.
     - Return discriminated transition output:
       ```javascript
@@ -82,13 +82,14 @@ Implement result-driven finish planning and durable execution in `tools/specs/wo
 
 ## Acceptance criteria
 
-1. `planFinish` correctly matches declared transitions on valid result inputs and rejects missing or invalid results for conditional steps. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
+1. In-flight operation lookup precedes contract validation and `already-completed` check; `planFinish` matches declared transitions on valid result inputs and rejects missing or invalid results for conditional steps. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
 2. `planFinish` rejects result inputs for unconditional steps. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
 3. Resuming an in-flight operation with identical inputs succeeds; conflicting inputs throw `RESOLVED_INPUT_CONFLICT`. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
 4. `ensureUpdateTask` reconciles crashes against exact `stage.intent`; corrupted or mismatched state fails closed with `reconciliation-required`. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
-5. `finishStep` records attempt-scoped completion in `workflow_progress.history` and updates `task.status` on terminal transition. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
-6. Successful finish emits discriminated transition payload distinguishing step targets from terminal statuses. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
-7. All unit tests pass and `node tools/specs.mjs check` passes with zero errors. `automated: node tools/specs.mjs check`
+5. Process interruption recovery: when `update-task` has persisted `state: 'completed'` but subsequent stages have not completed, retrying `workflow step finish` recovers and resumes the in-flight operation rather than short-circuiting to `already-completed`. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
+6. `finishStep` delegates finalize action execution with full resolved inputs (`include`/`exclude`), records attempt-scoped completion in `workflow_progress.history`, and updates `task.status` on terminal transition. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
+7. Successful finish emits discriminated transition payload distinguishing step targets from terminal statuses. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
+8. All unit tests pass and `node tools/specs.mjs check` passes with zero errors. `automated: node tools/specs.mjs check`
 
 ## Verification
 

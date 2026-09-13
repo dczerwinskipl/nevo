@@ -84,8 +84,8 @@ This change delivers the next increment of the deterministic workflow engine: re
 - **C10.** Attempt-Scoped Human Verification: Human verification signoffs must be scoped by step, attempt, and gate:
   `.nevo-ai-local/human-verifications/<change>/<task>/<step>/attempt-<attempt>/<gate>.json`.
   A signoff recorded in attempt 1 must never satisfy a gate evaluation in attempt 2.
-- **C11.** Canonical Executable Finish Contract: `StepContext` returns a single, canonical `finishContract` encompassing all required/optional inputs for `workflow step finish` (`parameters`) alongside exit gates (`gates`). Parameter names in `finishContract.parameters` are the exact top-level keys accepted in the JSON input payload (including `result`, `commit.title`, `commit.message`, `include`, `exclude`, and `artifacts`). `StepContext` does not expose duplicate parameter blocks or destination transition routing to the AI agent.
-- **C12.** Logical Single Completion, Resumable Execution: The workflow enforces one logical completion per `(step, attempt)`. The durable finish operation is physically resumable; retrying an in-flight operation with compatible inputs resumes execution, while conflicting inputs fail closed with `PreconditionError`.
+- **C11.** Canonical Executable Finish Contract: `StepContext` returns a single, canonical `finishContract` encompassing all required/optional inputs for `workflow step finish` (`parameters`) alongside exit gates (`gates`). The canonical `finishContract.parameters` directly preserves the exact parameter schemas produced by finalize actions (`ActionContract.check().requiredInputs`, e.g. for `commit-and-push`: required `commit.title`, optional `commit.message`, required `include`, optional `exclude`) without loss or reinterpretation of name, type, requiredness, constraints, or allowed values. Workflow-level parameters (`result` for conditional steps, `artifacts` lightweight array of strings) are composed into the same map. `StepContext` does not expose duplicate parameter blocks or destination transition routing to the AI agent.
+- **C12.** Logical Single Completion, In-Flight Precedence, and Resumable Execution: The workflow enforces one logical completion per `(step, attempt)`. An existing unfinished in-flight operation record is authoritative for its `(step, attempt)` and takes precedence over persisted `workflow_progress.state === 'completed'` (e.g. following a crash after `update-task` but before completion). `already-completed` is valid only when no unfinished durable operation exists for the task. The durable finish operation is physically resumable; retrying an in-flight operation with compatible inputs resumes execution, while conflicting inputs fail closed with `PreconditionError`.
 - **C13.** Stable Generic Finish CLI Transport: `workflow step finish` accepts a structured JSON input payload via `--input <json>` or `--input-file <path>` (mutually exclusive). Individual parameter flags (`--result`, `--title`, `--message`, `--include`, `--exclude`, `--artifact`, `--artifacts`) are prohibited. Dynamic completion parameter names are defined solely by `finishContract`.
 - **C14.** Canonical Lightweight Artifacts: Artifact references are represented canonically as an optional array of reference strings (`artifacts: string[]`) in the JSON input payload and persisted history. Complex document management and MIME metadata are out of scope.
 - **C15.** Discriminated Transition Targets: Successful `workflow step finish` returns a structured `transition` object discriminating internal vs terminal targets:
@@ -99,18 +99,21 @@ This change delivers the next increment of the deterministic workflow engine: re
    - Validate transition mutual exclusivity, uniqueness, and target validity.
    - Update `loader.mjs` and `normalizeWorkflowDefinition`.
    - Update `validateWorkflowProgress` to enforce attempt uniqueness, monotonicity, and coherence invariants, plus semantic validation of historical transitions against definitions.
-2. **Attempt Lifecycle & Storage Scoping (`tools/specs/workflow/step-runner.mjs`, `step-context.mjs`, `operation-record.mjs`, `human-verification-store.mjs`):**
+2. **Attempt Lifecycle & Storage Scoping (`tools/specs/workflow/step-runner.mjs`, `step-context.mjs`, `operation-record.mjs`, `human-verification-store.mjs`, `finish-operation.mjs`):**
    - Position resolution derives `nextStep` from `history[last].transitioned_to` for the current `(step, attempt)`.
    - `ensureStepActivated` calculates monotonic `current_attempt` and guards activation via attempt-scoped operation records.
    - Restructure operation storage to `<step>/attempt-<attempt>.json` with a multi-record in-flight guard.
    - Restructure human verification signoffs to `<step>/attempt-<attempt>/<gate>.json`.
+   - Atomically migrate all production and test callers of `loadOperationRecord`, `saveOperationRecord`, and operation path helpers to require explicit `(step, attempt)`.
 3. **Canonical Finish Contract & AI Protocol (`tools/specs/workflow/step-context.mjs`):**
-   - Compile a single executable `finishContract.parameters` containing all inputs (`result`, `commit.title`, `commit.message`, `include`, `exclude`, `artifacts`) without destination routing.
+   - Compile a single executable `finishContract.parameters` preserving finalize action schemas (including `include` required) and composing workflow parameters (`result`, `artifacts`) without destination routing.
    - Expose authoritative protocol rules asserting logical completion per attempt, resumability, and input conflict policies.
 4. **Generic Input Transport & Resumable Finish Execution (`tools/specs/workflow/finish-operation.mjs`, `cli.mjs`, `tools/specs.mjs`):**
    - Replace individual CLI flags with `--input <json>` and `--input-file <path>`.
-   - Orderly JSON parsing and validation against `finishContract.parameters`.
+   - In-flight operation lookup precedes contract validation and `already-completed` check.
+   - Schema validation against authoritative step's contract; input conflict detection on resumption.
    - Attempt-aware crash reconciliation in `ensureUpdateTask` verifying exact logical write intent.
+   - Pass relevant resolved inputs (`commit.title`, `commit.message`, `include`, `exclude`) to finalize actions without duplicating validation.
    - Execute finish and emit structured resolved `transition` payload discriminating `kind: 'step'` vs `kind: 'terminal'`.
 5. **Production Workflow & Scaffolding (`.nevo-ai/workflows/standard.yaml`, templates):**
    - Implement review loop (`pass`/`fail`).
@@ -120,12 +123,12 @@ This change delivers the next increment of the deterministic workflow engine: re
 
 - **Task 01: Declarative workflow definition schema and semantic history validation** (`tasks/01-workflow-definition-transitions-and-history-validation.md`)
   - Schema support for unconditional and result-driven transitions, v1 closed enum validation (`pass | fail | blocked`), mutual exclusivity validation, loader updates, and semantic validation of completed history against workflow definitions.
-- **Task 02: Attempt lifecycle, attempt-scoped storage, and activation guard** (`tasks/02-attempt-lifecycle-and-scoped-storage.md`)
-  - `workflow_progress.current_attempt` derivation and persistence, attempt-scoped durable operations (`<step>/attempt-<attempt>.json`), fail-closed multi-record guard, attempt-scoped human verification, and atomic migration of `loadOperationRecord` call sites in `step-context.mjs`.
+- **Task 02: Attempt lifecycle, attempt-scoped storage, and atomic API migration** (`tasks/02-attempt-lifecycle-and-scoped-storage.md`)
+  - `workflow_progress.current_attempt` derivation and persistence, attempt-scoped durable operations (`<step>/attempt-<attempt>.json`), fail-closed multi-record guard, attempt-scoped human verification, and atomic migration of all production (`step-context.mjs`, `finish-operation.mjs`, `cli.mjs`) and test callers of `loadOperationRecord` and `saveOperationRecord`.
 - **Task 03: Canonical finish contract, AI protocol, and generic CLI input transport** (`tasks/03-canonical-finish-contract-and-generic-cli-input.md`)
-  - Compile single canonical `finishContract.parameters` (result, commit inputs, artifacts) without destination routing; implement generic `--input <json>` and `--input-file <path>` CLI transport, parsing order, and fail-closed property validation.
+  - Compile single canonical `finishContract.parameters` directly preserving finalize action schemas (including `include` required) alongside workflow parameters without destination routing; implement generic `--input <json>` and `--input-file <path>` CLI transport and transport-level validation.
 - **Task 04: Result-driven finish planning, attempt-aware reconciliation, and discriminated transitions** (`tasks/04-result-driven-finish-and-discriminated-transitions.md`)
-  - Input resolution against `finishContract`, input conflict detection on resumption, attempt-aware `update-task` crash reconciliation verifying exact write intent, and discriminated transition output (`kind: 'step'` vs `kind: 'terminal'`).
+  - In-flight operation lookup precedes contract validation and `already-completed` check; schema validation against authoritative step's contract; input conflict detection on resumption; attempt-aware `update-task` crash reconciliation verifying exact write intent; finalize action execution with full resolved inputs (`include`/`exclude`); explicit crash recovery tests; and discriminated transition output (`kind: 'step'` vs `kind: 'terminal'`).
 - **Task 05: Production standard workflow review loop and end-to-end multi-attempt proof** (`tasks/05-standard-workflow-review-loop-and-e2e-proof.md`)
   - Update `.nevo-ai/workflows/standard.yaml` with review loop, update documentation for generic inputs and attempt scoping, and implement multi-attempt e2e test suite using generic `--input` JSON.
 

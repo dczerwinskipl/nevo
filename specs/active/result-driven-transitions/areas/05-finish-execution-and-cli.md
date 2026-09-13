@@ -22,41 +22,49 @@ node tools/specs.mjs workflow step finish <change> [task] \
 - Specifying both `--input` and `--input-file` is rejected immediately with a CLI usage error.
 - Obsolete parameter-specific CLI flags (`--result`, `--title`, `--message`, `--artifact`, `--artifacts`, `--include`, `--exclude`) are strictly rejected. If supplied, the CLI throws an explicit error directing the user/agent to provide structured inputs via `--input` or `--input-file`.
 
-## Deterministic Input Parsing & Validation Order
+## Deterministic Input Parsing, In-Flight Resolution & Validation Order
 
-When `workflow step finish` is invoked, inputs are validated in strict sequential stages:
+When `workflow step finish` is invoked, inputs and execution context are resolved in strict sequential order:
 
 1. **Transport Layer Parsing:**
-   - Parse `--input` string or read `--input-file` content.
+   - Parse `--input` inline string or read file at `--input-file` path.
    - Parse JSON syntax. If JSON parsing fails, throw `WorkflowError` (`INVALID_INPUT_JSON`).
 2. **Object Structure Check:**
    - Ensure the parsed payload is a non-null, non-array object.
-3. **Contract Schema Validation Against `finishContract.parameters`:**
-   - **Unknown Properties:** Reject any property not declared in `finishContract.parameters` (`UNKNOWN_INPUT_PROPERTY`).
-   - **Missing Required Properties:** Verify all required parameters in `finishContract.parameters` are present.
-   - **Type Conformance:** Validate value types against parameter declarations:
-     - `result`: If the step is conditional, `result` must match one of the step's declared transition values (and in v1 belong to `KNOWN_TRANSITION_VALUES`). If the step is unconditional, `result` must NOT be supplied.
-     - `commit.title`: Must be a non-empty string when commit is required.
-     - `commit.message`: Must be a string if supplied.
-     - `include` / `exclude`: Must be arrays of strings if supplied.
-     - `artifacts`: Must be an array of strings (reference paths) if supplied.
-4. **Resumption & Input Conflict Check:**
-   - If an in-flight operation record exists for the current `(step, attempt)`, merge new inputs via `mergeResolvedInputs`:
-     - Compatible or identical values are merged cleanly.
+3. **In-Flight Durable Operation Resolution & Step Authority:**
+   - Scan for an existing in-flight operation record for the task (`findInFlightOperationRecord`).
+   - **If an in-flight operation exists:**
+     - The in-flight operation's recorded `(step, attempt)` is authoritative for this finish execution.
+     - This takes strict precedence over persisted `workflow_progress.state === 'completed'` (recovering crashes occurring after `update-task` but before later stages or final operation completion).
+   - **If no in-flight operation exists:**
+     - Derive active step and attempt from `workflow_progress`.
+     - If the task's logical attempt is already completed (or in a terminal state), and no in-flight operation exists, return `status: 'already-completed'` without mutation.
+4. **Contract Resolution & Schema Validation for the Authoritative Step:**
+   - Compile/resolve `finishContract` for the authoritative step.
+   - Validate supplied input payload against `finishContract.parameters`:
+     - **Unknown Properties:** Reject any property not declared in `finishContract.parameters` (`UNKNOWN_INPUT_PROPERTY`).
+     - **Missing Required Properties:** Verify all required parameters in `finishContract.parameters` are present (including finalize action requirements such as `include` and `commit.title`).
+     - **Type Conformance:** Validate value types against parameter declarations:
+       - `result`: If the step is conditional, `result` must match one of the step's declared transition values (and in v1 belong to `KNOWN_TRANSITION_VALUES`). If the step is unconditional, `result` must NOT be supplied.
+       - Action parameters (e.g. `commit.title`, `commit.message`, `include`, `exclude`, and `artifacts`): Validate according to their respective contract declarations.
+5. **Resumption & Input Conflict Check:**
+   - If resuming an in-flight operation, merge newly supplied inputs with persisted `resolvedInputs` via `mergeResolvedInputs`:
+     - Compatible or identical values merge cleanly.
      - Conflicting values for previously recorded inputs throw `PreconditionError` (`RESOLVED_INPUT_CONFLICT`).
-5. **Exit Gate Verification:**
+6. **Exit Gate Verification:**
    - Run verification commands for pending exit gates declared in `finishContract.gates`.
    - If any gate fails, halt before stage mutations.
-6. **Durable Pipeline Execution:**
+7. **Durable Pipeline Execution:**
    - Execute stages: `update-task` -> `commit` -> `push` -> `transition`.
 
 ## Non-Mutating Finish Planning (`planFinish` in `finish-operation.mjs`)
 
 `planFinish` evaluates execution readiness without modifying disk state:
 
-1. **Step & Attempt Identification:**
-   - Identifies active step and attempt from in-flight record or `resolveWorkflowPosition(definition, task)`.
-   - If the task is already completed or in a terminal state, reports `status: 'already-completed'`.
+1. **In-Flight Precedence & Step Authority:**
+   - Checks `findInFlightOperationRecord(repoRoot, changeSlug, taskId)`.
+   - If an in-flight record exists: step and attempt are taken directly from the operation record.
+   - Else: position is resolved from `task.workflow_progress`. If logical attempt is already completed and no in-flight operation exists, reports `status: 'already-completed'`.
 2. **Result & Transition Matching:**
    - **For Conditional Steps:**
      - If `result` is missing in inputs -> returns `status: 'input-required'`, `missingInputs: ['result']`.
@@ -94,7 +102,7 @@ verify-gates -> update-task -> commit -> push -> transition
        ```
      - Sets `workflow_progress = { current_step: stepName, current_attempt: currentAttempt, state: 'completed', history: newHistory }`.
      - If `matchedTransition.to` is terminal (`TERMINAL_STATUSES`), sets `task.status = matchedTransition.to` in the same atomic write.
-3. **`commit`**: Creates Git progress commit using `inputs['commit.title']` and optional `inputs['commit.message']`.
+3. **`commit`**: Executes the finalize action (e.g. `commit-and-push`) by passing the relevant resolved inputs (`commit.title`, `commit.message`, `include`, `exclude`) and execution context to `ActionContract.execute(...)`. The workflow engine does not duplicate action-specific file staging or validation logic.
 4. **`push`**: Pushes commit to remote branch when configured.
 5. **`transition`**: Emits resolved, discriminated transition payload.
 

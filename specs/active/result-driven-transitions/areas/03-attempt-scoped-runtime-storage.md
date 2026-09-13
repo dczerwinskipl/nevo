@@ -60,6 +60,11 @@ and filters for records where `record.status !== 'completed'`.
 - Exactly 1 uncompleted record -> returns that in-flight record for resumption.
 - $\ge 2$ uncompleted records -> fails closed immediately, throwing `WorkflowError` (`MULTIPLE_IN_FLIGHT_OPERATIONS`) listing the conflicting record paths and IDs. The engine never guesses which in-flight operation to execute.
 
+### In-Flight Record Precedence Over Completed Workflow State
+An existing unfinished operation record (`record.status !== 'completed'`) is authoritative for its `(step, attempt)` even if `workflow_progress` has already been written to `state: 'completed'` (for instance, following a crash after `update-task` but before `commit`, `push`, `transition`, or final operation completion).
+
+The workflow engine must never short-circuit an unfinished operation to `already-completed` simply because `workflow_progress.state === 'completed'`. If an in-flight operation exists, it must be resumed and reconciled; `already-completed` is valid only when no unfinished operation exists for the task.
+
 ## Attempt-Aware Crash Reconciliation (`ensureUpdateTask`)
 
 When an in-flight operation recovers a stage found in `running` or `unknown` state, it must reconcile against persisted state using the concrete `(record.step, record.attempt)` identity and the exact logical write intent recorded in `stage.intent`:

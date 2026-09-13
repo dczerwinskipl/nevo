@@ -54,16 +54,16 @@ Update `.nevo-ai/workflows/standard.yaml` and `tools/specs/workflow/templates/st
 - In `tools/tests/workflow-e2e-loop.test.mjs`:
   - Implement an end-to-end integration test driving a task through the complete loop:
     1. Start `implementation` (attempt 1).
-    2. Finish `implementation` (attempt 1) with generic input -> transitions to `review`.
+    2. Finish `implementation` (attempt 1) with `{"commit.title": "implement task", "include": ["*"]}` -> transitions to `review`.
     3. Start `review` (attempt 1).
-    4. Finish `review` (attempt 1) with `{"result": "fail", "commit.title": "...", "artifacts": ["docs/audit-1.md"]}` -> transitions back to `implementation`.
+    4. Finish `review` (attempt 1) with `{"result": "fail", "commit.title": "review: fail", "include": ["*"], "artifacts": ["docs/audit-1.md"]}` -> transitions back to `implementation`.
     5. Start `implementation` (attempt 2).
-    6. Finish `implementation` (attempt 2) with generic input -> transitions to `review`.
+    6. Finish `implementation` (attempt 2) with `{"commit.title": "fix implementation", "include": ["*"]}` -> transitions to `review`.
     7. Start `review` (attempt 2).
-    8. Finish `review` (attempt 2) with `{"result": "pass", "commit.title": "...", "artifacts": ["docs/audit-2.md"]}` -> transitions to `human-verification`.
+    8. Finish `review` (attempt 2) with `{"result": "pass", "commit.title": "review: pass", "include": ["*"], "artifacts": ["docs/audit-2.md"]}` -> transitions to `human-verification`.
     9. Start `human-verification` (attempt 1).
     10. Confirm human signoff via `workflow verify-human` for attempt 1.
-    11. Finish `human-verification` (attempt 1) -> transitions to terminal `verified`.
+    11. Finish `human-verification` (attempt 1) with `{"commit.title": "human verified", "include": ["*"]}` -> transitions to terminal `verified`.
   - Verify that each attempt receives isolated storage files and that `workflow_progress.history` captures all distinct attempts with correct results and artifact references.
 
 ## Acceptance criteria

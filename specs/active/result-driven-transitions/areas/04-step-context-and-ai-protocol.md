@@ -40,8 +40,8 @@ When an agent invokes `workflow step start`, the compiled payload includes `atte
       "include": {
         "type": "array",
         "items": { "type": "string" },
-        "required": false,
-        "description": "Optional file path patterns to stage for commit."
+        "required": true,
+        "description": "Explicit file selection array (e.g. ['*'] or ['src/**'])."
       },
       "exclude": {
         "type": "array",
@@ -78,11 +78,26 @@ When an agent invokes `workflow step start`, the compiled payload includes `atte
 }
 ```
 
-### Parameter Canonicalization:
-All parameters needed for finish execution live directly under `finishContract.parameters`:
+### Parameter Canonicalization & Finalize Action Schema Preservation:
+All parameters needed for finish execution live directly under `finishContract.parameters`. The canonical contract preserves the underlying finalize action schemas:
+
+```text
+finalize action requiredInputs
+        ↓
+canonical finishContract.parameters
+```
+
+With no loss or reinterpretation of:
+- name
+- type
+- requiredness (e.g. `commit-and-push` declares `commit.title`: required, `commit.message`: optional, `include`: required, `exclude`: optional)
+- constraints (e.g. `minLength: 5` on `commit.title`)
+- allowed values / item types where applicable
+
+Workflow-level parameters are composed into the same unified map:
 - For conditional steps, `result` is a required enum containing only the `allowedValues` declared for that step.
 - For unconditional steps, `result` is omitted (or marked `{ "type": "none", "required": false }`).
-- Commit metadata (`commit.title`, `commit.message`), staging controls (`include`, `exclude`), and artifacts (`artifacts`) are specified in the same schema.
+- Artifact references (`artifacts`) are composed as an optional array of strings.
 - The AI does not need to know internal destination routing or how the engine decomposes inputs to internal stages (`update-task` vs `commit`).
 
 ### No Internal Routing Exposure:
