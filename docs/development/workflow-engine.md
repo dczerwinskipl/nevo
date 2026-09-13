@@ -212,7 +212,9 @@ implementation -> review -> human-verification -> [terminal: verified]
 - **Hints**: `docs/ai/specification-workflow.md`, `docs/development/testing-strategy.md`.
 - **Exit gates**: `test` (`CommandGate` via catalog alias).
 - **Finalize**: `commit-and-push`.
-- **Transition**: `to: human-verification`.
+- **Transitions**:
+  - `value: pass` -> `to: human-verification`
+  - `value: fail` -> `to: implementation` (iterative rework loop)
 
 ### 3. `human-verification`
 - **Semantic status pair**: `active: awaiting-human-verification`, `completed: completed`.
@@ -225,12 +227,96 @@ implementation -> review -> human-verification -> [terminal: verified]
 
 ### Visible lifecycle progression
 ```text
-new -> implementing -> implemented -> reviewing -> reviewed -> awaiting-human-verification -> completed
+new -> implementing -> implemented -> reviewing -> reviewed (pass) -> awaiting-human-verification -> completed
+                                                -> (fail) -> implementing (attempt N+1)
 ```
 
 The terminal transition targets canonical `verified` on the coarse `task.status` axis,
 keeping the semantic workflow status axis (`completed`) strictly separated from repository
 lifecycle status.
+
+## Declarative transitions and attempt lifecycle
+
+Workflow steps declare transitions in one of two forms:
+
+1. **Unconditional transitions**: single destination step or terminal status without a
+   triggering value (`transitions: [{ to: <step|status> }]`). Supplying a `result` input
+   at finish time throws `PreconditionError` (`UNEXPECTED_TRANSITION_RESULT`).
+2. **Result-driven conditional transitions**: two or more branches, or a single branch with
+   an explicit trigger value (`transitions: [{ value: 'pass', to: 'human-verification' }, { value: 'fail', to: 'implementation' }]`).
+   The caller must supply a valid `result` selecting exactly one branch; missing or invalid
+   results fail closed with `PreconditionError` (`INVALID_TRANSITION_RESULT`).
+
+In v1, standard workflow templates validate a closed transition enum (`pass`, `fail`, `blocked`),
+while the workflow engine itself is designed extensibly to match arbitrary string values declared
+by custom workflow definitions.
+
+### Attempt identity, monotonic derivation, and history invariants
+
+Each visit to a workflow step constitutes an **attempt**, identified by `(step, attempt)`.
+`workflow_progress` on the task manifest tracks:
+
+```yaml
+workflow_progress:
+  current_step: implementation
+  current_attempt: 2
+  state: active
+  history:
+    - step: implementation
+      attempt: 1
+      completed_at: "2026-09-13T10:00:00.000Z"
+      transitioned_to: review
+    - step: review
+      attempt: 1
+      completed_at: "2026-09-13T10:15:00.000Z"
+      transitioned_to: implementation
+      result: fail
+      artifacts:
+        - docs/audit-1.md
+```
+
+- **Monotonic derivation**: `current_attempt` increments strictly monotonically when re-entering
+  a previously visited step. If `current_attempt` is omitted in legacy manifests, it is derived
+  from existing history entries for that step (`history.filter(h => h.step === step).length + 1`).
+- **History invariants**:
+  - Contiguous sequence: attempt numbers for each step must form a contiguous sequence starting at 1 (`1, 2, 3...`).
+  - No duplicates: duplicate `(step, attempt)` pairs in history are strictly rejected.
+  - Coherence: latest history entry must match `(current_step, current_attempt)` when `state === 'completed'`.
+  - Artifacts: optional array of string references (e.g. file paths) associated with completion.
+
+### Attempt-scoped runtime storage
+
+Runtime execution state is isolated per task, step, and attempt under `.nevo-ai-local/`:
+
+- **Durable operation records**:
+  `.nevo-ai-local/workflow-operations/<change>/<task>/<step>/attempt-<n>.json`
+- **Human verification signoffs**:
+  `.nevo-ai-local/human-verifications/<change>/<task>/<step>/attempt-<n>/<gateId>.json`
+
+Attempt scoping guarantees that loops and retries never collide with or overwrite evidence
+from previous attempts. Operations and signoffs are strictly bound to the logical attempt
+under execution.
+
+### Discriminated transition output
+
+A successful `finishStep()` execution emits a discriminated transition payload cleanly separating
+internal step targets from terminal statuses:
+
+```json
+{
+  "status": "completed",
+  "operationId": "0b4c8037-1234-5678-9abc-def012345678",
+  "transition": {
+    "from": { "step": "review", "attempt": 1 },
+    "result": "pass",
+    "to": { "kind": "step", "step": "human-verification" }
+  },
+  "commit": { "sha": "a1b2c3d4", "status": "completed" },
+  "push": { "remote": "origin", "branch": "main", "status": "completed" }
+}
+```
+
+For terminal transitions, `transition.to` resolves to `{ "kind": "terminal", "status": "verified" }`.
 
 ## Finish planning and durable finish execution
 
@@ -255,7 +341,7 @@ verify-gates -> update-task -> commit -> push -> transition
 ```
 
 The record is **runtime execution state, not Git-tracked domain state** — persisted at
-`.nevo-ai-local/workflow-operations/<change>/<task>.json` (git-ignored, atomic
+`.nevo-ai-local/workflow-operations/<change>/<task>/<step>/attempt-<n>.json` (git-ignored, atomic
 temp-file-then-rename writes, never staged or committed, never inside `change.yaml`).
 Storing it in `change.yaml` was the original design and a real defect: a commit cannot
 contain its own resulting SHA, and every post-commit bookkeeping write would leave the
@@ -361,12 +447,14 @@ Two agent-facing calls (`tools/specs/workflow/cli.mjs`, wired into `tools/specs.
 
 ```text
 node tools/specs.mjs workflow step start <change> [task]
-node tools/specs.mjs workflow step finish <change> [task] [--check] [--title <t>] [--message <m>] [--include <patterns>] [--exclude <patterns>]
+node tools/specs.mjs workflow step finish <change> [task] [--check] [--input '<json>'] [--input-file <path>]
 ```
 
 `[task]` defaults to the change's one `in-implementation` task when omitted — errors
-closed (asks for an explicit id) if zero or more than one task qualifies. `--include`/
-`--exclude` are comma-separated file-selection patterns.
+closed (asks for an explicit id) if zero or more than one task qualifies. Structured finish
+parameters are provided generically via `--input '<json>'` (inline JSON string) or
+`--input-file <path>` (file path to JSON object). Legacy parameter flags (`--title`, `--message`,
+`--include`, `--exclude`) are obsolete and fail closed with `OBSOLETE_INPUT_FLAG` (C14).
 
 One distinct, operator-only call:
 

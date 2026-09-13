@@ -45,7 +45,10 @@ steps:
     finalize:
       - id: commit-and-push
     transitions:
-      - to: human-verification
+      - value: pass
+        to: human-verification
+      - value: fail
+        to: implementation
 
   human-verification:
     status:
