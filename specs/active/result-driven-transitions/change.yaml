@@ -26,20 +26,20 @@ tasks:
   - id: workflow-definition-transitions-and-history-validation
     order: 1
     file: tasks/01-workflow-definition-transitions-and-history-validation.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: 3f870014966969d2379468ff9d8dbe3c68c5d68b
-      review_revision: 3f870014966969d2379468ff9d8dbe3c68c5d68b
+      review_revision: 250a7ec50341725680aaf4a20bee04fa76ce6b90
       changed_paths:
         - specs/active/result-driven-transitions/change.yaml
         - tools/specs/validation.mjs
         - tools/specs/workflow/definitions/schema.mjs
         - tools/tests/workflow-compatibility.test.mjs
         - tools/tests/workflow-definitions.test.mjs
-      worktree_patch_fingerprint: 7333a257a2e115ab7ecde5fefa87c2f03b7cbf740802d07a61081db006d1af56
+      worktree_patch_fingerprint: 4a8e3520764fad07f1b09ec5e5e8c6ba7547e9d8a3d0c897f7d8df40f91ed373
     self_check:
       fingerprint: 8fd7c463e7e923aaa2464f6a388bce44ea5ce05ba40677b9435bfb8a352b5e8c
-      revision: 3f870014966969d2379468ff9d8dbe3c68c5d68b
+      revision: 250a7ec50341725680aaf4a20bee04fa76ce6b90
       commands:
         - command: node --test tools/tests/workflow-definitions.test.mjs
           exit_code: 0
