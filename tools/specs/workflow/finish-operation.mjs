@@ -9,6 +9,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { requireChange, requireTask, setTaskWorkflowState } from '../store.mjs';
+import { TERMINAL_STATUSES } from '../lifecycle-primitives.mjs';
 import { normalizeSourceControlConfig } from './definitions/schema.mjs';
 import { defaultActionRegistry, defaultGateRegistry } from './registry.mjs';
 import { defaultWorkflowEngine } from './engine.mjs';
@@ -51,6 +52,16 @@ function isStepName(definition, name) {
   return Object.prototype.hasOwnProperty.call(definition?.steps || {}, name);
 }
 
+export function discriminateTarget(to, definition) {
+  if (definition && isStepName(definition, to)) {
+    return { kind: 'step', step: to };
+  }
+  if (TERMINAL_STATUSES.has(to)) {
+    return { kind: 'terminal', status: to };
+  }
+  return { kind: 'step', step: to };
+}
+
 // ── Resolved-inputs persistence and conflict detection (C19) ───────────────
 
 function valuesEqual(a, b) {
@@ -87,9 +98,9 @@ export function mergeResolvedInputs(persisted, supplied) {
 }
 
 function computeMissingInputs(requiredInputsMap, resolved) {
-  return Object.values(requiredInputsMap)
-    .filter(schema => schema.required && (resolved[schema.name] === undefined || resolved[schema.name] === null))
-    .map(schema => schema.name);
+  return Object.entries(requiredInputsMap || {})
+    .filter(([name, schema]) => schema.required && (resolved[name] === undefined || resolved[name] === null))
+    .map(([name]) => name);
 }
 
 // ── Non-mutating finish planning (D11) ──────────────────────────────────────
@@ -179,8 +190,49 @@ export async function planFinish({
   const existingRecord = inFlight || (context.repoRoot ? loadOperationRecord(context.repoRoot, changeSlug, task.id, stepName, attempt) : null);
 
   const step = definition.steps[stepName];
+  if (!step) {
+    throw new WorkflowError(`Step '${stepName}' is not declared in workflow definition '${definition?.id}'`);
+  }
+
   const finalizeCheck = await aggregateFinalizeCheck(step, context, { engine, actionRegistry });
-  const requiredInputs = buildFinishContract(finalizeCheck);
+  const requiredInputs = buildFinishContract(finalizeCheck, step);
+
+  const { resolved, conflicts } = mergeResolvedInputs(existingRecord?.resolvedInputs, inputs);
+
+  // Transitions matching & result validation
+  const transitions = step.transitions || [];
+  const isConditional = transitions.length > 1 || (transitions.length === 1 && transitions[0].value !== undefined);
+  let matched = null;
+
+  if (isConditional) {
+    if (resolved.result === undefined || resolved.result === null || resolved.result === '') {
+      // result is missing; missingInputs will catch this
+    } else {
+      matched = transitions.find(t => t.value === resolved.result);
+      if (!matched) {
+        const allowed = transitions.map(t => t.value).filter(Boolean);
+        const err = new PreconditionError(
+          `Invalid transition result '${resolved.result}' for step '${stepName}'. Allowed values: ${allowed.join(', ')}`,
+          [{ field: 'result', message: `Invalid transition result '${resolved.result}'`, code: 'INVALID_TRANSITION_RESULT' }],
+          null
+        );
+        err.code = 'INVALID_TRANSITION_RESULT';
+        throw err;
+      }
+    }
+  } else {
+    if (resolved.result !== undefined && resolved.result !== null) {
+      const err = new PreconditionError(
+        `Unexpected transition result '${resolved.result}' for unconditional step '${stepName}'`,
+        [{ field: 'result', message: `Unexpected transition result for unconditional step '${stepName}'`, code: 'UNEXPECTED_TRANSITION_RESULT' }],
+        null
+      );
+      err.code = 'UNEXPECTED_TRANSITION_RESULT';
+      throw err;
+    }
+    matched = transitions[0] || null;
+  }
+
   // D29: gate inspection needs the resolved step identity in context so a
   // HumanVerificationGate can build its query with real stepId identity.
   const gateContext = { ...context, stepId: stepName, attempt };
@@ -192,7 +244,6 @@ export async function planFinish({
   // execution (see `ensureVerifyGates` below).
   const blockers = exitGateResults.filter(g => g.status === 'blocked' || g.status === 'failed');
 
-  const { resolved, conflicts } = mergeResolvedInputs(existingRecord?.resolvedInputs, inputs);
   const missingInputs = computeMissingInputs(requiredInputs, resolved);
 
   const sourceControlFacts = normalizeSourceControlFacts(finalizeCheck.actions['commit-and-push']?.context);
@@ -213,6 +264,13 @@ export async function planFinish({
     status = 'ready';
   }
 
+  const discriminatedTarget = matched ? discriminateTarget(matched.to, definition) : null;
+  const transition = matched ? {
+    from: { step: stepName, attempt },
+    ...(resolved.result !== undefined ? { result: resolved.result } : {}),
+    to: discriminatedTarget,
+  } : null;
+
   return {
     status,
     stepName,
@@ -225,21 +283,33 @@ export async function planFinish({
     plannedOperations: FINISH_STAGE_IDS,
     blockers,
     existingRecord,
+    transition,
   };
 }
 
-function buildCompletionResult(record) {
-  const commitStage = findStage(record, 'commit');
-  const pushStage = findStage(record, 'push');
-  const updateTaskStage = findStage(record, 'update-task');
+export function buildCompletionResult(record, definition = null) {
+  if (!record) return null;
+  const commitStage = record.operations ? findStage(record, 'commit') : null;
+  const pushStage = record.operations ? findStage(record, 'push') : null;
+  const updateTaskStage = record.operations ? findStage(record, 'update-task') : null;
   // D37: `update-task`'s own result (set by `ensureUpdateTask`) already distinguishes
   // the internal (`toStep`) vs. terminal (`toState`) case — no need to also read
   // `intent.kind`, which no longer carries that distinction (see `ensureUpdateTask`).
-  const result = updateTaskStage.result;
+  const result = updateTaskStage?.result;
+  const to = result?.toStep || result?.toState;
+  const discriminatedTarget = to && definition ? discriminateTarget(to, definition) : (to ? { to } : null);
+
+  const transition = {
+    from: { step: record.step, attempt: record.attempt },
+    ...(record.resolvedInputs?.result !== undefined ? { result: record.resolvedInputs.result } : {}),
+    ...(discriminatedTarget ? { to: discriminatedTarget } : {}),
+  };
+
   return {
     operationId: record.operationId,
-    commit: commitStage.result ? { ...commitStage.result, status: commitStage.status } : null,
-    push: pushStage.result ? { ...pushStage.result, status: pushStage.status } : null,
+    transition,
+    commit: commitStage?.result ? { ...commitStage.result, status: commitStage.status } : null,
+    push: pushStage?.result ? { ...pushStage.result, status: pushStage.status } : null,
     taskStatus: result?.toState,
     nextStep: result?.toStep,
   };
@@ -303,7 +373,18 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
   const stepName = record.step;
   const attempt = record.attempt;
   const step = definition.steps[stepName];
-  const to = step.transitions[0].to; // exactly one, guaranteed by D27 schema validation
+  const transitions = step?.transitions || [];
+  const isConditional = transitions.length > 1 || (transitions.length === 1 && transitions[0].value !== undefined);
+  let matchedTransition;
+  if (isConditional) {
+    matchedTransition = transitions.find(t => t.value === record.resolvedInputs?.result);
+  } else {
+    matchedTransition = transitions[0];
+  }
+  if (!matchedTransition) {
+    throw new WorkflowError(`No transition found for step '${stepName}' with result '${record.resolvedInputs?.result}'`);
+  }
+  const to = matchedTransition.to;
   const isInternalTransition = isStepName(definition, to);
 
   const change = requireChange(changeSlug, activeDir);
@@ -313,17 +394,22 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
   if (stage.status === 'running' || stage.status === 'unknown') {
     const intent = stage.intent;
     if (intent) {
-      const wpStepMatches = wp?.current_step === (intent.step ?? stepName);
-      const wpAttemptMatches = wp?.current_attempt === undefined || wp?.current_attempt === (intent.attempt ?? attempt);
+      const intentStep = intent.step ?? stepName;
+      const intentAttempt = intent.attempt ?? attempt;
+      const intentTo = intent.transitioned_to ?? to;
+      const intentTerminal = intent.terminalStatus !== undefined ? intent.terminalStatus : (isInternalTransition ? null : to);
+
+      const wpStepMatches = wp?.current_step === intentStep;
+      const wpAttemptMatches = wp?.current_attempt === undefined || wp?.current_attempt === intentAttempt;
       const wpStateMatches = wp?.state === 'completed';
       const latestHistory = Array.isArray(wp?.history) && wp.history.length > 0 ? wp.history[wp.history.length - 1] : null;
       const historyMatches = latestHistory
-        && latestHistory.step === (intent.step ?? stepName)
-        && (intent.attempt === undefined || latestHistory.attempt === undefined || latestHistory.attempt === intent.attempt)
-        && latestHistory.transitioned_to === (intent.transitioned_to ?? to)
+        && latestHistory.step === intentStep
+        && (intent.attempt === undefined || latestHistory.attempt === undefined || latestHistory.attempt === intentAttempt)
+        && latestHistory.transitioned_to === intentTo
         && (intent.result === undefined || latestHistory.result === intent.result)
-        && (intent.artifacts === undefined || JSON.stringify(latestHistory.artifacts) === JSON.stringify(intent.artifacts));
-      const terminalMatches = intent.terminalStatus ? task.status === intent.terminalStatus : true;
+        && ((!intent.artifacts && !latestHistory.artifacts) || JSON.stringify(latestHistory.artifacts || []) === JSON.stringify(intent.artifacts || []));
+      const terminalMatches = intentTerminal ? task.status === intentTerminal : true;
 
       // 1. Write Definitely Happened
       if (wpStepMatches && wpAttemptMatches && wpStateMatches && historyMatches && terminalMatches) {
@@ -334,9 +420,9 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
       }
 
       // 2. Write Definitely Did Not Happen
-      const noHistoryEntry = !Array.isArray(wp?.history) || !wp.history.some(h => h.step === (intent.step ?? stepName) && (intent.attempt === undefined || h.attempt === undefined || h.attempt === intent.attempt));
+      const noHistoryEntry = !Array.isArray(wp?.history) || !wp.history.some(h => h.step === intentStep && (intent.attempt === undefined || h.attempt === undefined || h.attempt === intentAttempt));
       const wpActive = wp?.state === 'active';
-      const terminalNotModified = intent.terminalStatus ? task.status !== intent.terminalStatus : true;
+      const terminalNotModified = intentTerminal ? task.status !== intentTerminal : true;
 
       if (wpStepMatches && wpAttemptMatches && wpActive && noHistoryEntry && terminalNotModified) {
         // Safe to proceed to the write below
@@ -354,6 +440,7 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
             currentAttempt: wp?.current_attempt ?? null,
             currentState: wp?.state ?? null,
             latestHistory,
+            taskStatus: task.status,
           },
         });
       }
@@ -388,13 +475,17 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
   }
 
   const history = Array.isArray(wp?.history) ? wp.history : [];
+  const artifacts = Array.isArray(record.resolvedInputs?.artifacts) && record.resolvedInputs.artifacts.length > 0
+    ? record.resolvedInputs.artifacts
+    : undefined;
+
   const entry = {
     step: stepName,
     attempt,
     completed_at: new Date().toISOString(),
     transitioned_to: to,
     ...(record.resolvedInputs?.result !== undefined ? { result: record.resolvedInputs.result } : {}),
-    ...(record.resolvedInputs?.artifacts !== undefined ? { artifacts: record.resolvedInputs.artifacts } : {}),
+    ...(artifacts !== undefined ? { artifacts } : {}),
   };
   const newHistory = [...history, entry];
 
@@ -406,7 +497,7 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
     transitioned_to: to,
     terminalStatus: isInternalTransition ? null : to,
     ...(record.resolvedInputs?.result !== undefined ? { result: record.resolvedInputs.result } : {}),
-    ...(record.resolvedInputs?.artifacts !== undefined ? { artifacts: record.resolvedInputs.artifacts } : {}),
+    ...(artifacts !== undefined ? { artifacts } : {}),
   };
   stage.status = 'running';
   saveOperationRecord(repoRoot, record);
@@ -478,7 +569,15 @@ async function ensureCommit(record, context, repoRoot) {
   // "push only" once the worktree is already clean (its `include` contract requires
   // matching dirty files).
   const actionContext = { ...context, sourceControl: { enabled: true, push: false } };
-  const execResult = await action.execute(record.resolvedInputs, actionContext);
+  const checkResult = await action.check(actionContext);
+  const actionKeys = new Set((checkResult.requiredInputs || []).map(s => s.name));
+  const actionInputs = {};
+  for (const [key, val] of Object.entries(record.resolvedInputs || {})) {
+    if (actionKeys.has(key)) {
+      actionInputs[key] = val;
+    }
+  }
+  const execResult = await action.execute(actionInputs, actionContext);
 
   stage.status = 'completed';
   stage.result = execResult.outputs.commit;
@@ -599,16 +698,18 @@ export async function finishStep({
     };
   }
   if (plan.status === 'input-conflict') {
-    throw new PreconditionError('Conflicting finish inputs supplied for an in-flight operation', plan.conflicts, null);
+    const err = new PreconditionError('Conflicting finish inputs supplied for an in-flight operation', plan.conflicts, null);
+    err.code = 'RESOLVED_INPUT_CONFLICT';
+    throw err;
   }
   if (plan.status === 'already-completed') {
     // AC7 (D37 correction): distinct from a first-time `completed` result — no gate was
     // re-evaluated and no finalize action ran for this call; the previous operation's
     // own result is returned as factual context only.
-    return { status: 'already-completed', result: buildCompletionResult(plan.existingRecord) };
+    return { status: 'already-completed', result: buildCompletionResult(plan.existingRecord, definition) };
   }
   if (plan.status === 'completed') {
-    return { status: 'completed', result: buildCompletionResult(plan.existingRecord) };
+    return { status: 'completed', result: buildCompletionResult(plan.existingRecord, definition) };
   }
   if (plan.status === 'input-required') {
     return {
@@ -645,7 +746,7 @@ export async function finishStep({
     await ensureUpdateTask(record, definition, resolvedActiveDir, changeSlug, task.id, repoRoot);
     await ensureCommit(record, context, repoRoot);
     await ensurePush(record, context, repoRoot);
-    await ensureTransition(record);
+    await ensureTransition(record, definition);
   } catch (err) {
     if (err instanceof FinishStageOutcome) {
       return err.payload;
@@ -656,5 +757,26 @@ export async function finishStep({
   record.status = 'completed';
   saveOperationRecord(repoRoot, record);
 
-  return { status: 'completed', result: buildCompletionResult(record) };
+  const commitStage = findStage(record, 'commit');
+  const pushStage = findStage(record, 'push');
+  const updateTaskStage = findStage(record, 'update-task');
+  const to = updateTaskStage.result?.toStep || updateTaskStage.result?.toState;
+  const discriminatedTarget = to ? discriminateTarget(to, definition) : null;
+
+  const transition = {
+    from: { step: record.step, attempt: record.attempt },
+    ...(record.resolvedInputs?.result !== undefined ? { result: record.resolvedInputs.result } : {}),
+    to: discriminatedTarget,
+  };
+
+  const completionResult = buildCompletionResult(record, definition);
+
+  return {
+    status: 'completed',
+    operationId: record.operationId,
+    transition,
+    commit: commitStage?.result ? { ...commitStage.result, status: commitStage.status } : null,
+    push: pushStage?.result ? { ...pushStage.result, status: pushStage.status } : null,
+    result: completionResult,
+  };
 }
