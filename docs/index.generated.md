@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-09-09T05:36:13.065Z_
+_Generated: 2026-09-13T17:21:19.440Z_
 
 ## Hub
 
@@ -58,6 +58,7 @@ _Generated: 2026-09-09T05:36:13.065Z_
 
 | ID | Title | Status | Summary |
 |---|---|---|---|
+| `development.agent-workflow-protocol` | [Provider-neutral agent workflow protocol](development/agent-workflow-protocol.md) | current | Authoritative, vendor-neutral execution protocol for AI agents driving Nevo's deterministic workflow engine: 5-stage lifecycle, StepContext authority, explicit behavior matrix, error handling, and Git cleanliness invariants. |
 | `development.ai-sessions` | [Local AI sessions](development/ai-sessions.md) | current | Provider-neutral dashboard AI sessions, mock-mode setup, runtime boundaries, trusted-network access, and Part 1 verification. |
 | `development.architecture-overview` | [NEvo architecture overview](development/architecture-overview.md) | current | High-level overview of NEvo's modular structure, design philosophy, and current maturity status of each module. |
 | `development.codex-app-server-research` | [Codex app-server protocol research](development/codex-app-server-research.md) | current | Dated, version-specific observations from a successful local Codex app-server smoke test, separated from the protocol contracts Nevo must still verify from official documentation and generated schemas. |

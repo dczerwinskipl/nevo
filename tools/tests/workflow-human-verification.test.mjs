@@ -1,14 +1,19 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 import {
   verificationFilePath,
   FileHumanVerificationStore,
 } from '../specs/workflow/human-verification-store.mjs';
 import { HumanVerificationGate } from '../specs/workflow/gates/human-gate.mjs';
+import { handleWorkflowVerifyHuman } from '../specs/workflow/cli.mjs';
+import { requireChange, requireTask } from '../specs/store.mjs';
+import { CliError } from '../lib/cli-errors.mjs';
+import '../specs/workflow/actions/index.mjs';
 
 function makeFixture(prefix) {
   const base = mkdtempSync(join(tmpdir(), `${prefix}-`));
@@ -119,5 +124,205 @@ describe('FileHumanVerificationStore and attempt scoping (AC6)', () => {
     const res2 = await gate.verify({ id: 'human-review' }, { ...baseContext, attempt: 2 });
     assert.equal(res2.passed, false);
     assert.equal(res2.status, 'blocked');
+  });
+});
+
+const STANDARD_V1_YAML = `id: standard-v1
+title: "Standard Workflow"
+type: standard
+version: 1
+sourceControl:
+  enabled: true
+  push: false
+steps:
+  implementation:
+    status:
+      active: in-implementation
+      completed: implemented
+    entryGates: []
+    exitGates: []
+    finalize:
+      - id: commit-and-push
+    transitions:
+      - to: review
+  review:
+    status:
+      active: in-review
+      completed: reviewed
+    entryGates: []
+    exitGates: []
+    finalize:
+      - id: commit-and-push
+    transitions:
+      - value: pass
+        to: human-verification
+      - value: fail
+        to: implementation
+  human-verification:
+    status:
+      active: awaiting-human-verification
+      completed: completed
+    entryGates: []
+    exitGates: []
+    finalize:
+      - id: commit-and-push
+    transitions:
+      - value: pass
+        to: verified
+      - value: fail
+        to: implementation
+`;
+
+describe('workflow verify-human direct decisions (AC5)', () => {
+  let fx;
+
+  before(() => {
+    const base = mkdtempSync(join(tmpdir(), 'nevo-human-decision-'));
+    const repo = join(base, 'repo');
+    mkdirSync(repo, { recursive: true });
+    const git = (args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    git(['init', '-b', 'main']);
+    git(['config', 'user.name', 'Test User']);
+    git(['config', 'user.email', 'test@example.com']);
+
+    const workflowsDir = join(repo, '.nevo-ai', 'workflows');
+    mkdirSync(workflowsDir, { recursive: true });
+    writeFileSync(join(workflowsDir, 'standard-v1.yaml'), STANDARD_V1_YAML);
+
+    const activeDir = join(repo, 'specs', 'active');
+    const changeDir = join(activeDir, 'demo-change');
+    const tasksDir = join(changeDir, 'tasks');
+    mkdirSync(tasksDir, { recursive: true });
+
+    writeFileSync(join(repo, '.gitignore'), '.nevo-ai-local/\n');
+    writeFileSync(join(repo, 'root.txt'), 'initial\n');
+    git(['add', '-A']);
+    git(['commit', '-m', 'initial commit']);
+
+    fx = { base, repo, activeDir, changeDir, tasksDir };
+  });
+
+  after(() => cleanupFixture(fx));
+
+  test('transitions task directly to verified on --approve', async () => {
+    const changeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: standard-v1
+tasks:
+  - id: demo-task
+    status: awaiting-human-verification
+    workflow_progress:
+      current_step: human-verification
+      current_attempt: 1
+      state: active
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: "2026-01-01T00:00:00.000Z"
+          transitioned_to: review
+        - step: review
+          attempt: 1
+          completed_at: "2026-01-01T01:00:00.000Z"
+          result: pass
+          transitioned_to: human-verification
+`;
+    writeFileSync(join(fx.changeDir, 'change.yaml'), changeYaml);
+    writeFileSync(join(fx.tasksDir, '01-demo-task.md'), '---\nid: demo-task\nstatus: awaiting-human-verification\n---\n# Task\n');
+
+    execFileSync('git', ['-C', fx.repo, 'add', '-A']);
+    execFileSync('git', ['-C', fx.repo, 'commit', '-m', 'task setup']);
+
+    const result = await handleWorkflowVerifyHuman('demo-change', 'demo-task', {
+      approve: true,
+      activeDir: fx.activeDir,
+      repoRoot: fx.repo,
+      silent: true,
+    });
+
+    assert.equal(result.status, 'completed');
+    const task = requireTask(requireChange('demo-change', fx.activeDir), 'demo-task');
+    assert.equal(task.status, 'verified');
+    assert.equal(task.workflow_progress.state, 'completed');
+    const lastHistory = task.workflow_progress.history[task.workflow_progress.history.length - 1];
+    assert.equal(lastHistory.step, 'human-verification');
+    assert.equal(lastHistory.result, 'pass');
+    assert.equal(lastHistory.transitioned_to, 'verified');
+  });
+
+  test('transitions task directly to implementation attempt 2 with feedback on --request-changes', async () => {
+    const changeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: standard-v1
+tasks:
+  - id: demo-task-reject
+    status: awaiting-human-verification
+    workflow_progress:
+      current_step: human-verification
+      current_attempt: 1
+      state: active
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: "2026-01-01T00:00:00.000Z"
+          transitioned_to: review
+        - step: review
+          attempt: 1
+          completed_at: "2026-01-01T01:00:00.000Z"
+          result: pass
+          transitioned_to: human-verification
+`;
+    writeFileSync(join(fx.changeDir, 'change.yaml'), changeYaml);
+    writeFileSync(join(fx.tasksDir, '02-demo-task-reject.md'), '---\nid: demo-task-reject\nstatus: awaiting-human-verification\n---\n# Task\n');
+
+    execFileSync('git', ['-C', fx.repo, 'add', '-A']);
+    execFileSync('git', ['-C', fx.repo, 'commit', '-m', 'task reset']);
+
+    const result = await handleWorkflowVerifyHuman('demo-change', 'demo-task-reject', {
+      requestChanges: true,
+      feedback: 'Please address retry test edge case',
+      activeDir: fx.activeDir,
+      repoRoot: fx.repo,
+      silent: true,
+    });
+
+    assert.equal(result.status, 'completed');
+    const task = requireTask(requireChange('demo-change', fx.activeDir), 'demo-task-reject');
+    assert.equal(task.workflow_progress.state, 'completed');
+    assert.equal(task.workflow_progress.current_step, 'human-verification');
+    const lastHistory = task.workflow_progress.history[task.workflow_progress.history.length - 1];
+    assert.equal(lastHistory.step, 'human-verification');
+    assert.equal(lastHistory.result, 'fail');
+    assert.equal(lastHistory.feedback, 'Please address retry test edge case');
+    assert.equal(lastHistory.transitioned_to, 'implementation');
+  });
+
+  test('rejects --request-changes without --feedback', async () => {
+    await assert.rejects(
+      () => handleWorkflowVerifyHuman('demo-change', 'demo-task-reject', {
+        requestChanges: true,
+        activeDir: fx.activeDir,
+        repoRoot: fx.repo,
+        silent: true,
+      }),
+      (err) => err instanceof CliError && /--feedback/.test(err.message)
+    );
+  });
+
+  test('rejects specifying both --approve and --request-changes', async () => {
+    await assert.rejects(
+      () => handleWorkflowVerifyHuman('demo-change', 'demo-task-reject', {
+        approve: true,
+        requestChanges: true,
+        feedback: 'conflict',
+        activeDir: fx.activeDir,
+        repoRoot: fx.repo,
+        silent: true,
+      }),
+      (err) => err instanceof CliError && /both/.test(err.message)
+    );
   });
 });

@@ -412,7 +412,8 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
         && latestHistory.attempt === intentAttempt
         && latestHistory.transitioned_to === intentTo
         && (intent.result === undefined || latestHistory.result === intent.result)
-        && ((!intent.artifacts && !latestHistory.artifacts) || JSON.stringify(latestHistory.artifacts || []) === JSON.stringify(intent.artifacts || []));
+        && ((!intent.artifacts && !latestHistory.artifacts) || JSON.stringify(latestHistory.artifacts || []) === JSON.stringify(intent.artifacts || []))
+        && (intent.feedback === undefined || latestHistory.feedback === intent.feedback);
       const terminalMatches = intentTerminal ? task.status === intentTerminal : true;
 
       // 1. Write Definitely Happened
@@ -482,6 +483,9 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
   const artifacts = Array.isArray(record.resolvedInputs?.artifacts) && record.resolvedInputs.artifacts.length > 0
     ? record.resolvedInputs.artifacts
     : undefined;
+  const feedback = typeof record.resolvedInputs?.feedback === 'string' && record.resolvedInputs.feedback.trim().length > 0
+    ? record.resolvedInputs.feedback.trim()
+    : undefined;
 
   const entry = {
     step: stepName,
@@ -490,6 +494,7 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
     transitioned_to: to,
     ...(record.resolvedInputs?.result !== undefined ? { result: record.resolvedInputs.result } : {}),
     ...(artifacts !== undefined ? { artifacts } : {}),
+    ...(feedback !== undefined ? { feedback } : {}),
   };
   const newHistory = [...history, entry];
 
@@ -502,6 +507,7 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
     terminalStatus: isInternalTransition ? null : to,
     ...(record.resolvedInputs?.result !== undefined ? { result: record.resolvedInputs.result } : {}),
     ...(artifacts !== undefined ? { artifacts } : {}),
+    ...(feedback !== undefined ? { feedback } : {}),
   };
   stage.status = 'running';
   saveOperationRecord(repoRoot, record);

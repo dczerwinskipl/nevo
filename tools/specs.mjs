@@ -286,10 +286,14 @@ export function buildProgram() {
     .action((changeSlug, taskId, opts) => handleWorkflowStepFinish(changeSlug, taskId, opts));
 
   workflow.command('verify-human')
-    .description('Operator-only: satisfy a HumanVerificationGate — the only path that can (C8); never reachable from step start/finish')
+    .description('Operator-only: satisfy a HumanVerificationGate or execute human decision transition')
     .argument('<change>')
     .argument('<task>')
-    .option('--confirm', 'Required — records the operator confirmation')
+    .option('--confirm', 'Records the operator confirmation (legacy gate signoff)')
+    .option('--approve', 'Direct human sign-off approving task (result: pass)')
+    .option('--request-changes', 'Direct human sign-off requesting changes (result: fail)')
+    .option('--reject', 'Alias for --request-changes')
+    .option('--feedback <text>', 'Actionable feedback describing requested changes')
     .action((changeSlug, taskId, opts) => handleWorkflowVerifyHuman(changeSlug, taskId, opts));
 
   const agentSession = program.command('agent-session')

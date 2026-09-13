@@ -12,6 +12,7 @@ import { loadRoutingIndex, matchRoutingRules, resolveTaskScope } from '../contex
 // D37 correction: read via `operation-record.mjs` directly (not `finish-operation.mjs`,
 // which itself imports from this module — importing it here would create a cycle).
 import { loadOperationRecord } from './operation-record.mjs';
+import * as git from '../../lib/git.mjs';
 
 // D38: re-export resolveTaskScope from context.mjs as single source of truth
 export { resolveTaskScope } from '../context.mjs';
@@ -97,6 +98,12 @@ export function buildFinishContract(finalizeCheckResult, step = null) {
     items: { type: 'string' },
     required: false,
     description: 'Optional list of artifact reference strings (e.g. file paths) associated with this completion.',
+  };
+
+  parameters.feedback = {
+    type: 'string',
+    required: false,
+    description: 'Optional review feedback or requested changes text associated with this completion.',
   };
 
   return parameters;
@@ -260,6 +267,25 @@ export function ensureStepActivated(change, task, definition, context = {}) {
     }
   }
 
+  if (context.repoRoot) {
+    try {
+      const dirtyPaths = git.getDirtyPaths(context.repoRoot);
+      const relevantDirty = dirtyPaths.filter(p => {
+        const norm = p.replace(/\\/g, '/');
+        return norm !== '.nevo-ai-local' && !norm.startsWith('.nevo-ai-local/');
+      });
+      if (relevantDirty.length > 0) {
+        throw new WorkflowError(
+          `Working tree has uncommitted changes outside .nevo-ai-local/ (${relevantDirty.join(', ')}) — clean the workspace before starting a new attempt`,
+          { code: 'DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT', dirtyFiles: relevantDirty }
+        );
+      }
+    } catch (err) {
+      if (err instanceof WorkflowError) throw err;
+      // If repoRoot is not a git repository (e.g. lightweight unit test fixtures), skip check
+    }
+  }
+
   const targetStep = position.phase === 'new' ? definition.entryStep : position.nextStep;
   // D37: starting the next step never appends a `history` entry — `history` records
   // completions only, never activations.
@@ -357,6 +383,49 @@ export function buildStepContract(step) {
 }
 
 /**
+ * Extracts previous transition details if the previous completion represents a review failure,
+ * requested changes, or provides feedback/artifacts (AC6).
+ *
+ * @param {object} task
+ * @returns {object|undefined}
+ */
+export function extractPreviousTransition(task) {
+  const history = task?.workflow_progress?.history;
+  if (!Array.isArray(history) || history.length === 0) {
+    return undefined;
+  }
+  const last = history[history.length - 1];
+  if (!last) return undefined;
+
+  const isFailureOrChanges = last.result === 'fail'
+    || last.result === 'needs-changes'
+    || Boolean(last.feedback)
+    || Boolean(last.requestedChanges);
+
+  if (!isFailureOrChanges) {
+    return undefined;
+  }
+
+  const requestedChanges = last.feedback ?? last.requestedChanges ?? null;
+  const transition = {
+    from: last.step,
+    attempt: last.attempt,
+    result: last.result,
+    ...(requestedChanges !== null ? { requestedChanges } : {}),
+    ...(Array.isArray(last.artifacts) && last.artifacts.length > 0 ? { artifacts: last.artifacts } : {}),
+  };
+  if (requestedChanges !== null) {
+    Object.defineProperty(transition, 'feedback', {
+      value: requestedChanges,
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+  }
+  return transition;
+}
+
+/**
  * Compiles the full `StepContext` returned by `workflow step start` (D10): current step,
  * task/spec identity, workflow state, entry state/blockers, factual context (including
  * source-control context when enabled), the finish contract (`requiredInputs` aggregated
@@ -448,6 +517,7 @@ export async function compileStepContext({
   const routingIndex = context.routingIndex !== undefined ? context.routingIndex : loadRoutingIndex();
   const relevantDocs = resolveRelevantDocs(allowedPaths, routingIndex);
   const stepContract = buildStepContract(step);
+  const previousTransition = extractPreviousTransition(effectiveTask);
 
   return {
     change: changeId,
@@ -467,6 +537,7 @@ export async function compileStepContext({
     },
     relevantDocs,
     ...(stepContract !== undefined ? { stepContract } : {}),
+    ...(previousTransition !== undefined ? { previousTransition } : {}),
     context: sourceControlContext ? { sourceControl: sourceControlContext } : {},
     finishContract: {
       parameters,

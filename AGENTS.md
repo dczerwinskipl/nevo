@@ -5,6 +5,13 @@ point here. Architecture lives in `docs/development/`. Do not duplicate it in ad
 
 ## How to start any task
 
+For deterministic specifications (`workflow.mode: deterministic`):
+```bash
+node tools/specs.mjs workflow step start <change> <task>
+```
+Follow `docs/development/agent-workflow-protocol.md`. Treat the returned `StepContext` as authoritative.
+
+For legacy specifications:
 ```bash
 node tools/specs.mjs next              # find the next approved task
 node tools/specs.mjs context <change> <task>   # get the context packet for a specific task

@@ -4,6 +4,8 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { parse } from 'yaml';
 
 import {
   validateWorkflowDefinition,
@@ -223,6 +225,20 @@ describe('Workflow definition transitions and normalization (AC1 - AC6)', () => 
       { value: 'pass', to: 'verified' },
       { value: 'fail', to: 'impl' },
       { value: 'blocked', to: 'archived' },
+    ]);
+  });
+
+  test('AC7: Standard workflow definition defines human-verification with pass -> verified and fail -> implementation', () => {
+    const content = readFileSync('tools/specs/workflow/templates/standard.yaml', 'utf8');
+    const parsed = parse(content);
+    const { valid, errors } = validateWorkflowDefinition(parsed);
+    assert.equal(valid, true, `Expected valid standard workflow: ${errors.join(', ')}`);
+    const normalized = normalizeWorkflowDefinition(parsed);
+    const hv = normalized.steps['human-verification'];
+    assert.ok(hv, 'Expected human-verification step in standard workflow');
+    assert.deepEqual(hv.transitions, [
+      { value: 'pass', to: 'verified' },
+      { value: 'fail', to: 'implementation' },
     ]);
   });
 });

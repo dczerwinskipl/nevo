@@ -82,7 +82,7 @@ describe('check(context) — enabled sourceControl (AC2, AC3)', () => {
 
   after(() => cleanupRepoPair(ctx));
 
-  test('requiredInputs declares commit.title and include as required', async () => {
+  test('requiredInputs declares commit.title as required and include as optional', async () => {
     const action = new CommitAndPushAction();
     const result = await action.check({
       repoRoot: ctx.repo,
@@ -92,7 +92,7 @@ describe('check(context) — enabled sourceControl (AC2, AC3)', () => {
     const byName = Object.fromEntries(result.requiredInputs.map(s => [s.name, s]));
     assert.equal(byName['commit.title'].required, true);
     assert.equal(byName['commit.message'].required, false);
-    assert.equal(byName['include'].required, true);
+    assert.equal(byName['include'].required, false);
     assert.equal(byName['exclude'].required, false);
   });
 
@@ -155,23 +155,30 @@ describe('executeValidated — fail-closed input validation (AC4, AC5)', () => {
     );
   });
 
-  test('throws PreconditionError when include is omitted — never guesses or stages dirty files implicitly', async () => {
-    const action = new CommitAndPushAction();
-    await assert.rejects(
-      () => action.execute({ 'commit.title': 'A valid title' }, baseContext()),
-      PreconditionError
-    );
-    // Fail-closed: the worktree must remain exactly as dirty as before the rejected call.
-    const status = execFileSync('git', ['-C', ctx.repo, 'status', '--porcelain'], { encoding: 'utf8' });
-    assert.ok(status.includes('dirty.txt'));
-  });
-
   test('throws PreconditionError when include matches no changed files', async () => {
     const action = new CommitAndPushAction();
     await assert.rejects(
       () => action.execute({ 'commit.title': 'A valid title', include: ['does-not-exist.txt'] }, baseContext()),
       PreconditionError
     );
+  });
+
+  test('defaults include to ["*"] when omitted, committing dirty files (AC3)', async () => {
+    const action = new CommitAndPushAction();
+    const result = await action.execute({ 'commit.title': 'Commit all dirty files' }, baseContext());
+    assert.equal(result.success, true);
+    assert.equal(result.outputs.commit.status, 'completed');
+    const status = execFileSync('git', ['-C', ctx.repo, 'status', '--porcelain'], { encoding: 'utf8' });
+    assert.equal(status.trim(), '');
+  });
+
+  test('succeeds without error on clean working tree as a noop commit (AC3)', async () => {
+    const action = new CommitAndPushAction();
+    // Working tree is clean now
+    const result = await action.execute({ 'commit.title': 'Noop commit on clean tree' }, baseContext());
+    assert.equal(result.success, true);
+    assert.equal(result.outputs.commit.status, 'noop');
+    assert.ok(result.outputs.commit.sha);
   });
 });
 

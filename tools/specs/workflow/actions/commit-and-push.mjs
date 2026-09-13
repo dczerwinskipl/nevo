@@ -27,8 +27,8 @@ const COMMIT_MESSAGE_SCHEMA = {
 const INCLUDE_SCHEMA = {
   name: 'include',
   type: 'array',
-  required: true,
-  description: "Explicit file selection array (e.g. ['*'] or ['src/**'])",
+  required: false,
+  description: "Explicit file selection array (defaults to ['*'])",
 };
 
 const EXCLUDE_SCHEMA = {
@@ -71,8 +71,9 @@ function shortLog(entries) {
 /**
  * Fail-closed source-control commit/push action. `check(context)` never mutates
  * anything; `execute(inputs, context)` (via `executeValidated`, the `ActionContract`
- * boundary) stages exactly the caller's explicit `include`/`exclude` file selection,
- * commits, and pushes only when `sourceControl.push` is enabled.
+ * boundary) stages the caller's explicit `include`/`exclude` file selection (defaulting
+ * to `['*']`), commits, and pushes only when `sourceControl.push` is enabled.
+ * If the working tree is clean, it records a clean noop commit without error.
  *
  * Expected `context` shape (all optional except `repoRoot`, required whenever
  * `sourceControl.enabled` is true):
@@ -90,7 +91,7 @@ export class CommitAndPushAction extends ActionContract {
   }
 
   get description() {
-    return 'Fail-closed source-control commit and push action requiring explicit file selection.';
+    return 'Fail-closed source-control commit and push action with clean noop commit and default whole-attempt staging.';
   }
 
   async check(context = {}) {
@@ -114,7 +115,7 @@ export class CommitAndPushAction extends ActionContract {
     const baseBranch = context.baseBranch || 'main';
     const currentBranch = git.getCurrentBranch(repoRoot);
     const changedFiles = git.getDirtyFiles(repoRoot);
-    const dirtyPaths = git.getDirtyPaths(repoRoot);
+    const dirtyPaths = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
     const summary = git.getWorkingTreeSummary(repoRoot);
     const stagedFiles = summary.files
       .filter(f => f.status[0] !== ' ' && f.status[0] !== '?')
@@ -142,12 +143,16 @@ export class CommitAndPushAction extends ActionContract {
       factualContext.unpushedCommits = shortLog(unpushed);
     }
 
+    const isDirty = dirtyPaths.length > 0;
+    const titleSchema = { ...COMMIT_TITLE_SCHEMA, required: isDirty };
+    const includeSchema = { ...INCLUDE_SCHEMA, required: false };
+
     return new ActionCheckResult({
       actionId: this.id,
-      requiredInputs: [COMMIT_TITLE_SCHEMA, COMMIT_MESSAGE_SCHEMA, INCLUDE_SCHEMA, EXCLUDE_SCHEMA],
+      requiredInputs: [titleSchema, COMMIT_MESSAGE_SCHEMA, includeSchema, EXCLUDE_SCHEMA],
       context: factualContext,
       ready: true,
-      summary: 'Ready to commit the explicit file selection.',
+      summary: isDirty ? 'Ready to commit changes.' : 'Working tree clean; ready for clean noop commit.',
     });
   }
 
@@ -155,6 +160,25 @@ export class CommitAndPushAction extends ActionContract {
     const repoRoot = context.repoRoot;
     if (!repoRoot || typeof repoRoot !== 'string') {
       throw new WorkflowError(`Action '${this.id}' executeValidated(inputs, context) requires context.repoRoot`);
+    }
+
+    const dirtyPaths = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
+
+    if (dirtyPaths.length === 0) {
+      const sha = git.getCurrentRevision(repoRoot);
+      const outputs = { commit: { sha, status: 'noop' } };
+      let summaryText = `Working tree clean; recorded noop commit at ${sha.slice(0, 7)}.`;
+      const sourceControl = normalizeSourceControlConfig(context.sourceControl);
+      if (sourceControl.push) {
+        const branch = git.getCurrentBranch(repoRoot);
+        outputs.push = { remote: 'origin', branch, expectedSha: sha, status: 'noop' };
+      }
+      return new ActionExecuteResult({
+        actionId: this.id,
+        success: true,
+        outputs,
+        summary: summaryText,
+      });
     }
 
     const title = typeof inputs['commit.title'] === 'string' ? inputs['commit.title'].trim() : '';
@@ -166,16 +190,18 @@ export class CommitAndPushAction extends ActionContract {
       );
     }
 
-    if (!Array.isArray(inputs.include) || inputs.include.length === 0) {
+    const isDefaultInclude = inputs.include === undefined;
+    const includePatterns = isDefaultInclude ? ['*'] : inputs.include;
+
+    if (!Array.isArray(includePatterns) || includePatterns.length === 0) {
       throw new PreconditionError(
-        `Action '${this.id}' requires an explicit include parameter — it never guesses or stages all dirty files implicitly`,
+        `Action '${this.id}' requires include to be a non-empty array when specified`,
         [{ field: 'include', message: 'include must be a non-empty array of explicit paths/globs', code: 'REQUIRED_FIELD_MISSING' }],
         this.id
       );
     }
 
-    const dirtyPaths = git.getDirtyPaths(repoRoot);
-    const included = resolveFileSelection(dirtyPaths, inputs.include);
+    const included = resolveFileSelection(dirtyPaths, includePatterns);
     const excluded = new Set(resolveFileSelection(included, inputs.exclude));
     const finalPaths = included.filter(p => !excluded.has(p));
 
@@ -193,6 +219,16 @@ export class CommitAndPushAction extends ActionContract {
     await git.addAndCommitAsync(repoRoot, finalPaths, fullMessage);
     const sha = git.getCurrentRevision(repoRoot);
     const outputs = { commit: { sha, status: 'completed' } };
+
+    if (isDefaultInclude || context.verifyCleanTree) {
+      const remainingDirty = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
+      if (remainingDirty.length > 0) {
+        throw new WorkflowError(
+          `Working tree is not clean after commit: ${remainingDirty.join(', ')}`,
+          { code: 'DIRTY_WORKTREE_AFTER_COMMIT', dirtyPaths: remainingDirty }
+        );
+      }
+    }
 
     const sourceControl = normalizeSourceControlConfig(context.sourceControl);
     let summaryText = `Committed ${finalPaths.length} file(s) as ${sha.slice(0, 7)}.`;

@@ -221,8 +221,58 @@ function resolveHumanGateForConfirmation(definition, task, stepName, gateIdOptio
 }
 
 export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
+  const isApprove = Boolean(opts.approve);
+  const isRequestChanges = Boolean(opts.requestChanges || opts.reject);
+
+  if (isApprove || isRequestChanges) {
+    return (async () => {
+      if (isApprove && isRequestChanges) {
+        throw new CliError('Cannot specify both --approve and --request-changes');
+      }
+
+      if (isRequestChanges && (!opts.feedback || typeof opts.feedback !== 'string' || opts.feedback.trim() === '')) {
+        throw new CliError('--request-changes requires --feedback <text>');
+      }
+      const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
+      const position = resolveWorkflowPosition(definition, task);
+      if (position.phase !== 'active') {
+        throw new CliError(`Task '${task.id}' has no currently active workflow step — cannot execute human decision`);
+      }
+      const stepName = position.step;
+      const step = definition.steps?.[stepName];
+      if (!step) {
+        throw new CliError(`Step '${stepName}' not found in workflow definition`);
+      }
+
+      const finalizeCheck = await aggregateFinalizeCheck(step, context);
+      const parameters = buildFinishContract(finalizeCheck, step);
+
+      const inputs = {
+        result: isApprove ? 'pass' : 'fail',
+      };
+      if (opts.feedback) {
+        inputs.feedback = opts.feedback.trim();
+      }
+      if (parameters['commit.title']) {
+        inputs['commit.title'] = opts['commit.title'] || (isApprove ? `verify(${task.id}): approve human verification` : `verify(${task.id}): request changes`);
+      }
+
+      const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, position.attempt);
+      const result = await finishStep({
+        change,
+        task,
+        definition,
+        context,
+        inputs,
+        activeDir: context.activeDir,
+        gateRegistry,
+      });
+      return emit(result, opts);
+    })();
+  }
+
   if (!opts.confirm) {
-    throw new CliError('workflow verify-human requires --confirm — this command is the only path that can satisfy a human-verification gate (C8)');
+    throw new CliError('workflow verify-human requires --approve, --request-changes, or --confirm');
   }
   const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
   // D37: a human-verification gate is one of a step's *exit* gates, evaluated during

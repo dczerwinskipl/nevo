@@ -29,6 +29,7 @@ allowed_paths:
   - tools/specs/workflow/templates/standard.yaml
   - .nevo-ai/workflows/standard.yaml
   - .nevo-ai/workflows/standard-v1.yaml
+  - tools/tests/workflow-definitions.test.mjs
   - tools/tests/workflow-step-context.test.mjs
   - tools/tests/workflow-finish-operation.test.mjs
   - tools/tests/workflow-action-commit-push.test.mjs

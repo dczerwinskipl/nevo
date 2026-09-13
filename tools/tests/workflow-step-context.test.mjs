@@ -7,9 +7,11 @@ import { join } from 'node:path';
 
 import {
   compileStepContext,
+  ensureStepActivated,
   buildFinishContract,
   validateFinishInputs,
 } from '../specs/workflow/step-context.mjs';
+import { WorkflowError } from '../specs/workflow/errors.mjs';
 import { requireChange, requireTask } from '../specs/store.mjs';
 import '../specs/workflow/actions/index.mjs';
 
@@ -122,7 +124,7 @@ tasks:
     assert.equal(params['commit.message'].required, false);
 
     assert.equal(params['include'].type, 'array');
-    assert.equal(params['include'].required, true);
+    assert.equal(params['include'].required, false);
     assert.deepEqual(params['include'].items, { type: 'string' });
 
     assert.equal(params['exclude'].type, 'array');
@@ -138,6 +140,10 @@ tasks:
     assert.equal(params['artifacts'].type, 'array');
     assert.equal(params['artifacts'].required, false);
     assert.deepEqual(params['artifacts'].items, { type: 'string' });
+
+    // Composes feedback
+    assert.equal(params['feedback'].type, 'string');
+    assert.equal(params['feedback'].required, false);
 
     // Attempt identity is exposed
     assert.equal(stepContext.attempt, 1);
@@ -313,5 +319,235 @@ tasks:
       resumableFinish: true,
       stopOnHumanGate: true,
     });
+  });
+});
+
+describe('ensureStepActivated clean baseline vs resume (AC2)', () => {
+  let fx;
+  before(() => { fx = makeGitFixture('nevo-step-ctx-ac2-clean'); });
+  after(() => cleanupFixture(fx));
+
+  test('throws DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT when starting new attempt with uncommitted files outside .nevo-ai-local/', () => {
+    const changeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: review-loop-v1
+tasks:
+  - id: demo-task
+    status: in-implementation
+`;
+    writeFileSync(join(fx.changeDir, 'change.yaml'), changeYaml);
+    writeFileSync(join(fx.tasksDir, '01-demo-task.md'), '---\nid: demo-task\nstatus: in-implementation\n---\n# Task\n');
+
+    const change = requireChange('demo-change', fx.activeDir);
+    const task = requireTask(change, 'demo-task');
+
+    // Create an uncommitted dirty file
+    writeFileSync(join(fx.repo, 'dirty.txt'), 'dirty content\n');
+
+    assert.throws(
+      () => ensureStepActivated(change, task, CONDITIONAL_WORKFLOW, { repoRoot: fx.repo }),
+      (err) => err instanceof WorkflowError && err.code === 'DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT'
+    );
+
+    // Clean up dirty file
+    rmSync(join(fx.repo, 'dirty.txt'));
+  });
+
+  test('allows files inside .nevo-ai-local/ when starting new attempt', () => {
+    const changeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: review-loop-v1
+tasks:
+  - id: demo-task
+    status: in-implementation
+`;
+    writeFileSync(join(fx.changeDir, 'change.yaml'), changeYaml);
+    writeFileSync(join(fx.tasksDir, '01-demo-task.md'), '---\nid: demo-task\nstatus: in-implementation\n---\n# Task\n');
+
+    // Commit specs so baseline working tree is clean
+    execFileSync('git', ['-C', fx.repo, 'add', '-A']);
+    execFileSync('git', ['-C', fx.repo, 'commit', '-m', 'specs baseline']);
+
+    const change = requireChange('demo-change', fx.activeDir);
+    const task = requireTask(change, 'demo-task');
+
+    const localDir = join(fx.repo, '.nevo-ai-local');
+    mkdirSync(localDir, { recursive: true });
+    writeFileSync(join(localDir, 'session.json'), '{"id":"test"}\n');
+
+    const result = ensureStepActivated(change, task, CONDITIONAL_WORKFLOW, { repoRoot: fx.repo });
+    assert.equal(result.position.phase, 'active');
+    assert.equal(result.position.attempt, 1);
+  });
+
+  test('allows dirty working tree when resuming an already active attempt', () => {
+    const changeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: review-loop-v1
+tasks:
+  - id: demo-task
+    status: in-implementation
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+      history: []
+`;
+    writeFileSync(join(fx.changeDir, 'change.yaml'), changeYaml);
+
+    const change = requireChange('demo-change', fx.activeDir);
+    const task = requireTask(change, 'demo-task');
+
+    // Dirty file in repo
+    writeFileSync(join(fx.repo, 'wip.txt'), 'work in progress\n');
+
+    const result = ensureStepActivated(change, task, CONDITIONAL_WORKFLOW, { repoRoot: fx.repo });
+    assert.equal(result.position.phase, 'active');
+    assert.equal(result.position.step, 'implementation');
+    assert.equal(result.position.attempt, 1);
+
+    // Clean up wip file
+    rmSync(join(fx.repo, 'wip.txt'));
+  });
+});
+
+describe('compileStepContext previousTransition enrichment (AC6)', () => {
+  let fx;
+  before(() => { fx = makeGitFixture('nevo-step-ctx-ac6-prev'); });
+  after(() => cleanupFixture(fx));
+
+  test('projects previousTransition for attempt 2 following review failure', async () => {
+    const changeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: review-loop-v1
+tasks:
+  - id: demo-task
+    status: in-implementation
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 2
+      state: active
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: "2026-01-01T00:00:00.000Z"
+          transitioned_to: review
+        - step: review
+          attempt: 1
+          completed_at: "2026-01-01T01:00:00.000Z"
+          result: fail
+          feedback: "Add crash recovery test for dirty tree during finalize."
+          artifacts:
+            - "specs/active/demo-change/reviews/task-01-attempt-1.md"
+          transitioned_to: implementation
+`;
+    writeFileSync(join(fx.changeDir, 'change.yaml'), changeYaml);
+    writeFileSync(join(fx.tasksDir, '01-demo-task.md'), '---\nid: demo-task\nstatus: in-implementation\n---\n# Task\n');
+
+    const change = requireChange('demo-change', fx.activeDir);
+    const task = requireTask(change, 'demo-task');
+
+    const stepContext = await compileStepContext({
+      change,
+      task,
+      definition: CONDITIONAL_WORKFLOW,
+      context: { repoRoot: fx.repo, activeDir: fx.activeDir },
+    });
+
+    assert.equal(stepContext.attempt, 2);
+    assert.ok(stepContext.previousTransition, 'previousTransition must be populated');
+    assert.equal(stepContext.previousTransition.from, 'review');
+    assert.equal(stepContext.previousTransition.attempt, 1);
+    assert.equal(stepContext.previousTransition.result, 'fail');
+    assert.equal(stepContext.previousTransition.requestedChanges, 'Add crash recovery test for dirty tree during finalize.');
+    assert.deepEqual(stepContext.previousTransition.artifacts, ['specs/active/demo-change/reviews/task-01-attempt-1.md']);
+  });
+
+  test('projects previousTransition following human-verification request-changes', async () => {
+    const changeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: review-loop-v1
+tasks:
+  - id: demo-task
+    status: in-implementation
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 3
+      state: active
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: "2026-01-01T00:00:00.000Z"
+          transitioned_to: review
+        - step: review
+          attempt: 1
+          completed_at: "2026-01-01T01:00:00.000Z"
+          result: pass
+          transitioned_to: human-verification
+        - step: human-verification
+          attempt: 1
+          completed_at: "2026-01-01T02:00:00.000Z"
+          result: fail
+          feedback: "Operator requested additional test coverage"
+          transitioned_to: implementation
+`;
+    writeFileSync(join(fx.changeDir, 'change.yaml'), changeYaml);
+
+    const change = requireChange('demo-change', fx.activeDir);
+    const task = requireTask(change, 'demo-task');
+
+    const stepContext = await compileStepContext({
+      change,
+      task,
+      definition: CONDITIONAL_WORKFLOW,
+      context: { repoRoot: fx.repo, activeDir: fx.activeDir },
+    });
+
+    assert.equal(stepContext.attempt, 3);
+    assert.ok(stepContext.previousTransition);
+    assert.equal(stepContext.previousTransition.from, 'human-verification');
+    assert.equal(stepContext.previousTransition.attempt, 1);
+    assert.equal(stepContext.previousTransition.result, 'fail');
+    assert.equal(stepContext.previousTransition.requestedChanges, 'Operator requested additional test coverage');
+  });
+
+  test('omits previousTransition when no failure or changes exist in history', async () => {
+    const changeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: review-loop-v1
+tasks:
+  - id: demo-task
+    status: in-implementation
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+      history: []
+`;
+    writeFileSync(join(fx.changeDir, 'change.yaml'), changeYaml);
+
+    const change = requireChange('demo-change', fx.activeDir);
+    const task = requireTask(change, 'demo-task');
+
+    const stepContext = await compileStepContext({
+      change,
+      task,
+      definition: CONDITIONAL_WORKFLOW,
+      context: { repoRoot: fx.repo, activeDir: fx.activeDir },
+    });
+
+    assert.equal(stepContext.previousTransition, undefined);
   });
 });
