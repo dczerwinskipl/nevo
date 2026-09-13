@@ -53,6 +53,6 @@ tasks:
   - id: standard-workflow-review-loop-and-e2e-proof
     order: 5
     file: tasks/05-standard-workflow-review-loop-and-e2e-proof.md
-    status: draft
+    status: approved
     depends_on:
       - result-driven-finish-and-discriminated-transitions
