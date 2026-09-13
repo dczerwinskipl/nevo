@@ -38,7 +38,7 @@ tasks:
   - id: canonical-finish-contract-and-generic-cli-input
     order: 3
     file: tasks/03-canonical-finish-contract-and-generic-cli-input.md
-    status: draft
+    status: approved
     depends_on:
       - workflow-definition-transitions-and-history-validation
       - attempt-lifecycle-and-scoped-storage
