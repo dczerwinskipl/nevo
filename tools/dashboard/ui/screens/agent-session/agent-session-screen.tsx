@@ -75,8 +75,18 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
   });
 
   const session = useMemo(() => {
+    // Match on the canonical sessionId too: once a provider confirms its native
+    // session (e.g. Claude, which has no upfront createSession()), the binding's
+    // providerSessionId is rewritten from the placeholder canonical UUID to the
+    // real native ID (see AgentSessionBindingService.markSessionEstablished).
+    // The URL/route param still carries whichever ID the user navigated with —
+    // an exact providerSessionId-only match would then permanently "lose" a
+    // session navigated to by its placeholder ID, flashing "Sesja nie
+    // znaleziona" even though the session is very much alive.
     return (
-      sessionsQuery.sessions.find((s) => s.provider === provider && s.providerSessionId === providerSessionId) ?? null
+      sessionsQuery.sessions.find(
+        (s) => s.provider === provider && (s.providerSessionId === providerSessionId || s.sessionId === providerSessionId),
+      ) ?? null
     );
   }, [sessionsQuery.sessions, provider, providerSessionId]);
 

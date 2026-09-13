@@ -146,6 +146,31 @@ test('7. Session belongs to another spec: opening /specs/X/sessions/A when A is 
   assert.equal(foundInX, undefined, 'Session must not be resolved under spec X');
 });
 
+test('9. Regression: AgentSessionScreen resolves a navigated session by canonical sessionId too, not only the current providerSessionId', () => {
+  // Once a provider confirms its native session (e.g. Claude, which has no
+  // upfront createSession()), AgentSessionBindingService.markSessionEstablished
+  // rewrites the binding's providerSessionId from the placeholder canonical UUID
+  // to the real native ID, while sessionId (canonical) never changes. A page
+  // navigated to by the placeholder ID must still resolve the session after that
+  // rewrite, or it flashes "Sesja nie znaleziona" even though the session is
+  // alive and the turn is still running.
+  const agentSessionComponentSource = readSource('screens/agent-session/agent-session-screen.tsx');
+  assert.ok(
+    agentSessionComponentSource.includes('s.sessionId === providerSessionId'),
+    'AgentSessionScreen session lookup falls back to matching the canonical sessionId',
+  );
+
+  const specSessions = [
+    { provider: 'claude', providerSessionId: 'native-real-id', sessionId: 'canonical-placeholder-id', specId: 'spec-100', taskIds: [] },
+  ];
+  const navigatedProviderSessionId = 'canonical-placeholder-id'; // URL still carries the pre-establishment ID
+  const found = specSessions.find(
+    (s) => s.provider === 'claude' && (s.providerSessionId === navigatedProviderSessionId || s.sessionId === navigatedProviderSessionId),
+  );
+  assert.ok(found, 'Session resolves via canonical sessionId fallback after providerSessionId was rewritten');
+  assert.equal(found.providerSessionId, 'native-real-id');
+});
+
 test('8. Free/ad-hoc session (specId: null) has no dashboard route', () => {
   const adhocSession = {
     provider: 'claude',

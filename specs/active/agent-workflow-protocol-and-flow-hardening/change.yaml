@@ -73,9 +73,9 @@ tasks:
     depends_on:
       - workflow-protocol-git-hardening-and-human-decisions
     workflow_progress:
-      current_step: review
+      current_step: human-verification
       current_attempt: 1
-      state: completed
+      state: active
       history:
         - step: implementation
           attempt: 1

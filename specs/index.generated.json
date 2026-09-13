@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-13T23:28:45.342Z",
+  "generated": "2026-09-13T23:55:55.172Z",
   "changes": [
     {
       "id": "agent-workflow-protocol-and-flow-hardening",
@@ -86,9 +86,9 @@
             "workflow-protocol-git-hardening-and-human-decisions"
           ],
           "workflow_progress": {
-            "current_step": "review",
+            "current_step": "human-verification",
             "current_attempt": 1,
-            "state": "completed",
+            "state": "active",
             "history": [
               {
                 "step": "implementation",
