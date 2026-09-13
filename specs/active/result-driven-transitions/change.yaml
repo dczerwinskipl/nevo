@@ -1,0 +1,18 @@
+# Specification manifest for result-driven-transitions
+id: result-driven-transitions
+title: "Result driven transitions"
+type: standard
+status: draft
+priority: 10
+created: 2026-09-13
+tasks: []
+spec_id: 8dc23d08-1996-4b13-b058-8005d3f54a92
+
+workflow:
+  mode: deterministic
+  version: 1
+
+branch:
+  mode: per-change
+  prefix: feature
+  name: feature/result-driven-transitions
