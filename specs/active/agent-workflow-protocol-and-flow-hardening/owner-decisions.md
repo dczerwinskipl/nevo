@@ -130,23 +130,38 @@
 - **Decision:** Option 2. Maintain an operator-driven step initiation model in v1. Transitions to agent-owned steps render explicit UI action controls (`[ Start implementation ]`, `[ Start review ]`) that trigger turn dispatch with hidden bootstrap context. Automatic background handover is explicitly deferred.
 - **Rationale:** Human-in-the-loop control is essential during the initial adoption of deterministic workflows. Explicit initiation lets developers review attempt artifacts before authorizing the next agent turn.
 - **Date:** 2026-09-13
-- **Affected artifacts:** `overview.md`, `areas/05-end-to-end-orchestration-and-dispatch.md`, task 02, task 03
+- **Affected artifacts:** `overview.md`, `areas/05-end-to-end-session-and-task-bootstrap.md`, task 02, task 03
 
-## D9: Trusted session execution identity and first-turn lifecycle resolution
+## D9: Agent execution identity and first-turn bootstrap
 
-- **Question:** How should session and task execution identity reach the workflow CLI without requiring the model to discover, author, or pass its own session ID, and how is the timing problem of newly-created sessions handled?
+- **Question:** How should session and task execution identity reach the workflow CLI without requiring the model to discover, author, or pass its own session ID, and how is the end-to-end first-turn bootstrap handled across new, lazy, and multi-task sessions?
+- **Answers to Core Architectural Questions:**
+  1. *What identity exists before providerSessionId exists?* The Nevo-owned canonical `sessionId` UUID allocated synchronously by `AgentSessionService.createSession(...)` at session creation time. For providers without pre-allocated conversations (e.g. Claude), `providerSessionId` is initially a local placeholder UUID marked `established: false`, but the canonical `sessionId` is durable, unique, and immediately queryable in `AgentSessionBindingService`.
+  2. *What trusted data reaches the provider process?* Ambient process environment variables injected into the child process spawn configuration (`childEnv` in Claude, `spawnEnv` in Antigravity, client spawn options in Codex):
+     - `NEVO_SESSION_ID`: The canonical Nevo session UUID.
+     - `NEVO_AGENT_PROVIDER`: The provider identifier (`'claude'`, `'antigravity'`, `'codex'`).
+     - `NEVO_SPEC_ID`: The canonical specification UUID (diagnostic).
+     - `NEVO_TASK_ID`: The current active task ID (diagnostic).
+     No secrets or untrusted tokens are needed; this is local ambient process inheritance.
+  3. *How does CLI discover the current Nevo session?* `tools/specs.mjs` contains `autoBindAgentSession(change, taskId, purpose)`, which calls `readAgentExecutionContext()`. This helper extracts `NEVO_SESSION_ID` and `NEVO_AGENT_PROVIDER` from `process.env`. `autoBindAgentSession` calls `bindingService.bindSessionSync` to record or refresh the current step/attempt linkage without the model authoring or passing any flags.
+  4. *How is providerSessionId attached later?* When the provider materializes its native conversation (e.g., upon first streaming event or turn completion), it invokes the server callback `onSessionEstablished(allocatedProviderSessionId)` / `setProviderSessionId`. `AgentSessionBindingService.markSessionEstablished(provider, allocatedProviderSessionId)` updates the binding record: it durably clears `established: false` and sets `providerSessionId = allocatedProviderSessionId`. The canonical `sessionId` remains invariant.
+  5. *What does the agent see in its prompt?* The visible chat transcript displays a clean, human message (e.g. `"Implement task 03: <title>"`). The agent's input prompt payload is pre-pended with a minimal, hidden protocol context header (`[Nevo Workflow Context] ... Run 'node tools/specs.mjs workflow step start <change> <task>'`). It is injected only on the first turn of an attempt or upon an explicit task switch.
+  6. *Which parts are diagnostic vs authoritative?*
+     - **Diagnostic:** The prompt header (guiding the agent), the environment variables `NEVO_SPEC_ID` and `NEVO_TASK_ID`, and chat message bubbles. If an agent hallucinates an ID in chat, it has zero system effect.
+     - **Authoritative:** The ambient process environment `NEVO_SESSION_ID` and `NEVO_AGENT_PROVIDER`, the workflow manifest `change.yaml`, and the `StepContext` emitted by `workflow step start`. `StepContext` alone defines allowed paths, forbidden paths, gates, previous transition feedback, attempt number, and finish criteria.
+  7. *How is task switching represented?* Within a single conversation session, the session maintains historical bindings (`SessionTaskBinding[]`) representing all tasks it has worked on, and exactly one `activeTaskId` representing the current interaction context. Task switching occurs strictly via explicit operator action in the dashboard (e.g. clicking a task chip in the workflow bar). The next turn dispatched in that session injects the new task's `[Nevo Workflow Context]` header, and the next `workflow step start` registers the new task under the same `sessionId`. Free-form chat text never triggers task switching.
 - **Options considered:**
   1. *Prompt-instructed session ID authoring:* Instruct the model via system prompt to pass an ID flag (e.g. `node tools/specs.mjs workflow step start <spec> <task> --session-id <id>`).
   2. *Blocking provider session allocation:* Block all agent turn execution until the provider confirms a native conversation ID.
-  3. *Nevo canonical session UUID + environment inheritance + onSessionEstablished reconciliation (Recommended):* Nevo dashboard server creates a canonical `sessionId` (UUID) at session creation time before turn 1 starts. This identity is injected into the provider child process environment (`NEVO_SESSION_ID`, `NEVO_AGENT_PROVIDER`). When the agent calls `workflow step start`, the CLI auto-binds using this trusted environment variable. When the provider subsequently reports its native `providerSessionId` via `onSessionEstablished`, `AgentSessionBindingService` correlates the native ID to the Nevo session without breaking earlier bindings.
+  3. *Nevo canonical session UUID + ambient process environment inheritance + onSessionEstablished reconciliation (Recommended):* Implement the 7-part architecture detailed above.
 - **Trade-offs / Consequences:**
   - Option 1 relies on unreliable model adherence, exposes internal session identifiers to prompt tampering, and breaks provider neutrality.
   - Option 2 causes latency and fails for providers that allocate conversation IDs lazily on turn completion.
   - Option 3 guarantees 100% reliable session linkage from the very first tool call, requires zero model self-awareness, and handles both pre-allocated and lazy provider session lifecycles uniformly.
-- **Decision:** Option 3. Allocate a canonical `sessionId` UUID at session creation time, propagate it to provider child processes via `NEVO_SESSION_ID` and `NEVO_AGENT_PROVIDER`, and resolve provider-native IDs asynchronously via `onSessionEstablished` reconciliation.
-- **Rationale:** Execution identity must be trusted and transparent. The agent should only focus on executing the step, while ambient runtime infrastructure automatically establishes tracking.
+- **Decision:** Option 3. Allocate a canonical `sessionId` UUID at session creation time, propagate it to provider child processes via `NEVO_SESSION_ID` and `NEVO_AGENT_PROVIDER`, discover it ambiently in CLI `autoBindAgentSession`, and resolve provider-native IDs asynchronously via `onSessionEstablished` reconciliation.
+- **Rationale:** Execution identity must be trusted, ambient, and transparent. The agent should only focus on executing the step, while ambient runtime infrastructure automatically establishes tracking.
 - **Date:** 2026-09-13
-- **Affected artifacts:** `overview.md`, `areas/05-end-to-end-orchestration-and-dispatch.md`, task 02
+- **Affected artifacts:** `overview.md`, `areas/05-end-to-end-session-and-task-bootstrap.md`, task 02, task 03
 
 ## D10: Temporary deterministic workflow UI mode
 

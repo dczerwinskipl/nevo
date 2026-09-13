@@ -167,24 +167,26 @@ The frontend derives visible actions from authoritative backend state via a serv
 - When work is started (`[ Start implementation ]` or `[ Start review ]`), `AgentSessionService.startTurn` sends:
   - **Enriched Provider Prompt:**
     ```text
-    <nevo-execution-context>
-    specification: <changeSlug>
-    task: <taskId>
-    step: <currentStep>
-    attempt: <currentAttempt>
-    workflow_mode: deterministic
-    instruction: Run 'node tools/specs.mjs workflow step start <changeSlug> <taskId>' to obtain authoritative StepContext. Work strictly within returned boundaries.
-    </nevo-execution-context>
+    [Nevo Workflow Context]
+    Specification: <changeSlug>
+    Task: <taskId>
+    Step: <currentStep> (attempt <currentAttempt>)
 
-    Implement task <taskId>
+    You are executing a deterministic Nevo workflow task.
+    Before modifying any files or running tests, run:
+      node tools/specs.mjs workflow step start <changeSlug> <taskId>
+    Treat the returned StepContext as authoritative.
+    Do not manually edit workflow state or change.yaml.
+    Do not manually commit or push git branches.
+    After successful workflow step finish, stop.
     ```
-  - **User-Visible Chat Message:** Displayed in the chat bubble as clean text: `"Implement task <taskId>"`.
-- Context enrichment is refreshed on subsequent turns within an active attempt so the agent never operates under stale context.
+  - **User-Visible Chat Message:** Displayed in the chat bubble as clean text: `"Implement task <taskId>: <title>"`.
+- Context enrichment is refreshed on the first turn of an attempt or after an explicit task switch. Intermediate conversational turns do not repeat the full bootstrap header.
 
 ### 9. Multi-Task Sessions & Single Active Task Semantics
 - A single conversation may contain multiple historically bound tasks (`SessionTaskBinding[]`).
 - For execution purposes, exactly **one** task is the `activeTaskId` at any time.
-- When multiple tasks exist, the user explicitly clicks a task to focus. The action bar renders actions strictly for the active task. Workflow intents never guess the target from free-form chat.
+- When multiple tasks exist, the user explicitly clicks a task in the workflow bar to focus. The action bar renders actions strictly for the active task. Free-form chat text never triggers task switching.
 
 ### 10. Temporary UI Compatibility Switch
 - A presentation-only toggle is added to the dashboard header:
@@ -207,26 +209,25 @@ The frontend derives visible actions from authoritative backend state via a serv
   - History feedback persistence in `finish-operation.mjs` and `StepContext.previousTransition` enrichment.
   - Integration tests in `tools/tests/workflow-e2e-loop.test.mjs`.
 
-### Task 02: Session ↔ task binding, trusted identity propagation, and server endpoints
+### Task 02: Agent execution bootstrap, trusted session context, session-task binding, and workflow server endpoints
 - **Scope:** `tools/dashboard/server/`, `tools/specs.mjs`, tests.
 - **Deliverables:**
-  - Historical multi-task `SessionTaskBinding` in `AgentSessionBindingService`.
-  - Canonical `sessionId` environment propagation (`NEVO_SESSION_ID`, `NEVO_AGENT_PROVIDER`) across provider child processes and first-turn lifecycle resolution.
-  - Ambient environment context auto-binding in `tools/specs.mjs` / `cli.mjs`.
-  - Server endpoints:
-    - `POST /api/specs/:slug/tasks/:taskId/workflow/start-work`: creates/reuses session, dispatches turn with hidden `<nevo-execution-context>`.
-    - `POST /api/specs/:slug/tasks/:taskId/workflow/human-decision`: executes `approve` / `request-changes`.
+  - Historical multi-task `SessionTaskBinding` and `activeTaskId` management in `AgentSessionBindingService`.
+  - Canonical `sessionId` UUID allocation and ambient environment propagation (`NEVO_SESSION_ID`, `NEVO_AGENT_PROVIDER`) across Claude, Antigravity, and Codex child processes.
+  - Zero-guess ambient environment auto-binding in `tools/specs.mjs` / `cli.mjs`.
+  - First-turn `[Nevo Workflow Context]` prompt injection with clean `userMessage` transcript separation.
+  - Server endpoint `POST /api/specs/:slug/tasks/:taskId/workflow/human-decision`: executes `approve` (clean noop commit) / `request-changes` (attempt N+1 with feedback).
   - Server-side `availableActions` projection on task/specification read models.
-  - Server integration tests in `tools/dashboard/tests/`.
+  - Bootstrap integration tests in `tools/dashboard/tests/session-task-bootstrap.test.mjs`.
 
 ### Task 03: Chat surface workflow actions, composer modes, and temporary UI switch
 - **Scope:** `tools/dashboard/ui/features/agent-sessions/`.
 - **Deliverables:**
-  - Compact task context bar rendering bound tasks with active task selection.
+  - Compact task context bar rendering bound tasks with active task selection chip.
   - Action surface above composer displaying `availableActions` (`Start implementation`, `Start review`, `Approve`, `Request changes`).
   - Dedicated "Request Changes" composer mode with feedback capture, `[Cancel]`, and `[Send & reject]`.
   - Temporary UI compatibility toggle: `[ Classic ] [ Deterministic Preview ]` stored in `localStorage`.
-  - End-to-end product workflow test in `tools/dashboard/tests/e2e-product-workflow.test.mjs` exercising the complete 21-step mock provider sequence.
+  - End-to-end application workflow bootstrap test in `tools/dashboard/tests/e2e-product-workflow.test.mjs` exercising the complete 18-step mock sequence.
 
 ## End-to-End Walkthrough
 
@@ -235,57 +236,66 @@ Here is the exact step-by-step walkthrough of a task from initial dispatch to ve
 ```text
 Step 1: Start Implementation
   - UI Component/Action: Developer views Task 01 card in dashboard, clicks "[ Start implementation ]".
-  - HTTP / Application Call: POST /api/specs/demo/tasks/01/workflow/start-work { provider: 'claude' }
-  - Session Operation: AgentSessionService.createSession() allocates canonical sessionId UUID.
-  - Hidden Context Injected: Provider child process spawned with env NEVO_SESSION_ID=<uuid>; prompt enriched with <nevo-execution-context> task=01 step=implementation.
-  - CLI Invocation: Agent executes `node tools/specs.mjs workflow step start demo 01`.
-  - Binding Written: autoBindAgentSession reads env; persists SessionTaskBinding(sessionId, demo, 01, implementation, attempt=1).
+  - HTTP / Application Call: POST /api/agent-sessions { specId, taskId: '01', provider: 'claude', mode: 'edit' }
+  - Session Operation: AgentSessionService.createSession() allocates canonical sessionId UUID, records initial binding with established: false.
+  - Navigation & Turn Dispatch: Dashboard queues initial dispatch with clean userMessage="Implement task 01" and hidden [Nevo Workflow Context] header, navigates to session.
+  - Process Spawn: Claude child process spawned with env NEVO_SESSION_ID=<uuid>, NEVO_AGENT_PROVIDER=claude, NEVO_TASK_ID=01.
+  - CLI Invocation: Agent executes node tools/specs.mjs workflow step start demo 01.
+  - Binding Written: autoBindAgentSession reads process.env; binds SessionTaskBinding(sessionId, demo, 01, implementation, attempt=1).
   - Workflow Mutation: ensureStepActivated sets workflow_progress.state = 'active', current_step = 'implementation', attempt = 1.
   - Transition Result: StepContext returned to agent with finishContract, allowed_paths.
   - Next Visible UI Action: Chat composer active, shows turn running.
 
 Step 2: Finish Implementation
   - Agent Action: Modifies files within allowed_paths; runs tests.
-  - CLI Invocation: Agent executes `node tools/specs.mjs workflow step finish demo 01 --input '{"commit.title":"feat: task 01"}'`.
-  - Workflow Mutation: finishStep runs commit-and-push (commits all changes), updates task state = 'completed', history records implementation #1. Transitions to 'review'.
+  - CLI Invocation: Agent executes node tools/specs.mjs workflow step finish demo 01 --result success.
+  - Workflow Mutation: finishStep runs commit-and-push (commits all changes), tags attempt-1, updates task state = 'in-review', history records implementation #1.
   - Binding Written: SessionTaskBinding refreshed (lastSeenAt updated).
-  - Agent Action: Agent sees status: 'completed', outputs completion summary, and STOPs. Turn ends.
+  - Agent Action: Agent outputs completion summary and STOPs. Turn ends.
   - Next Visible UI Action: Dashboard refetches task; renders "Task 01 · Review ready" with "[ Start review ]".
 
 Step 3: Start Review
   - UI Component/Action: Developer clicks "[ Start review ]".
-  - HTTP / Application Call: POST /api/specs/demo/tasks/01/workflow/start-work { step: 'review' }
-  - Session Operation: Reuses current conversation or starts review session; dispatches turn with hidden context step=review.
-  - CLI Invocation: Review agent executes `node tools/specs.mjs workflow step start demo 01`.
+  - HTTP / Application Call: Reuses current conversation or creates review session via POST /api/agent-sessions.
+  - Process Spawn: Reviewer process spawned with ambient NEVO_SESSION_ID and NEVO_TASK_ID=01.
+  - Turn Dispatch: Dispatched with review prompt and hidden [Nevo Workflow Context] header.
+  - CLI Invocation: Review agent executes node tools/specs.mjs workflow step start demo 01.
   - Transition Result: StepContext returned for step=review, attempt=1.
   - Next Visible UI Action: Chat composer shows review turn in progress.
 
 Step 4: Review Failure Loop
-  - Agent Action: Reviewer audits code, finds missing edge case, writes review artifact to `specs/active/demo/reviews/task-01-attempt-1.md`.
-  - CLI Invocation: Agent executes `node tools/specs.mjs workflow step finish demo 01 --input '{"result":"fail","artifacts":["specs/active/demo/reviews/task-01-attempt-1.md"],"feedback":"Add error handling"}'`.
-  - Workflow Mutation: finishStep records review #1 fail in history; transitions destination to 'implementation' (attempt 2).
+  - Agent Action: Reviewer audits code, runs tests, finds edge case failure, writes review artifact to specs/active/demo/reviews/task-01-attempt-1.md.
+  - CLI Invocation: Agent executes node tools/specs.mjs workflow step finish demo 01 --result needs-changes --feedback "Add error handling" --artifacts specs/active/demo/reviews/task-01-attempt-1.md.
+  - Workflow Mutation: finishStep verifies commit HEAD unchanged; records review #1 fail in history; transitions destination to 'awaiting-human-verification' with humanDecisionRequired: true.
   - Agent Action: Review agent STOPs.
-  - Next Visible UI Action: Dashboard renders "Task 01 · Review failed (Changes requested)" with "[ Start implementation ]".
+  - Next Visible UI Action: Dashboard renders action surface: "Task 01 · Human verification · Attempt 1" with "[ Request changes ]" and "[ Approve ]".
 
-Step 5: Implementation Attempt 2
-  - UI Component/Action: Developer clicks "[ Start implementation ]".
-  - Hidden Context: Injected with step=implementation, attempt=2.
-  - CLI Invocation: Agent calls `node tools/specs.mjs workflow step start demo 01`.
-  - Transition Result: StepContext returned with `previousTransition: { from: 'review', result: 'fail', requestedChanges: 'Add error handling', artifacts: [...] }`.
-  - Agent Action: Agent fixes code according to review findings; runs `workflow step finish` -> transitions to 'review' attempt 2.
-  - Next Visible UI Action: Dashboard renders "Task 01 · Review ready" with "[ Start review ]".
+Step 5: Human Rejection & Attempt 2 Initiation
+  - UI Component/Action: Developer clicks "[ Request changes ]".
+  - Composer Mode: Switches into request-changes mode. Developer enters rationale: "Please address edge case handling." and clicks "[ Send & reject ]".
+  - HTTP Call: POST /api/specs/demo/tasks/01/workflow/human-decision { decision: 'request-changes', feedback: 'Please address edge case handling.' }
+  - Workflow Mutation: Server executes finishStep(result: 'fail'); records human rejection in history; transitions task back to 'implementation' attempt 2.
+  - Next Visible UI Action: Dashboard renders "Task 01 · In implementation (Attempt 2)" with "[ Start implementation ]".
 
-Step 6: Review Pass
-  - Review Execution: Reviewer calls `workflow step start`, audits fix, calls `workflow step finish --input '{"result":"pass"}'`.
+Step 6: Implementation Attempt 2
+  - Developer Action: Clicks "[ Start implementation ]" (reusing session or fresh session).
+  - Turn Dispatch: Prompt enriched with [Nevo Workflow Context] attempt=2.
+  - CLI Invocation: Agent calls node tools/specs.mjs workflow step start demo 01.
+  - Transition Result: StepContext returned with previousTransition containing human feedback and review artifact reference.
+  - Agent Action: Agent fixes edge case; runs workflow step finish demo 01 --result success -> transitions to 'in-review' attempt 2.
+  - Next Visible UI Action: Dashboard renders "[ Start review ]".
+
+Step 7: Review Pass
+  - Review Execution: Reviewer runs workflow step start, tests pass, calls workflow step finish demo 01 --result success.
   - Workflow Mutation: finishStep records review #2 pass in history; transitions to 'human-verification'.
   - Review Agent: STOPs.
-  - Next Visible UI Action: Dashboard action surface renders "Task 01 · Human verification · Attempt 1" with "[ Request changes ]" and "[ Approve ]".
+  - Next Visible UI Action: Dashboard renders action surface with "[ Request changes ]" and "[ Approve ]".
 
-Step 7: Human Verification Decision (Approve)
-  - UI Component/Action: Developer inspects diff and clicks "[ Approve ]".
-  - HTTP / Application Call: POST /api/specs/demo/tasks/01/workflow/human-decision { decision: 'approve' }
-  - Workflow Mutation: Server calls finishStep with result: 'pass'; noop commit records 0 changed files; task status updated to 'verified', state = 'completed'.
-  - Next Visible UI Action: Dashboard renders "Task 01 · Verified" with badge `✓ Verified`. No further workflow actions available.
+Step 8: Human Approval (Verified)
+  - UI Component/Action: Developer inspects clean test results and clicks "[ Approve ]".
+  - HTTP Call: POST /api/specs/demo/tasks/01/workflow/human-decision { decision: 'approve' }
+  - Workflow Mutation: Server calls finishStep(result: 'pass'); clean tree noop commit executes; task status updated to 'verified', state = 'completed'.
+  - Next Visible UI Action: Dashboard renders "Task 01 · Verified" with badge ✓ Verified. No further workflow actions available.
 ```
 
 ## Acceptance Criteria & Verification
@@ -304,28 +314,28 @@ Step 7: Human Verification Decision (Approve)
 2. **Server & Binding Verification:**
    ```bash
    node --test tools/dashboard/tests/binding-service.test.mjs
+   node --test tools/dashboard/tests/session-task-bootstrap.test.mjs
    node --test tools/dashboard/tests/ai-server.test.mjs
+   node --test tools/dashboard/tests/specs-actions.test.mjs
    ```
-3. **Product-Level E2E Acceptance Test (21-Step Proof):**
+3. **Application-Level E2E Bootstrap Acceptance Scenario (18-Step Proof):**
    Execute full integration test against mock provider and dashboard server (`tools/dashboard/tests/e2e-product-workflow.test.mjs`):
-   1. Open deterministic specification.
-   2. Select Task 01.
-   3. Click `[ Start implementation ]`.
-   4. Agent session/turn is created with canonical `sessionId`.
-   5. Hidden deterministic context `<nevo-execution-context>` is injected.
-   6. Agent executes `workflow step start`.
-   7. `SessionTaskBinding` is created automatically.
-   8. Implementation finish transitions to `review`.
-   9. Agent turn completes and stops.
-   10. UI reports `Review ready` with `[ Start review ]`.
-   11. User clicks `[ Start review ]`.
-   12. Review fails with durable artifact.
-   13. UI reports `Changes requested` with `[ Start implementation ]`.
-   14. Implementation attempt 2 starts; `StepContext` contains previous review evidence.
-   15. Implementation finishes; review attempt 2 starts and passes.
-   16. UI exposes human actions: `[ Request changes ]` and `[ Approve ]`.
-   17. User clicks `[ Request changes ]`, composer enters action mode, sends feedback.
-   18. Implementation attempt 3 starts with `previousTransition.requestedChanges`.
-   19. Implementation finishes; review attempt 3 passes.
-   20. User clicks `[ Approve ]`, transitioning task to `verified`.
-   21. Task is terminal and working tree is clean.
+   1. Create/start agent conversation for spec `test-spec`, task `01`.
+   2. Nevo establishes trusted execution identity (`sessionId` UUID, `established: false`).
+   3. First turn receives deterministic workflow bootstrap header and clean `userMessage`.
+   4. Agent-equivalent process runs `workflow step start` -> `SessionTaskBinding` created automatically via ambient `NEVO_SESSION_ID`.
+   5. Implementation finish transitions to `review`; git branch committed and tagged.
+   6. Implementation agent stops (no autonomous handover).
+   7. Reviewer session explicitly started for task `01`.
+   8. Reviewer `step start` resolves `review #1`.
+   9. Review fails, writes review artifact, calls `step finish --result needs-changes --feedback ...`.
+   10. Task transitions to `awaiting-human-verification` with `humanDecisionRequired: true`.
+   11. Human `[ Request changes ]` dispatches `POST .../human-decision` with feedback -> transitions to `implementation #2`.
+   12. Next implementation context receives human feedback in `previousTransition`.
+   13. Implementation #2 finishes -> review #2 runs and passes (`--result success`).
+   14. Human `[ Approve ]` dispatches `POST .../human-decision` -> transitions to `verified`.
+   15. Git working tree is clean.
+   16. Session history queries show all participating tasks and sessions without a 1:1 assumption.
+   17. Task read models project `availableActions` accurately at each boundary.
+   18. Switching active task updates `activeTaskId` without erasing prior task history.
+

@@ -10,7 +10,7 @@ context:
     - specs/active/agent-workflow-protocol-and-flow-hardening/owner-decisions.md
     - specs/active/agent-workflow-protocol-and-flow-hardening/areas/03-human-verification-and-loop-transitions.md
     - specs/active/agent-workflow-protocol-and-flow-hardening/areas/04-session-task-binding-and-chat-experience.md
-    - specs/active/agent-workflow-protocol-and-flow-hardening/areas/05-end-to-end-orchestration-and-dispatch.md
+    - specs/active/agent-workflow-protocol-and-flow-hardening/areas/05-end-to-end-session-and-task-bootstrap.md
     - tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.tsx
     - tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx
     - tools/dashboard/ui/features/agent-sessions/create-agent-session-helpers.ts
@@ -50,7 +50,7 @@ semantic_references:
 
 ## Goal
 
-Integrate end-to-end workflow execution controls into the dashboard and chat surfaces: render direct task-level dispatch buttons (`Start implementation`, `Start review`, `Approve`, `Request changes`) based on server-projected `availableActions`, provide a temporary UI presentation toggle (`Classic` vs `Deterministic Preview`), implement a multi-task context bar with explicit `activeTaskId` selection above the composer, implement the dedicated `request-changes` composer mode, and implement the complete 21-step product-level E2E test suite.
+Integrate end-to-end workflow execution controls into the dashboard and chat surfaces: render direct task-level dispatch buttons (`Start implementation`, `Start review`, `Approve`, `Request changes`) based on server-projected `availableActions`, provide a temporary UI presentation toggle (`Classic` vs `Deterministic Preview`), implement a multi-task context bar with explicit `activeTaskId` selection above the composer, implement the dedicated `request-changes` composer mode, and implement the complete application-level product workflow E2E test suite.
 
 ## Implementation constraints
 
@@ -63,10 +63,10 @@ Integrate end-to-end workflow execution controls into the dashboard and chat sur
 - **Dashboard Task Initiation & `availableActions` Projection (`D8`, `C9`, `C10`):**
   - In `tools/dashboard/ui/features/specifications/detail/status-board.tsx` and specification overview:
     - Replace hardcoded task action logic with consumption of server-projected `availableActions` array.
-    - When `start-implementation` is available: render `[ Start implementation ]` button. Clicking calls `POST /api/specs/:slug/tasks/:taskId/workflow/start-work` with `action: 'start-implementation'`. Upon response `{ sessionId, provider, providerSessionId }`, navigate to the session chat view.
-    - When `start-review` is available: render `[ Start review ]` button. Clicking calls `POST /api/specs/:slug/tasks/:taskId/workflow/start-work` with `action: 'start-review'`, navigating to the review session.
+    - When `start-implementation` is available: render `[ Start implementation ]` button. Clicking calls `POST /api/agent-sessions` with `{ specId, taskId, taskIds: [taskId], provider, mode: 'edit' }`, queues initial dispatch with clean `userMessage` and hidden `[Nevo Workflow Context]` header, and navigates to the session chat view.
+    - When `start-review` is available: render `[ Start review ]` button. Clicking initiates or reuses a session for review, enqueues review prompt, and navigates to the session.
     - When `approve` is available: render `[ Approve ]`.
-    - When `request-changes` is available: render `[ Request changes ]` (opens dialog or navigates to bound session in request-changes mode).
+    - When `request-changes` is available: render `[ Request changes ]` (navigates to bound session in request-changes mode).
 - **Multi-Task Context & Task Selection (`C11`):**
   - In `tools/dashboard/ui/features/agent-sessions/agent-session-workflow-bar.tsx`:
     - Render a compact bar above the chat composer displaying all tasks bound to the active session (`SessionTaskBinding[]`).
@@ -94,38 +94,33 @@ Integrate end-to-end workflow execution controls into the dashboard and chat sur
       - Clicking `[Send & reject]` requires non-empty feedback, dispatches `POST /api/specs/:slug/tasks/:taskId/workflow/human-decision` with `{ decision: 'request-changes', feedback: text }`, and resets the composer to default conversational mode.
 - **End-to-End Product Workflow Test Suite:**
   - Create `tools/dashboard/tests/e2e-product-workflow.test.mjs`:
-    - Implement the complete 21-step acceptance test scenario specified in `overview.md`:
-      1. User navigates to specification with pending tasks.
-      2. User clicks `[ Start implementation ]` on task 01.
-      3. Server creates agent session, binds task 01, sets `step: implementation`, generates prompt with `<nevo-execution-context>`, and spawns turn.
-      4. Agent invokes `finish` step tool with `{ result: "success" }`.
-      5. CLI records checkpoint, commits/tags Git branch, updates manifest to `in-review`.
-      6. Turn completes. Agent stops (no autonomous handover).
-      7. UI receives update: task 01 shows `availableActions: ['start-review']`.
-      8. User clicks `[ Start review ]`.
-      9. Server creates review session, binds task 01, sets `step: review`, enriches prompt with `<nevo-execution-context>`, spawns turn.
-      10. Review agent executes tests, invokes `finish` with `{ result: "needs-changes", feedback: "..." }`.
-      11. CLI validates commit HEAD, transitions manifest to `awaiting-human-verification` with `humanDecisionRequired: true`.
-      12. UI displays action banner with `[ Request changes ]` and `[ Approve ]`.
-      13. User clicks `[ Request changes ]`.
-      14. Composer enters `request-changes` mode.
-      15. User enters typed feedback and clicks `[ Send & reject ]`.
-      16. Server dispatches `POST .../human-decision`, transitioning task back to `implementation` attempt 2 with feedback recorded.
-      17. User clicks `[ Start implementation ]` for attempt 2.
-      18. Agent fixes issue, calls `finish` with `{ result: "success" }`.
-      19. User starts review; review passes with `finish` `{ result: "success" }`.
-      20. Task reaches `awaiting-human-verification`; user clicks `[ Approve ]`.
-      21. Task transitions to `verified`. Next task becomes unblocked.
+    - Implement the complete application-level bootstrap scenario specified in `overview.md` and Area 05:
+      1. Create/start agent conversation for spec `test-spec`, task `01`.
+      2. Nevo establishes trusted execution identity (`sessionId` UUID, `established: false`).
+      3. First turn receives deterministic workflow bootstrap header and clean `userMessage`.
+      4. Agent process runs `workflow step start` -> `SessionTaskBinding` created automatically via ambient `NEVO_SESSION_ID`.
+      5. Implementation finish transitions to `review`; git branch committed and tagged.
+      6. Implementation agent stops (no autonomous handover).
+      7. Reviewer session explicitly started for task `01`.
+      8. Reviewer `step start` resolves `review #1`.
+      9. Review fails, writes review artifact, calls `step finish --result needs-changes --feedback ...`.
+      10. Task transitions to `awaiting-human-verification` with `humanDecisionRequired: true`.
+      11. Human `[ Request changes ]` dispatches `POST .../human-decision` with feedback -> transitions to `implementation #2`.
+      12. Next implementation context receives human feedback in `previousTransition`.
+      13. Implementation #2 finishes -> review #2 runs and passes (`--result success`).
+      14. Human `[ Approve ]` dispatches `POST .../human-decision` -> transitions to `verified`.
+      15. Git working tree is clean.
+      16. Session history queries show all participating tasks and sessions without a 1:1 assumption.
 
 ## Acceptance criteria
 
 1. Segmented control toggles between `Classic` and `Deterministic Preview`, properly switching dashboard and composer UI capabilities without regressions. `automated: node --test tools/dashboard/tests/agent-session-workflow.test.tsx`
-2. Dashboard task cards render `[ Start implementation ]` and `[ Start review ]` when enabled in `availableActions`, creating/reusing sessions via `POST .../start-work`. `automated: node --test tools/dashboard/tests/agent-session-workflow.test.tsx`
+2. Dashboard task cards render `[ Start implementation ]` and `[ Start review ]` when enabled in `availableActions`, creating/reusing sessions via standard session APIs. `automated: node --test tools/dashboard/tests/agent-session-workflow.test.tsx`
 3. Bound tasks are rendered in the workflow bar above the chat composer, highlighting the `activeTaskId` and allowing seamless task switching in multi-task sessions. `automated: node --test tools/dashboard/tests/agent-session-workflow.test.tsx`
 4. When `activeTaskId` requires human verification, `[ Approve ]` and `[ Request changes ]` render above the composer. `automated: node --test tools/dashboard/tests/agent-session-workflow.test.tsx`
 5. Clicking `[ Request changes ]` activates dedicated composer mode with banner, custom placeholder, and `[Cancel]` / `[Send & reject]` buttons. `automated: node --test tools/dashboard/tests/agent-session-workflow.test.tsx`
 6. Submitting `[Send & reject]` validates non-empty feedback, calls the backend endpoint, transitions the task back to `implementation` attempt 2, and restores conversational composer mode. `automated: node --test tools/dashboard/tests/agent-session-workflow.test.tsx`
-7. Complete 21-step product workflow test in `tools/dashboard/tests/e2e-product-workflow.test.mjs` executes and passes against simulated agent turns and human actions. `automated: node --test tools/dashboard/tests/e2e-product-workflow.test.mjs`
+7. Complete application bootstrap test in `tools/dashboard/tests/e2e-product-workflow.test.mjs` executes and passes against simulated agent turns and human actions. `automated: node --test tools/dashboard/tests/e2e-product-workflow.test.mjs`
 8. `node tools/specs.mjs check` passes with zero errors. `automated: node tools/specs.mjs check`
 
 ## Verification
