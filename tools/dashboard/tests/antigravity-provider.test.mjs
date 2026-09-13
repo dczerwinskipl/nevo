@@ -248,6 +248,35 @@ test('Antigravity empty error_message step is treated as diagnostic noise and tu
   assert.ok(result.turnId, 'turn must resolve successfully when error_message carries no content');
 });
 
+// A single empty error_message is routine noise (above), but a sustained run of nothing
+// else — observed in the wild as dozens of these spanning 20+ minutes with the turn never
+// completing or failing — must fail closed instead of hanging on the caller indefinitely.
+// Thresholds are injected tiny here so the test doesn't need to wait out the real
+// production defaults (5 steps / 60s).
+test('Antigravity sustained empty error_message spam with no other progress fails the turn as a stall', async () => {
+  const emptyErrorLine = JSON.stringify({
+    event: 'step_update',
+    step_update: { conversation_id: 'agy-conv-stall', step_index: 1, state: 'DONE', step_type: 'error_message' },
+  });
+  const child = createMockProcess(new Array(6).fill(emptyErrorLine), { delayMs: 5 });
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => child,
+    emptyErrorMessageStallThresholdCount: 3,
+    emptyErrorMessageStallMinElapsedMs: 10,
+  });
+
+  await assert.rejects(
+    () => provider.startTurn({ turnId: 'turn-stall', message: 'Continue' }),
+    (err) => {
+      assert.equal(err.code, 'AI_RUNTIME_TIMEOUT');
+      assert.equal(err.recoveryHint, 'new-turn');
+      assert.match(err.message, /consecutive empty diagnostic error_message/);
+      return true;
+    },
+  );
+});
+
 test('Antigravity error_message step WITH a concrete message fails the turn immediately', async () => {
   const child = createMockProcess([
     JSON.stringify({

@@ -208,6 +208,15 @@ const UNKNOWN_TOOL_RESULT_OUTPUT = 'Antigravity did not report a terminal result
 const COMPLETED_TOOL_WITHOUT_OUTPUT = 'Antigravity completed the tool without returning output.';
 const FAILED_TOOL_WITHOUT_OUTPUT = 'Antigravity reported a tool failure without details.';
 
+// A single empty error_message step is routine diagnostic noise (see the handler below).
+// But a sustained run of them with zero intervening real progress (no text, tool, thought,
+// or usage event) is AGY stuck in a retry loop against some backend failure that never
+// surfaces a concrete message — observed in the wild as dozens of these spanning 20+
+// minutes with the turn never completing or failing. Both thresholds must be met so one
+// stray noise event mid-turn (the routine case) never trips this.
+const EMPTY_ERROR_MESSAGE_STALL_THRESHOLD_COUNT = 5;
+const EMPTY_ERROR_MESSAGE_STALL_MIN_ELAPSED_MS = 60_000;
+
 function resolveAgyExecutable(name) {
   if (!name || name === 'agy') {
     if (process.platform === 'win32') {
@@ -495,6 +504,8 @@ export class AntigravityAgentProvider {
   #mcpRegistrationState = { registered: false, error: null };
   #modelsExecSync;
   #tlsCertPath;
+  #emptyErrorMessageStallThresholdCount;
+  #emptyErrorMessageStallMinElapsedMs;
 
   constructor({
     executable = 'agy',
@@ -515,6 +526,8 @@ export class AntigravityAgentProvider {
     mcpRegisterExec,
     modelsExecSync,
     tlsCertPath = null,
+    emptyErrorMessageStallThresholdCount = EMPTY_ERROR_MESSAGE_STALL_THRESHOLD_COUNT,
+    emptyErrorMessageStallMinElapsedMs = EMPTY_ERROR_MESSAGE_STALL_MIN_ELAPSED_MS,
   } = {}) {
     this.#executable = resolveAgyExecutable(executable);
     this.#cwd = cwd;
@@ -542,6 +555,14 @@ export class AntigravityAgentProvider {
       throw new AiValidationError('Antigravity printTimeoutSeconds must be a positive integer number of seconds.');
     }
     this.#printTimeoutSeconds = printTimeoutSeconds;
+    this.#emptyErrorMessageStallThresholdCount =
+      Number.isSafeInteger(emptyErrorMessageStallThresholdCount) && emptyErrorMessageStallThresholdCount > 0
+        ? emptyErrorMessageStallThresholdCount
+        : EMPTY_ERROR_MESSAGE_STALL_THRESHOLD_COUNT;
+    this.#emptyErrorMessageStallMinElapsedMs =
+      Number.isFinite(emptyErrorMessageStallMinElapsedMs) && emptyErrorMessageStallMinElapsedMs >= 0
+        ? emptyErrorMessageStallMinElapsedMs
+        : EMPTY_ERROR_MESSAGE_STALL_MIN_ELAPSED_MS;
     this.#probeExecutable =
       probeExecutable ?? (spawnProcess !== spawn ? () => true : defaultProbeAntigravityExecutable);
     this.#mappingFilePath = mappingFilePath;
@@ -953,6 +974,8 @@ export class AntigravityAgentProvider {
       let isDone = false;
       let isResolved = false;
       let pendingInteractionPromise = null;
+      let consecutiveEmptyErrorSteps = 0;
+      let firstConsecutiveEmptyErrorAt = null;
 
       const mcpToken = randomUUID();
       mcpInteractionRegistry.registerActiveTurn(turnId, {
@@ -1233,6 +1256,8 @@ export class AntigravityAgentProvider {
           if (!isDone && !isResolved) {
             bufferAssistantText(trimmed + '\n');
           }
+          consecutiveEmptyErrorSteps = 0;
+          firstConsecutiveEmptyErrorAt = null;
           return;
         }
 
@@ -1254,6 +1279,8 @@ export class AntigravityAgentProvider {
         }
 
         if (eventType === 'init' || eventType === 'conversation_started') {
+          consecutiveEmptyErrorSteps = 0;
+          firstConsecutiveEmptyErrorAt = null;
           return;
         }
 
@@ -1271,10 +1298,34 @@ export class AntigravityAgentProvider {
             }
             // No content: AGY emits empty error_message steps as routine diagnostic
             // noise (e.g. MCP bridge tick that received no reply). Log and continue —
-            // the turn is still live and may produce a real result.
+            // the turn is still live and may produce a real result. But a sustained run
+            // of nothing but this noise (no intervening text/tool/thought/usage progress)
+            // means AGY is stuck retrying against a failure it never describes — fail
+            // closed instead of hanging on the caller indefinitely.
+            consecutiveEmptyErrorSteps += 1;
+            if (firstConsecutiveEmptyErrorAt === null) firstConsecutiveEmptyErrorAt = Date.now();
             console.warn('[antigravity] Received empty error_message step — treating as diagnostic noise, continuing turn.');
+            const stalledElapsedMs = Date.now() - firstConsecutiveEmptyErrorAt;
+            if (
+              consecutiveEmptyErrorSteps >= this.#emptyErrorMessageStallThresholdCount &&
+              stalledElapsedMs >= this.#emptyErrorMessageStallMinElapsedMs
+            ) {
+              await failTurn(
+                new AiError(
+                  'AI_RUNTIME_TIMEOUT',
+                  `Antigravity emitted ${consecutiveEmptyErrorSteps} consecutive empty diagnostic error_message ` +
+                    `steps over ${Math.round(stalledElapsedMs / 1000)}s with no other progress — failing the turn ` +
+                    'instead of waiting indefinitely.',
+                  {
+                    details: { source: 'antigravity_cli', timeoutKind: 'repeated_empty_error_message' },
+                  },
+                ),
+              );
+            }
             return;
           }
+          consecutiveEmptyErrorSteps = 0;
+          firstConsecutiveEmptyErrorAt = null;
           if (payload.text_delta) {
             bufferAssistantText(payload.text_delta);
           }
