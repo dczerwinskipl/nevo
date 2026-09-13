@@ -14,7 +14,7 @@ import { requireChange, requireTask, ROOT, ACTIVE_DIR } from '../store.mjs';
 import { CliError } from '../../lib/cli-errors.mjs';
 import { resolveWorkflowMode, assertWorkflowVersionCompatible } from './compatibility.mjs';
 import { loadWorkflowDefinition } from './definitions/loader.mjs';
-import { compileStepContext, buildFinishContract, validateFinishInputs, aggregateFinalizeCheck, ensureStepActivated, resolveTaskScope } from './step-context.mjs';
+import { compileStepContext, buildFinishContract, validateFinishInputs, aggregateFinalizeCheck, ensureStepActivated, resolveTaskScope, resolveWorkflowOwnedPaths } from './step-context.mjs';
 import { planFinish, finishStep } from './finish-operation.mjs';
 import { resolveActiveStepName, resolveWorkflowPosition, gateDisplayId } from './step-runner.mjs';
 import { findInFlightOperationRecord } from './operation-record.mjs';
@@ -52,6 +52,8 @@ export function resolveWorkflowRuntime(changeSlug, taskId, { activeDir = ACTIVE_
   assertWorkflowVersionCompatible(resolvedMode, definition);
 
   const scope = resolveTaskScope(change, task, { activeDir, repoRoot });
+  const resolvedChangeSlug = change._slug || change.id || changeSlug;
+  const workflowOwnedPaths = resolveWorkflowOwnedPaths({ activeDir, repoRoot, changeSlug: resolvedChangeSlug });
 
   const context = {
     repoRoot,
@@ -59,10 +61,12 @@ export function resolveWorkflowRuntime(changeSlug, taskId, { activeDir = ACTIVE_
     taskId: task.id,
     task,
     changeId: change.id,
+    changeSlug: resolvedChangeSlug,
     sourceControl: definition.sourceControl,
     baseBranch: 'main',
     taskAllowedPaths: scope.allowedPaths,
     allowedPaths: scope.allowedPaths,
+    workflowOwnedPaths,
   };
 
   return { change, task, definition, context };

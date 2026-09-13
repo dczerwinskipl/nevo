@@ -420,24 +420,87 @@ describe('CommitAndPushAction task allowed_paths scope enforcement (Finding 3)',
     rmSync(join(ctx.repo, 'README.md'), { force: true });
   });
 
-  test('allows specs/active/<changeSlug>/change.yaml and declared artifacts alongside taskAllowedPaths', async () => {
-    mkdirSync(join(ctx.repo, 'specs', 'active', 'my-change'), { recursive: true });
-    writeFileSync(join(ctx.repo, 'specs', 'active', 'my-change', 'change.yaml'), 'status: in-implementation\n');
-    writeFileSync(join(ctx.repo, 'artifacts.json'), '{"result": true}\n');
+  test('artifact cannot escalate scope (OUT_OF_SCOPE_WORKTREE_CHANGES, dirty file remains untouched)', async () => {
+    writeFileSync(join(ctx.repo, 'README.md'), 'attempted-artifact-bypass\n');
 
     const action = new CommitAndPushAction();
-    const result = await action.execute(
-      { 'commit.title': 'Task finish with change.yaml and artifact', artifacts: ['artifacts.json'] },
-      {
-        repoRoot: ctx.repo,
-        changeSlug: 'my-change',
-        taskAllowedPaths: ['src/**'],
-        sourceControl: { enabled: true, push: false },
-      }
-    );
+    try {
+      await assert.rejects(
+        () => action.executeValidated(
+          {
+            'commit.title': 'Attempt bypass via artifacts input',
+            artifacts: ['README.md'],
+          },
+          {
+            repoRoot: ctx.repo,
+            taskAllowedPaths: ['src/**'],
+            sourceControl: { enabled: true, push: false },
+          }
+        ),
+        (err) => {
+          assert.ok(err instanceof WorkflowError);
+          assert.equal(err.code, 'OUT_OF_SCOPE_WORKTREE_CHANGES');
+          assert.deepEqual(err.details.outOfScopePaths, ['README.md']);
+          return true;
+        }
+      );
 
-    assert.equal(result.success, true);
-    assert.equal(result.outputs.commit.status, 'completed');
+      // Verify dirty file remains untouched in worktree and nothing was committed
+      const status = execFileSync('git', ['-C', ctx.repo, 'status', '--porcelain'], { encoding: 'utf8' });
+      assert.ok(status.includes('README.md'));
+    } finally {
+      rmSync(join(ctx.repo, 'README.md'), { force: true });
+    }
+  });
+
+  test('legitimate review artifact succeeds because of trusted workflow scope (with or without artifact metadata)', async () => {
+    const localCtx = makeRepoPair('nevo-cap-scope-review');
+    try {
+      mkdirSync(join(localCtx.repo, 'specs', 'active', 'my-change', 'reviews'), { recursive: true });
+      writeFileSync(join(localCtx.repo, 'specs', 'active', 'my-change', 'change.yaml'), 'status: in-implementation\n');
+      writeFileSync(join(localCtx.repo, 'specs', 'active', 'my-change', 'reviews', 'task-03-attempt-1.md'), 'Audit findings\n');
+
+      const action = new CommitAndPushAction();
+      const result = await action.execute(
+        {
+          'commit.title': 'Review commit with artifact',
+        },
+        {
+          repoRoot: localCtx.repo,
+          taskAllowedPaths: ['src/**'],
+          workflowOwnedPaths: [
+            'specs/active/my-change/change.yaml',
+            'specs/active/my-change/reviews/**',
+          ],
+          sourceControl: { enabled: true, push: false },
+        }
+      );
+
+      assert.equal(result.success, true);
+      assert.equal(result.outputs.commit.status, 'completed');
+
+      // Also verify via executeValidated that even if artifact metadata is present in inputs, it succeeds due to workflow scope
+      writeFileSync(join(localCtx.repo, 'specs', 'active', 'my-change', 'reviews', 'task-03-attempt-2.md'), 'Audit 2\n');
+      const result2 = await action.executeValidated(
+        {
+          'commit.title': 'Review commit without artifact metadata',
+          artifacts: ['specs/active/my-change/reviews/task-03-attempt-2.md'],
+        },
+        {
+          repoRoot: localCtx.repo,
+          taskAllowedPaths: ['src/**'],
+          workflowOwnedPaths: [
+            'specs/active/my-change/change.yaml',
+            'specs/active/my-change/reviews/**',
+          ],
+          sourceControl: { enabled: true, push: false },
+        }
+      );
+      assert.equal(result2.success, true);
+      assert.equal(result2.outputs.commit.status, 'completed');
+    } finally {
+      cleanupRepoPair(localCtx);
+    }
   });
 
   test('clean tree succeeds as noop even when taskAllowedPaths is provided', async () => {
@@ -453,6 +516,20 @@ describe('CommitAndPushAction task allowed_paths scope enforcement (Finding 3)',
 
     assert.equal(result.success, true);
     assert.equal(result.outputs.commit.status, 'noop');
+  });
+
+  test('CommitAndPushAction check() does not define workflow-level artifacts schema', async () => {
+    const action = new CommitAndPushAction();
+    const check = await action.check({
+      repoRoot: ctx.repo,
+      sourceControl: { enabled: true, push: false },
+    });
+    const names = check.requiredInputs.map(s => s.name);
+    assert.equal(names.includes('artifacts'), false, 'artifacts schema must not belong to commit-and-push');
+    assert.equal(names.includes('result'), false, 'result schema must not belong to commit-and-push');
+    assert.equal(names.includes('feedback'), false, 'feedback schema must not belong to commit-and-push');
+    assert.ok(names.includes('commit.title'));
+    assert.ok(names.includes('include'));
   });
 });
 

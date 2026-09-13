@@ -14,7 +14,7 @@ import { normalizeSourceControlConfig } from './definitions/schema.mjs';
 import { defaultActionRegistry, defaultGateRegistry } from './registry.mjs';
 import { defaultWorkflowEngine } from './engine.mjs';
 import { resolveActiveStepName, resolveWorkflowPosition, inspectGates, verifyGates, allGatesPassed } from './step-runner.mjs';
-import { aggregateFinalizeCheck, buildFinishContract, normalizeSourceControlFacts, resolveTaskScope } from './step-context.mjs';
+import { aggregateFinalizeCheck, buildFinishContract, normalizeSourceControlFacts, resolveTaskScope, resolveWorkflowOwnedPaths } from './step-context.mjs';
 import { WorkflowError, PreconditionError } from './errors.mjs';
 import * as git from '../../lib/git.mjs';
 // ── Durable operation record I/O (D23: step-aware identity) ─────────────────
@@ -198,8 +198,15 @@ export async function planFinish({
     throw new WorkflowError(`Step '${stepName}' is not declared in workflow definition '${definition?.id}'`);
   }
 
+  const effectiveChangeSlug = changeSlug || context.changeSlug || context.changeId;
   const taskAllowedPaths = context.taskAllowedPaths || context.allowedPaths || (task && change ? resolveTaskScope(change, task, context).allowedPaths : null);
-  const checkContext = taskAllowedPaths !== null ? { ...context, taskAllowedPaths, allowedPaths: taskAllowedPaths } : context;
+  const workflowOwnedPaths = resolveWorkflowOwnedPaths({ ...context, changeSlug: effectiveChangeSlug, activeDir: context.activeDir, repoRoot: context.repoRoot });
+  const checkContext = {
+    ...context,
+    ...(taskAllowedPaths !== null ? { taskAllowedPaths, allowedPaths: taskAllowedPaths } : {}),
+    workflowOwnedPaths,
+    changeSlug: effectiveChangeSlug,
+  };
   const finalizeCheck = await aggregateFinalizeCheck(step, checkContext, { engine, actionRegistry });
   const requiredInputs = buildFinishContract(finalizeCheck, step);
 
@@ -580,11 +587,14 @@ async function ensureCommit(record, context, repoRoot) {
   // `tools/lib/git.mjs`, since the commit-and-push action cannot be safely re-invoked for
   // "push only" once the worktree is already clean (its `include` contract requires
   // matching dirty files).
+  const changeSlug = context.changeSlug || context.changeId;
   const taskAllowedPaths = context.taskAllowedPaths || context.allowedPaths || null;
+  const workflowOwnedPaths = resolveWorkflowOwnedPaths(context);
   const actionContext = {
     ...context,
-    artifacts: record.resolvedInputs?.artifacts || context.artifacts || [],
     ...(taskAllowedPaths !== null ? { taskAllowedPaths, allowedPaths: taskAllowedPaths } : {}),
+    workflowOwnedPaths,
+    changeSlug,
     sourceControl: { enabled: true, push: false },
   };
   const checkResult = await action.check(actionContext);
@@ -694,7 +704,13 @@ export async function finishStep({
   const resolvedActiveDir = activeDir || context.activeDir;
 
   const taskAllowedPaths = context.taskAllowedPaths || context.allowedPaths || (task && change ? resolveTaskScope(change, task, context).allowedPaths : null);
-  const effectiveContext = taskAllowedPaths !== null ? { ...context, taskAllowedPaths, allowedPaths: taskAllowedPaths } : context;
+  const workflowOwnedPaths = resolveWorkflowOwnedPaths({ ...context, changeSlug, activeDir: resolvedActiveDir, repoRoot });
+  const effectiveContext = {
+    ...context,
+    ...(taskAllowedPaths !== null ? { taskAllowedPaths, allowedPaths: taskAllowedPaths } : {}),
+    workflowOwnedPaths,
+    changeSlug,
+  };
 
   const plan = await planFinish({ change, task, definition, context: effectiveContext, inputs, engine, gateRegistry, actionRegistry });
 

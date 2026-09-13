@@ -40,12 +40,31 @@ const EXCLUDE_SCHEMA = {
   description: 'File paths or globs to exclude from staging',
 };
 
-const ARTIFACTS_SCHEMA = {
-  name: 'artifacts',
-  type: 'array',
-  required: false,
-  description: 'Optional declared artifacts produced by the task step',
-};
+export function resolveWorkflowOwnedPaths(context = {}) {
+  const explicit = Array.isArray(context.workflowOwnedPaths) ? context.workflowOwnedPaths : [];
+  const changeSlug = context.changeSlug || context.changeId;
+  const derived = [];
+  if (changeSlug) {
+    if (context.activeDir && context.repoRoot) {
+      const relChangeYaml = relative(context.repoRoot, join(context.activeDir, changeSlug, 'change.yaml')).replace(/\\/g, '/');
+      const relReviews = relative(context.repoRoot, join(context.activeDir, changeSlug, 'reviews/**')).replace(/\\/g, '/');
+      if (!relChangeYaml.startsWith('..')) {
+        derived.push(relChangeYaml);
+      } else {
+        derived.push(`specs/active/${changeSlug}/change.yaml`);
+      }
+      if (!relReviews.startsWith('..')) {
+        derived.push(relReviews);
+      } else {
+        derived.push(`specs/active/${changeSlug}/reviews/**`);
+      }
+    } else {
+      derived.push(`specs/active/${changeSlug}/change.yaml`);
+      derived.push(`specs/active/${changeSlug}/reviews/**`);
+    }
+  }
+  return [...new Set([...explicit, ...derived])];
+}
 
 
 // Same shape as tools/specs/lifecycle/recovery.mjs's pathMatchesAllowedPattern, plus a
@@ -188,7 +207,7 @@ export class CommitAndPushAction extends ActionContract {
 
     return new ActionCheckResult({
       actionId: this.id,
-      requiredInputs: [titleSchema, COMMIT_MESSAGE_SCHEMA, includeSchema, EXCLUDE_SCHEMA, ARTIFACTS_SCHEMA],
+      requiredInputs: [titleSchema, COMMIT_MESSAGE_SCHEMA, includeSchema, EXCLUDE_SCHEMA],
       context: factualContext,
       ready: true,
       summary: isDirty ? 'Ready to commit changes.' : 'Working tree clean; ready for clean noop commit.',
@@ -224,34 +243,23 @@ export class CommitAndPushAction extends ActionContract {
     const taskAllowedPaths = Array.isArray(context.taskAllowedPaths)
       ? context.taskAllowedPaths
       : (Array.isArray(context.allowedPaths) ? context.allowedPaths : null);
+    const workflowOwnedPaths = resolveWorkflowOwnedPaths(context);
 
-    if (Array.isArray(taskAllowedPaths) && taskAllowedPaths.length > 0) {
-      const allowedPatterns = [...taskAllowedPaths];
-      const changeSlug = context.changeSlug || context.changeId;
-      if (changeSlug) {
-        if (context.activeDir && context.repoRoot) {
-          const relActive = relative(context.repoRoot, join(context.activeDir, changeSlug, 'change.yaml')).replace(/\\/g, '/');
-          allowedPatterns.push(relActive);
-        } else {
-          allowedPatterns.push(`specs/active/${changeSlug}/change.yaml`);
-          allowedPatterns.push(`**/${changeSlug}/change.yaml`);
-        }
-      }
-      const declaredArtifacts = [
-        ...(Array.isArray(context.artifacts) ? context.artifacts : []),
-        ...(Array.isArray(inputs.artifacts) ? inputs.artifacts : []),
+    const hasScopeConstraint = Array.isArray(taskAllowedPaths) && taskAllowedPaths.length > 0;
+
+    if (hasScopeConstraint) {
+      const allowedPatterns = [
+        ...taskAllowedPaths,
+        ...workflowOwnedPaths,
       ];
-      for (const art of declaredArtifacts) {
-        if (typeof art === 'string') allowedPatterns.push(art.replace(/\\/g, '/'));
-      }
       const outOfScopePaths = dirtyPaths.filter(p => !allowedPatterns.some(pattern => matchesFileSelectionPattern(p, pattern)));
       if (outOfScopePaths.length > 0) {
         throw new WorkflowError(
-          `Working tree contains changes outside task allowed_paths (${outOfScopePaths.join(', ')}): ${outOfScopePaths.join(', ')}`,
+          `Working tree contains changes outside allowed scope (${outOfScopePaths.join(', ')}): ${outOfScopePaths.join(', ')}`,
           {
             code: 'OUT_OF_SCOPE_WORKTREE_CHANGES',
             outOfScopePaths,
-            allowedPaths: taskAllowedPaths,
+            allowedPaths: allowedPatterns,
           }
         );
       }

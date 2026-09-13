@@ -16,6 +16,7 @@ import * as git from '../../lib/git.mjs';
 
 // D38: re-export resolveTaskScope from context.mjs as single source of truth
 export { resolveTaskScope } from '../context.mjs';
+export { resolveWorkflowOwnedPaths } from './actions/commit-and-push.mjs';
 
 /**
  * Runs `WorkflowEngine.checkStep` over a step's full, unfiltered finalize action list.
