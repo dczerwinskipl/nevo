@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-13T12:59:39.096Z",
+  "generated": "2026-09-13T13:04:57.822Z",
   "changes": [
     {
       "id": "result-driven-transitions",
@@ -200,10 +200,41 @@
           "id": "standard-workflow-review-loop-and-e2e-proof",
           "order": 5,
           "file": "tasks/05-standard-workflow-review-loop-and-e2e-proof.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "result-driven-finish-and-discriminated-transitions"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "30a82492f338ca08036a4a52a1fd9984cb4de960",
+            "review_revision": "89e9011fca67f420bd8e58c506a026ed6f9143c0",
+            "changed_paths": [
+              ".nevo-ai/workflows/standard.yaml",
+              "docs/development/workflow-engine.md",
+              "specs/active/result-driven-transitions/change.yaml",
+              "tools/specs/workflow/templates/standard.yaml",
+              "tools/tests/workflow-e2e-loop.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "2ee0f4b3603b84253f8a1184df9fdc1e54f622989b92a19c3a54a316122e180a"
+          },
+          "self_check": {
+            "fingerprint": "fea5bd429647015bf11e1cb456f58fa87c7a037d3c96174cdc6c58f609ea976b",
+            "revision": "89e9011fca67f420bd8e58c506a026ed6f9143c0",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-e2e-loop.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         }
       ]
     },
