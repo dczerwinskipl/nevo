@@ -20,7 +20,7 @@ tasks:
   - id: workflow-protocol-git-hardening-and-human-decisions
     order: 1
     file: tasks/01-workflow-protocol-git-hardening-and-human-decisions.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: e25b915535d8ffa1b152cdee452a3d32c19ca95a
       review_revision: 1d5a47fdcf54ed31daf69fbb17ca9775c5a8aa24
