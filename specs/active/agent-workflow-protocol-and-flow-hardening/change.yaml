@@ -72,6 +72,11 @@ tasks:
     status: approved
     depends_on:
       - workflow-protocol-git-hardening-and-human-decisions
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+      history: []
 
   - id: chat-surface-workflow-actions-and-composer-modes
     order: 3
