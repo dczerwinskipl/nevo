@@ -100,10 +100,32 @@ tasks:
   - id: canonical-finish-contract-and-generic-cli-input
     order: 3
     file: tasks/03-canonical-finish-contract-and-generic-cli-input.md
-    status: approved
+    status: verified
     depends_on:
       - workflow-definition-transitions-and-history-validation
       - attempt-lifecycle-and-scoped-storage
+    implementation:
+      baseline_revision: 219c45fc1d564671e290214cdbb6de02df519e1d
+      review_revision: 0bfece8d3d11336df7d0d8265d8b0b0401086bea
+      changed_paths:
+        - specs/active/result-driven-transitions/change.yaml
+        - tools/specs.mjs
+        - tools/specs/workflow/cli.mjs
+        - tools/specs/workflow/step-context.mjs
+        - tools/tests/workflow-cli.test.mjs
+        - tools/tests/workflow-step-context.test.mjs
+      worktree_patch_fingerprint: 41275463ede685eb8a133ab65b107823ed37f6003fbb2edd68dd85027c8267ae
+    self_check:
+      fingerprint: fb5f2416c6145a2d750a45a7794b6de64f2b9011ce3fe216a90c643c75f15721
+      revision: 0bfece8d3d11336df7d0d8265d8b0b0401086bea
+      commands:
+        - command: node --test tools/tests/workflow-step-context.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/workflow-cli.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs check
+          exit_code: 0
+      status: passed
 
   - id: result-driven-finish-and-discriminated-transitions
     order: 4
