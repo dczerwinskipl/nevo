@@ -14,9 +14,12 @@ import {
   handleWorkflowStepStart,
   handleWorkflowStepFinish,
   handleWorkflowVerifyHuman,
+  parseFinishInputs,
 } from '../specs/workflow/cli.mjs';
 import { requireChange, requireTask, setTaskWorkflowState } from '../specs/store.mjs';
-import { WorkflowDefinitionError } from '../specs/workflow/errors.mjs';
+import { CliError } from '../lib/cli-errors.mjs';
+import { WorkflowDefinitionError, WorkflowError } from '../specs/workflow/errors.mjs';
+import { saveOperationRecord, FINISH_STAGE_IDS } from '../specs/workflow/finish-operation.mjs';
 
 const CHANGE_YAML = `id: demo-change
 title: "Demo change"
@@ -290,7 +293,7 @@ describe('CLI surface: workflow step start / step finish / verify-human (AC1)', 
     assert.ok('finishContract' in stepContext);
     assert.ok('requiredInputs' in stepContext.finishContract);
     assert.ok(Array.isArray(stepContext.finishContract.gates));
-    assert.deepEqual(stepContext.nextStepGuidance, { onSuccess: 'verified' });
+    assert.equal('nextStepGuidance' in stepContext, false);
   });
 
   test('workflow step finish --check returns the documented finish-planning shape without mutating', async () => {
@@ -442,7 +445,7 @@ describe('confirming step A\'s human gate never satisfies an independently-confi
     // Advance the task to stepB directly (the finalize sequence itself is exhaustively
     // tested elsewhere; this test isolates the storage-scoping guarantee).
     const change = requireChange('demo-change', fx.activeDir);
-    setTaskWorkflowState(change, 'demo-task', { workflowProgress: { current_step: 'stepB', state: 'active', history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }] } });
+    setTaskWorkflowState(change, 'demo-task', { workflowProgress: { current_step: 'stepB', current_attempt: 1, state: 'active', history: [{ step: 'stepA', attempt: 1, completed_at: 'x', transitioned_to: 'stepB' }] } });
 
     const stepBContext = await handleWorkflowStepStart('demo-change', 'demo-task', { activeDir: fx.activeDir, repoRoot: fx.root, silent: true });
     assert.equal(stepBContext.currentStep, 'stepB');
@@ -485,7 +488,8 @@ describe('Multi-step CLI sequence: new -> active(A) -> completed(A) -> active(B)
     // active(A) -> completed(A): finish never advances current_step (D37).
     writeFileSync(join(fx.root, 'feature-a.txt'), 'work on stepA\n');
     const finishA = await handleWorkflowStepFinish('demo-change', 'demo-task', {
-      activeDir: fx.activeDir, repoRoot: fx.root, silent: true, title: 'Finish stepA', include: '*',
+      activeDir: fx.activeDir, repoRoot: fx.root, silent: true,
+      input: JSON.stringify({ 'commit.title': 'Finish stepA', include: ['*'] }),
     });
     assert.equal(finishA.status, 'completed');
 
@@ -512,7 +516,8 @@ describe('Multi-step CLI sequence: new -> active(A) -> completed(A) -> active(B)
     // active(B) -> completed(B) + terminal (stepB's transition target is `verified`).
     writeFileSync(join(fx.root, 'feature-b.txt'), 'work on stepB\n');
     const finishB = await handleWorkflowStepFinish('demo-change', 'demo-task', {
-      activeDir: fx.activeDir, repoRoot: fx.root, silent: true, title: 'Finish stepB', include: '*',
+      activeDir: fx.activeDir, repoRoot: fx.root, silent: true,
+      input: JSON.stringify({ 'commit.title': 'Finish stepB', include: ['*'] }),
     });
     assert.equal(finishB.status, 'completed');
 
@@ -549,6 +554,7 @@ tasks:
     status: in-implementation
     workflow_progress:
       current_step: implementation
+      current_attempt: 1
       state: bogus
       history: []
 `,
@@ -574,6 +580,56 @@ tasks:
         return true;
       }
     );
+  });
+});
+
+describe('in-flight operation precedes workflow_progress resolution via the public CLI (Task 04 AC1, corrective revision)', () => {
+  let fx;
+  before(() => {
+    fx = makeFixture('nevo-cli-inflight-precedence', {
+      // A crash mid-`update-task` write could plausibly leave workflow_progress
+      // unresolvable (here: no current_attempt at all) — exactly the state the in-flight
+      // record's own reconciliation exists to recover through. handleWorkflowStepFinish
+      // must never let resolveWorkflowPosition run — let alone throw — ahead of consulting
+      // the in-flight record for execution identity.
+      changeYaml: `id: demo-change
+title: "Demo change"
+type: standard
+status: draft
+workflow:
+  mode: deterministic
+  definition: vertical-poc
+tasks:
+  - id: demo-task
+    order: 1
+    file: tasks/01-demo.md
+    status: in-implementation
+    workflow_progress:
+      current_step: implementation
+      state: completed
+      history: []
+`,
+    });
+    saveOperationRecord(fx.root, {
+      operationId: 'cli-inflight-precedence',
+      change: 'demo-change',
+      task: 'demo-task',
+      step: 'implementation',
+      attempt: 1,
+      status: 'running',
+      resolvedInputs: {},
+      operations: FINISH_STAGE_IDS.map(id => ({ id, status: 'pending' })),
+    });
+  });
+  after(() => rmSync(fx.root, { recursive: true, force: true }));
+
+  test('workflow step finish --check resumes via the in-flight record instead of throwing on unresolvable workflow_progress', async () => {
+    const plan = await handleWorkflowStepFinish('demo-change', 'demo-task', {
+      check: true, activeDir: fx.activeDir, repoRoot: fx.root, silent: true,
+    });
+    assert.equal(plan.stepName, 'implementation');
+    assert.equal(plan.attempt, 1);
+    assert.notEqual(plan.status, undefined);
   });
 });
 
@@ -645,3 +701,316 @@ describe('a matching effective version proceeds normally, including the workflow
     }
   });
 });
+
+describe('CLI generic input transport (AC4, AC5)', () => {
+  let fx;
+  before(async () => {
+    fx = makeFixture('nevo-cli-input-transport');
+    await handleWorkflowStepStart('demo-change', 'demo-task', { activeDir: fx.activeDir, repoRoot: fx.root, silent: true });
+  });
+  after(() => rmSync(fx.root, { recursive: true, force: true }));
+
+  test('parseFinishInputs parses valid --input JSON string', () => {
+    const payload = { 'commit.title': 'Test title', include: ['*'] };
+    const parsed = parseFinishInputs({ input: JSON.stringify(payload) });
+    assert.deepEqual(parsed, payload);
+  });
+
+  test('parseFinishInputs parses valid --input-file JSON file', () => {
+    const filePath = join(fx.root, 'finish-input.json');
+    const payload = { 'commit.title': 'File title', include: ['src/*'] };
+    writeFileSync(filePath, JSON.stringify(payload));
+
+    const parsed = parseFinishInputs({ inputFile: filePath });
+    assert.deepEqual(parsed, payload);
+
+    const parsedKebab = parseFinishInputs({ 'input-file': filePath });
+    assert.deepEqual(parsedKebab, payload);
+  });
+
+  test('handleWorkflowStepFinish accepts --input <json> in finish check', async () => {
+    const plan = await handleWorkflowStepFinish('demo-change', 'demo-task', {
+      activeDir: fx.activeDir,
+      repoRoot: fx.root,
+      silent: true,
+      check: true,
+      input: JSON.stringify({ 'commit.title': 'Valid input title', include: ['*'] }),
+    });
+    assert.equal(plan.stepName, 'implementation');
+  });
+
+  test('handleWorkflowStepFinish accepts --input-file <path> in finish check', async () => {
+    const filePath = join(fx.root, 'finish-input-plan.json');
+    writeFileSync(filePath, JSON.stringify({ 'commit.title': 'File input title', include: ['*'] }));
+    const plan = await handleWorkflowStepFinish('demo-change', 'demo-task', {
+      activeDir: fx.activeDir,
+      repoRoot: fx.root,
+      silent: true,
+      check: true,
+      inputFile: filePath,
+    });
+    assert.equal(plan.stepName, 'implementation');
+  });
+
+  test('rejects invocation when both --input and --input-file are provided (AC5)', async () => {
+    assert.throws(
+      () => parseFinishInputs({ input: '{}', inputFile: 'some/path.json' }),
+      (err) => {
+        assert(err instanceof CliError);
+        assert.equal(err.code, 'CLI_USAGE_ERROR');
+        assert.match(err.message, /Cannot specify both --input and --input-file/);
+        return true;
+      }
+    );
+
+    await assert.rejects(
+      () => handleWorkflowStepFinish('demo-change', 'demo-task', {
+        activeDir: fx.activeDir,
+        repoRoot: fx.root,
+        silent: true,
+        input: '{}',
+        inputFile: 'some/path.json',
+      }),
+      (err) => {
+        assert(err instanceof CliError);
+        assert.equal(err.code, 'CLI_USAGE_ERROR');
+        return true;
+      }
+    );
+  });
+});
+
+describe('CLI rejection of obsolete flags (AC6)', () => {
+  let fx;
+  before(() => { fx = makeFixture('nevo-cli-obsolete-flags'); });
+  after(() => rmSync(fx.root, { recursive: true, force: true }));
+
+  const obsoleteFlags = ['title', 'message', 'include', 'exclude', 'result', 'artifact', 'artifacts'];
+
+  for (const flag of obsoleteFlags) {
+    test(`rejects obsolete flag --${flag} in parseFinishInputs`, () => {
+      assert.throws(
+        () => parseFinishInputs({ [flag]: 'some-val' }),
+        (err) => {
+          assert(err instanceof CliError);
+          assert.equal(err.code, 'OBSOLETE_INPUT_FLAG');
+          assert.match(
+            err.message,
+            new RegExp(`^Flag '--${flag}' is obsolete\\. Provide structured inputs via --input '<json>' or --input-file <path>\\.`)
+          );
+          return true;
+        }
+      );
+    });
+
+    test(`rejects obsolete flag --${flag} in handleWorkflowStepFinish`, async () => {
+      await assert.rejects(
+        () => handleWorkflowStepFinish('demo-change', 'demo-task', {
+          activeDir: fx.activeDir,
+          repoRoot: fx.root,
+          silent: true,
+          [flag]: 'some-val',
+        }),
+        (err) => {
+          assert(err instanceof CliError);
+          assert.equal(err.code, 'OBSOLETE_INPUT_FLAG');
+          return true;
+        }
+      );
+    });
+  }
+});
+
+describe('CLI finish input schema validation (AC7)', () => {
+  let fx;
+  before(async () => {
+    fx = makeFixture('nevo-cli-schema-validation');
+    await handleWorkflowStepStart('demo-change', 'demo-task', { activeDir: fx.activeDir, repoRoot: fx.root, silent: true });
+  });
+  after(() => rmSync(fx.root, { recursive: true, force: true }));
+
+  test('rejects payload with unknown properties (code: UNKNOWN_INPUT_PROPERTY)', async () => {
+    await assert.rejects(
+      () => handleWorkflowStepFinish('demo-change', 'demo-task', {
+        activeDir: fx.activeDir,
+        repoRoot: fx.root,
+        silent: true,
+        input: JSON.stringify({
+          'commit.title': 'Valid title',
+          include: ['*'],
+          unknownProp: 'unexpected',
+        }),
+      }),
+      (err) => {
+        assert(err instanceof WorkflowError);
+        assert.equal(err.code, 'UNKNOWN_INPUT_PROPERTY');
+        assert.match(err.message, /Unknown finish input property 'unknownProp'/);
+        return true;
+      }
+    );
+  });
+
+  test('rejects payload missing required action inputs (code: MISSING_REQUIRED_INPUT)', async () => {
+    // missing include
+    await assert.rejects(
+      () => handleWorkflowStepFinish('demo-change', 'demo-task', {
+        activeDir: fx.activeDir,
+        repoRoot: fx.root,
+        silent: true,
+        input: JSON.stringify({
+          'commit.title': 'Valid title',
+        }),
+      }),
+      (err) => {
+        assert(err instanceof WorkflowError);
+        assert.equal(err.code, 'MISSING_REQUIRED_INPUT');
+        assert.match(err.message, /Missing required finish input 'include'/);
+        return true;
+      }
+    );
+
+    // missing commit.title
+    await assert.rejects(
+      () => handleWorkflowStepFinish('demo-change', 'demo-task', {
+        activeDir: fx.activeDir,
+        repoRoot: fx.root,
+        silent: true,
+        input: JSON.stringify({
+          include: ['*'],
+        }),
+      }),
+      (err) => {
+        assert(err instanceof WorkflowError);
+        assert.equal(err.code, 'MISSING_REQUIRED_INPUT');
+        assert.match(err.message, /Missing required finish input 'commit\.title'/);
+        return true;
+      }
+    );
+  });
+
+  test('rejects payload with invalid property types (code: INVALID_INPUT_TYPE)', async () => {
+    // commit.title is not string
+    await assert.rejects(
+      () => handleWorkflowStepFinish('demo-change', 'demo-task', {
+        activeDir: fx.activeDir,
+        repoRoot: fx.root,
+        silent: true,
+        input: JSON.stringify({
+          'commit.title': 12345,
+          include: ['*'],
+        }),
+      }),
+      (err) => {
+        assert(err instanceof WorkflowError);
+        assert.equal(err.code, 'INVALID_INPUT_TYPE');
+        assert.match(err.message, /Finish input 'commit\.title' must be a string/);
+        return true;
+      }
+    );
+
+    // include is not array
+    await assert.rejects(
+      () => handleWorkflowStepFinish('demo-change', 'demo-task', {
+        activeDir: fx.activeDir,
+        repoRoot: fx.root,
+        silent: true,
+        input: JSON.stringify({
+          'commit.title': 'Valid title',
+          include: 'not-an-array',
+        }),
+      }),
+      (err) => {
+        assert(err instanceof WorkflowError);
+        assert.equal(err.code, 'INVALID_INPUT_TYPE');
+        assert.match(err.message, /Finish input 'include' must be an array/);
+        return true;
+      }
+    );
+
+    // include has non-string items
+    await assert.rejects(
+      () => handleWorkflowStepFinish('demo-change', 'demo-task', {
+        activeDir: fx.activeDir,
+        repoRoot: fx.root,
+        silent: true,
+        input: JSON.stringify({
+          'commit.title': 'Valid title',
+          include: [123],
+        }),
+      }),
+      (err) => {
+        assert(err instanceof WorkflowError);
+        assert.equal(err.code, 'INVALID_INPUT_TYPE');
+        assert.match(err.message, /Finish input 'include' items must be strings/);
+        return true;
+      }
+    );
+
+    // artifacts is not array
+    await assert.rejects(
+      () => handleWorkflowStepFinish('demo-change', 'demo-task', {
+        activeDir: fx.activeDir,
+        repoRoot: fx.root,
+        silent: true,
+        input: JSON.stringify({
+          'commit.title': 'Valid title',
+          include: ['*'],
+          artifacts: 'string-instead-of-array',
+        }),
+      }),
+      (err) => {
+        assert(err instanceof WorkflowError);
+        assert.equal(err.code, 'INVALID_INPUT_TYPE');
+        assert.match(err.message, /Finish input 'artifacts' must be an array/);
+        return true;
+      }
+    );
+  });
+
+  test('rejects malformed or non-object JSON (code: INVALID_INPUT_JSON)', async () => {
+    await assert.rejects(
+      () => handleWorkflowStepFinish('demo-change', 'demo-task', {
+        activeDir: fx.activeDir,
+        repoRoot: fx.root,
+        silent: true,
+        input: '{ not valid json }',
+      }),
+      (err) => {
+        assert(err instanceof WorkflowError);
+        assert.equal(err.code, 'INVALID_INPUT_JSON');
+        return true;
+      }
+    );
+
+    await assert.rejects(
+      () => handleWorkflowStepFinish('demo-change', 'demo-task', {
+        activeDir: fx.activeDir,
+        repoRoot: fx.root,
+        silent: true,
+        input: '123',
+      }),
+      (err) => {
+        assert(err instanceof WorkflowError);
+        assert.equal(err.code, 'INVALID_INPUT_JSON');
+        assert.match(err.message, /Finish input payload must be a non-null object/);
+        return true;
+      }
+    );
+
+    await assert.rejects(
+      () => handleWorkflowStepFinish('demo-change', 'demo-task', {
+        activeDir: fx.activeDir,
+        repoRoot: fx.root,
+        silent: true,
+        input: '["array-not-object"]',
+      }),
+      (err) => {
+        assert(err instanceof WorkflowError);
+        assert.equal(err.code, 'INVALID_INPUT_JSON');
+        assert.match(err.message, /Finish input payload must be a non-null object/);
+        return true;
+      }
+    );
+  });
+});
+

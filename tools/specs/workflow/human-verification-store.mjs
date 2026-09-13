@@ -19,6 +19,7 @@ import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 import { HumanVerificationReader } from './gates/human-gate.mjs';
+import { WorkflowError } from './errors.mjs';
 
 // Matches `step-runner.mjs`'s `gateDisplayId` default for a human gate with no explicit
 // `id` — duplicated as a small literal rather than importing across modules for one
@@ -26,10 +27,17 @@ import { HumanVerificationReader } from './gates/human-gate.mjs';
 // human gate, so a single default gate never needs to disambiguate against this value.
 const DEFAULT_GATE_SEGMENT = 'human-review';
 
-function verificationFilePath(repoRoot, changeSlug, taskId, stepId, gateId) {
+export function verificationFilePath(repoRoot, changeSlug, taskId, stepId, attempt, gateId) {
+  if (attempt === undefined || attempt === null || !Number.isInteger(attempt) || attempt < 1) {
+    throw new WorkflowError(`verificationFilePath requires integer attempt >= 1 (got '${attempt}')`, {
+      code: 'INVALID_ATTEMPT',
+      attempt,
+    });
+  }
   const step = stepId || 'unscoped';
+  const att = `attempt-${attempt}`;
   const gate = gateId || DEFAULT_GATE_SEGMENT;
-  return join(repoRoot, '.nevo-ai-local', 'human-verifications', changeSlug, taskId, step, `${gate}.json`);
+  return join(repoRoot, '.nevo-ai-local', 'human-verifications', changeSlug, taskId, step, att, `${gate}.json`);
 }
 
 export class FileHumanVerificationStore extends HumanVerificationReader {
@@ -37,21 +45,40 @@ export class FileHumanVerificationStore extends HumanVerificationReader {
    * @param {object} params
    * @param {string} params.repoRoot - Absolute repository root
    * @param {string} params.change - Change slug
-   * @param {string} params.task - Task id
+   * @param {string|object} params.task - Task id or task record
+   * @param {number} [params.attempt] - Step attempt number
    */
-  constructor({ repoRoot, change, task }) {
+  constructor({ repoRoot, change, task, attempt }) {
     super();
     this._repoRoot = repoRoot;
-    this._change = change;
-    this._task = task;
+    this._change = typeof change === 'object' ? (change.id || change._slug) : change;
+    this._task = typeof task === 'object' ? task.id : task;
+    this._attempt = attempt ?? (typeof task === 'object' ? task.workflow_progress?.current_attempt : undefined);
   }
 
-  #file(stepId, gateId) {
-    return verificationFilePath(this._repoRoot, this._change, this._task, stepId, gateId);
+  #resolveAttempt(callAttempt) {
+    const att = callAttempt ?? this._attempt;
+    if (att === undefined || att === null || !Number.isInteger(att) || att < 1) {
+      throw new WorkflowError(`FileHumanVerificationStore requires explicit integer attempt >= 1 (got '${att}')`, {
+        code: 'INVALID_ATTEMPT',
+        attempt: att,
+      });
+    }
+    return att;
   }
 
-  getSignoff({ scope, targetId, requiredRole, stepId, gateId }) {
-    const file = this.#file(stepId, gateId);
+  #file(stepId, attempt, gateId) {
+    return verificationFilePath(this._repoRoot, this._change, this._task, stepId, attempt, gateId);
+  }
+
+  getSignoff({ scope, targetId, requiredRole, stepId, attempt, gateId }) {
+    let effectiveAttempt;
+    try {
+      effectiveAttempt = this.#resolveAttempt(attempt);
+    } catch {
+      return null;
+    }
+    const file = this.#file(stepId, effectiveAttempt, gateId);
     if (!existsSync(file)) return null;
     let record;
     try {
@@ -64,7 +91,8 @@ export class FileHumanVerificationStore extends HumanVerificationReader {
       record.confirmed === true &&
       record.scope === scope &&
       record.targetId === targetId &&
-      (record.role || record.confirmedBy) === requiredRole
+      (record.role || record.confirmedBy) === requiredRole &&
+      record.attempt === effectiveAttempt
     ) {
       return record;
     }
@@ -80,10 +108,12 @@ export class FileHumanVerificationStore extends HumanVerificationReader {
    * @param {string} params.targetId
    * @param {string} [params.role='owner']
    * @param {string} [params.stepId] - The exact configured step this confirmation is for
+   * @param {number} [params.attempt] - The attempt number this confirmation is for
    * @param {string|null} [params.gateId] - The gate's own explicit `id`, when configured
    * @returns {object} The persisted signoff record
    */
-  confirm({ scope, targetId, role = 'owner', stepId, gateId }) {
+  confirm({ scope, targetId, role = 'owner', stepId, attempt, gateId }) {
+    const effectiveAttempt = this.#resolveAttempt(attempt);
     const record = {
       scope,
       targetId,
@@ -91,10 +121,11 @@ export class FileHumanVerificationStore extends HumanVerificationReader {
       confirmedBy: role,
       confirmed: true,
       stepId: stepId || null,
+      attempt: effectiveAttempt,
       gateId: gateId || null,
       timestamp: new Date().toISOString(),
     };
-    const file = this.#file(stepId, gateId);
+    const file = this.#file(stepId, effectiveAttempt, gateId);
     mkdirSync(dirname(file), { recursive: true });
     const tempFile = `${file}.${randomUUID()}.tmp`;
     writeFileSync(tempFile, JSON.stringify(record, null, 2), 'utf8');

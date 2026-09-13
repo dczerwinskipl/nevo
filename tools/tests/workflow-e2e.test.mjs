@@ -132,15 +132,15 @@ describe('Vertical PoC — the full step start / step finish / verify-human sequ
 
     // Zero mutation: no commit, no task status change, no operation record created.
     assert.equal(requireTask(requireChange('demo-change', fx.activeDir), 'demo-task').status, 'in-implementation');
-    assert.equal(loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation'), null);
+    assert.equal(loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation', 1), null);
   });
 
   test('Scenario D: step finish reports the blocked human gate and mutates nothing; only verify-human --confirm can satisfy it', async () => {
     const attempt = await handleWorkflowStepFinish('demo-change', 'demo-task', {
-      ...RT, activeDir: fx.activeDir, repoRoot: fx.root, title: 'Finish demo task', include: '*',
+      ...RT, activeDir: fx.activeDir, repoRoot: fx.root, input: JSON.stringify({ 'commit.title': 'Finish demo task', include: ['*'] }),
     });
     assert.equal(attempt.status, 'blocked');
-    assert.equal(loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation'), null, 'no operation record while blocked');
+    assert.equal(loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation', 1), null, 'no operation record while blocked');
 
     const confirmation = handleWorkflowVerifyHuman('demo-change', 'demo-task', { ...RT, confirm: true, activeDir: fx.activeDir, repoRoot: fx.root });
     assert.equal(confirmation.confirmed, true);
@@ -152,16 +152,21 @@ describe('Vertical PoC — the full step start / step finish / verify-human sequ
     assert.ok(plan.missingInputs.includes('commit.title'));
     assert.ok(plan.missingInputs.includes('include'));
 
-    const attempt = await handleWorkflowStepFinish('demo-change', 'demo-task', { ...RT, activeDir: fx.activeDir, repoRoot: fx.root });
-    assert.equal(attempt.status, 'input-required');
-    assert.equal(loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation'), null);
+    await assert.rejects(
+      () => handleWorkflowStepFinish('demo-change', 'demo-task', { ...RT, activeDir: fx.activeDir, repoRoot: fx.root }),
+      (err) => {
+        assert.equal(err.code, 'MISSING_REQUIRED_INPUT');
+        return true;
+      }
+    );
+    assert.equal(loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation', 1), null);
   });
 
   let completedSha;
 
   test('Scenario F: valid inputs complete the finalize step — one commit, push confirmed, transition to next step', async () => {
     const result = await handleWorkflowStepFinish('demo-change', 'demo-task', {
-      ...RT, activeDir: fx.activeDir, repoRoot: fx.root, title: 'Finish demo task', include: '*',
+      ...RT, activeDir: fx.activeDir, repoRoot: fx.root, input: JSON.stringify({ 'commit.title': 'Finish demo task', include: ['*'] }),
     });
 
     assert.equal(result.status, 'completed');
@@ -181,7 +186,7 @@ describe('Vertical PoC — the full step start / step finish / verify-human sequ
   test('Scenario J: the worktree is clean and the operation record shows fully completed (C17)', () => {
     const status = git(fx.root, ['status', '--porcelain']);
     assert.equal(status, '');
-    const record = loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation');
+    const record = loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation', 1);
     assert.equal(record.status, 'completed');
   });
 
@@ -225,6 +230,7 @@ describe('Vertical PoC — interrupted-and-resumed finish via the CLI (AC4, AC6,
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: { 'commit.title': 'Finish demo task', 'commit.message': '', include: ['*'], exclude: [] },
       operations: [
@@ -239,7 +245,7 @@ describe('Vertical PoC — interrupted-and-resumed finish via the CLI (AC4, AC6,
     // real parent to reconcile against) — overwrite it with the actual parent of the
     // already-made commit so reconciliation has a true precondition to prove.
     const info = getCommitInfo(fx.root, commitSha);
-    const record = loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation');
+    const record = loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation', 1);
     record.operations.find(o => o.id === 'commit').intent = { preCommitHead: info.parentSha };
     saveOperationRecord(fx.root, record);
 
@@ -258,6 +264,7 @@ describe('Vertical PoC — interrupted-and-resumed finish via the CLI (AC4, AC6,
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: { 'commit.title': 'Second finish', 'commit.message': '', include: ['*'], exclude: [] },
       operations: [
@@ -272,7 +279,7 @@ describe('Vertical PoC — interrupted-and-resumed finish via the CLI (AC4, AC6,
     await assert.rejects(() => handleWorkflowStepFinish('demo-change', 'demo-task', {
       ...RT, activeDir: fx.activeDir, repoRoot: fx.root, title: 'A conflicting different title',
     }));
-    const unchangedRecord = loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation');
+    const unchangedRecord = loadOperationRecord(fx.root, 'demo-change', 'demo-task', 'implementation', 1);
     assert.equal(unchangedRecord.resolvedInputs['commit.title'], 'Second finish');
 
     writeFileSync(join(fx.root, 'more-work.txt'), 'more\n');
@@ -353,7 +360,10 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
     assert.equal(rev.exitGates.length, 1);
     assert.deepEqual(rev.exitGates[0], { type: 'command', action: 'test' });
     assert.deepEqual(rev.finalize, [{ id: 'commit-and-push' }]);
-    assert.deepEqual(rev.transitions, [{ to: 'human-verification' }]);
+    assert.deepEqual(rev.transitions, [
+      { value: 'pass', to: 'human-verification' },
+      { value: 'fail', to: 'implementation' },
+    ]);
 
     // 3. human-verification step
     const hv = def.steps['human-verification'];
@@ -464,7 +474,7 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
       assert.equal(stepContext.currentStep, 'implementation');
       assert.equal(stepContext.runtimeState, 'active');
       assert.equal(stepContext.semanticStatus, 'implementing');
-      assert.equal(stepContext.nextStepGuidance.onSuccess, 'review');
+      assert.equal('nextStepGuidance' in stepContext, false, 'nextStepGuidance must not exist on stepContext');
       assert.ok(stepContext.stepContract.purpose.includes('implementation work'));
     });
 
@@ -473,7 +483,7 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
       writeFileSync(join(fx.root, 'src', 'code.js'), 'export const a = 1;\\n');
 
       const result = await handleWorkflowStepFinish('standard-change', 'standard-task', {
-        ...RT, activeDir: fx.activeDir, repoRoot: fx.root, title: 'Implement standard task', include: '*',
+        ...RT, activeDir: fx.activeDir, repoRoot: fx.root, input: JSON.stringify({ 'commit.title': 'Implement standard task', include: ['*'] }),
       });
 
       assert.equal(result.status, 'completed');
@@ -491,7 +501,7 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
       assert.equal(stepContext.currentStep, 'review');
       assert.equal(stepContext.runtimeState, 'active');
       assert.equal(stepContext.semanticStatus, 'reviewing');
-      assert.equal(stepContext.nextStepGuidance.onSuccess, 'human-verification');
+      assert.equal('nextStepGuidance' in stepContext, false, 'nextStepGuidance must not exist on stepContext');
       assert.ok(stepContext.stepContract.purpose.includes('independent quality review'));
     });
 
@@ -499,7 +509,7 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
       writeFileSync(join(fx.root, 'src', 'review-fix.js'), '// review pass\\n');
 
       const result = await handleWorkflowStepFinish('standard-change', 'standard-task', {
-        ...RT, activeDir: fx.activeDir, repoRoot: fx.root, title: 'Review standard task', include: '*',
+        ...RT, activeDir: fx.activeDir, repoRoot: fx.root, input: JSON.stringify({ 'commit.title': 'Review standard task', include: ['*'], result: 'pass' }),
       });
 
       assert.equal(result.status, 'completed');
@@ -517,7 +527,7 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
       assert.equal(stepContext.currentStep, 'human-verification');
       assert.equal(stepContext.runtimeState, 'active');
       assert.equal(stepContext.semanticStatus, 'awaiting-human-verification');
-      assert.equal(stepContext.nextStepGuidance.onSuccess, 'verified');
+      assert.equal('nextStepGuidance' in stepContext, false, 'nextStepGuidance must not exist on stepContext');
       assert.ok(stepContext.stepContract.purpose.includes('Explicit owner/user acceptance'));
       const humanGate = stepContext.finishContract.gates.find(g => g.gateType === 'human');
       assert.equal(humanGate.status, 'blocked');
@@ -526,7 +536,7 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
 
     test('Phase 3: step finish fails closed while human verification gate is unconfirmed', async () => {
       const attempt = await handleWorkflowStepFinish('standard-change', 'standard-task', {
-        ...RT, activeDir: fx.activeDir, repoRoot: fx.root, title: 'Attempt finish without verification', include: '*',
+        ...RT, activeDir: fx.activeDir, repoRoot: fx.root, input: JSON.stringify({ 'commit.title': 'Attempt finish without verification', include: ['*'] }),
       });
       assert.equal(attempt.status, 'blocked');
       assert.equal(attempt.blockers[0].gateType, 'human');
@@ -542,7 +552,7 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
       assert.equal(confirmation.confirmed, true);
 
       const result = await handleWorkflowStepFinish('standard-change', 'standard-task', {
-        ...RT, activeDir: fx.activeDir, repoRoot: fx.root, title: 'Finalize human verification', include: '*',
+        ...RT, activeDir: fx.activeDir, repoRoot: fx.root, input: JSON.stringify({ 'commit.title': 'Finalize human verification', include: ['*'] }),
       });
 
       assert.equal(result.status, 'completed');

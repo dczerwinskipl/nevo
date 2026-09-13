@@ -23,6 +23,11 @@ export class HumanVerificationReader {
    * @param {string|null} [query.gateId] - The gate's own explicit `id`, when configured
    *   (D29) — additive; lets a reader distinguish more than one human gate on the same
    *   step (D30 requires an explicit, unique `id` whenever a step declares more than one)
+   * @param {number|null} [query.attempt] - The current `(step, attempt)` execution
+   *   identity (additive, same tier as `stepId`/`gateId`) — a reader that scopes signoffs
+   *   per attempt (e.g. `FileHumanVerificationStore`) needs this in the query itself
+   *   rather than trusting hidden constructor-bound state, so a signoff confirmed for one
+   *   attempt can never silently satisfy a different one of the same step.
    * @returns {Promise<object|null>|object|null}
    */
   getSignoff(query) {
@@ -52,7 +57,7 @@ export class MemoryHumanVerificationReader extends HumanVerificationReader {
     }
   }
 
-  getSignoff({ scope, targetId, requiredRole }) {
+  getSignoff({ scope, targetId, requiredRole, attempt }) {
     return (
       this._signoffs.find((s) => {
         if (!s || typeof s !== 'object' || s.confirmed !== true) return false;
@@ -60,6 +65,12 @@ export class MemoryHumanVerificationReader extends HumanVerificationReader {
         if (s.targetId !== targetId) return false;
         const role = s.role || s.confirmedBy;
         if (requiredRole && role !== requiredRole) return false;
+        // A query that carries an attempt is a deterministic (step, attempt) identity
+        // query — it must never be satisfied by a signoff from another attempt, nor by a
+        // signoff that declares no attempt at all (that would let an attempt-less/legacy
+        // signoff silently satisfy an attempt-scoped query). A query with no attempt at
+        // all preserves prior non-attempt-scoped behavior unchanged.
+        if (attempt != null && s.attempt !== attempt) return false;
         return true;
       }) || null
     );
@@ -127,6 +138,7 @@ export class HumanVerificationGate extends GateContract {
     const taskId = context.taskId ?? context.task?.id ?? null;
     const stepId = typeof context.step === 'string' ? context.step : (context.step?.id ?? context.stepId ?? null);
     const gateId = config.id ?? null;
+    const attempt = context.attempt ?? null;
 
     if (isRequired && !targetId) {
       return new GateInspectionResult({
@@ -182,7 +194,7 @@ export class HumanVerificationGate extends GateContract {
 
     let signoff = null;
     try {
-      signoff = await reader.getSignoff({ scope, targetId, requiredRole, changeId, taskId, stepId, gateId });
+      signoff = await reader.getSignoff({ scope, targetId, requiredRole, changeId, taskId, stepId, gateId, attempt });
     } catch (err) {
       return new GateInspectionResult({
         gateType: this.type,
@@ -195,13 +207,19 @@ export class HumanVerificationGate extends GateContract {
       });
     }
 
-    // Strict validation of retrieved signoff contract
+    // Strict validation of retrieved signoff contract — the gate enforces this itself
+    // rather than trusting any one reader implementation to have done so, so the trust
+    // boundary holds for any future HumanVerificationReader, not just FileHumanVerificationStore.
     const isConfirmed = signoff && typeof signoff === 'object' && signoff.confirmed === true;
     const scopeMatches = signoff?.scope === scope;
     const targetMatches = signoff?.targetId === targetId;
     const roleMatches = (signoff?.role || signoff?.confirmedBy) === requiredRole;
+    // A deterministic query (attempt present) must never be satisfied by a signoff from
+    // another attempt or one that declares no attempt at all; a non-attempt-scoped query
+    // (attempt null) preserves prior behavior unchanged.
+    const attemptMatches = attempt == null || signoff?.attempt === attempt;
 
-    if (!isConfirmed || !scopeMatches || !targetMatches || !roleMatches) {
+    if (!isConfirmed || !scopeMatches || !targetMatches || !roleMatches || !attemptMatches) {
       return new GateInspectionResult({
         gateType: this.type,
         status: 'blocked',

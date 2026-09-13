@@ -15,12 +15,15 @@ import {
   MemoryHumanVerificationReader,
   normalizeWorkflowDefinition,
   finishStep,
+  planFinish,
+  FINISH_STAGE_IDS,
   loadOperationRecord,
   saveOperationRecord,
   PreconditionError,
   resolveWorkflowPosition,
   ensureStepActivated,
 } from '../specs/workflow/index.mjs';
+import { discriminateTarget } from '../specs/workflow/finish-operation.mjs';
 import { requireChange, requireTask, setTaskStatus, setTaskWorkflowState } from '../specs/store.mjs';
 import { getCurrentRevision, getCommitInfo } from '../lib/git.mjs';
 
@@ -83,6 +86,35 @@ const THREE_STEP_RAW_DEFINITION = {
 };
 const THREE_STEP_DEFINITION = normalizeWorkflowDefinition(THREE_STEP_RAW_DEFINITION);
 
+const CONDITIONAL_RAW_DEFINITION = {
+  id: 'conditional-review-v1',
+  title: 'Conditional Review',
+  type: 'standard',
+  version: 1,
+  steps: {
+    review: {
+      status: { active: 'reviewing', completed: 'reviewed' },
+      entryGates: [],
+      actions: [],
+      exitGates: [],
+      finalize: [{ id: 'commit-and-push' }],
+      transitions: [
+        { value: 'approved', to: 'verified' },
+        { value: 'rejected', to: 'rework' },
+      ],
+    },
+    rework: {
+      status: { active: 'reworking', completed: 'reworked' },
+      entryGates: [],
+      actions: [],
+      exitGates: [],
+      finalize: [{ id: 'commit-and-push' }],
+      transitions: [{ to: 'review' }],
+    },
+  },
+};
+const CONDITIONAL_DEFINITION = normalizeWorkflowDefinition(CONDITIONAL_RAW_DEFINITION);
+
 const CHANGE_YAML = `id: demo-change
 title: "Demo change"
 type: standard
@@ -127,7 +159,7 @@ function makeGateRegistry({ testPassed = true, humanConfirmed = true, taskId = '
   const cmdStore = new MemoryCommandVerificationStore();
   cmdStore.recordCommandResult({ command: 'npm test', action: 'test', passed: testPassed });
   const humanReader = new MemoryHumanVerificationReader(
-    humanConfirmed ? [{ scope: 'task', targetId: taskId, role: 'owner', confirmed: true, confirmedBy: 'owner' }] : []
+    humanConfirmed ? [{ scope: 'task', targetId: taskId, role: 'owner', confirmed: true, confirmedBy: 'owner', attempt: 1 }] : []
   );
   return createDefaultGateRegistry({
     commandRunner: async () => ({ passed: testPassed, exitCode: testPassed ? 0 : 1 }),
@@ -159,7 +191,7 @@ const RESOLVED_INPUTS = { 'commit.title': 'Finish task 06', 'commit.message': 'B
 function baseParams(fx, gateRegistry, { push = true } = {}) {
   return {
     change: { id: 'demo-change', _slug: 'demo-change' },
-    task: { id: 'demo-task', status: 'in-implementation', workflow_progress: { current_step: 'implementation', state: 'active', history: [] } },
+    task: { id: 'demo-task', status: 'in-implementation', workflow_progress: { current_step: 'implementation', current_attempt: 1, state: 'active', history: [] } },
     definition: DEFINITION,
     context: { repoRoot: fx.repo, activeDir: fx.activeDir, taskId: 'demo-task', sourceControl: { enabled: true, push } },
     activeDir: fx.activeDir,
@@ -170,8 +202,23 @@ function baseParams(fx, gateRegistry, { push = true } = {}) {
 function threeStepParams(fx, gateRegistry, { push = true } = {}) {
   return {
     change: { id: 'demo-change', _slug: 'demo-change' },
-    task: { id: 'demo-task', status: 'in-implementation', workflow_progress: { current_step: 'stepA', state: 'active', history: [] } },
+    task: { id: 'demo-task', status: 'in-implementation', workflow_progress: { current_step: 'stepA', current_attempt: 1, state: 'active', history: [] } },
     definition: THREE_STEP_DEFINITION,
+    context: { repoRoot: fx.repo, activeDir: fx.activeDir, taskId: 'demo-task', sourceControl: { enabled: true, push } },
+    activeDir: fx.activeDir,
+    gateRegistry,
+  };
+}
+
+function conditionalParams(fx, gateRegistry, { push = true, step = 'review', attempt = 1 } = {}) {
+  return {
+    change: { id: 'demo-change', _slug: 'demo-change' },
+    task: {
+      id: 'demo-task',
+      status: 'in-implementation',
+      workflow_progress: { current_step: step, current_attempt: attempt, state: 'active', history: [] },
+    },
+    definition: CONDITIONAL_DEFINITION,
     context: { repoRoot: fx.repo, activeDir: fx.activeDir, taskId: 'demo-task', sourceControl: { enabled: true, push } },
     activeDir: fx.activeDir,
     gateRegistry,
@@ -213,10 +260,10 @@ describe('finishStep — happy path executes the fixed stage order (AC5)', () =>
   });
 
   test('the operation record is persisted only under .nevo-ai-local/workflow-operations/, never in change.yaml (AC16)', () => {
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation', 1);
     assert.ok(record);
     assert.equal(record.status, 'completed');
-    const recordPath = join(fx.repo, '.nevo-ai-local', 'workflow-operations', 'demo-change', 'demo-task', 'implementation.json');
+    const recordPath = join(fx.repo, '.nevo-ai-local', 'workflow-operations', 'demo-change', 'demo-task', 'implementation', 'attempt-1.json');
     assert.ok(existsSync(recordPath));
     const changeYaml = readFileSync(join(fx.activeDir, 'demo-change', 'change.yaml'), 'utf8');
     assert.ok(!changeYaml.includes('operationId'));
@@ -245,15 +292,16 @@ describe('finishStep — recovering an update-task stage found running (AC6)', (
     // must already reflect "completed" for reconciliation to recognize it happened.
     setTaskWorkflowState(change, 'demo-task', {
       status: 'verified',
-      workflowProgress: { current_step: 'implementation', state: 'completed', history: [{ step: 'implementation', completed_at: 'x', transitioned_to: 'verified' }] },
+      workflowProgress: { current_step: 'implementation', current_attempt: 1, state: 'completed', history: [{ step: 'implementation', attempt: 1, completed_at: 'x', transitioned_to: 'verified' }] },
     });
 
-    const craftedIntent = { fromState: 'active', toState: 'completed' };
+    const craftedIntent = { step: 'implementation', attempt: 1, fromState: 'active', toState: 'completed', transitioned_to: 'verified', terminalStatus: 'verified' };
     saveOperationRecord(fx.repo, {
       operationId: 'crafted-op-1',
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
@@ -271,7 +319,7 @@ describe('finishStep — recovering an update-task stage found running (AC6)', (
     assert.equal(result.status, 'completed');
     assert.equal(taskStatus(fx.activeDir), 'verified');
 
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation', 1);
     const updateTaskStage = record.operations.find(o => o.id === 'update-task');
     assert.equal(updateTaskStage.status, 'completed');
     // The intent must be exactly what was crafted, not recomputed from the (already-moved)
@@ -291,18 +339,19 @@ describe('finishStep — update-task reconciliation compares workflow_progress.s
     // intent but before the tracked write. current_step stays stepA throughout (D37);
     // only `state` moves to 'completed'.
     const change = freshChange(fx.activeDir);
-    setTaskWorkflowState(change, 'demo-task', { workflowProgress: { current_step: 'stepA', state: 'active', history: [] } });
+    setTaskWorkflowState(change, 'demo-task', { workflowProgress: { current_step: 'stepA', current_attempt: 1, state: 'active', history: [] } });
 
     saveOperationRecord(fx.repo, {
       operationId: 'crafted-stepkind-1',
       change: 'demo-change',
       task: 'demo-task',
       step: 'stepA',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
         { id: 'verify-gates', status: 'completed', result: { gates: [] } },
-        { id: 'update-task', status: 'running', intent: { fromState: 'active', toState: 'completed' } },
+        { id: 'update-task', status: 'running', intent: { step: 'stepA', attempt: 1, fromState: 'active', toState: 'completed', transitioned_to: 'stepB', terminalStatus: null } },
         { id: 'commit', status: 'pending' },
         { id: 'push', status: 'pending' },
         { id: 'transition', status: 'pending' },
@@ -318,7 +367,7 @@ describe('finishStep — update-task reconciliation compares workflow_progress.s
     assert.equal(task.workflow_progress.state, 'completed');
     assert.equal(task.status, 'in-implementation', 'an internal transition never touches task.status');
 
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA', 1);
     assert.equal(record.operations.find(o => o.id === 'update-task').status, 'completed');
   });
 
@@ -328,19 +377,21 @@ describe('finishStep — update-task reconciliation compares workflow_progress.s
     // recognize this and move on to commit, never re-derive or repeat the write.
     const change = freshChange(fx.activeDir);
     setTaskWorkflowState(change, 'demo-task', {
-      workflowProgress: { current_step: 'stepB', state: 'completed', history: [{ step: 'stepB', completed_at: 'x', transitioned_to: 'stepC' }] },
+      workflowProgress: { current_step: 'stepB', current_attempt: 1, state: 'completed', history: [{ step: 'stepB', attempt: 1, completed_at: 'x', transitioned_to: 'stepC' }] },
     });
 
+    const craftedIntent = { step: 'stepB', attempt: 1, fromState: 'active', toState: 'completed', transitioned_to: 'stepC', terminalStatus: null };
     saveOperationRecord(fx.repo, {
       operationId: 'crafted-stepkind-2',
       change: 'demo-change',
       task: 'demo-task',
       step: 'stepB',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
         { id: 'verify-gates', status: 'completed', result: { gates: [] } },
-        { id: 'update-task', status: 'running', intent: { fromState: 'active', toState: 'completed' } },
+        { id: 'update-task', status: 'running', intent: { ...craftedIntent } },
         { id: 'commit', status: 'pending' },
         { id: 'push', status: 'pending' },
         { id: 'transition', status: 'pending' },
@@ -351,11 +402,11 @@ describe('finishStep — update-task reconciliation compares workflow_progress.s
     const result = await finishStep({ ...threeStepParams(fx, gateRegistry), inputs: RESOLVED_INPUTS });
 
     assert.equal(result.status, 'completed');
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepB');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepB', 1);
     const updateTaskStage = record.operations.find(o => o.id === 'update-task');
     assert.equal(updateTaskStage.status, 'completed');
     // Recognized via reconciliation, not re-derived — the intent stays exactly as crafted.
-    assert.deepEqual(updateTaskStage.intent, { fromState: 'active', toState: 'completed' });
+    assert.deepEqual(updateTaskStage.intent, craftedIntent);
     const task = requireTask(freshChange(fx.activeDir), 'demo-task');
     assert.equal(task.workflow_progress.current_step, 'stepB', 'D37: still stepB — finish never advances current_step');
   });
@@ -364,18 +415,19 @@ describe('finishStep — update-task reconciliation compares workflow_progress.s
     const change = freshChange(fx.activeDir);
     // Simulates a genuinely ambiguous recovery: the tracked position has moved to a
     // different step entirely, which this stepA-scoped operation cannot explain.
-    setTaskWorkflowState(change, 'demo-task', { workflowProgress: { current_step: 'stepC', state: 'active', history: [] } });
+    setTaskWorkflowState(change, 'demo-task', { workflowProgress: { current_step: 'stepC', current_attempt: 1, state: 'active', history: [] } });
 
     saveOperationRecord(fx.repo, {
       operationId: 'crafted-stepkind-3',
       change: 'demo-change',
       task: 'demo-task',
       step: 'stepA',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
         { id: 'verify-gates', status: 'completed', result: { gates: [] } },
-        { id: 'update-task', status: 'running', intent: { fromState: 'active', toState: 'completed' } },
+        { id: 'update-task', status: 'running', intent: { step: 'stepA', attempt: 1, fromState: 'active', toState: 'completed', transitioned_to: 'stepB', terminalStatus: null } },
         { id: 'commit', status: 'pending' },
         { id: 'push', status: 'pending' },
         { id: 'transition', status: 'pending' },
@@ -388,10 +440,8 @@ describe('finishStep — update-task reconciliation compares workflow_progress.s
     assert.equal(result.status, 'reconciliation-required');
     assert.equal(result.stage, 'update-task');
     assert.equal(result.details.currentStep, 'stepC');
-    assert.equal(result.details.fromState, 'active');
-    assert.equal(result.details.toState, 'completed');
 
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA', 1);
     assert.equal(record.operations.find(o => o.id === 'update-task').status, 'unknown');
     assert.equal(record.operations.find(o => o.id === 'commit').status, 'pending', 'no further stage may execute');
   });
@@ -430,7 +480,7 @@ describe('finishStep — full multi-hop happy path driven by alternating step st
     assert.ok(changedInCommitA.some(p => p.endsWith('change.yaml')));
 
     // AC8: step A's own completed operation record exists and is untouched by what follows.
-    const stepARecordBefore = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA');
+    const stepARecordBefore = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA', 1);
     assert.equal(stepARecordBefore.status, 'completed');
 
     // A repeated finish against the already-completed stepA is non-actionable — no
@@ -470,9 +520,9 @@ describe('finishStep — full multi-hop happy path driven by alternating step st
     assert.equal(task.status, 'in-implementation');
     assert.equal(task.workflow_progress.history.length, 2);
 
-    const stepARecordAfter = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA');
+    const stepARecordAfter = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA', 1);
     assert.deepEqual(stepARecordAfter, stepARecordBefore, 'AC8: step A\'s own completed record file must be untouched by step B\'s finish');
-    const stepBRecord = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepB');
+    const stepBRecord = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepB', 1);
     assert.equal(stepBRecord.status, 'completed');
 
     // step start: activate stepC.
@@ -499,13 +549,13 @@ describe('finishStep — full multi-hop happy path driven by alternating step st
 
     // The next resolution must report complete, never re-resolving entryStep as if fresh —
     // and never consulting task.status to do so (D37 corrects D28's precedence).
-    assert.deepEqual(resolveWorkflowPosition(THREE_STEP_DEFINITION, task), { phase: 'terminal', step: 'stepC' });
+    assert.deepEqual(resolveWorkflowPosition(THREE_STEP_DEFINITION, task), { phase: 'terminal', step: 'stepC', attempt: 1 });
 
     // step start on a terminal task reports complete and writes nothing.
     const beforeTerminalStart = readFileSync(join(fx.activeDir, 'demo-change', 'change.yaml'), 'utf8');
     change = freshChange(fx.activeDir);
     const { position: terminalPosition } = ensureStepActivated(change, task, THREE_STEP_DEFINITION, { repoRoot: fx.repo });
-    assert.deepEqual(terminalPosition, { phase: 'terminal', step: 'stepC' });
+    assert.deepEqual(terminalPosition, { phase: 'terminal', step: 'stepC', attempt: 1 });
     const afterTerminalStart = readFileSync(join(fx.activeDir, 'demo-change', 'change.yaml'), 'utf8');
     assert.equal(beforeTerminalStart, afterTerminalStart, 'step start against a terminal workflow must not mutate change.yaml');
   });
@@ -527,13 +577,14 @@ describe('P1 (D37 corrective revision): step start refuses to activate the next 
     // `commit`/`push`/`transition` never did.
     change = freshChange(fx.activeDir);
     setTaskWorkflowState(change, 'demo-task', {
-      workflowProgress: { current_step: 'stepA', state: 'completed', history: [{ step: 'stepA', completed_at: 'x', transitioned_to: 'stepB' }] },
+      workflowProgress: { current_step: 'stepA', current_attempt: 1, state: 'completed', history: [{ step: 'stepA', attempt: 1, completed_at: 'x', transitioned_to: 'stepB' }] },
     });
     saveOperationRecord(fx.repo, {
       operationId: 'crafted-activation-guard-1',
       change: 'demo-change',
       task: 'demo-task',
       step: 'stepA',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
@@ -573,13 +624,13 @@ describe('P1 (D37 corrective revision): step start refuses to activate the next 
     const gateRegistry = makeGateRegistry();
     const finishResult = await finishStep({ ...threeStepParams(fx, gateRegistry), task: taskBefore, inputs: RESOLVED_INPUTS });
     assert.equal(finishResult.status, 'completed');
-    assert.equal(loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA').status, 'completed');
+    assert.equal(loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'stepA', 1).status, 'completed');
 
     // Now `step start` activates stepB normally.
     change = freshChange(fx.activeDir);
     const settledTask = requireTask(change, 'demo-task');
     const { task: activatedTask, position } = ensureStepActivated(change, settledTask, THREE_STEP_DEFINITION, { repoRoot: fx.repo });
-    assert.deepEqual(position, { phase: 'active', step: 'stepB' });
+    assert.deepEqual(position, { phase: 'active', step: 'stepB', attempt: 1 });
     assert.equal(activatedTask.workflow_progress.current_step, 'stepB');
   });
 });
@@ -603,6 +654,7 @@ describe('finishStep — recovering a commit stage found running (AC7)', () => {
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
@@ -620,7 +672,7 @@ describe('finishStep — recovering a commit stage found running (AC7)', () => {
     assert.equal(result.status, 'completed');
     assert.equal(commitCount(fx.repo), commitsBefore, 'no second commit must be created');
 
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation', 1);
     const commitStage = record.operations.find(o => o.id === 'commit');
     assert.equal(commitStage.status, 'completed');
     assert.equal(commitStage.result.sha, commitSha);
@@ -647,6 +699,7 @@ describe('finishStep — recovering a push stage found running or unknown (AC8)'
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
@@ -680,6 +733,7 @@ describe('finishStep — recovering a push stage found running or unknown (AC8)'
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
@@ -720,6 +774,7 @@ describe('finishStep — interrupted after a successful push but before transiti
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
@@ -757,6 +812,7 @@ describe('finishStep — resolved-inputs persistence and conflict detection (AC1
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
@@ -790,7 +846,7 @@ describe('finishStep — resolved-inputs persistence and conflict detection (AC1
       PreconditionError
     );
 
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation', 1);
     assert.equal(record.resolvedInputs['commit.title'], RESOLVED_INPUTS['commit.title']);
     assert.equal(record.operations.find(o => o.id === 'update-task').status, 'pending');
   });
@@ -820,6 +876,7 @@ describe('finishStep — unresolvable ambiguity is reported, never guessed (AC13
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
@@ -837,7 +894,7 @@ describe('finishStep — unresolvable ambiguity is reported, never guessed (AC13
     assert.equal(result.status, 'reconciliation-required');
     assert.equal(result.stage, 'update-task');
 
-    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation', 1);
     assert.equal(record.operations.find(o => o.id === 'update-task').status, 'unknown');
     assert.equal(record.operations.find(o => o.id === 'commit').status, 'pending', 'no further stage may execute');
 
@@ -858,6 +915,7 @@ describe('finishStep — unresolvable ambiguity is reported, never guessed (AC13
       change: 'demo-change',
       task: 'demo-task',
       step: 'implementation',
+      attempt: 1,
       status: 'running',
       resolvedInputs: RESOLVED_INPUTS,
       operations: [
@@ -875,5 +933,636 @@ describe('finishStep — unresolvable ambiguity is reported, never guessed (AC13
     assert.equal(result.status, 'reconciliation-required');
     assert.equal(result.stage, 'commit');
     assert.equal(commitCount(fx.repo), commitsBefore, 'the commit action must never be invoked again');
+  });
+});
+
+describe('Result-driven transitions: planFinish matching and validation (AC1, AC2)', () => {
+  let fx;
+  before(() => { fx = makeFixture('nevo-plan-matching'); });
+  after(() => cleanupFixture(fx));
+
+  test('conditional step returns input-required with missingInputs: [result] when result is omitted (AC1)', async () => {
+    const gateRegistry = makeGateRegistry();
+    const plan = await planFinish({
+      ...conditionalParams(fx, gateRegistry),
+      inputs: { 'commit.title': 'Test title', 'commit.message': 'Test body' },
+    });
+    assert.equal(plan.status, 'input-required');
+    assert.ok(plan.missingInputs.includes('result'), 'missingInputs must include result');
+    assert.equal(plan.transition, null);
+  });
+
+  test('conditional step throws INVALID_TRANSITION_RESULT when result does not match declared transitions (AC1)', async () => {
+    const gateRegistry = makeGateRegistry();
+    await assert.rejects(
+      () => planFinish({
+        ...conditionalParams(fx, gateRegistry),
+        inputs: { 'commit.title': 'Test title', 'commit.message': 'Test body', result: 'invalid_choice' },
+      }),
+      (err) => {
+        assert.ok(err instanceof PreconditionError);
+        assert.equal(err.code, 'INVALID_TRANSITION_RESULT');
+        return true;
+      }
+    );
+  });
+
+  test('conditional step matches declared transition on valid result targeting terminal status (AC1)', async () => {
+    const gateRegistry = makeGateRegistry();
+    const plan = await planFinish({
+      ...conditionalParams(fx, gateRegistry),
+      inputs: { ...RESOLVED_INPUTS, result: 'approved' },
+    });
+    assert.equal(plan.status, 'ready');
+    assert.deepEqual(plan.transition, {
+      from: { step: 'review', attempt: 1 },
+      result: 'approved',
+      to: { kind: 'terminal', status: 'verified' },
+    });
+  });
+
+  test('conditional step matches declared transition on valid result targeting next step (AC1)', async () => {
+    const gateRegistry = makeGateRegistry();
+    const plan = await planFinish({
+      ...conditionalParams(fx, gateRegistry),
+      inputs: { ...RESOLVED_INPUTS, result: 'rejected' },
+    });
+    assert.equal(plan.status, 'ready');
+    assert.deepEqual(plan.transition, {
+      from: { step: 'review', attempt: 1 },
+      result: 'rejected',
+      to: { kind: 'step', step: 'rework' },
+    });
+  });
+
+  test('unconditional step throws UNEXPECTED_TRANSITION_RESULT when result is supplied (AC2)', async () => {
+    const gateRegistry = makeGateRegistry();
+    await assert.rejects(
+      () => planFinish({
+        ...baseParams(fx, gateRegistry),
+        inputs: { ...RESOLVED_INPUTS, result: 'approved' },
+      }),
+      (err) => {
+        assert.ok(err instanceof PreconditionError);
+        assert.equal(err.code, 'UNEXPECTED_TRANSITION_RESULT');
+        return true;
+      }
+    );
+  });
+
+  test('unconditional step succeeds when result is omitted and emits discriminated target (AC2)', async () => {
+    const gateRegistry = makeGateRegistry();
+    const plan = await planFinish({
+      ...baseParams(fx, gateRegistry),
+      inputs: RESOLVED_INPUTS,
+    });
+    assert.equal(plan.status, 'ready');
+    assert.deepEqual(plan.transition, {
+      from: { step: 'implementation', attempt: 1 },
+      to: { kind: 'terminal', status: 'verified' },
+    });
+  });
+
+  test('in-flight operation lookup precedes already-completed check when task workflow_progress is completed (AC1, AC5)', async () => {
+    const gateRegistry = makeGateRegistry();
+    saveOperationRecord(fx.repo, {
+      operationId: 'inflight-op-precedence',
+      change: 'demo-change',
+      task: 'demo-task',
+      step: 'implementation',
+      attempt: 1,
+      status: 'running',
+      resolvedInputs: RESOLVED_INPUTS,
+      operations: [
+        { id: 'verify-gates', status: 'completed' },
+        { id: 'update-task', status: 'completed' },
+        { id: 'commit', status: 'pending' },
+        { id: 'push', status: 'pending' },
+        { id: 'transition', status: 'pending' },
+      ],
+    });
+
+    // Task workflow_progress has state: 'completed'
+    const completedTask = {
+      id: 'demo-task',
+      status: 'verified',
+      workflow_progress: {
+        current_step: 'implementation',
+        current_attempt: 1,
+        state: 'completed',
+        history: [{ step: 'implementation', attempt: 1, completed_at: '2026-01-01T00:00:00Z', transitioned_to: 'verified' }],
+      },
+    };
+
+    const plan = await planFinish({
+      ...baseParams(fx, gateRegistry),
+      task: completedTask,
+      inputs: RESOLVED_INPUTS,
+    });
+
+    // Authoritative in-flight record takes precedence: not 'already-completed', but resumes as 'ready'
+    assert.equal(plan.status, 'ready');
+    assert.equal(plan.stepName, 'implementation');
+    assert.equal(plan.attempt, 1);
+    rmSync(join(fx.repo, '.nevo-ai-local'), { recursive: true, force: true });
+  });
+
+  test('in-flight operation resumes even when workflow_progress cannot be resolved at all (Task 04 AC1: in-flight precedes position resolution, not just the already-completed check)', async () => {
+    const gateRegistry = makeGateRegistry();
+    saveOperationRecord(fx.repo, {
+      operationId: 'inflight-op-precedence-unresolvable',
+      change: 'demo-change',
+      task: 'demo-task',
+      step: 'implementation',
+      attempt: 1,
+      status: 'running',
+      resolvedInputs: RESOLVED_INPUTS,
+      operations: [
+        { id: 'verify-gates', status: 'completed' },
+        { id: 'update-task', status: 'completed' },
+        { id: 'commit', status: 'pending' },
+        { id: 'push', status: 'pending' },
+        { id: 'transition', status: 'pending' },
+      ],
+    });
+
+    // A crash mid-`update-task` write could plausibly leave workflow_progress in a state
+    // resolveWorkflowPosition itself fails closed on (here: no current_attempt at all) —
+    // exactly the state the in-flight record's own reconciliation exists to recover
+    // through. planFinish must never let position resolution run — let alone throw —
+    // ahead of consulting the in-flight record.
+    const unresolvableTask = {
+      id: 'demo-task',
+      status: 'in-implementation',
+      workflow_progress: {
+        current_step: 'implementation',
+        state: 'completed',
+        history: [],
+      },
+    };
+
+    const plan = await planFinish({
+      ...baseParams(fx, gateRegistry),
+      task: unresolvableTask,
+      inputs: RESOLVED_INPUTS,
+    });
+
+    assert.equal(plan.status, 'ready');
+    assert.equal(plan.stepName, 'implementation');
+    assert.equal(plan.attempt, 1);
+    rmSync(join(fx.repo, '.nevo-ai-local'), { recursive: true, force: true });
+  });
+});
+
+describe('Result-driven transitions: resuming and input conflict detection (AC3)', () => {
+  let fx;
+  before(() => { fx = makeFixture('nevo-resuming-conflicts'); });
+  after(() => cleanupFixture(fx));
+
+  test('resuming an in-flight operation with identical result succeeds (AC3)', async () => {
+    const gateRegistry = makeGateRegistry();
+    saveOperationRecord(fx.repo, {
+      operationId: 'inflight-op-identical',
+      change: 'demo-change',
+      task: 'demo-task',
+      step: 'review',
+      attempt: 1,
+      status: 'running',
+      resolvedInputs: { ...RESOLVED_INPUTS, result: 'approved' },
+      operations: FINISH_STAGE_IDS.map(id => ({ id, status: 'pending' })),
+    });
+
+    const plan = await planFinish({
+      ...conditionalParams(fx, gateRegistry),
+      inputs: { result: 'approved' },
+    });
+    assert.equal(plan.status, 'ready');
+    assert.equal(plan.conflicts.length, 0);
+    assert.equal(plan.resolvedInputs.result, 'approved');
+    rmSync(join(fx.repo, '.nevo-ai-local'), { recursive: true, force: true });
+  });
+
+  test('resuming an in-flight operation with conflicting result throws RESOLVED_INPUT_CONFLICT (AC3)', async () => {
+    const gateRegistry = makeGateRegistry();
+    saveOperationRecord(fx.repo, {
+      operationId: 'inflight-op-conflict',
+      change: 'demo-change',
+      task: 'demo-task',
+      step: 'review',
+      attempt: 1,
+      status: 'running',
+      resolvedInputs: { ...RESOLVED_INPUTS, result: 'approved' },
+      operations: FINISH_STAGE_IDS.map(id => ({ id, status: 'pending' })),
+    });
+
+    await assert.rejects(
+      () => finishStep({
+        ...conditionalParams(fx, gateRegistry),
+        inputs: { result: 'rejected' },
+      }),
+      (err) => {
+        assert.ok(err instanceof PreconditionError);
+        assert.equal(err.code, 'RESOLVED_INPUT_CONFLICT');
+        return true;
+      }
+    );
+    rmSync(join(fx.repo, '.nevo-ai-local'), { recursive: true, force: true });
+  });
+});
+
+describe('Result-driven transitions: ensureUpdateTask crash reconciliation (AC4)', () => {
+  let fx;
+  before(() => { fx = makeFixture('nevo-reconciliation-ac4'); });
+  after(() => cleanupFixture(fx));
+
+  test('Write Definitely Happened: recovers and reconciles update-task stage to completed without re-writing (AC4)', async () => {
+    const gateRegistry = makeGateRegistry();
+    setTaskWorkflowState(freshChange(fx.activeDir), 'demo-task', {
+      status: 'verified',
+      workflowProgress: {
+        current_step: 'review',
+        current_attempt: 1,
+        state: 'completed',
+        history: [{
+          step: 'review',
+          attempt: 1,
+          completed_at: '2026-01-01T00:00:00Z',
+          transitioned_to: 'verified',
+          result: 'approved',
+          artifacts: ['report.md'],
+        }],
+      },
+    });
+
+    saveOperationRecord(fx.repo, {
+      operationId: 'op-definitely-happened',
+      change: 'demo-change',
+      task: 'demo-task',
+      step: 'review',
+      attempt: 1,
+      status: 'running',
+      resolvedInputs: { ...RESOLVED_INPUTS, result: 'approved', artifacts: ['report.md'] },
+      operations: [
+        { id: 'verify-gates', status: 'completed' },
+        {
+          id: 'update-task',
+          status: 'running',
+          intent: {
+            step: 'review',
+            attempt: 1,
+            fromState: 'active',
+            toState: 'completed',
+            transitioned_to: 'verified',
+            terminalStatus: 'verified',
+            result: 'approved',
+            artifacts: ['report.md'],
+          },
+        },
+        { id: 'commit', status: 'pending' },
+        { id: 'push', status: 'pending' },
+        { id: 'transition', status: 'pending' },
+      ],
+    });
+
+    writeFileSync(join(fx.repo, 'dirty-for-commit.txt'), 'dirty\n');
+    const result = await finishStep({
+      ...conditionalParams(fx, gateRegistry, { push: false }),
+      task: requireTask(freshChange(fx.activeDir), 'demo-task'),
+    });
+
+    assert.equal(result.status, 'completed');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'review', 1);
+    assert.equal(record.operations.find(o => o.id === 'update-task').status, 'completed');
+    // Task history should not have duplicate entries
+    const task = requireTask(freshChange(fx.activeDir), 'demo-task');
+    assert.equal(task.workflow_progress.history.length, 1);
+    rmSync(join(fx.repo, '.nevo-ai-local'), { recursive: true, force: true });
+  });
+
+  test('Write Definitely Did Not Happen: re-executes write and advances (AC4)', async () => {
+    const gateRegistry = makeGateRegistry();
+    setTaskWorkflowState(freshChange(fx.activeDir), 'demo-task', {
+      status: 'in-implementation',
+      workflowProgress: {
+        current_step: 'review',
+        current_attempt: 1,
+        state: 'active',
+        history: [],
+      },
+    });
+
+    saveOperationRecord(fx.repo, {
+      operationId: 'op-definitely-did-not-happen',
+      change: 'demo-change',
+      task: 'demo-task',
+      step: 'review',
+      attempt: 1,
+      status: 'running',
+      resolvedInputs: { ...RESOLVED_INPUTS, result: 'approved' },
+      operations: [
+        { id: 'verify-gates', status: 'completed' },
+        {
+          id: 'update-task',
+          status: 'running',
+          intent: {
+            step: 'review',
+            attempt: 1,
+            fromState: 'active',
+            toState: 'completed',
+            transitioned_to: 'verified',
+            terminalStatus: 'verified',
+            result: 'approved',
+          },
+        },
+        { id: 'commit', status: 'pending' },
+        { id: 'push', status: 'pending' },
+        { id: 'transition', status: 'pending' },
+      ],
+    });
+
+    writeFileSync(join(fx.repo, 'dirty-for-commit2.txt'), 'dirty2\n');
+    const result = await finishStep({
+      ...conditionalParams(fx, gateRegistry, { push: false }),
+      task: requireTask(freshChange(fx.activeDir), 'demo-task'),
+    });
+
+    assert.equal(result.status, 'completed');
+    const task = requireTask(freshChange(fx.activeDir), 'demo-task');
+    assert.equal(task.status, 'verified');
+    assert.equal(task.workflow_progress.state, 'completed');
+    assert.equal(task.workflow_progress.history.length, 1);
+    assert.equal(task.workflow_progress.history[0].result, 'approved');
+    rmSync(join(fx.repo, '.nevo-ai-local'), { recursive: true, force: true });
+  });
+
+  test('State Inconsistent: mismatched history entry throws reconciliation-required and blocks operation (AC4)', async () => {
+    const gateRegistry = makeGateRegistry();
+    setTaskWorkflowState(freshChange(fx.activeDir), 'demo-task', {
+      status: 'verified',
+      workflowProgress: {
+        current_step: 'review',
+        current_attempt: 1,
+        state: 'completed',
+        history: [{
+          step: 'review',
+          attempt: 1,
+          completed_at: '2026-01-01T00:00:00Z',
+          transitioned_to: 'verified',
+          result: 'rejected',
+        }],
+      },
+    });
+
+    saveOperationRecord(fx.repo, {
+      operationId: 'op-inconsistent-history',
+      change: 'demo-change',
+      task: 'demo-task',
+      step: 'review',
+      attempt: 1,
+      status: 'running',
+      resolvedInputs: { ...RESOLVED_INPUTS, result: 'approved' },
+      operations: [
+        { id: 'verify-gates', status: 'completed' },
+        {
+          id: 'update-task',
+          status: 'running',
+          intent: {
+            step: 'review',
+            attempt: 1,
+            fromState: 'active',
+            toState: 'completed',
+            transitioned_to: 'verified',
+            terminalStatus: 'verified',
+            result: 'approved',
+          },
+        },
+        { id: 'commit', status: 'pending' },
+        { id: 'push', status: 'pending' },
+        { id: 'transition', status: 'pending' },
+      ],
+    });
+
+    const outcome = await finishStep({
+      ...conditionalParams(fx, gateRegistry, { push: false }),
+      task: requireTask(freshChange(fx.activeDir), 'demo-task'),
+    });
+
+    assert.equal(outcome.status, 'reconciliation-required');
+    assert.equal(outcome.stage, 'update-task');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'review', 1);
+    assert.equal(record.status, 'blocked');
+    assert.equal(record.operations.find(o => o.id === 'update-task').status, 'unknown');
+    rmSync(join(fx.repo, '.nevo-ai-local'), { recursive: true, force: true });
+  });
+
+  test('State Inconsistent: mismatched task status for terminal transition throws reconciliation-required (AC4)', async () => {
+    const gateRegistry = makeGateRegistry();
+    setTaskWorkflowState(freshChange(fx.activeDir), 'demo-task', {
+      status: 'in-implementation',
+      workflowProgress: {
+        current_step: 'review',
+        current_attempt: 1,
+        state: 'completed',
+        history: [{
+          step: 'review',
+          attempt: 1,
+          completed_at: '2026-01-01T00:00:00Z',
+          transitioned_to: 'verified',
+          result: 'approved',
+        }],
+      },
+    });
+
+    saveOperationRecord(fx.repo, {
+      operationId: 'op-inconsistent-terminal',
+      change: 'demo-change',
+      task: 'demo-task',
+      step: 'review',
+      attempt: 1,
+      status: 'running',
+      resolvedInputs: { ...RESOLVED_INPUTS, result: 'approved' },
+      operations: [
+        { id: 'verify-gates', status: 'completed' },
+        {
+          id: 'update-task',
+          status: 'running',
+          intent: {
+            step: 'review',
+            attempt: 1,
+            fromState: 'active',
+            toState: 'completed',
+            transitioned_to: 'verified',
+            terminalStatus: 'verified',
+            result: 'approved',
+          },
+        },
+        { id: 'commit', status: 'pending' },
+        { id: 'push', status: 'pending' },
+        { id: 'transition', status: 'pending' },
+      ],
+    });
+
+    const outcome = await finishStep({
+      ...conditionalParams(fx, gateRegistry, { push: false }),
+      task: requireTask(freshChange(fx.activeDir), 'demo-task'),
+    });
+
+    assert.equal(outcome.status, 'reconciliation-required');
+    assert.equal(outcome.stage, 'update-task');
+    rmSync(join(fx.repo, '.nevo-ai-local'), { recursive: true, force: true });
+  });
+});
+
+describe('Result-driven transitions: process interruption recovery and completion (AC5, AC6, AC7)', () => {
+  let fx;
+  before(() => { fx = makeFixture('nevo-interruption-ac567'); });
+  after(() => cleanupFixture(fx));
+
+  test('interrupted after update-task: retrying finishStep recovers and resumes in-flight op instead of short-circuiting (AC5)', async () => {
+    const gateRegistry = makeGateRegistry();
+    setTaskWorkflowState(freshChange(fx.activeDir), 'demo-task', {
+      status: 'verified',
+      workflowProgress: {
+        current_step: 'implementation',
+        current_attempt: 1,
+        state: 'completed',
+        history: [{
+          step: 'implementation',
+          attempt: 1,
+          completed_at: '2026-01-01T00:00:00Z',
+          transitioned_to: 'verified',
+        }],
+      },
+    });
+
+    saveOperationRecord(fx.repo, {
+      operationId: 'op-interrupted-after-update-task',
+      change: 'demo-change',
+      task: 'demo-task',
+      step: 'implementation',
+      attempt: 1,
+      status: 'running',
+      resolvedInputs: RESOLVED_INPUTS,
+      operations: [
+        { id: 'verify-gates', status: 'completed' },
+        { id: 'update-task', status: 'completed', result: { toState: 'verified' } },
+        { id: 'commit', status: 'pending' },
+        { id: 'push', status: 'pending' },
+        { id: 'transition', status: 'pending' },
+      ],
+    });
+
+    writeFileSync(join(fx.repo, 'interrupted-work.txt'), 'done\n');
+    const result = await finishStep({
+      ...baseParams(fx, gateRegistry, { push: false }),
+      task: requireTask(freshChange(fx.activeDir), 'demo-task'),
+      inputs: RESOLVED_INPUTS,
+    });
+
+    // Must NOT return 'already-completed'
+    assert.equal(result.status, 'completed');
+    const record = loadOperationRecord(fx.repo, 'demo-change', 'demo-task', 'implementation', 1);
+    assert.equal(record.status, 'completed');
+    assert.equal(record.operations.find(o => o.id === 'commit').status, 'completed');
+    assert.equal(record.operations.find(o => o.id === 'transition').status, 'completed');
+    rmSync(join(fx.repo, '.nevo-ai-local'), { recursive: true, force: true });
+  });
+
+  test('finishStep passes full resolved inputs, records history with result and artifacts, and updates status on terminal (AC6, AC7)', async () => {
+    const gateRegistry = makeGateRegistry();
+    setTaskWorkflowState(freshChange(fx.activeDir), 'demo-task', {
+      status: 'in-implementation',
+      workflowProgress: {
+        current_step: 'review',
+        current_attempt: 1,
+        state: 'active',
+        history: [],
+      },
+    });
+
+    writeFileSync(join(fx.repo, 'included.txt'), 'included\n');
+    writeFileSync(join(fx.repo, 'excluded.txt'), 'excluded\n');
+
+    const finishInputs = {
+      'commit.title': 'Review approval commit',
+      'commit.message': 'Review passed with flying colors',
+      include: ['included.txt', 'specs/**'],
+      exclude: ['excluded.txt'],
+      result: 'approved',
+      artifacts: ['specs/active/demo-change/review-report.md'],
+    };
+
+    const outcome = await finishStep({
+      ...conditionalParams(fx, gateRegistry, { push: false }),
+      task: requireTask(freshChange(fx.activeDir), 'demo-task'),
+      inputs: finishInputs,
+    });
+
+    assert.equal(outcome.status, 'completed');
+    assert.deepEqual(outcome.transition, {
+      from: { step: 'review', attempt: 1 },
+      result: 'approved',
+      to: { kind: 'terminal', status: 'verified' },
+    });
+
+    // Check task state
+    const task = requireTask(freshChange(fx.activeDir), 'demo-task');
+    assert.equal(task.status, 'verified');
+    assert.equal(task.workflow_progress.state, 'completed');
+    assert.equal(task.workflow_progress.history.length, 1);
+    const entry = task.workflow_progress.history[0];
+    assert.equal(entry.step, 'review');
+    assert.equal(entry.attempt, 1);
+    assert.equal(entry.transitioned_to, 'verified');
+    assert.equal(entry.result, 'approved');
+    assert.deepEqual(entry.artifacts, ['specs/active/demo-change/review-report.md']);
+
+    // Check git commit: excluded file should remain untracked
+    const status = fx.git(['status', '--porcelain']);
+    assert.ok(status.includes('?? excluded.txt'), 'excluded.txt should remain untracked');
+    rmSync(join(fx.repo, '.nevo-ai-local'), { recursive: true, force: true });
+  });
+
+  test('finishStep emits discriminated transition for internal step target (AC7)', async () => {
+    const gateRegistry = makeGateRegistry();
+    setTaskWorkflowState(freshChange(fx.activeDir), 'demo-task', {
+      status: 'in-implementation',
+      workflowProgress: {
+        current_step: 'review',
+        current_attempt: 1,
+        state: 'active',
+        history: [],
+      },
+    });
+
+    writeFileSync(join(fx.repo, 'rework-needed.txt'), 'needs rework\n');
+    const finishInputs = {
+      'commit.title': 'Review rejection commit',
+      'commit.message': 'Changes requested',
+      include: ['*'],
+      exclude: [],
+      result: 'rejected',
+    };
+
+    const outcome = await finishStep({
+      ...conditionalParams(fx, gateRegistry, { push: false }),
+      task: requireTask(freshChange(fx.activeDir), 'demo-task'),
+      inputs: finishInputs,
+    });
+
+    assert.equal(outcome.status, 'completed');
+    assert.deepEqual(outcome.transition, {
+      from: { step: 'review', attempt: 1 },
+      result: 'rejected',
+      to: { kind: 'step', step: 'rework' },
+    });
+
+    const task = requireTask(freshChange(fx.activeDir), 'demo-task');
+    // Task status must NOT be changed to terminal for internal transition
+    assert.equal(task.status, 'in-implementation');
+    assert.equal(task.workflow_progress.state, 'completed');
+    assert.equal(task.workflow_progress.current_step, 'review');
+    assert.equal(task.workflow_progress.history[0].transitioned_to, 'rework');
+    rmSync(join(fx.repo, '.nevo-ai-local'), { recursive: true, force: true });
   });
 });

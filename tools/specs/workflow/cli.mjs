@@ -9,13 +9,16 @@
 // drive these exact handlers end-to-end against a disposable fixture repository
 // (`fixture-repo.test-helper.mjs`) instead of the real checked-out repository.
 
+import { readFileSync } from 'node:fs';
 import { requireChange, requireTask, ROOT, ACTIVE_DIR } from '../store.mjs';
 import { CliError } from '../../lib/cli-errors.mjs';
 import { resolveWorkflowMode, assertWorkflowVersionCompatible } from './compatibility.mjs';
 import { loadWorkflowDefinition } from './definitions/loader.mjs';
-import { compileStepContext } from './step-context.mjs';
+import { compileStepContext, buildFinishContract, validateFinishInputs, aggregateFinalizeCheck } from './step-context.mjs';
 import { planFinish, finishStep } from './finish-operation.mjs';
-import { resolveActiveStepName, gateDisplayId } from './step-runner.mjs';
+import { resolveActiveStepName, resolveWorkflowPosition, gateDisplayId } from './step-runner.mjs';
+import { findInFlightOperationRecord } from './operation-record.mjs';
+import { WorkflowError } from './errors.mjs';
 import { createDefaultGateRegistry } from './registry.mjs';
 import { MemoryCommandVerificationStore } from './gates/command-gate.mjs';
 import { FileHumanVerificationStore } from './human-verification-store.mjs';
@@ -65,24 +68,74 @@ export function resolveWorkflowRuntime(changeSlug, taskId, { activeDir = ACTIVE_
  * to survive within one `verify()` call's own evaluation (Task 06), and the human
  * sign-off reader is file-backed so it survives across the separate `verify-human`
  * invocation (see `human-verification-store.mjs`). */
-export function buildWorkflowGateRegistry(repoRoot, changeSlug, taskId) {
+export function buildWorkflowGateRegistry(repoRoot, changeSlug, taskId, attempt) {
+  const effectiveAttempt = typeof attempt === 'object' ? attempt?.workflow_progress?.current_attempt : attempt;
   return createDefaultGateRegistry({
     commandVerificationStore: new MemoryCommandVerificationStore(),
-    humanVerificationReader: new FileHumanVerificationStore({ repoRoot, change: changeSlug, task: taskId }),
+    humanVerificationReader: new FileHumanVerificationStore({
+      repoRoot,
+      change: changeSlug,
+      task: taskId,
+      attempt: effectiveAttempt,
+    }),
   });
 }
 
-function splitList(value) {
-  return String(value).split(',').map(s => s.trim()).filter(Boolean);
-}
+const OBSOLETE_FLAGS = [
+  'title',
+  'message',
+  'include',
+  'exclude',
+  'result',
+  'artifact',
+  'artifacts',
+];
 
-function buildFinishInputs(opts = {}) {
-  const inputs = {};
-  if (opts.title !== undefined) inputs['commit.title'] = opts.title;
-  if (opts.message !== undefined) inputs['commit.message'] = opts.message;
-  if (opts.include !== undefined) inputs.include = splitList(opts.include);
-  if (opts.exclude !== undefined) inputs.exclude = splitList(opts.exclude);
-  return inputs;
+export function parseFinishInputs(opts = {}) {
+  for (const flag of OBSOLETE_FLAGS) {
+    if (opts[flag] !== undefined) {
+      throw new WorkflowError(
+        `Flag '--${flag}' is obsolete. Provide structured inputs via --input '<json>' or --input-file <path>.`,
+        { code: 'OBSOLETE_INPUT_FLAG' }
+      );
+    }
+  }
+
+  const hasInput = opts.input !== undefined;
+  const hasInputFile = opts.inputFile !== undefined || opts['input-file'] !== undefined;
+
+  if (hasInput && hasInputFile) {
+    throw new WorkflowError('Cannot specify both --input and --input-file; choose one', { code: 'CLI_USAGE_ERROR' });
+  }
+
+  let rawJson;
+  if (hasInput) {
+    rawJson = opts.input;
+  } else if (hasInputFile) {
+    const filePath = opts.inputFile || opts['input-file'];
+    try {
+      rawJson = readFileSync(filePath, 'utf8');
+    } catch (err) {
+      throw new WorkflowError(`Failed to read input file '${filePath}': ${err.message}`, { code: 'INPUT_FILE_READ_ERROR' });
+    }
+  }
+
+  if (rawJson === undefined) {
+    return {};
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch (err) {
+    throw new WorkflowError(`Failed to parse finish input JSON: ${err.message}`, { code: 'INVALID_INPUT_JSON' });
+  }
+
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new WorkflowError('Finish input payload must be a non-null object', { code: 'INVALID_INPUT_JSON' });
+  }
+
+  return parsed;
 }
 
 function emit(payload, opts) {
@@ -94,15 +147,31 @@ function emit(payload, opts) {
 
 export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
   const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
-  const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id);
+  const position = resolveWorkflowPosition(definition, task);
+  const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, position.attempt);
   const stepContext = await compileStepContext({ change, task, definition, context, gateRegistry });
   return emit(stepContext, opts);
 }
 
 export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
+  const inputs = parseFinishInputs(opts);
   const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
-  const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id);
-  const inputs = buildFinishInputs(opts);
+  const inFlight = context.repoRoot ? findInFlightOperationRecord(context.repoRoot, change._slug, task.id) : null;
+  // Task 04 AC1: an in-flight record is authoritative over workflow_progress for choosing
+  // execution identity — resolveWorkflowPosition must not even run when one exists (see
+  // the identical reasoning in finish-operation.mjs's planFinish).
+  const position = inFlight ? null : resolveWorkflowPosition(definition, task);
+  const stepName = inFlight ? inFlight.step : position.step;
+  const attempt = inFlight ? inFlight.attempt : position.attempt;
+  const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, attempt);
+
+  const step = (position?.phase === 'active' || inFlight) ? definition.steps?.[stepName] : null;
+  if (step) {
+    const finalizeCheck = await aggregateFinalizeCheck(step, context);
+    const parameters = buildFinishContract(finalizeCheck, step);
+    const effectiveInputs = inFlight?.resolvedInputs ? { ...inFlight.resolvedInputs, ...inputs } : inputs;
+    validateFinishInputs(effectiveInputs, parameters, { allowMissing: Boolean(opts.check) });
+  }
 
   if (opts.check) {
     const plan = await planFinish({ change, task, definition, context, inputs, gateRegistry });
@@ -160,13 +229,15 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
   // `finish` — only meaningful while that step is actually active. A step whose work is
   // already done (awaiting the next `step start`) or a workflow that's fully complete
   // has nothing outstanding to confirm.
-  const stepName = resolveActiveStepName(definition, task);
-  if (!stepName) {
+  const position = resolveWorkflowPosition(definition, task);
+  if (position.phase !== 'active') {
     throw new CliError(`Task '${task.id}' has no currently active workflow step — there is nothing requiring human verification right now`);
   }
+  const stepName = position.step;
+  const attempt = position.attempt;
   const gateConfig = resolveHumanGateForConfirmation(definition, task, stepName, opts.gate);
   const scope = gateConfig.scope || 'task';
-  const targetId = resolveHumanScopeTarget(scope, { ...context, stepId: stepName });
+  const targetId = resolveHumanScopeTarget(scope, { ...context, stepId: stepName, attempt });
   if (!targetId) {
     throw new CliError(`Could not resolve identity for scope '${scope}' — verify-human cannot record a signoff without an explicit target`);
   }
@@ -175,7 +246,7 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
   // exactly; hardcoding 'owner' here would make a configured non-owner gate (e.g.
   // 'reviewer', 'architect') permanently unsatisfiable via this CLI.
   const role = gateConfig.role || 'owner';
-  const store = new FileHumanVerificationStore({ repoRoot: context.repoRoot, change: change._slug, task: task.id });
-  const record = store.confirm({ scope, targetId, role, stepId: stepName, gateId: gateConfig.id || null });
+  const store = new FileHumanVerificationStore({ repoRoot: context.repoRoot, change: change._slug, task: task.id, attempt });
+  const record = store.confirm({ scope, targetId, role, stepId: stepName, attempt, gateId: gateConfig.id || null });
   return emit({ change: changeSlug, task: taskId, confirmed: true, record }, opts);
 }

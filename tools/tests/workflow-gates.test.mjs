@@ -585,7 +585,7 @@ describe('HumanVerificationGate trusted state and adversarial context rejection'
     assert.equal(capturedQueries.length, 1);
     assert.deepEqual(capturedQueries[0], {
       scope: 'task', targetId: 'my-task', requiredRole: 'owner',
-      changeId: 'my-change', taskId: 'my-task', stepId: 'my-step', gateId: 'my-gate',
+      changeId: 'my-change', taskId: 'my-task', stepId: 'my-step', gateId: 'my-gate', attempt: null,
     });
 
     const verifyResult = await gate.verify(config, context);
@@ -604,7 +604,7 @@ describe('HumanVerificationGate trusted state and adversarial context rejection'
     assert.equal(result.status, 'passed');
   });
 
-  test('changeId/taskId/stepId/gateId are null, never invented, when context/config do not supply them', async () => {
+  test('changeId/taskId/stepId/gateId/attempt are null, never invented, when context/config do not supply them', async () => {
     const capturedQueries = [];
     class SpyReader extends HumanVerificationReader {
       getSignoff(query) {
@@ -618,6 +618,94 @@ describe('HumanVerificationGate trusted state and adversarial context rejection'
     assert.equal(capturedQueries[0].changeId, null);
     assert.equal(capturedQueries[0].stepId, null);
     assert.equal(capturedQueries[0].gateId, null);
+    assert.equal(capturedQueries[0].attempt, null);
     assert.equal(capturedQueries[0].taskId, 'bare-task');
+  });
+
+  describe('deterministic (step, attempt) verification identity and regression cases', () => {
+    test('MemoryHumanVerificationReader: enforces strict attempt matching when query has attempt, preserves legacy signoffs when query has no attempt', () => {
+      // 1. signoff attempt 1, query attempt 1 => returns signoff
+      const reader1 = new MemoryHumanVerificationReader([
+        { confirmed: true, scope: 'task', targetId: 'task-1', role: 'owner', attempt: 1 },
+      ]);
+      const res1 = reader1.getSignoff({ scope: 'task', targetId: 'task-1', requiredRole: 'owner', attempt: 1 });
+      assert.ok(res1);
+      assert.equal(res1.attempt, 1);
+
+      // 2. signoff attempt 1, query attempt 2 => blocked (null)
+      const res2 = reader1.getSignoff({ scope: 'task', targetId: 'task-1', requiredRole: 'owner', attempt: 2 });
+      assert.equal(res2, null);
+
+      // 3. signoff has no attempt, query attempt 2 => blocked (null)
+      const readerLegacy = new MemoryHumanVerificationReader([
+        { confirmed: true, scope: 'task', targetId: 'task-1', role: 'owner' },
+      ]);
+      const res3 = readerLegacy.getSignoff({ scope: 'task', targetId: 'task-1', requiredRole: 'owner', attempt: 2 });
+      assert.equal(res3, null, 'attempt-less signoff must never satisfy an attempt-scoped query');
+
+      // 4. query has no attempt, legacy signoff has no attempt => existing behavior remains valid
+      const res4 = readerLegacy.getSignoff({ scope: 'task', targetId: 'task-1', requiredRole: 'owner' });
+      assert.ok(res4);
+      assert.equal(res4.confirmed, true);
+    });
+
+    test('HumanVerificationGate: final trusted validation independently enforces attempt identity when context carries attempt', async () => {
+      // Proves gate enforces contract itself even if reader unconditionally returns signoff
+      class PermissiveStubReader extends HumanVerificationReader {
+        constructor(signoff) {
+          super();
+          this.signoff = signoff;
+        }
+        getSignoff() {
+          return this.signoff;
+        }
+      }
+
+      // Case 1: signoff attempt 1, query attempt 1 => passed
+      const gate1 = new HumanVerificationGate({
+        verificationReader: new PermissiveStubReader({ confirmed: true, scope: 'task', targetId: 't1', role: 'owner', attempt: 1 }),
+      });
+      const res1 = await gate1.inspect({ required: true, scope: 'task' }, { taskId: 't1', attempt: 1 });
+      assert.equal(res1.status, 'passed');
+
+      // Case 2: signoff attempt 1, query attempt 2 => blocked
+      const res2 = await gate1.inspect({ required: true, scope: 'task' }, { taskId: 't1', attempt: 2 });
+      assert.equal(res2.status, 'blocked');
+
+      // Case 3: signoff has no attempt, query attempt 2 => blocked
+      const gateLegacy = new HumanVerificationGate({
+        verificationReader: new PermissiveStubReader({ confirmed: true, scope: 'task', targetId: 't1', role: 'owner' }),
+      });
+      const res3 = await gateLegacy.inspect({ required: true, scope: 'task' }, { taskId: 't1', attempt: 2 });
+      assert.equal(res3.status, 'blocked', 'gate final validation must reject attempt-less signoff when query has attempt');
+
+      // Case 4: query has no attempt, legacy signoff has no attempt => passed
+      const res4 = await gateLegacy.inspect({ required: true, scope: 'task' }, { taskId: 't1' });
+      assert.equal(res4.status, 'passed');
+    });
+
+    test('HumanVerificationGate with MemoryHumanVerificationReader: end-to-end attempt scoping regression suite', async () => {
+      const reader = new MemoryHumanVerificationReader([
+        { confirmed: true, scope: 'task', targetId: 'attempt-task', role: 'owner', attempt: 1 },
+        { confirmed: true, scope: 'task', targetId: 'legacy-task', role: 'owner' },
+      ]);
+      const gate = new HumanVerificationGate({ verificationReader: reader });
+
+      // signoff attempt 1, query attempt 1 => passed
+      const attempt1 = await gate.inspect({ required: true, scope: 'task' }, { taskId: 'attempt-task', attempt: 1 });
+      assert.equal(attempt1.status, 'passed');
+
+      // signoff attempt 1, query attempt 2 => blocked
+      const attempt2 = await gate.inspect({ required: true, scope: 'task' }, { taskId: 'attempt-task', attempt: 2 });
+      assert.equal(attempt2.status, 'blocked');
+
+      // signoff has no attempt, query attempt 2 => blocked
+      const attemptNoSignoff = await gate.inspect({ required: true, scope: 'task' }, { taskId: 'legacy-task', attempt: 2 });
+      assert.equal(attemptNoSignoff.status, 'blocked');
+
+      // query has no attempt, legacy signoff has no attempt => passed
+      const legacyQuery = await gate.inspect({ required: true, scope: 'task' }, { taskId: 'legacy-task' });
+      assert.equal(legacyQuery.status, 'passed');
+    });
   });
 });

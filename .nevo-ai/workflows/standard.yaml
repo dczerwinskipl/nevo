@@ -3,6 +3,9 @@ title: "Standard Specification Workflow"
 type: standard
 version: 1
 entryStep: implementation
+sourceControl:
+  enabled: true
+  push: true
 steps:
   implementation:
     status:
@@ -44,7 +47,10 @@ steps:
     finalize:
       - id: commit-and-push
     transitions:
-      - to: human-verification
+      - value: pass
+        to: human-verification
+      - value: fail
+        to: implementation
 
   human-verification:
     status:

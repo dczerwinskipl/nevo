@@ -10,6 +10,7 @@ import {
 } from './store.mjs';
 import { resolveWorkflowMode } from './workflow/compatibility.mjs';
 import { loadWorkflowDefinition } from './workflow/definitions/loader.mjs';
+import { KNOWN_TRANSITION_VALUES } from './workflow/definitions/schema.mjs';
 import {
   normalizePullRequestReference, pullRequestReferenceKey,
 } from './pull-requests.mjs';
@@ -273,10 +274,13 @@ export function validateWorkflowProgress(change, task, errors, label, { repoRoot
     return;
   }
 
-  const { current_step: currentStep, state, history } = task.workflow_progress;
+  const { current_step: currentStep, current_attempt: currentAttempt, state, history } = task.workflow_progress;
   if (typeof currentStep !== 'string' || !currentStep.trim()) {
     errors.push(`${label}: workflow_progress.current_step must be a non-empty string`);
     return;
+  }
+  if (currentAttempt === undefined || currentAttempt === null || !Number.isInteger(currentAttempt) || currentAttempt < 1) {
+    errors.push(`${label}: workflow_progress.current_attempt must be an integer >= 1`);
   }
   // D37: the runtime active/completed state axis — required whenever workflow_progress
   // is present at all; never inferred/defaulted (fail-closed, same standard as every
@@ -304,6 +308,138 @@ export function validateWorkflowProgress(change, task, errors, label, { repoRoot
       `${label}: workflow_progress.current_step '${currentStep}' does not name a step declared in ` +
       `workflow definition '${definition.id}'`
     );
+  }
+
+  if (Array.isArray(history)) {
+    const seenStepAttempts = new Set();
+    const stepAttemptLists = new Map();
+
+    history.forEach((h, idx) => {
+      const hLabel = `${label}: workflow_progress.history[${idx}]`;
+      if (!isPlainObject(h)) {
+        errors.push(`${hLabel}: INVALID_WORKFLOW_HISTORY: history record must be an object`);
+        return;
+      }
+      if (!h.step || typeof h.step !== 'string') {
+        errors.push(`${hLabel}: INVALID_WORKFLOW_HISTORY: history record missing or invalid 'step'`);
+        return;
+      }
+
+      if (h.attempt === undefined || h.attempt === null || !Number.isInteger(h.attempt) || h.attempt < 1) {
+        errors.push(`${hLabel}: INVALID_WORKFLOW_HISTORY: attempt must be an integer >= 1`);
+      } else {
+        const key = `${h.step}:${h.attempt}`;
+        if (seenStepAttempts.has(key)) {
+          errors.push(`${hLabel}: INCOHERENT_WORKFLOW_PROGRESS: duplicate attempt ${h.attempt} for step '${h.step}'`);
+        }
+        seenStepAttempts.add(key);
+
+        if (!stepAttemptLists.has(h.step)) {
+          stepAttemptLists.set(h.step, []);
+        }
+        stepAttemptLists.get(h.step).push(h.attempt);
+      }
+
+      if (h.artifacts !== undefined) {
+        if (!Array.isArray(h.artifacts) || !h.artifacts.every(a => typeof a === 'string' && a.trim())) {
+          errors.push(`${hLabel}: INVALID_WORKFLOW_HISTORY: artifacts must be an array of non-empty strings`);
+        }
+      }
+
+      const stepDef = definition.steps ? definition.steps[h.step] : undefined;
+      if (!stepDef) {
+        errors.push(
+          `${hLabel}: INVALID_WORKFLOW_HISTORY: step '${h.step}' is not declared in workflow definition '${definition.id}'`
+        );
+        return;
+      }
+
+      const transitions = stepDef.transitions || [];
+      const isUnconditional = transitions.length === 1 && transitions[0].value === undefined;
+
+      if (isUnconditional) {
+        if (h.result !== undefined) {
+          errors.push(
+            `${hLabel}: INVALID_WORKFLOW_HISTORY: step '${h.step}' is unconditional but history record specifies result '${h.result}'`
+          );
+        }
+        const expectedTarget = transitions[0].to;
+        if (h.transitioned_to !== expectedTarget) {
+          errors.push(
+            `${hLabel}: INVALID_WORKFLOW_HISTORY: step '${h.step}' transitioned_to '${h.transitioned_to}' does not match unconditional transition target '${expectedTarget}'`
+          );
+        }
+      } else {
+        if (typeof h.result !== 'string' || !h.result.trim()) {
+          errors.push(
+            `${hLabel}: INVALID_WORKFLOW_HISTORY: conditional step '${h.step}' requires a non-empty string 'result'`
+          );
+        } else {
+          if (!KNOWN_TRANSITION_VALUES.has(h.result)) {
+            errors.push(
+              `${hLabel}: INVALID_WORKFLOW_HISTORY: result '${h.result}' is outside v1 allowed transition values (${[...KNOWN_TRANSITION_VALUES].join(', ')})`
+            );
+          }
+          const matchedTransition = transitions.find(t => t.value === h.result);
+          if (!matchedTransition) {
+            errors.push(
+              `${hLabel}: INVALID_WORKFLOW_HISTORY: conditional step '${h.step}' has undeclared result '${h.result}'`
+            );
+          } else {
+            if (h.transitioned_to !== matchedTransition.to) {
+              errors.push(
+                `${hLabel}: INVALID_WORKFLOW_HISTORY: conditional step '${h.step}' with result '${h.result}' has mismatched transitioned_to '${h.transitioned_to}' (expected '${matchedTransition.to}')`
+              );
+            }
+          }
+        }
+      }
+    });
+
+    for (const [stepName, attempts] of stepAttemptLists.entries()) {
+      for (let i = 0; i < attempts.length; i++) {
+        if (attempts[i] !== i + 1) {
+          errors.push(
+            `${label}: INCOHERENT_WORKFLOW_PROGRESS: non-contiguous attempt sequence for step '${stepName}' (expected ${i + 1}, got ${attempts[i]})`
+          );
+          break;
+        }
+      }
+    }
+
+    if (currentAttempt !== undefined && Number.isInteger(currentAttempt) && currentAttempt >= 1) {
+      const stepCount = history.filter(h => h.step === currentStep).length;
+      if (state === 'active' && currentAttempt !== stepCount + 1) {
+        errors.push(
+          `${label}: INCOHERENT_WORKFLOW_PROGRESS: active step '${currentStep}' has current_attempt ${currentAttempt}, expected ${stepCount + 1}`
+        );
+      }
+      if (state === 'completed' && currentAttempt !== stepCount) {
+        errors.push(
+          `${label}: INCOHERENT_WORKFLOW_PROGRESS: completed step '${currentStep}' has current_attempt ${currentAttempt}, expected ${stepCount}`
+        );
+      }
+    }
+
+    if (state === 'completed') {
+      if (history.length === 0) {
+        errors.push(`${label}: INCOHERENT_WORKFLOW_PROGRESS: state is 'completed' but history is empty`);
+      } else {
+        const latest = history[history.length - 1];
+        if (latest && isPlainObject(latest)) {
+          if (latest.step !== currentStep) {
+            errors.push(
+              `${label}: INCOHERENT_WORKFLOW_PROGRESS: latest history record step '${latest.step}' does not match current_step '${currentStep}'`
+            );
+          }
+          if (latest.attempt !== currentAttempt) {
+            errors.push(
+              `${label}: INCOHERENT_WORKFLOW_PROGRESS: latest history record attempt ${latest.attempt} does not match current_attempt ${currentAttempt}`
+            );
+          }
+        }
+      }
+    }
   }
 }
 

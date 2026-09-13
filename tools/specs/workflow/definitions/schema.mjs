@@ -5,6 +5,7 @@ import { TERMINAL_STATUSES } from '../../lifecycle-primitives.mjs';
 
 export const KNOWN_GATE_TYPES = new Set(['command', 'markdown', 'human']);
 export const KNOWN_COMMAND_ACTIONS = defaultCommandCatalog.asSet();
+export const KNOWN_TRANSITION_VALUES = new Set(['pass', 'fail', 'blocked']);
 
 // D30: safe identifier contract for every workflow-definition-declared logical
 // id — step keys, `entryStep`, a step-name-shaped transition target, and any
@@ -458,14 +459,57 @@ export function validateWorkflowDefinition(definition, options = {}) {
       }
     }
 
-    // D27: exactly one transition per step — every step, not a "non-terminal" subset
-    // (there is no separate schema shape for terminal vs. non-terminal; "terminal" is
-    // derived at resolution time from whether the one transition's `to` matches a step).
-    if (!Array.isArray(stepConfig.transitions) || stepConfig.transitions.length !== 1) {
-      const got = Array.isArray(stepConfig.transitions) ? stepConfig.transitions.length : 'none';
-      errors.push(`${stepLabel}.transitions: must declare exactly one transition, got ${got}`);
+    // D2/C2: dual-mode transitions (unconditional vs result-driven).
+    // Exactly one unconditional transition ({ to }), or two or more result-driven
+    // transitions ({ value, to }). Mixing conditional and unconditional is rejected.
+    // Single conditional transitions are rejected.
+    const transitions = stepConfig.transitions;
+    if (!Array.isArray(transitions) || transitions.length === 0) {
+      const got = Array.isArray(transitions) ? transitions.length : 'none';
+      errors.push(`${stepLabel}.transitions: must declare at least one transition, got ${got}`);
+    } else if (transitions.length === 1) {
+      const t = transitions[0];
+      if (!isPlainObject(t) && typeof t !== 'string') {
+        errors.push(`${stepLabel}.transitions[0]: transition must be an object`);
+      } else {
+        if (isPlainObject(t) && t.value !== undefined) {
+          errors.push(`${stepLabel}.transitions[0]: single transition must be unconditional and cannot specify 'value'`);
+        }
+        validateTransitionDefinition(t, `${stepLabel}.transitions[0]`, errors, { stepNames });
+      }
     } else {
-      validateTransitionDefinition(stepConfig.transitions[0], `${stepLabel}.transitions[0]`, errors, { stepNames });
+      const hasValueCount = transitions.filter(t => isPlainObject(t) && t.value !== undefined).length;
+      if (hasValueCount > 0 && hasValueCount < transitions.length) {
+        errors.push(`${stepLabel}.transitions: cannot mix conditional and unconditional transitions within the same step`);
+      }
+      const seenValues = new Set();
+      transitions.forEach((t, idx) => {
+        const transLabel = `${stepLabel}.transitions[${idx}]`;
+        if (!isPlainObject(t) && typeof t !== 'string') {
+          errors.push(`${transLabel}: transition must be an object`);
+          return;
+        }
+        if (typeof t === 'string' || t.value === undefined) {
+          errors.push(`${transLabel}: multiple transitions must each declare a 'value'`);
+        } else {
+          const val = t.value;
+          if (typeof val !== 'string' || !val.trim()) {
+            errors.push(`${transLabel}.value: must be a non-empty string`);
+          } else {
+            validateSafeIdentifier(val, `${transLabel}.value`, errors);
+            if (!KNOWN_TRANSITION_VALUES.has(val)) {
+              errors.push(
+                `${transLabel}.value: unknown transition value '${val}' (expected one of: ${[...KNOWN_TRANSITION_VALUES].join(', ')})`
+              );
+            }
+            if (seenValues.has(val)) {
+              errors.push(`${transLabel}.value: duplicate transition value '${val}'`);
+            }
+            seenValues.add(val);
+          }
+        }
+        validateTransitionDefinition(t, transLabel, errors, { stepNames });
+      });
     }
 
     validateStepBehaviorContract(stepConfig, stepLabel, errors);
@@ -513,7 +557,15 @@ export function normalizeWorkflowDefinition(definition) {
       actions: (stepConfig.actions || []).map(a => (typeof a === 'string' ? { id: a } : { ...a })),
       exitGates: (stepConfig.exitGates || []).map(g => (typeof g === 'string' ? { type: g } : { ...g })),
       finalize: (stepConfig.finalize || []).map(a => (typeof a === 'string' ? { id: a } : { ...a })),
-      transitions: (stepConfig.transitions || []).map(t => (typeof t === 'string' ? { to: t } : { ...t })),
+      transitions: (stepConfig.transitions || []).map(t => {
+        if (typeof t === 'string') return { to: t };
+        const norm = {};
+        if (t.value !== undefined) {
+          norm.value = t.value;
+        }
+        norm.to = t.to;
+        return norm;
+      }),
       ...(stepConfig.purpose !== undefined ? { purpose: stepConfig.purpose } : {}),
       ...(stepConfig.expectedWork !== undefined ? { expectedWork: stepConfig.expectedWork } : {}),
       ...(stepConfig.hints !== undefined ? { hints: stepConfig.hints } : {}),

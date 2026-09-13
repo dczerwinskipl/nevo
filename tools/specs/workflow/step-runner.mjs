@@ -47,7 +47,8 @@ export function resolveWorkflowPosition(definition, task) {
     throw new WorkflowError(`Workflow definition '${definition?.id}' has no steps`);
   }
 
-  const currentStep = task?.workflow_progress?.current_step;
+  const wp = task?.workflow_progress;
+  const currentStep = wp?.current_step;
   if (!currentStep) {
     return { phase: 'new' };
   }
@@ -59,23 +60,47 @@ export function resolveWorkflowPosition(definition, task) {
     );
   }
 
-  const state = task.workflow_progress.state;
-  if (state === 'active') {
-    return { phase: 'active', step: currentStep };
+  const currentAttempt = wp.current_attempt;
+  if (currentAttempt === undefined || currentAttempt === null || !Number.isInteger(currentAttempt) || currentAttempt < 1) {
+    throw new WorkflowError(
+      `Task's workflow_progress.current_attempt must be an integer >= 1 for step '${currentStep}', got ${JSON.stringify(currentAttempt)}`,
+      { code: 'INVALID_WORKFLOW_PROGRESS_ATTEMPT', step: currentStep, current_attempt: currentAttempt }
+    );
   }
-  if (state !== 'completed') {
+
+  const state = wp.state;
+  if (state !== 'active' && state !== 'completed') {
     throw new WorkflowError(
       `Task's workflow_progress.state must be 'active' or 'completed' for step '${currentStep}', got ${JSON.stringify(state)}`,
       { code: 'INVALID_WORKFLOW_PROGRESS_STATE', step: currentStep, state }
     );
   }
 
-  const step = definition.steps[currentStep];
-  const to = step.transitions[0].to; // exactly one, guaranteed by D27 schema validation
-  const isInternalTransition = Object.prototype.hasOwnProperty.call(definition.steps, to);
+  if (state === 'active') {
+    return { phase: 'active', step: currentStep, attempt: currentAttempt };
+  }
+
+  const history = Array.isArray(wp.history) ? wp.history : [];
+  if (history.length === 0) {
+    throw new WorkflowError(
+      `Incoherent workflow progress: state is 'completed' for step '${currentStep}' but history is empty`,
+      { code: 'INCOHERENT_WORKFLOW_PROGRESS', currentStep, currentAttempt }
+    );
+  }
+
+  const lastEntry = history[history.length - 1];
+  if (!lastEntry || lastEntry.step !== currentStep || lastEntry.attempt !== currentAttempt) {
+    throw new WorkflowError(
+      `Incoherent workflow progress: latest history record (step '${lastEntry?.step}', attempt ${lastEntry?.attempt}) does not match current step '${currentStep}', attempt ${currentAttempt}`,
+      { code: 'INCOHERENT_WORKFLOW_PROGRESS', currentStep, currentAttempt, lastEntry }
+    );
+  }
+
+  const to = lastEntry.transitioned_to;
+  const isInternalTransition = to && Object.prototype.hasOwnProperty.call(definition.steps, to);
   return isInternalTransition
-    ? { phase: 'completed', step: currentStep, nextStep: to }
-    : { phase: 'terminal', step: currentStep };
+    ? { phase: 'completed', step: currentStep, attempt: currentAttempt, nextStep: to }
+    : { phase: 'terminal', step: currentStep, attempt: currentAttempt };
 }
 
 /**

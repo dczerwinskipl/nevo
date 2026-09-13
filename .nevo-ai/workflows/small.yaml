@@ -2,6 +2,9 @@ id: small-v1
 title: "Small Specification Workflow"
 type: small
 version: 1
+sourceControl:
+  enabled: true
+  push: true
 steps:
   implementation:
     status:
