@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-13T12:48:08.170Z",
+  "generated": "2026-09-13T12:59:39.096Z",
   "changes": [
     {
       "id": "result-driven-transitions",
@@ -162,10 +162,39 @@
           "id": "result-driven-finish-and-discriminated-transitions",
           "order": 4,
           "file": "tasks/04-result-driven-finish-and-discriminated-transitions.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "canonical-finish-contract-and-generic-cli-input"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "51e0e4bd7fca267a383589d10e602d770e2219df",
+            "review_revision": "0ffef740688087bd060bee101a225fe01c05def9",
+            "changed_paths": [
+              "specs/active/result-driven-transitions/change.yaml",
+              "tools/specs/workflow/finish-operation.mjs",
+              "tools/tests/workflow-finish-operation.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "4fc8e01f4840d3f96aa83a694762cd39af513e10dcd4cde244828d6d5de4c689"
+          },
+          "self_check": {
+            "fingerprint": "630c0d70b4272af9af8c051673fde20dc1e6a80163d3583ef48a74599231a0ab",
+            "revision": "0ffef740688087bd060bee101a225fe01c05def9",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-finish-operation.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-step-runner.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "standard-workflow-review-loop-and-e2e-proof",
