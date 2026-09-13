@@ -46,7 +46,7 @@ tasks:
   - id: result-driven-finish-and-discriminated-transitions
     order: 4
     file: tasks/04-result-driven-finish-and-discriminated-transitions.md
-    status: draft
+    status: approved
     depends_on:
       - canonical-finish-contract-and-generic-cli-input
 

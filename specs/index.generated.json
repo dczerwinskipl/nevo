@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-13T12:15:15.558Z",
+  "generated": "2026-09-13T12:15:21.191Z",
   "changes": [
     {
       "id": "result-driven-transitions",
@@ -38,7 +38,7 @@
           "id": "result-driven-finish-and-discriminated-transitions",
           "order": 4,
           "file": "tasks/04-result-driven-finish-and-discriminated-transitions.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "canonical-finish-contract-and-generic-cli-input"
           ]
