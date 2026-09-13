@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-13T12:15:27.826Z",
+  "generated": "2026-09-13T12:19:07.602Z",
   "changes": [
     {
       "id": "result-driven-transitions",
@@ -13,7 +13,38 @@
           "id": "workflow-definition-transitions-and-history-validation",
           "order": 1,
           "file": "tasks/01-workflow-definition-transitions-and-history-validation.md",
-          "status": "approved"
+          "status": "in-implementation",
+          "implementation": {
+            "baseline_revision": "3f870014966969d2379468ff9d8dbe3c68c5d68b",
+            "review_revision": "3f870014966969d2379468ff9d8dbe3c68c5d68b",
+            "changed_paths": [
+              "specs/active/result-driven-transitions/change.yaml",
+              "tools/specs/validation.mjs",
+              "tools/specs/workflow/definitions/schema.mjs",
+              "tools/tests/workflow-compatibility.test.mjs",
+              "tools/tests/workflow-definitions.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "7333a257a2e115ab7ecde5fefa87c2f03b7cbf740802d07a61081db006d1af56"
+          },
+          "self_check": {
+            "fingerprint": "8fd7c463e7e923aaa2464f6a388bce44ea5ce05ba40677b9435bfb8a352b5e8c",
+            "revision": "3f870014966969d2379468ff9d8dbe3c68c5d68b",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-definitions.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-compatibility.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "attempt-lifecycle-and-scoped-storage",

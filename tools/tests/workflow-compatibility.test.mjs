@@ -907,17 +907,17 @@ describe('Transition cardinality and terminal-target correctness (D19 refined/D2
     const raw = { id: 'card-v1', steps: { implementation: { actions: [{ id: 'a' }], transitions: [] } } };
     const { valid, errors } = validateWorkflowDefinition(raw);
     assert.equal(valid, false);
-    assert.ok(errors.some(e => /transitions: must declare exactly one transition, got 0/.test(e)));
+    assert.ok(errors.some(e => /transitions: must declare at least one transition, got 0/.test(e)));
   });
 
-  test('a step declaring more than one transition fails validation', () => {
+  test('a step declaring more than one transition without values fails validation', () => {
     const raw = {
       id: 'card-v1',
       steps: { implementation: { actions: [{ id: 'a' }], transitions: [{ to: 'verified' }, { to: 'archived' }] } },
     };
     const { valid, errors } = validateWorkflowDefinition(raw);
     assert.equal(valid, false);
-    assert.ok(errors.some(e => /transitions: must declare exactly one transition, got 2/.test(e)));
+    assert.ok(errors.some(e => /multiple transitions must each declare a 'value'/.test(e)));
   });
 
   test('a step declaring exactly one transition validates successfully', () => {
@@ -1097,6 +1097,142 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
       );
     } finally {
       rmSync(activeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('AC7: history containing records for undeclared steps fails closed with INVALID_WORKFLOW_HISTORY', () => {
+    const errors = [];
+    const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } };
+    const task = {
+      id: 't1',
+      workflow_progress: {
+        current_step: 'implementation',
+        state: 'active',
+        history: [{ step: 'undeclared-step', transitioned_to: 'review' }],
+      },
+    };
+    validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /INVALID_WORKFLOW_HISTORY/);
+    assert.match(errors[0], /step 'undeclared-step' is not declared in workflow definition/);
+  });
+
+  test('AC7: unconditional step with result fails closed with INVALID_WORKFLOW_HISTORY', () => {
+    const errors = [];
+    const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } };
+    const task = {
+      id: 't1',
+      workflow_progress: {
+        current_step: 'review',
+        state: 'active',
+        history: [{ step: 'implementation', result: 'pass', transitioned_to: 'review' }],
+      },
+    };
+    validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /INVALID_WORKFLOW_HISTORY/);
+    assert.match(errors[0], /is unconditional but history record specifies result 'pass'/);
+  });
+
+  test('AC7: unconditional step with mismatched transition target fails closed with INVALID_WORKFLOW_HISTORY', () => {
+    const errors = [];
+    const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'standard' } };
+    const task = {
+      id: 't1',
+      workflow_progress: {
+        current_step: 'review',
+        state: 'active',
+        history: [{ step: 'implementation', transitioned_to: 'verified' }],
+      },
+    };
+    validateWorkflowProgress(change, task, errors, 'label', { repoRoot: REPO_ROOT });
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /INVALID_WORKFLOW_HISTORY/);
+    assert.match(errors[0], /transitioned_to 'verified' does not match unconditional transition target 'review'/);
+  });
+
+  test('AC7: conditional step history validation (undeclared results, mismatched targets, and valid runs)', () => {
+    const tempRepo = mkdtempSync(join(tmpdir(), 'nevo-cond-workflow-'));
+    const wfDir = join(tempRepo, WORKFLOWS_REL_DIR);
+    mkdirSync(wfDir, { recursive: true });
+    try {
+      writeFileSync(
+        join(wfDir, 'branching.yaml'),
+        [
+          'id: branching',
+          'title: Branching',
+          'steps:',
+          '  impl:',
+          '    status: { active: implementing, completed: implemented }',
+          '    transitions:',
+          '      - to: rev',
+          '  rev:',
+          '    status: { active: reviewing, completed: reviewed }',
+          '    transitions:',
+          '      - value: pass',
+          '        to: verified',
+          '      - value: fail',
+          '        to: impl',
+        ].join('\n')
+      );
+
+      const change = { id: 'c', workflow: { mode: 'deterministic', definition: 'branching' } };
+
+      // 1. Missing result on conditional step
+      const errs1 = [];
+      validateWorkflowProgress(
+        change,
+        { id: 't1', workflow_progress: { current_step: 'rev', state: 'active', history: [{ step: 'rev', transitioned_to: 'verified' }] } },
+        errs1,
+        'label',
+        { repoRoot: tempRepo }
+      );
+      assert.ok(errs1.some(e => /INVALID_WORKFLOW_HISTORY.*requires a non-empty string 'result'/.test(e)));
+
+      // 2. Undeclared result on conditional step
+      const errs2 = [];
+      validateWorkflowProgress(
+        change,
+        { id: 't1', workflow_progress: { current_step: 'rev', state: 'active', history: [{ step: 'rev', result: 'blocked', transitioned_to: 'verified' }] } },
+        errs2,
+        'label',
+        { repoRoot: tempRepo }
+      );
+      assert.ok(errs2.some(e => /INVALID_WORKFLOW_HISTORY.*has undeclared result 'blocked'/.test(e)));
+
+      // 3. Mismatched transition target for declared result
+      const errs3 = [];
+      validateWorkflowProgress(
+        change,
+        { id: 't1', workflow_progress: { current_step: 'rev', state: 'active', history: [{ step: 'rev', result: 'pass', transitioned_to: 'impl' }] } },
+        errs3,
+        'label',
+        { repoRoot: tempRepo }
+      );
+      assert.ok(errs3.some(e => /INVALID_WORKFLOW_HISTORY.*has mismatched transitioned_to 'impl' \(expected 'verified'\)/.test(e)));
+
+      // 4. Valid history records
+      const errs4 = [];
+      validateWorkflowProgress(
+        change,
+        {
+          id: 't1',
+          workflow_progress: {
+            current_step: 'impl',
+            state: 'active',
+            history: [
+              { step: 'impl', transitioned_to: 'rev' },
+              { step: 'rev', result: 'fail', transitioned_to: 'impl' },
+            ],
+          },
+        },
+        errs4,
+        'label',
+        { repoRoot: tempRepo }
+      );
+      assert.deepEqual(errs4, []);
+    } finally {
+      rmSync(tempRepo, { recursive: true, force: true });
     }
   });
 });
