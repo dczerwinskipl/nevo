@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-13T12:35:45.911Z",
+  "generated": "2026-09-13T12:37:12.014Z",
   "changes": [
     {
       "id": "result-driven-transitions",
@@ -50,13 +50,13 @@
           "id": "attempt-lifecycle-and-scoped-storage",
           "order": 2,
           "file": "tasks/02-attempt-lifecycle-and-scoped-storage.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "workflow-definition-transitions-and-history-validation"
           ],
           "implementation": {
             "baseline_revision": "9597987f809e608f3eef0539c321626e4e9f493c",
-            "review_revision": "9597987f809e608f3eef0539c321626e4e9f493c",
+            "review_revision": "c70d62bb91a5bb225ebd6bd9a56fbecd2658b013",
             "changed_paths": [
               "specs/active/result-driven-transitions/change.yaml",
               "tools/specs/validation.mjs",
@@ -74,11 +74,11 @@
               "tools/tests/workflow-operation-record.test.mjs",
               "tools/tests/workflow-step-runner.test.mjs"
             ],
-            "worktree_patch_fingerprint": "163adc21ba206d9782020d7ca008f04972caf71834aee1fb993be88d3974ae51"
+            "worktree_patch_fingerprint": "71a94385230043f78604df001ab431b808f9a1c91be029f7dd634edbb904b6ad"
           },
           "self_check": {
             "fingerprint": "58b8cb2467c888ccb3b66ac5009c6d08bd3495b901de52fc3b6e07b8a61ce261",
-            "revision": "9597987f809e608f3eef0539c321626e4e9f493c",
+            "revision": "c70d62bb91a5bb225ebd6bd9a56fbecd2658b013",
             "commands": [
               {
                 "command": "node --test tools/tests/workflow-step-runner.test.mjs",
