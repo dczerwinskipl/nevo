@@ -4,6 +4,8 @@
 // `sourceControl.remote` only identifies which provider *would* be used for a future
 // provider-specific capability (D12).
 
+import { relative, join } from 'node:path';
+import { statSync, readdirSync } from 'node:fs';
 import { ActionContract, ActionCheckResult, ActionExecuteResult } from '../contracts.mjs';
 import { PreconditionError, WorkflowError } from '../errors.mjs';
 import { normalizeSourceControlConfig } from '../definitions/schema.mjs';
@@ -38,6 +40,14 @@ const EXCLUDE_SCHEMA = {
   description: 'File paths or globs to exclude from staging',
 };
 
+const ARTIFACTS_SCHEMA = {
+  name: 'artifacts',
+  type: 'array',
+  required: false,
+  description: 'Optional declared artifacts produced by the task step',
+};
+
+
 // Same shape as tools/specs/lifecycle/recovery.mjs's pathMatchesAllowedPattern, plus a
 // bare '*'/'**' "match everything" case — commit-and-push's own `include`/`exclude`
 // contract explicitly allows `include: ['*']` (D4/D6), which an allowed_paths-style
@@ -67,6 +77,34 @@ function resolveFileSelection(paths, patterns) {
 function shortLog(entries) {
   return entries.map(c => `${c.sha.slice(0, 7)} ${c.subject}`);
 }
+
+function expandDirtyPaths(repoRoot, paths) {
+  const result = [];
+  for (const p of paths) {
+    const full = join(repoRoot, p);
+    try {
+      if (statSync(full).isDirectory()) {
+        const readdirRecursive = (dir, rel) => {
+          for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            const entryRel = rel ? `${rel}/${entry.name}` : entry.name;
+            if (entry.isDirectory()) {
+              readdirRecursive(join(dir, entry.name), entryRel);
+            } else {
+              result.push(entryRel.replace(/\\/g, '/'));
+            }
+          }
+        };
+        readdirRecursive(full, p.replace(/\/+$/, ''));
+        continue;
+      }
+    } catch {
+      // ignore
+    }
+    result.push(p.replace(/\\/g, '/'));
+  }
+  return result;
+}
+
 
 /**
  * Fail-closed source-control commit/push action. `check(context)` never mutates
@@ -115,7 +153,8 @@ export class CommitAndPushAction extends ActionContract {
     const baseBranch = context.baseBranch || 'main';
     const currentBranch = git.getCurrentBranch(repoRoot);
     const changedFiles = git.getDirtyFiles(repoRoot);
-    const dirtyPaths = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
+    const rawDirtyPaths = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
+    const dirtyPaths = expandDirtyPaths(repoRoot, rawDirtyPaths);
     const summary = git.getWorkingTreeSummary(repoRoot);
     const stagedFiles = summary.files
       .filter(f => f.status[0] !== ' ' && f.status[0] !== '?')
@@ -144,12 +183,12 @@ export class CommitAndPushAction extends ActionContract {
     }
 
     const isDirty = dirtyPaths.length > 0;
-    const titleSchema = { ...COMMIT_TITLE_SCHEMA, required: isDirty };
+    const titleSchema = COMMIT_TITLE_SCHEMA;
     const includeSchema = { ...INCLUDE_SCHEMA, required: false };
 
     return new ActionCheckResult({
       actionId: this.id,
-      requiredInputs: [titleSchema, COMMIT_MESSAGE_SCHEMA, includeSchema, EXCLUDE_SCHEMA],
+      requiredInputs: [titleSchema, COMMIT_MESSAGE_SCHEMA, includeSchema, EXCLUDE_SCHEMA, ARTIFACTS_SCHEMA],
       context: factualContext,
       ready: true,
       summary: isDirty ? 'Ready to commit changes.' : 'Working tree clean; ready for clean noop commit.',
@@ -162,7 +201,8 @@ export class CommitAndPushAction extends ActionContract {
       throw new WorkflowError(`Action '${this.id}' executeValidated(inputs, context) requires context.repoRoot`);
     }
 
-    const dirtyPaths = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
+    const rawDirtyPaths = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
+    const dirtyPaths = expandDirtyPaths(repoRoot, rawDirtyPaths);
 
     if (dirtyPaths.length === 0) {
       const sha = git.getCurrentRevision(repoRoot);
@@ -179,6 +219,42 @@ export class CommitAndPushAction extends ActionContract {
         outputs,
         summary: summaryText,
       });
+    }
+
+    const taskAllowedPaths = Array.isArray(context.taskAllowedPaths)
+      ? context.taskAllowedPaths
+      : (Array.isArray(context.allowedPaths) ? context.allowedPaths : null);
+
+    if (Array.isArray(taskAllowedPaths) && taskAllowedPaths.length > 0) {
+      const allowedPatterns = [...taskAllowedPaths];
+      const changeSlug = context.changeSlug || context.changeId;
+      if (changeSlug) {
+        if (context.activeDir && context.repoRoot) {
+          const relActive = relative(context.repoRoot, join(context.activeDir, changeSlug, 'change.yaml')).replace(/\\/g, '/');
+          allowedPatterns.push(relActive);
+        } else {
+          allowedPatterns.push(`specs/active/${changeSlug}/change.yaml`);
+          allowedPatterns.push(`**/${changeSlug}/change.yaml`);
+        }
+      }
+      const declaredArtifacts = [
+        ...(Array.isArray(context.artifacts) ? context.artifacts : []),
+        ...(Array.isArray(inputs.artifacts) ? inputs.artifacts : []),
+      ];
+      for (const art of declaredArtifacts) {
+        if (typeof art === 'string') allowedPatterns.push(art.replace(/\\/g, '/'));
+      }
+      const outOfScopePaths = dirtyPaths.filter(p => !allowedPatterns.some(pattern => matchesFileSelectionPattern(p, pattern)));
+      if (outOfScopePaths.length > 0) {
+        throw new WorkflowError(
+          `Working tree contains changes outside task allowed_paths (${outOfScopePaths.join(', ')}): ${outOfScopePaths.join(', ')}`,
+          {
+            code: 'OUT_OF_SCOPE_WORKTREE_CHANGES',
+            outOfScopePaths,
+            allowedPaths: taskAllowedPaths,
+          }
+        );
+      }
     }
 
     const title = typeof inputs['commit.title'] === 'string' ? inputs['commit.title'].trim() : '';
@@ -221,7 +297,8 @@ export class CommitAndPushAction extends ActionContract {
     const outputs = { commit: { sha, status: 'completed' } };
 
     if (isDefaultInclude || context.verifyCleanTree) {
-      const remainingDirty = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
+      const remainingRaw = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
+      const remainingDirty = expandDirtyPaths(repoRoot, remainingRaw);
       if (remainingDirty.length > 0) {
         throw new WorkflowError(
           `Working tree is not clean after commit: ${remainingDirty.join(', ')}`,

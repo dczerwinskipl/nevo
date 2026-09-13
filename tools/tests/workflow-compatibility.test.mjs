@@ -294,10 +294,13 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit re
     assert.ok(standardDef.steps['human-verification']);
     const hv = standardDef.steps['human-verification'];
     assert.deepEqual(hv.status, { active: 'awaiting-human-verification', completed: 'completed' });
-    assert.equal(hv.exitGates.length, 1);
-    assert.deepEqual(hv.exitGates[0], { type: 'human', required: true, id: 'owner-acceptance' });
+    assert.equal(hv.exitGates.length, 0);
+    assert.deepEqual(hv.exitGates, []);
     assert.deepEqual(hv.finalize, [{ id: 'commit-and-push' }]);
-    assert.deepEqual(hv.transitions, [{ to: 'verified' }]);
+    assert.deepEqual(hv.transitions, [
+      { value: 'pass', to: 'verified' },
+      { value: 'fail', to: 'implementation' },
+    ]);
   });
 
   test('repository definitions exist in .nevo-ai/workflows/ and parse cleanly', () => {

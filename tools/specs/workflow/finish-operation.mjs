@@ -14,7 +14,7 @@ import { normalizeSourceControlConfig } from './definitions/schema.mjs';
 import { defaultActionRegistry, defaultGateRegistry } from './registry.mjs';
 import { defaultWorkflowEngine } from './engine.mjs';
 import { resolveActiveStepName, resolveWorkflowPosition, inspectGates, verifyGates, allGatesPassed } from './step-runner.mjs';
-import { aggregateFinalizeCheck, buildFinishContract, normalizeSourceControlFacts } from './step-context.mjs';
+import { aggregateFinalizeCheck, buildFinishContract, normalizeSourceControlFacts, resolveTaskScope } from './step-context.mjs';
 import { WorkflowError, PreconditionError } from './errors.mjs';
 import * as git from '../../lib/git.mjs';
 // ── Durable operation record I/O (D23: step-aware identity) ─────────────────
@@ -198,7 +198,9 @@ export async function planFinish({
     throw new WorkflowError(`Step '${stepName}' is not declared in workflow definition '${definition?.id}'`);
   }
 
-  const finalizeCheck = await aggregateFinalizeCheck(step, context, { engine, actionRegistry });
+  const taskAllowedPaths = context.taskAllowedPaths || context.allowedPaths || (task && change ? resolveTaskScope(change, task, context).allowedPaths : null);
+  const checkContext = taskAllowedPaths !== null ? { ...context, taskAllowedPaths, allowedPaths: taskAllowedPaths } : context;
+  const finalizeCheck = await aggregateFinalizeCheck(step, checkContext, { engine, actionRegistry });
   const requiredInputs = buildFinishContract(finalizeCheck, step);
 
   const { resolved, conflicts } = mergeResolvedInputs(existingRecord?.resolvedInputs, inputs);
@@ -578,7 +580,13 @@ async function ensureCommit(record, context, repoRoot) {
   // `tools/lib/git.mjs`, since the commit-and-push action cannot be safely re-invoked for
   // "push only" once the worktree is already clean (its `include` contract requires
   // matching dirty files).
-  const actionContext = { ...context, sourceControl: { enabled: true, push: false } };
+  const taskAllowedPaths = context.taskAllowedPaths || context.allowedPaths || null;
+  const actionContext = {
+    ...context,
+    artifacts: record.resolvedInputs?.artifacts || context.artifacts || [],
+    ...(taskAllowedPaths !== null ? { taskAllowedPaths, allowedPaths: taskAllowedPaths } : {}),
+    sourceControl: { enabled: true, push: false },
+  };
   const checkResult = await action.check(actionContext);
   const actionKeys = new Set((checkResult.requiredInputs || []).map(s => s.name));
   const actionInputs = {};
@@ -685,7 +693,10 @@ export async function finishStep({
   const changeSlug = change._slug || change.id;
   const resolvedActiveDir = activeDir || context.activeDir;
 
-  const plan = await planFinish({ change, task, definition, context, inputs, engine, gateRegistry, actionRegistry });
+  const taskAllowedPaths = context.taskAllowedPaths || context.allowedPaths || (task && change ? resolveTaskScope(change, task, context).allowedPaths : null);
+  const effectiveContext = taskAllowedPaths !== null ? { ...context, taskAllowedPaths, allowedPaths: taskAllowedPaths } : context;
+
+  const plan = await planFinish({ change, task, definition, context: effectiveContext, inputs, engine, gateRegistry, actionRegistry });
 
   if (plan.status === 'already-complete') {
     return { status: 'already-complete' };
@@ -744,10 +755,10 @@ export async function finishStep({
   const step = definition.steps[record.step];
 
   try {
-    await ensureVerifyGates(record, step, context, gateRegistry, repoRoot);
+    await ensureVerifyGates(record, step, effectiveContext, gateRegistry, repoRoot);
     await ensureUpdateTask(record, definition, resolvedActiveDir, changeSlug, task.id, repoRoot);
-    await ensureCommit(record, context, repoRoot);
-    await ensurePush(record, context, repoRoot);
+    await ensureCommit(record, effectiveContext, repoRoot);
+    await ensurePush(record, effectiveContext, repoRoot);
     await ensureTransition(record, definition);
   } catch (err) {
     if (err instanceof FinishStageOutcome) {

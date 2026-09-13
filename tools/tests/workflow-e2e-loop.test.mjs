@@ -343,20 +343,7 @@ describe('Production standard workflow review loop and multi-attempt E2E proof (
     assert.equal(task.workflow_progress.history[3].transitioned_to, 'human-verification');
   });
 
-  test('Step 9: start human-verification attempt 1', async () => {
-    const context = await handleWorkflowStepStart(fx.changeId, fx.taskId, {
-      ...RT,
-      activeDir: fx.activeDir,
-      repoRoot: fx.root,
-    });
-
-    assert.equal(context.currentStep, 'human-verification');
-    assert.equal(context.attempt, 1);
-    assert.equal(context.runtimeState, 'active');
-    assert.equal(context.semanticStatus, 'awaiting-human-verification');
-  });
-
-  test('Step 10: human-verification request-changes -> transitions to implementation attempt 3', async () => {
+  test('Step 9: human-verification request-changes (auto-activates from completed review) -> transitions to implementation attempt 3', async () => {
     const result = await handleWorkflowVerifyHuman(fx.changeId, fx.taskId, {
       ...RT,
       requestChanges: true,
@@ -383,7 +370,7 @@ describe('Production standard workflow review loop and multi-attempt E2E proof (
     assert.equal(last.transitioned_to, 'implementation');
   });
 
-  test('Step 11: start implementation attempt 3 with previousTransition enriched', async () => {
+  test('Step 10: start implementation attempt 3 with previousTransition enriched', async () => {
     const context = await handleWorkflowStepStart(fx.changeId, fx.taskId, {
       ...RT,
       activeDir: fx.activeDir,
@@ -401,7 +388,7 @@ describe('Production standard workflow review loop and multi-attempt E2E proof (
     assert.equal(context.previousTransition.requestedChanges, 'Operator requested retry for performance and edge cases');
   });
 
-  test('Step 12: finish implementation attempt 3 -> transitions to review', async () => {
+  test('Step 11: finish implementation attempt 3 -> transitions to review', async () => {
     writeFileSync(join(fx.root, 'src', 'index.js'), 'export const version = 3;\n');
 
     const finishPayload = {
@@ -429,7 +416,7 @@ describe('Production standard workflow review loop and multi-attempt E2E proof (
     assert.equal(task.workflow_progress.history.length, 6);
   });
 
-  test('Step 13: start review attempt 3', async () => {
+  test('Step 12: start review attempt 3', async () => {
     const context = await handleWorkflowStepStart(fx.changeId, fx.taskId, {
       ...RT,
       activeDir: fx.activeDir,
@@ -442,7 +429,7 @@ describe('Production standard workflow review loop and multi-attempt E2E proof (
     assert.equal(context.semanticStatus, 'reviewing');
   });
 
-  test('Step 14: finish review attempt 3 with result "pass" -> transitions to human-verification', async () => {
+  test('Step 13: finish review attempt 3 with result "pass" -> transitions to human-verification', async () => {
     writeFileSync(join(fx.root, 'docs', 'audit-3.md'), 'Audit 3: Complete signoff\n');
 
     const finishPayload = {
@@ -473,20 +460,7 @@ describe('Production standard workflow review loop and multi-attempt E2E proof (
     assert.equal(task.workflow_progress.history.length, 7);
   });
 
-  test('Step 15: start human-verification attempt 2', async () => {
-    const context = await handleWorkflowStepStart(fx.changeId, fx.taskId, {
-      ...RT,
-      activeDir: fx.activeDir,
-      repoRoot: fx.root,
-    });
-
-    assert.equal(context.currentStep, 'human-verification');
-    assert.equal(context.attempt, 2);
-    assert.equal(context.runtimeState, 'active');
-    assert.equal(context.semanticStatus, 'awaiting-human-verification');
-  });
-
-  test('Step 16: approve human-verification -> transitions to terminal verified', async () => {
+  test('Step 14: approve human-verification (auto-activates from completed review) -> transitions to terminal verified', async () => {
     const result = await handleWorkflowVerifyHuman(fx.changeId, fx.taskId, {
       ...RT,
       approve: true,
@@ -511,7 +485,7 @@ describe('Production standard workflow review loop and multi-attempt E2E proof (
     assert.equal(task.workflow_progress.history[7].transitioned_to, 'verified');
   });
 
-  test('Step 17: repeated finish on terminal task reports already-completed without mutations', async () => {
+  test('Step 15: repeated finish on terminal task reports already-completed without mutations', async () => {
     const commitsBefore = git(fx.root, ['rev-list', '--count', 'HEAD']).trim();
 
     const repeatResult = await handleWorkflowStepFinish(fx.changeId, fx.taskId, {

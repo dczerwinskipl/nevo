@@ -14,7 +14,7 @@ import { requireChange, requireTask, ROOT, ACTIVE_DIR } from '../store.mjs';
 import { CliError } from '../../lib/cli-errors.mjs';
 import { resolveWorkflowMode, assertWorkflowVersionCompatible } from './compatibility.mjs';
 import { loadWorkflowDefinition } from './definitions/loader.mjs';
-import { compileStepContext, buildFinishContract, validateFinishInputs, aggregateFinalizeCheck } from './step-context.mjs';
+import { compileStepContext, buildFinishContract, validateFinishInputs, aggregateFinalizeCheck, ensureStepActivated, resolveTaskScope } from './step-context.mjs';
 import { planFinish, finishStep } from './finish-operation.mjs';
 import { resolveActiveStepName, resolveWorkflowPosition, gateDisplayId } from './step-runner.mjs';
 import { findInFlightOperationRecord } from './operation-record.mjs';
@@ -51,6 +51,8 @@ export function resolveWorkflowRuntime(changeSlug, taskId, { activeDir = ACTIVE_
   const definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot });
   assertWorkflowVersionCompatible(resolvedMode, definition);
 
+  const scope = resolveTaskScope(change, task, { activeDir, repoRoot });
+
   const context = {
     repoRoot,
     activeDir,
@@ -59,6 +61,8 @@ export function resolveWorkflowRuntime(changeSlug, taskId, { activeDir = ACTIVE_
     changeId: change.id,
     sourceControl: definition.sourceControl,
     baseBranch: 'main',
+    taskAllowedPaths: scope.allowedPaths,
+    allowedPaths: scope.allowedPaths,
   };
 
   return { change, task, definition, context };
@@ -235,13 +239,35 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
       }
       const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
       const position = resolveWorkflowPosition(definition, task);
-      if (position.phase !== 'active') {
-        throw new CliError(`Task '${task.id}' has no currently active workflow step — cannot execute human decision`);
+
+      let targetStep;
+      if (position.phase === 'active') {
+        targetStep = position.step;
+      } else if (position.phase === 'completed') {
+        targetStep = position.nextStep;
+      } else if (position.phase === 'new') {
+        targetStep = definition.entryStep;
       }
-      const stepName = position.step;
+
+      if (targetStep !== 'human-verification') {
+        throw new WorkflowError(
+          `Cannot execute human decision on step '${targetStep || position.step}' — human decisions may only execute when the target step is 'human-verification'`,
+          { code: 'INVALID_HUMAN_DECISION_STEP', step: targetStep || position.step }
+        );
+      }
+
+      let effectiveTask = task;
+      let effectivePosition = position;
+      if (position.phase !== 'active') {
+        const activation = ensureStepActivated(change, task, definition, context);
+        effectiveTask = activation.task;
+        effectivePosition = activation.position;
+      }
+
+      const stepName = effectivePosition.step;
       const step = definition.steps?.[stepName];
       if (!step) {
-        throw new CliError(`Step '${stepName}' not found in workflow definition`);
+        throw new WorkflowError(`Step '${stepName}' not found in workflow definition`, { code: 'STEP_NOT_FOUND', step: stepName });
       }
 
       const finalizeCheck = await aggregateFinalizeCheck(step, context);
@@ -257,10 +283,10 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
         inputs['commit.title'] = opts['commit.title'] || (isApprove ? `verify(${task.id}): approve human verification` : `verify(${task.id}): request changes`);
       }
 
-      const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, position.attempt);
+      const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, effectiveTask.id, effectivePosition.attempt);
       const result = await finishStep({
         change,
-        task,
+        task: effectiveTask,
         definition,
         context,
         inputs,

@@ -415,6 +415,74 @@ tasks:
     // Clean up wip file
     rmSync(join(fx.repo, 'wip.txt'));
   });
+
+  test('throws WORKTREE_STATE_UNAVAILABLE when starting new attempt and Git inspection fails (Finding 4)', () => {
+    const nonGitDir = mkdtempSync(join(tmpdir(), 'nevo-nongit-'));
+    try {
+      const changeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: review-loop-v1
+tasks:
+  - id: demo-task
+    status: in-implementation
+`;
+      const changeDir = join(nonGitDir, 'specs', 'active', 'demo-change');
+      mkdirSync(join(changeDir, 'tasks'), { recursive: true });
+      writeFileSync(join(changeDir, 'change.yaml'), changeYaml);
+      writeFileSync(join(changeDir, 'tasks', '01-demo-task.md'), '---\nid: demo-task\nstatus: in-implementation\n---\n# Task\n');
+
+      const change = requireChange('demo-change', join(nonGitDir, 'specs', 'active'));
+      const task = requireTask(change, 'demo-task');
+
+      assert.throws(
+        () => ensureStepActivated(change, task, CONDITIONAL_WORKFLOW, { repoRoot: nonGitDir }),
+        (err) => {
+          assert.ok(err instanceof WorkflowError);
+          assert.equal(err.code, 'WORKTREE_STATE_UNAVAILABLE');
+          return true;
+        }
+      );
+    } finally {
+      rmSync(nonGitDir, { recursive: true, force: true });
+    }
+  });
+
+  test('allows resuming an already active attempt even if Git inspection fails (Finding 4)', () => {
+    const nonGitDir = mkdtempSync(join(tmpdir(), 'nevo-nongit-resume-'));
+    try {
+      const changeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: review-loop-v1
+tasks:
+  - id: demo-task
+    status: in-implementation
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+      history: []
+`;
+      const changeDir = join(nonGitDir, 'specs', 'active', 'demo-change');
+      mkdirSync(join(changeDir, 'tasks'), { recursive: true });
+      writeFileSync(join(changeDir, 'change.yaml'), changeYaml);
+      writeFileSync(join(changeDir, 'tasks', '01-demo-task.md'), '---\nid: demo-task\nstatus: in-implementation\n---\n# Task\n');
+
+      const change = requireChange('demo-change', join(nonGitDir, 'specs', 'active'));
+      const task = requireTask(change, 'demo-task');
+
+      const result = ensureStepActivated(change, task, CONDITIONAL_WORKFLOW, { repoRoot: nonGitDir });
+      assert.equal(result.position.phase, 'active');
+      assert.equal(result.position.step, 'implementation');
+      assert.equal(result.position.attempt, 1);
+      assert.equal(Boolean(result.activated), false);
+    } finally {
+      rmSync(nonGitDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('compileStepContext previousTransition enrichment (AC6)', () => {

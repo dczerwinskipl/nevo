@@ -268,21 +268,25 @@ export function ensureStepActivated(change, task, definition, context = {}) {
   }
 
   if (context.repoRoot) {
+    let dirtyPaths;
     try {
-      const dirtyPaths = git.getDirtyPaths(context.repoRoot);
-      const relevantDirty = dirtyPaths.filter(p => {
-        const norm = p.replace(/\\/g, '/');
-        return norm !== '.nevo-ai-local' && !norm.startsWith('.nevo-ai-local/');
-      });
-      if (relevantDirty.length > 0) {
-        throw new WorkflowError(
-          `Working tree has uncommitted changes outside .nevo-ai-local/ (${relevantDirty.join(', ')}) — clean the workspace before starting a new attempt`,
-          { code: 'DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT', dirtyFiles: relevantDirty }
-        );
-      }
+      dirtyPaths = git.getDirtyPaths(context.repoRoot);
     } catch (err) {
       if (err instanceof WorkflowError) throw err;
-      // If repoRoot is not a git repository (e.g. lightweight unit test fixtures), skip check
+      throw new WorkflowError(
+        `Unable to inspect Git working tree state before activating new attempt: ${err.message}`,
+        { code: 'WORKTREE_STATE_UNAVAILABLE', cause: err }
+      );
+    }
+    const relevantDirty = dirtyPaths.filter(p => {
+      const norm = p.replace(/\\/g, '/');
+      return norm !== '.nevo-ai-local' && !norm.startsWith('.nevo-ai-local/');
+    });
+    if (relevantDirty.length > 0) {
+      throw new WorkflowError(
+        `Working tree has uncommitted changes outside .nevo-ai-local/ (${relevantDirty.join(', ')}) — clean the workspace before starting a new attempt`,
+        { code: 'DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT', dirtyFiles: relevantDirty }
+      );
     }
   }
 

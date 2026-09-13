@@ -35,6 +35,10 @@ allowed_paths:
   - tools/tests/workflow-action-commit-push.test.mjs
   - tools/tests/workflow-human-verification.test.mjs
   - tools/tests/workflow-e2e-loop.test.mjs
+  - tools/tests/workflow-e2e.test.mjs
+  - tools/tests/workflow-compatibility.test.mjs
+  - tools/tests/workflow-next-step.test.mjs
+  - tools/tests/workflow-cli.test.mjs
   - specs/active/agent-workflow-protocol-and-flow-hardening/change.yaml
 forbidden_paths:
   - src/**

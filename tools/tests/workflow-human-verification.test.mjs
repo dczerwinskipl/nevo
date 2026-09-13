@@ -13,6 +13,7 @@ import { HumanVerificationGate } from '../specs/workflow/gates/human-gate.mjs';
 import { handleWorkflowVerifyHuman } from '../specs/workflow/cli.mjs';
 import { requireChange, requireTask } from '../specs/store.mjs';
 import { CliError } from '../lib/cli-errors.mjs';
+import { WorkflowError } from '../specs/workflow/errors.mjs';
 import '../specs/workflow/actions/index.mjs';
 
 function makeFixture(prefix) {
@@ -323,6 +324,168 @@ tasks:
         silent: true,
       }),
       (err) => err instanceof CliError && /both/.test(err.message)
+    );
+  });
+
+  test('Finding 1: review completed (phase=completed, nextStep=human-verification) -> verify-human --approve activates and finishes to verified', async () => {
+    const changeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: standard-v1
+tasks:
+  - id: demo-task-auto-activate-approve
+    status: in-implementation
+    workflow_progress:
+      current_step: review
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: "2026-01-01T00:00:00.000Z"
+          transitioned_to: review
+        - step: review
+          attempt: 1
+          completed_at: "2026-01-01T01:00:00.000Z"
+          result: pass
+          transitioned_to: human-verification
+`;
+    writeFileSync(join(fx.changeDir, 'change.yaml'), changeYaml);
+    writeFileSync(join(fx.tasksDir, '03-auto-activate-approve.md'), '---\nid: demo-task-auto-activate-approve\nstatus: in-implementation\n---\n# Task\n');
+
+    execFileSync('git', ['-C', fx.repo, 'add', '-A']);
+    execFileSync('git', ['-C', fx.repo, 'commit', '-m', 'task setup auto-activate approve']);
+
+    const result = await handleWorkflowVerifyHuman('demo-change', 'demo-task-auto-activate-approve', {
+      approve: true,
+      activeDir: fx.activeDir,
+      repoRoot: fx.repo,
+      silent: true,
+    });
+
+    assert.equal(result.status, 'completed');
+    const task = requireTask(requireChange('demo-change', fx.activeDir), 'demo-task-auto-activate-approve');
+    assert.equal(task.status, 'verified');
+    assert.equal(task.workflow_progress.current_step, 'human-verification');
+    assert.equal(task.workflow_progress.state, 'completed');
+    const lastHistory = task.workflow_progress.history[task.workflow_progress.history.length - 1];
+    assert.equal(lastHistory.step, 'human-verification');
+    assert.equal(lastHistory.result, 'pass');
+    assert.equal(lastHistory.transitioned_to, 'verified');
+  });
+
+  test('Finding 1: review completed (phase=completed, nextStep=human-verification) -> verify-human --request-changes activates and finishes to implementation attempt 2', async () => {
+    const changeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: standard-v1
+tasks:
+  - id: demo-task-auto-activate-reject
+    status: in-implementation
+    workflow_progress:
+      current_step: review
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: "2026-01-01T00:00:00.000Z"
+          transitioned_to: review
+        - step: review
+          attempt: 1
+          completed_at: "2026-01-01T01:00:00.000Z"
+          result: pass
+          transitioned_to: human-verification
+`;
+    writeFileSync(join(fx.changeDir, 'change.yaml'), changeYaml);
+    writeFileSync(join(fx.tasksDir, '04-auto-activate-reject.md'), '---\nid: demo-task-auto-activate-reject\nstatus: in-implementation\n---\n# Task\n');
+
+    execFileSync('git', ['-C', fx.repo, 'add', '-A']);
+    execFileSync('git', ['-C', fx.repo, 'commit', '-m', 'task setup auto-activate reject']);
+
+    const result = await handleWorkflowVerifyHuman('demo-change', 'demo-task-auto-activate-reject', {
+      requestChanges: true,
+      feedback: 'Please fix performance regression in algorithm',
+      activeDir: fx.activeDir,
+      repoRoot: fx.repo,
+      silent: true,
+    });
+
+    assert.equal(result.status, 'completed');
+    const task = requireTask(requireChange('demo-change', fx.activeDir), 'demo-task-auto-activate-reject');
+    assert.equal(task.workflow_progress.state, 'completed');
+    assert.equal(task.workflow_progress.current_step, 'human-verification');
+    const lastHistory = task.workflow_progress.history[task.workflow_progress.history.length - 1];
+    assert.equal(lastHistory.step, 'human-verification');
+    assert.equal(lastHistory.result, 'fail');
+    assert.equal(lastHistory.feedback, 'Please fix performance regression in algorithm');
+    assert.equal(lastHistory.transitioned_to, 'implementation');
+  });
+
+  test('Finding 2: rejects human decision when active step is review (INVALID_HUMAN_DECISION_STEP)', async () => {
+    const changeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: standard-v1
+tasks:
+  - id: demo-task-review-active
+    status: in-implementation
+    workflow_progress:
+      current_step: review
+      current_attempt: 1
+      state: active
+      history: []
+`;
+    writeFileSync(join(fx.changeDir, 'change.yaml'), changeYaml);
+    writeFileSync(join(fx.tasksDir, '05-review-active.md'), '---\nid: demo-task-review-active\nstatus: in-implementation\n---\n# Task\n');
+
+    execFileSync('git', ['-C', fx.repo, 'add', '-A']);
+    execFileSync('git', ['-C', fx.repo, 'commit', '-m', 'task setup review active']);
+
+    await assert.rejects(
+      () => handleWorkflowVerifyHuman('demo-change', 'demo-task-review-active', {
+        approve: true,
+        activeDir: fx.activeDir,
+        repoRoot: fx.repo,
+        silent: true,
+      }),
+      (err) => err instanceof WorkflowError && err.code === 'INVALID_HUMAN_DECISION_STEP'
+    );
+  });
+
+  test('Finding 2: rejects human decision when active step is implementation (INVALID_HUMAN_DECISION_STEP)', async () => {
+    const changeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: standard-v1
+tasks:
+  - id: demo-task-impl-active
+    status: in-implementation
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+      history: []
+`;
+    writeFileSync(join(fx.changeDir, 'change.yaml'), changeYaml);
+    writeFileSync(join(fx.tasksDir, '06-impl-active.md'), '---\nid: demo-task-impl-active\nstatus: in-implementation\n---\n# Task\n');
+
+    execFileSync('git', ['-C', fx.repo, 'add', '-A']);
+    execFileSync('git', ['-C', fx.repo, 'commit', '-m', 'task setup impl active']);
+
+    await assert.rejects(
+      () => handleWorkflowVerifyHuman('demo-change', 'demo-task-impl-active', {
+        requestChanges: true,
+        feedback: 'Cannot request changes while implementing',
+        activeDir: fx.activeDir,
+        repoRoot: fx.repo,
+        silent: true,
+      }),
+      (err) => err instanceof WorkflowError && err.code === 'INVALID_HUMAN_DECISION_STEP'
     );
   });
 });
