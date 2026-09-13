@@ -76,7 +76,7 @@ function makeGateRegistry({ testPassed = true, humanConfirmed = true, taskId = '
   const cmdStore = new MemoryCommandVerificationStore();
   cmdStore.recordCommandResult({ command: 'npm test', action: 'test', passed: testPassed });
   const humanReader = new MemoryHumanVerificationReader(
-    humanConfirmed ? [{ scope: 'task', targetId: taskId, role: 'owner', confirmed: true, confirmedBy: 'owner' }] : []
+    humanConfirmed ? [{ scope: 'task', targetId: taskId, role: 'owner', confirmed: true, confirmedBy: 'owner', attempt: 1 }] : []
   );
   return createDefaultGateRegistry({
     commandRunner: async () => ({ passed: testPassed, exitCode: testPassed ? 0 : 1 }),

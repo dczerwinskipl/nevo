@@ -65,11 +65,12 @@ export class MemoryHumanVerificationReader extends HumanVerificationReader {
         if (s.targetId !== targetId) return false;
         const role = s.role || s.confirmedBy;
         if (requiredRole && role !== requiredRole) return false;
-        // Additive, like the D29 identity fields below: a signoff that doesn't declare an
-        // attempt at all is unaffected (pre-existing callers/fixtures keep working
-        // unmodified); one that does must match the query's attempt exactly, so a signoff
-        // recorded for one attempt can never satisfy a query for a different attempt.
-        if (s.attempt !== undefined && s.attempt !== attempt) return false;
+        // A query that carries an attempt is a deterministic (step, attempt) identity
+        // query — it must never be satisfied by a signoff from another attempt, nor by a
+        // signoff that declares no attempt at all (that would let an attempt-less/legacy
+        // signoff silently satisfy an attempt-scoped query). A query with no attempt at
+        // all preserves prior non-attempt-scoped behavior unchanged.
+        if (attempt != null && s.attempt !== attempt) return false;
         return true;
       }) || null
     );
@@ -206,13 +207,19 @@ export class HumanVerificationGate extends GateContract {
       });
     }
 
-    // Strict validation of retrieved signoff contract
+    // Strict validation of retrieved signoff contract — the gate enforces this itself
+    // rather than trusting any one reader implementation to have done so, so the trust
+    // boundary holds for any future HumanVerificationReader, not just FileHumanVerificationStore.
     const isConfirmed = signoff && typeof signoff === 'object' && signoff.confirmed === true;
     const scopeMatches = signoff?.scope === scope;
     const targetMatches = signoff?.targetId === targetId;
     const roleMatches = (signoff?.role || signoff?.confirmedBy) === requiredRole;
+    // A deterministic query (attempt present) must never be satisfied by a signoff from
+    // another attempt or one that declares no attempt at all; a non-attempt-scoped query
+    // (attempt null) preserves prior behavior unchanged.
+    const attemptMatches = attempt == null || signoff?.attempt === attempt;
 
-    if (!isConfirmed || !scopeMatches || !targetMatches || !roleMatches) {
+    if (!isConfirmed || !scopeMatches || !targetMatches || !roleMatches || !attemptMatches) {
       return new GateInspectionResult({
         gateType: this.type,
         status: 'blocked',
