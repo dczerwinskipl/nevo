@@ -113,6 +113,11 @@ export class AgentTurnRuntime {
   async startTurn({
     provider,
     providerSessionId,
+    canonicalSessionId,
+    nevoSessionId,
+    specId,
+    taskId,
+    activeTaskId,
     sessionId,
     message,
     prompt,
@@ -148,7 +153,13 @@ export class AgentTurnRuntime {
       throw new CapabilityNotSupportedError(provider, 'startTurn');
     }
 
-    const isNewSession = !providerSessionId;
+    // An unestablished providerSessionId (the placeholder canonical UUID a caller
+    // substitutes before the provider has confirmed a real native session — see
+    // AgentSessionService.createSession) must be treated exactly like "no session
+    // yet": it must not be baked into the coordinator/turn as an already-bound
+    // native ID, or the provider's later genuinely-allocated native ID collides
+    // with it and bindTurnProviderSessionId() throws a "Cannot re-bind" error.
+    const isNewSession = !providerSessionId || !isSessionEstablished;
     const turnId = `turn-${this.idFactory()}`;
     const key = isNewSession ? `new-turn\u0000${turnId}` : sessionKey(provider, providerSessionId);
 
@@ -214,9 +225,9 @@ export class AgentTurnRuntime {
 
       const coordinator = new TurnLifecycleCoordinator({
         turnId,
-        sessionId: providerSessionId || null,
+        sessionId: isNewSession ? null : providerSessionId,
         provider,
-        providerSessionId: providerSessionId || null,
+        providerSessionId: isNewSession ? null : providerSessionId,
         mode: validatedMode,
         model,
         prompt: inputMessage,
@@ -240,8 +251,13 @@ export class AgentTurnRuntime {
         turnId,
         coordinator,
         provider,
-        providerSessionId: providerSessionId || undefined,
-        identity: providerSessionId ? { provider, providerSessionId } : undefined,
+        providerSessionId: isNewSession ? undefined : providerSessionId,
+        canonicalSessionId: canonicalSessionId || nevoSessionId || undefined,
+        nevoSessionId: nevoSessionId || canonicalSessionId || undefined,
+        specId: specId || undefined,
+        taskId: taskId || undefined,
+        activeTaskId: activeTaskId || undefined,
+        identity: isNewSession ? undefined : { provider, providerSessionId },
         key,
         mode: validatedMode,
         model,
@@ -254,7 +270,7 @@ export class AgentTurnRuntime {
         // the provider allocates during this very turn — only the former can receive a
         // later provider-confirmation notification; the latter is already fully handled
         // by the initial-binding branch below and must not be notified a second time.
-        hadInitialProviderSessionId: Boolean(providerSessionId),
+        hadInitialProviderSessionId: !isNewSession,
         providerConfirmed: false,
         finished: false,
         abortController: new AbortController(),
@@ -279,11 +295,17 @@ export class AgentTurnRuntime {
       const setProviderSessionId = async (allocatedSessionId) => {
         if (!allocatedSessionId) return;
 
-        if (!state.providerSessionId) {
+        if (!state.providerSessionId || !state.isSessionEstablished) {
           state.coordinator.bindProviderSessionId(allocatedSessionId);
+          const oldSessionId = state.providerSessionId;
           state.providerSessionId = allocatedSessionId;
+          state.isSessionEstablished = true;
           state.identity = { provider: state.provider, providerSessionId: allocatedSessionId };
+          const oldKey = state.key;
           state.key = sessionKey(state.provider, allocatedSessionId);
+          if (oldKey && this.#activeBySession.get(oldKey) === state.turnId) {
+            this.#activeBySession.delete(oldKey);
+          }
           this.#activeBySession.set(state.key, state.turnId);
           this.#eventStream.bindSession(state.turnId, {
             provider: state.provider,
@@ -312,15 +334,10 @@ export class AgentTurnRuntime {
           return;
         }
 
-        // The turn already carried a providerSessionId (e.g. a locally pre-allocated
-        // placeholder). This is the provider's first authoritative confirmation that a
-        // real conversation now exists under that exact ID — durably persist that fact
-        // (once) so later turns on this session resume instead of repeating first-turn
-        // creation semantics.
+        // The turn already carried an established providerSessionId
         if (
           state.hadInitialProviderSessionId &&
           !state.providerConfirmed &&
-          state.providerSessionId === allocatedSessionId &&
           state.onSessionEstablished
         ) {
           state.providerConfirmed = true;
@@ -331,6 +348,7 @@ export class AgentTurnRuntime {
               `[ai] Failed to persist provider session confirmation for ${state.provider}:${allocatedSessionId}: ${err?.message || err}`,
             );
           }
+          resolveEstablished(allocatedSessionId);
         }
       };
 
@@ -384,7 +402,12 @@ export class AgentTurnRuntime {
   #createProviderTurnContext(state, extra = {}) {
     return {
       turnId: state.turnId,
-      providerSessionId: state.providerSessionId,
+      providerSessionId: state.isSessionEstablished ? state.providerSessionId : undefined,
+      canonicalSessionId: state.canonicalSessionId,
+      nevoSessionId: state.nevoSessionId,
+      specId: state.specId,
+      taskId: state.taskId,
+      activeTaskId: state.activeTaskId,
       isSessionEstablished: state.isSessionEstablished,
       identity: state.identity,
       mode: state.mode,
@@ -415,6 +438,7 @@ export class AgentTurnRuntime {
       const turnResult = state.agentProvider.startTurn(
         this.#createProviderTurnContext(state, {
           setProviderSessionId,
+          onSessionEstablished: setProviderSessionId,
           message,
           prompt: message,
           requestInteraction: (interaction, options) => this.#requestInteraction(state, interaction, options),
@@ -455,7 +479,15 @@ export class AgentTurnRuntime {
         return;
       }
 
-      if (!this.#isTerminal(state)) this.#finish(state, 'turn.completed');
+      if (!this.#isTerminal(state)) {
+        if (!state.isSessionEstablished) {
+          const fallbackId = state.providerSessionId || state.canonicalSessionId;
+          if (fallbackId) {
+            await setProviderSessionId(fallbackId);
+          }
+        }
+        this.#finish(state, 'turn.completed');
+      }
     } catch (error) {
       if (rejectEstablished) {
         try {

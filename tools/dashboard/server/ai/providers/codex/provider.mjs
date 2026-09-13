@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { AiError, AiValidationError, validateAgentExecutionMode } from '../../contracts.mjs';
 import { createCodexAppServerClient, resolveCodexCommand, mapCodexError } from './app-server-client.mjs';
 import { RawCaptureRecorder, rawCaptureSessionDirectory } from '../raw-capture.mjs';
+import { writeCodexExecutionContextBridge, removeCodexExecutionContextBridge } from '../../sessions/binding-service.mjs';
 
 export { rawCaptureSessionDirectory };
 
@@ -347,12 +348,6 @@ export class CodexAgentProvider {
     return this.#client;
   }
 
-  setAmbientSessionContext(context) {
-    if (typeof this.#client?.setAmbientSessionContext === 'function') {
-      this.#client.setAmbientSessionContext(context);
-    }
-  }
-
   getRawCapturePath(sessionId) {
     return this.#rawCapture.getRawCapturePath(sessionId);
   }
@@ -415,14 +410,15 @@ export class CodexAgentProvider {
     return this.#client;
   }
 
-  async createSession({ mode = 'edit', model, sessionId, specId, taskId, activeTaskId } = {}) {
+  async createSession({ mode = 'edit', model } = {}) {
     this.#assertUsable();
-    this.#client?.setAmbientSessionContext?.({ sessionId, specId, taskId: activeTaskId || taskId });
     return { providerSessionId: await this.#startThread(mode, { model }) };
   }
 
   async startTurn({
     turnId,
+    canonicalSessionId,
+    nevoSessionId,
     sessionId,
     specId,
     taskId,
@@ -449,7 +445,9 @@ export class CodexAgentProvider {
     requestInteraction,
   } = {}) {
     this.#assertUsable();
-    this.#client?.setAmbientSessionContext?.({ sessionId, specId, taskId: activeTaskId || taskId });
+    const effNevoSessionId = nevoSessionId || canonicalSessionId || sessionId;
+    const effSpecId = specId;
+    const effTaskId = activeTaskId || taskId;
     const input = message ?? prompt;
     if (typeof input !== 'string' || input.length === 0) {
       throw new AiValidationError('A valid message/prompt is required.');
@@ -462,6 +460,13 @@ export class CodexAgentProvider {
     } else {
       await this.#ensureThreadLoaded(threadId, validatedMode);
     }
+
+    await writeCodexExecutionContextBridge(this.#cwd, threadId, {
+      nevoSessionId: effNevoSessionId,
+      specId: effSpecId,
+      taskId: effTaskId,
+      activeTaskId: effTaskId,
+    });
 
     this.#rawCapture.logCapturePathOnce(threadId);
 
@@ -524,6 +529,11 @@ export class CodexAgentProvider {
       operation.watchAbort.abort();
       this.#operationsByThread.delete(threadId);
       this.#clearOperationInteractions(operation);
+      await removeCodexExecutionContextBridge(this.#cwd, threadId, {
+        specId: effSpecId,
+        taskId: effTaskId,
+        activeTaskId: effTaskId,
+      });
       await this.#rawCapture.flushRawCaptureBounded(threadId);
     }
   }

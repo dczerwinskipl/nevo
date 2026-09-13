@@ -4,6 +4,7 @@
 
 import { Command } from 'commander';
 import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 
 import { RecoveryError } from './lib/cli-errors.mjs';
 // Session-binding is dashboard-AI-owned (tools/dashboard/server/ai/sessions/) — this CLI
@@ -59,26 +60,35 @@ export {
 };
 
 export function autoBindAgentSession(change, taskId, purpose, options = {}) {
-  const context = readAgentExecutionContext();
-  if (context && change) {
+  const repoRoot = options.repoRoot || process.cwd();
+  let specId = null;
+  let changeSlug = null;
+  if (typeof change === 'string') {
+    changeSlug = change;
     try {
-      let specId = null;
-      let changeSlug = null;
-      if (typeof change === 'string') {
-        changeSlug = change;
-        try {
-          const c = requireChange(change);
-          specId = c?.spec_id;
-        } catch {}
-      } else if (typeof change === 'object') {
-        specId = change.spec_id;
-        changeSlug = change._slug || change.id;
-      }
+      const c = requireChange(change);
+      specId = c?.spec_id || c?.id;
+    } catch {}
+  } else if (typeof change === 'object' && change !== null) {
+    specId = change.spec_id || change.id;
+    changeSlug = change._slug || change.id;
+  }
+
+  const context = readAgentExecutionContext(process.env, {
+    repoRoot,
+    specId,
+    taskId,
+  });
+
+  if (context && (specId || changeSlug)) {
+    try {
       if (!specId || !isValidSpecId(specId)) {
         console.error(`[nevo-ai] Warning: Cannot auto-bind session: change '${changeSlug || 'unknown'}' has no valid spec_id.`);
         return;
       }
-      const bindingService = createAgentSessionBindingService();
+      const bindingService = createAgentSessionBindingService({
+        storageDir: resolve(repoRoot, '.nevo-ai-local/sessions'),
+      });
       bindingService.bindSessionSync({
         sessionId: context.sessionId || undefined,
         provider: context.provider,

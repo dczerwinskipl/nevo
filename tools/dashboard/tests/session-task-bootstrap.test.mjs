@@ -1,269 +1,681 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, mkdir, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createAgentSessionBindingService } from '../server/ai/sessions/binding-service.mjs';
+import {
+  createAgentSessionBindingService,
+  readAgentExecutionContext,
+} from '../server/ai/sessions/binding-service.mjs';
 import { AgentSessionService } from '../server/ai/sessions/service.mjs';
+import { AgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs';
 import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
 import { ClaudeAgentProvider } from '../server/ai/providers/claude/provider.mjs';
 import { AntigravityAgentProvider } from '../server/ai/providers/antigravity/provider.mjs';
 import { CodexAgentProvider } from '../server/ai/providers/codex/provider.mjs';
 import { CodexAppServerClient } from '../server/ai/providers/codex/app-server-client.mjs';
+import { autoBindAgentSession } from '../../specs.mjs';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-test('AC 1: Synchronous canonical sessionId UUID generated at session creation time and bound with established: false before spawn', async () => {
-  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-bootstrap-test-ac1-'));
+const createMockProcess = (onSpawn) => (exe, args, opts) => {
+  onSpawn(opts);
+  const child = {
+    exitCode: 0,
+    signalCode: null,
+    killed: true,
+    stdin: {
+      write: () => true,
+      end: () => {},
+      on: () => {},
+    },
+    stdout: {
+      on: (event, cb) => {
+        if (event === 'data') {
+          queueMicrotask(() => {
+            cb(Buffer.from(JSON.stringify({ type: 'result', status: 'completed' }) + '\n'));
+          });
+        }
+      },
+    },
+    stderr: { on: () => {} },
+    on: (event, cb) => {
+      if (event === 'close') {
+        queueMicrotask(() => cb(0));
+      }
+    },
+    kill: () => {},
+  };
+  return child;
+};
+
+class FakeCodexClient {
+  constructor(handler) {
+    this.handler = handler;
+    this.notifications = new Set();
+    this.serverRequests = new Set();
+    this.waiters = new Set();
+    this.env = { NEVO_AGENT_PROVIDER: 'codex' };
+  }
+  onNotification(handler) {
+    this.notifications.add(handler);
+    return () => this.notifications.delete(handler);
+  }
+  onServerRequest(handler) {
+    this.serverRequests.add(handler);
+    return () => this.serverRequests.delete(handler);
+  }
+  request(method, params) {
+    return this.handler(method, params, this);
+  }
+  waitForNotification(predicate, { signal } = {}) {
+    return new Promise((resolve, reject) => {
+      const waiter = { predicate, resolve, reject };
+      this.waiters.add(waiter);
+      if (signal) {
+        const abort = () => {
+          this.waiters.delete(waiter);
+          reject(Object.assign(new Error('cancelled'), { code: 'AI_TURN_CANCELLED' }));
+        };
+        if (signal.aborted) abort();
+        else signal.addEventListener('abort', abort, { once: true });
+      }
+    });
+  }
+  async emitNotification(method, params = {}) {
+    const notification = { method, params };
+    for (const waiter of [...this.waiters]) {
+      if (waiter.predicate(notification)) {
+        this.waiters.delete(waiter);
+        waiter.resolve(notification);
+      }
+    }
+    for (const handler of this.notifications) await handler(notification);
+  }
+  dispose() {}
+}
+
+test('1. Real atomic first turn on startTurn() without providerSessionId creates canonical session and persists unestablished binding BEFORE provider execution starts', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-bootstrap-test-1-'));
+  let sessionService = null;
+  try {
+    const storageDir = join(tmpDir, 'sessions');
+    const bindingService = createAgentSessionBindingService({ storageDir });
+    const registry = createAgentProviderRegistry();
+    const specId = '11111111-2222-4333-8444-555555555555';
+    const taskId = '01-task';
+
+    let providerTurnStarted = false;
+    let bindingAtTurnStart = null;
+    let providerTurnContext = null;
+
+    registry.register({
+      descriptor: { id: 'mock', label: 'Mock Provider', defaultMode: 'edit', capabilities: {} },
+      startTurn: (context) => {
+        providerTurnStarted = true;
+        providerTurnContext = context;
+        // Check disk binding at the exact moment provider turn starts
+        const bindings = bindingService.listBindingsSync({ specId });
+        bindingAtTurnStart = bindings[0] || null;
+
+        return (async function* () {
+          yield { type: 'commentary.delta', text: 'working...' };
+          yield { type: 'final_answer.delta', text: 'done' };
+        })();
+      },
+      cancelTurn: async () => ({}),
+    });
+
+    const turnRuntime = new AgentTurnRuntime({ registry });
+    sessionService = new AgentSessionService({
+      registry,
+      turnRuntime,
+      bindingService,
+    });
+
+    // Call startTurn directly with providerSessionId === undefined (real POST /api/agent-sessions/turns path)
+    const turnResult = await sessionService.startTurn('mock', undefined, {
+      specId,
+      taskId,
+      message: 'Hello from first turn',
+    });
+
+    assert.ok(turnResult.turnId, 'Turn should be created');
+    assert.equal(providerTurnStarted, true, 'Provider startTurn should have run');
+
+    // Verification 1: Binding was already persisted before provider execution finished
+    assert.ok(bindingAtTurnStart, 'SessionTaskBinding MUST exist on disk when provider startTurn begins');
+    assert.ok(bindingAtTurnStart.sessionId, 'Binding must have canonical sessionId UUID');
+    assert.match(bindingAtTurnStart.sessionId, UUID_RE);
+    assert.equal(bindingAtTurnStart.established, false, 'Initial binding must have established: false');
+    assert.equal(bindingAtTurnStart.specId, specId);
+    assert.equal(bindingAtTurnStart.taskId, taskId);
+
+    // Verification 2: Provider turn context received canonicalSessionId
+    assert.equal(providerTurnContext.canonicalSessionId, bindingAtTurnStart.sessionId);
+    assert.equal(providerTurnContext.nevoSessionId, bindingAtTurnStart.sessionId);
+    assert.equal(providerTurnContext.specId, specId);
+    assert.equal(providerTurnContext.taskId, taskId);
+
+    for (let i = 0; i < 50; i++) {
+      const snap = sessionService.getTurn(turnResult.turnId);
+      if (snap?.status === 'completed' || snap?.status === 'failed') break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+  } finally {
+    await sessionService?.shutdown?.().catch(() => {});
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('2. Claude provider: turn-scoped childEnv injection of NEVO_SESSION_ID and isolation between concurrent turns', async () => {
+  let spawnCalls = [];
+  const claude = new ClaudeAgentProvider({
+    executable: 'claude',
+    cwd: process.cwd(),
+    cancelGraceMs: 50,
+    forceGraceMs: 50,
+    probeExecutable: () => ({ ok: true }),
+    spawnProcess: (exe, args, opts) => {
+      spawnCalls.push({ ...opts, env: { ...opts.env } });
+      const child = {
+        exitCode: 0,
+        signalCode: null,
+        killed: true,
+        stdin: {
+          write: () => true,
+          end: () => {},
+          on: () => {},
+        },
+        stdout: {
+          on: (event, cb) => {
+            if (event === 'data') {
+              queueMicrotask(() => {
+                cb(Buffer.from(JSON.stringify({ type: 'result', status: 'completed' }) + '\n'));
+              });
+            }
+          },
+        },
+        stderr: { on: () => {} },
+        on: (event, cb) => {
+          if (event === 'close') {
+            queueMicrotask(() => cb(0));
+          }
+        },
+        kill: () => {},
+      };
+      return child;
+    },
+  });
+
+  // Zero ambient mutable state
+  assert.equal(claude.setAmbientSessionContext, undefined, 'Claude must not have setAmbientSessionContext');
+
+  const session1 = {
+    canonicalSessionId: '11111111-1111-4111-8111-111111111111',
+    specId: 'spec-aaa-111',
+    taskId: '01',
+  };
+  const session2 = {
+    canonicalSessionId: '22222222-2222-4222-8222-222222222222',
+    specId: 'spec-bbb-222',
+    taskId: '02',
+  };
+
+  // Launch two turns concurrently
+  await Promise.all([
+    claude.startTurn({
+      turnId: 'turn-claude-1',
+      canonicalSessionId: session1.canonicalSessionId,
+      specId: session1.specId,
+      taskId: session1.taskId,
+      message: 'turn 1',
+    }),
+    claude.startTurn({
+      turnId: 'turn-claude-2',
+      canonicalSessionId: session2.canonicalSessionId,
+      specId: session2.specId,
+      taskId: session2.taskId,
+      message: 'turn 2',
+    }),
+  ]);
+
+  assert.equal(spawnCalls.length, 2);
+  const spawn1 = spawnCalls.find((s) => s.env.NEVO_SESSION_ID === session1.canonicalSessionId);
+  const spawn2 = spawnCalls.find((s) => s.env.NEVO_SESSION_ID === session2.canonicalSessionId);
+
+  assert.ok(spawn1, 'Spawn 1 must have session 1 env');
+  assert.equal(spawn1.env.NEVO_AGENT_PROVIDER, 'claude');
+  assert.equal(spawn1.env.NEVO_SPEC_ID, session1.specId);
+  assert.equal(spawn1.env.NEVO_TASK_ID, session1.taskId);
+
+  assert.ok(spawn2, 'Spawn 2 must have session 2 env');
+  assert.equal(spawn2.env.NEVO_AGENT_PROVIDER, 'claude');
+  assert.equal(spawn2.env.NEVO_SPEC_ID, session2.specId);
+  assert.equal(spawn2.env.NEVO_TASK_ID, session2.taskId);
+});
+
+test('3. Antigravity provider: turn-scoped spawn env injection and isolation between concurrent turns', async () => {
+  let spawnCalls = [];
+  const agy = new AntigravityAgentProvider({
+    executable: 'agy',
+    cwd: process.cwd(),
+    cancelGraceMs: 50,
+    forceGraceMs: 50,
+    rawFlushTimeoutMs: 50,
+    probeExecutable: () => ({ ok: true }),
+    ensureMcpRegistered: false,
+    spawnProcess: (exe, args, opts) => {
+      spawnCalls.push({ ...opts, env: { ...opts.env } });
+      const child = {
+        exitCode: 0,
+        signalCode: null,
+        killed: true,
+        stdin: {
+          write: () => true,
+          end: () => {},
+          on: () => {},
+        },
+        stdout: {
+          on: (event, cb) => {
+            if (event === 'data') {
+              queueMicrotask(() => {
+                cb(Buffer.from(JSON.stringify({ type: 'result', status: 'completed' }) + '\n'));
+              });
+            }
+          },
+        },
+        stderr: { on: () => {} },
+        on: (event, cb) => {
+          if (event === 'close') {
+            queueMicrotask(() => cb(0));
+          }
+        },
+        kill: () => {},
+      };
+      return child;
+    },
+  });
+
+  assert.equal(agy.setAmbientSessionContext, undefined, 'Antigravity must not have setAmbientSessionContext');
+
+  const session1 = {
+    canonicalSessionId: '33333333-3333-4333-8333-333333333333',
+    specId: 'spec-333',
+    taskId: '03',
+  };
+  const session2 = {
+    canonicalSessionId: '44444444-4444-4444-8444-444444444444',
+    specId: 'spec-444',
+    taskId: '04',
+  };
+
+  await Promise.all([
+    agy.startTurn({
+      turnId: 'turn-agy-1',
+      canonicalSessionId: session1.canonicalSessionId,
+      specId: session1.specId,
+      taskId: session1.taskId,
+      message: 'agy turn 1',
+    }),
+    agy.startTurn({
+      turnId: 'turn-agy-2',
+      canonicalSessionId: session2.canonicalSessionId,
+      specId: session2.specId,
+      taskId: session2.taskId,
+      message: 'agy turn 2',
+    }),
+  ]);
+
+  assert.equal(spawnCalls.length, 2);
+  const spawn1 = spawnCalls.find((s) => s.env.NEVO_SESSION_ID === session1.canonicalSessionId);
+  const spawn2 = spawnCalls.find((s) => s.env.NEVO_SESSION_ID === session2.canonicalSessionId);
+
+  assert.ok(spawn1, 'Spawn 1 must have session 1 env');
+  assert.equal(spawn1.env.NEVO_AGENT_PROVIDER, 'antigravity');
+  assert.equal(spawn1.env.NEVO_SPEC_ID, session1.specId);
+  assert.equal(spawn1.env.NEVO_TASK_ID, session1.taskId);
+
+  assert.ok(spawn2, 'Spawn 2 must have session 2 env');
+  assert.equal(spawn2.env.NEVO_AGENT_PROVIDER, 'antigravity');
+  assert.equal(spawn2.env.NEVO_SPEC_ID, session2.specId);
+  assert.equal(spawn2.env.NEVO_TASK_ID, session2.taskId);
+});
+
+test('4. Codex provider: turn-scoped bridge file written during turn and cleaned up in finally; readAgentExecutionContext discovers bridge', async () => {
+  const tmpRepo = await mkdtemp(join(tmpdir(), 'nevo-codex-test-'));
+  try {
+    let bridgeDiscoveredDuringTurn = null;
+    let threadTurnStarted = false;
+
+    const mockClient = new FakeCodexClient(async (method, params, client) => {
+      if (method === 'thread/start') {
+        return { thread: { id: 'th-123' } };
+      }
+      if (method === 'turn/start') {
+        threadTurnStarted = true;
+        // Check bridge while turn is in progress
+        bridgeDiscoveredDuringTurn = readAgentExecutionContext(
+          { NEVO_AGENT_PROVIDER: 'codex' },
+          { repoRoot: tmpRepo, specId: 'spec-codex-1', taskId: '05' },
+        );
+        setTimeout(async () => {
+          await client.emitNotification('turn/completed', {
+            threadId: 'th-123',
+            turn: { id: 'turn-cx-1', status: 'completed' },
+          });
+        }, 10);
+        return { turn: { id: 'turn-cx-1', status: 'inProgress', items: [] } };
+      }
+      return {};
+    });
+
+    const codex = new CodexAgentProvider({
+      executable: 'codex',
+      cwd: tmpRepo,
+      client: mockClient,
+    });
+
+    assert.equal(codex.setAmbientSessionContext, undefined, 'Codex provider must not have setAmbientSessionContext');
+
+    const canonicalSessionId = '55555555-5555-4555-8555-555555555555';
+    await codex.startTurn({
+      turnId: 'turn-codex-turn-1',
+      canonicalSessionId,
+      specId: 'spec-codex-1',
+      taskId: '05',
+      cwd: tmpRepo,
+      message: 'codex prompt',
+    });
+
+    assert.equal(threadTurnStarted, true);
+    assert.ok(bridgeDiscoveredDuringTurn, 'readAgentExecutionContext must discover active turn context');
+    assert.equal(bridgeDiscoveredDuringTurn.sessionId, canonicalSessionId);
+    assert.equal(bridgeDiscoveredDuringTurn.provider, 'codex');
+
+    // Verification: after turn completes, bridge file is cleaned up
+    const remainingBridge = readAgentExecutionContext(
+      { NEVO_AGENT_PROVIDER: 'codex' },
+      { repoRoot: tmpRepo, specId: 'spec-codex-1', taskId: '05' },
+    );
+    assert.equal(remainingBridge, null, 'Bridge file must be cleaned up in finally');
+  } finally {
+    await rm(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('5. Automatic deterministic workflow header: injected on first turn, suppressed on repeat turns, re-injected on step/task change, clean userMessage', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-workflow-hdr-test-'));
+  let sessionService = null;
   try {
     const storageDir = join(tmpDir, 'sessions');
     const bindingService = createAgentSessionBindingService({ storageDir });
     const registry = createAgentProviderRegistry();
 
-    let spawnAttempted = false;
+    let capturedPrompts = [];
+
     registry.register({
       descriptor: { id: 'mock', label: 'Mock Provider', defaultMode: 'edit', capabilities: {} },
-      createSession: async ({ sessionId }) => {
-        // Provider session creation receives the canonical sessionId
-        assert.ok(sessionId, 'Provider should receive canonical sessionId');
-        assert.match(sessionId, UUID_RE);
-        return { providerSessionId: sessionId };
-      },
-      startTurn: async () => {
-        spawnAttempted = true;
-        return { message: 'hello' };
+      startTurn: (context) => {
+        capturedPrompts.push(context.prompt);
+        return (async function* () {
+          yield { type: 'final_answer.delta', text: 'response' };
+        })();
       },
       cancelTurn: async () => ({}),
     });
 
-    const sessionService = new AgentSessionService({
+    const turnRuntime = new AgentTurnRuntime({ registry });
+    sessionService = new AgentSessionService({
       registry,
+      turnRuntime,
       bindingService,
     });
 
-    const specId = '11111111-2222-4333-8444-555555555555';
-    const session = await sessionService.createSession({
-      provider: 'mock',
+    const specId = '66666666-6666-4666-8666-666666666666';
+
+    // Turn 1: Explicit workflow context or first turn on task '01'
+    const turn1 = await sessionService.startTurn('mock', undefined, {
       specId,
-      taskId: '01-task',
-      mode: 'edit',
+      taskId: '01',
+      workflowContext: {
+        changeSlug: 'my-feature',
+        taskId: '01',
+        step: 'implementation',
+        attempt: 1,
+      },
+      message: 'Please implement feature X',
     });
 
-    // Before any turn or provider process spawn:
-    assert.equal(spawnAttempted, false, 'No provider process should be spawned during createSession');
-    assert.ok(session.sessionId, 'Session DTO must contain canonical sessionId');
-    assert.match(session.sessionId, UUID_RE, 'Canonical sessionId must be a valid UUID');
+    assert.equal(capturedPrompts.length, 1);
+    assert.match(capturedPrompts[0], /\[Nevo Workflow Context\]/);
+    assert.match(capturedPrompts[0], /Please implement feature X/);
 
-    // Binding must be persisted to disk under specId with established: false
-    const bindings = await bindingService.listBindings({ specId });
-    assert.equal(bindings.length, 1);
-    const b = bindings[0];
-    assert.equal(b.sessionId, session.sessionId);
-    assert.equal(b.specId, specId);
-    assert.equal(b.taskId, '01-task');
-    assert.equal(b.activeTaskId, '01-task');
-    assert.equal(b.established, false, 'Initial binding before native confirmation must have established: false');
+    const canonical1 = sessionService.getCanonicalTurn(turn1.turnId);
+    assert.equal(canonical1.userMessage?.text, 'Please implement feature X', 'userMessage must be clean');
+
+    const sessionBinding = await bindingService.getBinding('mock', canonical1.sessionId || canonical1.providerSessionId || turn1.providerSessionId);
+    assert.equal(sessionBinding.lastBootstrapTaskId, '01');
+    assert.equal(sessionBinding.lastBootstrapStep, 'implementation');
+    assert.equal(sessionBinding.lastBootstrapAttempt, 1);
+
+    for (let i = 0; i < 50; i++) {
+      const snap = sessionService.getTurn(turn1.turnId);
+      if (snap?.status === 'completed' || snap?.status === 'failed') break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+
+    // Turn 2: Second turn on same session, same task, same step
+    const turn2 = await sessionService.startTurn('mock', sessionBinding.providerSessionId, {
+      specId,
+      taskId: '01',
+      message: 'Next question without new step',
+    });
+
+    assert.equal(capturedPrompts.length, 2);
+    assert.doesNotMatch(capturedPrompts[1], /\[Nevo Workflow Context\]/, 'Repeat turn on same step must not repeat header');
+    assert.equal(capturedPrompts[1], 'Next question without new step');
+
+    for (let i = 0; i < 50; i++) {
+      const snap = sessionService.getTurn(turn2.turnId);
+      if (snap?.status === 'completed' || snap?.status === 'failed') break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+
+    // Turn 3: Step progresses to 'verification'
+    const turn3 = await sessionService.startTurn('mock', sessionBinding.providerSessionId, {
+      specId,
+      taskId: '01',
+      workflowContext: {
+        changeSlug: 'my-feature',
+        taskId: '01',
+        step: 'verification',
+        attempt: 1,
+      },
+      message: 'Verify tests now',
+    });
+
+    for (let i = 0; i < 50; i++) {
+      const snap = sessionService.getTurn(turn3.turnId);
+      if (snap?.status === 'completed' || snap?.status === 'failed') break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+
+    assert.equal(capturedPrompts.length, 3);
+    assert.match(capturedPrompts[2], /\[Nevo Workflow Context\]/, 'Step switch must re-inject header');
+    assert.match(capturedPrompts[2], /Step: verification/);
+
+    for (let i = 0; i < 50; i++) {
+      const snap = sessionService.getTurn(turn1.turnId);
+      if (snap?.status === 'completed' || snap?.status === 'failed') break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+  } finally {
+    await sessionService?.shutdown?.().catch(() => {});
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('6. tools/specs.mjs autoBindAgentSession writes SessionTaskBinding to <repoRoot>/.nevo-ai-local/sessions/ using discovered context', async () => {
+  const tmpRepo = await mkdtemp(join(tmpdir(), 'nevo-autobind-test-'));
+  const originalEnvSessionId = process.env.NEVO_SESSION_ID;
+  const originalEnvProvider = process.env.NEVO_AGENT_PROVIDER;
+  try {
+    const canonicalSessionId = '77777777-7777-4777-8777-777777777777';
+    const specId = '88888888-8888-4888-8888-888888888888';
+
+    process.env.NEVO_SESSION_ID = canonicalSessionId;
+    process.env.NEVO_AGENT_PROVIDER = 'claude';
+
+    const mockChange = {
+      spec_id: specId,
+      _slug: 'test-change',
+    };
+
+    autoBindAgentSession(mockChange, '02', 'execution', {
+      step: 'implementation',
+      attempt: 1,
+      repoRoot: tmpRepo,
+    });
+
+    const sessionFile = join(tmpRepo, '.nevo-ai-local', 'sessions', `${specId}.json`);
+    assert.equal(existsSync(sessionFile), true, 'Session file must exist under <repoRoot>/.nevo-ai-local/sessions');
+
+    const content = JSON.parse(await readFile(sessionFile, 'utf-8'));
+    assert.equal(Array.isArray(content), true);
+    assert.equal(content.length, 1);
+    assert.equal(content[0].sessionId, canonicalSessionId);
+    assert.equal(content[0].provider, 'claude');
+    assert.equal(content[0].specId, specId);
+    assert.equal(content[0].taskId, '02');
+    assert.equal(content[0].step, 'implementation');
+    assert.equal(content[0].attempt, 1);
+  } finally {
+    if (originalEnvSessionId !== undefined) process.env.NEVO_SESSION_ID = originalEnvSessionId;
+    else delete process.env.NEVO_SESSION_ID;
+    if (originalEnvProvider !== undefined) process.env.NEVO_AGENT_PROVIDER = originalEnvProvider;
+    else delete process.env.NEVO_AGENT_PROVIDER;
+    await rm(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('7. markSessionEstablished strictly correlates to canonicalSessionId and providerSessionId without mutating unrelated pending sessions', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-correlate-test-'));
+  try {
+    const storageDir = join(tmpDir, 'sessions');
+    const bindingService = createAgentSessionBindingService({ storageDir });
+    const specId = '99999999-9999-4999-8999-999999999999';
+
+    const session1Id = 'aaaa1111-1111-4111-8111-111111111111';
+    const session2Id = 'bbbb2222-2222-4222-8222-222222222222';
+
+    // Two sessions both unestablished
+    await bindingService.bindSession({
+      provider: 'mock',
+      providerSessionId: session1Id,
+      sessionId: session1Id,
+      specId,
+      taskId: '01',
+      established: false,
+    });
+
+    await bindingService.bindSession({
+      provider: 'mock',
+      providerSessionId: session2Id,
+      sessionId: session2Id,
+      specId,
+      taskId: '02',
+      established: false,
+    });
+
+    // Establish session 1 only
+    await bindingService.markSessionEstablished('mock', session1Id, 'mock-native-1');
+
+    const s1 = await bindingService.getBinding('mock', session1Id);
+    assert.equal(s1.providerSessionId, 'mock-native-1');
+    assert.equal(s1.established, undefined);
+
+    const s2 = await bindingService.getBinding('mock', session2Id);
+    assert.equal(s2.providerSessionId, session2Id);
+    assert.equal(s2.established, false, 'Unrelated session must NOT be marked established');
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
 });
 
-test('AC 2: Provider process spawn configurations across Claude, Antigravity, and Codex receive NEVO_SESSION_ID and NEVO_AGENT_PROVIDER', async () => {
-  const canonicalSessionId = '22222222-3333-4444-8555-666666666666';
-  const specId = '33333333-4444-4555-8666-777777777777';
-  const taskId = '02-task';
-
-  const createMockProcess = (onSpawn) => (exe, args, opts) => {
-    onSpawn(opts);
-    const child = {
-      exitCode: 0,
-      signalCode: null,
-      killed: true,
-      stdout: {
-        on: (event, cb) => {
-          if (event === 'data') {
-            queueMicrotask(() => {
-              cb(Buffer.from(JSON.stringify({ type: 'result', status: 'completed' }) + '\n'));
-            });
-          }
-        },
-      },
-      stderr: { on: () => {} },
-      on: (event, cb) => {
-        if (event === 'close') {
-          queueMicrotask(() => cb(0));
-        }
-      },
-      kill: () => {},
-    };
-    return child;
-  };
-
-  // 1. Claude provider
-  {
-    let capturedSpawnEnv = null;
-    const claude = new ClaudeAgentProvider({
-      executable: 'claude',
-      cwd: process.cwd(),
-      cancelGraceMs: 50,
-      forceGraceMs: 50,
-      probeExecutable: () => ({ ok: true }),
-      spawnProcess: createMockProcess((opts) => {
-        capturedSpawnEnv = opts.env;
-      }),
-    });
-
-    claude.setAmbientSessionContext({
-      sessionId: canonicalSessionId,
-      specId,
-      taskId,
-      activeTaskId: taskId,
-    });
-
-    try {
-      await claude.startTurn({
-        turnId: 'turn-c1',
-        providerSessionId: 'sess-c1',
-        message: 'test prompt',
-      });
-    } catch {}
-
-    assert.ok(capturedSpawnEnv, 'Claude should have spawned child process');
-    assert.equal(capturedSpawnEnv.NEVO_SESSION_ID, canonicalSessionId);
-    assert.equal(capturedSpawnEnv.NEVO_AGENT_PROVIDER, 'claude');
-    assert.equal(capturedSpawnEnv.NEVO_SPEC_ID, specId);
-    assert.equal(capturedSpawnEnv.NEVO_TASK_ID, taskId);
-  }
-
-  // 2. Antigravity provider
-  {
-    let capturedSpawnEnv = null;
-    const agy = new AntigravityAgentProvider({
-      executable: 'agy',
-      cwd: process.cwd(),
-      cancelGraceMs: 50,
-      forceGraceMs: 50,
-      rawFlushTimeoutMs: 50,
-      probeExecutable: () => ({ ok: true }),
-      ensureMcpRegistered: false,
-      spawnProcess: createMockProcess((opts) => {
-        capturedSpawnEnv = opts.env;
-      }),
-    });
-
-    agy.setAmbientSessionContext({
-      sessionId: canonicalSessionId,
-      specId,
-      taskId,
-      activeTaskId: taskId,
-    });
-
-    try {
-      await agy.startTurn({
-        turnId: 'turn-a1',
-        providerSessionId: 'sess-a1',
-        message: 'test prompt',
-      });
-    } catch {}
-
-    assert.ok(capturedSpawnEnv, 'Antigravity should have spawned child process');
-    assert.equal(capturedSpawnEnv.NEVO_SESSION_ID, canonicalSessionId);
-    assert.equal(capturedSpawnEnv.NEVO_AGENT_PROVIDER, 'antigravity');
-    assert.equal(capturedSpawnEnv.NEVO_SPEC_ID, specId);
-    assert.equal(capturedSpawnEnv.NEVO_TASK_ID, taskId);
-  }
-
-  // 3. Codex provider & client
-  {
-    const mockClient = {
-      onNotification: () => () => {},
-      onServerRequest: () => () => {},
-      request: async () => ({ thread: { id: 'thread-codex-1' }, turn: { id: 'turn-1', status: 'inProgress' } }),
-      waitForNotification: () => new Promise(() => {}),
-      dispose: () => {},
-    };
-    const client = new CodexAppServerClient({
-      executable: 'codex',
-      cwd: process.cwd(),
-      clientFactory: () => mockClient,
-    });
-
-    client.setAmbientSessionContext({
-      sessionId: canonicalSessionId,
-      specId,
-      taskId,
-      activeTaskId: taskId,
-    });
-
-    assert.equal(client.env.NEVO_SESSION_ID, canonicalSessionId);
-    assert.equal(client.env.NEVO_AGENT_PROVIDER, 'codex');
-    assert.equal(client.env.NEVO_SPEC_ID, specId);
-    assert.equal(client.env.NEVO_TASK_ID, taskId);
-
-    const codex = new CodexAgentProvider({
-      executable: 'codex',
-      cwd: process.cwd(),
-      client,
-    });
-
-    codex.setAmbientSessionContext({
-      sessionId: canonicalSessionId,
-      specId,
-      taskId,
-      activeTaskId: taskId,
-    });
-
-    assert.equal(codex.client.env.NEVO_SESSION_ID, canonicalSessionId);
-    assert.equal(codex.client.env.NEVO_AGENT_PROVIDER, 'codex');
-  }
-});
-
-test('AC 4: Calling markSessionEstablished when provider native session ID arrives updates providerSessionId and clears established: false', async () => {
-  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-bootstrap-test-ac4-'));
+test('8. Regression: first turn on a provider without createSession() must not throw "Cannot re-bind" when the provider later allocates a native session ID that differs from the canonical placeholder', async () => {
+  // Reproduces the real Claude dashboard failure: AgentSessionService.createSession()
+  // falls back to using the canonical Nevo sessionId as a placeholder providerSessionId
+  // (established: false) when the provider has no native createSession(). That
+  // placeholder used to be baked into TurnLifecycleCoordinator as an already-bound
+  // providerSessionId, so the provider's later genuinely-allocated native session ID
+  // collided with it in bindTurnProviderSessionId() ("Cannot re-bind turn ...").
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-rebind-regression-'));
+  let sessionService = null;
   try {
     const storageDir = join(tmpDir, 'sessions');
     const bindingService = createAgentSessionBindingService({ storageDir });
-    const specId = '44444444-5555-4666-8777-888888888888';
-    const canonicalSessionId = '55555555-6666-4777-8888-999999999999';
+    const registry = createAgentProviderRegistry();
+    const specId = '33333333-4444-4555-8666-777777777777';
+    const taskId = '02-task';
+    const nativeSessionId = 'native-aaaa-bbbb-cccc-dddddddddddd';
 
-    // Initial binding with established: false
-    const initial = await bindingService.bindSession({
-      provider: 'claude',
-      providerSessionId: canonicalSessionId,
-      sessionId: canonicalSessionId,
-      specId,
-      taskId: '01-first-task',
-      step: 'implementation',
-      attempt: 1,
-      established: false,
+    // No createSession() on this provider — mirrors ClaudeAgentProvider, which has
+    // no native session pre-allocation and only learns its real session ID once the
+    // CLI process actually starts (see claude/provider.mjs effectiveSessionId).
+    registry.register({
+      descriptor: { id: 'mock-claude-like', label: 'Mock Claude-like Provider', defaultMode: 'edit', capabilities: {} },
+      startTurn: (context) => {
+        return (async function* () {
+          // Provider allocates and confirms its OWN native session ID, distinct
+          // from the canonical Nevo sessionId placeholder used before establishment.
+          await context.setProviderSessionId(nativeSessionId);
+          yield { type: 'final_answer.delta', text: 'done' };
+        })();
+      },
+      cancelTurn: async () => ({}),
     });
 
-    assert.equal(initial.sessionId, canonicalSessionId);
-    assert.equal(initial.providerSessionId, canonicalSessionId);
-    assert.equal(initial.established, false);
+    const turnRuntime = new AgentTurnRuntime({ registry });
+    sessionService = new AgentSessionService({
+      registry,
+      turnRuntime,
+      bindingService,
+    });
 
-    // Native provider ID arrives (e.g. Claude native conversation ID)
-    const nativeProviderSessionId = 'claude-conversation-native-uuid-999';
-    await bindingService.markSessionEstablished('claude', canonicalSessionId, nativeProviderSessionId);
+    const turnResult = await sessionService.startTurn('mock-claude-like', undefined, {
+      specId,
+      taskId,
+      message: 'Implement Task 02',
+    });
 
-    // After establishment:
-    // 1. Canonical sessionId must remain invariant
-    const resolvedByNative = await bindingService.resolveCurrentBinding('claude', nativeProviderSessionId);
-    assert.ok(resolvedByNative);
-    assert.equal(resolvedByNative.sessionId, canonicalSessionId, 'Canonical sessionId must be preserved');
-    assert.equal(resolvedByNative.providerSessionId, nativeProviderSessionId, 'providerSessionId must be updated to native ID');
-    assert.equal(resolvedByNative.established, undefined, 'established: false flag must be cleared');
-    assert.equal(resolvedByNative.taskId, '01-first-task', 'Earlier task binding must remain intact');
-    assert.equal(resolvedByNative.step, 'implementation', 'Step must remain intact');
-    assert.equal(resolvedByNative.attempt, 1, 'Attempt must remain intact');
+    assert.ok(turnResult.turnId, 'Turn should be created');
+    assert.equal(
+      turnResult.providerSessionId,
+      nativeSessionId,
+      'Established providerSessionId must be the native ID the provider allocated, not the canonical placeholder',
+    );
+    assert.notEqual(
+      turnResult.providerSessionId,
+      undefined,
+    );
 
-    // 2. Lookup by canonical sessionId still resolves correctly
-    const resolvedByCanonical = await bindingService.getBinding('claude', canonicalSessionId);
-    assert.ok(resolvedByCanonical);
-    assert.equal(resolvedByCanonical.providerSessionId, nativeProviderSessionId);
-    assert.equal(resolvedByCanonical.sessionId, canonicalSessionId);
+    for (let i = 0; i < 50; i++) {
+      const snap = sessionService.getTurn(turnResult.turnId);
+      if (snap?.status === 'completed' || snap?.status === 'failed') {
+        assert.equal(snap.status, 'completed', `Turn must complete, not fail: ${JSON.stringify(snap)}`);
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 5));
+    }
+
+    const binding = await bindingService.getBinding('mock-claude-like', nativeSessionId);
+    assert.ok(binding, 'Binding must be resolvable by the confirmed native providerSessionId');
+    assert.equal(binding.established, undefined, 'Confirmed binding must no longer carry established: false');
   } finally {
+    await sessionService?.shutdown?.().catch(() => {});
     await rm(tmpDir, { recursive: true, force: true });
   }
 });

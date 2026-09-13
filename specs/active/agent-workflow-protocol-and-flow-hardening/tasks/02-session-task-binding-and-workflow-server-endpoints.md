@@ -30,6 +30,7 @@ allowed_paths:
   - tools/dashboard/server/specs/actions.mjs
   - tools/dashboard/server/specs/routes.mjs
   - tools/dashboard/server/ai/routes.mjs
+  - tools/dashboard/server/ai/sessions/turns/runtime.mjs
   - tools/specs.mjs
   - tools/specs/workflow/cli.mjs
   - tools/dashboard/tests/binding-service.test.mjs

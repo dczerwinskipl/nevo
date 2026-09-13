@@ -410,12 +410,6 @@ export class ClaudeAgentProvider {
     return Array.from(modelsById.values());
   }
 
-  #ambientSessionContext = null;
-
-  setAmbientSessionContext({ sessionId, specId, taskId, activeTaskId } = {}) {
-    this.#ambientSessionContext = { sessionId, specId, taskId, activeTaskId };
-  }
-
   getRawCapturePath(sessionId) {
     return this.#rawCapture.getRawCapturePath(sessionId);
   }
@@ -555,6 +549,8 @@ export class ClaudeAgentProvider {
     {
       turnId,
       providerSessionId,
+      canonicalSessionId,
+      nevoSessionId,
       sessionId,
       specId,
       taskId,
@@ -632,9 +628,9 @@ export class ClaudeAgentProvider {
     return new Promise((resolve, reject) => {
       let child;
       try {
-        const effectiveNevoSessionId = sessionId || this.#ambientSessionContext?.sessionId || effectiveSessionId;
-        const effectiveSpecId = specId || this.#ambientSessionContext?.specId;
-        const effectiveTaskId = activeTaskId || taskId || this.#ambientSessionContext?.activeTaskId || this.#ambientSessionContext?.taskId;
+        const effectiveNevoSessionId = nevoSessionId || canonicalSessionId || sessionId || effectiveSessionId;
+        const effectiveSpecId = specId;
+        const effectiveTaskId = activeTaskId || taskId;
         const childEnv = {
           ...process.env,
           CLAUDE_INTERACTIVE: '0',

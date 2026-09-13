@@ -252,7 +252,7 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
   const position = resolveWorkflowPosition(definition, task);
   const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, position.attempt);
   const stepContext = await compileStepContext({ change, task, definition, context, gateRegistry });
-  autoBindAgentSession(change, task.id, 'execution', { step: stepContext.currentStep, attempt: stepContext.attempt });
+  autoBindAgentSession(change, task.id, 'execution', { step: stepContext.currentStep, attempt: stepContext.attempt, repoRoot: context.repoRoot });
   return emit(stepContext, opts);
 }
 
@@ -266,7 +266,7 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
   const position = inFlight ? null : resolveWorkflowPosition(definition, task);
   const stepName = inFlight ? inFlight.step : position.step;
   const attempt = inFlight ? inFlight.attempt : position.attempt;
-  autoBindAgentSession(change, task.id, 'finish', { step: stepName, attempt });
+  autoBindAgentSession(change, task.id, 'finish', { step: stepName, attempt, repoRoot: context.repoRoot });
   const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, attempt);
 
   const step = (position?.phase === 'active' || inFlight) ? definition.steps?.[stepName] : null;

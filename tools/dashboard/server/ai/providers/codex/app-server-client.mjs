@@ -254,16 +254,6 @@ export class CodexAppServerClient {
     return this.#env;
   }
 
-  setAmbientSessionContext({ sessionId, specId, taskId, activeTaskId } = {}) {
-    this.#env = {
-      ...(this.#env || process.env),
-      NEVO_AGENT_PROVIDER: 'codex',
-      ...(sessionId ? { NEVO_SESSION_ID: sessionId } : {}),
-      ...(specId ? { NEVO_SPEC_ID: specId } : {}),
-      ...(activeTaskId || taskId ? { NEVO_TASK_ID: activeTaskId || taskId } : {}),
-    };
-  }
-
   get rawCapture() {
     return this.#rawCapture;
   }
@@ -495,8 +485,7 @@ export class CodexAppServerClient {
       const clientEnv = {
         ...process.env,
         ...(this.#env || {}),
-        NEVO_AGENT_PROVIDER: this.#env?.NEVO_AGENT_PROVIDER || 'codex',
-        ...(this.#env?.NEVO_SESSION_ID ? { NEVO_SESSION_ID: this.#env.NEVO_SESSION_ID } : {}),
+        NEVO_AGENT_PROVIDER: 'codex',
       };
       const spawnOptions = getProcessTreeSpawnOptions({
         cwd: this.#cwd,

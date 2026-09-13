@@ -611,7 +611,7 @@ test('AC 3: Running workflow step start inside an environment with NEVO_SESSION_
 
   const specId = '33333333-3333-4333-8333-333333333333';
   const canonicalSessionId = '44444444-4444-4444-8444-444444444444';
-  const createdBindingFile = join(process.cwd(), '.nevo-ai-local', 'sessions', `${specId}.json`);
+  const createdBindingFile = join(tmpDir, '.nevo-ai-local', 'sessions', `${specId}.json`);
 
   try {
     const root = tmpDir;
@@ -692,7 +692,7 @@ tasks:
     assert.equal(stepContext.attempt, 1);
 
     // Verify SessionTaskBinding was automatically created and persisted
-    const bindingService = createAgentSessionBindingService();
+    const bindingService = createAgentSessionBindingService({ storageDir: join(root, '.nevo-ai-local', 'sessions') });
     const binding = bindingService.resolveCurrentBindingSync('antigravity', canonicalSessionId);
     assert.ok(binding, 'Session binding should be automatically created');
     assert.equal(binding.sessionId, canonicalSessionId);

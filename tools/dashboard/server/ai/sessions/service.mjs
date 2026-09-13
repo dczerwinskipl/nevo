@@ -9,6 +9,7 @@ import {
 } from '../contracts.mjs';
 import { validateAgentModelDescriptor, normalizeModelIdentifier } from '../model/model-catalog.mjs';
 import { compareBindingRecency } from './binding-service.mjs';
+import { listChanges } from '../../../../specs/store.mjs';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -177,6 +178,30 @@ export function formatNevoWorkflowContext({ changeSlug, taskId, step = 'implemen
     `   node tools/specs.mjs workflow step finish ${changeSlug || 'active'} ${taskId} --input '{"commit.title":"..."}'`,
     '4. After successful step finish, summarize your work and STOP.',
   ].join('\n');
+}
+
+export function resolveDeterministicWorkflowInfo(specId, taskId, baseDir) {
+  if (!specId) return null;
+  try {
+    const changes = listChanges(baseDir);
+    const change = changes.find((c) => c.id === specId || c._slug === specId);
+    if (!change) return null;
+    if (change.workflow?.mode !== 'deterministic') return null;
+
+    const rawTaskId = taskId ? String(taskId) : undefined;
+    const task = rawTaskId ? (change.tasks || []).find((t) => String(t.id) === rawTaskId) : null;
+    const resolvedTaskId = rawTaskId || (change.tasks && change.tasks.length > 0 ? String(change.tasks[0].id) : undefined);
+
+    return {
+      changeSlug: change._slug,
+      specId: change.id,
+      taskId: resolvedTaskId,
+      step: task?.step || 'implementation',
+      attempt: typeof task?.attempt === 'number' ? task.attempt : 1,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export class AgentSessionService {
@@ -610,13 +635,26 @@ export class AgentSessionService {
       sessId = opts.providerSessionId;
     }
 
-    if (sessId) {
-      validateAgentIdentity({ provider: prov, providerSessionId: sessId });
-    }
+    let createdSession = null;
+    let sessionBinding = null;
 
-    // Existing-session binding, fetched once and reused for mode resolution and
-    // provider-session establishment below.
-    const sessionBinding = sessId && this.bindingService ? await this.getSession(prov, sessId) : null;
+    if (!sessId) {
+      createdSession = await this.createSession(prov, {
+        specId: opts.specId,
+        taskId: opts.activeTaskId || opts.taskId,
+        taskIds: opts.taskIds,
+        purpose: opts.purpose,
+        mode: opts.mode,
+        model: opts.model,
+        title: opts.title,
+        sessionId: opts.sessionId,
+      });
+      sessId = createdSession.providerSessionId;
+      sessionBinding = createdSession;
+    } else {
+      validateAgentIdentity({ provider: prov, providerSessionId: sessId });
+      sessionBinding = this.bindingService ? await this.getSession(prov, sessId) : null;
+    }
 
     // Mode resolution
     let effectiveMode = opts.mode;
@@ -667,73 +705,75 @@ export class AgentSessionService {
       }
     }
 
-    let onSessionEstablished = opts.onSessionEstablished;
-    if (!sessId && this.bindingService && !onSessionEstablished) {
-      onSessionEstablished = async (allocatedSessionId) => {
-        if (opts.taskIds && opts.taskIds.length > 0) {
-          for (const tId of opts.taskIds) {
-            await this.bindingService.bindSession({
-              provider: prov,
-              providerSessionId: allocatedSessionId,
-              specId: opts.specId,
-              taskId: tId,
-              purpose: opts.purpose || `task:${tId}`,
-              mode: effectiveMode,
-              model: effectiveModel,
-            });
-          }
-        } else {
-          await this.bindingService.bindSession({
-            provider: prov,
-            providerSessionId: allocatedSessionId,
-            specId: opts.specId,
-            taskId: opts.taskId,
-            purpose: opts.purpose || (opts.taskId ? `task:${opts.taskId}` : 'interactive'),
-            mode: effectiveMode,
-            model: effectiveModel,
-          });
-        }
-      };
-    }
-
-    let effectivePrompt = opts.message ?? opts.prompt;
-    let effectiveUserMessage = opts.userMessage;
-
-    if (opts.workflowContext) {
-      const header =
-        typeof opts.workflowContext === 'string'
-          ? opts.workflowContext
-          : formatNevoWorkflowContext(opts.workflowContext);
-      if (!effectiveUserMessage) {
-        effectiveUserMessage = effectivePrompt;
-      }
-      effectivePrompt = `${header}\n\n${effectiveUserMessage}`;
-    }
-
     const effectiveCanonicalSessionId =
-      sessionBinding?.sessionId || opts.sessionId || (UUID_RE.test(sessId) ? sessId : undefined);
+      sessionBinding?.sessionId || createdSession?.sessionId || opts.sessionId || (UUID_RE.test(sessId) ? sessId : undefined);
 
     const effectiveSpecId = opts.specId || sessionBinding?.specId;
     const effectiveTaskId = opts.activeTaskId || sessionBinding?.activeTaskId || opts.taskId || sessionBinding?.taskId;
 
-    const providerEntry = this.registry?.get(prov);
-    providerEntry?.instance?.setAmbientSessionContext?.({
-      sessionId: effectiveCanonicalSessionId || sessId,
-      specId: effectiveSpecId,
-      taskId: effectiveTaskId,
-      activeTaskId: effectiveTaskId,
-    });
+    let effectivePrompt = opts.message ?? opts.prompt;
+    let effectiveUserMessage = opts.userMessage;
 
-    // A session bound with `established: false` carries a locally fabricated
-    // providerSessionId that the provider itself has never confirmed (see
-    // createSession()'s fallback branch). Until the provider actually materializes
-    // a conversation using that exact ID, it must be treated as a fresh identity
-    // (no --resume-equivalent), not as a resumable one — otherwise the Nevo-side
-    // placeholder ID gets used as an implicit provider session ID.
-    const isSessionEstablished = sessionBinding?.established !== false;
-    if (!isSessionEstablished && this.bindingService && !onSessionEstablished) {
+    // Workflow header resolution
+    const workflowInfo = resolveDeterministicWorkflowInfo(effectiveSpecId, effectiveTaskId);
+    const hasExplicitWorkflowContext = opts.workflowContext !== undefined && opts.workflowContext !== false;
+    const shouldInjectAutomatic = opts.workflowContext !== false && Boolean(workflowInfo);
+
+    let needsHeader = false;
+    if (hasExplicitWorkflowContext) {
+      needsHeader = true;
+    } else if (shouldInjectAutomatic) {
+      needsHeader =
+        !sessionBinding?.lastBootstrapTaskId ||
+        sessionBinding.lastBootstrapTaskId !== workflowInfo.taskId ||
+        sessionBinding.lastBootstrapStep !== workflowInfo.step ||
+        sessionBinding.lastBootstrapAttempt !== workflowInfo.attempt;
+    }
+
+    if (needsHeader) {
+      const contextToFormat =
+        typeof opts.workflowContext === 'object' && opts.workflowContext !== null
+          ? opts.workflowContext
+          : workflowInfo;
+      const header =
+        typeof opts.workflowContext === 'string'
+          ? opts.workflowContext
+          : formatNevoWorkflowContext(contextToFormat);
+
+      if (!effectiveUserMessage) {
+        effectiveUserMessage = effectivePrompt;
+      }
+      effectivePrompt = `${header}\n\n${effectiveUserMessage}`;
+
+      if (this.bindingService && (workflowInfo || (typeof opts.workflowContext === 'object' && opts.workflowContext !== null))) {
+        const targetTaskId = workflowInfo?.taskId || opts.workflowContext?.taskId || effectiveTaskId;
+        const targetStep = workflowInfo?.step || opts.workflowContext?.step || 'implementation';
+        const targetAttempt = workflowInfo?.attempt ?? opts.workflowContext?.attempt ?? 1;
+        await this.bindingService.recordBootstrapState(prov, sessId, {
+          taskId: targetTaskId,
+          step: targetStep,
+          attempt: targetAttempt,
+          sessionId: effectiveCanonicalSessionId,
+        });
+      }
+    }
+
+    const isSessionEstablished = createdSession
+      ? createdSession.established === true
+      : sessionBinding?.established !== false;
+
+    let onSessionEstablished = opts.onSessionEstablished;
+    const userOnSessionEstablished = opts.onSessionEstablished;
+    if (!isSessionEstablished && this.bindingService) {
       onSessionEstablished = async (allocatedSessionId) => {
-        await this.bindingService.markSessionEstablished(prov, sessId, allocatedSessionId);
+        await this.bindingService.markSessionEstablished(
+          prov,
+          effectiveCanonicalSessionId || sessId,
+          allocatedSessionId,
+        );
+        if (typeof userOnSessionEstablished === 'function') {
+          await userOnSessionEstablished(allocatedSessionId);
+        }
       };
     }
 
@@ -742,6 +782,11 @@ export class AgentSessionService {
       ...cleanOpts,
       provider: prov,
       providerSessionId: sessId,
+      canonicalSessionId: effectiveCanonicalSessionId,
+      nevoSessionId: effectiveCanonicalSessionId,
+      specId: effectiveSpecId,
+      taskId: effectiveTaskId,
+      activeTaskId: effectiveTaskId,
       isSessionEstablished,
       message: effectivePrompt,
       prompt: effectivePrompt,

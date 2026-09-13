@@ -38,11 +38,97 @@ export function compareBindingRecency(a, b) {
 
   return (a.taskId || '').localeCompare(b.taskId || '');
 }
+ 
+export async function writeCodexExecutionContextBridge(repoRoot, threadId, { nevoSessionId, specId, taskId, activeTaskId } = {}) {
+  if (!repoRoot || !threadId) return;
+  const bridgeDir = resolve(repoRoot, '.nevo-ai-local', 'codex-context');
+  await mkdir(bridgeDir, { recursive: true });
+  const payload = JSON.stringify(
+    {
+      threadId,
+      nevoSessionId,
+      specId,
+      taskId: activeTaskId || taskId,
+      activeTaskId: activeTaskId || taskId,
+      createdAt: new Date().toISOString(),
+    },
+    null,
+    2,
+  );
+  const threadPath = join(bridgeDir, `${threadId}.json`);
+  const tmpThreadPath = `${threadPath}.${randomUUID()}.tmp`;
+  await writeFile(tmpThreadPath, payload, 'utf-8');
+  await rename(tmpThreadPath, threadPath);
 
-export function readAgentExecutionContext(env = process.env) {
+  const effTask = activeTaskId || taskId;
+  if (specId && effTask) {
+    const taskPath = join(bridgeDir, `${specId}-${effTask}.json`);
+    const tmpTaskPath = `${taskPath}.${randomUUID()}.tmp`;
+    await writeFile(tmpTaskPath, payload, 'utf-8');
+    await rename(tmpTaskPath, taskPath);
+  }
+}
+
+export async function removeCodexExecutionContextBridge(repoRoot, threadId, { specId, taskId, activeTaskId } = {}) {
+  if (!repoRoot) return;
+  const bridgeDir = resolve(repoRoot, '.nevo-ai-local', 'codex-context');
+  try {
+    if (threadId) {
+      await unlink(join(bridgeDir, `${threadId}.json`)).catch(() => {});
+    }
+    const effTask = activeTaskId || taskId;
+    if (specId && effTask) {
+      await unlink(join(bridgeDir, `${specId}-${effTask}.json`)).catch(() => {});
+    }
+  } catch {}
+}
+
+export function readCodexExecutionContextBridgeSync(repoRoot, { specId, taskId, threadId } = {}) {
+  if (!repoRoot) return null;
+  const bridgeDir = resolve(repoRoot, '.nevo-ai-local', 'codex-context');
+  let filePath = null;
+  if (threadId) {
+    filePath = join(bridgeDir, `${threadId}.json`);
+  } else if (specId && taskId) {
+    filePath = join(bridgeDir, `${specId}-${taskId}.json`);
+  }
+  if (!filePath || !existsSync(filePath)) return null;
+  try {
+    const raw = readFileSync(filePath, 'utf-8');
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+export function readAgentExecutionContext(envOrOpts = process.env, opts = {}) {
+  let env = process.env;
+  let repoRoot = null;
+  let specId = null;
+  let taskId = null;
+
+  if (envOrOpts && typeof envOrOpts === 'object') {
+    if (
+      'NEVO_AGENT_PROVIDER' in envOrOpts ||
+      'NEVO_SESSION_ID' in envOrOpts ||
+      'NEVO_AGENT_PROVIDER_SESSION_ID' in envOrOpts
+    ) {
+      env = envOrOpts;
+      repoRoot = opts.repoRoot;
+      specId = opts.specId;
+      taskId = opts.taskId;
+    } else {
+      env = envOrOpts.env || process.env;
+      repoRoot = envOrOpts.repoRoot;
+      specId = envOrOpts.specId;
+      taskId = envOrOpts.taskId;
+    }
+  }
+
   const provider = env.NEVO_AGENT_PROVIDER?.trim();
   const sessionId = env.NEVO_SESSION_ID?.trim();
   const providerSessionId = env.NEVO_AGENT_PROVIDER_SESSION_ID?.trim();
+
   if (provider && (providerSessionId || sessionId)) {
     return {
       provider,
@@ -57,6 +143,19 @@ export function readAgentExecutionContext(env = process.env) {
       sessionId,
     };
   }
+
+  // Codex bridge fallback: when NEVO_AGENT_PROVIDER === 'codex' and persistent app-server has no per-thread env
+  if (provider === 'codex' && repoRoot) {
+    const bridge = readCodexExecutionContextBridgeSync(repoRoot, { specId, taskId, threadId: providerSessionId });
+    if (bridge?.nevoSessionId) {
+      return {
+        provider: 'codex',
+        providerSessionId: bridge.threadId || bridge.nevoSessionId,
+        sessionId: bridge.nevoSessionId,
+      };
+    }
+  }
+
   return null;
 }
 
@@ -801,32 +900,33 @@ export class AgentSessionBindingService {
   }
 
   /**
-   * Marks a locally pre-allocated session identity (bound with `established: false`,
-   * e.g. a placeholder created by `createSession()` for a provider without its own
-   * session allocation) as confirmed once the provider has actually materialized a
-   * conversation using that exact ID. Durably clears the flag so later turns resume
-   * instead of re-attempting first-turn creation semantics.
-   *
-   * Supports:
+   * Preferred contract:
+   *   markSessionEstablished(provider, canonicalSessionId, providerSessionId)
+   * Compatibility overload:
    *   markSessionEstablished(provider, allocatedSessionId)
-   *   markSessionEstablished(provider, placeholderId, allocatedSessionId)
+   *
+   * Confirms a session once the native provider session ID is materialized.
+   * Correlates strictly to the canonical Nevo sessionId or existing providerSessionId.
+   * NEVER uses `established === false` as a fallback match criterion to prevent
+   * mutating unrelated pending sessions.
    */
   async markSessionEstablished(provider, arg1, arg2) {
-    const placeholderId = arg2 !== undefined ? arg1 : null;
-    const allocatedId = arg2 !== undefined ? arg2 : arg1;
-    const lookupId = placeholderId || allocatedId;
+    const isExplicitThreeArg = arg2 !== undefined;
+    const canonicalSessionId = isExplicitThreeArg ? arg1 : null;
+    const allocatedId = isExplicitThreeArg ? arg2 : arg1;
+    const lookupId = canonicalSessionId || allocatedId;
     validateAgentIdentity({ provider, providerSessionId: lookupId });
 
     const markRows = (rows) => {
       let changed = false;
       for (const row of rows) {
         if (row.provider !== provider) continue;
-        const matches = placeholderId
-          ? (row.providerSessionId === placeholderId || row.sessionId === placeholderId)
-          : (row.providerSessionId === allocatedId || row.established === false);
+        const matches = isExplicitThreeArg
+          ? (row.sessionId === canonicalSessionId || row.providerSessionId === canonicalSessionId)
+          : (row.providerSessionId === allocatedId || row.sessionId === allocatedId);
         if (matches) {
           if (!row.sessionId) {
-            row.sessionId = placeholderId || row.providerSessionId;
+            row.sessionId = canonicalSessionId || row.providerSessionId;
           }
           row.providerSessionId = allocatedId;
           delete row.established;
@@ -850,9 +950,9 @@ export class AgentSessionBindingService {
       all
         .filter((b) => {
           if (b.provider !== provider) return false;
-          return placeholderId
-            ? (b.providerSessionId === placeholderId || b.sessionId === placeholderId)
-            : (b.providerSessionId === allocatedId || b.established === false);
+          return isExplicitThreeArg
+            ? (b.sessionId === canonicalSessionId || b.providerSessionId === canonicalSessionId)
+            : (b.providerSessionId === allocatedId || b.sessionId === allocatedId);
         })
         .map((b) => b.specId)
         .filter(Boolean),
@@ -867,21 +967,22 @@ export class AgentSessionBindingService {
   }
 
   markSessionEstablishedSync(provider, arg1, arg2) {
-    const placeholderId = arg2 !== undefined ? arg1 : null;
-    const allocatedId = arg2 !== undefined ? arg2 : arg1;
-    const lookupId = placeholderId || allocatedId;
+    const isExplicitThreeArg = arg2 !== undefined;
+    const canonicalSessionId = isExplicitThreeArg ? arg1 : null;
+    const allocatedId = isExplicitThreeArg ? arg2 : arg1;
+    const lookupId = canonicalSessionId || allocatedId;
     validateAgentIdentity({ provider, providerSessionId: lookupId });
 
     const markRows = (rows) => {
       let changed = false;
       for (const row of rows) {
         if (row.provider !== provider) continue;
-        const matches = placeholderId
-          ? (row.providerSessionId === placeholderId || row.sessionId === placeholderId)
-          : (row.providerSessionId === allocatedId || row.established === false);
+        const matches = isExplicitThreeArg
+          ? (row.sessionId === canonicalSessionId || row.providerSessionId === canonicalSessionId)
+          : (row.providerSessionId === allocatedId || row.sessionId === allocatedId);
         if (matches) {
           if (!row.sessionId) {
-            row.sessionId = placeholderId || row.providerSessionId;
+            row.sessionId = canonicalSessionId || row.providerSessionId;
           }
           row.providerSessionId = allocatedId;
           delete row.established;
@@ -905,9 +1006,9 @@ export class AgentSessionBindingService {
       all
         .filter((b) => {
           if (b.provider !== provider) return false;
-          return placeholderId
-            ? (b.providerSessionId === placeholderId || b.sessionId === placeholderId)
-            : (b.providerSessionId === allocatedId || b.established === false);
+          return isExplicitThreeArg
+            ? (b.sessionId === canonicalSessionId || b.providerSessionId === canonicalSessionId)
+            : (b.providerSessionId === allocatedId || b.sessionId === allocatedId);
         })
         .map((b) => b.specId)
         .filter(Boolean),
@@ -916,6 +1017,108 @@ export class AgentSessionBindingService {
     for (const specId of matchingSpecs) {
       const specBindings = this.#loadForSpecSync(specId);
       if (markRows(specBindings)) {
+        this.#persistForSpecSync(specId, specBindings);
+      }
+    }
+  }
+
+  async recordBootstrapState(provider, providerSessionId, { taskId, step, attempt, sessionId } = {}) {
+    validateAgentIdentity({ provider, providerSessionId: sessionId || providerSessionId });
+    const updateRows = (rows) => {
+      let changed = false;
+      for (const row of rows) {
+        if (row.provider !== provider) continue;
+        const matches =
+          (sessionId && (row.sessionId === sessionId || row.providerSessionId === sessionId)) ||
+          row.providerSessionId === providerSessionId;
+        if (matches) {
+          row.lastBootstrapTaskId = taskId;
+          row.lastBootstrapStep = step;
+          row.lastBootstrapAttempt = attempt;
+          row.lastSeenAt = new Date().toISOString();
+          changed = true;
+        }
+      }
+      return changed;
+    };
+
+    if (this.#storageFile) {
+      const bindings = await this.#loadForSpec();
+      if (updateRows(bindings)) {
+        this.#cache.set('__single__', bindings);
+        await this.#persistForSpec(null, bindings);
+      }
+      return;
+    }
+
+    const all = await this.#loadForSpec();
+    const matchingSpecs = new Set(
+      all
+        .filter((b) => {
+          if (b.provider !== provider) return false;
+          return (
+            (sessionId && (b.sessionId === sessionId || b.providerSessionId === sessionId)) ||
+            b.providerSessionId === providerSessionId
+          );
+        })
+        .map((b) => b.specId)
+        .filter(Boolean),
+    );
+
+    for (const specId of matchingSpecs) {
+      const specBindings = await this.#loadForSpec(specId);
+      if (updateRows(specBindings)) {
+        await this.#persistForSpec(specId, specBindings);
+      }
+    }
+  }
+
+  recordBootstrapStateSync(provider, providerSessionId, { taskId, step, attempt, sessionId } = {}) {
+    validateAgentIdentity({ provider, providerSessionId: sessionId || providerSessionId });
+    const updateRows = (rows) => {
+      let changed = false;
+      for (const row of rows) {
+        if (row.provider !== provider) continue;
+        const matches =
+          (sessionId && (row.sessionId === sessionId || row.providerSessionId === sessionId)) ||
+          row.providerSessionId === providerSessionId;
+        if (matches) {
+          row.lastBootstrapTaskId = taskId;
+          row.lastBootstrapStep = step;
+          row.lastBootstrapAttempt = attempt;
+          row.lastSeenAt = new Date().toISOString();
+          changed = true;
+        }
+      }
+      return changed;
+    };
+
+    if (this.#storageFile) {
+      const bindings = this.#loadForSpecSync();
+      if (updateRows(bindings)) {
+        this.#cache.set('__single__', bindings);
+        this.#persistForSpecSync(null, bindings);
+      }
+      return;
+    }
+
+    const all = this.#loadForSpecSync();
+    const matchingSpecs = new Set(
+      all
+        .filter((b) => {
+          if (b.provider !== provider) return false;
+          return (
+            (sessionId && (b.sessionId === sessionId || b.providerSessionId === sessionId)) ||
+            b.providerSessionId === providerSessionId
+          );
+        })
+        .map((b) => b.specId)
+        .filter(Boolean),
+    );
+
+    for (const specId of matchingSpecs) {
+      const specBindings = this.#loadForSpecSync(specId);
+      if (updateRows(specBindings)) {
         this.#persistForSpecSync(specId, specBindings);
       }
     }

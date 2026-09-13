@@ -652,12 +652,6 @@ export class AntigravityAgentProvider {
     });
   }
 
-  #ambientSessionContext = null;
-
-  setAmbientSessionContext({ sessionId, specId, taskId, activeTaskId } = {}) {
-    this.#ambientSessionContext = { sessionId, specId, taskId, activeTaskId };
-  }
-
   #resolveSessionDirName(sessionId) {
     if (!sessionId) return null;
     let dirName = this.#sessionDirMap.get(sessionId);
@@ -920,6 +914,8 @@ export class AntigravityAgentProvider {
   async startTurn({
     turnId,
     providerSessionId,
+    canonicalSessionId,
+    nevoSessionId,
     sessionId,
     specId,
     taskId,
@@ -1134,9 +1130,9 @@ export class AntigravityAgentProvider {
         // bridge is never left without a target URL (e.g. during test construction
         // before the local MCP server has been started).
         const effectiveMcpEndpoint = resolvedEndpoint || this.#mcpEndpoint;
-        const effectiveNevoSessionId = sessionId || this.#ambientSessionContext?.sessionId || effectiveSessionId;
-        const effectiveSpecId = specId || this.#ambientSessionContext?.specId;
-        const effectiveTaskId = activeTaskId || taskId || this.#ambientSessionContext?.activeTaskId || this.#ambientSessionContext?.taskId;
+        const effectiveNevoSessionId = nevoSessionId || canonicalSessionId || sessionId || effectiveSessionId;
+        const effectiveSpecId = specId;
+        const effectiveTaskId = activeTaskId || taskId;
         const spawnEnv = {
           ...process.env,
           AGY_INTERACTIVE: '0',
