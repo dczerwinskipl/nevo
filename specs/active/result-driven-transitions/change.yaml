@@ -31,7 +31,7 @@ tasks:
   - id: attempt-lifecycle-and-scoped-storage
     order: 2
     file: tasks/02-attempt-lifecycle-and-scoped-storage.md
-    status: draft
+    status: approved
     depends_on:
       - workflow-definition-transitions-and-history-validation
 

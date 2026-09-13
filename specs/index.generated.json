@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-13T12:14:59.108Z",
+  "generated": "2026-09-13T12:15:10.003Z",
   "changes": [
     {
       "id": "result-driven-transitions",
@@ -19,7 +19,7 @@
           "id": "attempt-lifecycle-and-scoped-storage",
           "order": 2,
           "file": "tasks/02-attempt-lifecycle-and-scoped-storage.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "workflow-definition-transitions-and-history-validation"
           ]
