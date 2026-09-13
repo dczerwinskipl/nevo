@@ -78,24 +78,58 @@ this mode to the UI and keeps the access decision behind a replaceable policy se
   with the same idempotency key return that turn; other starts conflict.
 
 ## Agent providers
- 
+
+### MCP transport: a loopback-only local server
+
+Structured Ask for every provider is served by a dedicated, loopback-only MCP
+server — a second, minimal Fastify instance bound exclusively to
+`127.0.0.1` on an OS-assigned ephemeral port, registering only the MCP routes
+(no TLS, no static assets, no autoload). It runs in the same Node.js process
+as the main dashboard, so it shares the in-process `mcpInteractionRegistry`
+and session-manager state with no IPC or network round-trip. The main,
+externally-bound dashboard server never serves `/mcp` at all.
+
+`server/index.mjs` exports `buildDashboardRuntime()` as the one reusable
+composition every real entrypoint uses — both direct/production startup
+(`index.mjs`'s own `isDirectRun` branch) and `scripts/dev.mjs`. It starts the
+local MCP server first, builds the main app with its URL wired in as
+`config.localMcpUrl`, and ties the local server's lifetime to the main app's
+`onClose` hook. Because it is always loopback and always plain HTTP, no
+provider needs certificate trust for it: the earlier design (an HTTPS `/mcp`
+endpoint on the main, externally-bound server, requiring each provider child
+to trust a certificate for it) has been removed in favor of this simpler
+guarantee.
+
+`ai/routes.mjs`'s endpoint resolver has one authoritative path and one
+explicit escape hatch, in this order:
+1. `NEVO_MCP_ENDPOINT_URL` (env var) — an explicit operator override, not the
+   normal path. Setting it is the operator's own decision to route MCP
+   traffic elsewhere (e.g. a remote/shared MCP server); the operator is
+   responsible for that endpoint's reachability and, if it is `https://`, for
+   the child process's own TLS trust — nothing here injects a certificate for
+   it.
+2. `config.localMcpUrl` — the authoritative production endpoint, always
+   `http://127.0.0.1:<ephemeralPort>/mcp`, supplied by `buildDashboardRuntime()`.
+3. A bare-Fastify-address-derived fallback, reached only by tests that
+   register this capability directly without going through
+   `buildDashboardRuntime()` (e.g. the `buildAiTestApp` helper).
+
 ### Claude Code integration
 
-Claude Code is integrated through non-interactive process invocations (`claude -p --resume <providerSessionId>`). Interactive turns that require user questions use Nevo's server-owned Streamable HTTP Model Context Protocol (`/mcp`) endpoint:
-- Nevo registers an ephemeral MCP server configuration via `--mcp-config` with a scoped, opaque correlation token header.
+Claude Code is integrated through non-interactive process invocations (`claude -p --resume <providerSessionId>`). Interactive turns that require user questions use the loopback-only MCP server described above:
+- Nevo registers an ephemeral MCP server configuration via `--mcp-config` with a scoped, opaque correlation token header, pointing at the currently-resolved local MCP URL.
 - The MCP server exposes a canonical `ask_user` tool implemented with the official `@modelcontextprotocol/sdk`.
 - When Claude invokes `ask_user`, the server creates a canonical `interaction.requested` (`kind: 'question'`) in the turn's Work hierarchy.
 - The user responds in the dashboard UI, resolving the interaction and unblocking the MCP tool call. Claude continues execution in the same logical Turn.
-- Transport security uses scoped certificate trust (`NODE_EXTRA_CA_CERTS`) rather than disabling TLS verification.
 
 ### Antigravity / Gemini CLI integration
 
 The Antigravity provider spawns `agy` in headless streaming mode (`--output-format stream-json`). Conversations are resumed using `--conversation <id>` (the real, currently verified CLI contract — not `--resume`, which this provider does not use). Capabilities are declared honestly and re-checked, not frozen at construction:
-- `interactiveQuestions`: Truthfully reflects whether the durable stdio MCP bridge is actually registered and usable, not a static `true`. Nevo registers one durable, machine-global `nevo` MCP server entry pointing at the bridge script itself (`agy mcp add nevo node <bridgePath>`) — never a direct HTTP URL, and never the dashboard's own changing host/port. The turn-scoped, currently-resolved `/mcp` endpoint and a short-lived correlation token are instead passed to the `agy` child process as environment variables (`NEVO_MCP_ENDPOINT`, `NEVO_INTERACTION_TOKEN`) at spawn time. The bridge process reads those from its own environment and attaches the token when it forwards MCP requests over HTTP to `/mcp`; a token from a since-terminated turn is rejected (HTTP 403 / JSON-RPC `-32003`), isolating stale correlations. When Antigravity models call `ask_question`, the bridge correlates the tool invocation to the active turn, creating a canonical `interaction.requested` (`kind: 'question'`) in the turn's Work hierarchy; when the user responds in the dashboard, the tool unblocks and Antigravity continues in the same logical Turn. Registration is checked/repaired through one stateful path (constructor, each turn start, and an explicit `repairMcpRegistration()`) so a registration that breaks between turns is never left reporting a stale `true`.
+- `interactiveQuestions`: Truthfully reflects whether the durable stdio MCP bridge is actually registered and usable, not a static `true`. Nevo registers one durable, machine-global `nevo` MCP server entry pointing at the bridge script itself (`agy mcp add nevo node <bridgePath>`) — never a direct HTTP URL, and never the dashboard's own changing host/port. The turn-scoped, currently-resolved local MCP endpoint (always `http://127.0.0.1:<ephemeralPort>/mcp`) and a short-lived correlation token are instead passed to the `agy` child process as environment variables (`NEVO_MCP_ENDPOINT`, `NEVO_INTERACTION_TOKEN`) at spawn time. The bridge process reads those from its own environment and attaches the token when it forwards MCP requests over HTTP; a token from a since-terminated turn is rejected (HTTP 403 / JSON-RPC `-32003`), isolating stale correlations. When Antigravity models call `ask_question`, the bridge correlates the tool invocation to the active turn, creating a canonical `interaction.requested` (`kind: 'question'`) in the turn's Work hierarchy; when the user responds in the dashboard, the tool unblocks and Antigravity continues in the same logical Turn. Registration is checked/repaired through one stateful path (constructor, each turn start, and an explicit `repairMcpRegistration()`) so a registration that breaks between turns is never left reporting a stale `true`.
 - `interactivePermissions: false`: Antigravity relies on its autonomous CLI execution policy.
 - `canOverrideTurnModel: true`: Allows selecting or overriding the model dynamically for new turns.
 - `diagnostic raw capture`: Exact raw stdout and stderr lines can be recorded before any provider processing for protocol analysis.
-- Transport security uses scoped certificate trust (`NODE_EXTRA_CA_CERTS` resolved explicitly from the dashboard's own configured certificate, the same source Claude's bridge uses) for HTTPS `/mcp` endpoints, never disabling TLS verification and never depending on the parent process's own ambient environment.
+- Since the resolved MCP endpoint is always loopback plain HTTP in normal operation, no certificate handling is needed for it; `NODE_TLS_REJECT_UNAUTHORIZED` is still never set. HTTPS is not a supported MCP transport in normal operation — it is reachable only through the explicit `NEVO_MCP_ENDPOINT_URL` operator override described above, under that override's own semantics.
 
 
 ### Local AI provider configuration

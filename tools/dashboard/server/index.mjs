@@ -123,20 +123,31 @@ export async function startLocalMcpServer({ mcpRoutes } = {}) {
   return { url, server };
 }
 
-const isDirectRun = process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
-
-if (isDirectRun) {
-  const { host, port, explicitHttpsPort } = dashboardNetworkConfig();
-  const tls = loadTlsConfig();
-
-  // Start the local-only MCP server first so its URL is known before the main
-  // app is built — the AI capability reads it from config.localMcpUrl.
+/**
+ * The one reusable runtime/startup composition for every real entrypoint that
+ * needs a fully working dashboard — direct production/dev-server startup
+ * (`index.mjs`'s `isDirectRun` branch) and `scripts/dev.mjs` alike. Neither
+ * entrypoint hand-wires the local MCP server + `buildDashboardApp` +
+ * lifecycle-tying sequence itself; both call this instead, so there is
+ * exactly one place that can get that composition wrong.
+ *
+ * Starts the loopback-only local MCP server *before* building the main app
+ * (so its URL is known in time for `config.localMcpUrl`), builds the app with
+ * that URL wired in, and ties the local MCP server's lifetime to the main
+ * app's `onClose` hook — closing the main app always closes the local MCP
+ * server too, in dev and in production alike.
+ *
+ * `config` is forwarded to `buildDashboardApp` as-is except `localMcpUrl`,
+ * which this function always supplies itself — a caller-supplied
+ * `config.localMcpUrl` would silently disagree with the local MCP server this
+ * same call just started, so it is intentionally not accepted here.
+ */
+export async function buildDashboardRuntime({ config = {} } = {}) {
   const localMcp = await startLocalMcpServer();
   console.log(`NEvo MCP: ${localMcp.url} (local-only, not externally reachable)`);
 
-  const app = await buildDashboardApp({ config: { tls, localMcpUrl: localMcp.url } });
+  const app = await buildDashboardApp({ config: { ...config, localMcpUrl: localMcp.url } });
 
-  // Tie the local MCP server lifetime to the main app.
   app.addHook('onClose', async () => {
     try {
       await localMcp.server.close();
@@ -144,6 +155,17 @@ if (isDirectRun) {
       console.error('[server] error closing local MCP server:', err.message);
     }
   });
+
+  return { app, localMcpUrl: localMcp.url };
+}
+
+const isDirectRun = process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
+
+if (isDirectRun) {
+  const { host, port, explicitHttpsPort } = dashboardNetworkConfig();
+  const tls = loadTlsConfig();
+
+  const { app } = await buildDashboardRuntime({ config: { tls } });
 
   if (tls) {
     const httpsPort = resolveHttpsPort({ port, explicitHttpsPort });

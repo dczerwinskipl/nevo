@@ -582,8 +582,14 @@ export class AgentSessionService {
       effectiveMode = entry?.descriptor?.defaultMode || 'edit';
     }
 
-    // Model resolution
+    // Model resolution: validated here, but NOT persisted yet. Persisting a
+    // turn-level model override before turnRuntime.startTurn() has actually
+    // admitted a genuinely new turn would let a rejected (409 conflict),
+    // idempotent-replay, or otherwise failed start silently mutate the
+    // durably-stored session model even though the running turn never used
+    // it — see modelNeedsPersist below, applied only after admission.
     let effectiveModel = opts.model;
+    let modelNeedsPersist = false;
     if (sessId && sessionBinding) {
       if (effectiveModel && sessionBinding.model && effectiveModel !== sessionBinding.model) {
         const entry = this.registry?.get?.(prov);
@@ -591,13 +597,9 @@ export class AgentSessionService {
         if (!canOverride) {
           throw new CapabilityNotSupportedError(prov, 'canOverrideTurnModel');
         }
-        if (this.bindingService) {
-          await this.bindingService.updateSessionModel(prov, sessId, effectiveModel);
-        }
+        modelNeedsPersist = true;
       } else if (effectiveModel && !sessionBinding.model) {
-        if (this.bindingService) {
-          await this.bindingService.updateSessionModel(prov, sessId, effectiveModel);
-        }
+        modelNeedsPersist = true;
       } else if (!effectiveModel && sessionBinding.model) {
         effectiveModel = sessionBinding.model;
       }
@@ -659,7 +661,7 @@ export class AgentSessionService {
       };
     }
 
-    return this.turnRuntime.startTurn({
+    const result = await this.turnRuntime.startTurn({
       ...opts,
       provider: prov,
       providerSessionId: sessId,
@@ -671,6 +673,17 @@ export class AgentSessionService {
       effort: opts.effort ?? opts.reasoningEffort,
       onSessionEstablished,
     });
+
+    // Only a genuinely new admission persists the override — an idempotent
+    // replay returns the existing (already-running) turn, which never used
+    // this model, so the durable binding must not change to reflect it.
+    // A rejected/conflicting/validation-failed start never reaches here at
+    // all (the await above throws first), so it can't mutate the binding either.
+    if (modelNeedsPersist && !result?.idempotent && this.bindingService) {
+      await this.bindingService.updateSessionModel(prov, sessId, effectiveModel);
+    }
+
+    return result;
   }
 
   subscribeToSession(provider, providerSessionId, options) {

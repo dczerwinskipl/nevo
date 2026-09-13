@@ -126,18 +126,32 @@ export default async function aiRoutes(
   const root = config.root ?? REPOSITORY_ROOT;
 
   const resolveFastifyMcpUrl = () => {
+    // Explicit operator override — an advanced escape hatch, not the normal path.
+    // Setting this is the operator's own decision to route MCP traffic somewhere
+    // other than the loopback-only local server below (e.g. a remote/shared MCP
+    // endpoint). Its semantics: the operator is responsible for that endpoint's
+    // reachability from every spawned provider child and, if it is `https://`,
+    // for that child's own TLS trust — nothing here injects a certificate for
+    // it. This is not a claim that the endpoint is "always local HTTP"; that
+    // guarantee applies only to the unoverridden path below.
     if (process.env.NEVO_MCP_ENDPOINT_URL) {
       return process.env.NEVO_MCP_ENDPOINT_URL;
     }
-    // Primary: explicit local MCP URL injected at startup by startLocalMcpServer().
-    // This is always http://127.0.0.1:<ephemeralPort>/mcp — no TLS, no cert needed.
+    // Authoritative production endpoint: the loopback-only local MCP server
+    // that `buildDashboardRuntime()` starts before this capability is built
+    // (see server/index.mjs). Always `http://127.0.0.1:<ephemeralPort>/mcp` —
+    // no TLS, no certificate ever needed for it.
     if (config.localMcpUrl) {
       return config.localMcpUrl;
     }
-    // Fallback: derive from the Fastify server address. Used in plain-HTTP test
-    // environments and for the Claude provider which has its own configureMcpEndpoint.
-    // Correctly uses the actual bound address (not hardcoded 127.0.0.1) so it works
-    // when the server is bound to a specific external IP.
+    // Test-only / bare-construction fallback. Reached only when this capability
+    // was registered directly (e.g. the `buildAiTestApp` test helper) without
+    // going through `buildDashboardRuntime()`, so no local MCP server exists.
+    // Real runtime (index.mjs direct-run and scripts/dev.mjs) always supplies
+    // `config.localMcpUrl` and never reaches this branch — `/mcp` is not served
+    // by the main dashboard Fastify instance in real deployments, so a URL
+    // derived from its own address is only meaningful to a test that also
+    // registers `mcpRoutes` on this same bare instance.
     const addr = fastify.server?.address?.();
     if (!addr || typeof addr !== 'object' || !addr.port) {
       return null;

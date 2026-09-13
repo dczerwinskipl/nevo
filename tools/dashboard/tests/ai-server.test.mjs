@@ -859,6 +859,160 @@ test('Model selection persists through the HTTP session contract: create -> chat
   }
 });
 
+// A model override must never be persisted to the durable binding before
+// turnRuntime.startTurn() has actually admitted a genuinely new turn — a
+// rejected/conflicting start, or an idempotent replay of an existing turn,
+// must leave the previously-persisted model completely untouched.
+function createBlockableModelProvider() {
+  let releaseBlock;
+  const provider = createMockAgentProvider({ specId, taskIds: ['task-model-guard'], streamDelayMs: 1 });
+  provider.descriptor = {
+    ...provider.descriptor,
+    capabilities: { ...provider.descriptor.capabilities, canOverrideTurnModel: true },
+  };
+  const originalStartTurn = provider.startTurn.bind(provider);
+  provider.startTurn = (params) => {
+    if (params.message === 'block') {
+      return new Promise((resolve, reject) => {
+        releaseBlock = () => reject(new Error('released'));
+        params.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      });
+    }
+    return originalStartTurn(params);
+  };
+  return { provider, release: () => releaseBlock?.() };
+}
+
+test('Model override guard A: a conflicting POST while a turn is active is rejected 409 and does not mutate the persisted model', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-model-guard-a-'));
+  const { provider } = createBlockableModelProvider();
+  const registry = createAgentProviderRegistry([provider]);
+  const bindingService = createAgentSessionBindingService({ storageDir: join(tmpDir, 'sessions') });
+  const transcriptCache = createTranscriptCacheService({ baseDir: join(tmpDir, 'transcripts'), flushDebounceMs: 0 });
+  const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const server = await buildAiTestApp({ service });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    const createRes = await fetch(
+      `${baseUrl}/api/agent-sessions`,
+      control({ provider: 'mock', specId, taskId: 'task-model-guard', model: 'model-a' }),
+    );
+    assert.equal(createRes.status, 201);
+    const sessionId = (await createRes.json()).session.providerSessionId;
+
+    // Admit a turn that hangs (stays active) so the session has a genuinely live turn.
+    const blockingRes = fetch(
+      `${baseUrl}/api/agent-sessions/mock/${sessionId}/turns`,
+      control({ message: 'block' }),
+    );
+    await new Promise((r) => setTimeout(r, 30));
+
+    // A conflicting POST with a different model must be rejected 409 — and must
+    // not persist model-b even though it validated as a legal override target.
+    const conflictRes = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/${sessionId}/turns`,
+      control({ message: 'second turn', model: 'model-b' }),
+    );
+    assert.equal(conflictRes.status, 409);
+
+    const chatRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${sessionId}/chat`);
+    assert.equal((await chatRes.json()).session.model, 'model-a', 'the rejected override must not have persisted');
+
+    await turnRuntime.cancelTurn((await blockingRes.then((r) => r.json())).turnId, {
+      provider: 'mock',
+      providerSessionId: sessionId,
+    }).catch(() => {});
+  } finally {
+    await closeServer(server);
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('Model override guard B: an idempotent replay with a different supplied model returns the existing turn and leaves the persisted model unchanged', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-model-guard-b-'));
+  const { provider } = createBlockableModelProvider();
+  const registry = createAgentProviderRegistry([provider]);
+  const bindingService = createAgentSessionBindingService({ storageDir: join(tmpDir, 'sessions') });
+  const transcriptCache = createTranscriptCacheService({ baseDir: join(tmpDir, 'transcripts'), flushDebounceMs: 0 });
+  const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const server = await buildAiTestApp({ service });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    const createRes = await fetch(
+      `${baseUrl}/api/agent-sessions`,
+      control({ provider: 'mock', specId, taskId: 'task-model-guard', model: 'model-a' }),
+    );
+    assert.equal(createRes.status, 201);
+    const sessionId = (await createRes.json()).session.providerSessionId;
+
+    const firstRes = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/${sessionId}/turns`,
+      control({ message: 'block', idempotencyKey: 'same-key' }),
+    );
+    assert.equal(firstRes.status, 202);
+    const firstBody = await firstRes.json();
+
+    // Replays with the same idempotency key but a different model must return
+    // the SAME existing (still-running) turn — never admit a new one — and must
+    // not persist model-b, since the running turn never actually used it.
+    const replayRes = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/${sessionId}/turns`,
+      control({ message: 'block', idempotencyKey: 'same-key', model: 'model-b' }),
+    );
+    assert.equal(replayRes.status, 200);
+    const replayBody = await replayRes.json();
+    assert.equal(replayBody.idempotent, true);
+    assert.equal(replayBody.turnId, firstBody.turnId);
+
+    const chatRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${sessionId}/chat`);
+    assert.equal((await chatRes.json()).session.model, 'model-a', 'idempotent replay must not persist the differing model');
+
+    await turnRuntime.cancelTurn(firstBody.turnId, { provider: 'mock', providerSessionId: sessionId }).catch(() => {});
+  } finally {
+    await closeServer(server);
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('Model override guard C: a successfully admitted turn with a new model persists it to the binding and chat snapshot', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-model-guard-c-'));
+  const { provider } = createBlockableModelProvider();
+  const registry = createAgentProviderRegistry([provider]);
+  const bindingService = createAgentSessionBindingService({ storageDir: join(tmpDir, 'sessions') });
+  const transcriptCache = createTranscriptCacheService({ baseDir: join(tmpDir, 'transcripts'), flushDebounceMs: 0 });
+  const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const server = await buildAiTestApp({ service });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    const createRes = await fetch(
+      `${baseUrl}/api/agent-sessions`,
+      control({ provider: 'mock', specId, taskId: 'task-model-guard', model: 'model-a' }),
+    );
+    assert.equal(createRes.status, 201);
+    const sessionId = (await createRes.json()).session.providerSessionId;
+
+    // No active turn right now, so an override is a genuinely new admission.
+    const turnRes = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/${sessionId}/turns`,
+      control({ message: 'hello', model: 'model-b' }),
+    );
+    assert.equal(turnRes.status, 202);
+    assert.notEqual((await turnRes.json()).idempotent, true);
+
+    const chatRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${sessionId}/chat`);
+    assert.equal((await chatRes.json()).session.model, 'model-b', 'a genuinely admitted override must persist');
+  } finally {
+    await closeServer(server);
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
 test('AC7 & AC8: Multi-task session creation returns complete taskIds[] and list filtering does not truncate', async () => {
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-multi-task-test-'));
   const storageDir = join(tmpDir, 'sessions');
