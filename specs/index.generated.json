@@ -1,243 +1,6 @@
 {
-  "generated": "2026-09-13T13:04:57.822Z",
+  "generated": "2026-09-13T16:08:17.697Z",
   "changes": [
-    {
-      "id": "result-driven-transitions",
-      "specId": "8dc23d08-1996-4b13-b058-8005d3f54a92",
-      "title": "Result driven transitions",
-      "status": "draft",
-      "priority": 10,
-      "created": "2026-09-13",
-      "tasks": [
-        {
-          "id": "workflow-definition-transitions-and-history-validation",
-          "order": 1,
-          "file": "tasks/01-workflow-definition-transitions-and-history-validation.md",
-          "status": "verified",
-          "implementation": {
-            "baseline_revision": "3f870014966969d2379468ff9d8dbe3c68c5d68b",
-            "review_revision": "250a7ec50341725680aaf4a20bee04fa76ce6b90",
-            "changed_paths": [
-              "specs/active/result-driven-transitions/change.yaml",
-              "tools/specs/validation.mjs",
-              "tools/specs/workflow/definitions/schema.mjs",
-              "tools/tests/workflow-compatibility.test.mjs",
-              "tools/tests/workflow-definitions.test.mjs"
-            ],
-            "worktree_patch_fingerprint": "4a8e3520764fad07f1b09ec5e5e8c6ba7547e9d8a3d0c897f7d8df40f91ed373"
-          },
-          "self_check": {
-            "fingerprint": "8fd7c463e7e923aaa2464f6a388bce44ea5ce05ba40677b9435bfb8a352b5e8c",
-            "revision": "250a7ec50341725680aaf4a20bee04fa76ce6b90",
-            "commands": [
-              {
-                "command": "node --test tools/tests/workflow-definitions.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/workflow-compatibility.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs check",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "attempt-lifecycle-and-scoped-storage",
-          "order": 2,
-          "file": "tasks/02-attempt-lifecycle-and-scoped-storage.md",
-          "status": "verified",
-          "depends_on": [
-            "workflow-definition-transitions-and-history-validation"
-          ],
-          "implementation": {
-            "baseline_revision": "9597987f809e608f3eef0539c321626e4e9f493c",
-            "review_revision": "c70d62bb91a5bb225ebd6bd9a56fbecd2658b013",
-            "changed_paths": [
-              "specs/active/result-driven-transitions/change.yaml",
-              "tools/specs/validation.mjs",
-              "tools/specs/workflow/cli.mjs",
-              "tools/specs/workflow/finish-operation.mjs",
-              "tools/specs/workflow/human-verification-store.mjs",
-              "tools/specs/workflow/operation-record.mjs",
-              "tools/specs/workflow/step-context.mjs",
-              "tools/specs/workflow/step-runner.mjs",
-              "tools/tests/workflow-e2e.test.mjs",
-              "tools/tests/workflow-finish-operation.test.mjs",
-              "tools/tests/workflow-human-verification.test.mjs",
-              "tools/tests/workflow-multi-step-e2e.test.mjs",
-              "tools/tests/workflow-next-step.test.mjs",
-              "tools/tests/workflow-operation-record.test.mjs",
-              "tools/tests/workflow-step-runner.test.mjs"
-            ],
-            "worktree_patch_fingerprint": "71a94385230043f78604df001ab431b808f9a1c91be029f7dd634edbb904b6ad"
-          },
-          "self_check": {
-            "fingerprint": "58b8cb2467c888ccb3b66ac5009c6d08bd3495b901de52fc3b6e07b8a61ce261",
-            "revision": "c70d62bb91a5bb225ebd6bd9a56fbecd2658b013",
-            "commands": [
-              {
-                "command": "node --test tools/tests/workflow-step-runner.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/workflow-operation-record.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/workflow-human-verification.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/workflow-finish-operation.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/workflow-e2e.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/workflow-multi-step-e2e.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/workflow-next-step.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs check",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "canonical-finish-contract-and-generic-cli-input",
-          "order": 3,
-          "file": "tasks/03-canonical-finish-contract-and-generic-cli-input.md",
-          "status": "verified",
-          "depends_on": [
-            "workflow-definition-transitions-and-history-validation",
-            "attempt-lifecycle-and-scoped-storage"
-          ],
-          "implementation": {
-            "baseline_revision": "219c45fc1d564671e290214cdbb6de02df519e1d",
-            "review_revision": "0bfece8d3d11336df7d0d8265d8b0b0401086bea",
-            "changed_paths": [
-              "specs/active/result-driven-transitions/change.yaml",
-              "tools/specs.mjs",
-              "tools/specs/workflow/cli.mjs",
-              "tools/specs/workflow/step-context.mjs",
-              "tools/tests/workflow-cli.test.mjs",
-              "tools/tests/workflow-step-context.test.mjs"
-            ],
-            "worktree_patch_fingerprint": "41275463ede685eb8a133ab65b107823ed37f6003fbb2edd68dd85027c8267ae"
-          },
-          "self_check": {
-            "fingerprint": "fb5f2416c6145a2d750a45a7794b6de64f2b9011ce3fe216a90c643c75f15721",
-            "revision": "0bfece8d3d11336df7d0d8265d8b0b0401086bea",
-            "commands": [
-              {
-                "command": "node --test tools/tests/workflow-step-context.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/workflow-cli.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs check",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "result-driven-finish-and-discriminated-transitions",
-          "order": 4,
-          "file": "tasks/04-result-driven-finish-and-discriminated-transitions.md",
-          "status": "verified",
-          "depends_on": [
-            "canonical-finish-contract-and-generic-cli-input"
-          ],
-          "implementation": {
-            "baseline_revision": "51e0e4bd7fca267a383589d10e602d770e2219df",
-            "review_revision": "0ffef740688087bd060bee101a225fe01c05def9",
-            "changed_paths": [
-              "specs/active/result-driven-transitions/change.yaml",
-              "tools/specs/workflow/finish-operation.mjs",
-              "tools/tests/workflow-finish-operation.test.mjs"
-            ],
-            "worktree_patch_fingerprint": "4fc8e01f4840d3f96aa83a694762cd39af513e10dcd4cde244828d6d5de4c689"
-          },
-          "self_check": {
-            "fingerprint": "630c0d70b4272af9af8c051673fde20dc1e6a80163d3583ef48a74599231a0ab",
-            "revision": "0ffef740688087bd060bee101a225fe01c05def9",
-            "commands": [
-              {
-                "command": "node --test tools/tests/workflow-finish-operation.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/workflow-step-runner.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs check",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "standard-workflow-review-loop-and-e2e-proof",
-          "order": 5,
-          "file": "tasks/05-standard-workflow-review-loop-and-e2e-proof.md",
-          "status": "verified",
-          "depends_on": [
-            "result-driven-finish-and-discriminated-transitions"
-          ],
-          "implementation": {
-            "baseline_revision": "30a82492f338ca08036a4a52a1fd9984cb4de960",
-            "review_revision": "89e9011fca67f420bd8e58c506a026ed6f9143c0",
-            "changed_paths": [
-              ".nevo-ai/workflows/standard.yaml",
-              "docs/development/workflow-engine.md",
-              "specs/active/result-driven-transitions/change.yaml",
-              "tools/specs/workflow/templates/standard.yaml",
-              "tools/tests/workflow-e2e-loop.test.mjs"
-            ],
-            "worktree_patch_fingerprint": "2ee0f4b3603b84253f8a1184df9fdc1e54f622989b92a19c3a54a316122e180a"
-          },
-          "self_check": {
-            "fingerprint": "fea5bd429647015bf11e1cb456f58fa87c7a037d3c96174cdc6c58f609ea976b",
-            "revision": "89e9011fca67f420bd8e58c506a026ed6f9143c0",
-            "commands": [
-              {
-                "command": "node --test tools/tests/workflow-e2e-loop.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs check",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/docs.mjs check",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        }
-      ]
-    },
     {
       "id": "ai-adapters-hardening",
       "specId": "1dfdbdb5-db41-422b-963f-defd1ec6a1e4",
@@ -6644,6 +6407,243 @@
               },
               {
                 "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        }
+      ]
+    },
+    {
+      "id": "result-driven-transitions",
+      "specId": "8dc23d08-1996-4b13-b058-8005d3f54a92",
+      "title": "Result driven transitions",
+      "status": "archived",
+      "priority": 10,
+      "created": "2026-09-13",
+      "tasks": [
+        {
+          "id": "workflow-definition-transitions-and-history-validation",
+          "order": 1,
+          "file": "tasks/01-workflow-definition-transitions-and-history-validation.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "3f870014966969d2379468ff9d8dbe3c68c5d68b",
+            "review_revision": "250a7ec50341725680aaf4a20bee04fa76ce6b90",
+            "changed_paths": [
+              "specs/active/result-driven-transitions/change.yaml",
+              "tools/specs/validation.mjs",
+              "tools/specs/workflow/definitions/schema.mjs",
+              "tools/tests/workflow-compatibility.test.mjs",
+              "tools/tests/workflow-definitions.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "4a8e3520764fad07f1b09ec5e5e8c6ba7547e9d8a3d0c897f7d8df40f91ed373"
+          },
+          "self_check": {
+            "fingerprint": "8fd7c463e7e923aaa2464f6a388bce44ea5ce05ba40677b9435bfb8a352b5e8c",
+            "revision": "250a7ec50341725680aaf4a20bee04fa76ce6b90",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-definitions.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-compatibility.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "attempt-lifecycle-and-scoped-storage",
+          "order": 2,
+          "file": "tasks/02-attempt-lifecycle-and-scoped-storage.md",
+          "status": "verified",
+          "depends_on": [
+            "workflow-definition-transitions-and-history-validation"
+          ],
+          "implementation": {
+            "baseline_revision": "9597987f809e608f3eef0539c321626e4e9f493c",
+            "review_revision": "c70d62bb91a5bb225ebd6bd9a56fbecd2658b013",
+            "changed_paths": [
+              "specs/active/result-driven-transitions/change.yaml",
+              "tools/specs/validation.mjs",
+              "tools/specs/workflow/cli.mjs",
+              "tools/specs/workflow/finish-operation.mjs",
+              "tools/specs/workflow/human-verification-store.mjs",
+              "tools/specs/workflow/operation-record.mjs",
+              "tools/specs/workflow/step-context.mjs",
+              "tools/specs/workflow/step-runner.mjs",
+              "tools/tests/workflow-e2e.test.mjs",
+              "tools/tests/workflow-finish-operation.test.mjs",
+              "tools/tests/workflow-human-verification.test.mjs",
+              "tools/tests/workflow-multi-step-e2e.test.mjs",
+              "tools/tests/workflow-next-step.test.mjs",
+              "tools/tests/workflow-operation-record.test.mjs",
+              "tools/tests/workflow-step-runner.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "71a94385230043f78604df001ab431b808f9a1c91be029f7dd634edbb904b6ad"
+          },
+          "self_check": {
+            "fingerprint": "58b8cb2467c888ccb3b66ac5009c6d08bd3495b901de52fc3b6e07b8a61ce261",
+            "revision": "c70d62bb91a5bb225ebd6bd9a56fbecd2658b013",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-step-runner.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-operation-record.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-human-verification.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-finish-operation.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-e2e.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-multi-step-e2e.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-next-step.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "canonical-finish-contract-and-generic-cli-input",
+          "order": 3,
+          "file": "tasks/03-canonical-finish-contract-and-generic-cli-input.md",
+          "status": "verified",
+          "depends_on": [
+            "workflow-definition-transitions-and-history-validation",
+            "attempt-lifecycle-and-scoped-storage"
+          ],
+          "implementation": {
+            "baseline_revision": "219c45fc1d564671e290214cdbb6de02df519e1d",
+            "review_revision": "0bfece8d3d11336df7d0d8265d8b0b0401086bea",
+            "changed_paths": [
+              "specs/active/result-driven-transitions/change.yaml",
+              "tools/specs.mjs",
+              "tools/specs/workflow/cli.mjs",
+              "tools/specs/workflow/step-context.mjs",
+              "tools/tests/workflow-cli.test.mjs",
+              "tools/tests/workflow-step-context.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "41275463ede685eb8a133ab65b107823ed37f6003fbb2edd68dd85027c8267ae"
+          },
+          "self_check": {
+            "fingerprint": "fb5f2416c6145a2d750a45a7794b6de64f2b9011ce3fe216a90c643c75f15721",
+            "revision": "0bfece8d3d11336df7d0d8265d8b0b0401086bea",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-step-context.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-cli.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "result-driven-finish-and-discriminated-transitions",
+          "order": 4,
+          "file": "tasks/04-result-driven-finish-and-discriminated-transitions.md",
+          "status": "verified",
+          "depends_on": [
+            "canonical-finish-contract-and-generic-cli-input"
+          ],
+          "implementation": {
+            "baseline_revision": "51e0e4bd7fca267a383589d10e602d770e2219df",
+            "review_revision": "0ffef740688087bd060bee101a225fe01c05def9",
+            "changed_paths": [
+              "specs/active/result-driven-transitions/change.yaml",
+              "tools/specs/workflow/finish-operation.mjs",
+              "tools/tests/workflow-finish-operation.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "4fc8e01f4840d3f96aa83a694762cd39af513e10dcd4cde244828d6d5de4c689"
+          },
+          "self_check": {
+            "fingerprint": "630c0d70b4272af9af8c051673fde20dc1e6a80163d3583ef48a74599231a0ab",
+            "revision": "0ffef740688087bd060bee101a225fe01c05def9",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-finish-operation.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-step-runner.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "standard-workflow-review-loop-and-e2e-proof",
+          "order": 5,
+          "file": "tasks/05-standard-workflow-review-loop-and-e2e-proof.md",
+          "status": "verified",
+          "depends_on": [
+            "result-driven-finish-and-discriminated-transitions"
+          ],
+          "implementation": {
+            "baseline_revision": "30a82492f338ca08036a4a52a1fd9984cb4de960",
+            "review_revision": "89e9011fca67f420bd8e58c506a026ed6f9143c0",
+            "changed_paths": [
+              ".nevo-ai/workflows/standard.yaml",
+              "docs/development/workflow-engine.md",
+              "specs/active/result-driven-transitions/change.yaml",
+              "tools/specs/workflow/templates/standard.yaml",
+              "tools/tests/workflow-e2e-loop.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "2ee0f4b3603b84253f8a1184df9fdc1e54f622989b92a19c3a54a316122e180a"
+          },
+          "self_check": {
+            "fingerprint": "fea5bd429647015bf11e1cb456f58fa87c7a037d3c96174cdc6c58f609ea976b",
+            "revision": "89e9011fca67f420bd8e58c506a026ed6f9143c0",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-e2e-loop.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
                 "exit_code": 0
               }
             ],
