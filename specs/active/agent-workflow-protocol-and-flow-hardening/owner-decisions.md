@@ -115,3 +115,52 @@
 - **Rationale:** Workflow state transitions and gate validations must never be duplicated in frontend code. A single engine guarantees identical behavior across CLI and web UI.
 - **Date:** 2026-09-13
 - **Affected artifacts:** `overview.md`, `areas/04-session-task-binding-and-chat-experience.md`, tasks 02, 03
+
+## D8: Operator-driven step initiation vs automatic background handover
+
+- **Question:** Who initiates an agent-owned step (e.g. `implementation`, `review`) after a workflow transition, and should the engine automatically spawn or resume subsequent agent sessions in the background?
+- **Options considered:**
+  1. *Fully autonomous background handover:* The workflow engine automatically dispatches the next agent turn/process as soon as a step transition completes.
+  2. *Operator-driven step initiation via dashboard actions (Recommended):* When an agent-owned step completes, the agent STOPs as required by the protocol. The dashboard renders the task's next ready action (e.g. `Task 03 · Review ready` -> `[ Start review ]`). The developer explicitly initiates the next turn/session with hidden bootstrap context.
+  3. *Manual terminal CLI prompt coaching:* The developer must open a terminal or manually prompt the agent turn-by-turn.
+- **Trade-offs / Consequences:**
+  - Option 1 risks runaway token spend, cascading errors across failed steps, and loss of human oversight.
+  - Option 3 retains high friction and tests manual developer stamina rather than Nevo's product experience.
+  - Option 2 gives developers complete visibility and control at step boundaries, prevents unexpected background executions, and establishes the exact dispatch primitives that future background handover can automate.
+- **Decision:** Option 2. Maintain an operator-driven step initiation model in v1. Transitions to agent-owned steps render explicit UI action controls (`[ Start implementation ]`, `[ Start review ]`) that trigger turn dispatch with hidden bootstrap context. Automatic background handover is explicitly deferred.
+- **Rationale:** Human-in-the-loop control is essential during the initial adoption of deterministic workflows. Explicit initiation lets developers review attempt artifacts before authorizing the next agent turn.
+- **Date:** 2026-09-13
+- **Affected artifacts:** `overview.md`, `areas/05-end-to-end-orchestration-and-dispatch.md`, task 02, task 03
+
+## D9: Trusted session execution identity and first-turn lifecycle resolution
+
+- **Question:** How should session and task execution identity reach the workflow CLI without requiring the model to discover, author, or pass its own session ID, and how is the timing problem of newly-created sessions handled?
+- **Options considered:**
+  1. *Prompt-instructed session ID authoring:* Instruct the model via system prompt to pass an ID flag (e.g. `node tools/specs.mjs workflow step start <spec> <task> --session-id <id>`).
+  2. *Blocking provider session allocation:* Block all agent turn execution until the provider confirms a native conversation ID.
+  3. *Nevo canonical session UUID + environment inheritance + onSessionEstablished reconciliation (Recommended):* Nevo dashboard server creates a canonical `sessionId` (UUID) at session creation time before turn 1 starts. This identity is injected into the provider child process environment (`NEVO_SESSION_ID`, `NEVO_AGENT_PROVIDER`). When the agent calls `workflow step start`, the CLI auto-binds using this trusted environment variable. When the provider subsequently reports its native `providerSessionId` via `onSessionEstablished`, `AgentSessionBindingService` correlates the native ID to the Nevo session without breaking earlier bindings.
+- **Trade-offs / Consequences:**
+  - Option 1 relies on unreliable model adherence, exposes internal session identifiers to prompt tampering, and breaks provider neutrality.
+  - Option 2 causes latency and fails for providers that allocate conversation IDs lazily on turn completion.
+  - Option 3 guarantees 100% reliable session linkage from the very first tool call, requires zero model self-awareness, and handles both pre-allocated and lazy provider session lifecycles uniformly.
+- **Decision:** Option 3. Allocate a canonical `sessionId` UUID at session creation time, propagate it to provider child processes via `NEVO_SESSION_ID` and `NEVO_AGENT_PROVIDER`, and resolve provider-native IDs asynchronously via `onSessionEstablished` reconciliation.
+- **Rationale:** Execution identity must be trusted and transparent. The agent should only focus on executing the step, while ambient runtime infrastructure automatically establishes tracking.
+- **Date:** 2026-09-13
+- **Affected artifacts:** `overview.md`, `areas/05-end-to-end-orchestration-and-dispatch.md`, task 02
+
+## D10: Temporary deterministic workflow UI mode
+
+- **Question:** How should the new deterministic workflow chat surface and composer action modes be enabled alongside the existing dashboard experience without breaking current workflows?
+- **Options considered:**
+  1. *Immediate global cutover:* Replace all existing task and chat surfaces with the deterministic UI across all specifications.
+  2. *Persisted manifest flag:* Add a UI mode property to `change.yaml` or workflow schema.
+  3. *Presentation-only UI toggle in localStorage (Recommended):* Add a compact toggle in the dashboard header or settings (`Workflow Experience: [ Classic ] [ Deterministic Preview ]`) stored in browser `localStorage`. When set to `Deterministic Preview`, it renders the task action bar and composer modes for specifications with `workflow.mode: deterministic`. It does not mutate backend state or alter legacy workflows.
+- **Trade-offs / Consequences:**
+  - Option 1 risks breaking existing workflows during development before all edge cases are proven.
+  - Option 2 pollutes domain specification files with transient UI presentation concerns.
+  - Option 3 enables immediate side-by-side verification and testing without altering Git-tracked files or affecting existing classic sessions, and can be cleanly decommissioned once the deterministic workflow becomes the default.
+- **Decision:** Option 3. Implement a presentation-only toggle in client `localStorage` (`nevo:workflow-ui-mode: 'classic' | 'preview'`).
+- **Rationale:** Decouples frontend feature validation from domain-level persistence and ensures non-deterministic specifications remain completely unaffected.
+- **Date:** 2026-09-13
+- **Affected artifacts:** `overview.md`, `areas/04-session-task-binding-and-chat-experience.md`, task 03
+
