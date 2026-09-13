@@ -21,34 +21,37 @@ forbidden_paths:
   - src/**
   - tests/NEvo.*/**
 semantic_references:
-  decisions: [D1, D2, D5]
-  constraints: [C1, C4, C9, C10]
+  decisions: [D1, D3]
+  constraints: [C1, C3, C8, C10, C11]
 ---
 
-# Task: StepContext completion contract, transition projection, and AI protocol
+# Task: Canonical StepContext finish contract and AI protocol
 
 ## Goal
 
-Update `tools/specs/workflow/step-context.mjs` to expose a machine-readable `completion` contract, an authoritative `protocol` specification, available transitions, and the current attempt number in `StepContext`. Ensure the AI agent receives explicit instructions and schema requirements upon `workflow step start`.
+Update `tools/specs/workflow/step-context.mjs` to expose a single canonical `finishContract` (combining conditional result, finalize action inputs, artifacts, and exit gates), provide authoritative AI protocol rules, and include attempt identity in `StepContext`, while ensuring internal destination routing is not exposed to the AI agent.
 
 ## Implementation constraints
 
 - `compileStepContext`:
   - Include `attempt: currentAttempt` directly in the compiled `StepContext`.
   - Pass `attempt` into `gateContext` so that `HumanVerificationGate.inspect()` queries the correct attempt.
-  - For conditional steps: build `completion.parameters.result` with `type: 'enum'`, `required: true`, and `allowedValues` populated from the step's declared transitions.
-  - For unconditional steps: build `completion.parameters.result` with `required: false` (or omit).
-  - Include `completion.protocol` with authoritative execution rules (`authoritative: true`, `singleFinish: true`, `noDirectStateMutation: true`, `doNotInferNextStep: true`, `stopOnHumanGate: true`).
-  - Project `availableTransitions` as a list of `{ result?: string, to: string }`, replacing static `nextStepGuidance`.
+  - Expose ONE canonical `finishContract` containing:
+    - `parameters`: unified map containing conditional `result` (when applicable), finalize action inputs (e.g. `commit.title`), and `artifacts`.
+    - `gates`: inspected exit gates.
+  - For conditional steps: populate `finishContract.parameters.result` with `type: 'enum'`, `required: true`, and `allowedValues` dynamically derived from the step's declared transitions.
+  - For unconditional steps: omit `result` or mark `required: false`.
+  - Do NOT expose destination routing (such as `result -> to` mappings or `nextStepGuidance`) to the AI agent.
+  - Include `protocol` with authoritative execution rules (`authoritative: true`, `noDirectStateMutation: true`, `doNotInferNextStep: true`, `logicalCompletionPerAttempt: true`, `resumableFinish: true`, `stopOnHumanGate: true`).
 - Ensure step activation (`ensureStepActivated`) checks the settled status of prior finish operations using attempt-scoped records.
 
 ## Acceptance criteria
 
 1. `compileStepContext` includes `attempt: 1` on initial step activation, and reflects incremented attempt numbers on subsequent loops. `automated: node --test tools/tests/workflow-step-context.test.mjs`
-2. `compileStepContext` exposes `completion.parameters.result` containing the step's exact transition values in `allowedValues`. `automated: node --test tools/tests/workflow-step-context.test.mjs`
-3. `compileStepContext` for unconditional steps exposes an unconditional finish contract without required result values. `automated: node --test tools/tests/workflow-step-context.test.mjs`
-4. `compileStepContext` includes the standard `completion.protocol` block. `automated: node --test tools/tests/workflow-step-context.test.mjs`
-5. `availableTransitions` accurately lists all declared outbound routes and targets. `automated: node --test tools/tests/workflow-step-context.test.mjs`
+2. `compileStepContext` returns a single canonical `finishContract` containing both finalize inputs and the conditional `result` parameter without duplicate completion blocks. `automated: node --test tools/tests/workflow-step-context.test.mjs`
+3. `finishContract.parameters.result.allowedValues` contains only the transition values declared for that step, and does not reveal destination step names to the agent. `automated: node --test tools/tests/workflow-step-context.test.mjs`
+4. `compileStepContext` includes the standard `protocol` block asserting logical completion and resumability rules. `automated: node --test tools/tests/workflow-step-context.test.mjs`
+5. Step activation rejects advancing to the next step if the prior attempt's finish operation remains unsettled. `automated: node --test tools/tests/workflow-step-context.test.mjs`
 6. Repository check passes with zero errors. `automated: node tools/specs.mjs check`
 
 ## Verification

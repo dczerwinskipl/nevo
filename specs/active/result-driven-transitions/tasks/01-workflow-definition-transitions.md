@@ -22,7 +22,7 @@ forbidden_paths:
   - src/**
   - tests/NEvo.*/**
 semantic_references:
-  decisions: [D1]
+  decisions: [D1, D2]
   constraints: [C1, C2, C3, C4]
 ---
 
@@ -30,7 +30,7 @@ semantic_references:
 
 ## Goal
 
-Update `tools/specs/workflow/definitions/schema.mjs` and `loader.mjs` to support both unconditional transitions and result-driven conditional transitions in workflow definitions. Enforce fail-closed validation against ambiguous, duplicate, or malformed transition definitions while preserving temporary operational compatibility for legacy workflows.
+Update `tools/specs/workflow/definitions/schema.mjs` and `loader.mjs` to support both unconditional transitions and result-driven conditional transitions in workflow definitions. Enforce fail-closed validation against ambiguous, duplicate, or malformed transition definitions, enforce the v1 closed transition value set (`pass | fail | blocked`), and maintain an extensible architecture for future relaxation.
 
 ## Implementation constraints
 
@@ -39,7 +39,7 @@ Update `tools/specs/workflow/definitions/schema.mjs` and `loader.mjs` to support
   2. Two or more result-driven transitions (`{ value: string, to: string }`, where `value` is present on every item).
 - Reject ambiguous mixtures (e.g. one transition with `value` and one without).
 - Reject single transitions with a `value` (unconditional steps must not require synthetic results).
-- Validate that every `value` is a safe identifier matching `SAFE_IDENTIFIER_PATTERN` (`^[a-zA-Z0-9_-]+$`).
+- Validate that every `value` is a member of `KNOWN_TRANSITION_VALUES = new Set(['pass', 'fail', 'blocked'])`.
 - Validate that `value` strings are mutually distinct within a step's `transitions`.
 - Validate that every `to` target matches a declared step name in `definition.steps` or a member of `TERMINAL_STATUSES`.
 - Update `normalizeWorkflowDefinition` to preserve transition `value` fields on normalized steps.
@@ -51,9 +51,10 @@ Update `tools/specs/workflow/definitions/schema.mjs` and `loader.mjs` to support
 2. Workflow definition validator accepts steps with multiple result-driven transitions (`[{ value: 'pass', to: 'human-verification' }, { value: 'fail', to: 'implementation' }]`). `automated: node --test tools/tests/workflow-definitions.test.mjs`
 3. Workflow definition validator rejects steps with duplicate transition values (e.g. two transitions with `value: 'pass'`). `automated: node --test tools/tests/workflow-definitions.test.mjs`
 4. Workflow definition validator rejects steps mixing conditional and unconditional transitions (e.g. one with `value` and one without). `automated: node --test tools/tests/workflow-definitions.test.mjs`
-5. Workflow definition validator rejects transitions with unsafe values or invalid target step names. `automated: node --test tools/tests/workflow-definitions.test.mjs`
-6. `normalizeWorkflowDefinition` outputs normalized transitions preserving `value` (when present) and `to`. `automated: node --test tools/tests/workflow-definitions.test.mjs`
-7. Existing workflow compatibility tests pass and `node tools/specs.mjs check` passes with zero errors. `automated: node tools/specs.mjs check`
+5. Workflow definition validator rejects transitions with values outside the v1 closed set (e.g. `value: 'approved'`). `automated: node --test tools/tests/workflow-definitions.test.mjs`
+6. Workflow definition validator rejects transitions targeting undeclared steps or colliding with terminal statuses. `automated: node --test tools/tests/workflow-definitions.test.mjs`
+7. `normalizeWorkflowDefinition` outputs normalized transitions preserving `value` (when present) and `to`. `automated: node --test tools/tests/workflow-definitions.test.mjs`
+8. Existing workflow compatibility tests pass and `node tools/specs.mjs check` passes with zero errors. `automated: node tools/specs.mjs check`
 
 ## Verification
 

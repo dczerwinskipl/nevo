@@ -1,12 +1,12 @@
-# Area: StepContext Completion Contract & AI Protocol Specification
+# Area: Canonical StepContext Finish Contract & AI Protocol Specification
 
 ## Purpose
 
-Define the machine-readable completion schema and authoritative AI protocol returned by `workflow step start`. Enable AI agents to know exactly what outputs are expected for step completion, understand available transitions, and strictly adhere to workflow boundaries.
+Define the single canonical machine-readable finish contract and authoritative AI protocol returned by `workflow step start`. Ensure AI agents receive one unified input specification for `workflow step finish`, understand allowed result values without receiving internal transition targets, and operate under clear logical-completion and resumability invariants.
 
-## Compiled `StepContext` Structure (`tools/specs/workflow/step-context.mjs`)
+## Canonical `StepContext` Structure (`tools/specs/workflow/step-context.mjs`)
 
-When an agent invokes `workflow step start`, the compiled payload includes first-class `attempt`, `completion`, and `availableTransitions` structures:
+When an agent invokes `workflow step start`, the compiled payload includes `attempt`, the canonical `finishContract`, and the authoritative `protocol`:
 
 ```json
 {
@@ -19,70 +19,77 @@ When an agent invokes `workflow step start`, the compiled payload includes first
   "runtimeState": "active",
   "semanticStatus": "reviewing",
   "instructions": "Work within declared allowed_paths; entry gates already satisfied.",
-  "completion": {
+  "finishContract": {
     "parameters": {
       "result": {
         "type": "enum",
         "required": true,
         "allowedValues": ["pass", "fail"],
-        "description": "Deterministic completion result selecting the next workflow transition."
+        "description": "Semantic completion result selecting the next workflow transition."
       },
-      "evidence": {
+      "commit.title": {
+        "type": "string",
+        "required": true,
+        "description": "Commit title for the task completion commit."
+      },
+      "commit.message": {
+        "type": "string",
+        "required": false,
+        "description": "Optional extended commit message."
+      },
+      "artifacts": {
         "type": "array",
         "required": false,
-        "description": "Optional artifact/evidence references associated with this attempt completion."
+        "description": "Optional list of artifact reference strings (e.g. file paths) associated with this completion."
       }
     },
-    "protocol": {
-      "authoritative": true,
-      "singleFinish": true,
-      "noDirectStateMutation": true,
-      "doNotInferNextStep": true,
-      "stopOnHumanGate": true
-    }
+    "gates": [
+      { "id": "test", "gateType": "command", "status": "pending" }
+    ]
   },
-  "availableTransitions": [
-    { "result": "pass", "to": "human-verification" },
-    { "result": "fail", "to": "implementation" }
-  ],
+  "protocol": {
+    "authoritative": true,
+    "noDirectStateMutation": true,
+    "doNotInferNextStep": true,
+    "logicalCompletionPerAttempt": true,
+    "resumableFinish": true,
+    "stopOnHumanGate": true
+  },
   "entryState": { "blockers": [] },
   "expectedWork": {
     "allowedPaths": ["tools/specs/workflow/**"],
     "forbiddenPaths": ["src/**"]
   },
   "relevantDocs": [],
-  "context": { "sourceControl": { "currentBranch": "feature/..." } },
-  "finishContract": {
-    "requiredInputs": {
-      "commit.title": { "type": "string", "required": true }
-    },
-    "gates": [
-      { "id": "test", "gateType": "command", "status": "pending" }
-    ]
-  }
+  "context": { "sourceControl": { "currentBranch": "feature/..." } }
 }
 ```
 
-### For Unconditional Steps:
-For steps with a single unconditional transition (e.g. `implementation -> review`):
-- `completion.parameters.result`: `{ "type": "none", "required": false }` (or omitted).
-- `availableTransitions`: `[{ "to": "review" }]`.
+### Unconditional Steps:
+For a step with an unconditional transition (e.g. `implementation -> review`):
+- `finishContract.parameters.result` is omitted or marked `{ "type": "none", "required": false }`.
+- The agent provides finalize inputs (e.g. `commit.title`) without `--result`.
 
-## The Authoritative AI Protocol Contract
+### No Internal Routing Exposure:
+- The AI-facing `StepContext` does NOT expose destination step mappings (such as `availableTransitions: [{ result: 'fail', to: 'implementation' }]` or `nextStepGuidance`).
+- The agent only receives `allowedValues` for `result`.
+- Nevo owns destination routing deterministically.
 
-The `completion.protocol` block establishes the provider-neutral execution boundaries:
+## Authoritative AI Protocol Contract
+
+The `protocol` block establishes execution boundaries:
 
 1. **StepContext is Authoritative (`authoritative: true`):**
-   - The AI must treat the returned `StepContext` as the sole source of truth for its current step, allowed paths, and required exit criteria.
-   - The AI must not infer workflow position from natural language, commit messages, or chat history.
+   - The AI must treat `StepContext` as the sole source of truth for current step, attempt, allowed paths, and required exit criteria.
+   - The AI must not infer workflow position from natural language prose or commit history.
 2. **No Direct State Mutation (`noDirectStateMutation: true`):**
    - The AI must never edit `change.yaml`, `workflow_progress`, task statuses, or `.nevo-ai-local` directly.
-   - All state transitions occur solely via Nevo CLI commands.
-3. **Single Finish Invocation (`singleFinish: true`):**
-   - The AI completes a step by calling `node tools/specs.mjs workflow step finish` exactly once with all required inputs and result.
-4. **No Agent Step Selection (`doNotInferNextStep: true`):**
-   - The AI reports its semantic result (e.g. `pass` or `fail`), but Nevo deterministically computes the transition target.
-   - The AI must never attempt to choose, declare, or advance to a next step on its own.
-5. **Stop on Human Gates (`stopOnHumanGate: true`):**
-   - If a step transition leads to a step with an active human gate (e.g. `human-verification`), or exit criteria require human signoff, the AI must halt and yield execution to the operator.
-   - The AI cannot self-satisfy or bypass human gates.
+3. **No Agent Step Selection (`doNotInferNextStep: true`):**
+   - The AI reports its semantic result (e.g. `pass`), but does not decide, predict, or declare the destination step.
+4. **Logical Completion per Attempt (`logicalCompletionPerAttempt: true`):**
+   - Exactly one logical completion is recorded per `(step, attempt)`.
+5. **Physically Resumable Finish (`resumableFinish: true`):**
+   - `workflow step finish` is a durable, multi-stage operation. If finish encounters an unexpected exit or error, re-invoking finish with identical or compatible inputs safely resumes and reconciles the in-flight operation.
+   - Supplying conflicting inputs for an in-flight operation fails closed with `PreconditionError`.
+6. **Stop on Human Gates (`stopOnHumanGate: true`):**
+   - If a step transition targets a human gate or requires operator verification, the AI must halt and yield execution to the operator.

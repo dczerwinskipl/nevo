@@ -1,8 +1,8 @@
-# Area: Attempt Identity, Workflow Position, and History Persistence
+# Area: Attempt Identity, History Invariants, and Position Resolution
 
 ## Purpose
 
-Define the lifecycle, allocation, derivation, and persistence of step attempts and historical execution records. Ensure that re-entering previously completed steps creates distinct attempt identities and avoids state confusion or deadlocks across loops.
+Define the lifecycle, derivation, invariants, and persistence of step attempts and historical execution records. Ensure that re-entering previously completed steps creates distinct attempt identities, and enforce strict invariants preventing ambiguous, corrupted, or incoherent workflow progress across loops.
 
 ## State Representation in `change.yaml`
 
@@ -23,6 +23,8 @@ workflow_progress:
       result: fail
       transitioned_to: implementation
       completed_at: "2026-09-13T10:15:00.000Z"
+      artifacts:
+        - "docs/reviews/task-01-audit.md"
 ```
 
 ### Fields:
@@ -32,6 +34,21 @@ workflow_progress:
   - `'active'`: In-progress work on `current_step` (attempt `current_attempt`).
   - `'completed'`: `current_step`'s attempt finished; awaiting next `workflow step start` to activate target.
 - `history`: (array of objects) Completed historical attempts.
+
+## Attempt Invariants
+
+To prevent state drift or ambiguous routing across restarts and loop cycles, the runtime and manifest validator (`validation.mjs`) enforce five integrity invariants:
+
+1. **Uniqueness:** Every `(step, attempt)` pair is strictly unique in `history`. No duplicate attempt records may exist for the same step.
+2. **Monotonicity & Contiguity:** For any given step `S`, historical attempts must be contiguous integers starting at 1 (`1, 2, ..., N`).
+3. **Current Attempt Coherence:**
+   - When `state === 'active'`: `current_attempt` must strictly equal `(count of step S in history) + 1`.
+   - When `state === 'completed'`: `current_attempt` must strictly equal `(count of step S in history)`.
+4. **Latest Record Coherence:**
+   - When `state === 'completed'`, the latest record in `history` (`history[history.length - 1]`) must have `step === current_step` and `attempt === current_attempt`.
+5. **Transition Continuity:**
+   - The transition target used to resolve the next step must come strictly from `history[history.length - 1].transitioned_to`.
+   - Any progress payload violating these invariants fails closed with `INCOHERENT_WORKFLOW_PROGRESS`.
 
 ## Attempt Lifecycle & Derivation
 
@@ -76,18 +93,7 @@ Position is a pure function of `(workflow_progress, definition)`:
 - `state: 'active'` -> `{ phase: 'active', step: current_step, attempt: current_attempt }`.
 - `state: 'completed'`:
   - Inspects `lastEntry = history[history.length - 1]`.
+  - Invariant check: verifies `lastEntry.step === current_step && lastEntry.attempt === current_attempt`.
   - Target `to = lastEntry.transitioned_to`.
   - If `to` is a step in `definition.steps` -> `{ phase: 'completed', step: current_step, attempt: current_attempt, nextStep: to }`.
   - If `to` is terminal -> `{ phase: 'terminal', step: current_step, attempt: current_attempt }`.
-
-## Validation Rules (`tools/specs/validation.mjs`)
-
-`validateWorkflowProgress` enforces:
-- `current_attempt` must be a positive integer (>= 1).
-- `history` must be an array of valid attempt records:
-  - `step`: string, matching a declared step name in definition.
-  - `attempt`: positive integer (>= 1).
-  - `transitioned_to`: string, matching a declared step name or `TERMINAL_STATUSES`.
-  - `completed_at`: valid ISO timestamp string.
-  - `result`: optional safe identifier string.
-  - `artifacts`: optional array of artifact references.

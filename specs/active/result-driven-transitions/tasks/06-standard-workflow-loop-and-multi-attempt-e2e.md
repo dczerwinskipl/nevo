@@ -23,11 +23,11 @@ forbidden_paths:
   - src/**
   - tests/NEvo.*/**
 semantic_references:
-  decisions: [D1, D2, D3, D4, D5]
-  constraints: [C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12, C13]
+  decisions: [D1, D2, D3]
+  constraints: [C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12, C13, C14]
 ---
 
-# Task: Production standard workflow update with review loop and end-to-end multi-attempt proof
+# Task: Production standard workflow review loop and end-to-end multi-attempt proof
 
 ## Goal
 
@@ -39,7 +39,7 @@ Update the production standard workflow definition (`.nevo-ai/workflows/standard
   - `implementation`: unconditional transition to `review`.
   - `review`: result-driven transitions with `pass` -> `human-verification` and `fail` -> `implementation`.
   - `human-verification`: transition to `verified`.
-- Update `docs/development/workflow-engine.md` documenting the result-driven transition engine, attempt identity, AI protocol, and CLI usage.
+- Update `docs/development/workflow-engine.md` documenting the result-driven transition engine, attempt identity and invariants, canonical finish contract, and discriminated transition outputs.
 - Create an end-to-end integration test (`tools/tests/workflow-result-driven-e2e.test.mjs`) testing the full loop:
   1. Task starts at `implementation` (attempt 1).
   2. Finishes `implementation` (attempt 1) -> transitions to `review`.

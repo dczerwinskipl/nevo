@@ -28,30 +28,34 @@ semantic_references:
   constraints: [C1, C4, C5, C6]
 ---
 
-# Task: Monotonic attempt allocation, position resolution, and history persistence
+# Task: Monotonic attempt allocation, history invariants, and position resolution
 
 ## Goal
 
-Extend the workflow runtime and manifest persistence models to track attempt identity (`current_attempt`), derive attempt numbers deterministically across loops, resolve workflow positions from result-driven history, and validate structured history entries in `tools/specs/validation.mjs`.
+Extend the workflow runtime and manifest persistence models to track attempt identity (`current_attempt`), derive attempt numbers deterministically across loops, resolve workflow positions from result-driven history, and strictly validate attempt/history integrity invariants in `tools/specs/validation.mjs`.
 
 ## Implementation constraints
 
 - Extend `workflow_progress` schema in `change.yaml` to include `current_attempt` (positive integer >= 1).
 - In `step-runner.mjs`:
   - `resolveWorkflowPosition` must resolve `{ phase: 'active', step, attempt }`, `{ phase: 'completed', step, attempt, nextStep }`, or `{ phase: 'terminal', step, attempt }`.
-  - When `state: 'completed'`, read `nextStep` from the last history entry (`lastEntry.transitioned_to`) rather than hardcoding `step.transitions[0].to`.
+  - When `state: 'completed'`, verify latest history entry matches `(current_step, current_attempt)` and read `nextStep` from `lastEntry.transitioned_to`.
 - In `validation.mjs`:
-  - Update `validateWorkflowProgress` to require that `current_attempt` is a positive integer when present.
-  - Validate each entry in `workflow_progress.history`: requires `step`, `attempt`, `transitioned_to`, `completed_at`; validates optional `result` (safe identifier) and optional `artifacts` (array).
-- Ensure attempt derivation is strictly monotonic per-step: count matching steps in history + 1.
+  - Update `validateWorkflowProgress` to enforce attempt integrity invariants:
+    1. Every `(step, attempt)` is unique in `history`.
+    2. Attempts for any step are contiguous and monotonic (`1, 2, ..., N`).
+    3. `current_attempt` is coherent with history (`count + 1` when `active`, `count` when `completed`).
+    4. When `state == 'completed'`, the latest history entry must correspond to `(current_step, current_attempt)` and carry `transitioned_to`.
+    5. Incoherent progress fails closed with descriptive validation errors.
 
 ## Acceptance criteria
 
 1. `resolveWorkflowPosition` correctly resolves the active attempt number for in-progress tasks. `automated: node --test tools/tests/workflow-step-runner.test.mjs`
 2. `resolveWorkflowPosition` resolves `nextStep` from the completed attempt's `transitioned_to` in history when transitions are result-driven. `automated: node --test tools/tests/workflow-step-runner.test.mjs`
 3. `validateWorkflowProgress` accepts valid `workflow_progress` containing `current_attempt` and structured `history` records. `automated: node --test tools/tests/store.test.mjs`
-4. `validateWorkflowProgress` rejects malformed history entries (missing step/attempt/transitioned_to, invalid timestamps, unsafe result values). `automated: node --test tools/tests/store.test.mjs`
-5. Manifest validation and repository checks pass with zero errors. `automated: node tools/specs.mjs check`
+4. `validateWorkflowProgress` rejects duplicate attempts, non-monotonic attempt sequences, and incoherent attempt counts. `automated: node --test tools/tests/store.test.mjs`
+5. `validateWorkflowProgress` rejects `state == 'completed'` when the latest history entry does not match `(current_step, current_attempt)`. `automated: node --test tools/tests/store.test.mjs`
+6. Manifest validation and repository checks pass with zero errors. `automated: node tools/specs.mjs check`
 
 ## Verification
 

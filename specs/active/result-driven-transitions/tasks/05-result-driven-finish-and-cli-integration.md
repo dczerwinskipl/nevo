@@ -24,42 +24,43 @@ forbidden_paths:
   - src/**
   - tests/NEvo.*/**
 semantic_references:
-  decisions: [D1, D2, D3, D4]
-  constraints: [C1, C4, C5, C6, C11, C12]
+  decisions: [D1, D2]
+  constraints: [C1, C6, C7, C8, C11, C12, C13]
 ---
 
-# Task: Result-driven finish planning, transition resolver, and CLI integration
+# Task: Result-driven finish planning, attempt-aware reconciliation, and discriminated transitions
 
 ## Goal
 
-Extend `finish-operation.mjs`, `cli.mjs`, and `tools/specs.mjs` to accept the `--result` parameter, validate completion results during non-mutating planning and durable execution, resolve transitions dynamically, persist structured history entries with attempt and result, and return a machine-readable transition output.
+Extend `finish-operation.mjs`, `cli.mjs`, and `tools/specs.mjs` to accept `--result` and `--artifact` parameters, validate completion results during non-mutating planning and durable execution, perform attempt-aware crash reconciliation for `update-task`, enforce input conflict rejection, and return a structured transition object discriminating internal steps from terminal statuses.
 
 ## Implementation constraints
 
 - In `cli.mjs` and `specs.mjs`:
-  - Add `--result <value>` and optional `--evidence <refs>` options to `workflow step finish`.
-  - Pass resolved `result` and `evidence` into finish inputs.
+  - Add `--result <value>` and optional `--artifact <ref>` / `--artifacts <refs>` options to `workflow step finish`.
+  - Pass resolved `result` and `artifacts` into finish inputs.
 - In `finish-operation.mjs`:
   - `planFinish`:
     - If step is conditional and `inputs.result` is missing, return `status: 'input-required'` with `missingInputs: ['result']`.
     - If step is conditional and `inputs.result` is invalid, throw `PreconditionError`.
     - If step is unconditional and `inputs.result` is provided, throw `PreconditionError`.
-    - Resolve target transition based on matched `value`.
+    - Input conflict policy: re-supplying identical values for an in-flight operation resumes execution; conflicting values throw `PreconditionError`.
   - `finishStep`:
     - Create attempt-scoped operation record using `current_attempt`.
-    - `ensureUpdateTask`: write `workflow_progress.state = 'completed'`, append history entry `{ step, attempt, result, transitioned_to, completed_at, artifacts }`.
+    - `ensureUpdateTask`: implement attempt-aware crash reconciliation verifying write definitely happened, definitely did not happen, or requires reconciliation using exact `(step, attempt)` and history evidence.
+    - Atomically append structured history entry `{ step, attempt, result, transitioned_to, completed_at, artifacts }`.
     - If target transition is terminal, atomically set `task.status = to`.
-    - `ensureTransition`: return resolved transition `{ from: { step, attempt }, result, to: { step: to } }`.
-  - Return `{ status: 'completed', transition, commit, push, ... }`.
+    - `ensureTransition`: return discriminated transition `{ from: { step, attempt }, result, to: { kind: 'step', step } | { kind: 'terminal', status } }`.
 
 ## Acceptance criteria
 
 1. `workflow step finish --check` on a conditional step reports `input-required` when `--result` is omitted. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
 2. `workflow step finish --check` rejects invalid `--result` values not declared in the step's transitions. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
 3. `workflow step finish` on an unconditional step succeeds without `--result`, and fails closed if `--result` is unexpectedly supplied. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
-4. `workflow step finish` matches `--result` to the correct transition target and updates `change.yaml` history with attempt, result, and target. `automated: node --test tools/tests/workflow-cli.test.mjs`
-5. Successful `workflow step finish` returns a machine-readable `transition` object showing `{ from: { step, attempt }, result, to: { step } }`. `automated: node --test tools/tests/workflow-cli.test.mjs`
-6. Repository check passes with zero errors. `automated: node tools/specs.mjs check`
+4. Attempt-aware crash reconciliation in `update-task` correctly identifies completed writes versus pending writes for the specific `(step, attempt)`. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
+5. Resuming an in-flight operation with conflicting inputs throws `PreconditionError`, while identical inputs resume execution. `automated: node --test tools/tests/workflow-finish-operation.test.mjs`
+6. Successful `workflow step finish` returns a discriminated `transition` object showing `{ from, result, to: { kind: 'step'|'terminal', ... } }` and records `artifacts` in history. `automated: node --test tools/tests/workflow-cli.test.mjs`
+7. Repository check passes with zero errors. `automated: node tools/specs.mjs check`
 
 ## Verification
 
