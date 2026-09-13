@@ -1162,12 +1162,21 @@ export class TurnLifecycleCoordinator {
       }
     }
 
-    // Seal finalAnswer if it was streaming
+    // Seal finalAnswer if it was streaming. Whether the provider ever emitted content
+    // (finalAnswer.text non-empty) is the sole signal for 'absent' vs 'interrupted' — content
+    // that was actually shown to the user must never be discarded to 'absent' just because the
+    // turn's overall outcome wasn't 'completed', and it must never be promoted to 'completed'
+    // either: a non-completed outcome with emitted text is truthfully 'interrupted'.
     if (this.#turn.finalAnswer && this.#turn.finalAnswer.status === 'streaming') {
       const now = new Date().toISOString();
-      this.#turn.finalAnswer.status = effectiveOutcome === 'completed' ? 'completed' : 'absent';
+      const hasEmittedText = Boolean(this.#turn.finalAnswer.text && this.#turn.finalAnswer.text.length > 0);
       if (effectiveOutcome === 'completed') {
+        this.#turn.finalAnswer.status = 'completed';
         this.#turn.finalAnswer.completedAt = now;
+      } else if (hasEmittedText) {
+        this.#turn.finalAnswer.status = 'interrupted';
+      } else {
+        this.#turn.finalAnswer.status = 'absent';
       }
       this.#turn.finalAnswer.updatedAt = now;
     }

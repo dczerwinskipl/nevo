@@ -133,6 +133,15 @@ export class SessionTranscriptCacheService {
       const activeTurn = state.turns.find((t) => t.id === interruptedTurnId);
       if (activeTurn) {
         closeDanglingTurnWork(activeTurn, outcome, cause);
+        // Seal a still-streaming finalAnswer the same way TurnLifecycleCoordinator#settleTerminal
+        // does: emitted text is preserved as 'interrupted' evidence, never silently discarded to
+        // 'absent' and never promoted to 'completed' (this path only ever settles non-completed
+        // outcomes — boot-time reconciliation of an orphaned turn never proves success).
+        if (activeTurn.finalAnswer && activeTurn.finalAnswer.status === 'streaming') {
+          const hasEmittedText = Boolean(activeTurn.finalAnswer.text && activeTurn.finalAnswer.text.length > 0);
+          activeTurn.finalAnswer.status = hasEmittedText ? 'interrupted' : 'absent';
+          activeTurn.finalAnswer.updatedAt = normalizeTimestamp(createdAt, 'finalAnswer.updatedAt');
+        }
         activeTurn.status = {
           status: 'terminal',
           outcome,
