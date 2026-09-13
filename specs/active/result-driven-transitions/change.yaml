@@ -16,3 +16,8 @@ branch:
   mode: per-change
   prefix: feature
   name: feature/result-driven-transitions
+pull_requests:
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 48
