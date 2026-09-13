@@ -79,7 +79,7 @@ function makeFixtureRepo({
     'status: draft',
     `change: ${changeId}`,
     'allowed_paths:',
-    '  - src/**',
+    '  - "*"',
     'forbidden_paths: []',
     '---',
     `# Task: ${taskId}`,

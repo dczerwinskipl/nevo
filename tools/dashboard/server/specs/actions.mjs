@@ -9,6 +9,7 @@ import { loadFollowUps } from '../../../specs/follow-ups.mjs';
 import { approveTask } from '../../../specs/approve/operation.mjs';
 import { verifyTask } from '../../../specs/verify/operation.mjs';
 import { finalizeChange } from '../../../specs/finalize/operation.mjs';
+import { handleWorkflowVerifyHuman } from '../../../specs/workflow/cli.mjs';
 import { REPOSITORY_ROOT } from '../infrastructure/paths.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -37,6 +38,61 @@ export function finalizeGate(change, facts = {}) {
     pullRequest: facts?.pr || null,
     branch: facts?.branch || { hasUpstream: false, ahead: null, behind: null },
   };
+}
+
+export function computeTaskAvailableActions(task, change) {
+  if (!task) return [];
+  if (task.status === 'verified') return [];
+
+  const wp = task.workflow_progress;
+  if (!wp || !wp.current_step) {
+    if (task.status === 'in-implementation') return [];
+    return ['start-implementation'];
+  }
+
+  if (wp.state === 'reconciliation-required' || task.status === 'reconciliation-required') {
+    return ['operator-reconciliation'];
+  }
+
+  if (wp.state === 'active') {
+    if (wp.current_step === 'human-verification' || task.status === 'awaiting-human-verification') {
+      return ['approve', 'request-changes'];
+    }
+    return [];
+  }
+
+  if (wp.state === 'completed') {
+    const history = Array.isArray(wp.history) ? wp.history : [];
+    const lastEntry = history[history.length - 1];
+    const destination = lastEntry?.transitioned_to;
+
+    if (destination === 'human-verification') {
+      return ['approve', 'request-changes'];
+    }
+    if (destination === 'review') {
+      return ['start-review'];
+    }
+    if (destination === 'implementation') {
+      return ['start-implementation'];
+    }
+    if (destination === 'verified') {
+      return [];
+    }
+
+    if (wp.current_step === 'implementation') {
+      return ['start-review'];
+    }
+    if (wp.current_step === 'review') {
+      return lastEntry?.result === 'pass'
+        ? ['approve', 'request-changes']
+        : ['start-implementation'];
+    }
+    if (wp.current_step === 'human-verification') {
+      return lastEntry?.result === 'pass' ? [] : ['start-implementation'];
+    }
+  }
+
+  return [];
 }
 
 function requireActiveChange(slug, activeDir) {
@@ -102,9 +158,11 @@ export async function loadSpecificationActions({
   const tasks = {};
   for (const task of change.tasks) {
     const gate = await taskGate(change, task, { taskGateEvaluator, root, slug });
-    if (gate) {
-      tasks[task.id] = gate;
-    }
+    const availableActions = computeTaskAvailableActions(task, change);
+    tasks[task.id] = {
+      ...(gate || {}),
+      availableActions,
+    };
   }
 
   return {
@@ -331,5 +389,49 @@ export function createSpecActionsCapability({
     activeActions.clear();
   }
 
-  return { loadActions, startAction, shutdown };
+  return {
+    loadActions,
+    startAction,
+    executeHumanDecision: (opts) => executeHumanDecision({ activeDir, root, ...opts }),
+    shutdown,
+  };
+}
+
+export async function executeHumanDecision({
+  slug,
+  taskId,
+  decision,
+  feedback,
+  activeDir = ACTIVE_DIR,
+  root = REPOSITORY_ROOT,
+} = {}) {
+  if (decision !== 'approve' && decision !== 'request-changes') {
+    throw new SpecificationActionError("Decision must be 'approve' or 'request-changes'.", 400);
+  }
+  if (decision === 'request-changes' && (!feedback || typeof feedback !== 'string' || feedback.trim() === '')) {
+    throw new SpecificationActionError('Feedback is required when requesting changes.', 400);
+  }
+
+  const opts = {
+    approve: decision === 'approve',
+    requestChanges: decision === 'request-changes',
+    feedback: feedback ? feedback.trim() : undefined,
+    activeDir,
+    repoRoot: root,
+    silent: true,
+  };
+
+  try {
+    const result = await handleWorkflowVerifyHuman(slug, taskId, opts);
+    return {
+      ok: true,
+      decision,
+      taskId,
+      result,
+    };
+  } catch (err) {
+    if (err instanceof SpecificationActionError) throw err;
+    const status = err.status || (err.message && err.message.includes('not found') ? 404 : 400);
+    throw new SpecificationActionError(err.message, status);
+  }
 }

@@ -1,4 +1,4 @@
-import { SpecificationActionError } from './actions.mjs';
+import { SpecificationActionError, executeHumanDecision } from './actions.mjs';
 import { createSpecsCapability } from './service.mjs';
 import { SpecValidationError, SpecConflictError, SpecRollbackError } from '../../../specs/identity.mjs';
 import { HttpError } from './http-utils.mjs';
@@ -154,6 +154,49 @@ export default async function specsRoutes(fastify, { config = {}, actionExecutor
         error: known ? error.message : 'Unable to execute specification action.',
       });
     }
+  });
+
+  const handleHumanDecision = async (request, reply) => {
+    const { slug: rawSlug, taskId } = request.params;
+    const slug = decodedSlug(rawSlug);
+    if (!slug) {
+      reply.code(404).send({ error: 'Specification not found' });
+      return;
+    }
+    const body = request.body ?? {};
+    if (typeof body !== 'object' || Array.isArray(body)) {
+      reply.code(400).send({ error: 'Request body must be a JSON object.' });
+      return;
+    }
+    const { decision, feedback } = body;
+    if (decision !== 'approve' && decision !== 'request-changes') {
+      reply.code(400).send({ error: "Decision must be 'approve' or 'request-changes'." });
+      return;
+    }
+    if (decision === 'request-changes' && (!feedback || typeof feedback !== 'string' || feedback.trim() === '')) {
+      reply.code(400).send({ error: 'Feedback is required when requesting changes.' });
+      return;
+    }
+    try {
+      const result = await executeHumanDecision({
+        slug,
+        taskId,
+        decision,
+        feedback,
+        activeDir: paths.activeDir,
+        root: paths.root,
+      });
+      reply.code(200).send(result);
+    } catch (error) {
+      const status = error instanceof SpecificationActionError ? error.status : (error.status || 500);
+      reply.code(status).send({ error: error.message || 'Unable to execute human decision.' });
+    }
+  };
+
+  fastify.post('/api/specs/:slug/tasks/:taskId/workflow/human-decision', handleHumanDecision);
+  fastify.post('/api/specs/:source/:slug/tasks/:taskId/workflow/human-decision', async (request, reply) => {
+    if (rejectSource(reply, request.params.source, ACTIVE_ONLY)) return;
+    return handleHumanDecision(request, reply);
   });
 
   fastify.get('/api/specs/:source/:slug/content/:docId', async (request, reply) => {

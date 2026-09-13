@@ -50,31 +50,47 @@ import {
   handleWorkflowVerifyHuman,
 } from './specs/workflow/cli.mjs';
 
+import { requireChange } from './specs/store.mjs';
+
 export {
   setTaskSuspension,
   clearTaskSuspension,
   guardAgainstUnsafeManual,
 };
 
-export function autoBindAgentSession(change, taskId, purpose) {
+export function autoBindAgentSession(change, taskId, purpose, options = {}) {
   const context = readAgentExecutionContext();
   if (context && change) {
     try {
-      const specId = change.spec_id;
+      let specId = null;
+      let changeSlug = null;
+      if (typeof change === 'string') {
+        changeSlug = change;
+        try {
+          const c = requireChange(change);
+          specId = c?.spec_id;
+        } catch {}
+      } else if (typeof change === 'object') {
+        specId = change.spec_id;
+        changeSlug = change._slug || change.id;
+      }
       if (!specId || !isValidSpecId(specId)) {
-        console.error(`[nevo-ai] Warning: Cannot auto-bind session: change '${change._slug || 'unknown'}' has no valid spec_id.`);
+        console.error(`[nevo-ai] Warning: Cannot auto-bind session: change '${changeSlug || 'unknown'}' has no valid spec_id.`);
         return;
       }
       const bindingService = createAgentSessionBindingService();
       bindingService.bindSessionSync({
+        sessionId: context.sessionId || undefined,
         provider: context.provider,
         providerSessionId: context.providerSessionId,
         specId,
         taskId: taskId || undefined,
+        step: options.step || undefined,
+        attempt: options.attempt != null ? options.attempt : undefined,
         purpose,
       });
     } catch (err) {
-      console.error(`[nevo-ai] Warning: Failed to auto-bind agent session (${context.provider}/${context.providerSessionId}): ${err.message}`);
+      console.error(`[nevo-ai] Warning: Failed to auto-bind agent session (${context.provider}/${context.providerSessionId || context.sessionId}): ${err.message}`);
     }
   }
 }

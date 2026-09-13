@@ -75,8 +75,12 @@ tasks:
     workflow_progress:
       current_step: implementation
       current_attempt: 1
-      state: active
-      history: []
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: 2026-09-13T22:24:06.356Z
+          transitioned_to: review
 
   - id: chat-surface-workflow-actions-and-composer-modes
     order: 3

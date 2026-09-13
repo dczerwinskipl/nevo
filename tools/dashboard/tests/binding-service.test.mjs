@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -532,6 +532,187 @@ test('HTTP DELETE /api/agent-sessions/:provider/:providerSessionId deletes multi
     assert.equal((await transcriptCache.listPersistedSessions()).length, 0);
     assert.equal(existsSync(join(transcriptsDir, 'claude', 'sess-http-del.json')), false);
   } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('AC 5: Multi-task sessions maintain historical task bindings and allow explicit switching of activeTaskId', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-multi-task-binding-test-'));
+  try {
+    const storageDir = join(tmpDir, 'sessions');
+    const service = createAgentSessionBindingService({ storageDir });
+    const specId = 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d';
+
+    // 1. Initial binding for task-01
+    const binding1 = await service.bindSession({
+      provider: 'claude',
+      providerSessionId: 'sess-multi-123',
+      sessionId: 'sess-multi-123',
+      specId,
+      taskId: '01-first-task',
+      step: 'implementation',
+      attempt: 1,
+      purpose: 'execution',
+    });
+
+    assert.equal(binding1.activeTaskId, '01-first-task');
+    assert.deepEqual(binding1.taskIds, ['01-first-task']);
+    assert.equal(binding1.step, 'implementation');
+    assert.equal(binding1.attempt, 1);
+
+    // 2. Bind second task task-02 to the same session
+    const binding2 = await service.bindSession({
+      provider: 'claude',
+      providerSessionId: 'sess-multi-123',
+      sessionId: 'sess-multi-123',
+      specId,
+      taskId: '02-second-task',
+      step: 'implementation',
+      attempt: 1,
+      purpose: 'execution',
+    });
+
+    assert.equal(binding2.activeTaskId, '02-second-task');
+    assert.deepEqual(binding2.taskIds, ['01-first-task', '02-second-task']);
+
+    // 3. Query tasks for session: both should be present, sorted by recency
+    const tasks = await service.getTasksForSession('claude', 'sess-multi-123', specId);
+    assert.equal(tasks.length, 2);
+    assert.equal(tasks[0].taskId, '02-second-task');
+    assert.equal(tasks[1].taskId, '01-first-task');
+
+    // 4. Query sessions for each task
+    const sessionsTask1 = await service.getSessionsForTask(specId, '01-first-task');
+    assert.equal(sessionsTask1.length, 1);
+    assert.equal(sessionsTask1[0].providerSessionId, 'sess-multi-123');
+
+    const sessionsTask2 = await service.getSessionsForTask(specId, '02-second-task');
+    assert.equal(sessionsTask2.length, 1);
+    assert.equal(sessionsTask2[0].providerSessionId, 'sess-multi-123');
+
+    // 5. Explicitly switch activeTaskId back to task-01 without modifying prior history
+    const switched = await service.setActiveTaskId('claude', 'sess-multi-123', '01-first-task', specId);
+    assert.equal(switched.activeTaskId, '01-first-task');
+    assert.deepEqual(switched.taskIds, ['01-first-task', '02-second-task']);
+
+    const tasksAfterSwitch = await service.getTasksForSession('claude', 'sess-multi-123', specId);
+    assert.equal(tasksAfterSwitch.length, 2);
+    assert.equal(tasksAfterSwitch[0].taskId, '01-first-task'); // most recent now
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('AC 3: Running workflow step start inside an environment with NEVO_SESSION_ID automatically creates and persists a SessionTaskBinding', async () => {
+  const { handleWorkflowStepStart } = await import('../../specs/workflow/cli.mjs');
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-auto-bind-workflow-test-'));
+  const originalEnvSession = process.env.NEVO_SESSION_ID;
+  const originalEnvProvider = process.env.NEVO_AGENT_PROVIDER;
+
+  const specId = '33333333-3333-4333-8333-333333333333';
+  const canonicalSessionId = '44444444-4444-4444-8444-444444444444';
+  const createdBindingFile = join(process.cwd(), '.nevo-ai-local', 'sessions', `${specId}.json`);
+
+  try {
+    const root = tmpDir;
+    const activeDir = join(tmpDir, 'specs', 'active');
+    const changeDir = join(activeDir, 'test-change');
+    const workflowDir = join(tmpDir, '.nevo-ai', 'workflows');
+    await mkdir(changeDir, { recursive: true });
+    await mkdir(workflowDir, { recursive: true });
+
+    await writeFile(
+      join(workflowDir, 'standard.yaml'),
+      `id: standard
+title: Standard
+type: standard
+version: 1
+sourceControl:
+  enabled: false
+steps:
+  implementation:
+    status:
+      active: in-implementation
+      completed: implemented
+    entryGates: []
+    exitGates: []
+    finalize: []
+    transitions:
+      - to: review
+  review:
+    status:
+      active: in-review
+      completed: reviewed
+    entryGates: []
+    exitGates: []
+    finalize: []
+    transitions:
+      - to: verified
+`
+    );
+
+    await writeFile(
+      join(changeDir, 'change.yaml'),
+      `id: test-change
+title: Test change
+type: standard
+status: draft
+spec_id: "${specId}"
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: 01-task
+    order: 1
+    file: tasks/01-task.md
+    status: in-implementation
+`
+    );
+    const tasksDir = join(changeDir, 'tasks');
+    await mkdir(tasksDir, { recursive: true });
+    await writeFile(join(tasksDir, '01-task.md'), '# Task 01\n');
+
+    const { execFileSync } = await import('node:child_process');
+    execFileSync('git', ['init'], { cwd: tmpDir });
+    execFileSync('git', ['config', 'user.name', 'Nevo Test'], { cwd: tmpDir });
+    execFileSync('git', ['config', 'user.email', 'test@nevo.local'], { cwd: tmpDir });
+    execFileSync('git', ['add', '.'], { cwd: tmpDir });
+    execFileSync('git', ['commit', '-m', 'initial'], { cwd: tmpDir });
+
+    process.env.NEVO_SESSION_ID = canonicalSessionId;
+    process.env.NEVO_AGENT_PROVIDER = 'antigravity';
+
+    const stepContext = await handleWorkflowStepStart('test-change', '01-task', {
+      activeDir,
+      repoRoot: root,
+      silent: true,
+    });
+
+    assert.equal(stepContext.currentStep, 'implementation');
+    assert.equal(stepContext.attempt, 1);
+
+    // Verify SessionTaskBinding was automatically created and persisted
+    const bindingService = createAgentSessionBindingService();
+    const binding = bindingService.resolveCurrentBindingSync('antigravity', canonicalSessionId);
+    assert.ok(binding, 'Session binding should be automatically created');
+    assert.equal(binding.sessionId, canonicalSessionId);
+    assert.equal(binding.provider, 'antigravity');
+    assert.equal(binding.specId, specId);
+    assert.equal(binding.taskId, '01-task');
+    assert.equal(binding.step, 'implementation');
+    assert.equal(binding.attempt, 1);
+  } finally {
+    if (originalEnvSession !== undefined) process.env.NEVO_SESSION_ID = originalEnvSession;
+    else delete process.env.NEVO_SESSION_ID;
+    if (originalEnvProvider !== undefined) process.env.NEVO_AGENT_PROVIDER = originalEnvProvider;
+    else delete process.env.NEVO_AGENT_PROVIDER;
+
+    try {
+      if (existsSync(createdBindingFile)) {
+        await rm(createdBindingFile, { force: true });
+      }
+    } catch {}
+
     await rm(tmpDir, { recursive: true, force: true });
   }
 });

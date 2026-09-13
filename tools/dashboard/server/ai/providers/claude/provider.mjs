@@ -410,6 +410,12 @@ export class ClaudeAgentProvider {
     return Array.from(modelsById.values());
   }
 
+  #ambientSessionContext = null;
+
+  setAmbientSessionContext({ sessionId, specId, taskId, activeTaskId } = {}) {
+    this.#ambientSessionContext = { sessionId, specId, taskId, activeTaskId };
+  }
+
   getRawCapturePath(sessionId) {
     return this.#rawCapture.getRawCapturePath(sessionId);
   }
@@ -549,6 +555,10 @@ export class ClaudeAgentProvider {
     {
       turnId,
       providerSessionId,
+      sessionId,
+      specId,
+      taskId,
+      activeTaskId,
       setProviderSessionId,
       identity,
       message,
@@ -622,7 +632,17 @@ export class ClaudeAgentProvider {
     return new Promise((resolve, reject) => {
       let child;
       try {
-        const childEnv = { ...process.env, CLAUDE_INTERACTIVE: '0' };
+        const effectiveNevoSessionId = sessionId || this.#ambientSessionContext?.sessionId || effectiveSessionId;
+        const effectiveSpecId = specId || this.#ambientSessionContext?.specId;
+        const effectiveTaskId = activeTaskId || taskId || this.#ambientSessionContext?.activeTaskId || this.#ambientSessionContext?.taskId;
+        const childEnv = {
+          ...process.env,
+          CLAUDE_INTERACTIVE: '0',
+          NEVO_SESSION_ID: effectiveNevoSessionId,
+          NEVO_AGENT_PROVIDER: 'claude',
+          ...(effectiveSpecId ? { NEVO_SPEC_ID: effectiveSpecId } : {}),
+          ...(effectiveTaskId ? { NEVO_TASK_ID: effectiveTaskId } : {}),
+        };
         // Scoped CA trust must be decided fresh for this endpoint, never inherited from
         // whatever the parent Nevo process's own ambient environment happens to carry.
         delete childEnv.NODE_EXTRA_CA_CERTS;

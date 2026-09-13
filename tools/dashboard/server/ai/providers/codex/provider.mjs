@@ -300,6 +300,7 @@ export class CodexAgentProvider {
   constructor({
     executable = 'codex',
     cwd = process.cwd(),
+    env = process.env,
     client,
     clientFactory = createCodexAppServerClient,
     probeExecutable,
@@ -328,6 +329,7 @@ export class CodexAgentProvider {
       clientFactory({
         executable,
         cwd,
+        env,
         rawCaptureDir,
         rawCaptureEnabled,
         rawFlushTimeoutMs,
@@ -339,6 +341,16 @@ export class CodexAgentProvider {
     );
     this.#unsubscribeServerRequest = this.#client.onServerRequest((request) => this.#handleServerRequest(request));
     this.descriptor = CODEX_DESCRIPTOR;
+  }
+
+  get client() {
+    return this.#client;
+  }
+
+  setAmbientSessionContext(context) {
+    if (typeof this.#client?.setAmbientSessionContext === 'function') {
+      this.#client.setAmbientSessionContext(context);
+    }
   }
 
   getRawCapturePath(sessionId) {
@@ -399,13 +411,22 @@ export class CodexAgentProvider {
     return this.#client.listModels();
   }
 
-  async createSession({ mode = 'edit', model } = {}) {
+  get client() {
+    return this.#client;
+  }
+
+  async createSession({ mode = 'edit', model, sessionId, specId, taskId, activeTaskId } = {}) {
     this.#assertUsable();
+    this.#client?.setAmbientSessionContext?.({ sessionId, specId, taskId: activeTaskId || taskId });
     return { providerSessionId: await this.#startThread(mode, { model }) };
   }
 
   async startTurn({
     turnId,
+    sessionId,
+    specId,
+    taskId,
+    activeTaskId,
     providerSessionId,
     setProviderSessionId,
     message,
@@ -428,6 +449,7 @@ export class CodexAgentProvider {
     requestInteraction,
   } = {}) {
     this.#assertUsable();
+    this.#client?.setAmbientSessionContext?.({ sessionId, specId, taskId: activeTaskId || taskId });
     const input = message ?? prompt;
     if (typeof input !== 'string' || input.length === 0) {
       throw new AiValidationError('A valid message/prompt is required.');

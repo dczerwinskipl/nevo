@@ -36,6 +36,9 @@ allowed_paths:
   - tools/dashboard/tests/ai-server.test.mjs
   - tools/dashboard/tests/specs-actions.test.mjs
   - tools/dashboard/tests/session-task-bootstrap.test.mjs
+  - tools/tests/workflow-multi-step-e2e.test.mjs
+  - specs/index.generated.json
+  - specs/active/agent-workflow-protocol-and-flow-hardening/tasks/02-session-task-binding-and-workflow-server-endpoints.md
   - specs/active/agent-workflow-protocol-and-flow-hardening/change.yaml
 forbidden_paths:
   - src/**

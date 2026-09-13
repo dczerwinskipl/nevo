@@ -10,6 +10,8 @@ import {
 import { validateAgentModelDescriptor, normalizeModelIdentifier } from '../model/model-catalog.mjs';
 import { compareBindingRecency } from './binding-service.mjs';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Validates a provider-supplied dynamic model catalog entry by entry so one malformed
  * model descriptor degrades gracefully (dropped, with an advisory warning) instead of
@@ -151,6 +153,32 @@ export function computeWorkSummary(turn) {
   };
 }
 
+export function formatNevoWorkflowContext({ changeSlug, taskId, step = 'implementation', attempt = 1 } = {}) {
+  return [
+    '[Nevo Workflow Context]',
+    `Specification: ${changeSlug || 'active'}`,
+    `Task: ${taskId}`,
+    `Step: ${step} (attempt ${attempt})`,
+    '',
+    'You are executing a deterministic Nevo workflow task.',
+    'Before modifying any files or running tests, you MUST start your step:',
+    `  node tools/specs.mjs workflow step start ${changeSlug || 'active'} ${taskId}`,
+    '',
+    'The JSON/YAML output returned by that command contains your authoritative StepContext:',
+    '- allowed_paths: paths you may create or modify',
+    '- forbidden_paths: paths you must not touch',
+    '- verification: automated test commands you must pass',
+    '- previousTransition: feedback from earlier attempts (if any)',
+    '',
+    'Rules:',
+    '1. Do not manually edit change.yaml or manifest files.',
+    '2. Do not run manual git commit, git push, or git tag commands.',
+    '3. When implementation and verification are complete, inspect StepContext.finishContract.parameters and run:',
+    `   node tools/specs.mjs workflow step finish ${changeSlug || 'active'} ${taskId} --input '{"commit.title":"..."}'`,
+    '4. After successful step finish, summarize your work and STOP.',
+  ].join('\n');
+}
+
 export class AgentSessionService {
   constructor({ registry, turnRuntime, transcriptCache, bindingService } = {}) {
     this.registry = registry;
@@ -186,6 +214,10 @@ export class AgentSessionService {
   }
 
   async createSession(provider, options = {}) {
+    if (typeof provider === 'object' && provider !== null && provider.provider) {
+      options = provider;
+      provider = options.provider;
+    }
     const entry = this.registry.get(provider);
     const descriptor = entry.descriptor;
     const taskIds = Array.isArray(options.taskIds)
@@ -197,10 +229,14 @@ export class AgentSessionService {
     const purpose = options.purpose || options.title || (primaryTaskId ? `task:${primaryTaskId}` : 'interactive');
     const mode = options.mode ? validateAgentExecutionMode(options.mode, 'mode') : descriptor.defaultMode || 'edit';
 
+    // Synchronous canonical sessionId UUID allocated at session creation time
+    const sessionId = options.sessionId || randomUUID();
+
     let providerSessionId;
-    let established = true;
+    let established = false;
     if (typeof entry.provider.createSession === 'function') {
       const created = await entry.provider.createSession({
+        sessionId,
         specId: options.specId,
         taskId: primaryTaskId,
         taskIds: taskIds.length > 0 ? taskIds : undefined,
@@ -210,12 +246,15 @@ export class AgentSessionService {
         title: options.title,
       });
       providerSessionId = typeof created === 'string' ? created : created?.providerSessionId;
+      if (created && typeof created === 'object' && created.established === true) {
+        established = true;
+      }
       validateAgentIdentity({ provider, providerSessionId });
     } else {
       // No provider-side session allocation exists yet: this ID is a locally
       // fabricated placeholder, not a real provider conversation. It must not be
       // treated as resumable until the provider actually confirms it on first use.
-      providerSessionId = randomUUID();
+      providerSessionId = sessionId;
       established = false;
     }
 
@@ -226,8 +265,11 @@ export class AgentSessionService {
           binding = await this.bindingService.bindSession({
             provider,
             providerSessionId,
+            sessionId,
             specId: options.specId,
             taskId: tId,
+            activeTaskId: primaryTaskId,
+            taskIds,
             purpose: options.purpose || options.title || `task:${tId}`,
             mode,
             model: options.model,
@@ -238,6 +280,7 @@ export class AgentSessionService {
         binding = await this.bindingService.bindSession({
           provider,
           providerSessionId,
+          sessionId,
           specId: options.specId,
           taskId: undefined,
           purpose,
@@ -250,9 +293,11 @@ export class AgentSessionService {
       binding = {
         provider,
         providerSessionId,
-        sessionId: providerSessionId,
+        sessionId,
         specId: options.specId,
         taskId: primaryTaskId,
+        activeTaskId: primaryTaskId,
+        taskIds,
         purpose,
         mode,
         model: options.model,
@@ -263,10 +308,13 @@ export class AgentSessionService {
     }
     return {
       ...binding,
-      sessionId: providerSessionId,
+      sessionId,
+      providerSessionId,
       taskIds,
       taskId: primaryTaskId,
+      activeTaskId: primaryTaskId,
       model: options.model,
+      ...(established === false ? { established: false } : {}),
     };
   }
 
@@ -648,6 +696,34 @@ export class AgentSessionService {
       };
     }
 
+    let effectivePrompt = opts.message ?? opts.prompt;
+    let effectiveUserMessage = opts.userMessage;
+
+    if (opts.workflowContext) {
+      const header =
+        typeof opts.workflowContext === 'string'
+          ? opts.workflowContext
+          : formatNevoWorkflowContext(opts.workflowContext);
+      if (!effectiveUserMessage) {
+        effectiveUserMessage = effectivePrompt;
+      }
+      effectivePrompt = `${header}\n\n${effectiveUserMessage}`;
+    }
+
+    const effectiveCanonicalSessionId =
+      sessionBinding?.sessionId || opts.sessionId || (UUID_RE.test(sessId) ? sessId : undefined);
+
+    const effectiveSpecId = opts.specId || sessionBinding?.specId;
+    const effectiveTaskId = opts.activeTaskId || sessionBinding?.activeTaskId || opts.taskId || sessionBinding?.taskId;
+
+    const providerEntry = this.registry?.get(prov);
+    providerEntry?.instance?.setAmbientSessionContext?.({
+      sessionId: effectiveCanonicalSessionId || sessId,
+      specId: effectiveSpecId,
+      taskId: effectiveTaskId,
+      activeTaskId: effectiveTaskId,
+    });
+
     // A session bound with `established: false` carries a locally fabricated
     // providerSessionId that the provider itself has never confirmed (see
     // createSession()'s fallback branch). Until the provider actually materializes
@@ -657,17 +733,19 @@ export class AgentSessionService {
     const isSessionEstablished = sessionBinding?.established !== false;
     if (!isSessionEstablished && this.bindingService && !onSessionEstablished) {
       onSessionEstablished = async (allocatedSessionId) => {
-        await this.bindingService.markSessionEstablished(prov, allocatedSessionId);
+        await this.bindingService.markSessionEstablished(prov, sessId, allocatedSessionId);
       };
     }
 
+    const { sessionId: _ignoredSessionId, ...cleanOpts } = opts;
     const result = await this.turnRuntime.startTurn({
-      ...opts,
+      ...cleanOpts,
       provider: prov,
       providerSessionId: sessId,
       isSessionEstablished,
-      message: opts.message ?? opts.prompt,
-      prompt: opts.message ?? opts.prompt,
+      message: effectivePrompt,
+      prompt: effectivePrompt,
+      userMessage: effectiveUserMessage,
       mode: effectiveMode,
       model: effectiveModel,
       effort: opts.effort ?? opts.reasoningEffort,

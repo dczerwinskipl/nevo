@@ -652,6 +652,12 @@ export class AntigravityAgentProvider {
     });
   }
 
+  #ambientSessionContext = null;
+
+  setAmbientSessionContext({ sessionId, specId, taskId, activeTaskId } = {}) {
+    this.#ambientSessionContext = { sessionId, specId, taskId, activeTaskId };
+  }
+
   #resolveSessionDirName(sessionId) {
     if (!sessionId) return null;
     let dirName = this.#sessionDirMap.get(sessionId);
@@ -914,6 +920,10 @@ export class AntigravityAgentProvider {
   async startTurn({
     turnId,
     providerSessionId,
+    sessionId,
+    specId,
+    taskId,
+    activeTaskId,
     setProviderSessionId,
     identity,
     message,
@@ -1124,10 +1134,17 @@ export class AntigravityAgentProvider {
         // bridge is never left without a target URL (e.g. during test construction
         // before the local MCP server has been started).
         const effectiveMcpEndpoint = resolvedEndpoint || this.#mcpEndpoint;
+        const effectiveNevoSessionId = sessionId || this.#ambientSessionContext?.sessionId || effectiveSessionId;
+        const effectiveSpecId = specId || this.#ambientSessionContext?.specId;
+        const effectiveTaskId = activeTaskId || taskId || this.#ambientSessionContext?.activeTaskId || this.#ambientSessionContext?.taskId;
         const spawnEnv = {
           ...process.env,
           AGY_INTERACTIVE: '0',
           FORCE_COLOR: '0',
+          NEVO_SESSION_ID: effectiveNevoSessionId,
+          NEVO_AGENT_PROVIDER: 'antigravity',
+          ...(effectiveSpecId ? { NEVO_SPEC_ID: effectiveSpecId } : {}),
+          ...(effectiveTaskId ? { NEVO_TASK_ID: effectiveTaskId } : {}),
           ...(mcpToken ? { NEVO_INTERACTION_TOKEN: mcpToken } : {}),
           NEVO_MCP_ENDPOINT: effectiveMcpEndpoint,
         };

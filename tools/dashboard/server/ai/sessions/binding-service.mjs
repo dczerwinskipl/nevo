@@ -41,9 +41,21 @@ export function compareBindingRecency(a, b) {
 
 export function readAgentExecutionContext(env = process.env) {
   const provider = env.NEVO_AGENT_PROVIDER?.trim();
+  const sessionId = env.NEVO_SESSION_ID?.trim();
   const providerSessionId = env.NEVO_AGENT_PROVIDER_SESSION_ID?.trim();
-  if (provider && providerSessionId) {
-    return { provider, providerSessionId };
+  if (provider && (providerSessionId || sessionId)) {
+    return {
+      provider,
+      providerSessionId: providerSessionId || sessionId,
+      ...(sessionId ? { sessionId } : {}),
+    };
+  }
+  if (sessionId) {
+    return {
+      provider: provider || 'unknown',
+      providerSessionId: providerSessionId || sessionId,
+      sessionId,
+    };
   }
   return null;
 }
@@ -279,14 +291,19 @@ export class AgentSessionBindingService {
   async bindSession({
     provider,
     providerSessionId,
+    sessionId,
     specId,
     taskId,
+    step,
+    attempt,
     purpose,
     mode,
     model,
     createdAt,
     lastSeenAt,
     established,
+    activeTaskId,
+    taskIds,
   } = {}) {
     const identity = validateAgentIdentity({ provider, providerSessionId });
     if (!specId || typeof specId !== 'string' || !UUID_RE.test(specId)) {
@@ -305,20 +322,43 @@ export class AgentSessionBindingService {
     const now = new Date().toISOString();
     const bindings = await this.#loadForSpec(specId);
 
+    const existingSessionBindings = bindings.filter(
+      (b) =>
+        b.provider === identity.provider &&
+        (b.providerSessionId === identity.providerSessionId || (sessionId && b.sessionId === sessionId)) &&
+        b.specId === specId,
+    );
+    const accumulatedTaskIds = Array.from(
+      new Set([
+        ...existingSessionBindings.flatMap((b) => (Array.isArray(b.taskIds) ? b.taskIds : b.taskId ? [b.taskId] : [])),
+        ...(Array.isArray(taskIds) ? taskIds : taskId ? [taskId] : []),
+      ]),
+    );
+
     // Check for exact match on (provider, providerSessionId, specId)
     const exactTaskMatch = bindings.find(
       (b) =>
         b.provider === identity.provider &&
-        b.providerSessionId === identity.providerSessionId &&
+        (b.providerSessionId === identity.providerSessionId || (sessionId && b.sessionId === sessionId)) &&
         b.specId === specId &&
         (b.taskId || undefined) === (taskId || undefined),
     );
 
     if (exactTaskMatch) {
       exactTaskMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
+      if (sessionId !== undefined) exactTaskMatch.sessionId = sessionId;
       if (purpose !== undefined) exactTaskMatch.purpose = purpose;
+      if (step !== undefined) exactTaskMatch.step = step;
+      if (attempt !== undefined) exactTaskMatch.attempt = attempt;
       if (mode !== undefined) exactTaskMatch.mode = mode;
       if (model !== undefined) exactTaskMatch.model = model.trim();
+      const resolvedActive = activeTaskId !== undefined ? activeTaskId : (taskId || exactTaskMatch.activeTaskId);
+      if (resolvedActive !== undefined) exactTaskMatch.activeTaskId = resolvedActive;
+      exactTaskMatch.taskIds = accumulatedTaskIds;
+      for (const b of existingSessionBindings) {
+        b.taskIds = accumulatedTaskIds;
+        if (resolvedActive !== undefined) b.activeTaskId = resolvedActive;
+      }
       if (established !== undefined) {
         if (established === false) exactTaskMatch.established = false;
         else delete exactTaskMatch.established;
@@ -332,16 +372,26 @@ export class AgentSessionBindingService {
       const specOnlyMatch = bindings.find(
         (b) =>
           b.provider === identity.provider &&
-          b.providerSessionId === identity.providerSessionId &&
+          (b.providerSessionId === identity.providerSessionId || (sessionId && b.sessionId === sessionId)) &&
           b.specId === specId &&
           !b.taskId,
       );
       if (specOnlyMatch) {
         specOnlyMatch.taskId = taskId;
         specOnlyMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
+        if (sessionId !== undefined) specOnlyMatch.sessionId = sessionId;
         if (purpose !== undefined) specOnlyMatch.purpose = purpose;
+        if (step !== undefined) specOnlyMatch.step = step;
+        if (attempt !== undefined) specOnlyMatch.attempt = attempt;
         if (mode !== undefined) specOnlyMatch.mode = mode;
         if (model !== undefined) specOnlyMatch.model = model.trim();
+        const resolvedActive = activeTaskId !== undefined ? activeTaskId : (taskId || specOnlyMatch.activeTaskId);
+        if (resolvedActive !== undefined) specOnlyMatch.activeTaskId = resolvedActive;
+        specOnlyMatch.taskIds = accumulatedTaskIds;
+        for (const b of existingSessionBindings) {
+          b.taskIds = accumulatedTaskIds;
+          if (resolvedActive !== undefined) b.activeTaskId = resolvedActive;
+        }
         if (established !== undefined) {
           if (established === false) specOnlyMatch.established = false;
           else delete specOnlyMatch.established;
@@ -355,13 +405,24 @@ export class AgentSessionBindingService {
     if (!taskId) {
       const existingSessionMatch = bindings.find(
         (b) =>
-          b.provider === identity.provider && b.providerSessionId === identity.providerSessionId && b.specId === specId,
+          b.provider === identity.provider &&
+          (b.providerSessionId === identity.providerSessionId || (sessionId && b.sessionId === sessionId)) &&
+          b.specId === specId,
       );
       if (existingSessionMatch) {
         existingSessionMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
+        if (sessionId !== undefined) existingSessionMatch.sessionId = sessionId;
         if (purpose !== undefined) existingSessionMatch.purpose = purpose;
+        if (step !== undefined) existingSessionMatch.step = step;
+        if (attempt !== undefined) existingSessionMatch.attempt = attempt;
         if (mode !== undefined) existingSessionMatch.mode = mode;
         if (model !== undefined) existingSessionMatch.model = model.trim();
+        if (activeTaskId !== undefined) existingSessionMatch.activeTaskId = activeTaskId;
+        existingSessionMatch.taskIds = accumulatedTaskIds;
+        for (const b of existingSessionBindings) {
+          b.taskIds = accumulatedTaskIds;
+          if (activeTaskId !== undefined) b.activeTaskId = activeTaskId;
+        }
         if (established !== undefined) {
           if (established === false) existingSessionMatch.established = false;
           else delete existingSessionMatch.established;
@@ -371,25 +432,51 @@ export class AgentSessionBindingService {
       }
     }
 
+    const resolvedActiveTaskId = activeTaskId !== undefined ? activeTaskId : (taskId || undefined);
     const newBinding = {
       provider: identity.provider,
       providerSessionId: identity.providerSessionId,
+      ...(sessionId ? { sessionId } : {}),
       specId,
       ...(taskId ? { taskId } : {}),
+      ...(step ? { step } : {}),
+      ...(attempt !== undefined ? { attempt } : {}),
       ...(purpose ? { purpose } : {}),
       ...(mode ? { mode } : {}),
       ...(model ? { model: model.trim() } : {}),
+      ...(resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {}),
+      ...(accumulatedTaskIds.length > 0 ? { taskIds: accumulatedTaskIds } : {}),
       ...(established === false ? { established: false } : {}),
       createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
       lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
     };
 
+    for (const b of existingSessionBindings) {
+      b.taskIds = accumulatedTaskIds;
+      if (resolvedActiveTaskId) b.activeTaskId = resolvedActiveTaskId;
+    }
     bindings.push(newBinding);
     await this.#persistForSpec(specId, bindings);
     return structuredClone(newBinding);
   }
 
-  bindSessionSync({ provider, providerSessionId, specId, taskId, purpose, mode, model, createdAt, lastSeenAt } = {}) {
+  bindSessionSync({
+    provider,
+    providerSessionId,
+    sessionId,
+    specId,
+    taskId,
+    step,
+    attempt,
+    purpose,
+    mode,
+    model,
+    createdAt,
+    lastSeenAt,
+    established,
+    activeTaskId,
+    taskIds,
+  } = {}) {
     const identity = validateAgentIdentity({ provider, providerSessionId });
     if (!specId || typeof specId !== 'string' || !UUID_RE.test(specId)) {
       throw new AiValidationError("'specId' must be a valid canonical UUID.", { field: 'specId' });
@@ -407,19 +494,46 @@ export class AgentSessionBindingService {
     const now = new Date().toISOString();
     const bindings = this.#loadForSpecSync(specId);
 
+    const existingSessionBindings = bindings.filter(
+      (b) =>
+        b.provider === identity.provider &&
+        (b.providerSessionId === identity.providerSessionId || (sessionId && b.sessionId === sessionId)) &&
+        b.specId === specId,
+    );
+    const accumulatedTaskIds = Array.from(
+      new Set([
+        ...existingSessionBindings.flatMap((b) => (Array.isArray(b.taskIds) ? b.taskIds : b.taskId ? [b.taskId] : [])),
+        ...(Array.isArray(taskIds) ? taskIds : taskId ? [taskId] : []),
+      ]),
+    );
+
     const exactTaskMatch = bindings.find(
       (b) =>
         b.provider === identity.provider &&
-        b.providerSessionId === identity.providerSessionId &&
+        (b.providerSessionId === identity.providerSessionId || (sessionId && b.sessionId === sessionId)) &&
         b.specId === specId &&
         (b.taskId || undefined) === (taskId || undefined),
     );
 
     if (exactTaskMatch) {
       exactTaskMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
+      if (sessionId !== undefined) exactTaskMatch.sessionId = sessionId;
       if (purpose !== undefined) exactTaskMatch.purpose = purpose;
+      if (step !== undefined) exactTaskMatch.step = step;
+      if (attempt !== undefined) exactTaskMatch.attempt = attempt;
       if (mode !== undefined) exactTaskMatch.mode = mode;
       if (model !== undefined) exactTaskMatch.model = model.trim();
+      const resolvedActive = activeTaskId !== undefined ? activeTaskId : (taskId || exactTaskMatch.activeTaskId);
+      if (resolvedActive !== undefined) exactTaskMatch.activeTaskId = resolvedActive;
+      exactTaskMatch.taskIds = accumulatedTaskIds;
+      for (const b of existingSessionBindings) {
+        b.taskIds = accumulatedTaskIds;
+        if (resolvedActive !== undefined) b.activeTaskId = resolvedActive;
+      }
+      if (established !== undefined) {
+        if (established === false) exactTaskMatch.established = false;
+        else delete exactTaskMatch.established;
+      }
       this.#persistForSpecSync(specId, bindings);
       return structuredClone(exactTaskMatch);
     }
@@ -428,16 +542,30 @@ export class AgentSessionBindingService {
       const specOnlyMatch = bindings.find(
         (b) =>
           b.provider === identity.provider &&
-          b.providerSessionId === identity.providerSessionId &&
+          (b.providerSessionId === identity.providerSessionId || (sessionId && b.sessionId === sessionId)) &&
           b.specId === specId &&
           !b.taskId,
       );
       if (specOnlyMatch) {
         specOnlyMatch.taskId = taskId;
         specOnlyMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
+        if (sessionId !== undefined) specOnlyMatch.sessionId = sessionId;
         if (purpose !== undefined) specOnlyMatch.purpose = purpose;
+        if (step !== undefined) specOnlyMatch.step = step;
+        if (attempt !== undefined) specOnlyMatch.attempt = attempt;
         if (mode !== undefined) specOnlyMatch.mode = mode;
         if (model !== undefined) specOnlyMatch.model = model.trim();
+        const resolvedActive = activeTaskId !== undefined ? activeTaskId : (taskId || specOnlyMatch.activeTaskId);
+        if (resolvedActive !== undefined) specOnlyMatch.activeTaskId = resolvedActive;
+        specOnlyMatch.taskIds = accumulatedTaskIds;
+        for (const b of existingSessionBindings) {
+          b.taskIds = accumulatedTaskIds;
+          if (resolvedActive !== undefined) b.activeTaskId = resolvedActive;
+        }
+        if (established !== undefined) {
+          if (established === false) specOnlyMatch.established = false;
+          else delete specOnlyMatch.established;
+        }
         this.#persistForSpecSync(specId, bindings);
         return structuredClone(specOnlyMatch);
       }
@@ -446,30 +574,56 @@ export class AgentSessionBindingService {
     if (!taskId) {
       const existingSessionMatch = bindings.find(
         (b) =>
-          b.provider === identity.provider && b.providerSessionId === identity.providerSessionId && b.specId === specId,
+          b.provider === identity.provider &&
+          (b.providerSessionId === identity.providerSessionId || (sessionId && b.sessionId === sessionId)) &&
+          b.specId === specId,
       );
       if (existingSessionMatch) {
         existingSessionMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
+        if (sessionId !== undefined) existingSessionMatch.sessionId = sessionId;
         if (purpose !== undefined) existingSessionMatch.purpose = purpose;
+        if (step !== undefined) existingSessionMatch.step = step;
+        if (attempt !== undefined) existingSessionMatch.attempt = attempt;
         if (mode !== undefined) existingSessionMatch.mode = mode;
         if (model !== undefined) existingSessionMatch.model = model.trim();
+        if (activeTaskId !== undefined) existingSessionMatch.activeTaskId = activeTaskId;
+        existingSessionMatch.taskIds = accumulatedTaskIds;
+        for (const b of existingSessionBindings) {
+          b.taskIds = accumulatedTaskIds;
+          if (activeTaskId !== undefined) b.activeTaskId = activeTaskId;
+        }
+        if (established !== undefined) {
+          if (established === false) existingSessionMatch.established = false;
+          else delete existingSessionMatch.established;
+        }
         this.#persistForSpecSync(specId, bindings);
         return structuredClone(existingSessionMatch);
       }
     }
 
+    const resolvedActiveTaskId = activeTaskId !== undefined ? activeTaskId : (taskId || undefined);
     const newBinding = {
       provider: identity.provider,
       providerSessionId: identity.providerSessionId,
+      ...(sessionId ? { sessionId } : {}),
       specId,
       ...(taskId ? { taskId } : {}),
+      ...(step ? { step } : {}),
+      ...(attempt !== undefined ? { attempt } : {}),
       ...(purpose ? { purpose } : {}),
       ...(mode ? { mode } : {}),
       ...(model ? { model: model.trim() } : {}),
+      ...(resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {}),
+      ...(accumulatedTaskIds.length > 0 ? { taskIds: accumulatedTaskIds } : {}),
+      ...(established === false ? { established: false } : {}),
       createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
       lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
     };
 
+    for (const b of existingSessionBindings) {
+      b.taskIds = accumulatedTaskIds;
+      if (resolvedActiveTaskId) b.activeTaskId = resolvedActiveTaskId;
+    }
     bindings.push(newBinding);
     this.#persistForSpecSync(specId, bindings);
     return structuredClone(newBinding);
@@ -640,7 +794,9 @@ export class AgentSessionBindingService {
   async getBinding(provider, providerSessionId) {
     validateAgentIdentity({ provider, providerSessionId });
     const bindings = await this.#loadForSpec();
-    const match = bindings.find((b) => b.provider === provider && b.providerSessionId === providerSessionId);
+    const match = bindings.find(
+      (b) => b.provider === provider && (b.providerSessionId === providerSessionId || b.sessionId === providerSessionId),
+    );
     return match ? structuredClone(match) : null;
   }
 
@@ -650,13 +806,29 @@ export class AgentSessionBindingService {
    * session allocation) as confirmed once the provider has actually materialized a
    * conversation using that exact ID. Durably clears the flag so later turns resume
    * instead of re-attempting first-turn creation semantics.
+   *
+   * Supports:
+   *   markSessionEstablished(provider, allocatedSessionId)
+   *   markSessionEstablished(provider, placeholderId, allocatedSessionId)
    */
-  async markSessionEstablished(provider, providerSessionId) {
-    validateAgentIdentity({ provider, providerSessionId });
+  async markSessionEstablished(provider, arg1, arg2) {
+    const placeholderId = arg2 !== undefined ? arg1 : null;
+    const allocatedId = arg2 !== undefined ? arg2 : arg1;
+    const lookupId = placeholderId || allocatedId;
+    validateAgentIdentity({ provider, providerSessionId: lookupId });
+
     const markRows = (rows) => {
       let changed = false;
       for (const row of rows) {
-        if (row.provider === provider && row.providerSessionId === providerSessionId && row.established === false) {
+        if (row.provider !== provider) continue;
+        const matches = placeholderId
+          ? (row.providerSessionId === placeholderId || row.sessionId === placeholderId)
+          : (row.providerSessionId === allocatedId || row.established === false);
+        if (matches) {
+          if (!row.sessionId) {
+            row.sessionId = placeholderId || row.providerSessionId;
+          }
+          row.providerSessionId = allocatedId;
           delete row.established;
           changed = true;
         }
@@ -676,7 +848,12 @@ export class AgentSessionBindingService {
     const all = await this.#loadForSpec();
     const matchingSpecs = new Set(
       all
-        .filter((b) => b.provider === provider && b.providerSessionId === providerSessionId)
+        .filter((b) => {
+          if (b.provider !== provider) return false;
+          return placeholderId
+            ? (b.providerSessionId === placeholderId || b.sessionId === placeholderId)
+            : (b.providerSessionId === allocatedId || b.established === false);
+        })
         .map((b) => b.specId)
         .filter(Boolean),
     );
@@ -689,12 +866,288 @@ export class AgentSessionBindingService {
     }
   }
 
+  markSessionEstablishedSync(provider, arg1, arg2) {
+    const placeholderId = arg2 !== undefined ? arg1 : null;
+    const allocatedId = arg2 !== undefined ? arg2 : arg1;
+    const lookupId = placeholderId || allocatedId;
+    validateAgentIdentity({ provider, providerSessionId: lookupId });
+
+    const markRows = (rows) => {
+      let changed = false;
+      for (const row of rows) {
+        if (row.provider !== provider) continue;
+        const matches = placeholderId
+          ? (row.providerSessionId === placeholderId || row.sessionId === placeholderId)
+          : (row.providerSessionId === allocatedId || row.established === false);
+        if (matches) {
+          if (!row.sessionId) {
+            row.sessionId = placeholderId || row.providerSessionId;
+          }
+          row.providerSessionId = allocatedId;
+          delete row.established;
+          changed = true;
+        }
+      }
+      return changed;
+    };
+
+    if (this.#storageFile) {
+      const bindings = this.#loadForSpecSync();
+      if (markRows(bindings)) {
+        this.#cache.set('__single__', bindings);
+        this.#persistForSpecSync(null, bindings);
+      }
+      return;
+    }
+
+    const all = this.#loadForSpecSync();
+    const matchingSpecs = new Set(
+      all
+        .filter((b) => {
+          if (b.provider !== provider) return false;
+          return placeholderId
+            ? (b.providerSessionId === placeholderId || b.sessionId === placeholderId)
+            : (b.providerSessionId === allocatedId || b.established === false);
+        })
+        .map((b) => b.specId)
+        .filter(Boolean),
+    );
+
+    for (const specId of matchingSpecs) {
+      const specBindings = this.#loadForSpecSync(specId);
+      if (markRows(specBindings)) {
+        this.#persistForSpecSync(specId, specBindings);
+      }
+    }
+  }
+
+  async getTasksForSession(provider, providerSessionId, specId) {
+    validateAgentIdentity({ provider, providerSessionId });
+    const allBindings = await this.listBindings(specId ? { specId } : {});
+    const sessionBindings = allBindings
+      .filter(
+        (b) => b.provider === provider && (b.providerSessionId === providerSessionId || b.sessionId === providerSessionId),
+      )
+      .sort(compareBindingRecency);
+
+    const seenTaskIds = new Set();
+    const tasks = [];
+    for (const b of sessionBindings) {
+      const taskId = b.taskId || b.activeTaskId;
+      if (taskId && !seenTaskIds.has(taskId)) {
+        seenTaskIds.add(taskId);
+        tasks.push(structuredClone(b));
+      }
+    }
+    return tasks;
+  }
+
+  getTasksForSessionSync(provider, providerSessionId, specId) {
+    validateAgentIdentity({ provider, providerSessionId });
+    const allBindings = this.listBindingsSync(specId ? { specId } : {});
+    const sessionBindings = allBindings
+      .filter(
+        (b) => b.provider === provider && (b.providerSessionId === providerSessionId || b.sessionId === providerSessionId),
+      )
+      .sort(compareBindingRecency);
+
+    const seenTaskIds = new Set();
+    const tasks = [];
+    for (const b of sessionBindings) {
+      const taskId = b.taskId || b.activeTaskId;
+      if (taskId && !seenTaskIds.has(taskId)) {
+        seenTaskIds.add(taskId);
+        tasks.push(structuredClone(b));
+      }
+    }
+    return tasks;
+  }
+
+  async getSessionsForTask(specId, taskId) {
+    if (!specId || typeof specId !== 'string') {
+      throw new AiValidationError("'specId' must be a valid string.", { field: 'specId' });
+    }
+    if (!taskId || typeof taskId !== 'string') {
+      throw new AiValidationError("'taskId' must be a non-empty string.", { field: 'taskId' });
+    }
+    const specBindings = await this.#loadForSpec(specId);
+    const matching = specBindings
+      .filter(
+        (b) =>
+          b.taskId === taskId ||
+          (Array.isArray(b.taskIds) && b.taskIds.includes(taskId)) ||
+          b.activeTaskId === taskId,
+      )
+      .sort(compareBindingRecency);
+
+    const seenSessions = new Set();
+    const sessions = [];
+    for (const b of matching) {
+      const key = `${b.provider}:::${b.sessionId || b.providerSessionId}`;
+      if (!seenSessions.has(key)) {
+        seenSessions.add(key);
+        sessions.push(structuredClone(b));
+      }
+    }
+    return sessions;
+  }
+
+  getSessionsForTaskSync(specId, taskId) {
+    if (!specId || typeof specId !== 'string') {
+      throw new AiValidationError("'specId' must be a valid string.", { field: 'specId' });
+    }
+    if (!taskId || typeof taskId !== 'string') {
+      throw new AiValidationError("'taskId' must be a non-empty string.", { field: 'taskId' });
+    }
+    const specBindings = this.#loadForSpecSync(specId);
+    const matching = specBindings
+      .filter(
+        (b) =>
+          b.taskId === taskId ||
+          (Array.isArray(b.taskIds) && b.taskIds.includes(taskId)) ||
+          b.activeTaskId === taskId,
+      )
+      .sort(compareBindingRecency);
+
+    const seenSessions = new Set();
+    const sessions = [];
+    for (const b of matching) {
+      const key = `${b.provider}:::${b.sessionId || b.providerSessionId}`;
+      if (!seenSessions.has(key)) {
+        seenSessions.add(key);
+        sessions.push(structuredClone(b));
+      }
+    }
+    return sessions;
+  }
+
+  async setActiveTaskId(provider, providerSessionId, taskId, specIdOrOptions = {}) {
+    validateAgentIdentity({ provider, providerSessionId });
+    if (!taskId || typeof taskId !== 'string' || !taskId.trim()) {
+      throw new AiValidationError("'taskId' must be a non-empty string.", { field: 'taskId' });
+    }
+    const cleanTaskId = taskId.trim();
+    let targetSpecId = typeof specIdOrOptions === 'string' ? specIdOrOptions : specIdOrOptions?.specId;
+    if (!targetSpecId) {
+      const current = await this.resolveCurrentBinding(provider, providerSessionId);
+      targetSpecId = current?.specId;
+    }
+    if (!targetSpecId) {
+      throw new AiValidationError('Cannot set active task: session has no associated specification.', {
+        field: 'specId',
+      });
+    }
+
+    const bindings = await this.#loadForSpec(targetSpecId);
+    const sessionBindings = bindings.filter(
+      (b) =>
+        b.provider === provider && (b.providerSessionId === providerSessionId || b.sessionId === providerSessionId),
+    );
+    if (sessionBindings.length === 0) {
+      throw new AiValidationError('Cannot set active task: session not found.', { field: 'providerSessionId' });
+    }
+
+    const now = new Date().toISOString();
+    for (const b of sessionBindings) {
+      b.activeTaskId = cleanTaskId;
+      if (b.taskId === cleanTaskId) {
+        b.lastSeenAt = now;
+      }
+      if (!Array.isArray(b.taskIds)) b.taskIds = b.taskId ? [b.taskId] : [];
+      if (!b.taskIds.includes(cleanTaskId)) {
+        b.taskIds.push(cleanTaskId);
+      }
+    }
+
+    const taskBinding = sessionBindings.find((b) => b.taskId === cleanTaskId);
+    if (!taskBinding) {
+      const template = sessionBindings[0];
+      const newBinding = {
+        ...structuredClone(template),
+        taskId: cleanTaskId,
+        activeTaskId: cleanTaskId,
+        taskIds: Array.from(new Set([...(template.taskIds || []), cleanTaskId])),
+        createdAt: now,
+        lastSeenAt: now,
+      };
+      delete newBinding.step;
+      delete newBinding.attempt;
+      bindings.push(newBinding);
+    }
+
+    await this.#persistForSpec(targetSpecId, bindings);
+    const updated = sessionBindings.find((b) => b.taskId === cleanTaskId) || sessionBindings[0];
+    return structuredClone(updated);
+  }
+
+  setActiveTaskIdSync(provider, providerSessionId, taskId, specIdOrOptions = {}) {
+    validateAgentIdentity({ provider, providerSessionId });
+    if (!taskId || typeof taskId !== 'string' || !taskId.trim()) {
+      throw new AiValidationError("'taskId' must be a non-empty string.", { field: 'taskId' });
+    }
+    const cleanTaskId = taskId.trim();
+    let targetSpecId = typeof specIdOrOptions === 'string' ? specIdOrOptions : specIdOrOptions?.specId;
+    if (!targetSpecId) {
+      const current = this.resolveCurrentBindingSync(provider, providerSessionId);
+      targetSpecId = current?.specId;
+    }
+    if (!targetSpecId) {
+      throw new AiValidationError('Cannot set active task: session has no associated specification.', {
+        field: 'specId',
+      });
+    }
+
+    const bindings = this.#loadForSpecSync(targetSpecId);
+    const sessionBindings = bindings.filter(
+      (b) =>
+        b.provider === provider && (b.providerSessionId === providerSessionId || b.sessionId === providerSessionId),
+    );
+    if (sessionBindings.length === 0) {
+      throw new AiValidationError('Cannot set active task: session not found.', { field: 'providerSessionId' });
+    }
+
+    const now = new Date().toISOString();
+    for (const b of sessionBindings) {
+      b.activeTaskId = cleanTaskId;
+      if (b.taskId === cleanTaskId) {
+        b.lastSeenAt = now;
+      }
+      if (!Array.isArray(b.taskIds)) b.taskIds = b.taskId ? [b.taskId] : [];
+      if (!b.taskIds.includes(cleanTaskId)) {
+        b.taskIds.push(cleanTaskId);
+      }
+    }
+
+    const taskBinding = sessionBindings.find((b) => b.taskId === cleanTaskId);
+    if (!taskBinding) {
+      const template = sessionBindings[0];
+      const newBinding = {
+        ...structuredClone(template),
+        taskId: cleanTaskId,
+        activeTaskId: cleanTaskId,
+        taskIds: Array.from(new Set([...(template.taskIds || []), cleanTaskId])),
+        createdAt: now,
+        lastSeenAt: now,
+      };
+      delete newBinding.step;
+      delete newBinding.attempt;
+      bindings.push(newBinding);
+    }
+
+    this.#persistForSpecSync(targetSpecId, bindings);
+    const updated = sessionBindings.find((b) => b.taskId === cleanTaskId) || sessionBindings[0];
+    return structuredClone(updated);
+  }
+
   async unbindSession(provider, providerSessionId) {
     validateAgentIdentity({ provider, providerSessionId });
+    const matchesSession = (b) =>
+      b.provider === provider && (b.providerSessionId === providerSessionId || b.sessionId === providerSessionId);
+
     if (this.#storageFile) {
       const bindings = await this.#loadForSpec();
       const initialLen = bindings.length;
-      const filtered = bindings.filter((b) => !(b.provider === provider && b.providerSessionId === providerSessionId));
+      const filtered = bindings.filter((b) => !matchesSession(b));
       if (filtered.length !== initialLen) {
         this.#cache.set('__single__', filtered);
         await this.#persistForSpec(null, filtered);
@@ -705,26 +1158,27 @@ export class AgentSessionBindingService {
     const all = await this.#loadForSpec();
     const matchingSpecs = new Set(
       all
-        .filter((b) => b.provider === provider && b.providerSessionId === providerSessionId)
+        .filter(matchesSession)
         .map((b) => b.specId)
         .filter(Boolean),
     );
 
     for (const specId of matchingSpecs) {
       const specBindings = await this.#loadForSpec(specId);
-      const filtered = specBindings.filter(
-        (b) => !(b.provider === provider && b.providerSessionId === providerSessionId),
-      );
+      const filtered = specBindings.filter((b) => !matchesSession(b));
       await this.#persistForSpec(specId, filtered);
     }
   }
 
   unbindSessionSync(provider, providerSessionId) {
     validateAgentIdentity({ provider, providerSessionId });
+    const matchesSession = (b) =>
+      b.provider === provider && (b.providerSessionId === providerSessionId || b.sessionId === providerSessionId);
+
     if (this.#storageFile) {
       const bindings = this.#loadForSpecSync();
       const initialLen = bindings.length;
-      const filtered = bindings.filter((b) => !(b.provider === provider && b.providerSessionId === providerSessionId));
+      const filtered = bindings.filter((b) => !matchesSession(b));
       if (filtered.length !== initialLen) {
         this.#cache.set('__single__', filtered);
         this.#persistForSpecSync(null, filtered);
@@ -735,16 +1189,14 @@ export class AgentSessionBindingService {
     const all = this.#loadForSpecSync();
     const matchingSpecs = new Set(
       all
-        .filter((b) => b.provider === provider && b.providerSessionId === providerSessionId)
+        .filter(matchesSession)
         .map((b) => b.specId)
         .filter(Boolean),
     );
 
     for (const specId of matchingSpecs) {
       const specBindings = this.#loadForSpecSync(specId);
-      const filtered = specBindings.filter(
-        (b) => !(b.provider === provider && b.providerSessionId === providerSessionId),
-      );
+      const filtered = specBindings.filter((b) => !matchesSession(b));
       this.#persistForSpecSync(specId, filtered);
     }
   }

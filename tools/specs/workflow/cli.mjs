@@ -9,8 +9,11 @@
 // drive these exact handlers end-to-end against a disposable fixture repository
 // (`fixture-repo.test-helper.mjs`) instead of the real checked-out repository.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { spawn } from 'node:child_process';
 import { requireChange, requireTask, ROOT, ACTIVE_DIR } from '../store.mjs';
+import { parseVerificationCommands } from '../fingerprint.mjs';
 import { CliError } from '../../lib/cli-errors.mjs';
 import { resolveWorkflowMode, assertWorkflowVersionCompatible } from './compatibility.mjs';
 import { loadWorkflowDefinition } from './definitions/loader.mjs';
@@ -23,11 +26,12 @@ import { createDefaultGateRegistry } from './registry.mjs';
 import { MemoryCommandVerificationStore } from './gates/command-gate.mjs';
 import { FileHumanVerificationStore } from './human-verification-store.mjs';
 import { resolveHumanScopeTarget } from './gates/human-gate.mjs';
-// Side-effect import: registers CommitAndPushAction into defaultActionRegistry. Without
+// side-effect import: registers CommitAndPushAction into defaultActionRegistry. Without
 // this, `defaultActionRegistry` (registry.mjs) starts empty and `aggregateFinalizeCheck`
 // would silently filter 'commit-and-push' out as "not yet registered" (step-context.mjs),
 // producing an empty finish contract for every real invocation.
 import './actions/index.mjs';
+import { autoBindAgentSession } from '../../specs.mjs';
 
 function resolveDefaultTask(change) {
   const candidates = change.tasks.filter(t => t.status === 'in-implementation');
@@ -72,6 +76,95 @@ export function resolveWorkflowRuntime(changeSlug, taskId, { activeDir = ACTIVE_
   return { change, task, definition, context };
 }
 
+async function executeSingleCommandWithLiveOutput(command, cwd, silent) {
+  if (!silent) {
+    process.stderr.write(`[workflow:gate] Executing: ${command}\n`);
+  }
+  return new Promise((resolve) => {
+    const child = spawn(command, { cwd, shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (chunk) => {
+      const text = chunk.toString();
+      stdout += text;
+      if (!silent) process.stderr.write(text);
+    });
+
+    child.stderr.on('data', (chunk) => {
+      const text = chunk.toString();
+      stderr += text;
+      if (!silent) process.stderr.write(text);
+    });
+
+    child.on('close', (code) => {
+      const exitCode = typeof code === 'number' ? code : 1;
+      resolve({
+        passed: exitCode === 0,
+        exitCode,
+        stdout,
+        stderr,
+      });
+    });
+
+    child.on('error', (err) => {
+      resolve({
+        passed: false,
+        exitCode: 1,
+        stdout,
+        stderr: stderr + '\n' + err.message,
+      });
+    });
+  });
+}
+
+async function runCliCommandWithLiveOutput(command, context = {}) {
+  const cwd = context.repoRoot || process.cwd();
+  const activeDir = context.activeDir || join(cwd, 'specs', 'active');
+  const changeSlug = context.changeSlug || context.changeId || context.change?._slug || context.change?.id;
+  const task = context.task;
+
+  if (command === 'npm test' && task && changeSlug) {
+    const taskFile = task.file || (task.id ? `tasks/${task.id}.md` : null);
+    if (taskFile) {
+      const taskPath = join(activeDir, changeSlug, taskFile);
+      if (existsSync(taskPath)) {
+        try {
+          const body = readFileSync(taskPath, 'utf8');
+          const taskCommands = parseVerificationCommands(body);
+          if (taskCommands.length > 0) {
+            let combinedStdout = '';
+            let combinedStderr = '';
+            for (const subCmd of taskCommands) {
+              const res = await executeSingleCommandWithLiveOutput(subCmd, cwd, context.silent);
+              combinedStdout += res.stdout + '\n';
+              combinedStderr += res.stderr + '\n';
+              if (!res.passed) {
+                return {
+                  passed: false,
+                  exitCode: res.exitCode,
+                  stdout: combinedStdout,
+                  stderr: combinedStderr,
+                };
+              }
+            }
+            return {
+              passed: true,
+              exitCode: 0,
+              stdout: combinedStdout,
+              stderr: combinedStderr,
+            };
+          }
+        } catch {
+          // fallback to generic command
+        }
+      }
+    }
+  }
+
+  return executeSingleCommandWithLiveOutput(command, cwd, context.silent);
+}
+
 /** A fresh gate registry per CLI invocation — the command-verification store only needs
  * to survive within one `verify()` call's own evaluation (Task 06), and the human
  * sign-off reader is file-backed so it survives across the separate `verify-human`
@@ -79,6 +172,7 @@ export function resolveWorkflowRuntime(changeSlug, taskId, { activeDir = ACTIVE_
 export function buildWorkflowGateRegistry(repoRoot, changeSlug, taskId, attempt) {
   const effectiveAttempt = typeof attempt === 'object' ? attempt?.workflow_progress?.current_attempt : attempt;
   return createDefaultGateRegistry({
+    commandRunner: runCliCommandWithLiveOutput,
     commandVerificationStore: new MemoryCommandVerificationStore(),
     humanVerificationReader: new FileHumanVerificationStore({
       repoRoot,
@@ -158,6 +252,7 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
   const position = resolveWorkflowPosition(definition, task);
   const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, position.attempt);
   const stepContext = await compileStepContext({ change, task, definition, context, gateRegistry });
+  autoBindAgentSession(change, task.id, 'execution', { step: stepContext.currentStep, attempt: stepContext.attempt });
   return emit(stepContext, opts);
 }
 
@@ -171,6 +266,7 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
   const position = inFlight ? null : resolveWorkflowPosition(definition, task);
   const stepName = inFlight ? inFlight.step : position.step;
   const attempt = inFlight ? inFlight.attempt : position.attempt;
+  autoBindAgentSession(change, task.id, 'finish', { step: stepName, attempt });
   const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, attempt);
 
   const step = (position?.phase === 'active' || inFlight) ? definition.steps?.[stepName] : null;
