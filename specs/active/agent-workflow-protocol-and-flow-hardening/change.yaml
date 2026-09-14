@@ -2,14 +2,10 @@
 id: agent-workflow-protocol-and-flow-hardening
 title: "Agent workflow protocol and flow hardening"
 type: standard
-status: draft
+status: in-implementation
 priority: 10
 created: 2026-09-13
 spec_id: 3aa4f1ac-0daf-4906-8275-9a9d9c84c3cd
-
-workflow:
-  mode: deterministic
-  version: 1
 
 branch:
   mode: per-change
@@ -69,23 +65,9 @@ tasks:
   - id: session-task-binding-and-workflow-server-endpoints
     order: 2
     file: tasks/02-session-task-binding-and-workflow-server-endpoints.md
-    status: approved
+    status: implemented
     depends_on:
       - workflow-protocol-git-hardening-and-human-decisions
-    workflow_progress:
-      current_step: human-verification
-      current_attempt: 1
-      state: active
-      history:
-        - step: implementation
-          attempt: 1
-          completed_at: 2026-09-13T22:24:06.356Z
-          transitioned_to: review
-        - step: review
-          attempt: 1
-          completed_at: 2026-09-13T22:25:46.538Z
-          transitioned_to: human-verification
-          result: pass
 
   - id: chat-surface-workflow-actions-and-composer-modes
     order: 3

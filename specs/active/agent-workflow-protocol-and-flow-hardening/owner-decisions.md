@@ -179,3 +179,31 @@
 - **Date:** 2026-09-13
 - **Affected artifacts:** `overview.md`, `areas/04-session-task-binding-and-chat-experience.md`, task 03
 
+## D11: Workflow mode selection ownership and manifest lifecycle immutability
+
+- **Question:** Who owns the decision to configure or change `workflow.mode` in a specification manifest, and what are the boundaries regarding agent mutation of manifest lifecycle state?
+- **Options considered:**
+  1. *Autonomous agent inference:* Let agents infer `workflow.mode: deterministic` based on task context or file topics.
+  2. *Strict owner/product authority + manifest immutability (Recommended):* Workflow mode selection is exclusively an owner, product, or application-level decision. If omitted, mode defaults to `legacy`. Agents must never autonomously add or alter `workflow.mode` or `workflow.version`, nor directly edit `change.yaml` lifecycle fields (`status`, `workflow_progress`, attempt state, transition history). Agent intent must flow strictly through validated CLI commands (`workflow step start`, `workflow step finish`, human decision endpoints) or future AI application APIs.
+- **Trade-offs / Consequences:**
+  - Option 1 leads to accidental, premature dogfooding of unfinished workflow features on specifications that were intended to run under legacy lifecycles, polluting manifests with invalid runtime progress.
+  - Option 2 enforces a clean, deterministic ownership boundary: Nevo owns lifecycle validation, state machine integrity, and persistence, while the agent focuses purely on task-level implementation or review work.
+- **Decision:** Option 2. Enforce strict owner authority over `workflow.mode`. Unconfigured specifications remain legacy. Agents must not mutate lifecycle fields in `change.yaml`.
+- **Rationale:** Prevents accidental dogfooding, preserves backward compatibility as the default, and maintains the integrity of the authoritative Nevo workflow engine.
+- **Date:** 2026-09-14
+- **Affected artifacts:** `AGENTS.md`, `docs/development/agent-workflow-protocol.md`, `specs/active/agent-workflow-protocol-and-flow-hardening/change.yaml`
+
+## D12: Sequencing of first deterministic end-to-end dogfood flow
+
+- **Question:** When and where should the first real end-to-end deterministic workflow dogfood run take place?
+- **Options considered:**
+  1. *Retroactive dogfooding on PR #51:* Force the current specification (`agent-workflow-protocol-and-flow-hardening`) to run under deterministic mode while building that very infrastructure.
+  2. *Sequenced dogfooding on a subsequent dedicated specification (Recommended):* Complete PR #51 under the standard legacy lifecycle. After PR #51 merges, create a dedicated new specification (e.g. `spec-history-and-timeline`) explicitly configured with `workflow: { mode: deterministic }` and execute the full controlled review and human-verification loop there.
+- **Trade-offs / Consequences:**
+  - Option 1 causes circular dependencies, unverified error states, and corrupted manifest tracking because the runtime tooling is still being built and corrected under the running task.
+  - Option 2 allows PR #51 to establish complete, verified, hardened infrastructure first, ensuring the subsequent dogfood smoke run operates on a fully tested foundation.
+- **Decision:** Option 2. Complete PR #51 under legacy lifecycle; conduct the first deliberate end-to-end deterministic smoke run on a new dedicated specification after PR #51 is finalized.
+- **Rationale:** Engineering rigor requires separating infrastructure construction from the testbed that validates it.
+- **Date:** 2026-09-14
+- **Affected artifacts:** `specs/active/agent-workflow-protocol-and-flow-hardening/change.yaml`, `docs/development/agent-workflow-protocol.md`
+

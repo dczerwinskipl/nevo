@@ -122,3 +122,40 @@ Upon receiving a successful completion response (`status: 'completed'`), the age
 | Exit code non-zero (`DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT`) | Working tree was dirty when allocating a new attempt. | Do not proceed; inform operator to clean or stash uncommitted changes before starting a new attempt. |
 | Transition to `human-verification` | Step requires human approval or request-changes decision. | Summarize readiness for human review and **STOP**. No agent turn is dispatched for human decisions. |
 | Terminal transition (`verified`) | Task has achieved terminal verification. | Inform the user that the task is verified and **STOP**. |
+
+## Ownership Boundaries & Manifest Immutability
+
+### 1. Agents Do Not Choose or Mutate Workflow Mode
+An implementation, review, or spec-writing agent must **never** autonomously choose, add, or mutate `workflow.mode` or `workflow.version` in a specification manifest (`change.yaml`).
+- Workflow mode selection is strictly an **owner / product / application decision**.
+- If a specification has no explicit `workflow` configuration, it is **legacy** by default.
+- An agent creating or refining a specification must not add `workflow.mode: deterministic` on its own.
+- An agent must not infer deterministic mode merely because a specification describes or implements workflow infrastructure.
+- An agent must not change workflow mode as part of implementation or review work.
+
+### 2. Agents Do Not Directly Mutate Lifecycle or Workflow Manifest State
+Agents must **never** directly edit workflow-owned or runtime-owned lifecycle state in `change.yaml` or any manifest file during normal execution.
+- **Authoring data vs. Lifecycle data:** Authoring content (overview, goals, areas, tasks design markdown) is authored by humans and agents during design phases. Lifecycle data (`status`, `workflow_progress`, `current_step`, `current_attempt`, `state`, `history`) is strictly owned and mutated by the authoritative Nevo workflow engine.
+- The model expresses intent exclusively through validated tool and CLI boundaries (`workflow step start`, `workflow step finish`, human decision endpoint, or future AI application-layer tools).
+- The agent must never reason: *"I need the task to be review now, so I will edit change.yaml."*
+
+### 3. Future Direction: The AI Application Layer
+In the target architecture, agents will interact with specifications and workflows strictly via an application-level tool interface:
+```text
+Agent / Model
+     ↓
+AI / Application Tool API
+     ↓
+Validated Nevo Command / Domain Operation
+     ↓
+Manifest / Workflow Persistence
+```
+The AI layer will eventually own operations such as creating specifications, updating authoring content, selecting workflow modes upon explicit user instruction, starting and finishing steps, and triggering human decisions. The model supplies semantic intent; Nevo owns schema validation, defaults, transition legality, and persistence provenance.
+
+### 4. Controlled Sequencing of Deterministic Dogfooding
+Specifications implementing workflow infrastructure (such as `agent-workflow-protocol-and-flow-hardening`) must not dogfood the unfinished engine. The sequencing is:
+1. Complete and verify implementation under standard legacy lifecycle.
+2. Verify all infrastructure and acceptance tests pass.
+3. Merge the foundational pull request.
+4. Create a dedicated new specification explicitly configured for deterministic mode (e.g. `spec-history-and-timeline`).
+5. Run the first controlled end-to-end deterministic smoke/dogfood flow there, exercising full multi-attempt review and human verification loops.

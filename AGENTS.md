@@ -51,6 +51,8 @@ packet declares.
 - Compatibility decisions
 - New packages or projects
 - CI/CD pipeline changes
+- Workflow mode selection (`workflow.mode`, `workflow.version` in specification manifests). Agents must NOT autonomously choose or change workflow mode; selection is an owner/product decision.
+- Manifest lifecycle and workflow state mutation (agents must NOT manually edit `change.yaml` lifecycle/workflow fields: `status`, `workflow_progress`, attempt state, transition history). Intent must be expressed exclusively through validated CLI commands or application APIs.
 
 When in doubt: stop, describe the decision needed, present options, wait. For any
 change classified T or larger that touches one of the items above, present at least two
