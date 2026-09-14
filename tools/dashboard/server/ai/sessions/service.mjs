@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
 import {
   AiValidationError,
   CapabilityNotSupportedError,
@@ -9,7 +10,9 @@ import {
 } from '../contracts.mjs';
 import { validateAgentModelDescriptor, normalizeModelIdentifier } from '../model/model-catalog.mjs';
 import { compareBindingRecency } from './binding-service.mjs';
-import { listChanges } from '../../../../specs/store.mjs';
+import { listChanges, ROOT } from '../../../../specs/store.mjs';
+import { resolveWorkflowPosition } from '../../../../specs/workflow/step-runner.mjs';
+import { loadWorkflowDefinition } from '../../../../specs/workflow/definitions/loader.mjs';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -184,20 +187,43 @@ export function resolveDeterministicWorkflowInfo(specId, taskId, baseDir) {
   if (!specId) return null;
   try {
     const changes = listChanges(baseDir);
-    const change = changes.find((c) => c.id === specId || c._slug === specId);
+    const change = changes.find((c) => c.spec_id === specId || c.id === specId || c._slug === specId);
     if (!change) return null;
     if (change.workflow?.mode !== 'deterministic') return null;
 
     const rawTaskId = taskId ? String(taskId) : undefined;
     const task = rawTaskId ? (change.tasks || []).find((t) => String(t.id) === rawTaskId) : null;
     const resolvedTaskId = rawTaskId || (change.tasks && change.tasks.length > 0 ? String(change.tasks[0].id) : undefined);
+    const resolvedTask = task || (change.tasks && change.tasks.length > 0 ? change.tasks[0] : null);
+
+    let step = 'implementation';
+    let attempt = 1;
+
+    if (resolvedTask) {
+      try {
+        const repoRoot = baseDir ? resolve(baseDir, '..', '..') : ROOT;
+        const defName = change.workflow?.definition || 'standard-v1';
+        const definition = loadWorkflowDefinition(defName, { repoRoot });
+        const position = resolveWorkflowPosition(definition, resolvedTask);
+        if (position && position.step) {
+          step = position.step;
+          attempt = position.attempt ?? 1;
+        } else if (position?.phase === 'new') {
+          step = definition.entryStep || Object.keys(definition.steps || {})[0] || 'implementation';
+          attempt = 1;
+        }
+      } catch {
+        step = resolvedTask.step || 'implementation';
+        attempt = typeof resolvedTask.attempt === 'number' ? resolvedTask.attempt : 1;
+      }
+    }
 
     return {
       changeSlug: change._slug,
-      specId: change.id,
+      specId: change.spec_id || change.id,
       taskId: resolvedTaskId,
-      step: task?.step || 'implementation',
-      attempt: typeof task?.attempt === 'number' ? task.attempt : 1,
+      step,
+      attempt,
     };
   } catch {
     return null;
@@ -257,9 +283,11 @@ export class AgentSessionService {
     // Synchronous canonical sessionId UUID allocated at session creation time
     const sessionId = options.sessionId || randomUUID();
 
-    let providerSessionId;
-    let established = false;
-    if (typeof entry.provider.createSession === 'function') {
+    // A caller-supplied providerSessionId (manual pre-allocation, or a legacy
+    // provider-identity route creating a session that didn't exist yet) is used
+    // as-is and never re-derived from the provider's own createSession().
+    let providerSessionId = options.providerSessionId || undefined;
+    if (!providerSessionId && typeof entry.provider.createSession === 'function') {
       const created = await entry.provider.createSession({
         sessionId,
         specId: options.specId,
@@ -271,16 +299,9 @@ export class AgentSessionService {
         title: options.title,
       });
       providerSessionId = typeof created === 'string' ? created : created?.providerSessionId;
-      if (created && typeof created === 'object' && created.established === true) {
-        established = true;
+      if (providerSessionId) {
+        validateAgentIdentity({ provider, providerSessionId });
       }
-      validateAgentIdentity({ provider, providerSessionId });
-    } else {
-      // No provider-side session allocation exists yet: this ID is a locally
-      // fabricated placeholder, not a real provider conversation. It must not be
-      // treated as resumable until the provider actually confirms it on first use.
-      providerSessionId = sessionId;
-      established = false;
     }
 
     let binding;
@@ -298,7 +319,6 @@ export class AgentSessionService {
             purpose: options.purpose || options.title || `task:${tId}`,
             mode,
             model: options.model,
-            established,
           });
         }
       } else {
@@ -311,7 +331,6 @@ export class AgentSessionService {
           purpose,
           mode,
           model: options.model,
-          established,
         });
       }
     } else {
@@ -339,7 +358,6 @@ export class AgentSessionService {
       taskId: primaryTaskId,
       activeTaskId: primaryTaskId,
       model: options.model,
-      ...(established === false ? { established: false } : {}),
     };
   }
 
@@ -385,33 +403,46 @@ export class AgentSessionService {
     if (filters.specId) query.specId = filters.specId;
     if (filters.provider) query.provider = filters.provider;
     if (filters.providerSessionId) query.providerSessionId = filters.providerSessionId;
+    if (filters.sessionId) query.sessionId = filters.sessionId;
+    if (filters.taskId) query.taskId = filters.taskId;
 
-    const rawBindings = await this.bindingService.listBindings(query);
-
-    const groups = new Map();
-    for (const row of rawBindings) {
-      const key = `${row.provider}:::${row.providerSessionId}:::${row.specId}`;
-      if (!groups.has(key)) {
-        groups.set(key, []);
+    let logicalSessions = [];
+    if (typeof this.bindingService.listSessions === 'function') {
+      const rawSessions = await this.bindingService.listSessions(query);
+      logicalSessions = rawSessions.map((s) => ({
+        ...s,
+        sessionId: s.sessionId,
+        providerSessionId: s.providerSessionId || undefined,
+        taskId: s.activeTaskId || (Array.isArray(s.taskIds) ? s.taskIds[0] : undefined),
+        taskIds: s.taskIds || [],
+      }));
+    } else {
+      const rawBindings = await this.bindingService.listBindings(query);
+      const groups = new Map();
+      for (const row of rawBindings) {
+        const key = row.sessionId || `${row.provider}:::${row.providerSessionId}:::${row.specId}`;
+        if (!groups.has(key)) {
+          groups.set(key, []);
+        }
+        groups.get(key).push(row);
       }
-      groups.get(key).push(row);
-    }
 
-    const logicalSessions = [];
-    for (const rows of groups.values()) {
-      if (filters.taskId && !rows.some((r) => r.taskId === filters.taskId)) {
-        continue;
+      for (const rows of groups.values()) {
+        if (filters.taskId && !rows.some((r) => r.taskId === filters.taskId)) {
+          continue;
+        }
+        const sortedRows = rows.slice().sort(compareBindingRecency);
+        const representative = sortedRows[0];
+        const taskIds = Array.from(new Set(rows.map((r) => r.taskId).filter(Boolean)));
+
+        logicalSessions.push({
+          ...representative,
+          sessionId: representative.sessionId || representative.providerSessionId,
+          providerSessionId: representative.providerSessionId,
+          taskId: representative.activeTaskId || representative.taskId || taskIds[0] || undefined,
+          taskIds: representative.taskIds || taskIds,
+        });
       }
-      const sortedRows = rows.slice().sort(compareBindingRecency);
-      const representative = sortedRows[0];
-      const taskIds = Array.from(new Set(rows.map((r) => r.taskId).filter(Boolean)));
-
-      logicalSessions.push({
-        ...representative,
-        sessionId: representative.providerSessionId,
-        taskId: representative.taskId || taskIds[0] || undefined,
-        taskIds,
-      });
     }
 
     if (!this.transcriptCache) {
@@ -426,7 +457,8 @@ export class AgentSessionService {
     return Promise.all(
       logicalSessions.map(async (session) => {
         try {
-          const transcript = await this.transcriptCache.getTranscript(session.provider, session.providerSessionId);
+          const transcriptId = session.sessionId || session.providerSessionId;
+          const transcript = await this.transcriptCache.getTranscript(session.provider, transcriptId);
           if (transcript?.health === 'corrupt') {
             return {
               ...session,
@@ -489,30 +521,51 @@ export class AgentSessionService {
     return { status, activeTurn, pendingInteraction };
   }
 
-  async getSession(provider, providerSessionId) {
-    validateAgentIdentity({ provider, providerSessionId });
+  async getSession(providerOrSessionId, providerSessionId) {
+    if (!providerSessionId && UUID_RE.test(providerOrSessionId)) {
+      return await this.bindingService?.getSession(providerOrSessionId);
+    }
+    const provider = providerOrSessionId;
+    if (provider && providerSessionId) {
+      validateAgentIdentity({ provider, providerSessionId });
+    }
     if (this.bindingService) {
       if (typeof this.bindingService.resolveCurrentBinding === 'function') {
-        return this.bindingService.resolveCurrentBinding(provider, providerSessionId);
+        return await this.bindingService.resolveCurrentBinding(provider, providerSessionId);
       }
       if (typeof this.bindingService.getBinding === 'function') {
-        return this.bindingService.getBinding(provider, providerSessionId);
+        return await this.bindingService.getBinding(provider, providerSessionId);
       }
       if (typeof this.bindingService.listBindings === 'function') {
         const list = await this.bindingService.listBindings({ provider, providerSessionId });
-        return list?.find((b) => b.provider === provider && b.providerSessionId === providerSessionId) || null;
+        return list?.find((b) => b.provider === provider && (b.providerSessionId === providerSessionId || b.sessionId === providerSessionId)) || null;
       }
     }
     return null;
   }
 
-  async updateSessionMode(provider, providerSessionId, mode) {
-    validateAgentIdentity({ provider, providerSessionId });
+  async updateSessionMode(providerOrSessionId, modeOrSessionId, maybeMode) {
+    let provider;
+    let sessId;
+    let mode;
+    if (maybeMode !== undefined) {
+      provider = providerOrSessionId;
+      sessId = modeOrSessionId;
+      mode = maybeMode;
+      validateAgentIdentity({ provider, providerSessionId: sessId });
+    } else {
+      sessId = providerOrSessionId;
+      mode = modeOrSessionId;
+      const session = await this.bindingService?.getSession(sessId);
+      if (session) {
+        provider = session.provider;
+      }
+    }
     const validatedMode = validateAgentExecutionMode(mode, 'mode');
     if (this.bindingService) {
-      return this.bindingService.updateSessionMode(provider, providerSessionId, validatedMode);
+      return await this.bindingService.updateSessionMode(provider, sessId, validatedMode);
     }
-    return { provider, providerSessionId, mode: validatedMode };
+    return { provider, providerSessionId: sessId, mode: validatedMode };
   }
 
   /**
@@ -520,32 +573,91 @@ export class AgentSessionService {
    * capability-driven — a provider that does not declare `canOverrideTurnModel` must
    * not silently emulate mid-session switching).
    */
-  async updateSessionModel(provider, providerSessionId, model) {
-    validateAgentIdentity({ provider, providerSessionId });
+  async updateSessionModel(providerOrSessionId, modelOrSessionId, maybeModel) {
+    let provider;
+    let sessId;
+    let model;
+    if (maybeModel !== undefined) {
+      provider = providerOrSessionId;
+      sessId = modelOrSessionId;
+      model = maybeModel;
+      validateAgentIdentity({ provider, providerSessionId: sessId });
+    } else {
+      sessId = providerOrSessionId;
+      model = modelOrSessionId;
+      const session = await this.bindingService?.getSession(sessId);
+      if (session) {
+        provider = session.provider;
+      }
+    }
     if (typeof model !== 'string' || !model.trim()) {
       throw new AiValidationError("'model' must be a non-empty string.", { field: 'model' });
     }
-    const entry = this.registry?.get?.(provider);
-    if (!entry?.descriptor?.capabilities?.canOverrideTurnModel) {
-      throw new CapabilityNotSupportedError(provider, 'canOverrideTurnModel');
+    if (provider) {
+      const entry = this.registry?.get?.(provider);
+      if (!entry?.descriptor?.capabilities?.canOverrideTurnModel) {
+        throw new CapabilityNotSupportedError(provider, 'canOverrideTurnModel');
+      }
     }
     if (this.bindingService) {
-      return this.bindingService.updateSessionModel(provider, providerSessionId, model.trim());
+      return await this.bindingService.updateSessionModel(provider, sessId, model.trim());
     }
-    return { provider, providerSessionId, model: model.trim() };
+    return { provider, providerSessionId: sessId, model: model.trim() };
   }
 
-  async getSessionDetails(provider, providerSessionId, options = {}) {
-    validateAgentIdentity({ provider, providerSessionId });
+  async getSessionDetails(providerOrSessionId, providerSessionId, options = {}) {
+    let provider;
+    let sessId;
+    let sessionId;
 
-    const descriptor = this.registry?.has(provider) ? this.registry.get(provider).descriptor : undefined;
+    if (UUID_RE.test(providerOrSessionId) && (!providerSessionId || typeof providerSessionId === 'object')) {
+      sessionId = providerOrSessionId;
+      options = providerSessionId || {};
+      const session = await this.bindingService?.getSession(sessionId);
+      if (session) {
+        provider = session.provider;
+        sessId = session.providerSessionId;
+      }
+    } else {
+      provider = providerOrSessionId;
+      sessId = providerSessionId;
+    }
+
+    let binding = null;
+    if (sessionId) {
+      binding = await this.bindingService?.getSession(sessionId);
+    } else if (provider && sessId) {
+      binding = await this.getSession(provider, sessId);
+      if (binding) {
+        sessionId = binding.sessionId;
+        provider = binding.provider;
+        sessId = binding.providerSessionId || sessId;
+      }
+    }
+
+    if (!binding && sessionId) {
+      binding = await this.bindingService?.getSession(sessionId);
+      if (binding) {
+        provider = binding.provider;
+        sessId = binding.providerSessionId;
+      }
+    }
+
+    const descriptor = provider && this.registry?.has(provider) ? this.registry.get(provider).descriptor : undefined;
     const capabilities = descriptor?.capabilities || {};
 
-    const binding = await this.getSession(provider, providerSessionId);
     const taskIds = binding?.taskIds || (binding?.taskId ? [binding.taskId] : []);
     const specId = binding?.specId;
 
-    const transcript = await this.getTranscript(provider, providerSessionId);
+    // Transcript files are keyed by the native providerSessionId (see
+    // SessionTranscriptCacheService#getFilePath), never by the canonical
+    // sessionId — prefer sessId here. Once a session is established, sessId
+    // (binding.providerSessionId) and sessionId (binding.sessionId) diverge;
+    // falling back to sessionId first silently looks up a transcript file
+    // that was never written under that key, returning an empty transcript
+    // for a session that actually has history.
+    const transcriptId = sessId || sessionId;
+    const transcript = provider ? await this.getTranscript(provider, transcriptId) : { turns: [], lastEventSeq: 0 };
     const { status, activeTurn, pendingInteraction } = this.resolveSessionActivity(transcript);
     const resolvedMode = binding?.mode ?? descriptor?.defaultMode ?? 'edit';
 
@@ -567,15 +679,15 @@ export class AgentSessionService {
     const publicTurns = combinedTurns.map(serializePublicTurn);
 
     const baseSession = {
-      provider,
-      providerSessionId,
-      sessionId: providerSessionId,
+      provider: provider || binding?.provider,
+      providerSessionId: sessId || binding?.providerSessionId,
+      sessionId: sessionId || binding?.sessionId || sessId,
       status: readiness.status === 'unavailable' ? 'unavailable' : status,
       capabilities,
       mode: resolvedMode,
       model: binding?.model ?? null,
       specId: specId ?? binding?.specId,
-      taskId: binding?.taskId,
+      taskId: binding?.activeTaskId || binding?.taskId,
       taskIds,
       purpose: binding?.purpose,
       title: binding?.title || binding?.purpose || `${provider} session`,
@@ -596,13 +708,28 @@ export class AgentSessionService {
     };
   }
 
-  async deleteSession(provider, providerSessionId) {
-    validateAgentIdentity({ provider, providerSessionId });
-    if (this.bindingService) {
-      await this.bindingService.unbindSession(provider, providerSessionId);
+  async deleteSession(providerOrSessionId, providerSessionId) {
+    let provider = providerOrSessionId;
+    let sessId = providerSessionId;
+    let sessionId;
+
+    if (!providerSessionId && UUID_RE.test(providerOrSessionId)) {
+      sessionId = providerOrSessionId;
+      const session = await this.bindingService?.getSession(sessionId);
+      if (session) {
+        provider = session.provider;
+        sessId = session.providerSessionId;
+      }
+    } else if (provider && providerSessionId) {
+      validateAgentIdentity({ provider, providerSessionId });
+      sessId = providerSessionId;
     }
-    if (this.transcriptCache) {
-      await this.transcriptCache.deleteTranscript(provider, providerSessionId);
+
+    if (this.bindingService) {
+      await this.bindingService.unbindSession(provider, sessionId || sessId);
+    }
+    if (this.transcriptCache && provider) {
+      await this.transcriptCache.deleteTranscript(provider, sessionId || sessId);
     }
     return { unbind: true, deleted: true };
   }
@@ -632,14 +759,30 @@ export class AgentSessionService {
     if (typeof provider === 'object' && provider !== null) {
       opts = provider;
       prov = opts.provider;
-      sessId = opts.providerSessionId;
+      sessId = opts.sessionId || opts.providerSessionId;
     }
 
-    let createdSession = null;
-    let sessionBinding = null;
+    let session = null;
+    let canonicalSessionId = opts.sessionId || (sessId && UUID_RE.test(sessId) ? sessId : undefined);
+    let effectiveProviderSessionId = sessId && sessId !== canonicalSessionId ? sessId : undefined;
 
-    if (!sessId) {
-      createdSession = await this.createSession(prov, {
+    if (this.bindingService) {
+      if (canonicalSessionId) {
+        session = await this.bindingService.getSession(canonicalSessionId);
+      }
+      if (!session && sessId && prov) {
+        session = await this.bindingService.findSessionByProviderIdentity(prov, sessId);
+        if (session) {
+          canonicalSessionId = session.sessionId;
+          effectiveProviderSessionId = session.providerSessionId || sessId;
+        }
+      }
+    }
+
+    // Atomic first turn: if session was not found and no specific providerSessionId was given,
+    // create the canonical session FIRST.
+    if (!session && !sessId) {
+      session = await this.createSession(prov, {
         specId: opts.specId,
         taskId: opts.activeTaskId || opts.taskId,
         taskIds: opts.taskIds,
@@ -647,54 +790,86 @@ export class AgentSessionService {
         mode: opts.mode,
         model: opts.model,
         title: opts.title,
-        sessionId: opts.sessionId,
+        sessionId: canonicalSessionId,
       });
-      sessId = createdSession.providerSessionId;
-      sessionBinding = createdSession;
+      canonicalSessionId = session.sessionId;
+      effectiveProviderSessionId = session.providerSessionId;
+    } else if (!session && canonicalSessionId && !sessId) {
+      session = await this.createSession(prov, {
+        specId: opts.specId,
+        taskId: opts.activeTaskId || opts.taskId,
+        taskIds: opts.taskIds,
+        purpose: opts.purpose,
+        mode: opts.mode,
+        model: opts.model,
+        title: opts.title,
+        sessionId: canonicalSessionId,
+      });
+      canonicalSessionId = session.sessionId;
+      effectiveProviderSessionId = session.providerSessionId;
+    } else if (!session) {
+      if (UUID_RE.test(sessId)) {
+        canonicalSessionId = sessId;
+        session = await this.createSession(prov, {
+          specId: opts.specId,
+          taskId: opts.activeTaskId || opts.taskId,
+          taskIds: opts.taskIds,
+          purpose: opts.purpose,
+          mode: opts.mode,
+          model: opts.model,
+          title: opts.title,
+          sessionId: canonicalSessionId,
+        });
+        effectiveProviderSessionId = session.providerSessionId;
+      } else {
+        session = await this.createSession(prov, {
+          specId: opts.specId,
+          taskId: opts.activeTaskId || opts.taskId,
+          taskIds: opts.taskIds,
+          purpose: opts.purpose,
+          mode: opts.mode,
+          model: opts.model,
+          title: opts.title,
+          providerSessionId: sessId,
+        });
+        canonicalSessionId = session.sessionId;
+        effectiveProviderSessionId = session.providerSessionId;
+      }
     } else {
-      validateAgentIdentity({ provider: prov, providerSessionId: sessId });
-      sessionBinding = this.bindingService ? await this.getSession(prov, sessId) : null;
+      canonicalSessionId = session.sessionId;
+      effectiveProviderSessionId = session.providerSessionId || effectiveProviderSessionId;
     }
 
     // Mode resolution
     let effectiveMode = opts.mode;
-    if (effectiveMode && sessId && this.bindingService) {
-      await this.updateSessionMode(prov, sessId, effectiveMode);
-    } else if (!effectiveMode && sessionBinding?.mode) {
-      effectiveMode = sessionBinding.mode;
+    if (effectiveMode && canonicalSessionId && this.bindingService) {
+      await this.updateSessionMode(prov, canonicalSessionId, effectiveMode);
+    } else if (!effectiveMode && session?.mode) {
+      effectiveMode = session.mode;
     }
     if (!effectiveMode) {
       const entry = this.registry?.get?.(prov);
       effectiveMode = entry?.descriptor?.defaultMode || 'edit';
     }
 
-    // Model resolution: validated here, but NOT persisted yet. Persisting a
-    // turn-level model override before turnRuntime.startTurn() has actually
-    // admitted a genuinely new turn would let a rejected (409 conflict),
-    // idempotent-replay, or otherwise failed start silently mutate the
-    // durably-stored session model even though the running turn never used
-    // it — see modelNeedsPersist below, applied only after admission.
+    // Model resolution
     let effectiveModel = opts.model;
     let modelNeedsPersist = false;
-    if (sessId && sessionBinding) {
-      if (effectiveModel && sessionBinding.model && effectiveModel !== sessionBinding.model) {
+    if (session) {
+      if (effectiveModel && session.model && effectiveModel !== session.model) {
         const entry = this.registry?.get?.(prov);
         const canOverride = Boolean(entry?.descriptor?.capabilities?.canOverrideTurnModel);
         if (!canOverride) {
           throw new CapabilityNotSupportedError(prov, 'canOverrideTurnModel');
         }
         modelNeedsPersist = true;
-      } else if (effectiveModel && !sessionBinding.model) {
+      } else if (effectiveModel && !session.model) {
         modelNeedsPersist = true;
-      } else if (!effectiveModel && sessionBinding.model) {
-        effectiveModel = sessionBinding.model;
+      } else if (!effectiveModel && session.model) {
+        effectiveModel = session.model;
       }
     }
 
-    // Permissive passthrough (D1): an unrecognized model must never block a turn on a
-    // provider that allows arbitrary overrides, but it should still be advisory-visible.
-    // Best-effort and fire-and-forget — a slow/failing catalog fetch must never delay or
-    // fail turn admission over a warning.
     if (effectiveModel) {
       const entry = this.registry?.get?.(prov);
       if (entry?.provider && typeof entry.provider.listModels === 'function') {
@@ -705,11 +880,8 @@ export class AgentSessionService {
       }
     }
 
-    const effectiveCanonicalSessionId =
-      sessionBinding?.sessionId || createdSession?.sessionId || opts.sessionId || (UUID_RE.test(sessId) ? sessId : undefined);
-
-    const effectiveSpecId = opts.specId || sessionBinding?.specId;
-    const effectiveTaskId = opts.activeTaskId || sessionBinding?.activeTaskId || opts.taskId || sessionBinding?.taskId;
+    const effectiveSpecId = opts.specId || session?.specId;
+    const effectiveTaskId = opts.activeTaskId || session?.activeTaskId || opts.taskId || session?.taskId;
 
     let effectivePrompt = opts.message ?? opts.prompt;
     let effectiveUserMessage = opts.userMessage;
@@ -724,12 +896,13 @@ export class AgentSessionService {
       needsHeader = true;
     } else if (shouldInjectAutomatic) {
       needsHeader =
-        !sessionBinding?.lastBootstrapTaskId ||
-        sessionBinding.lastBootstrapTaskId !== workflowInfo.taskId ||
-        sessionBinding.lastBootstrapStep !== workflowInfo.step ||
-        sessionBinding.lastBootstrapAttempt !== workflowInfo.attempt;
+        !session?.lastBootstrapTaskId ||
+        session.lastBootstrapTaskId !== workflowInfo.taskId ||
+        session.lastBootstrapStep !== workflowInfo.step ||
+        session.lastBootstrapAttempt !== workflowInfo.attempt;
     }
 
+    let bootstrapToRecord = null;
     if (needsHeader) {
       const contextToFormat =
         typeof opts.workflowContext === 'object' && opts.workflowContext !== null
@@ -745,90 +918,102 @@ export class AgentSessionService {
       }
       effectivePrompt = `${header}\n\n${effectiveUserMessage}`;
 
-      if (this.bindingService && (workflowInfo || (typeof opts.workflowContext === 'object' && opts.workflowContext !== null))) {
-        const targetTaskId = workflowInfo?.taskId || opts.workflowContext?.taskId || effectiveTaskId;
-        const targetStep = workflowInfo?.step || opts.workflowContext?.step || 'implementation';
-        const targetAttempt = workflowInfo?.attempt ?? opts.workflowContext?.attempt ?? 1;
-        await this.bindingService.recordBootstrapState(prov, sessId, {
-          taskId: targetTaskId,
-          step: targetStep,
-          attempt: targetAttempt,
-          sessionId: effectiveCanonicalSessionId,
-        });
+      if (workflowInfo || (typeof opts.workflowContext === 'object' && opts.workflowContext !== null)) {
+        bootstrapToRecord = {
+          taskId: workflowInfo?.taskId || opts.workflowContext?.taskId || effectiveTaskId,
+          step: workflowInfo?.step || opts.workflowContext?.step || 'implementation',
+          attempt: workflowInfo?.attempt ?? opts.workflowContext?.attempt ?? 1,
+        };
       }
     }
 
-    const isSessionEstablished = createdSession
-      ? createdSession.established === true
-      : sessionBinding?.established !== false;
-
-    let onSessionEstablished = opts.onSessionEstablished;
-    const userOnSessionEstablished = opts.onSessionEstablished;
-    if (!isSessionEstablished && this.bindingService) {
-      onSessionEstablished = async (allocatedSessionId) => {
-        await this.bindingService.markSessionEstablished(
-          prov,
-          effectiveCanonicalSessionId || sessId,
-          allocatedSessionId,
-        );
-        if (typeof userOnSessionEstablished === 'function') {
-          await userOnSessionEstablished(allocatedSessionId);
-        }
-      };
-    }
+    const handleProviderSessionId = async (allocatedSessionId) => {
+      if (this.bindingService && canonicalSessionId && allocatedSessionId) {
+        await this.bindingService.setProviderSessionId(canonicalSessionId, allocatedSessionId);
+      }
+      if (typeof opts.onProviderSessionIdAvailable === 'function') {
+        await opts.onProviderSessionIdAvailable(allocatedSessionId);
+      }
+    };
 
     const { sessionId: _ignoredSessionId, ...cleanOpts } = opts;
     const result = await this.turnRuntime.startTurn({
       ...cleanOpts,
       provider: prov,
-      providerSessionId: createdSession && !createdSession.established ? undefined : sessId,
-      canonicalSessionId: effectiveCanonicalSessionId,
-      nevoSessionId: effectiveCanonicalSessionId,
+      sessionId: canonicalSessionId,
+      providerSessionId: effectiveProviderSessionId,
       specId: effectiveSpecId,
       taskId: effectiveTaskId,
       activeTaskId: effectiveTaskId,
-      isSessionEstablished,
       message: effectivePrompt,
       prompt: effectivePrompt,
       userMessage: effectiveUserMessage,
       mode: effectiveMode,
       model: effectiveModel,
       effort: opts.effort ?? opts.reasoningEffort,
-      onSessionEstablished,
+      onProviderSessionIdAvailable: handleProviderSessionId,
     });
 
-    // Only a genuinely new admission persists the override — an idempotent
-    // replay returns the existing (already-running) turn, which never used
-    // this model, so the durable binding must not change to reflect it.
-    // A rejected/conflicting/validation-failed start never reaches here at
-    // all (the await above throws first), so it can't mutate the binding either.
-    if (modelNeedsPersist && !result?.idempotent && this.bindingService) {
-      await this.bindingService.updateSessionModel(prov, sessId, effectiveModel);
+    // Move recordBootstrapState post-admission (Finding 15)
+    if (bootstrapToRecord && this.bindingService) {
+      await this.bindingService.recordBootstrapState(prov, canonicalSessionId, {
+        ...bootstrapToRecord,
+        sessionId: canonicalSessionId,
+      });
     }
 
-    return result;
+    if (modelNeedsPersist && !result?.idempotent && this.bindingService && canonicalSessionId) {
+      await this.bindingService.updateSessionModel(prov, canonicalSessionId, effectiveModel);
+    }
+
+    return {
+      ...result,
+      sessionId: canonicalSessionId,
+    };
   }
 
-  subscribeToSession(provider, providerSessionId, options) {
+  subscribeToSession(providerOrSessionId, providerSessionIdOrOptions, options) {
     if (!this.turnRuntime) throw new Error('No turn runtime configured.');
-    let prov = provider;
-    let sessId = providerSessionId;
-    let opts = options;
-    if (typeof provider === 'object' && provider !== null) {
-      prov = provider.provider;
-      sessId = provider.providerSessionId;
-      opts = providerSessionId;
+    let prov;
+    let sessId;
+    let opts;
+    let canonicalSessionId;
+
+    if (typeof providerOrSessionId === 'object' && providerOrSessionId !== null) {
+      prov = providerOrSessionId.provider;
+      sessId = providerOrSessionId.providerSessionId;
+      canonicalSessionId = providerOrSessionId.sessionId;
+      opts = providerSessionIdOrOptions;
+    } else if (UUID_RE.test(providerOrSessionId) && (typeof providerSessionIdOrOptions === 'object' || providerSessionIdOrOptions === undefined)) {
+      canonicalSessionId = providerOrSessionId;
+      opts = providerSessionIdOrOptions;
+    } else {
+      prov = providerOrSessionId;
+      sessId = providerSessionIdOrOptions;
+      opts = options;
     }
+
     const { onEvent, ...subscriptionOptions } = opts || {};
     if (typeof onEvent !== 'function') throw new TypeError('onEvent is required.');
+
+    // A legacy provider/providerSessionId identity must resolve to the canonical
+    // sessionId the turn was actually registered under — the runtime keys everything
+    // by sessionId, never by the raw provider-native id.
+    if (!canonicalSessionId && prov && sessId && typeof this.bindingService?.findSessionByProviderIdentitySync === 'function') {
+      const resolved = this.bindingService.findSessionByProviderIdentitySync(prov, sessId);
+      if (resolved) canonicalSessionId = resolved.sessionId;
+    }
+
+    const targetIdentity = canonicalSessionId || { provider: prov, providerSessionId: sessId };
+
     return this.turnRuntime.subscribeToSession(
-      { provider: prov, providerSessionId: sessId },
+      targetIdentity,
       {
         ...subscriptionOptions,
         onEvent: (event) => {
           if (event.type === 'turn.updated' && event.turn) {
             const publicTurn = serializePublicTurn(event.turn);
-            const descriptor = this.registry?.has(prov) ? this.registry.get(prov).descriptor : undefined;
+            const descriptor = prov && this.registry?.has(prov) ? this.registry.get(prov).descriptor : undefined;
             const readiness = resolveSessionReadiness({
               descriptor,
               turnSnapshot: publicTurn,

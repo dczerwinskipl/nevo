@@ -575,6 +575,10 @@ test('Execution mode precedence: turn.mode > session.mode > provider.defaultMode
     async getBinding(p, sid) {
       return fakeBindings.get(sid) || null;
     },
+    async findSessionByProviderIdentity(p, sid) {
+      const rec = fakeBindings.get(sid);
+      return rec && rec.provider === p ? { sessionId: sid, ...rec } : null;
+    },
     async bindSession({ provider, providerSessionId, specId, mode }) {
       const rec = { provider, providerSessionId, specId, mode };
       fakeBindings.set(providerSessionId, rec);
@@ -631,6 +635,10 @@ test('startTurn permissive model passthrough: an unrecognized model is not block
   const bindingService = {
     async getBinding(p, sid) {
       return fakeBindings.get(sid) || null;
+    },
+    async findSessionByProviderIdentity(p, sid) {
+      const rec = fakeBindings.get(sid);
+      return rec && rec.provider === p ? { sessionId: sid, ...rec } : null;
     },
     async bindSession({ provider, providerSessionId, specId, mode, model }) {
       const rec = { provider, providerSessionId, specId, mode, model };

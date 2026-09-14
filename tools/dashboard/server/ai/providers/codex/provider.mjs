@@ -417,14 +417,12 @@ export class CodexAgentProvider {
 
   async startTurn({
     turnId,
-    canonicalSessionId,
-    nevoSessionId,
     sessionId,
     specId,
     taskId,
     activeTaskId,
     providerSessionId,
-    setProviderSessionId,
+    onProviderSessionIdAvailable,
     message,
     prompt,
     mode = 'edit',
@@ -445,7 +443,6 @@ export class CodexAgentProvider {
     requestInteraction,
   } = {}) {
     this.#assertUsable();
-    const effNevoSessionId = nevoSessionId || canonicalSessionId || sessionId;
     const effSpecId = specId;
     const effTaskId = activeTaskId || taskId;
     const input = message ?? prompt;
@@ -456,17 +453,24 @@ export class CodexAgentProvider {
     let threadId = providerSessionId;
     if (!threadId) {
       threadId = await this.#startThread(validatedMode, { model });
-      if (setProviderSessionId) await setProviderSessionId(threadId);
+      if (onProviderSessionIdAvailable) await onProviderSessionIdAvailable(threadId);
     } else {
       await this.#ensureThreadLoaded(threadId, validatedMode);
     }
 
-    await writeCodexExecutionContextBridge(this.#cwd, threadId, {
-      nevoSessionId: effNevoSessionId,
-      specId: effSpecId,
-      taskId: effTaskId,
-      activeTaskId: effTaskId,
-    });
+    // Best-effort cross-process discovery side-channel (see readAgentExecutionContext) —
+    // a transient write failure (e.g. a concurrent rename on the same bridge file) must
+    // never abort an otherwise-healthy turn.
+    try {
+      await writeCodexExecutionContextBridge(this.#cwd, threadId, {
+        sessionId,
+        specId: effSpecId,
+        taskId: effTaskId,
+        activeTaskId: effTaskId,
+      });
+    } catch (err) {
+      console.warn(`[codex] Failed to write execution context bridge for thread '${threadId}': ${err?.message || err}`);
+    }
 
     this.#rawCapture.logCapturePathOnce(threadId);
 

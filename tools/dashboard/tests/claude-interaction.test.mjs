@@ -647,7 +647,7 @@ for (const [turnMode, updatedSessionPref, expectedResumedFlag] of [
 
       const specId = randomUUID();
       const session = await service1.createSession('claude', { title: 'Test', mode: turnMode, specId });
-      const sessionId = session.providerSessionId;
+      const sessionId = session.sessionId;
 
       // Start turn in turnMode
       const { turnId } = await service1.startTurn('claude', sessionId, {

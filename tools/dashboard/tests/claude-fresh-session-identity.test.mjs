@@ -15,9 +15,10 @@ import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs'
 
 // Reproduces the production regression: a dashboard restart creates an empty Claude
 // session shell (POST /api/agent-sessions with no providerSessionId) before any message
-// is sent. Since ClaudeAgentProvider has no createSession(), AgentSessionService fabricates
-// a local placeholder UUID that Claude has never seen. The first turn on that session must
-// not be resumed with --resume — Claude has no conversation under that ID yet.
+// is sent. Since ClaudeAgentProvider has no createSession(), the canonical sessionId is
+// the only identity that exists yet — providerSessionId stays undefined until Claude's
+// CLI actually confirms a session_id. The first turn on that session must use
+// --session-id (never --resume) — Claude has no conversation under that ID yet.
 
 function createMockClaudeProcess(stdoutLines, { exitCode = 0, sessionId } = {}) {
   const child = new EventEmitter();
@@ -103,15 +104,16 @@ test('Claude fresh-session identity: createSession -> first turn avoids --resume
 
   // Session shell created the way the dashboard does before any message is sent.
   const session = await service.createSession('claude', { specId, taskId: 'task-1' });
-  const placeholderId = session.providerSessionId;
-  assert.ok(placeholderId);
+  const canonicalSessionId = session.sessionId;
+  assert.ok(canonicalSessionId);
+  assert.equal(session.providerSessionId, undefined, 'Claude has no createSession(): the native id is unknown yet');
 
-  const bindingBeforeFirstTurn = await bindingService.getBinding('claude', placeholderId);
-  assert.equal(bindingBeforeFirstTurn.established, false, 'a fabricated placeholder must be recorded as unestablished');
+  const bindingBeforeFirstTurn = await bindingService.getSession(canonicalSessionId);
+  assert.equal(bindingBeforeFirstTurn.providerSessionId, undefined, 'no native id must be recorded yet');
 
   // A. First turn on a not-yet-established session must not resume a conversation
   // Claude has never created.
-  const turn1 = await service.startTurn('claude', placeholderId, { message: 'First message in new chat' });
+  const turn1 = await service.startTurn('claude', canonicalSessionId, { message: 'First message in new chat' });
   await waitForTurnTerminal(service, turn1.turnId);
 
   assert.equal(capturedCalls.length, 1);
@@ -119,27 +121,27 @@ test('Claude fresh-session identity: createSession -> first turn avoids --resume
   assert.equal(firstCallFlag.flag, '--session-id', 'first turn on an unconfirmed session must not pass --resume');
   assert.equal(
     firstCallFlag.value,
-    placeholderId,
+    canonicalSessionId,
     'Claude must create the session under the exact ID the Nevo session already carries',
   );
-  assert.equal(turn1.providerSessionId, placeholderId, 'the Nevo-visible session id must not change identity');
+  assert.equal(turn1.sessionId, canonicalSessionId, 'the canonical Nevo session id must not change identity');
 
   // B. Once Claude actually confirms the session, the binding is durably updated.
-  const bindingAfterFirstTurn = await bindingService.getBinding('claude', placeholderId);
-  assert.notEqual(
-    bindingAfterFirstTurn.established,
-    false,
-    'confirmed provider session must be persisted as established',
+  const bindingAfterFirstTurn = await bindingService.getSession(canonicalSessionId);
+  assert.equal(
+    bindingAfterFirstTurn.providerSessionId,
+    canonicalSessionId,
+    'confirmed provider session must be persisted on the canonical AgentSession',
   );
 
-  // C. Second turn on the now-confirmed session resumes using the bound ID.
-  const turn2 = await service.startTurn('claude', placeholderId, { message: 'Follow-up message' });
+  // C. Second turn on the now-confirmed session resumes using the bound native id.
+  const turn2 = await service.startTurn('claude', canonicalSessionId, { message: 'Follow-up message' });
   await waitForTurnTerminal(service, turn2.turnId);
 
   assert.equal(capturedCalls.length, 2);
   const secondCallFlag = extractFlag(capturedCalls[1]);
   assert.equal(secondCallFlag.flag, '--resume', 'second turn on a confirmed session must resume');
-  assert.equal(secondCallFlag.value, placeholderId);
+  assert.equal(secondCallFlag.value, canonicalSessionId);
 });
 
 test('Claude fresh-session identity: the Nevo-fabricated session id is never used as an implicit resumable providerSessionId, even after a server restart', async (t) => {
@@ -160,7 +162,8 @@ test('Claude fresh-session identity: the Nevo-fabricated session id is never use
   const bindingService1 = createAgentSessionBindingService({ storageDir: bindingStorageDir });
   const service1 = createAgentSessionService({ registry: registry1, bindingService: bindingService1 });
   const session = await service1.createSession('claude', { specId, taskId: 'task-1' });
-  const placeholderId = session.providerSessionId;
+  const canonicalSessionId = session.sessionId;
+  assert.equal(session.providerSessionId, undefined, 'Claude has no createSession(): the native id is unknown yet');
 
   // Simulate a full dashboard restart: brand new provider/runtime/service instances, so no
   // in-memory materialization state survives. Only the persisted binding does.
@@ -182,9 +185,9 @@ test('Claude fresh-session identity: the Nevo-fabricated session id is never use
   });
 
   // D. The first message sent from this session must never implicitly resume a conversation
-  // Claude has never actually created, even though the caller supplies a providerSessionId
-  // (the Nevo-fabricated placeholder allocated before the restart).
-  const turn = await service2.startTurn('claude', placeholderId, { message: 'First real message' });
+  // Claude has never actually created, even though the caller identifies the session by its
+  // canonical sessionId (allocated before the restart, with no providerSessionId yet).
+  const turn = await service2.startTurn('claude', canonicalSessionId, { message: 'First real message' });
   await waitForTurnTerminal(service2, turn.turnId);
 
   assert.equal(capturedCalls.length, 1);
@@ -192,7 +195,7 @@ test('Claude fresh-session identity: the Nevo-fabricated session id is never use
   assert.equal(
     flag.flag,
     '--session-id',
-    'the Nevo session id must never be used as an implicit providerSessionId for --resume',
+    'an unconfirmed canonical sessionId must never be used as an implicit providerSessionId for --resume',
   );
-  assert.equal(flag.value, placeholderId);
+  assert.equal(flag.value, canonicalSessionId);
 });

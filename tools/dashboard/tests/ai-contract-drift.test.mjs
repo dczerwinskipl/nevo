@@ -113,10 +113,14 @@ test('dashboard AI payload field and event names stay aligned with the neutral b
         control({ provider: 'mock', specId, taskId: 'contract-task', message: 'permission contract' }),
       )
     ).json();
-    exactKeys(permissionStart, ['turnId', 'providerSessionId', 'idempotent']);
+    // providerSessionId is not required in the admission response — the mock only
+    // establishes its native id once the turn actually runs, and this call defers to a
+    // pending interaction before it ever would.
+    exactKeys(permissionStart, ['turnId', 'sessionId', 'idempotent']);
     const permissionTurn = await waitForTurn(aiService, permissionStart.turnId, (turn) => turn.pendingInteraction);
     exactKeys(permissionTurn, [
       'turnId',
+      'sessionId',
       'provider',
       'providerSessionId',
       'status',
@@ -130,10 +134,11 @@ test('dashboard AI payload field and event names stay aligned with the neutral b
     assert.equal(typeof permissionTurn.events[0].seq, 'number');
     assert.equal('providerRequestId' in permissionTurn.pendingInteraction, false);
 
-    await fetch(
-      `${baseUrl}/api/agent-sessions/mock/${permissionStart.providerSessionId}/interactions/${permissionTurn.pendingInteraction.id}/respond`,
+    const respondRes = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/${permissionTurn.providerSessionId}/interactions/${permissionTurn.pendingInteraction.id}/respond`,
       control({ decision: 'allow' }),
     );
+    assert.equal(respondRes.status, 200, await respondRes.text());
     await waitForTurn(aiService, permissionStart.turnId, (turn) => turn.status === 'completed');
 
     const questionStart = await (
@@ -152,13 +157,15 @@ test('dashboard AI payload field and event names stay aligned with the neutral b
       questionId: question.id,
       value: question.multiSelect ? ['Tests'] : 'Focused',
     }));
-    await fetch(
-      `${baseUrl}/api/agent-sessions/mock/${questionStart.providerSessionId}/interactions/${questionTurn.pendingInteraction.id}/respond`,
+    const questionRespondRes = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/${questionTurn.providerSessionId}/interactions/${questionTurn.pendingInteraction.id}/respond`,
       control({ answers }),
     );
+    assert.equal(questionRespondRes.status, 200, await questionRespondRes.text());
     const completed = await waitForTurn(aiService, questionStart.turnId, (turn) => turn.status === 'completed');
     exactKeys(completed, [
       'turnId',
+      'sessionId',
       'provider',
       'providerSessionId',
       'status',

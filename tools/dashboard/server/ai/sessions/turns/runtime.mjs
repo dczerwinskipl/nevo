@@ -113,8 +113,6 @@ export class AgentTurnRuntime {
   async startTurn({
     provider,
     providerSessionId,
-    canonicalSessionId,
-    nevoSessionId,
     specId,
     taskId,
     activeTaskId,
@@ -127,13 +125,9 @@ export class AgentTurnRuntime {
     effort,
     reasoningEffort,
     idempotencyKey,
-    onSessionEstablished,
-    isSessionEstablished = true,
+    onProviderSessionIdAvailable,
   } = {}) {
     if (this.#closed) throw new AiError('AI_RUNTIME_CLOSED', 'The AI turn runtime is shut down.', { status: 503 });
-    if (sessionId !== undefined) {
-      throw new AiValidationError("Property 'sessionId' is obsolete. Use 'providerSessionId' instead.");
-    }
     if (!provider || typeof provider !== 'string') {
       throw new AiValidationError('A valid provider is required.');
     }
@@ -142,10 +136,6 @@ export class AgentTurnRuntime {
     }
     const validatedMode = mode ? validateAgentExecutionMode(mode, 'mode') : 'edit';
     const inputMessage = message ?? prompt;
-    // The user-visible chat text. Defaults to inputMessage for a plain composer send
-    // (message === displayed text); a caller-enriched prompt (e.g. injected task/spec
-    // context) supplies a separate, clean `userMessage` so the chat bubble never shows
-    // automatically injected context the user did not type.
     const displayMessage = typeof userMessage === 'string' && userMessage.trim() ? userMessage : inputMessage;
     const entry = this.registry.get(provider);
     const agentProvider = entry.provider;
@@ -153,33 +143,31 @@ export class AgentTurnRuntime {
       throw new CapabilityNotSupportedError(provider, 'startTurn');
     }
 
-    // An unestablished providerSessionId (the placeholder canonical UUID a caller
-    // substitutes before the provider has confirmed a real native session — see
-    // AgentSessionService.createSession) must be treated exactly like "no session
-    // yet": it must not be baked into the coordinator/turn as an already-bound
-    // native ID, or the provider's later genuinely-allocated native ID collides
-    // with it and bindTurnProviderSessionId() throws a "Cannot re-bind" error.
+    const hasCanonicalSessionId = Boolean(sessionId);
+    const effSessionId = sessionId || (providerSessionId ? sessionKey(provider, providerSessionId) : randomUUID());
     const isNewSession = !providerSessionId;
     const turnId = `turn-${this.idFactory()}`;
-    const key = isNewSession ? `new-turn\u0000${turnId}` : sessionKey(provider, providerSessionId);
+    const key = effSessionId;
 
     const releaseStartLock = await this.#acquireStartLock(key);
 
     try {
-      if (!isNewSession) {
-        const existingId = this.#activeBySession.get(key);
-        if (existingId) {
-          const existing = this.#turns.get(existingId);
-          if (existing?.coordinator?.status?.status === 'unknown') {
-            throw new AiTurnConflictError(existingId);
-          }
-          if (idempotencyKey && existing?.idempotencyKey === idempotencyKey) {
-            return { turnId: existingId, idempotent: true };
-          }
+      const existingId = this.#activeBySession.get(key);
+      if (existingId) {
+        const existing = this.#turns.get(existingId);
+        if (existing?.coordinator?.status?.status === 'unknown') {
           throw new AiTurnConflictError(existingId);
         }
+        if (idempotencyKey && existing?.idempotencyKey === idempotencyKey) {
+          return {
+            turnId: existingId,
+            sessionId: effSessionId,
+            providerSessionId: existing.providerSessionId,
+            idempotent: true,
+          };
+        }
+        throw new AiTurnConflictError(existingId);
       }
-
 
       if (typeof inputMessage !== 'string' || inputMessage.trim().length === 0 || inputMessage.length > 100_000) {
         throw new AiError('AI_VALIDATION_ERROR', 'A non-empty message is required.', { status: 400 });
@@ -193,24 +181,30 @@ export class AgentTurnRuntime {
 
       const startedAt = this.#timestamp();
 
+      // effSessionId is the internal lock/indexing key — it may be a synthetic
+      // provider/providerSessionId composite when no real canonical sessionId was given.
+      // Transcript and event-stream *bindings* must never persist that synthetic string as
+      // if it were a second real identity: pass the genuine sessionId when there is one,
+      // otherwise fall back to the bare native id so the transcript stays keyed the same
+      // way legacy provider-identity readers already expect, with no duplicate write.
+      const transcriptKey = hasCanonicalSessionId ? effSessionId : providerSessionId || effSessionId;
+
       let initialSeq = 0;
-      if (!isNewSession) {
-        const existingSeq = this.#eventStream.getSessionSequence(provider, providerSessionId);
-        if (existingSeq !== undefined) {
-          initialSeq = existingSeq;
-        } else if (this.transcriptCache) {
-          try {
-            const transcript = await this.transcriptCache.getTranscript(provider, providerSessionId);
-            initialSeq = transcript.lastEventSeq || 0;
-            this.#eventStream.initSessionSequence(provider, providerSessionId, initialSeq);
-          } catch {
-            initialSeq = 0;
-          }
+      const existingSeq = this.#eventStream.getSessionSequence(effSessionId);
+      if (existingSeq !== undefined) {
+        initialSeq = existingSeq;
+      } else if (this.transcriptCache) {
+        try {
+          const transcript = await this.transcriptCache.getTranscript(provider, transcriptKey);
+          initialSeq = transcript.lastEventSeq || 0;
+          this.#eventStream.initSessionSequence(effSessionId, undefined, initialSeq);
+        } catch {
+          initialSeq = 0;
         }
       }
 
-      if (!isNewSession && this.transcriptCache) {
-        this.transcriptCache.recordUserMessage(provider, providerSessionId, {
+      if (this.transcriptCache) {
+        this.transcriptCache.recordUserMessage(provider, transcriptKey, {
           text: displayMessage,
           createdAt: startedAt,
         });
@@ -218,27 +212,27 @@ export class AgentTurnRuntime {
 
       this.#eventStream.registerTurn({
         turnId,
-        provider: isNewSession ? undefined : provider,
-        providerSessionId: isNewSession ? undefined : providerSessionId,
+        sessionId: hasCanonicalSessionId ? effSessionId : undefined,
+        provider,
+        providerSessionId: providerSessionId || undefined,
         initialSequence: initialSeq,
       });
 
       const coordinator = new TurnLifecycleCoordinator({
         turnId,
-        sessionId: isSessionEstablished ? (providerSessionId || null) : null,
+        sessionId: effSessionId,
         provider,
-        providerSessionId: isSessionEstablished ? (providerSessionId || null) : null,
+        providerSessionId: providerSessionId || null,
         mode: validatedMode,
         model,
         prompt: inputMessage,
         userMessage: displayMessage,
         traceSink: this.traceSink,
         onTurnUpdated: (turnSnapshot, { semantic = true } = {}) => {
-          const sessId = turnSnapshot.providerSessionId || state?.providerSessionId;
-          if (sessId && this.transcriptCache?.recordCanonicalTurn) {
+          if (this.transcriptCache?.recordCanonicalTurn) {
             turnSnapshot.prompt = turnSnapshot.prompt || inputMessage;
             turnSnapshot.userMessage = turnSnapshot.userMessage || { text: displayMessage, createdAt: startedAt };
-            this.transcriptCache.recordCanonicalTurn(turnSnapshot.provider, sessId, turnSnapshot);
+            this.transcriptCache.recordCanonicalTurn(turnSnapshot.provider, transcriptKey, turnSnapshot);
           }
           if (state && semantic) {
             this.#emit(state, 'turn.updated', { turn: turnSnapshot });
@@ -250,26 +244,20 @@ export class AgentTurnRuntime {
       const state = {
         turnId,
         coordinator,
+        sessionId: effSessionId,
+        hasCanonicalSessionId,
         provider,
         providerSessionId: isNewSession ? undefined : providerSessionId,
-        canonicalSessionId: canonicalSessionId || nevoSessionId || undefined,
-        nevoSessionId: nevoSessionId || canonicalSessionId || undefined,
         specId: specId || undefined,
         taskId: taskId || undefined,
         activeTaskId: activeTaskId || undefined,
-        identity: isNewSession ? undefined : { provider, providerSessionId },
-        key,
+        identity: providerSessionId ? { provider, providerSessionId } : undefined,
+        key: effSessionId,
         mode: validatedMode,
         model,
         effort: effort ?? reasoningEffort,
         idempotencyKey,
-        onSessionEstablished,
-        isSessionEstablished,
-        // Distinguishes "this providerSessionId was already known when the turn started"
-        // (a caller-supplied ID, possibly still unconfirmed by the provider) from an ID
-        // the provider allocates during this very turn — only the former can receive a
-        // later provider-confirmation notification; the latter is already fully handled
-        // by the initial-binding branch below and must not be notified a second time.
+        onProviderSessionIdAvailable,
         hadInitialProviderSessionId: !isNewSession,
         providerConfirmed: false,
         finished: false,
@@ -295,72 +283,63 @@ export class AgentTurnRuntime {
       const setProviderSessionId = async (allocatedSessionId) => {
         if (!allocatedSessionId) return;
 
-        if (!state.providerSessionId || !state.isSessionEstablished) {
-          state.coordinator.bindProviderSessionId(allocatedSessionId);
-          const oldSessionId = state.providerSessionId;
-          state.providerSessionId = allocatedSessionId;
-          state.isSessionEstablished = true;
-          state.identity = { provider: state.provider, providerSessionId: allocatedSessionId };
-          const oldKey = state.key;
-          state.key = sessionKey(state.provider, allocatedSessionId);
-          if (oldKey && this.#activeBySession.get(oldKey) === state.turnId) {
-            this.#activeBySession.delete(oldKey);
-          }
-          this.#activeBySession.set(state.key, state.turnId);
-          this.#eventStream.bindSession(state.turnId, {
-            provider: state.provider,
-            providerSessionId: allocatedSessionId,
-          });
-          if (this.transcriptCache?.recordCanonicalTurn) {
-            const snap = state.coordinator.getCanonicalSnapshot();
-            snap.prompt = inputMessage;
-            snap.userMessage = snap.userMessage || { text: displayMessage, createdAt: startedAt };
+        state.coordinator.bindProviderSessionId(allocatedSessionId);
+        state.providerSessionId = allocatedSessionId;
+        state.identity = { provider: state.provider, providerSessionId: allocatedSessionId };
+
+        this.#eventStream.bindSession(state.turnId, {
+          sessionId: state.hasCanonicalSessionId ? state.sessionId : undefined,
+          provider: state.provider,
+          providerSessionId: allocatedSessionId,
+        });
+        this.#activeBySession.set(sessionKey(state.provider, allocatedSessionId), state.turnId);
+
+        // Dual-write only when sessionId is a genuine, distinct identity worth persisting
+        // separately — a synthetic provider/providerSessionId composite (no real canonical
+        // sessionId was ever given) is not a second identity, just an internal key, and
+        // writing under it would fork the transcript instead of consolidating it.
+        if (this.transcriptCache?.recordCanonicalTurn) {
+          const snap = state.coordinator.getCanonicalSnapshot();
+          snap.prompt = inputMessage;
+          snap.userMessage = snap.userMessage || { text: displayMessage, createdAt: startedAt };
+          if (state.hasCanonicalSessionId) {
+            this.transcriptCache.recordCanonicalTurn(state.provider, state.sessionId, snap);
+            if (allocatedSessionId !== state.sessionId) {
+              this.transcriptCache.recordCanonicalTurn(state.provider, allocatedSessionId, snap);
+            }
+          } else {
             this.transcriptCache.recordCanonicalTurn(state.provider, allocatedSessionId, snap);
           }
-          if (this.transcriptCache) {
-            for (const ev of this.#eventStream.getTurnEvents(state.turnId, 0)) {
+        }
+        if (this.transcriptCache) {
+          for (const ev of this.#eventStream.getTurnEvents(state.turnId, 0)) {
+            if (state.hasCanonicalSessionId) {
+              this.transcriptCache.applyEvent(state.provider, state.sessionId, ev).catch(() => {});
+              if (allocatedSessionId !== state.sessionId) {
+                this.transcriptCache.applyEvent(state.provider, allocatedSessionId, ev).catch(() => {});
+              }
+            } else {
               this.transcriptCache.applyEvent(state.provider, allocatedSessionId, ev).catch(() => {});
             }
           }
-          if (state.onSessionEstablished) {
-            try {
-              await state.onSessionEstablished(allocatedSessionId);
-            } catch (bindingErr) {
-              rejectEstablished(bindingErr);
-              throw bindingErr;
-            }
-          }
-          resolveEstablished(allocatedSessionId);
-          return;
         }
 
-        // The turn already carried an established providerSessionId
-        if (
-          state.hadInitialProviderSessionId &&
-          !state.providerConfirmed &&
-          state.onSessionEstablished
-        ) {
-          state.providerConfirmed = true;
+        if (state.onProviderSessionIdAvailable) {
           try {
-            await state.onSessionEstablished(allocatedSessionId);
-          } catch (err) {
-            console.warn(
-              `[ai] Failed to persist provider session confirmation for ${state.provider}:${allocatedSessionId}: ${err?.message || err}`,
-            );
+            await state.onProviderSessionIdAvailable(allocatedSessionId);
+          } catch (bindingErr) {
+            rejectEstablished?.(bindingErr);
+            throw bindingErr;
           }
-          resolveEstablished(allocatedSessionId);
         }
+        resolveEstablished(allocatedSessionId);
       };
 
       this.#turns.set(turnId, state);
-      if (!isNewSession) {
-        this.#activeBySession.set(key, turnId);
-      }
+      this.#registerActiveBySession(state);
       this.#notifyProviderState(state);
       this.#emit(state, 'turn.started', {
         mode: state.mode,
-        // Broadcasts the clean, user-visible text — never the enriched/injected prompt
-        // actually sent to the provider (see displayMessage above).
         userPrompt: displayMessage,
         userMessage: {
           id: `user-${turnId}`,
@@ -369,18 +348,59 @@ export class AgentTurnRuntime {
           createdAt: state.startedAt,
         },
       });
-      queueMicrotask(() => this.#run(state, inputMessage, setProviderSessionId, rejectEstablished));
+      queueMicrotask(() => this.#run(state, inputMessage, setProviderSessionId, resolveEstablished, rejectEstablished));
 
-      try {
-        const establishedSessionId = await establishedPromise;
-        return { turnId, providerSessionId: establishedSessionId, idempotent: false };
-      } catch (err) {
-        state.abortController.abort();
-        this.#finish(state, 'turn.failed', err);
-        throw err;
-      }
+      // The lock only needs to span admission (the conflict check through
+      // #registerActiveBySession above) — once the turn is registered, any other
+      // caller for this key will correctly see it via #activeBySession regardless of
+      // whether this call is still waiting on provider establishment. Holding the lock
+      // any longer would deadlock a concurrent conflicting request behind a turn that
+      // never establishes (e.g. a provider call that never resolves).
+      releaseStartLock();
+
+      // startTurn() resolves once the turn is admitted, not once the provider confirms
+      // its native id — establishment may take arbitrarily long (or, for a provider with
+      // no createSession() whose call never settles quickly, never happen at all) and
+      // callers that need it must not have their "turn accepted" response held hostage by
+      // it. providerSessionId is reported here only if already known synchronously;
+      // otherwise it is learned later via onProviderSessionIdAvailable/SSE.
+      establishedPromise.catch((err) => {
+        // A binding/persistence failure while recording the confirmed native id (see
+        // setProviderSessionId) must still abort the in-flight provider turn — this is
+        // no longer surfaced to the original caller (already returned), but the turn
+        // itself must not silently keep running as if nothing went wrong.
+        if (!this.#isTerminal(state)) {
+          state.abortController.abort();
+          this.#finish(state, 'turn.failed', err);
+        }
+      });
+      return {
+        turnId,
+        sessionId: effSessionId,
+        providerSessionId: state.providerSessionId,
+        idempotent: false,
+      };
     } finally {
       releaseStartLock();
+    }
+  }
+
+  // #activeBySession is keyed primarily by canonical sessionId, but legacy callers that
+  // only know (provider, providerSessionId) — e.g. the compatibility HTTP routes — still
+  // need to resolve the same active turn. A secondary alias entry under the composite
+  // provider/providerSessionId key lets both lookup styles find the same in-memory turn
+  // without ever treating the provider-native id as a second logical session.
+  #registerActiveBySession(state) {
+    this.#activeBySession.set(state.key, state.turnId);
+    if (state.provider && state.providerSessionId) {
+      this.#activeBySession.set(sessionKey(state.provider, state.providerSessionId), state.turnId);
+    }
+  }
+
+  #clearActiveBySession(state) {
+    this.#activeBySession.delete(state.key);
+    if (state.provider && state.providerSessionId) {
+      this.#activeBySession.delete(sessionKey(state.provider, state.providerSessionId));
     }
   }
 
@@ -402,13 +422,11 @@ export class AgentTurnRuntime {
   #createProviderTurnContext(state, extra = {}) {
     return {
       turnId: state.turnId,
+      sessionId: state.sessionId,
       providerSessionId: state.providerSessionId,
-      canonicalSessionId: state.canonicalSessionId,
-      nevoSessionId: state.nevoSessionId,
       specId: state.specId,
       taskId: state.taskId,
       activeTaskId: state.activeTaskId,
-      isSessionEstablished: state.isSessionEstablished,
       identity: state.identity,
       mode: state.mode,
       model: state.model,
@@ -433,12 +451,11 @@ export class AgentTurnRuntime {
     };
   }
 
-  async #run(state, message, setProviderSessionId, rejectEstablished) {
+  async #run(state, message, setProviderSessionId, resolveEstablished, rejectEstablished) {
     try {
       const turnResult = state.agentProvider.startTurn(
         this.#createProviderTurnContext(state, {
-          setProviderSessionId,
-          onSessionEstablished: setProviderSessionId,
+          onProviderSessionIdAvailable: setProviderSessionId,
           message,
           prompt: message,
           requestInteraction: (interaction, options) => this.#requestInteraction(state, interaction, options),
@@ -480,12 +497,7 @@ export class AgentTurnRuntime {
       }
 
       if (!this.#isTerminal(state)) {
-        if (!state.isSessionEstablished) {
-          const fallbackId = state.providerSessionId || state.canonicalSessionId;
-          if (fallbackId) {
-            await setProviderSessionId(fallbackId);
-          }
-        }
+        resolveEstablished(state.providerSessionId || undefined);
         this.#finish(state, 'turn.completed');
       }
     } catch (error) {
@@ -707,7 +719,7 @@ export class AgentTurnRuntime {
     });
 
     this.#turns.set(restoredTurnId, state);
-    this.#activeBySession.set(state.key, restoredTurnId);
+    this.#registerActiveBySession(state);
     return state;
   }
 
@@ -716,7 +728,13 @@ export class AgentTurnRuntime {
     let state = turnId ? this.#turns.get(turnId) : null;
 
     if (!state && !turnId && provider && providerSessionId) {
-      const activeId = this.#activeBySession.get(sessionKey(provider, providerSessionId));
+      // The legacy provider/providerSessionId identity slot may carry either the real
+      // native id (once established) or, for a not-yet-established session, the
+      // canonical sessionId itself — #activeBySession is keyed by whichever was known
+      // at admission time, so both forms are tried.
+      const activeId =
+        this.#activeBySession.get(sessionKey(provider, providerSessionId)) ||
+        this.#activeBySession.get(providerSessionId);
       if (activeId) {
         state = this.#turns.get(activeId);
         turnId = activeId;
@@ -724,7 +742,7 @@ export class AgentTurnRuntime {
     }
 
     if (state && provider && providerSessionId) {
-      if (state.provider !== provider || (state.providerSessionId || state.sessionId) !== providerSessionId) {
+      if (state.provider !== provider || (state.sessionId !== providerSessionId && state.providerSessionId !== providerSessionId)) {
         throw new AiNotFoundError(`Turn '${state.turnId}' does not belong to session '${providerSessionId}'.`, {
           turnId: state.turnId,
           provider,
@@ -755,7 +773,7 @@ export class AgentTurnRuntime {
     }
 
     if (provider && providerSessionId) {
-      if (state.provider !== provider || (state.providerSessionId || state.sessionId) !== providerSessionId) {
+      if (state.provider !== provider || (state.sessionId !== providerSessionId && state.providerSessionId !== providerSessionId)) {
         throw new AiNotFoundError(`Turn '${state.turnId}' does not belong to session '${providerSessionId}'.`, {
           turnId: state.turnId,
           provider,
@@ -801,7 +819,7 @@ export class AgentTurnRuntime {
       state = this.#get(turnId);
     }
     if (provider && providerSessionId) {
-      if (state.provider !== provider || (state.providerSessionId || state.sessionId) !== providerSessionId) {
+      if (state.provider !== provider || (state.sessionId !== providerSessionId && state.providerSessionId !== providerSessionId)) {
         throw new AiNotFoundError(`Turn '${turnId}' does not belong to session '${providerSessionId}'.`, {
           turnId,
           provider,
@@ -963,7 +981,7 @@ export class AgentTurnRuntime {
       state = this.#get(turnId);
     }
     if (provider && providerSessionId) {
-      if (state.provider !== provider || (state.providerSessionId || state.sessionId) !== providerSessionId) {
+      if (state.provider !== provider || (state.sessionId !== providerSessionId && state.providerSessionId !== providerSessionId)) {
         throw new AiNotFoundError(`Turn '${turnId}' does not belong to session '${providerSessionId}'.`, {
           turnId,
           provider,
@@ -1005,7 +1023,7 @@ export class AgentTurnRuntime {
       },
     );
 
-    this.#activeBySession.delete(state.key);
+    this.#clearActiveBySession(state);
     return this.getSnapshot(turnId);
   }
 
@@ -1149,6 +1167,7 @@ export class AgentTurnRuntime {
     }
     return {
       turnId: state.turnId,
+      sessionId: state.hasCanonicalSessionId ? state.sessionId : undefined,
       provider: state.provider,
       providerSessionId: state.coordinator?.turn?.providerSessionId || state.providerSessionId,
       status: this.#mapTurnLifecycleStatus(state.coordinator?.status),
@@ -1199,8 +1218,8 @@ export class AgentTurnRuntime {
     });
   }
 
-  subscribeToSession({ provider, providerSessionId }, options = {}) {
-    return this.#eventStream.subscribeToSession({ provider, providerSessionId }, options);
+  subscribeToSession(identity, options = {}) {
+    return this.#eventStream.subscribeToSession(identity, options);
   }
 
   shutdown() {
@@ -1213,8 +1232,11 @@ export class AgentTurnRuntime {
     const transcriptFlushes = [];
     for (const state of this.#turns.values()) {
       if (this.#isTerminal(state)) {
-        if (state.provider && state.providerSessionId && this.transcriptCache) {
-          transcriptFlushes.push(this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {}));
+        if (state.provider && this.transcriptCache) {
+          if (state.sessionId) transcriptFlushes.push(this.transcriptCache.flush(state.provider, state.sessionId).catch(() => {}));
+          if (state.providerSessionId && state.providerSessionId !== state.sessionId) {
+            transcriptFlushes.push(this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {}));
+          }
         }
         continue;
       }
@@ -1222,8 +1244,11 @@ export class AgentTurnRuntime {
         state.coordinator.status.status === 'requiresAttention' &&
         state.coordinator.pendingInteraction?.resumePolicy !== 'live-operation'
       ) {
-        if (state.provider && state.providerSessionId && this.transcriptCache) {
-          transcriptFlushes.push(this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {}));
+        if (state.provider && this.transcriptCache) {
+          if (state.sessionId) transcriptFlushes.push(this.transcriptCache.flush(state.provider, state.sessionId).catch(() => {}));
+          if (state.providerSessionId && state.providerSessionId !== state.sessionId) {
+            transcriptFlushes.push(this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {}));
+          }
         }
         continue;
       }
@@ -1262,7 +1287,7 @@ export class AgentTurnRuntime {
     });
 
     state.completedAt = this.#timestamp();
-    this.#activeBySession.delete(state.key);
+    this.#clearActiveBySession(state);
     this.#notifyProviderState(state);
 
     for (const toolId of openToolsBeforeSettle) {

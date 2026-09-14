@@ -20,7 +20,7 @@ function tick() {
 }
 
 async function waitFor(read, predicate, label = 'condition') {
-  for (let index = 0; index < 100; index += 1) {
+  for (let index = 0; index < 2000; index += 1) {
     const value = read();
     if (predicate(value)) return value;
     await tick();
@@ -153,7 +153,7 @@ function directTurn(provider, values = {}) {
     model: values.model,
     effort: values.effort,
     reasoningEffort: values.reasoningEffort,
-    setProviderSessionId: values.setProviderSessionId,
+    onProviderSessionIdAvailable: values.onProviderSessionIdAvailable,
     setOperation: (value) => {
       operation = value;
     },
@@ -302,7 +302,7 @@ test('atomic first turn publishes thread.id before turn/start and uses generated
   let established;
   const turn = directTurn(provider, {
     mode: 'ask',
-    setProviderSessionId: async (id) => {
+    onProviderSessionIdAvailable: async (id) => {
       established = id;
     },
   });

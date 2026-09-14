@@ -725,7 +725,7 @@ test('Part A3: Provider session late binding semantics and sessionId vs provider
       async startTurn(ctx) {
         runtimeContext = ctx;
         // Provider dynamically allocates a providerSessionId mid-turn
-        await ctx.setProviderSessionId('allocated-prov-session-99');
+        await ctx.onProviderSessionIdAvailable('allocated-prov-session-99');
         ctx.emitCommentaryDelta('Session bound and ready.', 'msg-1');
         return { done: true, providerSessionId: 'allocated-prov-session-99' };
       },
@@ -738,9 +738,12 @@ test('Part A3: Provider session late binding semantics and sessionId vs provider
       traceSink: mockTraceSink,
     });
 
-    // Start turn 1 without pre-existing providerSessionId
+    // Start turn 1 without pre-existing providerSessionId, but with an explicit
+    // canonical sessionId — provider identity becoming known later must never change it.
+    const canonicalSessionId = 'stable-canonical-session-1';
     const { turnId: turn1Id } = await runtime.startTurn({
       provider: 'fake-late-bind',
+      sessionId: canonicalSessionId,
       message: 'Initial dynamic session turn',
     });
 
@@ -752,7 +755,7 @@ test('Part A3: Provider session late binding semantics and sessionId vs provider
 
     const canonical1 = runtime.getCanonicalTurn(turn1Id);
     assert.equal(canonical1.providerSessionId, 'allocated-prov-session-99');
-    assert.equal(canonical1.sessionId, 'allocated-prov-session-99');
+    assert.equal(canonical1.sessionId, canonicalSessionId, 'the canonical sessionId must never be overwritten by a later-allocated providerSessionId');
 
     // Verify trace sink contains provider_session.bound event
     const boundTrace = recordedTraces.find((t) => t.event === 'provider_session.bound');

@@ -482,8 +482,6 @@ export class AntigravityAgentProvider {
   #cwd;
   #spawnProcess;
   #activeOperations = new Map();
-  #materializedSessions = new Set();
-  #sessionAliases = new Map();
   #mappingFilePath;
   #availabilityCache = { checkedAt: 0, result: null };
   #modelsCache = { checkedAt: 0, result: null };
@@ -573,10 +571,6 @@ export class AntigravityAgentProvider {
       : rawCaptureDir
         ? resolve(rawCaptureDir)
         : null;
-    if (Array.isArray(materializedSessions)) {
-      this.#materializedSessions = new Set(materializedSessions);
-    }
-    this.#loadSessionAliases();
     if (this.#ensureMcpRegistered && (spawnProcess === spawn || mcpRegisterExec)) {
       this.#performMcpRegistration();
     } else if (this.#ensureMcpRegistered && spawnProcess !== spawn) {
@@ -813,40 +807,6 @@ export class AntigravityAgentProvider {
     this.#sessionWriteQueues.set(sessionId, queue);
   }
 
-  #loadSessionAliases() {
-    try {
-      if (this.#mappingFilePath && existsSync(this.#mappingFilePath)) {
-        const raw = JSON.parse(readFileSync(this.#mappingFilePath, 'utf8'));
-        if (raw && typeof raw === 'object') {
-          for (const [k, v] of Object.entries(raw)) {
-            if (typeof v === 'string') {
-              this.#sessionAliases.set(k, v);
-              this.#materializedSessions.add(v);
-              this.#materializedSessions.add(k);
-            }
-          }
-        }
-      }
-    } catch {}
-  }
-
-  #saveSessionAlias(fromId, toId) {
-    if (!fromId || !toId) return;
-    this.#sessionAliases.set(fromId, toId);
-    this.#sessionAliases.set(toId, toId);
-    this.#materializedSessions.add(fromId);
-    this.#materializedSessions.add(toId);
-    if (!this.#mappingFilePath) return;
-    try {
-      const dir = dirname(this.#mappingFilePath);
-      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-      const obj = Object.fromEntries(this.#sessionAliases.entries());
-      const tempPath = join(dir, `.antigravity-sessions-${randomUUID()}.tmp`);
-      writeFileSync(tempPath, JSON.stringify(obj, null, 2), 'utf8');
-      renameSync(tempPath, this.#mappingFilePath);
-    } catch {}
-  }
-
   async listModels({ ttlMs = 300_000 } = {}) {
     const now = Date.now();
     if (this.#modelsCache.result && now - this.#modelsCache.checkedAt < ttlMs) {
@@ -908,19 +868,17 @@ export class AntigravityAgentProvider {
 
   async createSession({ mode = 'edit', model } = {}) {
     validateAgentExecutionMode(mode, this.descriptor.supportedModes, 'antigravity');
-    return { providerSessionId: randomUUID() };
+    return { providerSessionId: undefined };
   }
 
   async startTurn({
     turnId,
     providerSessionId,
-    canonicalSessionId,
-    nevoSessionId,
     sessionId,
     specId,
     taskId,
     activeTaskId,
-    setProviderSessionId,
+    onProviderSessionIdAvailable,
     identity,
     message,
     prompt,
@@ -952,7 +910,7 @@ export class AntigravityAgentProvider {
 
     const mode = validateAgentExecutionMode(rawMode || 'edit', this.descriptor.supportedModes, 'antigravity');
     const inputMessage = message || prompt || '';
-    const effectiveSessionId = providerSessionId || randomUUID();
+    const effectiveSessionId = providerSessionId || sessionId || randomUUID();
     let isSessionEstablished = false;
     let pendingAssistantText = '';
     let committedCommentary = '';
@@ -1008,10 +966,7 @@ export class AntigravityAgentProvider {
         args.push('--mode=accept-edits');
       }
 
-      const targetConversationId = providerSessionId
-        ? this.#sessionAliases.get(providerSessionId) ||
-          (this.#materializedSessions.has(providerSessionId) ? providerSessionId : null)
-        : null;
+      const targetConversationId = providerSessionId || null;
 
       if (targetConversationId) {
         args.push('--conversation', targetConversationId);
@@ -1047,10 +1002,6 @@ export class AntigravityAgentProvider {
 
       const confirmSession = async (allocatedId) => {
         if (allocatedId) {
-          this.#saveSessionAlias(effectiveSessionId, allocatedId);
-          if (providerSessionId) {
-            this.#saveSessionAlias(providerSessionId, allocatedId);
-          }
           if (
             this.#rawCaptureEnabled &&
             this.#rawCaptureDir &&
@@ -1117,8 +1068,8 @@ export class AntigravityAgentProvider {
           isSessionEstablished = true;
           currentSessionId = allocatedId;
           operation.providerSessionId = allocatedId;
-          if (setProviderSessionId) {
-            await setProviderSessionId(allocatedId);
+          if (onProviderSessionIdAvailable) {
+            await onProviderSessionIdAvailable(allocatedId);
           }
         }
       };
@@ -1130,7 +1081,7 @@ export class AntigravityAgentProvider {
         // bridge is never left without a target URL (e.g. during test construction
         // before the local MCP server has been started).
         const effectiveMcpEndpoint = resolvedEndpoint || this.#mcpEndpoint;
-        const effectiveNevoSessionId = nevoSessionId || canonicalSessionId || sessionId || effectiveSessionId;
+        const effectiveNevoSessionId = sessionId || effectiveSessionId;
         const effectiveSpecId = specId;
         const effectiveTaskId = activeTaskId || taskId;
         const spawnEnv = {
@@ -1139,6 +1090,7 @@ export class AntigravityAgentProvider {
           FORCE_COLOR: '0',
           NEVO_SESSION_ID: effectiveNevoSessionId,
           NEVO_AGENT_PROVIDER: 'antigravity',
+          ...(targetConversationId ? { NEVO_AGENT_PROVIDER_SESSION_ID: targetConversationId } : {}),
           ...(effectiveSpecId ? { NEVO_SPEC_ID: effectiveSpecId } : {}),
           ...(effectiveTaskId ? { NEVO_TASK_ID: effectiveTaskId } : {}),
           ...(mcpToken ? { NEVO_INTERACTION_TOKEN: mcpToken } : {}),
@@ -1284,10 +1236,6 @@ export class AntigravityAgentProvider {
           raw.session_id ||
           raw.sessionId;
         if (sessId) {
-          this.#saveSessionAlias(effectiveSessionId, sessId);
-          if (providerSessionId) {
-            this.#saveSessionAlias(providerSessionId, sessId);
-          }
           await confirmSession(sessId);
         }
 

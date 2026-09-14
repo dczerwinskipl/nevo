@@ -112,20 +112,27 @@ test('Agent session routes expose the complete provider-neutral session and turn
       }),
     );
     assert.equal(firstTurnResponse.status, 201);
-    const { turnId, providerSessionId } = await firstTurnResponse.json();
+    const { turnId, sessionId } = await firstTurnResponse.json();
     assert.ok(turnId);
-    assert.ok(providerSessionId);
+    assert.ok(sessionId);
+    // providerSessionId is not required in the admission response — the mock has no
+    // createSession() and only establishes its native id once the turn actually runs.
 
     // Wait for first turn completion
     const completedTurn = await waitFor(service, turnId, (turn) => turn.status === 'completed');
     assert.equal(completedTurn.events[0].type, 'turn.started');
     assert.equal(completedTurn.events.at(-1).type, 'turn.completed');
 
+    const { providerSessionId } = await service.getSession(sessionId);
+    assert.ok(providerSessionId);
+    // The provider-allocated native id must never collide with or replace the canonical sessionId.
+    assert.notEqual(sessionId, providerSessionId);
+
     // 3. List bindings: GET /api/agent-sessions?specId=...&taskId=...
     const filtered = await fetch(`${baseUrl}/api/agent-sessions?specId=${specId}&taskId=task-a`);
     const bindings = (await filtered.json()).sessions;
     assert.ok(bindings.some((b) => b.providerSessionId === providerSessionId && b.specId === specId));
-    assert.ok(bindings.some((b) => b.sessionId === providerSessionId));
+    assert.ok(bindings.some((b) => b.sessionId === sessionId));
 
     // 4. Session details snapshot: GET /api/agent-sessions/:provider/:providerSessionId
     const sessionDetails = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(providerSessionId)}`);
@@ -186,8 +193,9 @@ test('Agent session routes expose the complete provider-neutral session and turn
     );
     assert.equal(createModalResponse.status, 201);
     const createModalBody = await createModalResponse.json();
-    assert.ok(createModalBody.session.providerSessionId);
-    assert.equal(createModalBody.session.sessionId, createModalBody.session.providerSessionId);
+    assert.ok(createModalBody.session.sessionId);
+    // The mock provider has no createSession(): the native id is unknown until a turn runs.
+    assert.equal(createModalBody.session.providerSessionId, undefined);
     assert.equal(createModalBody.session.specId, specId);
     assert.equal(createModalBody.session.taskId, 'task-a');
 
@@ -256,14 +264,14 @@ test('durable session history remains readable after its provider is disabled', 
 
     service.registry.unregister('mock');
 
-    const history = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(session.providerSessionId)}`);
+    const history = await fetch(`${baseUrl}/api/agent-sessions/${encodeURIComponent(session.sessionId)}`);
     assert.equal(history.status, 200);
     const snapshot = (await history.json()).session;
-    assert.equal(snapshot.providerSessionId, session.providerSessionId);
+    assert.equal(snapshot.sessionId, session.sessionId);
     assert.deepEqual(snapshot.capabilities, {});
 
     const newTurn = await fetch(
-      `${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(session.providerSessionId)}/turns`,
+      `${baseUrl}/api/agent-sessions/${encodeURIComponent(session.sessionId)}/turns`,
       control({ message: 'must remain blocked while the provider is disabled' }),
     );
     assert.equal(newTurn.status, 404);
@@ -377,7 +385,10 @@ test('single-active-turn and stable question correlation are enforced through HT
       }),
     );
     assert.equal(retryResponse.status, 200);
-    assert.deepEqual(await retryResponse.json(), { turnId: first.turnId, idempotent: true });
+    const retryBody = await retryResponse.json();
+    assert.equal(retryBody.turnId, first.turnId);
+    assert.equal(retryBody.idempotent, true);
+    assert.equal(retryBody.providerSessionId, first.providerSessionId);
 
     const conflictResponse = await fetch(
       `${baseUrl}/api/agent-sessions/mock/demo-task-b-1/turns`,
@@ -688,7 +699,7 @@ test('Session mode preference persistence across server restarts and snapshot ex
     );
     assert.equal(createAgentRes.status, 201);
     const agentSessionData = await createAgentRes.json();
-    const agentSessionId = agentSessionData.session.providerSessionId;
+    const agentSessionId = agentSessionData.session.sessionId;
 
     const createAskRes = await fetch(
       `${baseUrl1}/api/agent-sessions`,
@@ -701,7 +712,7 @@ test('Session mode preference persistence across server restarts and snapshot ex
     );
     assert.equal(createAskRes.status, 201);
     const askSessionData = await createAskRes.json();
-    const askSessionId = askSessionData.session.providerSessionId;
+    const askSessionId = askSessionData.session.sessionId;
 
     // 2. Restart server (simulating reload of binding/service state)
     await closeServer(stack1.server);
@@ -711,7 +722,7 @@ test('Session mode preference persistence across server restarts and snapshot ex
 
     try {
       // 3. GET session details for agent session
-      const getAgentRes = await fetch(`${baseUrl2}/api/agent-sessions/mock/${agentSessionId}`);
+      const getAgentRes = await fetch(`${baseUrl2}/api/agent-sessions/${agentSessionId}`);
       assert.equal(getAgentRes.status, 200);
       const getAgentData = await getAgentRes.json();
       // 4. Returned session mode is 'agent'
@@ -720,7 +731,7 @@ test('Session mode preference persistence across server restarts and snapshot ex
       // 5. Starting a subsequent turn without explicit override invokes provider with 'agent'
       lastExecutedMode = null;
       const turn1Res = await fetch(
-        `${baseUrl2}/api/agent-sessions/mock/${agentSessionId}/turns`,
+        `${baseUrl2}/api/agent-sessions/${agentSessionId}/turns`,
         control({
           message: 'continue in restored mode',
         }),
@@ -729,14 +740,14 @@ test('Session mode preference persistence across server restarts and snapshot ex
       assert.equal(lastExecutedMode, 'agent');
 
       // 6. Check ask session
-      const getAskRes = await fetch(`${baseUrl2}/api/agent-sessions/mock/${askSessionId}`);
+      const getAskRes = await fetch(`${baseUrl2}/api/agent-sessions/${askSessionId}`);
       assert.equal(getAskRes.status, 200);
       const getAskData = await getAskRes.json();
       assert.equal(getAskData.session.mode, 'ask');
 
       lastExecutedMode = null;
       const turn2Res = await fetch(
-        `${baseUrl2}/api/agent-sessions/mock/${askSessionId}/turns`,
+        `${baseUrl2}/api/agent-sessions/${askSessionId}/turns`,
         control({
           message: 'continue in ask mode',
         }),
@@ -755,15 +766,15 @@ test('Session mode preference persistence across server restarts and snapshot ex
       );
       assert.equal(freshCreateRes.status, 201);
       const freshData = await freshCreateRes.json();
-      const freshSessionId = freshData.session.providerSessionId;
+      const freshSessionId = freshData.session.sessionId;
 
-      const getFreshRes = await fetch(`${baseUrl2}/api/agent-sessions/mock/${freshSessionId}`);
+      const getFreshRes = await fetch(`${baseUrl2}/api/agent-sessions/${freshSessionId}`);
       assert.equal(getFreshRes.status, 200);
       assert.equal((await getFreshRes.json()).session.mode, 'edit');
 
       lastExecutedMode = null;
       const turn3Res = await fetch(
-        `${baseUrl2}/api/agent-sessions/mock/${freshSessionId}/turns`,
+        `${baseUrl2}/api/agent-sessions/${freshSessionId}/turns`,
         control({
           message: 'fresh turn',
         }),
@@ -815,7 +826,7 @@ test('Model selection persists through the HTTP session contract: create -> chat
       control({ provider: 'mock', specId, taskId: 'task-model', model: 'mock-model-a' }),
     );
     assert.equal(createRes.status, 201);
-    sessionId = (await createRes.json()).session.providerSessionId;
+    sessionId = (await createRes.json()).session.sessionId;
 
     // 2. GET .../chat exposes the persisted current model.
     const chatRes = await fetch(`${baseUrl1}/api/agent-sessions/mock/${sessionId}/chat`);
@@ -900,13 +911,17 @@ test('Model override guard A: a conflicting POST while a turn is active is rejec
       control({ provider: 'mock', specId, taskId: 'task-model-guard', model: 'model-a' }),
     );
     assert.equal(createRes.status, 201);
-    const sessionId = (await createRes.json()).session.providerSessionId;
+    const sessionId = (await createRes.json()).session.sessionId;
 
     // Admit a turn that hangs (stays active) so the session has a genuinely live turn.
+    // This mock has no createSession(), so its native id is never established until the
+    // provider call settles — a deliberately-blocked call never does, so its own HTTP
+    // response never arrives either; it is never awaited here for exactly that reason.
     const blockingRes = fetch(
       `${baseUrl}/api/agent-sessions/mock/${sessionId}/turns`,
       control({ message: 'block' }),
     );
+    blockingRes.catch(() => {});
     await new Promise((r) => setTimeout(r, 30));
 
     // A conflicting POST with a different model must be rejected 409 — and must
@@ -920,10 +935,7 @@ test('Model override guard A: a conflicting POST while a turn is active is rejec
     const chatRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${sessionId}/chat`);
     assert.equal((await chatRes.json()).session.model, 'model-a', 'the rejected override must not have persisted');
 
-    await turnRuntime.cancelTurn((await blockingRes.then((r) => r.json())).turnId, {
-      provider: 'mock',
-      providerSessionId: sessionId,
-    }).catch(() => {});
+    await turnRuntime.shutdown().catch(() => {});
   } finally {
     await closeServer(server);
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
@@ -947,14 +959,17 @@ test('Model override guard B: an idempotent replay with a different supplied mod
       control({ provider: 'mock', specId, taskId: 'task-model-guard', model: 'model-a' }),
     );
     assert.equal(createRes.status, 201);
-    const sessionId = (await createRes.json()).session.providerSessionId;
+    const sessionId = (await createRes.json()).session.sessionId;
 
-    const firstRes = await fetch(
+    // This mock has no createSession(), so its native id is never established until the
+    // provider call settles — a deliberately-blocked call never does, so its own HTTP
+    // response never arrives either; it is never awaited here for exactly that reason.
+    const firstRes = fetch(
       `${baseUrl}/api/agent-sessions/mock/${sessionId}/turns`,
       control({ message: 'block', idempotencyKey: 'same-key' }),
     );
-    assert.equal(firstRes.status, 202);
-    const firstBody = await firstRes.json();
+    firstRes.catch(() => {});
+    await new Promise((r) => setTimeout(r, 30));
 
     // Replays with the same idempotency key but a different model must return
     // the SAME existing (still-running) turn — never admit a new one — and must
@@ -966,12 +981,12 @@ test('Model override guard B: an idempotent replay with a different supplied mod
     assert.equal(replayRes.status, 200);
     const replayBody = await replayRes.json();
     assert.equal(replayBody.idempotent, true);
-    assert.equal(replayBody.turnId, firstBody.turnId);
 
     const chatRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${sessionId}/chat`);
-    assert.equal((await chatRes.json()).session.model, 'model-a', 'idempotent replay must not persist the differing model');
+    const chatBody = await chatRes.json();
+    assert.equal(chatBody.session.model, 'model-a', 'idempotent replay must not persist the differing model');
 
-    await turnRuntime.cancelTurn(firstBody.turnId, { provider: 'mock', providerSessionId: sessionId }).catch(() => {});
+    await turnRuntime.shutdown().catch(() => {});
   } finally {
     await closeServer(server);
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
@@ -995,7 +1010,7 @@ test('Model override guard C: a successfully admitted turn with a new model pers
       control({ provider: 'mock', specId, taskId: 'task-model-guard', model: 'model-a' }),
     );
     assert.equal(createRes.status, 201);
-    const sessionId = (await createRes.json()).session.providerSessionId;
+    const sessionId = (await createRes.json()).session.sessionId;
 
     // No active turn right now, so an override is a genuinely new admission.
     const turnRes = await fetch(
@@ -1035,7 +1050,7 @@ test('AC7 & AC8: Multi-task session creation returns complete taskIds[] and list
     );
     assert.equal(createRes.status, 201);
     const createData = await createRes.json();
-    const sessionId = createData.session.providerSessionId;
+    const sessionId = createData.session.sessionId;
     assert.deepEqual(createData.session.taskIds, ['task-alpha', 'task-beta', 'task-gamma']);
 
     // 2. AC7: HTTP GET /api/agent-sessions/:provider/:providerSessionId returns complete taskIds[]
@@ -1051,7 +1066,7 @@ test('AC7 & AC8: Multi-task session creation returns complete taskIds[] and list
     const listData = await listRes.json();
     assert.equal(listData.sessions.length, 1);
     const listedSession = listData.sessions[0];
-    assert.equal(listedSession.providerSessionId, sessionId);
+    assert.equal(listedSession.sessionId, sessionId);
     assert.deepEqual(listedSession.taskIds, ['task-alpha', 'task-beta', 'task-gamma']);
 
     // 4. Listing by non-matching task filters out the session
@@ -1597,9 +1612,10 @@ test('Task 07: Corrupt/unreadable persistence state does not become empty ready/
   const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir });
   const provider = createMockAgentProvider({ specId, taskIds: ['task-a'] });
   const registry = createAgentProviderRegistry([provider]);
-  const bindingService = createAgentSessionBindingService();
+  const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
   await bindingService.bindSession({
     provider: 'mock',
+    sessionId: 'corrupt-session',
     providerSessionId: 'corrupt-session',
     specId,
     purpose: 'corrupt test',
@@ -1689,7 +1705,6 @@ test('Canonical session and chat endpoints project turns and readiness without l
 test('V2 public Turn projection is identical across HTTP, live SSE, replay, chat, and Turn list paths', async () => {
   const cacheDir = join(tmpdir(), `nevo-public-turn-${randomUUID()}`);
   const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
-  const sessionId = 'session-public-turn-projection';
 
   let continueToTools;
   let completeEdit;
@@ -1761,7 +1776,13 @@ test('V2 public Turn projection is identical across HTTP, live SSE, replay, chat
     return body.session?.turns?.[0] ?? body.turns?.[0];
   };
 
-  const unsubscribe = service.subscribeToSession('projection', sessionId, {
+  // The canonical sessionId must exist before subscribing — the runtime keys everything
+  // by that identity, and a subscription can't be registered against a session that
+  // doesn't exist yet.
+  const created = await service.createSession('projection', {});
+  const sessionId = created.sessionId;
+
+  const unsubscribe = service.subscribeToSession(sessionId, {
     onEvent: (event) => {
       if (event.type === 'turn.updated') liveUpdates.push(structuredClone(event.turn));
     },
@@ -1808,7 +1829,7 @@ test('V2 public Turn projection is identical across HTTP, live SSE, replay, chat
     assert.deepEqual(activeListTurn, activeEditHttp);
 
     const replayedUpdates = [];
-    const unsubscribeReplay = service.subscribeToSession('projection', sessionId, {
+    const unsubscribeReplay = service.subscribeToSession(sessionId, {
       afterSequence: 0,
       onEvent: (event) => {
         if (event.type === 'turn.updated') replayedUpdates.push(structuredClone(event.turn));
@@ -2191,24 +2212,26 @@ test('Task 07: Canonical V2 SSE streaming and replay deliver exact canonical Wor
   };
   const registry = createAgentProviderRegistry([manualProvider]);
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const bindingService = createAgentSessionBindingService();
+  const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
   const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
 
   const liveV2Updates = [];
   try {
-    // Subscribe to live session stream before starting turn
-    const unsubscribe = turnRuntime.subscribeToSession(
-      { provider: 'manual', providerSessionId: 'sess-v2-test' },
-      {
-        onEvent: (ev) => {
-          if (ev.type === 'turn.updated') {
-            liveV2Updates.push(ev.turn);
-          }
-        },
-      },
-    );
+    // The canonical sessionId must exist before subscribing — the runtime keys events by
+    // that identity, not by the raw provider-native id.
+    const created = await service.createSession('manual', { providerSessionId: 'sess-v2-test' });
+    const sessionId = created.sessionId;
 
-    const { turnId } = await service.startTurn('manual', 'sess-v2-test', {
+    // Subscribe to live session stream before starting turn
+    const unsubscribe = service.subscribeToSession(sessionId, {
+      onEvent: (ev) => {
+        if (ev.type === 'turn.updated') {
+          liveV2Updates.push(ev.turn);
+        }
+      },
+    });
+
+    const { turnId } = await service.startTurn('manual', sessionId, {
       prompt: 'V2 canonical stream test',
     });
 
@@ -2227,17 +2250,14 @@ test('Task 07: Canonical V2 SSE streaming and replay deliver exact canonical Wor
 
     // 2. Reconnect / replay with afterSequence = 0 recovers identical canonical snapshots
     const replayV2Updates = [];
-    turnRuntime.subscribeToSession(
-      { provider: 'manual', providerSessionId: 'sess-v2-test' },
-      {
-        afterSequence: 0,
-        onEvent: (ev) => {
-          if (ev.type === 'turn.updated') {
-            replayV2Updates.push(ev.turn);
-          }
-        },
+    turnRuntime.subscribeToSession(sessionId, {
+      afterSequence: 0,
+      onEvent: (ev) => {
+        if (ev.type === 'turn.updated') {
+          replayV2Updates.push(ev.turn);
+        }
       },
-    )();
+    })();
     const lastReplayTurn = replayV2Updates[replayV2Updates.length - 1];
     assert.deepEqual(lastReplayTurn.work, lastLiveTurn.work);
     assert.deepEqual(lastReplayTurn.finalAnswer, lastLiveTurn.finalAnswer);
@@ -2249,9 +2269,9 @@ test('Task 07: Canonical V2 SSE streaming and replay deliver exact canonical Wor
     assert.deepEqual(inMemTurn.finalAnswer, lastLiveTurn.finalAnswer);
 
     // 4. Persisted reload from disk converges to exact same semantic Turn
-    await transcriptCache.flush('manual', 'sess-v2-test');
+    await transcriptCache.flush('manual', sessionId);
     const diskCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
-    const persisted = await diskCache.getTranscript('manual', 'sess-v2-test');
+    const persisted = await diskCache.getTranscript('manual', sessionId);
     const persistedTurn = persisted.turns[0];
     assert.deepEqual(persistedTurn.work, inMemTurn.work);
     assert.deepEqual(persistedTurn.finalAnswer, lastLiveTurn.finalAnswer);
@@ -2319,41 +2339,48 @@ test('Task 07: CanonicalTurn session identity invariant holds across first turn 
   const provider = createMockAgentProvider({ specId, streamDelayMs: 1 });
   const registry = createAgentProviderRegistry([provider]);
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const bindingService = createAgentSessionBindingService();
+  const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
   const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
 
   try {
-    // 1. Turn 1 (session creation)
+    // 1. Turn 1 (session creation) — providerSessionId is not required in the admission
+    // response; the mock has no createSession() and only establishes its native id once
+    // the turn actually runs.
     const turn1Result = await service.startTurn('mock', null, { specId, prompt: 'First turn' });
-    const providerSessionId = turn1Result.providerSessionId;
-    assert.ok(providerSessionId);
+    const sessionId = turn1Result.sessionId;
+    assert.ok(sessionId);
     await waitFor(service, turn1Result.turnId, (t) => t.status === 'completed');
+
+    const { providerSessionId } = await service.getSession(sessionId);
+    assert.ok(providerSessionId);
+    // The provider-allocated native id must never collide with or replace the canonical sessionId.
+    assert.notEqual(sessionId, providerSessionId);
 
     // Turn 1 canonical in-memory state
     const turn1Snap = turnRuntime.getCanonicalTurn(turn1Result.turnId);
     assert.equal(turn1Snap.providerSessionId, providerSessionId);
-    assert.equal(turn1Snap.sessionId, providerSessionId);
+    assert.equal(turn1Snap.sessionId, sessionId);
     assert.notEqual(turn1Snap.sessionId, turn1Result.turnId, 'sessionId must never fabricate turnId');
 
-    // 2. Turn 2 in the established session
-    const turn2Result = await service.startTurn('mock', providerSessionId, { specId, prompt: 'Second turn' });
-    assert.equal(turn2Result.providerSessionId, providerSessionId);
+    // 2. Turn 2 in the established session, addressed by the canonical sessionId.
+    const turn2Result = await service.startTurn('mock', sessionId, { specId, prompt: 'Second turn' });
+    assert.equal(turn2Result.sessionId, sessionId);
     await waitFor(service, turn2Result.turnId, (t) => t.status === 'completed');
 
     const turn2Snap = turnRuntime.getCanonicalTurn(turn2Result.turnId);
     assert.equal(turn2Snap.providerSessionId, providerSessionId);
-    assert.equal(turn2Snap.sessionId, providerSessionId);
+    assert.equal(turn2Snap.sessionId, sessionId);
     assert.notEqual(turn2Snap.sessionId, turn2Result.turnId, 'sessionId must never fabricate turnId');
 
-    // 3. Persisted transcript turns
-    await transcriptCache.flush('mock', providerSessionId);
+    // 3. Persisted transcript turns — canonical transcripts remain keyed by sessionId.
+    await transcriptCache.flush('mock', sessionId);
     const diskCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
-    const persisted = await diskCache.getTranscript('mock', providerSessionId);
+    const persisted = await diskCache.getTranscript('mock', sessionId);
     assert.equal(persisted.turns.length, 2);
     assert.equal(persisted.turns[0].providerSessionId, providerSessionId);
-    assert.equal(persisted.turns[0].sessionId, providerSessionId);
+    assert.equal(persisted.turns[0].sessionId, sessionId);
     assert.equal(persisted.turns[1].providerSessionId, providerSessionId);
-    assert.equal(persisted.turns[1].sessionId, providerSessionId);
+    assert.equal(persisted.turns[1].sessionId, sessionId);
   } finally {
     await turnRuntime.shutdown();
     await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
@@ -2372,8 +2399,10 @@ test('V2 correction: a plain composer send has userMessage.text equal to the mes
   const service = createAgentSessionService({ registry, turnRuntime, transcriptCache });
 
   try {
-    const { turnId, providerSessionId } = await service.startTurn('mock', null, { specId, message: 'Continue' });
+    const { turnId } = await service.startTurn('mock', null, { specId, message: 'Continue' });
     await waitFor(service, turnId, (t) => t.status === 'completed');
+    const { providerSessionId } = turnRuntime.getCanonicalTurn(turnId);
+    assert.ok(providerSessionId);
 
     const details = await service.getSessionDetails('mock', providerSessionId, { representation: 'v2' });
     const publicTurn = details.turns.find((t) => t.id === turnId);
@@ -2406,12 +2435,14 @@ test('V2 correction: an enriched initial-dispatch prompt keeps userMessage clean
     '[NEvo Context: Specification \'demo\']\nTitle: "Demo"\nLocation: specs/active/demo/\nScope: Full specification\n\nDo the thing';
 
   try {
-    const { turnId, providerSessionId } = await service.startTurn('mock', null, {
+    const { turnId } = await service.startTurn('mock', null, {
       specId,
       message: enrichedPrompt,
       userMessage: 'Do the thing',
     });
     await waitFor(service, turnId, (t) => t.status === 'completed');
+    const { providerSessionId } = turnRuntime.getCanonicalTurn(turnId);
+    assert.ok(providerSessionId);
 
     const details = await service.getSessionDetails('mock', providerSessionId, { representation: 'v2' });
     const publicTurn = details.turns.find((t) => t.id === turnId);

@@ -326,7 +326,7 @@ test('new conversation spawns with stream-json input format and sets providerSes
   const result = await provider.startTurn({
     turnId: 'turn-1',
     message: 'Hello',
-    setProviderSessionId: (id) => {
+    onProviderSessionIdAvailable: (id) => {
       allocatedSessionId = id;
     },
     emitCommentaryDelta: (d) => deltas.push(d),
@@ -390,13 +390,13 @@ test('multi-turn continuation maps dashboard session ID to agy conversation ID a
     },
   });
 
-  // Turn 1 with dashboard-generated session ID
+  // Turn 1: no providerSessionId yet (canonical model — native id is unknown until allocated)
   let allocatedId = null;
   await provider.startTurn({
     turnId: 'turn-1',
-    providerSessionId: 'dashboard-uuid-111',
+    sessionId: 'dashboard-uuid-111',
     message: 'First turn',
-    setProviderSessionId: (id) => {
+    onProviderSessionIdAvailable: (id) => {
       allocatedId = id;
     },
   });
@@ -404,10 +404,11 @@ test('multi-turn continuation maps dashboard session ID to agy conversation ID a
   assert.equal(allocatedId, 'agy-allocated-999');
   assert.ok(!capturedCalls[0].args.includes('--conversation'), 'Turn 1 must not pass --conversation');
 
-  // Turn 2 with same dashboard-generated session ID
+  // Turn 2 resumes using the real native id the provider allocated on turn 1.
   await provider.startTurn({
     turnId: 'turn-2',
-    providerSessionId: 'dashboard-uuid-111',
+    sessionId: 'dashboard-uuid-111',
+    providerSessionId: 'agy-allocated-999',
     message: 'Second turn',
   });
 
@@ -3953,52 +3954,6 @@ test('Task 04 - Criterion 7: Stale token rejection: requests after turn terminat
   } finally {
     await fastify.close();
     mcpInteractionRegistry.clear();
-  }
-});
-
-test('Task 04 - Criterion 8: Session alias persistence operates atomically via temp file rename and survives restarts', async () => {
-  const tmpDir = await mkdtemp(join(tmpdir(), 'agy-alias-'));
-  const mappingFile = join(tmpDir, 'antigravity-sessions.json');
-
-  try {
-    const provider1 = createAntigravityAgentProvider({
-      mappingFilePath: mappingFile,
-      spawnProcess: () => createMockProcess([
-        JSON.stringify({ type: 'init', conversation_id: 'real-agy-session-1' }),
-        JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'done' } }),
-      ]),
-    });
-
-    await provider1.startTurn({
-      turnId: 'turn-alias-1',
-      providerSessionId: 'dash-sess-1',
-      message: 'init alias',
-    });
-
-    const content = await readFile(mappingFile, 'utf8');
-    const parsed = JSON.parse(content);
-    assert.equal(parsed['dash-sess-1'], 'real-agy-session-1');
-    assert.equal(parsed['real-agy-session-1'], 'real-agy-session-1');
-
-    const provider2 = createAntigravityAgentProvider({
-      mappingFilePath: mappingFile,
-      spawnProcess: (cmd, args) => {
-        assert.ok(args.includes('--conversation'));
-        assert.equal(args[args.indexOf('--conversation') + 1], 'real-agy-session-1');
-        return createMockProcess([
-          JSON.stringify({ type: 'init', conversation_id: 'real-agy-session-1' }),
-          JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'second turn done' } }),
-        ]);
-      },
-    });
-
-    await provider2.startTurn({
-      turnId: 'turn-alias-2',
-      providerSessionId: 'dash-sess-1',
-      message: 'follow up',
-    });
-  } finally {
-    await rm(tmpDir, { recursive: true, force: true });
   }
 });
 

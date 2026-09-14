@@ -1,7 +1,6 @@
-import { validateAgentIdentity } from '../../contracts.mjs';
-
-export function sessionKey(provider, providerSessionId) {
-  return `${provider}\u0000${providerSessionId}`;
+export function sessionKey(providerOrSessionId, providerSessionId) {
+  if (!providerSessionId) return String(providerOrSessionId);
+  return `${providerOrSessionId}\u0000${providerSessionId}`;
 }
 
 const PRIVATE_EVENT_FIELD_PATTERN =
@@ -76,7 +75,7 @@ export class TurnEventStream {
     this.#clock = clock;
   }
 
-  registerTurn({ turnId, provider, providerSessionId, initialSequence = 0 } = {}) {
+  registerTurn({ turnId, sessionId, provider, providerSessionId, initialSequence = 0 } = {}) {
     if (!this.#turnEvents.has(turnId)) {
       this.#turnEvents.set(turnId, []);
     }
@@ -84,16 +83,15 @@ export class TurnEventStream {
       this.#turnSubscribers.set(turnId, new Set());
     }
     this.#turnSequences.set(turnId, initialSequence);
-    if (provider && providerSessionId) {
-      this.bindSession(turnId, { provider, providerSessionId });
-      this.initSessionSequence(provider, providerSessionId, initialSequence);
+    if (sessionId || (provider && providerSessionId)) {
+      this.bindSession(turnId, { sessionId, provider, providerSessionId });
+      this.initSessionSequence(sessionId || provider, sessionId ? undefined : providerSessionId, initialSequence);
     }
   }
 
-  bindSession(turnId, { provider, providerSessionId } = {}) {
-    validateAgentIdentity({ provider, providerSessionId });
-    this.#turnBindings.set(turnId, { provider, providerSessionId });
-    const key = sessionKey(provider, providerSessionId);
+  bindSession(turnId, { sessionId, provider, providerSessionId } = {}) {
+    this.#turnBindings.set(turnId, { sessionId, provider, providerSessionId });
+    const key = sessionId || sessionKey(provider, providerSessionId);
     const turnSeq = this.#turnSequences.get(turnId) || 0;
     const currentSessionSeq = this.#sessionSequences.get(key) || 0;
     if (turnSeq > currentSessionSeq) {
@@ -101,21 +99,21 @@ export class TurnEventStream {
     }
   }
 
-  initSessionSequence(provider, providerSessionId, initialSeq = 0) {
-    const key = sessionKey(provider, providerSessionId);
+  initSessionSequence(providerOrSessionId, providerSessionId, initialSeq = 0) {
+    const key = sessionKey(providerOrSessionId, providerSessionId);
     if (!this.#sessionSequences.has(key)) {
       this.#sessionSequences.set(key, initialSeq);
     }
     return this.#sessionSequences.get(key);
   }
 
-  getSessionSequence(provider, providerSessionId) {
-    const key = sessionKey(provider, providerSessionId);
+  getSessionSequence(providerOrSessionId, providerSessionId) {
+    const key = sessionKey(providerOrSessionId, providerSessionId);
     return this.#sessionSequences.get(key);
   }
 
-  setSessionSequence(provider, providerSessionId, seq) {
-    const key = sessionKey(provider, providerSessionId);
+  setSessionSequence(providerOrSessionId, providerSessionId, seq) {
+    const key = sessionKey(providerOrSessionId, providerSessionId);
     const current = this.#sessionSequences.get(key) || 0;
     if (seq > current) {
       this.#sessionSequences.set(key, seq);
@@ -125,7 +123,8 @@ export class TurnEventStream {
   getTurnSequence(turnId) {
     const binding = this.#turnBindings.get(turnId);
     if (binding) {
-      return this.#sessionSequences.get(sessionKey(binding.provider, binding.providerSessionId)) || 0;
+      const key = binding.sessionId || sessionKey(binding.provider, binding.providerSessionId);
+      return this.#sessionSequences.get(key) || 0;
     }
     return this.#turnSequences.get(turnId) || 0;
   }
@@ -133,7 +132,7 @@ export class TurnEventStream {
   allocateNextSeq(turnId) {
     const binding = this.#turnBindings.get(turnId);
     if (binding) {
-      const key = sessionKey(binding.provider, binding.providerSessionId);
+      const key = binding.sessionId || sessionKey(binding.provider, binding.providerSessionId);
       let current = this.#sessionSequences.get(key);
       if (current === undefined) {
         current = this.#turnSequences.get(turnId) || 0;
@@ -173,7 +172,7 @@ export class TurnEventStream {
 
     const binding = this.#turnBindings.get(turnId);
     if (binding) {
-      const key = sessionKey(binding.provider, binding.providerSessionId);
+      const key = binding.sessionId || sessionKey(binding.provider, binding.providerSessionId);
       let sessionEvents = this.#sessionEvents.get(key);
       if (!sessionEvents) {
         sessionEvents = [];
@@ -185,7 +184,12 @@ export class TurnEventStream {
       }
 
       if (this.#transcriptCache) {
-        this.#transcriptCache.applyEvent(binding.provider, binding.providerSessionId, event).catch(() => {});
+        if (binding.sessionId) {
+          this.#transcriptCache.applyEvent(binding.provider, binding.sessionId, event).catch(() => {});
+        }
+        if (binding.providerSessionId && binding.providerSessionId !== binding.sessionId) {
+          this.#transcriptCache.applyEvent(binding.provider, binding.providerSessionId, event).catch(() => {});
+        }
       }
 
       const sessionSubs = this.#sessionSubscribers.get(key);
@@ -230,10 +234,18 @@ export class TurnEventStream {
     };
   }
 
-  subscribeToSession({ provider, providerSessionId }, { afterSequence = 0, onEvent } = {}) {
-    validateAgentIdentity({ provider, providerSessionId });
+  subscribeToSession(identityOrSessionId, { afterSequence = 0, onEvent } = {}) {
     if (typeof onEvent !== 'function') throw new TypeError('onEvent is required.');
-    const key = sessionKey(provider, providerSessionId);
+    let key;
+    if (typeof identityOrSessionId === 'string') {
+      key = identityOrSessionId;
+    } else if (identityOrSessionId?.sessionId) {
+      key = identityOrSessionId.sessionId;
+    } else if (identityOrSessionId?.provider && identityOrSessionId?.providerSessionId) {
+      key = sessionKey(identityOrSessionId.provider, identityOrSessionId.providerSessionId);
+    } else {
+      key = String(identityOrSessionId);
+    }
     let subs = this.#sessionSubscribers.get(key);
     if (!subs) {
       subs = new Set();
