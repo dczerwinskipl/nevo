@@ -56,16 +56,12 @@ export async function writeCodexExecutionContextBridge(repoRoot, threadId, { nev
     2,
   );
   const threadPath = join(bridgeDir, `${threadId}.json`);
-  const tmpThreadPath = `${threadPath}.${randomUUID()}.tmp`;
-  await writeFile(tmpThreadPath, payload, 'utf-8');
-  await rename(tmpThreadPath, threadPath);
+  await writeFile(threadPath, payload, 'utf-8');
 
   const effTask = activeTaskId || taskId;
   if (specId && effTask) {
     const taskPath = join(bridgeDir, `${specId}-${effTask}.json`);
-    const tmpTaskPath = `${taskPath}.${randomUUID()}.tmp`;
-    await writeFile(tmpTaskPath, payload, 'utf-8');
-    await rename(tmpTaskPath, taskPath);
+    await writeFile(taskPath, payload, 'utf-8');
   }
 }
 
@@ -102,27 +98,19 @@ export function readCodexExecutionContextBridgeSync(repoRoot, { specId, taskId, 
 }
 
 export function readAgentExecutionContext(envOrOpts = process.env, opts = {}) {
-  let env = process.env;
-  let repoRoot = null;
-  let specId = null;
-  let taskId = null;
+  let env = envOrOpts;
+  let repoRoot = opts?.repoRoot;
+  let specId = opts?.specId;
+  let taskId = opts?.taskId;
 
-  if (envOrOpts && typeof envOrOpts === 'object') {
-    if (
-      'NEVO_AGENT_PROVIDER' in envOrOpts ||
-      'NEVO_SESSION_ID' in envOrOpts ||
-      'NEVO_AGENT_PROVIDER_SESSION_ID' in envOrOpts
-    ) {
-      env = envOrOpts;
-      repoRoot = opts.repoRoot;
-      specId = opts.specId;
-      taskId = opts.taskId;
-    } else {
-      env = envOrOpts.env || process.env;
-      repoRoot = envOrOpts.repoRoot;
-      specId = envOrOpts.specId;
-      taskId = envOrOpts.taskId;
-    }
+  if (envOrOpts && typeof envOrOpts === 'object' && ('env' in envOrOpts || 'repoRoot' in envOrOpts)) {
+    env = envOrOpts.env || process.env;
+    repoRoot = envOrOpts.repoRoot ?? repoRoot;
+    specId = envOrOpts.specId ?? specId;
+    taskId = envOrOpts.taskId ?? taskId;
+  }
+  if (!env) {
+    env = process.env;
   }
 
   const provider = env.NEVO_AGENT_PROVIDER?.trim();

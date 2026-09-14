@@ -781,7 +781,7 @@ export class AgentSessionService {
     const result = await this.turnRuntime.startTurn({
       ...cleanOpts,
       provider: prov,
-      providerSessionId: sessId,
+      providerSessionId: createdSession && !createdSession.established ? undefined : sessId,
       canonicalSessionId: effectiveCanonicalSessionId,
       nevoSessionId: effectiveCanonicalSessionId,
       specId: effectiveSpecId,

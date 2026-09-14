@@ -159,7 +159,7 @@ export class AgentTurnRuntime {
     // yet": it must not be baked into the coordinator/turn as an already-bound
     // native ID, or the provider's later genuinely-allocated native ID collides
     // with it and bindTurnProviderSessionId() throws a "Cannot re-bind" error.
-    const isNewSession = !providerSessionId || !isSessionEstablished;
+    const isNewSession = !providerSessionId;
     const turnId = `turn-${this.idFactory()}`;
     const key = isNewSession ? `new-turn\u0000${turnId}` : sessionKey(provider, providerSessionId);
 
@@ -225,9 +225,9 @@ export class AgentTurnRuntime {
 
       const coordinator = new TurnLifecycleCoordinator({
         turnId,
-        sessionId: isNewSession ? null : providerSessionId,
+        sessionId: isSessionEstablished ? (providerSessionId || null) : null,
         provider,
-        providerSessionId: isNewSession ? null : providerSessionId,
+        providerSessionId: isSessionEstablished ? (providerSessionId || null) : null,
         mode: validatedMode,
         model,
         prompt: inputMessage,
@@ -402,7 +402,7 @@ export class AgentTurnRuntime {
   #createProviderTurnContext(state, extra = {}) {
     return {
       turnId: state.turnId,
-      providerSessionId: state.isSessionEstablished ? state.providerSessionId : undefined,
+      providerSessionId: state.providerSessionId,
       canonicalSessionId: state.canonicalSessionId,
       nevoSessionId: state.nevoSessionId,
       specId: state.specId,
