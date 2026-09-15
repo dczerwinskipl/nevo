@@ -65,7 +65,7 @@ tasks:
   - id: session-task-binding-and-workflow-server-endpoints
     order: 2
     file: tasks/02-session-task-binding-and-workflow-server-endpoints.md
-    status: implemented
+    status: verified
     depends_on:
       - workflow-protocol-git-hardening-and-human-decisions
 
