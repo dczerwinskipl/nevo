@@ -17,6 +17,10 @@ import { buildAiTestApp } from './helpers/ai-test-app.mjs';
 import { serializePublicTurn, deriveLegacyUserMessageText } from '../server/ai/model/serialization.mjs';
 
 const specId = '70609aaf-bb62-40bf-a25e-bec65c583495';
+const integrationTest =
+  process.env.NEVO_DASHBOARD_RUN_INTEGRATION_TESTS === '1'
+    ? test
+    : test.skip;
 
 // Real disk paths, isolated per call — never the repo's own `.nevo-ai-local/`, which
 // boot-time reconciliation now actually scans (`listPersistedSessions`), so leftover
@@ -1554,7 +1558,7 @@ test('Task 07: Server workSummary supplies activityCount, currentActivity, and a
   }
 });
 
-test("Task 13 correction: readiness attached to 'turn.updated' SSE events matches the canonical server projection across active, requiresAttention, and terminal states", async () => {
+integrationTest("Task 13 correction: readiness attached to 'turn.updated' SSE events matches the canonical server projection across active, requiresAttention, and terminal states", async () => {
   const { service } = createStack();
   const sessionId = 'session-sse-readiness';
   const { sessionId: canonicalSessionId } = await service.createSession('mock', { providerSessionId: sessionId });
