@@ -7,6 +7,7 @@ import Fastify from 'fastify';
 import turnRoutes from '../server/ai/sessions/turns/routes.mjs';
 import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs';
 import { createAgentSessionService } from '../server/ai/sessions/service.mjs';
+import { createAgentSessionBindingService } from '../server/ai/sessions/binding-service.mjs';
 import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
 import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
 import { TurnLifecycleCoordinator } from '../server/ai/sessions/turns/coordinator.mjs';
@@ -423,7 +424,13 @@ test('Criterion 4, 5, 6: remote recovery API terminates process tree, settles as
 
   const registry = createAgentProviderRegistry([recoverableProvider]);
   const runtime = createAgentTurnRuntime({ registry });
-  const service = createAgentSessionService({ turnRuntime: runtime, registry });
+  // A real bindingService is required here: the compat routes below re-address the same
+  // session by its canonical sessionId, and that identity is only resolved against the
+  // real store, never by string shape — without persistence, there is nothing for
+  // startTurn to resolve it against.
+  const bindingTmpDir = await mkdtemp(join(tmpdir(), 'nevo-turn-recovery-binding-'));
+  const bindingService = createAgentSessionBindingService({ storageDir: join(bindingTmpDir, 'sessions') });
+  const service = createAgentSessionService({ turnRuntime: runtime, registry, bindingService });
 
   const fastify = Fastify({ logger: false });
   fastify.setErrorHandler(aiErrorHandler);
@@ -558,7 +565,10 @@ test('Criterion 4, 5, 6: remote recovery API terminates process tree, settles as
   assert.equal(canonicalCancelled.status.initiator, 'user');
 
   await fastify.close();
-  runtime.shutdown();
+  await runtime.shutdown();
+  // maxRetries/retryDelay absorb a benign Windows race where a binding-service write
+  // still in flight recreates a file the instant after recursive rm() clears it.
+  await rm(bindingTmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 });
 
 test('Criterion 7: per-turn rate limits and process crashes do not mutate provider descriptor health to unavailable or installed: false', async () => {

@@ -198,6 +198,25 @@ export class AiTurnConflictError extends AiError {
   }
 }
 
+/**
+ * A spec has explicitly opted into `workflow.mode: deterministic`, but the authoritative
+ * workflow position governing this turn could not be resolved (missing/broken workflow
+ * definition, no resolvable task, or an unresolvable step/attempt position). The turn must
+ * be rejected rather than silently proceeding without the deterministic workflow protocol —
+ * a wrong or absent instruction here is worse than an explicit failure the caller must act
+ * on. This never fires for legacy/non-deterministic specs, which remain the global default.
+ */
+export class AiDeterministicWorkflowUnavailableError extends AiError {
+  constructor(message, details) {
+    super('AI_DETERMINISTIC_WORKFLOW_UNAVAILABLE', message, {
+      status: 409,
+      recoveryHint: 'operator-action',
+      details,
+    });
+    this.name = 'AiDeterministicWorkflowUnavailableError';
+  }
+}
+
 function requiredString(value, field, { opaque = false, max = 512 } = {}) {
   if (typeof value !== 'string' || value.length === 0 || value.length > max) {
     throw new AiValidationError(`'${field}' must be a non-empty string of at most ${max} characters.`, { field });

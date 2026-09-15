@@ -1317,7 +1317,11 @@ test('ai events SSE: live SSE stream delivers interaction.requested events in re
     const receivedText = await Promise.race([
       eventsPromise,
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Timed out waiting for interaction.requested over SSE!')), 3000),
+        // A generous real-time bound, not a correctness assertion: under a loaded/shared
+        // CI runner, event delivery can take noticeably longer than on a local machine.
+        // Kept comfortably under the suite's --test-timeout so this rejects with a clear,
+        // specific message instead of the test runner's own generic timeout.
+        setTimeout(() => reject(new Error('Timed out waiting for interaction.requested over SSE!')), 10000),
       ),
     ]);
 
@@ -1556,8 +1560,11 @@ test("Task 13 correction: readiness attached to 'turn.updated' SSE events matche
     },
   });
 
+  // 2000 * 5ms = 10s — a generous real-time bound (not a correctness assertion) so a
+  // loaded/shared CI runner has enough wall-clock room for the async event chain to
+  // complete; kept comfortably under the suite's --test-timeout.
   const waitForEvent = async (predicate, message) => {
-    for (let index = 0; index < 200; index += 1) {
+    for (let index = 0; index < 2000; index += 1) {
       const match = events.findLast(predicate);
       if (match) return match;
       await new Promise((resolve) => setTimeout(resolve, 5));
@@ -1789,7 +1796,12 @@ test('V2 public Turn projection is identical across HTTP, live SSE, replay, chat
   });
 
   try {
-    const { turnId } = await service.startTurn('projection', sessionId, {
+    // No bindingService is configured in this test, so continuation-by-canonical-sessionId
+    // must be explicit (opts.sessionId) — the legacy positional identity slot is reserved
+    // for compatibility (provider, providerSessionId) callers and is resolved against the
+    // real store, which doesn't exist here.
+    const { turnId } = await service.startTurn('projection', undefined, {
+      sessionId,
       message: 'Inspect, read, and edit the source file.',
     });
 

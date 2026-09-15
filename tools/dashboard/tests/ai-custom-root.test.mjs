@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -129,6 +129,66 @@ test('createDefaultAgentSessionService derives provider construction and local-d
       assert.ok(existsSync(bindingDir), `expected binding storage directory at '${bindingDir}'`);
       const bindingFiles = readdirSync(bindingDir, { recursive: true });
       assert.ok(bindingFiles.length > 0, 'expected at least one persisted binding file under the custom root');
+    } finally {
+      await service.shutdown();
+    }
+  } finally {
+    await rm(customRoot, { recursive: true, force: true });
+  }
+});
+
+// The bug this test exists to catch: AgentSessionService's deterministic workflow
+// resolution (resolveDeterministicWorkflowInfo) used to receive no repoRoot at all and
+// silently fell back to the process-global repository root — so a dashboard configured
+// for a custom repository/worktree would resolve provider cwd, transcript storage, and
+// binding storage from the custom root, but resolve deterministic workflow state (and
+// thus the authoritative [Nevo Workflow Context] header) from the real repo / process
+// cwd instead. This test's fixture change/workflow-definition files exist ONLY under
+// `customRoot`, which is guaranteed to differ from `process.cwd()` here — under the bug,
+// resolution against the wrong root would find nothing and the header would never be
+// injected, so this test fails under the bug and passes once repoRoot is threaded
+// through correctly. It never mutates the real process.cwd() to achieve this.
+test('createDefaultAgentSessionService threads the custom root into deterministic workflow resolution, never process.cwd() or the real repository root', async () => {
+  assert.notEqual(process.cwd(), REPOSITORY_ROOT, 'sanity: this test must not run from the real repository root');
+
+  const customRoot = await mkdtemp(join(tmpdir(), 'nevo-ai-custom-root-workflow-'));
+  try {
+    assert.notEqual(customRoot, process.cwd(), 'sanity: customRoot must differ from process.cwd()');
+    await writeProvidersConfig(customRoot, 'mock');
+
+    const specId = randomUUID();
+    const changeDir = join(customRoot, 'specs', 'active', 'fixture-change');
+    await mkdir(changeDir, { recursive: true });
+    await writeFile(
+      join(changeDir, 'change.yaml'),
+      `spec_id: ${specId}\nworkflow:\n  mode: deterministic\n  definition: standard-v1\ntasks:\n  - id: "01"\n    workflow_progress:\n      current_step: implementation\n      current_attempt: 1\n      state: active\n`,
+      'utf-8',
+    );
+    await mkdir(join(customRoot, '.nevo-ai', 'workflows'), { recursive: true });
+    await copyFile(
+      join(REPOSITORY_ROOT, '.nevo-ai', 'workflows', 'standard-v1.yaml'),
+      join(customRoot, '.nevo-ai', 'workflows', 'standard-v1.yaml'),
+    );
+
+    const service = createDefaultAgentSessionService({ root: customRoot });
+    try {
+      const { turnId } = await service.startTurn('mock', null, {
+        message: 'implement the thing',
+        specId,
+        taskId: '01',
+      });
+      await waitForTurn(service, turnId, (turn) => turn.status === 'completed' || turn.status === 'failed');
+
+      // The canonical turn's `prompt` is the full enriched text actually sent to the
+      // provider (header + userMessage) — reading it here observes what the provider
+      // received without depending on any particular provider's internals.
+      const canonicalTurn = service.getCanonicalTurn(turnId);
+      assert.match(
+        canonicalTurn.prompt,
+        /\[Nevo Workflow Context\]/,
+        'the authoritative deterministic header must be resolved from the configured custom root',
+      );
+      assert.match(canonicalTurn.prompt, /Step: implementation \(attempt 1\)/);
     } finally {
       await service.shutdown();
     }

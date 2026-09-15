@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import {
   AiValidationError,
   CapabilityNotSupportedError,
+  AiDeterministicWorkflowUnavailableError,
   validateAgentIdentity,
   validateAgentExecutionMode,
   computeCurrentActivity,
@@ -13,8 +14,25 @@ import { compareBindingRecency } from './binding-service.mjs';
 import { listChanges, ROOT } from '../../../../specs/store.mjs';
 import { resolveWorkflowPosition } from '../../../../specs/workflow/step-runner.mjs';
 import { loadWorkflowDefinition } from '../../../../specs/workflow/definitions/loader.mjs';
+import { resolveWorkflowMode } from '../../../../specs/workflow/compatibility.mjs';
+// Side-effect import: registers CommitAndPushAction into defaultActionRegistry (see
+// tools/specs/workflow/cli.mjs and actions/index.mjs). loadWorkflowDefinition() validates
+// every step's `finalize` action IDs against that registry — without this import, any
+// caller that constructs an AgentSessionService without also loading
+// tools/dashboard/server/specs/actions.mjs first (e.g. createDefaultAgentSessionService()
+// used standalone) would see loadWorkflowDefinition() reject the real standard-v1
+// definition's 'commit-and-push' finalize action as "unknown", failing deterministic
+// workflow resolution for every real spec. Explicit here rather than relying on
+// import-order luck elsewhere in the process.
+import '../../../../specs/workflow/actions/index.mjs';
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// NOTE: there is deliberately no UUID-shape regex in this file. A canonical sessionId is
+// an explicit, positionally/contextually-known identity — never inferred from "this
+// string happens to look like a UUID." A provider-native providerSessionId is allowed to
+// be UUID-shaped too (e.g. Codex thread ids), so shape alone can never discriminate
+// between the two. Every method below dispatches canonical vs. compatibility identity by
+// argument arity/type (how many arguments, string vs. object) or by resolving against the
+// real store (bindingService.getSession / findSessionByProviderIdentity), never by regex.
 
 /**
  * Validates a provider-supplied dynamic model catalog entry by entry so one malformed
@@ -183,82 +201,106 @@ export function formatNevoWorkflowContext({ changeSlug, taskId, step = 'implemen
   ].join('\n');
 }
 
-// Fails closed: when the true deterministic workflow position (step/attempt) cannot be
-// resolved, this returns null rather than guessing 'implementation'/attempt 1 — a wrong
-// instruction injected into the agent's context is worse than none. Every null-returning
-// path inside deterministic mode logs a diagnostic explaining why, so a broken/missing
-// workflow definition is visible instead of silently masked by a plausible-looking guess.
-// (Returning null when the spec/task is simply not in deterministic mode at all — the
-// common case — is not a failure and does not warrant a diagnostic.)
-export function resolveDeterministicWorkflowInfo(specId, taskId, baseDir) {
-  if (!specId) return null;
+// Discriminated resolution result, never a plain guessable object:
+//   { mode: 'legacy' }                                 — no automatic workflow context;
+//                                                          this is the global default and
+//                                                          covers "no specId", "spec not
+//                                                          found", and "spec not explicitly
+//                                                          deterministic" alike.
+//   { mode: 'deterministic', workflowInfo: {...} }      — authoritative position resolved.
+// A spec that explicitly opts into `workflow.mode: deterministic` (via
+// resolveWorkflowMode — the same authoritative mode resolver `tools/specs.mjs workflow`
+// itself uses) but whose true position cannot be resolved THROWS
+// AiDeterministicWorkflowUnavailableError instead of returning anything — silently
+// continuing a deterministic turn without its authoritative context, or guessing
+// step: 'implementation'/attempt: 1, would both be worse than an explicit, actionable
+// failure. `repoRoot` must be the same authoritative root the rest of the session's
+// provider/local-data paths were built from (see AgentSessionService#repoRoot) — this
+// function never independently falls back to the process's own cwd or a different root.
+export function resolveDeterministicWorkflowInfo(specId, taskId, repoRoot = ROOT) {
+  if (!specId) return { mode: 'legacy' };
+
+  let changes;
   try {
-    const changes = listChanges(baseDir);
-    const change = changes.find((c) => c.spec_id === specId || c.id === specId || c._slug === specId);
-    if (!change) return null;
-    if (change.workflow?.mode !== 'deterministic') return null;
+    changes = listChanges(resolve(repoRoot, 'specs', 'active'));
+  } catch (err) {
+    console.error(
+      `[ai] [workflow] Unexpected error listing changes while resolving workflow info for spec '${specId}': ${err?.message || err}`,
+    );
+    return { mode: 'legacy' };
+  }
 
-    const rawTaskId = taskId ? String(taskId) : undefined;
-    const task = rawTaskId ? (change.tasks || []).find((t) => String(t.id) === rawTaskId) : null;
-    const resolvedTaskId = rawTaskId || (change.tasks && change.tasks.length > 0 ? String(change.tasks[0].id) : undefined);
-    const resolvedTask = task || (change.tasks && change.tasks.length > 0 ? change.tasks[0] : null);
+  const change = changes.find((c) => c.spec_id === specId || c.id === specId || c._slug === specId);
+  if (!change) return { mode: 'legacy' };
 
-    if (!resolvedTask) {
-      console.error(
-        `[ai] [workflow] Deterministic spec '${specId}' has no resolvable task for '${taskId ?? '(none given)'}' — refusing to guess a workflow step.`,
-      );
-      return null;
+  const resolvedMode = resolveWorkflowMode(change);
+  if (resolvedMode.mode !== 'deterministic') return { mode: 'legacy' };
+
+  // From here on the spec is explicitly, authoritatively deterministic — every remaining
+  // failure path throws rather than falling back to "no workflow context".
+  const rawTaskId = taskId ? String(taskId) : undefined;
+  const task = rawTaskId ? (change.tasks || []).find((t) => String(t.id) === rawTaskId) : null;
+  const resolvedTaskId = rawTaskId || (change.tasks && change.tasks.length > 0 ? String(change.tasks[0].id) : undefined);
+  const resolvedTask = task || (change.tasks && change.tasks.length > 0 ? change.tasks[0] : null);
+
+  if (!resolvedTask) {
+    const message = `Deterministic spec '${specId}' has no resolvable task for '${taskId ?? '(none given)'}'.`;
+    console.error(`[ai] [workflow] ${message}`);
+    throw new AiDeterministicWorkflowUnavailableError(message, { specId, taskId });
+  }
+
+  let step;
+  let attempt;
+  try {
+    const definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot });
+    const position = resolveWorkflowPosition(definition, resolvedTask);
+    if (position && position.step) {
+      step = position.step;
+      attempt = position.attempt ?? 1;
+    } else if (position?.phase === 'new') {
+      step = definition.entryStep || Object.keys(definition.steps || {})[0] || undefined;
+      attempt = 1;
     }
+  } catch (err) {
+    const message = `Failed to resolve deterministic workflow position for spec '${specId}' task '${resolvedTaskId}': ${err?.message || err}`;
+    console.error(`[ai] [workflow] ${message}`);
+    throw new AiDeterministicWorkflowUnavailableError(message, {
+      specId,
+      taskId: resolvedTaskId,
+      cause: err?.message,
+    });
+  }
 
-    let step;
-    let attempt;
-    try {
-      const repoRoot = baseDir ? resolve(baseDir, '..', '..') : ROOT;
-      const defName = change.workflow?.definition || 'standard-v1';
-      const definition = loadWorkflowDefinition(defName, { repoRoot });
-      const position = resolveWorkflowPosition(definition, resolvedTask);
-      if (position && position.step) {
-        step = position.step;
-        attempt = position.attempt ?? 1;
-      } else if (position?.phase === 'new') {
-        step = definition.entryStep || Object.keys(definition.steps || {})[0] || 'implementation';
-        attempt = 1;
-      }
-    } catch (err) {
-      console.error(
-        `[ai] [workflow] Failed to resolve deterministic workflow position for spec '${specId}' task '${resolvedTaskId}': ${err?.message || err} — refusing to guess a workflow step.`,
-      );
-      return null;
-    }
+  if (!step) {
+    const message = `Deterministic workflow position for spec '${specId}' task '${resolvedTaskId}' could not be determined.`;
+    console.error(`[ai] [workflow] ${message}`);
+    throw new AiDeterministicWorkflowUnavailableError(message, { specId, taskId: resolvedTaskId });
+  }
 
-    if (!step) {
-      console.error(
-        `[ai] [workflow] Deterministic workflow position for spec '${specId}' task '${resolvedTaskId}' could not be determined — refusing to guess a workflow step.`,
-      );
-      return null;
-    }
-
-    return {
+  return {
+    mode: 'deterministic',
+    workflowInfo: {
       changeSlug: change._slug,
       specId: change.spec_id || change.id,
       taskId: resolvedTaskId,
       step,
       attempt,
-    };
-  } catch (err) {
-    console.error(
-      `[ai] [workflow] Unexpected error resolving deterministic workflow info for spec '${specId}': ${err?.message || err}`,
-    );
-    return null;
-  }
+    },
+  };
 }
 
 export class AgentSessionService {
-  constructor({ registry, turnRuntime, transcriptCache, bindingService } = {}) {
+  // The one authoritative repository root this service's deterministic workflow
+  // resolution reads from — the same root createDefaultAgentSessionService() threads into
+  // every provider's cwd and local-data (transcript/binding) paths. Defaults to the
+  // process-global ROOT only for callers (tests, ad hoc scripts) that never had a custom
+  // root to begin with; production construction always passes it explicitly.
+  constructor({ registry, turnRuntime, transcriptCache, bindingService, repoRoot = ROOT } = {}) {
     this.registry = registry;
     this.turnRuntime = turnRuntime;
     this.transcriptCache = transcriptCache ?? turnRuntime?.transcriptCache;
     this.bindingService = bindingService;
+    this.repoRoot = repoRoot;
   }
 
   async listProviders({ includeModels = true } = {}) {
@@ -558,13 +600,15 @@ export class AgentSessionService {
   }
 
   async getSession(providerOrSessionId, providerSessionId) {
-    if (!providerSessionId && UUID_RE.test(providerOrSessionId)) {
-      return await this.bindingService?.getSession(providerOrSessionId);
+    if (!providerSessionId) {
+      // Single positional argument: the only real caller of this arity treats it as the
+      // canonical sessionId — resolved against the real store, never inferred from string
+      // shape (a provider-native id may itself be UUID-shaped). Without a second argument
+      // there is no provider identity to compat-resolve against either way.
+      return (await this.bindingService?.getSession(providerOrSessionId)) ?? null;
     }
     const provider = providerOrSessionId;
-    if (provider && providerSessionId) {
-      validateAgentIdentity({ provider, providerSessionId });
-    }
+    validateAgentIdentity({ provider, providerSessionId });
     if (this.bindingService) {
       if (typeof this.bindingService.resolveCurrentBinding === 'function') {
         return await this.bindingService.resolveCurrentBinding(provider, providerSessionId);
@@ -658,7 +702,12 @@ export class AgentSessionService {
     let sessId;
     let sessionId;
 
-    if (UUID_RE.test(providerOrSessionId) && (!providerSessionId || typeof providerSessionId === 'object')) {
+    // Dispatch is purely by argument shape/arity, never by string content: the canonical
+    // form's second argument is always an options object (or omitted); the compatibility
+    // form's second argument is always a providerSessionId string. A canonical sessionId
+    // and a provider-native id are never distinguished by "looks like a UUID" — a
+    // provider-native id may be UUID-shaped too.
+    if (providerSessionId === undefined || (providerSessionId !== null && typeof providerSessionId === 'object')) {
       sessionId = providerOrSessionId;
       options = providerSessionId || {};
       const session = await this.bindingService?.getSession(sessionId);
@@ -727,7 +776,11 @@ export class AgentSessionService {
     const baseSession = {
       provider: provider || binding?.provider,
       providerSessionId: sessId || binding?.providerSessionId,
-      sessionId: sessionId || binding?.sessionId || sessId,
+      // No fallback to sessId/providerSessionId here — when no canonical AgentSession is
+      // bound at all, there genuinely is no sessionId to report, and reporting the
+      // provider-native id under the sessionId field would fabricate a canonical identity
+      // that was never established.
+      sessionId: sessionId || binding?.sessionId,
       status: readiness.status === 'unavailable' ? 'unavailable' : status,
       capabilities,
       mode: resolvedMode,
@@ -755,18 +808,22 @@ export class AgentSessionService {
   }
 
   async deleteSession(providerOrSessionId, providerSessionId) {
-    let provider = providerOrSessionId;
-    let sessId = providerSessionId;
+    let provider;
+    let sessId;
     let sessionId;
 
-    if (!providerSessionId && UUID_RE.test(providerOrSessionId)) {
+    if (!providerSessionId) {
+      // Single positional argument: the only real caller of this arity is the canonical
+      // DELETE route — treated as the canonical sessionId, resolved against the real
+      // store, never inferred from string shape.
       sessionId = providerOrSessionId;
       const session = await this.bindingService?.getSession(sessionId);
       if (session) {
         provider = session.provider;
         sessId = session.providerSessionId;
       }
-    } else if (provider && providerSessionId) {
+    } else {
+      provider = providerOrSessionId;
       validateAgentIdentity({ provider, providerSessionId });
       sessId = providerSessionId;
     }
@@ -818,14 +875,24 @@ export class AgentSessionService {
     }
 
     let session = null;
-    let canonicalSessionId = opts.sessionId || (sessId && UUID_RE.test(sessId) ? sessId : undefined);
-    let effectiveProviderSessionId = sessId && sessId !== canonicalSessionId ? sessId : undefined;
+    // canonicalSessionId is only ever populated from an EXPLICIT sessionId (opts.sessionId,
+    // or the legacy positional identity once a real store lookup — never string shape —
+    // proves it already names an existing canonical session). It is never inferred from
+    // "this string looks like a UUID": a provider-native id is allowed to be UUID-shaped
+    // too, so shape alone can never discriminate between the two identities.
+    let canonicalSessionId = opts.sessionId;
+    let effectiveProviderSessionId = opts.providerSessionId;
 
-    if (this.bindingService) {
-      if (canonicalSessionId) {
-        session = await this.bindingService.getSession(canonicalSessionId);
-      }
-      if (!session && sessId && prov) {
+    if (canonicalSessionId && this.bindingService) {
+      session = await this.bindingService.getSession(canonicalSessionId);
+    } else if (!canonicalSessionId && sessId && this.bindingService) {
+      // Legacy single positional identity (from a compatibility HTTP route that only
+      // knows one opaque string): resolve it against the real store — first as a
+      // canonical sessionId, then as a provider-native identity — never by shape.
+      session = await this.bindingService.getSession(sessId);
+      if (session) {
+        canonicalSessionId = sessId;
+      } else if (prov) {
         session = await this.bindingService.findSessionByProviderIdentity(prov, sessId);
         if (session) {
           canonicalSessionId = session.sessionId;
@@ -834,10 +901,9 @@ export class AgentSessionService {
       }
     }
 
-    // Atomic first turn: if session was not found and no specific providerSessionId was given,
-    // create the canonical session FIRST.
-    if (!session && !sessId) {
-      session = await this.createSession(prov, {
+    if (!session) {
+      // No existing session was found under any known identity — create one.
+      const createOptions = {
         specId: opts.specId,
         taskId: opts.activeTaskId || opts.taskId,
         taskIds: opts.taskIds,
@@ -845,51 +911,22 @@ export class AgentSessionService {
         mode: opts.mode,
         model: opts.model,
         title: opts.title,
-        sessionId: canonicalSessionId,
-      });
-      canonicalSessionId = session.sessionId;
-      effectiveProviderSessionId = session.providerSessionId;
-    } else if (!session && canonicalSessionId && !sessId) {
-      session = await this.createSession(prov, {
-        specId: opts.specId,
-        taskId: opts.activeTaskId || opts.taskId,
-        taskIds: opts.taskIds,
-        purpose: opts.purpose,
-        mode: opts.mode,
-        model: opts.model,
-        title: opts.title,
-        sessionId: canonicalSessionId,
-      });
-      canonicalSessionId = session.sessionId;
-      effectiveProviderSessionId = session.providerSessionId;
-    } else if (!session) {
-      if (UUID_RE.test(sessId)) {
-        canonicalSessionId = sessId;
-        session = await this.createSession(prov, {
-          specId: opts.specId,
-          taskId: opts.activeTaskId || opts.taskId,
-          taskIds: opts.taskIds,
-          purpose: opts.purpose,
-          mode: opts.mode,
-          model: opts.model,
-          title: opts.title,
-          sessionId: canonicalSessionId,
-        });
-        effectiveProviderSessionId = session.providerSessionId;
+      };
+      if (canonicalSessionId) {
+        // An explicit sessionId was given (opts.sessionId) but no session exists under it
+        // yet — create it with exactly that canonical id.
+        session = await this.createSession(prov, { ...createOptions, sessionId: canonicalSessionId });
+      } else if (sessId) {
+        // The legacy positional identity never resolved to an existing session at all —
+        // it is a provider-native identity to register on the newly created session,
+        // never treated as a canonical sessionId merely because of its shape.
+        session = await this.createSession(prov, { ...createOptions, providerSessionId: sessId });
       } else {
-        session = await this.createSession(prov, {
-          specId: opts.specId,
-          taskId: opts.activeTaskId || opts.taskId,
-          taskIds: opts.taskIds,
-          purpose: opts.purpose,
-          mode: opts.mode,
-          model: opts.model,
-          title: opts.title,
-          providerSessionId: sessId,
-        });
-        canonicalSessionId = session.sessionId;
-        effectiveProviderSessionId = session.providerSessionId;
+        // Atomic first turn: nothing was given at all — the server allocates everything.
+        session = await this.createSession(prov, createOptions);
       }
+      canonicalSessionId = session.sessionId;
+      effectiveProviderSessionId = session.providerSessionId;
     } else {
       canonicalSessionId = session.sessionId;
       effectiveProviderSessionId = session.providerSessionId || effectiveProviderSessionId;
@@ -941,10 +978,19 @@ export class AgentSessionService {
     let effectivePrompt = opts.message ?? opts.prompt;
     let effectiveUserMessage = opts.userMessage;
 
-    // Workflow header resolution
-    const workflowInfo = resolveDeterministicWorkflowInfo(effectiveSpecId, effectiveTaskId);
+    // Workflow header resolution. `workflowContext: false` is an explicit caller override
+    // that suppresses the automatic deterministic machinery entirely (including its
+    // fail-closed check) — an intentional, pre-existing escape hatch. Every other case
+    // still resolves: a deterministic-but-broken spec must reject the turn, not silently
+    // continue without its authoritative context (resolveDeterministicWorkflowInfo throws
+    // AiDeterministicWorkflowUnavailableError for that case, which propagates from here).
+    const workflowResolution =
+      opts.workflowContext === false
+        ? { mode: 'legacy' }
+        : resolveDeterministicWorkflowInfo(effectiveSpecId, effectiveTaskId, this.repoRoot);
+    const deterministicWorkflowInfo = workflowResolution.mode === 'deterministic' ? workflowResolution.workflowInfo : null;
     const hasExplicitWorkflowContext = opts.workflowContext !== undefined && opts.workflowContext !== false;
-    const shouldInjectAutomatic = opts.workflowContext !== false && Boolean(workflowInfo);
+    const shouldInjectAutomatic = opts.workflowContext !== false && Boolean(deterministicWorkflowInfo);
 
     let needsHeader = false;
     if (hasExplicitWorkflowContext) {
@@ -952,9 +998,9 @@ export class AgentSessionService {
     } else if (shouldInjectAutomatic) {
       needsHeader =
         !session?.lastBootstrapTaskId ||
-        session.lastBootstrapTaskId !== workflowInfo.taskId ||
-        session.lastBootstrapStep !== workflowInfo.step ||
-        session.lastBootstrapAttempt !== workflowInfo.attempt;
+        session.lastBootstrapTaskId !== deterministicWorkflowInfo.taskId ||
+        session.lastBootstrapStep !== deterministicWorkflowInfo.step ||
+        session.lastBootstrapAttempt !== deterministicWorkflowInfo.attempt;
     }
 
     let bootstrapToRecord = null;
@@ -962,7 +1008,7 @@ export class AgentSessionService {
       const contextToFormat =
         typeof opts.workflowContext === 'object' && opts.workflowContext !== null
           ? opts.workflowContext
-          : workflowInfo;
+          : deterministicWorkflowInfo;
       const header =
         typeof opts.workflowContext === 'string'
           ? opts.workflowContext
@@ -973,11 +1019,11 @@ export class AgentSessionService {
       }
       effectivePrompt = `${header}\n\n${effectiveUserMessage}`;
 
-      if (workflowInfo || (typeof opts.workflowContext === 'object' && opts.workflowContext !== null)) {
+      if (deterministicWorkflowInfo || (typeof opts.workflowContext === 'object' && opts.workflowContext !== null)) {
         bootstrapToRecord = {
-          taskId: workflowInfo?.taskId || opts.workflowContext?.taskId || effectiveTaskId,
-          step: workflowInfo?.step || opts.workflowContext?.step || 'implementation',
-          attempt: workflowInfo?.attempt ?? opts.workflowContext?.attempt ?? 1,
+          taskId: deterministicWorkflowInfo?.taskId || opts.workflowContext?.taskId || effectiveTaskId,
+          step: deterministicWorkflowInfo?.step || opts.workflowContext?.step || 'implementation',
+          attempt: deterministicWorkflowInfo?.attempt ?? opts.workflowContext?.attempt ?? 1,
         };
       }
     }
@@ -1034,12 +1080,16 @@ export class AgentSessionService {
     let opts;
     let canonicalSessionId;
 
+    // Dispatch is purely by argument shape/arity, never by string content: the canonical
+    // form's second argument is always an options object (or omitted); the compatibility
+    // form's second argument is always a providerSessionId string. Never distinguished by
+    // "looks like a UUID" — a provider-native id may be UUID-shaped too.
     if (typeof providerOrSessionId === 'object' && providerOrSessionId !== null) {
       prov = providerOrSessionId.provider;
       sessId = providerOrSessionId.providerSessionId;
       canonicalSessionId = providerOrSessionId.sessionId;
       opts = providerSessionIdOrOptions;
-    } else if (UUID_RE.test(providerOrSessionId) && (typeof providerSessionIdOrOptions === 'object' || providerSessionIdOrOptions === undefined)) {
+    } else if (providerSessionIdOrOptions === undefined || (providerSessionIdOrOptions !== null && typeof providerSessionIdOrOptions === 'object')) {
       canonicalSessionId = providerOrSessionId;
       opts = providerSessionIdOrOptions;
     } else {

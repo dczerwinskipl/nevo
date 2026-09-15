@@ -67,7 +67,10 @@ export default async function turnRoutes(fastify, { service, accessPolicy }) {
       console.log(
         `[ai] [turn:start] provider=${provider || 'unknown'} sessionId=${sessionId}${body.mode ? ` mode=${body.mode}` : ''}${body.model ? ` model=${body.model}` : ''} prompt="${(body.message ?? body.prompt ?? '').slice(0, 60)}"`,
       );
-      const result = await service.startTurn(provider, sessionId, {
+      // sessionId is explicitly canonical here (the path param this route is named for) —
+      // passed via opts.sessionId, never the ambiguous legacy positional identity slot.
+      const result = await service.startTurn(provider, undefined, {
+        sessionId,
         message: body.message ?? body.prompt,
         ...(typeof body.userMessage === 'string' ? { userMessage: body.userMessage } : {}),
         mode: body.mode,

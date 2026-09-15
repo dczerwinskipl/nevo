@@ -540,10 +540,12 @@ tasks:
   - id: "${taskId}"${wp}
 `;
   await writeFile(join(changeDir, 'change.yaml'), yaml, 'utf-8');
-  return activeDir;
+  // resolveDeterministicWorkflowInfo takes the authoritative repoRoot directly (never a
+  // pre-resolved specs/active dir it would have to reverse-derive the root from).
+  return tmpDir;
 }
 
-test('9a. resolveDeterministicWorkflowInfo: valid deterministic resolution returns the real step/attempt from workflow_progress', async () => {
+test('9a. resolveDeterministicWorkflowInfo: valid deterministic resolution returns { mode: "deterministic" } with the real step/attempt from workflow_progress', async () => {
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-workflow-fail-closed-valid-'));
   try {
     await mkdir(join(tmpDir, '.nevo-ai', 'workflows'), { recursive: true });
@@ -553,35 +555,42 @@ test('9a. resolveDeterministicWorkflowInfo: valid deterministic resolution retur
     );
 
     const specId = '99999999-9999-4999-8999-999999999991';
-    const activeDir = await writeDeterministicChangeFixture(tmpDir, {
+    const repoRoot = await writeDeterministicChangeFixture(tmpDir, {
       specId,
       taskId: '01',
       workflowProgress: { current_step: 'implementation', current_attempt: 1, state: 'active' },
     });
 
-    const info = resolveDeterministicWorkflowInfo(specId, '01', activeDir);
-    assert.ok(info, 'a genuinely resolvable deterministic position must not fail closed');
-    assert.equal(info.step, 'implementation');
-    assert.equal(info.attempt, 1);
-    assert.equal(info.taskId, '01');
+    const result = resolveDeterministicWorkflowInfo(specId, '01', repoRoot);
+    assert.equal(result.mode, 'deterministic', 'a genuinely resolvable deterministic position must not fail closed');
+    assert.equal(result.workflowInfo.step, 'implementation');
+    assert.equal(result.workflowInfo.attempt, 1);
+    assert.equal(result.workflowInfo.taskId, '01');
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
 });
 
-test('9b. resolveDeterministicWorkflowInfo: a broken/missing workflow definition fails closed instead of guessing implementation/attempt 1', async () => {
+test('9b. resolveDeterministicWorkflowInfo: a broken/missing workflow definition throws AiDeterministicWorkflowUnavailableError instead of guessing implementation/attempt 1', async () => {
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-workflow-fail-closed-broken-'));
   try {
     // Deliberately no .nevo-ai/workflows/standard-v1.yaml exists under this repoRoot.
     const specId = '99999999-9999-4999-8999-999999999992';
-    const activeDir = await writeDeterministicChangeFixture(tmpDir, {
+    const repoRoot = await writeDeterministicChangeFixture(tmpDir, {
       specId,
       taskId: '01',
       workflowProgress: { current_step: 'implementation', current_attempt: 1, state: 'active' },
     });
 
-    const info = resolveDeterministicWorkflowInfo(specId, '01', activeDir);
-    assert.equal(info, null, 'a missing workflow definition must fail closed (null), never a guessed implementation/attempt 1');
+    assert.throws(
+      () => resolveDeterministicWorkflowInfo(specId, '01', repoRoot),
+      (err) => {
+        assert.equal(err.constructor.name, 'AiDeterministicWorkflowUnavailableError');
+        assert.equal(err.code, 'AI_DETERMINISTIC_WORKFLOW_UNAVAILABLE');
+        return true;
+      },
+      'a missing workflow definition must reject with a typed error, never a guessed implementation/attempt 1',
+    );
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
@@ -597,7 +606,7 @@ test('9c. resolveDeterministicWorkflowInfo: human-verification state is reported
     );
 
     const specId = '99999999-9999-4999-8999-999999999993';
-    const activeDir = await writeDeterministicChangeFixture(tmpDir, {
+    const repoRoot = await writeDeterministicChangeFixture(tmpDir, {
       specId,
       taskId: '01',
       // A task genuinely sitting at human-verification, attempt 3 (e.g. after two prior
@@ -605,10 +614,136 @@ test('9c. resolveDeterministicWorkflowInfo: human-verification state is reported
       workflowProgress: { current_step: 'human-verification', current_attempt: 3, state: 'active' },
     });
 
-    const info = resolveDeterministicWorkflowInfo(specId, '01', activeDir);
-    assert.ok(info);
-    assert.equal(info.step, 'human-verification');
-    assert.equal(info.attempt, 3);
+    const result = resolveDeterministicWorkflowInfo(specId, '01', repoRoot);
+    assert.equal(result.mode, 'deterministic');
+    assert.equal(result.workflowInfo.step, 'human-verification');
+    assert.equal(result.workflowInfo.attempt, 3);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+// ── Section 9 (integration): AgentSessionService.startTurn's three mandatory outcomes ──
+// legacy -> normal turn, no automatic header; deterministic+resolved -> authoritative
+// header injected; deterministic+broken -> the turn itself is rejected, never silently
+// run without the deterministic protocol.
+
+function buildEchoProviderService({ bindingService, repoRoot }) {
+  const registry = createAgentProviderRegistry();
+  const capturedPrompts = [];
+  registry.register({
+    descriptor: { id: 'mock', label: 'Mock Provider', defaultMode: 'edit', capabilities: {} },
+    startTurn: (context) => {
+      capturedPrompts.push(context.prompt);
+      return (async function* () {
+        yield { type: 'final_answer.delta', text: 'response' };
+      })();
+    },
+    cancelTurn: async () => ({}),
+  });
+  const turnRuntime = new AgentTurnRuntime({ registry });
+  const service = new AgentSessionService({ registry, turnRuntime, bindingService, repoRoot });
+  return { service, capturedPrompts };
+}
+
+test('9d. startTurn: a legacy (non-deterministic) spec proceeds normally with no automatic workflow header', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-workflow-legacy-turn-'));
+  try {
+    const specId = '99999999-9999-4999-8999-999999999994';
+    // No `workflow:` key at all — legacy is the global default.
+    const changeDir = join(tmpDir, 'specs', 'active', 'fixture-change');
+    await mkdir(changeDir, { recursive: true });
+    await writeFile(join(changeDir, 'change.yaml'), `spec_id: ${specId}\ntasks:\n  - id: "01"\n`, 'utf-8');
+
+    const bindingService = createAgentSessionBindingService({ storageDir: join(tmpDir, 'sessions') });
+    const { service, capturedPrompts } = buildEchoProviderService({ bindingService, repoRoot: tmpDir });
+
+    const turn = await service.startTurn('mock', undefined, {
+      specId,
+      taskId: '01',
+      message: 'Do the thing',
+    });
+    for (let i = 0; i < 50; i++) {
+      const snap = service.getTurn(turn.turnId);
+      if (snap?.status === 'completed' || snap?.status === 'failed') break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    assert.equal(service.getTurn(turn.turnId)?.status, 'completed');
+    assert.equal(capturedPrompts.length, 1);
+    assert.equal(capturedPrompts[0], 'Do the thing', 'no automatic [Nevo Workflow Context] header for a legacy spec');
+    assert.doesNotMatch(capturedPrompts[0], /\[Nevo Workflow Context\]/);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('9e. startTurn: a valid deterministic spec automatically injects the authoritative workflow header', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-workflow-deterministic-turn-'));
+  try {
+    await mkdir(join(tmpDir, '.nevo-ai', 'workflows'), { recursive: true });
+    await cp(
+      join(REAL_REPO_ROOT, '.nevo-ai', 'workflows', 'standard-v1.yaml'),
+      join(tmpDir, '.nevo-ai', 'workflows', 'standard-v1.yaml'),
+    );
+    const specId = '99999999-9999-4999-8999-999999999995';
+    await writeDeterministicChangeFixture(tmpDir, {
+      specId,
+      taskId: '01',
+      workflowProgress: { current_step: 'implementation', current_attempt: 1, state: 'active' },
+    });
+
+    const bindingService = createAgentSessionBindingService({ storageDir: join(tmpDir, 'sessions') });
+    const { service, capturedPrompts } = buildEchoProviderService({ bindingService, repoRoot: tmpDir });
+
+    const turn = await service.startTurn('mock', undefined, {
+      specId,
+      taskId: '01',
+      message: 'Do the thing',
+    });
+    for (let i = 0; i < 50; i++) {
+      const snap = service.getTurn(turn.turnId);
+      if (snap?.status === 'completed' || snap?.status === 'failed') break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    assert.equal(service.getTurn(turn.turnId)?.status, 'completed');
+    assert.equal(capturedPrompts.length, 1);
+    assert.match(capturedPrompts[0], /\[Nevo Workflow Context\]/);
+    assert.match(capturedPrompts[0], /Step: implementation \(attempt 1\)/);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('9f. startTurn: a deterministic spec with a broken/unresolvable workflow position rejects the turn instead of silently continuing without context', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-workflow-deterministic-broken-turn-'));
+  try {
+    // Deliberately no .nevo-ai/workflows/standard-v1.yaml — resolution must fail.
+    const specId = '99999999-9999-4999-8999-999999999996';
+    await writeDeterministicChangeFixture(tmpDir, {
+      specId,
+      taskId: '01',
+      workflowProgress: { current_step: 'implementation', current_attempt: 1, state: 'active' },
+    });
+
+    const bindingService = createAgentSessionBindingService({ storageDir: join(tmpDir, 'sessions') });
+    const { service, capturedPrompts } = buildEchoProviderService({ bindingService, repoRoot: tmpDir });
+
+    await assert.rejects(
+      () =>
+        service.startTurn('mock', undefined, {
+          specId,
+          taskId: '01',
+          message: 'Do the thing',
+        }),
+      (err) => {
+        assert.equal(err.constructor.name, 'AiDeterministicWorkflowUnavailableError');
+        assert.equal(err.code, 'AI_DETERMINISTIC_WORKFLOW_UNAVAILABLE');
+        return true;
+      },
+    );
+    // The provider must never have been reached — the turn is rejected before dispatch,
+    // never silently run without the deterministic protocol.
+    assert.equal(capturedPrompts.length, 0);
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }

@@ -26,11 +26,12 @@ import { aiErrorHandler } from './sessions/http.mjs';
 /**
  * Builds the real production Agent session stack for one repository root.
  * `root` (defaulting to `REPOSITORY_ROOT`) is resolved exactly once here and
- * threaded into every provider's cwd/local-data path and into the provider
- * configuration file lookup — the same "resolve once, share everywhere"
- * shape Specs and Pull Requests already use for `config.root` — so a
- * configured/worktree root relocates the whole AI capability together;
- * no provider independently falls back to the real repository root.
+ * threaded into every provider's cwd/local-data path, the provider
+ * configuration file lookup, and AgentSessionService's own `repoRoot` (which
+ * governs deterministic workflow resolution) — the same "resolve once, share
+ * everywhere" shape Specs and Pull Requests already use for `config.root` —
+ * so a configured/worktree root relocates the whole AI capability together;
+ * nothing independently falls back to the real repository root.
  */
 export function createDefaultAgentSessionService({
   root = REPOSITORY_ROOT,
@@ -104,7 +105,7 @@ export function createDefaultAgentSessionService({
   const transcriptCache = createTranscriptCacheService({ baseDir: resolve(root, '.nevo-ai-local', 'transcripts') });
   const bindingService = createAgentSessionBindingService({ storageDir: resolve(root, '.nevo-ai-local', 'sessions') });
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  return createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  return createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: root });
 }
 
 /**
