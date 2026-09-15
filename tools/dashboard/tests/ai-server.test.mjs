@@ -1557,8 +1557,9 @@ test('Task 07: Server workSummary supplies activityCount, currentActivity, and a
 test("Task 13 correction: readiness attached to 'turn.updated' SSE events matches the canonical server projection across active, requiresAttention, and terminal states", async () => {
   const { service } = createStack();
   const sessionId = 'session-sse-readiness';
+  const { sessionId: canonicalSessionId } = await service.createSession('mock', { providerSessionId: sessionId });
   const events = [];
-  const unsubscribe = service.subscribeToSession('mock', sessionId, {
+  const unsubscribe = service.subscribeToSession(canonicalSessionId, {
     onEvent: (event) => {
       if (event.type === 'turn.updated') events.push(event);
     },
@@ -1577,7 +1578,7 @@ test("Task 13 correction: readiness attached to 'turn.updated' SSE events matche
   };
 
   try {
-    const { turnId } = await service.startTurn('mock', sessionId, { message: 'permission please' });
+    const { turnId } = await service.startTurn({ provider: 'mock', sessionId: canonicalSessionId, message: 'permission please' });
 
     // active -> busy
     const activeEvent = await waitForEvent((e) => e.turn.status.status === 'active', 'active snapshot');
@@ -1604,7 +1605,11 @@ test("Task 13 correction: readiness attached to 'turn.updated' SSE events matche
 
     // A second turn, cancelled while requiring attention, must also project to ready.
     events.length = 0;
-    const cancelStart = await service.startTurn('mock', sessionId, { message: 'permission again' });
+    const cancelStart = await service.startTurn({
+      provider: 'mock',
+      sessionId: canonicalSessionId,
+      message: 'permission again',
+    });
     await waitForEvent((e) => e.turn.status.status === 'requiresAttention', 'second requiresAttention snapshot');
 
     await service.cancelTurn(cancelStart.turnId);
