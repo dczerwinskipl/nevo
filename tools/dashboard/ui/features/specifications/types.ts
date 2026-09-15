@@ -164,6 +164,7 @@ export interface SpecificationTaskActionGate {
   action: 'approve' | 'verify';
   enabled: boolean;
   reason: string | null;
+  availableActions?: string[];
 }
 
 export interface SpecificationWorktreeState {

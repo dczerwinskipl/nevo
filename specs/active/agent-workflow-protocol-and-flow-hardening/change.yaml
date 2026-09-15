@@ -72,9 +72,11 @@ tasks:
   - id: chat-surface-workflow-actions-and-composer-modes
     order: 3
     file: tasks/03-chat-surface-workflow-actions-and-composer-modes.md
-    status: approved
+    status: in-implementation
     depends_on:
       - session-task-binding-and-workflow-server-endpoints
+    implementation:
+      baseline_revision: 65be00767052352f8367b16b32fac2e1942e19fe
 pull_requests:
   - provider: github
     base_url: https://github.com

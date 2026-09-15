@@ -1,4 +1,4 @@
-import { CheckCircle2, GitBranch, LockKeyhole, Play } from 'lucide-react';
+import { CheckCircle2, Eye, GitBranch, LockKeyhole, Play } from 'lucide-react';
 
 import type {
   SpecificationSummary,
@@ -15,13 +15,17 @@ import { formatTaskStatus, taskStatusTone } from '../status';
 function TaskCard({
   task,
   actionGate,
+  experienceMode = 'deterministic',
   onSelect,
   onAction,
+  onWorkflowAction,
 }: {
   task: SpecificationTask;
   actionGate?: SpecificationTaskActionGate | null;
+  experienceMode?: 'classic' | 'deterministic';
   onSelect?: (task: SpecificationTask, trigger: HTMLElement) => void;
   onAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
+  onWorkflowAction?: (task: SpecificationTask, action: string) => void;
 }) {
   const hasAction = actionGate?.enabled;
 
@@ -76,26 +80,82 @@ function TaskCard({
           {task.title}
         </h3>
       </button>
-      {hasAction && (
-        <div className="mt-3 flex justify-center border-t border-border pt-2.5">
-          <Button
-            size="sm"
-            variant="secondary"
-            className="h-7 shrink-0 cursor-pointer border border-accent/40 px-2.5 text-[10px] font-semibold text-accent hover:bg-accent/15"
-            onClick={() => onAction?.(task, actionGate.action)}
-            aria-label={`${actionGate.action === 'approve' ? 'Zatwierdź zadanie' : 'Zaakceptuj zadanie'}: ${task.title}`}
-          >
-            {actionGate.action === 'approve' ? (
-              <>
-                <Play className="mr-1 size-2.5" /> Zatwierdź
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="mr-1 size-2.5" /> Zaakceptuj
-              </>
+      {experienceMode === 'classic' ? (
+        hasAction && (
+          <div className="mt-3 flex justify-center border-t border-border pt-2.5">
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-7 shrink-0 cursor-pointer border border-accent/40 px-2.5 text-[10px] font-semibold text-accent hover:bg-accent/15"
+              onClick={() => onAction?.(task, actionGate.action)}
+              aria-label={`${actionGate.action === 'approve' ? 'Zatwierdź zadanie' : 'Zaakceptuj zadanie'}: ${task.title}`}
+            >
+              {actionGate.action === 'approve' ? (
+                <>
+                  <Play className="mr-1 size-2.5" /> Zatwierdź
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="mr-1 size-2.5" /> Zaakceptuj
+                </>
+              )}
+            </Button>
+          </div>
+        )
+      ) : (
+        actionGate?.availableActions && actionGate.availableActions.length > 0 && (
+          <div className="mt-3 flex flex-wrap justify-center gap-1.5 border-t border-border pt-2.5">
+            {actionGate.availableActions.includes('start-implementation') && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-7 shrink-0 cursor-pointer border border-accent/40 px-2.5 text-[10px] font-semibold text-accent hover:bg-accent/15"
+                onClick={() => onWorkflowAction?.(task, 'start-implementation')}
+                aria-label={`Start implementation: ${task.title}`}
+              >
+                <Play className="mr-1 size-2.5" /> Start implementation
+              </Button>
             )}
-          </Button>
-        </div>
+            {actionGate.availableActions.includes('start-review') && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-7 shrink-0 cursor-pointer border border-accent/40 px-2.5 text-[10px] font-semibold text-accent hover:bg-accent/15"
+                onClick={() => onWorkflowAction?.(task, 'start-review')}
+                aria-label={`Start review: ${task.title}`}
+              >
+                <Eye className="mr-1 size-2.5" /> Start review
+              </Button>
+            )}
+            {actionGate.availableActions.includes('approve') && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-7 shrink-0 cursor-pointer border border-status-success/40 px-2.5 text-[10px] font-semibold text-status-success hover:bg-status-success/15"
+                onClick={() => onWorkflowAction?.(task, 'approve')}
+                aria-label={`Approve: ${task.title}`}
+              >
+                <CheckCircle2 className="mr-1 size-2.5" /> Approve
+              </Button>
+            )}
+            {actionGate.availableActions.includes('request-changes') && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-7 shrink-0 cursor-pointer border border-status-warning/40 px-2.5 text-[10px] font-semibold text-status-warning hover:bg-status-warning/15"
+                onClick={() => onWorkflowAction?.(task, 'request-changes')}
+                aria-label={`Request changes: ${task.title}`}
+              >
+                Request changes
+              </Button>
+            )}
+            {actionGate.availableActions.includes('operator-reconciliation') && (
+              <span className="rounded bg-status-warning/10 px-2 py-0.5 text-[9px] font-semibold tracking-wider text-status-warning uppercase">
+                Operator reconciliation
+              </span>
+            )}
+          </div>
+        )
       )}
     </div>
   );
@@ -104,15 +164,19 @@ function TaskCard({
 export function StatusBoard({
   specification,
   actions,
+  experienceMode = 'deterministic',
   onTaskSelect,
   onTaskAction,
   onBatchAction,
+  onWorkflowAction,
 }: {
   specification: SpecificationSummary;
   actions?: Record<string, SpecificationTaskActionGate>;
+  experienceMode?: 'classic' | 'deterministic';
   onTaskSelect?: (task: SpecificationTask, trigger: HTMLElement) => void;
   onTaskAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
   onBatchAction?: (tasks: SpecificationTask[], action: SpecificationOwnerAction) => void;
+  onWorkflowAction?: (task: SpecificationTask, action: string) => void;
 }) {
   return (
     <section aria-labelledby="workflow-heading">
@@ -145,12 +209,14 @@ export function StatusBoard({
                     key={task.id}
                     task={task}
                     actionGate={actions?.[task.id]}
+                    experienceMode={experienceMode}
                     onSelect={onTaskSelect}
                     onAction={onTaskAction}
+                    onWorkflowAction={onWorkflowAction}
                   />
                 ))}
                 {lane.tasks.length === 0 && <span className="sr-only">Brak zadań</span>}
-                {actionableTasks.length > 1 && firstAction && (
+                {experienceMode === 'classic' && actionableTasks.length > 1 && firstAction && (
                   <Button
                     size="sm"
                     variant="ghost"

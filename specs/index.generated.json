@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-15T15:24:21.306Z",
+  "generated": "2026-09-15T16:17:39.882Z",
   "changes": [
     {
       "id": "agent-workflow-protocol-and-flow-hardening",
@@ -90,10 +90,13 @@
           "id": "chat-surface-workflow-actions-and-composer-modes",
           "order": 3,
           "file": "tasks/03-chat-surface-workflow-actions-and-composer-modes.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "session-task-binding-and-workflow-server-endpoints"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "65be00767052352f8367b16b32fac2e1942e19fe"
+          }
         }
       ]
     },

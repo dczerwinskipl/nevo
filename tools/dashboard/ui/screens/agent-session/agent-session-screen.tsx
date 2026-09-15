@@ -115,7 +115,7 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
           source: effectiveSource,
           slug,
           provider: targetSession.provider,
-          providerSessionId: targetSession.providerSessionId ?? targetSession.sessionId,
+          providerSessionId: targetSession.sessionId || targetSession.providerSessionId || '',
         },
         replace: true,
       });
@@ -193,7 +193,7 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
 
   return (
     <AgentSessionPage
-      key={`${session.provider}:${session.providerSessionId}`}
+      key={`${session.provider}:${session.sessionId || session.providerSessionId}`}
       spec={effectiveSpec}
       session={session}
       onBack={handleBack}

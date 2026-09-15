@@ -11,6 +11,10 @@ import { useAgentProviders, useDeleteAgentSession } from './queries';
 import { AI_PROVIDERS_CONFIG_PATH } from './provider-config';
 import { useInitialDispatch } from './runtime/use-initial-dispatch';
 import { useVisualViewport } from './transcript/use-visual-viewport';
+import { getStoredWorkflowExperienceMode } from '@/screens/specification-detail/workflow-experience';
+import { useSpecificationActions } from '@/features/specifications/detail/spec-detail-queries';
+import type { SpecificationSummary } from '@/features/specifications/types';
+import type { BoundTaskInfo } from './agent-session-workflow-bar';
 import type { AgentExecutionMode, AgentSession, TaskNavigationTarget, AgentSessionTaskRef } from './types';
 
 export interface AgentSessionPageSpecContext {
@@ -42,7 +46,7 @@ export function AgentSessionPage({
   const visualViewport = useVisualViewport();
 
   const provider = session.provider;
-  const sessionId = session.providerSessionId || session.sessionId;
+  const sessionId = session.sessionId || session.providerSessionId || '';
 
   const [selectedModeOverride, setSelectedModeOverride] = useState<AgentExecutionMode | null>(null);
   const providersQuery = useAgentProviders();
@@ -148,6 +152,101 @@ export function AgentSessionPage({
       setRuntimeError(err instanceof Error ? err.message : String(err));
     }
   };
+
+  const experienceMode = getStoredWorkflowExperienceMode();
+  const boundTaskIds = useMemo(() => {
+    const ids: string[] = [];
+    if (session.taskIds && session.taskIds.length > 0) {
+      ids.push(...session.taskIds);
+    } else if (session.taskId) {
+      ids.push(session.taskId);
+    }
+    return Array.from(new Set(ids));
+  }, [session.taskIds, session.taskId]);
+
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(() => boundTaskIds[0] || null);
+
+  useEffect(() => {
+    if (boundTaskIds.length > 0 && (!activeTaskId || !boundTaskIds.includes(activeTaskId))) {
+      setActiveTaskId(boundTaskIds[0]);
+    }
+  }, [boundTaskIds, activeTaskId]);
+
+  const actionsQuery = useSpecificationActions(
+    { slug: spec?.slug || '', source: 'active' } as SpecificationSummary,
+    Boolean(spec?.slug),
+  );
+
+  const boundTasks: BoundTaskInfo[] = useMemo(() => {
+    return boundTaskIds.map((id) => {
+      const specTask = spec?.tasks?.find((t) => t.id === id);
+      const taskAction = actionsQuery.data?.tasks?.[id];
+      const status = (taskAction as any)?.status || (specTask as any)?.status || 'in-implementation';
+      const attempt = (taskAction as any)?.attempt || (specTask as any)?.attempt || 1;
+      return {
+        id,
+        title: specTask?.title,
+        status,
+        attempt,
+      };
+    });
+  }, [boundTaskIds, spec?.tasks, actionsQuery.data?.tasks]);
+
+  const activeTaskActions = activeTaskId ? actionsQuery.data?.tasks?.[activeTaskId]?.availableActions || [] : [];
+  const activeTaskGate = activeTaskId ? actionsQuery.data?.tasks?.[activeTaskId] : null;
+  const activeTaskAttempt = (activeTaskGate as any)?.attempt || 1;
+
+  const handleApproveTask = useCallback(async (taskId: string) => {
+    if (!spec?.slug) return;
+    setRuntimeError(null);
+    try {
+      const response = await fetch(`/api/specs/${encodeURIComponent(spec.slug)}/tasks/${encodeURIComponent(taskId)}/workflow/human-decision`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ decision: 'approve' }),
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        throw new Error(errData?.error || `Nie udało się zatwierdzić zadania (${response.status})`);
+      }
+      await actionsQuery.refresh();
+      await assistant.reload();
+    } catch (err) {
+      setRuntimeError(err instanceof Error ? err.message : String(err));
+    }
+  }, [spec?.slug, actionsQuery, assistant]);
+
+  const handleStartReviewTask = useCallback(async (taskId: string) => {
+    if (!assistant.canStartTurn) return;
+    setRuntimeError(null);
+    try {
+      const prompt = `Review task ${taskId}`;
+      await assistant.sendTurn(prompt, { mode: 'agent', userMessage: prompt });
+      await actionsQuery.refresh();
+    } catch (err) {
+      setRuntimeError(err instanceof Error ? err.message : String(err));
+    }
+  }, [assistant, actionsQuery]);
+
+  const handleRequestChangesSubmit = useCallback(async (taskId: string, feedback: string) => {
+    if (!spec?.slug) return;
+    setRuntimeError(null);
+    try {
+      const response = await fetch(`/api/specs/${encodeURIComponent(spec.slug)}/tasks/${encodeURIComponent(taskId)}/workflow/human-decision`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ decision: 'request-changes', feedback }),
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        throw new Error(errData?.error || `Nie udało się odrzucić zadania (${response.status})`);
+      }
+      await actionsQuery.refresh();
+      await assistant.reload();
+    } catch (err) {
+      setRuntimeError(err instanceof Error ? err.message : String(err));
+    }
+  }, [spec?.slug, actionsQuery, assistant]);
 
   const handleComposerSubmit = useCallback(
     async (promptText: string) => {
@@ -264,6 +363,15 @@ export function AgentSessionPage({
             ? 'Odpowiedz na pytanie powyżej…'
             : undefined
         }
+        experienceMode={experienceMode}
+        boundTasks={boundTasks}
+        activeTaskId={activeTaskId}
+        onSelectActiveTask={setActiveTaskId}
+        availableActions={activeTaskActions}
+        activeTaskAttempt={activeTaskAttempt}
+        onApproveTask={handleApproveTask}
+        onStartReviewTask={handleStartReviewTask}
+        onRequestChangesSubmit={handleRequestChangesSubmit}
         keyboardOpen={visualViewport.keyboardOpen}
         onReload={() => void handleReload()}
         onBack={onBack}
