@@ -183,6 +183,13 @@ export function formatNevoWorkflowContext({ changeSlug, taskId, step = 'implemen
   ].join('\n');
 }
 
+// Fails closed: when the true deterministic workflow position (step/attempt) cannot be
+// resolved, this returns null rather than guessing 'implementation'/attempt 1 — a wrong
+// instruction injected into the agent's context is worse than none. Every null-returning
+// path inside deterministic mode logs a diagnostic explaining why, so a broken/missing
+// workflow definition is visible instead of silently masked by a plausible-looking guess.
+// (Returning null when the spec/task is simply not in deterministic mode at all — the
+// common case — is not a failure and does not warrant a diagnostic.)
 export function resolveDeterministicWorkflowInfo(specId, taskId, baseDir) {
   if (!specId) return null;
   try {
@@ -196,26 +203,39 @@ export function resolveDeterministicWorkflowInfo(specId, taskId, baseDir) {
     const resolvedTaskId = rawTaskId || (change.tasks && change.tasks.length > 0 ? String(change.tasks[0].id) : undefined);
     const resolvedTask = task || (change.tasks && change.tasks.length > 0 ? change.tasks[0] : null);
 
-    let step = 'implementation';
-    let attempt = 1;
+    if (!resolvedTask) {
+      console.error(
+        `[ai] [workflow] Deterministic spec '${specId}' has no resolvable task for '${taskId ?? '(none given)'}' — refusing to guess a workflow step.`,
+      );
+      return null;
+    }
 
-    if (resolvedTask) {
-      try {
-        const repoRoot = baseDir ? resolve(baseDir, '..', '..') : ROOT;
-        const defName = change.workflow?.definition || 'standard-v1';
-        const definition = loadWorkflowDefinition(defName, { repoRoot });
-        const position = resolveWorkflowPosition(definition, resolvedTask);
-        if (position && position.step) {
-          step = position.step;
-          attempt = position.attempt ?? 1;
-        } else if (position?.phase === 'new') {
-          step = definition.entryStep || Object.keys(definition.steps || {})[0] || 'implementation';
-          attempt = 1;
-        }
-      } catch {
-        step = resolvedTask.step || 'implementation';
-        attempt = typeof resolvedTask.attempt === 'number' ? resolvedTask.attempt : 1;
+    let step;
+    let attempt;
+    try {
+      const repoRoot = baseDir ? resolve(baseDir, '..', '..') : ROOT;
+      const defName = change.workflow?.definition || 'standard-v1';
+      const definition = loadWorkflowDefinition(defName, { repoRoot });
+      const position = resolveWorkflowPosition(definition, resolvedTask);
+      if (position && position.step) {
+        step = position.step;
+        attempt = position.attempt ?? 1;
+      } else if (position?.phase === 'new') {
+        step = definition.entryStep || Object.keys(definition.steps || {})[0] || 'implementation';
+        attempt = 1;
       }
+    } catch (err) {
+      console.error(
+        `[ai] [workflow] Failed to resolve deterministic workflow position for spec '${specId}' task '${resolvedTaskId}': ${err?.message || err} — refusing to guess a workflow step.`,
+      );
+      return null;
+    }
+
+    if (!step) {
+      console.error(
+        `[ai] [workflow] Deterministic workflow position for spec '${specId}' task '${resolvedTaskId}' could not be determined — refusing to guess a workflow step.`,
+      );
+      return null;
     }
 
     return {
@@ -225,7 +245,10 @@ export function resolveDeterministicWorkflowInfo(specId, taskId, baseDir) {
       step,
       attempt,
     };
-  } catch {
+  } catch (err) {
+    console.error(
+      `[ai] [workflow] Unexpected error resolving deterministic workflow info for spec '${specId}': ${err?.message || err}`,
+    );
     return null;
   }
 }
@@ -287,22 +310,6 @@ export class AgentSessionService {
     // provider-identity route creating a session that didn't exist yet) is used
     // as-is and never re-derived from the provider's own createSession().
     let providerSessionId = options.providerSessionId || undefined;
-    if (!providerSessionId && typeof entry.provider.createSession === 'function') {
-      const created = await entry.provider.createSession({
-        sessionId,
-        specId: options.specId,
-        taskId: primaryTaskId,
-        taskIds: taskIds.length > 0 ? taskIds : undefined,
-        purpose,
-        mode,
-        model: options.model,
-        title: options.title,
-      });
-      providerSessionId = typeof created === 'string' ? created : created?.providerSessionId;
-      if (providerSessionId) {
-        validateAgentIdentity({ provider, providerSessionId });
-      }
-    }
 
     let binding;
     if (this.bindingService) {
@@ -350,6 +357,35 @@ export class AgentSessionService {
         lastSeenAt: new Date().toISOString(),
       };
     }
+
+    // The canonical AgentSession is now durably persisted (or, with no bindingService,
+    // constructed) BEFORE any provider-native side effect runs — a provider.createSession()
+    // call that throws, hangs, or only partially succeeds must never leave Nevo's own
+    // canonical identity unrecorded. If the provider never confirms an id, the session is
+    // intentionally left unestablished (providerSessionId absent), never fabricated. The
+    // provider error itself is allowed to propagate — the session persisted above is not
+    // rolled back, since the provider side effect may already have partially happened.
+    if (!providerSessionId && typeof entry.provider.createSession === 'function') {
+      const created = await entry.provider.createSession({
+        sessionId,
+        specId: options.specId,
+        taskId: primaryTaskId,
+        taskIds: taskIds.length > 0 ? taskIds : undefined,
+        purpose,
+        mode,
+        model: options.model,
+        title: options.title,
+      });
+      providerSessionId = typeof created === 'string' ? created : created?.providerSessionId;
+      if (providerSessionId) {
+        validateAgentIdentity({ provider, providerSessionId });
+        if (this.bindingService) {
+          await this.bindingService.setProviderSessionId(sessionId, providerSessionId);
+        }
+        binding = { ...binding, providerSessionId };
+      }
+    }
+
     return {
       ...binding,
       sessionId,
@@ -544,6 +580,18 @@ export class AgentSessionService {
     return null;
   }
 
+  /**
+   * Explicit compat-identity lookup: given a provider and its provider-native id, returns
+   * the canonical AgentSession it belongs to (or null). This is the one sanctioned way to
+   * resolve a legacy (provider, providerSessionId) pair to the canonical sessionId — never
+   * UUID-shape sniffing, since a provider-native id can itself be UUID-shaped.
+   */
+  async findSessionByProviderIdentity(provider, providerSessionId) {
+    validateAgentIdentity({ provider, providerSessionId });
+    if (!this.bindingService) return null;
+    return await this.bindingService.findSessionByProviderIdentity(provider, providerSessionId);
+  }
+
   async updateSessionMode(providerOrSessionId, modeOrSessionId, maybeMode) {
     let provider;
     let sessId;
@@ -649,14 +697,12 @@ export class AgentSessionService {
     const taskIds = binding?.taskIds || (binding?.taskId ? [binding.taskId] : []);
     const specId = binding?.specId;
 
-    // Transcript files are keyed by the native providerSessionId (see
-    // SessionTranscriptCacheService#getFilePath), never by the canonical
-    // sessionId — prefer sessId here. Once a session is established, sessId
-    // (binding.providerSessionId) and sessionId (binding.sessionId) diverge;
-    // falling back to sessionId first silently looks up a transcript file
-    // that was never written under that key, returning an empty transcript
-    // for a session that actually has history.
-    const transcriptId = sessId || sessionId;
+    // The canonical transcript belongs to sessionId exactly once (see runtime.mjs's
+    // setProviderSessionId / TurnEventStream.emit) — prefer the canonical sessionId here.
+    // sessId (providerSessionId) is only a fallback for the rare case where no canonical
+    // sessionId could be resolved at all (compatibility lookups that never found a bound
+    // AgentSession), matching the same fallback runtime.mjs uses when writing.
+    const transcriptId = sessionId || sessId;
     const transcript = provider ? await this.getTranscript(provider, transcriptId) : { turns: [], lastEventSeq: 0 };
     const { status, activeTurn, pendingInteraction } = this.resolveSessionActivity(transcript);
     const resolvedMode = binding?.mode ?? descriptor?.defaultMode ?? 'edit';
@@ -736,8 +782,17 @@ export class AgentSessionService {
 
   async listTurns(provider, providerSessionId) {
     validateAgentIdentity({ provider, providerSessionId });
+    // The canonical transcript belongs to sessionId exactly once — resolve a legacy
+    // (provider, providerSessionId) compat identity to its canonical sessionId first,
+    // same as getSessionDetails, rather than querying the transcript cache under the
+    // raw provider-native id directly.
+    let transcriptId = providerSessionId;
+    if (this.bindingService) {
+      const binding = await this.getSession(provider, providerSessionId);
+      if (binding?.sessionId) transcriptId = binding.sessionId;
+    }
     if (this.transcriptCache) {
-      const transcript = await this.transcriptCache.getTranscript(provider, providerSessionId);
+      const transcript = await this.transcriptCache.getTranscript(provider, transcriptId);
       return (transcript.turns || []).map(serializePublicTurn);
     }
     return [];
@@ -1041,20 +1096,34 @@ export class AgentSessionService {
     return this.turnRuntime.getCanonicalTurn?.(turnId) ?? null;
   }
 
-  cancelTurn(turnId, options) {
-    if (!this.turnRuntime) throw new Error('No turn runtime configured.');
-    return this.turnRuntime.cancelTurn(turnId, options);
+  // A legacy (provider, providerSessionId) compat identity must resolve to the canonical
+  // sessionId before reaching the turn runtime: turns and their persisted transcripts are
+  // keyed by sessionId exactly once (see runtime.mjs / TurnEventStream.emit), so restoring
+  // a turn after a restart by the raw provider-native id alone would silently miss it. When
+  // no bindingService/mapping exists at all (legacy provider-only test doubles), the raw
+  // providerSessionId is passed through unchanged — the fallback identity runtime.mjs itself
+  // uses when no canonical sessionId was ever established.
+  async #resolveCompatOptions(options = {}) {
+    const { provider, providerSessionId } = options;
+    if (!provider || !providerSessionId || !this.bindingService) return options;
+    const resolved = await this.bindingService.findSessionByProviderIdentity(provider, providerSessionId);
+    if (!resolved?.sessionId) return options;
+    return { ...options, providerSessionId: resolved.sessionId };
   }
 
-  recoverTurn(turnId, options) {
+  async cancelTurn(turnId, options) {
     if (!this.turnRuntime) throw new Error('No turn runtime configured.');
-    return this.turnRuntime.recoverTurn(turnId, options);
+    return this.turnRuntime.cancelTurn(turnId, await this.#resolveCompatOptions(options));
   }
 
-
-  resolveInteraction(turnId, interactionId, response, options) {
+  async recoverTurn(turnId, options) {
     if (!this.turnRuntime) throw new Error('No turn runtime configured.');
-    return this.turnRuntime.resolveInteraction(turnId, interactionId, response, options);
+    return this.turnRuntime.recoverTurn(turnId, await this.#resolveCompatOptions(options));
+  }
+
+  async resolveInteraction(turnId, interactionId, response, options) {
+    if (!this.turnRuntime) throw new Error('No turn runtime configured.');
+    return this.turnRuntime.resolveInteraction(turnId, interactionId, response, await this.#resolveCompatOptions(options));
   }
 
   setFinalAnswer(turnId, finalAnswerData) {

@@ -142,7 +142,7 @@ export default async function sessionRoutes(fastify, { service, accessPolicy }) 
       reply.code(404).send({ error: { code: 'AI_SESSION_NOT_FOUND', message: 'Session not found.' } });
       return;
     }
-    const turns = await service.listTurns(details.provider, details.providerSessionId || details.sessionId);
+    const turns = await service.listTurns(details.provider, details.sessionId || details.providerSessionId);
     reply.send({ turns });
   });
 

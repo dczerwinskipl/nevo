@@ -482,7 +482,6 @@ export class AntigravityAgentProvider {
   #cwd;
   #spawnProcess;
   #activeOperations = new Map();
-  #mappingFilePath;
   #availabilityCache = { checkedAt: 0, result: null };
   #modelsCache = { checkedAt: 0, result: null };
   #cancelGraceMs;
@@ -513,8 +512,6 @@ export class AntigravityAgentProvider {
     forceGraceMs = 2_000,
     printTimeoutSeconds = DEFAULT_ANTIGRAVITY_PRINT_TIMEOUT_SECONDS,
     probeExecutable,
-    materializedSessions,
-    mappingFilePath = null,
     rawCaptureDir = null,
     rawCaptureEnabled = false,
     rawFlushTimeoutMs = 2_000,
@@ -563,7 +560,6 @@ export class AntigravityAgentProvider {
         : EMPTY_ERROR_MESSAGE_STALL_MIN_ELAPSED_MS;
     this.#probeExecutable =
       probeExecutable ?? (spawnProcess !== spawn ? () => true : defaultProbeAntigravityExecutable);
-    this.#mappingFilePath = mappingFilePath;
     this.#rawCaptureEnabled = Boolean(rawCaptureEnabled);
     this.#rawFlushTimeoutMs = Number.isFinite(rawFlushTimeoutMs) && rawFlushTimeoutMs >= 0 ? rawFlushTimeoutMs : 2_000;
     this.#rawCaptureDir = this.#rawCaptureEnabled
@@ -911,7 +907,12 @@ export class AntigravityAgentProvider {
     const mode = validateAgentExecutionMode(rawMode || 'edit', this.descriptor.supportedModes, 'antigravity');
     const inputMessage = message || prompt || '';
     const effectiveSessionId = providerSessionId || sessionId || randomUUID();
-    let isSessionEstablished = false;
+    // A providerSessionId supplied by the caller is already a real, previously-confirmed
+    // native conversation id (a continuation turn) — it needs no fresh CLI echo to be
+    // trustworthy. Only a provisional turn (no providerSessionId given) must wait for the
+    // CLI to actually confirm a new conversation id via confirmSession() before that id may
+    // be reported as established.
+    let isSessionEstablished = Boolean(providerSessionId);
     let pendingAssistantText = '';
     let committedCommentary = '';
     let commentaryBlockIndex = 0;
@@ -1162,7 +1163,12 @@ export class AntigravityAgentProvider {
         } else {
           resolve({
             turnId,
-            providerSessionId: currentSessionId || effectiveSessionId,
+            // Only a real, CLI-confirmed conversation id (isSessionEstablished, set inside
+            // confirmSession()) may be reported as providerSessionId. effectiveSessionId is
+            // an internal placeholder (possibly a locally-minted UUID) used for bookkeeping
+            // before establishment — reporting it here would fabricate a provider-native
+            // identity the CLI never actually confirmed.
+            ...(isSessionEstablished ? { providerSessionId: currentSessionId } : {}),
             status: 'completed',
           });
         }
@@ -1918,8 +1924,5 @@ export class AntigravityAgentProvider {
 }
 
 export function createAntigravityAgentProvider(options = {}) {
-  return new AntigravityAgentProvider({
-    mappingFilePath: null,
-    ...options,
-  });
+  return new AntigravityAgentProvider(options);
 }

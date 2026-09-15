@@ -376,19 +376,29 @@ test('AgentSessionService uses binding service for listings and transcript cache
   assert.equal(details.turns[0].userMessage.text, 'hi');
 });
 
-test('AgentSessionService binds a provider-created session identity only after creation succeeds', async () => {
+test('AgentSessionService persists the canonical AgentSession before any provider-native createSession() side effect, and correlates the native id afterward', async () => {
   const bindings = [];
   const bindingService = {
     async bindSession(binding) {
       bindings.push(binding);
       return binding;
     },
+    async setProviderSessionId(sessionId, providerSessionId) {
+      const binding = bindings.find((b) => b.sessionId === sessionId);
+      if (binding) binding.providerSessionId = providerSessionId;
+      return binding;
+    },
   };
+  let observedDuringCreate;
   const provider = {
     descriptor: { id: 'owned', label: 'Owned', capabilities },
     async createSession({ mode, purpose }) {
       assert.equal(mode, 'edit');
       assert.equal(purpose, 'task:task-1');
+      // The canonical binding must already exist, without a native id, by the time this
+      // provider-side effect runs. Snapshot it now — the live object is mutated in place
+      // once setProviderSessionId() correlates the native id afterward.
+      observedDuringCreate = { ...bindings.find((b) => b.taskId === 'task-1') };
       return { providerSessionId: 'provider-thread-1' };
     },
     async startTurn() {},
@@ -398,11 +408,17 @@ test('AgentSessionService binds a provider-created session identity only after c
   const service = createAgentSessionService({ registry, bindingService });
 
   const session = await service.createSession('owned', { specId: 'spec-1', taskId: 'task-1' });
+  assert.ok(observedDuringCreate, 'the canonical binding must be persisted before provider.createSession() runs');
+  assert.equal(observedDuringCreate.providerSessionId, undefined);
   assert.equal(session.providerSessionId, 'provider-thread-1');
   assert.equal(bindings.length, 1);
   assert.equal(bindings[0].providerSessionId, 'provider-thread-1');
 
-  let failedBindingCalled = false;
+  // When the provider-native side effect itself fails, the already-persisted canonical
+  // binding is NOT rolled back — the provider error still propagates, but the session
+  // remains recorded (unestablished, never fabricated), since provider side effects may
+  // already have partially happened by the time the failure surfaces.
+  let bindCallCount = 0;
   const failingProvider = {
     descriptor: { id: 'failing-owned', label: 'Failing owned', capabilities },
     async createSession() {
@@ -414,8 +430,9 @@ test('AgentSessionService binds a provider-created session identity only after c
   const failingService = createAgentSessionService({
     registry: createAgentProviderRegistry([failingProvider]),
     bindingService: {
-      async bindSession() {
-        failedBindingCalled = true;
+      async bindSession(binding) {
+        bindCallCount += 1;
+        return binding;
       },
     },
   });
@@ -423,7 +440,7 @@ test('AgentSessionService binds a provider-created session identity only after c
     () => failingService.createSession('failing-owned', { specId: 'spec-1' }),
     /provider creation failed/,
   );
-  assert.equal(failedBindingCalled, false);
+  assert.equal(bindCallCount, 1, 'the canonical binding must be persisted even though the provider side effect later failed');
 });
 
 test('integration: new chat -> first prompt -> provider identity created and bound -> second prompt resumes', async () => {
@@ -436,17 +453,27 @@ test('integration: new chat -> first prompt -> provider identity created and bou
     async listBindings() {
       return bindings;
     },
+    async setProviderSessionId(sessionId, providerSessionId) {
+      const binding = bindings.find((b) => b.sessionId === sessionId);
+      if (binding) binding.providerSessionId = providerSessionId;
+      return binding;
+    },
+    async findSessionByProviderIdentity(provider, providerSessionId) {
+      return bindings.find((b) => b.provider === provider && b.providerSessionId === providerSessionId) || null;
+    },
   };
 
   let resumeCalledWith = null;
   const provider = {
     descriptor: { id: 'fake', label: 'Fake', capabilities },
-    async startTurn({ providerSessionId, setProviderSessionId, message, emitFinalAnswerDelta }) {
+    async startTurn({ providerSessionId, onProviderSessionIdAvailable, message, emitFinalAnswerDelta }) {
       if (!providerSessionId) {
         const newId = 'fake-allocated-uuid-999';
-        setProviderSessionId(newId);
+        // Establish via the explicit callback only — also returning providerSessionId in
+        // the result would trigger a second, redundant establish attempt.
+        await onProviderSessionIdAvailable(newId);
         emitFinalAnswerDelta('first turn response');
-        return { providerSessionId: newId };
+        return {};
       } else {
         resumeCalledWith = providerSessionId;
         emitFinalAnswerDelta('second turn response');
@@ -467,18 +494,26 @@ test('integration: new chat -> first prompt -> provider identity created and bou
     taskId: 'task-1',
   });
 
-  // Direct return value MUST have providerSessionId populated
-  assert.equal(turn1.providerSessionId, 'fake-allocated-uuid-999');
+  // startTurn() resolves once the turn is admitted, not once the provider confirms its
+  // native id (see runtime.mjs) — the canonical sessionId is the one identity guaranteed
+  // to be populated immediately.
+  assert.ok(turn1.sessionId);
+  assert.equal(turn1.providerSessionId, undefined);
+
+  for (let i = 0; i < 50; i++) {
+    const snap = service.getTurn(turn1.turnId);
+    // Turn completion and native-id establishment are two independent async chains (the
+    // mock provider fires setProviderSessionId() without awaiting it) — wait for both.
+    if (snap?.status === 'completed' && bindings[0]?.providerSessionId) break;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+
+  // Once the turn has actually completed, the provider-native id it established is
+  // durably bound.
   assert.equal(bindings.length, 1);
   assert.equal(bindings[0].provider, 'fake');
   assert.equal(bindings[0].providerSessionId, 'fake-allocated-uuid-999');
   assert.equal(bindings[0].specId, 'spec-integration-test');
-
-  for (let i = 0; i < 50; i++) {
-    const snap = service.getTurn(turn1.turnId);
-    if (snap?.status === 'completed') break;
-    await new Promise((r) => setTimeout(r, 5));
-  }
 
   // 2. Second prompt resumes using the established providerSessionId
   const turn2 = await service.startTurn('fake', 'fake-allocated-uuid-999', {

@@ -183,11 +183,18 @@ export class TurnEventStream {
         sessionEvents.shift();
       }
 
+      // Canonical transcript belongs to sessionId exactly once. providerSessionId is
+      // provider-native metadata, never a second transcript identity — a compatibility
+      // route that only knows (provider, providerSessionId) is responsible for resolving
+      // to the canonical AgentSession and its sessionId *before* reaching here (see
+      // AgentSessionService.subscribeToSession / findSessionByProviderIdentity), not by
+      // this layer forking a duplicate transcript under the native id. The providerSessionId
+      // branch only fires when no canonical sessionId is known at all (there is then only
+      // one identity in play, so writing under it is not a duplication).
       if (this.#transcriptCache) {
         if (binding.sessionId) {
           this.#transcriptCache.applyEvent(binding.provider, binding.sessionId, event).catch(() => {});
-        }
-        if (binding.providerSessionId && binding.providerSessionId !== binding.sessionId) {
+        } else if (binding.providerSessionId) {
           this.#transcriptCache.applyEvent(binding.provider, binding.providerSessionId, event).catch(() => {});
         }
       }

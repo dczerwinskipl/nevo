@@ -716,3 +716,194 @@ tasks:
     await rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('Cross-process lost-update regression: two independent binding-service instances against the same storage directory never silently overwrite each other', async () => {
+  // Reproduces the real failure mode: a long-running dashboard process and a
+  // separately-spawned `workflow step start/finish` CLI process both hold their own
+  // AgentSessionBindingService instance pointed at the same on-disk directory. Neither
+  // instance is aware of the other's in-memory state — the only thing they share is the
+  // filesystem. A stale cached read (rather than always reading fresh + a cross-process
+  // lock around the read-modify-write cycle) would let one instance's mutation silently
+  // discard the other's already-persisted change.
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-binding-cross-process-'));
+  try {
+    const storageDir = join(tmpDir, 'sessions');
+    const specId = 'd9d40a17-cb1b-4cb5-b562-36f9bc75b726';
+
+    // Two independent instances — never share a constructor, a cache, or any JS
+    // reference — standing in for the dashboard server and the CLI process.
+    const dashboard = createAgentSessionBindingService({ storageDir });
+    const cli = createAgentSessionBindingService({ storageDir });
+
+    const created = await dashboard.bindSession({
+      provider: 'claude',
+      specId,
+      taskId: 'task-a',
+      step: 'implementation',
+      attempt: 1,
+      purpose: 'initial',
+    });
+    const sessionId = created.sessionId;
+
+    // The "dashboard" performs an unrelated READ first — under the old persistent
+    // read-through cache, this would have populated a stale in-memory copy of the spec
+    // document that later survives past the CLI's write below.
+    await dashboard.getSession(sessionId);
+
+    // The "CLI" (a fully independent instance) now writes a DIFFERENT logical field —
+    // advancing the task's step/attempt, exactly as `workflow step start/finish` does.
+    await cli.bindSession({
+      provider: 'claude',
+      sessionId,
+      specId,
+      taskId: 'task-a',
+      step: 'verification',
+      attempt: 2,
+      purpose: 'initial',
+    });
+
+    // The "dashboard" now performs its own, unrelated mutation — e.g. correlating the
+    // provider-native session id once Claude confirms it. If the dashboard instance were
+    // still working from a stale cached document (pre-dating the CLI's write above), this
+    // write would silently resurrect the old step/attempt and erase the CLI's update.
+    await dashboard.setProviderSessionId(sessionId, 'claude-native-session-77');
+
+    // Both processes' updates must be visible afterward, from either instance.
+    const finalFromDashboard = await dashboard.getSession(sessionId);
+    const finalFromCli = await cli.getSession(sessionId);
+    for (const final of [finalFromDashboard, finalFromCli]) {
+      assert.equal(final.providerSessionId, 'claude-native-session-77', 'dashboard update must be preserved');
+    }
+
+    const bindings = await dashboard.listBindings({ specId, taskId: 'task-a' });
+    assert.equal(bindings.length, 1);
+    assert.equal(bindings[0].step, 'verification', 'CLI update must not be lost by a later dashboard write');
+    assert.equal(bindings[0].attempt, 2, 'CLI update must not be lost by a later dashboard write');
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Cross-process lost-update regression: genuinely interleaved concurrent mutations from two instances both persist', async () => {
+  // Same two-instance setup, but this time the mutations race concurrently (both fired
+  // before either resolves) rather than being sequenced by the test. The file lock must
+  // serialize them so neither read-modify-write cycle overlaps the other's.
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-binding-cross-process-race-'));
+  try {
+    const storageDir = join(tmpDir, 'sessions');
+    const specId = 'd9d40a17-cb1b-4cb5-b562-36f9bc75b726';
+
+    const instanceA = createAgentSessionBindingService({ storageDir });
+    const instanceB = createAgentSessionBindingService({ storageDir });
+
+    // Bind 10 distinct sessions concurrently from two independent instances, interleaved.
+    // If a lost update ever occurs, the final session count will be less than 10.
+    const writes = [];
+    for (let i = 0; i < 10; i += 1) {
+      const instance = i % 2 === 0 ? instanceA : instanceB;
+      writes.push(
+        instance.bindSession({
+          provider: 'mock',
+          specId,
+          taskId: `task-${i}`,
+          purpose: `concurrent-${i}`,
+        }),
+      );
+    }
+    await Promise.all(writes);
+
+    const allSessions = await instanceA.listSessions({ specId });
+    assert.equal(allSessions.length, 10, 'every concurrent write must survive — none may be lost to a racing writer');
+    const purposes = new Set(allSessions.map((s) => s.purpose));
+    for (let i = 0; i < 10; i += 1) {
+      assert.ok(purposes.has(`concurrent-${i}`), `write ${i} must be present`);
+    }
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+// ── Section 6: legacy flat-array migration provenance ──────────────────────────────────
+// normalizeStorageContent() must never infer a "fake"/provisional providerSessionId from
+// string equality between providerSessionId and sessionId — only the explicit
+// `established: false` marker proves a placeholder. Equal values legitimately occur for
+// real, established sessions (e.g. Claude, where Nevo passes its own canonical UUID as
+// the provider's --session-id), and a legacy row with no separate `sessionId` field at
+// all derives sessionId FROM providerSessionId, which would make an equality check trivially
+// true and destroy a real identity.
+
+test('Legacy migration: an established session whose real providerSessionId equals sessionId is preserved, not stripped', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-binding-migration-established-'));
+  try {
+    const storageFile = join(tmpDir, 'sessions.json');
+    const specId = 'd9d40a17-cb1b-4cb5-b562-36f9bc75b726';
+    const sharedId = '11111111-1111-4111-8111-111111111111';
+
+    // Hand-crafted legacy flat-array row: no `established` marker at all (the common
+    // case for older persisted data), providerSessionId genuinely equals sessionId.
+    await writeFile(
+      storageFile,
+      JSON.stringify([
+        {
+          provider: 'claude',
+          providerSessionId: sharedId,
+          sessionId: sharedId,
+          specId,
+          taskId: '01-task',
+          purpose: 'implementation',
+          createdAt: new Date().toISOString(),
+          lastSeenAt: new Date().toISOString(),
+        },
+      ]),
+      'utf-8',
+    );
+
+    const service = createAgentSessionBindingService({ storageFile });
+    const session = await service.getSession(sharedId);
+    assert.ok(session, 'migrated session must be found by canonical sessionId');
+    assert.equal(session.providerSessionId, sharedId, 'a real established native id equal to sessionId must survive migration');
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Legacy migration: a row explicitly marked established: false never surfaces a fabricated providerSessionId', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-binding-migration-placeholder-'));
+  try {
+    const storageFile = join(tmpDir, 'sessions.json');
+    const specId = 'd9d40a17-cb1b-4cb5-b562-36f9bc75b726';
+    const placeholderId = '22222222-2222-4222-8222-222222222222';
+
+    // Legacy lazy-establishment row: the provisional providerSessionId slot was filled
+    // with the canonical sessionId itself pending real provider confirmation, and
+    // explicitly marked as such via `established: false`.
+    await writeFile(
+      storageFile,
+      JSON.stringify([
+        {
+          provider: 'claude',
+          providerSessionId: placeholderId,
+          sessionId: placeholderId,
+          established: false,
+          specId,
+          taskId: '02-task',
+          purpose: 'implementation',
+          createdAt: new Date().toISOString(),
+          lastSeenAt: new Date().toISOString(),
+        },
+      ]),
+      'utf-8',
+    );
+
+    const service = createAgentSessionBindingService({ storageFile });
+    const session = await service.getSession(placeholderId);
+    assert.ok(session, 'migrated session must still be found by canonical sessionId');
+    assert.equal(
+      session.providerSessionId,
+      undefined,
+      'a placeholder explicitly marked established: false must never surface as a real providerSessionId',
+    );
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});

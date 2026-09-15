@@ -1,5 +1,16 @@
-import { mkdirSync, writeFileSync, renameSync, existsSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
-import { mkdir, readFile, rename, writeFile, readdir, unlink } from 'node:fs/promises';
+import {
+  mkdirSync,
+  writeFileSync,
+  renameSync,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  unlinkSync,
+  openSync,
+  closeSync,
+  statSync,
+} from 'node:fs';
+import { mkdir, readFile, rename, writeFile, readdir, unlink, open, stat } from 'node:fs/promises';
 import { dirname, resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
@@ -53,6 +64,96 @@ function safeWriteJsonSync(filePath, data) {
   const tempFile = `${filePath}.${randomUUID()}.tmp`;
   writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf-8');
   renameSync(tempFile, filePath);
+}
+
+// Cross-process advisory lock: mutual exclusion for the read-modify-write cycle around one
+// spec's session storage file. Nevo has multiple independent writers against the same file —
+// the long-running dashboard process and short-lived `workflow step start/finish` CLI
+// invocations — so an in-process mutex alone cannot prevent a lost update (process A reads,
+// process B reads+writes, process A writes back over B's change). Exclusive file creation
+// (`wx`) is atomic on both POSIX and NTFS, so it works as a cross-platform mutex without a
+// database or extra dependency. A stale lock (left behind by a crashed process) is reclaimed
+// after `staleMs` based on the lock file's own mtime.
+const LOCK_TIMEOUT_MS = 5000;
+const LOCK_STALE_MS = 15000;
+const LOCK_RETRY_MIN_MS = 15;
+const LOCK_RETRY_MAX_MS = 40;
+
+function lockPathFor(filePath) {
+  return `${filePath}.lock`;
+}
+
+async function acquireFileLock(filePath) {
+  const lockPath = lockPathFor(filePath);
+  await mkdir(dirname(lockPath), { recursive: true });
+  const start = Date.now();
+  for (;;) {
+    let handle;
+    try {
+      handle = await open(lockPath, 'wx');
+      await handle.close();
+      return async () => {
+        await unlink(lockPath).catch(() => {});
+      };
+    } catch (err) {
+      if (err?.code !== 'EEXIST') throw err;
+      try {
+        const info = await stat(lockPath);
+        if (Date.now() - info.mtimeMs > LOCK_STALE_MS) {
+          await unlink(lockPath).catch(() => {});
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      if (Date.now() - start > LOCK_TIMEOUT_MS) {
+        throw new AiValidationError(`Timed out waiting for session storage lock: ${lockPath}`);
+      }
+      await new Promise((res) =>
+        setTimeout(res, LOCK_RETRY_MIN_MS + Math.random() * (LOCK_RETRY_MAX_MS - LOCK_RETRY_MIN_MS)),
+      );
+    }
+  }
+}
+
+function acquireFileLockSync(filePath) {
+  const lockPath = lockPathFor(filePath);
+  mkdirSync(dirname(lockPath), { recursive: true });
+  const start = Date.now();
+  for (;;) {
+    try {
+      const fd = openSync(lockPath, 'wx');
+      closeSync(fd);
+      return () => {
+        try {
+          unlinkSync(lockPath);
+        } catch {}
+      };
+    } catch (err) {
+      if (err?.code !== 'EEXIST') throw err;
+      try {
+        const info = statSync(lockPath);
+        if (Date.now() - info.mtimeMs > LOCK_STALE_MS) {
+          try {
+            unlinkSync(lockPath);
+          } catch {}
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      if (Date.now() - start > LOCK_TIMEOUT_MS) {
+        throw new AiValidationError(`Timed out waiting for session storage lock: ${lockPath}`);
+      }
+      // Synchronous backoff without a worker thread — CLI call sites are sync-only.
+      Atomics.wait(
+        new Int32Array(new SharedArrayBuffer(4)),
+        0,
+        0,
+        LOCK_RETRY_MIN_MS + Math.floor(Math.random() * (LOCK_RETRY_MAX_MS - LOCK_RETRY_MIN_MS)),
+      );
+    }
+  }
 }
 
 export async function writeCodexExecutionContextBridge(repoRoot, threadId, { sessionId, specId, taskId, activeTaskId } = {}) {
@@ -182,7 +283,15 @@ function normalizeStorageContent(parsed) {
       const sId = row.sessionId || row.providerSessionId || randomUUID();
       let session = sessionsMap.get(sId);
       if (!session) {
-        const isPlaceholder = row.established === false || row.providerSessionId === sId;
+        // A legacy row's providerSessionId is only treated as a fake/provisional
+        // placeholder when explicitly marked `established: false`. Equal-string-value
+        // alone (providerSessionId === sessionId) proves nothing — for Claude, Nevo
+        // legitimately passes its own canonical UUID as the provider's --session-id, so a
+        // REAL, established provider identity can equal the canonical sessionId too. This
+        // also avoids a self-referential false positive: when a legacy row never recorded
+        // a separate `sessionId` at all, `sId` above is itself derived FROM
+        // `row.providerSessionId`, so comparing them would always match trivially.
+        const isPlaceholder = row.established === false;
         const provSessionId = isPlaceholder ? undefined : (row.providerSessionId || undefined);
         session = {
           sessionId: sId,
@@ -320,11 +429,13 @@ export class AgentSessionBindingService {
     return specId && typeof specId === 'string' && specId.trim() ? specId.trim() : '_general';
   }
 
+  // Always reads fresh from disk — never trusts a previously-cached document. Nevo's
+  // session storage has multiple independent writers (the dashboard server and separately
+  // spawned `workflow step start/finish` CLI processes); a persistent read-through cache
+  // here would let this process apply a mutation on top of a document one of those other
+  // writers has since changed, silently discarding their update on the next write.
   async #loadForSpec(specId) {
     if (this.#storageFile) {
-      if (this.#cache.has('__single__')) {
-        return this.#cache.get('__single__');
-      }
       try {
         const content = await readFile(this.#storageFile, 'utf-8');
         const parsed = JSON.parse(content);
@@ -342,7 +453,6 @@ export class AgentSessionBindingService {
 
     if (specId !== undefined) {
       const key = this.#getSpecKey(specId);
-      if (this.#cache.has(key)) return this.#cache.get(key);
       const specFile = join(this.#storageDir, `${key}.json`);
       try {
         const content = await readFile(specFile, 'utf-8');
@@ -376,11 +486,9 @@ export class AgentSessionBindingService {
     }
   }
 
+  // Sync twin of #loadForSpec — same "never trust a cached document" rule; see its comment.
   #loadForSpecSync(specId) {
     if (this.#storageFile) {
-      if (this.#cache.has('__single__')) {
-        return this.#cache.get('__single__');
-      }
       try {
         if (existsSync(this.#storageFile)) {
           const content = readFileSync(this.#storageFile, 'utf-8');
@@ -403,7 +511,6 @@ export class AgentSessionBindingService {
 
     if (specId !== undefined) {
       const key = this.#getSpecKey(specId);
-      if (this.#cache.has(key)) return this.#cache.get(key);
       const specFile = join(this.#storageDir, `${key}.json`);
       try {
         if (existsSync(specFile)) {
@@ -443,7 +550,7 @@ export class AgentSessionBindingService {
 
   async #persistForSpec(specId, data) {
     if (this.#storageFile) {
-      const all = this.#cache.get('__single__') || data || { sessions: [], bindings: [] };
+      const all = data || { sessions: [], bindings: [] };
       const flatList = [];
       for (const s of all.sessions) {
         const matchingBindings = all.bindings.filter((b) => b.sessionId === s.sessionId);
@@ -451,7 +558,7 @@ export class AgentSessionBindingService {
           for (const b of matchingBindings) {
             flatList.push({
               provider: s.provider,
-              providerSessionId: s.providerSessionId || s.sessionId,
+              providerSessionId: s.providerSessionId,
               sessionId: s.sessionId,
               specId: s.specId,
               taskId: b.taskId,
@@ -469,7 +576,7 @@ export class AgentSessionBindingService {
         } else {
           flatList.push({
             provider: s.provider,
-            providerSessionId: s.providerSessionId || s.sessionId,
+            providerSessionId: s.providerSessionId,
             sessionId: s.sessionId,
             specId: s.specId,
             purpose: s.purpose,
@@ -494,7 +601,7 @@ export class AgentSessionBindingService {
 
   #persistForSpecSync(specId, data) {
     if (this.#storageFile) {
-      const all = this.#cache.get('__single__') || data || { sessions: [], bindings: [] };
+      const all = data || { sessions: [], bindings: [] };
       const flatList = [];
       for (const s of all.sessions) {
         const matchingBindings = all.bindings.filter((b) => b.sessionId === s.sessionId);
@@ -502,7 +609,7 @@ export class AgentSessionBindingService {
           for (const b of matchingBindings) {
             flatList.push({
               provider: s.provider,
-              providerSessionId: s.providerSessionId || s.sessionId,
+              providerSessionId: s.providerSessionId,
               sessionId: s.sessionId,
               specId: s.specId,
               taskId: b.taskId,
@@ -520,7 +627,7 @@ export class AgentSessionBindingService {
         } else {
           flatList.push({
             provider: s.provider,
-            providerSessionId: s.providerSessionId || s.sessionId,
+            providerSessionId: s.providerSessionId,
             sessionId: s.sessionId,
             specId: s.specId,
             purpose: s.purpose,
@@ -541,6 +648,42 @@ export class AgentSessionBindingService {
     this.#cache.set(key, data);
     const specFile = join(this.#storageDir, `${key}.json`);
     safeWriteJsonSync(specFile, data);
+  }
+
+  #lockTargetFor(specId) {
+    return this.#storageFile || join(this.#storageDir, `${this.#getSpecKey(specId)}.json`);
+  }
+
+  /**
+   * Runs `mutator(data)` against the freshest on-disk document for `specId`, holding a
+   * cross-process lock for the entire read-modify-write cycle, then persists the result.
+   * `mutator` mutates `data` in place and may return a value to propagate as this method's
+   * own return value — this is the only safe way to mutate session storage: every mutating
+   * public method on this class goes through here so that reading, changing, and writing
+   * back can never interleave with another process's own read-modify-write cycle.
+   */
+  async #mutateSpec(specId, mutator) {
+    const release = await acquireFileLock(this.#lockTargetFor(specId));
+    try {
+      const data = await this.#loadForSpec(specId);
+      const result = await mutator(data);
+      await this.#persistForSpec(specId, data);
+      return result;
+    } finally {
+      await release();
+    }
+  }
+
+  #mutateSpecSync(specId, mutator) {
+    const release = acquireFileLockSync(this.#lockTargetFor(specId));
+    try {
+      const data = this.#loadForSpecSync(specId);
+      const result = mutator(data);
+      this.#persistForSpecSync(specId, data);
+      return result;
+    } finally {
+      release();
+    }
   }
 
   /**
@@ -598,8 +741,8 @@ export class AgentSessionBindingService {
     }
     const cleanProvSessionId = providerSessionId.trim();
 
-    if (this.#storageFile) {
-      const data = await this.#loadForSpec();
+    const specId = this.#storageFile ? null : (await this.#loadForSpec()).sessions.find((s) => s.sessionId === sessionId)?.specId;
+    return this.#mutateSpec(specId ?? null, (data) => {
       const session = data.sessions.find((s) => s.sessionId === sessionId);
       if (!session) {
         throw new AiValidationError(`Session '${sessionId}' not found.`, { field: 'sessionId' });
@@ -610,43 +753,12 @@ export class AgentSessionBindingService {
           { field: 'providerSessionId' },
         );
       }
-      if (session.providerSessionId === cleanProvSessionId) {
-        return structuredClone(session);
+      if (session.providerSessionId !== cleanProvSessionId) {
+        session.providerSessionId = cleanProvSessionId;
+        session.lastSeenAt = new Date().toISOString();
       }
-      session.providerSessionId = cleanProvSessionId;
-      session.lastSeenAt = new Date().toISOString();
-      await this.#persistForSpec(null, data);
       return structuredClone(session);
-    }
-
-    const all = await this.#loadForSpec();
-    const session = all.sessions.find((s) => s.sessionId === sessionId);
-    if (!session) {
-      throw new AiValidationError(`Session '${sessionId}' not found.`, { field: 'sessionId' });
-    }
-    if (session.providerSessionId && session.providerSessionId !== cleanProvSessionId) {
-      throw new AiValidationError(
-        `Cannot overwrite existing providerSessionId '${session.providerSessionId}' with '${cleanProvSessionId}'.`,
-        { field: 'providerSessionId' },
-      );
-    }
-    if (session.providerSessionId === cleanProvSessionId) {
-      return structuredClone(session);
-    }
-
-    const specId = session.specId;
-    const specData = await this.#loadForSpec(specId !== undefined ? specId : null);
-    const specSession = specData.sessions.find((s) => s.sessionId === sessionId);
-    if (specSession) {
-      specSession.providerSessionId = cleanProvSessionId;
-      specSession.lastSeenAt = new Date().toISOString();
-      await this.#persistForSpec(specId, specData);
-      return structuredClone(specSession);
-    }
-
-    session.providerSessionId = cleanProvSessionId;
-    session.lastSeenAt = new Date().toISOString();
-    return structuredClone(session);
+    });
   }
 
   setProviderSessionIdSync(sessionId, providerSessionId) {
@@ -658,8 +770,8 @@ export class AgentSessionBindingService {
     }
     const cleanProvSessionId = providerSessionId.trim();
 
-    if (this.#storageFile) {
-      const data = this.#loadForSpecSync();
+    const specId = this.#storageFile ? null : this.#loadForSpecSync().sessions.find((s) => s.sessionId === sessionId)?.specId;
+    return this.#mutateSpecSync(specId ?? null, (data) => {
       const session = data.sessions.find((s) => s.sessionId === sessionId);
       if (!session) {
         throw new AiValidationError(`Session '${sessionId}' not found.`, { field: 'sessionId' });
@@ -670,43 +782,12 @@ export class AgentSessionBindingService {
           { field: 'providerSessionId' },
         );
       }
-      if (session.providerSessionId === cleanProvSessionId) {
-        return structuredClone(session);
+      if (session.providerSessionId !== cleanProvSessionId) {
+        session.providerSessionId = cleanProvSessionId;
+        session.lastSeenAt = new Date().toISOString();
       }
-      session.providerSessionId = cleanProvSessionId;
-      session.lastSeenAt = new Date().toISOString();
-      this.#persistForSpecSync(null, data);
       return structuredClone(session);
-    }
-
-    const all = this.#loadForSpecSync();
-    const session = all.sessions.find((s) => s.sessionId === sessionId);
-    if (!session) {
-      throw new AiValidationError(`Session '${sessionId}' not found.`, { field: 'sessionId' });
-    }
-    if (session.providerSessionId && session.providerSessionId !== cleanProvSessionId) {
-      throw new AiValidationError(
-        `Cannot overwrite existing providerSessionId '${session.providerSessionId}' with '${cleanProvSessionId}'.`,
-        { field: 'providerSessionId' },
-      );
-    }
-    if (session.providerSessionId === cleanProvSessionId) {
-      return structuredClone(session);
-    }
-
-    const specId = session.specId;
-    const specData = this.#loadForSpecSync(specId !== undefined ? specId : null);
-    const specSession = specData.sessions.find((s) => s.sessionId === sessionId);
-    if (specSession) {
-      specSession.providerSessionId = cleanProvSessionId;
-      specSession.lastSeenAt = new Date().toISOString();
-      this.#persistForSpecSync(specId, specData);
-      return structuredClone(specSession);
-    }
-
-    session.providerSessionId = cleanProvSessionId;
-    session.lastSeenAt = new Date().toISOString();
-    return structuredClone(session);
+    });
   }
 
   /**
@@ -795,93 +876,92 @@ export class AgentSessionBindingService {
     const effectiveSessionId = sessionId || randomUUID();
     const cleanProvSessionId = providerSessionId ? providerSessionId.trim() : undefined;
 
-    const data = await this.#loadForSpec(specId !== undefined ? specId : null);
-
-    // 1. Update or create session
-    let session = data.sessions.find(
-      (s) =>
-        s.sessionId === effectiveSessionId ||
-        (cleanProvSessionId && s.provider === provider && s.providerSessionId === cleanProvSessionId),
-    );
-
-    const accumulatedTaskIds = Array.from(
-      new Set([
-        ...(session?.taskIds || []),
-        ...(Array.isArray(taskIds) ? taskIds : taskId ? [taskId] : []),
-      ]),
-    );
-
-    const resolvedActiveTaskId = activeTaskId !== undefined ? activeTaskId : (taskId || session?.activeTaskId || undefined);
-
-    if (session) {
-      session.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
-      if (purpose !== undefined) session.purpose = purpose;
-      if (mode !== undefined) session.mode = mode;
-      if (model !== undefined) session.model = model.trim();
-      if (cleanProvSessionId && !session.providerSessionId) session.providerSessionId = cleanProvSessionId;
-      if (resolvedActiveTaskId !== undefined) session.activeTaskId = resolvedActiveTaskId;
-      session.taskIds = accumulatedTaskIds;
-    } else {
-      session = {
-        sessionId: effectiveSessionId,
-        provider,
-        ...(cleanProvSessionId ? { providerSessionId: cleanProvSessionId } : {}),
-        specId,
-        ...(mode ? { mode } : {}),
-        ...(model ? { model: model.trim() } : {}),
-        ...(purpose ? { purpose } : {}),
-        ...(resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {}),
-        taskIds: accumulatedTaskIds,
-        createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
-        lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
-      };
-      data.sessions.push(session);
-    }
-
-    // 2. Update or create task binding if taskId is present
-    let binding = null;
-    if (taskId) {
-      binding = data.bindings.find(
-        (b) => b.sessionId === session.sessionId && b.taskId === taskId,
+    return this.#mutateSpec(specId !== undefined ? specId : null, (data) => {
+      // 1. Update or create session
+      let session = data.sessions.find(
+        (s) =>
+          s.sessionId === effectiveSessionId ||
+          (cleanProvSessionId && s.provider === provider && s.providerSessionId === cleanProvSessionId),
       );
-      if (binding) {
-        binding.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
-        if (step !== undefined) binding.step = step;
-        if (attempt !== undefined) binding.attempt = attempt;
+
+      const accumulatedTaskIds = Array.from(
+        new Set([
+          ...(session?.taskIds || []),
+          ...(Array.isArray(taskIds) ? taskIds : taskId ? [taskId] : []),
+        ]),
+      );
+
+      const resolvedActiveTaskId = activeTaskId !== undefined ? activeTaskId : (taskId || session?.activeTaskId || undefined);
+
+      if (session) {
+        session.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
+        if (purpose !== undefined) session.purpose = purpose;
+        if (mode !== undefined) session.mode = mode;
+        if (model !== undefined) session.model = model.trim();
+        if (cleanProvSessionId && !session.providerSessionId) session.providerSessionId = cleanProvSessionId;
+        if (resolvedActiveTaskId !== undefined) session.activeTaskId = resolvedActiveTaskId;
+        session.taskIds = accumulatedTaskIds;
       } else {
-        binding = {
-          sessionId: session.sessionId,
-          taskId,
-          ...(step ? { step } : {}),
-          ...(attempt !== undefined ? { attempt } : {}),
-          specId,
+        session = {
+          sessionId: effectiveSessionId,
           provider,
+          ...(cleanProvSessionId ? { providerSessionId: cleanProvSessionId } : {}),
+          specId,
+          ...(mode ? { mode } : {}),
+          ...(model ? { model: model.trim() } : {}),
+          ...(purpose ? { purpose } : {}),
+          ...(resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {}),
+          taskIds: accumulatedTaskIds,
           createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
           lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
         };
-        data.bindings.push(binding);
+        data.sessions.push(session);
       }
-    }
 
-    await this.#persistForSpec(specId, data);
+      // 2. Update or create task binding if taskId is present
+      let binding = null;
+      if (taskId) {
+        binding = data.bindings.find(
+          (b) => b.sessionId === session.sessionId && b.taskId === taskId,
+        );
+        if (binding) {
+          binding.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
+          if (step !== undefined) binding.step = step;
+          if (attempt !== undefined) binding.attempt = attempt;
+        } else {
+          binding = {
+            sessionId: session.sessionId,
+            taskId,
+            ...(step ? { step } : {}),
+            ...(attempt !== undefined ? { attempt } : {}),
+            specId,
+            provider,
+            createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
+            lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
+          };
+          data.bindings.push(binding);
+        }
+      }
 
-    // Composite return object compatible with callers expecting legacy binding shape
-    return {
-      sessionId: session.sessionId,
-      provider: session.provider,
-      providerSessionId: session.providerSessionId || session.sessionId, // compatibility fallback for legacy readers
-      specId: session.specId,
-      ...(taskId ? { taskId } : {}),
-      ...(binding?.step ? { step: binding.step } : {}),
-      ...(binding?.attempt !== undefined ? { attempt: binding.attempt } : {}),
-      ...(session.purpose ? { purpose: session.purpose } : {}),
-      ...(session.mode ? { mode: session.mode } : {}),
-      ...(session.model ? { model: session.model } : {}),
-      activeTaskId: session.activeTaskId,
-      taskIds: session.taskIds,
-      createdAt: session.createdAt,
-      lastSeenAt: session.lastSeenAt,
-    };
+      // Composite return object compatible with callers expecting legacy binding shape.
+      // providerSessionId is reported exactly as known — never substituted with sessionId.
+      return {
+        sessionId: session.sessionId,
+        provider: session.provider,
+        providerSessionId: session.providerSessionId,
+        specId: session.specId,
+        ...(taskId ? { taskId } : {}),
+        ...(binding?.step ? { step: binding.step } : {}),
+        ...(binding?.attempt !== undefined ? { attempt: binding.attempt } : {}),
+        ...(session.purpose ? { purpose: session.purpose } : {}),
+        ...(session.mode ? { mode: session.mode } : {}),
+        ...(session.model ? { model: session.model } : {}),
+        activeTaskId: session.activeTaskId,
+        taskIds: session.taskIds,
+        createdAt: session.createdAt,
+        lastSeenAt: session.lastSeenAt,
+      };
+    });
   }
 
   bindSessionSync({
@@ -923,90 +1003,88 @@ export class AgentSessionBindingService {
     const effectiveSessionId = sessionId || randomUUID();
     const cleanProvSessionId = providerSessionId ? providerSessionId.trim() : undefined;
 
-    const data = this.#loadForSpecSync(specId !== undefined ? specId : null);
-
-    let session = data.sessions.find(
-      (s) =>
-        s.sessionId === effectiveSessionId ||
-        (cleanProvSessionId && s.provider === provider && s.providerSessionId === cleanProvSessionId),
-    );
-
-    const accumulatedTaskIds = Array.from(
-      new Set([
-        ...(session?.taskIds || []),
-        ...(Array.isArray(taskIds) ? taskIds : taskId ? [taskId] : []),
-      ]),
-    );
-
-    const resolvedActiveTaskId = activeTaskId !== undefined ? activeTaskId : (taskId || session?.activeTaskId || undefined);
-
-    if (session) {
-      session.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
-      if (purpose !== undefined) session.purpose = purpose;
-      if (mode !== undefined) session.mode = mode;
-      if (model !== undefined) session.model = model.trim();
-      if (cleanProvSessionId && !session.providerSessionId) session.providerSessionId = cleanProvSessionId;
-      if (resolvedActiveTaskId !== undefined) session.activeTaskId = resolvedActiveTaskId;
-      session.taskIds = accumulatedTaskIds;
-    } else {
-      session = {
-        sessionId: effectiveSessionId,
-        provider,
-        ...(cleanProvSessionId ? { providerSessionId: cleanProvSessionId } : {}),
-        specId,
-        ...(mode ? { mode } : {}),
-        ...(model ? { model: model.trim() } : {}),
-        ...(purpose ? { purpose } : {}),
-        ...(resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {}),
-        taskIds: accumulatedTaskIds,
-        createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
-        lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
-      };
-      data.sessions.push(session);
-    }
-
-    let binding = null;
-    if (taskId) {
-      binding = data.bindings.find(
-        (b) => b.sessionId === session.sessionId && b.taskId === taskId,
+    return this.#mutateSpecSync(specId !== undefined ? specId : null, (data) => {
+      let session = data.sessions.find(
+        (s) =>
+          s.sessionId === effectiveSessionId ||
+          (cleanProvSessionId && s.provider === provider && s.providerSessionId === cleanProvSessionId),
       );
-      if (binding) {
-        binding.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
-        if (step !== undefined) binding.step = step;
-        if (attempt !== undefined) binding.attempt = attempt;
+
+      const accumulatedTaskIds = Array.from(
+        new Set([
+          ...(session?.taskIds || []),
+          ...(Array.isArray(taskIds) ? taskIds : taskId ? [taskId] : []),
+        ]),
+      );
+
+      const resolvedActiveTaskId = activeTaskId !== undefined ? activeTaskId : (taskId || session?.activeTaskId || undefined);
+
+      if (session) {
+        session.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
+        if (purpose !== undefined) session.purpose = purpose;
+        if (mode !== undefined) session.mode = mode;
+        if (model !== undefined) session.model = model.trim();
+        if (cleanProvSessionId && !session.providerSessionId) session.providerSessionId = cleanProvSessionId;
+        if (resolvedActiveTaskId !== undefined) session.activeTaskId = resolvedActiveTaskId;
+        session.taskIds = accumulatedTaskIds;
       } else {
-        binding = {
-          sessionId: session.sessionId,
-          taskId,
-          ...(step ? { step } : {}),
-          ...(attempt !== undefined ? { attempt } : {}),
-          specId,
+        session = {
+          sessionId: effectiveSessionId,
           provider,
+          ...(cleanProvSessionId ? { providerSessionId: cleanProvSessionId } : {}),
+          specId,
+          ...(mode ? { mode } : {}),
+          ...(model ? { model: model.trim() } : {}),
+          ...(purpose ? { purpose } : {}),
+          ...(resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {}),
+          taskIds: accumulatedTaskIds,
           createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
           lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
         };
-        data.bindings.push(binding);
+        data.sessions.push(session);
       }
-    }
 
-    this.#persistForSpecSync(specId, data);
+      let binding = null;
+      if (taskId) {
+        binding = data.bindings.find(
+          (b) => b.sessionId === session.sessionId && b.taskId === taskId,
+        );
+        if (binding) {
+          binding.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
+          if (step !== undefined) binding.step = step;
+          if (attempt !== undefined) binding.attempt = attempt;
+        } else {
+          binding = {
+            sessionId: session.sessionId,
+            taskId,
+            ...(step ? { step } : {}),
+            ...(attempt !== undefined ? { attempt } : {}),
+            specId,
+            provider,
+            createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
+            lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
+          };
+          data.bindings.push(binding);
+        }
+      }
 
-    return {
-      sessionId: session.sessionId,
-      provider: session.provider,
-      providerSessionId: session.providerSessionId || session.sessionId,
-      specId: session.specId,
-      ...(taskId ? { taskId } : {}),
-      ...(binding?.step ? { step: binding.step } : {}),
-      ...(binding?.attempt !== undefined ? { attempt: binding.attempt } : {}),
-      ...(session.purpose ? { purpose: session.purpose } : {}),
-      ...(session.mode ? { mode: session.mode } : {}),
-      ...(session.model ? { model: session.model } : {}),
-      activeTaskId: session.activeTaskId,
-      taskIds: session.taskIds,
-      createdAt: session.createdAt,
-      lastSeenAt: session.lastSeenAt,
-    };
+      return {
+        sessionId: session.sessionId,
+        provider: session.provider,
+        providerSessionId: session.providerSessionId,
+        specId: session.specId,
+        ...(taskId ? { taskId } : {}),
+        ...(binding?.step ? { step: binding.step } : {}),
+        ...(binding?.attempt !== undefined ? { attempt: binding.attempt } : {}),
+        ...(session.purpose ? { purpose: session.purpose } : {}),
+        ...(session.mode ? { mode: session.mode } : {}),
+        ...(session.model ? { model: session.model } : {}),
+        activeTaskId: session.activeTaskId,
+        taskIds: session.taskIds,
+        createdAt: session.createdAt,
+        lastSeenAt: session.lastSeenAt,
+      };
+    });
   }
 
   async resolveCurrentBinding(provider, sessionIdOrProviderSessionId) {
@@ -1033,7 +1111,7 @@ export class AgentSessionBindingService {
     return {
       sessionId: session.sessionId,
       provider: session.provider,
-      providerSessionId: session.providerSessionId || session.sessionId,
+      providerSessionId: session.providerSessionId,
       specId: session.specId,
       taskId: winningBinding?.taskId || session.activeTaskId,
       step: winningBinding?.step,
@@ -1072,7 +1150,7 @@ export class AgentSessionBindingService {
     return {
       sessionId: session.sessionId,
       provider: session.provider,
-      providerSessionId: session.providerSessionId || session.sessionId,
+      providerSessionId: session.providerSessionId,
       specId: session.specId,
       taskId: winningBinding?.taskId || session.activeTaskId,
       step: winningBinding?.step,
@@ -1095,10 +1173,9 @@ export class AgentSessionBindingService {
     const current = await this.resolveCurrentBinding(provider, sessionIdOrProviderSessionId);
     if (!current) return null;
 
-    const specId = current.specId;
-    const data = await this.#loadForSpec(specId);
-    const session = data.sessions.find((s) => s.sessionId === current.sessionId);
-    if (session) {
+    return this.#mutateSpec(current.specId, (data) => {
+      const session = data.sessions.find((s) => s.sessionId === current.sessionId);
+      if (!session) return null;
       const now = new Date().toISOString();
       session.mode = validatedMode;
       session.lastSeenAt = now;
@@ -1107,15 +1184,12 @@ export class AgentSessionBindingService {
           b.lastSeenAt = now;
         }
       }
-      await this.#persistForSpec(specId, data);
       return {
         ...structuredClone(session),
-        providerSessionId: session.providerSessionId || session.sessionId,
         taskId: current.taskId,
         taskIds: current.taskIds,
       };
-    }
-    return null;
+    });
   }
 
   updateSessionModeSync(provider, sessionIdOrProviderSessionId, mode) {
@@ -1123,10 +1197,9 @@ export class AgentSessionBindingService {
     const current = this.resolveCurrentBindingSync(provider, sessionIdOrProviderSessionId);
     if (!current) return null;
 
-    const specId = current.specId;
-    const data = this.#loadForSpecSync(specId);
-    const session = data.sessions.find((s) => s.sessionId === current.sessionId);
-    if (session) {
+    return this.#mutateSpecSync(current.specId, (data) => {
+      const session = data.sessions.find((s) => s.sessionId === current.sessionId);
+      if (!session) return null;
       const now = new Date().toISOString();
       session.mode = validatedMode;
       session.lastSeenAt = now;
@@ -1135,15 +1208,12 @@ export class AgentSessionBindingService {
           b.lastSeenAt = now;
         }
       }
-      this.#persistForSpecSync(specId, data);
       return {
         ...structuredClone(session),
-        providerSessionId: session.providerSessionId || session.sessionId,
         taskId: current.taskId,
         taskIds: current.taskIds,
       };
-    }
-    return null;
+    });
   }
 
   async updateSessionModel(provider, sessionIdOrProviderSessionId, model) {
@@ -1153,10 +1223,9 @@ export class AgentSessionBindingService {
     const current = await this.resolveCurrentBinding(provider, sessionIdOrProviderSessionId);
     if (!current) return null;
 
-    const specId = current.specId;
-    const data = await this.#loadForSpec(specId);
-    const session = data.sessions.find((s) => s.sessionId === current.sessionId);
-    if (session) {
+    return this.#mutateSpec(current.specId, (data) => {
+      const session = data.sessions.find((s) => s.sessionId === current.sessionId);
+      if (!session) return null;
       const now = new Date().toISOString();
       session.model = model.trim();
       session.lastSeenAt = now;
@@ -1165,15 +1234,12 @@ export class AgentSessionBindingService {
           b.lastSeenAt = now;
         }
       }
-      await this.#persistForSpec(specId, data);
       return {
         ...structuredClone(session),
-        providerSessionId: session.providerSessionId || session.sessionId,
         taskId: current.taskId,
         taskIds: current.taskIds,
       };
-    }
-    return null;
+    });
   }
 
   updateSessionModelSync(provider, sessionIdOrProviderSessionId, model) {
@@ -1183,10 +1249,9 @@ export class AgentSessionBindingService {
     const current = this.resolveCurrentBindingSync(provider, sessionIdOrProviderSessionId);
     if (!current) return null;
 
-    const specId = current.specId;
-    const data = this.#loadForSpecSync(specId);
-    const session = data.sessions.find((s) => s.sessionId === current.sessionId);
-    if (session) {
+    return this.#mutateSpecSync(current.specId, (data) => {
+      const session = data.sessions.find((s) => s.sessionId === current.sessionId);
+      if (!session) return null;
       const now = new Date().toISOString();
       session.model = model.trim();
       session.lastSeenAt = now;
@@ -1195,15 +1260,12 @@ export class AgentSessionBindingService {
           b.lastSeenAt = now;
         }
       }
-      this.#persistForSpecSync(specId, data);
       return {
         ...structuredClone(session),
-        providerSessionId: session.providerSessionId || session.sessionId,
         taskId: current.taskId,
         taskIds: current.taskIds,
       };
-    }
-    return null;
+    });
   }
 
   async listSessions(query = {}) {
@@ -1257,7 +1319,7 @@ export class AgentSessionBindingService {
         ...structuredClone(b),
         sessionId: b.sessionId,
         provider: session?.provider || b.provider,
-        providerSessionId: session?.providerSessionId || session?.sessionId || b.sessionId,
+        providerSessionId: session?.providerSessionId,
         mode: session?.mode,
         model: session?.model,
         purpose: session?.purpose,
@@ -1277,7 +1339,7 @@ export class AgentSessionBindingService {
           results.push({
             sessionId: session.sessionId,
             provider: session.provider,
-            providerSessionId: session.providerSessionId || session.sessionId,
+            providerSessionId: session.providerSessionId,
             specId: session.specId,
             taskId: session.activeTaskId,
             mode: session.mode,
@@ -1311,7 +1373,7 @@ export class AgentSessionBindingService {
         ...structuredClone(b),
         sessionId: b.sessionId,
         provider: session?.provider || b.provider,
-        providerSessionId: session?.providerSessionId || session?.sessionId || b.sessionId,
+        providerSessionId: session?.providerSessionId,
         mode: session?.mode,
         model: session?.model,
         purpose: session?.purpose,
@@ -1330,7 +1392,7 @@ export class AgentSessionBindingService {
           results.push({
             sessionId: session.sessionId,
             provider: session.provider,
-            providerSessionId: session.providerSessionId || session.sessionId,
+            providerSessionId: session.providerSessionId,
             specId: session.specId,
             taskId: session.activeTaskId,
             mode: session.mode,
@@ -1368,10 +1430,7 @@ export class AgentSessionBindingService {
     };
 
     if (this.#storageFile) {
-      const data = await this.#loadForSpec();
-      if (updateSession(data)) {
-        await this.#persistForSpec(null, data);
-      }
+      await this.#mutateSpec(null, (data) => updateSession(data));
       return;
     }
 
@@ -1384,10 +1443,7 @@ export class AgentSessionBindingService {
     );
 
     for (const specId of matchingSpecs) {
-      const specData = await this.#loadForSpec(specId);
-      if (updateSession(specData)) {
-        await this.#persistForSpec(specId, specData);
-      }
+      await this.#mutateSpec(specId, (data) => updateSession(data));
     }
   }
 
@@ -1408,10 +1464,7 @@ export class AgentSessionBindingService {
     };
 
     if (this.#storageFile) {
-      const data = this.#loadForSpecSync();
-      if (updateSession(data)) {
-        this.#persistForSpecSync(null, data);
-      }
+      this.#mutateSpecSync(null, (data) => updateSession(data));
       return;
     }
 
@@ -1424,10 +1477,7 @@ export class AgentSessionBindingService {
     );
 
     for (const specId of matchingSpecs) {
-      const specData = this.#loadForSpecSync(specId);
-      if (updateSession(specData)) {
-        this.#persistForSpecSync(specId, specData);
-      }
+      this.#mutateSpecSync(specId, (data) => updateSession(data));
     }
   }
 
@@ -1531,45 +1581,45 @@ export class AgentSessionBindingService {
       });
     }
 
-    const data = await this.#loadForSpec(targetSpecId);
-    const session = data.sessions.find(
-      (s) =>
-        s.sessionId === sessionIdOrProviderSessionId ||
-        (provider && s.provider === provider && s.providerSessionId === sessionIdOrProviderSessionId) ||
-        (s.providerSessionId === sessionIdOrProviderSessionId),
-    );
-    if (!session) {
-      throw new AiValidationError('Cannot set active task: session not found.', { field: 'sessionId' });
-    }
+    return this.#mutateSpec(targetSpecId, (data) => {
+      const session = data.sessions.find(
+        (s) =>
+          s.sessionId === sessionIdOrProviderSessionId ||
+          (provider && s.provider === provider && s.providerSessionId === sessionIdOrProviderSessionId) ||
+          (s.providerSessionId === sessionIdOrProviderSessionId),
+      );
+      if (!session) {
+        throw new AiValidationError('Cannot set active task: session not found.', { field: 'sessionId' });
+      }
 
-    const now = new Date().toISOString();
-    session.activeTaskId = cleanTaskId;
-    session.lastSeenAt = now;
-    if (!Array.isArray(session.taskIds)) session.taskIds = [];
-    if (!session.taskIds.includes(cleanTaskId)) session.taskIds.push(cleanTaskId);
+      const now = new Date().toISOString();
+      session.activeTaskId = cleanTaskId;
+      session.lastSeenAt = now;
+      if (!Array.isArray(session.taskIds)) session.taskIds = [];
+      if (!session.taskIds.includes(cleanTaskId)) session.taskIds.push(cleanTaskId);
 
-    let binding = data.bindings.find(
-      (b) => b.sessionId === session.sessionId && b.taskId === cleanTaskId,
-    );
-    if (!binding) {
-      binding = {
-        sessionId: session.sessionId,
+      let binding = data.bindings.find(
+        (b) => b.sessionId === session.sessionId && b.taskId === cleanTaskId,
+      );
+      if (!binding) {
+        binding = {
+          sessionId: session.sessionId,
+          taskId: cleanTaskId,
+          specId: targetSpecId,
+          provider: session.provider,
+          createdAt: now,
+          lastSeenAt: now,
+        };
+        data.bindings.push(binding);
+      } else {
+        binding.lastSeenAt = now;
+      }
+
+      return {
+        ...structuredClone(session),
         taskId: cleanTaskId,
-        specId: targetSpecId,
-        provider: session.provider,
-        createdAt: now,
-        lastSeenAt: now,
       };
-      data.bindings.push(binding);
-    } else {
-      binding.lastSeenAt = now;
-    }
-
-    await this.#persistForSpec(targetSpecId, data);
-    return {
-      ...structuredClone(session),
-      taskId: cleanTaskId,
-    };
+    });
   }
 
   setActiveTaskIdSync(provider, sessionIdOrProviderSessionId, taskId, specIdOrOptions = {}) {
@@ -1588,45 +1638,45 @@ export class AgentSessionBindingService {
       });
     }
 
-    const data = this.#loadForSpecSync(targetSpecId);
-    const session = data.sessions.find(
-      (s) =>
-        s.sessionId === sessionIdOrProviderSessionId ||
-        (provider && s.provider === provider && s.providerSessionId === sessionIdOrProviderSessionId) ||
-        (s.providerSessionId === sessionIdOrProviderSessionId),
-    );
-    if (!session) {
-      throw new AiValidationError('Cannot set active task: session not found.', { field: 'sessionId' });
-    }
+    return this.#mutateSpecSync(targetSpecId, (data) => {
+      const session = data.sessions.find(
+        (s) =>
+          s.sessionId === sessionIdOrProviderSessionId ||
+          (provider && s.provider === provider && s.providerSessionId === sessionIdOrProviderSessionId) ||
+          (s.providerSessionId === sessionIdOrProviderSessionId),
+      );
+      if (!session) {
+        throw new AiValidationError('Cannot set active task: session not found.', { field: 'sessionId' });
+      }
 
-    const now = new Date().toISOString();
-    session.activeTaskId = cleanTaskId;
-    session.lastSeenAt = now;
-    if (!Array.isArray(session.taskIds)) session.taskIds = [];
-    if (!session.taskIds.includes(cleanTaskId)) session.taskIds.push(cleanTaskId);
+      const now = new Date().toISOString();
+      session.activeTaskId = cleanTaskId;
+      session.lastSeenAt = now;
+      if (!Array.isArray(session.taskIds)) session.taskIds = [];
+      if (!session.taskIds.includes(cleanTaskId)) session.taskIds.push(cleanTaskId);
 
-    let binding = data.bindings.find(
-      (b) => b.sessionId === session.sessionId && b.taskId === cleanTaskId,
-    );
-    if (!binding) {
-      binding = {
-        sessionId: session.sessionId,
+      let binding = data.bindings.find(
+        (b) => b.sessionId === session.sessionId && b.taskId === cleanTaskId,
+      );
+      if (!binding) {
+        binding = {
+          sessionId: session.sessionId,
+          taskId: cleanTaskId,
+          specId: targetSpecId,
+          provider: session.provider,
+          createdAt: now,
+          lastSeenAt: now,
+        };
+        data.bindings.push(binding);
+      } else {
+        binding.lastSeenAt = now;
+      }
+
+      return {
+        ...structuredClone(session),
         taskId: cleanTaskId,
-        specId: targetSpecId,
-        provider: session.provider,
-        createdAt: now,
-        lastSeenAt: now,
       };
-      data.bindings.push(binding);
-    } else {
-      binding.lastSeenAt = now;
-    }
-
-    this.#persistForSpecSync(targetSpecId, data);
-    return {
-      ...structuredClone(session),
-      taskId: cleanTaskId,
-    };
+    });
   }
 
   async unbindSession(provider, sessionIdOrProviderSessionId) {
@@ -1636,14 +1686,13 @@ export class AgentSessionBindingService {
       (s.providerSessionId === sessionIdOrProviderSessionId);
 
     if (this.#storageFile) {
-      const data = await this.#loadForSpec();
-      const session = data.sessions.find(matchesSession);
-      if (session) {
-        data.sessions = data.sessions.filter((s) => s.sessionId !== session.sessionId);
-        data.bindings = data.bindings.filter((b) => b.sessionId !== session.sessionId);
-        this.#cache.set('__single__', data);
-        await this.#persistForSpec(null, data);
-      }
+      await this.#mutateSpec(null, (data) => {
+        const session = data.sessions.find(matchesSession);
+        if (session) {
+          data.sessions = data.sessions.filter((s) => s.sessionId !== session.sessionId);
+          data.bindings = data.bindings.filter((b) => b.sessionId !== session.sessionId);
+        }
+      });
       return;
     }
 
@@ -1652,11 +1701,11 @@ export class AgentSessionBindingService {
     const matchingSpecs = new Set(matchingSessions.map((s) => s.specId).filter(Boolean));
 
     for (const specId of matchingSpecs) {
-      const specData = await this.#loadForSpec(specId);
-      const toRemove = new Set(specData.sessions.filter(matchesSession).map((s) => s.sessionId));
-      specData.sessions = specData.sessions.filter((s) => !toRemove.has(s.sessionId));
-      specData.bindings = specData.bindings.filter((b) => !toRemove.has(b.sessionId));
-      await this.#persistForSpec(specId, specData);
+      await this.#mutateSpec(specId, (specData) => {
+        const toRemove = new Set(specData.sessions.filter(matchesSession).map((s) => s.sessionId));
+        specData.sessions = specData.sessions.filter((s) => !toRemove.has(s.sessionId));
+        specData.bindings = specData.bindings.filter((b) => !toRemove.has(b.sessionId));
+      });
     }
   }
 
@@ -1667,14 +1716,13 @@ export class AgentSessionBindingService {
       (s.providerSessionId === sessionIdOrProviderSessionId);
 
     if (this.#storageFile) {
-      const data = this.#loadForSpecSync();
-      const session = data.sessions.find(matchesSession);
-      if (session) {
-        data.sessions = data.sessions.filter((s) => s.sessionId !== session.sessionId);
-        data.bindings = data.bindings.filter((b) => b.sessionId !== session.sessionId);
-        this.#cache.set('__single__', data);
-        this.#persistForSpecSync(null, data);
-      }
+      this.#mutateSpecSync(null, (data) => {
+        const session = data.sessions.find(matchesSession);
+        if (session) {
+          data.sessions = data.sessions.filter((s) => s.sessionId !== session.sessionId);
+          data.bindings = data.bindings.filter((b) => b.sessionId !== session.sessionId);
+        }
+      });
       return;
     }
 
@@ -1683,11 +1731,11 @@ export class AgentSessionBindingService {
     const matchingSpecs = new Set(matchingSessions.map((s) => s.specId).filter(Boolean));
 
     for (const specId of matchingSpecs) {
-      const specData = this.#loadForSpecSync(specId);
-      const toRemove = new Set(specData.sessions.filter(matchesSession).map((s) => s.sessionId));
-      specData.sessions = specData.sessions.filter((s) => !toRemove.has(s.sessionId));
-      specData.bindings = specData.bindings.filter((b) => !toRemove.has(b.sessionId));
-      this.#persistForSpecSync(specId, specData);
+      this.#mutateSpecSync(specId, (specData) => {
+        const toRemove = new Set(specData.sessions.filter(matchesSession).map((s) => s.sessionId));
+        specData.sessions = specData.sessions.filter((s) => !toRemove.has(s.sessionId));
+        specData.bindings = specData.bindings.filter((b) => !toRemove.has(b.sessionId));
+      });
     }
   }
 }

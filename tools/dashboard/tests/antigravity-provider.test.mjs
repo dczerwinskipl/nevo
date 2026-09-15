@@ -29,7 +29,6 @@ import { CapabilityNotSupportedError } from '../server/ai/contracts.mjs';
 
 function createAntigravityAgentProvider(options = {}) {
   return new AntigravityAgentProvider({
-    mappingFilePath: null,
     rawCaptureEnabled: false,
     ...options,
   });
@@ -342,6 +341,36 @@ test('new conversation spawns with stream-json input format and sets providerSes
   assert.ok(deltas.includes('Hello from Antigravity'));
 });
 
+test('Section 7: a new/provisional turn whose CLI stream never echoes a conversation id reports no fabricated providerSessionId', async () => {
+  const lines = [
+    JSON.stringify({ type: 'text.delta', delta: 'Hello with no session echo' }),
+    JSON.stringify({ type: 'done', result: 'Hello with no session echo' }),
+  ];
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  let allocatedSessionId = 'not-called';
+  const result = await provider.startTurn({
+    turnId: 'turn-no-echo',
+    message: 'Hello',
+    // No providerSessionId given: this is a genuinely new/provisional turn.
+    onProviderSessionIdAvailable: (id) => {
+      allocatedSessionId = id;
+    },
+    emitCommentaryDelta: () => {},
+    emitFinalAnswerDelta: () => {},
+  });
+
+  assert.equal(result.status, 'completed');
+  // The CLI never echoed a real conversation id — onProviderSessionIdAvailable must never
+  // fire with a locally-fabricated placeholder, and the resolved result must not report a
+  // providerSessionId that was never actually confirmed by the provider.
+  assert.equal(allocatedSessionId, 'not-called');
+  assert.equal(result.providerSessionId, undefined);
+});
+
 test('existing conversation spawns with --conversation', async () => {
   const capturedCalls = [];
   const lines = [
@@ -350,7 +379,6 @@ test('existing conversation spawns with --conversation', async () => {
   ];
 
   const provider = createAntigravityAgentProvider({
-    materializedSessions: ['agy-conv-123'],
     spawnProcess: (executable, args) => {
       capturedCalls.push({ executable, args });
       return createMockProcess(lines);
@@ -1597,7 +1625,6 @@ test('Antigravity raw capture: disabled by default and normal provider turn does
 
   // Provider instantiated with default options (rawCaptureEnabled=false)
   const provider = new AntigravityAgentProvider({
-    mappingFilePath: null,
     spawnProcess: () => child,
   });
 

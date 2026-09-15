@@ -290,6 +290,12 @@ export class CodexAgentProvider {
   #resolvedCommand = null;
   #loadedThreads = new Set();
   #operationsByThread = new Map();
+  // (specId, taskId) -> threadId of the thread currently holding the shared
+  // `${specId}-${taskId}.json` bridge file. That file is a last-writer-wins discovery
+  // side-channel for callers that only know (specId, taskId), not a real per-thread
+  // identity — two genuinely concurrent threads on the same spec+task would otherwise
+  // silently overwrite each other's correlation. See #assertNoConflictingSpecTaskThread.
+  #activeThreadsBySpecTask = new Map();
   #interactions = new Map();
   #disposed = false;
   #disposePromise = null;
@@ -458,6 +464,13 @@ export class CodexAgentProvider {
       await this.#ensureThreadLoaded(threadId, validatedMode);
     }
 
+    // The shared `${specId}-${taskId}.json` bridge file below is a last-writer-wins
+    // discovery side-channel for callers that only know (specId, taskId) — it cannot
+    // disambiguate two genuinely concurrent threads on the same spec+task. Rather than
+    // silently overwriting one thread's correlation with another's, reject the second
+    // execution outright before it starts.
+    this.#assertNoConflictingSpecTaskThread(effSpecId, effTaskId, threadId);
+
     // Best-effort cross-process discovery side-channel (see readAgentExecutionContext) —
     // a transient write failure (e.g. a concurrent rename on the same bridge file) must
     // never abort an otherwise-healthy turn.
@@ -468,6 +481,9 @@ export class CodexAgentProvider {
         taskId: effTaskId,
         activeTaskId: effTaskId,
       });
+      if (effSpecId && effTaskId) {
+        this.#activeThreadsBySpecTask.set(`${effSpecId} ${effTaskId}`, threadId);
+      }
     } catch (err) {
       console.warn(`[codex] Failed to write execution context bridge for thread '${threadId}': ${err?.message || err}`);
     }
@@ -533,12 +549,43 @@ export class CodexAgentProvider {
       operation.watchAbort.abort();
       this.#operationsByThread.delete(threadId);
       this.#clearOperationInteractions(operation);
+      if (effSpecId && effTaskId) {
+        const key = `${effSpecId} ${effTaskId}`;
+        // Only clear the slot if it still points at this thread — a race where a newer
+        // conflicting registration already replaced it must not be clobbered here.
+        if (this.#activeThreadsBySpecTask.get(key) === threadId) {
+          this.#activeThreadsBySpecTask.delete(key);
+        }
+      }
       await removeCodexExecutionContextBridge(this.#cwd, threadId, {
         specId: effSpecId,
         taskId: effTaskId,
         activeTaskId: effTaskId,
       });
       await this.#rawCapture.flushRawCaptureBounded(threadId);
+    }
+  }
+
+  /**
+   * Rejects a second, genuinely concurrent Codex thread targeting the same (specId,
+   * taskId) as an already-active thread. The shared bridge file keyed by (specId, taskId)
+   * has no way to represent two live threads at once — resolving that ambiguity by
+   * picking a winner would silently correlate a caller to the wrong session.
+   */
+  #assertNoConflictingSpecTaskThread(specId, taskId, threadId) {
+    if (!specId || !taskId) return;
+    const key = `${specId} ${taskId}`;
+    const activeThreadId = this.#activeThreadsBySpecTask.get(key);
+    if (
+      activeThreadId &&
+      activeThreadId !== threadId &&
+      this.#operationsByThread.has(activeThreadId)
+    ) {
+      throw new AiError(
+        'AI_TURN_CONFLICT',
+        `Another Codex thread ('${activeThreadId}') is already active for spec '${specId}' task '${taskId}'.`,
+        { status: 409 },
+      );
     }
   }
 

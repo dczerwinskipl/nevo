@@ -294,33 +294,21 @@ export class AgentTurnRuntime {
         });
         this.#activeBySession.set(sessionKey(state.provider, allocatedSessionId), state.turnId);
 
-        // Dual-write only when sessionId is a genuine, distinct identity worth persisting
-        // separately — a synthetic provider/providerSessionId composite (no real canonical
-        // sessionId was ever given) is not a second identity, just an internal key, and
-        // writing under it would fork the transcript instead of consolidating it.
+        // The canonical transcript belongs to sessionId exactly once. When a genuine
+        // canonical sessionId exists, providerSessionId becoming known is provider
+        // metadata only — it must never fork a second copy of the transcript. Only when
+        // no canonical sessionId was ever given (the internal fallback key case) does the
+        // provider-native id double as the sole identity to write under.
+        const transcriptTarget = state.hasCanonicalSessionId ? state.sessionId : allocatedSessionId;
         if (this.transcriptCache?.recordCanonicalTurn) {
           const snap = state.coordinator.getCanonicalSnapshot();
           snap.prompt = inputMessage;
           snap.userMessage = snap.userMessage || { text: displayMessage, createdAt: startedAt };
-          if (state.hasCanonicalSessionId) {
-            this.transcriptCache.recordCanonicalTurn(state.provider, state.sessionId, snap);
-            if (allocatedSessionId !== state.sessionId) {
-              this.transcriptCache.recordCanonicalTurn(state.provider, allocatedSessionId, snap);
-            }
-          } else {
-            this.transcriptCache.recordCanonicalTurn(state.provider, allocatedSessionId, snap);
-          }
+          this.transcriptCache.recordCanonicalTurn(state.provider, transcriptTarget, snap);
         }
         if (this.transcriptCache) {
           for (const ev of this.#eventStream.getTurnEvents(state.turnId, 0)) {
-            if (state.hasCanonicalSessionId) {
-              this.transcriptCache.applyEvent(state.provider, state.sessionId, ev).catch(() => {});
-              if (allocatedSessionId !== state.sessionId) {
-                this.transcriptCache.applyEvent(state.provider, allocatedSessionId, ev).catch(() => {});
-              }
-            } else {
-              this.transcriptCache.applyEvent(state.provider, allocatedSessionId, ev).catch(() => {});
-            }
+            this.transcriptCache.applyEvent(state.provider, transcriptTarget, ev).catch(() => {});
           }
         }
 
@@ -1231,12 +1219,14 @@ export class AgentTurnRuntime {
     }
     const transcriptFlushes = [];
     for (const state of this.#turns.values()) {
+      // The canonical transcript for a turn lives under exactly one key — sessionId when
+      // one genuinely exists, otherwise the provider-native id (see transcriptTarget in
+      // setProviderSessionId above). Flushing both would just be flushing a key that was
+      // never written to.
+      const transcriptTarget = state.hasCanonicalSessionId ? state.sessionId : state.providerSessionId;
       if (this.#isTerminal(state)) {
-        if (state.provider && this.transcriptCache) {
-          if (state.sessionId) transcriptFlushes.push(this.transcriptCache.flush(state.provider, state.sessionId).catch(() => {}));
-          if (state.providerSessionId && state.providerSessionId !== state.sessionId) {
-            transcriptFlushes.push(this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {}));
-          }
+        if (state.provider && transcriptTarget && this.transcriptCache) {
+          transcriptFlushes.push(this.transcriptCache.flush(state.provider, transcriptTarget).catch(() => {}));
         }
         continue;
       }
@@ -1244,11 +1234,8 @@ export class AgentTurnRuntime {
         state.coordinator.status.status === 'requiresAttention' &&
         state.coordinator.pendingInteraction?.resumePolicy !== 'live-operation'
       ) {
-        if (state.provider && this.transcriptCache) {
-          if (state.sessionId) transcriptFlushes.push(this.transcriptCache.flush(state.provider, state.sessionId).catch(() => {}));
-          if (state.providerSessionId && state.providerSessionId !== state.sessionId) {
-            transcriptFlushes.push(this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {}));
-          }
+        if (state.provider && transcriptTarget && this.transcriptCache) {
+          transcriptFlushes.push(this.transcriptCache.flush(state.provider, transcriptTarget).catch(() => {}));
         }
         continue;
       }
@@ -1341,9 +1328,14 @@ export class AgentTurnRuntime {
       this.#turns.delete(evicted);
       this.#eventStream.releaseTurn(evicted);
     }
+    // The canonical transcript for a turn lives under exactly one key — sessionId when
+    // one genuinely exists, otherwise the provider-native id (see transcriptTarget in
+    // setProviderSessionId / shutdown above). Flushing by the raw providerSessionId here
+    // would flush a key that was never written to once a canonical sessionId exists.
+    const transcriptTarget = state.hasCanonicalSessionId ? state.sessionId : state.providerSessionId;
     let flushPromise = Promise.resolve();
-    if (this.transcriptCache && state.provider && state.providerSessionId) {
-      flushPromise = this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {});
+    if (this.transcriptCache && state.provider && transcriptTarget) {
+      flushPromise = this.transcriptCache.flush(state.provider, transcriptTarget).catch(() => {});
     }
     const tracePromise = state.coordinator.flushTrace().catch(() => {});
     return Promise.all([flushPromise, tracePromise]).then(() => {});

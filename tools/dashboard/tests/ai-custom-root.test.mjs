@@ -108,15 +108,19 @@ test('createDefaultAgentSessionService derives provider construction and local-d
       // deterministically), so the real-repo snapshot can be taken first.
       const realRepoSnapshot = snapshotRealRepoTranscript('mock-session-001');
 
-      const { turnId, providerSessionId } = await service.startTurn('mock', null, {
+      const { turnId, sessionId } = await service.startTurn('mock', null, {
         message: 'hello from a custom root',
         specId,
       });
       await waitForTurn(service, turnId, (turn) => turn.status === 'completed');
 
+      // The canonical transcript belongs to sessionId exactly once (see Section 2 of the
+      // Task 02 corrective pass) — providerSessionId is only known asynchronously once the
+      // provider establishes it, well after startTurn() has already returned, so the
+      // transcript must be located by the always-populated canonical sessionId.
       // Transcript cache must have written under <customRoot>/.nevo-ai-local/transcripts,
       // never the real repository's own .nevo-ai-local/transcripts.
-      const transcriptPath = join(customRoot, '.nevo-ai-local', 'transcripts', 'mock', `${providerSessionId}.json`);
+      const transcriptPath = join(customRoot, '.nevo-ai-local', 'transcripts', 'mock', `${sessionId}.json`);
       assert.ok(existsSync(transcriptPath), `expected transcript at '${transcriptPath}'`);
       assertRealRepoTranscriptUntouched(realRepoSnapshot);
 
@@ -161,8 +165,12 @@ test('aiRoutes(fastify, { config: { root } }) threads the custom root through th
         )
       ).json();
 
+      // started.providerSessionId is only known asynchronously once the provider
+      // establishes it, well after this POST already returned — the canonical sessionId
+      // is the one identity guaranteed to be populated immediately (see Section 2 of the
+      // Task 02 corrective pass), so it is the one to poll and locate the transcript by.
       for (let index = 0; index < 100; index += 1) {
-        const check = await fetch(`${baseUrl}/api/agent-sessions/mock/${started.providerSessionId}`);
+        const check = await fetch(`${baseUrl}/api/agent-sessions/${started.sessionId}`);
         const body = (await check.json()).session;
         if (body.status === 'idle' && body.messages?.length >= 2) break;
         await new Promise((r) => setTimeout(r, 5));
@@ -173,7 +181,7 @@ test('aiRoutes(fastify, { config: { root } }) threads the custom root through th
         '.nevo-ai-local',
         'transcripts',
         'mock',
-        `${started.providerSessionId}.json`,
+        `${started.sessionId}.json`,
       );
       assert.ok(existsSync(transcriptPath), `expected transcript at '${transcriptPath}'`);
       assertRealRepoTranscriptUntouched(realRepoSnapshot);

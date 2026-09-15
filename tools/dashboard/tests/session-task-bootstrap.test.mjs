@@ -9,7 +9,8 @@ import {
   createAgentSessionBindingService,
   readAgentExecutionContext,
 } from '../server/ai/sessions/binding-service.mjs';
-import { AgentSessionService } from '../server/ai/sessions/service.mjs';
+import { AgentSessionService, resolveDeterministicWorkflowInfo } from '../server/ai/sessions/service.mjs';
+import { cp } from 'node:fs/promises';
 import { AgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs';
 import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
 import { ClaudeAgentProvider } from '../server/ai/providers/claude/provider.mjs';
@@ -510,6 +511,105 @@ test('5. Automatic deterministic workflow header: injected on first turn, suppre
     assert.equal(canonical3.userMessage?.text, 'Write code', 'userMessage must be clean on reinjected step turn');
   } finally {
     await sessionService?.shutdown?.().catch(() => {});
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+// ── Section 9: resolveDeterministicWorkflowInfo must fail closed ───────────────────────
+// Never guess step: 'implementation', attempt: 1 when the true workflow position can't be
+// resolved — a wrong instruction injected into the agent's context is worse than none.
+
+const REAL_REPO_ROOT = join(new URL('../../..', import.meta.url).pathname.replace(/^\/([a-zA-Z]:)/, '$1'));
+
+async function writeDeterministicChangeFixture(tmpDir, { specId, taskId, workflowProgress, definition = 'standard-v1' }) {
+  const activeDir = join(tmpDir, 'specs', 'active');
+  const changeDir = join(activeDir, 'fixture-change');
+  await mkdir(changeDir, { recursive: true });
+  const wp = workflowProgress
+    ? `
+    workflow_progress:
+      current_step: ${workflowProgress.current_step}
+      current_attempt: ${workflowProgress.current_attempt}
+      state: ${workflowProgress.state}`
+    : '';
+  const yaml = `spec_id: ${specId}
+workflow:
+  mode: deterministic
+  definition: ${definition}
+tasks:
+  - id: "${taskId}"${wp}
+`;
+  await writeFile(join(changeDir, 'change.yaml'), yaml, 'utf-8');
+  return activeDir;
+}
+
+test('9a. resolveDeterministicWorkflowInfo: valid deterministic resolution returns the real step/attempt from workflow_progress', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-workflow-fail-closed-valid-'));
+  try {
+    await mkdir(join(tmpDir, '.nevo-ai', 'workflows'), { recursive: true });
+    await cp(
+      join(REAL_REPO_ROOT, '.nevo-ai', 'workflows', 'standard-v1.yaml'),
+      join(tmpDir, '.nevo-ai', 'workflows', 'standard-v1.yaml'),
+    );
+
+    const specId = '99999999-9999-4999-8999-999999999991';
+    const activeDir = await writeDeterministicChangeFixture(tmpDir, {
+      specId,
+      taskId: '01',
+      workflowProgress: { current_step: 'implementation', current_attempt: 1, state: 'active' },
+    });
+
+    const info = resolveDeterministicWorkflowInfo(specId, '01', activeDir);
+    assert.ok(info, 'a genuinely resolvable deterministic position must not fail closed');
+    assert.equal(info.step, 'implementation');
+    assert.equal(info.attempt, 1);
+    assert.equal(info.taskId, '01');
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('9b. resolveDeterministicWorkflowInfo: a broken/missing workflow definition fails closed instead of guessing implementation/attempt 1', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-workflow-fail-closed-broken-'));
+  try {
+    // Deliberately no .nevo-ai/workflows/standard-v1.yaml exists under this repoRoot.
+    const specId = '99999999-9999-4999-8999-999999999992';
+    const activeDir = await writeDeterministicChangeFixture(tmpDir, {
+      specId,
+      taskId: '01',
+      workflowProgress: { current_step: 'implementation', current_attempt: 1, state: 'active' },
+    });
+
+    const info = resolveDeterministicWorkflowInfo(specId, '01', activeDir);
+    assert.equal(info, null, 'a missing workflow definition must fail closed (null), never a guessed implementation/attempt 1');
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('9c. resolveDeterministicWorkflowInfo: human-verification state is reported with its real attempt, never silently presented as attempt 1', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-workflow-fail-closed-humanverif-'));
+  try {
+    await mkdir(join(tmpDir, '.nevo-ai', 'workflows'), { recursive: true });
+    await cp(
+      join(REAL_REPO_ROOT, '.nevo-ai', 'workflows', 'standard-v1.yaml'),
+      join(tmpDir, '.nevo-ai', 'workflows', 'standard-v1.yaml'),
+    );
+
+    const specId = '99999999-9999-4999-8999-999999999993';
+    const activeDir = await writeDeterministicChangeFixture(tmpDir, {
+      specId,
+      taskId: '01',
+      // A task genuinely sitting at human-verification, attempt 3 (e.g. after two prior
+      // review cycles) — must never be reported as attempt 1.
+      workflowProgress: { current_step: 'human-verification', current_attempt: 3, state: 'active' },
+    });
+
+    const info = resolveDeterministicWorkflowInfo(specId, '01', activeDir);
+    assert.ok(info);
+    assert.equal(info.step, 'human-verification');
+    assert.equal(info.attempt, 3);
+  } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
 });

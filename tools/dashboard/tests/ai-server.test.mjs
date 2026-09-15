@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, rm, writeFile, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 
@@ -1927,7 +1927,7 @@ test('Task 07: Protocol silence timeout terminalization preserves canonical stat
   const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
 
   try {
-    const { turnId } = await service.startTurn('silent', 'sess-silence-test', {
+    const { turnId, sessionId } = await service.startTurn('silent', 'sess-silence-test', {
       prompt: 'Hang and timeout',
     });
 
@@ -1942,9 +1942,9 @@ test('Task 07: Protocol silence timeout terminalization preserves canonical stat
     assert.equal(inMemoryTurn.status.cause, 'timeout/protocol-silence');
 
     // 2. Persisted state on disk is exactly the same terminal state
-    await transcriptCache.flush('silent', 'sess-silence-test');
+    await transcriptCache.flush('silent', sessionId);
     const diskCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
-    const persisted = await diskCache.getTranscript('silent', 'sess-silence-test');
+    const persisted = await diskCache.getTranscript('silent', sessionId);
     assert.equal(persisted.turns.length, 1);
     assert.equal(persisted.turns[0].status.status, 'terminal');
     assert.equal(persisted.turns[0].status.outcome, 'failed');
@@ -1955,7 +1955,7 @@ test('Task 07: Protocol silence timeout terminalization preserves canonical stat
     const { reconciledCount } = await freshRuntime.reconcileOrphanedTurns();
     assert.equal(reconciledCount, 0);
 
-    const afterRecon = await diskCache.getTranscript('silent', 'sess-silence-test');
+    const afterRecon = await diskCache.getTranscript('silent', sessionId);
     assert.equal(afterRecon.turns[0].status.outcome, 'failed');
     assert.equal(afterRecon.turns[0].status.cause, 'timeout/protocol-silence');
   } finally {
@@ -1975,7 +1975,7 @@ test('Task 07: Terminal persistence flush is awaitable and persists before grace
   const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
 
   try {
-    const { turnId } = await service.startTurn('mock', 'sess-term-flush', {
+    const { turnId, sessionId } = await service.startTurn('mock', 'sess-term-flush', {
       prompt: 'Active turn to be interrupted on shutdown',
     });
     // Do not wait for turn to complete; shut down immediately
@@ -1983,7 +1983,7 @@ test('Task 07: Terminal persistence flush is awaitable and persists before grace
 
     // Fresh transcript cache reading directly from disk
     const freshCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
-    const transcript = await freshCache.getTranscript('mock', 'sess-term-flush');
+    const transcript = await freshCache.getTranscript('mock', sessionId);
     assert.equal(transcript.turns.length, 1);
     assert.equal(transcript.turns[0].id, turnId);
     assert.equal(transcript.turns[0].status.status, 'terminal');
@@ -2103,7 +2103,7 @@ test('Task 07: Timeout terminal arbitration: accepted timeout intent prevails ov
   const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
 
   try {
-    const { turnId } = await service.startTurn('slow-cancel', 'sess-arb-1', {
+    const { turnId, sessionId } = await service.startTurn('slow-cancel', 'sess-arb-1', {
       prompt: 'Test timeout arbitration vs completion',
     });
 
@@ -2119,7 +2119,7 @@ test('Task 07: Timeout terminal arbitration: accepted timeout intent prevails ov
 
     // 2. Persisted state is failed with timeout/protocol-silence
     const diskCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
-    const persisted = await diskCache.getTranscript('slow-cancel', 'sess-arb-1');
+    const persisted = await diskCache.getTranscript('slow-cancel', sessionId);
     assert.equal(persisted.turns.length, 1);
     assert.equal(persisted.turns[0].status.status, 'terminal');
     assert.equal(persisted.turns[0].status.outcome, 'failed');
@@ -2164,7 +2164,7 @@ test('Task 07: Timeout terminal arbitration: provider cancellation failure does 
   const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
 
   try {
-    const { turnId } = await service.startTurn('fail-cancel', 'sess-arb-2', {
+    const { turnId, sessionId } = await service.startTurn('fail-cancel', 'sess-arb-2', {
       prompt: 'Test timeout arbitration vs cancellation error',
     });
 
@@ -2177,7 +2177,7 @@ test('Task 07: Timeout terminal arbitration: provider cancellation failure does 
     assert.equal(inMemoryTurn.status.cause, 'timeout/protocol-silence');
 
     const diskCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
-    const persisted = await diskCache.getTranscript('fail-cancel', 'sess-arb-2');
+    const persisted = await diskCache.getTranscript('fail-cancel', sessionId);
     assert.equal(persisted.turns[0].status.outcome, 'failed');
     assert.equal(persisted.turns[0].status.cause, 'timeout/protocol-silence');
   } finally {
@@ -2387,6 +2387,145 @@ test('Task 07: CanonicalTurn session identity invariant holds across first turn 
   }
 });
 
+test('Section 2: canonical sessionId is the single transcript identity — canonical and compatibility routes return identical history with no duplicate transcript file', async () => {
+  const cacheDir = join(tmpdir(), `nevo-test-single-transcript-${randomUUID()}`);
+  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+  const provider = createMockAgentProvider({ specId, streamDelayMs: 1 });
+  const registry = createAgentProviderRegistry([provider]);
+  const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+  const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const server = await buildAiTestApp({ service });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    // Turn 1: atomic first-turn creation — the canonical sessionId is durably allocated
+    // before the provider (which has no createSession()) establishes its own native id
+    // mid-turn, exactly the "provider later supplies a different native id" scenario.
+    const startRes = await fetch(
+      `${baseUrl}/api/agent-sessions/turns`,
+      control({ provider: 'mock', specId, message: 'First turn establishing native id' }),
+    );
+    assert.equal(startRes.status, 201);
+    const { turnId: turn1Id, sessionId } = await startRes.json();
+    assert.ok(sessionId);
+    await waitFor(service, turn1Id, (t) => t.status === 'completed');
+
+    const { providerSessionId } = await service.getSession(sessionId);
+    assert.ok(providerSessionId);
+    // The provider-allocated native id must never collide with the canonical sessionId.
+    assert.notEqual(providerSessionId, sessionId);
+
+    // Turn 2: addressed purely through the legacy (provider, providerSessionId)
+    // compatibility route, proving both identity forms resolve to the one canonical session.
+    const turn2Res = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(providerSessionId)}/turns`,
+      control({ message: 'Second turn via compat route' }),
+    );
+    assert.equal(turn2Res.status, 202);
+    const { turnId: turn2Id } = await turn2Res.json();
+    await waitFor(service, turn2Id, (t) => t.status === 'completed');
+
+    // The canonical route and the compatibility route must project the exact same history.
+    const canonicalRes = await fetch(`${baseUrl}/api/agent-sessions/${sessionId}`);
+    assert.equal(canonicalRes.status, 200);
+    const canonicalTurns = (await canonicalRes.json()).session.turns;
+
+    const compatRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(providerSessionId)}`);
+    assert.equal(compatRes.status, 200);
+    const compatTurns = (await compatRes.json()).session.turns;
+
+    assert.equal(canonicalTurns.length, 2);
+    assert.deepEqual(
+      canonicalTurns.map((t) => t.id).sort(),
+      [turn1Id, turn2Id].sort(),
+    );
+    assert.deepEqual(canonicalTurns, compatTurns);
+
+    // No duplicate canonical transcript was ever written under the provider-native id —
+    // exactly one file exists on disk, keyed by the canonical sessionId.
+    await transcriptCache.flush('mock', sessionId);
+    const providerDir = join(cacheDir, 'mock');
+    const files = await readdir(providerDir);
+    assert.equal(files.length, 1, `expected exactly one transcript file, found: ${files.join(', ')}`);
+    assert.equal(files[0], `${encodeURIComponent(sessionId)}.json`);
+  } finally {
+    await closeServer(server);
+    await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test('Section 3: canonical AgentSession is persisted before any provider-native createSession() side effect runs', async () => {
+  const cacheDir = join(tmpdir(), `nevo-test-create-order-${randomUUID()}`);
+  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+  const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
+
+  let observedDuringCreate = undefined;
+  const orderingProvider = {
+    descriptor: { id: 'ordering-probe', label: 'Ordering Probe', capabilities: { streaming: false } },
+    async createSession({ sessionId }) {
+      // The canonical AgentSession must already be durably persisted by the time the
+      // provider-native side effect runs — never after.
+      observedDuringCreate = await bindingService.getSession(sessionId);
+      return { providerSessionId: 'native-ordering-probe-001' };
+    },
+    async startTurn() {
+      return { text: 'ok' };
+    },
+    async cancelTurn() {},
+  };
+  const registry = createAgentProviderRegistry([orderingProvider]);
+  const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+
+  try {
+    const created = await service.createSession('ordering-probe', { specId });
+
+    assert.ok(observedDuringCreate, 'the canonical AgentSession must be readable from inside provider.createSession()');
+    assert.equal(observedDuringCreate.sessionId, created.sessionId);
+    // At the moment the provider side effect ran, the native id was not yet known —
+    // proving persistence happened strictly before correlation, not just before some
+    // later read.
+    assert.equal(observedDuringCreate.providerSessionId, undefined);
+
+    // After createSession() resolves, the correlated native id is durably persisted too.
+    const finalSession = await bindingService.getSession(created.sessionId);
+    assert.equal(finalSession.providerSessionId, 'native-ordering-probe-001');
+    assert.equal(created.providerSessionId, 'native-ordering-probe-001');
+  } finally {
+    await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test('Section 5/15: findSessionByProviderIdentity resolves a UUID-shaped providerSessionId that is genuinely distinct from sessionId', async () => {
+  const cacheDir = join(tmpdir(), `nevo-test-find-by-identity-${randomUUID()}`);
+  const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
+  const provider = createMockAgentProvider({ specId, streamDelayMs: 1 });
+  const registry = createAgentProviderRegistry([provider]);
+  const service = createAgentSessionService({ registry, bindingService });
+
+  try {
+    // A UUID-shaped providerSessionId (e.g. a provider that itself mints UUIDs) must
+    // never be confused with the canonical sessionId — even though both look like UUIDs,
+    // they are two distinct identities and must resolve correctly to one another.
+    const nativeUuid = randomUUID();
+    const created = await service.createSession('mock', { specId, providerSessionId: nativeUuid });
+    assert.notEqual(created.sessionId, nativeUuid);
+
+    const resolved = await service.findSessionByProviderIdentity('mock', nativeUuid);
+    assert.ok(resolved);
+    assert.equal(resolved.sessionId, created.sessionId);
+    assert.equal(resolved.providerSessionId, nativeUuid);
+
+    // A lookup by the canonical sessionId itself through the provider-identity path must
+    // not silently succeed — it is not a provider-native id.
+    const wrongLookup = await service.findSessionByProviderIdentity('mock', created.sessionId);
+    assert.equal(wrongLookup, null);
+  } finally {
+    await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
 // ── task 11 correction: canonical userMessage — the user-visible chat message, distinct
 // from `prompt` (the enriched text actually sent to the provider) ────────────────────
 
@@ -2396,21 +2535,29 @@ test('V2 correction: a plain composer send has userMessage.text equal to the mes
   const provider = createMockAgentProvider({ specId, streamDelayMs: 1 });
   const registry = createAgentProviderRegistry([provider]);
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache });
+  // A canonical-sessionId lookup needs bindingService to resolve `provider` back from
+  // `sessionId` — without it, getSessionDetails(sessionId) can never learn which
+  // provider's transcript to read, regardless of transcript key correctness.
+  const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
 
   try {
-    const { turnId } = await service.startTurn('mock', null, { specId, message: 'Continue' });
+    const { turnId, sessionId } = await service.startTurn('mock', null, { specId, message: 'Continue' });
     await waitFor(service, turnId, (t) => t.status === 'completed');
     const { providerSessionId } = turnRuntime.getCanonicalTurn(turnId);
     assert.ok(providerSessionId);
+    assert.notEqual(providerSessionId, sessionId);
 
-    const details = await service.getSessionDetails('mock', providerSessionId, { representation: 'v2' });
+    // No bindingService is configured in this test, so the legacy (provider,
+    // providerSessionId) compatibility lookup has no mapping to resolve — the canonical
+    // transcript lives under sessionId exactly once and must be looked up by it.
+    const details = await service.getSessionDetails(sessionId, { representation: 'v2' });
     const publicTurn = details.turns.find((t) => t.id === turnId);
     assert.deepEqual(publicTurn.userMessage?.text, 'Continue');
 
-    await transcriptCache.flush('mock', providerSessionId);
+    await transcriptCache.flush('mock', sessionId);
     const diskCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
-    const persisted = await diskCache.getTranscript('mock', providerSessionId);
+    const persisted = await diskCache.getTranscript('mock', sessionId);
     const persistedTurn = persisted.turns.find((t) => t.id === turnId);
     assert.equal(
       persistedTurn.userMessage.text,
@@ -2429,22 +2576,27 @@ test('V2 correction: an enriched initial-dispatch prompt keeps userMessage clean
   const provider = createMockAgentProvider({ specId, streamDelayMs: 1 });
   const registry = createAgentProviderRegistry([provider]);
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache });
+  // A canonical-sessionId lookup needs bindingService to resolve `provider` back from
+  // `sessionId` — without it, getSessionDetails(sessionId) can never learn which
+  // provider's transcript to read, regardless of transcript key correctness.
+  const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
 
   const enrichedPrompt =
     '[NEvo Context: Specification \'demo\']\nTitle: "Demo"\nLocation: specs/active/demo/\nScope: Full specification\n\nDo the thing';
 
   try {
-    const { turnId } = await service.startTurn('mock', null, {
+    const { turnId, sessionId } = await service.startTurn('mock', null, {
       specId,
       message: enrichedPrompt,
       userMessage: 'Do the thing',
     });
     await waitFor(service, turnId, (t) => t.status === 'completed');
-    const { providerSessionId } = turnRuntime.getCanonicalTurn(turnId);
-    assert.ok(providerSessionId);
 
-    const details = await service.getSessionDetails('mock', providerSessionId, { representation: 'v2' });
+    // No bindingService is configured in this test, so the legacy (provider,
+    // providerSessionId) compatibility lookup has no mapping to resolve — the canonical
+    // transcript lives under sessionId exactly once and must be looked up by it.
+    const details = await service.getSessionDetails(sessionId, { representation: 'v2' });
     const publicTurn = details.turns.find((t) => t.id === turnId);
     assert.equal(
       publicTurn.userMessage?.text,
