@@ -128,7 +128,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
         source: specification.source,
         slug: specification.slug,
         provider: session.provider,
-        providerSessionId: session.providerSessionId,
+        providerSessionId: session.providerSessionId ?? session.sessionId,
       },
     });
   };
@@ -358,10 +358,14 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           onCreated={(session, promptToSend, userMessage) => {
             const targetSpecification = sessionSpecification;
             setSessionSpecification(null);
+            // providerSessionId is only confirmed once the provider actually creates a
+            // native session (e.g. Claude, Antigravity have none synchronously); fall back
+            // to the canonical sessionId so the route/dispatch key is never "undefined".
+            const routeSessionId = session.providerSessionId ?? session.sessionId;
             if (promptToSend) {
               queueAgentSessionInitialDispatch({
                 provider: session.provider,
-                providerSessionId: session.providerSessionId,
+                providerSessionId: routeSessionId,
                 prompt: promptToSend,
                 userMessage,
               });
@@ -372,7 +376,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
                 source: targetSpecification.source,
                 slug: targetSpecification.slug,
                 provider: session.provider,
-                providerSessionId: session.providerSessionId,
+                providerSessionId: routeSessionId,
               },
             });
           }}

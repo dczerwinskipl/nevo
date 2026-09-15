@@ -48,7 +48,7 @@ export interface SessionReadiness {
 
 export interface AgentSession {
   provider: string;
-  providerSessionId: string;
+  providerSessionId?: string;
   sessionId: string;
   specId: string | null;
   taskId?: string;

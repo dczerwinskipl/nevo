@@ -115,7 +115,7 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
           source: effectiveSource,
           slug,
           provider: targetSession.provider,
-          providerSessionId: targetSession.providerSessionId,
+          providerSessionId: targetSession.providerSessionId ?? targetSession.sessionId,
         },
         replace: true,
       });

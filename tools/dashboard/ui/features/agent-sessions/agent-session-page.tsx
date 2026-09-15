@@ -199,7 +199,7 @@ export function AgentSessionPage({
       : '') ||
     (session?.taskId ? `Zadanie: ${session.taskId}` : '') ||
     (session?.purpose?.trim() ? session.purpose.trim() : '') ||
-    (session ? `Sesja ${session.providerSessionId.slice(0, 12)}` : `${provider} sesja`);
+    (session ? `Sesja ${sessionId.slice(0, 12)}` : `${provider} sesja`);
 
   return (
     <div className={shellClassName} style={shellStyle}>
