@@ -1273,7 +1273,10 @@ test('ai events SSE: connecting to an idle session sends headers immediately and
   }
 });
 
-test('ai events SSE: live SSE stream delivers interaction.requested events in real-time to already connected client', async () => {
+// A longer per-test timeout (overriding the suite's --test-timeout=15000) so the
+// internal race's own generous, specific-error timeout below can actually fire under a
+// loaded/shared CI runner instead of being cut off first by the generic suite timeout.
+test('ai events SSE: live SSE stream delivers interaction.requested events in real-time to already connected client', { timeout: 30000 }, async () => {
   const { service } = createStack();
   const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
@@ -1314,16 +1317,17 @@ test('ai events SSE: live SSE stream delivers interaction.requested events in re
     );
     assert.equal(startRes.status, 202);
 
+    let raceTimer;
     const receivedText = await Promise.race([
       eventsPromise,
-      new Promise((_, reject) =>
+      new Promise((_, reject) => {
         // A generous real-time bound, not a correctness assertion: under a loaded/shared
         // CI runner, event delivery can take noticeably longer than on a local machine.
-        // Kept comfortably under the suite's --test-timeout so this rejects with a clear,
-        // specific message instead of the test runner's own generic timeout.
-        setTimeout(() => reject(new Error('Timed out waiting for interaction.requested over SSE!')), 10000),
-      ),
-    ]);
+        // Kept comfortably under this test's own 30000ms timeout (above) so this rejects
+        // with a clear, specific message instead of the test runner's generic timeout.
+        raceTimer = setTimeout(() => reject(new Error('Timed out waiting for interaction.requested over SSE!')), 25000);
+      }),
+    ]).finally(() => clearTimeout(raceTimer));
 
     assert.ok(receivedText.includes('event: turn.started'));
     assert.ok(receivedText.includes('event: interaction.requested'));
