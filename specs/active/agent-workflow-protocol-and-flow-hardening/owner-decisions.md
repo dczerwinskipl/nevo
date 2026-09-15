@@ -207,3 +207,17 @@
 - **Date:** 2026-09-14
 - **Affected artifacts:** `specs/active/agent-workflow-protocol-and-flow-hardening/change.yaml`, `docs/development/agent-workflow-protocol.md`
 
+## D13: Scope amendment — Task 02's session-lookup fix in `agent-session-screen.tsx`
+
+- **Question:** Commit `1f927040` fixed a real production bug (navigated sessions failing to resolve once a provider's native session id replaced the canonical placeholder) by touching `tools/dashboard/ui/screens/agent-session/agent-session-screen.tsx`, which fell under Task 02's declared `forbidden_paths: tools/dashboard/ui/**`. How should this out-of-declared-scope fix be resolved?
+- **Options considered:**
+  1. *Revert/re-attribute:* Drop the fix from Task 02's diff and re-file it under a different task.
+  2. *Amend Task 02's declared scope (Recommended):* Move the specific file into Task 02's `allowed_paths` and drop the now-closing task's blanket `tools/dashboard/ui/**` restriction, since the fix is real, tested, and correct, and Task 02 has no further work planned.
+- **Trade-offs / Consequences:**
+  - Option 1 would reintroduce a real, already-fixed session-resolution bug for no benefit.
+  - Option 2 accepts a one-file scope widening on a task that is otherwise done, in exchange for keeping a genuine fix.
+- **Decision:** Option 2. Owner confirmed the fix is wanted regardless of the declared path boundary.
+- **Rationale:** The boundary existed to keep Task 02 from doing Task 03's (chat-surface) work; a one-line defensive lookup fallback in the session screen is not that, and reverting it purely for scope hygiene would be a regression.
+- **Date:** 2026-09-15
+- **Affected artifacts:** `specs/active/agent-workflow-protocol-and-flow-hardening/tasks/02-session-task-binding-and-workflow-server-endpoints.md`
+

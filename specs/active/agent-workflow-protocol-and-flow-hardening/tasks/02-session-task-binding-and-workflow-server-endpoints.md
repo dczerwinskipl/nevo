@@ -41,10 +41,10 @@ allowed_paths:
   - specs/index.generated.json
   - specs/active/agent-workflow-protocol-and-flow-hardening/tasks/02-session-task-binding-and-workflow-server-endpoints.md
   - specs/active/agent-workflow-protocol-and-flow-hardening/change.yaml
+  - tools/dashboard/ui/screens/agent-session/agent-session-screen.tsx
 forbidden_paths:
   - src/**
   - tests/NEvo.*/**
-  - tools/dashboard/ui/**
 semantic_references:
   decisions: [D2, D3, D7, D8, D9]
   constraints: [C7, C8, C9, C10, C11]
