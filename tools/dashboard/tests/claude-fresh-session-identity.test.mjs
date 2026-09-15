@@ -12,6 +12,7 @@ import { createClaudeAgentProvider } from '../server/ai/providers/claude/provide
 import { createAgentSessionBindingService } from '../server/ai/sessions/binding-service.mjs';
 import { createAgentSessionService } from '../server/ai/sessions/service.mjs';
 import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs';
+import { writeLegacySpecFixtureSync } from './helpers/spec-fixtures.mjs';
 
 // Reproduces the production regression: a dashboard restart creates an empty Claude
 // session shell (POST /api/agent-sessions with no providerSessionId) before any message
@@ -98,9 +99,13 @@ test('Claude fresh-session identity: createSession -> first turn avoids --resume
   const registry = createAgentProviderRegistry([provider]);
   const bindingService = createAgentSessionBindingService({ storageDir: join(tmpDir, 'sessions') });
   const turnRuntime = createAgentTurnRuntime({ registry });
-  const service = createAgentSessionService({ registry, turnRuntime, bindingService });
 
   const specId = randomUUID();
+  // AgentSessionService's fail-closed contract (Task 02) rejects an explicit specId that
+  // resolves to no real spec under its repoRoot — specId here is purely an inert
+  // task/binding label, so it needs a genuine (legacy) spec on disk.
+  writeLegacySpecFixtureSync(tmpDir, specId, { taskIds: ['task-1'] });
+  const service = createAgentSessionService({ registry, turnRuntime, bindingService, repoRoot: tmpDir });
 
   // Session shell created the way the dashboard does before any message is sent.
   const session = await service.createSession('claude', { specId, taskId: 'task-1' });
@@ -150,6 +155,10 @@ test('Claude fresh-session identity: the Nevo-fabricated session id is never use
 
   const specId = randomUUID();
   const bindingStorageDir = join(tmpDir, 'sessions');
+  // AgentSessionService's fail-closed contract (Task 02) rejects an explicit specId that
+  // resolves to no real spec under its repoRoot — specId here is purely an inert
+  // task/binding label, so it needs a genuine (legacy) spec on disk.
+  writeLegacySpecFixtureSync(tmpDir, specId, { taskIds: ['task-1'] });
 
   // Provider instance/process #1: dashboard creates an empty session shell, never sends a message.
   const registry1 = createAgentProviderRegistry([
@@ -160,7 +169,7 @@ test('Claude fresh-session identity: the Nevo-fabricated session id is never use
     }),
   ]);
   const bindingService1 = createAgentSessionBindingService({ storageDir: bindingStorageDir });
-  const service1 = createAgentSessionService({ registry: registry1, bindingService: bindingService1 });
+  const service1 = createAgentSessionService({ registry: registry1, bindingService: bindingService1, repoRoot: tmpDir });
   const session = await service1.createSession('claude', { specId, taskId: 'task-1' });
   const canonicalSessionId = session.sessionId;
   assert.equal(session.providerSessionId, undefined, 'Claude has no createSession(): the native id is unknown yet');
@@ -182,6 +191,7 @@ test('Claude fresh-session identity: the Nevo-fabricated session id is never use
     registry: registry2,
     turnRuntime: turnRuntime2,
     bindingService: bindingService2,
+    repoRoot: tmpDir,
   });
 
   // D. The first message sent from this session must never implicitly resume a conversation

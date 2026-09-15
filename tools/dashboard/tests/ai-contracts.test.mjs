@@ -59,6 +59,7 @@ import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs
 import { createAgentSessionService } from '../server/ai/sessions/service.mjs';
 import { createAgentSessionBindingService } from '../server/ai/sessions/binding-service.mjs';
 import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs';
+import { writeLegacySpecFixtureSync } from './helpers/spec-fixtures.mjs';
 
 const capabilities = Object.freeze({
   interactivePermissions: true,
@@ -493,7 +494,12 @@ test('integration: new chat -> first prompt -> provider identity created and bou
 
   const registry = createAgentProviderRegistry([provider]);
   const turnRuntime = createAgentTurnRuntime({ registry });
-  const service = createAgentSessionService({ registry, turnRuntime, bindingService });
+  // AgentSessionService's fail-closed contract (Task 02) rejects an explicit specId that
+  // resolves to no real spec under its repoRoot — 'spec-integration-test' is used here
+  // purely as an inert task/binding label, so it needs a genuine (legacy) spec on disk.
+  const specFixtureRoot = await mkdtemp(join(tmpdir(), 'nevo-ai-contracts-spec-fixture-'));
+  writeLegacySpecFixtureSync(specFixtureRoot, 'spec-integration-test');
+  const service = createAgentSessionService({ registry, turnRuntime, bindingService, repoRoot: specFixtureRoot });
 
   // 1. First prompt in blank chat without providerSessionId
   const turn1 = await service.startTurn('fake', null, {
@@ -537,6 +543,7 @@ test('integration: new chat -> first prompt -> provider identity created and bou
   }
 
   assert.equal(resumeCalledWith, 'fake-allocated-uuid-999');
+  await rm(specFixtureRoot, { recursive: true, force: true });
 });
 
 test('first-turn binding failure causes startTurn rejection and turn failure', async () => {

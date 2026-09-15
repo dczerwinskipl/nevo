@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, rm, writeFile, stat } from 'node:fs/promises';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 
@@ -14,6 +15,7 @@ import { createAgentSessionBindingService } from '../server/ai/sessions/binding-
 import { listen } from '../server/index.mjs';
 import { createDefaultAgentSessionService } from '../server/ai/routes.mjs';
 import { buildAiTestApp } from './helpers/ai-test-app.mjs';
+import { writeLegacySpecFixtureSync } from './helpers/spec-fixtures.mjs';
 import { serializePublicTurn, deriveLegacyUserMessageText } from '../server/ai/model/serialization.mjs';
 
 const specId = '70609aaf-bb62-40bf-a25e-bec65c583495';
@@ -21,6 +23,15 @@ const integrationTest =
   process.env.NEVO_DASHBOARD_RUN_INTEGRATION_TESTS === '1'
     ? test
     : test.skip;
+
+// AgentSessionService's fail-closed contract (Task 02) now rejects an explicit specId
+// that resolves to no real spec under its repoRoot — this file's tests use `specId`
+// purely as an inert task/binding label, never intending to exercise deterministic
+// workflow resolution, so they need a genuine (legacy-mode) spec on disk for that specId.
+// One shared fixture root for the whole file; every AgentSessionService constructed below
+// must pass `repoRoot: FIXTURE_REPO_ROOT`.
+const FIXTURE_REPO_ROOT = mkdtempSync(join(tmpdir(), 'nevo-ai-server-test-fixture-root-'));
+writeLegacySpecFixtureSync(FIXTURE_REPO_ROOT, specId, { taskIds: ['task-a', 'task-b'] });
 
 // Real disk paths, isolated per call — never the repo's own `.nevo-ai-local/`, which
 // boot-time reconciliation now actually scans (`listPersistedSessions`), so leftover
@@ -42,7 +53,7 @@ function createStack(options = {}) {
         : {},
   );
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  return { provider, service: createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService }) };
+  return { provider, service: createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT }) };
 }
 
 function control(body, extra = {}) {
@@ -568,7 +579,7 @@ test('pending interaction can be resolved after server restart retaining persist
 
   // Phase 1: Server 1 runs, turn reaches waitingForUser
   const turnRuntime1 = createAgentTurnRuntime({ registry, transcriptCache });
-  const service1 = createAgentSessionService({ registry, turnRuntime: turnRuntime1, transcriptCache, bindingService });
+  const service1 = createAgentSessionService({ registry, turnRuntime: turnRuntime1, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
   const server1 = await buildAiTestApp({ service: service1 });
   const baseUrl1 = await listen(server1, { port: 0 });
 
@@ -605,7 +616,7 @@ test('pending interaction can be resolved after server restart retaining persist
 
   // Phase 2: Server 2 starts with a fresh turnRuntime (simulating restart) sharing persisted transcriptCache
   const turnRuntime2 = createAgentTurnRuntime({ registry, transcriptCache });
-  const service2 = createAgentSessionService({ registry, turnRuntime: turnRuntime2, transcriptCache, bindingService });
+  const service2 = createAgentSessionService({ registry, turnRuntime: turnRuntime2, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
   const server2 = await buildAiTestApp({ service: service2 });
   const baseUrl2 = await listen(server2, { port: 0 });
 
@@ -682,7 +693,7 @@ test('Session mode preference persistence across server restarts and snapshot ex
     const bindingService = createAgentSessionBindingService({ storageDir });
     const transcriptCache = createTranscriptCacheService({ baseDir: transcriptDir, flushDebounceMs: 0 });
     const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-    const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+    const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
     const server = await buildAiTestApp({ service });
     return { server, service, bindingService };
   };
@@ -815,7 +826,7 @@ test('Model selection persists through the HTTP session contract: create -> chat
     const bindingService = createAgentSessionBindingService({ storageDir });
     const transcriptCache = createTranscriptCacheService({ baseDir: transcriptDir, flushDebounceMs: 0 });
     const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-    const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+    const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
     const server = await buildAiTestApp({ service });
     return { server };
   };
@@ -905,7 +916,7 @@ test('Model override guard A: a conflicting POST while a turn is active is rejec
   const bindingService = createAgentSessionBindingService({ storageDir: join(tmpDir, 'sessions') });
   const transcriptCache = createTranscriptCacheService({ baseDir: join(tmpDir, 'transcripts'), flushDebounceMs: 0 });
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
   const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
@@ -953,7 +964,7 @@ test('Model override guard B: an idempotent replay with a different supplied mod
   const bindingService = createAgentSessionBindingService({ storageDir: join(tmpDir, 'sessions') });
   const transcriptCache = createTranscriptCacheService({ baseDir: join(tmpDir, 'transcripts'), flushDebounceMs: 0 });
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
   const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
@@ -1004,7 +1015,7 @@ test('Model override guard C: a successfully admitted turn with a new model pers
   const bindingService = createAgentSessionBindingService({ storageDir: join(tmpDir, 'sessions') });
   const transcriptCache = createTranscriptCacheService({ baseDir: join(tmpDir, 'transcripts'), flushDebounceMs: 0 });
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
   const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
@@ -1387,6 +1398,7 @@ test('Task 07: Live application and fresh reload produce semantically equal Turn
     turnRuntime: turnRuntime1,
     transcriptCache: transcriptCache1,
     bindingService: bindingService1,
+    repoRoot: FIXTURE_REPO_ROOT,
   });
   const server1 = await buildAiTestApp({ service: service1 });
   const baseUrl1 = await listen(server1, { port: 0 });
@@ -1479,6 +1491,7 @@ test('Task 07: Live application and fresh reload produce semantically equal Turn
     turnRuntime: turnRuntime2,
     transcriptCache: transcriptCache2,
     bindingService: bindingService2,
+    repoRoot: FIXTURE_REPO_ROOT,
   });
   const server2 = await buildAiTestApp({ service: service2 });
   const baseUrl2 = await listen(server2, { port: 0 });
@@ -1641,7 +1654,7 @@ test('Task 07: Corrupt/unreadable persistence state does not become empty ready/
     purpose: 'corrupt test',
   });
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
   const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
@@ -1775,7 +1788,7 @@ test('V2 public Turn projection is identical across HTTP, live SSE, replay, chat
 
   const registry = createAgentProviderRegistry([provider]);
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, repoRoot: FIXTURE_REPO_ROOT });
   const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
   const liveUpdates = [];
@@ -1949,7 +1962,7 @@ test('Task 07: Protocol silence timeout terminalization preserves canonical stat
     clock,
   });
   const bindingService = createAgentSessionBindingService();
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
 
   try {
     const { turnId, sessionId } = await service.startTurn('silent', 'sess-silence-test', {
@@ -1997,7 +2010,7 @@ test('Task 07: Terminal persistence flush is awaitable and persists before grace
 
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
   const bindingService = createAgentSessionBindingService();
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
 
   try {
     const { turnId, sessionId } = await service.startTurn('mock', 'sess-term-flush', {
@@ -2042,7 +2055,7 @@ test('Task 07: Explicit schema validation rejects unsupported schema version as 
 
   const provider = createMockAgentProvider({ specId });
   const registry = createAgentProviderRegistry([provider]);
-  const service = createAgentSessionService({ registry, transcriptCache });
+  const service = createAgentSessionService({ registry, transcriptCache, repoRoot: FIXTURE_REPO_ROOT });
 
   const session = await service.getSessionDetails('mock', 'sess-unsupported');
   assert.equal(session.status, 'unavailable');
@@ -2125,7 +2138,7 @@ test('Task 07: Timeout terminal arbitration: accepted timeout intent prevails ov
     clock,
   });
   const bindingService = createAgentSessionBindingService();
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
 
   try {
     const { turnId, sessionId } = await service.startTurn('slow-cancel', 'sess-arb-1', {
@@ -2186,7 +2199,7 @@ test('Task 07: Timeout terminal arbitration: provider cancellation failure does 
     clock,
   });
   const bindingService = createAgentSessionBindingService();
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
 
   try {
     const { turnId, sessionId } = await service.startTurn('fail-cancel', 'sess-arb-2', {
@@ -2238,7 +2251,7 @@ test('Task 07: Canonical V2 SSE streaming and replay deliver exact canonical Wor
   const registry = createAgentProviderRegistry([manualProvider]);
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
   const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
 
   const liveV2Updates = [];
   try {
@@ -2365,7 +2378,7 @@ test('Task 07: CanonicalTurn session identity invariant holds across first turn 
   const registry = createAgentProviderRegistry([provider]);
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
   const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
 
   try {
     // 1. Turn 1 (session creation) — providerSessionId is not required in the admission
@@ -2419,7 +2432,7 @@ test('Section 2: canonical sessionId is the single transcript identity — canon
   const registry = createAgentProviderRegistry([provider]);
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
   const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
   const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
@@ -2501,7 +2514,7 @@ test('Section 3: canonical AgentSession is persisted before any provider-native 
   };
   const registry = createAgentProviderRegistry([orderingProvider]);
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
 
   try {
     const created = await service.createSession('ordering-probe', { specId });
@@ -2527,7 +2540,7 @@ test('Section 5/15: findSessionByProviderIdentity resolves a UUID-shaped provide
   const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
   const provider = createMockAgentProvider({ specId, streamDelayMs: 1 });
   const registry = createAgentProviderRegistry([provider]);
-  const service = createAgentSessionService({ registry, bindingService });
+  const service = createAgentSessionService({ registry, bindingService, repoRoot: FIXTURE_REPO_ROOT });
 
   try {
     // A UUID-shaped providerSessionId (e.g. a provider that itself mints UUIDs) must
@@ -2564,7 +2577,7 @@ test('V2 correction: a plain composer send has userMessage.text equal to the mes
   // `sessionId` — without it, getSessionDetails(sessionId) can never learn which
   // provider's transcript to read, regardless of transcript key correctness.
   const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
 
   try {
     const { turnId, sessionId } = await service.startTurn('mock', null, { specId, message: 'Continue' });
@@ -2605,7 +2618,7 @@ test('V2 correction: an enriched initial-dispatch prompt keeps userMessage clean
   // `sessionId` — without it, getSessionDetails(sessionId) can never learn which
   // provider's transcript to read, regardless of transcript key correctness.
   const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
 
   const enrichedPrompt =
     '[NEvo Context: Specification \'demo\']\nTitle: "Demo"\nLocation: specs/active/demo/\nScope: Full specification\n\nDo the thing';

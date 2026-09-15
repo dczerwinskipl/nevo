@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -11,6 +12,7 @@ import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs'
 import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
 import { listen } from '../server/index.mjs';
 import { buildAiTestApp } from './helpers/ai-test-app.mjs';
+import { writeLegacySpecFixtureSync } from './helpers/spec-fixtures.mjs';
 import { ClaudeAgentProvider } from '../server/ai/providers/claude/provider.mjs';
 import { CodexAgentProvider } from '../server/ai/providers/codex/provider.mjs';
 import { AntigravityAgentProvider } from '../server/ai/providers/antigravity/provider.mjs';
@@ -22,6 +24,12 @@ import {
 } from '../server/ai/contracts.mjs';
 
 const specId = '70609aaf-bb62-40bf-a25e-bec65c583495';
+
+// AgentSessionService's fail-closed contract (Task 02) rejects an explicit specId that
+// resolves to no real spec under its repoRoot — this file's specId is purely an inert
+// task/binding label, so it needs a genuine (legacy) spec on disk.
+const FIXTURE_REPO_ROOT = mkdtempSync(join(tmpdir(), 'nevo-ai-contract-drift-fixture-root-'));
+writeLegacySpecFixtureSync(FIXTURE_REPO_ROOT, specId, { taskIds: ['contract-task'] });
 
 function exactKeys(value, expected) {
   assert.deepEqual(Object.keys(value).sort(), [...expected].sort());
@@ -44,7 +52,7 @@ async function createServer() {
     baseDir: join(tmpdir(), `nevo-contract-drift-test-${randomUUID()}`),
   });
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const aiService = createAgentSessionService({ registry, turnRuntime, transcriptCache });
+  const aiService = createAgentSessionService({ registry, turnRuntime, transcriptCache, repoRoot: FIXTURE_REPO_ROOT });
   const server = await buildAiTestApp({ service: aiService });
   return { server, aiService };
 }

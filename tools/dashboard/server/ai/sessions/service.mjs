@@ -4,6 +4,7 @@ import {
   AiValidationError,
   CapabilityNotSupportedError,
   AiDeterministicWorkflowUnavailableError,
+  AiSpecContextUnavailableError,
   validateAgentIdentity,
   validateAgentExecutionMode,
   computeCurrentActivity,
@@ -204,8 +205,8 @@ export function formatNevoWorkflowContext({ changeSlug, taskId, step = 'implemen
 // Discriminated resolution result, never a plain guessable object:
 //   { mode: 'legacy' }                                 — no automatic workflow context;
 //                                                          this is the global default and
-//                                                          covers "no specId", "spec not
-//                                                          found", and "spec not explicitly
+//                                                          covers "no specId" and "spec
+//                                                          found but not explicitly
 //                                                          deterministic" alike.
 //   { mode: 'deterministic', workflowInfo: {...} }      — authoritative position resolved.
 // A spec that explicitly opts into `workflow.mode: deterministic` (via
@@ -217,6 +218,15 @@ export function formatNevoWorkflowContext({ changeSlug, taskId, step = 'implemen
 // failure. `repoRoot` must be the same authoritative root the rest of the session's
 // provider/local-data paths were built from (see AgentSessionService#repoRoot) — this
 // function never independently falls back to the process's own cwd or a different root.
+//
+// An explicit specId that fails to resolve to any real spec under that repoRoot is NOT
+// treated as legacy either — "no specId at all" (a genuinely spec-less interaction) and
+// "an explicit specId nobody can find" are different failure classes. The latter throws
+// AiSpecContextUnavailableError, since it may signal a wrong repoRoot, a stale session
+// binding, a deleted/moved spec, corrupted local session state, or a caller correlation
+// bug — never silently masked by continuing without workflow context. This is distinct
+// from AiDeterministicWorkflowUnavailableError: the spec's workflow mode is unknown until
+// the spec itself is found, so this failure precedes any mode check.
 export function resolveDeterministicWorkflowInfo(specId, taskId, repoRoot = ROOT) {
   if (!specId) return { mode: 'legacy' };
 
@@ -224,14 +234,17 @@ export function resolveDeterministicWorkflowInfo(specId, taskId, repoRoot = ROOT
   try {
     changes = listChanges(resolve(repoRoot, 'specs', 'active'));
   } catch (err) {
-    console.error(
-      `[ai] [workflow] Unexpected error listing changes while resolving workflow info for spec '${specId}': ${err?.message || err}`,
-    );
-    return { mode: 'legacy' };
+    const message = `Failed to look up spec '${specId}' under repoRoot '${repoRoot}': ${err?.message || err}`;
+    console.error(`[ai] [workflow] ${message}`);
+    throw new AiSpecContextUnavailableError(message, { specId, repoRoot });
   }
 
   const change = changes.find((c) => c.spec_id === specId || c.id === specId || c._slug === specId);
-  if (!change) return { mode: 'legacy' };
+  if (!change) {
+    const message = `Spec '${specId}' was not found under repoRoot '${repoRoot}'.`;
+    console.error(`[ai] [workflow] ${message}`);
+    throw new AiSpecContextUnavailableError(message, { specId, repoRoot });
+  }
 
   const resolvedMode = resolveWorkflowMode(change);
   if (resolvedMode.mode !== 'deterministic') return { mode: 'legacy' };
@@ -980,10 +993,12 @@ export class AgentSessionService {
 
     // Workflow header resolution. `workflowContext: false` is an explicit caller override
     // that suppresses the automatic deterministic machinery entirely (including its
-    // fail-closed check) — an intentional, pre-existing escape hatch. Every other case
-    // still resolves: a deterministic-but-broken spec must reject the turn, not silently
-    // continue without its authoritative context (resolveDeterministicWorkflowInfo throws
-    // AiDeterministicWorkflowUnavailableError for that case, which propagates from here).
+    // fail-closed checks) — an intentional, pre-existing escape hatch. Every other case
+    // still resolves: a deterministic-but-broken spec, or an explicit specId that can't be
+    // found at all under this.repoRoot, must reject the turn rather than silently continue
+    // without context (resolveDeterministicWorkflowInfo throws
+    // AiDeterministicWorkflowUnavailableError / AiSpecContextUnavailableError for those
+    // cases respectively, which propagate from here).
     const workflowResolution =
       opts.workflowContext === false
         ? { mode: 'legacy' }

@@ -10,6 +10,7 @@ import {
   readAgentExecutionContext,
 } from '../server/ai/sessions/binding-service.mjs';
 import { AgentSessionService, resolveDeterministicWorkflowInfo } from '../server/ai/sessions/service.mjs';
+import { writeLegacySpecFixtureSync } from './helpers/spec-fixtures.mjs';
 import { cp } from 'node:fs/promises';
 import { AgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs';
 import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
@@ -107,6 +108,10 @@ test('1. Real atomic first turn on startTurn() without providerSessionId creates
     const registry = createAgentProviderRegistry();
     const specId = '11111111-2222-4333-8444-555555555555';
     const taskId = '01-task';
+    // AgentSessionService's fail-closed contract (Task 02) rejects an explicit specId
+    // that resolves to no real spec under its repoRoot — specId here is purely an inert
+    // label, so it needs a genuine (legacy) spec on disk.
+    writeLegacySpecFixtureSync(tmpDir, specId, { taskIds: [taskId] });
 
     let providerTurnStarted = false;
     let bindingAtTurnStart = null;
@@ -134,6 +139,7 @@ test('1. Real atomic first turn on startTurn() without providerSessionId creates
       registry,
       turnRuntime,
       bindingService,
+      repoRoot: tmpDir,
     });
 
     // Call startTurn directly with providerSessionId === undefined (real POST /api/agent-sessions/turns path)
@@ -427,13 +433,19 @@ test('5. Automatic deterministic workflow header: injected on first turn, suppre
     });
 
     const turnRuntime = new AgentTurnRuntime({ registry });
+
+    const specId = '66666666-6666-4666-8666-666666666666';
+    // AgentSessionService's fail-closed contract (Task 02) rejects an explicit specId
+    // that resolves to no real spec under its repoRoot — specId here is purely an inert
+    // label (this test exercises the explicit workflowContext override, not automatic
+    // deterministic resolution), so it needs a genuine (legacy) spec on disk.
+    writeLegacySpecFixtureSync(tmpDir, specId, { taskIds: ['01'] });
     sessionService = new AgentSessionService({
       registry,
       turnRuntime,
       bindingService,
+      repoRoot: tmpDir,
     });
-
-    const specId = '66666666-6666-4666-8666-666666666666';
 
     // Turn 1: Explicit workflow context or first turn on task '01'
     const turn1 = await sessionService.startTurn('mock', undefined, {
@@ -749,6 +761,117 @@ test('9f. startTurn: a deterministic spec with a broken/unresolvable workflow po
   }
 });
 
+// ── Section 1 (final Task 02 corrective pass): an explicit specId that cannot be
+// resolved must fail the turn, never fall back to legacy ─────────────────────────────
+
+test('9g. startTurn: no specId at all proceeds normally as legacy, with no automatic workflow header', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-workflow-no-specid-'));
+  try {
+    const bindingService = createAgentSessionBindingService({ storageDir: join(tmpDir, 'sessions') });
+    const { service, capturedPrompts } = buildEchoProviderService({ bindingService, repoRoot: tmpDir });
+
+    const turn = await service.startTurn('mock', undefined, {
+      message: 'Do the thing with no spec at all',
+    });
+    for (let i = 0; i < 50; i++) {
+      const snap = service.getTurn(turn.turnId);
+      if (snap?.status === 'completed' || snap?.status === 'failed') break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    assert.equal(service.getTurn(turn.turnId)?.status, 'completed');
+    assert.equal(capturedPrompts.length, 1);
+    assert.equal(capturedPrompts[0], 'Do the thing with no spec at all');
+    assert.doesNotMatch(capturedPrompts[0], /\[Nevo Workflow Context\]/);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('9h. resolveDeterministicWorkflowInfo: an explicit specId with no matching spec under repoRoot throws AiSpecContextUnavailableError, never { mode: "legacy" }', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-workflow-missing-spec-unit-'));
+  try {
+    const specId = '99999999-9999-4999-8999-999999999997';
+    // Deliberately no specs/active/ directory at all under this repoRoot.
+    assert.throws(
+      () => resolveDeterministicWorkflowInfo(specId, '01', tmpDir),
+      (err) => {
+        assert.equal(err.constructor.name, 'AiSpecContextUnavailableError');
+        assert.equal(err.code, 'AI_SPEC_CONTEXT_UNAVAILABLE');
+        assert.equal(err.details?.specId, specId);
+        assert.equal(err.details?.repoRoot, tmpDir);
+        return true;
+      },
+      'an explicit, unresolvable specId must fail closed, never silently degrade to legacy',
+    );
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('9i. startTurn: an explicit unknown/nonexistent specId rejects the turn with AiSpecContextUnavailableError, never silently behaves as legacy', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-workflow-missing-spec-turn-'));
+  try {
+    const specId = '99999999-9999-4999-8999-999999999998';
+    // Deliberately no fixture spec written for this specId under tmpDir.
+    const bindingService = createAgentSessionBindingService({ storageDir: join(tmpDir, 'sessions') });
+    const { service, capturedPrompts } = buildEchoProviderService({ bindingService, repoRoot: tmpDir });
+
+    await assert.rejects(
+      () =>
+        service.startTurn('mock', undefined, {
+          specId,
+          taskId: '01',
+          message: 'Do the thing',
+        }),
+      (err) => {
+        assert.equal(err.constructor.name, 'AiSpecContextUnavailableError');
+        assert.equal(err.code, 'AI_SPEC_CONTEXT_UNAVAILABLE');
+        return true;
+      },
+    );
+    // The provider must never have been reached — an unresolvable explicit specId is
+    // rejected before dispatch, never silently treated as a legacy/spec-less turn.
+    assert.equal(capturedPrompts.length, 0);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('9j. startTurn: a spec that exists under a DIFFERENT repoRoot than the one the service was constructed with fails, proving the repoRoot boundary is enforced rather than silently masked', async () => {
+  const repoRootA = await mkdtemp(join(tmpdir(), 'nevo-workflow-repo-a-'));
+  const repoRootB = await mkdtemp(join(tmpdir(), 'nevo-workflow-repo-b-'));
+  try {
+    const specId = '99999999-9999-4999-8999-999999999999';
+    // The spec genuinely exists — but only under repoRootA.
+    const changeDir = join(repoRootA, 'specs', 'active', 'fixture-change');
+    await mkdir(changeDir, { recursive: true });
+    await writeFile(join(changeDir, 'change.yaml'), `spec_id: ${specId}\ntasks:\n  - id: "01"\n`, 'utf-8');
+
+    // The service is constructed against repoRootB, which has no such spec at all.
+    const bindingService = createAgentSessionBindingService({ storageDir: join(repoRootB, 'sessions') });
+    const { service, capturedPrompts } = buildEchoProviderService({ bindingService, repoRoot: repoRootB });
+
+    await assert.rejects(
+      () =>
+        service.startTurn('mock', undefined, {
+          specId,
+          taskId: '01',
+          message: 'Do the thing',
+        }),
+      (err) => {
+        assert.equal(err.constructor.name, 'AiSpecContextUnavailableError');
+        assert.equal(err.details?.repoRoot, repoRootB, 'the error must name the actual (wrong) repoRoot resolution was attempted under');
+        return true;
+      },
+      'a spec that exists under a different root must never be silently found or silently treated as legacy',
+    );
+    assert.equal(capturedPrompts.length, 0);
+  } finally {
+    await rm(repoRootA, { recursive: true, force: true });
+    await rm(repoRootB, { recursive: true, force: true });
+  }
+});
+
 test('6. tools/specs.mjs autoBindAgentSession writes SessionTaskBinding to <repoRoot>/.nevo-ai-local/sessions/ using discovered context', async () => {
   const tmpRepo = await mkdtemp(join(tmpdir(), 'nevo-autobind-test-'));
   const originalEnvSessionId = process.env.NEVO_SESSION_ID;
@@ -847,6 +970,10 @@ test('8. Regression: first turn on a provider without createSession() must not t
     const specId = '33333333-4444-4555-8666-777777777777';
     const taskId = '02-task';
     const nativeSessionId = 'native-aaaa-bbbb-cccc-dddddddddddd';
+    // AgentSessionService's fail-closed contract (Task 02) rejects an explicit specId
+    // that resolves to no real spec under its repoRoot — specId here is purely an inert
+    // label, so it needs a genuine (legacy) spec on disk.
+    writeLegacySpecFixtureSync(tmpDir, specId, { taskIds: [taskId] });
 
     // No createSession() on this provider — mirrors ClaudeAgentProvider, which has
     // no native session pre-allocation and only learns its real session ID once the
@@ -869,6 +996,7 @@ test('8. Regression: first turn on a provider without createSession() must not t
       registry,
       turnRuntime,
       bindingService,
+      repoRoot: tmpDir,
     });
 
     const turnResult = await sessionService.startTurn('mock-claude-like', undefined, {

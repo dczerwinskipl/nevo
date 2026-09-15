@@ -11,6 +11,7 @@ import { DEFAULT_ANTIGRAVITY_PRINT_TIMEOUT_SECONDS, loadAgentProvidersConfig } f
 import { createDefaultAgentSessionService } from '../server/ai/routes.mjs';
 import { listen } from '../server/index.mjs';
 import { buildAiTestApp } from './helpers/ai-test-app.mjs';
+import { writeLegacySpecFixtureSync } from './helpers/spec-fixtures.mjs';
 
 async function writeProvidersConfig(root, providers = 'mock') {
   await mkdir(join(root, '.nevo-ai-local'), { recursive: true });
@@ -99,6 +100,11 @@ test('createDefaultAgentSessionService derives provider construction and local-d
   try {
     await writeProvidersConfig(customRoot, 'mock');
     const specId = randomUUID();
+    // AgentSessionService's fail-closed contract (Task 02) rejects an explicit specId
+    // that resolves to no real spec under its repoRoot — this test only cares about
+    // provider/transcript/binding path derivation, so specId needs a genuine (legacy)
+    // spec under the same customRoot, not a bare random label.
+    writeLegacySpecFixtureSync(customRoot, specId);
 
     const service = createDefaultAgentSessionService({ root: customRoot });
     try {
@@ -202,6 +208,10 @@ test('aiRoutes(fastify, { config: { root } }) threads the custom root through th
   try {
     await writeProvidersConfig(customRoot, 'mock');
     const specId = randomUUID();
+    // Same fail-closed contract as above: specId needs a genuine (legacy) spec under
+    // this customRoot, since this test only cares about custom-root path threading, not
+    // deterministic workflow resolution.
+    writeLegacySpecFixtureSync(customRoot, specId);
 
     const server = await buildAiTestApp({ config: { root: customRoot } });
     const baseUrl = await listen(server, { port: 0 });
