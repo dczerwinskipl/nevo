@@ -7,13 +7,11 @@ import { resolveSessionTaskItems } from './session-tasks';
 import { ProviderUnavailableBanner } from './provider-unavailable-banner';
 import { AgentSessionChatSurface, type AgentSessionChatSurfaceHandle } from './agent-session-chat-surface';
 import { useAgentSessionRuntime } from './runtime/agent-session-runtime';
-import { useAgentProviders, useDeleteAgentSession } from './queries';
+import { useAgentProviders, useDeleteAgentSession, useSetSessionActiveTask } from './queries';
 import { AI_PROVIDERS_CONFIG_PATH } from './provider-config';
 import { useInitialDispatch } from './runtime/use-initial-dispatch';
 import { useVisualViewport } from './transcript/use-visual-viewport';
-import { getStoredWorkflowExperienceMode } from '@/screens/specification-detail/workflow-experience';
-import { useSpecificationActions } from '@/features/specifications/detail/spec-detail-queries';
-import type { SpecificationSummary } from '@/features/specifications/types';
+import { pendingActionModeStore, type PendingActionModeIntent } from './runtime/pending-action-mode-store';
 import type { BoundTaskInfo } from './agent-session-workflow-bar';
 import type { AgentExecutionMode, AgentSession, TaskNavigationTarget, AgentSessionTaskRef } from './types';
 
@@ -21,6 +19,21 @@ export interface AgentSessionPageSpecContext {
   title?: string;
   slug?: string;
   tasks?: AgentSessionTaskRef[];
+}
+
+/**
+ * Minimal, locally-defined shape of a task's authoritative workflow projection — kept
+ * structural rather than importing `SpecificationTaskActionGate` from the sibling
+ * `specifications` feature, since the feature layer must not directly depend on another
+ * feature (see tests/architecture-boundaries.test.mjs). The real, richer type is owned by
+ * `features/specifications/types`; `ui/screens/agent-session/agent-session-screen.tsx`
+ * (a screens-layer composition point) fetches that data and passes it down here.
+ */
+export interface AgentSessionPageTaskAction {
+  availableActions?: string[];
+  status?: string | null;
+  currentStep?: string | null;
+  attempt?: number | null;
 }
 
 export interface AgentSessionPageProps {
@@ -31,6 +44,12 @@ export interface AgentSessionPageProps {
   onSwitchSession: (session: AgentSession) => void;
   onInspectTask?: (target: TaskNavigationTarget | string) => void;
   taskOverlay?: React.ReactNode;
+  /** Presentation-only toggle (D10, C12) — owned by the screens layer's localStorage helper. */
+  experienceMode: 'classic' | 'deterministic';
+  /** Authoritative per-task workflow projection (`GET /api/specs/:source/:slug/actions`), server-owned. */
+  taskActions?: Record<string, AgentSessionPageTaskAction> | null;
+  /** Refreshes `taskActions` — called at workflow boundaries (turn completion, human decisions). */
+  onRefreshTaskActions?: () => Promise<unknown> | unknown;
 }
 
 export function AgentSessionPage({
@@ -41,12 +60,19 @@ export function AgentSessionPage({
   onSwitchSession,
   onInspectTask,
   taskOverlay,
+  experienceMode,
+  taskActions,
+  onRefreshTaskActions,
 }: AgentSessionPageProps) {
   const chatSurfaceRef = useRef<AgentSessionChatSurfaceHandle>(null);
   const visualViewport = useVisualViewport();
 
   const provider = session.provider;
-  const sessionId = session.sessionId || session.providerSessionId || '';
+  // The canonical Nevo sessionId is the sole application identity — it is required on
+  // every AgentSession and is never combined with providerSessionId as a fallback chain
+  // (see owner-decisions.md D9). providerSessionId is optional provider-native metadata,
+  // never a substitute identity.
+  const sessionId = session.sessionId;
 
   const [selectedModeOverride, setSelectedModeOverride] = useState<AgentExecutionMode | null>(null);
   const providersQuery = useAgentProviders();
@@ -60,10 +86,14 @@ export function AgentSessionPage({
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
 
   const assistant = useAgentSessionRuntime({
-    provider,
-    providerSessionId: sessionId,
+    sessionId,
     onTurnCompleted: () => {
       setRuntimeError(null);
+      // Workflow boundary: a turn just went terminal (e.g. implementation finished,
+      // review passed/failed). Refresh the authoritative availableActions/workflow
+      // projection immediately rather than waiting for the next poll interval, so the
+      // next action (e.g. "Start review") appears without a stale ~30s delay.
+      void onRefreshTaskActions?.();
     },
     onError: (err) => {
       setRuntimeError(err.message);
@@ -146,14 +176,13 @@ export function AgentSessionPage({
   const handleDeleteSession = async () => {
     if (!window.confirm('Czy na pewno chcesz usunąć tę sesję z dysku?')) return;
     try {
-      await deleteSession({ provider, sessionId });
+      await deleteSession({ sessionId });
       onBack();
     } catch (err) {
       setRuntimeError(err instanceof Error ? err.message : String(err));
     }
   };
 
-  const experienceMode = getStoredWorkflowExperienceMode();
   const boundTaskIds = useMemo(() => {
     const ids: string[] = [];
     if (session.taskIds && session.taskIds.length > 0) {
@@ -164,37 +193,71 @@ export function AgentSessionPage({
     return Array.from(new Set(ids));
   }, [session.taskIds, session.taskId]);
 
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(() => boundTaskIds[0] || null);
+  // activeTaskId is exclusively server-owned (D9 §7, C10): it is the session's own
+  // `taskId` projection (the backend's `activeTaskId` field), never local React state
+  // defaulted to the first bound task. Falling back to `boundTaskIds[0]` only applies
+  // when the server genuinely has no active task recorded at all.
+  const activeTaskId: string | null = sessionDetails?.taskId ?? (boundTaskIds.length > 0 ? boundTaskIds[0] : null);
+
+  const { setActiveTask } = useSetSessionActiveTask();
+  const [taskSwitchError, setTaskSwitchError] = useState<string | null>(null);
+
+  const handleSelectActiveTask = useCallback(
+    async (taskId: string) => {
+      if (!taskId || taskId === activeTaskId) return;
+      setTaskSwitchError(null);
+      try {
+        // Authoritative server command — the UI never commits the switch locally. Only a
+        // successful PATCH (reflected back through session/session-details refresh) moves
+        // `activeTaskId`; a failure leaves the previously active task in place.
+        await setActiveTask({ sessionId, taskId });
+        await assistant.reload();
+      } catch (err) {
+        setTaskSwitchError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [activeTaskId, setActiveTask, sessionId, assistant.reload],
+  );
+
+  // A one-shot navigation intent (e.g. a task card's "Request changes" button) consumed
+  // exactly once per session mount — see pending-action-mode-store.ts.
+  const [pendingActionModeIntent] = useState<PendingActionModeIntent | null>(() =>
+    sessionId ? pendingActionModeStore.takePending(sessionId) : null,
+  );
 
   useEffect(() => {
-    if (boundTaskIds.length > 0 && (!activeTaskId || !boundTaskIds.includes(activeTaskId))) {
-      setActiveTaskId(boundTaskIds[0]);
-    }
-  }, [boundTaskIds, activeTaskId]);
+    if (!pendingActionModeIntent) return;
+    if (!boundTaskIds.includes(pendingActionModeIntent.taskId)) return;
+    if (activeTaskId === pendingActionModeIntent.taskId) return;
+    void handleSelectActiveTask(pendingActionModeIntent.taskId);
+  }, [pendingActionModeIntent, boundTaskIds, activeTaskId, handleSelectActiveTask]);
 
-  const actionsQuery = useSpecificationActions(
-    { slug: spec?.slug || '', source: 'active' } as SpecificationSummary,
-    Boolean(spec?.slug),
-  );
+  const initialActionMode =
+    pendingActionModeIntent &&
+    boundTaskIds.includes(pendingActionModeIntent.taskId) &&
+    activeTaskId === pendingActionModeIntent.taskId
+      ? pendingActionModeIntent.action
+      : null;
 
   const boundTasks: BoundTaskInfo[] = useMemo(() => {
     return boundTaskIds.map((id) => {
       const specTask = spec?.tasks?.find((t) => t.id === id);
-      const taskAction = actionsQuery.data?.tasks?.[id];
-      const status = (taskAction as any)?.status || (specTask as any)?.status || 'in-implementation';
-      const attempt = (taskAction as any)?.attempt || (specTask as any)?.attempt || 1;
+      const taskAction = taskActions?.[id];
       return {
         id,
         title: specTask?.title,
-        status,
-        attempt,
+        // Authoritative server projection only — absent/undefined renders as "unknown" in
+        // the workflow bar rather than fabricating `in-implementation`/`attempt 1`.
+        status: taskAction?.status ?? null,
+        currentStep: taskAction?.currentStep ?? null,
+        attempt: taskAction?.attempt ?? null,
       };
     });
-  }, [boundTaskIds, spec?.tasks, actionsQuery.data?.tasks]);
+  }, [boundTaskIds, spec?.tasks, taskActions]);
 
-  const activeTaskActions = activeTaskId ? actionsQuery.data?.tasks?.[activeTaskId]?.availableActions || [] : [];
-  const activeTaskGate = activeTaskId ? actionsQuery.data?.tasks?.[activeTaskId] : null;
-  const activeTaskAttempt = (activeTaskGate as any)?.attempt || 1;
+  const activeTaskProjection = activeTaskId ? taskActions?.[activeTaskId] : null;
+  const activeTaskActions = activeTaskProjection?.availableActions || [];
+  const activeTaskAttempt = activeTaskProjection?.attempt ?? null;
 
   const handleApproveTask = useCallback(async (taskId: string) => {
     if (!spec?.slug) return;
@@ -209,12 +272,12 @@ export function AgentSessionPage({
         const errData = await response.json().catch(() => null);
         throw new Error(errData?.error || `Nie udało się zatwierdzić zadania (${response.status})`);
       }
-      await actionsQuery.refresh();
+      await onRefreshTaskActions?.();
       await assistant.reload();
     } catch (err) {
       setRuntimeError(err instanceof Error ? err.message : String(err));
     }
-  }, [spec?.slug, actionsQuery, assistant]);
+  }, [spec?.slug, onRefreshTaskActions, assistant]);
 
   const handleStartReviewTask = useCallback(async (taskId: string) => {
     if (!assistant.canStartTurn) return;
@@ -222,11 +285,11 @@ export function AgentSessionPage({
     try {
       const prompt = `Review task ${taskId}`;
       await assistant.sendTurn(prompt, { mode: 'agent', userMessage: prompt });
-      await actionsQuery.refresh();
+      await onRefreshTaskActions?.();
     } catch (err) {
       setRuntimeError(err instanceof Error ? err.message : String(err));
     }
-  }, [assistant, actionsQuery]);
+  }, [assistant, onRefreshTaskActions]);
 
   const handleRequestChangesSubmit = useCallback(async (taskId: string, feedback: string) => {
     if (!spec?.slug) return;
@@ -241,12 +304,12 @@ export function AgentSessionPage({
         const errData = await response.json().catch(() => null);
         throw new Error(errData?.error || `Nie udało się odrzucić zadania (${response.status})`);
       }
-      await actionsQuery.refresh();
+      await onRefreshTaskActions?.();
       await assistant.reload();
     } catch (err) {
       setRuntimeError(err instanceof Error ? err.message : String(err));
     }
-  }, [spec?.slug, actionsQuery, assistant]);
+  }, [spec?.slug, onRefreshTaskActions, assistant]);
 
   const handleComposerSubmit = useCallback(
     async (promptText: string) => {
@@ -346,7 +409,7 @@ export function AgentSessionPage({
         hasSessionDetails={Boolean(assistant.sessionDetails)}
         loadError={assistant.loadError}
         contentRevision={assistant.contentRevision}
-        displayError={displayError}
+        displayError={displayError || taskSwitchError}
         canRetryInitial={canRetryInitial}
         currentMode={currentMode}
         onModeChange={(m) => setSelectedModeOverride(m)}
@@ -366,12 +429,13 @@ export function AgentSessionPage({
         experienceMode={experienceMode}
         boundTasks={boundTasks}
         activeTaskId={activeTaskId}
-        onSelectActiveTask={setActiveTaskId}
+        onSelectActiveTask={(taskId) => void handleSelectActiveTask(taskId)}
         availableActions={activeTaskActions}
         activeTaskAttempt={activeTaskAttempt}
         onApproveTask={handleApproveTask}
         onStartReviewTask={handleStartReviewTask}
         onRequestChangesSubmit={handleRequestChangesSubmit}
+        initialActionMode={initialActionMode}
         keyboardOpen={visualViewport.keyboardOpen}
         onReload={() => void handleReload()}
         onBack={onBack}
@@ -384,4 +448,3 @@ export function AgentSessionPage({
     </div>
   );
 }
-

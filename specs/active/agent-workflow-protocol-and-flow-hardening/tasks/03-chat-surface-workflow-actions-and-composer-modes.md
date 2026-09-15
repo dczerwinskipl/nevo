@@ -28,25 +28,41 @@ context:
 allowed_paths:
   - tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.tsx
   - tools/dashboard/ui/features/agent-sessions/agent-session-workflow-bar.tsx
+  - tools/dashboard/ui/features/agent-sessions/agent-session-workflow-bar-helpers.ts
   - tools/dashboard/ui/features/agent-sessions/agent-session-page.tsx
   - tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx
   - tools/dashboard/ui/features/agent-sessions/create-agent-session-helpers.ts
   - tools/dashboard/ui/features/agent-sessions/initial-dispatch.ts
+  - tools/dashboard/ui/features/agent-sessions/queries.ts
   - tools/dashboard/ui/features/agent-sessions/types.ts
+  - tools/dashboard/ui/features/agent-sessions/runtime/agent-session-runtime.ts
+  - tools/dashboard/ui/features/agent-sessions/runtime/agent-session-transport.ts
+  - tools/dashboard/ui/features/agent-sessions/runtime/agent-turn-transport.ts
+  - tools/dashboard/ui/features/agent-sessions/runtime/pending-action-mode-store.ts
   - tools/dashboard/ui/screens/agent-session/agent-session-screen.tsx
   - tools/dashboard/ui/features/specifications/**
   - tools/dashboard/ui/screens/specification-detail/**
+  - tools/dashboard/server/ai/sessions/service.mjs
+  - tools/dashboard/server/ai/sessions/routes.mjs
+  - tools/dashboard/server/ai/sessions/interactions/routes.mjs
+  - tools/dashboard/server/specs/actions.mjs
   - tools/dashboard/tests/agent-session-workflow.test.mjs
   - tools/dashboard/tests/agent-session-workflow.test.tsx
+  - tools/dashboard/tests/agent-session-runtime-state.test.mjs
+  - tools/dashboard/tests/agent-turn-transport.test.mjs
+  - tools/dashboard/tests/create-agent-session-helpers.test.mjs
+  - tools/dashboard/tests/specs-actions.test.mjs
+  - tools/dashboard/tests/session-task-bootstrap.test.mjs
   - tools/dashboard/tests/e2e-product-workflow.test.mjs
   - specs/active/agent-workflow-protocol-and-flow-hardening/change.yaml
+  - specs/active/agent-workflow-protocol-and-flow-hardening/owner-decisions.md
 forbidden_paths:
   - src/**
   - tests/NEvo.*/**
   - tools/specs/workflow/**
 semantic_references:
-  decisions: [D3, D4, D7, D8, D10]
-  constraints: [C8, C9, C10, C11, C12]
+  decisions: [D3, D4, D7, D8, D9, D10, D14]
+  constraints: [C7, C8, C9, C10, C11, C12]
 ---
 
 # Task: Chat surface workflow actions, multi-task context, and composer action modes

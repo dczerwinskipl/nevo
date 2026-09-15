@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { buildDashboardApp } from '../server/index.mjs';
-import { computeTaskAvailableActions, loadSpecificationActions } from '../server/specs/actions.mjs';
+import { computeTaskAvailableActions, computeTaskWorkflowProjection, loadSpecificationActions } from '../server/specs/actions.mjs';
 import { requireChange, requireTask } from '../../specs/store.mjs';
 
 const STANDARD_V1_YAML = `id: standard-v1
@@ -95,9 +95,11 @@ function createGitFixture(prefix = 'nevo-specs-actions-') {
 
 describe('AC 9: Task read models project availableActions matching state-action matrix', () => {
   test('computeTaskAvailableActions correctly evaluates matrix states', () => {
-    // 1. New task (ready, no workflow progress)
-    assert.deepEqual(computeTaskAvailableActions({ id: 't1', status: 'ready' }), ['start-implementation']);
-    assert.deepEqual(computeTaskAvailableActions({ id: 't1', status: 'draft' }), ['start-implementation']);
+    // 1. New task: approved (isTaskReady) with no unmet dependencies, no workflow progress
+    assert.deepEqual(
+      computeTaskAvailableActions({ id: 't1', status: 'approved', depends_on: [] }, { tasks: [{ id: 't1', status: 'approved', depends_on: [] }] }),
+      ['start-implementation'],
+    );
 
     // 2. Task with status in-implementation but no workflow progress yet
     assert.deepEqual(computeTaskAvailableActions({ id: 't1', status: 'in-implementation' }), []);
@@ -198,6 +200,36 @@ describe('AC 9: Task read models project availableActions matching state-action 
     );
   });
 
+  test('computeTaskAvailableActions never projects start-implementation for a not-yet-ready task (Task 03 corrective: blocked/draft tasks)', () => {
+    // Not yet approved by the owner (draft) — must not expose an executable action even
+    // though it superficially resembles a "new" task with no workflow_progress.
+    assert.deepEqual(computeTaskAvailableActions({ id: 't1', status: 'draft', depends_on: [] }), []);
+
+    // Approved, but still blocked by an unmet dependency — isTaskReady's depsSatisfied
+    // check must gate start-implementation exactly the same way the status-board's own
+    // `blockedBy` projection does, so the two can never disagree about readiness.
+    const blockedChange = {
+      tasks: [
+        { id: '01', status: 'in-implementation', depends_on: [] },
+        { id: '02', status: 'approved', depends_on: ['01'] },
+      ],
+    };
+    assert.deepEqual(
+      computeTaskAvailableActions(blockedChange.tasks[1], blockedChange),
+      [],
+      'a task blocked by an unmet dependency must not project an executable start action',
+    );
+
+    // Once the dependency reaches a satisfying status, the same task becomes executable.
+    const unblockedChange = {
+      tasks: [
+        { id: '01', status: 'verified', depends_on: [] },
+        { id: '02', status: 'approved', depends_on: ['01'] },
+      ],
+    };
+    assert.deepEqual(computeTaskAvailableActions(unblockedChange.tasks[1], unblockedChange), ['start-implementation']);
+  });
+
   test('loadSpecificationActions attaches availableActions to all tasks in read model', async () => {
     const fx = createGitFixture('nevo-actions-load-');
     try {
@@ -223,7 +255,7 @@ tasks:
       history: []
   - id: 02-task
     title: "Second Task"
-    status: ready
+    status: approved
     file: tasks/02-task.md
 `;
       writeFileSync(join(changeDir, 'change.yaml'), changeYaml);
@@ -242,12 +274,47 @@ tasks:
 
       assert.ok(readModel.tasks['01-task']);
       assert.deepEqual(readModel.tasks['01-task'].availableActions, ['approve', 'request-changes']);
+      // Authoritative workflow projection: the UI renders these fields directly instead
+      // of fabricating `status || 'in-implementation'` / `attempt || 1`.
+      assert.equal(readModel.tasks['01-task'].status, 'awaiting-human-verification');
+      assert.equal(readModel.tasks['01-task'].currentStep, 'human-verification');
+      assert.equal(readModel.tasks['01-task'].attempt, 1);
+      assert.equal(readModel.tasks['01-task'].workflowState, 'active');
 
       assert.ok(readModel.tasks['02-task']);
       assert.deepEqual(readModel.tasks['02-task'].availableActions, ['start-implementation']);
+      assert.equal(readModel.tasks['02-task'].status, 'approved');
+      // No workflow_progress recorded yet — never fabricated as 'implementation'/attempt 1.
+      assert.equal(readModel.tasks['02-task'].currentStep, null);
+      assert.equal(readModel.tasks['02-task'].attempt, null);
     } finally {
       fx.cleanup();
     }
+  });
+});
+
+describe('computeTaskWorkflowProjection: authoritative read model, never fabricated', () => {
+  test('reports null fields for a task with no workflow_progress, real fields when present', () => {
+    assert.deepEqual(computeTaskWorkflowProjection({ id: 't1', status: 'approved' }), {
+      status: 'approved',
+      currentStep: null,
+      attempt: null,
+      workflowState: null,
+    });
+
+    assert.deepEqual(
+      computeTaskWorkflowProjection({
+        id: 't1',
+        status: 'in-review',
+        workflow_progress: { current_step: 'review', current_attempt: 2, state: 'active' },
+      }),
+      {
+        status: 'in-review',
+        currentStep: 'review',
+        attempt: 2,
+        workflowState: 'active',
+      },
+    );
   });
 });
 

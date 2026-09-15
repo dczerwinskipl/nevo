@@ -20,6 +20,7 @@ import { RepositoryActionsCard, FinalizeDialog } from '@/features/specifications
 import { CreateAgentSessionDialog } from '@/features/agent-sessions/create-agent-session-dialog';
 import { OperationModal } from '@/features/operations/operation-modal';
 import { queueAgentSessionInitialDispatch } from '@/features/agent-sessions/initial-dispatch';
+import { pendingActionModeStore } from '@/features/agent-sessions/runtime/pending-action-mode-store';
 import {
   useSpecificationManifest,
   useSpecificationActions,
@@ -144,7 +145,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
         const userMessage = `Implement task ${task.id}: ${task.title}`;
         queueAgentSessionInitialDispatch({
           provider: session.provider,
-          providerSessionId: session.sessionId,
+          sessionId: session.sessionId,
           prompt: userMessage,
           userMessage,
         });
@@ -169,7 +170,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
         const userMessage = `Review task ${task.id}: ${task.title}`;
         queueAgentSessionInitialDispatch({
           provider: session.provider,
-          providerSessionId: session.sessionId,
+          sessionId: session.sessionId,
           prompt: userMessage,
           userMessage,
         });
@@ -205,6 +206,14 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
             taskIds: [task.id],
             mode: 'edit',
           }));
+        // Explicit, inspectable navigation intent (not a hidden global flag): the target
+        // session/chat surface reads and consumes this exactly once to make `task.id` the
+        // authoritative activeTaskId and open the composer directly in request-changes
+        // mode — no second click required.
+        pendingActionModeStore.setPending(targetSession.sessionId, {
+          action: 'request-changes',
+          taskId: task.id,
+        });
         navigate({
           to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
           params: {
@@ -465,7 +474,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
             if (promptToSend) {
               queueAgentSessionInitialDispatch({
                 provider: session.provider,
-                providerSessionId: routeSessionId,
+                sessionId: routeSessionId,
                 prompt: promptToSend,
                 userMessage,
               });

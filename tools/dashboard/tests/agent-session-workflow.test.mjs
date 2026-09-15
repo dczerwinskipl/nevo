@@ -11,7 +11,7 @@ let getStoredWorkflowExperienceMode, setStoredWorkflowExperienceMode, WORKFLOW_E
 let formatBoundTaskLabel;
 
 try {
-  const we = await import('../ui/screens/specification-detail/workflow-experience.ts');
+  const we = await import('../ui/screens/specification-detail/workflow-experience-storage.ts');
   getStoredWorkflowExperienceMode = we.getStoredWorkflowExperienceMode;
   setStoredWorkflowExperienceMode = we.setStoredWorkflowExperienceMode;
   WORKFLOW_EXPERIENCE_STORAGE_KEY = we.WORKFLOW_EXPERIENCE_STORAGE_KEY;
@@ -79,8 +79,8 @@ describe('AC1: Temporary UI Presentation Switch (D10, C12)', () => {
     }
   });
 
-  test('workflow-experience.ts source implements correct defaults and storage keys', () => {
-    const tsSource = readSource('../ui/screens/specification-detail/workflow-experience.ts');
+  test('workflow-experience-storage.ts source implements correct defaults and storage keys', () => {
+    const tsSource = readSource('../ui/screens/specification-detail/workflow-experience-storage.ts');
     assert.match(tsSource, /WORKFLOW_EXPERIENCE_STORAGE_KEY = 'nevo:workflow-experience:mode'/);
     assert.match(tsSource, /return 'deterministic'/);
     assert.match(tsSource, /stored === 'classic' \|\| stored === 'deterministic'/);
@@ -134,14 +134,24 @@ describe('AC2: Dashboard task cards render availableActions (D8, C9, C10)', () =
   test('SpecificationDetailContent initiates sessions via canonical sessionId UUID and queues initial dispatch', () => {
     const contentSource = readSource('../ui/screens/specification-detail/specification-detail-content.tsx');
 
-    // Canonical sessionId anchor
-    assert.match(contentSource, /providerSessionId:\s*session\.sessionId/);
+    // Canonical sessionId anchor — queueAgentSessionInitialDispatch's identity key is
+    // named sessionId, never providerSessionId (Task 03 corrective pass). (Route params
+    // in navigate() calls legitimately keep the `providerSessionId` URL segment name —
+    // that is route-path cosmetics, not the runtime application identity.)
+    assert.match(contentSource, /queueAgentSessionInitialDispatch\(\{\s*provider: session\.provider,\s*sessionId: session\.sessionId,/);
     assert.match(contentSource, /queueAgentSessionInitialDispatch/);
     assert.match(contentSource, /handleWorkflowAction/);
     assert.match(contentSource, /action === 'start-implementation'/);
     assert.match(contentSource, /action === 'start-review'/);
     assert.match(contentSource, /action === 'approve'/);
     assert.match(contentSource, /action === 'request-changes'/);
+  });
+
+  test('Task card "Request changes" queues an explicit navigation intent so chat opens directly in request-changes mode (no second click)', () => {
+    const contentSource = readSource('../ui/screens/specification-detail/specification-detail-content.tsx');
+    assert.match(contentSource, /pendingActionModeStore\.setPending\(targetSession\.sessionId, \{/);
+    assert.match(contentSource, /action: 'request-changes'/);
+    assert.match(contentSource, /taskId: task\.id/);
   });
 });
 
@@ -166,6 +176,17 @@ describe('AC3: Bound tasks workflow bar and task switching (C11)', () => {
     assert.equal(
       formatBoundTaskLabel({ id: '03', status: 'review' }),
       '● 03 (review)',
+    );
+
+    // No status/currentStep known at all (server has no projection yet) — must render an
+    // explicit "unknown" label, never a fabricated 'in-implementation' default (Task 03
+    // corrective pass).
+    assert.equal(formatBoundTaskLabel({ id: '04' }), '● 04 (unknown)');
+
+    // currentStep, when present, takes precedence over the coarser task.status.
+    assert.equal(
+      formatBoundTaskLabel({ id: '05', status: 'in-review', currentStep: 'review', attempt: 2 }),
+      '● 05 (review · attempt 2)',
     );
   });
 
@@ -227,16 +248,29 @@ describe('AC5 & AC6: Dedicated "Request Changes" composer mode (D3, D7, C8)', ()
     assert.match(source, /disabled=\{!draft\.trim\(\) \|\| isDisabled\}/);
   });
 
-  test('AgentSessionPage anchors session navigation on canonical sessionId and handles human decisions', () => {
+  test('AgentSessionPage anchors session navigation on canonical sessionId alone and handles human decisions', () => {
     const source = readSource('../ui/features/agent-sessions/agent-session-page.tsx');
 
-    // Authoritative canonical sessionId UUID
-    assert.match(source, /const sessionId = session\.sessionId \|\| session\.providerSessionId/);
+    // Authoritative canonical sessionId UUID — never combined with providerSessionId as
+    // a fallback chain (Task 03 corrective pass; see owner-decisions.md D9).
+    assert.match(source, /const sessionId = session\.sessionId;/);
+    assert.doesNotMatch(source, /session\.sessionId \|\| session\.providerSessionId/);
+
+    // The runtime hook is driven by canonical sessionId only, not provider + providerSessionId.
+    assert.match(source, /useAgentSessionRuntime\(\{\s*sessionId,/);
+
+    // activeTaskId is derived from the server's own session projection, never defaulted
+    // to the first bound task when the server already knows the active one.
+    assert.match(source, /const activeTaskId: string \| null = sessionDetails\?\.taskId/);
+    assert.doesNotMatch(source, /useState<string \| null>\(\(\) => boundTaskIds\[0\]/);
 
     // Human decision dispatches
     assert.match(source, /handleApproveTask/);
     assert.match(source, /handleRequestChangesSubmit/);
     assert.match(source, /decision: 'approve'/);
     assert.match(source, /decision: 'request-changes'/);
+
+    // Workflow boundary refresh: a terminal turn refreshes availableActions immediately.
+    assert.match(source, /onTurnCompleted:\s*\(\)\s*=>\s*\{[\s\S]*?onRefreshTaskActions\?\.\(\)/);
   });
 });

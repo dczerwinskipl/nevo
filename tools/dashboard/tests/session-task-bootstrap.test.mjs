@@ -1032,3 +1032,69 @@ test('8. Regression: first turn on a provider without createSession() must not t
     await rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+// ── Task 03 corrective pass: activeTaskId must be authoritative server state, not local
+// React state (D9 §7, D2, C10) ──────────────────────────────────────────────────────────
+
+test('9. AgentSessionService.setActiveTaskId persists the switch and the next turn derives its task context from it', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-active-task-switch-'));
+  let sessionService = null;
+  try {
+    const storageDir = join(tmpDir, 'sessions');
+    const bindingService = createAgentSessionBindingService({ storageDir });
+    const registry = createAgentProviderRegistry();
+    const specId = '44444444-5555-4666-8777-888888888888';
+    writeLegacySpecFixtureSync(tmpDir, specId, { taskIds: ['01', '02'] });
+
+    const receivedTaskIds = [];
+    registry.register({
+      descriptor: { id: 'mock', label: 'Mock Provider', defaultMode: 'edit', capabilities: {} },
+      startTurn: (context) => {
+        receivedTaskIds.push(context.taskId);
+        return (async function* () {
+          yield { type: 'final_answer.delta', text: 'done' };
+        })();
+      },
+      cancelTurn: async () => ({}),
+    });
+
+    const turnRuntime = new AgentTurnRuntime({ registry });
+    sessionService = new AgentSessionService({ registry, turnRuntime, bindingService, repoRoot: tmpDir });
+
+    const session = await sessionService.createSession('mock', {
+      specId,
+      taskId: '01',
+      taskIds: ['01', '02'],
+    });
+    assert.equal(session.activeTaskId, '01', 'session bound to task 01 first must start active on task 01');
+
+    // Operator explicitly selects task 02 — this must be the ONLY way activeTaskId moves.
+    const switched = await sessionService.setActiveTaskId(session.sessionId, '02');
+    assert.equal(switched.taskId, '02', 'setActiveTaskId must persist and return the new active task');
+    assert.equal(switched.sessionId, session.sessionId, 'switching task must never create a new Nevo session identity');
+
+    // The NEXT turn on this session must derive its task context from the persisted
+    // activeTaskId — never from whatever taskId happened to be passed to createSession.
+    const turnResult = await sessionService.startTurn('mock', undefined, {
+      sessionId: session.sessionId,
+      message: 'continue',
+    });
+    for (let i = 0; i < 50; i++) {
+      const snap = sessionService.getTurn(turnResult.turnId);
+      if (snap?.status === 'completed' || snap?.status === 'failed') break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    assert.deepEqual(receivedTaskIds, ['02'], 'the next turn must run with task 02 as its execution context');
+
+    // Rejecting an invalid task: must not silently move activeTaskId nor fabricate a binding.
+    await assert.rejects(() => sessionService.setActiveTaskId(session.sessionId, '99-does-not-exist'));
+    const afterRejected = await bindingService.getSession(session.sessionId);
+    assert.equal(afterRejected.activeTaskId, '02', 'a failed switch must leave the previous authoritative activeTaskId in place');
+
+    // Rejecting an unknown session: must fail closed, never silently create one.
+    await assert.rejects(() => sessionService.setActiveTaskId('00000000-0000-4000-8000-000000000000', '01'));
+  } finally {
+    await sessionService?.shutdown?.().catch(() => {});
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});

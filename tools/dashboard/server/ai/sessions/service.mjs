@@ -710,6 +710,56 @@ export class AgentSessionService {
     return { provider, providerSessionId: sessId, model: model.trim() };
   }
 
+  /**
+   * Authoritative activeTaskId switch for a multi-task session (D9 §7, D2, C10). The UI
+   * never mutates its own local activeTaskId as the application contract — it sends this
+   * intent, and only a successful persisted result (returned here via getSessionDetails)
+   * is allowed to move the rendered active task. Validates that `taskId` is a real task of
+   * the session's own specification before persisting, so an invalid or foreign task id can
+   * never become the session's execution context.
+   */
+  async setActiveTaskId(sessionId, taskId) {
+    if (!sessionId || typeof sessionId !== 'string') {
+      throw new AiValidationError("'sessionId' is required.", { field: 'sessionId' });
+    }
+    if (!taskId || typeof taskId !== 'string' || !taskId.trim()) {
+      throw new AiValidationError("'taskId' must be a non-empty string.", { field: 'taskId' });
+    }
+    if (!this.bindingService) throw new Error('No binding service configured.');
+
+    const session = await this.bindingService.getSession(sessionId);
+    if (!session) {
+      throw new AiValidationError(`Session '${sessionId}' not found.`, { field: 'sessionId' });
+    }
+
+    const cleanTaskId = taskId.trim();
+    if (session.specId) {
+      let changes;
+      try {
+        changes = listChanges(resolve(this.repoRoot, 'specs', 'active'));
+      } catch (err) {
+        const message = `Failed to look up spec '${session.specId}' under repoRoot '${this.repoRoot}': ${err?.message || err}`;
+        throw new AiSpecContextUnavailableError(message, { specId: session.specId, repoRoot: this.repoRoot });
+      }
+      const change = changes.find(
+        (c) => c.spec_id === session.specId || c.id === session.specId || c._slug === session.specId,
+      );
+      if (!change) {
+        const message = `Spec '${session.specId}' was not found under repoRoot '${this.repoRoot}'.`;
+        throw new AiSpecContextUnavailableError(message, { specId: session.specId, repoRoot: this.repoRoot });
+      }
+      const taskExists = (change.tasks || []).some((t) => String(t.id) === cleanTaskId);
+      if (!taskExists) {
+        throw new AiValidationError(`Task '${cleanTaskId}' does not exist in specification '${session.specId}'.`, {
+          field: 'taskId',
+        });
+      }
+    }
+
+    await this.bindingService.setActiveTaskId(session.provider, sessionId, cleanTaskId, session.specId);
+    return await this.getSessionDetails(sessionId);
+  }
+
   async getSessionDetails(providerOrSessionId, providerSessionId, options = {}) {
     let provider;
     let sessId;

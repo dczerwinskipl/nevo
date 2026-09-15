@@ -5,12 +5,14 @@ import { Button } from '@/shared/ui/button';
 import { StatusCard } from '@/shared/ui/status-card';
 import { LoadingScreen } from '@/shared/ui/loading-screen';
 import { useSpecificationIndex } from '@/features/specifications/queries';
-import { isSpecificationSource } from '@/features/specifications/types';
+import { isSpecificationSource, type SpecificationSummary } from '@/features/specifications/types';
 import type { AgentSession, TaskNavigationTarget } from '@/features/agent-sessions/types';
 import { useAgentSessions } from '@/features/agent-sessions/queries';
 import { AgentSessionPage } from '@/features/agent-sessions/agent-session-page';
 import { AgentSessionList } from '@/features/agent-sessions/agent-session-list';
 import { TaskDialog } from '@/features/specifications/tasks/task-dialog';
+import { useSpecificationActions } from '@/features/specifications/detail/spec-detail-queries';
+import { getStoredWorkflowExperienceMode } from '@/screens/specification-detail/workflow-experience';
 
 export interface AgentSessionScreenProps {
   source: string;
@@ -73,6 +75,17 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
     specId: specId || undefined,
     enabled: Boolean(specId),
   });
+
+  // Owned at the screens layer (not inside AgentSessionPage itself): the authoritative
+  // per-task workflow projection and the presentation-only experience toggle both cross
+  // feature boundaries (specifications, and localStorage UI state respectively), which
+  // the agent-sessions feature must not import directly (see
+  // tests/architecture-boundaries.test.mjs). This composition belongs here.
+  const actionsQuery = useSpecificationActions(
+    { slug: effectiveSpec?.slug || '', source: 'active' } as SpecificationSummary,
+    Boolean(effectiveSpec?.slug),
+  );
+  const experienceMode = getStoredWorkflowExperienceMode();
 
   const session = useMemo(() => {
     // Match on the canonical sessionId too: once a provider confirms its native
@@ -199,6 +212,9 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
       onBack={handleBack}
       backLabel="Wróć do specyfikacji"
       onSwitchSession={handleSwitchSession}
+      experienceMode={experienceMode}
+      taskActions={actionsQuery.data?.tasks}
+      onRefreshTaskActions={actionsQuery.refresh}
       onInspectTask={(target) => {
         const taskId = typeof target === 'string' ? target : target.taskId;
         setInspectedTaskId(taskId);

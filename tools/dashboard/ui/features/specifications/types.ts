@@ -165,6 +165,16 @@ export interface SpecificationTaskActionGate {
   enabled: boolean;
   reason: string | null;
   availableActions?: string[];
+  /**
+   * Authoritative deterministic-workflow read model (see `computeTaskWorkflowProjection`
+   * in `tools/dashboard/server/specs/actions.mjs`). `null` fields mean the server has no
+   * such value — the UI must never substitute a guessed default (e.g. `attempt: 1`) when
+   * these are absent/null.
+   */
+  status?: string | null;
+  currentStep?: string | null;
+  attempt?: number | null;
+  workflowState?: string | null;
 }
 
 export interface SpecificationWorktreeState {

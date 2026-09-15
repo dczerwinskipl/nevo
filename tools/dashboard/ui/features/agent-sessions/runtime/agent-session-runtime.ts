@@ -18,8 +18,13 @@ import { applyTurnUpdated, deriveActivity, resolveEffectiveReadiness } from './a
 export { applyTurnUpdated, deriveActivity };
 
 export interface UseAgentSessionRuntimeOptions {
-  provider: string;
-  providerSessionId: string;
+  /**
+   * Canonical Nevo session UUID — the sole application identity this runtime operates
+   * on. `providerSessionId` (optional provider-native metadata) is never accepted here;
+   * every HTTP/SSE call this hook issues targets the canonical `/api/agent-sessions/:sessionId/...`
+   * routes (see owner-decisions.md D9).
+   */
+  sessionId: string;
   onTurnCompleted?: () => void;
   onError?: (error: Error) => void;
 }
@@ -34,13 +39,8 @@ function latestTurn(turns: CanonicalTurn[]): CanonicalTurn | null {
  * events. A live `turn.updated` event carries the *entire* current Turn snapshot, so
  * applying it is a simple identity-keyed replace, idempotent under SSE reconnect replay.
  */
-export function useAgentSessionRuntime({
-  provider,
-  providerSessionId,
-  onTurnCompleted,
-  onError,
-}: UseAgentSessionRuntimeOptions) {
-  const currentIdentity = provider && providerSessionId ? `${provider}:${providerSessionId}` : '';
+export function useAgentSessionRuntime({ sessionId, onTurnCompleted, onError }: UseAgentSessionRuntimeOptions) {
+  const currentIdentity = sessionId || '';
   const [loadedIdentity, setLoadedIdentity] = useState<string | null>(null);
   const [loadErrorIdentity, setLoadErrorIdentity] = useState<string | null>(null);
 
@@ -85,14 +85,14 @@ export function useAgentSessionRuntime({
   useEffect(() => {
     let cancelled = false;
     async function loadSnapshot() {
-      if (!provider || !providerSessionId) return;
-      const identity = `${provider}:${providerSessionId}`;
+      if (!sessionId) return;
+      const identity = sessionId;
       setLoadError(null);
       setLoadErrorIdentity(null);
       setConnectionStatus('unknown');
 
       try {
-        const payload = await fetchAgentSessionChat(provider, providerSessionId);
+        const payload = await fetchAgentSessionChat(sessionId);
         if (cancelled) return;
 
         setSessionMeta(payload.session);
@@ -113,7 +113,7 @@ export function useAgentSessionRuntime({
         setLoadError(null);
       } catch (err) {
         if (!cancelled) {
-          const classified = classifySessionLoadError(err, provider, providerSessionId);
+          const classified = classifySessionLoadError(err, undefined, sessionId);
           setSessionMeta(null);
           setTurns([]);
           setCapabilities(null);
@@ -133,16 +133,16 @@ export function useAgentSessionRuntime({
     return () => {
       cancelled = true;
     };
-  }, [provider, providerSessionId, reloadTrigger]);
+  }, [sessionId, reloadTrigger]);
 
   // 2. Live SSE — the only event this hook acts on is `turn.updated`, whose payload is
   // the full canonical Turn (never a delta), so applying it is an identity-keyed replace.
   useEffect(() => {
-    if (!provider || !providerSessionId) return;
-    const identity = `${provider}:${providerSessionId}`;
+    if (!sessionId) return;
+    const identity = sessionId;
     if (loadedIdentity !== identity || loadError) return;
 
-    const url = `/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}/events?after=${lastSeqRef.current}`;
+    const url = `/api/agent-sessions/${encodeURIComponent(sessionId)}/events?after=${lastSeqRef.current}`;
     let active = true;
 
     const disconnect = connectAgentEventStream(url, {
@@ -197,7 +197,7 @@ export function useAgentSessionRuntime({
       active = false;
       disconnect();
     };
-  }, [provider, providerSessionId, loadedIdentity, loadError]);
+  }, [sessionId, loadedIdentity, loadError]);
 
   // 3. Send Turn
   const handleSendTurn = useCallback(
@@ -207,9 +207,8 @@ export function useAgentSessionRuntime({
     ) => {
       const trimmed = messageText ? messageText.trim() : '';
       if (!trimmed) throw new Error('Cannot start turn with an empty message.');
-      if (!provider || !providerSessionId)
-        throw new Error('Cannot start turn without an active provider and session ID.');
-      if (loadedIdentity !== `${provider}:${providerSessionId}`) {
+      if (!sessionId) throw new Error('Cannot start turn without an active session.');
+      if (loadedIdentity !== sessionId) {
         throw new Error('Cannot start turn while the session snapshot is loading.');
       }
       if (loadError) throw new Error('Cannot start turn on a session with a load error.');
@@ -223,7 +222,7 @@ export function useAgentSessionRuntime({
       setOptimisticPending({ text: displayText });
 
       try {
-        await postStartTurn(provider, providerSessionId, {
+        await postStartTurn(sessionId, {
           message: trimmed,
           idempotencyKey,
           mode: options?.mode,
@@ -236,18 +235,18 @@ export function useAgentSessionRuntime({
         throw normalized;
       }
     },
-    [provider, providerSessionId, loadedIdentity, loadError, serverReadiness, optimisticPending],
+    [sessionId, loadedIdentity, loadError, serverReadiness, optimisticPending],
   );
 
   // 4. Cancel Turn
   const handleCancelTurn = useCallback(async () => {
     const turn = latestTurn(turnsRef.current);
     if (!turn || turn.status.status === 'terminal') return;
-    if (!provider || !providerSessionId) return;
-    if (loadedIdentity !== `${provider}:${providerSessionId}`) return;
+    if (!sessionId) return;
+    if (loadedIdentity !== sessionId) return;
 
     try {
-      const { response, errorData } = await postCancelTurn(provider, providerSessionId, turn.id);
+      const { response, errorData } = await postCancelTurn(sessionId, turn.id);
       if (!response.ok && !terminalTurnIdsRef.current.has(turn.id)) {
         const message =
           errorData?.error?.message || errorData?.message || `Failed to cancel turn (${response.status || 'unknown'})`;
@@ -258,20 +257,20 @@ export function useAgentSessionRuntime({
         onErrorRef.current?.(err instanceof Error ? err : new Error(String(err)));
       }
     }
-  }, [provider, providerSessionId, loadedIdentity]);
+  }, [sessionId, loadedIdentity]);
 
   // 5. Respond Interaction
   const handleRespondInteraction = useCallback(
     async (interactionId: string, responsePayload: unknown) => {
-      if (!provider || !providerSessionId) return;
-      if (loadedIdentity !== `${provider}:${providerSessionId}`) return;
+      if (!sessionId) return;
+      if (loadedIdentity !== sessionId) return;
       try {
-        await postRespondInteraction(provider, providerSessionId, interactionId, responsePayload);
+        await postRespondInteraction(sessionId, interactionId, responsePayload);
       } catch (err) {
         onErrorRef.current?.(err instanceof Error ? err : new Error(String(err)));
       }
     },
-    [provider, providerSessionId, loadedIdentity],
+    [sessionId, loadedIdentity],
   );
 
   const baseActivity = isSnapshotLoaded ? deriveActivity(exposedTurns) : 'idle';
@@ -304,7 +303,7 @@ export function useAgentSessionRuntime({
   const exposedConnectionStatus: LiveConnectionStatus =
     isSnapshotLoaded && !exposedLoadError ? connectionStatus : exposedLoadError ? 'disconnected' : 'unknown';
   const exposedLive = exposedConnectionStatus === 'connected';
-  const exposedIsLoading = isSnapshotLoaded ? false : Boolean(provider && providerSessionId && !exposedLoadError);
+  const exposedIsLoading = isSnapshotLoaded ? false : Boolean(sessionId && !exposedLoadError);
   const exposedIsReady = Boolean(
     isSnapshotLoaded &&
       !exposedLoadError &&

@@ -5,7 +5,13 @@ import {
   WORKFLOW_EXPERIENCE_STORAGE_KEY,
   getStoredWorkflowExperienceMode,
   setStoredWorkflowExperienceMode,
-} from './workflow-experience';
+  // Split into its own file (rather than `./workflow-experience`) because a sibling
+  // `workflow-experience.ts` and `workflow-experience.tsx` sharing one base name is an
+  // ambiguous bare-specifier module resolution collision: TypeScript/Vite resolved bare
+  // `'./workflow-experience'` imports to the `.ts` file exclusively, so consumers that
+  // needed this file's own exports (`useWorkflowExperienceMode`, `WorkflowExperienceToggle`)
+  // failed to build with "has no exported member" even though this file re-exported them.
+} from './workflow-experience-storage';
 
 export {
   type WorkflowExperienceMode,

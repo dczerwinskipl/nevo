@@ -163,6 +163,14 @@ export default async function sessionRoutes(fastify, { service, accessPolicy }) 
         reply.send({ session });
         return;
       }
+      if (body.activeTaskId) {
+        if (typeof body.activeTaskId !== 'string' || !TURN_PATTERN.test(body.activeTaskId)) {
+          throw new AiValidationError('Invalid task ID.');
+        }
+        const session = await service.setActiveTaskId(sessionId, body.activeTaskId);
+        reply.send({ session });
+        return;
+      }
       reply.send({ ok: true });
     },
   );

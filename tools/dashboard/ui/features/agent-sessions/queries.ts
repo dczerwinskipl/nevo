@@ -104,17 +104,45 @@ export function useCreateAgentSession() {
   };
 }
 
+/**
+ * Authoritative `activeTaskId` switch for a multi-task session (D9 §7, C10). Dispatches
+ * the server-owned `PATCH /api/agent-sessions/:sessionId` command — the UI never commits
+ * a task switch locally; the returned session (with its persisted `taskId` field, the
+ * server's `activeTaskId` projection) is the only source of truth for which task is active.
+ */
+export function useSetSessionActiveTask() {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async ({ sessionId, taskId }: { sessionId: string; taskId: string }) => {
+      const response = await fetch(`/api/agent-sessions/${encodeURIComponent(sessionId)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+        body: JSON.stringify({ activeTaskId: taskId }),
+      });
+      return (await aiPayload<{ session: AgentSession }>(response, 'Set active task API')).session;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: AGENT_SESSIONS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: AGENT_SESSION_QUERY_KEY });
+    },
+  });
+  return {
+    setActiveTask: mutation.mutateAsync,
+    settingActiveTask: mutation.isPending,
+    error: mutation.error instanceof Error ? mutation.error.message : null,
+  };
+}
+
 export function useDeleteAgentSession() {
   const queryClient = useQueryClient();
   const mutation = useMutation({
-    mutationFn: async ({ provider, sessionId }: { provider: string; sessionId: string }) => {
-      const response = await fetch(
-        `/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(sessionId)}`,
-        {
-          method: 'DELETE',
-          headers: { 'x-nevo-dashboard-action': '1' },
-        },
-      );
+    // `provider` is accepted for call-site compatibility but unused: the canonical
+    // sessionId alone identifies the session on the canonical DELETE route.
+    mutationFn: async ({ sessionId }: { provider?: string; sessionId: string }) => {
+      const response = await fetch(`/api/agent-sessions/${encodeURIComponent(sessionId)}`, {
+        method: 'DELETE',
+        headers: { 'x-nevo-dashboard-action': '1' },
+      });
       return await aiPayload<{ unbind: boolean; deleted?: boolean }>(response, 'Delete AI session API');
     },
     onSuccess: () => {

@@ -7,7 +7,13 @@ import {
   postStartTurn,
 } from '../ui/features/agent-sessions/runtime/agent-turn-transport.ts';
 
-test('postStartTurn posts message/idempotencyKey/mode and returns the assigned turnId', async () => {
+// Task 03 corrective pass: this transport is the frontend runtime's ONLY consumer of
+// turn/interaction mutations, and it must target the canonical `/api/agent-sessions/:sessionId/...`
+// routes by canonical Nevo sessionId alone — never a `/:provider/:providerSessionId/...`
+// compatibility path. providerSessionId is optional provider-native metadata and must
+// never appear anywhere in this transport's request shape.
+
+test('postStartTurn posts message/idempotencyKey/mode to the canonical sessionId route and returns the assigned turnId', async () => {
   const calls = [];
   globalThis.fetch = async (url, init) => {
     calls.push({ url, init });
@@ -18,7 +24,7 @@ test('postStartTurn posts message/idempotencyKey/mode and returns the assigned t
     };
   };
 
-  const result = await postStartTurn('claude', 'sess-1', {
+  const result = await postStartTurn('sess-1', {
     message: 'Hello',
     idempotencyKey: 'idem-1',
     mode: 'agent',
@@ -26,7 +32,7 @@ test('postStartTurn posts message/idempotencyKey/mode and returns the assigned t
 
   assert.deepEqual(result, { turnId: 'turn-abc' });
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, '/api/agent-sessions/claude/sess-1/turns');
+  assert.equal(calls[0].url, '/api/agent-sessions/sess-1/turns', 'must use the canonical sessionId route, not /:provider/:providerSessionId/turns');
   assert.equal(calls[0].init.method, 'POST');
   assert.equal(calls[0].init.headers['x-nevo-dashboard-action'], '1');
   assert.deepEqual(JSON.parse(calls[0].init.body), {
@@ -43,7 +49,7 @@ test('postStartTurn omits mode entirely when not provided (no mode: undefined le
     return { ok: true, status: 200, json: async () => ({ turnId: 't1' }) };
   };
 
-  await postStartTurn('claude', 'sess-1', { message: 'Hi', idempotencyKey: 'idem-2' });
+  await postStartTurn('sess-1', { message: 'Hi', idempotencyKey: 'idem-2' });
 });
 
 test('postStartTurn throws the server-provided error message on failure', async () => {
@@ -54,7 +60,7 @@ test('postStartTurn throws the server-provided error message on failure', async 
   });
 
   await assert.rejects(
-    () => postStartTurn('claude', 'sess-1', { message: 'Hi', idempotencyKey: 'idem-3' }),
+    () => postStartTurn('sess-1', { message: 'Hi', idempotencyKey: 'idem-3' }),
     (err) => {
       assert.equal(err.message, 'Turn execution conflict');
       return true;
@@ -72,7 +78,7 @@ test('postStartTurn falls back to a status-coded message when the error body is 
   });
 
   await assert.rejects(
-    () => postStartTurn('claude', 'sess-1', { message: 'Hi', idempotencyKey: 'idem-4' }),
+    () => postStartTurn('sess-1', { message: 'Hi', idempotencyKey: 'idem-4' }),
     (err) => {
       assert.equal(err.message, 'Failed to start turn (500)');
       return true;
@@ -80,35 +86,35 @@ test('postStartTurn falls back to a status-coded message when the error body is 
   );
 });
 
-test('postCancelTurn returns the raw response plus parsed error data on failure, and null error data on success', async () => {
+test('postCancelTurn targets the canonical sessionId cancel route and returns response plus parsed error data', async () => {
   globalThis.fetch = async (url, init) => {
-    assert.equal(url, '/api/agent-sessions/claude/sess-1/turns/turn-1/cancel');
+    assert.equal(url, '/api/agent-sessions/sess-1/turns/turn-1/cancel');
     assert.equal(init.method, 'POST');
     assert.equal(init.body, '{}');
     return { ok: false, status: 409, json: async () => ({ error: { message: 'Cannot cancel finished turn' } }) };
   };
 
-  const failed = await postCancelTurn('claude', 'sess-1', 'turn-1');
+  const failed = await postCancelTurn('sess-1', 'turn-1');
   assert.equal(failed.response.ok, false);
   assert.equal(failed.response.status, 409);
   assert.deepEqual(failed.errorData, { error: { message: 'Cannot cancel finished turn' } });
 
   globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({}) });
-  const succeeded = await postCancelTurn('claude', 'sess-1', 'turn-1');
+  const succeeded = await postCancelTurn('sess-1', 'turn-1');
   assert.equal(succeeded.response.ok, true);
   assert.equal(succeeded.errorData, null);
 });
 
-test('postRespondInteraction posts the raw response payload and resolves on success', async () => {
+test('postRespondInteraction posts the raw response payload to the canonical sessionId route and resolves on success', async () => {
   const calls = [];
   globalThis.fetch = async (url, init) => {
     calls.push({ url, init });
     return { ok: true, status: 200, json: async () => ({}) };
   };
 
-  await postRespondInteraction('claude', 'sess-1', 'int-1', { answer: 'yes' });
+  await postRespondInteraction('sess-1', 'int-1', { answer: 'yes' });
 
-  assert.equal(calls[0].url, '/api/agent-sessions/claude/sess-1/interactions/int-1/respond');
+  assert.equal(calls[0].url, '/api/agent-sessions/sess-1/interactions/int-1/respond');
   assert.deepEqual(JSON.parse(calls[0].init.body), { answer: 'yes' });
 });
 
@@ -120,7 +126,7 @@ test('postRespondInteraction throws the server-provided error message on failure
   });
 
   await assert.rejects(
-    () => postRespondInteraction('claude', 'sess-1', 'int-1', {}),
+    () => postRespondInteraction('sess-1', 'int-1', {}),
     (err) => {
       assert.equal(err.message, 'Interaction store unavailable');
       return true;

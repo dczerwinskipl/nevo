@@ -163,6 +163,12 @@
 - **Date:** 2026-09-13
 - **Affected artifacts:** `overview.md`, `areas/05-end-to-end-session-and-task-bootstrap.md`, task 02, task 03
 
+> **Superseding clarification (2026-09-15, post Task 02 corrective passes):** Answer 1 above (and the historical wording elsewhere in this document and in `overview.md` describing a Claude `providerSessionId` "local placeholder UUID marked `established: false`") described the *initial* design and is superseded by the implementation that actually shipped in Task 02. The final, implemented contract has **no generic `established` boolean and no placeholder `providerSessionId`**:
+> - `AgentSession.sessionId` is the one canonical, always-present Nevo identity.
+> - `AgentSession.providerSessionId` is optional and simply **absent** until a provider genuinely confirms one (`bindingService.setProviderSessionId` / `markSessionEstablished`) — never fabricated, never a copy of `sessionId` used as a stand-in.
+> - A real, established `providerSessionId` is legitimately allowed to equal `sessionId` in string value (e.g. Nevo passes its own UUID as Claude's `--session-id`); this is never treated as a placeholder, and placeholder-ness is never inferred from string equality.
+> This clarification is authoritative for all current and future implementation; the original wording above is preserved only as a historical record of the design's evolution.
+
 ## D10: Temporary deterministic workflow UI mode
 
 - **Question:** How should the new deterministic workflow chat surface and composer action modes be enabled alongside the existing dashboard experience without breaking current workflows?
@@ -220,4 +226,18 @@
 - **Rationale:** The boundary existed to keep Task 02 from doing Task 03's (chat-surface) work; a one-line defensive lookup fallback in the session screen is not that, and reverting it purely for scope hygiene would be a regression.
 - **Date:** 2026-09-15
 - **Affected artifacts:** `specs/active/agent-workflow-protocol-and-flow-hardening/tasks/02-session-task-binding-and-workflow-server-endpoints.md`
+
+## D14: Scope amendment — Task 03 corrective pass on canonical `sessionId` frontend migration and authoritative `activeTaskId`
+
+- **Question:** A post-review corrective pass on Task 03 found the reviewed implementation still consumed the legacy provider-centric frontend transport (`/api/agent-sessions/:provider/:providerSessionId/...`) and a local-only `activeTaskId` React state, rather than the canonical `sessionId`-keyed routes and authoritative server-owned active-task binding Task 02 already provides. Completing this correction touches frontend runtime files (`runtime/agent-session-runtime.ts`, `runtime/agent-session-transport.ts`, `runtime/agent-turn-transport.ts`) and a narrow slice of already-existing Task 02 server files (`sessions/service.mjs`, `sessions/routes.mjs`, `sessions/interactions/routes.mjs`, `specs/actions.mjs`) that Task 03's original `allowed_paths` did not list. How should this be resolved?
+- **Options considered:**
+  1. *Defer to a new task:* Leave the provider-centric transport and local `activeTaskId` state in place and file a separate follow-up task.
+  2. *Amend Task 03's declared scope (Recommended):* Add the specific runtime and server files actually touched to Task 03's `allowed_paths`, without broadening to directory wildcards like `tools/dashboard/server/**`.
+- **Trade-offs / Consequences:**
+  - Option 1 would ship Task 03 with the exact defects the corrective-pass review was commissioned to fix, and would require re-opening Task 02's closed scope later anyway.
+  - Option 2 keeps the fix inside the task it actually belongs to (Task 03's own acceptance criteria depend on canonical routing and authoritative `activeTaskId`), matching the precedent set by D13.
+- **Decision:** Option 2. Task 03's `allowed_paths` amended per the file list in the task frontmatter; no new product decision introduced.
+- **Rationale:** Same reasoning as D13 — the boundary exists to prevent scope creep, not to block a task from finishing what its own acceptance criteria require.
+- **Date:** 2026-09-15
+- **Affected artifacts:** `specs/active/agent-workflow-protocol-and-flow-hardening/tasks/03-chat-surface-workflow-actions-and-composer-modes.md`
 

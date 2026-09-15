@@ -137,7 +137,7 @@ export function SpecificationConsoleLayout() {
               if (promptToSend) {
                 queueAgentSessionInitialDispatch({
                   provider: session.provider,
-                  providerSessionId: routeSessionId,
+                  sessionId: routeSessionId,
                   prompt: promptToSend,
                   userMessage,
                 });

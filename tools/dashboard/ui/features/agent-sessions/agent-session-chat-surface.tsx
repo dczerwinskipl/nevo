@@ -45,6 +45,13 @@ export interface AgentSessionChatSurfaceProps {
   onApproveTask?: (taskId: string) => void | Promise<void>;
   onStartReviewTask?: (taskId: string) => void | Promise<void>;
   onRequestChangesSubmit?: (taskId: string, feedback: string) => void | Promise<void>;
+  /**
+   * A one-shot navigation intent (e.g. from a task card's "Request changes" button) to
+   * open the composer directly in `request-changes` mode without a second click. Applied
+   * exactly once per mount via `onInitialActionModeConsumed`.
+   */
+  initialActionMode?: 'request-changes' | null;
+  onInitialActionModeConsumed?: () => void;
 
   // Layout & viewport
   keyboardOpen?: boolean;
@@ -95,6 +102,8 @@ export const AgentSessionChatSurface = forwardRef<AgentSessionChatSurfaceHandle,
       onApproveTask,
       onStartReviewTask,
       onRequestChangesSubmit,
+      initialActionMode = null,
+      onInitialActionModeConsumed,
       keyboardOpen = false,
       className,
       onSend,
@@ -112,9 +121,27 @@ export const AgentSessionChatSurface = forwardRef<AgentSessionChatSurfaceHandle,
     const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
     const transcriptHandleRef = useRef<AgentSessionTranscriptHandle>(null);
 
+    // Only clear the action mode when the active task actually changes away from
+    // whichever task it was opened for — not on the initial render, which would
+    // otherwise race with (and immediately erase) an `initialActionMode` intent applied
+    // by the effect below on that same first commit.
+    const previousActiveTaskIdRef = useRef(activeTaskId);
     useEffect(() => {
-      setActionMode(null);
+      if (previousActiveTaskIdRef.current !== activeTaskId) {
+        previousActiveTaskIdRef.current = activeTaskId;
+        setActionMode(null);
+      }
     }, [activeTaskId]);
+
+    const appliedInitialActionModeRef = useRef(false);
+    useEffect(() => {
+      if (!appliedInitialActionModeRef.current && initialActionMode && activeTaskId) {
+        appliedInitialActionModeRef.current = true;
+        previousActiveTaskIdRef.current = activeTaskId;
+        setActionMode(initialActionMode);
+        onInitialActionModeConsumed?.();
+      }
+    }, [initialActionMode, activeTaskId, onInitialActionModeConsumed]);
 
     useImperativeHandle(
       ref,

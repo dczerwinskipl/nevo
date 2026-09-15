@@ -4,6 +4,7 @@ import { promisify } from 'node:util';
 import * as git from '../../../lib/git.mjs';
 import { createProgressEmitter } from '../../../lib/operation-progress.mjs';
 import { evaluateGate, evaluateTaskGate } from '../../../specs/gates.mjs';
+import { isTaskReady } from '../../../specs/lifecycle-primitives.mjs';
 import { ACTIVE_DIR, loadChange } from '../../../specs/store.mjs';
 import { loadFollowUps } from '../../../specs/follow-ups.mjs';
 import { approveTask } from '../../../specs/approve/operation.mjs';
@@ -47,7 +48,12 @@ export function computeTaskAvailableActions(task, change) {
   const wp = task.workflow_progress;
   if (!wp || !wp.current_step) {
     if (task.status === 'in-implementation') return [];
-    return ['start-implementation'];
+    // A task with no workflow_progress yet has never been started — it is only really
+    // executable once its own dependencies are satisfied (isTaskReady), never merely
+    // because a `start-implementation` label would otherwise apply to its raw status.
+    // Without this check a `draft` task, or an `approved` task still blocked by an
+    // unmet depends_on, would incorrectly project an executable start action.
+    return isTaskReady(task, change) ? ['start-implementation'] : [];
   }
 
   if (wp.state === 'reconciliation-required' || task.status === 'reconciliation-required') {
@@ -93,6 +99,23 @@ export function computeTaskAvailableActions(task, change) {
   }
 
   return [];
+}
+
+/**
+ * Authoritative, server-owned read model of a task's deterministic-workflow position —
+ * the single source the dashboard UI renders as its workflow bar / verification banner.
+ * Never derived by the UI from `task.status` or defaulted (e.g. `attempt || 1`); a task
+ * with no `workflow_progress` yet (legacy lifecycle, or not started) reports `null` for
+ * every workflow-position field rather than a guessed value.
+ */
+export function computeTaskWorkflowProjection(task) {
+  const wp = task?.workflow_progress || null;
+  return {
+    status: task?.status ?? null,
+    currentStep: wp?.current_step ?? null,
+    attempt: wp?.current_attempt ?? null,
+    workflowState: wp?.state ?? null,
+  };
 }
 
 function requireActiveChange(slug, activeDir) {
@@ -161,6 +184,7 @@ export async function loadSpecificationActions({
     const availableActions = computeTaskAvailableActions(task, change);
     tasks[task.id] = {
       ...(gate || {}),
+      ...computeTaskWorkflowProjection(task),
       availableActions,
     };
   }

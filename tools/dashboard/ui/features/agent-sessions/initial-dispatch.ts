@@ -2,7 +2,8 @@ import { pendingDispatchStore } from './runtime/pending-dispatch-store.ts';
 
 export interface QueueAgentSessionInitialDispatchParams {
   provider: string;
-  providerSessionId: string;
+  /** Canonical Nevo sessionId — the sole application identity (see owner-decisions.md D9). */
+  sessionId: string;
   prompt: string;
   /** Clean, user-typed text alone (no Nevo-injected context) — the chat-bubble source. */
   userMessage?: string | null;
@@ -14,9 +15,9 @@ export interface QueueAgentSessionInitialDispatchParams {
  */
 export function queueAgentSessionInitialDispatch({
   provider,
-  providerSessionId,
+  sessionId,
   prompt,
   userMessage,
 }: QueueAgentSessionInitialDispatchParams): void {
-  pendingDispatchStore.setPending(provider, providerSessionId, prompt, userMessage ?? undefined);
+  pendingDispatchStore.setPending(provider, sessionId, prompt, userMessage ?? undefined);
 }
