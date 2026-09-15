@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-09T05:36:13.065Z",
+  "generated": "2026-09-13T17:21:19.440Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -282,6 +282,23 @@
       "title": "Known issues",
       "status": "current",
       "summary": "Central, scannable list of confirmed defects and gaps across NEvo packages. Every entry was previously documented only inside an individual package doc's Limitations section; this document consolidates them into one place."
+    },
+    {
+      "file": "docs/development/agent-workflow-protocol.md",
+      "id": "development.agent-workflow-protocol",
+      "type": "development",
+      "title": "Provider-neutral agent workflow protocol",
+      "status": "current",
+      "read_when": [
+        "building or updating AI agent adapters (Claude, Codex, Antigravity, Cursor)",
+        "implementing deterministic workflow tasks or debugging step transitions",
+        "understanding the authoritative contract between agents and the workflow CLI"
+      ],
+      "summary": "Authoritative, vendor-neutral execution protocol for AI agents driving Nevo's deterministic workflow engine: 5-stage lifecycle, StepContext authority, explicit behavior matrix, error handling, and Git cleanliness invariants.",
+      "related": [
+        "development.workflow-engine",
+        "development.git-workflow"
+      ]
     },
     {
       "file": "docs/development/ai-sessions.md",

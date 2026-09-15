@@ -250,6 +250,10 @@ export class CodexAppServerClient {
       });
   }
 
+  get env() {
+    return this.#env;
+  }
+
   get rawCapture() {
     return this.#rawCapture;
   }
@@ -478,9 +482,14 @@ export class CodexAppServerClient {
 
     let child;
     try {
+      const clientEnv = {
+        ...process.env,
+        ...(this.#env || {}),
+        NEVO_AGENT_PROVIDER: 'codex',
+      };
       const spawnOptions = getProcessTreeSpawnOptions({
         cwd: this.#cwd,
-        env: this.#env,
+        env: clientEnv,
         shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],
       });

@@ -343,52 +343,56 @@ describe('Production standard workflow review loop and multi-attempt E2E proof (
     assert.equal(task.workflow_progress.history[3].transitioned_to, 'human-verification');
   });
 
-  test('Step 9: start human-verification attempt 1 and verify gate blocks finish before signoff', async () => {
+  test('Step 9: human-verification request-changes (auto-activates from completed review) -> transitions to implementation attempt 3', async () => {
+    const result = await handleWorkflowVerifyHuman(fx.changeId, fx.taskId, {
+      ...RT,
+      requestChanges: true,
+      feedback: 'Operator requested retry for performance and edge cases',
+      activeDir: fx.activeDir,
+      repoRoot: fx.root,
+    });
+
+    assert.equal(result.status, 'completed');
+    assert.deepEqual(result.transition, {
+      from: { step: 'human-verification', attempt: 1 },
+      result: 'fail',
+      to: { kind: 'step', step: 'implementation' },
+    });
+
+    const task = requireTask(requireChange(fx.changeId, fx.activeDir), fx.taskId);
+    assert.equal(task.workflow_progress.state, 'completed');
+    assert.equal(task.workflow_progress.history.length, 5);
+    const last = task.workflow_progress.history[4];
+    assert.equal(last.step, 'human-verification');
+    assert.equal(last.attempt, 1);
+    assert.equal(last.result, 'fail');
+    assert.equal(last.feedback, 'Operator requested retry for performance and edge cases');
+    assert.equal(last.transitioned_to, 'implementation');
+  });
+
+  test('Step 10: start implementation attempt 3 with previousTransition enriched', async () => {
     const context = await handleWorkflowStepStart(fx.changeId, fx.taskId, {
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
     });
 
-    assert.equal(context.currentStep, 'human-verification');
-    assert.equal(context.attempt, 1);
+    assert.equal(context.currentStep, 'implementation');
+    assert.equal(context.attempt, 3);
     assert.equal(context.runtimeState, 'active');
-    assert.equal(context.semanticStatus, 'awaiting-human-verification');
-
-    writeFileSync(join(fx.root, 'verified.txt'), 'verified work\n');
-
-    // Attempting finish before operator signoff fails closed
-    const blockedResult = await handleWorkflowStepFinish(fx.changeId, fx.taskId, {
-      ...RT,
-      activeDir: fx.activeDir,
-      repoRoot: fx.root,
-      input: JSON.stringify({
-        'commit.title': 'premature finish',
-        include: ['*'],
-      }),
-    });
-
-    assert.equal(blockedResult.status, 'blocked');
-    assert.ok(blockedResult.blockers.some(b => b.id === 'owner-acceptance'));
+    assert.equal(context.semanticStatus, 'implementing');
+    assert.ok(context.previousTransition);
+    assert.equal(context.previousTransition.from, 'human-verification');
+    assert.equal(context.previousTransition.attempt, 1);
+    assert.equal(context.previousTransition.result, 'fail');
+    assert.equal(context.previousTransition.requestedChanges, 'Operator requested retry for performance and edge cases');
   });
 
-  test('Step 10: confirm human signoff via workflow verify-human', async () => {
-    const confirmResult = await handleWorkflowVerifyHuman(fx.changeId, fx.taskId, {
-      ...RT,
-      confirm: true,
-      activeDir: fx.activeDir,
-      repoRoot: fx.root,
-    });
+  test('Step 11: finish implementation attempt 3 -> transitions to review', async () => {
+    writeFileSync(join(fx.root, 'src', 'index.js'), 'export const version = 3;\n');
 
-    assert.equal(confirmResult.confirmed, true);
-
-    const signoffFile = join(fx.root, '.nevo-ai-local', 'human-verifications', fx.changeId, fx.taskId, 'human-verification', 'attempt-1', 'owner-acceptance.json');
-    assert.ok(existsSync(signoffFile), 'Human verification signoff file must exist in attempt-scoped path');
-  });
-
-  test('Step 11: finish human-verification attempt 1 -> transitions to terminal verified', async () => {
     const finishPayload = {
-      'commit.title': 'human verified',
+      'commit.title': 'fix implementation attempt 3',
       include: ['*'],
     };
 
@@ -401,20 +405,87 @@ describe('Production standard workflow review loop and multi-attempt E2E proof (
 
     assert.equal(result.status, 'completed');
     assert.deepEqual(result.transition, {
-      from: { step: 'human-verification', attempt: 1 },
+      from: { step: 'implementation', attempt: 3 },
+      to: { kind: 'step', step: 'review' },
+    });
+
+    const task = requireTask(requireChange(fx.changeId, fx.activeDir), fx.taskId);
+    assert.equal(task.workflow_progress.current_step, 'implementation');
+    assert.equal(task.workflow_progress.current_attempt, 3);
+    assert.equal(task.workflow_progress.state, 'completed');
+    assert.equal(task.workflow_progress.history.length, 6);
+  });
+
+  test('Step 12: start review attempt 3', async () => {
+    const context = await handleWorkflowStepStart(fx.changeId, fx.taskId, {
+      ...RT,
+      activeDir: fx.activeDir,
+      repoRoot: fx.root,
+    });
+
+    assert.equal(context.currentStep, 'review');
+    assert.equal(context.attempt, 3);
+    assert.equal(context.runtimeState, 'active');
+    assert.equal(context.semanticStatus, 'reviewing');
+  });
+
+  test('Step 13: finish review attempt 3 with result "pass" -> transitions to human-verification', async () => {
+    writeFileSync(join(fx.root, 'docs', 'audit-3.md'), 'Audit 3: Complete signoff\n');
+
+    const finishPayload = {
+      result: 'pass',
+      'commit.title': 'review: pass attempt 3',
+      include: ['*'],
+      artifacts: ['docs/audit-3.md'],
+    };
+
+    const result = await handleWorkflowStepFinish(fx.changeId, fx.taskId, {
+      ...RT,
+      activeDir: fx.activeDir,
+      repoRoot: fx.root,
+      input: JSON.stringify(finishPayload),
+    });
+
+    assert.equal(result.status, 'completed');
+    assert.deepEqual(result.transition, {
+      from: { step: 'review', attempt: 3 },
+      result: 'pass',
+      to: { kind: 'step', step: 'human-verification' },
+    });
+
+    const task = requireTask(requireChange(fx.changeId, fx.activeDir), fx.taskId);
+    assert.equal(task.workflow_progress.current_step, 'review');
+    assert.equal(task.workflow_progress.current_attempt, 3);
+    assert.equal(task.workflow_progress.state, 'completed');
+    assert.equal(task.workflow_progress.history.length, 7);
+  });
+
+  test('Step 14: approve human-verification (auto-activates from completed review) -> transitions to terminal verified', async () => {
+    const result = await handleWorkflowVerifyHuman(fx.changeId, fx.taskId, {
+      ...RT,
+      approve: true,
+      activeDir: fx.activeDir,
+      repoRoot: fx.root,
+    });
+
+    assert.equal(result.status, 'completed');
+    assert.deepEqual(result.transition, {
+      from: { step: 'human-verification', attempt: 2 },
+      result: 'pass',
       to: { kind: 'terminal', status: 'verified' },
     });
 
     const task = requireTask(requireChange(fx.changeId, fx.activeDir), fx.taskId);
     assert.equal(task.status, 'verified');
     assert.equal(task.workflow_progress.state, 'completed');
-    assert.equal(task.workflow_progress.history.length, 5);
-    assert.equal(task.workflow_progress.history[4].step, 'human-verification');
-    assert.equal(task.workflow_progress.history[4].attempt, 1);
-    assert.equal(task.workflow_progress.history[4].transitioned_to, 'verified');
+    assert.equal(task.workflow_progress.history.length, 8);
+    assert.equal(task.workflow_progress.history[7].step, 'human-verification');
+    assert.equal(task.workflow_progress.history[7].attempt, 2);
+    assert.equal(task.workflow_progress.history[7].result, 'pass');
+    assert.equal(task.workflow_progress.history[7].transitioned_to, 'verified');
   });
 
-  test('Step 12: repeated finish on terminal task reports already-completed without mutations', async () => {
+  test('Step 15: repeated finish on terminal task reports already-completed without mutations', async () => {
     const commitsBefore = git(fx.root, ['rev-list', '--count', 'HEAD']).trim();
 
     const repeatResult = await handleWorkflowStepFinish(fx.changeId, fx.taskId, {
@@ -449,11 +520,11 @@ describe('Production standard workflow review loop and multi-attempt E2E proof (
     const base = join(fx.root, '.nevo-ai-local', 'workflow-operations', fx.changeId, fx.taskId);
     assert.ok(existsSync(join(base, 'implementation', 'attempt-1.json')));
     assert.ok(existsSync(join(base, 'implementation', 'attempt-2.json')));
+    assert.ok(existsSync(join(base, 'implementation', 'attempt-3.json')));
     assert.ok(existsSync(join(base, 'review', 'attempt-1.json')));
     assert.ok(existsSync(join(base, 'review', 'attempt-2.json')));
+    assert.ok(existsSync(join(base, 'review', 'attempt-3.json')));
     assert.ok(existsSync(join(base, 'human-verification', 'attempt-1.json')));
-
-    const hvSignoff = join(fx.root, '.nevo-ai-local', 'human-verifications', fx.changeId, fx.taskId, 'human-verification', 'attempt-1', 'owner-acceptance.json');
-    assert.ok(existsSync(hvSignoff));
+    assert.ok(existsSync(join(base, 'human-verification', 'attempt-2.json')));
   });
 });

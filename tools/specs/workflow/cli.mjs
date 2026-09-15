@@ -9,12 +9,15 @@
 // drive these exact handlers end-to-end against a disposable fixture repository
 // (`fixture-repo.test-helper.mjs`) instead of the real checked-out repository.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { spawn } from 'node:child_process';
 import { requireChange, requireTask, ROOT, ACTIVE_DIR } from '../store.mjs';
+import { parseVerificationCommands } from '../fingerprint.mjs';
 import { CliError } from '../../lib/cli-errors.mjs';
 import { resolveWorkflowMode, assertWorkflowVersionCompatible } from './compatibility.mjs';
 import { loadWorkflowDefinition } from './definitions/loader.mjs';
-import { compileStepContext, buildFinishContract, validateFinishInputs, aggregateFinalizeCheck } from './step-context.mjs';
+import { compileStepContext, buildFinishContract, validateFinishInputs, aggregateFinalizeCheck, ensureStepActivated, resolveTaskScope, resolveWorkflowOwnedPaths } from './step-context.mjs';
 import { planFinish, finishStep } from './finish-operation.mjs';
 import { resolveActiveStepName, resolveWorkflowPosition, gateDisplayId } from './step-runner.mjs';
 import { findInFlightOperationRecord } from './operation-record.mjs';
@@ -23,11 +26,12 @@ import { createDefaultGateRegistry } from './registry.mjs';
 import { MemoryCommandVerificationStore } from './gates/command-gate.mjs';
 import { FileHumanVerificationStore } from './human-verification-store.mjs';
 import { resolveHumanScopeTarget } from './gates/human-gate.mjs';
-// Side-effect import: registers CommitAndPushAction into defaultActionRegistry. Without
+// side-effect import: registers CommitAndPushAction into defaultActionRegistry. Without
 // this, `defaultActionRegistry` (registry.mjs) starts empty and `aggregateFinalizeCheck`
 // would silently filter 'commit-and-push' out as "not yet registered" (step-context.mjs),
 // producing an empty finish contract for every real invocation.
 import './actions/index.mjs';
+import { autoBindAgentSession } from '../../specs.mjs';
 
 function resolveDefaultTask(change) {
   const candidates = change.tasks.filter(t => t.status === 'in-implementation');
@@ -51,17 +55,114 @@ export function resolveWorkflowRuntime(changeSlug, taskId, { activeDir = ACTIVE_
   const definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot });
   assertWorkflowVersionCompatible(resolvedMode, definition);
 
+  const scope = resolveTaskScope(change, task, { activeDir, repoRoot });
+  const resolvedChangeSlug = change._slug || change.id || changeSlug;
+  const workflowOwnedPaths = resolveWorkflowOwnedPaths({ activeDir, repoRoot, changeSlug: resolvedChangeSlug });
+
   const context = {
     repoRoot,
     activeDir,
     taskId: task.id,
     task,
     changeId: change.id,
+    changeSlug: resolvedChangeSlug,
     sourceControl: definition.sourceControl,
     baseBranch: 'main',
+    taskAllowedPaths: scope.allowedPaths,
+    allowedPaths: scope.allowedPaths,
+    workflowOwnedPaths,
   };
 
   return { change, task, definition, context };
+}
+
+async function executeSingleCommandWithLiveOutput(command, cwd, silent) {
+  if (!silent) {
+    process.stderr.write(`[workflow:gate] Executing: ${command}\n`);
+  }
+  return new Promise((resolve) => {
+    const child = spawn(command, { cwd, shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (chunk) => {
+      const text = chunk.toString();
+      stdout += text;
+      if (!silent) process.stderr.write(text);
+    });
+
+    child.stderr.on('data', (chunk) => {
+      const text = chunk.toString();
+      stderr += text;
+      if (!silent) process.stderr.write(text);
+    });
+
+    child.on('close', (code) => {
+      const exitCode = typeof code === 'number' ? code : 1;
+      resolve({
+        passed: exitCode === 0,
+        exitCode,
+        stdout,
+        stderr,
+      });
+    });
+
+    child.on('error', (err) => {
+      resolve({
+        passed: false,
+        exitCode: 1,
+        stdout,
+        stderr: stderr + '\n' + err.message,
+      });
+    });
+  });
+}
+
+async function runCliCommandWithLiveOutput(command, context = {}) {
+  const cwd = context.repoRoot || process.cwd();
+  const activeDir = context.activeDir || join(cwd, 'specs', 'active');
+  const changeSlug = context.changeSlug || context.changeId || context.change?._slug || context.change?.id;
+  const task = context.task;
+
+  if (command === 'npm test' && task && changeSlug) {
+    const taskFile = task.file || (task.id ? `tasks/${task.id}.md` : null);
+    if (taskFile) {
+      const taskPath = join(activeDir, changeSlug, taskFile);
+      if (existsSync(taskPath)) {
+        try {
+          const body = readFileSync(taskPath, 'utf8');
+          const taskCommands = parseVerificationCommands(body);
+          if (taskCommands.length > 0) {
+            let combinedStdout = '';
+            let combinedStderr = '';
+            for (const subCmd of taskCommands) {
+              const res = await executeSingleCommandWithLiveOutput(subCmd, cwd, context.silent);
+              combinedStdout += res.stdout + '\n';
+              combinedStderr += res.stderr + '\n';
+              if (!res.passed) {
+                return {
+                  passed: false,
+                  exitCode: res.exitCode,
+                  stdout: combinedStdout,
+                  stderr: combinedStderr,
+                };
+              }
+            }
+            return {
+              passed: true,
+              exitCode: 0,
+              stdout: combinedStdout,
+              stderr: combinedStderr,
+            };
+          }
+        } catch {
+          // fallback to generic command
+        }
+      }
+    }
+  }
+
+  return executeSingleCommandWithLiveOutput(command, cwd, context.silent);
 }
 
 /** A fresh gate registry per CLI invocation — the command-verification store only needs
@@ -71,6 +172,7 @@ export function resolveWorkflowRuntime(changeSlug, taskId, { activeDir = ACTIVE_
 export function buildWorkflowGateRegistry(repoRoot, changeSlug, taskId, attempt) {
   const effectiveAttempt = typeof attempt === 'object' ? attempt?.workflow_progress?.current_attempt : attempt;
   return createDefaultGateRegistry({
+    commandRunner: runCliCommandWithLiveOutput,
     commandVerificationStore: new MemoryCommandVerificationStore(),
     humanVerificationReader: new FileHumanVerificationStore({
       repoRoot,
@@ -150,6 +252,7 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
   const position = resolveWorkflowPosition(definition, task);
   const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, position.attempt);
   const stepContext = await compileStepContext({ change, task, definition, context, gateRegistry });
+  autoBindAgentSession(change, task.id, 'execution', { step: stepContext.currentStep, attempt: stepContext.attempt, repoRoot: context.repoRoot });
   return emit(stepContext, opts);
 }
 
@@ -163,6 +266,7 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
   const position = inFlight ? null : resolveWorkflowPosition(definition, task);
   const stepName = inFlight ? inFlight.step : position.step;
   const attempt = inFlight ? inFlight.attempt : position.attempt;
+  autoBindAgentSession(change, task.id, 'finish', { step: stepName, attempt, repoRoot: context.repoRoot });
   const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, attempt);
 
   const step = (position?.phase === 'active' || inFlight) ? definition.steps?.[stepName] : null;
@@ -221,8 +325,80 @@ function resolveHumanGateForConfirmation(definition, task, stepName, gateIdOptio
 }
 
 export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
+  const isApprove = Boolean(opts.approve);
+  const isRequestChanges = Boolean(opts.requestChanges || opts.reject);
+
+  if (isApprove || isRequestChanges) {
+    return (async () => {
+      if (isApprove && isRequestChanges) {
+        throw new CliError('Cannot specify both --approve and --request-changes');
+      }
+
+      if (isRequestChanges && (!opts.feedback || typeof opts.feedback !== 'string' || opts.feedback.trim() === '')) {
+        throw new CliError('--request-changes requires --feedback <text>');
+      }
+      const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
+      const position = resolveWorkflowPosition(definition, task);
+
+      let targetStep;
+      if (position.phase === 'active') {
+        targetStep = position.step;
+      } else if (position.phase === 'completed') {
+        targetStep = position.nextStep;
+      } else if (position.phase === 'new') {
+        targetStep = definition.entryStep;
+      }
+
+      if (targetStep !== 'human-verification') {
+        throw new WorkflowError(
+          `Cannot execute human decision on step '${targetStep || position.step}' — human decisions may only execute when the target step is 'human-verification'`,
+          { code: 'INVALID_HUMAN_DECISION_STEP', step: targetStep || position.step }
+        );
+      }
+
+      let effectiveTask = task;
+      let effectivePosition = position;
+      if (position.phase !== 'active') {
+        const activation = ensureStepActivated(change, task, definition, context);
+        effectiveTask = activation.task;
+        effectivePosition = activation.position;
+      }
+
+      const stepName = effectivePosition.step;
+      const step = definition.steps?.[stepName];
+      if (!step) {
+        throw new WorkflowError(`Step '${stepName}' not found in workflow definition`, { code: 'STEP_NOT_FOUND', step: stepName });
+      }
+
+      const finalizeCheck = await aggregateFinalizeCheck(step, context);
+      const parameters = buildFinishContract(finalizeCheck, step);
+
+      const inputs = {
+        result: isApprove ? 'pass' : 'fail',
+      };
+      if (opts.feedback) {
+        inputs.feedback = opts.feedback.trim();
+      }
+      if (parameters['commit.title']) {
+        inputs['commit.title'] = opts['commit.title'] || (isApprove ? `verify(${task.id}): approve human verification` : `verify(${task.id}): request changes`);
+      }
+
+      const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, effectiveTask.id, effectivePosition.attempt);
+      const result = await finishStep({
+        change,
+        task: effectiveTask,
+        definition,
+        context,
+        inputs,
+        activeDir: context.activeDir,
+        gateRegistry,
+      });
+      return emit(result, opts);
+    })();
+  }
+
   if (!opts.confirm) {
-    throw new CliError('workflow verify-human requires --confirm — this command is the only path that can satisfy a human-verification gate (C8)');
+    throw new CliError('workflow verify-human requires --approve, --request-changes, or --confirm');
   }
   const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
   // D37: a human-verification gate is one of a step's *exit* gates, evaluated during

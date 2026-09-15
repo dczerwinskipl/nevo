@@ -5,6 +5,13 @@ point here. Architecture lives in `docs/development/`. Do not duplicate it in ad
 
 ## How to start any task
 
+For deterministic specifications (`workflow.mode: deterministic`):
+```bash
+node tools/specs.mjs workflow step start <change> <task>
+```
+Follow `docs/development/agent-workflow-protocol.md`. Treat the returned `StepContext` as authoritative.
+
+For legacy specifications:
 ```bash
 node tools/specs.mjs next              # find the next approved task
 node tools/specs.mjs context <change> <task>   # get the context packet for a specific task
@@ -44,6 +51,8 @@ packet declares.
 - Compatibility decisions
 - New packages or projects
 - CI/CD pipeline changes
+- Workflow mode selection (`workflow.mode`, `workflow.version` in specification manifests). Agents must NOT autonomously choose or change workflow mode; selection is an owner/product decision.
+- Manifest lifecycle and workflow state mutation (agents must NOT manually edit `change.yaml` lifecycle/workflow fields: `status`, `workflow_progress`, attempt state, transition history). Intent must be expressed exclusively through validated CLI commands or application APIs.
 
 When in doubt: stop, describe the decision needed, present options, wait. For any
 change classified T or larger that touches one of the items above, present at least two

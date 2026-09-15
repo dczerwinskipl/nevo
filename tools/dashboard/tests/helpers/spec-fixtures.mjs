@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,6 +26,26 @@ export async function createSpecificationRouteFixtures(t) {
   t.after(() => rm(root, { recursive: true, force: true }));
 
   return { root, activeDir, archiveDir };
+}
+
+/**
+ * Writes a minimal, real, legacy-mode change.yaml fixture (`spec_id`, `tasks`, no
+ * `workflow` key at all — legacy is `resolveWorkflowMode`'s own default) directly under
+ * `<repoRoot>/specs/active/<slug>/change.yaml`.
+ *
+ * Many AI-session tests pass a stable, hardcoded `specId` purely as an inert label for
+ * task/binding bookkeeping — they were never meant to exercise deterministic workflow
+ * resolution. Since AgentSessionService's fail-closed contract (Task 02) now rejects an
+ * explicit specId that resolves to no real spec under the service's repoRoot, those tests
+ * need a genuine (if minimal) spec on disk to remain legacy — not a special-cased
+ * workaround in `service.mjs` itself. Synchronous so it can run at test-file module scope
+ * (a single fixture shared by every test in the file) or inline inside a test body.
+ */
+export function writeLegacySpecFixtureSync(repoRoot, specId, { slug = 'fixture-change', taskIds = [] } = {}) {
+  const changeDir = join(repoRoot, 'specs', 'active', slug);
+  mkdirSync(changeDir, { recursive: true });
+  const tasksYaml = taskIds.length > 0 ? `tasks:\n${taskIds.map((id) => `  - id: "${id}"\n`).join('')}` : 'tasks: []\n';
+  writeFileSync(join(changeDir, 'change.yaml'), `spec_id: ${specId}\n${tasksYaml}`, 'utf-8');
 }
 
 async function writeChange(parentDir, slug, title, taskId) {

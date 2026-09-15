@@ -20,7 +20,7 @@ function tick() {
 }
 
 async function waitFor(read, predicate, label = 'condition') {
-  for (let index = 0; index < 100; index += 1) {
+  for (let index = 0; index < 2000; index += 1) {
     const value = read();
     if (predicate(value)) return value;
     await tick();
@@ -148,12 +148,16 @@ function directTurn(provider, values = {}) {
   const promise = provider.startTurn({
     turnId: values.turnId ?? 'nevo-turn-1',
     providerSessionId: values.providerSessionId,
+    sessionId: values.sessionId,
+    specId: values.specId,
+    taskId: values.taskId,
+    activeTaskId: values.activeTaskId,
     message: values.message ?? 'Hello',
     mode: values.mode ?? 'edit',
     model: values.model,
     effort: values.effort,
     reasoningEffort: values.reasoningEffort,
-    setProviderSessionId: values.setProviderSessionId,
+    onProviderSessionIdAvailable: values.onProviderSessionIdAvailable,
     setOperation: (value) => {
       operation = value;
     },
@@ -302,7 +306,7 @@ test('atomic first turn publishes thread.id before turn/start and uses generated
   let established;
   const turn = directTurn(provider, {
     mode: 'ask',
-    setProviderSessionId: async (id) => {
+    onProviderSessionIdAvailable: async (id) => {
       established = id;
     },
   });
@@ -993,6 +997,69 @@ test('runtime integration keeps a persistent Codex interaction waiting until rea
   );
   assert.equal(completed.events.filter((event) => event.type === 'turn.completed').length, 1);
   await runtime.shutdown();
+});
+
+test('Section 4: two concurrent Codex threads targeting the same spec+task are rejected, not silently correlated via the shared bridge file', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'nevo-codex-conflict-'));
+  try {
+    const client = standardClient();
+    const provider = createCodexAgentProvider({ client, cwd });
+    const specId = '70609aaf-bb62-40bf-a25e-bec65c583495';
+    const taskId = '02-task';
+
+    // Thread A starts and stays active (never completes) — it holds the shared
+    // `${specId}-${taskId}.json` bridge file.
+    const threadA = directTurn(provider, {
+      providerSessionId: 'thread-a',
+      specId,
+      taskId,
+      message: 'Thread A running',
+    });
+    threadA.promise.catch(() => {});
+    await waitFor(
+      () => client.calls,
+      (calls) => calls.some((call) => call.method === 'turn/start' && call.params.threadId === 'thread-a'),
+      'thread A turn/start',
+    );
+
+    // Thread B targets the same spec+task with a genuinely different thread — the shared
+    // bridge file cannot represent two live threads at once, so this must be rejected
+    // outright rather than silently overwriting thread A's correlation.
+    await assert.rejects(
+      directTurn(provider, {
+        providerSessionId: 'thread-b',
+        specId,
+        taskId,
+        message: 'Thread B running',
+      }).promise,
+      (err) => {
+        assert.equal(err.code, 'AI_TURN_CONFLICT');
+        return true;
+      },
+    );
+    assert.ok(!client.calls.some((call) => call.method === 'turn/start' && call.params.threadId === 'thread-b'));
+
+    // Once thread A completes, the slot is released and a later thread on the same
+    // spec+task is accepted normally.
+    await completeTurn(client, 'thread-a');
+    await threadA.promise;
+
+    const threadC = directTurn(provider, {
+      providerSessionId: 'thread-c',
+      specId,
+      taskId,
+      message: 'Thread C running',
+    });
+    await waitFor(
+      () => client.calls,
+      (calls) => calls.some((call) => call.method === 'turn/start' && call.params.threadId === 'thread-c'),
+      'thread C turn/start',
+    );
+    await completeTurn(client, 'thread-c');
+    await threadC.promise;
+  } finally {
+    await rm(cwd, { recursive: true, force: true }).catch(() => {});
+  }
 });
 
 for (const scenario of [

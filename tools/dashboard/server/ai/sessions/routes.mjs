@@ -90,6 +90,97 @@ export default async function sessionRoutes(fastify, { service, accessPolicy }) 
     reply.code(201).send({ session });
   });
 
+  // Canonical session routes by canonical sessionId UUID
+  fastify.get('/api/agent-sessions/:sessionId', async (request, reply) => {
+    const sessionId = validatedSessionId(request.params.sessionId);
+    authorize(accessPolicy, 'read', request);
+    const session = await service.getSessionDetails(sessionId);
+    if (!session || !session.provider) {
+      reply.code(404).send({ error: { code: 'AI_SESSION_NOT_FOUND', message: 'Session not found.' } });
+      return;
+    }
+    reply.send({ session });
+  });
+
+  fastify.get('/api/agent-sessions/:sessionId/chat', async (request, reply) => {
+    const sessionId = validatedSessionId(request.params.sessionId);
+    authorize(accessPolicy, 'read', request);
+    const details = await service.getSessionDetails(sessionId);
+    if (!details || !details.provider) {
+      reply.code(404).send({ error: { code: 'AI_SESSION_NOT_FOUND', message: 'Session not found.' } });
+      return;
+    }
+    reply.send({
+      session: {
+        provider: details.provider,
+        providerSessionId: details.providerSessionId,
+        sessionId: details.sessionId,
+        status: details.status,
+        readiness: details.readiness,
+        mode: details.mode,
+        model: details.model,
+        capabilities: details.capabilities,
+        specId: details.specId,
+        taskId: details.taskId,
+        taskIds: details.taskIds,
+        title: details.title,
+        createdAt: details.createdAt,
+        lastActivityAt: details.lastActivityAt,
+        lastEventSeq: details.lastEventSeq || 0,
+      },
+      turns: details.turns || [],
+      workSummary: details.workSummary,
+      readiness: details.readiness,
+    });
+  });
+
+  fastify.get('/api/agent-sessions/:sessionId/turns', async (request, reply) => {
+    const sessionId = validatedSessionId(request.params.sessionId);
+    authorize(accessPolicy, 'read', request);
+    const details = await service.getSession(sessionId);
+    if (!details) {
+      reply.code(404).send({ error: { code: 'AI_SESSION_NOT_FOUND', message: 'Session not found.' } });
+      return;
+    }
+    const turns = await service.listTurns(details.provider, details.sessionId || details.providerSessionId);
+    reply.send({ turns });
+  });
+
+  fastify.patch(
+    '/api/agent-sessions/:sessionId',
+    { bodyLimit: SESSION_PATCH_BODY_LIMIT },
+    async (request, reply) => {
+      const sessionId = validatedSessionId(request.params.sessionId);
+      authorize(accessPolicy, 'control', request);
+      const body = assertBodyObject(request.body);
+      if (body.mode) {
+        const session = await service.updateSessionMode(sessionId, body.mode);
+        reply.send({ session });
+        return;
+      }
+      if (body.model) {
+        const session = await service.updateSessionModel(sessionId, body.model);
+        reply.send({ session });
+        return;
+      }
+      if (body.activeTaskId) {
+        if (typeof body.activeTaskId !== 'string' || !TURN_PATTERN.test(body.activeTaskId)) {
+          throw new AiValidationError('Invalid task ID.');
+        }
+        const session = await service.setActiveTaskId(sessionId, body.activeTaskId);
+        reply.send({ session });
+        return;
+      }
+      reply.send({ ok: true });
+    },
+  );
+
+  fastify.delete('/api/agent-sessions/:sessionId', async (request, reply) => {
+    const sessionId = validatedSessionId(request.params.sessionId);
+    authorize(accessPolicy, 'control', request);
+    reply.send(await service.deleteSession(sessionId));
+  });
+
   fastify.get('/api/agent-sessions/:provider/:providerSessionId', async (request, reply) => {
     const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
     const providerSessionId = validatedSessionId(request.params.providerSessionId);

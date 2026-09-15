@@ -725,7 +725,7 @@ test('Part A3: Provider session late binding semantics and sessionId vs provider
       async startTurn(ctx) {
         runtimeContext = ctx;
         // Provider dynamically allocates a providerSessionId mid-turn
-        await ctx.setProviderSessionId('allocated-prov-session-99');
+        await ctx.onProviderSessionIdAvailable('allocated-prov-session-99');
         ctx.emitCommentaryDelta('Session bound and ready.', 'msg-1');
         return { done: true, providerSessionId: 'allocated-prov-session-99' };
       },
@@ -738,9 +738,12 @@ test('Part A3: Provider session late binding semantics and sessionId vs provider
       traceSink: mockTraceSink,
     });
 
-    // Start turn 1 without pre-existing providerSessionId
+    // Start turn 1 without pre-existing providerSessionId, but with an explicit
+    // canonical sessionId — provider identity becoming known later must never change it.
+    const canonicalSessionId = 'stable-canonical-session-1';
     const { turnId: turn1Id } = await runtime.startTurn({
       provider: 'fake-late-bind',
+      sessionId: canonicalSessionId,
       message: 'Initial dynamic session turn',
     });
 
@@ -752,17 +755,20 @@ test('Part A3: Provider session late binding semantics and sessionId vs provider
 
     const canonical1 = runtime.getCanonicalTurn(turn1Id);
     assert.equal(canonical1.providerSessionId, 'allocated-prov-session-99');
-    assert.equal(canonical1.sessionId, 'allocated-prov-session-99');
+    assert.equal(canonical1.sessionId, canonicalSessionId, 'the canonical sessionId must never be overwritten by a later-allocated providerSessionId');
 
     // Verify trace sink contains provider_session.bound event
     const boundTrace = recordedTraces.find((t) => t.event === 'provider_session.bound');
     assert.ok(boundTrace, 'Trace must contain provider_session.bound event');
     assert.equal(boundTrace.metadata?.providerSessionId, 'allocated-prov-session-99');
 
-    // Verify persisted Turn in cache
-    await transcriptCache.flush('fake-late-bind', 'allocated-prov-session-99');
+    // Verify persisted Turn in cache — the canonical transcript belongs to sessionId
+    // exactly once (Section 2 of the Task 02 corrective pass): a canonical sessionId was
+    // explicitly given at admission, so the transcript is keyed by it, never by the
+    // later-allocated providerSessionId.
+    await transcriptCache.flush('fake-late-bind', canonicalSessionId);
     const freshCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
-    const transcript = await freshCache.getTranscript('fake-late-bind', 'allocated-prov-session-99');
+    const transcript = await freshCache.getTranscript('fake-late-bind', canonicalSessionId);
     assert.equal(transcript.turns.length, 1);
     assert.equal(transcript.turns[0].providerSessionId, 'allocated-prov-session-99');
 

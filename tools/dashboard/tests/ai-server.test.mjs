@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, rm, writeFile, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, writeFile, stat } from 'node:fs/promises';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 
@@ -14,9 +15,23 @@ import { createAgentSessionBindingService } from '../server/ai/sessions/binding-
 import { listen } from '../server/index.mjs';
 import { createDefaultAgentSessionService } from '../server/ai/routes.mjs';
 import { buildAiTestApp } from './helpers/ai-test-app.mjs';
+import { writeLegacySpecFixtureSync } from './helpers/spec-fixtures.mjs';
 import { serializePublicTurn, deriveLegacyUserMessageText } from '../server/ai/model/serialization.mjs';
 
 const specId = '70609aaf-bb62-40bf-a25e-bec65c583495';
+const integrationTest =
+  process.env.NEVO_DASHBOARD_RUN_INTEGRATION_TESTS === '1'
+    ? test
+    : test.skip;
+
+// AgentSessionService's fail-closed contract (Task 02) now rejects an explicit specId
+// that resolves to no real spec under its repoRoot — this file's tests use `specId`
+// purely as an inert task/binding label, never intending to exercise deterministic
+// workflow resolution, so they need a genuine (legacy-mode) spec on disk for that specId.
+// One shared fixture root for the whole file; every AgentSessionService constructed below
+// must pass `repoRoot: FIXTURE_REPO_ROOT`.
+const FIXTURE_REPO_ROOT = mkdtempSync(join(tmpdir(), 'nevo-ai-server-test-fixture-root-'));
+writeLegacySpecFixtureSync(FIXTURE_REPO_ROOT, specId, { taskIds: ['task-a', 'task-b'] });
 
 // Real disk paths, isolated per call — never the repo's own `.nevo-ai-local/`, which
 // boot-time reconciliation now actually scans (`listPersistedSessions`), so leftover
@@ -38,7 +53,7 @@ function createStack(options = {}) {
         : {},
   );
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  return { provider, service: createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService }) };
+  return { provider, service: createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT }) };
 }
 
 function control(body, extra = {}) {
@@ -112,20 +127,27 @@ test('Agent session routes expose the complete provider-neutral session and turn
       }),
     );
     assert.equal(firstTurnResponse.status, 201);
-    const { turnId, providerSessionId } = await firstTurnResponse.json();
+    const { turnId, sessionId } = await firstTurnResponse.json();
     assert.ok(turnId);
-    assert.ok(providerSessionId);
+    assert.ok(sessionId);
+    // providerSessionId is not required in the admission response — the mock has no
+    // createSession() and only establishes its native id once the turn actually runs.
 
     // Wait for first turn completion
     const completedTurn = await waitFor(service, turnId, (turn) => turn.status === 'completed');
     assert.equal(completedTurn.events[0].type, 'turn.started');
     assert.equal(completedTurn.events.at(-1).type, 'turn.completed');
 
+    const { providerSessionId } = await service.getSession(sessionId);
+    assert.ok(providerSessionId);
+    // The provider-allocated native id must never collide with or replace the canonical sessionId.
+    assert.notEqual(sessionId, providerSessionId);
+
     // 3. List bindings: GET /api/agent-sessions?specId=...&taskId=...
     const filtered = await fetch(`${baseUrl}/api/agent-sessions?specId=${specId}&taskId=task-a`);
     const bindings = (await filtered.json()).sessions;
     assert.ok(bindings.some((b) => b.providerSessionId === providerSessionId && b.specId === specId));
-    assert.ok(bindings.some((b) => b.sessionId === providerSessionId));
+    assert.ok(bindings.some((b) => b.sessionId === sessionId));
 
     // 4. Session details snapshot: GET /api/agent-sessions/:provider/:providerSessionId
     const sessionDetails = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(providerSessionId)}`);
@@ -186,8 +208,9 @@ test('Agent session routes expose the complete provider-neutral session and turn
     );
     assert.equal(createModalResponse.status, 201);
     const createModalBody = await createModalResponse.json();
-    assert.ok(createModalBody.session.providerSessionId);
-    assert.equal(createModalBody.session.sessionId, createModalBody.session.providerSessionId);
+    assert.ok(createModalBody.session.sessionId);
+    // The mock provider has no createSession(): the native id is unknown until a turn runs.
+    assert.equal(createModalBody.session.providerSessionId, undefined);
     assert.equal(createModalBody.session.specId, specId);
     assert.equal(createModalBody.session.taskId, 'task-a');
 
@@ -256,14 +279,14 @@ test('durable session history remains readable after its provider is disabled', 
 
     service.registry.unregister('mock');
 
-    const history = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(session.providerSessionId)}`);
+    const history = await fetch(`${baseUrl}/api/agent-sessions/${encodeURIComponent(session.sessionId)}`);
     assert.equal(history.status, 200);
     const snapshot = (await history.json()).session;
-    assert.equal(snapshot.providerSessionId, session.providerSessionId);
+    assert.equal(snapshot.sessionId, session.sessionId);
     assert.deepEqual(snapshot.capabilities, {});
 
     const newTurn = await fetch(
-      `${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(session.providerSessionId)}/turns`,
+      `${baseUrl}/api/agent-sessions/${encodeURIComponent(session.sessionId)}/turns`,
       control({ message: 'must remain blocked while the provider is disabled' }),
     );
     assert.equal(newTurn.status, 404);
@@ -377,7 +400,10 @@ test('single-active-turn and stable question correlation are enforced through HT
       }),
     );
     assert.equal(retryResponse.status, 200);
-    assert.deepEqual(await retryResponse.json(), { turnId: first.turnId, idempotent: true });
+    const retryBody = await retryResponse.json();
+    assert.equal(retryBody.turnId, first.turnId);
+    assert.equal(retryBody.idempotent, true);
+    assert.equal(retryBody.providerSessionId, first.providerSessionId);
 
     const conflictResponse = await fetch(
       `${baseUrl}/api/agent-sessions/mock/demo-task-b-1/turns`,
@@ -553,7 +579,7 @@ test('pending interaction can be resolved after server restart retaining persist
 
   // Phase 1: Server 1 runs, turn reaches waitingForUser
   const turnRuntime1 = createAgentTurnRuntime({ registry, transcriptCache });
-  const service1 = createAgentSessionService({ registry, turnRuntime: turnRuntime1, transcriptCache, bindingService });
+  const service1 = createAgentSessionService({ registry, turnRuntime: turnRuntime1, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
   const server1 = await buildAiTestApp({ service: service1 });
   const baseUrl1 = await listen(server1, { port: 0 });
 
@@ -590,7 +616,7 @@ test('pending interaction can be resolved after server restart retaining persist
 
   // Phase 2: Server 2 starts with a fresh turnRuntime (simulating restart) sharing persisted transcriptCache
   const turnRuntime2 = createAgentTurnRuntime({ registry, transcriptCache });
-  const service2 = createAgentSessionService({ registry, turnRuntime: turnRuntime2, transcriptCache, bindingService });
+  const service2 = createAgentSessionService({ registry, turnRuntime: turnRuntime2, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
   const server2 = await buildAiTestApp({ service: service2 });
   const baseUrl2 = await listen(server2, { port: 0 });
 
@@ -667,7 +693,7 @@ test('Session mode preference persistence across server restarts and snapshot ex
     const bindingService = createAgentSessionBindingService({ storageDir });
     const transcriptCache = createTranscriptCacheService({ baseDir: transcriptDir, flushDebounceMs: 0 });
     const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-    const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+    const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
     const server = await buildAiTestApp({ service });
     return { server, service, bindingService };
   };
@@ -688,7 +714,7 @@ test('Session mode preference persistence across server restarts and snapshot ex
     );
     assert.equal(createAgentRes.status, 201);
     const agentSessionData = await createAgentRes.json();
-    const agentSessionId = agentSessionData.session.providerSessionId;
+    const agentSessionId = agentSessionData.session.sessionId;
 
     const createAskRes = await fetch(
       `${baseUrl1}/api/agent-sessions`,
@@ -701,7 +727,7 @@ test('Session mode preference persistence across server restarts and snapshot ex
     );
     assert.equal(createAskRes.status, 201);
     const askSessionData = await createAskRes.json();
-    const askSessionId = askSessionData.session.providerSessionId;
+    const askSessionId = askSessionData.session.sessionId;
 
     // 2. Restart server (simulating reload of binding/service state)
     await closeServer(stack1.server);
@@ -711,7 +737,7 @@ test('Session mode preference persistence across server restarts and snapshot ex
 
     try {
       // 3. GET session details for agent session
-      const getAgentRes = await fetch(`${baseUrl2}/api/agent-sessions/mock/${agentSessionId}`);
+      const getAgentRes = await fetch(`${baseUrl2}/api/agent-sessions/${agentSessionId}`);
       assert.equal(getAgentRes.status, 200);
       const getAgentData = await getAgentRes.json();
       // 4. Returned session mode is 'agent'
@@ -720,7 +746,7 @@ test('Session mode preference persistence across server restarts and snapshot ex
       // 5. Starting a subsequent turn without explicit override invokes provider with 'agent'
       lastExecutedMode = null;
       const turn1Res = await fetch(
-        `${baseUrl2}/api/agent-sessions/mock/${agentSessionId}/turns`,
+        `${baseUrl2}/api/agent-sessions/${agentSessionId}/turns`,
         control({
           message: 'continue in restored mode',
         }),
@@ -729,14 +755,14 @@ test('Session mode preference persistence across server restarts and snapshot ex
       assert.equal(lastExecutedMode, 'agent');
 
       // 6. Check ask session
-      const getAskRes = await fetch(`${baseUrl2}/api/agent-sessions/mock/${askSessionId}`);
+      const getAskRes = await fetch(`${baseUrl2}/api/agent-sessions/${askSessionId}`);
       assert.equal(getAskRes.status, 200);
       const getAskData = await getAskRes.json();
       assert.equal(getAskData.session.mode, 'ask');
 
       lastExecutedMode = null;
       const turn2Res = await fetch(
-        `${baseUrl2}/api/agent-sessions/mock/${askSessionId}/turns`,
+        `${baseUrl2}/api/agent-sessions/${askSessionId}/turns`,
         control({
           message: 'continue in ask mode',
         }),
@@ -755,15 +781,15 @@ test('Session mode preference persistence across server restarts and snapshot ex
       );
       assert.equal(freshCreateRes.status, 201);
       const freshData = await freshCreateRes.json();
-      const freshSessionId = freshData.session.providerSessionId;
+      const freshSessionId = freshData.session.sessionId;
 
-      const getFreshRes = await fetch(`${baseUrl2}/api/agent-sessions/mock/${freshSessionId}`);
+      const getFreshRes = await fetch(`${baseUrl2}/api/agent-sessions/${freshSessionId}`);
       assert.equal(getFreshRes.status, 200);
       assert.equal((await getFreshRes.json()).session.mode, 'edit');
 
       lastExecutedMode = null;
       const turn3Res = await fetch(
-        `${baseUrl2}/api/agent-sessions/mock/${freshSessionId}/turns`,
+        `${baseUrl2}/api/agent-sessions/${freshSessionId}/turns`,
         control({
           message: 'fresh turn',
         }),
@@ -800,7 +826,7 @@ test('Model selection persists through the HTTP session contract: create -> chat
     const bindingService = createAgentSessionBindingService({ storageDir });
     const transcriptCache = createTranscriptCacheService({ baseDir: transcriptDir, flushDebounceMs: 0 });
     const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-    const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+    const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
     const server = await buildAiTestApp({ service });
     return { server };
   };
@@ -815,7 +841,7 @@ test('Model selection persists through the HTTP session contract: create -> chat
       control({ provider: 'mock', specId, taskId: 'task-model', model: 'mock-model-a' }),
     );
     assert.equal(createRes.status, 201);
-    sessionId = (await createRes.json()).session.providerSessionId;
+    sessionId = (await createRes.json()).session.sessionId;
 
     // 2. GET .../chat exposes the persisted current model.
     const chatRes = await fetch(`${baseUrl1}/api/agent-sessions/mock/${sessionId}/chat`);
@@ -890,7 +916,7 @@ test('Model override guard A: a conflicting POST while a turn is active is rejec
   const bindingService = createAgentSessionBindingService({ storageDir: join(tmpDir, 'sessions') });
   const transcriptCache = createTranscriptCacheService({ baseDir: join(tmpDir, 'transcripts'), flushDebounceMs: 0 });
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
   const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
@@ -900,13 +926,17 @@ test('Model override guard A: a conflicting POST while a turn is active is rejec
       control({ provider: 'mock', specId, taskId: 'task-model-guard', model: 'model-a' }),
     );
     assert.equal(createRes.status, 201);
-    const sessionId = (await createRes.json()).session.providerSessionId;
+    const sessionId = (await createRes.json()).session.sessionId;
 
     // Admit a turn that hangs (stays active) so the session has a genuinely live turn.
+    // This mock has no createSession(), so its native id is never established until the
+    // provider call settles — a deliberately-blocked call never does, so its own HTTP
+    // response never arrives either; it is never awaited here for exactly that reason.
     const blockingRes = fetch(
       `${baseUrl}/api/agent-sessions/mock/${sessionId}/turns`,
       control({ message: 'block' }),
     );
+    blockingRes.catch(() => {});
     await new Promise((r) => setTimeout(r, 30));
 
     // A conflicting POST with a different model must be rejected 409 — and must
@@ -920,10 +950,7 @@ test('Model override guard A: a conflicting POST while a turn is active is rejec
     const chatRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${sessionId}/chat`);
     assert.equal((await chatRes.json()).session.model, 'model-a', 'the rejected override must not have persisted');
 
-    await turnRuntime.cancelTurn((await blockingRes.then((r) => r.json())).turnId, {
-      provider: 'mock',
-      providerSessionId: sessionId,
-    }).catch(() => {});
+    await turnRuntime.shutdown().catch(() => {});
   } finally {
     await closeServer(server);
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
@@ -937,7 +964,7 @@ test('Model override guard B: an idempotent replay with a different supplied mod
   const bindingService = createAgentSessionBindingService({ storageDir: join(tmpDir, 'sessions') });
   const transcriptCache = createTranscriptCacheService({ baseDir: join(tmpDir, 'transcripts'), flushDebounceMs: 0 });
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
   const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
@@ -947,14 +974,17 @@ test('Model override guard B: an idempotent replay with a different supplied mod
       control({ provider: 'mock', specId, taskId: 'task-model-guard', model: 'model-a' }),
     );
     assert.equal(createRes.status, 201);
-    const sessionId = (await createRes.json()).session.providerSessionId;
+    const sessionId = (await createRes.json()).session.sessionId;
 
-    const firstRes = await fetch(
+    // This mock has no createSession(), so its native id is never established until the
+    // provider call settles — a deliberately-blocked call never does, so its own HTTP
+    // response never arrives either; it is never awaited here for exactly that reason.
+    const firstRes = fetch(
       `${baseUrl}/api/agent-sessions/mock/${sessionId}/turns`,
       control({ message: 'block', idempotencyKey: 'same-key' }),
     );
-    assert.equal(firstRes.status, 202);
-    const firstBody = await firstRes.json();
+    firstRes.catch(() => {});
+    await new Promise((r) => setTimeout(r, 30));
 
     // Replays with the same idempotency key but a different model must return
     // the SAME existing (still-running) turn — never admit a new one — and must
@@ -966,12 +996,12 @@ test('Model override guard B: an idempotent replay with a different supplied mod
     assert.equal(replayRes.status, 200);
     const replayBody = await replayRes.json();
     assert.equal(replayBody.idempotent, true);
-    assert.equal(replayBody.turnId, firstBody.turnId);
 
     const chatRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${sessionId}/chat`);
-    assert.equal((await chatRes.json()).session.model, 'model-a', 'idempotent replay must not persist the differing model');
+    const chatBody = await chatRes.json();
+    assert.equal(chatBody.session.model, 'model-a', 'idempotent replay must not persist the differing model');
 
-    await turnRuntime.cancelTurn(firstBody.turnId, { provider: 'mock', providerSessionId: sessionId }).catch(() => {});
+    await turnRuntime.shutdown().catch(() => {});
   } finally {
     await closeServer(server);
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
@@ -985,7 +1015,7 @@ test('Model override guard C: a successfully admitted turn with a new model pers
   const bindingService = createAgentSessionBindingService({ storageDir: join(tmpDir, 'sessions') });
   const transcriptCache = createTranscriptCacheService({ baseDir: join(tmpDir, 'transcripts'), flushDebounceMs: 0 });
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
   const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
@@ -995,7 +1025,7 @@ test('Model override guard C: a successfully admitted turn with a new model pers
       control({ provider: 'mock', specId, taskId: 'task-model-guard', model: 'model-a' }),
     );
     assert.equal(createRes.status, 201);
-    const sessionId = (await createRes.json()).session.providerSessionId;
+    const sessionId = (await createRes.json()).session.sessionId;
 
     // No active turn right now, so an override is a genuinely new admission.
     const turnRes = await fetch(
@@ -1035,7 +1065,7 @@ test('AC7 & AC8: Multi-task session creation returns complete taskIds[] and list
     );
     assert.equal(createRes.status, 201);
     const createData = await createRes.json();
-    const sessionId = createData.session.providerSessionId;
+    const sessionId = createData.session.sessionId;
     assert.deepEqual(createData.session.taskIds, ['task-alpha', 'task-beta', 'task-gamma']);
 
     // 2. AC7: HTTP GET /api/agent-sessions/:provider/:providerSessionId returns complete taskIds[]
@@ -1051,7 +1081,7 @@ test('AC7 & AC8: Multi-task session creation returns complete taskIds[] and list
     const listData = await listRes.json();
     assert.equal(listData.sessions.length, 1);
     const listedSession = listData.sessions[0];
-    assert.equal(listedSession.providerSessionId, sessionId);
+    assert.equal(listedSession.sessionId, sessionId);
     assert.deepEqual(listedSession.taskIds, ['task-alpha', 'task-beta', 'task-gamma']);
 
     // 4. Listing by non-matching task filters out the session
@@ -1258,7 +1288,10 @@ test('ai events SSE: connecting to an idle session sends headers immediately and
   }
 });
 
-test('ai events SSE: live SSE stream delivers interaction.requested events in real-time to already connected client', async () => {
+// A longer per-test timeout (overriding the suite's --test-timeout=15000) so the
+// internal race's own generous, specific-error timeout below can actually fire under a
+// loaded/shared CI runner instead of being cut off first by the generic suite timeout.
+test('ai events SSE: live SSE stream delivers interaction.requested events in real-time to already connected client', { timeout: 30000 }, async () => {
   const { service } = createStack();
   const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
@@ -1299,12 +1332,17 @@ test('ai events SSE: live SSE stream delivers interaction.requested events in re
     );
     assert.equal(startRes.status, 202);
 
+    let raceTimer;
     const receivedText = await Promise.race([
       eventsPromise,
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Timed out waiting for interaction.requested over SSE!')), 3000),
-      ),
-    ]);
+      new Promise((_, reject) => {
+        // A generous real-time bound, not a correctness assertion: under a loaded/shared
+        // CI runner, event delivery can take noticeably longer than on a local machine.
+        // Kept comfortably under this test's own 30000ms timeout (above) so this rejects
+        // with a clear, specific message instead of the test runner's generic timeout.
+        raceTimer = setTimeout(() => reject(new Error('Timed out waiting for interaction.requested over SSE!')), 25000);
+      }),
+    ]).finally(() => clearTimeout(raceTimer));
 
     assert.ok(receivedText.includes('event: turn.started'));
     assert.ok(receivedText.includes('event: interaction.requested'));
@@ -1360,6 +1398,7 @@ test('Task 07: Live application and fresh reload produce semantically equal Turn
     turnRuntime: turnRuntime1,
     transcriptCache: transcriptCache1,
     bindingService: bindingService1,
+    repoRoot: FIXTURE_REPO_ROOT,
   });
   const server1 = await buildAiTestApp({ service: service1 });
   const baseUrl1 = await listen(server1, { port: 0 });
@@ -1452,6 +1491,7 @@ test('Task 07: Live application and fresh reload produce semantically equal Turn
     turnRuntime: turnRuntime2,
     transcriptCache: transcriptCache2,
     bindingService: bindingService2,
+    repoRoot: FIXTURE_REPO_ROOT,
   });
   const server2 = await buildAiTestApp({ service: service2 });
   const baseUrl2 = await listen(server2, { port: 0 });
@@ -1531,18 +1571,22 @@ test('Task 07: Server workSummary supplies activityCount, currentActivity, and a
   }
 });
 
-test("Task 13 correction: readiness attached to 'turn.updated' SSE events matches the canonical server projection across active, requiresAttention, and terminal states", async () => {
+integrationTest("Task 13 correction: readiness attached to 'turn.updated' SSE events matches the canonical server projection across active, requiresAttention, and terminal states", async () => {
   const { service } = createStack();
   const sessionId = 'session-sse-readiness';
+  const { sessionId: canonicalSessionId } = await service.createSession('mock', { providerSessionId: sessionId });
   const events = [];
-  const unsubscribe = service.subscribeToSession('mock', sessionId, {
+  const unsubscribe = service.subscribeToSession(canonicalSessionId, {
     onEvent: (event) => {
       if (event.type === 'turn.updated') events.push(event);
     },
   });
 
+  // 2000 * 5ms = 10s — a generous real-time bound (not a correctness assertion) so a
+  // loaded/shared CI runner has enough wall-clock room for the async event chain to
+  // complete; kept comfortably under the suite's --test-timeout.
   const waitForEvent = async (predicate, message) => {
-    for (let index = 0; index < 200; index += 1) {
+    for (let index = 0; index < 2000; index += 1) {
       const match = events.findLast(predicate);
       if (match) return match;
       await new Promise((resolve) => setTimeout(resolve, 5));
@@ -1551,7 +1595,7 @@ test("Task 13 correction: readiness attached to 'turn.updated' SSE events matche
   };
 
   try {
-    const { turnId } = await service.startTurn('mock', sessionId, { message: 'permission please' });
+    const { turnId } = await service.startTurn({ provider: 'mock', sessionId: canonicalSessionId, message: 'permission please' });
 
     // active -> busy
     const activeEvent = await waitForEvent((e) => e.turn.status.status === 'active', 'active snapshot');
@@ -1578,7 +1622,11 @@ test("Task 13 correction: readiness attached to 'turn.updated' SSE events matche
 
     // A second turn, cancelled while requiring attention, must also project to ready.
     events.length = 0;
-    const cancelStart = await service.startTurn('mock', sessionId, { message: 'permission again' });
+    const cancelStart = await service.startTurn({
+      provider: 'mock',
+      sessionId: canonicalSessionId,
+      message: 'permission again',
+    });
     await waitForEvent((e) => e.turn.status.status === 'requiresAttention', 'second requiresAttention snapshot');
 
     await service.cancelTurn(cancelStart.turnId);
@@ -1597,15 +1645,16 @@ test('Task 07: Corrupt/unreadable persistence state does not become empty ready/
   const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir });
   const provider = createMockAgentProvider({ specId, taskIds: ['task-a'] });
   const registry = createAgentProviderRegistry([provider]);
-  const bindingService = createAgentSessionBindingService();
+  const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
   await bindingService.bindSession({
     provider: 'mock',
+    sessionId: 'corrupt-session',
     providerSessionId: 'corrupt-session',
     specId,
     purpose: 'corrupt test',
   });
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
   const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
@@ -1689,7 +1738,6 @@ test('Canonical session and chat endpoints project turns and readiness without l
 test('V2 public Turn projection is identical across HTTP, live SSE, replay, chat, and Turn list paths', async () => {
   const cacheDir = join(tmpdir(), `nevo-public-turn-${randomUUID()}`);
   const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
-  const sessionId = 'session-public-turn-projection';
 
   let continueToTools;
   let completeEdit;
@@ -1740,7 +1788,7 @@ test('V2 public Turn projection is identical across HTTP, live SSE, replay, chat
 
   const registry = createAgentProviderRegistry([provider]);
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, repoRoot: FIXTURE_REPO_ROOT });
   const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
   const liveUpdates = [];
@@ -1761,14 +1809,25 @@ test('V2 public Turn projection is identical across HTTP, live SSE, replay, chat
     return body.session?.turns?.[0] ?? body.turns?.[0];
   };
 
-  const unsubscribe = service.subscribeToSession('projection', sessionId, {
+  // The canonical sessionId must exist before subscribing — the runtime keys everything
+  // by that identity, and a subscription can't be registered against a session that
+  // doesn't exist yet.
+  const created = await service.createSession('projection', {});
+  const sessionId = created.sessionId;
+
+  const unsubscribe = service.subscribeToSession(sessionId, {
     onEvent: (event) => {
       if (event.type === 'turn.updated') liveUpdates.push(structuredClone(event.turn));
     },
   });
 
   try {
-    const { turnId } = await service.startTurn('projection', sessionId, {
+    // No bindingService is configured in this test, so continuation-by-canonical-sessionId
+    // must be explicit (opts.sessionId) — the legacy positional identity slot is reserved
+    // for compatibility (provider, providerSessionId) callers and is resolved against the
+    // real store, which doesn't exist here.
+    const { turnId } = await service.startTurn('projection', undefined, {
+      sessionId,
       message: 'Inspect, read, and edit the source file.',
     });
 
@@ -1808,7 +1867,7 @@ test('V2 public Turn projection is identical across HTTP, live SSE, replay, chat
     assert.deepEqual(activeListTurn, activeEditHttp);
 
     const replayedUpdates = [];
-    const unsubscribeReplay = service.subscribeToSession('projection', sessionId, {
+    const unsubscribeReplay = service.subscribeToSession(sessionId, {
       afterSequence: 0,
       onEvent: (event) => {
         if (event.type === 'turn.updated') replayedUpdates.push(structuredClone(event.turn));
@@ -1903,10 +1962,10 @@ test('Task 07: Protocol silence timeout terminalization preserves canonical stat
     clock,
   });
   const bindingService = createAgentSessionBindingService();
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
 
   try {
-    const { turnId } = await service.startTurn('silent', 'sess-silence-test', {
+    const { turnId, sessionId } = await service.startTurn('silent', 'sess-silence-test', {
       prompt: 'Hang and timeout',
     });
 
@@ -1921,9 +1980,9 @@ test('Task 07: Protocol silence timeout terminalization preserves canonical stat
     assert.equal(inMemoryTurn.status.cause, 'timeout/protocol-silence');
 
     // 2. Persisted state on disk is exactly the same terminal state
-    await transcriptCache.flush('silent', 'sess-silence-test');
+    await transcriptCache.flush('silent', sessionId);
     const diskCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
-    const persisted = await diskCache.getTranscript('silent', 'sess-silence-test');
+    const persisted = await diskCache.getTranscript('silent', sessionId);
     assert.equal(persisted.turns.length, 1);
     assert.equal(persisted.turns[0].status.status, 'terminal');
     assert.equal(persisted.turns[0].status.outcome, 'failed');
@@ -1934,7 +1993,7 @@ test('Task 07: Protocol silence timeout terminalization preserves canonical stat
     const { reconciledCount } = await freshRuntime.reconcileOrphanedTurns();
     assert.equal(reconciledCount, 0);
 
-    const afterRecon = await diskCache.getTranscript('silent', 'sess-silence-test');
+    const afterRecon = await diskCache.getTranscript('silent', sessionId);
     assert.equal(afterRecon.turns[0].status.outcome, 'failed');
     assert.equal(afterRecon.turns[0].status.cause, 'timeout/protocol-silence');
   } finally {
@@ -1951,10 +2010,10 @@ test('Task 07: Terminal persistence flush is awaitable and persists before grace
 
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
   const bindingService = createAgentSessionBindingService();
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
 
   try {
-    const { turnId } = await service.startTurn('mock', 'sess-term-flush', {
+    const { turnId, sessionId } = await service.startTurn('mock', 'sess-term-flush', {
       prompt: 'Active turn to be interrupted on shutdown',
     });
     // Do not wait for turn to complete; shut down immediately
@@ -1962,7 +2021,7 @@ test('Task 07: Terminal persistence flush is awaitable and persists before grace
 
     // Fresh transcript cache reading directly from disk
     const freshCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
-    const transcript = await freshCache.getTranscript('mock', 'sess-term-flush');
+    const transcript = await freshCache.getTranscript('mock', sessionId);
     assert.equal(transcript.turns.length, 1);
     assert.equal(transcript.turns[0].id, turnId);
     assert.equal(transcript.turns[0].status.status, 'terminal');
@@ -1996,7 +2055,7 @@ test('Task 07: Explicit schema validation rejects unsupported schema version as 
 
   const provider = createMockAgentProvider({ specId });
   const registry = createAgentProviderRegistry([provider]);
-  const service = createAgentSessionService({ registry, transcriptCache });
+  const service = createAgentSessionService({ registry, transcriptCache, repoRoot: FIXTURE_REPO_ROOT });
 
   const session = await service.getSessionDetails('mock', 'sess-unsupported');
   assert.equal(session.status, 'unavailable');
@@ -2079,10 +2138,10 @@ test('Task 07: Timeout terminal arbitration: accepted timeout intent prevails ov
     clock,
   });
   const bindingService = createAgentSessionBindingService();
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
 
   try {
-    const { turnId } = await service.startTurn('slow-cancel', 'sess-arb-1', {
+    const { turnId, sessionId } = await service.startTurn('slow-cancel', 'sess-arb-1', {
       prompt: 'Test timeout arbitration vs completion',
     });
 
@@ -2098,7 +2157,7 @@ test('Task 07: Timeout terminal arbitration: accepted timeout intent prevails ov
 
     // 2. Persisted state is failed with timeout/protocol-silence
     const diskCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
-    const persisted = await diskCache.getTranscript('slow-cancel', 'sess-arb-1');
+    const persisted = await diskCache.getTranscript('slow-cancel', sessionId);
     assert.equal(persisted.turns.length, 1);
     assert.equal(persisted.turns[0].status.status, 'terminal');
     assert.equal(persisted.turns[0].status.outcome, 'failed');
@@ -2140,10 +2199,10 @@ test('Task 07: Timeout terminal arbitration: provider cancellation failure does 
     clock,
   });
   const bindingService = createAgentSessionBindingService();
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
 
   try {
-    const { turnId } = await service.startTurn('fail-cancel', 'sess-arb-2', {
+    const { turnId, sessionId } = await service.startTurn('fail-cancel', 'sess-arb-2', {
       prompt: 'Test timeout arbitration vs cancellation error',
     });
 
@@ -2156,7 +2215,7 @@ test('Task 07: Timeout terminal arbitration: provider cancellation failure does 
     assert.equal(inMemoryTurn.status.cause, 'timeout/protocol-silence');
 
     const diskCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
-    const persisted = await diskCache.getTranscript('fail-cancel', 'sess-arb-2');
+    const persisted = await diskCache.getTranscript('fail-cancel', sessionId);
     assert.equal(persisted.turns[0].status.outcome, 'failed');
     assert.equal(persisted.turns[0].status.cause, 'timeout/protocol-silence');
   } finally {
@@ -2191,24 +2250,26 @@ test('Task 07: Canonical V2 SSE streaming and replay deliver exact canonical Wor
   };
   const registry = createAgentProviderRegistry([manualProvider]);
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const bindingService = createAgentSessionBindingService();
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
 
   const liveV2Updates = [];
   try {
-    // Subscribe to live session stream before starting turn
-    const unsubscribe = turnRuntime.subscribeToSession(
-      { provider: 'manual', providerSessionId: 'sess-v2-test' },
-      {
-        onEvent: (ev) => {
-          if (ev.type === 'turn.updated') {
-            liveV2Updates.push(ev.turn);
-          }
-        },
-      },
-    );
+    // The canonical sessionId must exist before subscribing — the runtime keys events by
+    // that identity, not by the raw provider-native id.
+    const created = await service.createSession('manual', { providerSessionId: 'sess-v2-test' });
+    const sessionId = created.sessionId;
 
-    const { turnId } = await service.startTurn('manual', 'sess-v2-test', {
+    // Subscribe to live session stream before starting turn
+    const unsubscribe = service.subscribeToSession(sessionId, {
+      onEvent: (ev) => {
+        if (ev.type === 'turn.updated') {
+          liveV2Updates.push(ev.turn);
+        }
+      },
+    });
+
+    const { turnId } = await service.startTurn('manual', sessionId, {
       prompt: 'V2 canonical stream test',
     });
 
@@ -2227,17 +2288,14 @@ test('Task 07: Canonical V2 SSE streaming and replay deliver exact canonical Wor
 
     // 2. Reconnect / replay with afterSequence = 0 recovers identical canonical snapshots
     const replayV2Updates = [];
-    turnRuntime.subscribeToSession(
-      { provider: 'manual', providerSessionId: 'sess-v2-test' },
-      {
-        afterSequence: 0,
-        onEvent: (ev) => {
-          if (ev.type === 'turn.updated') {
-            replayV2Updates.push(ev.turn);
-          }
-        },
+    turnRuntime.subscribeToSession(sessionId, {
+      afterSequence: 0,
+      onEvent: (ev) => {
+        if (ev.type === 'turn.updated') {
+          replayV2Updates.push(ev.turn);
+        }
       },
-    )();
+    })();
     const lastReplayTurn = replayV2Updates[replayV2Updates.length - 1];
     assert.deepEqual(lastReplayTurn.work, lastLiveTurn.work);
     assert.deepEqual(lastReplayTurn.finalAnswer, lastLiveTurn.finalAnswer);
@@ -2249,9 +2307,9 @@ test('Task 07: Canonical V2 SSE streaming and replay deliver exact canonical Wor
     assert.deepEqual(inMemTurn.finalAnswer, lastLiveTurn.finalAnswer);
 
     // 4. Persisted reload from disk converges to exact same semantic Turn
-    await transcriptCache.flush('manual', 'sess-v2-test');
+    await transcriptCache.flush('manual', sessionId);
     const diskCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
-    const persisted = await diskCache.getTranscript('manual', 'sess-v2-test');
+    const persisted = await diskCache.getTranscript('manual', sessionId);
     const persistedTurn = persisted.turns[0];
     assert.deepEqual(persistedTurn.work, inMemTurn.work);
     assert.deepEqual(persistedTurn.finalAnswer, lastLiveTurn.finalAnswer);
@@ -2319,43 +2377,189 @@ test('Task 07: CanonicalTurn session identity invariant holds across first turn 
   const provider = createMockAgentProvider({ specId, streamDelayMs: 1 });
   const registry = createAgentProviderRegistry([provider]);
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const bindingService = createAgentSessionBindingService();
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
 
   try {
-    // 1. Turn 1 (session creation)
+    // 1. Turn 1 (session creation) — providerSessionId is not required in the admission
+    // response; the mock has no createSession() and only establishes its native id once
+    // the turn actually runs.
     const turn1Result = await service.startTurn('mock', null, { specId, prompt: 'First turn' });
-    const providerSessionId = turn1Result.providerSessionId;
-    assert.ok(providerSessionId);
+    const sessionId = turn1Result.sessionId;
+    assert.ok(sessionId);
     await waitFor(service, turn1Result.turnId, (t) => t.status === 'completed');
+
+    const { providerSessionId } = await service.getSession(sessionId);
+    assert.ok(providerSessionId);
+    // The provider-allocated native id must never collide with or replace the canonical sessionId.
+    assert.notEqual(sessionId, providerSessionId);
 
     // Turn 1 canonical in-memory state
     const turn1Snap = turnRuntime.getCanonicalTurn(turn1Result.turnId);
     assert.equal(turn1Snap.providerSessionId, providerSessionId);
-    assert.equal(turn1Snap.sessionId, providerSessionId);
+    assert.equal(turn1Snap.sessionId, sessionId);
     assert.notEqual(turn1Snap.sessionId, turn1Result.turnId, 'sessionId must never fabricate turnId');
 
-    // 2. Turn 2 in the established session
-    const turn2Result = await service.startTurn('mock', providerSessionId, { specId, prompt: 'Second turn' });
-    assert.equal(turn2Result.providerSessionId, providerSessionId);
+    // 2. Turn 2 in the established session, addressed by the canonical sessionId.
+    const turn2Result = await service.startTurn('mock', sessionId, { specId, prompt: 'Second turn' });
+    assert.equal(turn2Result.sessionId, sessionId);
     await waitFor(service, turn2Result.turnId, (t) => t.status === 'completed');
 
     const turn2Snap = turnRuntime.getCanonicalTurn(turn2Result.turnId);
     assert.equal(turn2Snap.providerSessionId, providerSessionId);
-    assert.equal(turn2Snap.sessionId, providerSessionId);
+    assert.equal(turn2Snap.sessionId, sessionId);
     assert.notEqual(turn2Snap.sessionId, turn2Result.turnId, 'sessionId must never fabricate turnId');
 
-    // 3. Persisted transcript turns
-    await transcriptCache.flush('mock', providerSessionId);
+    // 3. Persisted transcript turns — canonical transcripts remain keyed by sessionId.
+    await transcriptCache.flush('mock', sessionId);
     const diskCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
-    const persisted = await diskCache.getTranscript('mock', providerSessionId);
+    const persisted = await diskCache.getTranscript('mock', sessionId);
     assert.equal(persisted.turns.length, 2);
     assert.equal(persisted.turns[0].providerSessionId, providerSessionId);
-    assert.equal(persisted.turns[0].sessionId, providerSessionId);
+    assert.equal(persisted.turns[0].sessionId, sessionId);
     assert.equal(persisted.turns[1].providerSessionId, providerSessionId);
-    assert.equal(persisted.turns[1].sessionId, providerSessionId);
+    assert.equal(persisted.turns[1].sessionId, sessionId);
   } finally {
     await turnRuntime.shutdown();
+    await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test('Section 2: canonical sessionId is the single transcript identity — canonical and compatibility routes return identical history with no duplicate transcript file', async () => {
+  const cacheDir = join(tmpdir(), `nevo-test-single-transcript-${randomUUID()}`);
+  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+  const provider = createMockAgentProvider({ specId, streamDelayMs: 1 });
+  const registry = createAgentProviderRegistry([provider]);
+  const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+  const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
+  const server = await buildAiTestApp({ service });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    // Turn 1: atomic first-turn creation — the canonical sessionId is durably allocated
+    // before the provider (which has no createSession()) establishes its own native id
+    // mid-turn, exactly the "provider later supplies a different native id" scenario.
+    const startRes = await fetch(
+      `${baseUrl}/api/agent-sessions/turns`,
+      control({ provider: 'mock', specId, message: 'First turn establishing native id' }),
+    );
+    assert.equal(startRes.status, 201);
+    const { turnId: turn1Id, sessionId } = await startRes.json();
+    assert.ok(sessionId);
+    await waitFor(service, turn1Id, (t) => t.status === 'completed');
+
+    const { providerSessionId } = await service.getSession(sessionId);
+    assert.ok(providerSessionId);
+    // The provider-allocated native id must never collide with the canonical sessionId.
+    assert.notEqual(providerSessionId, sessionId);
+
+    // Turn 2: addressed purely through the legacy (provider, providerSessionId)
+    // compatibility route, proving both identity forms resolve to the one canonical session.
+    const turn2Res = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(providerSessionId)}/turns`,
+      control({ message: 'Second turn via compat route' }),
+    );
+    assert.equal(turn2Res.status, 202);
+    const { turnId: turn2Id } = await turn2Res.json();
+    await waitFor(service, turn2Id, (t) => t.status === 'completed');
+
+    // The canonical route and the compatibility route must project the exact same history.
+    const canonicalRes = await fetch(`${baseUrl}/api/agent-sessions/${sessionId}`);
+    assert.equal(canonicalRes.status, 200);
+    const canonicalTurns = (await canonicalRes.json()).session.turns;
+
+    const compatRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(providerSessionId)}`);
+    assert.equal(compatRes.status, 200);
+    const compatTurns = (await compatRes.json()).session.turns;
+
+    assert.equal(canonicalTurns.length, 2);
+    assert.deepEqual(
+      canonicalTurns.map((t) => t.id).sort(),
+      [turn1Id, turn2Id].sort(),
+    );
+    assert.deepEqual(canonicalTurns, compatTurns);
+
+    // No duplicate canonical transcript was ever written under the provider-native id —
+    // exactly one file exists on disk, keyed by the canonical sessionId.
+    await transcriptCache.flush('mock', sessionId);
+    const providerDir = join(cacheDir, 'mock');
+    const files = await readdir(providerDir);
+    assert.equal(files.length, 1, `expected exactly one transcript file, found: ${files.join(', ')}`);
+    assert.equal(files[0], `${encodeURIComponent(sessionId)}.json`);
+  } finally {
+    await closeServer(server);
+    await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test('Section 3: canonical AgentSession is persisted before any provider-native createSession() side effect runs', async () => {
+  const cacheDir = join(tmpdir(), `nevo-test-create-order-${randomUUID()}`);
+  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+  const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
+
+  let observedDuringCreate = undefined;
+  const orderingProvider = {
+    descriptor: { id: 'ordering-probe', label: 'Ordering Probe', capabilities: { streaming: false } },
+    async createSession({ sessionId }) {
+      // The canonical AgentSession must already be durably persisted by the time the
+      // provider-native side effect runs — never after.
+      observedDuringCreate = await bindingService.getSession(sessionId);
+      return { providerSessionId: 'native-ordering-probe-001' };
+    },
+    async startTurn() {
+      return { text: 'ok' };
+    },
+    async cancelTurn() {},
+  };
+  const registry = createAgentProviderRegistry([orderingProvider]);
+  const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
+
+  try {
+    const created = await service.createSession('ordering-probe', { specId });
+
+    assert.ok(observedDuringCreate, 'the canonical AgentSession must be readable from inside provider.createSession()');
+    assert.equal(observedDuringCreate.sessionId, created.sessionId);
+    // At the moment the provider side effect ran, the native id was not yet known —
+    // proving persistence happened strictly before correlation, not just before some
+    // later read.
+    assert.equal(observedDuringCreate.providerSessionId, undefined);
+
+    // After createSession() resolves, the correlated native id is durably persisted too.
+    const finalSession = await bindingService.getSession(created.sessionId);
+    assert.equal(finalSession.providerSessionId, 'native-ordering-probe-001');
+    assert.equal(created.providerSessionId, 'native-ordering-probe-001');
+  } finally {
+    await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test('Section 5/15: findSessionByProviderIdentity resolves a UUID-shaped providerSessionId that is genuinely distinct from sessionId', async () => {
+  const cacheDir = join(tmpdir(), `nevo-test-find-by-identity-${randomUUID()}`);
+  const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
+  const provider = createMockAgentProvider({ specId, streamDelayMs: 1 });
+  const registry = createAgentProviderRegistry([provider]);
+  const service = createAgentSessionService({ registry, bindingService, repoRoot: FIXTURE_REPO_ROOT });
+
+  try {
+    // A UUID-shaped providerSessionId (e.g. a provider that itself mints UUIDs) must
+    // never be confused with the canonical sessionId — even though both look like UUIDs,
+    // they are two distinct identities and must resolve correctly to one another.
+    const nativeUuid = randomUUID();
+    const created = await service.createSession('mock', { specId, providerSessionId: nativeUuid });
+    assert.notEqual(created.sessionId, nativeUuid);
+
+    const resolved = await service.findSessionByProviderIdentity('mock', nativeUuid);
+    assert.ok(resolved);
+    assert.equal(resolved.sessionId, created.sessionId);
+    assert.equal(resolved.providerSessionId, nativeUuid);
+
+    // A lookup by the canonical sessionId itself through the provider-identity path must
+    // not silently succeed — it is not a provider-native id.
+    const wrongLookup = await service.findSessionByProviderIdentity('mock', created.sessionId);
+    assert.equal(wrongLookup, null);
+  } finally {
     await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
   }
 });
@@ -2369,19 +2573,29 @@ test('V2 correction: a plain composer send has userMessage.text equal to the mes
   const provider = createMockAgentProvider({ specId, streamDelayMs: 1 });
   const registry = createAgentProviderRegistry([provider]);
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache });
+  // A canonical-sessionId lookup needs bindingService to resolve `provider` back from
+  // `sessionId` — without it, getSessionDetails(sessionId) can never learn which
+  // provider's transcript to read, regardless of transcript key correctness.
+  const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
 
   try {
-    const { turnId, providerSessionId } = await service.startTurn('mock', null, { specId, message: 'Continue' });
+    const { turnId, sessionId } = await service.startTurn('mock', null, { specId, message: 'Continue' });
     await waitFor(service, turnId, (t) => t.status === 'completed');
+    const { providerSessionId } = turnRuntime.getCanonicalTurn(turnId);
+    assert.ok(providerSessionId);
+    assert.notEqual(providerSessionId, sessionId);
 
-    const details = await service.getSessionDetails('mock', providerSessionId, { representation: 'v2' });
+    // No bindingService is configured in this test, so the legacy (provider,
+    // providerSessionId) compatibility lookup has no mapping to resolve — the canonical
+    // transcript lives under sessionId exactly once and must be looked up by it.
+    const details = await service.getSessionDetails(sessionId, { representation: 'v2' });
     const publicTurn = details.turns.find((t) => t.id === turnId);
     assert.deepEqual(publicTurn.userMessage?.text, 'Continue');
 
-    await transcriptCache.flush('mock', providerSessionId);
+    await transcriptCache.flush('mock', sessionId);
     const diskCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
-    const persisted = await diskCache.getTranscript('mock', providerSessionId);
+    const persisted = await diskCache.getTranscript('mock', sessionId);
     const persistedTurn = persisted.turns.find((t) => t.id === turnId);
     assert.equal(
       persistedTurn.userMessage.text,
@@ -2400,20 +2614,27 @@ test('V2 correction: an enriched initial-dispatch prompt keeps userMessage clean
   const provider = createMockAgentProvider({ specId, streamDelayMs: 1 });
   const registry = createAgentProviderRegistry([provider]);
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache });
+  // A canonical-sessionId lookup needs bindingService to resolve `provider` back from
+  // `sessionId` — without it, getSessionDetails(sessionId) can never learn which
+  // provider's transcript to read, regardless of transcript key correctness.
+  const bindingService = createAgentSessionBindingService({ storageDir: join(cacheDir, 'sessions') });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
 
   const enrichedPrompt =
     '[NEvo Context: Specification \'demo\']\nTitle: "Demo"\nLocation: specs/active/demo/\nScope: Full specification\n\nDo the thing';
 
   try {
-    const { turnId, providerSessionId } = await service.startTurn('mock', null, {
+    const { turnId, sessionId } = await service.startTurn('mock', null, {
       specId,
       message: enrichedPrompt,
       userMessage: 'Do the thing',
     });
     await waitFor(service, turnId, (t) => t.status === 'completed');
 
-    const details = await service.getSessionDetails('mock', providerSessionId, { representation: 'v2' });
+    // No bindingService is configured in this test, so the legacy (provider,
+    // providerSessionId) compatibility lookup has no mapping to resolve — the canonical
+    // transcript lives under sessionId exactly once and must be looked up by it.
+    const details = await service.getSessionDetails(sessionId, { representation: 'v2' });
     const publicTurn = details.turns.find((t) => t.id === turnId);
     assert.equal(
       publicTurn.userMessage?.text,

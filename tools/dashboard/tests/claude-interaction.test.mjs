@@ -17,6 +17,7 @@ import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs'
 import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
 import { createAgentSessionBindingService } from '../server/ai/sessions/binding-service.mjs';
 import { createAgentSessionService } from '../server/ai/sessions/service.mjs';
+import { writeLegacySpecFixtureSync } from './helpers/spec-fixtures.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -643,11 +644,16 @@ for (const [turnMode, updatedSessionPref, expectedResumedFlag] of [
         turnRuntime: runtime1,
         transcriptCache,
         bindingService,
+        repoRoot: tmpBase,
       });
 
       const specId = randomUUID();
+      // AgentSessionService's fail-closed contract (Task 02) rejects an explicit specId
+      // that resolves to no real spec under its repoRoot — specId here is purely an
+      // inert label, so it needs a genuine (legacy) spec on disk.
+      writeLegacySpecFixtureSync(tmpBase, specId);
       const session = await service1.createSession('claude', { title: 'Test', mode: turnMode, specId });
-      const sessionId = session.providerSessionId;
+      const sessionId = session.sessionId;
 
       // Start turn in turnMode
       const { turnId } = await service1.startTurn('claude', sessionId, {
@@ -700,6 +706,7 @@ for (const [turnMode, updatedSessionPref, expectedResumedFlag] of [
         turnRuntime: runtime2,
         transcriptCache: freshTranscriptCache,
         bindingService: freshBindingService,
+        repoRoot: tmpBase,
       });
 
       // Optionally change session preference in binding service

@@ -1,6 +1,105 @@
 {
-  "generated": "2026-09-13T16:08:17.697Z",
+  "generated": "2026-09-15T21:34:21.250Z",
   "changes": [
+    {
+      "id": "agent-workflow-protocol-and-flow-hardening",
+      "specId": "3aa4f1ac-0daf-4906-8275-9a9d9c84c3cd",
+      "title": "Agent workflow protocol and flow hardening",
+      "status": "in-implementation",
+      "priority": 10,
+      "created": "2026-09-13",
+      "tasks": [
+        {
+          "id": "workflow-protocol-git-hardening-and-human-decisions",
+          "order": 1,
+          "file": "tasks/01-workflow-protocol-git-hardening-and-human-decisions.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "e25b915535d8ffa1b152cdee452a3d32c19ca95a",
+            "review_revision": "1d5a47fdcf54ed31daf69fbb17ca9775c5a8aa24",
+            "changed_paths": [
+              ".nevo-ai/workflows/standard-v1.yaml",
+              ".nevo-ai/workflows/standard.yaml",
+              "AGENTS.md",
+              "CLAUDE.md",
+              "docs/development/agent-workflow-protocol.md",
+              "specs/active/agent-workflow-protocol-and-flow-hardening/change.yaml",
+              "tools/specs/workflow/actions/commit-and-push.mjs",
+              "tools/specs/workflow/cli.mjs",
+              "tools/specs/workflow/finish-operation.mjs",
+              "tools/specs/workflow/step-context.mjs",
+              "tools/specs/workflow/templates/standard.yaml",
+              "tools/tests/workflow-action-commit-push.test.mjs",
+              "tools/tests/workflow-cli.test.mjs",
+              "tools/tests/workflow-compatibility.test.mjs",
+              "tools/tests/workflow-definitions.test.mjs",
+              "tools/tests/workflow-e2e-loop.test.mjs",
+              "tools/tests/workflow-e2e.test.mjs",
+              "tools/tests/workflow-human-verification.test.mjs",
+              "tools/tests/workflow-next-step.test.mjs",
+              "tools/tests/workflow-step-context.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "029efc2d11af162f3989adaba89ed6c9ef1bca051cfa2409255f6845a162ea92"
+          },
+          "self_check": {
+            "fingerprint": "badbc5ebd6a5a4f3e5a345c20fe80a398f94f6b758750bdb2d3ebca37f7c3558",
+            "revision": "1d5a47fdcf54ed31daf69fbb17ca9775c5a8aa24",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-definitions.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-step-context.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-action-commit-push.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-human-verification.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-e2e-loop.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "session-task-binding-and-workflow-server-endpoints",
+          "order": 2,
+          "file": "tasks/02-session-task-binding-and-workflow-server-endpoints.md",
+          "status": "verified",
+          "depends_on": [
+            "workflow-protocol-git-hardening-and-human-decisions"
+          ]
+        },
+        {
+          "id": "chat-surface-workflow-actions-and-composer-modes",
+          "order": 3,
+          "file": "tasks/03-chat-surface-workflow-actions-and-composer-modes.md",
+          "status": "in-implementation",
+          "depends_on": [
+            "session-task-binding-and-workflow-server-endpoints"
+          ],
+          "implementation": {
+            "baseline_revision": "65be00767052352f8367b16b32fac2e1942e19fe"
+          }
+        }
+      ]
+    },
     {
       "id": "ai-adapters-hardening",
       "specId": "1dfdbdb5-db41-422b-963f-defd1ec6a1e4",

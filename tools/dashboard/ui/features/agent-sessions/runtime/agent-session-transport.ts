@@ -121,18 +121,21 @@ export async function fetchAgentSessionSnapshot(
   return data.session as AgentSessionSnapshot;
 }
 
+/**
+ * Fetches the canonical session chat snapshot by canonical `sessionId` UUID — the sole
+ * application identity for this transport (see owner-decisions.md D9). `provider` is
+ * accepted only for error-message context, never as part of the request URL/routing key.
+ */
 export async function fetchAgentSessionChat(
-  provider: string,
-  providerSessionId: string,
+  sessionId: string,
+  provider?: string,
   fetchFn: typeof fetch = fetch,
 ): Promise<AgentSessionChatPayload> {
   let res: Response;
   try {
-    res = await fetchFn(
-      `/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}/chat`,
-    );
+    res = await fetchFn(`/api/agent-sessions/${encodeURIComponent(sessionId)}/chat`);
   } catch (err) {
-    throw classifySessionLoadError(err, provider, providerSessionId);
+    throw classifySessionLoadError(err, provider, sessionId);
   }
 
   if (!res.ok) {
@@ -146,8 +149,7 @@ export async function fetchAgentSessionChat(
 
     if (res.status === 404) {
       throw new AgentSessionLoadError(
-        errorMsg ||
-          `Sesja "${providerSessionId}" dla providera "${provider}" nie została znaleziona lub została usunięta.`,
+        errorMsg || `Sesja "${sessionId}" nie została znaleziona lub została usunięta.`,
         {
           kind: 'not_found',
           status: 404,

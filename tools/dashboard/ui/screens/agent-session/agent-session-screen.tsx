@@ -5,12 +5,14 @@ import { Button } from '@/shared/ui/button';
 import { StatusCard } from '@/shared/ui/status-card';
 import { LoadingScreen } from '@/shared/ui/loading-screen';
 import { useSpecificationIndex } from '@/features/specifications/queries';
-import { isSpecificationSource } from '@/features/specifications/types';
+import { isSpecificationSource, type SpecificationSummary } from '@/features/specifications/types';
 import type { AgentSession, TaskNavigationTarget } from '@/features/agent-sessions/types';
 import { useAgentSessions } from '@/features/agent-sessions/queries';
 import { AgentSessionPage } from '@/features/agent-sessions/agent-session-page';
 import { AgentSessionList } from '@/features/agent-sessions/agent-session-list';
 import { TaskDialog } from '@/features/specifications/tasks/task-dialog';
+import { useSpecificationActions } from '@/features/specifications/detail/spec-detail-queries';
+import { getStoredWorkflowExperienceMode } from '@/screens/specification-detail/workflow-experience';
 
 export interface AgentSessionScreenProps {
   source: string;
@@ -74,9 +76,30 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
     enabled: Boolean(specId),
   });
 
+  // Owned at the screens layer (not inside AgentSessionPage itself): the authoritative
+  // per-task workflow projection and the presentation-only experience toggle both cross
+  // feature boundaries (specifications, and localStorage UI state respectively), which
+  // the agent-sessions feature must not import directly (see
+  // tests/architecture-boundaries.test.mjs). This composition belongs here.
+  const actionsQuery = useSpecificationActions(
+    { slug: effectiveSpec?.slug || '', source: 'active' } as SpecificationSummary,
+    Boolean(effectiveSpec?.slug),
+  );
+  const experienceMode = getStoredWorkflowExperienceMode();
+
   const session = useMemo(() => {
+    // Match on the canonical sessionId too: once a provider confirms its native
+    // session (e.g. Claude, which has no upfront createSession()), the binding's
+    // providerSessionId is rewritten from the placeholder canonical UUID to the
+    // real native ID (see AgentSessionBindingService.markSessionEstablished).
+    // The URL/route param still carries whichever ID the user navigated with —
+    // an exact providerSessionId-only match would then permanently "lose" a
+    // session navigated to by its placeholder ID, flashing "Sesja nie
+    // znaleziona" even though the session is very much alive.
     return (
-      sessionsQuery.sessions.find((s) => s.provider === provider && s.providerSessionId === providerSessionId) ?? null
+      sessionsQuery.sessions.find(
+        (s) => s.provider === provider && (s.providerSessionId === providerSessionId || s.sessionId === providerSessionId),
+      ) ?? null
     );
   }, [sessionsQuery.sessions, provider, providerSessionId]);
 
@@ -105,7 +128,7 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
           source: effectiveSource,
           slug,
           provider: targetSession.provider,
-          providerSessionId: targetSession.providerSessionId,
+          providerSessionId: targetSession.sessionId || targetSession.providerSessionId || '',
         },
         replace: true,
       });
@@ -183,12 +206,15 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
 
   return (
     <AgentSessionPage
-      key={`${session.provider}:${session.providerSessionId}`}
+      key={`${session.provider}:${session.sessionId || session.providerSessionId}`}
       spec={effectiveSpec}
       session={session}
       onBack={handleBack}
       backLabel="Wróć do specyfikacji"
       onSwitchSession={handleSwitchSession}
+      experienceMode={experienceMode}
+      taskActions={actionsQuery.data?.tasks}
+      onRefreshTaskActions={actionsQuery.refresh}
       onInspectTask={(target) => {
         const taskId = typeof target === 'string' ? target : target.taskId;
         setInspectedTaskId(taskId);

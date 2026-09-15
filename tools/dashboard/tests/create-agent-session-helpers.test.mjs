@@ -396,8 +396,7 @@ test('real useAgentSessionRuntime mounting: EventSource lifecycle during snapsho
 
   // 1. Initial snapshot fails (404)
   await harness.render({
-    provider: 'claude',
-    providerSessionId: 'sess-retry-test',
+    sessionId: 'sess-retry-test',
     onError: (err) => errorsReceived.push(err),
   });
 
@@ -493,7 +492,7 @@ test('real useAgentSessionRuntime mounting: session switch A -> failed B -> retr
   const harness = createHookHarness();
 
   // 1. Successfully load session A
-  await harness.render({ provider: 'claude', providerSessionId: 'sess-A' });
+  await harness.render({ sessionId: 'sess-A' });
   assert.equal(harness.result.sessionDetails?.providerSessionId, 'sess-A');
   assert.equal(harness.result.turns[0].userMessage.text, 'msg in A');
   assert.equal(sseEvents.length, 1);
@@ -501,7 +500,7 @@ test('real useAgentSessionRuntime mounting: session switch A -> failed B -> retr
 
   // 2. Switch to session B while B snapshot fails (500)
   failB = true;
-  await harness.rerender({ provider: 'claude', providerSessionId: 'sess-B' });
+  await harness.rerender({ sessionId: 'sess-B' });
 
   // EventSource for A is closed immediately on switch
   assert.equal(sseEvents.length, 2);
@@ -579,8 +578,7 @@ test('real useAgentSessionRuntime mounting: error domain separation between snap
 
   // 1. Snapshot failure produces loadError but NEVER invokes onError
   await harness.render({
-    provider: 'claude',
-    providerSessionId: 'sess-domain-test',
+    sessionId: 'sess-domain-test',
     onError: (err) => errorsReceived.push(err.message),
   });
 
@@ -657,7 +655,7 @@ test('real useAgentSessionRuntime mounting: a turn.updated event omitting readin
   };
 
   // 1. Snapshot loads with authoritative ready.
-  await harness.render({ provider: 'claude', providerSessionId: 'sess-fail-closed' });
+  await harness.render({ sessionId: 'sess-fail-closed' });
   assert.equal(harness.result.readiness?.status, 'ready');
   assert.equal(harness.result.canStartTurn, true);
 

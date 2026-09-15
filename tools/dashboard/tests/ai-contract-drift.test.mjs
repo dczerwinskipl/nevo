@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -11,6 +12,7 @@ import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs'
 import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
 import { listen } from '../server/index.mjs';
 import { buildAiTestApp } from './helpers/ai-test-app.mjs';
+import { writeLegacySpecFixtureSync } from './helpers/spec-fixtures.mjs';
 import { ClaudeAgentProvider } from '../server/ai/providers/claude/provider.mjs';
 import { CodexAgentProvider } from '../server/ai/providers/codex/provider.mjs';
 import { AntigravityAgentProvider } from '../server/ai/providers/antigravity/provider.mjs';
@@ -22,6 +24,12 @@ import {
 } from '../server/ai/contracts.mjs';
 
 const specId = '70609aaf-bb62-40bf-a25e-bec65c583495';
+
+// AgentSessionService's fail-closed contract (Task 02) rejects an explicit specId that
+// resolves to no real spec under its repoRoot — this file's specId is purely an inert
+// task/binding label, so it needs a genuine (legacy) spec on disk.
+const FIXTURE_REPO_ROOT = mkdtempSync(join(tmpdir(), 'nevo-ai-contract-drift-fixture-root-'));
+writeLegacySpecFixtureSync(FIXTURE_REPO_ROOT, specId, { taskIds: ['contract-task'] });
 
 function exactKeys(value, expected) {
   assert.deepEqual(Object.keys(value).sort(), [...expected].sort());
@@ -44,7 +52,7 @@ async function createServer() {
     baseDir: join(tmpdir(), `nevo-contract-drift-test-${randomUUID()}`),
   });
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
-  const aiService = createAgentSessionService({ registry, turnRuntime, transcriptCache });
+  const aiService = createAgentSessionService({ registry, turnRuntime, transcriptCache, repoRoot: FIXTURE_REPO_ROOT });
   const server = await buildAiTestApp({ service: aiService });
   return { server, aiService };
 }
@@ -113,10 +121,14 @@ test('dashboard AI payload field and event names stay aligned with the neutral b
         control({ provider: 'mock', specId, taskId: 'contract-task', message: 'permission contract' }),
       )
     ).json();
-    exactKeys(permissionStart, ['turnId', 'providerSessionId', 'idempotent']);
+    // providerSessionId is not required in the admission response — the mock only
+    // establishes its native id once the turn actually runs, and this call defers to a
+    // pending interaction before it ever would.
+    exactKeys(permissionStart, ['turnId', 'sessionId', 'idempotent']);
     const permissionTurn = await waitForTurn(aiService, permissionStart.turnId, (turn) => turn.pendingInteraction);
     exactKeys(permissionTurn, [
       'turnId',
+      'sessionId',
       'provider',
       'providerSessionId',
       'status',
@@ -130,10 +142,11 @@ test('dashboard AI payload field and event names stay aligned with the neutral b
     assert.equal(typeof permissionTurn.events[0].seq, 'number');
     assert.equal('providerRequestId' in permissionTurn.pendingInteraction, false);
 
-    await fetch(
-      `${baseUrl}/api/agent-sessions/mock/${permissionStart.providerSessionId}/interactions/${permissionTurn.pendingInteraction.id}/respond`,
+    const respondRes = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/${permissionTurn.providerSessionId}/interactions/${permissionTurn.pendingInteraction.id}/respond`,
       control({ decision: 'allow' }),
     );
+    assert.equal(respondRes.status, 200, await respondRes.text());
     await waitForTurn(aiService, permissionStart.turnId, (turn) => turn.status === 'completed');
 
     const questionStart = await (
@@ -152,13 +165,15 @@ test('dashboard AI payload field and event names stay aligned with the neutral b
       questionId: question.id,
       value: question.multiSelect ? ['Tests'] : 'Focused',
     }));
-    await fetch(
-      `${baseUrl}/api/agent-sessions/mock/${questionStart.providerSessionId}/interactions/${questionTurn.pendingInteraction.id}/respond`,
+    const questionRespondRes = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/${questionTurn.providerSessionId}/interactions/${questionTurn.pendingInteraction.id}/respond`,
       control({ answers }),
     );
+    assert.equal(questionRespondRes.status, 200, await questionRespondRes.text());
     const completed = await waitForTurn(aiService, questionStart.turnId, (turn) => turn.status === 'completed');
     exactKeys(completed, [
       'turnId',
+      'sessionId',
       'provider',
       'providerSessionId',
       'status',

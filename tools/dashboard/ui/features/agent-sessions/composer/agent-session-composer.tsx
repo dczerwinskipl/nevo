@@ -40,6 +40,11 @@ export interface AgentSessionComposerProps {
   onModeChange: (mode: AgentExecutionMode) => void;
   placeholder?: string;
   textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
+  actionMode?: 'request-changes' | null;
+  activeTaskId?: string | null;
+  attemptNumber?: number | null;
+  onRequestChangesCancel?: () => void;
+  onRequestChangesSubmit?: (feedback: string) => void | Promise<void>;
 }
 
 export function AgentSessionComposer({
@@ -56,6 +61,11 @@ export function AgentSessionComposer({
   onModeChange,
   placeholder,
   textareaRef: externalTextareaRef,
+  actionMode = null,
+  activeTaskId = null,
+  attemptNumber = null,
+  onRequestChangesCancel,
+  onRequestChangesSubmit,
 }: AgentSessionComposerProps) {
   const [draft, setDraft] = useState('');
   const [isFocused, setIsFocused] = useState(false);
@@ -74,6 +84,12 @@ export function AgentSessionComposer({
   const showCancelAction = hasActiveTurn !== undefined ? hasActiveTurn : isRunning;
   const isDisabled = disabled || !isProviderAvailable || Boolean(loadError) || isRunning || Boolean(hasActiveTurn);
 
+  const effectivePlaceholder =
+    placeholder ??
+    (actionMode === 'request-changes'
+      ? 'Provide specific feedback and required corrections for the next implementation attempt...'
+      : undefined);
+
   const resolvedPlaceholder = resolveComposerPlaceholder({
     loadError,
     isProviderAvailable,
@@ -81,7 +97,7 @@ export function AgentSessionComposer({
     isRunning,
     hasActiveTurn,
     disabled,
-    placeholder,
+    placeholder: effectivePlaceholder,
   });
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -94,7 +110,14 @@ export function AgentSessionComposer({
 
     if (action === 'send') {
       event.preventDefault();
-      handleSend();
+      if (actionMode === 'request-changes') {
+        const trimmed = draft.trim();
+        if (!trimmed || isDisabled) return;
+        setDraft('');
+        void onRequestChangesSubmit?.(trimmed);
+      } else {
+        handleSend();
+      }
     }
   };
 
@@ -115,6 +138,18 @@ export function AgentSessionComposer({
       )}
     >
       <div className="flex flex-col">
+        {actionMode === 'request-changes' && (
+          <div
+            className="flex items-center justify-between rounded-t-2xl border-b border-status-warning/30 bg-status-warning/10 px-4 py-2 text-xs font-semibold text-status-warning"
+            role="status"
+            aria-live="polite"
+          >
+            <span>
+              Request changes · Task {activeTaskId || '—'}
+              {attemptNumber ? ` (Attempt ${attemptNumber})` : ''}
+            </span>
+          </div>
+        )}
         <label className="min-w-0 flex-1">
           <span className="sr-only">Wiadomość</span>
           <textarea
@@ -152,16 +187,47 @@ export function AgentSessionComposer({
                 )}
                 title={`${modeMeta.label} - ${modeMeta.description}`}
                 aria-label={`${modeMeta.label}: ${modeMeta.description}`}
-                disabled={isDisabled}
+                disabled={isDisabled || actionMode === 'request-changes'}
               >
                 {modeMeta.id}
               </button>
             ))}
           </div>
 
-          {/* Action button: Send or Stop */}
+          {/* Action button: Send or Stop or Request-Changes actions */}
           <div>
-            {showCancelAction ? (
+            {actionMode === 'request-changes' ? (
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setDraft('');
+                    onRequestChangesCancel?.();
+                  }}
+                  className="h-8 px-3 text-xs font-semibold text-fg-muted hover:text-fg-primary"
+                  aria-label="Cancel"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={async () => {
+                    const trimmed = draft.trim();
+                    if (!trimmed || isDisabled) return;
+                    setDraft('');
+                    await onRequestChangesSubmit?.(trimmed);
+                  }}
+                  disabled={!draft.trim() || isDisabled}
+                  className="h-8 gap-1.5 px-3.5 text-xs font-semibold bg-status-error text-white hover:bg-status-error/90"
+                  aria-label="Send & reject"
+                >
+                  <span>Send & reject</span>
+                </Button>
+              </div>
+            ) : showCancelAction ? (
               <Button
                 type="button"
                 size="sm"

@@ -14,7 +14,7 @@ import { normalizeSourceControlConfig } from './definitions/schema.mjs';
 import { defaultActionRegistry, defaultGateRegistry } from './registry.mjs';
 import { defaultWorkflowEngine } from './engine.mjs';
 import { resolveActiveStepName, resolveWorkflowPosition, inspectGates, verifyGates, allGatesPassed } from './step-runner.mjs';
-import { aggregateFinalizeCheck, buildFinishContract, normalizeSourceControlFacts } from './step-context.mjs';
+import { aggregateFinalizeCheck, buildFinishContract, normalizeSourceControlFacts, resolveTaskScope, resolveWorkflowOwnedPaths } from './step-context.mjs';
 import { WorkflowError, PreconditionError } from './errors.mjs';
 import * as git from '../../lib/git.mjs';
 // ── Durable operation record I/O (D23: step-aware identity) ─────────────────
@@ -198,7 +198,16 @@ export async function planFinish({
     throw new WorkflowError(`Step '${stepName}' is not declared in workflow definition '${definition?.id}'`);
   }
 
-  const finalizeCheck = await aggregateFinalizeCheck(step, context, { engine, actionRegistry });
+  const effectiveChangeSlug = changeSlug || context.changeSlug || context.changeId;
+  const taskAllowedPaths = context.taskAllowedPaths || context.allowedPaths || (task && change ? resolveTaskScope(change, task, context).allowedPaths : null);
+  const workflowOwnedPaths = resolveWorkflowOwnedPaths({ ...context, changeSlug: effectiveChangeSlug, activeDir: context.activeDir, repoRoot: context.repoRoot });
+  const checkContext = {
+    ...context,
+    ...(taskAllowedPaths !== null ? { taskAllowedPaths, allowedPaths: taskAllowedPaths } : {}),
+    workflowOwnedPaths,
+    changeSlug: effectiveChangeSlug,
+  };
+  const finalizeCheck = await aggregateFinalizeCheck(step, checkContext, { engine, actionRegistry });
   const requiredInputs = buildFinishContract(finalizeCheck, step);
 
   const { resolved, conflicts } = mergeResolvedInputs(existingRecord?.resolvedInputs, inputs);
@@ -412,7 +421,8 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
         && latestHistory.attempt === intentAttempt
         && latestHistory.transitioned_to === intentTo
         && (intent.result === undefined || latestHistory.result === intent.result)
-        && ((!intent.artifacts && !latestHistory.artifacts) || JSON.stringify(latestHistory.artifacts || []) === JSON.stringify(intent.artifacts || []));
+        && ((!intent.artifacts && !latestHistory.artifacts) || JSON.stringify(latestHistory.artifacts || []) === JSON.stringify(intent.artifacts || []))
+        && (intent.feedback === undefined || latestHistory.feedback === intent.feedback);
       const terminalMatches = intentTerminal ? task.status === intentTerminal : true;
 
       // 1. Write Definitely Happened
@@ -482,6 +492,9 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
   const artifacts = Array.isArray(record.resolvedInputs?.artifacts) && record.resolvedInputs.artifacts.length > 0
     ? record.resolvedInputs.artifacts
     : undefined;
+  const feedback = typeof record.resolvedInputs?.feedback === 'string' && record.resolvedInputs.feedback.trim().length > 0
+    ? record.resolvedInputs.feedback.trim()
+    : undefined;
 
   const entry = {
     step: stepName,
@@ -490,6 +503,7 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
     transitioned_to: to,
     ...(record.resolvedInputs?.result !== undefined ? { result: record.resolvedInputs.result } : {}),
     ...(artifacts !== undefined ? { artifacts } : {}),
+    ...(feedback !== undefined ? { feedback } : {}),
   };
   const newHistory = [...history, entry];
 
@@ -502,6 +516,7 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
     terminalStatus: isInternalTransition ? null : to,
     ...(record.resolvedInputs?.result !== undefined ? { result: record.resolvedInputs.result } : {}),
     ...(artifacts !== undefined ? { artifacts } : {}),
+    ...(feedback !== undefined ? { feedback } : {}),
   };
   stage.status = 'running';
   saveOperationRecord(repoRoot, record);
@@ -572,7 +587,16 @@ async function ensureCommit(record, context, repoRoot) {
   // `tools/lib/git.mjs`, since the commit-and-push action cannot be safely re-invoked for
   // "push only" once the worktree is already clean (its `include` contract requires
   // matching dirty files).
-  const actionContext = { ...context, sourceControl: { enabled: true, push: false } };
+  const changeSlug = context.changeSlug || context.changeId;
+  const taskAllowedPaths = context.taskAllowedPaths || context.allowedPaths || null;
+  const workflowOwnedPaths = resolveWorkflowOwnedPaths(context);
+  const actionContext = {
+    ...context,
+    ...(taskAllowedPaths !== null ? { taskAllowedPaths, allowedPaths: taskAllowedPaths } : {}),
+    workflowOwnedPaths,
+    changeSlug,
+    sourceControl: { enabled: true, push: false },
+  };
   const checkResult = await action.check(actionContext);
   const actionKeys = new Set((checkResult.requiredInputs || []).map(s => s.name));
   const actionInputs = {};
@@ -679,7 +703,16 @@ export async function finishStep({
   const changeSlug = change._slug || change.id;
   const resolvedActiveDir = activeDir || context.activeDir;
 
-  const plan = await planFinish({ change, task, definition, context, inputs, engine, gateRegistry, actionRegistry });
+  const taskAllowedPaths = context.taskAllowedPaths || context.allowedPaths || (task && change ? resolveTaskScope(change, task, context).allowedPaths : null);
+  const workflowOwnedPaths = resolveWorkflowOwnedPaths({ ...context, changeSlug, activeDir: resolvedActiveDir, repoRoot });
+  const effectiveContext = {
+    ...context,
+    ...(taskAllowedPaths !== null ? { taskAllowedPaths, allowedPaths: taskAllowedPaths } : {}),
+    workflowOwnedPaths,
+    changeSlug,
+  };
+
+  const plan = await planFinish({ change, task, definition, context: effectiveContext, inputs, engine, gateRegistry, actionRegistry });
 
   if (plan.status === 'already-complete') {
     return { status: 'already-complete' };
@@ -738,10 +771,10 @@ export async function finishStep({
   const step = definition.steps[record.step];
 
   try {
-    await ensureVerifyGates(record, step, context, gateRegistry, repoRoot);
+    await ensureVerifyGates(record, step, effectiveContext, gateRegistry, repoRoot);
     await ensureUpdateTask(record, definition, resolvedActiveDir, changeSlug, task.id, repoRoot);
-    await ensureCommit(record, context, repoRoot);
-    await ensurePush(record, context, repoRoot);
+    await ensureCommit(record, effectiveContext, repoRoot);
+    await ensurePush(record, effectiveContext, repoRoot);
     await ensureTransition(record, definition);
   } catch (err) {
     if (err instanceof FinishStageOutcome) {

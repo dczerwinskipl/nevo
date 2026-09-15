@@ -51,9 +51,15 @@ import {
   normalizeModelIdentifier,
   permissiveModelPassthrough,
 } from '../server/ai/contracts.mjs';
+import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
 import { createAgentSessionService } from '../server/ai/sessions/service.mjs';
+import { createAgentSessionBindingService } from '../server/ai/sessions/binding-service.mjs';
 import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs';
+import { writeLegacySpecFixtureSync } from './helpers/spec-fixtures.mjs';
 
 const capabilities = Object.freeze({
   interactivePermissions: true,
@@ -376,19 +382,29 @@ test('AgentSessionService uses binding service for listings and transcript cache
   assert.equal(details.turns[0].userMessage.text, 'hi');
 });
 
-test('AgentSessionService binds a provider-created session identity only after creation succeeds', async () => {
+test('AgentSessionService persists the canonical AgentSession before any provider-native createSession() side effect, and correlates the native id afterward', async () => {
   const bindings = [];
   const bindingService = {
     async bindSession(binding) {
       bindings.push(binding);
       return binding;
     },
+    async setProviderSessionId(sessionId, providerSessionId) {
+      const binding = bindings.find((b) => b.sessionId === sessionId);
+      if (binding) binding.providerSessionId = providerSessionId;
+      return binding;
+    },
   };
+  let observedDuringCreate;
   const provider = {
     descriptor: { id: 'owned', label: 'Owned', capabilities },
     async createSession({ mode, purpose }) {
       assert.equal(mode, 'edit');
       assert.equal(purpose, 'task:task-1');
+      // The canonical binding must already exist, without a native id, by the time this
+      // provider-side effect runs. Snapshot it now — the live object is mutated in place
+      // once setProviderSessionId() correlates the native id afterward.
+      observedDuringCreate = { ...bindings.find((b) => b.taskId === 'task-1') };
       return { providerSessionId: 'provider-thread-1' };
     },
     async startTurn() {},
@@ -398,11 +414,17 @@ test('AgentSessionService binds a provider-created session identity only after c
   const service = createAgentSessionService({ registry, bindingService });
 
   const session = await service.createSession('owned', { specId: 'spec-1', taskId: 'task-1' });
+  assert.ok(observedDuringCreate, 'the canonical binding must be persisted before provider.createSession() runs');
+  assert.equal(observedDuringCreate.providerSessionId, undefined);
   assert.equal(session.providerSessionId, 'provider-thread-1');
   assert.equal(bindings.length, 1);
   assert.equal(bindings[0].providerSessionId, 'provider-thread-1');
 
-  let failedBindingCalled = false;
+  // When the provider-native side effect itself fails, the already-persisted canonical
+  // binding is NOT rolled back — the provider error still propagates, but the session
+  // remains recorded (unestablished, never fabricated), since provider side effects may
+  // already have partially happened by the time the failure surfaces.
+  let bindCallCount = 0;
   const failingProvider = {
     descriptor: { id: 'failing-owned', label: 'Failing owned', capabilities },
     async createSession() {
@@ -414,8 +436,9 @@ test('AgentSessionService binds a provider-created session identity only after c
   const failingService = createAgentSessionService({
     registry: createAgentProviderRegistry([failingProvider]),
     bindingService: {
-      async bindSession() {
-        failedBindingCalled = true;
+      async bindSession(binding) {
+        bindCallCount += 1;
+        return binding;
       },
     },
   });
@@ -423,12 +446,15 @@ test('AgentSessionService binds a provider-created session identity only after c
     () => failingService.createSession('failing-owned', { specId: 'spec-1' }),
     /provider creation failed/,
   );
-  assert.equal(failedBindingCalled, false);
+  assert.equal(bindCallCount, 1, 'the canonical binding must be persisted even though the provider side effect later failed');
 });
 
 test('integration: new chat -> first prompt -> provider identity created and bound -> second prompt resumes', async () => {
   const bindings = [];
   const bindingService = {
+    async getSession(sessionId) {
+      return bindings.find((b) => b.sessionId === sessionId) || null;
+    },
     async bindSession(binding) {
       bindings.push(binding);
       return binding;
@@ -436,17 +462,27 @@ test('integration: new chat -> first prompt -> provider identity created and bou
     async listBindings() {
       return bindings;
     },
+    async setProviderSessionId(sessionId, providerSessionId) {
+      const binding = bindings.find((b) => b.sessionId === sessionId);
+      if (binding) binding.providerSessionId = providerSessionId;
+      return binding;
+    },
+    async findSessionByProviderIdentity(provider, providerSessionId) {
+      return bindings.find((b) => b.provider === provider && b.providerSessionId === providerSessionId) || null;
+    },
   };
 
   let resumeCalledWith = null;
   const provider = {
     descriptor: { id: 'fake', label: 'Fake', capabilities },
-    async startTurn({ providerSessionId, setProviderSessionId, message, emitFinalAnswerDelta }) {
+    async startTurn({ providerSessionId, onProviderSessionIdAvailable, message, emitFinalAnswerDelta }) {
       if (!providerSessionId) {
         const newId = 'fake-allocated-uuid-999';
-        setProviderSessionId(newId);
+        // Establish via the explicit callback only — also returning providerSessionId in
+        // the result would trigger a second, redundant establish attempt.
+        await onProviderSessionIdAvailable(newId);
         emitFinalAnswerDelta('first turn response');
-        return { providerSessionId: newId };
+        return {};
       } else {
         resumeCalledWith = providerSessionId;
         emitFinalAnswerDelta('second turn response');
@@ -458,7 +494,12 @@ test('integration: new chat -> first prompt -> provider identity created and bou
 
   const registry = createAgentProviderRegistry([provider]);
   const turnRuntime = createAgentTurnRuntime({ registry });
-  const service = createAgentSessionService({ registry, turnRuntime, bindingService });
+  // AgentSessionService's fail-closed contract (Task 02) rejects an explicit specId that
+  // resolves to no real spec under its repoRoot — 'spec-integration-test' is used here
+  // purely as an inert task/binding label, so it needs a genuine (legacy) spec on disk.
+  const specFixtureRoot = await mkdtemp(join(tmpdir(), 'nevo-ai-contracts-spec-fixture-'));
+  writeLegacySpecFixtureSync(specFixtureRoot, 'spec-integration-test');
+  const service = createAgentSessionService({ registry, turnRuntime, bindingService, repoRoot: specFixtureRoot });
 
   // 1. First prompt in blank chat without providerSessionId
   const turn1 = await service.startTurn('fake', null, {
@@ -467,18 +508,26 @@ test('integration: new chat -> first prompt -> provider identity created and bou
     taskId: 'task-1',
   });
 
-  // Direct return value MUST have providerSessionId populated
-  assert.equal(turn1.providerSessionId, 'fake-allocated-uuid-999');
+  // startTurn() resolves once the turn is admitted, not once the provider confirms its
+  // native id (see runtime.mjs) — the canonical sessionId is the one identity guaranteed
+  // to be populated immediately.
+  assert.ok(turn1.sessionId);
+  assert.equal(turn1.providerSessionId, undefined);
+
+  for (let i = 0; i < 50; i++) {
+    const snap = service.getTurn(turn1.turnId);
+    // Turn completion and native-id establishment are two independent async chains (the
+    // mock provider fires setProviderSessionId() without awaiting it) — wait for both.
+    if (snap?.status === 'completed' && bindings[0]?.providerSessionId) break;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+
+  // Once the turn has actually completed, the provider-native id it established is
+  // durably bound.
   assert.equal(bindings.length, 1);
   assert.equal(bindings[0].provider, 'fake');
   assert.equal(bindings[0].providerSessionId, 'fake-allocated-uuid-999');
   assert.equal(bindings[0].specId, 'spec-integration-test');
-
-  for (let i = 0; i < 50; i++) {
-    const snap = service.getTurn(turn1.turnId);
-    if (snap?.status === 'completed') break;
-    await new Promise((r) => setTimeout(r, 5));
-  }
 
   // 2. Second prompt resumes using the established providerSessionId
   const turn2 = await service.startTurn('fake', 'fake-allocated-uuid-999', {
@@ -494,6 +543,7 @@ test('integration: new chat -> first prompt -> provider identity created and bou
   }
 
   assert.equal(resumeCalledWith, 'fake-allocated-uuid-999');
+  await rm(specFixtureRoot, { recursive: true, force: true });
 });
 
 test('first-turn binding failure causes startTurn rejection and turn failure', async () => {
@@ -572,8 +622,18 @@ test('Execution mode precedence: turn.mode > session.mode > provider.defaultMode
 
   const fakeBindings = new Map();
   const bindingService = {
+    async getSession(sid) {
+      // Canonical lookup by sessionId: nothing in this test's fixtures is ever bound
+      // under a canonical sessionId (only providerSessionId), so this is always a miss —
+      // matching the real AgentSessionBindingService's behavior for an unknown id.
+      return null;
+    },
     async getBinding(p, sid) {
       return fakeBindings.get(sid) || null;
+    },
+    async findSessionByProviderIdentity(p, sid) {
+      const rec = fakeBindings.get(sid);
+      return rec && rec.provider === p ? { sessionId: sid, ...rec } : null;
     },
     async bindSession({ provider, providerSessionId, specId, mode }) {
       const rec = { provider, providerSessionId, specId, mode };
@@ -629,8 +689,18 @@ test('startTurn permissive model passthrough: an unrecognized model is not block
 
   const fakeBindings = new Map();
   const bindingService = {
+    async getSession(sid) {
+      // Canonical lookup by sessionId: nothing in this test's fixtures is ever bound
+      // under a canonical sessionId (only providerSessionId), so this is always a miss —
+      // matching the real AgentSessionBindingService's behavior for an unknown id.
+      return null;
+    },
     async getBinding(p, sid) {
       return fakeBindings.get(sid) || null;
+    },
+    async findSessionByProviderIdentity(p, sid) {
+      const rec = fakeBindings.get(sid);
+      return rec && rec.provider === p ? { sessionId: sid, ...rec } : null;
     },
     async bindSession({ provider, providerSessionId, specId, mode, model }) {
       const rec = { provider, providerSessionId, specId, mode, model };
@@ -1359,5 +1429,77 @@ test('Terminal outcomes remain decoupled from failure codes and recovery hints',
   assert.equal(failed.error.code, 'AI_PROVIDER_UNAVAILABLE');
   assert.equal(failed.error.recoveryHint, 'retry-after-delay');
   assert.equal(failed.error.suggestedDelayMs, 5000);
+});
+
+// ── Section 3: no UUID-shape identity guessing in the canonical service path ───────────
+// A provider-native providerSessionId is allowed to be UUID-shaped (e.g. Codex thread
+// ids) — canonical vs. compatibility identity must never be discriminated by "does this
+// string look like a UUID", only by argument arity/type or a real store lookup.
+
+test('Section 3: canonical sessionId, providerSessionId, and compat identity resolution never confuse two UUID-shaped identities', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-uuid-identity-'));
+  try {
+    const provider = {
+      descriptor: { id: 'mock', label: 'Mock', capabilities, defaultMode: 'edit', supportedModes: ['edit'] },
+      async startTurn({ emitFinalAnswerDelta }) {
+        emitFinalAnswerDelta?.('done');
+        return {};
+      },
+      async cancelTurn() {},
+    };
+    const registry = createAgentProviderRegistry([provider]);
+    const turnRuntime = createAgentTurnRuntime({ registry });
+    const bindingService = createAgentSessionBindingService({ storageDir: join(tmpDir, 'sessions') });
+    const service = createAgentSessionService({ registry, turnRuntime, bindingService });
+
+    // A provider-native id that is itself UUID-shaped — genuinely distinct from the
+    // canonical sessionId, even though both are UUIDs.
+    const providerNativeUuid = randomUUID();
+    const created = await service.createSession('mock', { providerSessionId: providerNativeUuid });
+    const canonicalSessionId = created.sessionId;
+    assert.notEqual(canonicalSessionId, providerNativeUuid);
+
+    // 1. Canonical sessionId (a UUID) resolves via the canonical single-arg form.
+    const byCanonical = await service.getSession(canonicalSessionId);
+    assert.ok(byCanonical, 'canonical sessionId lookup must succeed');
+    assert.equal(byCanonical.sessionId, canonicalSessionId);
+
+    // 2 & 3. A UUID-shaped providerSessionId resolves through the explicit compat form
+    // (provider, providerSessionId), never through the canonical single-arg form.
+    const byCompat = await service.getSession('mock', providerNativeUuid);
+    assert.ok(byCompat, 'compat (provider, providerSessionId) lookup must succeed even though providerSessionId is UUID-shaped');
+    assert.equal(byCompat.sessionId, canonicalSessionId);
+    assert.equal(byCompat.providerSessionId, providerNativeUuid);
+
+    // 4. No accidental lookup of the provider-native UUID as if it were a canonical
+    // sessionId: passed alone (canonical single-arg form), it must resolve to nothing,
+    // since it was never registered as anyone's sessionId.
+    const wrongLookup = await service.getSession(providerNativeUuid);
+    assert.equal(wrongLookup, null, 'a provider-native UUID must never be found via the canonical sessionId lookup');
+
+    // getSessionDetails must show the same discrimination: canonical vs. compat.
+    const detailsByCanonical = await service.getSessionDetails(canonicalSessionId);
+    assert.equal(detailsByCanonical.sessionId, canonicalSessionId);
+    assert.equal(detailsByCanonical.providerSessionId, providerNativeUuid);
+    const detailsByCompat = await service.getSessionDetails('mock', providerNativeUuid);
+    assert.equal(detailsByCompat.sessionId, canonicalSessionId);
+
+    // startTurn addressed by the UUID-shaped compat identity must resume the SAME
+    // canonical session, not fork a second one.
+    const { sessionId: resumedSessionId } = await service.startTurn('mock', providerNativeUuid, {
+      message: 'continue',
+    });
+    assert.equal(resumedSessionId, canonicalSessionId, 'compat startTurn by providerSessionId must resume the existing canonical session');
+
+    // 5. Existing non-UUID provider identity compatibility still works unchanged.
+    const created2 = await service.createSession('mock', { providerSessionId: 'legacy-native-id-42' });
+    const legacySessionId = created2.sessionId;
+    const legacyByCompat = await service.getSession('mock', 'legacy-native-id-42');
+    assert.equal(legacyByCompat.sessionId, legacySessionId);
+    const { sessionId: legacyResumed } = await service.startTurn('mock', 'legacy-native-id-42', { message: 'hi' });
+    assert.equal(legacyResumed, legacySessionId);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
 });
 

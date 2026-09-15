@@ -10,6 +10,36 @@ import { AiValidationError } from '../../contracts.mjs';
 export default async function aiEventRoutes(fastify, { service, accessPolicy }) {
   const activeConnections = new Set();
 
+  fastify.get('/api/agent-sessions/:sessionId/events', { sse: 'only' }, async (request, reply) => {
+    const sessionId = validatedSessionId(request.params.sessionId);
+    authorize(accessPolicy, 'read', request);
+
+    const rawCursor = reply.sse.lastEventId ?? request.query?.after;
+    const afterSequence = Number(rawCursor ?? 0);
+    if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) throw new AiValidationError('Invalid event cursor.');
+
+    console.log(`[ai] [sse:connect] session=${sessionId} after=${afterSequence}`);
+
+    reply.sse.keepAlive();
+    reply.sse.sendHeaders();
+    if (typeof reply.raw.flushHeaders === 'function') {
+      reply.raw.flushHeaders();
+    }
+    activeConnections.add(reply.sse);
+    reply.sse.onClose(() => activeConnections.delete(reply.sse));
+
+    let sendQueue = Promise.resolve();
+    const unsubscribe = service.subscribeToSession(sessionId, {
+      afterSequence,
+      onEvent: (event) => {
+        sendQueue = sendQueue.then(() =>
+          reply.sse.send({ id: event.seq ?? event.id, event: event.type, data: event }).catch(() => {}),
+        );
+      },
+    });
+    reply.sse.onClose(() => unsubscribe());
+  });
+
   fastify.get('/api/agent-sessions/:provider/:providerSessionId/events', { sse: 'only' }, async (request, reply) => {
     const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
     const providerSessionId = validatedSessionId(request.params.providerSessionId);

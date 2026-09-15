@@ -20,14 +20,17 @@ import { RepositoryActionsCard, FinalizeDialog } from '@/features/specifications
 import { CreateAgentSessionDialog } from '@/features/agent-sessions/create-agent-session-dialog';
 import { OperationModal } from '@/features/operations/operation-modal';
 import { queueAgentSessionInitialDispatch } from '@/features/agent-sessions/initial-dispatch';
+import { pendingActionModeStore } from '@/features/agent-sessions/runtime/pending-action-mode-store';
 import {
   useSpecificationManifest,
   useSpecificationActions,
 } from '@/features/specifications/detail/spec-detail-queries';
+import { invalidateSpecificationQueries } from '@/features/specifications/queries';
 import { invalidatePullRequestQueries } from '@/features/pull-requests/queries';
-import { useAgentSessions } from '@/features/agent-sessions/queries';
+import { useAgentProviders, useAgentSessions, useCreateAgentSession } from '@/features/agent-sessions/queries';
 import type { AgentSession } from '@/features/agent-sessions/types';
 import { useSpecWorkflowActions } from './use-spec-workflow-actions';
+import { useWorkflowExperienceMode } from './workflow-experience';
 
 const PullRequestsPanel = lazy(() =>
   import('@/features/pull-requests/pull-requests-panel').then((m) => ({ default: m.PullRequestsPanel })),
@@ -121,6 +124,110 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
     requestAnimationFrame(() => document.getElementById(`spec-tab-${nextTab.id}`)?.focus());
   };
 
+  const [experienceMode, setExperienceMode] = useWorkflowExperienceMode();
+  const providersQuery = useAgentProviders();
+  const createSession = useCreateAgentSession();
+  const enabledProviders = providersQuery.data?.providers.filter((p) => p.enabled) ?? [];
+  const availableProviders = enabledProviders.filter((p) => p.available !== false);
+  const defaultProvider = availableProviders[0]?.id || enabledProviders[0]?.id || 'claude';
+
+  const handleWorkflowAction = useCallback(
+    async (task: SpecificationTask, action: string) => {
+      if (action === 'start-implementation') {
+        const provider = defaultProvider;
+        const session = await createSession.create({
+          provider,
+          specId: specification.specId || '',
+          taskId: task.id,
+          taskIds: [task.id],
+          mode: 'edit',
+        });
+        const userMessage = `Implement task ${task.id}: ${task.title}`;
+        queueAgentSessionInitialDispatch({
+          provider: session.provider,
+          sessionId: session.sessionId,
+          prompt: userMessage,
+          userMessage,
+        });
+        navigate({
+          to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+          params: {
+            source: specification.source,
+            slug: specification.slug,
+            provider: session.provider,
+            providerSessionId: session.sessionId,
+          },
+        });
+      } else if (action === 'start-review') {
+        const provider = defaultProvider;
+        const session = await createSession.create({
+          provider,
+          specId: specification.specId || '',
+          taskId: task.id,
+          taskIds: [task.id],
+          mode: 'agent',
+        });
+        const userMessage = `Review task ${task.id}: ${task.title}`;
+        queueAgentSessionInitialDispatch({
+          provider: session.provider,
+          sessionId: session.sessionId,
+          prompt: userMessage,
+          userMessage,
+        });
+        navigate({
+          to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+          params: {
+            source: specification.source,
+            slug: specification.slug,
+            provider: session.provider,
+            providerSessionId: session.sessionId,
+          },
+        });
+      } else if (action === 'approve') {
+        await fetch(
+          `/api/specs/${encodeURIComponent(specification.slug)}/tasks/${encodeURIComponent(task.id)}/workflow/human-decision`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ decision: 'approve' }),
+          },
+        );
+        await Promise.all([actionsQuery.refresh(), invalidateSpecificationQueries(queryClient)]);
+      } else if (action === 'request-changes') {
+        const bound = sessionsQuery.sessions.find(
+          (s) => (s.taskIds && s.taskIds.includes(task.id)) || s.taskId === task.id,
+        );
+        const targetSession =
+          bound ||
+          (await createSession.create({
+            provider: defaultProvider,
+            specId: specification.specId || '',
+            taskId: task.id,
+            taskIds: [task.id],
+            mode: 'edit',
+          }));
+        // Explicit, inspectable navigation intent (not a hidden global flag): the target
+        // session/chat surface reads and consumes this exactly once to make `task.id` the
+        // authoritative activeTaskId and open the composer directly in request-changes
+        // mode — no second click required.
+        pendingActionModeStore.setPending(targetSession.sessionId, {
+          action: 'request-changes',
+          taskId: task.id,
+        });
+        navigate({
+          to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+          params: {
+            source: specification.source,
+            slug: specification.slug,
+            provider: targetSession.provider,
+            providerSessionId: targetSession.sessionId || targetSession.providerSessionId || '',
+          },
+        });
+      }
+    },
+    [defaultProvider, createSession, specification, navigate, actionsQuery, queryClient, sessionsQuery.sessions],
+  );
+
   const handleOpenSession = (session: AgentSession) => {
     navigate({
       to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
@@ -128,7 +235,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
         source: specification.source,
         slug: specification.slug,
         provider: session.provider,
-        providerSessionId: session.providerSessionId,
+        providerSessionId: session.sessionId || session.providerSessionId || '',
       },
     });
   };
@@ -255,6 +362,9 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
             onOpenSession={handleOpenSession}
             onCreateSession={() => setSessionSpecification(specification)}
             taskActions={actionsQuery.data?.tasks}
+            experienceMode={experienceMode}
+            onExperienceModeChange={setExperienceMode}
+            onWorkflowAction={handleWorkflowAction}
             onDirectTaskAction={workflow.executeDirectTaskAction}
             onBatchTaskAction={workflow.executeBatchTaskAction}
             onOpenTask={(target) => {
@@ -358,10 +468,13 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           onCreated={(session, promptToSend, userMessage) => {
             const targetSpecification = sessionSpecification;
             setSessionSpecification(null);
+            // Provider-native identity is optional and initially absent until provider confirmation;
+            // fall back to canonical sessionId so the route/dispatch key is always authoritative.
+            const routeSessionId = session.sessionId || session.providerSessionId || '';
             if (promptToSend) {
               queueAgentSessionInitialDispatch({
                 provider: session.provider,
-                providerSessionId: session.providerSessionId,
+                sessionId: routeSessionId,
                 prompt: promptToSend,
                 userMessage,
               });
@@ -372,7 +485,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
                 source: targetSpecification.source,
                 slug: targetSpecification.slug,
                 provider: session.provider,
-                providerSessionId: session.providerSessionId,
+                providerSessionId: routeSessionId,
               },
             });
           }}

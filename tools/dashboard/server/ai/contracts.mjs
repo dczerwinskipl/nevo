@@ -198,6 +198,48 @@ export class AiTurnConflictError extends AiError {
   }
 }
 
+/**
+ * A spec has explicitly opted into `workflow.mode: deterministic`, but the authoritative
+ * workflow position governing this turn could not be resolved (missing/broken workflow
+ * definition, no resolvable task, or an unresolvable step/attempt position). The turn must
+ * be rejected rather than silently proceeding without the deterministic workflow protocol —
+ * a wrong or absent instruction here is worse than an explicit failure the caller must act
+ * on. This never fires for legacy/non-deterministic specs, which remain the global default.
+ */
+export class AiDeterministicWorkflowUnavailableError extends AiError {
+  constructor(message, details) {
+    super('AI_DETERMINISTIC_WORKFLOW_UNAVAILABLE', message, {
+      status: 409,
+      recoveryHint: 'operator-action',
+      details,
+    });
+    this.name = 'AiDeterministicWorkflowUnavailableError';
+  }
+}
+
+/**
+ * A turn was explicitly bound to a specId, but no spec matching it could be found under
+ * the authoritative repoRoot the session was resolved against. Unlike an absent specId
+ * (a genuinely spec-less, legacy-by-default interaction), an explicit specId that fails to
+ * resolve is not equivalent to "legacy" — it may mean the wrong repoRoot, a stale session
+ * binding, a deleted/moved spec, corrupted local session state, or a caller correlation
+ * bug. Silently continuing without workflow context would hide exactly that class of
+ * error, so the turn is rejected instead. Deliberately distinct from
+ * AiDeterministicWorkflowUnavailableError: at this point the spec was never found, so its
+ * workflow mode (legacy vs. deterministic) is unknown — this is not a deterministic-mode
+ * failure, it is a context-resolution failure that precedes any mode check.
+ */
+export class AiSpecContextUnavailableError extends AiError {
+  constructor(message, details) {
+    super('AI_SPEC_CONTEXT_UNAVAILABLE', message, {
+      status: 409,
+      recoveryHint: 'operator-action',
+      details,
+    });
+    this.name = 'AiSpecContextUnavailableError';
+  }
+}
+
 function requiredString(value, field, { opaque = false, max = 512 } = {}) {
   if (typeof value !== 'string' || value.length === 0 || value.length > max) {
     throw new AiValidationError(`'${field}' must be a non-empty string of at most ${max} characters.`, { field });

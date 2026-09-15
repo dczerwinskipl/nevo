@@ -42,12 +42,75 @@ export default async function turnRoutes(fastify, { service, accessPolicy }) {
       idempotencyKey: body.idempotencyKey,
     });
     console.log(
-      `[ai] [turn:started] provider=${provider} session=${result.providerSessionId} turnId=${result.turnId} idempotent=${result.idempotent}`,
+      `[ai] [turn:started] provider=${provider} session=${result.sessionId || result.providerSessionId} turnId=${result.turnId} idempotent=${result.idempotent}`,
     );
     reply.code(result.idempotent ? 200 : 201).send(result);
   });
 
-  // Subsequent turns on an existing session.
+  // Canonical turn start on existing session by canonical sessionId UUID
+  fastify.post(
+    '/api/agent-sessions/:sessionId/turns',
+    { bodyLimit: TURN_BODY_LIMIT },
+    async (request, reply) => {
+      authorize(accessPolicy, 'control', request);
+      const body = assertBodyObject(request.body);
+      const sessionId = validatedSessionId(request.params.sessionId);
+      if (body.model !== undefined && (typeof body.model !== 'string' || !body.model.trim())) {
+        throw new AiValidationError('Model must be a non-empty string when provided.');
+      }
+      const effort = body.effort ?? body.reasoningEffort;
+      if (effort !== undefined && (typeof effort !== 'string' || !effort.trim())) {
+        throw new AiValidationError('Effort must be a non-empty string when provided.');
+      }
+      const session = await service.getSession(sessionId);
+      const provider = session?.provider;
+      console.log(
+        `[ai] [turn:start] provider=${provider || 'unknown'} sessionId=${sessionId}${body.mode ? ` mode=${body.mode}` : ''}${body.model ? ` model=${body.model}` : ''} prompt="${(body.message ?? body.prompt ?? '').slice(0, 60)}"`,
+      );
+      // sessionId is explicitly canonical here (the path param this route is named for) —
+      // passed via opts.sessionId, never the ambiguous legacy positional identity slot.
+      const result = await service.startTurn(provider, undefined, {
+        sessionId,
+        message: body.message ?? body.prompt,
+        ...(typeof body.userMessage === 'string' ? { userMessage: body.userMessage } : {}),
+        mode: body.mode,
+        model: body.model ? body.model.trim() : undefined,
+        effort: effort ? effort.trim() : undefined,
+        ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
+      });
+      console.log(
+        `[ai] [turn:started] provider=${result.provider || provider} session=${result.sessionId || sessionId} turnId=${result.turnId} idempotent=${result.idempotent}`,
+      );
+      reply.code(result.idempotent ? 200 : 202).send(result);
+    },
+  );
+
+  // Canonical cancel by canonical sessionId UUID
+  fastify.post(
+    '/api/agent-sessions/:sessionId/turns/:turnId/cancel',
+    { bodyLimit: CANCEL_BODY_LIMIT },
+    async (request, reply) => {
+      const sessionId = validatedSessionId(request.params.sessionId);
+      const turnId = validatedSegment(request.params.turnId, TURN_PATTERN, 'turn ID');
+      authorize(accessPolicy, 'control', request);
+      const body = request.body ? assertBodyObject(request.body) : {};
+      const action = body.action ?? 'cancel';
+      if (action !== 'cancel' && action !== 'force_cleanup') {
+        throw new AiValidationError("Property 'action' must be 'cancel' or 'force_cleanup'.");
+      }
+      if (action === 'force_cleanup') {
+        const session = await service.getSession(sessionId);
+        console.log(`[ai] [turn:recover] action=force_cleanup session=${sessionId} turnId=${turnId}`);
+        const turn = await service.recoverTurn(turnId, { provider: session?.provider, sessionId });
+        return reply.send({ turn });
+      }
+      console.log(`[ai] [turn:cancel] session=${sessionId} turnId=${turnId}`);
+      const turn = await service.cancelTurn(turnId, { sessionId });
+      reply.send({ turn });
+    },
+  );
+
+  // Subsequent turns on an existing session (compatibility resolver).
   fastify.post(
     '/api/agent-sessions/:provider/:providerSessionId/turns',
     { bodyLimit: TURN_BODY_LIMIT },
