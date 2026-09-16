@@ -100,6 +100,29 @@ export function AgentSessionComposer({
     placeholder: effectivePlaceholder,
   });
 
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+
+  // SUCCESS: feedback is cleared and the caller exits request-changes mode. FAILURE: the
+  // typed feedback is preserved (never cleared before the server has actually accepted
+  // it) and the mode stays active so the user can see the error and retry — see
+  // owner-decisions.md D15 / Task 03 corrective pass finding on request-changes failure
+  // handling. `onRequestChangesSubmit` (ultimately AgentSessionPage's handler) rethrows on
+  // failure specifically so this can distinguish the two outcomes.
+  const submitRequestChanges = async () => {
+    const trimmed = draft.trim();
+    if (!trimmed || isDisabled || isSubmittingFeedback) return;
+    setIsSubmittingFeedback(true);
+    try {
+      await onRequestChangesSubmit?.(trimmed);
+      setDraft('');
+    } catch {
+      // Feedback intentionally left in the textarea; the authoritative error is
+      // surfaced via the session-level error banner (AgentSessionPage's runtimeError).
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
+  };
+
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const action = resolveComposerKeyAction({
       key: event.key,
@@ -111,10 +134,7 @@ export function AgentSessionComposer({
     if (action === 'send') {
       event.preventDefault();
       if (actionMode === 'request-changes') {
-        const trimmed = draft.trim();
-        if (!trimmed || isDisabled) return;
-        setDraft('');
-        void onRequestChangesSubmit?.(trimmed);
+        void submitRequestChanges();
       } else {
         handleSend();
       }
@@ -214,17 +234,12 @@ export function AgentSessionComposer({
                 <Button
                   type="button"
                   size="sm"
-                  onClick={async () => {
-                    const trimmed = draft.trim();
-                    if (!trimmed || isDisabled) return;
-                    setDraft('');
-                    await onRequestChangesSubmit?.(trimmed);
-                  }}
-                  disabled={!draft.trim() || isDisabled}
+                  onClick={() => void submitRequestChanges()}
+                  disabled={!draft.trim() || isDisabled || isSubmittingFeedback}
                   className="h-8 gap-1.5 px-3.5 text-xs font-semibold bg-status-error text-white hover:bg-status-error/90"
                   aria-label="Send & reject"
                 >
-                  <span>Send & reject</span>
+                  <span>{isSubmittingFeedback ? 'Sending…' : 'Send & reject'}</span>
                 </Button>
               </div>
             ) : showCancelAction ? (

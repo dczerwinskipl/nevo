@@ -1,39 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 function readSource(relativePath) {
   return readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8');
 }
 
-let getStoredWorkflowExperienceMode, setStoredWorkflowExperienceMode, WORKFLOW_EXPERIENCE_STORAGE_KEY;
 let formatBoundTaskLabel;
-
-try {
-  const we = await import('../ui/screens/specification-detail/workflow-experience-storage.ts');
-  getStoredWorkflowExperienceMode = we.getStoredWorkflowExperienceMode;
-  setStoredWorkflowExperienceMode = we.setStoredWorkflowExperienceMode;
-  WORKFLOW_EXPERIENCE_STORAGE_KEY = we.WORKFLOW_EXPERIENCE_STORAGE_KEY;
-} catch {
-  WORKFLOW_EXPERIENCE_STORAGE_KEY = 'nevo:workflow-experience:mode';
-  getStoredWorkflowExperienceMode = function () {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        const stored = localStorage.getItem(WORKFLOW_EXPERIENCE_STORAGE_KEY);
-        if (stored === 'classic' || stored === 'deterministic') return stored;
-      }
-    } catch {}
-    return 'deterministic';
-  };
-  setStoredWorkflowExperienceMode = function (mode) {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(WORKFLOW_EXPERIENCE_STORAGE_KEY, mode);
-      }
-    } catch {}
-  };
-}
 
 try {
   const bar = await import('../ui/features/agent-sessions/agent-session-workflow-bar-helpers.ts');
@@ -48,62 +23,52 @@ try {
   };
 }
 
-describe('AC1: Temporary UI Presentation Switch (D10, C12)', () => {
-  test('getStoredWorkflowExperienceMode defaults to deterministic when storage is empty or invalid', () => {
-    const originalLocalStorage = globalThis.localStorage;
-    const store = new Map();
-    globalThis.localStorage = {
-      getItem: (key) => store.get(key) ?? null,
-      setItem: (key, val) => store.set(key, String(val)),
-      removeItem: (key) => store.delete(key),
-      clear: () => store.clear(),
-    };
+describe('AC1 (superseded by D15): the "Workflow Experience" presentation toggle is removed from normal product UX', () => {
+  test('workflow-experience.tsx / workflow-experience-storage.ts no longer exist — execution mode is no longer a localStorage preference', () => {
+    const uiRoot = fileURLToPath(new URL('../ui', import.meta.url));
+    assert.equal(
+      existsSync(join(uiRoot, 'screens/specification-detail/workflow-experience.tsx')),
+      false,
+      'the Classic/Deterministic Preview toggle component must be removed (D15)',
+    );
+    assert.equal(
+      existsSync(join(uiRoot, 'screens/specification-detail/workflow-experience-storage.ts')),
+      false,
+      'the nevo:workflow-experience:mode localStorage helper must be removed (D15)',
+    );
+  });
 
-    try {
-      // Empty storage -> defaults to deterministic
-      assert.equal(getStoredWorkflowExperienceMode(), 'deterministic');
-
-      // Invalid storage value -> defaults to deterministic
-      globalThis.localStorage.setItem(WORKFLOW_EXPERIENCE_STORAGE_KEY, 'invalid-mode');
-      assert.equal(getStoredWorkflowExperienceMode(), 'deterministic');
-
-      // Set to classic
-      setStoredWorkflowExperienceMode('classic');
-      assert.equal(getStoredWorkflowExperienceMode(), 'classic');
-
-      // Set to deterministic
-      setStoredWorkflowExperienceMode('deterministic');
-      assert.equal(getStoredWorkflowExperienceMode(), 'deterministic');
-    } finally {
-      globalThis.localStorage = originalLocalStorage;
+  test('no remaining agent-sessions/specifications source references the removed localStorage workflow-mode key', () => {
+    const filesToCheck = [
+      '../ui/features/agent-sessions/agent-session-page.tsx',
+      '../ui/features/agent-sessions/agent-session-chat-surface.tsx',
+      '../ui/features/agent-sessions/agent-session-workflow-bar.tsx',
+      '../ui/features/specifications/detail/status-board.tsx',
+      '../ui/screens/specification-detail/specification-overview.tsx',
+      '../ui/screens/specification-detail/specification-detail-content.tsx',
+      '../ui/screens/agent-session/agent-session-screen.tsx',
+    ];
+    for (const relativePath of filesToCheck) {
+      const source = readSource(relativePath);
+      assert.doesNotMatch(source, /nevo:workflow-experience:mode/, `${relativePath} must not reference the removed localStorage key`);
+      assert.doesNotMatch(source, /experienceMode/, `${relativePath} must use the authoritative isDeterministic signal, not experienceMode`);
     }
   });
 
-  test('workflow-experience-storage.ts source implements correct defaults and storage keys', () => {
-    const tsSource = readSource('../ui/screens/specification-detail/workflow-experience-storage.ts');
-    assert.match(tsSource, /WORKFLOW_EXPERIENCE_STORAGE_KEY = 'nevo:workflow-experience:mode'/);
-    assert.match(tsSource, /return 'deterministic'/);
-    assert.match(tsSource, /stored === 'classic' \|\| stored === 'deterministic'/);
-  });
-
-  test('WorkflowExperienceToggle renders segmented control for Classic and Deterministic Preview', () => {
-    const source = readSource('../ui/screens/specification-detail/workflow-experience.tsx');
-
-    assert.match(source, /Workflow Experience:/);
-    assert.match(source, /Classic/);
-    assert.match(source, /Deterministic Preview/);
-    assert.match(source, /role="group"/);
-    assert.match(source, /aria-pressed=\{mode === 'classic'\}/);
-    assert.match(source, /aria-pressed=\{mode === 'deterministic'\}/);
+  test('specs actions server route projects authoritative workflowMode/workflowDefinition (D15)', () => {
+    const source = readSource('../server/specs/actions.mjs');
+    assert.match(source, /resolveWorkflowMode/);
+    assert.match(source, /workflowMode:\s*resolvedWorkflow\.mode/);
   });
 });
 
 describe('AC2: Dashboard task cards render availableActions (D8, C9, C10)', () => {
-  test('StatusBoard TaskCard consumes availableActions in deterministic mode and classic action in classic mode', () => {
+  test('StatusBoard TaskCard consumes availableActions when isDeterministic (server-owned, D15) and the classic action gate otherwise', () => {
     const statusBoardSource = readSource('../ui/features/specifications/detail/status-board.tsx');
 
-    // Experience mode switch in TaskCard
-    assert.match(statusBoardSource, /experienceMode === 'classic'/);
+    // Authoritative specification-level isDeterministic switch in TaskCard — never a
+    // localStorage/session preference.
+    assert.match(statusBoardSource, /!isDeterministic/);
 
     // Deterministic availableActions rendering
     assert.match(statusBoardSource, /actionGate\?\.availableActions/);
@@ -122,13 +87,12 @@ describe('AC2: Dashboard task cards render availableActions (D8, C9, C10)', () =
     assert.match(statusBoardSource, /Zaakceptuj/);
   });
 
-  test('SpecificationOverview passes experienceMode, onExperienceModeChange, and onWorkflowAction to StatusBoard', () => {
+  test('SpecificationOverview passes isDeterministic and onWorkflowAction to StatusBoard, with no presentation toggle', () => {
     const overviewSource = readSource('../ui/screens/specification-detail/specification-overview.tsx');
 
-    assert.match(overviewSource, /WorkflowExperienceToggle/);
-    assert.match(overviewSource, /experienceMode=\{experienceMode\}/);
+    assert.doesNotMatch(overviewSource, /WorkflowExperienceToggle/);
+    assert.match(overviewSource, /isDeterministic=\{isDeterministic\}/);
     assert.match(overviewSource, /onWorkflowAction=\{onWorkflowAction\}/);
-    assert.match(overviewSource, /onModeChange=\{onExperienceModeChange\}/);
   });
 
   test('SpecificationDetailContent initiates sessions via canonical sessionId UUID and queues initial dispatch', () => {
@@ -194,7 +158,7 @@ describe('AC3: Bound tasks workflow bar and task switching (C11)', () => {
     const source = readSource('../ui/features/agent-sessions/agent-session-workflow-bar.tsx');
 
     assert.match(source, /role="toolbar"/);
-    assert.match(source, /aria-label="Bound workflow tasks"/);
+    assert.match(source, /aria-label=\{isDeterministic \? 'Bound workflow tasks' : 'Session task context'\}/);
     assert.match(source, /onClick=\{.*onSelectTask\?\.?\(task\.id\)\}/);
     assert.match(source, /aria-pressed=\{isActive\}/);
     assert.match(source, /border-accent bg-accent\/15/);
@@ -244,8 +208,13 @@ describe('AC5 & AC6: Dedicated "Request Changes" composer mode (D3, D7, C8)', ()
     assert.match(source, /onRequestChangesCancel/);
     assert.match(source, /onRequestChangesSubmit/);
 
-    // Disables Send & reject when feedback is empty
-    assert.match(source, /disabled=\{!draft\.trim\(\) \|\| isDisabled\}/);
+    // Disables Send & reject when feedback is empty, or while a submission is in flight
+    assert.match(source, /disabled=\{!draft\.trim\(\) \|\| isDisabled \|\| isSubmittingFeedback\}/);
+
+    // Request Changes failure must preserve the typed feedback and stay in mode — the
+    // draft is never cleared before the server has actually accepted it (Task 03
+    // corrective pass finding).
+    assert.doesNotMatch(source, /setDraft\(''\);\s*\n\s*await onRequestChangesSubmit/);
   });
 
   test('AgentSessionPage anchors session navigation on canonical sessionId alone and handles human decisions', () => {
@@ -272,5 +241,51 @@ describe('AC5 & AC6: Dedicated "Request Changes" composer mode (D3, D7, C8)', ()
 
     // Workflow boundary refresh: a terminal turn refreshes availableActions immediately.
     assert.match(source, /onTurnCompleted:\s*\(\)\s*=>\s*\{[\s\S]*?onRefreshTaskActions\?\.\(\)/);
+  });
+});
+
+describe('D15: sessions inherit but never select workflow mode; Create Session UX is informational only', () => {
+  test('CreateAgentSessionDialog never offers a Legacy/Deterministic choice, only a read-only inherited display', () => {
+    const source = readSource('../ui/features/agent-sessions/create-agent-session-dialog.tsx');
+
+    // No selection control — no onWorkflowModeChange, no workflow radio/buttons.
+    assert.doesNotMatch(source, /onWorkflowModeChange/);
+    assert.doesNotMatch(source, /role="radiogroup"/);
+
+    // Read-only inherited display sourced from the specification, never chosen here.
+    assert.match(source, /specification\.workflowMode/);
+    assert.match(source, /inherited from specification/);
+  });
+
+  test('CreateAgentSessionTarget carries workflowMode/workflowDefinition as inherited, read-only fields', () => {
+    const source = readSource('../ui/features/agent-sessions/create-agent-session-dialog.tsx');
+    assert.match(source, /workflowMode\?:\s*'legacy' \| 'deterministic'/);
+    assert.match(source, /workflowDefinition\?:\s*string \| null/);
+  });
+});
+
+describe('Canonical interaction route: sessionId travels honestly, never aliased as providerSessionId', () => {
+  test('the canonical respond route passes { sessionId } directly to service.resolveInteraction', () => {
+    const source = readSource('../server/ai/sessions/interactions/routes.mjs');
+    assert.doesNotMatch(
+      source,
+      /providerSessionId:\s*sessionId/,
+      'the canonical sessionId must never be smuggled through the providerSessionId field',
+    );
+    assert.match(source, /resolveInteraction\(turnId, interactionId, body, \{\s*sessionId,/);
+  });
+
+  test('the turn runtime resolves canonical sessionId lookups honestly via a real sessionId option', () => {
+    const source = readSource('../server/ai/sessions/turns/runtime.mjs');
+    assert.match(source, /const \{ provider, providerSessionId, sessionId \} = options;/);
+    assert.match(source, /this\.#activeBySession\.get\(sessionId\)/);
+  });
+});
+
+describe('AgentSessionChatPayload: providerSessionId remains optional provider-native metadata (D9)', () => {
+  test('the wire contract type never requires providerSessionId as a mandatory string', () => {
+    const source = readSource('../ui/features/agent-sessions/types.ts');
+    assert.doesNotMatch(source, /providerSessionId:\s*string;\s*\n\s*sessionId:\s*string;/);
+    assert.match(source, /providerSessionId\?:\s*string \| null;/);
   });
 });

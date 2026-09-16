@@ -74,6 +74,7 @@ export default async function specsRoutes(fastify, { config = {}, actionExecutor
         title: body.title,
         type: body.type,
         goal: body.goal,
+        workflowMode: body.workflowMode,
       });
       reply.code(201).send(result);
     } catch (error) {

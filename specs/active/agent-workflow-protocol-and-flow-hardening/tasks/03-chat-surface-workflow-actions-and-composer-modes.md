@@ -40,12 +40,19 @@ allowed_paths:
   - tools/dashboard/ui/features/agent-sessions/runtime/agent-turn-transport.ts
   - tools/dashboard/ui/features/agent-sessions/runtime/pending-action-mode-store.ts
   - tools/dashboard/ui/screens/agent-session/agent-session-screen.tsx
+  - tools/dashboard/ui/screens/specification-console/**
+  - tools/dashboard/ui/routes/specs.$source.$slug.sessions.$sessionId.tsx
+  - tools/dashboard/ui/routeTree.gen.ts
   - tools/dashboard/ui/features/specifications/**
   - tools/dashboard/ui/screens/specification-detail/**
   - tools/dashboard/server/ai/sessions/service.mjs
   - tools/dashboard/server/ai/sessions/routes.mjs
   - tools/dashboard/server/ai/sessions/interactions/routes.mjs
+  - tools/dashboard/server/ai/sessions/turns/runtime.mjs
   - tools/dashboard/server/specs/actions.mjs
+  - tools/dashboard/server/specs/routes.mjs
+  - tools/dashboard/server/specs/service.mjs
+  - tools/specs/identity.mjs
   - tools/dashboard/tests/agent-session-workflow.test.mjs
   - tools/dashboard/tests/agent-session-workflow.test.tsx
   - tools/dashboard/tests/agent-session-runtime-state.test.mjs
@@ -53,7 +60,11 @@ allowed_paths:
   - tools/dashboard/tests/create-agent-session-helpers.test.mjs
   - tools/dashboard/tests/specs-actions.test.mjs
   - tools/dashboard/tests/session-task-bootstrap.test.mjs
+  - tools/dashboard/tests/binding-service.test.mjs
   - tools/dashboard/tests/e2e-product-workflow.test.mjs
+  - tools/dashboard/tests/spec-create-helpers.test.mjs
+  - tools/dashboard/tests/router-navigation.test.mjs
+  - tools/tests/spec-scaffolding.test.mjs
   - specs/active/agent-workflow-protocol-and-flow-hardening/change.yaml
   - specs/active/agent-workflow-protocol-and-flow-hardening/owner-decisions.md
 forbidden_paths:
@@ -61,7 +72,7 @@ forbidden_paths:
   - tests/NEvo.*/**
   - tools/specs/workflow/**
 semantic_references:
-  decisions: [D3, D4, D7, D8, D9, D10, D14]
+  decisions: [D3, D4, D7, D8, D9, D10, D11, D14, D15, D16]
   constraints: [C7, C8, C9, C10, C11, C12]
 ---
 

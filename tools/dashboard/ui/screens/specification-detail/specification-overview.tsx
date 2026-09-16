@@ -12,7 +12,6 @@ import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
 import { AgentSessionList } from '@/features/agent-sessions/agent-session-list';
 import { StatusBoard } from '@/features/specifications/detail/status-board';
-import { WorkflowExperienceToggle, type WorkflowExperienceMode } from './workflow-experience';
 
 export function SpecificationOverview({
   specification,
@@ -24,8 +23,7 @@ export function SpecificationOverview({
   onOpenSession,
   actions,
   taskActions,
-  experienceMode = 'deterministic',
-  onExperienceModeChange,
+  isDeterministic = false,
   onDirectTaskAction,
   onBatchTaskAction,
   onWorkflowAction,
@@ -41,8 +39,8 @@ export function SpecificationOverview({
   onOpenSession: (session: AgentSession) => void;
   actions: React.ReactNode;
   taskActions?: Record<string, SpecificationTaskActionGate>;
-  experienceMode?: WorkflowExperienceMode;
-  onExperienceModeChange?: (mode: WorkflowExperienceMode) => void;
+  /** Authoritative specification-level workflow mode (D15) — never a UI preference. */
+  isDeterministic?: boolean;
   onDirectTaskAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
   onBatchTaskAction?: (tasks: SpecificationTask[], action: SpecificationOwnerAction) => void;
   onWorkflowAction?: (task: SpecificationTask, action: string) => void | Promise<void>;
@@ -101,18 +99,10 @@ export function SpecificationOverview({
       )}
 
       <div className="mt-11">
-        <div className="mb-4 flex items-center justify-between">
-          {onExperienceModeChange && (
-            <WorkflowExperienceToggle
-              mode={experienceMode}
-              onModeChange={onExperienceModeChange}
-            />
-          )}
-        </div>
         <StatusBoard
           specification={specification}
           actions={taskActions}
-          experienceMode={experienceMode}
+          isDeterministic={isDeterministic}
           onTaskSelect={onTaskSelect}
           onTaskAction={onDirectTaskAction}
           onBatchAction={onBatchTaskAction}

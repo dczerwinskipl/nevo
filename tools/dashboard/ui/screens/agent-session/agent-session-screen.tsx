@@ -12,16 +12,15 @@ import { AgentSessionPage } from '@/features/agent-sessions/agent-session-page';
 import { AgentSessionList } from '@/features/agent-sessions/agent-session-list';
 import { TaskDialog } from '@/features/specifications/tasks/task-dialog';
 import { useSpecificationActions } from '@/features/specifications/detail/spec-detail-queries';
-import { getStoredWorkflowExperienceMode } from '@/screens/specification-detail/workflow-experience';
 
 export interface AgentSessionScreenProps {
   source: string;
   slug: string;
-  provider: string;
-  providerSessionId: string;
+  /** Canonical Nevo sessionId — the sole application identity (see owner-decisions.md D9). */
+  sessionId: string;
 }
 
-export function AgentSessionScreen({ source: rawSource, slug, provider, providerSessionId }: AgentSessionScreenProps) {
+export function AgentSessionScreen({ source: rawSource, slug, sessionId }: AgentSessionScreenProps) {
   const source: 'active' | 'archive' | null = isSpecificationSource(rawSource) ? rawSource : null;
 
   const { data, loading: dataLoading, error: dataError } = useSpecificationIndex();
@@ -31,12 +30,12 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
   useEffect(() => {
     if (source === null) {
       navigate({
-        to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
-        params: { source: 'active', slug, provider, providerSessionId },
+        to: '/specs/$source/$slug/sessions/$sessionId',
+        params: { source: 'active', slug, sessionId },
         replace: true,
       });
     }
-  }, [source, navigate, slug, provider, providerSessionId]);
+  }, [source, navigate, slug, sessionId]);
 
   const selectedSpec = useMemo(() => {
     if (!data || source === null) return null;
@@ -55,17 +54,16 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
   useEffect(() => {
     if (fallbackSpec) {
       navigate({
-        to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+        to: '/specs/$source/$slug/sessions/$sessionId',
         params: {
           source: fallbackSpec.oppositeSource,
           slug,
-          provider,
-          providerSessionId,
+          sessionId,
         },
         replace: true,
       });
     }
-  }, [fallbackSpec, navigate, provider, providerSessionId, slug]);
+  }, [fallbackSpec, navigate, slug, sessionId]);
 
   const effectiveSpec = selectedSpec || fallbackSpec?.specification || null;
   const effectiveSource: 'active' | 'archive' = effectiveSpec?.source || source || 'active';
@@ -77,31 +75,20 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
   });
 
   // Owned at the screens layer (not inside AgentSessionPage itself): the authoritative
-  // per-task workflow projection and the presentation-only experience toggle both cross
-  // feature boundaries (specifications, and localStorage UI state respectively), which
-  // the agent-sessions feature must not import directly (see
-  // tests/architecture-boundaries.test.mjs). This composition belongs here.
+  // per-task workflow projection and specification-level workflow mode (D15) both cross
+  // feature boundaries (specifications), which the agent-sessions feature must not
+  // import directly (see tests/architecture-boundaries.test.mjs). This composition
+  // belongs here.
   const actionsQuery = useSpecificationActions(
     { slug: effectiveSpec?.slug || '', source: 'active' } as SpecificationSummary,
     Boolean(effectiveSpec?.slug),
   );
-  const experienceMode = getStoredWorkflowExperienceMode();
 
+  // The canonical sessionId is the sole application identity for lookup — no provider
+  // fallback chain and no matching against a legacy provider-native id.
   const session = useMemo(() => {
-    // Match on the canonical sessionId too: once a provider confirms its native
-    // session (e.g. Claude, which has no upfront createSession()), the binding's
-    // providerSessionId is rewritten from the placeholder canonical UUID to the
-    // real native ID (see AgentSessionBindingService.markSessionEstablished).
-    // The URL/route param still carries whichever ID the user navigated with —
-    // an exact providerSessionId-only match would then permanently "lose" a
-    // session navigated to by its placeholder ID, flashing "Sesja nie
-    // znaleziona" even though the session is very much alive.
-    return (
-      sessionsQuery.sessions.find(
-        (s) => s.provider === provider && (s.providerSessionId === providerSessionId || s.sessionId === providerSessionId),
-      ) ?? null
-    );
-  }, [sessionsQuery.sessions, provider, providerSessionId]);
+    return sessionsQuery.sessions.find((s) => s.sessionId === sessionId) ?? null;
+  }, [sessionsQuery.sessions, sessionId]);
 
   const router = useRouter();
 
@@ -123,12 +110,11 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
   const handleSwitchSession = useCallback(
     (targetSession: AgentSession) => {
       navigate({
-        to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+        to: '/specs/$source/$slug/sessions/$sessionId',
         params: {
           source: effectiveSource,
           slug,
-          provider: targetSession.provider,
-          providerSessionId: targetSession.sessionId || targetSession.providerSessionId || '',
+          sessionId: targetSession.sessionId,
         },
         replace: true,
       });
@@ -191,7 +177,7 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
         <StatusCard
           variant="info"
           title="Sesja nie znaleziona"
-          description={`Nie znaleziono sesji '${providerSessionId}' (${provider}) w specyfikacji '${effectiveSpec?.title || slug}'.`}
+          description={`Nie znaleziono sesji '${sessionId}' w specyfikacji '${effectiveSpec?.title || slug}'.`}
           onRetry={handleBack}
           retryLabel="Wróć do specyfikacji"
           className="w-full text-left"
@@ -206,13 +192,13 @@ export function AgentSessionScreen({ source: rawSource, slug, provider, provider
 
   return (
     <AgentSessionPage
-      key={`${session.provider}:${session.sessionId || session.providerSessionId}`}
+      key={session.sessionId}
       spec={effectiveSpec}
       session={session}
       onBack={handleBack}
       backLabel="Wróć do specyfikacji"
       onSwitchSession={handleSwitchSession}
-      experienceMode={experienceMode}
+      isDeterministic={actionsQuery.data?.workflowMode === 'deterministic'}
       taskActions={actionsQuery.data?.tasks}
       onRefreshTaskActions={actionsQuery.refresh}
       onInspectTask={(target) => {

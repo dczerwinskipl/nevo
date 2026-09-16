@@ -130,25 +130,20 @@ export function SpecificationConsoleLayout() {
           onCreated={(spec, session, promptToSend, userMessage) => {
             setCreateSpecOpen(false);
             if (session) {
-              // providerSessionId is only confirmed once the provider actually creates a
-              // native session (e.g. Claude, Antigravity have none synchronously); fall
-              // back to the canonical sessionId so the route/dispatch key is never "undefined".
-              const routeSessionId = session.providerSessionId ?? session.sessionId;
               if (promptToSend) {
                 queueAgentSessionInitialDispatch({
                   provider: session.provider,
-                  sessionId: routeSessionId,
+                  sessionId: session.sessionId,
                   prompt: promptToSend,
                   userMessage,
                 });
               }
               navigate({
-                to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+                to: '/specs/$source/$slug/sessions/$sessionId',
                 params: {
                   source: 'active',
                   slug: spec.slug,
-                  provider: session.provider,
-                  providerSessionId: routeSessionId,
+                  sessionId: session.sessionId,
                 },
               });
             } else {

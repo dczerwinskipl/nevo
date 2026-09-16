@@ -18,6 +18,7 @@ import { ClaudeAgentProvider } from '../server/ai/providers/claude/provider.mjs'
 import { AntigravityAgentProvider } from '../server/ai/providers/antigravity/provider.mjs';
 import { CodexAgentProvider } from '../server/ai/providers/codex/provider.mjs';
 import { CodexAppServerClient } from '../server/ai/providers/codex/app-server-client.mjs';
+import { MockAgentProvider } from '../server/ai/providers/mock/provider.mjs';
 import { autoBindAgentSession } from '../../specs.mjs';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -1044,7 +1045,9 @@ test('9. AgentSessionService.setActiveTaskId persists the switch and the next tu
     const bindingService = createAgentSessionBindingService({ storageDir });
     const registry = createAgentProviderRegistry();
     const specId = '44444444-5555-4666-8777-888888888888';
-    writeLegacySpecFixtureSync(tmpDir, specId, { taskIds: ['01', '02'] });
+    // '03' exists in the spec but is deliberately never bound to the session created
+    // below — it exercises the "switch, not implicit bind" guard (see assertion below).
+    writeLegacySpecFixtureSync(tmpDir, specId, { taskIds: ['01', '02', '03'] });
 
     const receivedTaskIds = [];
     registry.register({
@@ -1086,13 +1089,103 @@ test('9. AgentSessionService.setActiveTaskId persists the switch and the next tu
     }
     assert.deepEqual(receivedTaskIds, ['02'], 'the next turn must run with task 02 as its execution context');
 
-    // Rejecting an invalid task: must not silently move activeTaskId nor fabricate a binding.
+    // Rejecting an invalid task (not even in the spec): must not silently move
+    // activeTaskId nor fabricate a binding.
     await assert.rejects(() => sessionService.setActiveTaskId(session.sessionId, '99-does-not-exist'));
     const afterRejected = await bindingService.getSession(session.sessionId);
     assert.equal(afterRejected.activeTaskId, '02', 'a failed switch must leave the previous authoritative activeTaskId in place');
 
+    // setActiveTaskId is a SWITCH, not an implicit bind: task '03' is a real task of the
+    // same specification, but was never bound to this session's context, so switching to
+    // it must fail — and must not silently widen taskIds or create a new
+    // SessionTaskBinding as a side effect.
+    await assert.rejects(
+      () => sessionService.setActiveTaskId(session.sessionId, '03'),
+      /not bound to session/,
+      'switching to a task never bound to this session must fail, even though the task exists in the specification',
+    );
+    const afterUnboundAttempt = await bindingService.getSession(session.sessionId);
+    assert.equal(afterUnboundAttempt.activeTaskId, '02', 'activeTaskId must remain unchanged after a rejected switch to an unbound task');
+    assert.deepEqual(
+      afterUnboundAttempt.taskIds,
+      ['01', '02'],
+      'taskIds must not be silently widened to include the unbound task',
+    );
+    const bindingsAfterUnboundAttempt = await bindingService.listBindings({ specId, sessionId: session.sessionId });
+    assert.ok(
+      !bindingsAfterUnboundAttempt.some((b) => b.taskId === '03'),
+      'no SessionTaskBinding for task 03 may be created as a side effect of a rejected switch',
+    );
+
     // Rejecting an unknown session: must fail closed, never silently create one.
     await assert.rejects(() => sessionService.setActiveTaskId('00000000-0000-4000-8000-000000000000', '01'));
+  } finally {
+    await sessionService?.shutdown?.().catch(() => {});
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+// ── Task 03 second corrective pass: the canonical interaction route must resolve by a
+// genuine sessionId option, never by aliasing it through the legacy providerSessionId
+// field (D9, D15 follow-up finding) ─────────────────────────────────────────────────────
+
+test('10. AgentSessionService.resolveInteraction accepts a canonical sessionId option directly — no providerSessionId aliasing needed', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-resolve-interaction-canonical-'));
+  let sessionService = null;
+  try {
+    const storageDir = join(tmpDir, 'sessions');
+    const bindingService = createAgentSessionBindingService({ storageDir });
+    const registry = createAgentProviderRegistry();
+    registry.register(new MockAgentProvider({ streamDelayMs: 1 }));
+
+    const turnRuntime = new AgentTurnRuntime({ registry });
+    sessionService = new AgentSessionService({ registry, turnRuntime, bindingService, repoRoot: tmpDir });
+
+    const session = await sessionService.createSession('mock', {});
+
+    const turnResult = await sessionService.startTurn('mock', undefined, {
+      sessionId: session.sessionId,
+      message: 'please request permission',
+    });
+
+    let snap;
+    for (let i = 0; i < 100; i++) {
+      snap = sessionService.getTurn(turnResult.turnId);
+      if (snap?.pendingInteraction) break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    assert.ok(snap?.pendingInteraction, 'mock provider must request a pending permission interaction');
+
+    // Canonical entry path: { sessionId } alone, never { provider, providerSessionId: sessionId }.
+    await sessionService.resolveInteraction(turnResult.turnId, snap.pendingInteraction.id, { decision: 'allow' }, {
+      sessionId: session.sessionId,
+    });
+
+    let finalSnap;
+    for (let i = 0; i < 100; i++) {
+      finalSnap = sessionService.getTurn(turnResult.turnId);
+      if (finalSnap?.status === 'completed' || finalSnap?.status === 'failed') break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    assert.equal(finalSnap?.status, 'completed', 'turn must complete after the canonical-sessionId interaction resolution');
+
+    // A mismatched sessionId must fail closed rather than resolving the wrong turn.
+    const secondSession = await sessionService.createSession('mock', {});
+    const secondTurn = await sessionService.startTurn('mock', undefined, {
+      sessionId: secondSession.sessionId,
+      message: 'please request permission',
+    });
+    let secondSnap;
+    for (let i = 0; i < 100; i++) {
+      secondSnap = sessionService.getTurn(secondTurn.turnId);
+      if (secondSnap?.pendingInteraction) break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    await assert.rejects(() =>
+      sessionService.resolveInteraction(secondTurn.turnId, secondSnap.pendingInteraction.id, { decision: 'allow' }, {
+        sessionId: session.sessionId, // wrong session — belongs to the first turn
+      }),
+    );
   } finally {
     await sessionService?.shutdown?.().catch(() => {});
     await rm(tmpDir, { recursive: true, force: true });

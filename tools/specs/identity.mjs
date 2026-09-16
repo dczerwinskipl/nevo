@@ -15,6 +15,7 @@ import {
   INDEX_JSON,
 } from './store.mjs';
 import { refreshSpecsIndexes } from './indexes.mjs';
+import { WORKFLOW_MODES, DEFAULT_WORKFLOW_MODE } from './workflow/compatibility.mjs';
 
 // ── Stable specification identity (D2, area stable-spec-identity, task 01) ─
 
@@ -153,6 +154,26 @@ export function validateSpecType(type) {
   return normalized;
 }
 
+/**
+ * Validates the explicit workflow-mode choice offered at specification creation (D15).
+ * Omitted/undefined resolves to the same `DEFAULT_WORKFLOW_MODE` (`'legacy'`) the workflow
+ * engine's own `resolveWorkflowMode()` already defaults an absent `workflow` key to — this
+ * function never introduces a second, divergent default.
+ */
+export function validateWorkflowMode(workflowMode) {
+  if (workflowMode === undefined || workflowMode === null || workflowMode === '') {
+    return DEFAULT_WORKFLOW_MODE;
+  }
+  const normalized = workflowMode.toString().trim().toLowerCase();
+  if (!WORKFLOW_MODES.has(normalized)) {
+    throw new SpecValidationError(
+      `Invalid workflow mode '${workflowMode}'. Must be one of: ${[...WORKFLOW_MODES].join(', ')}.`,
+      { field: 'workflowMode' }
+    );
+  }
+  return normalized;
+}
+
 let creationLockPromise = Promise.resolve();
 
 export function withSpecificationCreationLock(fn) {
@@ -173,6 +194,7 @@ export async function createSpecification({
   title,
   type = 'standard',
   goal = '',
+  workflowMode,
   activeDir = ACTIVE_DIR,
   archiveDir = ARCHIVE_DIR,
   activeIndexMd = ACTIVE_INDEX_MD,
@@ -189,6 +211,7 @@ export async function createSpecification({
     const validTitle = title.trim();
     const validType = validateSpecType(type);
     const validGoal = typeof goal === 'string' ? goal.trim() : '';
+    const validWorkflowMode = validateWorkflowMode(workflowMode);
 
     const targetDir = join(activeDir, validSlug);
     const archiveTargetDir = join(archiveDir, validSlug);
@@ -199,6 +222,16 @@ export async function createSpecification({
     const specId = randomUUID();
     const today = new Date().toISOString().slice(0, 10);
 
+    // A `legacy` choice is written as a fully absent `workflow` key — identical to the
+    // manifest this function has always produced — rather than an explicit `workflow:
+    // { mode: legacy }` block, so DEFAULT_WORKFLOW_MODE stays the one and only legacy
+    // representation `resolveWorkflowMode()` needs to understand. `deterministic` reuses
+    // the exact schema the workflow engine itself resolves (`workflow.mode`); the
+    // definition is intentionally omitted so `resolveWorkflowMode()` derives it from
+    // `type`, the same fallback the engine already implements — never a second,
+    // frontend-invented definition-selection setting.
+    const workflowYamlBlock = validWorkflowMode === 'deterministic' ? 'workflow:\n  mode: deterministic\n' : '';
+
     const changeYamlContent = `# Specification manifest for ${validSlug}
 id: ${validSlug}
 title: ${JSON.stringify(validTitle)}
@@ -206,7 +239,7 @@ type: ${validType}
 status: draft
 priority: 10
 created: ${today}
-tasks: []
+${workflowYamlBlock}tasks: []
 spec_id: ${specId}
 `;
 

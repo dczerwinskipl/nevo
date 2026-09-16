@@ -44,8 +44,13 @@ export interface AgentSessionPageProps {
   onSwitchSession: (session: AgentSession) => void;
   onInspectTask?: (target: TaskNavigationTarget | string) => void;
   taskOverlay?: React.ReactNode;
-  /** Presentation-only toggle (D10, C12) — owned by the screens layer's localStorage helper. */
-  experienceMode: 'classic' | 'deterministic';
+  /**
+   * Authoritative specification-level workflow mode (D15) — server-owned, never a
+   * session/UI preference. Governs whether deterministic workflow chrome (workflow
+   * bar with step/attempt, verification banner, availableActions dispatch buttons)
+   * renders at all; a legacy session never shows fabricated deterministic state.
+   */
+  isDeterministic: boolean;
   /** Authoritative per-task workflow projection (`GET /api/specs/:source/:slug/actions`), server-owned. */
   taskActions?: Record<string, AgentSessionPageTaskAction> | null;
   /** Refreshes `taskActions` — called at workflow boundaries (turn completion, human decisions). */
@@ -60,7 +65,7 @@ export function AgentSessionPage({
   onSwitchSession,
   onInspectTask,
   taskOverlay,
-  experienceMode,
+  isDeterministic,
   taskActions,
   onRefreshTaskActions,
 }: AgentSessionPageProps) {
@@ -307,7 +312,12 @@ export function AgentSessionPage({
       await onRefreshTaskActions?.();
       await assistant.reload();
     } catch (err) {
-      setRuntimeError(err instanceof Error ? err.message : String(err));
+      const normalized = err instanceof Error ? err : new Error(String(err));
+      setRuntimeError(normalized.message);
+      // Rethrow so the composer/chat-surface know submission failed — otherwise the
+      // composer clears the typed feedback and exits request-changes mode as if the
+      // human decision had actually been recorded.
+      throw normalized;
     }
   }, [spec?.slug, onRefreshTaskActions, assistant]);
 
@@ -426,7 +436,7 @@ export function AgentSessionPage({
             ? 'Odpowiedz na pytanie powyżej…'
             : undefined
         }
-        experienceMode={experienceMode}
+        isDeterministic={isDeterministic}
         boundTasks={boundTasks}
         activeTaskId={activeTaskId}
         onSelectActiveTask={(taskId) => void handleSelectActiveTask(taskId)}

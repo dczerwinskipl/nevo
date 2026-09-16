@@ -11,9 +11,11 @@ export interface BoundTaskInfo {
 }
 
 /**
- * Formats a bound task's label strictly from authoritative server-projected fields.
- * Never invents `in-implementation` or `attempt 1` when the server hasn't reported a
- * value — an unknown status renders as an explicit "unknown" label instead.
+ * Formats a bound task's label strictly from authoritative server-projected deterministic
+ * workflow fields. Never invents `in-implementation` or `attempt 1` when the server hasn't
+ * reported a value — an unknown status renders as an explicit "unknown" label instead.
+ * Only meaningful for a specification actually running under the deterministic engine
+ * (see `formatLegacyTaskLabel` for the legacy counterpart) — see owner-decisions.md D15.
  */
 export function formatBoundTaskLabel(task: BoundTaskInfo): string {
   const isVerified = task.status === 'verified';
@@ -23,4 +25,13 @@ export function formatBoundTaskLabel(task: BoundTaskInfo): string {
   const statusLabel = task.currentStep || task.status || 'unknown';
   const attemptLabel = task.attempt ? ` · attempt ${task.attempt}` : '';
   return `● ${task.id} (${statusLabel}${attemptLabel})`;
+}
+
+/**
+ * Formats a bound task's label for a LEGACY specification: identity/title only, never a
+ * deterministic workflow status, step, or attempt — there is no such state to report, and
+ * fabricating "(unknown)" for every task is exactly the misleading UX D15 removes.
+ */
+export function formatLegacyTaskLabel(task: BoundTaskInfo): string {
+  return task.title ? `${task.id} · ${task.title}` : task.id;
 }

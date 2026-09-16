@@ -21,11 +21,17 @@ export default async function interactionRoutes(fastify, { service, accessPolicy
         `[ai] [interaction:resolve] provider=${provider || 'unknown'} sessionId=${sessionId} interaction=${interactionId}${turnId ? ` turnId=${turnId}` : ''}`,
       );
 
-      // The turn runtime indexes active turns by the canonical sessionId itself when one
-      // exists (see runtime.mjs's `effSessionId`/`state.key`) — passing it through the
-      // legacy `providerSessionId` identity slot resolves correctly via that runtime's own
-      // raw-id fallback, the same pattern the canonical turn-cancel route relies on.
-      const turn = await service.resolveInteraction(turnId, interactionId, body, { provider, providerSessionId: sessionId });
+      // Canonical identity travels under its own honestly-named field — never aliased
+      // through the legacy providerSessionId slot. The turn runtime indexes active turns
+      // by the canonical sessionId itself when one exists (see runtime.mjs's
+      // `effSessionId`/`state.key`). `providerSessionId` is included only when the
+      // session has a genuinely established provider-native id, purely to widen the
+      // persisted-turn restore fallback — never as a substitute for `sessionId`.
+      const turn = await service.resolveInteraction(turnId, interactionId, body, {
+        sessionId,
+        ...(provider ? { provider } : {}),
+        ...(session?.providerSessionId ? { providerSessionId: session.providerSessionId } : {}),
+      });
       reply.send({ turn });
     },
   );

@@ -272,6 +272,12 @@ tasks:
         root: fx.repo,
       });
 
+      // Authoritative specification-level workflow mode (D15) — the same resolver
+      // (`resolveWorkflowMode`) the CLI/workflow engine itself uses, never re-derived
+      // from a localStorage preference or session state.
+      assert.equal(readModel.workflowMode, 'deterministic');
+      assert.equal(readModel.workflowDefinition, 'standard-v1');
+
       assert.ok(readModel.tasks['01-task']);
       assert.deepEqual(readModel.tasks['01-task'].availableActions, ['approve', 'request-changes']);
       // Authoritative workflow projection: the UI renders these fields directly instead
@@ -287,6 +293,42 @@ tasks:
       // No workflow_progress recorded yet — never fabricated as 'implementation'/attempt 1.
       assert.equal(readModel.tasks['02-task'].currentStep, null);
       assert.equal(readModel.tasks['02-task'].attempt, null);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test('loadSpecificationActions reports workflowMode: legacy for a specification with no workflow key (the default)', async () => {
+    const fx = createGitFixture('nevo-actions-legacy-');
+    try {
+      const changeDir = join(fx.activeDir, 'legacy-change');
+      const tasksDir = join(changeDir, 'tasks');
+      mkdirSync(tasksDir, { recursive: true });
+
+      const changeYaml = `id: legacy-change
+title: "Legacy Change"
+status: in-progress
+tasks:
+  - id: 01-task
+    title: "First Task"
+    status: draft
+    file: tasks/01-task.md
+`;
+      writeFileSync(join(changeDir, 'change.yaml'), changeYaml);
+      writeFileSync(join(changeDir, 'overview.md'), '# Overview\n');
+      writeFileSync(join(tasksDir, '01-task.md'), '# Task 1\n');
+
+      fx.git(['add', '-A']);
+      fx.git(['commit', '-m', 'add legacy spec']);
+
+      const readModel = await loadSpecificationActions({
+        slug: 'legacy-change',
+        activeDir: fx.activeDir,
+        root: fx.repo,
+      });
+
+      assert.equal(readModel.workflowMode, 'legacy');
+      assert.equal(readModel.workflowDefinition, null);
     } finally {
       fx.cleanup();
     }

@@ -241,3 +241,30 @@
 - **Date:** 2026-09-15
 - **Affected artifacts:** `specs/active/agent-workflow-protocol-and-flow-hardening/tasks/03-chat-surface-workflow-actions-and-composer-modes.md`
 
+## D15: Workflow execution mode is a specification-level product decision, not a session/UI preference
+
+- **Question:** The reviewed Task 03 implementation had no real way for a user to choose Legacy vs. Deterministic execution — the only visible control was a "Workflow Experience: Classic / Deterministic Preview" toggle stored in `localStorage`, which changed presentation only and could show deterministic workflow chrome (status/attempt/available actions) on a specification that was actually running under the legacy engine, rendering nonsensical `(unknown)` labels. Where should the real Legacy/Deterministic choice live, and what happens to the presentation toggle?
+- **Options considered:**
+  1. *Keep the localStorage toggle as the de facto mode selector:* Let the toggle continue to gate which UI renders, and treat "deterministic preview enabled" as good enough evidence of intent.
+  2. *Session-level or per-session-creation choice:* Let each `AgentSession` (or the Create Session dialog) choose legacy vs. deterministic independently of the specification.
+  3. *Specification-level authoritative choice, sessions inherit, presentation toggle removed from normal UX (Recommended):* The workflow engine already resolves mode per-specification via `change.workflow.mode` / `resolveWorkflowMode()` (`DEFAULT_WORKFLOW_MODE = 'legacy'`, unchanged). Make this the single source of truth the UI reads and formats — never re-derives. Add an explicit, human-facing Legacy/Deterministic choice to specification creation (`tools/specs/identity.mjs#createSpecification`, threaded through the dashboard's Create Specification dialog), reusing the exact same schema the workflow engine already resolves (`workflow: { mode: deterministic }`, definition inferred from `change.type`) rather than inventing a parallel frontend setting. Remove the `Workflow Experience` toggle and its `localStorage` key from normal product UX; `AgentSession`s and their chat surfaces render deterministic workflow chrome (workflow bar, verification banner, `availableActions`) if and only if the bound specification itself is deterministic, and render a plain, non-deterministic task-context selector (no fabricated status/attempt/step) otherwise.
+- **Trade-offs / Consequences:**
+  - Option 1 permanently conflates a presentation preference with an execution-engine selection, and can never be made non-misleading — a legacy spec will always be one click away from showing fabricated deterministic state.
+  - Option 2 would let the same task carry contradictory `workflow_progress` semantics across different sessions (task `workflow_progress` is a specification/task-level record, not a session-level one), and directly contradicts D9's session/task binding model.
+  - Option 3 aligns the UI with the workflow engine's own existing authority model (D11: workflow mode is an owner/product/application-level decision, never agent- or session-inferred), gives users one unambiguous place to choose, and removes an entire class of "legacy spec shows deterministic garbage" bugs by construction.
+- **Decision:** Option 3. Specification-level `workflow.mode` (default `legacy`, explicit `deterministic` opt-in at creation time) is the sole authority. Sessions/chat surfaces inherit and display it read-only; they never select or override it. The `Workflow Experience` presentation toggle is removed from normal product UX.
+- **Rationale:** The deterministic workflow engine's state (`workflow_progress`, `current_step`, `attempt`) is owned by the specification/task, not by any particular chat conversation — the UI must reflect exactly the same authority boundary the backend already enforces (D11), and a presentation-only toggle must never be able to make the UI lie about which engine is actually running.
+- **Date:** 2026-09-16
+- **Affected artifacts:** `overview.md`, `owner-decisions.md` D11, `tasks/03-chat-surface-workflow-actions-and-composer-modes.md`, `tools/specs/identity.mjs`, dashboard specification-creation and agent-session UI
+
+## D16: Scope amendment — Task 03 second corrective pass (specification-level workflow mode, canonical session routing, activeTaskId switch semantics)
+
+- **Question:** Closing the remaining Task 03 correctness findings and implementing D15 (specification-level workflow mode selection) requires touching specification-creation files (`tools/specs/identity.mjs`, `tools/dashboard/server/specs/routes.mjs`, `tools/dashboard/server/specs/service.mjs`), the TanStack Router route definition for agent sessions (moving from `/:provider/:providerSessionId` to canonical `/:sessionId`), and one more server runtime file (`sessions/turns/runtime.mjs`) that Task 03's `allowed_paths` did not yet cover. How should this be resolved?
+- **Options considered:**
+  1. *Defer to a new task.*
+  2. *Amend Task 03's declared scope again (Recommended):* Add the specific files this pass actually needs, consistent with D13/D14's precedent, still without broadening to directory wildcards for server code.
+- **Decision:** Option 2. `allowed_paths` amended per the task frontmatter.
+- **Rationale:** Same reasoning as D13/D14 — these files are required for Task 03's own acceptance criteria (a real, non-misleading Legacy/Deterministic distinction; canonical session identity end-to-end) rather than unrelated work.
+- **Date:** 2026-09-16
+- **Affected artifacts:** `specs/active/agent-workflow-protocol-and-flow-hardening/tasks/03-chat-surface-workflow-actions-and-composer-modes.md`
+

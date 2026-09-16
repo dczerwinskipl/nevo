@@ -32,6 +32,10 @@ export function useCreateSpecificationForm({ onClose, onCreated }: UseCreateSpec
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
   const [type, setType] = useState<'standard' | 'architectural' | 'small' | 'exploratory'>('standard');
   const [goal, setGoal] = useState('');
+  // D15: workflow execution mode is chosen once, here, at creation time — never inferred,
+  // never a session/chat-level override. Defaults to 'legacy', matching the workflow
+  // engine's own DEFAULT_WORKFLOW_MODE.
+  const [workflowMode, setWorkflowMode] = useState<'legacy' | 'deterministic'>('legacy');
 
   // AI planning state
   const [startAiSession, setStartAiSession] = useState(false);
@@ -128,6 +132,7 @@ export function useCreateSpecificationForm({ onClose, onCreated }: UseCreateSpec
           title: title.trim(),
           type,
           goal: goal.trim(),
+          workflowMode,
         });
         setCreatedSpec(specResult);
       }
@@ -184,6 +189,8 @@ export function useCreateSpecificationForm({ onClose, onCreated }: UseCreateSpec
     type,
     setType,
     goal,
+    workflowMode,
+    setWorkflowMode,
     handleTitleChange,
     handleSlugChange,
     handleSyncSlugWithTitle,

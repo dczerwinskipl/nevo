@@ -36,7 +36,13 @@ export interface AgentSessionChatSurfaceProps {
   placeholder?: string;
 
   // Workflow experience & Task 03 actions
-  experienceMode?: 'classic' | 'deterministic';
+  /**
+   * Authoritative specification-level workflow mode (D15) — never a session/UI
+   * preference. A legacy session (`false`) renders a plain task-context selector with
+   * no fabricated deterministic status/attempt/step; a deterministic session (`true`)
+   * renders the full workflow bar and verification banner from server-projected state.
+   */
+  isDeterministic?: boolean;
   boundTasks?: BoundTaskInfo[];
   activeTaskId?: string | null;
   onSelectActiveTask?: (taskId: string) => void;
@@ -93,7 +99,7 @@ export const AgentSessionChatSurface = forwardRef<AgentSessionChatSurfaceHandle,
       unavailableReason,
       disabled = false,
       placeholder,
-      experienceMode = 'deterministic',
+      isDeterministic = false,
       boundTasks,
       activeTaskId,
       onSelectActiveTask,
@@ -201,15 +207,16 @@ export const AgentSessionChatSurface = forwardRef<AgentSessionChatSurfaceHandle,
           )}
         >
           <div className="mx-auto max-w-4xl">
-            {experienceMode === 'deterministic' && boundTasks && boundTasks.length > 0 && (
+            {boundTasks && boundTasks.length > 0 && (
               <AgentSessionWorkflowBar
                 tasks={boundTasks}
                 activeTaskId={activeTaskId ?? null}
                 onSelectTask={onSelectActiveTask}
+                isDeterministic={isDeterministic}
               />
             )}
 
-            {experienceMode === 'deterministic' && activeTaskId && availableActions && availableActions.length > 0 && (
+            {isDeterministic && activeTaskId && availableActions && availableActions.length > 0 && (
               <>
                 {(availableActions.includes('approve') || availableActions.includes('request-changes')) && (
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-surface-raised px-3.5 py-2.5">

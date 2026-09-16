@@ -712,14 +712,24 @@ export class AgentTurnRuntime {
   }
 
   async resolveInteraction(turnId, interactionId, response, options = {}) {
-    const { provider, providerSessionId } = options;
+    const { provider, providerSessionId, sessionId } = options;
     let state = turnId ? this.#turns.get(turnId) : null;
 
-    if (!state && !turnId && provider && providerSessionId) {
-      // The legacy provider/providerSessionId identity slot may carry either the real
-      // native id (once established) or, for a not-yet-established session, the
-      // canonical sessionId itself — #activeBySession is keyed by whichever was known
-      // at admission time, so both forms are tried.
+    if (!state && !turnId && sessionId) {
+      // Canonical entry path: a real sessionId option, not the canonical id smuggled
+      // through the legacy providerSessionId slot. `#activeBySession` is keyed by the
+      // canonical sessionId itself whenever one exists (see `effSessionId`/`state.key`
+      // in startTurn), so this is a direct, honestly-named lookup.
+      const activeId = this.#activeBySession.get(sessionId);
+      if (activeId) {
+        state = this.#turns.get(activeId);
+        turnId = activeId;
+      }
+    } else if (!state && !turnId && provider && providerSessionId) {
+      // Legacy compatibility identity slot may carry either the real native id (once
+      // established) or, for a not-yet-established session, the canonical sessionId
+      // itself — #activeBySession is keyed by whichever was known at admission time, so
+      // both forms are tried.
       const activeId =
         this.#activeBySession.get(sessionKey(provider, providerSessionId)) ||
         this.#activeBySession.get(providerSessionId);
@@ -727,6 +737,13 @@ export class AgentTurnRuntime {
         state = this.#turns.get(activeId);
         turnId = activeId;
       }
+    }
+
+    if (state && sessionId && state.sessionId && state.sessionId !== sessionId) {
+      throw new AiNotFoundError(`Turn '${state.turnId}' does not belong to session '${sessionId}'.`, {
+        turnId: state.turnId,
+        sessionId,
+      });
     }
 
     if (state && provider && providerSessionId) {
@@ -754,10 +771,18 @@ export class AgentTurnRuntime {
         throw new AiNotFoundError('No active turn found for this session.', {
           provider,
           providerSessionId,
+          sessionId,
           interactionId,
         });
       }
       state = this.#get(turnId);
+    }
+
+    if (sessionId && state.sessionId && state.sessionId !== sessionId) {
+      throw new AiNotFoundError(`Turn '${state.turnId}' does not belong to session '${sessionId}'.`, {
+        turnId: state.turnId,
+        sessionId,
+      });
     }
 
     if (provider && providerSessionId) {

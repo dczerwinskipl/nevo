@@ -72,6 +72,7 @@ export function CreateSpecificationDialog({ onClose, onCreated }: CreateSpecific
             slug={form.slug}
             type={form.type}
             goal={form.goal}
+            workflowMode={form.workflowMode}
             slugManuallyEdited={form.slugManuallyEdited}
             disabled={Boolean(form.createdSpec)}
             onTitleChange={form.handleTitleChange}
@@ -79,6 +80,7 @@ export function CreateSpecificationDialog({ onClose, onCreated }: CreateSpecific
             onSyncSlugWithTitle={form.handleSyncSlugWithTitle}
             onTypeChange={form.setType}
             onGoalChange={form.handleGoalChange}
+            onWorkflowModeChange={form.setWorkflowMode}
           />
 
           <SpecificationAiPlanningSection

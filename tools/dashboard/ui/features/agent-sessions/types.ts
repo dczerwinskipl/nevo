@@ -323,7 +323,8 @@ export interface WorkSummary {
 export interface AgentSessionChatPayload {
   session: {
     provider: string;
-    providerSessionId: string;
+    /** Optional provider-native identity — absent until the provider actually confirms one (see owner-decisions.md D9). Never a substitute for `sessionId`. */
+    providerSessionId?: string | null;
     sessionId: string;
     status: AgentSessionStatus | 'unavailable';
     readiness: SessionReadiness;

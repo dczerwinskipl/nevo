@@ -19,7 +19,7 @@ test('1. Route tree: Nevo declares all expected public file routes without globa
   assert.ok(sourceExists('routes/_spec-layout/archive.tsx'), 'archive.tsx exists');
   assert.ok(sourceExists('routes/_spec-layout/specs.$source.$slug.tsx'), 'specs.$source.$slug.tsx exists');
   assert.ok(
-    sourceExists('routes/specs.$source.$slug.sessions.$provider.$providerSessionId.tsx'),
+    sourceExists('routes/specs.$source.$slug.sessions.$sessionId.tsx'),
     'session route exists',
   );
 
@@ -33,7 +33,7 @@ test('2. Layout hierarchy: Specification routes are nested under _spec-layout wh
   const indexRouteSource = readSource('routes/_spec-layout/index.tsx');
   const archiveRouteSource = readSource('routes/_spec-layout/archive.tsx');
   const specDetailRouteSource = readSource('routes/_spec-layout/specs.$source.$slug.tsx');
-  const agentSessionRouteSource = readSource('routes/specs.$source.$slug.sessions.$provider.$providerSessionId.tsx');
+  const agentSessionRouteSource = readSource('routes/specs.$source.$slug.sessions.$sessionId.tsx');
 
   // _spec-layout binds to SpecificationConsoleLayout
   assert.ok(
@@ -63,7 +63,7 @@ test('2. Layout hierarchy: Specification routes are nested under _spec-layout wh
 
 test('3. Route param typing: file routes pass typed Route.useParams() to feature route components', () => {
   const specDetailRouteSource = readSource('routes/_spec-layout/specs.$source.$slug.tsx');
-  const agentSessionRouteSource = readSource('routes/specs.$source.$slug.sessions.$provider.$providerSessionId.tsx');
+  const agentSessionRouteSource = readSource('routes/specs.$source.$slug.sessions.$sessionId.tsx');
   const specificationRouteSource = readSource('screens/specification-detail/specification-detail-screen.tsx');
   const agentSessionComponentSource = readSource('screens/agent-session/agent-session-screen.tsx');
 
@@ -100,74 +100,69 @@ test('4. Router bootstrap: app/router.ts creates router from generated routeTree
   assert.ok(!routerSource.includes('addChildren'), 'No manual addChildren in router.ts');
 });
 
-test('5. Open session from spec: spec X -> session A parameters structure', () => {
+test('5. Open session from spec: spec X -> session A parameters structure uses canonical sessionId only (D9, Task 03 corrective pass)', () => {
   const spec = { source: 'active', slug: 'spec-x', specId: 'spec-x-id' };
   const sessionA = {
     provider: 'claude',
-    providerSessionId: 'provider-sess-xyz',
+    sessionId: 'canonical-sess-xyz',
+    providerSessionId: 'provider-native-xyz',
     specId: 'spec-x-id',
     taskIds: ['task-01'],
   };
 
-  const expectedPath = `/specs/${spec.source}/${spec.slug}/sessions/${sessionA.provider}/${sessionA.providerSessionId}`;
+  const expectedPath = `/specs/${spec.source}/${spec.slug}/sessions/${sessionA.sessionId}`;
   assert.equal(
     expectedPath,
-    '/specs/active/spec-x/sessions/claude/provider-sess-xyz',
-    'Session path matches route pattern with provider and providerSessionId',
+    '/specs/active/spec-x/sessions/canonical-sess-xyz',
+    'Session path matches the canonical route pattern — provider is never part of the URL/application identity',
   );
 });
 
-test('6. Direct/deep chat load: route resolves spec X and looks up session in X sessions', () => {
+test('6. Direct/deep chat load: route resolves spec X and looks up session in X sessions by canonical sessionId alone', () => {
   const specSessions = [
-    { provider: 'claude', providerSessionId: 'prov-1', specId: 'spec-100', taskIds: [] },
-    { provider: 'gemini', providerSessionId: 'prov-2', specId: 'spec-100', taskIds: [] },
+    { provider: 'claude', sessionId: 'sess-A', specId: 'spec-100', taskIds: [] },
+    { provider: 'gemini', sessionId: 'sess-B', specId: 'spec-100', taskIds: [] },
   ];
 
-  const targetProvider = 'gemini';
-  const targetProviderSessionId = 'prov-2';
-  const found = specSessions.find(
-    (s) => s.provider === targetProvider && s.providerSessionId === targetProviderSessionId,
-  );
+  const targetSessionId = 'sess-B';
+  const found = specSessions.find((s) => s.sessionId === targetSessionId);
 
   assert.ok(found, 'Session found in spec sessions');
   assert.equal(found.provider, 'gemini');
-  assert.equal(found.providerSessionId, 'prov-2');
+  assert.equal(found.sessionId, 'sess-B');
 });
 
 test('7. Session belongs to another spec: opening /specs/X/sessions/A when A is under Y results in Session Not Found', () => {
-  const sessionsOfX = [{ provider: 'claude', providerSessionId: 'sess-x1', specId: 'spec-x-id', taskIds: [] }];
+  const sessionsOfX = [{ provider: 'claude', sessionId: 'sess-x1', specId: 'spec-x-id', taskIds: [] }];
 
-  const requestedProvider = 'claude';
-  const requestedProviderSessionId = 'sess-y1';
-  const foundInX = sessionsOfX.find(
-    (s) => s.provider === requestedProvider && s.providerSessionId === requestedProviderSessionId,
-  );
+  const requestedSessionId = 'sess-y1';
+  const foundInX = sessionsOfX.find((s) => s.sessionId === requestedSessionId);
 
   assert.equal(foundInX, undefined, 'Session must not be resolved under spec X');
 });
 
-test('9. Regression: AgentSessionScreen resolves a navigated session by canonical sessionId too, not only the current providerSessionId', () => {
-  // Once a provider confirms its native session (e.g. Claude, which has no
-  // upfront createSession()), AgentSessionBindingService.markSessionEstablished
-  // rewrites the binding's providerSessionId from the placeholder canonical UUID
-  // to the real native ID, while sessionId (canonical) never changes. A page
-  // navigated to by the placeholder ID must still resolve the session after that
-  // rewrite, or it flashes "Sesja nie znaleziona" even though the session is
-  // alive and the turn is still running.
+test('9b. AgentSessionScreen resolves a navigated session by canonical sessionId alone — no provider matching, no fallback chain', () => {
+  // The route/application identity is exclusively the canonical sessionId (D9). There is
+  // no provider-native identity in the URL and no "providerSessionId was rewritten after
+  // establishment" concern to fall back around — the canonical sessionId never changes,
+  // so a plain sessionId lookup is always correct.
   const agentSessionComponentSource = readSource('screens/agent-session/agent-session-screen.tsx');
-  assert.ok(
-    agentSessionComponentSource.includes('s.sessionId === providerSessionId'),
-    'AgentSessionScreen session lookup falls back to matching the canonical sessionId',
+  assert.match(
+    agentSessionComponentSource,
+    /sessionsQuery\.sessions\.find\(\(s\) => s\.sessionId === sessionId\)/,
+    'AgentSessionScreen looks sessions up strictly by canonical sessionId',
+  );
+  assert.doesNotMatch(
+    agentSessionComponentSource,
+    /s\.providerSessionId/,
+    'AgentSessionScreen must not match on providerSessionId at all',
   );
 
   const specSessions = [
-    { provider: 'claude', providerSessionId: 'native-real-id', sessionId: 'canonical-placeholder-id', specId: 'spec-100', taskIds: [] },
+    { provider: 'claude', sessionId: 'sess-established', providerSessionId: 'native-real-id', specId: 'spec-100', taskIds: [] },
   ];
-  const navigatedProviderSessionId = 'canonical-placeholder-id'; // URL still carries the pre-establishment ID
-  const found = specSessions.find(
-    (s) => s.provider === 'claude' && (s.providerSessionId === navigatedProviderSessionId || s.sessionId === navigatedProviderSessionId),
-  );
-  assert.ok(found, 'Session resolves via canonical sessionId fallback after providerSessionId was rewritten');
+  const found = specSessions.find((s) => s.sessionId === 'sess-established');
+  assert.ok(found, 'Session resolves by canonical sessionId regardless of whether a native provider id has been established');
   assert.equal(found.providerSessionId, 'native-real-id');
 });
 
@@ -400,8 +395,8 @@ test('17. AgentSessionScreen: invalid $source canonicalizes to active via replac
   // 2) The screen canonicalizes invalid source through a replace navigation to an active session URL
   assert.match(
     agentSessionScreenSource,
-    /if\s*\(\s*source\s*===\s*null\s*\)\s*\{\s*navigate\(\{\s*to:\s*['"]\/specs\/\$source\/\$slug\/sessions\/\$provider\/\$providerSessionId['"],\s*params:\s*\{\s*source:\s*['"]active['"],\s*slug,\s*provider,\s*providerSessionId\s*\},?\s*replace:\s*true,?\s*\}\);?\s*\}/,
-    'AgentSessionScreen triggers replace navigation to /specs/active/$slug/sessions/... when source is null',
+    /if\s*\(\s*source\s*===\s*null\s*\)\s*\{\s*navigate\(\{\s*to:\s*['"]\/specs\/\$source\/\$slug\/sessions\/\$sessionId['"],\s*params:\s*\{\s*source:\s*['"]active['"],\s*slug,\s*sessionId\s*\},?\s*replace:\s*true,?\s*\}\);?\s*\}/,
+    'AgentSessionScreen triggers replace navigation to /specs/active/$slug/sessions/$sessionId when source is null',
   );
 
   // 3) Domain lookup does not proceed using the invalid source before canonicalization
@@ -422,13 +417,13 @@ test('17. AgentSessionScreen: invalid $source canonicalizes to active via replac
   );
 
   // Behavioral logic simulation mirroring component state transitions:
-  function evaluateAgentSessionResolution(rawSource, slug, provider, providerSessionId, data) {
+  function evaluateAgentSessionResolution(rawSource, slug, sessionId, data) {
     const source = isSpecificationSource(rawSource) ? rawSource : null;
     let canonicalRedirect = null;
     if (source === null) {
       canonicalRedirect = {
-        to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
-        params: { source: 'active', slug, provider, providerSessionId },
+        to: '/specs/$source/$slug/sessions/$sessionId',
+        params: { source: 'active', slug, sessionId },
         replace: true,
       };
     }
@@ -474,7 +469,6 @@ test('17. AgentSessionScreen: invalid $source canonicalizes to active via replac
   const invalidResult = evaluateAgentSessionResolution(
     'bogus-source',
     'sample-spec',
-    'claude',
     'sess-1',
     mockIndexData,
   );
@@ -482,8 +476,8 @@ test('17. AgentSessionScreen: invalid $source canonicalizes to active via replac
   assert.deepEqual(
     invalidResult.canonicalRedirect,
     {
-      to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
-      params: { source: 'active', slug: 'sample-spec', provider: 'claude', providerSessionId: 'sess-1' },
+      to: '/specs/$source/$slug/sessions/$sessionId',
+      params: { source: 'active', slug: 'sample-spec', sessionId: 'sess-1' },
       replace: true,
     },
     'Must trigger canonical replace navigation to active source',
@@ -495,7 +489,7 @@ test('17. AgentSessionScreen: invalid $source canonicalizes to active via replac
   assert.equal(invalidResult.rendersLoading, true, 'Must render LoadingScreen while canonicalization is in flight');
 
   // Test with valid source
-  const validResult = evaluateAgentSessionResolution('active', 'sample-spec', 'claude', 'sess-1', mockIndexData);
+  const validResult = evaluateAgentSessionResolution('active', 'sample-spec', 'sess-1', mockIndexData);
   assert.equal(validResult.source, 'active');
   assert.equal(validResult.canonicalRedirect, null);
   assert.equal(validResult.selectedLookupExecuted, true);

@@ -756,6 +756,21 @@ export class AgentSessionService {
       }
     }
 
+    // setActiveTaskId is a SWITCH between tasks already bound to this session's context —
+    // never an implicit bind of a new task. Binding a new task to a session happens only
+    // through the session's own execution flow (createSession/attachSession with
+    // taskId(s), or workflow step start/finish's ambient auto-binding); silently widening
+    // `taskIds` here would let a "switch" API create a SessionTaskBinding as a side effect,
+    // which is a different, separately-authorized operation.
+    const boundTaskIds = Array.isArray(session.taskIds) ? session.taskIds : [];
+    const isAlreadyBound = boundTaskIds.includes(cleanTaskId) || session.activeTaskId === cleanTaskId;
+    if (!isAlreadyBound) {
+      throw new AiValidationError(
+        `Task '${cleanTaskId}' is not bound to session '${sessionId}' — switching active task requires the task to already be part of this session's context.`,
+        { field: 'taskId' },
+      );
+    }
+
     await this.bindingService.setActiveTaskId(session.provider, sessionId, cleanTaskId, session.specId);
     return await this.getSessionDetails(sessionId);
   }

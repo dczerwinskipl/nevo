@@ -2,11 +2,13 @@ import { cn } from '@/shared/lib/utils';
 import {
   type BoundTaskInfo,
   formatBoundTaskLabel,
+  formatLegacyTaskLabel,
 } from './agent-session-workflow-bar-helpers';
 
 export {
   type BoundTaskInfo,
   formatBoundTaskLabel,
+  formatLegacyTaskLabel,
 };
 
 export interface AgentSessionWorkflowBarProps {
@@ -14,6 +16,12 @@ export interface AgentSessionWorkflowBarProps {
   activeTaskId: string | null;
   onSelectTask?: (taskId: string) => void;
   className?: string;
+  /**
+   * Authoritative specification-level workflow mode (D15). `false` (legacy) renders a
+   * plain task-context selector (identity/title only) — never a fabricated deterministic
+   * status/attempt/step ("(unknown)").
+   */
+  isDeterministic?: boolean;
 }
 
 export function AgentSessionWorkflowBar({
@@ -21,6 +29,7 @@ export function AgentSessionWorkflowBar({
   activeTaskId,
   onSelectTask,
   className,
+  isDeterministic = false,
 }: AgentSessionWorkflowBarProps) {
   if (!tasks || tasks.length === 0) return null;
 
@@ -31,14 +40,16 @@ export function AgentSessionWorkflowBar({
         className,
       )}
       role="toolbar"
-      aria-label="Bound workflow tasks"
+      aria-label={isDeterministic ? 'Bound workflow tasks' : 'Session task context'}
     >
-      <span className="text-[10px] font-bold tracking-wider text-fg-muted uppercase">Zadania:</span>
+      <span className="text-[10px] font-bold tracking-wider text-fg-muted uppercase">
+        {isDeterministic ? 'Zadania:' : 'Kontekst:'}
+      </span>
       <div className="flex flex-wrap items-center gap-1">
         {tasks.map((task) => {
           const isActive = task.id === activeTaskId;
-          const label = formatBoundTaskLabel(task);
-          const isVerified = task.status === 'verified';
+          const label = isDeterministic ? formatBoundTaskLabel(task) : formatLegacyTaskLabel(task);
+          const isVerified = isDeterministic && task.status === 'verified';
 
           return (
             <button

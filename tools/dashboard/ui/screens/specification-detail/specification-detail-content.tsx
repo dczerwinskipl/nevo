@@ -30,7 +30,6 @@ import { invalidatePullRequestQueries } from '@/features/pull-requests/queries';
 import { useAgentProviders, useAgentSessions, useCreateAgentSession } from '@/features/agent-sessions/queries';
 import type { AgentSession } from '@/features/agent-sessions/types';
 import { useSpecWorkflowActions } from './use-spec-workflow-actions';
-import { useWorkflowExperienceMode } from './workflow-experience';
 
 const PullRequestsPanel = lazy(() =>
   import('@/features/pull-requests/pull-requests-panel').then((m) => ({ default: m.PullRequestsPanel })),
@@ -124,7 +123,6 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
     requestAnimationFrame(() => document.getElementById(`spec-tab-${nextTab.id}`)?.focus());
   };
 
-  const [experienceMode, setExperienceMode] = useWorkflowExperienceMode();
   const providersQuery = useAgentProviders();
   const createSession = useCreateAgentSession();
   const enabledProviders = providersQuery.data?.providers.filter((p) => p.enabled) ?? [];
@@ -150,12 +148,11 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           userMessage,
         });
         navigate({
-          to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+          to: '/specs/$source/$slug/sessions/$sessionId',
           params: {
             source: specification.source,
             slug: specification.slug,
-            provider: session.provider,
-            providerSessionId: session.sessionId,
+            sessionId: session.sessionId,
           },
         });
       } else if (action === 'start-review') {
@@ -175,12 +172,11 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           userMessage,
         });
         navigate({
-          to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+          to: '/specs/$source/$slug/sessions/$sessionId',
           params: {
             source: specification.source,
             slug: specification.slug,
-            provider: session.provider,
-            providerSessionId: session.sessionId,
+            sessionId: session.sessionId,
           },
         });
       } else if (action === 'approve') {
@@ -215,12 +211,11 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           taskId: task.id,
         });
         navigate({
-          to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+          to: '/specs/$source/$slug/sessions/$sessionId',
           params: {
             source: specification.source,
             slug: specification.slug,
-            provider: targetSession.provider,
-            providerSessionId: targetSession.sessionId || targetSession.providerSessionId || '',
+            sessionId: targetSession.sessionId,
           },
         });
       }
@@ -230,12 +225,11 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
 
   const handleOpenSession = (session: AgentSession) => {
     navigate({
-      to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+      to: '/specs/$source/$slug/sessions/$sessionId',
       params: {
         source: specification.source,
         slug: specification.slug,
-        provider: session.provider,
-        providerSessionId: session.sessionId || session.providerSessionId || '',
+        sessionId: session.sessionId,
       },
     });
   };
@@ -362,8 +356,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
             onOpenSession={handleOpenSession}
             onCreateSession={() => setSessionSpecification(specification)}
             taskActions={actionsQuery.data?.tasks}
-            experienceMode={experienceMode}
-            onExperienceModeChange={setExperienceMode}
+            isDeterministic={actionsQuery.data?.workflowMode === 'deterministic'}
             onWorkflowAction={handleWorkflowAction}
             onDirectTaskAction={workflow.executeDirectTaskAction}
             onBatchTaskAction={workflow.executeBatchTaskAction}
@@ -463,29 +456,29 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
 
       {sessionSpecification && (
         <CreateAgentSessionDialog
-          specification={sessionSpecification}
+          specification={{
+            ...sessionSpecification,
+            workflowMode: actionsQuery.data?.workflowMode,
+            workflowDefinition: actionsQuery.data?.workflowDefinition,
+          }}
           onClose={() => setSessionSpecification(null)}
           onCreated={(session, promptToSend, userMessage) => {
             const targetSpecification = sessionSpecification;
             setSessionSpecification(null);
-            // Provider-native identity is optional and initially absent until provider confirmation;
-            // fall back to canonical sessionId so the route/dispatch key is always authoritative.
-            const routeSessionId = session.sessionId || session.providerSessionId || '';
             if (promptToSend) {
               queueAgentSessionInitialDispatch({
                 provider: session.provider,
-                sessionId: routeSessionId,
+                sessionId: session.sessionId,
                 prompt: promptToSend,
                 userMessage,
               });
             }
             navigate({
-              to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+              to: '/specs/$source/$slug/sessions/$sessionId',
               params: {
                 source: targetSpecification.source,
                 slug: targetSpecification.slug,
-                provider: session.provider,
-                providerSessionId: routeSessionId,
+                sessionId: session.sessionId,
               },
             });
           }}

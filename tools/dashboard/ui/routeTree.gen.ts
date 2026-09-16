@@ -13,7 +13,7 @@ import { Route as SpecLayoutRouteImport } from './routes/_spec-layout.tsx'
 import { Route as SpecLayoutIndexRouteImport } from './routes/_spec-layout/index.tsx'
 import { Route as SpecLayoutArchiveRouteImport } from './routes/_spec-layout/archive.tsx'
 import { Route as SpecLayoutSpecsSourceSlugRouteImport } from './routes/_spec-layout/specs.$source.$slug.tsx'
-import { Route as SpecsSourceSlugSessionsProviderProviderSessionIdRouteImport } from './routes/specs.$source.$slug.sessions.$provider.$providerSessionId.tsx'
+import { Route as SpecsSourceSlugSessionsSessionIdRouteImport } from './routes/specs.$source.$slug.sessions.$sessionId.tsx'
 
 const SpecLayoutRoute = SpecLayoutRouteImport.update({
   id: '/_spec-layout',
@@ -35,10 +35,10 @@ const SpecLayoutSpecsSourceSlugRoute =
     path: '/specs/$source/$slug',
     getParentRoute: () => SpecLayoutRoute,
   } as any)
-const SpecsSourceSlugSessionsProviderProviderSessionIdRoute =
-  SpecsSourceSlugSessionsProviderProviderSessionIdRouteImport.update({
-    id: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
-    path: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+const SpecsSourceSlugSessionsSessionIdRoute =
+  SpecsSourceSlugSessionsSessionIdRouteImport.update({
+    id: '/specs/$source/$slug/sessions/$sessionId',
+    path: '/specs/$source/$slug/sessions/$sessionId',
     getParentRoute: () => rootRouteImport,
   } as any)
 
@@ -46,13 +46,13 @@ export interface FileRoutesByFullPath {
   '/': typeof SpecLayoutIndexRoute
   '/archive': typeof SpecLayoutArchiveRoute
   '/specs/$source/$slug': typeof SpecLayoutSpecsSourceSlugRoute
-  '/specs/$source/$slug/sessions/$provider/$providerSessionId': typeof SpecsSourceSlugSessionsProviderProviderSessionIdRoute
+  '/specs/$source/$slug/sessions/$sessionId': typeof SpecsSourceSlugSessionsSessionIdRoute
 }
 export interface FileRoutesByTo {
   '/archive': typeof SpecLayoutArchiveRoute
   '/': typeof SpecLayoutIndexRoute
   '/specs/$source/$slug': typeof SpecLayoutSpecsSourceSlugRoute
-  '/specs/$source/$slug/sessions/$provider/$providerSessionId': typeof SpecsSourceSlugSessionsProviderProviderSessionIdRoute
+  '/specs/$source/$slug/sessions/$sessionId': typeof SpecsSourceSlugSessionsSessionIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -60,7 +60,7 @@ export interface FileRoutesById {
   '/_spec-layout/archive': typeof SpecLayoutArchiveRoute
   '/_spec-layout/': typeof SpecLayoutIndexRoute
   '/_spec-layout/specs/$source/$slug': typeof SpecLayoutSpecsSourceSlugRoute
-  '/specs/$source/$slug/sessions/$provider/$providerSessionId': typeof SpecsSourceSlugSessionsProviderProviderSessionIdRoute
+  '/specs/$source/$slug/sessions/$sessionId': typeof SpecsSourceSlugSessionsSessionIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -68,25 +68,25 @@ export interface FileRouteTypes {
     | '/'
     | '/archive'
     | '/specs/$source/$slug'
-    | '/specs/$source/$slug/sessions/$provider/$providerSessionId'
+    | '/specs/$source/$slug/sessions/$sessionId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/archive'
     | '/'
     | '/specs/$source/$slug'
-    | '/specs/$source/$slug/sessions/$provider/$providerSessionId'
+    | '/specs/$source/$slug/sessions/$sessionId'
   id:
     | '__root__'
     | '/_spec-layout'
     | '/_spec-layout/archive'
     | '/_spec-layout/'
     | '/_spec-layout/specs/$source/$slug'
-    | '/specs/$source/$slug/sessions/$provider/$providerSessionId'
+    | '/specs/$source/$slug/sessions/$sessionId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   SpecLayoutRoute: typeof SpecLayoutRouteWithChildren
-  SpecsSourceSlugSessionsProviderProviderSessionIdRoute: typeof SpecsSourceSlugSessionsProviderProviderSessionIdRoute
+  SpecsSourceSlugSessionsSessionIdRoute: typeof SpecsSourceSlugSessionsSessionIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -119,11 +119,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SpecLayoutSpecsSourceSlugRouteImport
       parentRoute: typeof SpecLayoutRoute
     }
-    '/specs/$source/$slug/sessions/$provider/$providerSessionId': {
-      id: '/specs/$source/$slug/sessions/$provider/$providerSessionId'
-      path: '/specs/$source/$slug/sessions/$provider/$providerSessionId'
-      fullPath: '/specs/$source/$slug/sessions/$provider/$providerSessionId'
-      preLoaderRoute: typeof SpecsSourceSlugSessionsProviderProviderSessionIdRouteImport
+    '/specs/$source/$slug/sessions/$sessionId': {
+      id: '/specs/$source/$slug/sessions/$sessionId'
+      path: '/specs/$source/$slug/sessions/$sessionId'
+      fullPath: '/specs/$source/$slug/sessions/$sessionId'
+      preLoaderRoute: typeof SpecsSourceSlugSessionsSessionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -147,8 +147,7 @@ const SpecLayoutRouteWithChildren = SpecLayoutRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   SpecLayoutRoute: SpecLayoutRouteWithChildren,
-  SpecsSourceSlugSessionsProviderProviderSessionIdRoute:
-    SpecsSourceSlugSessionsProviderProviderSessionIdRoute,
+  SpecsSourceSlugSessionsSessionIdRoute: SpecsSourceSlugSessionsSessionIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

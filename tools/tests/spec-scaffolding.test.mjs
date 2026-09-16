@@ -9,10 +9,12 @@ import {
   createSpecification,
   validateSpecSlug,
   validateSpecType,
+  validateWorkflowMode,
   SpecValidationError,
   SpecConflictError,
   SpecRollbackError,
 } from '../specs/identity.mjs';
+import { resolveWorkflowMode } from '../specs/workflow/compatibility.mjs';
 import {
   refreshSpecsIndexes,
   buildSpecsIndexes,
@@ -110,6 +112,94 @@ test('createSpecification creates complete specification skeleton and updates in
     assert.ok(changeInIndex);
     assert.equal(changeInIndex.specId, result.specId);
     assert.equal(changeInIndex.title, 'My New Feature');
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('validateWorkflowMode defaults omitted/empty to legacy and rejects anything but legacy/deterministic', () => {
+  assert.equal(validateWorkflowMode(undefined), 'legacy');
+  assert.equal(validateWorkflowMode(null), 'legacy');
+  assert.equal(validateWorkflowMode(''), 'legacy');
+  assert.equal(validateWorkflowMode('legacy'), 'legacy');
+  assert.equal(validateWorkflowMode('deterministic'), 'deterministic');
+  assert.equal(validateWorkflowMode('DETERMINISTIC'), 'deterministic');
+  assert.throws(() => validateWorkflowMode('agentic'), SpecValidationError);
+});
+
+test('createSpecification (D15): omitting workflowMode writes no workflow key and resolves to legacy — the same default the workflow engine already uses', async () => {
+  const env = await createTempSpecsEnvironment();
+  try {
+    const result = await createSpecification({
+      slug: 'default-mode-feature',
+      title: 'Default Mode Feature',
+      activeDir: env.activeDir,
+      archiveDir: env.archiveDir,
+      activeIndexMd: env.activeIndexMd,
+      archiveIndexMd: env.archiveIndexMd,
+      indexJson: env.indexJson,
+    });
+
+    assert.equal(result.change.workflow, undefined, 'omitted workflowMode must write no workflow key at all');
+    assert.equal(resolveWorkflowMode(result.change).mode, 'legacy');
+
+    const rawYaml = readFileSync(join(env.activeDir, 'default-mode-feature', 'change.yaml'), 'utf-8');
+    assert.doesNotMatch(rawYaml, /workflow:/);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('createSpecification (D15): explicit workflowMode "deterministic" persists workflow.mode and resolves deterministic with the definition inferred from type', async () => {
+  const env = await createTempSpecsEnvironment();
+  try {
+    const result = await createSpecification({
+      slug: 'deterministic-feature',
+      title: 'Deterministic Feature',
+      type: 'standard',
+      workflowMode: 'deterministic',
+      activeDir: env.activeDir,
+      archiveDir: env.archiveDir,
+      activeIndexMd: env.activeIndexMd,
+      archiveIndexMd: env.archiveIndexMd,
+      indexJson: env.indexJson,
+    });
+
+    assert.equal(result.change.workflow?.mode, 'deterministic');
+    // No frontend-invented `definition` setting — resolveWorkflowMode derives it from
+    // `type`, exactly like an explicit `workflow.definition` would, never a second
+    // parallel selection mechanism.
+    const resolved = resolveWorkflowMode(result.change);
+    assert.equal(resolved.mode, 'deterministic');
+    assert.equal(resolved.definition, 'standard');
+
+    // Re-loading from disk (the same path the dashboard/CLI actually read through)
+    // resolves identically.
+    const reloaded = loadChange('deterministic-feature', env.activeDir);
+    assert.equal(resolveWorkflowMode(reloaded).mode, 'deterministic');
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('createSpecification (D15): invalid workflowMode is rejected before any file is written', async () => {
+  const env = await createTempSpecsEnvironment();
+  try {
+    await assert.rejects(
+      () =>
+        createSpecification({
+          slug: 'bad-mode-feature',
+          title: 'Bad Mode Feature',
+          workflowMode: 'agentic',
+          activeDir: env.activeDir,
+          archiveDir: env.archiveDir,
+          activeIndexMd: env.activeIndexMd,
+          archiveIndexMd: env.archiveIndexMd,
+          indexJson: env.indexJson,
+        }),
+      SpecValidationError,
+    );
+    assert.equal(existsSync(join(env.activeDir, 'bad-mode-feature')), false);
   } finally {
     await env.cleanup();
   }

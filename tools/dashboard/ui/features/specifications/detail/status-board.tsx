@@ -15,14 +15,15 @@ import { formatTaskStatus, taskStatusTone } from '../status';
 function TaskCard({
   task,
   actionGate,
-  experienceMode = 'deterministic',
+  isDeterministic = false,
   onSelect,
   onAction,
   onWorkflowAction,
 }: {
   task: SpecificationTask;
   actionGate?: SpecificationTaskActionGate | null;
-  experienceMode?: 'classic' | 'deterministic';
+  /** Authoritative specification-level workflow mode (D15) — never a UI preference. */
+  isDeterministic?: boolean;
   onSelect?: (task: SpecificationTask, trigger: HTMLElement) => void;
   onAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
   onWorkflowAction?: (task: SpecificationTask, action: string) => void;
@@ -80,7 +81,7 @@ function TaskCard({
           {task.title}
         </h3>
       </button>
-      {experienceMode === 'classic' ? (
+      {!isDeterministic ? (
         hasAction && (
           <div className="mt-3 flex justify-center border-t border-border pt-2.5">
             <Button
@@ -164,7 +165,7 @@ function TaskCard({
 export function StatusBoard({
   specification,
   actions,
-  experienceMode = 'deterministic',
+  isDeterministic = false,
   onTaskSelect,
   onTaskAction,
   onBatchAction,
@@ -172,7 +173,8 @@ export function StatusBoard({
 }: {
   specification: SpecificationSummary;
   actions?: Record<string, SpecificationTaskActionGate>;
-  experienceMode?: 'classic' | 'deterministic';
+  /** Authoritative specification-level workflow mode (D15) — never a UI preference. */
+  isDeterministic?: boolean;
   onTaskSelect?: (task: SpecificationTask, trigger: HTMLElement) => void;
   onTaskAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
   onBatchAction?: (tasks: SpecificationTask[], action: SpecificationOwnerAction) => void;
@@ -209,14 +211,14 @@ export function StatusBoard({
                     key={task.id}
                     task={task}
                     actionGate={actions?.[task.id]}
-                    experienceMode={experienceMode}
+                    isDeterministic={isDeterministic}
                     onSelect={onTaskSelect}
                     onAction={onTaskAction}
                     onWorkflowAction={onWorkflowAction}
                   />
                 ))}
                 {lane.tasks.length === 0 && <span className="sr-only">Brak zadań</span>}
-                {experienceMode === 'classic' && actionableTasks.length > 1 && firstAction && (
+                {!isDeterministic && actionableTasks.length > 1 && firstAction && (
                   <Button
                     size="sm"
                     variant="ghost"

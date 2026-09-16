@@ -11,6 +11,7 @@ import { approveTask } from '../../../specs/approve/operation.mjs';
 import { verifyTask } from '../../../specs/verify/operation.mjs';
 import { finalizeChange } from '../../../specs/finalize/operation.mjs';
 import { handleWorkflowVerifyHuman } from '../../../specs/workflow/cli.mjs';
+import { resolveWorkflowMode } from '../../../specs/workflow/compatibility.mjs';
 import { REPOSITORY_ROOT } from '../infrastructure/paths.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -189,11 +190,19 @@ export async function loadSpecificationActions({
     };
   }
 
+  // Authoritative source for whether this specification runs under the deterministic
+  // workflow engine — the exact same resolver the CLI/workflow engine itself uses (D15).
+  // The UI must read this rather than re-deriving it from task.status, a localStorage
+  // preference, or session state.
+  const resolvedWorkflow = resolveWorkflowMode(change);
+
   return {
     id: change.id || change._slug,
     slug: change._slug,
     source: 'active',
     generatedAt: new Date().toISOString(),
+    workflowMode: resolvedWorkflow.mode,
+    workflowDefinition: resolvedWorkflow.mode === 'deterministic' ? resolvedWorkflow.definition : null,
     worktree: {
       ...worktree,
       branch,
