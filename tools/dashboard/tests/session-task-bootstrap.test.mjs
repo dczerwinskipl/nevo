@@ -873,6 +873,195 @@ test('9j. startTurn: a spec that exists under a DIFFERENT repoRoot than the one 
   }
 });
 
+// ── Task 03 third corrective pass: a deterministic specification is not the same thing
+// as deterministic task execution. Generic/spec-level discussion must remain possible on
+// a deterministic spec whenever no task is authoritatively active — no StepContext, no
+// bootstrap header, and never an implicit `change.tasks[0]` selection (D9 §7, D17) ────────
+
+test('9k. resolveDeterministicWorkflowInfo: a deterministic spec with ZERO tasks and no taskId returns execution:false, never throws', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-workflow-zero-tasks-'));
+  try {
+    const specId = '99999999-9999-4999-8999-999999999901';
+    const activeDir = join(tmpDir, 'specs', 'active');
+    const changeDir = join(activeDir, 'fixture-change');
+    await mkdir(changeDir, { recursive: true });
+    await writeFile(
+      join(changeDir, 'change.yaml'),
+      `spec_id: ${specId}\nworkflow:\n  mode: deterministic\n  definition: standard-v1\ntasks: []\n`,
+      'utf-8',
+    );
+
+    const result = resolveDeterministicWorkflowInfo(specId, undefined, tmpDir);
+    assert.deepEqual(result, { mode: 'deterministic', execution: false }, 'zero tasks + no taskId is a valid generic turn, not a failure');
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('9l. startTurn: a deterministic spec with ZERO tasks admits a plain planning turn — no bootstrap header, clean userMessage', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-workflow-zero-tasks-turn-'));
+  try {
+    const specId = '99999999-9999-4999-8999-999999999902';
+    const activeDir = join(tmpDir, 'specs', 'active');
+    const changeDir = join(activeDir, 'fixture-change');
+    await mkdir(changeDir, { recursive: true });
+    await writeFile(
+      join(changeDir, 'change.yaml'),
+      `spec_id: ${specId}\nworkflow:\n  mode: deterministic\n  definition: standard-v1\ntasks: []\n`,
+      'utf-8',
+    );
+
+    const bindingService = createAgentSessionBindingService({ storageDir: join(tmpDir, 'sessions') });
+    const { service, capturedPrompts } = buildEchoProviderService({ bindingService, repoRoot: tmpDir });
+
+    const turn = await service.startTurn('mock', undefined, {
+      specId,
+      message: "Let's discuss the approach before any task exists",
+    });
+    for (let i = 0; i < 50; i++) {
+      const snap = service.getTurn(turn.turnId);
+      if (snap?.status === 'completed' || snap?.status === 'failed') break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    assert.equal(service.getTurn(turn.turnId)?.status, 'completed', 'a planning turn on a deterministic spec with no tasks must be admitted normally');
+    assert.equal(capturedPrompts.length, 1);
+    assert.equal(capturedPrompts[0], "Let's discuss the approach before any task exists", 'userMessage must remain clean — no header, no fabricated task context');
+    assert.doesNotMatch(capturedPrompts[0], /\[Nevo Workflow Context\]/);
+
+    const canonical = service.getCanonicalTurn(turn.turnId);
+    assert.equal(canonical.userMessage?.text, "Let's discuss the approach before any task exists");
+
+    const session = await bindingService.getSession(turn.sessionId);
+    assert.equal(session.lastBootstrapTaskId, undefined, 'no bootstrap state may be recorded when there is no authoritative active task');
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('9m. startTurn: a deterministic spec with an existing Task 01 does NOT implicitly select it for a generic session with no activeTaskId', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-workflow-no-implicit-task-'));
+  try {
+    await mkdir(join(tmpDir, '.nevo-ai', 'workflows'), { recursive: true });
+    await cp(
+      join(REAL_REPO_ROOT, '.nevo-ai', 'workflows', 'standard-v1.yaml'),
+      join(tmpDir, '.nevo-ai', 'workflows', 'standard-v1.yaml'),
+    );
+    const specId = '99999999-9999-4999-8999-999999999903';
+    await writeDeterministicChangeFixture(tmpDir, {
+      specId,
+      taskId: '01',
+      workflowProgress: { current_step: 'implementation', current_attempt: 1, state: 'active' },
+    });
+
+    const bindingService = createAgentSessionBindingService({ storageDir: join(tmpDir, 'sessions') });
+    const { service, capturedPrompts } = buildEchoProviderService({ bindingService, repoRoot: tmpDir });
+
+    // Deliberately no taskId/activeTaskId at all — a generic, spec-level turn even though
+    // the spec has a real Task 01 sitting at implementation/attempt 1.
+    const turn = await service.startTurn('mock', undefined, {
+      specId,
+      message: 'What is the overall plan for this specification?',
+    });
+    for (let i = 0; i < 50; i++) {
+      const snap = service.getTurn(turn.turnId);
+      if (snap?.status === 'completed' || snap?.status === 'failed') break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    assert.equal(service.getTurn(turn.turnId)?.status, 'completed');
+    assert.equal(capturedPrompts.length, 1);
+    assert.equal(capturedPrompts[0], 'What is the overall plan for this specification?', 'must never silently start Task 01 deterministic execution');
+    assert.doesNotMatch(capturedPrompts[0], /\[Nevo Workflow Context\]/);
+
+    const session = await bindingService.getSession(turn.sessionId);
+    assert.equal(session.activeTaskId, undefined, 'no active task may be fabricated merely because one exists in the spec');
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('9n. resolveDeterministicWorkflowInfo: an authoritative taskId that does not exist in the spec fails closed, never silently degrades to a generic turn', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-workflow-invalid-active-task-'));
+  try {
+    await mkdir(join(tmpDir, '.nevo-ai', 'workflows'), { recursive: true });
+    await cp(
+      join(REAL_REPO_ROOT, '.nevo-ai', 'workflows', 'standard-v1.yaml'),
+      join(tmpDir, '.nevo-ai', 'workflows', 'standard-v1.yaml'),
+    );
+    const specId = '99999999-9999-4999-8999-999999999904';
+    await writeDeterministicChangeFixture(tmpDir, {
+      specId,
+      taskId: '01',
+      workflowProgress: { current_step: 'implementation', current_attempt: 1, state: 'active' },
+    });
+
+    assert.throws(
+      () => resolveDeterministicWorkflowInfo(specId, '02-does-not-exist', tmpDir),
+      (err) => {
+        assert.equal(err.constructor.name, 'AiDeterministicWorkflowUnavailableError');
+        assert.equal(err.code, 'AI_DETERMINISTIC_WORKFLOW_UNAVAILABLE');
+        return true;
+      },
+      'an authoritative but nonexistent taskId must fail closed, never silently fall back to execution:false',
+    );
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('9o. AgentSessionService: a multi-task session created with no primary taskId has NO authoritative active task anywhere in the projection chain', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-multitask-no-active-'));
+  let sessionService = null;
+  try {
+    const storageDir = join(tmpDir, 'sessions');
+    const bindingService = createAgentSessionBindingService({ storageDir });
+    const registry = createAgentProviderRegistry();
+    const specId = '44444444-5555-4666-8777-888888888899';
+    writeLegacySpecFixtureSync(tmpDir, specId, { taskIds: ['01', '02'] });
+
+    const turnRuntime = new AgentTurnRuntime({ registry });
+    registry.register({
+      descriptor: { id: 'mock', label: 'Mock Provider', defaultMode: 'edit', capabilities: {} },
+      startTurn: () =>
+        (async function* () {
+          yield { type: 'final_answer.delta', text: 'done' };
+        })(),
+      cancelTurn: async () => ({}),
+    });
+    sessionService = new AgentSessionService({ registry, turnRuntime, bindingService, repoRoot: tmpDir });
+
+    // Bound to BOTH tasks, no explicit primary — must not silently pick the first one.
+    const session = await sessionService.createSession('mock', {
+      specId,
+      taskIds: ['01', '02'],
+    });
+    assert.equal(session.activeTaskId, undefined, 'createSession must not fabricate an active task from taskIds[0]');
+    assert.equal(session.taskId, undefined, 'the public taskId projection must mirror activeTaskId exactly');
+    assert.deepEqual(session.taskIds, ['01', '02']);
+
+    const details = await sessionService.getSessionDetails(session.sessionId);
+    assert.equal(details.taskId, undefined, 'getSessionDetails must not fabricate an active task either');
+
+    const listed = await sessionService.listSessions({ specId });
+    const projected = listed.find((s) => s.sessionId === session.sessionId);
+    assert.ok(projected, 'the session must still appear in listSessions');
+    assert.equal(projected.taskId, undefined, 'listSessions must not fabricate an active task from taskIds[0] or binding recency');
+
+    // Raw storage may record "no active task" as either an absent key (undefined) or an
+    // explicit null sentinel (see bindSession's per-task loop), depending on how many
+    // bindSession calls touched the session record — both mean the same thing and every
+    // real consumer normalizes via `?? undefined` before it reaches a public projection.
+    const rawSession = await bindingService.getSession(session.sessionId);
+    assert.equal(rawSession.activeTaskId ?? undefined, undefined);
+
+    const resolved = await bindingService.resolveCurrentBinding('mock', session.sessionId);
+    assert.equal(resolved.taskId, undefined, 'resolveCurrentBinding must mirror activeTaskId, never the most-recently-touched binding\'s taskId');
+    assert.equal(resolved.activeTaskId, undefined);
+  } finally {
+    await sessionService?.shutdown?.().catch(() => {});
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test('6. tools/specs.mjs autoBindAgentSession writes SessionTaskBinding to <repoRoot>/.nevo-ai-local/sessions/ using discovered context', async () => {
   const tmpRepo = await mkdtemp(join(tmpdir(), 'nevo-autobind-test-'));
   const originalEnvSessionId = process.env.NEVO_SESSION_ID;

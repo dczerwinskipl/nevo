@@ -1113,13 +1113,16 @@ export class AgentSessionBindingService {
       provider: session.provider,
       providerSessionId: session.providerSessionId,
       specId: session.specId,
-      taskId: winningBinding?.taskId || session.activeTaskId,
+      // taskId mirrors activeTaskId exactly — never the most-recently-touched binding's
+      // taskId, which can be a stale/inactive task. Absent activeTaskId means no
+      // authoritative active task, not "pick the winning binding".
+      taskId: session.activeTaskId ?? undefined,
       step: winningBinding?.step,
       attempt: winningBinding?.attempt,
       purpose: session.purpose,
       mode: session.mode,
       model: session.model,
-      activeTaskId: session.activeTaskId,
+      activeTaskId: session.activeTaskId ?? undefined,
       taskIds: session.taskIds || [],
       createdAt: winningBinding?.createdAt || session.createdAt,
       lastSeenAt: winningBinding?.lastSeenAt || session.lastSeenAt,
@@ -1152,13 +1155,14 @@ export class AgentSessionBindingService {
       provider: session.provider,
       providerSessionId: session.providerSessionId,
       specId: session.specId,
-      taskId: winningBinding?.taskId || session.activeTaskId,
+      // taskId mirrors activeTaskId exactly — see async resolveCurrentBinding above.
+      taskId: session.activeTaskId ?? undefined,
       step: winningBinding?.step,
       attempt: winningBinding?.attempt,
       purpose: session.purpose,
       mode: session.mode,
       model: session.model,
-      activeTaskId: session.activeTaskId,
+      activeTaskId: session.activeTaskId ?? undefined,
       taskIds: session.taskIds || [],
       createdAt: winningBinding?.createdAt || session.createdAt,
       lastSeenAt: winningBinding?.lastSeenAt || session.lastSeenAt,
@@ -1323,7 +1327,9 @@ export class AgentSessionBindingService {
         mode: session?.mode,
         model: session?.model,
         purpose: session?.purpose,
-        activeTaskId: session?.activeTaskId || b.taskId,
+        // Never fall back to this row's own b.taskId — that would fabricate an active
+        // task merely because this particular binding row happened to be iterated.
+        activeTaskId: session?.activeTaskId ?? undefined,
         taskIds: session?.taskIds || [b.taskId],
       });
     }
@@ -1377,7 +1383,8 @@ export class AgentSessionBindingService {
         mode: session?.mode,
         model: session?.model,
         purpose: session?.purpose,
-        activeTaskId: session?.activeTaskId || b.taskId,
+        // Never fall back to this row's own b.taskId — see async listBindings above.
+        activeTaskId: session?.activeTaskId ?? undefined,
         taskIds: session?.taskIds || [b.taskId],
       });
     }

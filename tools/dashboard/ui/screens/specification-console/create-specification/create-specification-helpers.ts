@@ -7,6 +7,30 @@ export const SPEC_TYPES_OPTIONS = [
   { id: 'exploratory', label: 'Eksploracyjny (E)', desc: 'Spike i badania' },
 ] as const;
 
+export type SpecificationType = 'standard' | 'architectural' | 'small' | 'exploratory';
+
+/**
+ * Truthful, per-type deterministic workflow descriptions. Mirrors the actual step
+ * sequence declared in tools/specs/workflow/templates/*.yaml for each specification
+ * class — only 'standard' has a review step, and the UI must never claim one for the
+ * other classes merely because 'standard' has it (D17).
+ */
+export const DETERMINISTIC_WORKFLOW_DESCRIPTIONS: Record<
+  SpecificationType,
+  { label: string; sequence: string }
+> = {
+  standard: { label: 'Standard workflow', sequence: 'implementation → review → human verification' },
+  architectural: {
+    label: 'Architectural workflow',
+    sequence: 'implementation, with a human sign-off gate before completion',
+  },
+  small: { label: 'Small workflow', sequence: 'implementation only, no human sign-off gate' },
+  exploratory: {
+    label: 'Exploratory workflow',
+    sequence: 'discovery, with a human sign-off gate before completion',
+  },
+};
+
 export function slugifyTitle(title: string): string {
   return title
     .toLowerCase()

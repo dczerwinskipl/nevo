@@ -1,6 +1,6 @@
 import { RefreshCw } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
-import { SPEC_TYPES_OPTIONS, slugifyTitle } from './create-specification-helpers';
+import { DETERMINISTIC_WORKFLOW_DESCRIPTIONS, SPEC_TYPES_OPTIONS, slugifyTitle } from './create-specification-helpers';
 
 export interface SpecificationMetadataFieldsProps {
   title: string;
@@ -150,14 +150,8 @@ export function SpecificationMetadataFields({
         </div>
         {workflowMode === 'deterministic' && (
           <p className="mt-2 rounded-lg border border-border bg-surface-raised px-2.5 py-2 text-[10px] text-fg-muted">
-            {type === 'standard' ? (
-              <>
-                <span className="font-semibold text-fg-secondary">Standard workflow</span> · implementation → review
-                → human verification
-              </>
-            ) : (
-              <>Step-based workflow (implementation → review → human verification) for the '{type}' class.</>
-            )}
+            <span className="font-semibold text-fg-secondary">{DETERMINISTIC_WORKFLOW_DESCRIPTIONS[type].label}</span> ·{' '}
+            {DETERMINISTIC_WORKFLOW_DESCRIPTIONS[type].sequence}
           </p>
         )}
       </div>

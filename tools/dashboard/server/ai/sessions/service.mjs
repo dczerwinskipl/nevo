@@ -203,21 +203,33 @@ export function formatNevoWorkflowContext({ changeSlug, taskId, step = 'implemen
 }
 
 // Discriminated resolution result, never a plain guessable object:
-//   { mode: 'legacy' }                                 — no automatic workflow context;
-//                                                          this is the global default and
-//                                                          covers "no specId" and "spec
-//                                                          found but not explicitly
-//                                                          deterministic" alike.
-//   { mode: 'deterministic', workflowInfo: {...} }      — authoritative position resolved.
-// A spec that explicitly opts into `workflow.mode: deterministic` (via
-// resolveWorkflowMode — the same authoritative mode resolver `tools/specs.mjs workflow`
-// itself uses) but whose true position cannot be resolved THROWS
-// AiDeterministicWorkflowUnavailableError instead of returning anything — silently
-// continuing a deterministic turn without its authoritative context, or guessing
-// step: 'implementation'/attempt: 1, would both be worse than an explicit, actionable
-// failure. `repoRoot` must be the same authoritative root the rest of the session's
-// provider/local-data paths were built from (see AgentSessionService#repoRoot) — this
-// function never independently falls back to the process's own cwd or a different root.
+//   { mode: 'legacy' }
+//       — no automatic workflow context; the global default, covering "no specId" and
+//         "spec found but not explicitly deterministic" alike.
+//   { mode: 'deterministic', execution: false }
+//       — the specification IS deterministic, but there is no authoritative active task
+//         (taskId was not given). A deterministic specification is not, by itself,
+//         task-execution state: a spec-level planning/discussion turn is a perfectly
+//         valid generic chat, even on a deterministic spec, even before any task exists.
+//         `execution: false` carries no workflowInfo — there is genuinely nothing to
+//         report, and the caller must not synthesize one.
+//   { mode: 'deterministic', execution: true, workflowInfo: {...} }
+//       — an authoritative taskId was given and its exact position was resolved. This is
+//         the ONLY shape that may ever inject the deterministic workflow bootstrap.
+//
+// `taskId` absence is never treated as "pick the first task" — only a genuinely
+// authoritative taskId (explicitly supplied by the caller, ultimately traceable to a
+// session's own persisted `activeTaskId` or an explicit per-turn override) may select a
+// task for execution. Guessing `change.tasks[0]` would silently turn an ordinary
+// discussion turn into deterministic task execution the operator never asked for.
+//
+// Once a taskId IS authoritative, every remaining failure path (missing task, corrupt
+// workflow definition, unresolvable position) still THROWS AiDeterministicWorkflowUnavailableError
+// rather than degrading to `execution: false` — fail-closed deterministic execution must
+// never be silently weakened into "well, just chat then". `repoRoot` must be the same
+// authoritative root the rest of the session's provider/local-data paths were built from
+// (see AgentSessionService#repoRoot) — this function never independently falls back to
+// the process's own cwd or a different root.
 //
 // An explicit specId that fails to resolve to any real spec under that repoRoot is NOT
 // treated as legacy either — "no specId at all" (a genuinely spec-less interaction) and
@@ -249,17 +261,22 @@ export function resolveDeterministicWorkflowInfo(specId, taskId, repoRoot = ROOT
   const resolvedMode = resolveWorkflowMode(change);
   if (resolvedMode.mode !== 'deterministic') return { mode: 'legacy' };
 
-  // From here on the spec is explicitly, authoritatively deterministic — every remaining
-  // failure path throws rather than falling back to "no workflow context".
+  // The specification is explicitly, authoritatively deterministic. Without an
+  // authoritative taskId, this is a valid spec-level generic turn — not task execution —
+  // regardless of whether the specification has zero tasks or many. Never fall back to
+  // `change.tasks[0]`.
   const rawTaskId = taskId ? String(taskId) : undefined;
-  const task = rawTaskId ? (change.tasks || []).find((t) => String(t.id) === rawTaskId) : null;
-  const resolvedTaskId = rawTaskId || (change.tasks && change.tasks.length > 0 ? String(change.tasks[0].id) : undefined);
-  const resolvedTask = task || (change.tasks && change.tasks.length > 0 ? change.tasks[0] : null);
+  if (!rawTaskId) {
+    return { mode: 'deterministic', execution: false };
+  }
 
+  // From here on a task IS authoritative — every remaining failure path throws rather
+  // than falling back to "no workflow context" or "generic chat".
+  const resolvedTask = (change.tasks || []).find((t) => String(t.id) === rawTaskId);
   if (!resolvedTask) {
-    const message = `Deterministic spec '${specId}' has no resolvable task for '${taskId ?? '(none given)'}'.`;
+    const message = `Deterministic spec '${specId}' has no task '${rawTaskId}'.`;
     console.error(`[ai] [workflow] ${message}`);
-    throw new AiDeterministicWorkflowUnavailableError(message, { specId, taskId });
+    throw new AiDeterministicWorkflowUnavailableError(message, { specId, taskId: rawTaskId });
   }
 
   let step;
@@ -275,27 +292,28 @@ export function resolveDeterministicWorkflowInfo(specId, taskId, repoRoot = ROOT
       attempt = 1;
     }
   } catch (err) {
-    const message = `Failed to resolve deterministic workflow position for spec '${specId}' task '${resolvedTaskId}': ${err?.message || err}`;
+    const message = `Failed to resolve deterministic workflow position for spec '${specId}' task '${rawTaskId}': ${err?.message || err}`;
     console.error(`[ai] [workflow] ${message}`);
     throw new AiDeterministicWorkflowUnavailableError(message, {
       specId,
-      taskId: resolvedTaskId,
+      taskId: rawTaskId,
       cause: err?.message,
     });
   }
 
   if (!step) {
-    const message = `Deterministic workflow position for spec '${specId}' task '${resolvedTaskId}' could not be determined.`;
+    const message = `Deterministic workflow position for spec '${specId}' task '${rawTaskId}' could not be determined.`;
     console.error(`[ai] [workflow] ${message}`);
-    throw new AiDeterministicWorkflowUnavailableError(message, { specId, taskId: resolvedTaskId });
+    throw new AiDeterministicWorkflowUnavailableError(message, { specId, taskId: rawTaskId });
   }
 
   return {
     mode: 'deterministic',
+    execution: true,
     workflowInfo: {
       changeSlug: change._slug,
       specId: change.spec_id || change.id,
-      taskId: resolvedTaskId,
+      taskId: rawTaskId,
       step,
       attempt,
     },
@@ -354,7 +372,13 @@ export class AgentSessionService {
       : options.taskId
         ? [options.taskId]
         : [];
-    const primaryTaskId = options.taskId || (taskIds.length > 0 ? taskIds[0] : undefined);
+    // An explicit singular `options.taskId` is always authoritative. Absent that, a
+    // single associated task is unambiguous and may become the active task. But with
+    // *multiple* `taskIds` and no explicit primary, there is genuinely no authoritative
+    // active task — never guess `taskIds[0]`. A multi-task session with no designated
+    // primary is a valid neutral, spec-level context (e.g. the Create Agent Session
+    // dialog's multi-checkbox task selection).
+    const primaryTaskId = options.taskId || (taskIds.length === 1 ? taskIds[0] : undefined);
     const purpose = options.purpose || options.title || (primaryTaskId ? `task:${primaryTaskId}` : 'interactive');
     const mode = options.mode ? validateAgentExecutionMode(options.mode, 'mode') : descriptor.defaultMode || 'edit';
 
@@ -369,6 +393,16 @@ export class AgentSessionService {
     let binding;
     if (this.bindingService) {
       if (taskIds.length > 0) {
+        // bindSession's own fallback (`taskId || session?.activeTaskId`) only triggers
+        // when `activeTaskId` is omitted entirely (`undefined`) — it cannot tell "caller
+        // didn't say" from "caller explicitly wants no active task", since both look like
+        // `undefined` once destructured. Passing `null` here (rather than leaving
+        // `primaryTaskId` as `undefined`) is the explicit sentinel: it tells bindSession
+        // to set `activeTaskId` to exactly this value, `null`, instead of silently
+        // defaulting each loop iteration to whichever `tId` happens to be bound last —
+        // which would otherwise resurrect the same "first/last bound task becomes active"
+        // fabrication this pass removes everywhere else.
+        const explicitActiveTaskId = primaryTaskId ?? null;
         for (const tId of taskIds) {
           binding = await this.bindingService.bindSession({
             provider,
@@ -376,7 +410,7 @@ export class AgentSessionService {
             sessionId,
             specId: options.specId,
             taskId: tId,
-            activeTaskId: primaryTaskId,
+            activeTaskId: explicitActiveTaskId,
             taskIds,
             purpose: options.purpose || options.title || `task:${tId}`,
             mode,
@@ -485,7 +519,11 @@ export class AgentSessionService {
       binding = { provider, providerSessionId, specId, taskId, mode, model };
     }
 
-    return { ...binding, taskIds: resolvedTaskIds, taskId: taskId || resolvedTaskIds[0] || undefined };
+    // Never fabricate an active task from `resolvedTaskIds[0]` — the authoritative value
+    // is whatever the binding itself actually reports (`activeTaskId` when backed by a
+    // real bindingService, `taskId` in the no-bindingService test-double shape). Multiple
+    // attached tasks with no explicit primary correctly yield no active task.
+    return { ...binding, taskIds: resolvedTaskIds, taskId: binding?.activeTaskId ?? binding?.taskId ?? undefined };
   }
 
   async listSessions(filters = {}) {
@@ -504,7 +542,11 @@ export class AgentSessionService {
         ...s,
         sessionId: s.sessionId,
         providerSessionId: s.providerSessionId || undefined,
-        taskId: s.activeTaskId || (Array.isArray(s.taskIds) ? s.taskIds[0] : undefined),
+        // The public `taskId` field means exactly "the authoritative active task, if
+        // any" — never "the first task this session happens to be bound to". A session
+        // bound to several tasks with no active one selected correctly projects
+        // `taskId: undefined` here.
+        taskId: s.activeTaskId ?? undefined,
         taskIds: s.taskIds || [],
       }));
     } else {
@@ -530,7 +572,7 @@ export class AgentSessionService {
           ...representative,
           sessionId: representative.sessionId || representative.providerSessionId,
           providerSessionId: representative.providerSessionId,
-          taskId: representative.activeTaskId || representative.taskId || taskIds[0] || undefined,
+          taskId: representative.activeTaskId ?? undefined,
           taskIds: representative.taskIds || taskIds,
         });
       }
@@ -864,7 +906,9 @@ export class AgentSessionService {
       mode: resolvedMode,
       model: binding?.model ?? null,
       specId: specId ?? binding?.specId,
-      taskId: binding?.activeTaskId || binding?.taskId,
+      // No fallback to binding?.taskId/taskIds[0] — activeTaskId absent means no
+      // authoritative active task, not "pick something".
+      taskId: binding?.activeTaskId ?? undefined,
       taskIds,
       purpose: binding?.purpose,
       title: binding?.title || binding?.purpose || `${provider} session`,
@@ -1051,7 +1095,12 @@ export class AgentSessionService {
     }
 
     const effectiveSpecId = opts.specId || session?.specId;
-    const effectiveTaskId = opts.activeTaskId || session?.activeTaskId || opts.taskId || session?.taskId;
+    // The session's own persisted `activeTaskId` is the authoritative source once no
+    // explicit per-turn override is given — raw session objects never carry a separate
+    // `.taskId` field (only `.activeTaskId`/`.taskIds`), so there is no first-bound-task
+    // fallback here. Absence of `activeTaskId` correctly yields `undefined`: a valid
+    // "no active task" turn, never guessed from `taskIds[0]`.
+    const effectiveTaskId = opts.activeTaskId || session?.activeTaskId || opts.taskId;
 
     let effectivePrompt = opts.message ?? opts.prompt;
     let effectiveUserMessage = opts.userMessage;
@@ -1068,7 +1117,14 @@ export class AgentSessionService {
       opts.workflowContext === false
         ? { mode: 'legacy' }
         : resolveDeterministicWorkflowInfo(effectiveSpecId, effectiveTaskId, this.repoRoot);
-    const deterministicWorkflowInfo = workflowResolution.mode === 'deterministic' ? workflowResolution.workflowInfo : null;
+    // Only an authoritative task-execution resolution (`execution: true`) may inject the
+    // deterministic workflow bootstrap. `{ mode: 'deterministic', execution: false }` — a
+    // deterministic spec with no authoritative active task — is a valid generic/spec-level
+    // turn and must flow through exactly like legacy: no header, no injected task.
+    const deterministicWorkflowInfo =
+      workflowResolution.mode === 'deterministic' && workflowResolution.execution
+        ? workflowResolution.workflowInfo
+        : null;
     const hasExplicitWorkflowContext = opts.workflowContext !== undefined && opts.workflowContext !== false;
     const shouldInjectAutomatic = opts.workflowContext !== false && Boolean(deterministicWorkflowInfo);
 

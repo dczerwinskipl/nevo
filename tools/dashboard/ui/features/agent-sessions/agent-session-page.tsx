@@ -199,10 +199,11 @@ export function AgentSessionPage({
   }, [session.taskIds, session.taskId]);
 
   // activeTaskId is exclusively server-owned (D9 §7, C10): it is the session's own
-  // `taskId` projection (the backend's `activeTaskId` field), never local React state
-  // defaulted to the first bound task. Falling back to `boundTaskIds[0]` only applies
-  // when the server genuinely has no active task recorded at all.
-  const activeTaskId: string | null = sessionDetails?.taskId ?? (boundTaskIds.length > 0 ? boundTaskIds[0] : null);
+  // `taskId` projection (the backend's `activeTaskId` field), never local React state.
+  // No fallback to `boundTaskIds[0]` — a session can be bound to multiple tasks with no
+  // authoritative active task at all, and the UI must show that neutral state honestly
+  // rather than silently selecting the first bound task.
+  const activeTaskId: string | null = sessionDetails?.taskId ?? null;
 
   const { setActiveTask } = useSetSessionActiveTask();
   const [taskSwitchError, setTaskSwitchError] = useState<string | null>(null);

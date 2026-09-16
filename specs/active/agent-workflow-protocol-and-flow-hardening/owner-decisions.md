@@ -268,3 +268,17 @@
 - **Date:** 2026-09-16
 - **Affected artifacts:** `specs/active/agent-workflow-protocol-and-flow-hardening/tasks/03-chat-surface-workflow-actions-and-composer-modes.md`
 
+## D17: Scope amendment — Task 03 third corrective pass (generic chat on deterministic specs, remaining `activeTaskId` fallbacks, truthful workflow descriptions)
+
+- **Question:** Closing the third corrective-pass findings — (1) a deterministic specification must not treat every AI turn as deterministic task execution when no task is authoritatively active, and (2) the remaining "first bound task becomes active task" fallbacks (`service.mjs`'s list-session projections and `getSessionDetails`, plus `binding-service.mjs`'s `resolveCurrentBinding`/`resolveCurrentBindingSync`, which preferred the most-recently-touched binding's `taskId` over the session's own authoritative `activeTaskId`) — requires touching `tools/dashboard/server/ai/sessions/binding-service.mjs`, which Task 03's `allowed_paths` did not yet cover (only its test file, `binding-service.test.mjs`, was already listed). How should this be resolved?
+- **Options considered:**
+  1. *Defer to a new task.*
+  2. *Amend Task 03's declared scope again (Recommended):* Add `tools/dashboard/server/ai/sessions/binding-service.mjs` to `allowed_paths`, consistent with D13/D14/D16's precedent, keeping the change narrow (two `taskId` projection fields corrected, no broader rewrite of binding-service's bind/switch semantics).
+- **Trade-offs / Consequences:**
+  - Option 1 would leave `activeTaskId`-vs-`taskId` semantics inconsistent between `service.mjs` (already fixed this pass) and its own `binding-service.mjs` dependency, and would require re-opening Task 02/03's closed scope later anyway.
+  - Option 2 keeps the fix inside the task whose own acceptance criteria depend on `activeTaskId` being authoritative end-to-end (D9 §7), without expanding into unrelated `binding-service.mjs` cleanup.
+- **Decision:** Option 2. `allowed_paths` amended per the task frontmatter to add `binding-service.mjs`. No new product decision introduced — this reaffirms D9 §7's existing `taskIds` (all bound) vs. `activeTaskId`/`taskId` (current authoritative, optional) distinction against a fallback that had silently violated it.
+- **Rationale:** Same reasoning as D13/D14/D16 — these files are required for Task 03's own acceptance criteria (an authoritative `activeTaskId` that never silently degrades to "first" or "most recently touched") rather than unrelated work.
+- **Date:** 2026-09-16
+- **Affected artifacts:** `specs/active/agent-workflow-protocol-and-flow-hardening/tasks/03-chat-surface-workflow-actions-and-composer-modes.md`, `tools/dashboard/server/ai/sessions/binding-service.mjs`, `tools/dashboard/server/ai/sessions/service.mjs`
+

@@ -46,6 +46,7 @@ allowed_paths:
   - tools/dashboard/ui/features/specifications/**
   - tools/dashboard/ui/screens/specification-detail/**
   - tools/dashboard/server/ai/sessions/service.mjs
+  - tools/dashboard/server/ai/sessions/binding-service.mjs
   - tools/dashboard/server/ai/sessions/routes.mjs
   - tools/dashboard/server/ai/sessions/interactions/routes.mjs
   - tools/dashboard/server/ai/sessions/turns/runtime.mjs
@@ -72,7 +73,7 @@ forbidden_paths:
   - tests/NEvo.*/**
   - tools/specs/workflow/**
 semantic_references:
-  decisions: [D3, D4, D7, D8, D9, D10, D11, D14, D15, D16]
+  decisions: [D3, D4, D7, D8, D9, D10, D11, D14, D15, D16, D17]
   constraints: [C7, C8, C9, C10, C11, C12]
 ---
 
