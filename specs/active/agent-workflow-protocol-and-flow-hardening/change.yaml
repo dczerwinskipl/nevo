@@ -72,7 +72,7 @@ tasks:
   - id: chat-surface-workflow-actions-and-composer-modes
     order: 3
     file: tasks/03-chat-surface-workflow-actions-and-composer-modes.md
-    status: implemented
+    status: verified
     depends_on:
       - session-task-binding-and-workflow-server-endpoints
     implementation:
