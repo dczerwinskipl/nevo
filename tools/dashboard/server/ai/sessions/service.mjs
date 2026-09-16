@@ -1236,6 +1236,7 @@ export class AgentSessionService {
 
     const { onEvent, ...subscriptionOptions } = opts || {};
     if (typeof onEvent !== 'function') throw new TypeError('onEvent is required.');
+    let latestSequence = Number(subscriptionOptions.afterSequence ?? 0) || 0;
 
     // A legacy provider/providerSessionId identity must resolve to the canonical
     // sessionId the turn was actually registered under — the runtime keys everything
@@ -1250,31 +1251,63 @@ export class AgentSessionService {
       if (resolved) canonicalSessionId = resolved.sessionId;
     }
 
-    const targetIdentity = canonicalSessionId || { provider: prov, providerSessionId: sessId };
+    let activeUnsubscribe = null;
+    let resolutionTimer = null;
 
-    return this.turnRuntime.subscribeToSession(
-      targetIdentity,
-      {
+    const deliverEvent = (event) => {
+      latestSequence = Math.max(latestSequence, event.seq ?? event.id ?? 0);
+      if (event.type === 'turn.updated' && event.turn) {
+        const publicTurn = serializePublicTurn(event.turn);
+        const descriptor = prov && this.registry?.has(prov) ? this.registry.get(prov).descriptor : undefined;
+        const readiness = resolveSessionReadiness({
+          descriptor,
+          turnSnapshot: publicTurn,
+        });
+        onEvent({
+          ...event,
+          turn: publicTurn,
+          readiness,
+        });
+        return;
+      }
+      onEvent(event);
+    };
+
+    const subscribe = (targetIdentity) => {
+      activeUnsubscribe?.();
+      activeUnsubscribe = this.turnRuntime.subscribeToSession(targetIdentity, {
         ...subscriptionOptions,
-        onEvent: (event) => {
-          if (event.type === 'turn.updated' && event.turn) {
-            const publicTurn = serializePublicTurn(event.turn);
-            const descriptor = prov && this.registry?.has(prov) ? this.registry.get(prov).descriptor : undefined;
-            const readiness = resolveSessionReadiness({
-              descriptor,
-              turnSnapshot: publicTurn,
-            });
-            onEvent({
-              ...event,
-              turn: publicTurn,
-              readiness,
-            });
-            return;
-          }
-          onEvent(event);
-        },
-      },
-    );
+        afterSequence: latestSequence,
+        onEvent: deliverEvent,
+      });
+    };
+
+    if (canonicalSessionId) {
+      subscribe(canonicalSessionId);
+    } else {
+      subscribe({ provider: prov, providerSessionId: sessId });
+      if (prov && sessId && this.bindingService) {
+        resolutionTimer = setInterval(() => {
+          const resolved =
+            typeof this.bindingService?.resolveCurrentBindingSync === 'function'
+              ? this.bindingService.resolveCurrentBindingSync(prov, sessId)
+              : typeof this.bindingService?.findSessionByProviderIdentitySync === 'function'
+                ? this.bindingService.findSessionByProviderIdentitySync(prov, sessId)
+                : null;
+          if (!resolved?.sessionId) return;
+          canonicalSessionId = resolved.sessionId;
+          clearInterval(resolutionTimer);
+          resolutionTimer = null;
+          subscribe(canonicalSessionId);
+        }, 10);
+        resolutionTimer.unref?.();
+      }
+    }
+
+    return () => {
+      if (resolutionTimer) clearInterval(resolutionTimer);
+      activeUnsubscribe?.();
+    };
   }
 
   getTurn(turnId) {
