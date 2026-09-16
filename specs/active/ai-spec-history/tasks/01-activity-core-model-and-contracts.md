@@ -32,6 +32,11 @@ every activity record must satisfy — without any persistence or producer-speci
   - A validator (e.g. `validateActivityEnvelope(record)`) that checks required fields
     (`id`, `type`, `schemaVersion`, `occurredAt`, `actor`, `scope.specId`) and the shape
     of optional fields (`initiatedBy`, `triggeredBy`, `scope.taskId`, `data`).
+    **This validator never defaults, generates, or mutates any field** — it only ever
+    receives and checks an already-complete envelope. Defaulting/generating `id`,
+    `occurredAt`, and `schemaVersion` is task 02's (`recordActivity`'s) responsibility,
+    applied *before* this validator runs (2026-09-16 review, Major 4 — task 01 and task 02
+    previously disagreed about which of them owns this).
   - `data` is validated only for being present-or-absent — its internal shape is
     explicitly out of scope for this validator (producer-owned, D7).
   - An `ActorRef` shape check (`{ type: string, id: string }`), with `type` accepting any

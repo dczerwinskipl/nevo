@@ -16,7 +16,7 @@ forbidden_paths:
   - tools/dashboard/**
   - tools/specs/workflow/**
 semantic_references:
-  decisions: [D3]
+  decisions: [D3, D10]
   dependency_contracts: [activity-core-model-and-contracts, activity-local-store]
 ---
 
@@ -43,6 +43,9 @@ any future CLI/AI-context consumer.
     explicitly-named export entry point rather than a new format).
 - All three query functions preserve file append order (already deterministic per the
   store) — no re-sorting by `occurredAt`.
+- All three query functions inherit the store's read-side dedup-by-`id` (task 02) simply
+  by being built on `readActivities` — this task does not implement its own deduplication
+  logic (2026-09-16 review, Blocking 2).
 
 ## Implementation constraints
 

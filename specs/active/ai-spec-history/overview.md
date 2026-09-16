@@ -132,6 +132,16 @@ producer before calling the shared append helper — a new producer adds a new `
 constant and its own data contract, never touching the core envelope (D7, acceptance
 criterion 9).
 
+`recordActivity(fields)`'s construction order is fixed and must not be reordered
+*(2026-09-16 review, Major 4: task 01/02 previously disagreed on whether fields were
+defaulted before or after validation)*: **normalize/default the full envelope, then
+validate it, then append.** Concretely: `id ?? <caller-supplied deterministic id, else
+crypto.randomUUID()>`, `occurredAt ?? new Date().toISOString()`, `schemaVersion ??
+ACTIVITY_SCHEMA_VERSION` (the constant `model.mjs` exports — `store.mjs` owns applying the
+default, `model.mjs` owns defining it), *then* `validateActivityEnvelope(fullyNormalized)`,
+*then* append. `validateActivityEnvelope` itself never defaults anything — it only ever
+receives an already-complete envelope.
+
 ### Storage
 
 - One append-only NDJSON file per spec: `.nevo-ai-local/activity/<specId>.ndjson`, keyed by
@@ -139,11 +149,23 @@ criterion 9).
 - Append via a single write syscall per record (no read-modify-write) — no lock file is
   needed, unlike `binding-service.mjs`'s advisory lock, because pure appends don't race on
   shared mutable state the way read-modify-write does.
+- **Framing (revised 2026-09-16 in response to review Major 5):** each record is written
+  as `"\n" + JSON.stringify(record)` — a **leading** newline, not a trailing one. This
+  matters for crash recovery: if a write is interrupted mid-record, the file ends with a
+  dangling partial line with no newline after it (e.g. `...\n{prev}\n{partial`). Because
+  the *next* append always starts with its own `\n`, that next write produces
+  `...\n{prev}\n{partial\n{next}` — splitting on `\n` now cleanly isolates `{partial` (an
+  independently skippable malformed line) from `{next}` (fully intact and readable). A
+  trailing-newline-only scheme cannot make this guarantee: the next append would
+  concatenate directly onto the dangling partial line and corrupt it too. Readers split on
+  `\n`, discard empty lines (including the leading blank produced by the very first
+  record's leading newline), and skip any line that fails to parse.
 - Ordering is the physical line order in the file — no sort-by-`occurredAt` step, avoiding
   clock-skew/tie-break issues entirely (D3).
 - No pruning (D2) — the file lives for the life of the spec (including after archival).
-- Reader tolerates a trailing incomplete line (a crash mid-append): parses each line
-  independently; an unparseable line is skipped, not fatal to the read.
+- **Deduplication on read, by `id`, keep-first** — see § Idempotency for resumable
+  operations below (2026-09-16 review, Blocking 2). This is load-bearing for producers
+  that use deterministic ids, not merely a nice-to-have.
 - Fully separate module, schema, and directory from `lifecycle_traces` — no shared code
   with `trace-sink.mjs` (D1).
 
@@ -151,27 +173,39 @@ criterion 9).
 
 - `tools/specs/activity/actor-resolver.mjs`:
   - `user` actor: resolved from `git config user.name`/`user.email` (new small read added
-    to `tools/lib/git.mjs`) at query/render time — not snapshotted into historical records
-    (D4). Falls back to a placeholder id if git config is unavailable.
-  - `agent-session` actor: the existing bound session id from
-    `AgentSessionBindingService`.
+    to `tools/lib/git.mjs`) at the point of emission, and stored as `{type: 'user', id:
+    <email or name>}`. Falls back to a placeholder id if git config is unavailable.
+  - `agent-session` actor: wraps a session id into `{type: 'agent-session', id:
+    sessionId}`. That `sessionId` comes from `autoBindAgentSession`'s resolved execution
+    context — see Producers below for the exact contract (Blocking 3 in the 2026-09-16
+    review, resolved: `autoBindAgentSession` (`tools/specs.mjs`) now returns the
+    `AgentExecutionContext` it already computes internally via
+    `readAgentExecutionContext`, instead of nothing; callers in `cli.mjs` capture it and
+    pass `context?.sessionId` forward). Falls back to `SYSTEM_ACTOR` when no session is
+    bound.
   - `system` actor: a fixed constant (e.g. `{ type: 'system', id: 'nevo-workflow-engine' }`)
     for workflow-engine-initiated facts with no human/agent actor.
-- Presentation (a rendered display name) is always resolved live from the actor's current
-  source, never duplicated into the stored record — see Historical integrity below.
+- **v1 presentation model for `user` actors (resolved 2026-09-16, replaces the earlier
+  "resolved live from the stored id" description — see Historical integrity):** since v1
+  has exactly one local human identity source and no multi-user registry, presentation for
+  *any* `type: 'user'` actor is simply "the current live `git config` name," independent of
+  which `id` that specific record stored — there is no id-keyed lookup. The stored `id` is
+  kept as a historical fact (useful if multi-user support is added later and old records
+  need reinterpreting), not as a presentation lookup key.
 
 ### Historical integrity
 
-Stable identity refs are persisted; presentation is resolved later, live, and can change
-without rewriting history. For v1, this has one accepted limitation: since there is
-exactly one local human identity source (`git config`) and no multi-user registry, if the
-git config identity later changes (different name/email), past activity records render
-under the *current* name, not the name at the time of the action — there is no snapshot to
-fall back to. This is acceptable for a single-machine local tool and is explicitly a v1
-limitation to revisit if/when a real login/multi-user identity source replaces the git
-config fallback (D4). Execution facts that matter historically regardless of presentation
-(e.g. `result`, `attempt`, `transitioned_to`) are always stored as immutable event `data`,
-never inferred from presentation state.
+Stable identity refs are persisted; presentation is resolved later. For `agent-session`
+and `system` actors, presentation can legitimately be looked up by `id` later (sessions
+and system actors are enumerable/stable). For `user` actors in v1, presentation does not
+attempt an id-keyed lookup at all (see Actor resolution above) — it always renders as the
+current git identity, because v1 has exactly one local human and no registry to look up a
+different one. This sidesteps rather than solves general identity drift: if a future
+version needs *multiple, distinguishable* human actors, replacing the git-config fallback
+with a real local-party id (and an actual lookup) is required at that point — this is
+explicitly a v1 limitation, not a durable guarantee. Execution facts that matter
+historically regardless of presentation (e.g. `result`, `attempt`, `transitioned_to`) are
+always stored as immutable event `data`, never inferred from presentation state.
 
 ### Query / service boundary
 
@@ -188,24 +222,59 @@ never inferred from presentation state.
 
 ### Producers (first, deliberately small slice)
 
-1. `workflow.step.started` — `handleWorkflowStepStart` (`cli.mjs`).
-2. `workflow.step.completed` — `finishStep`'s transition stage
-   (`finish-operation.mjs`), carrying `result`, `attempt`, `transitioned_to`, `artifacts`,
-   `feedback`, and (when the review step already captures it) a `findings` list with
-   per-finding `author` (D6).
-3. `human.verification.confirmed` — `FileHumanVerificationStore.confirm()`
-   (`human-verification-store.mjs`), actor resolved via the git-config-based user resolver.
+1. `workflow.step.started` — `handleWorkflowStepStart` (`cli.mjs`). Actor: agent-session
+   (via `autoBindAgentSession`'s returned context) or `SYSTEM_ACTOR`.
+2. `workflow.step.completed` — `ensureUpdateTask`'s **`update-task` stage**
+   (`finish-operation.mjs`) — **not** the later `transition` stage (2026-09-16 review,
+   Blocking 1: the review found the original spec named the wrong stage). `update-task` is
+   the stage that computes the transition target and writes
+   `task.workflow_progress.history[]`; `transition`/`commit`/`push` are later,
+   runtime-only stages of the durable finish operation. So `workflow.step.completed`
+   means specifically: *the authoritative workflow state transition was recorded* — not
+   "the whole finish operation (incl. commit/push) settled." `data` carries `result`,
+   `attempt`, `transitioned_to`, `artifacts`, `feedback` (all already known at
+   `update-task`), and — only when already present at this boundary — a `findings` list
+   with per-finding `author` (D6). A later `workflow.step.settled`-shaped event covering
+   full durable completion (post commit/push) is explicitly out of scope for v1 (see Out
+   of scope).
+3. `human.verification.confirmed` — `handleWorkflowVerifyHuman`'s `--confirm` branch
+   (`cli.mjs`), immediately after a successful `FileHumanVerificationStore.confirm()` call
+   — **not inside the store** (2026-09-16 review, Major 6: `FileHumanVerificationStore`
+   only knows repo root/change slug/task/attempt/gate data, not the stable `spec_id` the
+   Activity store keys on; the CLI handler already resolves the full `change` object and
+   is the real user-action boundary). Actor resolved via the git-config-based user
+   resolver.
 
 ### Idempotency for resumable operations
 
-Activity emission for the workflow producer is wired into the **same idempotent
-stage-transition guard** that already prevents `finishStep` from re-running
-commit/push/transition on a resumed operation (`operation-record.mjs`'s per-stage
-status tracking). A resumed/replayed finish does not re-emit `workflow.step.completed`
-for a stage that already completed. As defense in depth, workflow-engine-emitted activity
-ids are derived deterministically from stable identifiers (`operationId` + stage) rather
-than freshly randomized, so an accidental double-call is still detectable/idempotent on
-read without requiring the append-only store itself to deduplicate.
+*(Revised 2026-09-16 in response to review Blocking 2 — the original "defense in depth"
+framing was not actually sufficient: the Activity append and the operation-record's
+per-stage status update are two independent writes with a real crash window between them,
+and neither `readActivities` nor `query.mjs` deduplicated. This is now the actual
+mechanism, not a backup.)*
+
+- Every producer-emitted activity in this slice uses a **deterministic id**, derived from
+  stable identifiers already known at the point of emission — not `crypto.randomUUID()`.
+  Concretely: `` `${type}:${specId}:${taskId}:${step}:${attempt}` `` (`human.verification.
+  confirmed` additionally includes `:${gateId}`, since one step/attempt can have more than
+  one gate).
+- The store's read path (`readActivities` in `tools/specs/activity/store.mjs`, and
+  therefore every `query.mjs` function built on it) **deduplicates by `id`, keeping the
+  first occurrence** (earliest `occurredAt` for that id) and discarding later lines with
+  the same id. Append itself stays a single write call with no pre-read/lock — it is
+  intentionally append-at-least-once; correctness comes from read-side dedup, not
+  write-side prevention.
+- This makes the crash window harmless regardless of which side (Activity append vs.
+  operation-record stage status) lands first or is retried: whichever write(s) repeat on
+  resume produce identical-id records that collapse to one on read. It also directly
+  covers `workflow.step.started`'s repeatability (`workflow step start` is intentionally
+  re-callable while a step is active) — repeated calls for the same attempt produce the
+  same deterministic id and dedup to a single logical activity.
+- Additionally, `workflow.step.completed` emission is placed at `ensureUpdateTask`'s own
+  existing idempotent guard (`if (stage.status === 'completed') return;`) so a resumed
+  operation does not even attempt to re-emit once that stage is known complete — dedup-on-
+  read is the correctness guarantee; this guard is an optimization that avoids the
+  redundant attempt in the common resumed-and-already-complete case.
 
 ### Extensibility for future producers
 
@@ -246,8 +315,11 @@ changes; `workflow_progress` remains authoritative and unaffected.
    the recorded `workflow.step.completed` activity.
 9. A new, unrelated activity type can be added by a new producer module without changing
    the core persisted Activity schema or the store/query modules.
-10. A resumed/replayed workflow finish operation does not create a duplicate
-    `workflow.step.completed` activity for a stage that already completed.
+10. A resumed/replayed workflow finish operation does not surface a duplicate
+    `workflow.step.completed` activity when queried — whether the duplicate attempt is
+    prevented at the emission guard or collapsed by read-side dedup-by-`id` (both apply,
+    see § Idempotency for resumable operations). Also proven: repeated `workflow step
+    start` calls for the same attempt dedup to a single `workflow.step.started` activity.
 
 ## Verification strategy
 
@@ -285,6 +357,13 @@ producers must follow (D9).
 - Producers beyond the three listed above (PR lifecycle, merge, handover, spec
   create/finalize) — the model must support them without redesign, but wiring them is
   future work.
+- A distinct event for the full durable finish operation settling (i.e. covering
+  commit/push, after `workflow.step.completed`'s `update-task`-stage meaning) — a future
+  `workflow.step.settled`-shaped type is possible without redesign, but not built now
+  (2026-09-16 review, Blocking 1 follow-on).
+- Multi-user-capable identity resolution (a real local-party id + id-keyed presentation
+  lookup for `user` actors) — v1 renders every `user` actor as "the current git identity"
+  with no lookup, since there is exactly one local human; see § Historical integrity.
 - Consolidating the repo's existing duplicated atomic-write idiom
   (`operation-record.mjs`, `human-verification-store.mjs`, `binding-service.mjs`) — left
   as-is (D1).

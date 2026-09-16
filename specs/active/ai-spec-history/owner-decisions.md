@@ -77,3 +77,90 @@
 - **Consequences:** New `docs/decisions/ADR-00NN-local-append-only-activity-history.md`, written as part of the last task in this change.
 - **Date:** 2026-09-16
 - **Affected artifacts:** `tasks/08-activity-adr-and-docs.md`
+
+## D10: Idempotency mechanism (resolved from PR #52 review, Blocking 2/3)
+
+- **Question:** The `ultrareview` posted on PR #52 found that "deterministic activity ids
+  as defense in depth" was not an actual idempotency mechanism — `readActivities`/
+  `query.mjs` didn't deduplicate, so a crash between the Activity append and the
+  operation-record stage-status update could either duplicate or silently lose an
+  activity. It also flagged that `workflow.step.started`'s producer had no defined
+  behavior for `step start`'s intentional repeatability, and that task 06 had no defined
+  contract for obtaining the bound agent-session's `sessionId` at all (`autoBindAgentSession`
+  returns nothing today).
+- **Decision:** Adopted the review's own suggested direction, made concrete: every
+  producer-emitted activity in this slice uses a deterministic id (`` `${type}:${specId}:
+  ${taskId}:${step}:${attempt}[:${gateId}]` ``); the store's read path deduplicates by
+  `id`, keeping the first occurrence. `autoBindAgentSession` (`tools/specs.mjs`) now
+  returns the `AgentExecutionContext` it already computes, so callers can source
+  `sessionId` for the agent-session actor.
+- **Rationale:** Append-at-least-once + read-side dedup preserves the no-lock,
+  single-write-per-record design (D1/D3) without needing a read-modify-write or a lock
+  file to make the append itself exactly-once. Returning the already-computed execution
+  context from `autoBindAgentSession` is a non-breaking, minimal-diff fix.
+- **Consequences:** `store.mjs` (task 02) and therefore every `query.mjs` function (task
+  04) now dedup by `id`. `tools/specs.mjs`'s `autoBindAgentSession` signature gains a
+  return value (task 06).
+- **Date:** 2026-09-16
+- **Affected artifacts:** `overview.md`, `areas/activity-model-and-store.md`,
+  `areas/activity-producers-workflow-and-verification.md`, `tasks/02`, `tasks/04`,
+  `tasks/06`.
+
+## D11: `workflow.step.completed` hook point (resolved from PR #52 review, Blocking 1)
+
+- **Question:** The review found the spec named `finishStep`'s `transition` stage as
+  where `workflow.step.completed` is emitted, but `transition` is a later, runtime-only
+  stage that runs after commit/push and does not write `workflow_progress.history[]` —
+  `ensureUpdateTask` (the `update-task` stage) is what actually computes the transition
+  target and writes that history entry.
+- **Decision:** `workflow.step.completed` is emitted from the `update-task` stage, and its
+  meaning is now explicit: "the authoritative workflow state transition was recorded,"
+  not "the whole durable finish operation (incl. commit/push) settled." A distinct future
+  event for full durable settlement is left as a documented non-goal, not built now.
+- **Rationale:** This is what the spec always intended to claim (correspondence with
+  `workflow_progress.history[]`) — the stage name was simply wrong. Fixing the name
+  rather than redefining the semantic keeps `workflow.step.completed` aligned with what
+  the spec's own acceptance criteria already claimed.
+- **Consequences:** No scope change — a factual correction. `overview.md`,
+  `areas/activity-producers-workflow-and-verification.md`, `tasks/06` updated
+  accordingly.
+- **Date:** 2026-09-16
+- **Affected artifacts:** `overview.md`, `areas/activity-producers-workflow-and-verification.md`,
+  `tasks/06-workflow-step-activity-producer.md`.
+
+## D12: Human-verification emission boundary (resolved from PR #52 review, Major 6)
+
+- **Question:** Task 07 originally wired activity emission inside
+  `FileHumanVerificationStore.confirm()`, but that store only knows repo root, change
+  slug, task, attempt, and gate data — not the stable `spec_id` the Activity store keys
+  on, nor anything about git identity.
+- **Decision:** Emit from `handleWorkflowVerifyHuman`'s `--confirm` branch in `cli.mjs`,
+  immediately after a successful `confirm()` call — the CLI handler already has the full
+  `change` object (and `spec_id`) in scope.
+- **Rationale:** Keeps `FileHumanVerificationStore` focused on signoff persistence only;
+  the CLI handler is the actual user-action boundary and already resolves everything
+  Activity emission needs.
+- **Consequences:** `human-verification-store.mjs` is untouched by this change entirely;
+  task 07's `allowed_paths` moved from that file to `cli.mjs`.
+- **Date:** 2026-09-16
+- **Affected artifacts:** `overview.md`, `areas/activity-producers-workflow-and-verification.md`,
+  `tasks/07-human-verification-activity-producer.md`.
+
+## D13: `user` actor presentation model for v1 (resolved from PR #52 review, D4 follow-on)
+
+- **Question:** The review noted that D4's "git config as `id`" choice is itself not a
+  stable identity — if git config changes, the old persisted `id` can't be resolved back
+  to a display name from current config, since there's no registry to look it up in.
+- **Decision:** Presentation for `type: 'user'` actors in v1 does not attempt an id-keyed
+  lookup at all — every `user` actor renders as "the current live git identity," because
+  v1 has exactly one local human. The stored `id` remains a historical fact (useful if
+  multi-user support is added later), not a presentation lookup key. No new local-party-id
+  config file is introduced, consistent with D4's "no new setup mechanism" preference.
+- **Rationale:** Sidesteps the identity-drift problem entirely for the realistic v1 case
+  (one local user) without adding new persisted configuration, while being explicit that
+  this is a v1-only simplification, not a general multi-user solution.
+- **Consequences:** `overview.md` § Historical integrity and § Out of scope now state this
+  explicitly, including that multi-user-capable identity resolution is future work.
+- **Date:** 2026-09-16
+- **Affected artifacts:** `overview.md`, `areas/activity-model-and-store.md`,
+  `tasks/03-actor-resolver.md`.

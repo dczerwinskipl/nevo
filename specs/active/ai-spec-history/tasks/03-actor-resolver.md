@@ -19,7 +19,7 @@ forbidden_paths:
   - tools/dashboard/**
   - tools/specs/workflow/**
 semantic_references:
-  decisions: [D4]
+  decisions: [D4, D13]
   dependency_contracts: [activity-core-model-and-contracts]
 ---
 
@@ -46,12 +46,17 @@ constant).
     absent> }`; if neither is configured, returns a fixed placeholder
     (`{ type: 'user', id: 'unknown-user' }`).
   - `resolveAgentSessionActor(sessionId)`: returns `{ type: 'agent-session', id:
-    sessionId }`.
+    sessionId }`. This module does **not** itself call `autoBindAgentSession` or
+    `readAgentExecutionContext` — callers (the producers area, task 06) resolve
+    `sessionId` themselves and pass it in, since `autoBindAgentSession`'s returned
+    `AgentExecutionContext` is a workflow-CLI concern, not an actor-resolver concern
+    (2026-09-16 review, Blocking 3 — keeps this module's dependency surface small).
   - `SYSTEM_ACTOR`: exported constant `{ type: 'system', id: 'nevo-workflow-engine' }`.
-- Resolution is live/uncached — no snapshotting of a display name into the `ActorRef`
-  itself (D4, overview.md § Historical integrity). This resolver returns identity refs
-  only; presentation/display-name lookup is explicitly a separate, later concern (not
-  built in this task).
+- This resolver returns identity refs only. For `user` actors specifically, v1
+  presentation never performs an id-keyed lookup at all — any `type: 'user'` actor is
+  rendered as "the current live git identity," because v1 has exactly one local human and
+  no registry (2026-09-16 review, D4 follow-on — see overview.md § Historical integrity).
+  Building that presentation/rendering logic itself is still out of scope for this task.
 
 ## Implementation constraints
 
