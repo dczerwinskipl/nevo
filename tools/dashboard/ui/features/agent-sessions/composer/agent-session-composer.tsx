@@ -234,9 +234,10 @@ export function AgentSessionComposer({
                 <Button
                   type="button"
                   size="sm"
+                  variant="destructive"
                   onClick={() => void submitRequestChanges()}
                   disabled={!draft.trim() || isDisabled || isSubmittingFeedback}
-                  className="h-8 gap-1.5 px-3.5 text-xs font-semibold bg-status-error text-white hover:bg-status-error/90"
+                  className="h-8 gap-1.5 px-3.5 text-xs font-semibold"
                   aria-label="Send & reject"
                 >
                   <span>{isSubmittingFeedback ? 'Sending…' : 'Send & reject'}</span>

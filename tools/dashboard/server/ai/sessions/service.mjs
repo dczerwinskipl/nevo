@@ -1184,8 +1184,13 @@ export class AgentSessionService {
     // A legacy provider/providerSessionId identity must resolve to the canonical
     // sessionId the turn was actually registered under — the runtime keys everything
     // by sessionId, never by the raw provider-native id.
-    if (!canonicalSessionId && prov && sessId && typeof this.bindingService?.findSessionByProviderIdentitySync === 'function') {
-      const resolved = this.bindingService.findSessionByProviderIdentitySync(prov, sessId);
+    if (!canonicalSessionId && prov && sessId) {
+      const resolved =
+        typeof this.bindingService?.resolveCurrentBindingSync === 'function'
+          ? this.bindingService.resolveCurrentBindingSync(prov, sessId)
+          : typeof this.bindingService?.findSessionByProviderIdentitySync === 'function'
+            ? this.bindingService.findSessionByProviderIdentitySync(prov, sessId)
+            : null;
       if (resolved) canonicalSessionId = resolved.sessionId;
     }
 
