@@ -1,11 +1,11 @@
 {
-  "generated": "2026-09-16T13:15:48.545Z",
+  "generated": "2026-09-16T13:20:20.897Z",
   "changes": [
     {
       "id": "agent-workflow-protocol-and-flow-hardening",
       "specId": "3aa4f1ac-0daf-4906-8275-9a9d9c84c3cd",
       "title": "Agent workflow protocol and flow hardening",
-      "status": "in-implementation",
+      "status": "archived",
       "priority": 10,
       "created": "2026-09-13",
       "tasks": [
