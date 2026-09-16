@@ -37,7 +37,7 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
     descriptor: { id: 'fake', label: 'Fake', capabilities },
     async startTurn({
       providerSessionId,
-      setProviderSessionId,
+      onProviderSessionIdAvailable,
       message,
       setOperation,
       emitCommentaryDelta,
@@ -50,8 +50,8 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
       requestInteraction,
       signal,
     }) {
-      if (!providerSessionId && setProviderSessionId) {
-        setProviderSessionId('sess-auto-allocated');
+      if (!providerSessionId && onProviderSessionIdAvailable) {
+        onProviderSessionIdAvailable('sess-auto-allocated');
       }
       setOperation?.({ cancelled: false });
 
@@ -229,12 +229,25 @@ test('progress.delta remains ordered provider-neutral activity and never becomes
   }
 });
 
-test('runtime rejects legacy sessionId and enforces canonical providerSessionId', async () => {
+test('runtime accepts canonical sessionId as the sole session identity and never substitutes providerSessionId for it', async () => {
   const fixture = createFixture();
-  await assert.rejects(
-    () => fixture.runtime.startTurn({ provider: 'fake', sessionId: 'legacy-only', message: 'hello' }),
-    { name: 'AiValidationError' },
+  const canonicalSessionId = 'canonical-session-1';
+  const { turnId, sessionId } = await fixture.runtime.startTurn({
+    provider: 'fake',
+    sessionId: canonicalSessionId,
+    message: 'hello',
+  });
+  assert.equal(sessionId, canonicalSessionId, 'the returned sessionId must be the canonical id supplied by the caller');
+
+  const completed = await waitFor(
+    () => fixture.runtime.getSnapshot(turnId),
+    (value) => value.status === 'completed',
+    'completion',
   );
+  assert.equal(completed.sessionId, canonicalSessionId);
+  // The provider allocated its own native id; it must never overwrite the canonical sessionId.
+  assert.notEqual(completed.providerSessionId, undefined);
+  assert.notEqual(canonicalSessionId, completed.providerSessionId);
 });
 
 test('permission and question interactions pause, resolve by stable IDs, and continue the same turn', async () => {
@@ -658,7 +671,9 @@ test('single-active-turn invariant rejects duplicates and honors a matching idem
     message: 'hang',
     idempotencyKey: 'request-1',
   });
-  assert.deepEqual(retry, { turnId: first.turnId, idempotent: true });
+  assert.equal(retry.turnId, first.turnId);
+  assert.equal(retry.idempotent, true);
+  assert.equal(retry.providerSessionId, first.providerSessionId);
   await assert.rejects(
     () =>
       fixture.runtime.startTurn({

@@ -195,7 +195,7 @@ test('existing Claude conversation uses --resume', async () => {
   assert.equal(capturedCalls[0].args[resumeIndex + 1], 'existing-uuid-12345');
 });
 
-test('spawn failure before establishment does not call setProviderSessionId', async () => {
+test('spawn failure before establishment does not call onProviderSessionIdAvailable', async () => {
   let established = null;
   const provider = createClaudeAgentProvider({
     spawnProcess: () => {
@@ -208,7 +208,7 @@ test('spawn failure before establishment does not call setProviderSessionId', as
       provider.startTurn({
         turnId: 'turn-spawn-fail',
         message: 'Hello',
-        setProviderSessionId: (id) => {
+        onProviderSessionIdAvailable: (id) => {
           established = id;
         },
       }),
@@ -229,7 +229,7 @@ test('provider process failure before session materialization rejects before est
       provider.startTurn({
         turnId: 'turn-exit-fail',
         message: 'Hello',
-        setProviderSessionId: (id) => {
+        onProviderSessionIdAvailable: (id) => {
           established = id;
         },
       }),
@@ -253,7 +253,7 @@ test('successful establishment calls setProviderSessionId upon first stream even
   const result = await provider.startTurn({
     turnId: 'turn-success',
     message: 'Hello',
-    setProviderSessionId: async (id) => {
+    onProviderSessionIdAvailable: async (id) => {
       established = id;
     },
   });

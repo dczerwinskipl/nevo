@@ -72,6 +72,10 @@ function git(root, args) {
   return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' });
 }
 
+function readRemoteHead(root, branch = 'main') {
+  return git(root, ['ls-remote', 'origin', `refs/heads/${branch}`]).split('\t')[0].trim();
+}
+
 function makeFixture(prefix) {
   const remote = mkdtempSync(join(tmpdir(), `${prefix}-remote-`));
   git(remote, ['init', '-q', '--bare', '--initial-branch=main']);
@@ -116,7 +120,7 @@ describe('Vertical PoC — the full step start / step finish / verify-human sequ
     const stepContext = await handleWorkflowStepStart('demo-change', 'demo-task', { ...RT, activeDir: fx.activeDir, repoRoot: fx.root });
     assert.equal(stepContext.currentStep, 'implementation');
     assert.equal(stepContext.finishContract.requiredInputs['commit.title'].required, true);
-    assert.equal(stepContext.finishContract.requiredInputs['include'].required, true);
+    assert.equal(stepContext.finishContract.requiredInputs['include'].required, false);
     const humanGate = stepContext.finishContract.gates.find(g => g.gateType === 'human');
     assert.equal(humanGate.status, 'blocked');
   });
@@ -146,11 +150,11 @@ describe('Vertical PoC — the full step start / step finish / verify-human sequ
     assert.equal(confirmation.confirmed, true);
   });
 
-  test('Scenario E: a subsequent finish still fails closed on the missing commit.title/include (input-required, zero mutation)', async () => {
+  test('Scenario E: a subsequent finish still fails closed on the missing commit.title (input-required, zero mutation)', async () => {
     const plan = await handleWorkflowStepFinish('demo-change', 'demo-task', { ...RT, check: true, activeDir: fx.activeDir, repoRoot: fx.root });
     assert.equal(plan.status, 'input-required');
     assert.ok(plan.missingInputs.includes('commit.title'));
-    assert.ok(plan.missingInputs.includes('include'));
+    assert.equal(plan.missingInputs.includes('include'), false);
 
     await assert.rejects(
       () => handleWorkflowStepFinish('demo-change', 'demo-task', { ...RT, activeDir: fx.activeDir, repoRoot: fx.root }),
@@ -179,7 +183,7 @@ describe('Vertical PoC — the full step start / step finish / verify-human sequ
     assert.ok(changedInCommit.includes('feature.txt'));
     assert.ok(changedInCommit.some(p => p.endsWith('change.yaml')));
 
-    const remoteHead = git(fx.remote, ['rev-parse', 'main']).trim();
+    const remoteHead = readRemoteHead(fx.root);
     assert.equal(remoteHead, completedSha);
   });
 
@@ -253,7 +257,7 @@ describe('Vertical PoC — interrupted-and-resumed finish via the CLI (AC4, AC6,
 
     assert.equal(result.status, 'completed');
     assert.equal(git(fx.root, ['rev-list', '--count', 'HEAD']).trim(), commitsBefore, 'no second commit must be created');
-    const remoteHead = git(fx.remote, ['rev-parse', 'main']).trim();
+    const remoteHead = readRemoteHead(fx.root);
     assert.equal(remoteHead, commitSha);
   });
 
@@ -368,10 +372,13 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
     // 3. human-verification step
     const hv = def.steps['human-verification'];
     assert.deepEqual(hv.status, { active: 'awaiting-human-verification', completed: 'completed' });
-    assert.equal(hv.exitGates.length, 1);
-    assert.deepEqual(hv.exitGates[0], { type: 'human', required: true, id: 'owner-acceptance' });
+    assert.equal(hv.exitGates.length, 0);
+    assert.deepEqual(hv.exitGates, []);
     assert.deepEqual(hv.finalize, [{ id: 'commit-and-push' }]);
-    assert.deepEqual(hv.transitions, [{ to: 'verified' }]);
+    assert.deepEqual(hv.transitions, [
+      { value: 'pass', to: 'verified' },
+      { value: 'fail', to: 'implementation' },
+    ]);
   });
 
   test('AC2: tools/specs/workflow/templates/standard.yaml matches .nevo-ai/workflows/standard.yaml identically', () => {
@@ -529,33 +536,29 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
       assert.equal(stepContext.semanticStatus, 'awaiting-human-verification');
       assert.equal('nextStepGuidance' in stepContext, false, 'nextStepGuidance must not exist on stepContext');
       assert.ok(stepContext.stepContract.purpose.includes('Explicit owner/user acceptance'));
-      const humanGate = stepContext.finishContract.gates.find(g => g.gateType === 'human');
-      assert.equal(humanGate.status, 'blocked');
-      assert.equal(humanGate.id, 'owner-acceptance');
+      assert.equal(stepContext.finishContract.requiredInputs['result'].required, true);
     });
 
-    test('Phase 3: step finish fails closed while human verification gate is unconfirmed', async () => {
-      const attempt = await handleWorkflowStepFinish('standard-change', 'standard-task', {
-        ...RT, activeDir: fx.activeDir, repoRoot: fx.root, input: JSON.stringify({ 'commit.title': 'Attempt finish without verification', include: ['*'] }),
-      });
-      assert.equal(attempt.status, 'blocked');
-      assert.equal(attempt.blockers[0].gateType, 'human');
-      assert.equal(attempt.blockers[0].id, 'owner-acceptance');
+    test('Phase 3: step finish fails closed without result input', async () => {
+      await assert.rejects(
+        () => handleWorkflowStepFinish('standard-change', 'standard-task', {
+          ...RT, activeDir: fx.activeDir, repoRoot: fx.root, input: JSON.stringify({ 'commit.title': 'Attempt finish without result' }),
+        }),
+        (err) => {
+          assert.equal(err.code, 'MISSING_REQUIRED_INPUT');
+          return true;
+        }
+      );
 
       const task = requireTask(requireChange('standard-change', fx.activeDir), 'standard-task');
       assert.equal(task.status, 'in-implementation');
       assert.equal(task.workflow_progress.state, 'active');
     });
 
-    test('Phase 3: verify-human --confirm satisfies the gate and step finish completes to terminal verified status', async () => {
-      const confirmation = handleWorkflowVerifyHuman('standard-change', 'standard-task', { ...RT, confirm: true, activeDir: fx.activeDir, repoRoot: fx.root });
-      assert.equal(confirmation.confirmed, true);
+    test('Phase 3: verify-human --approve satisfies the step and completes to terminal verified status', async () => {
+      const confirmation = await handleWorkflowVerifyHuman('standard-change', 'standard-task', { ...RT, approve: true, activeDir: fx.activeDir, repoRoot: fx.root });
+      assert.equal(confirmation.status, 'completed');
 
-      const result = await handleWorkflowStepFinish('standard-change', 'standard-task', {
-        ...RT, activeDir: fx.activeDir, repoRoot: fx.root, input: JSON.stringify({ 'commit.title': 'Finalize human verification', include: ['*'] }),
-      });
-
-      assert.equal(result.status, 'completed');
       const task = requireTask(requireChange('standard-change', fx.activeDir), 'standard-task');
       assert.equal(task.status, 'verified');
       assert.equal(task.workflow_progress.current_step, 'human-verification');
@@ -565,7 +568,7 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
       assert.equal(task.workflow_progress.history[2].transitioned_to, 'verified');
 
       const headSha = getCurrentRevision(fx.root);
-      const remoteHead = git(fx.remote, ['rev-parse', 'main']).trim();
+      const remoteHead = readRemoteHead(fx.root);
       assert.equal(remoteHead, headSha);
     });
 
@@ -575,4 +578,3 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
     });
   });
 });
-

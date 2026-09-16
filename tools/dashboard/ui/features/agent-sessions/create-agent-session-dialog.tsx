@@ -14,6 +14,13 @@ export interface CreateAgentSessionTarget {
   slug: string;
   title?: string;
   tasks?: AgentSessionTaskRef[];
+  /**
+   * Authoritative specification-level workflow mode (D15), shown read-only. The session
+   * inherits this — Create Session must never offer a Legacy/Deterministic choice of its
+   * own (see owner-decisions.md D15).
+   */
+  workflowMode?: 'legacy' | 'deterministic';
+  workflowDefinition?: string | null;
 }
 
 export interface CreateAgentSessionDialogProps {
@@ -118,6 +125,21 @@ export function CreateAgentSessionDialog({ specification, onClose, onCreated }: 
             <X className="size-4" />
           </Button>
         </div>
+
+        {specification.workflowMode && (
+          <p className="mt-4 rounded-lg border border-border bg-surface-raised px-2.5 py-2 text-[11px] text-fg-muted">
+            <span className="font-semibold text-fg-secondary">Workflow: </span>
+            {specification.workflowMode === 'deterministic' ? (
+              <>
+                Deterministic
+                {specification.workflowDefinition ? ` · ${specification.workflowDefinition}` : ''}
+              </>
+            ) : (
+              'Legacy'
+            )}{' '}
+            <span className="text-fg-muted">— inherited from specification</span>
+          </p>
+        )}
 
         {providers.loading ? (
           <div className="mt-6 flex items-center gap-2 text-sm text-fg-muted">

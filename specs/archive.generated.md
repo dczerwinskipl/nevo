@@ -4,6 +4,7 @@
 
 | ID | Title | Status | Priority | Created |
 |---|---|---|---|---|
+| `agent-workflow-protocol-and-flow-hardening` | Agent workflow protocol and flow hardening | archived | 10 | 2026-09-13 |
 | `ai-adapters-hardening` | AI adapters hardening | archived | 10 | 2026-08-24 |
 | `ai-session-issues-and-diagnostics` | AI session issues and diagnostics | archived | 10 | 2026-08-30 |
 | `ai-sessions-live-chat-integration` | AI sessions and live chat integration | archived | 10 | 2026-08-15 |

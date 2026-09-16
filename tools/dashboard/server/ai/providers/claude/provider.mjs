@@ -516,12 +516,11 @@ export class ClaudeAgentProvider {
     }
     const mode = params.mode ? validateAgentExecutionMode(params.mode) : 'edit';
 
-    // A providerSessionId alone does not mean Claude has ever seen this conversation:
-    // callers that only pre-allocated a local placeholder (never confirmed by Claude)
-    // must explicitly say so via isSessionEstablished === false, so the fresh identity
-    // is created (--session-id) instead of a nonexistent one being resumed (--resume).
-    const isNew = !params.providerSessionId || params.isSessionEstablished === false;
-    const effectiveSessionId = params.providerSessionId || randomUUID();
+    // In the canonical model, params.providerSessionId is the provider-native conversation id (if resumed).
+    // params.sessionId is the canonical Nevo session UUID.
+    // Turn 1 uses --session-id <sessionId>; subsequent turns use --resume <providerSessionId>.
+    const isNew = !params.providerSessionId;
+    const effectiveSessionId = params.providerSessionId || params.sessionId || randomUUID();
     const isMaterialized = this.#materializedSessions.has(effectiveSessionId);
     const initialFlag = isNew && !isMaterialized ? '--session-id' : '--resume';
 
@@ -549,7 +548,11 @@ export class ClaudeAgentProvider {
     {
       turnId,
       providerSessionId,
-      setProviderSessionId,
+      sessionId,
+      specId,
+      taskId,
+      activeTaskId,
+      onProviderSessionIdAvailable,
       identity,
       message,
       prompt,
@@ -622,7 +625,18 @@ export class ClaudeAgentProvider {
     return new Promise((resolve, reject) => {
       let child;
       try {
-        const childEnv = { ...process.env, CLAUDE_INTERACTIVE: '0' };
+        const effectiveNevoSessionId = sessionId || effectiveSessionId;
+        const effectiveSpecId = specId;
+        const effectiveTaskId = activeTaskId || taskId;
+        const childEnv = {
+          ...process.env,
+          CLAUDE_INTERACTIVE: '0',
+          NEVO_SESSION_ID: effectiveNevoSessionId,
+          NEVO_AGENT_PROVIDER: 'claude',
+          NEVO_AGENT_PROVIDER_SESSION_ID: effectiveSessionId,
+          ...(effectiveSpecId ? { NEVO_SPEC_ID: effectiveSpecId } : {}),
+          ...(effectiveTaskId ? { NEVO_TASK_ID: effectiveTaskId } : {}),
+        };
         // Scoped CA trust must be decided fresh for this endpoint, never inherited from
         // whatever the parent Nevo process's own ambient environment happens to carry.
         delete childEnv.NODE_EXTRA_CA_CERTS;
@@ -719,9 +733,9 @@ export class ClaudeAgentProvider {
         if (!isMaterialized && event.session_id === effectiveSessionId) {
           isMaterialized = true;
           this.#materializedSessions.add(effectiveSessionId);
-          if (setProviderSessionId) {
+          if (onProviderSessionIdAvailable) {
             try {
-              await setProviderSessionId(effectiveSessionId);
+              await onProviderSessionIdAvailable(effectiveSessionId);
             } catch (bindingErr) {
               try {
                 child.kill('SIGINT');

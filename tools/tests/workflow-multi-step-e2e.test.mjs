@@ -30,6 +30,10 @@ function git(root, args) {
   return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' });
 }
 
+function readRemoteHead(root, branch = 'main') {
+  return git(root, ['ls-remote', 'origin', `refs/heads/${branch}`]).split('\t')[0].trim();
+}
+
 function makeFixtureRepo({
   prefix = 'nevo-multi-step-e2e',
   changeId = 'fixture-change',
@@ -79,7 +83,7 @@ function makeFixtureRepo({
     'status: draft',
     `change: ${changeId}`,
     'allowed_paths:',
-    '  - src/**',
+    '  - "*"',
     'forbidden_paths: []',
     '---',
     `# Task: ${taskId}`,
@@ -253,7 +257,7 @@ describe('Multi-step workflow end-to-end acceptance proof (AC1, AC2, AC3, AC4, A
     assert.equal(info.subject, 'Finish step A');
 
     // Remote is up to date
-    assert.equal(git(fx.remote, ['rev-parse', 'main']).trim(), commitShaA);
+    assert.equal(readRemoteHead(fx.root), commitShaA);
   });
 
   test('AC2: repeated step finish immediately after step A completion returns already-completed', async () => {
@@ -319,7 +323,7 @@ describe('Multi-step workflow end-to-end acceptance proof (AC1, AC2, AC3, AC4, A
     assert.equal(task.workflow_progress.history[1].step, 'step-b');
     assert.equal(task.workflow_progress.history[1].transitioned_to, 'step-c');
 
-    assert.equal(git(fx.remote, ['rev-parse', 'main']).trim(), commitShaB);
+    assert.equal(readRemoteHead(fx.root), commitShaB);
   });
 
   test('AC4, AC5: next step start activates step C with blocked HumanVerificationGate', async () => {
@@ -407,7 +411,7 @@ describe('Multi-step workflow end-to-end acceptance proof (AC1, AC2, AC3, AC4, A
     assert.equal(task.workflow_progress.history[2].step, 'step-c');
     assert.equal(task.workflow_progress.history[2].transitioned_to, 'verified');
 
-    assert.equal(git(fx.remote, ['rev-parse', 'main']).trim(), commitShaC);
+    assert.equal(readRemoteHead(fx.root), commitShaC);
   });
 
   test('AC6: subsequent workflow step start reports workflow complete, never re-resolves entryStep, and never consults task.status (D37)', async () => {

@@ -133,18 +133,17 @@ export function SpecificationConsoleLayout() {
               if (promptToSend) {
                 queueAgentSessionInitialDispatch({
                   provider: session.provider,
-                  providerSessionId: session.providerSessionId,
+                  sessionId: session.sessionId,
                   prompt: promptToSend,
                   userMessage,
                 });
               }
               navigate({
-                to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+                to: '/specs/$source/$slug/sessions/$sessionId',
                 params: {
                   source: 'active',
                   slug: spec.slug,
-                  provider: session.provider,
-                  providerSessionId: session.providerSessionId,
+                  sessionId: session.sessionId,
                 },
               });
             } else {

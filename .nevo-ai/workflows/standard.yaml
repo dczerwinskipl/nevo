@@ -65,12 +65,12 @@ steps:
       - type: doc
         ref: docs/development/workflow-engine.md
     entryGates: []
-    exitGates:
-      - type: human
-        required: true
-        id: owner-acceptance
+    exitGates: []
     finalize:
       - id: commit-and-push
     transitions:
-      - to: verified
+      - value: pass
+        to: verified
+      - value: fail
+        to: implementation
 

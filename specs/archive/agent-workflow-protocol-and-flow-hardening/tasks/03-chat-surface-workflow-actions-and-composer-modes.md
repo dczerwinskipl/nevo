@@ -1,0 +1,166 @@
+---
+id: agent-workflow-protocol-and-flow-hardening.chat-surface-workflow-actions-and-composer-modes
+status: draft
+change: agent-workflow-protocol-and-flow-hardening
+depends_on:
+  - session-task-binding-and-workflow-server-endpoints
+context:
+  required:
+    - specs/active/agent-workflow-protocol-and-flow-hardening/overview.md
+    - specs/active/agent-workflow-protocol-and-flow-hardening/owner-decisions.md
+    - specs/active/agent-workflow-protocol-and-flow-hardening/areas/03-human-verification-and-loop-transitions.md
+    - specs/active/agent-workflow-protocol-and-flow-hardening/areas/04-session-task-binding-and-chat-experience.md
+    - specs/active/agent-workflow-protocol-and-flow-hardening/areas/05-end-to-end-session-and-task-bootstrap.md
+    - tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.tsx
+    - tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx
+    - tools/dashboard/ui/features/agent-sessions/create-agent-session-helpers.ts
+  optional:
+    - tools/dashboard/ui/features/agent-sessions/types.ts
+    - tools/dashboard/ui/screens/agent-session/agent-session-screen.tsx
+    - tools/dashboard/ui/features/specifications/detail/status-board.tsx
+    - tools/dashboard/ui/screens/specification-detail/specification-overview.tsx
+    - docs/development/react-component-guidelines.md
+    - docs/development/ui-ux-guidelines.md
+    - docs/development/nevo-ai-ux-guidelines.md
+    - docs/development/nevo-interaction-model.md
+    - docs/development/dashboard-frontend-architecture.md
+    - docs/development/node-tooling-guidelines.md
+allowed_paths:
+  - tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.tsx
+  - tools/dashboard/ui/features/agent-sessions/agent-session-workflow-bar.tsx
+  - tools/dashboard/ui/features/agent-sessions/agent-session-workflow-bar-helpers.ts
+  - tools/dashboard/ui/features/agent-sessions/agent-session-page.tsx
+  - tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx
+  - tools/dashboard/ui/features/agent-sessions/create-agent-session-helpers.ts
+  - tools/dashboard/ui/features/agent-sessions/initial-dispatch.ts
+  - tools/dashboard/ui/features/agent-sessions/queries.ts
+  - tools/dashboard/ui/features/agent-sessions/types.ts
+  - tools/dashboard/ui/features/agent-sessions/runtime/agent-session-runtime.ts
+  - tools/dashboard/ui/features/agent-sessions/runtime/agent-session-transport.ts
+  - tools/dashboard/ui/features/agent-sessions/runtime/agent-turn-transport.ts
+  - tools/dashboard/ui/features/agent-sessions/runtime/pending-action-mode-store.ts
+  - tools/dashboard/ui/screens/agent-session/agent-session-screen.tsx
+  - tools/dashboard/ui/screens/specification-console/**
+  - tools/dashboard/ui/routes/specs.$source.$slug.sessions.$sessionId.tsx
+  - tools/dashboard/ui/routeTree.gen.ts
+  - tools/dashboard/ui/features/specifications/**
+  - tools/dashboard/ui/screens/specification-detail/**
+  - tools/dashboard/server/ai/sessions/service.mjs
+  - tools/dashboard/server/ai/sessions/binding-service.mjs
+  - tools/dashboard/server/ai/sessions/routes.mjs
+  - tools/dashboard/server/ai/sessions/interactions/routes.mjs
+  - tools/dashboard/server/ai/sessions/turns/runtime.mjs
+  - tools/dashboard/server/specs/actions.mjs
+  - tools/dashboard/server/specs/routes.mjs
+  - tools/dashboard/server/specs/service.mjs
+  - tools/specs/identity.mjs
+  - tools/dashboard/tests/agent-session-workflow.test.mjs
+  - tools/dashboard/tests/agent-session-workflow.test.tsx
+  - tools/dashboard/tests/agent-session-runtime-state.test.mjs
+  - tools/dashboard/tests/agent-turn-transport.test.mjs
+  - tools/dashboard/tests/create-agent-session-helpers.test.mjs
+  - tools/dashboard/tests/specs-actions.test.mjs
+  - tools/dashboard/tests/session-task-bootstrap.test.mjs
+  - tools/dashboard/tests/binding-service.test.mjs
+  - tools/dashboard/tests/e2e-product-workflow.test.mjs
+  - tools/dashboard/tests/spec-create-helpers.test.mjs
+  - tools/dashboard/tests/router-navigation.test.mjs
+  - tools/tests/spec-scaffolding.test.mjs
+  - specs/active/agent-workflow-protocol-and-flow-hardening/change.yaml
+  - specs/active/agent-workflow-protocol-and-flow-hardening/owner-decisions.md
+forbidden_paths:
+  - src/**
+  - tests/NEvo.*/**
+  - tools/specs/workflow/**
+semantic_references:
+  decisions: [D3, D4, D7, D8, D9, D10, D11, D14, D15, D16, D17]
+  constraints: [C7, C8, C9, C10, C11, C12]
+---
+
+# Task: Chat surface workflow actions, multi-task context, and composer action modes
+
+## Goal
+
+Integrate end-to-end workflow execution controls into the dashboard and chat surfaces: render direct task-level dispatch buttons (`Start implementation`, `Start review`, `Approve`, `Request changes`) based on server-projected `availableActions`, respect the specification-owned workflow execution mode end-to-end (`D15`), implement a multi-task context bar with explicit `activeTaskId` selection above the composer, implement the dedicated `request-changes` composer mode, and implement the complete application-level product workflow E2E test suite.
+
+## Implementation constraints
+
+- **Specification-Owned Workflow Execution Mode (`D11`, `D15`):**
+  - Workflow execution mode (`legacy` vs `deterministic`) is a specification-level product decision, never a session- or UI-level preference. It is selected once, explicitly, during specification creation (`tools/specs/identity.mjs#createSpecification`, threaded through the Create Specification dialog); the default remains `legacy` (`DEFAULT_WORKFLOW_MODE`, unchanged).
+  - `AgentSession`s inherit the workflow mode of the specification they are bound to and cannot override it. The Create Agent Session dialog displays the inherited mode read-only — it is informational, never a selectable control.
+  - The dashboard and chat surfaces render whichever mode the specification actually resolves to (`resolveWorkflowMode(change)`) — never a locally-selected or persisted presentation preference. There is no session-level or browser-local workflow-mode setting of any kind; the earlier `Workflow Experience: [ Classic ] [ Deterministic Preview ]` `localStorage` toggle described in this task's original draft has been removed from normal product UX and must not be reintroduced.
+  - Deterministic workflow chrome (the in-chat workflow bar's status/attempt/step display, the human-verification banner, direct `availableActions` dispatch buttons) renders if and only if the bound specification is deterministic. Legacy specifications never render fabricated deterministic status, attempt, or step state (no `(unknown)` labels) — they render the plain, generic task-context selector described below instead.
+  - The generic multi-task context bar (which tasks are bound to this session, and which one is the operator-selected `activeTaskId`) is a distinct concept from deterministic workflow position (`step`, `attempt`, server-projected `availableActions`) — the former exists for legacy and deterministic specifications alike; the latter is deterministic-only and always server-projected, never inferred or fabricated by the UI.
+- **Dashboard Task Initiation & `availableActions` Projection (`D8`, `C9`, `C10`):
+  - In `tools/dashboard/ui/features/specifications/detail/status-board.tsx` and specification overview:
+    - Replace hardcoded task action logic with consumption of server-projected `availableActions` array (from `GET /api/specs/:source/:slug/actions`). The UI must NOT recreate the workflow state machine or infer actions from task.status.
+    - When `start-implementation` is available: render `[ Start implementation ]` button. Clicking initiates or reuses a session for the task via `POST /api/agent-sessions` with `{ specId, taskId, taskIds: [taskId], provider, mode: 'edit' }`. The canonical `sessionId` UUID returned is the sole authoritative identity (`providerSessionId` is optional and initially absent until provider confirmation). Initial dispatch is queued with clean `userMessage` (the server-side turn runtime automatically injects the hidden `[Nevo Workflow Context]` header for deterministic specs), and the UI navigates to the session chat view using canonical `sessionId`.
+    - When `start-review` is available: render `[ Start review ]` button. Clicking initiates or reuses a session for review, enqueues review prompt, and navigates to the session using canonical `sessionId`.
+    - When `approve` is available: render `[ Approve ]`. Clicking dispatches `POST /api/specs/:slug/tasks/:taskId/workflow/human-decision` with `{ decision: 'approve' }`.
+    - When `request-changes` is available: render `[ Request changes ]` (navigates to bound session in request-changes mode).
+- **Multi-Task Context & Task Selection (`C11`):**
+  - In `tools/dashboard/ui/features/agent-sessions/agent-session-workflow-bar.tsx`:
+    - Render a compact bar above the chat composer displaying all tasks bound to the active session (`SessionTaskBinding[]` / `session.taskIds`).
+    - Indicate semantic status, attempt number, and current step for each bound task (e.g. `✓ 01 (verified)`, `● 02 (in-implementation · attempt 1)`).
+    - If multiple tasks are bound to the session, allow operator to click a task to set `activeTaskId`.
+    - Singularity rule: all subsequent workflow controls and action surfaces above the composer scope strictly to `activeTaskId`.
+- **In-Chat Workflow Action Surface (`D7`, `D8`):**
+  - In `tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.tsx`:
+    - Immediately above the chat composer:
+    - Query or read server-projected `availableActions` for `activeTaskId`.
+    - When `start-review` is available (e.g. post-finish transition where task is ready for review): render `[ Start review ]` action button.
+    - When `approve` and `request-changes` are available (`awaiting-human-verification`):
+      - Display banner: `Task <id> · Human verification · Attempt <n>`.
+      - Render `[ Approve ]` and `[ Request changes ]` action buttons.
+      - Clicking `[ Approve ]` dispatches `POST /api/specs/:slug/tasks/:taskId/workflow/human-decision` with `{ decision: 'approve' }`.
+      - Clicking `[ Request changes ]` switches the composer into `request-changes` mode.
+- **Dedicated "Request Changes" Composer Mode (`D3`, `D7`, `C8`):**
+  - In `tools/dashboard/ui/features/agent-sessions/composer/agent-session-composer.tsx`:
+    - Support prop `actionMode?: 'request-changes' | null`.
+    - When in `request-changes` mode:
+      - Display prominent mode banner: `Request changes · Task <id> (Attempt <n>)`.
+      - Change textarea placeholder: "Provide specific feedback and required corrections for the next implementation attempt...".
+      - Replace standard send button with `[Cancel]` and `[Send & reject]`.
+      - Clicking `[Cancel]` exits action mode and restores standard conversational input.
+      - Clicking `[Send & reject]` requires non-empty feedback, dispatches `POST /api/specs/:slug/tasks/:taskId/workflow/human-decision` with `{ decision: 'request-changes', feedback: text }`, and resets the composer to default conversational mode.
+- **End-to-End Product Workflow Test Suite:**
+  - Create `tools/dashboard/tests/e2e-product-workflow.test.mjs`:
+    - Implement the complete application-level bootstrap scenario specified in `overview.md` and Area 05:
+      1. Create/start agent conversation for spec `test-spec`, task `01`.
+      2. Nevo creates and durably persists canonical `AgentSession` with `sessionId` (UUID) before provider execution. `providerSessionId` may initially be absent.
+      3. First turn receives deterministic workflow bootstrap header and clean `userMessage`.
+      4. Agent process runs `workflow step start` -> `SessionTaskBinding` created automatically via ambient `NEVO_SESSION_ID` referencing canonical `sessionId`.
+      5. If/when provider-native identity becomes available, Nevo correlates it to the same `AgentSession` without changing `sessionId`. All dashboard/chat navigation and transcript identity remain anchored to `sessionId`.
+      6. Implementation finish transitions to `review`; git branch committed and tagged (`--input '{"commit.title":"feat: implement task 01"}'`).
+      7. Implementation agent stops (no autonomous handover).
+      8. Reviewer session explicitly started for task `01`.
+      9. Reviewer `step start` resolves `review #1`.
+      10. Review fails, writes review artifact, calls `step finish --input '{"result":"fail","feedback":"Unit tests failed","artifacts":["specs/active/test-spec/reviews/task-01-attempt-1.md"]}'`.
+      11. Task transitions directly to `in-implementation` attempt 2 (commit HEAD verified untouched).
+      12. Next implementation context receives review feedback and artifact in `previousTransition`.
+      13. Implementation #2 finishes -> review #2 runs and passes (`--input '{"result":"pass"}'`).
+      14. Task transitions to `awaiting-human-verification` with server-projected `availableActions: ['approve', 'request-changes']`.
+      15. Human `[ Request changes ]` dispatches `POST .../human-decision` with feedback -> transitions to `implementation #3`.
+      16. Implementation #3 finishes and review #3 passes -> task reaches `awaiting-human-verification`.
+      17. Human `[ Approve ]` dispatches `POST .../human-decision` -> transitions to `verified` with clean tree noop commit.
+      18. Git working tree is clean; session history queries reflect all participating tasks and sessions without a 1:1 assumption.
+
+## Acceptance criteria
+
+1. Specification-owned workflow mode is respected end-to-end (`D11`, `D15`): legacy specifications render legacy/task-context UX only (no fabricated deterministic status, step, attempt, or `(unknown)` labels), deterministic specifications render authoritative deterministic workflow UX (workflow bar step/attempt, human-verification banner, direct `availableActions` dispatch buttons), and no local presentation preference — there is none — can change which mode renders or executes. Proven statically by the `AC1 (superseded by D15)` describe block (toggle component/localStorage key no longer exist) and behaviorally by the `AgentSessionChatSurface: session inheritance — isDeterministic is specification-owned (D15)` and `SpecificationMetadataFields: workflow mode selection at specification creation (D15)` describe blocks. `automated: node --test tools/dashboard/tests/agent-session-workflow.test.mjs`
+2. Dashboard task cards render `[ Start implementation ]` and `[ Start review ]` when enabled in server-projected `availableActions`, creating/reusing sessions via standard session APIs with canonical `sessionId`. `automated: node --test tools/dashboard/tests/agent-session-workflow.test.mjs`
+3. Bound tasks are rendered in the workflow bar above the chat composer, highlighting the `activeTaskId` and allowing seamless task switching in multi-task sessions. `automated: node --test tools/dashboard/tests/agent-session-workflow.test.mjs`
+4. When `activeTaskId` requires human verification, `[ Approve ]` and `[ Request changes ]` render above the composer. `automated: node --test tools/dashboard/tests/agent-session-workflow.test.mjs`
+5. Clicking `[ Request changes ]` activates dedicated composer mode with banner, custom placeholder, and `[Cancel]` / `[Send & reject]` buttons. `automated: node --test tools/dashboard/tests/agent-session-workflow.test.mjs`
+6. Submitting `[Send & reject]` validates non-empty feedback, calls the backend endpoint, transitions the task back to `implementation` attempt 2, and restores conversational composer mode. `automated: node --test tools/dashboard/tests/agent-session-workflow.test.mjs`
+7. Complete application bootstrap test in `tools/dashboard/tests/e2e-product-workflow.test.mjs` executes and passes against simulated agent turns and human actions using canonical `sessionId`. `automated: node --test tools/dashboard/tests/e2e-product-workflow.test.mjs`
+8. `node tools/specs.mjs check` passes with zero errors. `automated: node tools/specs.mjs check`
+
+## Verification
+
+```text
+node --test tools/dashboard/tests/agent-session-workflow.test.mjs
+cd tools/dashboard && npx vitest run tests/agent-session-workflow.test.tsx
+node --test tools/dashboard/tests/e2e-product-workflow.test.mjs
+node tools/specs.mjs check
+```

@@ -5,6 +5,7 @@ import {
   slugifyTitle,
   resolveDefaultPlanningMode,
   SPEC_TYPES_OPTIONS,
+  DETERMINISTIC_WORKFLOW_DESCRIPTIONS,
 } from '../ui/screens/specification-console/create-specification/create-specification-helpers.ts';
 
 test('slugifyTitle converts titles to canonical kebab-case slugs', () => {
@@ -18,6 +19,36 @@ test('slugifyTitle converts titles to canonical kebab-case slugs', () => {
 test('SPEC_TYPES_OPTIONS contains standard, architectural, small, exploratory options', () => {
   const ids = SPEC_TYPES_OPTIONS.map((o) => o.id);
   assert.deepEqual(ids, ['standard', 'architectural', 'small', 'exploratory']);
+});
+
+// Regression (D17 / Task 03 third corrective pass): the Create Specification wizard used
+// to show the hardcoded "implementation → review → human verification" sequence for every
+// deterministic type, even though only 'standard' actually has a review step in
+// tools/specs/workflow/templates/*.yaml — architectural/small/exploratory each run a
+// different, real sequence. The UI must never describe a workflow the engine doesn't run.
+test('DETERMINISTIC_WORKFLOW_DESCRIPTIONS: only "standard" claims a review step; the other classes describe their own real sequence', () => {
+  assert.match(DETERMINISTIC_WORKFLOW_DESCRIPTIONS.standard.sequence, /review/);
+  assert.match(DETERMINISTIC_WORKFLOW_DESCRIPTIONS.standard.sequence, /implementation/);
+  assert.match(DETERMINISTIC_WORKFLOW_DESCRIPTIONS.standard.sequence, /human verification/);
+
+  for (const type of ['architectural', 'small', 'exploratory']) {
+    const { sequence } = DETERMINISTIC_WORKFLOW_DESCRIPTIONS[type];
+    assert.doesNotMatch(
+      sequence,
+      /review/,
+      `'${type}' has no review step in its real workflow template and must not claim one`,
+    );
+  }
+
+  assert.match(DETERMINISTIC_WORKFLOW_DESCRIPTIONS.architectural.sequence, /implementation/);
+  assert.match(DETERMINISTIC_WORKFLOW_DESCRIPTIONS.architectural.sequence, /human sign-off/);
+
+  assert.match(DETERMINISTIC_WORKFLOW_DESCRIPTIONS.small.sequence, /implementation/);
+  assert.match(DETERMINISTIC_WORKFLOW_DESCRIPTIONS.small.sequence, /no human sign-off/, "'small' has no human gate in its real workflow template");
+
+  assert.match(DETERMINISTIC_WORKFLOW_DESCRIPTIONS.exploratory.sequence, /discovery/);
+  assert.match(DETERMINISTIC_WORKFLOW_DESCRIPTIONS.exploratory.sequence, /human sign-off/);
+  assert.doesNotMatch(DETERMINISTIC_WORKFLOW_DESCRIPTIONS.exploratory.sequence, /implementation/, "'exploratory' runs a discovery step, not implementation");
 });
 
 test('resolveDefaultPlanningMode adheres strictly to safety invariant (Task 13 & 15)', () => {

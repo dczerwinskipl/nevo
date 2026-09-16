@@ -23,8 +23,10 @@ export function SpecificationOverview({
   onOpenSession,
   actions,
   taskActions,
+  isDeterministic = false,
   onDirectTaskAction,
   onBatchTaskAction,
+  onWorkflowAction,
   onCreateSession,
   onOpenTask,
 }: {
@@ -37,8 +39,11 @@ export function SpecificationOverview({
   onOpenSession: (session: AgentSession) => void;
   actions: React.ReactNode;
   taskActions?: Record<string, SpecificationTaskActionGate>;
+  /** Authoritative specification-level workflow mode (D15) — never a UI preference. */
+  isDeterministic?: boolean;
   onDirectTaskAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
   onBatchTaskAction?: (tasks: SpecificationTask[], action: SpecificationOwnerAction) => void;
+  onWorkflowAction?: (task: SpecificationTask, action: string) => void | Promise<void>;
   onCreateSession: () => void;
   onOpenTask?: (target: TaskNavigationTarget | string) => void;
 }) {
@@ -97,9 +102,11 @@ export function SpecificationOverview({
         <StatusBoard
           specification={specification}
           actions={taskActions}
+          isDeterministic={isDeterministic}
           onTaskSelect={onTaskSelect}
           onTaskAction={onDirectTaskAction}
           onBatchAction={onBatchTaskAction}
+          onWorkflowAction={onWorkflowAction}
         />
       </div>
     </>

@@ -4,11 +4,14 @@ import { promisify } from 'node:util';
 import * as git from '../../../lib/git.mjs';
 import { createProgressEmitter } from '../../../lib/operation-progress.mjs';
 import { evaluateGate, evaluateTaskGate } from '../../../specs/gates.mjs';
+import { isTaskReady } from '../../../specs/lifecycle-primitives.mjs';
 import { ACTIVE_DIR, loadChange } from '../../../specs/store.mjs';
 import { loadFollowUps } from '../../../specs/follow-ups.mjs';
 import { approveTask } from '../../../specs/approve/operation.mjs';
 import { verifyTask } from '../../../specs/verify/operation.mjs';
 import { finalizeChange } from '../../../specs/finalize/operation.mjs';
+import { handleWorkflowVerifyHuman } from '../../../specs/workflow/cli.mjs';
+import { resolveWorkflowMode } from '../../../specs/workflow/compatibility.mjs';
 import { REPOSITORY_ROOT } from '../infrastructure/paths.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -36,6 +39,83 @@ export function finalizeGate(change, facts = {}) {
     checks: facts?.verification || [],
     pullRequest: facts?.pr || null,
     branch: facts?.branch || { hasUpstream: false, ahead: null, behind: null },
+  };
+}
+
+export function computeTaskAvailableActions(task, change) {
+  if (!task) return [];
+  if (task.status === 'verified') return [];
+
+  const wp = task.workflow_progress;
+  if (!wp || !wp.current_step) {
+    if (task.status === 'in-implementation') return [];
+    // A task with no workflow_progress yet has never been started — it is only really
+    // executable once its own dependencies are satisfied (isTaskReady), never merely
+    // because a `start-implementation` label would otherwise apply to its raw status.
+    // Without this check a `draft` task, or an `approved` task still blocked by an
+    // unmet depends_on, would incorrectly project an executable start action.
+    return isTaskReady(task, change) ? ['start-implementation'] : [];
+  }
+
+  if (wp.state === 'reconciliation-required' || task.status === 'reconciliation-required') {
+    return ['operator-reconciliation'];
+  }
+
+  if (wp.state === 'active') {
+    if (wp.current_step === 'human-verification' || task.status === 'awaiting-human-verification') {
+      return ['approve', 'request-changes'];
+    }
+    return [];
+  }
+
+  if (wp.state === 'completed') {
+    const history = Array.isArray(wp.history) ? wp.history : [];
+    const lastEntry = history[history.length - 1];
+    const destination = lastEntry?.transitioned_to;
+
+    if (destination === 'human-verification') {
+      return ['approve', 'request-changes'];
+    }
+    if (destination === 'review') {
+      return ['start-review'];
+    }
+    if (destination === 'implementation') {
+      return ['start-implementation'];
+    }
+    if (destination === 'verified') {
+      return [];
+    }
+
+    if (wp.current_step === 'implementation') {
+      return ['start-review'];
+    }
+    if (wp.current_step === 'review') {
+      return lastEntry?.result === 'pass'
+        ? ['approve', 'request-changes']
+        : ['start-implementation'];
+    }
+    if (wp.current_step === 'human-verification') {
+      return lastEntry?.result === 'pass' ? [] : ['start-implementation'];
+    }
+  }
+
+  return [];
+}
+
+/**
+ * Authoritative, server-owned read model of a task's deterministic-workflow position —
+ * the single source the dashboard UI renders as its workflow bar / verification banner.
+ * Never derived by the UI from `task.status` or defaulted (e.g. `attempt || 1`); a task
+ * with no `workflow_progress` yet (legacy lifecycle, or not started) reports `null` for
+ * every workflow-position field rather than a guessed value.
+ */
+export function computeTaskWorkflowProjection(task) {
+  const wp = task?.workflow_progress || null;
+  return {
+    status: task?.status ?? null,
+    currentStep: wp?.current_step ?? null,
+    attempt: wp?.current_attempt ?? null,
+    workflowState: wp?.state ?? null,
   };
 }
 
@@ -102,16 +182,27 @@ export async function loadSpecificationActions({
   const tasks = {};
   for (const task of change.tasks) {
     const gate = await taskGate(change, task, { taskGateEvaluator, root, slug });
-    if (gate) {
-      tasks[task.id] = gate;
-    }
+    const availableActions = computeTaskAvailableActions(task, change);
+    tasks[task.id] = {
+      ...(gate || {}),
+      ...computeTaskWorkflowProjection(task),
+      availableActions,
+    };
   }
+
+  // Authoritative source for whether this specification runs under the deterministic
+  // workflow engine — the exact same resolver the CLI/workflow engine itself uses (D15).
+  // The UI must read this rather than re-deriving it from task.status, a localStorage
+  // preference, or session state.
+  const resolvedWorkflow = resolveWorkflowMode(change);
 
   return {
     id: change.id || change._slug,
     slug: change._slug,
     source: 'active',
     generatedAt: new Date().toISOString(),
+    workflowMode: resolvedWorkflow.mode,
+    workflowDefinition: resolvedWorkflow.mode === 'deterministic' ? resolvedWorkflow.definition : null,
     worktree: {
       ...worktree,
       branch,
@@ -331,5 +422,49 @@ export function createSpecActionsCapability({
     activeActions.clear();
   }
 
-  return { loadActions, startAction, shutdown };
+  return {
+    loadActions,
+    startAction,
+    executeHumanDecision: (opts) => executeHumanDecision({ activeDir, root, ...opts }),
+    shutdown,
+  };
+}
+
+export async function executeHumanDecision({
+  slug,
+  taskId,
+  decision,
+  feedback,
+  activeDir = ACTIVE_DIR,
+  root = REPOSITORY_ROOT,
+} = {}) {
+  if (decision !== 'approve' && decision !== 'request-changes') {
+    throw new SpecificationActionError("Decision must be 'approve' or 'request-changes'.", 400);
+  }
+  if (decision === 'request-changes' && (!feedback || typeof feedback !== 'string' || feedback.trim() === '')) {
+    throw new SpecificationActionError('Feedback is required when requesting changes.', 400);
+  }
+
+  const opts = {
+    approve: decision === 'approve',
+    requestChanges: decision === 'request-changes',
+    feedback: feedback ? feedback.trim() : undefined,
+    activeDir,
+    repoRoot: root,
+    silent: true,
+  };
+
+  try {
+    const result = await handleWorkflowVerifyHuman(slug, taskId, opts);
+    return {
+      ok: true,
+      decision,
+      taskId,
+      result,
+    };
+  } catch (err) {
+    if (err instanceof SpecificationActionError) throw err;
+    const status = err.status || (err.message && err.message.includes('not found') ? 404 : 400);
+    throw new SpecificationActionError(err.message, status);
+  }
 }

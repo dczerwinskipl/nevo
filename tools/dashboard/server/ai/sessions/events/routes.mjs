@@ -10,6 +10,42 @@ import { AiValidationError } from '../../contracts.mjs';
 export default async function aiEventRoutes(fastify, { service, accessPolicy }) {
   const activeConnections = new Set();
 
+  fastify.get('/api/agent-sessions/:sessionId/events', { sse: 'only' }, async (request, reply) => {
+    const sessionId = validatedSessionId(request.params.sessionId);
+    authorize(accessPolicy, 'read', request);
+
+    const rawCursor = reply.sse.lastEventId ?? request.query?.after;
+    const afterSequence = Number(rawCursor ?? 0);
+    if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) throw new AiValidationError('Invalid event cursor.');
+
+    console.log(`[ai] [sse:connect] session=${sessionId} after=${afterSequence}`);
+
+    let releaseHeaders;
+    const headersReady = new Promise((resolve) => {
+      releaseHeaders = resolve;
+    });
+    let sendQueue = Promise.resolve();
+    const unsubscribe = service.subscribeToSession(sessionId, {
+      afterSequence,
+      onEvent: (event) => {
+        sendQueue = sendQueue.then(() =>
+          headersReady.then(() =>
+            reply.sse.send({ id: event.seq ?? event.id, event: event.type, data: event }).catch(() => {}),
+          ),
+        );
+      },
+    });
+    reply.sse.keepAlive();
+    reply.sse.sendHeaders();
+    if (typeof reply.raw.flushHeaders === 'function') {
+      reply.raw.flushHeaders();
+    }
+    releaseHeaders();
+    activeConnections.add(reply.sse);
+    reply.sse.onClose(() => activeConnections.delete(reply.sse));
+    reply.sse.onClose(() => unsubscribe());
+  });
+
   fastify.get('/api/agent-sessions/:provider/:providerSessionId/events', { sse: 'only' }, async (request, reply) => {
     const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
     const providerSessionId = validatedSessionId(request.params.providerSessionId);
@@ -24,14 +60,10 @@ export default async function aiEventRoutes(fastify, { service, accessPolicy }) 
 
     console.log(`[ai] [sse:connect] provider=${provider} session=${providerSessionId} after=${afterSequence}`);
 
-    reply.sse.keepAlive();
-    reply.sse.sendHeaders();
-    if (typeof reply.raw.flushHeaders === 'function') {
-      reply.raw.flushHeaders();
-    }
-    activeConnections.add(reply.sse);
-    reply.sse.onClose(() => activeConnections.delete(reply.sse));
-
+    let releaseHeaders;
+    const headersReady = new Promise((resolve) => {
+      releaseHeaders = resolve;
+    });
     // Sends are serialized per connection: @fastify/sse's writeToStream() registers a
     // fresh once('drain')/once('error') pair on the raw ServerResponse every time a
     // write hits backpressure. Replaying a reconnect's backlog (subscribeToSession
@@ -45,10 +77,20 @@ export default async function aiEventRoutes(fastify, { service, accessPolicy }) 
       afterSequence,
       onEvent: (event) => {
         sendQueue = sendQueue.then(() =>
-          reply.sse.send({ id: event.seq ?? event.id, event: event.type, data: event }).catch(() => {}),
+          headersReady.then(() =>
+            reply.sse.send({ id: event.seq ?? event.id, event: event.type, data: event }).catch(() => {}),
+          ),
         );
       },
     });
+    reply.sse.keepAlive();
+    reply.sse.sendHeaders();
+    if (typeof reply.raw.flushHeaders === 'function') {
+      reply.raw.flushHeaders();
+    }
+    releaseHeaders();
+    activeConnections.add(reply.sse);
+    reply.sse.onClose(() => activeConnections.delete(reply.sse));
     reply.sse.onClose(() => unsubscribe());
   });
 

@@ -7,6 +7,7 @@ import Fastify from 'fastify';
 import turnRoutes from '../server/ai/sessions/turns/routes.mjs';
 import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs';
 import { createAgentSessionService } from '../server/ai/sessions/service.mjs';
+import { createAgentSessionBindingService } from '../server/ai/sessions/binding-service.mjs';
 import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
 import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
 import { TurnLifecycleCoordinator } from '../server/ai/sessions/turns/coordinator.mjs';
@@ -409,8 +410,8 @@ test('Criterion 4, 5, 6: remote recovery API terminates process tree, settles as
       label: 'Recoverable Provider',
       capabilities: { cancelTurn: true },
     },
-    async startTurn({ setProviderSessionId, setOperation }) {
-      await setProviderSessionId?.('sess-rec-1');
+    async startTurn({ onProviderSessionIdAvailable, setOperation }) {
+      await onProviderSessionIdAvailable?.('sess-rec-1');
       if (turn1Active) {
         setOperation({ child: mockChild, pid: mockChild.pid });
         throw new AiError('AI_OPERATION_LOST', 'Lost connection', { status: 500, cause: 'operation_lost' });
@@ -423,7 +424,13 @@ test('Criterion 4, 5, 6: remote recovery API terminates process tree, settles as
 
   const registry = createAgentProviderRegistry([recoverableProvider]);
   const runtime = createAgentTurnRuntime({ registry });
-  const service = createAgentSessionService({ turnRuntime: runtime, registry });
+  // A real bindingService is required here: the compat routes below re-address the same
+  // session by its canonical sessionId, and that identity is only resolved against the
+  // real store, never by string shape — without persistence, there is nothing for
+  // startTurn to resolve it against.
+  const bindingTmpDir = await mkdtemp(join(tmpdir(), 'nevo-turn-recovery-binding-'));
+  const bindingService = createAgentSessionBindingService({ storageDir: join(bindingTmpDir, 'sessions') });
+  const service = createAgentSessionService({ turnRuntime: runtime, registry, bindingService });
 
   const fastify = Fastify({ logger: false });
   fastify.setErrorHandler(aiErrorHandler);
@@ -448,7 +455,7 @@ test('Criterion 4, 5, 6: remote recovery API terminates process tree, settles as
     },
   });
   assert.equal(startRes1.statusCode, 201);
-  const { turnId: turnId1, providerSessionId } = startRes1.json();
+  const { turnId: turnId1, sessionId } = startRes1.json();
 
   await waitFor(
     () => runtime.getSnapshot(turnId1),
@@ -459,7 +466,7 @@ test('Criterion 4, 5, 6: remote recovery API terminates process tree, settles as
   // 2. Proves new turn is rejected while turn 1 is unknown (Criterion 2 & 5)
   const conflictRes = await injectAction({
     method: 'POST',
-    url: `/api/agent-sessions/rec-provider/${providerSessionId}/turns`,
+    url: `/api/agent-sessions/rec-provider/${sessionId}/turns`,
     payload: { message: 'turn 2 while blocked' },
   });
   assert.equal(conflictRes.statusCode, 409);
@@ -467,7 +474,7 @@ test('Criterion 4, 5, 6: remote recovery API terminates process tree, settles as
   // 3. Remote client calls POST .../recover (Criterion 4)
   const recoverRes = await injectAction({
     method: 'POST',
-    url: `/api/agent-sessions/rec-provider/${providerSessionId}/turns/${turnId1}/recover`,
+    url: `/api/agent-sessions/rec-provider/${sessionId}/turns/${turnId1}/recover`,
   });
   assert.equal(recoverRes.statusCode, 200);
   const { turn: recoveredTurn } = recoverRes.json();
@@ -481,7 +488,7 @@ test('Criterion 4, 5, 6: remote recovery API terminates process tree, settles as
   turn1Active = false;
   const startRes2 = await injectAction({
     method: 'POST',
-    url: `/api/agent-sessions/rec-provider/${providerSessionId}/turns`,
+    url: `/api/agent-sessions/rec-provider/${sessionId}/turns`,
     payload: { message: 'turn 2 after recovery' },
   });
   assert.equal(startRes2.statusCode, 202);
@@ -497,7 +504,7 @@ test('Criterion 4, 5, 6: remote recovery API terminates process tree, settles as
   turn1Active = true;
   const startRes3 = await injectAction({
     method: 'POST',
-    url: `/api/agent-sessions/rec-provider/${providerSessionId}/turns`,
+    url: `/api/agent-sessions/rec-provider/${sessionId}/turns`,
     payload: { message: 'turn 3' },
   });
   assert.equal(startRes3.statusCode, 202);
@@ -510,7 +517,7 @@ test('Criterion 4, 5, 6: remote recovery API terminates process tree, settles as
 
   const forceCleanupRes = await injectAction({
     method: 'POST',
-    url: `/api/agent-sessions/rec-provider/${providerSessionId}/turns/${turnId3}/cancel`,
+    url: `/api/agent-sessions/rec-provider/${sessionId}/turns/${turnId3}/cancel`,
     payload: { action: 'force_cleanup' },
   });
   assert.equal(forceCleanupRes.statusCode, 200);
@@ -526,8 +533,8 @@ test('Criterion 4, 5, 6: remote recovery API terminates process tree, settles as
       label: 'Cancel Provider',
       capabilities: { cancelTurn: true },
     },
-    async startTurn({ signal, setProviderSessionId }) {
-      await setProviderSessionId?.('sess-cancel-1');
+    async startTurn({ signal, onProviderSessionIdAvailable }) {
+      await onProviderSessionIdAvailable?.('sess-cancel-1');
       await new Promise((resolve) => {
         cancelDeferred = resolve;
         signal.addEventListener('abort', () => resolve());
@@ -544,7 +551,7 @@ test('Criterion 4, 5, 6: remote recovery API terminates process tree, settles as
     url: '/api/agent-sessions/turns',
     payload: { provider: 'cancel-provider', message: 'run long operation' },
   });
-  const { turnId: turnId4, providerSessionId: sess4 } = startRes4.json();
+  const { turnId: turnId4, sessionId: sess4 } = startRes4.json();
 
   const cancelRes = await injectAction({
     method: 'POST',
@@ -558,7 +565,10 @@ test('Criterion 4, 5, 6: remote recovery API terminates process tree, settles as
   assert.equal(canonicalCancelled.status.initiator, 'user');
 
   await fastify.close();
-  runtime.shutdown();
+  await runtime.shutdown();
+  // maxRetries/retryDelay absorb a benign Windows race where a binding-service write
+  // still in flight recreates a file the instant after recursive rm() clears it.
+  await rm(bindingTmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 });
 
 test('Criterion 7: per-turn rate limits and process crashes do not mutate provider descriptor health to unavailable or installed: false', async () => {

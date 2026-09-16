@@ -163,6 +163,12 @@ export type CreateSpecificationInput = {
   title: string;
   type?: 'standard' | 'architectural' | 'small' | 'exploratory';
   goal?: string;
+  /**
+   * Explicit, human-facing workflow engine choice (D15). Omitted resolves to `legacy` —
+   * the same `DEFAULT_WORKFLOW_MODE` the workflow engine itself defaults to; this is
+   * never inferred, and never overridable at the session/chat level afterward.
+   */
+  workflowMode?: 'legacy' | 'deterministic';
 };
 
 export type CreateSpecificationResult = {

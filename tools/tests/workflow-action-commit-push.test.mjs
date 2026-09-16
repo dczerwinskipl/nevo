@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { ActionContract, ActionCheckResult, ActionExecuteResult } from '../specs/workflow/contracts.mjs';
-import { PreconditionError } from '../specs/workflow/errors.mjs';
+import { PreconditionError, WorkflowError } from '../specs/workflow/errors.mjs';
 import { CommitAndPushAction } from '../specs/workflow/actions/commit-and-push.mjs';
 import { defaultActionRegistry } from '../specs/workflow/registry.mjs';
 import '../specs/workflow/actions/index.mjs';
@@ -82,7 +82,7 @@ describe('check(context) — enabled sourceControl (AC2, AC3)', () => {
 
   after(() => cleanupRepoPair(ctx));
 
-  test('requiredInputs declares commit.title and include as required', async () => {
+  test('requiredInputs declares commit.title as required and include as optional', async () => {
     const action = new CommitAndPushAction();
     const result = await action.check({
       repoRoot: ctx.repo,
@@ -92,7 +92,7 @@ describe('check(context) — enabled sourceControl (AC2, AC3)', () => {
     const byName = Object.fromEntries(result.requiredInputs.map(s => [s.name, s]));
     assert.equal(byName['commit.title'].required, true);
     assert.equal(byName['commit.message'].required, false);
-    assert.equal(byName['include'].required, true);
+    assert.equal(byName['include'].required, false);
     assert.equal(byName['exclude'].required, false);
   });
 
@@ -155,23 +155,30 @@ describe('executeValidated — fail-closed input validation (AC4, AC5)', () => {
     );
   });
 
-  test('throws PreconditionError when include is omitted — never guesses or stages dirty files implicitly', async () => {
-    const action = new CommitAndPushAction();
-    await assert.rejects(
-      () => action.execute({ 'commit.title': 'A valid title' }, baseContext()),
-      PreconditionError
-    );
-    // Fail-closed: the worktree must remain exactly as dirty as before the rejected call.
-    const status = execFileSync('git', ['-C', ctx.repo, 'status', '--porcelain'], { encoding: 'utf8' });
-    assert.ok(status.includes('dirty.txt'));
-  });
-
   test('throws PreconditionError when include matches no changed files', async () => {
     const action = new CommitAndPushAction();
     await assert.rejects(
       () => action.execute({ 'commit.title': 'A valid title', include: ['does-not-exist.txt'] }, baseContext()),
       PreconditionError
     );
+  });
+
+  test('defaults include to ["*"] when omitted, committing dirty files (AC3)', async () => {
+    const action = new CommitAndPushAction();
+    const result = await action.execute({ 'commit.title': 'Commit all dirty files' }, baseContext());
+    assert.equal(result.success, true);
+    assert.equal(result.outputs.commit.status, 'completed');
+    const status = execFileSync('git', ['-C', ctx.repo, 'status', '--porcelain'], { encoding: 'utf8' });
+    assert.equal(status.trim(), '');
+  });
+
+  test('succeeds without error on clean working tree as a noop commit (AC3)', async () => {
+    const action = new CommitAndPushAction();
+    // Working tree is clean now
+    const result = await action.execute({ 'commit.title': 'Noop commit on clean tree' }, baseContext());
+    assert.equal(result.success, true);
+    assert.equal(result.outputs.commit.status, 'noop');
+    assert.ok(result.outputs.commit.sha);
   });
 });
 
@@ -329,3 +336,200 @@ describe('sourceControl configuration — the four defined cases and fail-closed
     assert.ok(errors.length > 0);
   });
 });
+
+describe('CommitAndPushAction task allowed_paths scope enforcement (Finding 3)', () => {
+  let ctx;
+
+  before(() => {
+    ctx = makeRepoPair('nevo-cap-scope');
+  });
+
+  after(() => cleanupRepoPair(ctx));
+
+  test('succeeds and commits when all dirty files match taskAllowedPaths', async () => {
+    mkdirSync(join(ctx.repo, 'src'), { recursive: true });
+    writeFileSync(join(ctx.repo, 'src', 'a.ts'), 'content\n');
+
+    const action = new CommitAndPushAction();
+    const result = await action.execute(
+      { 'commit.title': 'Valid scope commit' },
+      {
+        repoRoot: ctx.repo,
+        taskAllowedPaths: ['src/**'],
+        sourceControl: { enabled: true, push: false },
+      }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.outputs.commit.status, 'completed');
+    const status = execFileSync('git', ['-C', ctx.repo, 'status', '--porcelain'], { encoding: 'utf8' });
+    assert.equal(status.trim(), '');
+  });
+
+  test('fails closed with OUT_OF_SCOPE_WORKTREE_CHANGES when a dirty file is outside taskAllowedPaths', async () => {
+    writeFileSync(join(ctx.repo, 'src', 'b.ts'), 'valid change\n');
+    writeFileSync(join(ctx.repo, 'README.md'), 'out-of-scope change\n');
+
+    const action = new CommitAndPushAction();
+    await assert.rejects(
+      () => action.execute(
+        { 'commit.title': 'Violating scope commit' },
+        {
+          repoRoot: ctx.repo,
+          taskAllowedPaths: ['src/**'],
+          sourceControl: { enabled: true, push: false },
+        }
+      ),
+      (err) => {
+        assert.ok(err instanceof WorkflowError);
+        assert.equal(err.code, 'OUT_OF_SCOPE_WORKTREE_CHANGES');
+        assert.deepEqual(err.details.outOfScopePaths, ['README.md']);
+        assert.deepEqual(err.details.allowedPaths, ['src/**']);
+        return true;
+      }
+    );
+
+    // Verify nothing was staged or committed; working tree retains dirty files
+    const status = execFileSync('git', ['-C', ctx.repo, 'status', '--porcelain'], { encoding: 'utf8' });
+    assert.ok(status.includes('src/b.ts'));
+    assert.ok(status.includes('README.md'));
+    rmSync(join(ctx.repo, 'README.md'), { force: true });
+    rmSync(join(ctx.repo, 'src', 'b.ts'), { force: true });
+  });
+
+  test('fails closed with OUT_OF_SCOPE_WORKTREE_CHANGES even when explicit include tries to commit out-of-scope dirty file', async () => {
+    writeFileSync(join(ctx.repo, 'README.md'), 'out-of-scope\n');
+
+    const action = new CommitAndPushAction();
+    await assert.rejects(
+      () => action.execute(
+        { 'commit.title': 'Explicit out-of-scope include', include: ['README.md'] },
+        {
+          repoRoot: ctx.repo,
+          taskAllowedPaths: ['src/**'],
+          sourceControl: { enabled: true, push: false },
+        }
+      ),
+      (err) => {
+        assert.ok(err instanceof WorkflowError);
+        assert.equal(err.code, 'OUT_OF_SCOPE_WORKTREE_CHANGES');
+        assert.deepEqual(err.details.outOfScopePaths, ['README.md']);
+        return true;
+      }
+    );
+    rmSync(join(ctx.repo, 'README.md'), { force: true });
+  });
+
+  test('artifact cannot escalate scope (OUT_OF_SCOPE_WORKTREE_CHANGES, dirty file remains untouched)', async () => {
+    writeFileSync(join(ctx.repo, 'README.md'), 'attempted-artifact-bypass\n');
+
+    const action = new CommitAndPushAction();
+    try {
+      await assert.rejects(
+        () => action.executeValidated(
+          {
+            'commit.title': 'Attempt bypass via artifacts input',
+            artifacts: ['README.md'],
+          },
+          {
+            repoRoot: ctx.repo,
+            taskAllowedPaths: ['src/**'],
+            sourceControl: { enabled: true, push: false },
+          }
+        ),
+        (err) => {
+          assert.ok(err instanceof WorkflowError);
+          assert.equal(err.code, 'OUT_OF_SCOPE_WORKTREE_CHANGES');
+          assert.deepEqual(err.details.outOfScopePaths, ['README.md']);
+          return true;
+        }
+      );
+
+      // Verify dirty file remains untouched in worktree and nothing was committed
+      const status = execFileSync('git', ['-C', ctx.repo, 'status', '--porcelain'], { encoding: 'utf8' });
+      assert.ok(status.includes('README.md'));
+    } finally {
+      rmSync(join(ctx.repo, 'README.md'), { force: true });
+    }
+  });
+
+  test('legitimate review artifact succeeds because of trusted workflow scope (with or without artifact metadata)', async () => {
+    const localCtx = makeRepoPair('nevo-cap-scope-review');
+    try {
+      mkdirSync(join(localCtx.repo, 'specs', 'active', 'my-change', 'reviews'), { recursive: true });
+      writeFileSync(join(localCtx.repo, 'specs', 'active', 'my-change', 'change.yaml'), 'status: in-implementation\n');
+      writeFileSync(join(localCtx.repo, 'specs', 'active', 'my-change', 'reviews', 'task-03-attempt-1.md'), 'Audit findings\n');
+
+      const action = new CommitAndPushAction();
+      const result = await action.execute(
+        {
+          'commit.title': 'Review commit with artifact',
+        },
+        {
+          repoRoot: localCtx.repo,
+          taskAllowedPaths: ['src/**'],
+          workflowOwnedPaths: [
+            'specs/active/my-change/change.yaml',
+            'specs/active/my-change/reviews/**',
+          ],
+          sourceControl: { enabled: true, push: false },
+        }
+      );
+
+      assert.equal(result.success, true);
+      assert.equal(result.outputs.commit.status, 'completed');
+
+      // Also verify via executeValidated that even if artifact metadata is present in inputs, it succeeds due to workflow scope
+      writeFileSync(join(localCtx.repo, 'specs', 'active', 'my-change', 'reviews', 'task-03-attempt-2.md'), 'Audit 2\n');
+      const result2 = await action.executeValidated(
+        {
+          'commit.title': 'Review commit without artifact metadata',
+          artifacts: ['specs/active/my-change/reviews/task-03-attempt-2.md'],
+        },
+        {
+          repoRoot: localCtx.repo,
+          taskAllowedPaths: ['src/**'],
+          workflowOwnedPaths: [
+            'specs/active/my-change/change.yaml',
+            'specs/active/my-change/reviews/**',
+          ],
+          sourceControl: { enabled: true, push: false },
+        }
+      );
+      assert.equal(result2.success, true);
+      assert.equal(result2.outputs.commit.status, 'completed');
+    } finally {
+      cleanupRepoPair(localCtx);
+    }
+  });
+
+  test('clean tree succeeds as noop even when taskAllowedPaths is provided', async () => {
+    const action = new CommitAndPushAction();
+    const result = await action.execute(
+      { 'commit.title': 'Noop on clean tree' },
+      {
+        repoRoot: ctx.repo,
+        taskAllowedPaths: ['src/**'],
+        sourceControl: { enabled: true, push: false },
+      }
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.outputs.commit.status, 'noop');
+  });
+
+  test('CommitAndPushAction check() does not define workflow-level artifacts schema', async () => {
+    const action = new CommitAndPushAction();
+    const check = await action.check({
+      repoRoot: ctx.repo,
+      sourceControl: { enabled: true, push: false },
+    });
+    const names = check.requiredInputs.map(s => s.name);
+    assert.equal(names.includes('artifacts'), false, 'artifacts schema must not belong to commit-and-push');
+    assert.equal(names.includes('result'), false, 'result schema must not belong to commit-and-push');
+    assert.equal(names.includes('feedback'), false, 'feedback schema must not belong to commit-and-push');
+    assert.ok(names.includes('commit.title'));
+    assert.ok(names.includes('include'));
+  });
+});
+

@@ -1,12 +1,13 @@
 import { RefreshCw } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
-import { SPEC_TYPES_OPTIONS, slugifyTitle } from './create-specification-helpers';
+import { DETERMINISTIC_WORKFLOW_DESCRIPTIONS, SPEC_TYPES_OPTIONS, slugifyTitle } from './create-specification-helpers';
 
 export interface SpecificationMetadataFieldsProps {
   title: string;
   slug: string;
   type: 'standard' | 'architectural' | 'small' | 'exploratory';
   goal: string;
+  workflowMode: 'legacy' | 'deterministic';
   slugManuallyEdited: boolean;
   disabled: boolean;
   onTitleChange: (value: string) => void;
@@ -14,6 +15,7 @@ export interface SpecificationMetadataFieldsProps {
   onSyncSlugWithTitle: () => void;
   onTypeChange: (type: 'standard' | 'architectural' | 'small' | 'exploratory') => void;
   onGoalChange: (value: string) => void;
+  onWorkflowModeChange: (mode: 'legacy' | 'deterministic') => void;
 }
 
 export function SpecificationMetadataFields({
@@ -21,6 +23,7 @@ export function SpecificationMetadataFields({
   slug,
   type,
   goal,
+  workflowMode,
   slugManuallyEdited,
   disabled,
   onTitleChange,
@@ -28,6 +31,7 @@ export function SpecificationMetadataFields({
   onSyncSlugWithTitle,
   onTypeChange,
   onGoalChange,
+  onWorkflowModeChange,
 }: SpecificationMetadataFieldsProps) {
   return (
     <div className="space-y-4">
@@ -102,6 +106,54 @@ export function SpecificationMetadataFields({
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Workflow (D15: execution mode is a specification-level decision, chosen once at
+          creation — never a session/chat preference, never re-derived from task.status) */}
+      <div>
+        <label className="block text-xs font-semibold">Workflow</label>
+        <div role="radiogroup" aria-label="Workflow" className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={workflowMode === 'legacy'}
+            disabled={disabled}
+            onClick={() => onWorkflowModeChange('legacy')}
+            className={cn(
+              'flex flex-col items-start rounded-xl border p-2.5 text-left transition-all disabled:opacity-60',
+              workflowMode === 'legacy'
+                ? 'border-accent bg-accent/8 ring-1 ring-accent'
+                : 'border-border bg-surface hover:border-fg-primary/20',
+            )}
+          >
+            <span className="text-xs font-semibold text-fg-primary">Legacy</span>
+            <span className="mt-0.5 text-[9px] text-fg-muted">Existing lifecycle behavior.</span>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={workflowMode === 'deterministic'}
+            disabled={disabled}
+            onClick={() => onWorkflowModeChange('deterministic')}
+            className={cn(
+              'flex flex-col items-start rounded-xl border p-2.5 text-left transition-all disabled:opacity-60',
+              workflowMode === 'deterministic'
+                ? 'border-accent bg-accent/8 ring-1 ring-accent'
+                : 'border-border bg-surface hover:border-fg-primary/20',
+            )}
+          >
+            <span className="text-xs font-semibold text-fg-primary">Deterministic</span>
+            <span className="mt-0.5 text-[9px] text-fg-muted">
+              Step-based workflow with implementation/review/human verification.
+            </span>
+          </button>
+        </div>
+        {workflowMode === 'deterministic' && (
+          <p className="mt-2 rounded-lg border border-border bg-surface-raised px-2.5 py-2 text-[10px] text-fg-muted">
+            <span className="font-semibold text-fg-secondary">{DETERMINISTIC_WORKFLOW_DESCRIPTIONS[type].label}</span> ·{' '}
+            {DETERMINISTIC_WORKFLOW_DESCRIPTIONS[type].sequence}
+          </p>
+        )}
       </div>
 
       {/* Goal */}

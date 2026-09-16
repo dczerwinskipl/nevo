@@ -851,20 +851,20 @@ describe('CLI finish input schema validation (AC7)', () => {
   });
 
   test('rejects payload missing required action inputs (code: MISSING_REQUIRED_INPUT)', async () => {
-    // missing include
+    // missing commit.title
     await assert.rejects(
       () => handleWorkflowStepFinish('demo-change', 'demo-task', {
         activeDir: fx.activeDir,
         repoRoot: fx.root,
         silent: true,
         input: JSON.stringify({
-          'commit.title': 'Valid title',
+          'commit.message': 'Missing title',
         }),
       }),
       (err) => {
         assert(err instanceof WorkflowError);
         assert.equal(err.code, 'MISSING_REQUIRED_INPUT');
-        assert.match(err.message, /Missing required finish input 'include'/);
+        assert.match(err.message, /Missing required finish input 'commit\.title'/);
         return true;
       }
     );

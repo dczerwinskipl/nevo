@@ -27,6 +27,12 @@ import { discriminateTarget } from '../specs/workflow/finish-operation.mjs';
 import { requireChange, requireTask, setTaskStatus, setTaskWorkflowState } from '../specs/store.mjs';
 import { getCurrentRevision, getCommitInfo } from '../lib/git.mjs';
 
+function readRemoteHead(root, branch = 'main') {
+  return execFileSync('git', ['-C', root, 'ls-remote', 'origin', `refs/heads/${branch}`], { encoding: 'utf8' })
+    .split('\t')[0]
+    .trim();
+}
+
 const RAW_DEFINITION = {
   id: 'standard-v1',
   title: 'Standard',
@@ -250,7 +256,7 @@ describe('finishStep — happy path executes the fixed stage order (AC5)', () =>
     assert.equal(result.result.commit.sha, headSha);
     assert.equal(result.result.push.status, 'completed');
 
-    const remoteHead = execFileSync('git', ['-C', fx.remote, 'rev-parse', 'main'], { encoding: 'utf8' }).trim();
+    const remoteHead = readRemoteHead(fx.repo);
     assert.equal(remoteHead, headSha, 'the expected commit must be confirmed on the remote');
   });
 
@@ -715,7 +721,7 @@ describe('finishStep — recovering a push stage found running or unknown (AC8)'
     const result = await finishStep(baseParams(fx, gateRegistry));
 
     assert.equal(result.status, 'completed');
-    const remoteHead = execFileSync('git', ['-C', fx.remote, 'rev-parse', 'main'], { encoding: 'utf8' }).trim();
+    const remoteHead = readRemoteHead(fx.repo);
     assert.equal(remoteHead, sha);
   });
 
@@ -745,12 +751,12 @@ describe('finishStep — recovering a push stage found running or unknown (AC8)'
       ],
     });
 
-    const remoteHeadBefore = execFileSync('git', ['-C', fx.remote, 'rev-parse', 'main'], { encoding: 'utf8' }).trim();
+    const remoteHeadBefore = readRemoteHead(fx.repo);
     const gateRegistry = makeGateRegistry();
     const result = await finishStep(baseParams(fx, gateRegistry));
 
     assert.equal(result.status, 'completed');
-    const remoteHeadAfter = execFileSync('git', ['-C', fx.remote, 'rev-parse', 'main'], { encoding: 'utf8' }).trim();
+    const remoteHeadAfter = readRemoteHead(fx.repo);
     assert.equal(remoteHeadAfter, remoteHeadBefore, 'no re-push must occur when the commit is already on the remote');
   });
 });
@@ -767,7 +773,7 @@ describe('finishStep — interrupted after a successful push but before transiti
     fx.git(['commit', '-m', RESOLVED_INPUTS['commit.title']]);
     const sha = getCurrentRevision(fx.repo);
     fx.git(['push', 'origin', 'main']);
-    const remoteHeadBefore = execFileSync('git', ['-C', fx.remote, 'rev-parse', 'main'], { encoding: 'utf8' }).trim();
+    const remoteHeadBefore = readRemoteHead(fx.repo);
 
     saveOperationRecord(fx.repo, {
       operationId: 'crafted-op-5',
@@ -790,7 +796,7 @@ describe('finishStep — interrupted after a successful push but before transiti
     const result = await finishStep(baseParams(fx, gateRegistry));
 
     assert.equal(result.status, 'completed');
-    const remoteHeadAfter = execFileSync('git', ['-C', fx.remote, 'rev-parse', 'main'], { encoding: 'utf8' }).trim();
+    const remoteHeadAfter = readRemoteHead(fx.repo);
     assert.equal(remoteHeadAfter, remoteHeadBefore);
 
     const changeYamlBefore = readFileSync(join(fx.activeDir, 'demo-change', 'change.yaml'), 'utf8');

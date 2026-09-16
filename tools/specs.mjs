@@ -4,6 +4,7 @@
 
 import { Command } from 'commander';
 import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 
 import { RecoveryError } from './lib/cli-errors.mjs';
 // Session-binding is dashboard-AI-owned (tools/dashboard/server/ai/sessions/) — this CLI
@@ -50,31 +51,56 @@ import {
   handleWorkflowVerifyHuman,
 } from './specs/workflow/cli.mjs';
 
+import { requireChange } from './specs/store.mjs';
+
 export {
   setTaskSuspension,
   clearTaskSuspension,
   guardAgainstUnsafeManual,
 };
 
-export function autoBindAgentSession(change, taskId, purpose) {
-  const context = readAgentExecutionContext();
-  if (context && change) {
+export function autoBindAgentSession(change, taskId, purpose, options = {}) {
+  const repoRoot = options.repoRoot || process.cwd();
+  let specId = null;
+  let changeSlug = null;
+  if (typeof change === 'string') {
+    changeSlug = change;
     try {
-      const specId = change.spec_id;
+      const c = requireChange(change);
+      specId = c?.spec_id || c?.id;
+    } catch {}
+  } else if (typeof change === 'object' && change !== null) {
+    specId = change.spec_id || change.id;
+    changeSlug = change._slug || change.id;
+  }
+
+  const context = readAgentExecutionContext(process.env, {
+    repoRoot,
+    specId,
+    taskId,
+  });
+
+  if (context && (specId || changeSlug)) {
+    try {
       if (!specId || !isValidSpecId(specId)) {
-        console.error(`[nevo-ai] Warning: Cannot auto-bind session: change '${change._slug || 'unknown'}' has no valid spec_id.`);
+        console.error(`[nevo-ai] Warning: Cannot auto-bind session: change '${changeSlug || 'unknown'}' has no valid spec_id.`);
         return;
       }
-      const bindingService = createAgentSessionBindingService();
+      const bindingService = createAgentSessionBindingService({
+        storageDir: resolve(repoRoot, '.nevo-ai-local/sessions'),
+      });
       bindingService.bindSessionSync({
+        sessionId: context.sessionId || undefined,
         provider: context.provider,
         providerSessionId: context.providerSessionId,
         specId,
         taskId: taskId || undefined,
+        step: options.step || undefined,
+        attempt: options.attempt != null ? options.attempt : undefined,
         purpose,
       });
     } catch (err) {
-      console.error(`[nevo-ai] Warning: Failed to auto-bind agent session (${context.provider}/${context.providerSessionId}): ${err.message}`);
+      console.error(`[nevo-ai] Warning: Failed to auto-bind agent session (${context.provider}/${context.providerSessionId || context.sessionId}): ${err.message}`);
     }
   }
 }
@@ -286,10 +312,14 @@ export function buildProgram() {
     .action((changeSlug, taskId, opts) => handleWorkflowStepFinish(changeSlug, taskId, opts));
 
   workflow.command('verify-human')
-    .description('Operator-only: satisfy a HumanVerificationGate — the only path that can (C8); never reachable from step start/finish')
+    .description('Operator-only: satisfy a HumanVerificationGate or execute human decision transition')
     .argument('<change>')
     .argument('<task>')
-    .option('--confirm', 'Required — records the operator confirmation')
+    .option('--confirm', 'Records the operator confirmation (legacy gate signoff)')
+    .option('--approve', 'Direct human sign-off approving task (result: pass)')
+    .option('--request-changes', 'Direct human sign-off requesting changes (result: fail)')
+    .option('--reject', 'Alias for --request-changes')
+    .option('--feedback <text>', 'Actionable feedback describing requested changes')
     .action((changeSlug, taskId, opts) => handleWorkflowVerifyHuman(changeSlug, taskId, opts));
 
   const agentSession = program.command('agent-session')

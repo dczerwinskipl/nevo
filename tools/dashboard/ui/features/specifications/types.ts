@@ -164,6 +164,17 @@ export interface SpecificationTaskActionGate {
   action: 'approve' | 'verify';
   enabled: boolean;
   reason: string | null;
+  availableActions?: string[];
+  /**
+   * Authoritative deterministic-workflow read model (see `computeTaskWorkflowProjection`
+   * in `tools/dashboard/server/specs/actions.mjs`). `null` fields mean the server has no
+   * such value — the UI must never substitute a guessed default (e.g. `attempt: 1`) when
+   * these are absent/null.
+   */
+  status?: string | null;
+  currentStep?: string | null;
+  attempt?: number | null;
+  workflowState?: string | null;
 }
 
 export interface SpecificationWorktreeState {
@@ -184,6 +195,15 @@ export interface SpecificationActionsPayload {
   slug: string;
   source: 'active';
   generatedAt: string;
+  /**
+   * Authoritative execution mode for this specification (D15) — resolved server-side by
+   * the same `resolveWorkflowMode()` the CLI/workflow engine itself uses. The UI must
+   * read this rather than re-deriving it from task.status, a localStorage preference, or
+   * session state; it is never a session- or chat-level choice.
+   */
+  workflowMode: 'legacy' | 'deterministic';
+  /** The resolved deterministic workflow definition id (e.g. `standard-v1`), or `null` when `workflowMode` is `legacy`. */
+  workflowDefinition: string | null;
   worktree: SpecificationWorktreeState;
   tasks: Record<string, SpecificationTaskActionGate>;
   finalize: {

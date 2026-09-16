@@ -131,6 +131,11 @@ function makeChangeFixture() {
     '    status: in-implementation',
     '',
   ].join('\n'));
+  execFileSync('git', ['-C', activeDir, 'init', '--initial-branch=main'], { encoding: 'utf8' });
+  execFileSync('git', ['-C', activeDir, 'config', 'user.email', 'test@example.com'], { encoding: 'utf8' });
+  execFileSync('git', ['-C', activeDir, 'config', 'user.name', 'Test User'], { encoding: 'utf8' });
+  execFileSync('git', ['-C', activeDir, 'add', '-A'], { encoding: 'utf8' });
+  execFileSync('git', ['-C', activeDir, 'commit', '-m', 'initial'], { encoding: 'utf8' });
   return activeDir;
 }
 
@@ -310,6 +315,8 @@ describe('`workflow step start` activation (D37, task 10 AC1/AC2/AC4)', () => {
   });
 
   test('completed internal (case C): activates the named target step, appending no history entry (AC4)', () => {
+    execFileSync('git', ['-C', activeDir, 'add', '-A'], { encoding: 'utf8' });
+    execFileSync('git', ['-C', activeDir, 'commit', '-m', 'stepA completed'], { encoding: 'utf8' });
     const change = requireChange('demo-change', activeDir);
     // Simulate `finish` having just completed stepA (D37: current_step stays stepA).
     const completedTask = {
@@ -431,7 +438,7 @@ describe('compileStepContext — StepContext at `workflow step start` (AC1)', ()
     const requiredInputs = stepContext.finishContract.requiredInputs;
     assert.equal(requiredInputs['commit.title'].required, true);
     assert.equal(requiredInputs['commit.message'].required, false);
-    assert.equal(requiredInputs['include'].required, true);
+    assert.equal(requiredInputs['include'].required, false);
     assert.equal(requiredInputs['exclude'].required, false);
 
     // finishContract.gates is enriched with inspected status, not a bare descriptor —
@@ -508,7 +515,7 @@ describe('planFinish — non-mutating finish planning and input-required (AC2, A
 
     assert.equal(plan.status, 'input-required');
     assert.ok(plan.missingInputs.includes('commit.title'));
-    assert.ok(plan.missingInputs.includes('include'));
+    assert.ok(!plan.missingInputs.includes('include'));
     assert.ok(!plan.missingInputs.includes('commit.message'));
     assert.deepEqual(plan.plannedOperations, ['verify-gates', 'update-task', 'commit', 'push', 'transition']);
     assert.deepEqual(plan.blockers, []);
