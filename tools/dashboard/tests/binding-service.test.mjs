@@ -542,6 +542,8 @@ test('AC 5: Multi-task sessions maintain historical task bindings and allow expl
     const storageDir = join(tmpDir, 'sessions');
     const service = createAgentSessionBindingService({ storageDir });
     const specId = 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d';
+    const firstBindingTime = '2026-09-10T10:00:00.000Z';
+    const secondBindingTime = '2026-09-10T10:01:00.000Z';
 
     // 1. Initial binding for task-01
     const binding1 = await service.bindSession({
@@ -553,6 +555,8 @@ test('AC 5: Multi-task sessions maintain historical task bindings and allow expl
       step: 'implementation',
       attempt: 1,
       purpose: 'execution',
+      createdAt: firstBindingTime,
+      lastSeenAt: firstBindingTime,
     });
 
     assert.equal(binding1.activeTaskId, '01-first-task');
@@ -570,6 +574,8 @@ test('AC 5: Multi-task sessions maintain historical task bindings and allow expl
       step: 'implementation',
       attempt: 1,
       purpose: 'execution',
+      createdAt: secondBindingTime,
+      lastSeenAt: secondBindingTime,
     });
 
     assert.equal(binding2.activeTaskId, '02-second-task');
