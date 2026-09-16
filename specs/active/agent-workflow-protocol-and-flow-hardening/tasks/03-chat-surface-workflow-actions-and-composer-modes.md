@@ -81,17 +81,17 @@ semantic_references:
 
 ## Goal
 
-Integrate end-to-end workflow execution controls into the dashboard and chat surfaces: render direct task-level dispatch buttons (`Start implementation`, `Start review`, `Approve`, `Request changes`) based on server-projected `availableActions`, provide a temporary UI presentation toggle (`Classic` vs `Deterministic Preview`), implement a multi-task context bar with explicit `activeTaskId` selection above the composer, implement the dedicated `request-changes` composer mode, and implement the complete application-level product workflow E2E test suite.
+Integrate end-to-end workflow execution controls into the dashboard and chat surfaces: render direct task-level dispatch buttons (`Start implementation`, `Start review`, `Approve`, `Request changes`) based on server-projected `availableActions`, respect the specification-owned workflow execution mode end-to-end (`D15`), implement a multi-task context bar with explicit `activeTaskId` selection above the composer, implement the dedicated `request-changes` composer mode, and implement the complete application-level product workflow E2E test suite.
 
 ## Implementation constraints
 
-- **Temporary UI Presentation Switch (`D10`, `C12`):**
-  - In `tools/dashboard/ui/screens/specification-detail/` (or global specification header):
-    - Introduce a segmented control or toggle: `Workflow Experience: [ Classic ] [ Deterministic Preview ]`.
-    - Persist mode in local storage (e.g. `nevo:workflow-experience:mode`). Default to `Deterministic Preview` during development/testing while preserving immediate rollback capability.
-    - When `Classic` is active: render the existing generic action buttons without the new dispatch semantics or in-chat workflow bar.
-    - When `Deterministic Preview` is active: render direct `availableActions` dispatch buttons and active-session workflow surfaces.
--- **Dashboard Task Initiation & `availableActions` Projection (`D8`, `C9`, `C10`):
+- **Specification-Owned Workflow Execution Mode (`D11`, `D15`):**
+  - Workflow execution mode (`legacy` vs `deterministic`) is a specification-level product decision, never a session- or UI-level preference. It is selected once, explicitly, during specification creation (`tools/specs/identity.mjs#createSpecification`, threaded through the Create Specification dialog); the default remains `legacy` (`DEFAULT_WORKFLOW_MODE`, unchanged).
+  - `AgentSession`s inherit the workflow mode of the specification they are bound to and cannot override it. The Create Agent Session dialog displays the inherited mode read-only — it is informational, never a selectable control.
+  - The dashboard and chat surfaces render whichever mode the specification actually resolves to (`resolveWorkflowMode(change)`) — never a locally-selected or persisted presentation preference. There is no session-level or browser-local workflow-mode setting of any kind; the earlier `Workflow Experience: [ Classic ] [ Deterministic Preview ]` `localStorage` toggle described in this task's original draft has been removed from normal product UX and must not be reintroduced.
+  - Deterministic workflow chrome (the in-chat workflow bar's status/attempt/step display, the human-verification banner, direct `availableActions` dispatch buttons) renders if and only if the bound specification is deterministic. Legacy specifications never render fabricated deterministic status, attempt, or step state (no `(unknown)` labels) — they render the plain, generic task-context selector described below instead.
+  - The generic multi-task context bar (which tasks are bound to this session, and which one is the operator-selected `activeTaskId`) is a distinct concept from deterministic workflow position (`step`, `attempt`, server-projected `availableActions`) — the former exists for legacy and deterministic specifications alike; the latter is deterministic-only and always server-projected, never inferred or fabricated by the UI.
+- **Dashboard Task Initiation & `availableActions` Projection (`D8`, `C9`, `C10`):
   - In `tools/dashboard/ui/features/specifications/detail/status-board.tsx` and specification overview:
     - Replace hardcoded task action logic with consumption of server-projected `availableActions` array (from `GET /api/specs/:source/:slug/actions`). The UI must NOT recreate the workflow state machine or infer actions from task.status.
     - When `start-implementation` is available: render `[ Start implementation ]` button. Clicking initiates or reuses a session for the task via `POST /api/agent-sessions` with `{ specId, taskId, taskIds: [taskId], provider, mode: 'edit' }`. The canonical `sessionId` UUID returned is the sole authoritative identity (`providerSessionId` is optional and initially absent until provider confirmation). Initial dispatch is queued with clean `userMessage` (the server-side turn runtime automatically injects the hidden `[Nevo Workflow Context]` header for deterministic specs), and the UI navigates to the session chat view using canonical `sessionId`.
@@ -147,7 +147,7 @@ Integrate end-to-end workflow execution controls into the dashboard and chat sur
 
 ## Acceptance criteria
 
-1. Segmented control toggles between `Classic` and `Deterministic Preview`, properly switching dashboard and composer UI capabilities without regressions. `automated: node --test tools/dashboard/tests/agent-session-workflow.test.mjs`
+1. Specification-owned workflow mode is respected end-to-end (`D11`, `D15`): legacy specifications render legacy/task-context UX only (no fabricated deterministic status, step, attempt, or `(unknown)` labels), deterministic specifications render authoritative deterministic workflow UX (workflow bar step/attempt, human-verification banner, direct `availableActions` dispatch buttons), and no local presentation preference — there is none — can change which mode renders or executes. Proven statically by the `AC1 (superseded by D15)` describe block (toggle component/localStorage key no longer exist) and behaviorally by the `AgentSessionChatSurface: session inheritance — isDeterministic is specification-owned (D15)` and `SpecificationMetadataFields: workflow mode selection at specification creation (D15)` describe blocks. `automated: node --test tools/dashboard/tests/agent-session-workflow.test.mjs`
 2. Dashboard task cards render `[ Start implementation ]` and `[ Start review ]` when enabled in server-projected `availableActions`, creating/reusing sessions via standard session APIs with canonical `sessionId`. `automated: node --test tools/dashboard/tests/agent-session-workflow.test.mjs`
 3. Bound tasks are rendered in the workflow bar above the chat composer, highlighting the `activeTaskId` and allowing seamless task switching in multi-task sessions. `automated: node --test tools/dashboard/tests/agent-session-workflow.test.mjs`
 4. When `activeTaskId` requires human verification, `[ Approve ]` and `[ Request changes ]` render above the composer. `automated: node --test tools/dashboard/tests/agent-session-workflow.test.mjs`
@@ -160,6 +160,7 @@ Integrate end-to-end workflow execution controls into the dashboard and chat sur
 
 ```text
 node --test tools/dashboard/tests/agent-session-workflow.test.mjs
+cd tools/dashboard && npx vitest run tests/agent-session-workflow.test.tsx
 node --test tools/dashboard/tests/e2e-product-workflow.test.mjs
 node tools/specs.mjs check
 ```

@@ -1104,9 +1104,16 @@ export class AgentSessionBindingService {
     const session = matches.find((s) => s.sessionId === sessionIdOrProviderSessionId) || matches[0];
     if (!session) return null;
 
-    const sessionBindings = all.bindings.filter((b) => b.sessionId === session.sessionId);
-    const sorted = sessionBindings.slice().sort(compareBindingRecency);
-    const winningBinding = sorted[0];
+    // The current-binding projection must represent exactly ONE task identity. Recency
+    // may only choose among bindings that already belong to session.activeTaskId — it
+    // must never reach across tasks and pair one task's step/attempt with a different
+    // task's taskId (e.g. activeTaskId '01' at implementation/attempt 2, but a newer
+    // binding for an unrelated task '02' at review/attempt 1). Absent activeTaskId means
+    // no authoritative active task at all: no winning binding, no step, no attempt.
+    const activeTaskBindings = session.activeTaskId
+      ? all.bindings.filter((b) => b.sessionId === session.sessionId && b.taskId === session.activeTaskId)
+      : [];
+    const winningBinding = activeTaskBindings.slice().sort(compareBindingRecency)[0];
 
     return {
       sessionId: session.sessionId,
@@ -1146,9 +1153,12 @@ export class AgentSessionBindingService {
     const session = matches.find((s) => s.sessionId === sessionIdOrProviderSessionId) || matches[0];
     if (!session) return null;
 
-    const sessionBindings = all.bindings.filter((b) => b.sessionId === session.sessionId);
-    const sorted = sessionBindings.slice().sort(compareBindingRecency);
-    const winningBinding = sorted[0];
+    // See async resolveCurrentBinding above: recency may only choose among bindings that
+    // already belong to session.activeTaskId, never across tasks.
+    const activeTaskBindings = session.activeTaskId
+      ? all.bindings.filter((b) => b.sessionId === session.sessionId && b.taskId === session.activeTaskId)
+      : [];
+    const winningBinding = activeTaskBindings.slice().sort(compareBindingRecency)[0];
 
     return {
       sessionId: session.sessionId,

@@ -603,6 +603,121 @@ test('AC 5: Multi-task sessions maintain historical task bindings and allow expl
   }
 });
 
+// Regression: the current-binding projection must represent exactly ONE task identity.
+// A prior version of resolveCurrentBinding/resolveCurrentBindingSync picked taskId from
+// session.activeTaskId but independently picked step/attempt from whichever binding row
+// (across ALL bound tasks) was most recently touched — so a newer binding for an inactive
+// task could silently overwrite the active task's own step/attempt in the projection.
+test('resolveCurrentBinding/resolveCurrentBindingSync: step/attempt always come from the activeTaskId binding, never a more-recently-touched binding for a different task', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-current-binding-task-scoping-'));
+  try {
+    const storageDir = join(tmpDir, 'sessions');
+    const service = createAgentSessionBindingService({ storageDir });
+    const specId = 'b2c3d4e5-f6a7-4b2c-8d3e-4f5a6b7c8d9e';
+
+    // Task 01 bound first, at implementation/attempt 2, touched EARLIER.
+    await service.bindSession({
+      provider: 'claude',
+      providerSessionId: 'sess-scoping-1',
+      sessionId: 'sess-scoping-1',
+      specId,
+      taskId: '01',
+      step: 'implementation',
+      attempt: 2,
+      lastSeenAt: '2026-09-10T10:00:00.000Z',
+    });
+
+    // Task 02 bound second, at review/attempt 1, touched LATER — this becomes active by
+    // default (bindSession's own "this call's taskId becomes active" default), so switch
+    // back to 01 explicitly afterward to exercise the actual scenario: activeTaskId='01'
+    // while task 02 genuinely holds the most recently touched binding row.
+    await service.bindSession({
+      provider: 'claude',
+      providerSessionId: 'sess-scoping-1',
+      sessionId: 'sess-scoping-1',
+      specId,
+      taskId: '02',
+      step: 'review',
+      attempt: 1,
+      lastSeenAt: '2026-09-12T10:00:00.000Z',
+    });
+
+    const switched = await service.setActiveTaskId('claude', 'sess-scoping-1', '01', specId);
+    assert.equal(switched.activeTaskId, '01');
+
+    const current = await service.resolveCurrentBinding('claude', 'sess-scoping-1');
+    assert.equal(current.taskId, '01', 'taskId must reflect the authoritative activeTaskId');
+    assert.equal(current.activeTaskId, '01');
+    assert.equal(current.step, 'implementation', 'step must come from task 01\'s own binding, not task 02\'s newer one');
+    assert.equal(current.attempt, 2, 'attempt must come from task 01\'s own binding, not task 02\'s newer one');
+
+    const currentSync = service.resolveCurrentBindingSync('claude', 'sess-scoping-1');
+    assert.equal(currentSync.taskId, '01');
+    assert.equal(currentSync.activeTaskId, '01');
+    assert.equal(currentSync.step, 'implementation');
+    assert.equal(currentSync.attempt, 2);
+
+    // Switching the other way must scope step/attempt to task 02's own binding only.
+    await service.setActiveTaskId('claude', 'sess-scoping-1', '02', specId);
+    const currentAfterSwitch = await service.resolveCurrentBinding('claude', 'sess-scoping-1');
+    assert.equal(currentAfterSwitch.taskId, '02');
+    assert.equal(currentAfterSwitch.step, 'review');
+    assert.equal(currentAfterSwitch.attempt, 1);
+
+    // No activeTaskId at all -> no taskId, no step, no attempt. Never taskIds[0], never
+    // the most recently touched binding across tasks.
+    const bareSession = await service.bindSession({
+      provider: 'claude',
+      providerSessionId: 'sess-scoping-2',
+      sessionId: 'sess-scoping-2',
+      specId,
+      taskId: '03',
+      step: 'implementation',
+      attempt: 1,
+    });
+    assert.equal(bareSession.activeTaskId, '03');
+    // Bind a second task to the same session without ever designating a primary, then
+    // clear activeTaskId is not a supported operation — instead construct the neutral
+    // state directly via createSession-style multi-task binding (activeTaskId: null).
+    await service.bindSession({
+      provider: 'claude',
+      providerSessionId: 'sess-scoping-3',
+      sessionId: 'sess-scoping-3',
+      specId,
+      taskId: '04',
+      activeTaskId: null,
+      taskIds: ['04', '05'],
+      step: 'implementation',
+      attempt: 1,
+    });
+    await service.bindSession({
+      provider: 'claude',
+      providerSessionId: 'sess-scoping-3',
+      sessionId: 'sess-scoping-3',
+      specId,
+      taskId: '05',
+      activeTaskId: null,
+      taskIds: ['04', '05'],
+      step: 'review',
+      attempt: 3,
+      lastSeenAt: '2026-09-15T10:00:00.000Z',
+    });
+    const neutral = await service.resolveCurrentBinding('claude', 'sess-scoping-3');
+    assert.equal(neutral.taskId, undefined, 'no activeTaskId means no authoritative taskId');
+    assert.equal(neutral.activeTaskId, undefined);
+    assert.equal(neutral.step, undefined, 'no activeTaskId means no step, never the newest binding\'s step');
+    assert.equal(neutral.attempt, undefined, 'no activeTaskId means no attempt, never the newest binding\'s attempt');
+    assert.deepEqual(neutral.taskIds, ['04', '05'], 'taskIds must still list both historically bound tasks');
+
+    const neutralSync = service.resolveCurrentBindingSync('claude', 'sess-scoping-3');
+    assert.equal(neutralSync.taskId, undefined);
+    assert.equal(neutralSync.step, undefined);
+    assert.equal(neutralSync.attempt, undefined);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test('AC 3: Running workflow step start inside an environment with NEVO_SESSION_ID automatically creates and persists a SessionTaskBinding', async () => {
   const { handleWorkflowStepStart } = await import('../../specs/workflow/cli.mjs');
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-auto-bind-workflow-test-'));
