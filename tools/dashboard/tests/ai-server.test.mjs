@@ -1322,8 +1322,6 @@ test('ai events SSE: live SSE stream delivers interaction.requested events in re
       return fullText;
     })();
 
-    await new Promise((r) => setTimeout(r, 50));
-
     const startRes = await fetch(
       `${baseUrl}/api/agent-sessions/mock/session-test-live/turns`,
       control({

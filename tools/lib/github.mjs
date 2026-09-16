@@ -21,6 +21,7 @@ const WINDOWS_GH_FALLBACK_PATHS = [
 ];
 
 let resolvedGhBinary; // cached after the first successful resolution this process
+let ghAuthStatus; // cached true/false after first auth check in this process
 
 // Node's synchronous child-process default is only 1 MiB. Large pull requests can
 // exceed it with the paginated files payload alone, causing a misleading ENOBUFS
@@ -242,7 +243,15 @@ function ownerAndRepo(root) {
 }
 
 export function isGhAvailable() {
-  return resolveGhBinary() !== null;
+  if (resolveGhBinary() === null) return false;
+  if (ghAuthStatus !== undefined) return ghAuthStatus;
+  try {
+    run(process.cwd(), ['auth', 'status']);
+    ghAuthStatus = true;
+  } catch {
+    ghAuthStatus = false;
+  }
+  return ghAuthStatus;
 }
 
 const repoSlugCache = new Map();

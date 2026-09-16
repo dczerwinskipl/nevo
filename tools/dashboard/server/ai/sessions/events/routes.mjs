@@ -20,23 +20,29 @@ export default async function aiEventRoutes(fastify, { service, accessPolicy }) 
 
     console.log(`[ai] [sse:connect] session=${sessionId} after=${afterSequence}`);
 
-    reply.sse.keepAlive();
-    reply.sse.sendHeaders();
-    if (typeof reply.raw.flushHeaders === 'function') {
-      reply.raw.flushHeaders();
-    }
-    activeConnections.add(reply.sse);
-    reply.sse.onClose(() => activeConnections.delete(reply.sse));
-
+    let releaseHeaders;
+    const headersReady = new Promise((resolve) => {
+      releaseHeaders = resolve;
+    });
     let sendQueue = Promise.resolve();
     const unsubscribe = service.subscribeToSession(sessionId, {
       afterSequence,
       onEvent: (event) => {
         sendQueue = sendQueue.then(() =>
-          reply.sse.send({ id: event.seq ?? event.id, event: event.type, data: event }).catch(() => {}),
+          headersReady.then(() =>
+            reply.sse.send({ id: event.seq ?? event.id, event: event.type, data: event }).catch(() => {}),
+          ),
         );
       },
     });
+    reply.sse.keepAlive();
+    reply.sse.sendHeaders();
+    if (typeof reply.raw.flushHeaders === 'function') {
+      reply.raw.flushHeaders();
+    }
+    releaseHeaders();
+    activeConnections.add(reply.sse);
+    reply.sse.onClose(() => activeConnections.delete(reply.sse));
     reply.sse.onClose(() => unsubscribe());
   });
 
@@ -54,14 +60,10 @@ export default async function aiEventRoutes(fastify, { service, accessPolicy }) 
 
     console.log(`[ai] [sse:connect] provider=${provider} session=${providerSessionId} after=${afterSequence}`);
 
-    reply.sse.keepAlive();
-    reply.sse.sendHeaders();
-    if (typeof reply.raw.flushHeaders === 'function') {
-      reply.raw.flushHeaders();
-    }
-    activeConnections.add(reply.sse);
-    reply.sse.onClose(() => activeConnections.delete(reply.sse));
-
+    let releaseHeaders;
+    const headersReady = new Promise((resolve) => {
+      releaseHeaders = resolve;
+    });
     // Sends are serialized per connection: @fastify/sse's writeToStream() registers a
     // fresh once('drain')/once('error') pair on the raw ServerResponse every time a
     // write hits backpressure. Replaying a reconnect's backlog (subscribeToSession
@@ -75,10 +77,20 @@ export default async function aiEventRoutes(fastify, { service, accessPolicy }) 
       afterSequence,
       onEvent: (event) => {
         sendQueue = sendQueue.then(() =>
-          reply.sse.send({ id: event.seq ?? event.id, event: event.type, data: event }).catch(() => {}),
+          headersReady.then(() =>
+            reply.sse.send({ id: event.seq ?? event.id, event: event.type, data: event }).catch(() => {}),
+          ),
         );
       },
     });
+    reply.sse.keepAlive();
+    reply.sse.sendHeaders();
+    if (typeof reply.raw.flushHeaders === 'function') {
+      reply.raw.flushHeaders();
+    }
+    releaseHeaders();
+    activeConnections.add(reply.sse);
+    reply.sse.onClose(() => activeConnections.delete(reply.sse));
     reply.sse.onClose(() => unsubscribe());
   });
 

@@ -72,6 +72,10 @@ function git(root, args) {
   return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' });
 }
 
+function readRemoteHead(root, branch = 'main') {
+  return git(root, ['ls-remote', 'origin', `refs/heads/${branch}`]).split('\t')[0].trim();
+}
+
 function makeFixture(prefix) {
   const remote = mkdtempSync(join(tmpdir(), `${prefix}-remote-`));
   git(remote, ['init', '-q', '--bare', '--initial-branch=main']);
@@ -179,7 +183,7 @@ describe('Vertical PoC — the full step start / step finish / verify-human sequ
     assert.ok(changedInCommit.includes('feature.txt'));
     assert.ok(changedInCommit.some(p => p.endsWith('change.yaml')));
 
-    const remoteHead = git(fx.remote, ['rev-parse', 'main']).trim();
+    const remoteHead = readRemoteHead(fx.root);
     assert.equal(remoteHead, completedSha);
   });
 
@@ -253,7 +257,7 @@ describe('Vertical PoC — interrupted-and-resumed finish via the CLI (AC4, AC6,
 
     assert.equal(result.status, 'completed');
     assert.equal(git(fx.root, ['rev-list', '--count', 'HEAD']).trim(), commitsBefore, 'no second commit must be created');
-    const remoteHead = git(fx.remote, ['rev-parse', 'main']).trim();
+    const remoteHead = readRemoteHead(fx.root);
     assert.equal(remoteHead, commitSha);
   });
 
@@ -564,7 +568,7 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
       assert.equal(task.workflow_progress.history[2].transitioned_to, 'verified');
 
       const headSha = getCurrentRevision(fx.root);
-      const remoteHead = git(fx.remote, ['rev-parse', 'main']).trim();
+      const remoteHead = readRemoteHead(fx.root);
       assert.equal(remoteHead, headSha);
     });
 
@@ -574,4 +578,3 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
     });
   });
 });
-
