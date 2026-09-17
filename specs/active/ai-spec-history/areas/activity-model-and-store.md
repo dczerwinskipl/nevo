@@ -39,9 +39,10 @@ diagnostics-scoped NDJSON log and is explicitly not shared with or reused by thi
 - Reader: splits on `\n`, discards empty lines, and skips any individual line that fails
   to parse — a dangling partial line from an interrupted write is isolated (not merged
   with a subsequent valid record) by the leading-newline framing above.
-- **Deduplication on read, by `id`, keep-first occurrence** (earliest `occurredAt` for
-  that id; later lines with the same id are discarded from query results, though they
-  remain physically present in the file — this store never rewrites/compacts). This is
+- **Deduplication on read, by `id`, keep-first occurrence in file order** (not by
+  `occurredAt` — this design deliberately never orders by timestamp; later lines with the
+  same id are discarded from query results, though they remain physically present in the
+  file — this store never rewrites/compacts). This is
   the actual idempotency mechanism for producers using deterministic ids, not a
   defense-in-depth extra (2026-09-16 review, Blocking 2 — see overview.md § Idempotency
   for resumable operations for the full reasoning and the id-construction scheme).

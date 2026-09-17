@@ -164,3 +164,79 @@
 - **Date:** 2026-09-16
 - **Affected artifacts:** `overview.md`, `areas/activity-model-and-store.md`,
   `tasks/03-actor-resolver.md`.
+
+## D14: `autoBindAgentSession` must return the canonical binding, not the raw execution context (resolved from PR #52 review round 2, Blocking)
+
+- **Question:** D10's fix ("`autoBindAgentSession` returns `context`") was itself wrong.
+  `readAgentExecutionContext()` can legitimately resolve only `{provider,
+  providerSessionId}` with no canonical `sessionId` at all — it's `bindSessionSync()` that
+  generates/resolves the canonical `sessionId` (`effectiveSessionId = sessionId ||
+  randomUUID()`, or reuses an existing session's id on a provider+providerSessionId
+  match). Returning the pre-bind `context` and reading `context?.sessionId` would
+  misclassify a validly-bound, provider-native-only session as `SYSTEM_ACTOR`.
+- **Decision:** `autoBindAgentSession` returns `bindSessionSync()`'s own result (which
+  always carries a resolved `sessionId`) on a successful bind, and `null` on every
+  no-op/early-return/error branch. Callers use `binding?.sessionId`, not
+  `context?.sessionId`.
+- **Rationale:** `bindSessionSync`'s return value is the only thing that's guaranteed to
+  carry a canonical `sessionId` — the pre-bind context is not.
+- **Consequences:** Supersedes D10's session-actor-contract text (not the deterministic-id/
+  dedup mechanism, which stands). `tools/specs.mjs`, `cli.mjs` call sites, and task 06
+  updated.
+- **Date:** 2026-09-17
+- **Affected artifacts:** `overview.md`, `areas/activity-producers-workflow-and-verification.md`,
+  `tasks/06-workflow-step-activity-producer.md`.
+
+## D15: `workflow.step.completed` emission moved to the `finishStep` call site (resolved from PR #52 review round 2, Blocking)
+
+- **Question:** Deterministic ids + read-side dedup (D10) close the *duplicate*-emission
+  crash window but not the *missing*-emission one: `ensureUpdateTask` has its own recovery
+  branch for "the `workflow_progress` write already happened in a prior crashed attempt,
+  but the operation record's stage was never marked completed." That branch detects the
+  write, marks the stage completed, and returns without redoing anything else. If
+  emission were gated on which internal branch of `ensureUpdateTask` ran, a resume taking
+  this recovery branch would never emit the activity at all — not a duplicate, a
+  permanently missing event.
+- **Decision:** Move `workflow.step.completed` emission out of `ensureUpdateTask` entirely,
+  into `finishStep`'s own stage sequence, called unconditionally immediately after `await
+  ensureUpdateTask(...)` returns — regardless of which internal branch executed. Combined
+  with D10's deterministic id/dedup, this closes both the missing-event and
+  duplicate-event gaps.
+- **Rationale:** Emission needs to depend on "did this stage complete" (observable at the
+  call site after any successful return), not on "which code path performed the write"
+  (an internal implementation detail of `ensureUpdateTask` that the recovery path
+  deliberately skips).
+- **Consequences:** `data` for the emitted activity is now built from `record`'s
+  `update-task` stage result and `record.resolvedInputs`, both already populated
+  in-memory — no new disk read needed.
+- **Date:** 2026-09-17
+- **Affected artifacts:** `overview.md`, `areas/activity-producers-workflow-and-verification.md`,
+  `tasks/06-workflow-step-activity-producer.md`.
+
+## D16: Actor attribution for direct `--approve`/`--request-changes` human decisions (resolved from PR #52 review round 2, Major)
+
+- **Question:** `handleWorkflowVerifyHuman` has two decision paths: the legacy
+  `--confirm` (task 07's original scope) and the primary `--approve`/`--request-changes`,
+  which calls `finishStep()` directly without ever calling `autoBindAgentSession`. Task 06
+  sources its actor only from the agent auto-bind path, so a step completed via
+  `--approve`/`--request-changes` had no defined actor and would fall back to
+  `SYSTEM_ACTOR` — misrepresenting a human decision as a system action.
+- **Options considered:** (a) pass a resolved `user` actor through a new `finishStep`
+  parameter for the direct-human path; (b) emit a dedicated `human-decision` activity type
+  distinct from `workflow.step.completed`.
+- **Decision:** Option (a). `finishStep` gains an optional `actor` parameter (`ActorRef`,
+  defaults to `SYSTEM_ACTOR`). `handleWorkflowStepFinish` passes the agent-session actor;
+  `handleWorkflowVerifyHuman`'s `--approve`/`--request-changes` branch passes
+  `resolveUserActor()`. No new activity type.
+- **Rationale:** Both paths ultimately complete the same kind of fact (a workflow step
+  transition) through the same function (`finishStep`) — the only thing missing was who
+  did it. A parameter is simpler than a parallel event type for the same underlying fact,
+  and keeps `workflow.step.completed`'s meaning (D11) intact regardless of which caller
+  triggered it.
+- **Consequences:** `finishStep`'s signature grows by one optional field (task 06 owns
+  defining it; task 07 depends on task 06 to use it for the direct-human path — new
+  `depends_on` edge added in `change.yaml`).
+- **Date:** 2026-09-17
+- **Affected artifacts:** `overview.md`, `areas/activity-producers-workflow-and-verification.md`,
+  `tasks/06-workflow-step-activity-producer.md`, `tasks/07-human-verification-activity-producer.md`,
+  `change.yaml`.

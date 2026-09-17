@@ -19,24 +19,28 @@ forbidden_paths:
   - tools/dashboard/**
   - tools/specs/workflow/human-verification-store.mjs
 semantic_references:
-  decisions: [D10]
-  dependency_contracts: [activity-local-store, actor-resolver]
+  decisions: [D10, D12, D16]
+  dependency_contracts: [activity-local-store, actor-resolver, workflow-step-activity-producer]
 ---
 
 # Task: Human verification activity producer
 
 ## Dependencies
 
-`activity-local-store`, `actor-resolver`.
+`activity-local-store`, `actor-resolver`, `workflow-step-activity-producer` (needs
+`finishStep`'s `actor` parameter, defined in task 06, to attribute direct human decisions
+correctly).
 
 ## Goal
 
-Emit a `human.verification.confirmed` activity from the human-verification confirm path,
-with a real resolved `user` actor (unlike the underlying store, which only persists a
-`role` string today) — from the correct boundary that actually knows `spec_id`
-(2026-09-16 PR review, Major 6: the original task wired this inside
-`FileHumanVerificationStore.confirm()`, which knows neither `spec_id` nor anything about
-git identity).
+Emit a `human.verification.confirmed` activity from the legacy human-verification confirm
+path, with a real resolved `user` actor (unlike the underlying store, which only persists
+a `role` string today) — from the correct boundary that actually knows `spec_id` (D12).
+**Also** ensure the *primary* human-decision path — `--approve`/`--request-changes`, which
+calls `finishStep()` directly and today has no actor propagation at all — is attributed to
+a `user` actor rather than falling back to `SYSTEM_ACTOR` (2026-09-17 PR review round 2,
+Major: task 07 originally only instrumented the legacy `--confirm` branch, leaving the
+primary approve/request-changes decisions unattributed; D16).
 
 ## Requirements
 
@@ -59,6 +63,14 @@ git identity).
   recording is observational, never a blocking dependency (mirrors task 06's failure
   handling). Wrap the call so a thrown error from activity recording cannot prevent
   `emit(...)` from returning the successful confirmation result.
+- **`--approve`/`--request-changes` actor propagation (D16):** in
+  `handleWorkflowVerifyHuman`'s `isApprove`/`isRequestChanges` branch (`cli.mjs`, the
+  branch that builds `inputs` and calls `finishStep({ change, task: effectiveTask,
+  definition, context, inputs, activeDir: context.activeDir, gateRegistry })`), resolve
+  `resolveUserActor()` (task 03) and pass it as `finishStep`'s new `actor` argument (task
+  06). This produces no new activity type — the resulting `workflow.step.completed`
+  activity (emitted by task 06's logic) simply carries a `user` actor instead of falling
+  back to `SYSTEM_ACTOR`, because this branch never calls `autoBindAgentSession`.
 
 ## Implementation constraints
 
@@ -80,6 +92,12 @@ CLI handler and the new producer module.
   `automated: node --test tools/tests/activity-human-verification-producer.test.mjs`
 - `human-verification-store.mjs` is untouched by this task's diff (`inspection: confirm
   the diff contains no changes to tools/specs/workflow/human-verification-store.mjs`).
+- Completing a `human-verification` step via `workflow verify-human --approve` produces a
+  `workflow.step.completed` activity with a `user`-type actor, not `SYSTEM_ACTOR`.
+  `automated: node --test tools/tests/activity-human-verification-producer.test.mjs`
+- Completing a `human-verification` step via `workflow verify-human --request-changes`
+  produces a `workflow.step.completed` activity with a `user`-type actor, not
+  `SYSTEM_ACTOR`. `automated: node --test tools/tests/activity-human-verification-producer.test.mjs`
 - Existing `tools/tests/workflow-human-verification.test.mjs` still passes unchanged in
   its existing assertions. `automated: node --test tools/tests/workflow-human-verification.test.mjs`
 

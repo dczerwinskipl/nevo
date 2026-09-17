@@ -85,10 +85,13 @@ chronological, human-readable timeline of a spec's activity — across tasks —
 
 - New: `tools/specs/activity/` (core model, store, actor resolver, query).
 - New: `tools/dashboard/server/activity/` (read-only Fastify capability).
-- Touched: `tools/specs/workflow/cli.mjs`, `tools/specs/workflow/finish-operation.mjs`
-  (activity emission at the existing idempotent stage boundary).
-- Touched: `tools/specs/workflow/human-verification-store.mjs` (activity emission on
-  confirm).
+- Touched: `tools/specs.mjs` (`autoBindAgentSession` returns its canonical session
+  binding), `tools/specs/workflow/cli.mjs`, `tools/specs/workflow/finish-operation.mjs`
+  (`finishStep` accepts an `actor` parameter; activity emission at the finish sequence's
+  `update-task` call site, unconditional on every call — see § Idempotency for resumable
+  operations).
+- **Not touched** (D12): `tools/specs/workflow/human-verification-store.mjs` — activity
+  emission for the legacy `--confirm` path lives entirely in `cli.mjs`, not the store.
 - Touched: `tools/lib/git.mjs` (small addition: read local git user identity).
 - New: `docs/decisions/ADR-00NN-local-append-only-activity-history.md`.
 
@@ -100,12 +103,18 @@ store — see Proposed architecture below.
 
 ## Owner decisions
 
-See `owner-decisions.md` (D1–D9) for the full decision record. Summary: separate store
+See `owner-decisions.md` (D1–D16) for the full decision record. Summary: separate store
 from diagnostics (D1), no pruning (D2), one NDJSON file per spec (D3), `git config` as the
 v1 human-identity source (D4), `triggeredBy` references a prior activity id (D5), review
 findings carry per-finding authorship in `data` rather than one activity per comment (D6),
 namespaced per-producer types as the extensibility mechanism (D7), `type: architectural`
-(D8), a new ADR is in scope (D9).
+(D8), a new ADR is in scope (D9); resolved from the two PR #52 review passes: deterministic
+ids + read-side dedup as the idempotency mechanism (D10), correct `update-task` hook point
+(D11), human-verification emission boundary moved to `cli.mjs` (D12), v1 `user`
+presentation model (D13), `autoBindAgentSession` returns its canonical session binding
+(D14), emission moved to the `finishStep` call site so the recovery path can't silently
+skip it (D15), and explicit user-actor propagation for the direct `--approve`/
+`--request-changes` path (D16).
 
 ## Proposed architecture
 
@@ -176,13 +185,18 @@ receives an already-complete envelope.
     to `tools/lib/git.mjs`) at the point of emission, and stored as `{type: 'user', id:
     <email or name>}`. Falls back to a placeholder id if git config is unavailable.
   - `agent-session` actor: wraps a session id into `{type: 'agent-session', id:
-    sessionId}`. That `sessionId` comes from `autoBindAgentSession`'s resolved execution
-    context — see Producers below for the exact contract (Blocking 3 in the 2026-09-16
-    review, resolved: `autoBindAgentSession` (`tools/specs.mjs`) now returns the
-    `AgentExecutionContext` it already computes internally via
-    `readAgentExecutionContext`, instead of nothing; callers in `cli.mjs` capture it and
-    pass `context?.sessionId` forward). Falls back to `SYSTEM_ACTOR` when no session is
-    bound.
+    sessionId}`. That `sessionId` comes from `autoBindAgentSession`'s returned **canonical
+    session binding** — see Producers below for the exact contract (2026-09-17 review
+    round 2, Blocking: the first fix, "return the raw `AgentExecutionContext` and use
+    `context?.sessionId`," was itself wrong — `readAgentExecutionContext()` can
+    legitimately resolve only `{provider, providerSessionId}` with no canonical
+    `sessionId` at all; it's `bindSessionSync()` that generates/resolves the canonical
+    `sessionId` — a session identified only by `provider`+`providerSessionId` would have
+    been misclassified as `SYSTEM_ACTOR` under the first fix. Corrected:
+    `autoBindAgentSession` (`tools/specs.mjs`) now returns `bindSessionSync()`'s own
+    result — which always carries a resolved `sessionId` — instead of the pre-bind
+    context). Falls back to `SYSTEM_ACTOR` when nothing was bound (no execution context at
+    all, or binding failed/threw).
   - `system` actor: a fixed constant (e.g. `{ type: 'system', id: 'nevo-workflow-engine' }`)
     for workflow-engine-initiated facts with no human/agent actor.
 - **v1 presentation model for `user` actors (resolved 2026-09-16, replaces the earlier
@@ -223,58 +237,86 @@ always stored as immutable event `data`, never inferred from presentation state.
 ### Producers (first, deliberately small slice)
 
 1. `workflow.step.started` — `handleWorkflowStepStart` (`cli.mjs`). Actor: agent-session
-   (via `autoBindAgentSession`'s returned context) or `SYSTEM_ACTOR`.
-2. `workflow.step.completed` — `ensureUpdateTask`'s **`update-task` stage**
-   (`finish-operation.mjs`) — **not** the later `transition` stage (2026-09-16 review,
-   Blocking 1: the review found the original spec named the wrong stage). `update-task` is
-   the stage that computes the transition target and writes
-   `task.workflow_progress.history[]`; `transition`/`commit`/`push` are later,
-   runtime-only stages of the durable finish operation. So `workflow.step.completed`
-   means specifically: *the authoritative workflow state transition was recorded* — not
-   "the whole finish operation (incl. commit/push) settled." `data` carries `result`,
-   `attempt`, `transitioned_to`, `artifacts`, `feedback` (all already known at
-   `update-task`), and — only when already present at this boundary — a `findings` list
-   with per-finding `author` (D6). A later `workflow.step.settled`-shaped event covering
-   full durable completion (post commit/push) is explicitly out of scope for v1 (see Out
-   of scope).
-3. `human.verification.confirmed` — `handleWorkflowVerifyHuman`'s `--confirm` branch
-   (`cli.mjs`), immediately after a successful `FileHumanVerificationStore.confirm()` call
-   — **not inside the store** (2026-09-16 review, Major 6: `FileHumanVerificationStore`
-   only knows repo root/change slug/task/attempt/gate data, not the stable `spec_id` the
-   Activity store keys on; the CLI handler already resolves the full `change` object and
-   is the real user-action boundary). Actor resolved via the git-config-based user
-   resolver.
+   (from `autoBindAgentSession`'s returned canonical session binding, see Actor resolution
+   above) or `SYSTEM_ACTOR`.
+2. `workflow.step.completed` — emitted from **`finishStep`'s main stage sequence in
+   `finish-operation.mjs`, immediately after `await ensureUpdateTask(...)` returns** (not
+   from inside `ensureUpdateTask` itself, and not from the later `transition` stage — see
+   § Idempotency for resumable operations for why the call site matters, 2026-09-17 review
+   round 2, Blocking). `update-task` is the stage that computes the transition target and
+   writes `task.workflow_progress.history[]`; `transition`/`commit`/`push` are later,
+   runtime-only stages. So `workflow.step.completed` means specifically: *the authoritative
+   workflow state transition was recorded* — not "the whole finish operation (incl.
+   commit/push) settled." `data` carries `result`, `attempt`, `transitioned_to`,
+   `artifacts`, `feedback` (all already known at `update-task`, readable straight off the
+   in-memory operation `record` — no re-read from disk needed), and — only when already
+   present at this boundary — a `findings` list with per-finding `author` (D6). A later
+   `workflow.step.settled`-shaped event covering full durable completion (post commit/push)
+   is explicitly out of scope for v1 (see Out of scope). **Actor:** `finishStep` gains a
+   new optional `actor` parameter (an already-resolved `ActorRef`, defaulting to
+   `SYSTEM_ACTOR` when omitted) — every caller resolves and passes the correct actor
+   *before* calling `finishStep`, so the emission itself never has to guess who acted (see
+   next point and D16).
+3. `human.verification.confirmed` — `handleWorkflowVerifyHuman`'s legacy `--confirm`
+   branch only (`cli.mjs`), immediately after a successful
+   `FileHumanVerificationStore.confirm()` call — **not inside the store**
+   (`FileHumanVerificationStore` only knows repo root/change slug/task/attempt/gate data,
+   not the stable `spec_id` the Activity store keys on; the CLI handler already resolves
+   the full `change` object). Actor resolved via the git-config-based user resolver.
+   **`--approve`/`--request-changes` do not get this event type** — they call
+   `finishStep()` directly (same function `handleWorkflowStepFinish` uses), so they get
+   `workflow.step.completed` like any other finish, but with a **`user` actor explicitly
+   passed in** (2026-09-17 review round 2, Major — `handleWorkflowVerifyHuman`'s direct
+   `--approve`/`--request-changes` path calls `finishStep()` without ever calling
+   `autoBindAgentSession`, so without this explicit propagation the completion would have
+   fallen back to `SYSTEM_ACTOR` and misrepresented a human decision as a system action;
+   D16): that branch resolves `resolveUserActor()` (task 03) and passes it as
+   `finishStep`'s `actor` argument, the same parameter `handleWorkflowStepFinish` uses for
+   the agent-session actor.
 
 ### Idempotency for resumable operations
 
-*(Revised 2026-09-16 in response to review Blocking 2 — the original "defense in depth"
-framing was not actually sufficient: the Activity append and the operation-record's
-per-stage status update are two independent writes with a real crash window between them,
-and neither `readActivities` nor `query.mjs` deduplicated. This is now the actual
-mechanism, not a backup.)*
+*(Revised 2026-09-17, review round 2, Blocking — round 1's fix closed the *duplicate*
+case but not the *missing-event* case: `ensureUpdateTask` already has its own recovery
+branch for "the authoritative `workflow_progress` write happened, but the operation
+record's stage was never marked completed" — e.g. a crash right after
+`setTaskWorkflowState` but before an Activity append. On resume, that recovery branch
+detects the write already happened, marks the stage `completed`, and returns *without*
+redoing anything else. If Activity emission had stayed conditional on which internal
+branch of `ensureUpdateTask` executed, this resumed call would never reach it — not a
+duplicate, a permanently missing event. The fix is about *where* emission is called, not
+just *what id* it uses.)*
 
-- Every producer-emitted activity in this slice uses a **deterministic id**, derived from
+- **Emission call site (fixes the missing-event gap):** `workflow.step.completed` is
+  emitted by the *caller* of `ensureUpdateTask` — `finishStep`'s main stage sequence in
+  `finish-operation.mjs`, on the line immediately after `await
+  ensureUpdateTask(record, ...)` — unconditionally, every time that call resolves
+  successfully, regardless of whether `ensureUpdateTask` internally took the fresh-write
+  path or the "write already happened" recovery path. Because `record`'s `update-task`
+  stage has its `.result` (the transition target) populated by either path before
+  `ensureUpdateTask` returns, and `record.resolvedInputs` (`result`/`artifacts`/
+  `feedback`) is already on the in-memory operation record, the caller has everything it
+  needs without re-reading anything from disk. `ensureUpdateTask`'s own `if
+  (stage.status === 'completed') return;` guard still exists (it guards the *state write*,
+  which is a separate concern) but no longer gates activity emission at all.
+- **Deterministic id + read-side dedup (fixes the duplicate-event case, from round 1):**
+  every producer-emitted activity in this slice uses a **deterministic id**, derived from
   stable identifiers already known at the point of emission — not `crypto.randomUUID()`.
   Concretely: `` `${type}:${specId}:${taskId}:${step}:${attempt}` `` (`human.verification.
   confirmed` additionally includes `:${gateId}`, since one step/attempt can have more than
-  one gate).
-- The store's read path (`readActivities` in `tools/specs/activity/store.mjs`, and
-  therefore every `query.mjs` function built on it) **deduplicates by `id`, keeping the
-  first occurrence** (earliest `occurredAt` for that id) and discarding later lines with
+  one gate). The store's read path (`readActivities` in `tools/specs/activity/store.mjs`,
+  and therefore every `query.mjs` function built on it) **deduplicates by `id`, keeping
+  the first occurrence in file order** for that id (not by `occurredAt` — this design
+  deliberately never orders by timestamp, see § Storage) and discarding later lines with
   the same id. Append itself stays a single write call with no pre-read/lock — it is
   intentionally append-at-least-once; correctness comes from read-side dedup, not
   write-side prevention.
-- This makes the crash window harmless regardless of which side (Activity append vs.
-  operation-record stage status) lands first or is retried: whichever write(s) repeat on
-  resume produce identical-id records that collapse to one on read. It also directly
-  covers `workflow.step.started`'s repeatability (`workflow step start` is intentionally
+- Together: emission is now *unconditional on every successful call* (closing the
+  missing-event gap) *and* safely repeatable (closing the duplicate-event gap) — the two
+  fixes are complementary, not alternatives. This also directly covers
+  `workflow.step.started`'s repeatability (`workflow step start` is intentionally
   re-callable while a step is active) — repeated calls for the same attempt produce the
   same deterministic id and dedup to a single logical activity.
-- Additionally, `workflow.step.completed` emission is placed at `ensureUpdateTask`'s own
-  existing idempotent guard (`if (stage.status === 'completed') return;`) so a resumed
-  operation does not even attempt to re-emit once that stage is known complete — dedup-on-
-  read is the correctness guarantee; this guard is an optimization that avoids the
-  redundant attempt in the common resumed-and-already-complete case.
 
 ### Extensibility for future producers
 
@@ -316,10 +358,18 @@ changes; `workflow_progress` remains authoritative and unaffected.
 9. A new, unrelated activity type can be added by a new producer module without changing
    the core persisted Activity schema or the store/query modules.
 10. A resumed/replayed workflow finish operation does not surface a duplicate
-    `workflow.step.completed` activity when queried — whether the duplicate attempt is
-    prevented at the emission guard or collapsed by read-side dedup-by-`id` (both apply,
-    see § Idempotency for resumable operations). Also proven: repeated `workflow step
-    start` calls for the same attempt dedup to a single `workflow.step.started` activity.
+    `workflow.step.completed` activity when queried (collapsed by read-side dedup-by-`id`).
+    Also proven: repeated `workflow step start` calls for the same attempt dedup to a
+    single `workflow.step.started` activity.
+11. Simulating the crash window described in § Idempotency for resumable operations —
+    `workflow_progress.history[]` already written, the operation record's `update-task`
+    stage still `pending`, and no `workflow.step.completed` activity recorded yet — a
+    resumed `finishStep` call yields exactly **one** queryable `workflow.step.completed`
+    activity (proves the missing-event gap is closed, not just the duplicate-event gap).
+12. A `human-verification` step completed via `--approve` and one completed via
+    `--request-changes` both produce a `workflow.step.completed` activity with a
+    `user`-type actor, never `SYSTEM_ACTOR` (proves direct human decisions are correctly
+    attributed).
 
 ## Verification strategy
 
