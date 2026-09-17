@@ -80,6 +80,10 @@ chronological, human-readable timeline of a spec's activity — across tasks —
 - Finish operations are durable/resumable (`operation-record.mjs`) — activity recording
   must not break that resumability or create duplicate records on a resumed/replayed
   operation (Owner decision — acceptance criterion, see below).
+- The durable operation record's shape stays stable with **one explicit, additive
+  exception**: a new `actor` field, captured once at record creation (D17) — no other
+  field, no stage semantics, and no change to how `operation-record.mjs` persists/reads
+  records.
 
 ## Affected modules
 
@@ -103,18 +107,20 @@ store — see Proposed architecture below.
 
 ## Owner decisions
 
-See `owner-decisions.md` (D1–D16) for the full decision record. Summary: separate store
+See `owner-decisions.md` (D1–D18) for the full decision record. Summary: separate store
 from diagnostics (D1), no pruning (D2), one NDJSON file per spec (D3), `git config` as the
 v1 human-identity source (D4), `triggeredBy` references a prior activity id (D5), review
 findings carry per-finding authorship in `data` rather than one activity per comment (D6),
 namespaced per-producer types as the extensibility mechanism (D7), `type: architectural`
-(D8), a new ADR is in scope (D9); resolved from the two PR #52 review passes: deterministic
+(D8), a new ADR is in scope (D9); resolved from three PR #52 review passes: deterministic
 ids + read-side dedup as the idempotency mechanism (D10), correct `update-task` hook point
 (D11), human-verification emission boundary moved to `cli.mjs` (D12), v1 `user`
 presentation model (D13), `autoBindAgentSession` returns its canonical session binding
 (D14), emission moved to the `finishStep` call site so the recovery path can't silently
-skip it (D15), and explicit user-actor propagation for the direct `--approve`/
-`--request-changes` path (D16).
+skip it (D15), explicit user-actor propagation for the direct `--approve`/
+`--request-changes` path (D16), the actor is captured durably on the operation record at
+creation rather than re-read from each resume call (D17), and a failed Activity append
+gets a further retry opportunity on every later already-completed `finish` call (D18).
 
 ## Proposed architecture
 
@@ -252,11 +258,12 @@ always stored as immutable event `data`, never inferred from presentation state.
    in-memory operation `record` — no re-read from disk needed), and — only when already
    present at this boundary — a `findings` list with per-finding `author` (D6). A later
    `workflow.step.settled`-shaped event covering full durable completion (post commit/push)
-   is explicitly out of scope for v1 (see Out of scope). **Actor:** `finishStep` gains a
-   new optional `actor` parameter (an already-resolved `ActorRef`, defaulting to
-   `SYSTEM_ACTOR` when omitted) — every caller resolves and passes the correct actor
-   *before* calling `finishStep`, so the emission itself never has to guess who acted (see
-   next point and D16).
+   is explicitly out of scope for v1 (see Out of scope). **Actor (revised 2026-09-17,
+   review round 3, Blocking):** `finishStep` still gains an optional `actor` parameter,
+   but it is **not** read directly at the emission call site. It is captured once, into
+   the durable operation record itself, at the moment that record is first created
+   (`createOperationRecord`, before any stage runs) — see § Idempotency for resumable
+   operations for why a per-call parameter alone is wrong here (D17).
 3. `human.verification.confirmed` — `handleWorkflowVerifyHuman`'s legacy `--confirm`
    branch only (`cli.mjs`), immediately after a successful
    `FileHumanVerificationStore.confirm()` call — **not inside the store**
@@ -318,6 +325,60 @@ just *what id* it uses.)*
   re-callable while a step is active) — repeated calls for the same attempt produce the
   same deterministic id and dedup to a single logical activity.
 
+**Actor durability for resumed operations (2026-09-17, review round 3, Blocking — D17).**
+Round 2's fix closed *when* an event is missing, but not *who it's attributed to* when a
+resume genuinely happens under a different actor. Concrete failure mode: agent A starts a
+finish, the operation record is created, `setTaskWorkflowState` writes
+`workflow_progress`, the process dies before the Activity append; agent B (or a plain
+`SYSTEM_ACTOR` context, or the owner via a different CLI invocation) resumes the same
+finish; `ensureUpdateTask` detects the write already happened and returns via its recovery
+branch; the call site now emits `workflow.step.completed` per D15 — but if it used
+*this resume call's* actor, the activity would say B did it, when the state transition was
+actually A's doing. Recovery is a continuation of the *same* durable operation, not a new
+one with a new actor.
+
+- **Decision:** the actor is captured **once**, into the durable operation record itself,
+  at `createOperationRecord` (the moment a fresh record is created — before any stage
+  runs), from whatever `finishStep`'s `actor` parameter was on *that* first call. Every
+  subsequent call against the *same* record (a genuine resume) reads `record.actor` — the
+  originally-captured value — and ignores whatever `actor` the resuming call happened to
+  pass. This is the one explicit exception to "must not change operation record shape"
+  (D17 revises that constraint): the record gains one new additive field, `actor`
+  (`ActorRef`, defaulted to `SYSTEM_ACTOR` if `finishStep` was called without one). No
+  other field, no stage semantics, and no persistence format beyond this one addition
+  changes.
+- `loadOperationRecord`/`saveOperationRecord`/`findInFlightOperationRecord`
+  (`operation-record.mjs`) need no code changes — they already persist/read the whole
+  record as opaque JSON; adding a field to the object `finish-operation.mjs` constructs
+  and passes to them is sufficient.
+
+**Retrying a failed Activity append past "already-completed" (2026-09-17, review round 3,
+Major — D18).** `recordActivity` failures are wrapped so they never fail or roll back the
+underlying workflow operation (unchanged design choice) — but D15's fix only guarantees a
+retry opportunity while the finish operation is still genuinely resuming through its stage
+sequence. Once an operation reaches `record.status === 'completed'`, a later repeated
+`finish` call short-circuits through `planFinish`'s `already-completed`/`completed` status
+handling in `finishStep` *without* re-entering the stage sequence at all — so if the
+original Activity append failed (e.g. a disk error) and the operation went on to complete
+normally otherwise, there would be no further opportunity to record it.
+
+- **Decision:** at both of `finishStep`'s already-settled short-circuit returns (`plan.
+  status === 'already-completed'` and `plan.status === 'completed'`, both of which carry
+  `plan.existingRecord`), also **idempotently (re-)attempt** the same
+  `workflow.step.completed` emission — same deterministic id, built from
+  `plan.existingRecord`'s own stored `actor`, `step`, `attempt`, `update-task` stage
+  result, and `resolvedInputs`. If it was already successfully recorded, this is a no-op
+  (dedup-on-read collapses it); if the original attempt failed, this is the retry that
+  finally succeeds. Every later `finish` call against a completed operation becomes a free
+  additional retry opportunity, rather than a dead end.
+- This reuses the same emission helper as the main stage-sequence call site (D15), just
+  invoked from two additional call sites, and requires no new activity type or new
+  tracked failure state — "best-effort at the moment of first attempt, self-healing on
+  every later already-completed call" is the accepted v1 behavior. The only way an
+  Activity is permanently lost is if `finish` is never invoked again for that step/attempt
+  at all — an inherent limit of an observational, non-source-of-truth history, not a new
+  gap this fix introduces.
+
 ### Extensibility for future producers
 
 Adding a new activity type (PR created, merge, handover, spec finalized, etc.) means:
@@ -370,6 +431,18 @@ changes; `workflow_progress` remains authoritative and unaffected.
     `--request-changes` both produce a `workflow.step.completed` activity with a
     `user`-type actor, never `SYSTEM_ACTOR` (proves direct human decisions are correctly
     attributed).
+13. Simulating the D17 crash scenario — actor A's `finishStep` call creates the operation
+    record and gets as far as the `workflow_progress` write, then a *different* actor
+    (actor B, or no actor at all) resumes the same finish — the resulting
+    `workflow.step.completed` activity's actor is **A**, not B and not `SYSTEM_ACTOR`
+    (proves the operation record's captured actor is durable and resume calls cannot
+    override it).
+14. Simulating a `recordActivity` failure on the first successful completion of a step,
+    then calling `finish` again against the now-`completed` operation (an
+    `already-completed`/`completed` short-circuit, not a resume through the stage
+    sequence): the `workflow.step.completed` activity that failed to record the first
+    time is now present when queried, with the original actor (proves D18's retry-on-
+    already-completed closes the "Activity failed and got no further retry" gap).
 
 ## Verification strategy
 

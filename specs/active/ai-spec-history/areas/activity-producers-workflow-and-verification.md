@@ -32,6 +32,15 @@ correct actor attribution for both agent-driven and direct-human execution paths
   anything else. `ensureTransition` (the later `transition` stage) is explicitly
   runtime-only and settles after `commit`/`push` — it does not write
   `workflow_progress.history[]`.
+- `createOperationRecord({change, task, step, attempt, resolvedInputs})` (local to
+  `finish-operation.mjs`) is the sole place a fresh operation record is constructed —
+  called only when `finishStep` finds no existing record for this step/attempt. It
+  currently has no notion of an actor. Separately, `finishStep` has two short-circuit
+  returns, `plan.status === 'already-completed'` and `plan.status === 'completed'`
+  (`planFinish`'s result for a repeated `finish` call against an operation that already
+  fully settled), both carrying `plan.existingRecord` — neither re-enters the stage
+  sequence, so neither currently gives a previously-failed Activity append any further
+  chance to succeed.
 - `handleWorkflowVerifyHuman` (`cli.mjs`) has **two** distinct decision paths that both end
   a `human-verification` step, and only one of them is agent-adjacent:
   - `--confirm`: calls `FileHumanVerificationStore.confirm()`
@@ -62,23 +71,38 @@ correct actor attribution for both agent-driven and direct-human execution paths
   — deterministic per attempt, so repeated `step start` calls (intentionally allowed while
   a step is active) dedup to one logical activity on read (overview.md § Idempotency).
 - **`workflow.step.completed` (corrected emission point — review round 2, Blocking):**
-  `finishStep` gains a new optional `actor` parameter (a pre-resolved `ActorRef`,
-  defaulting to `SYSTEM_ACTOR` when omitted). Emission happens in `finishStep`'s own stage
-  sequence in `finish-operation.mjs` — **immediately after `await ensureUpdateTask(record,
-  ...)` returns**, not from inside `ensureUpdateTask` itself, and unconditionally on every
-  successful call (whether `ensureUpdateTask` took its fresh-write path or its
-  "write-already-happened" recovery path). This is what actually closes the missing-event
-  crash window: gating emission on which internal branch of `ensureUpdateTask` ran (the
-  round-1 approach) meant the recovery branch — which by design skips re-doing the write —
-  also silently skipped emission forever. At this call site, `record`'s `update-task`
-  stage already has its `.result` (transition target) populated by either branch, and
-  `record.resolvedInputs` (`result`/`artifacts`/`feedback`) is already on the in-memory
-  operation record — no re-read from disk needed. `data` includes `result`, `attempt`,
-  `transitioned_to`, `artifacts`, `feedback`, and — only when already present at this
-  boundary — a `findings` list with per-finding `author` (D6; do not add new capture
-  machinery to the review command itself to populate this). Id: ``
-  `workflow.step.completed:${specId}:${taskId}:${step}:${attempt}` ``.
-- **Actor propagation into `finishStep` (review round 2, Major):**
+  `finishStep` gains a new optional `actor` parameter (a pre-resolved `ActorRef`). Emission
+  happens in `finishStep`'s own stage sequence in `finish-operation.mjs` — **immediately
+  after `await ensureUpdateTask(record, ...)` returns**, not from inside `ensureUpdateTask`
+  itself, and unconditionally on every successful call (whether `ensureUpdateTask` took
+  its fresh-write path or its "write-already-happened" recovery path). This is what
+  actually closes the missing-event crash window: gating emission on which internal branch
+  of `ensureUpdateTask` ran (the round-1 approach) meant the recovery branch — which by
+  design skips re-doing the write — also silently skipped emission forever. At this call
+  site, `record`'s `update-task` stage already has its `.result` (transition target)
+  populated by either branch, and `record.resolvedInputs` (`result`/`artifacts`/
+  `feedback`) is already on the in-memory operation record — no re-read from disk needed.
+  `data` includes `result`, `attempt`, `transitioned_to`, `artifacts`, `feedback`, and —
+  only when already present at this boundary — a `findings` list with per-finding `author`
+  (D6; do not add new capture machinery to the review command itself to populate this).
+  Id: `` `workflow.step.completed:${specId}:${taskId}:${step}:${attempt}` ``. **Actor
+  used at this call site is `record.actor`, not the current call's `actor` parameter** —
+  see the durable-actor point below (D17, review round 3, Blocking).
+- **Durable actor capture (review round 3, Blocking — D17):** a per-call `actor` parameter
+  alone is wrong for a resumable operation — a resume can legitimately happen under a
+  different actor (or no actor at all) than the one who started the operation, and
+  attributing the resulting `workflow.step.completed` to whichever actor happened to
+  resume it misanswers "who did this." Fix: `createOperationRecord` (the function that
+  constructs a *brand-new* operation record, called only when no record exists yet) gains
+  one new field, `actor` — captured from `finishStep`'s `actor` parameter **on that first
+  call only**, defaulted to `SYSTEM_ACTOR` if none was passed. Every subsequent call
+  against the *same* record (a genuine resume, whether same or different actor) reads
+  `record.actor` for the `workflow.step.completed` emission above — the current call's
+  `actor` parameter is only ever consulted when the record is first created, never again.
+  This is the one explicit, additive exception to "must not change the operation record
+  shape" (see Constraints) — no code change is needed in `operation-record.mjs` itself,
+  since it persists/reads the whole record as opaque JSON.
+- **Actor propagation into `finishStep` (review round 2, Major — feeds D17's capture):**
   - `handleWorkflowStepFinish` resolves the agent-session actor (as above) and passes it
     as `finishStep`'s `actor` argument.
   - `handleWorkflowVerifyHuman`'s `--approve`/`--request-changes` branch resolves
@@ -87,6 +111,16 @@ correct actor attribution for both agent-driven and direct-human execution paths
     `workflow.step.completed` activity instead of falling back to `SYSTEM_ACTOR`. No new
     activity type is introduced for this path; it reuses `workflow.step.completed` with
     the correct actor.
+- **Retry past already-completed (review round 3, Major — D18):** `finishStep`'s two
+  already-settled short-circuit returns (`plan.status === 'already-completed'` and `plan.
+  status === 'completed'`, both carrying `plan.existingRecord`) also idempotently
+  (re-)attempt the same `workflow.step.completed` emission described above, using
+  `plan.existingRecord`'s own `actor`/`step`/`attempt`/`update-task`-stage-result/
+  `resolvedInputs` — before returning. Same deterministic id as the main call site, so
+  this is a no-op if already recorded and a genuine retry if the original attempt
+  (e.g. a disk error) failed. Extract the "build+emit `workflow.step.completed` from a
+  record" logic into one small helper shared by all three call sites (the main sequence
+  call and these two short-circuits) rather than duplicating it.
 - **`human.verification.confirmed`:** emitted from `handleWorkflowVerifyHuman`'s legacy
   `--confirm` branch only, immediately after a successful
   `FileHumanVerificationStore.confirm()` call returns — not from inside the store, which
@@ -101,15 +135,19 @@ correct actor attribution for both agent-driven and direct-human execution paths
 
 ## Constraints
 
-- Must not alter `finishStep`'s stage sequence itself, `ensureUpdateTask`'s own state-write
-  guard (`if (stage.status === 'completed') return;`, which still governs the state write,
-  just no longer gates activity emission), or `operation-record.mjs`'s existing record
-  shape — activity recording is additive at the stage sequence's own call site, not a new
-  stage with its own failure semantics that could block a finish.
+- Must not alter `finishStep`'s stage sequence itself or `ensureUpdateTask`'s own
+  state-write guard (`if (stage.status === 'completed') return;`, which still governs the
+  state write, just no longer gates activity emission) — activity recording is additive at
+  the stage sequence's own call sites, not a new stage with its own failure semantics that
+  could block a finish.
+- `operation-record.mjs`'s existing record shape stays stable with **one explicit,
+  additive exception**: `createOperationRecord` (in `finish-operation.mjs`) adds a durable
+  `actor` field, set once at creation (D17). No other field changes, and
+  `operation-record.mjs` itself needs no code changes.
 - `finishStep`'s new `actor` parameter must be optional and additive — every existing
-  caller that doesn't pass it must keep working exactly as before (falling back to
-  `SYSTEM_ACTOR` for activity purposes only; it has no effect on `finishStep`'s actual
-  workflow behavior).
+  caller that doesn't pass it must keep working exactly as before (the record's `actor`
+  defaults to `SYSTEM_ACTOR`; the parameter has no effect on `finishStep`'s actual workflow
+  behavior).
 - Must not add new capture logic to the review command to manufacture `findings` data that
   doesn't already exist at the finish boundary (D6 / overview.md § Out of scope).
 - Must not change `FileHumanVerificationStore`'s persisted record shape or make it aware
@@ -121,8 +159,10 @@ Consumes: `recordActivity()`, the actor resolvers, and the `Activity` type from
 `areas/activity-model-and-store.md`.
 
 Exposes: `finishStep`'s new `actor` parameter (consumed by both `handleWorkflowStepFinish`
-and `handleWorkflowVerifyHuman`) and `autoBindAgentSession`'s new return value (consumed by
-both `handleWorkflowStepStart` and `handleWorkflowStepFinish`).
+and `handleWorkflowVerifyHuman`), the operation record's new durable `actor` field
+(read by the shared emission helper at all three call sites), and
+`autoBindAgentSession`'s new return value (consumed by both `handleWorkflowStepStart` and
+`handleWorkflowStepFinish`).
 
 ## Area-specific acceptance criteria
 
@@ -149,6 +189,16 @@ both `handleWorkflowStepStart` and `handleWorkflowStepFinish`).
 - A human-verification confirmation (`--confirm`) produces exactly one
   `human.verification.confirmed` activity with a resolved `user` actor, and the store
   never needs to know `spec_id` to produce it.
+- Simulating a resume under a *different* actor than the one that started the operation
+  (actor A creates the record and gets past the `workflow_progress` write; actor B, or no
+  actor, resumes): the resulting `workflow.step.completed` activity's actor is A, not B
+  and not `SYSTEM_ACTOR` — proves the durable operation-record actor (D17) is honored over
+  the resuming call's own actor.
+- Simulating a `recordActivity` failure on a step's first successful completion, then
+  calling `finish` again once the operation is `completed` (an already-completed
+  short-circuit, not a stage-sequence resume): the missed `workflow.step.completed`
+  activity is present when queried afterward, with the original actor — proves D18's
+  retry-on-already-completed.
 - If activity recording itself fails (e.g. disk error), it must not fail or roll back the
   underlying workflow/verification operation — activity is observational, never a
   blocking dependency of the authoritative state change.

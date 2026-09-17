@@ -240,3 +240,61 @@
 - **Affected artifacts:** `overview.md`, `areas/activity-producers-workflow-and-verification.md`,
   `tasks/06-workflow-step-activity-producer.md`, `tasks/07-human-verification-activity-producer.md`,
   `change.yaml`.
+
+## D17: Actor is captured durably on the operation record, not re-read from each resume call (resolved from PR #52 review round 3, Blocking)
+
+- **Question:** D16 gave `finishStep` an `actor` parameter, but the emission call site
+  (D15) reads it fresh on every call — including a resumed one. Concrete failure: agent A
+  starts a finish, the operation record is created, `setTaskWorkflowState` writes
+  `workflow_progress`, the process dies before the Activity append; agent B (or no actor at
+  all) resumes the same finish; `ensureUpdateTask` takes its recovery branch; the call site
+  (D15) now emits `workflow.step.completed` — but using B's actor, misattributing A's state
+  transition to B. Recovery is a continuation of the same durable operation, not a new one
+  under a new actor.
+- **Decision:** The actor is captured **once**, into the durable operation record, at
+  `createOperationRecord` (the moment a *brand-new* record is created), from whichever
+  `actor` `finishStep`'s first call for this operation was given. Every later call against
+  the *same* record — genuine resumes — reads `record.actor`, ignoring whatever `actor`
+  that later call happened to pass. This requires one explicit, additive exception to
+  "must not change the operation record shape": a new `actor` field on the record, set
+  once at creation.
+- **Rationale:** The question `workflow.step.completed` answers is "who performed this
+  step's state transition," which is a fact about the *operation*, not about whichever
+  process happened to make the specific call that observed the transition had already
+  landed. A per-call parameter conflates the two.
+- **Consequences:** `operation-record.mjs` needs no code changes (it persists/reads the
+  whole record as opaque JSON) — only `createOperationRecord` in `finish-operation.mjs`
+  gains the field. D16's "defaults to `SYSTEM_ACTOR` when omitted" now applies at record
+  creation only, not at every emission.
+- **Date:** 2026-09-17
+- **Affected artifacts:** `overview.md`, `areas/activity-producers-workflow-and-verification.md`,
+  `tasks/06-workflow-step-activity-producer.md`.
+
+## D18: Retry a failed Activity append on every later already-completed `finish` call (resolved from PR #52 review round 3, Major)
+
+- **Question:** `recordActivity` failures are non-blocking by design (the workflow
+  operation must succeed even if Activity recording fails). D15 guarantees a retry
+  opportunity while the operation is still resuming through its stage sequence — but once
+  `record.status === 'completed'`, a later repeated `finish` call short-circuits through
+  `planFinish`'s `already-completed`/`completed` handling *without* re-entering the stage
+  sequence at all, so a failed original Activity append would get no further chance.
+- **Options considered:** (a) explicitly declare Activity best-effort on storage failure,
+  accepting permanent loss in this case; (b) also idempotently (re-)attempt the same
+  `workflow.step.completed` emission at the already-completed short-circuits, using data
+  and actor preserved on the operation record.
+- **Decision:** Option (b). Both of `finishStep`'s already-settled short-circuit returns
+  also (re-)attempt the same emission (same deterministic id, so already-recorded is a
+  no-op) before returning.
+- **Rationale:** This naturally follows from D17 — once the actor and all other needed
+  data live durably on the operation record rather than only being available at the moment
+  of the original call, retrying the same emission from that record at any later point is
+  cheap and correct, and turns every subsequent `finish` call into a free additional retry
+  opportunity instead of a dead end.
+- **Consequences:** The "build envelope + resolve id + call `recordActivity`" logic is
+  shared by three call sites (main sequence, `already-completed`, `completed`) via one
+  helper. The only way an Activity is now permanently lost is if `finish` is never invoked
+  again for that step/attempt at all — an inherent limit of an observational,
+  non-source-of-truth history, not a new gap.
+- **Date:** 2026-09-17
+- **Affected artifacts:** `overview.md`, `areas/activity-producers-workflow-and-verification.md`,
+  `tasks/06-workflow-step-activity-producer.md`.

@@ -23,7 +23,7 @@ forbidden_paths:
   - src/**
   - tools/dashboard/**
 semantic_references:
-  decisions: [D6, D10, D11, D14, D15]
+  decisions: [D6, D10, D11, D14, D15, D17, D18]
   dependency_contracts: [activity-local-store, actor-resolver]
 ---
 
@@ -81,28 +81,69 @@ for the full corrected reasoning).
   so no disk re-read is needed. `id`: ``
   `workflow.step.completed:${specId}:${taskId}:${step}:${attempt}` ``.
 - **`finishStep`'s new `actor` parameter (round 2, Major):** add an optional `actor`
-  field to `finishStep`'s options object (an already-resolved `ActorRef`), used for the
-  `workflow.step.completed` emission above, defaulting to `SYSTEM_ACTOR` when omitted.
+  field to `finishStep`'s options object (an already-resolved `ActorRef`).
   `handleWorkflowStepFinish` passes the agent-session actor (from `binding?.sessionId`,
   same as `workflow.step.started`'s resolution) as this argument. (Task 07 is responsible
   for `handleWorkflowVerifyHuman`'s `--approve`/`--request-changes` branch passing a `user`
   actor through this same parameter — this task only needs to define and honor it.)
+- **Durable actor capture, not a per-call read (round 3, Blocking — D17):** add an `actor`
+  field to `createOperationRecord({change, task, step, attempt, resolvedInputs})`'s
+  returned object (local function in `finish-operation.mjs`), populated from `finishStep`'s
+  `actor` parameter **only at the call site where `createOperationRecord` is invoked** (the
+  `!record` branch — a brand-new operation), defaulting to `SYSTEM_ACTOR` if none was
+  passed. Do **not** read `finishStep`'s `actor` parameter again anywhere else — every
+  emission of `workflow.step.completed` (at the main call site below, and at the two
+  already-completed short-circuits task 06 also owns) must read `record.actor` /
+  `plan.existingRecord.actor` instead. This is deliberate: a resume can happen under a
+  different actor (or none) than whoever started the operation, and the activity must
+  still attribute the *original* actor, not the resuming call's.
+- **`workflow.step.completed` — emission call site (round 2, Blocking):** add the emission
+  call in `finishStep`'s own stage sequence in `finish-operation.mjs`, **immediately after
+  `await ensureUpdateTask(record, definition, resolvedActiveDir, changeSlug, task.id,
+  repoRoot);` returns** (currently followed directly by `await ensureCommit(...)`) — not
+  inside `ensureUpdateTask` itself. This must fire unconditionally every time that line is
+  reached, regardless of whether `ensureUpdateTask` internally took its fresh-write path
+  or its "write already happened" recovery/reconciliation path (the latter returns early
+  after detecting `setTaskWorkflowState` already succeeded in a prior crashed attempt —
+  gating emission on that internal branch is what caused the missing-event bug in the
+  first review round's design). Build `data` from `findStage(record, 'update-task').result`
+  (transition target) and `record.resolvedInputs` (`result`, `artifacts`, `feedback`) —
+  both already populated on the in-memory `record` by the time `ensureUpdateTask` returns,
+  so no disk re-read is needed. Actor: `record.actor` (see above). `id`: ``
+  `workflow.step.completed:${specId}:${taskId}:${step}:${attempt}` ``.
+- **Retry past already-completed (round 3, Major — D18):** at `finishStep`'s two
+  already-settled short-circuit returns — `if (plan.status === 'already-completed') {...}`
+  and `if (plan.status === 'completed') {...}` (both currently just `return`
+  immediately) — also (re-)attempt the same `workflow.step.completed` emission, built from
+  `plan.existingRecord` (its `actor`, `step`, `attempt`, `update-task`-stage `.result`, and
+  `resolvedInputs`), **before** returning. Same deterministic id as the main call site, so
+  this is a harmless no-op when the activity is already recorded and an actual retry when
+  the original attempt failed (e.g. a disk error, per the non-blocking-failure requirement
+  below). Extract the "build envelope `data` + resolve id + call `recordActivity`" logic
+  used by the main call site and these two short-circuits into one small shared helper
+  (e.g. in `tools/specs/activity/producers/workflow.mjs`) rather than duplicating it three
+  times.
 - Both `workflow.step.*` ids are deterministic (not `crypto.randomUUID()`), passed
   explicitly as `fields.id` to `recordActivity`. Correctness against the crash window
   between the Activity append and the operation-record stage-status update comes from
   `store.mjs`'s read-side dedup by `id` (task 02) *combined with* the corrected emission
-  call site above — neither alone is sufficient (D10, D15 / overview.md § Idempotency).
+  call site and the already-completed retry above — no single one of these is sufficient
+  alone (D10, D15, D18 / overview.md § Idempotency).
 - If `recordActivity` throws (e.g. a disk error), the workflow operation must still
   succeed — wrap the call so a failure to record activity never fails or rolls back
-  `finishStep` or `handleWorkflowStepStart`.
+  `finishStep` or `handleWorkflowStepStart`. A failed attempt at the main call site gets a
+  further retry opportunity on every later already-completed `finish` call (D18) — this is
+  the accepted v1 recovery behavior; no separate failure-tracking state is introduced.
 
 ## Implementation constraints
 
-Do not change `finishStep`'s stage sequence, `operation-record.mjs`'s record shape, or any
-existing test's expectations of `workflow_progress.history[]` — this is additive
-instrumentation at an existing call site, not a new stage. Do not touch `ensureTransition`.
-`finishStep`'s new `actor` parameter must have zero effect on workflow behavior — it only
-affects what gets passed to activity emission.
+Do not change `finishStep`'s stage sequence or any existing test's expectations of
+`workflow_progress.history[]` — this is additive instrumentation at existing call sites,
+not a new stage. Do not touch `ensureTransition`. `operation-record.mjs`'s record shape
+stays stable except for the one additive `actor` field on `createOperationRecord`'s output
+(no code change needed in `operation-record.mjs` itself — it persists/reads records as
+opaque JSON). `finishStep`'s `actor` parameter must have zero effect on workflow
+behavior — it only affects what gets captured onto a newly-created operation record.
 
 ## Acceptance criteria
 
@@ -126,8 +167,22 @@ affects what gets passed to activity emission.
 - `autoBindAgentSession` returns `null` (not a partial object) when there is no execution
   context, no valid `specId`, or binding throws.
   `automated: node --test tools/tests/activity-workflow-producer.test.mjs`
-- Passing an explicit `actor` into `finishStep` results in that exact actor on the
-  resulting `workflow.step.completed` activity.
+- Passing an explicit `actor` into `finishStep` on a **brand-new** operation results in
+  that exact actor on the resulting `workflow.step.completed` activity.
+  `automated: node --test tools/tests/activity-workflow-producer.test.mjs`
+- Simulating a resume under a *different* actor than the one that created the operation
+  record (actor A creates the record and gets past the `workflow_progress` write; actor B,
+  or no actor at all, resumes): the resulting `workflow.step.completed` activity's actor is
+  A, not B and not `SYSTEM_ACTOR`. `automated: node --test tools/tests/activity-workflow-producer.test.mjs`
+- Simulating a `recordActivity` failure on a step's first successful completion (operation
+  reaches `status: 'completed'` but the activity never got recorded), then calling
+  `finishStep` again (an `already-completed`/`completed` short-circuit, not a stage-
+  sequence resume): the previously-missed `workflow.step.completed` activity is present
+  when queried afterward, with the original actor and data.
+  `automated: node --test tools/tests/activity-workflow-producer.test.mjs`
+- Calling `finishStep` again against an already-`completed` operation where the activity
+  *was* already successfully recorded does not produce a duplicate when queried (the
+  retry-on-already-completed logic is itself idempotent via the same deterministic id).
   `automated: node --test tools/tests/activity-workflow-producer.test.mjs`
 - Forcing `recordActivity` to throw does not prevent `finishStep` from completing
   successfully. `automated: node --test tools/tests/activity-workflow-producer.test.mjs`
