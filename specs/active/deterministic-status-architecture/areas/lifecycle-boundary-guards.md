@@ -40,9 +40,13 @@ boundary regression test exists.
 - Do not change any legacy command's behavior for a legacy spec, or any deterministic
   command's behavior for a deterministic spec — this area only adds a new failure path for
   the cross-mode case.
-- `resolveWorkflowMode()` itself is the one shared, low-level, read-only utility both
-  directions may import — it is not a mutation operation and importing it does not violate
-  the "no cross-lifecycle mutation import" rule enforced by this area's regression test.
+- `resolveWorkflowMode()` (`tools/specs/workflow/compatibility.mjs`) and the generic,
+  semantics-free store writers (`setTaskStatus`/`setTaskWorkflowState` in
+  `tools/specs/store.mjs`) are the only shared, low-level utilities either direction may
+  import. Per D8, `tools/specs/lifecycle-primitives.mjs` is **not** exempt — it is a
+  legacy-semantics module (`isTaskReady`, `DEPENDENCY_SATISFYING_STATUSES`, `TRANSITIONS`,
+  `TERMINAL_STATUSES`), and no deterministic mutation or projection code in this change may
+  import it. Legacy code's own use of it is unaffected.
 
 ## Interfaces and boundaries
 
@@ -55,16 +59,20 @@ before any of their own new operations run.
 ## Area-specific acceptance criteria
 
 - Running `approve`/`start`/`complete`/`verify` against a deterministic spec fails with a
-  clear, deterministic-aware error and leaves `change.yaml` unchanged.
+  clear, deterministic-aware error, and leaves **all** of the following unchanged: the
+  manifest (`change.yaml`, byte-for-byte), git `HEAD`, the current branch (no new branch
+  created), the working tree, and any workflow-operation/runtime state (no
+  `workflow_progress`, no execution session) — not just `change.yaml` in isolation.
 - Running `workflow step start`/`workflow step finish`/`workflow verify-human` against a
-  legacy spec fails with a clear, legacy-aware error and leaves `change.yaml` unchanged.
+  legacy spec fails with a clear, legacy-aware error, verified against the same full set of
+  side effects above.
 - A spec with no `workflow` field, and a spec with explicit `workflow.mode: legacy`, behave
   exactly as before this change for all four legacy commands.
-- Static analysis (or an equivalent regression test) confirms no file under
-  `tools/specs/{approve,start,complete,verify}/**` imports from
-  `tools/specs/workflow/**`'s mutation modules, and no file under
-  `tools/specs/workflow/**`'s mutation modules imports from
-  `tools/specs/{approve,start,complete,verify}/**`.
+- Static analysis (or an equivalent regression test) confirms: no file under
+  `tools/specs/{approve,start,complete,verify}/**` imports from `tools/specs/workflow/**`'s
+  mutation modules; no file under `tools/specs/workflow/**`'s mutation or projection modules
+  imports from `tools/specs/{approve,start,complete,verify}/**`; and no file under
+  `tools/specs/workflow/**` imports `tools/specs/lifecycle-primitives.mjs` at all (D8).
 
 ## Dependencies
 

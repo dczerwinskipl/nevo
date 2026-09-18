@@ -17,6 +17,7 @@ forbidden_paths:
   - tools/specs/start/**
   - tools/specs/complete/**
   - tools/specs/verify/**
+  - tools/specs/lifecycle-primitives.mjs
   - tools/dashboard/**
   - src/**
 depends_on: [ deterministic-mutation-guard ]
@@ -51,7 +52,8 @@ calling or inheriting legacy `approveTask`'s review/fingerprint semantics.
   existing `setTaskStatus`, not a hand edit), not a call into `approveTask`.
 - Must not commit unrelated repository changes; publication and Git-commit semantics stay
   separate (unlike legacy `approve`, which commits/pushes).
-- Do not import `tools/specs/approve/operation.mjs` or any other legacy mutation module.
+- Do not import `tools/specs/approve/operation.mjs`, any other legacy mutation module, or
+  `tools/specs/lifecycle-primitives.mjs`.
 
 ## Acceptance criteria
 

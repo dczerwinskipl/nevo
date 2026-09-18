@@ -22,8 +22,10 @@ recorded as D3: this change does not create a new doc for this.
   Manifest Immutability" section with: which module trees own legacy mutation
   (`tools/specs/{approve,start,complete,verify}/**`) vs. deterministic mutation
   (`tools/specs/workflow/**`'s mutation entry points), the hard-guard behavior
-  `areas/lifecycle-boundary-guards.md` implements, and the no-cross-import rule the
-  regression test in that area enforces.
+  `areas/lifecycle-boundary-guards.md` implements, the no-cross-import rule (including that
+  `tools/specs/lifecycle-primitives.mjs` is off-limits to deterministic code, D8), and the
+  **executor invariant** from `areas/step-executor-model.md` (an agent must never
+  start/finish a human-owned step and vice versa, enforced before any mutation).
 - Cross-reference `areas/skills-instruction-split.md`'s legacy/deterministic instruction
   sets rather than restating them.
 
@@ -45,14 +47,15 @@ Consumed by: `areas/skills-instruction-split.md` (cross-references it).
 ## Area-specific acceptance criteria
 
 - `docs/development/agent-workflow-protocol.md`'s "Ownership Boundaries & Manifest
-  Immutability" section, after this change, names both module trees and the guard/no-import
-  rule explicitly.
+  Immutability" section, after this change, names both module trees, the guard/no-import
+  rule, and the executor invariant explicitly.
 - `node tools/docs.mjs validate` passes with the updated front matter/content.
 - No new top-level doc file is created for this purpose (D3).
 
 ## Dependencies
 
-`areas/lifecycle-boundary-guards.md` (documents what that area implements).
+`areas/lifecycle-boundary-guards.md`, `areas/step-executor-model.md` (document what those
+areas implement).
 
 ## Out of scope
 

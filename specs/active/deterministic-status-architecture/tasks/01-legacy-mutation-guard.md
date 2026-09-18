@@ -15,6 +15,7 @@ allowed_paths:
   - tools/tests/legacy-mutation-guard.test.mjs
 forbidden_paths:
   - tools/specs/workflow/**
+  - tools/specs/lifecycle-primitives.mjs
   - tools/dashboard/**
   - src/**
 ---
@@ -39,7 +40,7 @@ before any state write, using the existing `resolveWorkflowMode()`
   unchanged legacy behavior for the legacy case.
 - Error message must name the spec as deterministic and name the deterministic command
   surface (`workflow task publish`/`workflow step start`/`workflow step finish`/
-  `workflow verify-human`) to use instead.
+  the deterministic human-decision operation) to use instead.
 
 ## Acceptance criteria
 

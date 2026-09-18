@@ -5,7 +5,8 @@
 Give the dashboard's kanban board a deterministic-aware lane projection instead of routing
 deterministic tasks through legacy `stageForStatus()`, and finish separating `TaskCard`'s
 already-started `isDeterministic` branching into clearly separated legacy/deterministic
-responsibility without duplicating its shared parts.
+responsibility — covering the card's full visible state (status label/tone, lane,
+blockedBy, actions), not only its action footer — without duplicating its shared parts.
 
 ## Current state
 
@@ -15,21 +16,28 @@ legacy-`task.status`-to-lane map with no workflow-mode awareness, consumed by
 consumes `specification.lanes` as given — it does not compute lanes itself. `TaskCard`
 (inline, non-exported, inside `status-board.tsx`, lines ~15–163) already branches on
 `isDeterministic` for its action-footer rendering (legacy: single approve/accept button;
-deterministic: multi-action buttons from `actionGate.availableActions`); the rest of the
-card (order badge, status label, dependency badges, title) is shared. `StatusBoard` itself
-also branches once more, to hide the legacy batch-approve button in deterministic mode.
+deterministic: multi-action buttons from `actionGate.availableActions`), but its status
+label still reads `formatTaskStatus(task.status)`/`taskStatusTone(task.status)` for
+**both** legacy and deterministic cards — once a deterministic task's workflow has started,
+this is exactly the kind of stale, `task.status`-derived visible state this whole change
+exists to remove. `StatusBoard` itself also branches once more, to hide the legacy
+batch-approve button in deterministic mode.
 
 ## Requirements
 
 - A deterministic-aware lane/board projection (server-side, e.g. alongside `data.mjs`/
   `status-stages.mjs`) that derives a deterministic task's lane from the canonical
-  projection (`areas/deterministic-projection-and-human-interaction.md`) — never from
-  `stageForStatus()`/legacy `task.status` — while leaving every legacy spec's lane
-  derivation via `stageForStatus()` completely unchanged.
-- `TaskCard`'s deterministic and legacy action-footer responsibilities become clearly
-  separated (e.g. two small sub-components sharing the card shell) rather than growing the
-  existing inline `isDeterministic` conditional further — without duplicating the shared,
-  unbranched parts of the card (order badge, status label, dependency badges, title).
+  projection, read via the corrected action DTO
+  (`areas/dashboard-server-actions-wiring.md`) — never from `stageForStatus()`/legacy
+  `task.status` — while leaving every legacy spec's lane derivation via `stageForStatus()`
+  completely unchanged.
+- `TaskCard`'s deterministic and legacy responsibilities become clearly separated (e.g. two
+  small sub-components sharing the card shell) covering **all** visible state — status
+  label/tone, blockedBy, and actions — not only the action footer. For a deterministic
+  task, once its workflow has started, the visible status label/tone must come from the
+  canonical projection's `state`/`currentStep` (via the corrected DTO), never from
+  `formatTaskStatus(task.status)`/`taskStatusTone(task.status)`. The shared, genuinely
+  identical parts (order badge, title button) stay in the common card shell.
 - Deterministic action availability in the UI is driven by the readiness policy
   (`areas/execution-readiness-and-session-bootstrap.md`) via the projection's "available
   actions" — never re-derived ad hoc in the component.
@@ -56,14 +64,19 @@ Consumed by: `status-board.tsx`/`TaskCard` only — no other area reads this dir
   review-appropriate lane, not a `stageForStatus('approved')`-derived lane.
 - A legacy spec's board lanes are unchanged (regression test against existing behavior).
 - `TaskCard`'s legacy rendering path is unchanged in output for legacy specs.
-- No component in this area's scope calls `stageForStatus()` or `isTaskReady()` for a
-  deterministic task.
+- A deterministic `TaskCard` whose task's `status` is still `approved` (compatibility
+  value) but whose current step is `review` shows a review-appropriate status label/tone —
+  not "Approved."
+- No component in this area's scope calls `stageForStatus()`, `isTaskReady()`,
+  `formatTaskStatus()`, or `taskStatusTone()` with a deterministic task's `task.status` as
+  input.
 
 ## Dependencies
 
-`areas/deterministic-projection-and-human-interaction.md`.
+`areas/deterministic-projection-and-human-step.md`,
+`areas/dashboard-server-actions-wiring.md` (the corrected action DTO this area reads).
 
 ## Out of scope
 
 Board/lane configurability as project config (explicitly out of scope for this whole change
-— D1). `TaskDialog` (owned by `areas/ui-task-details-human-review.md`).
+— D1). `TaskDialog`/chat (owned by `areas/human-review-surface.md`).

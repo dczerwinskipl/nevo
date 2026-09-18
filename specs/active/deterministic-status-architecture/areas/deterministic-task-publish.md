@@ -49,14 +49,15 @@ id for `workflow step start`/`workflow step finish`/`workflow verify-human` by s
 Exposes: `workflow task publish <change> <task>` (new CLI subcommand under the existing
 `workflow` group in `tools/specs.mjs`/`tools/specs/workflow/cli.mjs`).
 
-Consumed by: `areas/deterministic-projection-and-human-interaction.md`'s projection (a
+Consumed by: `areas/deterministic-projection-and-human-step.md`'s projection (a
 published task is no longer `draft`) and `areas/execution-readiness-and-session-bootstrap.md`'s
 readiness policy (publication is one of its preconditions).
 
 ## Area-specific acceptance criteria
 
 - Publishing a draft, valid, dependency-clean, not-yet-started deterministic task succeeds
-  and the task's projection (once area 3 exists) reports it as ready/published, not "draft."
+  and the task's projection (`areas/deterministic-projection-and-human-step.md`) reports it
+  as ready/published, not "draft."
 - Publishing a task whose definition fails validation, whose `depends_on` references a
   nonexistent task, or whose workflow has already started, fails clearly and writes nothing.
 - Publishing a task on a legacy spec fails via the shared guard, before any mutation.
