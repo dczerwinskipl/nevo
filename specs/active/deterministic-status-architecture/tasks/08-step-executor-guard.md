@@ -27,8 +27,9 @@ depends_on: [ deterministic-mutation-guard, workflow-definition-schema-extension
 ## Goal
 
 Enforce `step.executor` as an invariant, not a UI hint: an agent entry point must reject a
-human-owned step before any mutation, and the human-decision entry point must reject an
-agent-owned step, both with a structured, agent-legible error.
+human-owned step before any mutation, with a structured, agent-legible error. Build the one
+shared guard function `human-step-execution-operations` (task 09) reuses for the reverse
+direction.
 
 ## Dependencies
 
@@ -40,16 +41,20 @@ task adds).
 
 - New module (e.g. `tools/specs/workflow/executor-guard.mjs`) exposing one function that,
   given a step's resolved `executor` and the caller kind (`agent` | `human`), throws a
-  structured error when they don't match — this is the single implementation both call
-  sites and the readiness policy (task `deterministic-readiness-policy`) reuse.
+  structured error when they don't match — this is the single implementation every call
+  site (this task's own CLI wiring, and task 09's `startHumanStep`/`submitHumanStepResult`)
+  reuses.
 - Error shape: `code: 'WORKFLOW_STEP_EXECUTOR_MISMATCH'`, `stepId`, `executor`, `purpose`,
-  `expectedWork`, `availableActions` (from the step's transitions), and a human-readable
-  message worded so an agent stops instead of retrying a different lifecycle operation
-  (e.g. "Step '<id>' is owned by a human and cannot be started by an agent. ... Human
-  action is required. Do not execute, simulate, or complete this step.").
+  `expectedWork`, `availableActions` (derived from the step's transitions' `action`
+  metadata, task 07), and a human-readable message worded so an agent stops instead of
+  retrying a different lifecycle operation (e.g. "Step '<id>' is owned by a human and
+  cannot be started by an agent. ... Human action is required. Do not execute, simulate, or
+  complete this step.").
 - Wire the guard into `handleWorkflowStepStart` and `handleWorkflowStepFinish`
-  (`tools/specs/workflow/cli.mjs`) for the agent direction, and into the human-decision
-  handler for the reverse direction — each call happens before any mutation.
+  (`tools/specs/workflow/cli.mjs`) for the agent direction — each call happens before any
+  mutation. This task does *not* wire the reverse (human-owned-caller-rejects-agent-step)
+  direction into any CLI entry point itself — that is task 09's own wiring, reusing this
+  task's exported guard function.
 - Do not import `tools/specs/lifecycle-primitives.mjs` or any legacy mutation module.
 
 ## Acceptance criteria
@@ -59,15 +64,11 @@ task adds).
   `change.yaml` is unchanged. `automated: node --test tools/tests/step-executor-guard.test.mjs`
 - `workflow step finish <change> <task>` against the same step fails identically (defense in
   depth). `automated: node --test tools/tests/step-executor-guard.test.mjs`
-- The human-decision operation against a step with `executor: agent` (or defaulted-absent)
-  fails with the same structured error shape, `change.yaml` unchanged.
-  `automated: node --test tools/tests/step-executor-guard.test.mjs`
-- `workflow step start` against an `executor: agent` step, and the human-decision operation
-  against an `executor: human` step, are both unaffected — no new failure on the matching
-  case. `automated: node --test tools/tests/step-executor-guard.test.mjs`
-- The guard function is imported (not reimplemented) by every call site that needs it —
-  asserted by a single-implementation check across `cli.mjs`'s two entry points.
-  `inspection: confirm handleWorkflowStepStart, handleWorkflowStepFinish, and the human-decision handler all import the same executor-guard function`
+- `workflow step start` against an `executor: agent` step is unaffected — no new failure on
+  the matching case. `automated: node --test tools/tests/step-executor-guard.test.mjs`
+- The guard function is exported in a shape task 09 can import and call directly for the
+  reverse direction — no logic duplicated between this task and task 09.
+  `inspection: confirm the guard function is exported and importable, with no per-caller-direction duplication`
 
 ## Verification
 
@@ -79,6 +80,8 @@ node tools/specs.mjs validate
 
 ## Out of scope
 
-Wiring this guard into session/execution bootstrap (task `deterministic-readiness-policy`
-reuses this function, it does not reimplement it here). The schema this guard reads (task
-`workflow-definition-schema-extensions`).
+`startHumanStep`/`submitHumanStepResult`'s own wiring of this guard for the reverse
+direction (task `human-step-execution-operations`). The schema this guard reads (task
+`workflow-definition-schema-extensions`). Wiring this guard into session/execution
+bootstrap (task `execution-readiness-policy` reuses this function, it does not reimplement
+it here).

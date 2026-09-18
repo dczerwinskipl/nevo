@@ -40,7 +40,7 @@ before any state write, using the existing `resolveWorkflowMode()`
   unchanged legacy behavior for the legacy case.
 - Error message must name the spec as deterministic and name the deterministic command
   surface (`workflow task publish`/`workflow step start`/`workflow step finish`/
-  the deterministic human-decision operation) to use instead.
+  `startHumanStep`/`submitHumanStepResult`) to use instead.
 
 ## Acceptance criteria
 

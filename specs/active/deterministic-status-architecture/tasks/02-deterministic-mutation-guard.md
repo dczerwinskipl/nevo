@@ -24,21 +24,27 @@ forbidden_paths:
 
 ## Goal
 
-Make `workflow step start`/`workflow step finish`/the deterministic human-decision
-operation each refuse to run against a legacy spec, before any state write, using the same
-`resolveWorkflowMode()` classifier the legacy guard task consumes.
+Make `workflow step start`/`workflow step finish`/`startHumanStep`/`submitHumanStepResult`
+(the latter two built by task `human-step-execution-operations`) each refuse to run against
+a legacy spec, before any state write, using the same `resolveWorkflowMode()` classifier the
+legacy guard task consumes.
 
 ## Implementation constraints
 
-- Add an explicit guard at the entry of `handleWorkflowStepStart`/`handleWorkflowStepFinish`/
-  the human-decision handler (`tools/specs/workflow/cli.mjs`), before
-  `resolveWorkflowRuntime`/`compileStepContext`/`finishStep` run — do not rely on whatever
-  incidental failure currently happens when a legacy spec lacks a workflow definition;
-  the failure must be an explicit, clearly-worded guard, not an implicit crash.
+- Add an explicit guard at the entry of `handleWorkflowStepStart`/`handleWorkflowStepFinish`
+  (`tools/specs/workflow/cli.mjs`), before `resolveWorkflowRuntime`/`compileStepContext`/
+  `finishStep` run — do not rely on whatever incidental failure currently happens when a
+  legacy spec lacks a workflow definition; the failure must be an explicit, clearly-worded
+  guard, not an implicit crash.
 - Import only `resolveWorkflowMode()` — do not import anything from
   `tools/specs/{approve,start,complete,verify}/**` or `tools/specs/lifecycle-primitives.mjs`.
 - Error message must name the spec as legacy and name the legacy command surface
   (`approve`/`start`/`complete`/`verify`) to use instead.
+- This task only guards the two *existing* CLI entry points
+  (`handleWorkflowStepStart`/`handleWorkflowStepFinish`). The `startHumanStep`/
+  `submitHumanStepResult` operations (task `human-step-execution-operations`, which depends
+  on this task) reuse the same `resolveWorkflowMode()` guard pattern themselves — this task
+  does not need to anticipate their exact call sites.
 
 ## Acceptance criteria
 
@@ -46,9 +52,9 @@ operation each refuse to run against a legacy spec, before any state write, usin
   a clear, legacy-aware error and `change.yaml` is unchanged. `automated: node --test tools/tests/deterministic-mutation-guard.test.mjs`
 - `workflow step start <change> <task>` against a spec with explicit `workflow.mode: legacy`
   fails identically, unchanged `change.yaml`. `automated: node --test tools/tests/deterministic-mutation-guard.test.mjs`
-- `workflow step finish <change> <task>` and the human-decision operation against both
-  legacy variants above each fail identically. `automated: node --test tools/tests/deterministic-mutation-guard.test.mjs`
-- A spec with `workflow.mode: deterministic` is unaffected — all commands behave exactly as
+- `workflow step finish <change> <task>` against both legacy variants above fails
+  identically. `automated: node --test tools/tests/deterministic-mutation-guard.test.mjs`
+- A spec with `workflow.mode: deterministic` is unaffected — both commands behave exactly as
   before this task. `automated: node --test tools/tests/deterministic-mutation-guard.test.mjs`
 - Existing deterministic-engine test suites (`workflow-cli.test.mjs`, `workflow-e2e.test.mjs`,
   `workflow-compatibility.test.mjs`) continue passing unchanged.
@@ -68,5 +74,6 @@ node tools/specs.mjs validate
 
 The reverse guard (legacy commands against a deterministic spec) — task
 `legacy-mutation-guard`. The executor invariant (a *different* guard, orthogonal to mode) —
-task `step-executor-guard`. The new `workflow task publish` operation's own mode guard —
-task `workflow-task-publish-operation` (reuses this task's established pattern).
+task `step-executor-guard`. `startHumanStep`/`submitHumanStepResult`'s own mode guard —
+task `human-step-execution-operations` (reuses this task's established pattern). The new
+`workflow task publish` operation's own mode guard — task `workflow-task-publish-operation`.

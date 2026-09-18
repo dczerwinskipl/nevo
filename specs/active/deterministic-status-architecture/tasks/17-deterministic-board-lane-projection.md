@@ -21,20 +21,21 @@ depends_on: [ deterministic-task-projection ]
 
 ## Goal
 
-Give deterministic specs a board/lane derivation based on the canonical task projection
-instead of legacy `stageForStatus()`, while leaving every legacy spec's lane derivation
-completely unchanged.
+Give deterministic specs a board/lane derivation based on the canonical `TaskProjection`
+state instead of legacy `stageForStatus()`, while leaving every legacy spec's lane
+derivation completely unchanged.
 
 ## Dependencies
 
-`deterministic-task-projection` — this task's lane mapping reads that projection's state.
+`deterministic-task-projection` — this task's lane mapping reads that projection's state
+(a pure domain-state fact — lane placement does not need `ExecutionReadiness`).
 
 ## Implementation constraints
 
 - In `tools/dashboard/server/specs/data.mjs`, branch the `stage`/lane assignment on
   `resolveWorkflowMode()` (or the already-resolved `workflowMode` the route has available):
   legacy specs keep calling `stageForStatus(task.status)` unchanged; deterministic specs
-  call a new lane-derivation function reading the canonical projection's state instead.
+  call a new lane-derivation function reading `TaskProjection`'s `state` instead.
 - Do not modify `stageForStatus()` itself or its legacy call sites — add the new
   deterministic path alongside it in the same file (or a small new sibling module) rather
   than branching inside `stageForStatus()`.

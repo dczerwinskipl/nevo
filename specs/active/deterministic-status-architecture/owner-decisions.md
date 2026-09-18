@@ -26,8 +26,8 @@
 
 ## D2: CLI default-task resolution for deterministic commands
 
-- **Question:** When `workflow step start`/`workflow step finish`/`workflow verify-human`
-  omit the task id, what should replace today's fallback to legacy
+- **Question:** When `workflow step start`/`workflow step finish`/the human-decision
+  operation omit the task id, what should replace today's fallback to legacy
   `status === 'in-implementation'` (`resolveDefaultTask` in `tools/specs/workflow/cli.mjs`)?
 - **Options considered:** (a) require an explicit task id always; (b) model a new
   deterministic "active/in-flight" concept derived purely from `workflow_progress` across
@@ -37,11 +37,10 @@
 - **Rationale:** Matches the change's own "out of scope: new permanent task authoring
   state model unless necessary" — option (b) is a real future improvement but not
   necessary to remove the legacy-status reliance the brief targets.
-- **Consequences:** `workflow step start <change>` / `workflow step finish <change>` /
-  `workflow verify-human <change>` without a task id now error clearly instead of
+- **Consequences:** Deterministic commands without a task id now error clearly instead of
   guessing. Revisit if this proves too inconvenient in practice.
 - **Date:** 2026-09-17
-- **Affected artifacts:** `tasks/05-deterministic-cli-default-task-resolution.md`.
+- **Affected artifacts:** `tasks/06-deterministic-cli-default-task-resolution.md`.
 
 ## D3: Ownership-boundary documentation location
 
@@ -57,125 +56,7 @@
   lifecycle-mutation ownership, which is exactly this boundary's subject.
 - **Consequences:** No new top-level doc file is created by this change.
 - **Date:** 2026-09-17
-- **Affected artifacts:** `tasks/19-ownership-boundary-documentation.md`.
-
-## D5: Step-executor model replaces the `HumanVerificationGate`-based interaction model
-
-- **Question:** How should human-owned work inside a deterministic workflow be modeled —
-  as a special `human-verification` step name / decision gate (the design this change
-  originally recorded), or as a generic `executor: agent | human` property on every step?
-- **Options considered:** (a) keep the original design (a literal step-name check plus a
-  `verification`/`decision`-shaped human-interaction projection built from
-  `HumanVerificationGate`); (b) a generic per-step `executor` property with its own
-  execution protocol, enforced as an invariant, with `entryGates`/`exitGates` (`type:
-  human`) kept as a distinct, separate mechanism (a gate blocks another executor's step;
-  an `executor: human` step is *executed* by a human, who chooses its outcome).
-- **Decision:** (b) — corrective pass, this decision record. The deterministic flow this
-  change targets was never exercised through a full end-to-end test before this
-  correction; the owner directed dropping compatibility with whatever the first attempt
-  had already built and correcting the architecture before any implementation starts,
-  while continuing to fully support the legacy flow unchanged in the meantime.
-- **Rationale:** A literal step-name check is exactly the kind of hardcoded coupling this
-  whole change exists to remove elsewhere (`stageForStatus`, `isTaskReady`) — reintroducing
-  it for human review specifically would be inconsistent. A generic `executor` property is
-  also the natural place to enforce "an agent must never execute a human-owned step and
-  vice versa" as an invariant, not just a UI convention.
-- **Consequences:** The former `human-interaction-projection` design (`kind: 'verification'
-  | 'decision'`) is replaced by `human-step-projection` (D5, `{step: {id, executor,
-  purpose, expectedWork}, actions: [...], artifacts?}`). `entryGates`/`exitGates` remain
-  unchanged as a separate mechanism. This is a pre-implementation correction — no
-  implementation code built on the old design is being migrated; the earlier task set
-  (`human-interaction-projection`, etc.) is replaced outright, not extended.
-- **Date:** 2026-09-18
-- **Affected artifacts:** `areas/deterministic-projection-and-human-step.md`,
-  `areas/step-executor-model.md`, `tasks/06-*` through `tasks/10-*`, `tasks/17-*`.
-
-## D6: Workflow-definition schema gets one bounded, migrated extension
-
-- **Question:** How does `executor`, transition `action` metadata (label/feedback), and a
-  terminal-step success/failure `outcome` reach existing workflow definitions
-  (`.nevo-ai/workflows/*.yaml`) — an implicit default inferred at read time, or an explicit,
-  small, one-time migration of the existing five definition files?
-- **Decision:** Explicit, bounded migration of the existing definition files, done once as
-  part of `workflow-definition-schema-extensions` (task 06) — not an inferred default for
-  the specific steps that need `executor: human`/`outcome: success` today (their
-  human-owned/success-terminal step(s) are named explicitly in each file). A default of
-  `executor: agent` when the field is entirely absent is still reasonable for steps that
-  are unambiguously agent-executed, so the migration only needs to touch each definition's
-  human-owned and terminal step(s), not every step.
-- **Rationale:** An inferred default for the *human* case specifically would silently
-  assume "agent" unless a step happens to be named a certain way — reintroducing exactly
-  the name-based coupling D5 removes. The terminal-outcome field needs the same treatment
-  for the same reason (item 13: do not infer "success" from the step being named
-  `verified`).
-- **Consequences:** Task 06 touches `.nevo-ai/workflows/*.yaml` directly, in addition to
-  `tools/specs/workflow/definitions/{loader,schema}.mjs`. This is the one place in this
-  change that edits data files outside `tools/specs/**`/`tools/dashboard/**` proper.
-- **Date:** 2026-09-18
-- **Affected artifacts:** `areas/step-executor-model.md`, `tasks/06-workflow-definition-schema-extensions.md`.
-
-## D7: Human review surface consolidation — shared component, not a chat→dialog redirect
-
-- **Question:** Chat already renders its own Approve/Request-changes UI
-  (`AgentSessionChatSurface`/`AgentSessionWorkflowBar`). Should the new reusable
-  human-step surface replace that in place (both call sites render the same component), or
-  should chat instead navigate/open `TaskDialog` to show it?
-- **Decision:** Shared component, rendered directly by both `TaskDialog` and the existing
-  chat surface — not a navigation redirect.
-- **Rationale:** Chat's in-place review affordance is existing, working UX; forcing a
-  navigation away from chat to approve/request changes would be a regression, not a
-  consolidation. A shared component achieves "one implementation" without that UX cost.
-- **Consequences:** `human-review-surface-consolidation` (task 17) touches both
-  `task-dialog.tsx` and the chat surface files, replacing chat's existing separate
-  implementation with the shared component rather than leaving it as a second one.
-- **Date:** 2026-09-18
-- **Affected artifacts:** `areas/human-review-surface.md`, `tasks/17-human-review-surface-consolidation.md`.
-
-## D8: Import boundary tightened — no blanket exemption for `lifecycle-primitives.mjs`
-
-- **Question:** Should `tools/specs/lifecycle-primitives.mjs` remain a blanket-exempt
-  "shared low-level utility" importable by deterministic mutation/projection code (as
-  originally recorded), given it actually contains legacy-specific concepts (`isTaskReady`,
-  `DEPENDENCY_SATISFYING_STATUSES`, `TRANSITIONS`, `TERMINAL_STATUSES`)?
-- **Decision:** No. Only `resolveWorkflowMode()` (`tools/specs/workflow/compatibility.mjs`)
-  and the generic, semantics-free store writers (`setTaskStatus`/`setTaskWorkflowState` in
-  `tools/specs/store.mjs`) are shared/exempt. `lifecycle-primitives.mjs` itself is
-  off-limits to deterministic mutation and projection code — if a deterministic module
-  needs a truly lifecycle-neutral helper that happens to live there today, it is extracted
-  to a neutral location, not imported from that file.
-- **Rationale:** Item 14 of the corrective pass — the previous exemption would have let
-  deterministic code silently depend on legacy status semantics through the back door,
-  defeating the point of `deterministic-dependency-satisfaction` (task 09) existing as a
-  separate, legacy-independent implementation.
-- **Consequences:** `lifecycle-boundary-regression-tests` (task 03)'s import-boundary check
-  now flags any import of `tools/specs/lifecycle-primitives.mjs` from deterministic
-  mutation/projection code as a violation, not just imports of the four legacy mutation
-  command folders.
-- **Date:** 2026-09-18
-- **Affected artifacts:** `areas/lifecycle-boundary-guards.md`, `tasks/03-lifecycle-boundary-regression-tests.md`.
-
-## D9: Deterministic "successful terminal" is an explicit per-step field, not inferred
-
-- **Question:** How does dependency satisfaction distinguish a workflow's successful
-  terminal outcome from any other terminal outcome (e.g. an abandoned/failed terminal),
-  without reusing legacy status semantics or hardcoding a step name?
-- **Decision:** An explicit `outcome: success | failure` field on a workflow definition's
-  terminal step(s) (a step with no outgoing `transitions`), set by the migration in task 06.
-  The shipped `standard`/`architectural`/etc. definitions' existing `verified`-equivalent
-  terminal step is marked `outcome: success`; any other terminal step a definition defines
-  is marked `outcome: failure` unless a future definition states otherwise.
-- **Rationale:** Item 13 explicitly forbids leaving "successful terminal" undefined or
-  inferring it from legacy status vocabulary or a step being named a certain way.
-- **Consequences:** `deterministic-dependency-satisfaction` (task 09) reads this field,
-  not the step's name and not legacy `TERMINAL_STATUSES`/`DEPENDENCY_SATISFYING_STATUSES`.
-  This is deliberately the smallest addition that makes the concept explicit — not a full
-  terminal/outcome model redesign (multiple named outcomes, retry semantics, etc. remain
-  out of scope).
-- **Date:** 2026-09-18
-- **Affected artifacts:** `areas/step-executor-model.md` (schema),
-  `areas/deterministic-projection-and-human-step.md` (consumer),
-  `tasks/06-workflow-definition-schema-extensions.md`,
-  `tasks/09-deterministic-dependency-satisfaction.md`.
+- **Affected artifacts:** `tasks/21-ownership-boundary-documentation.md`.
 
 ## D4: This change's own `workflow.mode` stays `legacy`
 
@@ -190,3 +71,282 @@
   next`/`context`/`start`/`complete`/`verify`, not `workflow step start`/`finish`.
 - **Date:** 2026-09-17 (originally recorded in the pre-existing draft; reaffirmed here)
 - **Affected artifacts:** `change.yaml`.
+
+## D5: Step-executor model replaces the `HumanVerificationGate`-based interaction model
+
+- **Question:** How should human-owned work inside a deterministic workflow be modeled —
+  as a special `human-verification` step name / decision gate (the design this change
+  originally recorded), or as a generic `executor: agent | human` property on every step?
+- **Options considered:** (a) keep the original design (a literal step-name check plus a
+  `verification`/`decision`-shaped human-interaction projection built from
+  `HumanVerificationGate`); (b) a generic per-step `executor` property with its own
+  execution protocol, enforced as an invariant, with `entryGates`/`exitGates` (`type:
+  human`) kept as a distinct, separate mechanism (a gate blocks another executor's step;
+  an `executor: human` step is *executed* by a human, who chooses its outcome).
+- **Decision:** (b). The deterministic flow this change targets was never exercised through
+  a full end-to-end test before this correction; the owner directed dropping compatibility
+  with whatever the first attempt had already built and correcting the architecture before
+  any implementation starts, while continuing to fully support the legacy flow unchanged in
+  the meantime.
+- **Rationale:** A literal step-name check is exactly the kind of hardcoded coupling this
+  whole change exists to remove elsewhere (`stageForStatus`, `isTaskReady`) — reintroducing
+  it for human review specifically would be inconsistent. A generic `executor` property is
+  also the natural place to enforce "an agent must never execute a human-owned step and
+  vice versa" as an invariant, not just a UI convention.
+- **Consequences:** `entryGates`/`exitGates` remain unchanged as a separate mechanism. This
+  is a pre-implementation correction — no implementation code built on the old design is
+  being migrated.
+- **Date:** 2026-09-18
+- **Affected artifacts:** `areas/step-executor-model.md`,
+  `areas/deterministic-projection-and-human-step.md`.
+
+## D6: Workflow-definition schema gets one bounded, individually-audited migration
+
+- **Question:** How does `executor`, transition `action` metadata (label/feedback), and a
+  terminal-transition success/failure `outcome` reach existing workflow definitions
+  (`.nevo-ai/workflows/*.yaml`) — an implicit default, or an explicit migration? And does
+  every definition actually have a human-owned step?
+- **Decision:** Explicit, individually-audited migration of the five existing definition
+  files (`tasks/07-workflow-definition-schema-extensions.md`). Grounded per-file audit
+  (2026-09-19) found the assumption "all five definitions have a human-owned step" false:
+  - `standard.yaml`/`standard-v1.yaml` (identical content): `implementation` → `review` →
+    `human-verification` — a genuine standalone step with its own transitions and no gates
+    of its own. Only **this** step becomes `executor: human`; `implementation`/`review`
+    stay `executor: agent` (defaulted, unchanged).
+  - `architectural.yaml`: one step, `implementation`, with an agent `exitGates: [{type:
+    command}, {type: human, required: true}]` — a human **confirmation gate** on an
+    agent-executed step, not a human-owned step. Stays `executor: agent`; the gate is
+    untouched.
+  - `exploratory.yaml`: one step, `discovery`, same pattern — `exitGates: [{type:
+    markdown}, {type: human, required: true}]`. Stays `executor: agent`; the gate is
+    untouched.
+  - `small.yaml`: one step, `implementation`, no human gate at all. Stays `executor: agent`
+    (default; the field need not even be written).
+  - A default of `executor: agent` when the field is entirely absent covers every
+    agent-only step, so the migration only touches `standard`/`standard-v1`'s
+    `human-verification` step for the `executor` field.
+- **Rationale:** An inferred default for the *human* case specifically would silently
+  assume "agent" unless a step happens to be named a certain way — reintroducing exactly
+  the name-based coupling D5 removes, and mechanically converting every `type: human` gate
+  into a human-owned step would incorrectly merge the two distinct mechanisms D5 keeps
+  separate.
+- **Consequences:** Only `standard.yaml`/`standard-v1.yaml` gain `executor: human` (on
+  `human-verification`) plus `action` metadata on that step's transitions.
+  `architectural.yaml`/`exploratory.yaml`/`small.yaml` are unaffected by the `executor`
+  field entirely. See D9 for the separate, per-transition `outcome` migration, which
+  applies to all five files' terminal transitions.
+- **Date:** 2026-09-19 (supersedes the 2026-09-18 version of this decision, which assumed
+  every definition needed a human-owned step)
+- **Affected artifacts:** `areas/step-executor-model.md`,
+  `tasks/07-workflow-definition-schema-extensions.md`.
+
+## D7: Human-step surface consolidation — shared component, not a chat→dialog redirect
+
+- **Question:** Chat already renders its own Approve/Request-changes UI
+  (`AgentSessionChatSurface`/`AgentSessionWorkflowBar`). Should the new reusable
+  human-step surface replace that in place (both call sites render the same component), or
+  should chat instead navigate/open `TaskDialog` to show it?
+- **Decision:** Shared component (`HumanStepSurface`, D11), rendered directly by both
+  `TaskDialog` and the existing chat surface — not a navigation redirect.
+- **Rationale:** Chat's in-place review affordance is existing, working UX; forcing a
+  navigation away from chat to act on a human step would be a regression, not a
+  consolidation. A shared component achieves "one implementation" without that UX cost.
+- **Consequences:** `human-step-surface-consolidation` (task 19) touches both
+  `task-dialog.tsx` and the chat surface files, replacing chat's existing separate
+  implementation with the shared component rather than leaving it as a second one.
+- **Date:** 2026-09-18
+- **Affected artifacts:** `areas/human-step-surface.md`,
+  `tasks/19-human-step-surface-consolidation.md`.
+
+## D8: Import boundary — extract `TERMINAL_STATUSES`, not a blanket ban with no removal path
+
+- **Question:** `tools/specs/lifecycle-primitives.mjs` contains both genuinely
+  legacy-specific concepts (`isTaskReady`, `DEPENDENCY_SATISFYING_STATUSES`, `TRANSITIONS`,
+  `depsSatisfied`) and one piece of vocabulary the deterministic engine also genuinely
+  needs (`TERMINAL_STATUSES`, used to validate/discriminate a transition's terminal `to`
+  target). A prior version of this decision banned deterministic code from importing the
+  file at all, but named no task to remove the two imports that already exist — the ban
+  would fail the moment its own regression test ran.
+- **Grounded fact (2026-09-19):** exactly two files under `tools/specs/workflow/**` import
+  `lifecycle-primitives.mjs` today, both for `TERMINAL_STATUSES` only:
+  `tools/specs/workflow/finish-operation.mjs` (terminal-vs-internal transition
+  discrimination) and `tools/specs/workflow/definitions/schema.mjs` (transition-target
+  validation). Grep confirmed no other file in `tools/specs/workflow/**` imports it.
+- **Decision:** Extract `TERMINAL_STATUSES` into a new, neutral module (e.g.
+  `tools/specs/status-vocabulary.mjs`). `lifecycle-primitives.mjs` re-exports it so every
+  existing legacy import path is unaffected. `finish-operation.mjs` and
+  `definitions/schema.mjs` import it from the neutral module instead
+  (`tasks/03-status-vocabulary-extraction.md`, which must land — and actually remove both
+  existing imports — before `lifecycle-boundary-regression-tests` (task 04) enables the
+  static check). `isTaskReady`, `DEPENDENCY_SATISFYING_STATUSES`, `TRANSITIONS`,
+  `depsSatisfied`, and the full `TASK_STATUSES`/`CHANGE_STATUSES` enum stay in
+  `lifecycle-primitives.mjs`, legacy-only, never extracted.
+- **Rationale:** `TERMINAL_STATUSES` is genuinely shared persistence vocabulary (both
+  lifecycles write to the same terminal-status set on `task.status`); the other four
+  concepts are legacy interpretation of that vocabulary, not the vocabulary itself —
+  extracting only the former keeps the boundary honest without inventing a shared
+  "lifecycle" abstraction the change's own architecture forbids.
+- **Consequences:** The import-boundary regression test (task 04) checks: no file under
+  `tools/specs/workflow/**` imports `tools/specs/lifecycle-primitives.mjs` (post-extraction,
+  zero such imports exist to begin with); `tools/specs/status-vocabulary.mjs` is exempt
+  (shared, semantics-free); `lifecycle-primitives.mjs`'s own re-export of it is legacy
+  code's business, not deterministic code's.
+- **Date:** 2026-09-19 (supersedes the 2026-09-18 version of this decision, which named no
+  task to actually remove the two pre-existing imports)
+- **Affected artifacts:** `areas/lifecycle-boundary-guards.md`,
+  `tasks/03-status-vocabulary-extraction.md`,
+  `tasks/04-lifecycle-boundary-regression-tests.md`.
+
+## D9: Deterministic "successful terminal" is an explicit per-transition field, on the transition that actually targets a terminal status
+
+- **Question:** How does dependency satisfaction distinguish a workflow's successful
+  terminal outcome from any other terminal outcome, without reusing legacy status semantics
+  or hardcoding a step name — and where does that field actually belong, given the engine's
+  real model?
+- **Grounded fact (2026-09-19):** there is no "terminal step with no transitions" concept in
+  this engine. Every step declares `transitions`; a transition's `to` is validated
+  (`definitions/schema.mjs`) to be either another declared step name (an internal
+  transition) or a member of `TERMINAL_STATUSES` (`implemented`/`verified`/`archived`/
+  `abandoned`) — never both, never neither. `finish-operation.mjs`'s `discriminateTarget`
+  makes exactly this distinction at runtime. A prior version of this decision proposed
+  `outcome` on "a step with no outgoing transitions," which does not exist in this
+  definition model and would have been unimplementable as written.
+- **Decision:** `outcome: success | failure` lives on the **transition** whose `to` targets
+  a terminal status, e.g. `{ value: pass, to: verified, outcome: success }` — never on a
+  step, and never inferred from the terminal status name. Internal (step-to-step)
+  transitions never carry or need `outcome`. Per the D6 audit, every terminal transition in
+  all five current definitions targets `verified` (none currently model a failure-terminal
+  transition) — so today's migration writes `outcome: success` only; `outcome: failure`
+  is defined and validated as a legal value for a future definition that adds one, not
+  retrofitted onto anything that doesn't exist today.
+- **Rationale:** Ground the schema addition in the engine's actual `to`-discrimination
+  model instead of an imagined one; still forbid inferring "success" from the target
+  status's name (`verified`), per the original intent of this decision.
+- **Consequences:** `deterministic-dependency-satisfaction` (task 11) resolves a task's
+  matched terminal transition from its `workflow_progress.history`'s last entry (`step` +
+  `transitioned_to`, resolved against that step's declared `transitions` in the
+  definition) and reads *that transition's* `outcome` — never the step's name, never legacy
+  `TERMINAL_STATUSES`/`DEPENDENCY_SATISFYING_STATUSES`. This is deliberately the smallest
+  addition that makes the concept explicit — not a full terminal/outcome model redesign.
+- **Date:** 2026-09-19 (supersedes the 2026-09-18 version of this decision)
+- **Affected artifacts:** `areas/step-executor-model.md` (schema),
+  `areas/deterministic-projection-and-human-step.md` (consumer),
+  `tasks/07-workflow-definition-schema-extensions.md`,
+  `tasks/11-deterministic-dependency-satisfaction.md`.
+
+## D10: Three-layer separation — pure projection, readiness, dashboard action DTO
+
+- **Question:** Should the canonical deterministic task projection also own
+  runtime-dependent "available application actions" (Start implementation / Start review /
+  Start human step), or should that be a separate layer?
+- **Decision:** Three explicit layers, each with one owner: **`TaskProjection`** (pure
+  workflow/domain state only — `state`, `currentStep`, `nextStep`, `executor`, `attempt`,
+  `blockedBy`, terminal outcome, plus a generic current/next-step descriptor and, only
+  while a human step is actually active, its interaction-actions descriptor — both derived
+  straight from the definition, no readiness/git/session dependency) → **`ExecutionReadiness`**
+  (task 13 — composes `TaskProjection` with the executor guard and the *existing*
+  activation-precondition checks already implemented by `ensureStepActivated`, reused not
+  duplicated per D13) → **`DashboardActionProjection`** (task 15 — composes both into the
+  actual `availableActions` the UI renders: "Start implementation," "Start review," "Start
+  human step," "Submit result," etc.).
+- **Rationale:** Avoids a circular responsibility where the "pure" projection has to know
+  about git worktree state or session binding to answer "is Start implementation
+  available" — that question genuinely depends on more than workflow-definition state, and
+  conflating the two made `TaskProjection` neither pure nor complete.
+- **Consequences:** `deterministic-task-projection` (task 12) never returns
+  `availableActions`. Every consumer that previously would have read "available actions"
+  from the projection now reads it from the dashboard action DTO (task 15), which itself
+  depends on both task 12 and task 13 — corrected throughout the task graph (task 15's,
+  18's, and 19's `depends_on`).
+- **Date:** 2026-09-19
+- **Affected artifacts:** `areas/deterministic-projection-and-human-step.md`,
+  `areas/execution-readiness-and-session-bootstrap.md`,
+  `areas/dashboard-server-actions-wiring.md`, `change.yaml` (task dependency graph).
+
+## D11: Generic naming for reusable domain/UI components
+
+- **Question:** Should the reusable human-step interaction component and operations be
+  named around "review" (`human-review-surface`, `approve`/`request-changes`), or generically?
+- **Decision:** Generic names for reusable core/domain APIs and components:
+  `HumanStepSurface` (UI component, was `human-review-surface`), `startHumanStep` /
+  `submitHumanStepResult` (domain operations, task 09). Product-facing labels ("Review,"
+  "Approve," "Request changes") remain workflow-definition metadata (`action.label`,
+  D5/D6) — never hardcoded into the generic component/operation names themselves.
+- **Rationale:** The architecture is no longer specifically about "review" — a future
+  workflow definition could have a human step that isn't a review at all (e.g. a manual
+  data-entry step), and the domain layer should not assume otherwise.
+- **Consequences:** Renamed throughout: `areas/human-review-surface.md` →
+  `areas/human-step-surface.md`; `human-review-surface-consolidation` →
+  `human-step-surface-consolidation` (task 19).
+- **Date:** 2026-09-19
+- **Affected artifacts:** `areas/human-step-surface.md`,
+  `tasks/19-human-step-surface-consolidation.md`, `tasks/09-human-step-execution-operations.md`.
+
+## D12: Human-step execution reuses `ensureStepActivated`/`finishStep` — not a bespoke implementation
+
+- **Question:** Should `startHumanStep`/`submitHumanStepResult` (the new legal activation
+  and generic-result-submission path for a human-owned step) be built as new, independent
+  bookkeeping, or as thin wrappers over the engine's existing, already-generic activation
+  and finish machinery?
+- **Grounded fact (2026-09-19):** the real engine already has almost everything needed.
+  `ensureStepActivated` (`step-context.mjs`) is the one shared activation function
+  `workflow step start` already calls — it is not agent-specific in its own logic (it
+  writes `workflow_progress`/checks the clean-worktree precondition identically regardless
+  of who calls it). `finishStep`/`planFinish` (`finish-operation.mjs`) already accept a
+  generic `{ result, feedback, artifacts }` input, match `result` against the active step's
+  declared `transitions[].value`, and run the same fixed finalize stage sequence — this is
+  already the "generic humanAction({result, feedback})" shape item 3 of the corrective pass
+  asked for; it does not need to be reinvented. The *only* actually hardcoded parts, both in
+  `handleWorkflowVerifyHuman`, are: the literal `targetStep !== 'human-verification'` check,
+  and the CLI-level mapping of `--approve`/`--request-changes` flags to
+  `result: 'pass'/'fail'`.
+- **Decision:** `startHumanStep` calls `ensureStepActivated` directly (same function, same
+  behavior, same clean-worktree/finish-operation-settled guards — D13), gated by an
+  executor check (reject `executor: agent`), and does not call `autoBindAgentSession`
+  (unlike `handleWorkflowStepStart`, which does). `submitHumanStepResult` calls `finishStep`
+  directly with a caller-supplied `{ result, feedback, artifacts }`, gated by the same
+  executor check. The literal `'human-verification'` step-name check is replaced by the
+  executor check; the CLI's `--approve`/`--request-changes` flags may stay as *CLI-level*
+  compatibility sugar translating to `result: 'pass'/'fail'`, but the domain operation
+  itself never hardcodes "approve"/"pass" as its own concept.
+- **Rationale:** Building a second, parallel activation/finish implementation for human
+  steps would duplicate exactly the durable, crash-safe, resumable machinery
+  `finishStep`/`ensureStepActivated` already provide — a correctness risk, not an
+  architectural improvement.
+- **Consequences:** `human-step-execution-operations` (task 09) is a thin wrapper module,
+  not a new engine. `--confirm` (the separate `entryGates`/`exitGates` human-gate
+  confirmation path via `FileHumanVerificationStore`) is untouched.
+- **Date:** 2026-09-19
+- **Affected artifacts:** `areas/step-executor-model.md`,
+  `tasks/09-human-step-execution-operations.md`.
+
+## D13: `ensureStepActivated`'s existing resume-vs-new-attempt distinction is preserved, not reimplemented
+
+- **Question:** Does the engine currently conflate "resuming an active attempt" with
+  "starting a genuinely new attempt" for the clean-worktree precondition, requiring a fix?
+- **Grounded fact (2026-09-19):** no. `ensureStepActivated` (`step-context.mjs`) already
+  returns immediately, with no dirty-worktree check at all, when `position.phase` is
+  `active` (resume) or `terminal`. The dirty-worktree check (`git.getDirtyPaths`, excluding
+  `.nevo-ai-local/`) runs only for `phase === 'new'` or `phase === 'completed'` — i.e. only
+  when actually activating a step (a fresh attempt or the next step). This already
+  implements exactly "new attempt + dirty baseline → fail" and "resume active attempt +
+  dirty worktree → allowed." A prior version of this spec incorrectly asserted current
+  behavior does not distinguish these and proposed to "fix" it.
+- **Decision:** Correct the spec text; do not modify `ensureStepActivated`'s existing
+  behavior. `execution-readiness-policy` (task 13) inspects/reuses this existing
+  distinction (extracting its dirty-worktree check into its own exported, reusable
+  function from `step-context.mjs` if needed for a read-only preflight query) rather than
+  reimplementing a second git-dirty-check. `workflow step start`, `startHumanStep`
+  (task 09), and any preflight readiness query all resolve to the same one
+  `ensureStepActivated` code path for the actual activation decision.
+- **Rationale:** A second implementation of the same precondition is a correctness risk
+  (the two could drift) and directly contradicts this change's own "no duplicate
+  readiness/activation guards" requirement.
+- **Consequences:** Task 13's scope is corrected from "build a new readiness check
+  distinguishing resume from new" to "compose the existing, unmodified distinction,
+  extracting a read-only query function from `step-context.mjs` only if a preflight
+  (non-mutating) check is genuinely needed alongside it."
+- **Date:** 2026-09-19 (supersedes the 2026-09-18 version of task 13/11's design, which
+  proposed reimplementing this distinction)
+- **Affected artifacts:** `areas/execution-readiness-and-session-bootstrap.md`,
+  `tasks/13-execution-readiness-policy.md`.

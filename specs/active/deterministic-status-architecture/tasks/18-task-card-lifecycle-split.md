@@ -14,7 +14,7 @@ forbidden_paths:
   - tools/specs/**
   - tools/dashboard/server/**
   - src/**
-depends_on: [ deterministic-task-projection ]
+depends_on: [ dashboard-deterministic-action-projection ]
 ---
 
 # Task: `TaskCard` lifecycle split
@@ -29,8 +29,10 @@ once a workflow has started.
 
 ## Dependencies
 
-`deterministic-task-projection` — the deterministic sub-component reads this projection's
-state (via the corrected action DTO from `deterministic-actions-projection-wiring`).
+`dashboard-deterministic-action-projection` — the deterministic sub-component reads the
+corrected action DTO (`state`, `availableActions`, etc.), not the raw `TaskProjection`
+directly, since the UI has never talked to backend projection modules directly and
+`availableActions` specifically only exists on the composed DTO (D10).
 
 ## Implementation constraints
 
@@ -39,16 +41,15 @@ state (via the corrected action DTO from `deterministic-actions-projection-wirin
   `DeterministicTaskCard`) that each own their **entire** visible state — status label/tone,
   blockedBy, and action footer — not just the footer. Keep only the genuinely identical
   parts (order badge, title button) in a common card shell both render inside.
-- For a deterministic task, the status label/tone must be derived from the canonical
-  projection's `state`/`currentStep` (via the action DTO), never from
-  `formatTaskStatus(task.status)`/`taskStatusTone(task.status)` — this is the concrete
-  correction from the original design (corrective-pass item 8).
+- For a deterministic task, the status label/tone must be derived from the action DTO's
+  `state`/`currentStep`, never from `formatTaskStatus(task.status)`/
+  `taskStatusTone(task.status)` — this is the concrete correction from the original design
+  (corrective-pass-1 item 8).
 - `StatusBoard`'s own `isDeterministic` branch (hiding the legacy batch-approve button) is
   unaffected by this task — do not fold it into the card split.
-- Deterministic action availability continues to come from the existing
-  `actionGate.availableActions` server projection (now backed by
-  `deterministic-readiness-policy`/`deterministic-task-projection` server-side) — no new
-  client-side readiness logic.
+- Deterministic action availability continues to come from the action DTO's
+  `availableActions` (now backed by `ExecutionReadiness`/`TaskProjection` server-side) — no
+  new client-side readiness logic.
 
 ## Acceptance criteria
 
@@ -58,7 +59,7 @@ state (via the corrected action DTO from `deterministic-actions-projection-wirin
 - A deterministic card whose task's `status` is still `approved` (compatibility value) but
   whose current step is `review` shows a review-appropriate status label/tone, not
   "Approved" or any other `formatTaskStatus(task.status)`-derived label.
-  `inspection: confirm DeterministicTaskCard's status label reads the projection's state, not formatTaskStatus(task.status)`
+  `inspection: confirm DeterministicTaskCard's status label reads the action DTO's state, not formatTaskStatus(task.status)`
 - `TaskCard`'s deterministic action-footer output is unchanged in behavior, now sourced from
   a distinct sub-component rather than an inline conditional.
   `inspection: confirm DeterministicTaskCard's actions render the same set status-board.tsx's prior inline branch did`
@@ -75,5 +76,5 @@ node --test tools/dashboard/tests/ux-improvements-regression.test.mjs
 ## Out of scope
 
 The server-side lane projection (task `deterministic-board-lane-projection`). The action DTO
-itself (task `deterministic-actions-projection-wiring`). `TaskDialog`/chat (task
-`human-review-surface-consolidation`).
+itself (task `dashboard-deterministic-action-projection`). `TaskDialog`/chat (task
+`human-step-surface-consolidation`).

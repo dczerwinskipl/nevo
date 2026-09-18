@@ -16,23 +16,23 @@ forbidden_paths:
   - tools/specs/**
   - tools/dashboard/server/**
   - src/**
-depends_on: [ deterministic-readiness-policy ]
+depends_on: [ execution-readiness-policy ]
 ---
 
 # Task: Session bootstrap readiness wiring (client)
 
 ## Goal
 
-Ensure the client-side execution entry points ("Start implementation"/"Start review") and
-the generic session dialog both behave correctly against the server-side readiness policy
-landed in `deterministic-readiness-policy`: execution entry points surface a refusal
-clearly; the generic dialog's contextual (non-authoritative) task selection remains
-unaffected and is never promoted to execution intent.
+Ensure the client-side execution entry points ("Start implementation"/"Start review"/
+"Start human step") and the generic session dialog both behave correctly against the
+server-side `ExecutionReadiness` policy landed in `execution-readiness-policy`: execution
+entry points surface a refusal clearly; the generic dialog's contextual (non-authoritative)
+task selection remains unaffected and is never promoted to execution intent.
 
 ## Dependencies
 
-`deterministic-readiness-policy` — this task's tests exercise that task's server-side
-behavior from the client's perspective.
+`execution-readiness-policy` — this task's tests exercise that task's server-side behavior
+from the client's perspective.
 
 ## Implementation constraints
 
@@ -43,7 +43,8 @@ behavior from the client's perspective.
   `agent-session-page.tsx`'s `handleStartReviewTask` (the actual "Start implementation"/
   "Start review" entry points, which do pass an authoritative `taskId`) surface a
   readiness-refusal error from the server clearly and actionably — do not silently swallow
-  it or show a generic failure toast.
+  it or show a generic failure toast. Any new "Start human step" entry point added by
+  `human-step-surface-consolidation` follows the same pattern.
 - Do not add any client-side readiness re-derivation (e.g. do not port
   `deterministic-task-projection`/executor-guard logic into the frontend) — the client
   trusts the server's answer and the existing `actionGate.availableActions` visibility
@@ -56,7 +57,7 @@ behavior from the client's perspective.
 
 - Creating a session via `CreateAgentSessionDialog` with contextual `taskIds: [draftTask]`
   and no authoritative `taskId` succeeds and behaves as ordinary chat, unaffected by this
-  change (brief regression test #7, #8; corrective-pass item 10).
+  change (brief regression test #7, #8; corrective-pass-1 item 10).
   `automated: node --test tools/dashboard/tests/agent-session-workflow.test.tsx`
 - Clicking "Start implementation"/"Start review" against a draft (unpublished) or
   executor-mismatched task surfaces the server's readiness-refusal error clearly.
@@ -64,9 +65,9 @@ behavior from the client's perspective.
 - A draft task remains fully discussable through a contextual-only chat session — no
   readiness check blocks the conversation itself.
   `automated: node --test tools/dashboard/tests/agent-session-workflow.test.tsx`
-- Neither `CreateAgentSessionDialog` nor the two execution entry points ever auto-select a
+- Neither `CreateAgentSessionDialog` nor the execution entry points ever auto-select a
   contextual task as authoritative execution intent.
-  `inspection: confirm task selection stays explicit and opt-in in all three components`
+  `inspection: confirm task selection stays explicit and opt-in in all components`
 
 ## Verification
 
@@ -76,5 +77,5 @@ node --test tools/dashboard/tests/agent-session-workflow.test.tsx
 
 ## Out of scope
 
-The server-side readiness check itself (owned by `deterministic-readiness-policy`). Legacy
+The server-side readiness check itself (owned by `execution-readiness-policy`). Legacy
 session creation (unaffected).

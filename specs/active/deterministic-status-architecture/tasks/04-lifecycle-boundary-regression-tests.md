@@ -17,7 +17,7 @@ forbidden_paths:
   - tools/specs/workflow/**
   - tools/dashboard/**
   - src/**
-depends_on: [ legacy-mutation-guard, deterministic-mutation-guard ]
+depends_on: [ legacy-mutation-guard, deterministic-mutation-guard, status-vocabulary-extraction ]
 semantic_references:
   decisions: [D8]
 ---
@@ -27,15 +27,16 @@ semantic_references:
 ## Goal
 
 Add the architecture/regression protection this change requires: a static import-boundary
-check between legacy and deterministic mutation modules (now including
-`tools/specs/lifecycle-primitives.mjs` per D8), plus a full side-effect "no mutation before
-guard failure" and "omitted workflow mode stays legacy" regression suite covering both
-guard tasks together.
+check between legacy and deterministic mutation modules, plus a full side-effect "no
+mutation before guard failure" and "omitted workflow mode stays legacy" regression suite
+covering both guard tasks together.
 
 ## Dependencies
 
 `legacy-mutation-guard`, `deterministic-mutation-guard` — this task tests both guards'
-final shape.
+final shape. `status-vocabulary-extraction` — the import-boundary check below asserts zero
+`lifecycle-primitives.mjs` imports under `tools/specs/workflow/**`; that is only true once
+this task's two pre-existing imports have actually been removed.
 
 ## Implementation constraints
 
@@ -45,15 +46,11 @@ final shape.
 - Scope the check precisely: `tools/specs/{approve,start,complete,verify}/**` must not
   import from `tools/specs/workflow/**`'s mutation entry points
   (`cli.mjs`/`step-context.mjs`/`finish-operation.mjs`/the publish operation); those files
-  must not import from `tools/specs/{approve,start,complete,verify}/**`; and per D8, no
-  file under `tools/specs/workflow/**` may import `tools/specs/lifecycle-primitives.mjs` at
-  all. `resolveWorkflowMode()` (`compatibility.mjs`) and the generic store writers
-  (`store.mjs`) are explicitly exempt — the test asserts they remain importable by both
-  sides.
-- Side-effect assertions must cover, for every failing guard call: `change.yaml`
-  byte-for-byte unchanged, git `HEAD` unchanged, current branch unchanged (no new branch
-  created), working tree unchanged (`git status --porcelain` empty of new changes), no
-  `workflow_progress`/workflow-operation state created, and no execution session created.
+  must not import from `tools/specs/{approve,start,complete,verify}/**`; and no file under
+  `tools/specs/workflow/**` may import `tools/specs/lifecycle-primitives.mjs` (D8 —
+  post-extraction, zero such imports exist). `resolveWorkflowMode()` (`compatibility.mjs`),
+  the generic store writers (`store.mjs`), and `tools/specs/status-vocabulary.mjs` are
+  explicitly exempt — the test asserts they remain importable by both sides.
 
 ## Acceptance criteria
 
@@ -62,14 +59,16 @@ final shape.
   `automated: node --test tools/tests/lifecycle-boundary-regression.test.mjs`
 - A spec with explicit `workflow.mode: legacy` behaves identically (brief regression test
   #2). `automated: node --test tools/tests/lifecycle-boundary-regression.test.mjs`
-- Each of the four legacy commands against a deterministic spec, and each of the
-  deterministic commands against a legacy spec, fails and leaves every side effect listed
-  above unchanged — asserted by capturing and diffing each, not by inspecting only the
-  error message (brief regression tests #3, #4, #20; corrective-pass item 12).
+- Each of the four legacy commands against a deterministic spec, and each of
+  `workflow step start`/`workflow step finish` against a legacy spec, fails and leaves
+  `change.yaml`, git `HEAD`, the current branch, the working tree, and any workflow-
+  operation/execution-session state byte-for-byte unchanged — asserted by capturing and
+  diffing each, not by inspecting only the error message (brief regression tests #3, #4,
+  #20; corrective-pass-1 item 12). `automated: node --test tools/tests/lifecycle-boundary-regression.test.mjs`
+- The static import-boundary check finds zero violations in either direction, including
+  zero `lifecycle-primitives.mjs` imports under `tools/specs/workflow/**` (brief regression
+  tests #16, #17; corrective-pass-1 item 14; corrective-pass-2 D8).
   `automated: node --test tools/tests/lifecycle-boundary-regression.test.mjs`
-- The static import-boundary check finds zero violations in either direction, including the
-  `lifecycle-primitives.mjs` exclusion (brief regression tests #16, #17; corrective-pass
-  item 14). `automated: node --test tools/tests/lifecycle-boundary-regression.test.mjs`
 
 ## Verification
 
@@ -80,5 +79,6 @@ node tools/specs.mjs validate
 
 ## Out of scope
 
-The guards' own implementation (owned by the two dependency tasks). The executor-invariant
-guard's own regression coverage — task `step-executor-guard`.
+The guards' own implementation (owned by the two dependency tasks). The
+`TERMINAL_STATUSES` extraction itself (owned by `status-vocabulary-extraction`). The
+executor-invariant guard's own regression coverage — task `step-executor-guard`.

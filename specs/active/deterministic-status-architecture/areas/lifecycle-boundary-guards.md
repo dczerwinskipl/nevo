@@ -40,13 +40,15 @@ boundary regression test exists.
 - Do not change any legacy command's behavior for a legacy spec, or any deterministic
   command's behavior for a deterministic spec — this area only adds a new failure path for
   the cross-mode case.
-- `resolveWorkflowMode()` (`tools/specs/workflow/compatibility.mjs`) and the generic,
+- `resolveWorkflowMode()` (`tools/specs/workflow/compatibility.mjs`), the generic,
   semantics-free store writers (`setTaskStatus`/`setTaskWorkflowState` in
-  `tools/specs/store.mjs`) are the only shared, low-level utilities either direction may
-  import. Per D8, `tools/specs/lifecycle-primitives.mjs` is **not** exempt — it is a
-  legacy-semantics module (`isTaskReady`, `DEPENDENCY_SATISFYING_STATUSES`, `TRANSITIONS`,
-  `TERMINAL_STATUSES`), and no deterministic mutation or projection code in this change may
-  import it. Legacy code's own use of it is unaffected.
+  `tools/specs/store.mjs`), and the extracted `tools/specs/status-vocabulary.mjs`
+  (`areas/shared-status-vocabulary.md`) are the only shared, low-level utilities either
+  direction may import. Per D8, `tools/specs/lifecycle-primitives.mjs` itself is **not**
+  exempt — it is a legacy-semantics module (`isTaskReady`, `DEPENDENCY_SATISFYING_STATUSES`,
+  `TRANSITIONS`, `depsSatisfied`), and no deterministic mutation or projection code in this
+  change may import it. Legacy code's own use of it, including its re-export of the
+  extracted vocabulary, is unaffected.
 
 ## Interfaces and boundaries
 
@@ -76,7 +78,10 @@ before any of their own new operations run.
 
 ## Dependencies
 
-None — this is the foundation area every other area's guard-respecting operations build on.
+`areas/shared-status-vocabulary.md` (the import-boundary regression test's own
+"no `lifecycle-primitives.mjs` import" check can only pass once that area's extraction task
+has actually removed the two pre-existing imports — see D8). Otherwise this is the
+foundation area every other area's guard-respecting operations build on.
 
 ## Out of scope
 

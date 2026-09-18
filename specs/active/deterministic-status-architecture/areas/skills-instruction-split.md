@@ -30,10 +30,10 @@ deterministic task-execution agents specifically.
 - Add an explicit, normative statement of the two lifecycle instruction sets:
   - **Legacy**: allowed — `approve`/`start`/`complete`/`verify` and the existing
     `/nevo-ai:*` commands; forbidden — any deterministic workflow lifecycle command
-    (`workflow task publish`, `workflow step start`, `workflow step finish`, the
-    executor-guarded deterministic human-decision operation).
+    (`workflow task publish`, `workflow step start`, `workflow step finish`,
+    `startHumanStep`, `submitHumanStepResult`).
   - **Deterministic**: allowed — `workflow task publish`, `workflow step start`,
-    `workflow step finish`, the deterministic human-decision operation (subject to the
+    `workflow step finish`, `startHumanStep`, `submitHumanStepResult` (each subject to the
     executor guard); forbidden — legacy `approve`/`start`/`complete`/`verify` and any other
     legacy lifecycle mutation.
 - State explicitly that a user-invoked lifecycle command run against the wrong mode's spec

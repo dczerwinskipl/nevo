@@ -38,9 +38,11 @@ batch-approve button in deterministic mode.
   canonical projection's `state`/`currentStep` (via the corrected DTO), never from
   `formatTaskStatus(task.status)`/`taskStatusTone(task.status)`. The shared, genuinely
   identical parts (order badge, title button) stay in the common card shell.
-- Deterministic action availability in the UI is driven by the readiness policy
-  (`areas/execution-readiness-and-session-bootstrap.md`) via the projection's "available
-  actions" — never re-derived ad hoc in the component.
+- Deterministic action availability in the UI is driven by `DashboardActionProjection`'s
+  `availableActions` (`areas/dashboard-server-actions-wiring.md`, itself composing
+  `TaskProjection` and `ExecutionReadiness` — D10) — never re-derived ad hoc in the
+  component, and never read directly off the pure projection (which does not own
+  action-availability, D10).
 
 ## Constraints
 
@@ -79,4 +81,4 @@ Consumed by: `status-board.tsx`/`TaskCard` only — no other area reads this dir
 ## Out of scope
 
 Board/lane configurability as project config (explicitly out of scope for this whole change
-— D1). `TaskDialog`/chat (owned by `areas/human-review-surface.md`).
+— D1). `TaskDialog`/chat (owned by `areas/human-step-surface.md`).

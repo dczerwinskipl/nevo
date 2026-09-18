@@ -13,7 +13,7 @@ forbidden_paths:
   - tools/**
   - src/**
   - docs/development/package-boundaries.md
-depends_on: [ legacy-mutation-guard, deterministic-mutation-guard, step-executor-guard ]
+depends_on: [ legacy-mutation-guard, deterministic-mutation-guard, step-executor-guard, status-vocabulary-extraction ]
 semantic_references:
   decisions: [D3, D8]
 ---
@@ -24,14 +24,14 @@ semantic_references:
 
 Extend `docs/development/agent-workflow-protocol.md`'s existing "Ownership Boundaries &
 Manifest Immutability" section to name the legacy/deterministic mutation module trees, the
-no-cross-import guard (including the `lifecycle-primitives.mjs` exclusion, D8), and the
-executor invariant this change enforces — per `owner-decisions.md` D3, no new top-level doc
-file.
+no-cross-import guard (including the `TERMINAL_STATUSES` extraction, D8), and the executor
+invariant this change enforces — per `owner-decisions.md` D3, no new top-level doc file.
 
 ## Dependencies
 
 `legacy-mutation-guard`, `deterministic-mutation-guard`, `step-executor-guard` — this task
-documents their final, implemented shape.
+documents their final, implemented shape. `status-vocabulary-extraction` — documents the
+extraction this task references.
 
 ## Implementation constraints
 
@@ -39,10 +39,12 @@ documents their final, implemented shape.
   do not restructure or rewrite the rest of `agent-workflow-protocol.md`.
 - Name the two module trees explicitly: `tools/specs/{approve,start,complete,verify}/**`
   (legacy mutation) and `tools/specs/workflow/**`'s mutation entry points (deterministic
-  mutation); the hard-guard behavior; the no-cross-import rule including that
-  `tools/specs/lifecycle-primitives.mjs` is off-limits to deterministic code (D8); and the
-  executor invariant (an agent must never start/finish a human-owned step, and the
-  human-decision operation must never be invoked against an agent-owned step).
+  mutation); the hard-guard behavior; the no-cross-import rule (including that
+  `tools/specs/lifecycle-primitives.mjs` is off-limits to deterministic code, with
+  `TERMINAL_STATUSES` reached instead via the extracted `tools/specs/status-vocabulary.mjs`,
+  D8); and the executor invariant (an agent must never start/finish a human-owned step, and
+  `startHumanStep`/`submitHumanStepResult` must never be invoked against an agent-owned
+  step).
 - Cross-reference (do not restate) the legacy/deterministic instruction sets from
   `lifecycle-skill-instruction-split`.
 - Do not touch `docs/development/package-boundaries.md` — it is correctly scoped to the
@@ -51,8 +53,8 @@ documents their final, implemented shape.
 ## Acceptance criteria
 
 - The "Ownership Boundaries & Manifest Immutability" section, after this task, names both
-  module trees, the guard/no-import rule (including the `lifecycle-primitives.mjs`
-  exclusion), and the executor invariant explicitly.
+  module trees, the guard/no-import rule (including the `TERMINAL_STATUSES` extraction),
+  and the executor invariant explicitly.
   `inspection: confirm the section text names both module trees, the no-cross-import rule, and the executor invariant`
 - `node tools/docs.mjs validate` passes with the updated content/front matter.
   `automated: node tools/docs.mjs validate`

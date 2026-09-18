@@ -3,43 +3,64 @@
 ## Responsibility
 
 Give every deterministic workflow step an explicit `executor: agent | human` property with
-its own execution protocol, and enforce it as an invariant — replacing the literal
-`'human-verification'` step-name coupling with a generic mechanism, distinct from the
-existing `entryGates`/`exitGates` (`type: human`) confirmation mechanism.
+its own execution protocol, enforce it as an invariant, add a per-transition `outcome`
+field for terminal transitions, and build the human-step execution operations
+(`startHumanStep`/`submitHumanStepResult`) as thin, generic wrappers over the engine's
+existing activation/finish machinery — replacing the literal `'human-verification'`
+step-name coupling, distinct from the existing `entryGates`/`exitGates` (`type: human`)
+confirmation mechanism.
 
 ## Current state
 
-No step in any of the five workflow definitions (`.nevo-ai/workflows/*.yaml`) declares an
-`executor`. The only place "this step needs a human" is expressed today is
-`handleWorkflowVerifyHuman`'s hardcoded `targetStep === 'human-verification'` check
-(`tools/specs/workflow/cli.mjs`) plus whichever step happens to carry an `entryGate`/
-`exitGate` with `type: human`. Nothing prevents `workflow step start` from being called
-against that (or any) step regardless of who is meant to execute it — `resolveWorkflowPosition`
-resolves position purely from `(workflow_progress, definition)`, with no executor concept at
-all. Transition metadata (D37) is currently `{ to }` only — no `action`/label/feedback
-metadata exists.
+No step in any of the five workflow definitions declares an `executor`. The only place
+"this step needs a human" is expressed today is `handleWorkflowVerifyHuman`'s `--approve`/
+`--request-changes` branch hardcoding `targetStep === 'human-verification'`
+(`tools/specs/workflow/cli.mjs`) — a branch that otherwise already does almost everything
+needed: it resolves the target step via `resolveWorkflowPosition`, already calls
+`ensureStepActivated` to activate it when not active, and already calls the generic
+`finishStep` with `{ result: 'pass'|'fail', feedback }`, which itself already matches
+`result` against the active step's declared `transitions[].value`. Nothing prevents
+`workflow step start` from being called against a would-be human step regardless of who is
+meant to execute it. Transition metadata (D37) is currently `{ to }`/`{ value, to }` only —
+no `action`/label/feedback metadata, no `outcome`.
+
+Per-definition audit (2026-09-19, D6): `standard.yaml`/`standard-v1.yaml` (identical) have a
+genuine standalone `human-verification` step with its own transitions
+(`pass→verified`, `fail→implementation`) and no gates of its own — this is the only
+human-owned step across all five definitions. `architectural.yaml`/`exploratory.yaml` each
+have one agent step (`implementation`/`discovery`) whose `exitGates` include
+`{type: human, required: true}` — a confirmation gate on an agent-executed step, not a
+human-owned step; the step's own transition is unconditional (`{to: verified}`), no `value`.
+`small.yaml` is agent-only, no human gate at all. Every terminal transition across all five
+files currently targets `verified` — none currently models a failure-terminal transition.
 
 ## Requirements
 
-**Schema (D6):**
+**Schema (D6, D9):**
 
 - Add `executor: agent | human` to the step schema (`tools/specs/workflow/definitions/schema.mjs`),
-  validated by `tools/specs.mjs validate`. Absent `executor` defaults to `agent` (smallest
-  migration — only steps that are actually human-owned need the field set explicitly).
+  validated by `tools/specs.mjs validate`. Absent `executor` defaults to `agent`.
 - Add minimal transition `action` metadata: `{ label, feedback?: { required: boolean } }`
-  per transition — additive, optional, consumed only by the human-step projection (never by
-  the engine's own transition-resolution logic, which stays generic: `value`/`result`, `to`,
-  required input).
-- Add a terminal-step `outcome: success | failure` field (D9) — a step with no outgoing
-  `transitions` declares this; absent `outcome` on a terminal step is a validation error for
-  any *newly authored* definition (no silent default), but the migration below sets it
-  explicitly on all five existing definitions so this never surfaces as a migration gap.
-- Migrate all five existing definitions: set `executor: human` on each definition's
-  human-owned step (today's `human-verification`-named step or equivalent), add `action`
-  metadata to that step's transitions (e.g. `pass`/`fail` → `Approve`/`Request changes`,
-  the latter with `feedback: { required: true }`), and set `outcome: success` on each
-  definition's successful terminal step (today's `verified`-equivalent) and `outcome:
-  failure` on any other terminal step a definition defines.
+  per transition — additive, optional for an `executor: agent` step's transitions. For an
+  `executor: human` step, **every** transition must declare `action.label` as a non-empty
+  string (cross-field validation, item 6) — a human step with a selectable transition the
+  UI cannot render a label for is a validation error, not a runtime UI gap. If present,
+  `action.feedback.required` must be a boolean.
+- Add `outcome: success | failure` on a **transition** whose `to` targets a terminal status
+  (a member of `TERMINAL_STATUSES`, imported from `areas/shared-status-vocabulary.md`'s
+  extracted module) — never on a step, since this engine has no "terminal step" concept;
+  every transition's `to` is either a declared step (internal, no `outcome` needed/allowed)
+  or a terminal status (requires `outcome` on any *newly authored* definition — fail-closed,
+  no silent default).
+- Migrate the five existing definitions per the audit above: `standard.yaml`/
+  `standard-v1.yaml`'s `human-verification` step gets `executor: human` and `action`
+  metadata on both its transitions (`pass` → e.g. `{label: Approve}`, `fail` → e.g.
+  `{label: Request changes, feedback: {required: true}}` — exact wording is a product
+  choice, not schema-mandated); every terminal transition in all five files (currently only
+  `{to: verified}`/`{value: pass, to: verified}` shapes) gets `outcome: success`.
+  `architectural.yaml`/`exploratory.yaml`/`small.yaml` get **no** `executor` field changes
+  (their steps stay implicitly `executor: agent`) and their existing `type: human` gates
+  are untouched.
 
 **Enforced invariant:**
 
@@ -47,14 +68,38 @@ metadata exists.
   structured error (code `WORKFLOW_STEP_EXECUTOR_MISMATCH`, step id, executor, purpose,
   expected work, available results/transitions) worded so an agent stops instead of
   retrying a different lifecycle operation. `workflow step finish` gets the same guard for
-  defense in depth (an agent should never reach `finish` for a human step, since it can
-  never `start` one, but the guard must not rely on that alone).
-- The human-decision operation (`workflow verify-human`, generalized by this area) rejects
-  an `executor: agent` step the same way, symmetric error shape.
+  defense in depth.
+- `startHumanStep`/`submitHumanStepResult` (below) reject an `executor: agent` (or
+  defaulted-absent) step the same way, symmetric error shape.
 - One guard function implements both directions — not duplicated per call site. The same
-  function is reused by the readiness policy (`areas/execution-readiness-and-session-bootstrap.md`)
-  for session/execution bootstrap: an agent execution session must never be created to work
-  on a human-owned active step.
+  function is reused by `ExecutionReadiness` (`areas/execution-readiness-and-session-bootstrap.md`)
+  for session/execution bootstrap.
+
+**Human-step execution operations (D12 — reuse, not reinvention):**
+
+- Both operations call `resolveWorkflowMode()` first and fail, before any mutation, if the
+  spec resolves to legacy — `deterministic-mutation-guard` explicitly scoped itself to only
+  the two pre-existing CLI entry points and deferred this guard, for these two new
+  operations, to this area/task.
+- `startHumanStep(change, task, definition, context)`: rejects unless the target step's
+  `executor === 'human'`; otherwise calls the engine's existing, unmodified
+  `ensureStepActivated` directly (`step-context.mjs`) — same function `workflow step start`
+  already uses, same clean-worktree/finish-operation-settled preconditions (D13, preserved
+  as-is). Unlike `handleWorkflowStepStart`, it does **not** call `autoBindAgentSession` —
+  no AI execution session is created or bound for a human step.
+- `submitHumanStepResult(change, task, definition, context, {result, feedback, artifacts})`:
+  rejects unless the *active* step's `executor === 'human'`; otherwise calls the engine's
+  existing, unmodified `finishStep` directly (`finish-operation.mjs`) with the caller's
+  inputs — `finishStep` already validates `result` against the step's declared transitions
+  and runs the same fixed finalize stage sequence used for agent steps.
+- `handleWorkflowVerifyHuman`'s `--approve`/`--request-changes` branch is replaced by these
+  two operations: its literal `targetStep !== 'human-verification'` check becomes the
+  executor check above; its `isApprove ? 'pass' : 'fail'` mapping becomes CLI-level
+  compatibility sugar over a generic `result` parameter (the domain operation itself never
+  hardcodes `'pass'`/`'fail'` as "approve"/"reject" — it only validates `result` against
+  whatever the active step's transitions declare). `workflow verify-human --confirm` (the
+  `entryGates`/`exitGates` gate-confirmation path) is completely untouched — different
+  branch, different mechanism, unchanged code.
 
 ## Constraints
 
@@ -62,40 +107,58 @@ metadata exists.
   remain "another executor's step, blocked pending human confirmation," a distinct concept
   from "this step is executed by a human." Do not merge the two mechanisms or let one
   subsume the other's schema/behavior.
-- The engine's own transition-resolution logic must not understand "owner-review,"
-  "acceptance," "human-verification," or "Approve" specifically — those are definition/
-  projection-level concepts, expressed only through `executor` and the generic `action`
-  metadata.
+- The engine's own transition-resolution logic (`finishStep`/`ensureStepActivated`/
+  `resolveWorkflowPosition`) must not understand "owner-review," "acceptance,"
+  "human-verification," or "Approve" specifically — those are definition/projection-level
+  concepts, expressed only through `executor` and the generic `action` metadata.
+- `startHumanStep`/`submitHumanStepResult` must not duplicate any logic already implemented
+  by `ensureStepActivated`/`finishStep` — they are thin, executor-gated wrappers, not a
+  parallel implementation (D12).
 
 ## Interfaces and boundaries
 
-Exposes: the `executor`/`action`/`outcome` schema fields (read by
-`areas/deterministic-projection-and-human-step.md`), and the executor-guard function (used
-by `workflow step start`/`finish`, the human-decision operation, and the readiness policy).
+Exposes: the `executor`/`action`/`outcome` schema fields; the executor-guard function; the
+`startHumanStep`/`submitHumanStepResult` domain operations.
 
-Consumed by: every other area that reads workflow definitions or needs to know who executes
-a step.
+Consumed by: `areas/deterministic-projection-and-human-step.md` (reads `executor`/`action`/
+`outcome`), `areas/execution-readiness-and-session-bootstrap.md` (reuses the executor
+guard), `areas/dashboard-server-actions-wiring.md` (wires `submitHumanStepResult` into the
+dashboard's mutation split), `areas/human-step-surface.md` (calls
+`startHumanStep`/`submitHumanStepResult` via the dashboard route).
 
 ## Area-specific acceptance criteria
 
 - All five existing workflow definitions validate against the extended schema after
-  migration, with their human-owned step(s) carrying `executor: human` and their successful
-  terminal step carrying `outcome: success`.
+  migration; only `standard`/`standard-v1`'s `human-verification` step carries
+  `executor: human`; every current terminal transition carries `outcome: success`.
+- A newly authored definition with a human step whose transition lacks `action.label` fails
+  validation. A newly authored definition with a transition targeting a terminal status but
+  no `outcome` fails validation.
 - A step with no `executor` declared defaults to `agent` and behaves exactly as before this
-  area (backward-compatible default).
+  area.
 - `workflow step start`/`workflow step finish` against a step with `executor: human` fails
-  with the structured `WORKFLOW_STEP_EXECUTOR_MISMATCH` error, before any mutation.
-- The human-decision operation against a step with `executor: agent` (or no `executor`,
-  i.e. the default) fails with the same structured error shape, before any mutation.
+  with the structured error, before any mutation.
+- `startHumanStep` against a step with `executor: human` and no active AI session
+  requirement succeeds, activating via `ensureStepActivated` and never calling
+  `autoBindAgentSession`. Against an `executor: agent` step it fails with the structured
+  error, before any mutation.
+- `submitHumanStepResult` with a `result` matching one of the active human step's
+  transitions succeeds via `finishStep`, unchanged finalize behavior. Against an
+  `executor: agent` active step it fails with the structured error, before any mutation.
+- `startHumanStep`/`submitHumanStepResult` against a legacy spec each fail via
+  `resolveWorkflowMode()`, before any mutation — the mode guard `deterministic-mutation-guard`
+  explicitly deferred to this area.
+- `workflow verify-human --confirm` behavior is byte-for-byte unchanged.
 - The engine's transition-resolution logic contains no reference to `'human-verification'`,
   `'owner-review'`, `'acceptance'`, or `'Approve'` as literal strings.
 
 ## Dependencies
 
-None — this is a foundation area other projection/guard areas build on.
+`areas/shared-status-vocabulary.md` (`TERMINAL_STATUSES` for `outcome` validation).
 
 ## Out of scope
 
-Any change to `entryGates`/`exitGates`. A full multi-named-outcome or retry-semantics
-terminal model (D9 — only one `outcome: success | failure` field is added). Any UI
-rendering of this schema (owned by the projection/UI areas).
+Any change to `entryGates`/`exitGates` or `workflow verify-human --confirm`. A full
+multi-named-outcome or retry-semantics terminal model (D9 — only one `outcome` field is
+added, on the transition). Any UI rendering of this schema (owned by the projection/UI
+areas).

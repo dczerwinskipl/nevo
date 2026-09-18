@@ -14,7 +14,7 @@ forbidden_paths:
   - tools/dashboard/**
   - src/**
   - .claude/commands/**
-depends_on: [ legacy-mutation-guard, deterministic-mutation-guard, workflow-task-publish-operation, step-executor-guard ]
+depends_on: [ legacy-mutation-guard, deterministic-mutation-guard, workflow-task-publish-operation, step-executor-guard, human-step-execution-operations ]
 ---
 
 # Task: Lifecycle skill instruction split
@@ -29,8 +29,8 @@ a wrong-mode command fails/reroutes rather than silently executing.
 ## Dependencies
 
 `legacy-mutation-guard`, `deterministic-mutation-guard`, `workflow-task-publish-operation`,
-`step-executor-guard` — the instruction set names the command surfaces and guards these
-tasks introduce.
+`step-executor-guard`, `human-step-execution-operations` — the instruction set names the
+command surfaces and guards these tasks introduce.
 
 ## Implementation constraints
 
@@ -59,9 +59,9 @@ tasks introduce.
   `inspection: confirm each identified embedded assumption was moved, not copied`
 - The new reference file states, explicitly: legacy allowed (`approve`/`start`/`complete`/
   `verify`, existing `/nevo-ai:*` commands) / forbidden (`workflow task publish`,
-  `workflow step start`, `workflow step finish`, the deterministic human-decision
-  operation); deterministic allowed (`workflow task publish`, `workflow step start`,
-  `workflow step finish`, the deterministic human-decision operation, subject to the
+  `workflow step start`, `workflow step finish`, `startHumanStep`, `submitHumanStepResult`);
+  deterministic allowed (`workflow task publish`, `workflow step start`,
+  `workflow step finish`, `startHumanStep`, `submitHumanStepResult`, each subject to the
   executor guard) / forbidden (legacy `approve`/`start`/`complete`/`verify`).
   `inspection: confirm both allow/forbid lists are present and match the area doc exactly`
 - The reference file states the wrong-mode-command-fails and never-start-a-human-owned-step
