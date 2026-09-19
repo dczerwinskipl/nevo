@@ -64,6 +64,17 @@ not `lifecycle-primitives.mjs`) to check whether a transition's `to` is terminal
   - **Do not** add any "terminal step" concept — this engine has none; every step declares
     `transitions`, and a transition's `to` alone determines internal-vs-terminal
     (`isStepName`/`TERMINAL_STATUSES` membership, already how `discriminateTarget` works).
+  - **A human step's single unconditional transition needs no `value`/`result`** (D16, item
+    7) — `action.label` is still required on it (cross-field validation above applies
+    regardless of whether the step's transitions are conditional or not), but do not require
+    or synthesize a `value` for it.
+  - **`normalizeWorkflowDefinition()` must preserve the new fields (item 1).** Read directly
+    (2026-09-19): it currently drops `executor` entirely, and its `transitions.map(...)`
+    copies only `value`/`to`. Update it so the normalized step retains `executor` (when
+    present) and the normalized transition retains `action`/`outcome` (when present),
+    alongside the existing `value`/`to` — every runtime consumer reads the *normalized*
+    object, never the raw parsed one, so a definition that validates must not lose this
+    metadata here.
 - Migrate `.nevo-ai/workflows/standard.yaml` and `.nevo-ai/workflows/standard-v1.yaml`
   (identical content): the `human-verification` step gets `executor: human`; its `pass`
   transition (`to: verified`) gets `action: {label: <e.g. Approve>}` and
@@ -109,6 +120,15 @@ not `lifecycle-primitives.mjs`) to check whether a transition's `to` is terminal
   unchanged — proving the migration is additive, not behavior-changing for the engine's
   existing transition-resolution logic.
   `automated: node --test tools/tests/workflow-e2e.test.mjs tools/tests/workflow-multi-step-e2e.test.mjs tools/tests/workflow-step-runner.test.mjs`
+- The object returned by `parseWorkflowDefinition()` **and** `loadWorkflowDefinition()` (not
+  merely `validateWorkflowDefinition()`'s boolean result) carries `executor: 'human'` on
+  `standard`/`standard-v1`'s normalized `human-verification` step, and `action`/`outcome` on
+  its normalized transitions — regression-tested against the actual returned object, not
+  just schema-validation success. `automated: node --test tools/tests/workflow-definitions.test.mjs`
+- `human-verification`'s single-unconditional-transition sibling case (a hypothetical human
+  step with one unconditional transition) validates without requiring a `value`, and its
+  normalized transition has no fabricated `value` field.
+  `automated: node --test tools/tests/workflow-definitions.test.mjs`
 
 ## Verification
 

@@ -75,15 +75,22 @@ that operation to already exist.
   points is harmless (it's pure and idempotent) but not required; do not add a second,
   separate executor check there if one already runs — only wire in the parts this task
   actually adds (dependency/publish-state/terminal/activation preconditions).
-- Investigate `tools/dashboard/server/ai/sessions/{routes,service,binding-service}.mjs`
-  first to establish whether a server-side readiness re-check already exists for
-  deterministic execution-bound sessions; wire it to call this same policy function at the
-  specific "Start implementation"/"Start review"/"Start human step" entry points
-  (`specification-detail-content.tsx`'s `handleWorkflowAction`,
-  `agent-session-page.tsx`'s `handleStartReviewTask`, server-side) — not at
-  `CreateAgentSessionDialog`'s generic, contextual-`taskIds` path. This preflight check
-  itself never calls `ensureStepActivated`/`startHumanStep` — only the actual mutating
-  calls do that.
+- **Agent-owned step, session-creation route:** investigate
+  `tools/dashboard/server/ai/sessions/{routes,service,binding-service}.mjs` first to
+  establish whether a server-side readiness re-check already exists for deterministic
+  execution-bound sessions; wire it to call this same policy function specifically for the
+  "Start implementation"/"Start review" entry points (`specification-detail-content.tsx`'s
+  `handleWorkflowAction`, `agent-session-page.tsx`'s `handleStartReviewTask`, server-side) —
+  not at `CreateAgentSessionDialog`'s generic, contextual-`taskIds` path.
+- **Human-owned step:** no session route is involved at all (item 5 — starting a human step
+  never creates or binds a session). The readiness composition for this case is wired
+  directly into `startHumanStep`'s own implementation
+  (`tools/specs/workflow/human-step/operations.mjs`, already in this task's `allowed_paths`)
+  — the human-step transport route (task `dashboard-human-step-transport`, which depends on
+  this task) simply calls the already-readiness-gated `startHumanStep`, with no separate
+  readiness wiring of its own.
+- Neither call path itself calls `ensureStepActivated`/`startHumanStep` as a preflight —
+  only the actual mutating calls do that.
 - Only requests carrying an authoritative execution task id are subject to this check — a
   session with only contextual `taskIds` (including a draft task, no authoritative
   `taskId`) must never be checked against this policy.
@@ -98,9 +105,14 @@ that operation to already exist.
 - `workflow step start <change> <task>` against a human-owned current step fails closed via
   the reused executor guard, not a second implementation.
   `automated: node --test tools/tests/execution-readiness-policy.test.mjs`
-- A "Start implementation"/"Start review"/"Start human step" request naming an
-  authoritative execution task id that is not ready is refused server-side even when sent
-  directly, bypassing any UI-hidden button (brief regression test #9).
+- A "Start implementation"/"Start review" session-creation request naming an authoritative
+  execution task id that is not ready is refused server-side even when sent directly,
+  bypassing any UI-hidden button (brief regression test #9).
+  `automated: node --test tools/tests/execution-readiness-policy.test.mjs`
+- A `startHumanStep` call against an authoritative task id that is not ready (unpublished,
+  unsatisfied dependency, terminal) is refused, with no session ever created or bound in
+  the process — this readiness rejection and the executor-mismatch rejection (task 08/09)
+  are the only two failure modes for this operation.
   `automated: node --test tools/tests/execution-readiness-policy.test.mjs`
 - A request carrying only contextual `taskIds` (no authoritative `taskId`) succeeds
   regardless of any task's readiness — the policy is never invoked for it (brief regression

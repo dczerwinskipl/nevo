@@ -61,6 +61,18 @@ files currently targets `verified` — none currently models a failure-terminal 
   `architectural.yaml`/`exploratory.yaml`/`small.yaml` get **no** `executor` field changes
   (their steps stay implicitly `executor: agent`) and their existing `type: human` gates
   are untouched.
+- **`normalizeWorkflowDefinition()` must preserve the new fields (item 1).** Today it drops
+  `executor` entirely and its `transitions.map(...)` copies only `value`/`to` — confirmed by
+  reading the function directly. Every runtime consumer (`step-context.mjs`,
+  `finish-operation.mjs`, and this change's own projections) reads the *normalized* object,
+  never the raw parsed one, so a definition that validates successfully must not lose this
+  metadata on normalization. The normalized step must retain `executor` (when present); the
+  normalized transition must retain `action` and `outcome` (when present) alongside the
+  existing `value`/`to`.
+- **Unconditional human-step transitions (D16, item 7).** A human step may legally have a
+  single unconditional transition (`transitions: [{ to: <step>, action: { label: ... } }]`,
+  no `value`) — schema validation requires `action.label` on it exactly as for a conditional
+  transition, but does **not** require or invent a `value`/`result` for it.
 
 **Enforced invariant:**
 
@@ -88,10 +100,22 @@ files currently targets `verified` — none currently models a failure-terminal 
   as-is). Unlike `handleWorkflowStepStart`, it does **not** call `autoBindAgentSession` —
   no AI execution session is created or bound for a human step.
 - `submitHumanStepResult(change, task, definition, context, {result, feedback, artifacts})`:
-  rejects unless the *active* step's `executor === 'human'`; otherwise calls the engine's
-  existing, unmodified `finishStep` directly (`finish-operation.mjs`) with the caller's
-  inputs — `finishStep` already validates `result` against the step's declared transitions
-  and runs the same fixed finalize stage sequence used for agent steps.
+  rejects unless the *active* step's `executor === 'human'`. `result` is required only when
+  the active step's own transitions are conditional (more than one, or one declaring
+  `value`) — for a single unconditional transition, `result` must be omitted, never
+  fabricated (D16). Before calling `finishStep`, this operation resolves the selected
+  transition itself (conditional: the one whose `value === result`; unconditional: the
+  sole transition) and, when that transition's `action.feedback.required` is `true`,
+  rejects a missing/blank `feedback` — **before any mutation** (item 3). This is the one
+  authoritative server/domain validation path for this requirement; it is not enforced by
+  `HumanStepSurface`, and it is not folded into the generic finish contract
+  (`buildFinishContract`, which stays UI-metadata-agnostic — agent `workflow step finish`
+  must not depend on `action.label`/`action.feedback` at all). Once resolved, it calls the
+  engine's existing, unmodified `finishStep` directly (`finish-operation.mjs`) with the
+  caller's inputs — `finishStep` still independently validates `result` against the step's
+  declared transitions and runs the same fixed finalize stage sequence used for agent
+  steps; this operation's own transition resolution is for the feedback-requirement check
+  only, not a second, duplicate copy of `finishStep`'s own result-matching logic.
 - `handleWorkflowVerifyHuman`'s `--approve`/`--request-changes` branch is replaced by these
   two operations: its literal `targetStep !== 'human-verification'` check becomes the
   executor check above; its `isApprove ? 'pass' : 'fail'` mapping becomes CLI-level
@@ -122,9 +146,10 @@ Exposes: the `executor`/`action`/`outcome` schema fields; the executor-guard fun
 
 Consumed by: `areas/deterministic-projection-and-human-step.md` (reads `executor`/`action`/
 `outcome`), `areas/execution-readiness-and-session-bootstrap.md` (reuses the executor
-guard), `areas/dashboard-server-actions-wiring.md` (wires `submitHumanStepResult` into the
-dashboard's mutation split), `areas/human-step-surface.md` (calls
-`startHumanStep`/`submitHumanStepResult` via the dashboard route).
+guard), `areas/dashboard-server-actions-wiring.md` (the new generic transport route, D14,
+calls these two operations directly, and the existing mutation split's deterministic branch
+keeps calling `handleWorkflowVerifyHuman`, which itself now calls these operations
+internally), `areas/human-step-surface.md` (calls them indirectly, through that transport).
 
 ## Area-specific acceptance criteria
 
@@ -151,6 +176,19 @@ dashboard's mutation split), `areas/human-step-surface.md` (calls
 - `workflow verify-human --confirm` behavior is byte-for-byte unchanged.
 - The engine's transition-resolution logic contains no reference to `'human-verification'`,
   `'owner-review'`, `'acceptance'`, or `'Approve'` as literal strings.
+- The object returned by both `parseWorkflowDefinition()` and `loadWorkflowDefinition()`
+  (not just `validateWorkflowDefinition()`'s boolean result) carries `executor` on the
+  migrated `human-verification` step, and `action`/`outcome` on its transitions, for all
+  five definitions — proving normalization actually preserves this metadata, not just that
+  validation accepts it.
+- `submitHumanStepResult` called with `result: 'fail'` against a human step whose `fail`
+  transition declares `action.feedback.required: true`, with no `feedback` (or blank
+  `feedback`), fails before any mutation — `change.yaml`/`workflow_progress` unchanged.
+  Called with valid feedback, it succeeds. Called against a transition where feedback is
+  optional, it succeeds with or without feedback.
+- `submitHumanStepResult` called against a human step with a single unconditional
+  transition, with `result` omitted, succeeds and completes that transition — no fabricated
+  `result` value is ever passed to `finishStep`.
 
 ## Dependencies
 

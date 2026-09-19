@@ -56,7 +56,7 @@
   lifecycle-mutation ownership, which is exactly this boundary's subject.
 - **Consequences:** No new top-level doc file is created by this change.
 - **Date:** 2026-09-17
-- **Affected artifacts:** `tasks/21-ownership-boundary-documentation.md`.
+- **Affected artifacts:** `tasks/22-ownership-boundary-documentation.md`.
 
 ## D4: This change's own `workflow.mode` stays `legacy`
 
@@ -151,12 +151,12 @@
 - **Rationale:** Chat's in-place review affordance is existing, working UX; forcing a
   navigation away from chat to act on a human step would be a regression, not a
   consolidation. A shared component achieves "one implementation" without that UX cost.
-- **Consequences:** `human-step-surface-consolidation` (task 19) touches both
+- **Consequences:** `human-step-surface-consolidation` (task 20) touches both
   `task-dialog.tsx` and the chat surface files, replacing chat's existing separate
   implementation with the shared component rather than leaving it as a second one.
 - **Date:** 2026-09-18
 - **Affected artifacts:** `areas/human-step-surface.md`,
-  `tasks/19-human-step-surface-consolidation.md`.
+  `tasks/20-human-step-surface-consolidation.md`.
 
 ## D8: Import boundary — extract `TERMINAL_STATUSES`, not a blanket ban with no removal path
 
@@ -277,10 +277,10 @@
   data-entry step), and the domain layer should not assume otherwise.
 - **Consequences:** Renamed throughout: `areas/human-review-surface.md` →
   `areas/human-step-surface.md`; `human-review-surface-consolidation` →
-  `human-step-surface-consolidation` (task 19).
+  `human-step-surface-consolidation` (task 20).
 - **Date:** 2026-09-19
 - **Affected artifacts:** `areas/human-step-surface.md`,
-  `tasks/19-human-step-surface-consolidation.md`, `tasks/09-human-step-execution-operations.md`.
+  `tasks/20-human-step-surface-consolidation.md`, `tasks/09-human-step-execution-operations.md`.
 
 ## D12: Human-step execution reuses `ensureStepActivated`/`finishStep` — not a bespoke implementation
 
@@ -350,3 +350,109 @@
   proposed reimplementing this distinction)
 - **Affected artifacts:** `areas/execution-readiness-and-session-bootstrap.md`,
   `tasks/13-execution-readiness-policy.md`.
+
+## D14: Dashboard human-step transport contract
+
+- **Question:** `startHumanStep`/`submitHumanStepResult` (D12) existed only as domain
+  operations with no HTTP transport a browser could call — the only existing dashboard
+  route, `POST .../workflow/human-decision`, hardcodes `decision: 'approve'|'request-changes'`
+  and calls `handleWorkflowVerifyHuman` (the CLI compatibility layer), not the generic
+  operations directly. What transport should `HumanStepSurface` actually call?
+- **Grounded fact (2026-09-19):** `tools/dashboard/server/specs/routes.mjs` (`handleHumanDecision`)
+  and `tools/dashboard/server/specs/actions.mjs` (`executeHumanDecision`) confirm this
+  exactly — the request body is literally `{ decision, feedback }`, validated against the
+  two hardcoded strings, then translated to `{ approve: true|false, requestChanges: ...,
+  feedback }` and passed to `handleWorkflowVerifyHuman`. No route exists for explicitly
+  activating a waiting human step, or for submitting an arbitrary definition-driven
+  `result`.
+- **Decision:** One new, generic route, `POST /api/specs/:slug/tasks/:taskId/workflow/human-step`
+  (plus the existing `:source/:slug` variant this codebase's other routes use), with body
+  `{ action: 'start' } | { action: 'submit', result?, feedback?, artifacts? }` — `'start'`
+  maps directly to `startHumanStep`, `'submit'` maps directly to `submitHumanStepResult`,
+  passing `result`/`feedback`/`artifacts` through unchanged (no `result` required for an
+  unconditional human step — D16 below). Route validation is generic and definition-driven
+  (accepts any `result` string, delegates the actual legality check to
+  `submitHumanStepResult`/`finishStep`) — it never maps a result back to `'approve'`/
+  `'request-changes'`. Errors from the domain layer (executor mismatch, readiness failure,
+  invalid transition result) are returned as structured JSON (`code`, and whichever of
+  `stepId`/`executor`/`allowedResults` apply) with an appropriate HTTP status, not
+  flattened into a single opaque message. The existing `/workflow/human-decision` route
+  and `executeHumanDecision` stay exactly as they are, for the CLI-compatibility case
+  (`handleWorkflowVerifyHuman`'s `--approve`/`--request-changes` flags) and any other
+  existing caller — `HumanStepSurface` itself (D7/D11) uses only the new route, never the
+  old one.
+- **Rationale:** A single generic command endpoint matches D11's "generic naming" intent
+  and D5's "engine never understands 'Approve'/'Request changes'" principle — introducing
+  more review-shaped endpoints would reintroduce exactly the coupling this whole change
+  removes elsewhere. Keeping the old route for legacy callers avoids an unnecessary,
+  simultaneous breaking change to `handleWorkflowVerifyHuman`'s own dashboard caller.
+- **Consequences:** A new task, `dashboard-human-step-transport` (order 16), owns the new
+  route, its server-side handler (a new module, not added to the mutation-split scope of
+  `dashboard-actions-lifecycle-split`, to avoid file-overlap between two independently
+  developed concerns), and the client hook `HumanStepSurface` calls.
+  `human-step-surface-consolidation` (task 20) now depends on it.
+- **Date:** 2026-09-19
+- **Affected artifacts:** `change.yaml` (new task 16, renumbered 16–21 → 17–22),
+  `areas/dashboard-server-actions-wiring.md`, `areas/human-step-surface.md`,
+  `tasks/16-dashboard-human-step-transport.md`, `tasks/20-human-step-surface-consolidation.md`.
+
+## D15: Agent-step dispatch stays an isolated, explicitly transitional UI adapter
+
+- **Question:** `executor: agent` alone doesn't tell the application *how* to dispatch a
+  given agent step — today's UI genuinely behaves differently for `implementation` (edit
+  mode) vs. `review` (agent mode), and `DashboardActionProjection`'s old design
+  (`start-implementation`/`start-review` as distinct action ids) silently depended on that
+  without ever stating it. Should the core projection/server encode this, or should it
+  stay generic and push the difference somewhere else?
+- **Decision:** `TaskProjection`/`DashboardActionProjection` expose one generic action,
+  `{ type: 'start-agent-step', step: { id, purpose, expectedWork, ... } }` — never
+  `start-implementation`/`start-review` as distinct hardcoded action ids, and the server
+  never derives an action type by comparing literal step names. A small, explicitly
+  transitional adapter lives at the UI boundary only (`session-bootstrap-readiness-wiring`,
+  task 14, which already owns `specification-detail-content.tsx`) mapping today's two known
+  step ids (`implementation`, `review`) to today's two dispatch behaviors (edit-mode vs.
+  agent-mode session creation, prompt wording) — clearly commented as a temporary,
+  standard-workflow-specific mapping, not canonical workflow semantics, pending real
+  declarative dispatch metadata in a future change.
+- **Rationale:** The alternative — teaching the core projection about `implementation`/
+  `review` specifically — is exactly the step-name hardcoding this whole change exists to
+  remove; isolating the necessary, real, current UX difference at the one place that
+  already has to know about it (the UI's own session-bootstrap call site) is honest about
+  what's actually generic today versus what's a known, bounded gap.
+- **Consequences:** No new archetype/handover/provider-selection system is designed (out of
+  scope, unchanged). The adapter is small enough to delete outright once real per-step
+  dispatch metadata exists.
+- **Date:** 2026-09-19
+- **Affected artifacts:** `areas/dashboard-server-actions-wiring.md`,
+  `areas/execution-readiness-and-session-bootstrap.md`,
+  `tasks/15-dashboard-deterministic-action-projection.md`,
+  `tasks/14-session-bootstrap-readiness-wiring.md`.
+
+## D16: Unconditional human-step submission never fabricates a `result`
+
+- **Question:** A human-owned step may legally have a single unconditional transition
+  (`transitions: [{ to: <step>, action: { label: ... } }]`, no `value`) — exactly like
+  today's `implementation` step. `finishStep` already rejects a `result` supplied for an
+  unconditional step (`UNEXPECTED_TRANSITION_RESULT`). Should `submitHumanStepResult`
+  invent a synthetic result value (e.g. `'continue'`) for this case, or omit it?
+- **Decision:** Omit it. `submitHumanStepResult` accepts a call with `result` absent when
+  the active human step's own transition is unconditional, and passes no `result` through
+  to `finishStep` — the same "no result for an unconditional step" contract agent steps
+  already use. The human-step projection's tier-2 actions descriptor reflects this: for an
+  unconditional human step, its one `actions` entry has no `result` field (only `label`/
+  `feedbackRequired`); for a conditional step, every entry has both.
+- **Rationale:** Fabricating a placeholder result the workflow definition never declared
+  would be exactly the kind of invented-vocabulary problem D5's "engine stays generic"
+  principle forbids, and `finishStep` would reject it as an `UNEXPECTED_TRANSITION_RESULT`
+  error anyway.
+- **Consequences:** `human-step-projection` (task 10), `human-step-execution-operations`
+  (task 09), `dashboard-human-step-transport` (task 16), and `HumanStepSurface`
+  (task 20) all treat `result` as optional, present only when the active step's
+  transitions are conditional (`transitions.length > 1` or a single transition with a
+  declared `value`).
+- **Date:** 2026-09-19
+- **Affected artifacts:** `areas/deterministic-projection-and-human-step.md`,
+  `areas/step-executor-model.md`, `areas/dashboard-server-actions-wiring.md`,
+  `areas/human-step-surface.md`, `tasks/07-workflow-definition-schema-extensions.md`,
+  `tasks/09-human-step-execution-operations.md`, `tasks/10-human-step-projection.md`,
+  `tasks/16-dashboard-human-step-transport.md`, `tasks/20-human-step-surface-consolidation.md`.

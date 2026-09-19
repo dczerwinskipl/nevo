@@ -59,9 +59,24 @@ skip it.
     **not** call `autoBindAgentSession` — no AI execution session is created or bound.
   - `submitHumanStepResult(change, task, definition, context, { result, feedback,
     artifacts })`: same mode guard first; resolves the currently active step; calls the
-    executor-guard function, rejecting unless `executor === 'human'`; on success, calls
-    `finishStep` directly with the caller's `{ result, feedback, artifacts }` — unmodified,
-    same validation, same finalize stage sequence agent steps already use.
+    executor-guard function, rejecting unless `executor === 'human'`. `result` is required
+    only when the active step's own transitions are conditional (more than one, or a single
+    transition declaring `value`) — omit it for a single unconditional transition, never
+    fabricate one (D16, item 7); reject a call that supplies `result` for an unconditional
+    step before calling `finishStep` (which would reject it anyway via
+    `UNEXPECTED_TRANSITION_RESULT`, but this operation fails the same way for the same
+    reason, not a silently different error). **Resolves the selected transition itself**
+    (conditional: the one whose `value === result`; unconditional: the sole transition) and,
+    when that transition's `action.feedback.required` is `true`, rejects a missing/blank
+    `feedback` **before calling `finishStep`, before any mutation** (item 3 — this is the
+    one authoritative server/domain validation path for this requirement; `HumanStepSurface`
+    must not be relied on to enforce it, and this check is not folded into
+    `buildFinishContract`, which stays UI-metadata-agnostic so agent `workflow step finish`
+    never depends on `action.label`/`action.feedback`). Once resolved, calls `finishStep`
+    directly with the caller's `{ result, feedback, artifacts }` — unmodified, same
+    validation, same finalize stage sequence agent steps already use; this operation's own
+    transition lookup is for the feedback-requirement check only, not a second, duplicate
+    copy of `finishStep`'s own result-matching logic.
   - Neither function reimplements `ensureStepActivated`'s or `finishStep`'s own logic —
     they call them, unchanged, as already exported by `step-context.mjs`/
     `finish-operation.mjs`.
@@ -101,6 +116,17 @@ skip it.
   duplicate validation. `automated: node --test tools/tests/human-step-execution-operations.test.mjs`
 - `submitHumanStepResult` against a step with `executor: agent` fails with the structured
   executor-mismatch error, before any mutation.
+  `automated: node --test tools/tests/human-step-execution-operations.test.mjs`
+- `submitHumanStepResult` called with `result: 'fail'` against a human step whose `fail`
+  transition declares `action.feedback.required: true`, with `feedback` omitted or blank,
+  fails **before any mutation** — `change.yaml`/`workflow_progress` byte-for-byte unchanged.
+  Called with non-blank `feedback`, it succeeds. Called against a transition where feedback
+  is optional (no `action.feedback` or `required: false`), it succeeds with or without
+  feedback. `automated: node --test tools/tests/human-step-execution-operations.test.mjs`
+- `submitHumanStepResult` called against a human step with a single unconditional
+  transition, with `result` omitted, succeeds and completes that transition with no
+  fabricated `result` ever reaching `finishStep`. Called with a `result` supplied for that
+  same unconditional step fails, before any mutation.
   `automated: node --test tools/tests/human-step-execution-operations.test.mjs`
 - `workflow verify-human --approve`/`--request-changes` against a not-yet-active
   `human-verification` step still succeeds in one call (auto-activates then submits), now

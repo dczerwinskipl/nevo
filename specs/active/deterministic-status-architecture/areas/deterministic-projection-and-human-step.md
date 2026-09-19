@@ -35,9 +35,12 @@ in `tools/specs/lifecycle-primitives.mjs`) is off-limits to this area entirely (
      hardcoding a step id.
   2. A **human interaction actions descriptor**, present only when that step is the
      *currently active* step (`workflow_progress.state === 'active'`) and its
-     `executor === 'human'` — `{ actions: [{ result, label, feedbackRequired }], artifacts?
-     }`, built from that step's transition `action` metadata. `artifacts` stays
-     present-but-unpopulated in this change.
+     `executor === 'human'` — `{ actions: [{ result?, label, feedbackRequired }], artifacts?
+     }`, built from that step's transition `action` metadata. `result` is present on each
+     `actions` entry only when the step's transitions are conditional; for a step with a
+     single unconditional transition, its one `actions` entry has no `result` field (D16) —
+     never a fabricated placeholder value. `artifacts` stays present-but-unpopulated in this
+     change.
 - Must not check `currentStep === 'human-verification'` or any literal step name/id, and
   must not reintroduce a `kind: 'verification' | 'decision'` distinction — `executor` +
   `transitions` already carry that semantics.
@@ -113,6 +116,8 @@ composes this plus readiness), `areas/ui-dashboard-board-split.md`,
   confirmation never populates the actions descriptor — only the generic tier-1 descriptor
   applies, proven in the same test as the previous criterion.
 - `TaskProjection`'s output contains no `availableActions` field or equivalent.
+- For an active human step with a single unconditional transition, the actions descriptor's
+  one entry has no `result` field; for a conditional human step, every entry has a `result`.
 - No file in this area's module(s) references the literal string `'human-verification'`,
   `'owner-review'`, or `'acceptance'` as a control-flow condition.
 

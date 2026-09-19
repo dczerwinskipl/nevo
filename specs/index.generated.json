@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-18T23:26:53.458Z",
+  "generated": "2026-09-19T06:54:28.492Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -231,9 +231,19 @@
           ]
         },
         {
-          "id": "dashboard-actions-lifecycle-split",
+          "id": "dashboard-human-step-transport",
           "order": 16,
-          "file": "tasks/16-dashboard-actions-lifecycle-split.md",
+          "file": "tasks/16-dashboard-human-step-transport.md",
+          "status": "draft",
+          "depends_on": [
+            "human-step-execution-operations",
+            "execution-readiness-policy"
+          ]
+        },
+        {
+          "id": "dashboard-actions-lifecycle-split",
+          "order": 17,
+          "file": "tasks/17-dashboard-actions-lifecycle-split.md",
           "status": "draft",
           "depends_on": [
             "dashboard-deterministic-action-projection",
@@ -242,8 +252,8 @@
         },
         {
           "id": "deterministic-board-lane-projection",
-          "order": 17,
-          "file": "tasks/17-deterministic-board-lane-projection.md",
+          "order": 18,
+          "file": "tasks/18-deterministic-board-lane-projection.md",
           "status": "draft",
           "depends_on": [
             "deterministic-task-projection"
@@ -251,8 +261,8 @@
         },
         {
           "id": "task-card-lifecycle-split",
-          "order": 18,
-          "file": "tasks/18-task-card-lifecycle-split.md",
+          "order": 19,
+          "file": "tasks/19-task-card-lifecycle-split.md",
           "status": "draft",
           "depends_on": [
             "dashboard-deterministic-action-projection"
@@ -260,19 +270,19 @@
         },
         {
           "id": "human-step-surface-consolidation",
-          "order": 19,
-          "file": "tasks/19-human-step-surface-consolidation.md",
+          "order": 20,
+          "file": "tasks/20-human-step-surface-consolidation.md",
           "status": "draft",
           "depends_on": [
             "dashboard-deterministic-action-projection",
-            "human-step-execution-operations",
+            "dashboard-human-step-transport",
             "task-card-lifecycle-split"
           ]
         },
         {
           "id": "lifecycle-skill-instruction-split",
-          "order": 20,
-          "file": "tasks/20-lifecycle-skill-instruction-split.md",
+          "order": 21,
+          "file": "tasks/21-lifecycle-skill-instruction-split.md",
           "status": "draft",
           "depends_on": [
             "legacy-mutation-guard",
@@ -284,8 +294,8 @@
         },
         {
           "id": "ownership-boundary-documentation",
-          "order": 21,
-          "file": "tasks/21-ownership-boundary-documentation.md",
+          "order": 22,
+          "file": "tasks/22-ownership-boundary-documentation.md",
           "status": "draft",
           "depends_on": [
             "legacy-mutation-guard",

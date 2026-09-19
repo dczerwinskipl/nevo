@@ -66,6 +66,27 @@ from "review" (D11). This document, `owner-decisions.md`, and every `areas/`/`ta
 reflect pass 2's corrected state directly — there is no separate "what changed" log beyond
 the decision records themselves.
 
+**Corrective pass 3 (2026-09-19, D14–D16, narrow):** pass 2 fixed the architecture's model;
+this pass closes remaining execution/wiring gaps a direct reading of the current dashboard
+call sites (`routes.mjs`, `actions.mjs`) and the engine's normalization/finish-contract code
+surfaced, without reopening any pass-2 decision: `normalizeWorkflowDefinition()` silently
+drops `executor`/`action`/`outcome` today — validating a definition successfully and then
+losing that metadata on normalization would be a real, silent bug (task 07, corrected); no
+task actually owned a transport `startHumanStep`/`submitHumanStepResult` could be called
+through — the only existing route hardcodes `decision: 'approve'|'request-changes'` and
+calls the CLI compatibility layer, not the generic operations (D14, new task 16); the
+generic finish contract hardcodes `feedback.required: false` regardless of what a
+transition's own `action.feedback.required` declares, so nothing server-side actually
+enforced it (task 09, corrected); the dashboard DTO exposed only strings
+(`currentStep`/`nextStep`) with no way for `HumanStepSurface` to show `purpose`/
+`expectedWork` before activation (task 15, corrected); "Start implementation"/"Start
+review"/"Start human step" were described together as session-creation entry points, which
+is wrong for the human case (areas/tasks 13/14/20, corrected); `start-implementation`/
+`start-review` as distinct hardcoded action ids reintroduced exactly the step-name coupling
+this change removes elsewhere (D15, new generic `start-agent-step` action plus an isolated,
+explicitly transitional UI adapter); and a human step's single unconditional transition has
+no `result` to submit, which nothing previously said explicitly (D16).
+
 ## Current architecture
 
 Grounded in repository discovery (2026-09-17, deepened 2026-09-19 by reading the actual
@@ -170,6 +191,33 @@ engine source directly):
   in `specification-detail-content.tsx`/`agent-session-page.tsx`, which do pass an
   authoritative `taskId`; readiness/executor enforcement must cover those specific entry
   points, not the generic dialog.
+- **`normalizeWorkflowDefinition()`** (`definitions/schema.mjs`) does not copy `executor`
+  onto a normalized step, and its `transitions.map(...)` only copies `value`/`to` — never
+  `action`/`outcome` — onto a normalized transition, confirmed by reading the function
+  directly (2026-09-19). A definition can validate successfully and still lose this
+  metadata the moment any runtime consumer (`step-context.mjs`, `finish-operation.mjs`,
+  the new projections) reads the *normalized* object, which every real caller does.
+- **`buildFinishContract()`** (`step-context.mjs`) always sets
+  `parameters.feedback = { type: 'string', required: false, ... }`, regardless of any
+  transition metadata — confirmed by reading the function directly. It has no way to know
+  about a transition's `action.feedback.required` today (that field doesn't exist yet, and
+  this function isn't transition-`action`-aware even once it does), so nothing server-side
+  would enforce a human transition's declared "feedback required" without an explicit,
+  separate validation step.
+- **`tools/dashboard/server/specs/routes.mjs`/`actions.mjs`**, read directly (2026-09-19):
+  `computeTaskAvailableActions()` (`actions.mjs`) hardcodes exactly
+  `wp.current_step === 'implementation'`/`'review'`/`'human-verification'` and the literal
+  destination strings `'human-verification'`/`'review'`/`'implementation'`/`'verified'` to
+  produce action ids `'start-implementation'`/`'start-review'`/`'approve'`/
+  `'request-changes'`/`'operator-reconciliation'`. `computeTaskWorkflowProjection()`
+  exposes only `{status, currentStep, attempt, workflowState}` — plain strings, no
+  descriptor object. The one deterministic mutation route,
+  `POST /api/specs/:slug/tasks/:taskId/workflow/human-decision`
+  (`handleHumanDecision`/`executeHumanDecision`), hardcodes its request body to
+  `{ decision: 'approve'|'request-changes', feedback }`, translates it to
+  `{ approve, requestChanges, feedback }`, and calls `handleWorkflowVerifyHuman` (the CLI
+  handler) directly — there is no route for explicitly activating a waiting human step, and
+  no route accepting an arbitrary definition-driven `result`.
 - No existing architecture/import-boundary test enforces legacy/deterministic separation.
   No repository doc establishes ownership boundaries for `tools/specs/**` — the closest,
   `docs/development/package-boundaries.md`, covers only the .NET project-reference graph.
@@ -210,6 +258,29 @@ engine source directly):
 11. "Every workflow definition has a human-owned step" is false — mechanically converting
     every `type: human` gate into a human-owned step would wrongly merge two distinct
     mechanisms (a confirmation gate on an agent step vs. a step a human executes).
+12. `normalizeWorkflowDefinition()` silently drops `executor`/transition `action`/`outcome`
+    today — a definition can validate and then lose exactly the metadata every runtime
+    consumer needs, the moment it's read back normalized.
+13. `startHumanStep`/`submitHumanStepResult` exist only as domain operations with no HTTP
+    transport a browser can reach — the one real dashboard route hardcodes
+    `decision: 'approve'|'request-changes'` and calls the CLI compatibility layer, not the
+    generic operations.
+14. The generic finish contract hardcodes `feedback.required: false` — nothing
+    server-side enforces a human transition's own declared `action.feedback.required`,
+    so a direct API/domain call could submit a "request changes"-shaped result with no
+    feedback even though the definition requires it.
+15. The dashboard DTO exposes only plain strings (`currentStep`/`nextStep`) — `HumanStepSurface`
+    has no way to show `purpose`/`expectedWork` for a step that hasn't activated yet without
+    reconstructing them from a step id, which is exactly the hardcoding this change removes
+    elsewhere.
+16. "Start implementation"/"Start review"/"Start human step" were described together as
+    session-creation entry points — wrong for the human case, where starting the step must
+    never create or bind an AI execution session.
+17. Hardcoded `start-implementation`/`start-review` action ids reintroduce literal-step-name
+    coupling at the DTO layer, the same problem this change removes from `stageForStatus`/
+    `isTaskReady` elsewhere.
+18. A human step's single unconditional transition has no `result` to submit — nothing
+    previously said whether to omit it or fabricate one.
 
 ## Constraints
 
@@ -238,8 +309,9 @@ engine source directly):
   extracted vocabulary for legacy callers; no deterministic module imports it directly
   after this change (D8) — legacy consumption of it is unaffected.
 - `tools/dashboard/server/specs/**`, including `actions.mjs` explicitly (deterministic
-  action DTO wiring and legacy/deterministic mutation split), `data.mjs`/
-  `status-stages.mjs` (board/lane projection).
+  action DTO wiring, tier-1 descriptor, generic `start-agent-step` action, and
+  legacy/deterministic mutation split), `routes.mjs` (new generic `workflow/human-step`
+  transport route, D14), `data.mjs`/`status-stages.mjs` (board/lane projection).
 - `tools/dashboard/ui/features/specifications/**`, `tools/dashboard/ui/features/agent-sessions/**`
   (UI composition-boundary split, including the shared `HumanStepSurface` consumed by both
   `TaskDialog` and the chat surface, D11).
@@ -277,7 +349,13 @@ separation: pure `TaskProjection` → `ExecutionReadiness` → `DashboardActionP
 D11 (generic naming — `HumanStepSurface`, `startHumanStep`, `submitHumanStepResult`), D12
 (the human-step operations reuse `ensureStepActivated`/`finishStep`, not a bespoke
 implementation), D13 (the resume-vs-new-attempt distinction already exists in
-`ensureStepActivated` and is preserved, not reimplemented).
+`ensureStepActivated` and is preserved, not reimplemented), D14 (one generic
+`workflow/human-step` route/transport, `{action: 'start'|'submit'}`, is the one thing
+`HumanStepSurface` calls — the existing `/workflow/human-decision` route stays only for
+CLI-compatibility callers), D15 (agent-step dispatch stays a small, explicitly transitional
+UI-only adapter — the core projection exposes one generic `start-agent-step` action, never
+per-step-name action ids), D16 (a human step's unconditional transition submits with no
+`result` — never a fabricated placeholder value).
 
 ## Proposed architecture
 
@@ -328,9 +406,18 @@ of these is new bookkeeping: `startHumanStep` calls the engine's existing
 already activation-protocol-identical regardless of caller — D13), gated by an executor
 check, and skips the agent-only `autoBindAgentSession` call; `submitHumanStepResult` calls
 the engine's existing `finishStep` directly with a caller-supplied `{result, feedback,
-artifacts}`, gated by the same executor check — `finishStep` already matches `result`
-against the active step's declared transitions generically. `executor` is an **enforced
-invariant**, not a UI hint: `workflow step start` (and, for defense in depth,
+artifacts}` — `result` is present only when the active step's own transitions are
+conditional; a human step with a single unconditional transition submits with no `result`,
+never a fabricated placeholder (D16) — gated by the same executor check.
+`submitHumanStepResult` additionally resolves the selected transition and, when its
+`action.feedback.required` is `true`, rejects a missing/blank `feedback` before calling
+`finishStep` at all — the engine's own generic finish contract otherwise always treats
+`feedback` as optional, so nothing server-side would enforce this without this explicit
+step (this validation lives in `submitHumanStepResult` itself, not duplicated into
+`finishStep`'s generic contract, which stays UI-metadata-agnostic for agent steps too).
+`finishStep` already matches `result` against the active step's declared transitions
+generically. `executor` is an **enforced invariant**, not a UI hint: `workflow step start`
+(and, for defense in depth,
 `workflow step finish`) reject a human-owned step before any mutation with a structured
 `WORKFLOW_STEP_EXECUTOR_MISMATCH` error (code, step id, executor, purpose, expected work,
 available results); `startHumanStep`/`submitHumanStepResult` reject an agent-owned step the
@@ -341,7 +428,11 @@ remain a distinct, unmodified mechanism, reached only via the untouched
 understands "owner-review," "acceptance," or "Approve" specifically; those come from the
 workflow definition/projection, via minimal transition `action` metadata (label, whether
 feedback is required — D6, with cross-field validation requiring at least a non-empty label
-on every transition of an `executor: human` step, optional for agent steps).
+on every transition of an `executor: human` step, optional for agent steps). Validating a
+definition successfully must not silently lose this metadata on load:
+`normalizeWorkflowDefinition()` (`definitions/schema.mjs`) is corrected to preserve
+`executor` and every transition's `action`/`outcome` in its returned, normalized shape —
+today it drops both, a gap the original schema task left implicit.
 
 Once `workflow_progress` exists for a task, a new **canonical deterministic task
 projection** (`TaskProjection`, D10 — pure workflow/domain state, one module, consumed
@@ -353,9 +444,11 @@ explicit `outcome: success` — D9, resolved from `workflow_progress.history`'s 
 against the definition, never legacy `implemented`/`verified` status alone, never a "terminal
 step" that doesn't exist in this engine), a generic current/next-step descriptor (`{id,
 executor, purpose, expectedWork}`, available even before activation so the UI can render
-"Human action required — <purpose> — [Start review]" without hardcoding a step id), and —
-only while a human step is actually active — its interaction-actions descriptor (`actions:
-[{result, label, feedbackRequired}]`, straight from that step's transitions). This
+"Human action required — <purpose> — [Start human step]" without hardcoding a step id), and
+— only while a human step is actually active — its interaction-actions descriptor (`actions:
+[{result?, label, feedbackRequired}]` — `result` present only for a conditional step's
+transitions, absent for a single unconditional one, D16 — straight from that step's
+transitions). This
 projection deliberately does **not** own runtime-dependent "available application actions"
 (D10) — that would make it neither pure nor complete, since availability genuinely depends
 on more than workflow-definition state.
@@ -364,24 +457,41 @@ on more than workflow-definition state.
 guard and the engine's *existing* activation preconditions (D13 — `ensureStepActivated`'s
 own clean-worktree-for-new-attempt / prior-finish-operation-settled checks, inspected/
 reused via an exported query, never reimplemented) to answer "can this task start/continue
-right now." It is the single gate consumed by `workflow step start`, `startHumanStep`, and
-session/execution bootstrap — so a session or a direct CLI call cannot bypass what the UI
-merely hides. Only an authoritative execution `taskId` (from "Start implementation"/"Start
-review," never a session's merely contextual `taskIds`, and never auto-selected) triggers
-this check; session bootstrap uses this same policy for a read-only preflight and never
-itself calls `ensureStepActivated`.
+right now." It is shared by both executors, but what happens *after* a positive answer
+diverges and must stay explicitly distinct (a repeated wording problem in earlier passes,
+corrected here): for an agent-owned step, a positive readiness answer is followed by
+creating or reusing an authoritative AI execution session bound to the task, then
+`workflow step start`; for a human-owned step, a positive answer is followed by
+`startHumanStep` directly — **no AI execution session is created or bound**, whether or not
+a contextual chat session happens to already exist and display the human surface. Only an
+authoritative execution `taskId` (never a session's merely contextual `taskIds`, and never
+auto-selected) triggers this check for either kind; session bootstrap uses this same policy
+for a read-only preflight and never itself calls `ensureStepActivated`.
 
 `DashboardActionProjection` (D10) is the outermost layer: composes `TaskProjection` and
 `ExecutionReadiness` into the dashboard's real action DTO
-(`tools/dashboard/server/specs/actions.mjs`), replacing its current `task.status`/
-`isTaskReady`/literal-`'human-verification'`/hardcoded-transition-name deterministic branch
-— exposing state, current/next step, executor, attempt, blocked-by, `availableActions`
-("Start implementation," "Start review," "Start human step," "Submit result," etc.),
-human-step metadata, and terminal outcome. That file's legacy (`approve`/`verify`/
-`finalize`) and deterministic (human-workflow operation, now backed by
-`submitHumanStepResult`) mutation handling are split into separate implementations under
-shared composition/routing, resolving `workflowMode` once, with no cross-calls between them
-— covered by the same kind of import/call-boundary regression test as the CLI-level guard.
+(`tools/dashboard/server/specs/actions.mjs`), replacing its current, grounded, concretely
+confirmed `computeTaskAvailableActions()`/`computeTaskWorkflowProjection()` — which today
+hardcode `wp.current_step === 'implementation'`/`'review'`/`'human-verification'` and
+literal action ids `'approve'`/`'request-changes'`/`'start-review'`/`'start-implementation'`
+— with: state, executor, attempt, blocked-by, terminal outcome, an explicit
+**current/next-step descriptor** (`{id, executor, purpose, expectedWork}`, D15's "carry
+tier-1 through the DTO" fix — present for the relevant target step whether or not it's
+activated yet, so `HumanStepSurface` never has to reconstruct `purpose`/`expectedWork` from
+a step id), human-step interaction metadata (tier 2, only once active), and
+`availableActions` expressed as one **generic** action per possibility — `start-agent-step`
+(agent steps, carrying the step descriptor — D15, never `start-implementation`/
+`start-review` as distinct hardcoded ids), `start-human-step`, `submit-human-step-result` —
+never a step-name-derived action id. `HumanStepSurface` reaches `startHumanStep`/
+`submitHumanStepResult` through one new, generic transport route,
+`POST .../workflow/human-step` (`{action: 'start'}` / `{action: 'submit', result?,
+feedback?, artifacts?}` — D14), returning structured domain/readiness/executor errors
+rather than an opaque failure; the existing `/workflow/human-decision` route (hardcoded
+`decision: 'approve'|'request-changes'`) stays, unchanged, for its existing CLI-compatibility
+caller only. `actions.mjs`'s legacy (`approve`/`verify`/`finalize`) and deterministic
+mutation handling are split into separate implementations under shared composition/routing,
+resolving `workflowMode` once, with no cross-calls between them — covered by the same kind
+of import/call-boundary regression test as the CLI-level guard.
 
 The dashboard UI composition splits only at the lifecycle-specific surfaces — shared shell,
 navigation, docs, PR info, sessions, chat runtime, and `TaskDetails`'s container role stay
@@ -431,8 +541,10 @@ deterministic spec.
   activation preconditions (D10, D13), plus session/chat bootstrap wiring.
 - `areas/dashboard-server-actions-wiring.md` — `DashboardActionProjection`, wiring
   `TaskProjection` + `ExecutionReadiness` into `tools/dashboard/server/specs/actions.mjs`'s
-  actual action DTO (D10), and splitting that file's legacy/deterministic mutation
-  implementations (including the generic human-step mutation).
+  actual action DTO (D10, carrying the tier-1 step descriptor and a generic
+  `start-agent-step` action, D15), the new generic `workflow/human-step` transport route
+  `HumanStepSurface` calls (D14), and splitting `actions.mjs`'s legacy/deterministic
+  mutation implementations.
 - `areas/ui-dashboard-board-split.md` — deterministic-aware board/lane projection and
   `TaskCard`'s full visible-state split, reading from the corrected action DTO.
 - `areas/human-step-surface.md` — one reusable `HumanStepSurface`, consumed by both
@@ -487,4 +599,8 @@ D9 adds; a full artifact/handover-attachment system on the human-step projection
 `artifacts?` field stays extensible but unpopulated by this change); wiring
 `HumanStepSurface` into entry points beyond `TaskDialog` and chat (task board,
 timeline/notifications remain future work); any change to `entryGates`/`exitGates`' own
-engine or to the `workflow verify-human --confirm` gate-confirmation path.
+engine or to the `workflow verify-human --confirm` gate-confirmation path; a real,
+declarative per-step agent-dispatch metadata system (the transitional UI adapter, D15,
+deliberately stays small and isolated instead); full archetype/handover/provider-selection
+design for agent orchestration; removal or redesign of the existing
+`/workflow/human-decision` route and its CLI-compatibility callers.

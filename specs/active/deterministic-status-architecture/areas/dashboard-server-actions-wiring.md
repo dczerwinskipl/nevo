@@ -6,60 +6,110 @@ Build `DashboardActionProjection` (D10) — composing `TaskProjection`
 (`areas/deterministic-projection-and-human-step.md`) and `ExecutionReadiness`
 (`areas/execution-readiness-and-session-bootstrap.md`) into the dashboard's actual action
 DTO (`tools/dashboard/server/specs/actions.mjs`) — the file the UI really reads — replacing
-its current legacy-derived deterministic branch, and split that file's legacy and
-deterministic mutation implementations (including wiring the generic
-`submitHumanStepResult` operation) so neither calls the other.
+its current legacy-derived deterministic branch with generic state/action fields (D15's
+`start-agent-step`, never per-step-name action ids) and an explicit tier-1 step descriptor
+(D4/item 4); add the one new, generic HTTP transport `HumanStepSurface` calls to reach
+`startHumanStep`/`submitHumanStepResult` (D14); and split `actions.mjs`'s legacy and
+deterministic mutation implementations so neither calls the other.
 
 ## Current state
 
-`tools/dashboard/server/specs/actions.mjs` currently derives deterministic actions from
-`task.status`, `isTaskReady`, the literal string `'human-verification'`, and hardcoded
-transition-destination names — introducing the projection module elsewhere in this change
-does not, by itself, fix what the UI reads, since nothing in the original task set named
-this file explicitly. The same file mixes legacy `approve`/`verify`/`finalize` mutation
-handling with deterministic human-workflow mutation operations (the server-side counterpart
-of `workflow verify-human`'s `--approve`/`--request-changes` branch, replaced by
-`submitHumanStepResult` per `areas/step-executor-model.md`).
+Read directly (2026-09-19): `computeTaskAvailableActions()` (`actions.mjs`) hardcodes
+`wp.current_step === 'implementation'`/`'review'`/`'human-verification'` and the literal
+destination strings `'human-verification'`/`'review'`/`'implementation'`/`'verified'` to
+produce action ids `'start-implementation'`/`'start-review'`/`'approve'`/
+`'request-changes'`/`'operator-reconciliation'`. `computeTaskWorkflowProjection()` exposes
+only `{status, currentStep, attempt, workflowState}` — plain strings, no descriptor object,
+so nothing today lets a client show `purpose`/`expectedWork` before a step is active.
+`tools/dashboard/server/specs/routes.mjs`'s `handleHumanDecision` /
+`tools/dashboard/server/specs/actions.mjs`'s `executeHumanDecision` are the one existing
+deterministic mutation path: `POST /api/specs/:slug/tasks/:taskId/workflow/human-decision`
+hardcodes its body to `{ decision: 'approve'|'request-changes', feedback }`, translates it
+to `{ approve, requestChanges, feedback }`, and calls `handleWorkflowVerifyHuman` (the CLI
+handler) directly. There is no route for explicitly activating a waiting human step
+(`startHumanStep`), and no route accepting an arbitrary definition-driven `result`
+(`submitHumanStepResult`) — introducing those two domain operations elsewhere in this
+change (`areas/step-executor-model.md`) does not, by itself, give a browser any way to call
+them.
 
 ## Requirements
+
+**`DashboardActionProjection` (the DTO):**
 
 - Replace `actions.mjs`'s deterministic action-derivation branch with a call composing
   `TaskProjection` **and** `ExecutionReadiness` (D10 — not `TaskProjection` alone, since
   `availableActions` is a readiness-dependent fact `TaskProjection` deliberately does not
-  own) — the branch must no longer read `task.status`, call `isTaskReady`, check the
-  literal string `'human-verification'`, or hardcode a transition-destination name.
-- The deterministic action DTO this file returns exposes at least: `state`, `currentStep`,
-  `nextStep`, `executor`, `attempt`, `blockedBy`, `availableActions` (from
-  `ExecutionReadiness` — "Start implementation," "Start review," "Start human step,"
-  "Submit result," etc.), human-step metadata/actions when applicable (from the human-step
-  projection's tier-2 descriptor), and terminal outcome.
+  own) — the branch must no longer read `task.status`, call `isTaskReady`, or compare
+  `wp.current_step`/a transition's `to` against a literal step name.
+- The deterministic action DTO this file returns exposes at least: `state`, `executor`,
+  `attempt`, `blockedBy`, terminal outcome, an explicit **current/next-step descriptor**
+  (e.g. `currentStepDescriptor`/`nextStepDescriptor`, whichever is the relevant target for
+  the task's present state — `{ id, executor, purpose, expectedWork }`, sourced from
+  `TaskProjection`'s tier-1 generic descriptor, present *before* activation so
+  `HumanStepSurface` never has to reconstruct `purpose`/`expectedWork` from a step id,
+  item 4), the human-step interaction descriptor (tier 2) when applicable, and
+  `availableActions` expressed as **generic** actions, never a step-name-derived id (D15,
+  item 6): `{ type: 'start-agent-step', step: { id, purpose, expectedWork, ... } }` for an
+  agent step ready to start (never `'start-implementation'`/`'start-review'` as distinct
+  hardcoded ids); `{ type: 'start-human-step', step: {...} }` for a waiting human step;
+  `{ type: 'submit-human-step-result' }` (or equivalent) once a human step is active. The
+  server never derives which generic action applies by comparing a step's `id` to a literal
+  string — only `executor` and `TaskProjection`'s state.
 - The legacy action-derivation branch (`approve`/`verify`/`finalize` and any other legacy
   read) is unchanged in behavior.
+
+**Generic human-step transport (D14):**
+
+- One new route, `POST /api/specs/:slug/tasks/:taskId/workflow/human-step` (plus the
+  `:source/:slug` variant this file's other routes already have), body
+  `{ action: 'start' } | { action: 'submit', result?, feedback?, artifacts? }` — `'start'`
+  calls `startHumanStep` directly; `'submit'` calls `submitHumanStepResult` directly
+  (`areas/step-executor-model.md`) — never through `handleWorkflowVerifyHuman`'s
+  `--approve`/`--request-changes` compatibility layer, and never mapping a generic `result`
+  back to `'approve'`/`'request-changes'`.
+- Route-level body validation is generic and definition-driven: `action` is one of the two
+  literals; `result`, when present, is passed through as an opaque string — its legality
+  against the active step's actual transitions is `submitHumanStepResult`'s job, not this
+  route's.
+- Errors from the domain layer (executor mismatch, readiness failure, invalid transition
+  result, missing required feedback — item 3) are returned as structured JSON (at minimum
+  `code`, plus whichever of `stepId`/`executor`/`allowedResults` the specific error carries)
+  with an appropriate HTTP status — never flattened into one generic `{error: string}` the
+  way `executeHumanDecision`'s current catch-all does.
+- The existing `/workflow/human-decision` route and `executeHumanDecision` are **not**
+  removed or changed — they remain for `handleWorkflowVerifyHuman`'s own CLI-compatibility
+  callers. This area adds the new route alongside it; it does not migrate the old one.
+
+**Mutation split:**
+
 - Split the file's *mutation* handling: shared composition/routing resolves `workflowMode`
   once, then dispatches to a legacy mutation implementation or a deterministic mutation
   implementation — two separate modules/functions, not one function with a large
-  `if legacy / if deterministic` branch. The deterministic mutation implementation wires in
-  `submitHumanStepResult` (`areas/step-executor-model.md`) as its human-decision handler —
-  it does not reimplement result validation/transition matching, it calls that operation.
-  Neither implementation calls into the other's mutation operations (mirrors the CLI-level
-  guard pattern from `areas/lifecycle-boundary-guards.md`, applied here at the
-  dashboard-server layer).
+  `if legacy / if deterministic` branch. Neither implementation calls into the other's
+  mutation operations (mirrors the CLI-level guard pattern from
+  `areas/lifecycle-boundary-guards.md`, applied here at the dashboard-server layer). This
+  split covers the *existing* `executeHumanDecision`/`approveTask`/`verifyTask`/
+  `finalizeChange` functions in `actions.mjs` — the new human-step transport route lives in
+  its own, separately-owned module (`dashboard-human-step-transport`) and is not part of
+  this split's file scope.
 - Cover the split with the same shape of regression test the CLI guard area uses: an
   import/call-boundary check between the two mutation implementations, plus a
-  before-any-mutation guard-failure check with the full side-effect assertion set (no
-  partial write, no session created, etc., as applicable to this layer).
+  before-any-mutation guard-failure check with the full side-effect assertion set.
 
 ## Constraints
 
 - No change to the legacy action DTO's shape or values.
-- No change to how the route/composition layer is reached from the UI — only the
-  server-side derivation logic changes.
+- No change to how the existing route/composition layer is reached from the UI for
+  already-working paths — only the server-side derivation logic and the addition of the one
+  new route change.
 
 ## Interfaces and boundaries
 
-Exposes: the corrected deterministic action DTO, consumed by `status-board.tsx`/`TaskCard`
-(`areas/ui-dashboard-board-split.md`) and `TaskDialog`/chat
-(`areas/human-step-surface.md`).
+Exposes: the corrected deterministic action DTO (with tier-1 descriptor and generic
+actions), consumed by `status-board.tsx`/`TaskCard` (`areas/ui-dashboard-board-split.md`)
+and `TaskDialog`/chat (`areas/human-step-surface.md`); the new `workflow/human-step`
+transport route, consumed by `HumanStepSurface` via its own client hook
+(`dashboard-human-step-transport`, a separate task).
 
 Consumed by: every dashboard UI surface that currently reads `actionGate`/
 `availableActions` for a deterministic spec.
@@ -69,32 +119,39 @@ Consumed by: every dashboard UI surface that currently reads `actionGate`/
 - The deterministic action DTO for a task whose `status` is still the `approved`
   compatibility value but whose `workflow_progress.current_step` is `review` reflects
   `review`-appropriate state/actions — not a `status`-derived stale result.
-- The DTO includes `executor` for the current/next step, and human-step metadata/actions
-  exactly when the human-step projection's tier-2 descriptor is non-null.
+- The DTO's current/next-step descriptor is populated for a task in `waiting-for-step-start`
+  whose next step is human-owned, *before* that step is activated — including its `purpose`/
+  `expectedWork`. The human-step interaction descriptor (tier 2) remains absent until that
+  step is actually active.
+- `availableActions` reflects `ExecutionReadiness`'s output, expressed generically
+  (`start-agent-step`/`start-human-step`/`submit-human-step-result`) — never
+  `start-implementation`/`start-review`/a step-id-derived string.
 - `availableActions` reflects `ExecutionReadiness`'s output, not a re-derivation of
   readiness inside `actions.mjs` itself — a task blocked by an unsatisfied dependency or an
   executor mismatch reports the corresponding empty/blocked action set.
-- A `submitHumanStepResult`-backed mutation request through this route validates `result`
-  against the active step's declared transitions via that operation, not a second,
-  ad hoc check in `actions.mjs`.
-- Grepping the deterministic branch for `task.status`, `isTaskReady`, or the literal string
-  `'human-verification'` returns none.
+- Grepping the deterministic branch (both the DTO derivation and the new transport module)
+  for `task.status`, `isTaskReady`, or any literal step-name comparison (`'implementation'`,
+  `'review'`, `'human-verification'`) returns none.
 - The legacy action DTO's output is byte-for-byte unchanged for a legacy spec (regression
   test against existing fixtures).
 - No deterministic mutation implementation in this file calls a legacy mutation function
   (`approveTask`/`verifyTask`/finalize) and vice versa — asserted by the import/call-boundary
   regression test.
-- A cross-mode mutation attempt through this file's route fails before any mutation, with
-  the same side-effect assertions as `areas/lifecycle-boundary-guards.md`'s CLI-level test.
+- A cross-mode mutation attempt through this file's existing route fails before any
+  mutation, with the same side-effect assertions as `areas/lifecycle-boundary-guards.md`'s
+  CLI-level test.
 
 ## Dependencies
 
 `areas/deterministic-projection-and-human-step.md` (`TaskProjection`),
 `areas/execution-readiness-and-session-bootstrap.md` (`ExecutionReadiness` — both compose
 into `DashboardActionProjection`, D10), `areas/step-executor-model.md`
-(`submitHumanStepResult`, wired into the deterministic mutation split).
+(`startHumanStep`/`submitHumanStepResult`, called directly by the new transport, D14).
 
 ## Out of scope
 
-Any change to the session-creation route (`areas/execution-readiness-and-session-bootstrap.md`
-owns that). Any new dashboard API endpoint — this area corrects the existing one.
+Any change to the session-creation route
+(`areas/execution-readiness-and-session-bootstrap.md` owns that). Removing or changing the
+existing `/workflow/human-decision` route. The agent-step dispatch adapter's own UI-side
+mapping (D15 — owned by `areas/execution-readiness-and-session-bootstrap.md`'s
+session-bootstrap task; this area only emits the generic `start-agent-step` action).

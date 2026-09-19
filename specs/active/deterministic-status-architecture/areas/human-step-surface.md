@@ -3,10 +3,13 @@
 ## Responsibility
 
 Build one reusable `HumanStepSurface` (D11 — generic naming, not "review"-specific), driven
-by the human-step projection's tier-2 actions descriptor, rendered directly by both
+by the human-step projection's tier-1/tier-2 descriptors, rendered directly by both
 `TaskDialog` and the existing chat surface (D7) — replacing chat's current separate
 Approve/Request-changes implementation rather than leaving a second, divergent one — and
-wired to call `startHumanStep`/`submitHumanStepResult` (`areas/step-executor-model.md`).
+wired to call `startHumanStep`/`submitHumanStepResult` through the one generic transport
+route (`POST .../workflow/human-step`, D14, `areas/dashboard-server-actions-wiring.md`) —
+never through the legacy `/workflow/human-decision` route, which stays only for its
+existing CLI-compatibility caller.
 
 ## Current state
 
@@ -18,14 +21,16 @@ would build — a confirmed, live divergence, not a hypothetical one.
 
 ## Requirements
 
-- One reusable `HumanStepSurface` component, rendered from the human-step projection's
-  tier-2 descriptor (via `DashboardActionProjection`, `areas/dashboard-server-actions-wiring.md`):
+- One reusable `HumanStepSurface` component, rendered from the DTO's tier-1/tier-2
+  descriptors (via `DashboardActionProjection`, `areas/dashboard-server-actions-wiring.md`):
   shows `purpose`/`expectedWork` (tier-1, always available once waiting) and, once active,
-  renders the projection's `actions` (result/label/feedback-required) as the available
-  outcomes, submitting the chosen result via `submitHumanStepResult`.
+  renders the projection's `actions` (`label`/`feedbackRequired`, `result` present only for
+  a conditional step's actions — D16, item 7) as the available outcomes, submitting the
+  chosen result (or no `result` at all for a single unconditional transition) via a POST to
+  `.../workflow/human-step` with `{ action: 'submit', result?, feedback?, artifacts? }`.
   For a step still `waiting-for-step-start`, the surface (or its container) shows the
-  generic tier-1 descriptor and a "Start human step" action calling `startHumanStep` —
-  never auto-activating.
+  generic tier-1 descriptor and a "Start human step" action posting
+  `{ action: 'start' }` to the same route — never auto-activating.
 - Per D7: this component is rendered **directly** by both `TaskDialog` and the chat surface
   — chat is not redirected/navigated to `TaskDialog` to show it. Chat's existing separate
   Approve/Request-changes implementation is replaced by this shared component, not kept as
@@ -71,17 +76,20 @@ Consumed by: `TaskDialog` and the chat surface (`AgentSessionChatSurface`/
   (human or agent) step not yet started shows "Ready for review"/"[Start review]" (or the
   equivalent for an agent next step), never a fabricated active state.
 - `TaskDialog`'s legacy rendering path is byte-for-byte unchanged.
-- Submitting a result through the surface from either entry point calls
-  `submitHumanStepResult` with the same request shape — no divergent behavior between the
-  two call sites. Activating a waiting human step from either entry point calls
-  `startHumanStep` identically.
+- Submitting a result through the surface from either entry point calls the generic
+  `workflow/human-step` transport with the same request shape — no divergent behavior
+  between the two call sites, and never a call to the legacy `/workflow/human-decision`
+  route. Activating a waiting human step from either entry point posts
+  `{ action: 'start' }` to the same route identically.
+- Submitting from a human step with a single unconditional transition omits `result`
+  entirely — the surface never fabricates a placeholder value.
 - Exactly one `HumanStepSurface` implementation exists after this task — chat's prior
   separate implementation is removed, not left as a second one.
 
 ## Dependencies
 
-`areas/deterministic-projection-and-human-step.md`, `areas/dashboard-server-actions-wiring.md`,
-`areas/step-executor-model.md` (`startHumanStep`/`submitHumanStepResult`),
+`areas/deterministic-projection-and-human-step.md`, `areas/dashboard-server-actions-wiring.md`
+(the DTO's tier-1/tier-2 descriptors and the generic transport route, D14),
 `areas/ui-dashboard-board-split.md` (for action sub-component reuse where it overlaps).
 
 ## Out of scope

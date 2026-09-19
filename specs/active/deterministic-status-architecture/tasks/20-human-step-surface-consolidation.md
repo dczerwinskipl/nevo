@@ -18,7 +18,7 @@ forbidden_paths:
   - tools/specs/**
   - tools/dashboard/server/**
   - src/**
-depends_on: [ dashboard-deterministic-action-projection, human-step-execution-operations, task-card-lifecycle-split ]
+depends_on: [ dashboard-deterministic-action-projection, dashboard-human-step-transport, task-card-lifecycle-split ]
 semantic_references:
   decisions: [D7, D11]
 ---
@@ -28,27 +28,32 @@ semantic_references:
 ## Goal
 
 Build one reusable `HumanStepSurface` (D11 — generic naming, not `human-review-surface`),
-driven by the human-step projection's descriptors (via the corrected action DTO), and
-render it directly from both `TaskDialog` and the existing chat surface — replacing chat's
-current separate Approve/Request-changes implementation, per D7 (shared component, not a
-chat→dialog redirect) — calling `startHumanStep`/`submitHumanStepResult`
-(`areas/step-executor-model.md`) for its two actions.
+driven by the corrected action DTO's tier-1/tier-2 descriptors, and render it directly from
+both `TaskDialog` and the existing chat surface — replacing chat's current separate
+Approve/Request-changes implementation, per D7 (shared component, not a chat→dialog
+redirect) — calling the generic `workflow/human-step` transport (D14,
+`dashboard-human-step-transport`'s client hook) for its two actions, never the legacy
+`/workflow/human-decision` route.
 
 ## Dependencies
 
 `dashboard-deterministic-action-projection` — this task's rendering reads the corrected
-action DTO. `human-step-execution-operations` — provides
-`startHumanStep`/`submitHumanStepResult`, called by the surface's actions.
-`task-card-lifecycle-split` — reuse its deterministic action sub-component(s) where the
-action set genuinely overlaps.
+action DTO (tier-1/tier-2 descriptors, generic `availableActions`).
+`dashboard-human-step-transport` — provides the client hook this surface calls to reach
+`startHumanStep`/`submitHumanStepResult`; the UI cannot call those server-side functions
+directly, only through that hook's HTTP requests. `task-card-lifecycle-split` — reuse its
+deterministic action sub-component(s) where the action set genuinely overlaps.
 
 ## Implementation constraints
 
 - Build `HumanStepSurface` as its own component (`human-step-surface.tsx`): for a step still
   `waiting-for-step-start`, renders the generic tier-1 descriptor (`purpose`/`expectedWork`)
-  and a "Start human step" action calling `startHumanStep`; once active, renders one
-  button/control per `actions` entry (`result`/`label`/`feedbackRequired`) and submits the
-  chosen result via `submitHumanStepResult`.
+  and a "Start human step" action calling the transport hook with `{action: 'start'}`; once
+  active, renders one button/control per `actions` entry (`label`/`feedbackRequired`,
+  `result` present only when the step's transitions are conditional — D16, item 7) and
+  submits via the transport hook with `{action: 'submit', result?, feedback?, artifacts?}`
+  — omitting `result` entirely for a single unconditional transition, never fabricating a
+  placeholder value.
 - Render this component **directly** from both `TaskDialog` and the chat surface
   (`AgentSessionChatSurface`/`AgentSessionWorkflowBar`) — do not navigate/redirect chat to
   open `TaskDialog` (D7). Remove chat's existing separate Approve/Request-changes
@@ -58,9 +63,8 @@ action set genuinely overlaps.
   other literal step-name/id check.
 - Product-facing labels ("Review," "Approve," "Request changes") come entirely from the
   action DTO's `action.label` metadata — the component itself never hardcodes
-  review-specific wording (D11); its own name and props stay generic
-  (`HumanStepSurface`/`startHumanStep`/`submitHumanStepResult`, not
-  `ReviewSurface`/`approve`/`requestChanges`).
+  review-specific wording (D11); its own name and props stay generic (`HumanStepSurface`,
+  a `start`/`submit` action shape, not `ReviewSurface`/`approve`/`requestChanges`).
 - `TaskDialog` also gains general deterministic projection awareness (current step,
   executor, `waiting-for-step-start` shown honestly — e.g. "Ready for review"/"[Start
   review]," never a fabricated active state — blocking dependencies, available actions),
@@ -83,9 +87,13 @@ action set genuinely overlaps.
 - `TaskDialog`'s legacy rendering path (legacy spec, `TaskActionFooter`) is byte-for-byte
   unchanged (brief regression test #14's dialog half).
   `automated: node --test tools/dashboard/tests/agent-session-workflow.test.tsx`
-- Submitting a result from either `TaskDialog` or chat calls `submitHumanStepResult` with
-  the same request shape; activating from either entry point calls `startHumanStep`
-  identically — no divergent behavior between the two call sites.
+- Submitting a result from either `TaskDialog` or chat POSTs the same
+  `{action: 'submit', ...}` body through the same transport hook; activating from either
+  entry point POSTs the same `{action: 'start'}` body identically — no divergent behavior
+  between the two call sites, and neither ever calls `/workflow/human-decision`.
+  `automated: node --test tools/dashboard/tests/agent-session-workflow.test.tsx`
+- Submitting from a human step with a single unconditional transition omits `result`
+  entirely from the request body.
   `automated: node --test tools/dashboard/tests/agent-session-workflow.test.tsx`
 - Exactly one `HumanStepSurface` component exists after this task — chat's prior separate
   implementation is removed, not left as a second one.

@@ -23,12 +23,15 @@ depends_on: [ dashboard-deterministic-action-projection, human-step-execution-op
 ## Goal
 
 Split `actions.mjs`'s legacy (`approve`/`verify`/`finalize`) and deterministic
-(human-workflow) mutation-handling code into two separate implementations under shared
-composition that resolves `workflowMode` once — mirroring the CLI-level guard pattern —
-with the deterministic side wired to call `submitHumanStepResult`
-(`areas/step-executor-model.md`, task `human-step-execution-operations`) rather than
-reimplementing result validation, and neither implementation calling into the other's
-mutation operations.
+mutation-handling code into two separate implementations under shared composition that
+resolves `workflowMode` once — mirroring the CLI-level guard pattern — with neither
+implementation calling into the other's mutation operations. "Deterministic" here means
+`actions.mjs`'s *existing* `executeHumanDecision`/`/workflow/human-decision` path (which,
+after task `human-step-execution-operations`, already calls `handleWorkflowVerifyHuman`,
+itself now internally backed by `submitHumanStepResult`) — this task splits that existing
+code's file organization; it is independent of, and does not touch, the new generic
+transport built by `dashboard-human-step-transport` (a separate module by design, so the
+two tasks never need to coordinate on the same file).
 
 ## Dependencies
 
@@ -50,9 +53,12 @@ human-decision handler.
   `.../deterministic-mutations.mjs`), with `actions.mjs` (or a thin composition/routing
   layer) resolving `workflowMode` once and dispatching — no `if legacy / if deterministic`
   branch inside a single mutation-handling function.
-- The deterministic mutation module's human-decision handler calls `submitHumanStepResult`
-  directly — it does not itself match `result` against transitions or duplicate any
-  validation `finishStep` already performs.
+- The deterministic mutation module's human-decision handler keeps calling
+  `handleWorkflowVerifyHuman` exactly as `executeHumanDecision` does today (that function is
+  itself now backed by `submitHumanStepResult` internally, per task
+  `human-step-execution-operations`) — this task does not change *what* gets called, only
+  *where* the calling code lives; it does not itself match `result` against transitions or
+  duplicate any validation `finishStep` already performs.
 - Neither new module imports the other's mutation functions, and the deterministic module
   does not import `tools/specs/lifecycle-primitives.mjs`. Both may import shared, read-only
   utilities (`resolveWorkflowMode()`, the canonical projection) freely.
@@ -63,9 +69,9 @@ human-decision handler.
 
 - Legacy mutation behavior (approve/verify/finalize via this route) is unchanged for legacy
   specs. `automated: node --test tools/dashboard/tests/specs-actions.test.mjs`
-- Deterministic mutation behavior (a human-step result submission via this route) is
-  unchanged in outcome for deterministic specs, now served from the extracted module,
-  calling `submitHumanStepResult`. `automated: node --test tools/dashboard/tests/specs-actions.test.mjs`
+- Deterministic mutation behavior (`executeHumanDecision`'s existing outcome) is unchanged
+  for deterministic specs, now served from the extracted module.
+  `automated: node --test tools/dashboard/tests/specs-actions.test.mjs`
 - No deterministic mutation module in this file's scope calls a legacy mutation function
   (`approveTask`/`verifyTask`/finalize) and vice versa — asserted by an import/call-boundary
   regression test. `automated: node --test tools/dashboard/tests/specs-actions.test.mjs`
