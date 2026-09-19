@@ -61,14 +61,18 @@ files currently targets `verified` — none currently models a failure-terminal 
   `architectural.yaml`/`exploratory.yaml`/`small.yaml` get **no** `executor` field changes
   (their steps stay implicitly `executor: agent`) and their existing `type: human` gates
   are untouched.
-- **`normalizeWorkflowDefinition()` must preserve the new fields (item 1).** Today it drops
-  `executor` entirely and its `transitions.map(...)` copies only `value`/`to` — confirmed by
-  reading the function directly. Every runtime consumer (`step-context.mjs`,
-  `finish-operation.mjs`, and this change's own projections) reads the *normalized* object,
-  never the raw parsed one, so a definition that validates successfully must not lose this
-  metadata on normalization. The normalized step must retain `executor` (when present); the
-  normalized transition must retain `action` and `outcome` (when present) alongside the
-  existing `value`/`to`.
+- **`normalizeWorkflowDefinition()` must preserve the new fields and canonicalize `executor`
+  (items 1 and 4).** Today it drops `executor` entirely and its `transitions.map(...)`
+  copies only `value`/`to` — confirmed by reading the function directly. Every runtime
+  consumer (`step-context.mjs`, `finish-operation.mjs`, and this change's own projections)
+  reads the *normalized* object, never the raw parsed one, so a definition that validates
+  successfully must not lose this metadata on normalization. The normalized step must
+  always carry an explicit `executor` — `normalizedStep.executor = stepConfig.executor ??
+  'agent'`, on every step, never left absent — so no downstream consumer re-derives the
+  default itself; `step.executor === 'agent' | 'human'` is safe with no "undefined" case.
+  The normalized transition must retain `action` and `outcome` (when present) alongside the
+  existing `value`/`to`. The raw YAML source is unaffected by this — an agent-only
+  definition still never needs to write `executor: agent`.
 - **Unconditional human-step transitions (D16, item 7).** A human step may legally have a
   single unconditional transition (`transitions: [{ to: <step>, action: { label: ... } }]`,
   no `value`) — schema validation requires `action.label` on it exactly as for a conditional

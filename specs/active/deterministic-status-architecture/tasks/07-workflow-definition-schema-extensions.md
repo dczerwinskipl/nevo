@@ -36,8 +36,10 @@ semantic_references:
 Add `executor: agent | human` per step, minimal transition `action` metadata (label,
 feedback requirement, required for `executor: human` transitions), and a per-**transition**
 `outcome: success | failure` field (only on transitions whose `to` targets a terminal
-status) to the workflow definition schema — then migrate the five existing definitions per
-the grounded, per-file audit in `owner-decisions.md` D6, not a blanket assumption.
+status) to the workflow definition schema; make `normalizeWorkflowDefinition()` preserve
+all three and materialize the canonical `executor` default on every step so no downstream
+consumer re-derives it; then migrate the five existing definitions per the grounded,
+per-file audit in `owner-decisions.md` D6, not a blanket assumption.
 
 ## Dependencies
 
@@ -68,13 +70,17 @@ not `lifecycle-primitives.mjs`) to check whether a transition's `to` is terminal
     7) — `action.label` is still required on it (cross-field validation above applies
     regardless of whether the step's transitions are conditional or not), but do not require
     or synthesize a `value` for it.
-  - **`normalizeWorkflowDefinition()` must preserve the new fields (item 1).** Read directly
-    (2026-09-19): it currently drops `executor` entirely, and its `transitions.map(...)`
-    copies only `value`/`to`. Update it so the normalized step retains `executor` (when
-    present) and the normalized transition retains `action`/`outcome` (when present),
-    alongside the existing `value`/`to` — every runtime consumer reads the *normalized*
-    object, never the raw parsed one, so a definition that validates must not lose this
-    metadata here.
+  - **`normalizeWorkflowDefinition()` must preserve the new fields, and must materialize the
+    canonical `executor` default (items 1 and 4).** Read directly (2026-09-19): it currently
+    drops `executor` entirely, and its `transitions.map(...)` copies only `value`/`to`.
+    Update it so **every** normalized step carries an explicit `executor` —
+    `normalizedStep.executor = stepConfig.executor ?? 'agent'`, never left absent/`undefined`
+    — so every downstream consumer (this change's projections, the executor guard, the
+    human-step operations) can rely on `step.executor === 'agent' | 'human'` with no
+    "undefined" case to re-derive. The normalized transition retains `action`/`outcome`
+    (when present) alongside the existing `value`/`to`. The raw YAML source is unaffected —
+    an agent-only definition still does not need to write `executor: agent` anywhere; only
+    the *normalized* object is where the default becomes explicit.
 - Migrate `.nevo-ai/workflows/standard.yaml` and `.nevo-ai/workflows/standard-v1.yaml`
   (identical content): the `human-verification` step gets `executor: human`; its `pass`
   transition (`to: verified`) gets `action: {label: <e.g. Approve>}` and
@@ -125,6 +131,12 @@ not `lifecycle-primitives.mjs`) to check whether a transition's `to` is terminal
   `standard`/`standard-v1`'s normalized `human-verification` step, and `action`/`outcome` on
   its normalized transitions — regression-tested against the actual returned object, not
   just schema-validation success. `automated: node --test tools/tests/workflow-definitions.test.mjs`
+- For both `parseWorkflowDefinition()` and `loadWorkflowDefinition()`, every normalized
+  step's `executor` field is present and exactly `'agent'` or `'human'` — never `undefined`
+  or absent — asserted for **both** an explicit human step (`standard`'s
+  `human-verification`, `executor: 'human'`) **and** an omitted/default agent step (e.g.
+  `standard`'s `implementation`, `executor: 'agent'`, with no `executor` field in the raw
+  YAML). `automated: node --test tools/tests/workflow-definitions.test.mjs`
 - `human-verification`'s single-unconditional-transition sibling case (a hypothetical human
   step with one unconditional transition) validates without requiring a `value`, and its
   normalized transition has no fabricated `value` field.

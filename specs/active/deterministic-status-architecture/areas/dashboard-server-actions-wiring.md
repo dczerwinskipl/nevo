@@ -108,8 +108,9 @@ them.
 Exposes: the corrected deterministic action DTO (with tier-1 descriptor and generic
 actions), consumed by `status-board.tsx`/`TaskCard` (`areas/ui-dashboard-board-split.md`)
 and `TaskDialog`/chat (`areas/human-step-surface.md`); the new `workflow/human-step`
-transport route, consumed by `HumanStepSurface` via its own client hook
-(`dashboard-human-step-transport`, a separate task).
+transport route, consumed by the one neutral `shared/lib` transport function
+(`dashboard-human-step-transport`, a separate task) that each feature's own thin adapter
+hook calls in turn (D17, `areas/human-step-surface.md`).
 
 Consumed by: every dashboard UI surface that currently reads `actionGate`/
 `availableActions` for a deterministic spec.

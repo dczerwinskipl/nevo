@@ -47,9 +47,15 @@ available only once that step is genuinely active — driven by `executor` and t
     no activation state required, no executor restriction (works for agent steps too, used
     generically by the canonical task projection's `waiting-for-step-start` case).
   - A **human interaction actions** function: given a task's *currently active* step,
-    returns `null` when `executor !== 'human'`, else `{ actions: [{ result, label,
-    feedbackRequired }], artifacts? }` built from that step's `transitions[].action`
-    metadata (one entry per transition; `result` = the transition's `value`).
+    returns `null` when `executor !== 'human'`, else `{ actions: [...], artifacts? }` built
+    from that step's `transitions[].action` metadata, one entry per transition — **`result`
+    is present on an entry only when its source transition itself declares a `value`** (a
+    conditional transition, `{ value: 'pass', to: verified, action: {label: Approve} }` →
+    `{ result: 'pass', label: 'Approve', feedbackRequired: false }`); for a step whose sole
+    transition is unconditional (no `value`), its one entry has **no `result` property at
+    all** — never `result: undefined`, never a synthesized placeholder like `'continue'`
+    (D16) — e.g. `{ label: 'Continue', feedbackRequired: false }`. Presence of `result`
+    reflects only whether the workflow definition itself declared a transition `value`.
 - `artifacts` is present in the return type but always `undefined`/omitted in this task's
   implementation (extensibility point only).
 - Must remain correctly distinct from `entryGates`/`exitGates` (`type: human`): the
@@ -80,6 +86,13 @@ available only once that step is genuinely active — driven by `executor` and t
   whose id is not literally `human-verification` — proving the mechanism is
   executor-driven, not name-driven.
   `automated: node --test tools/tests/human-step-projection.test.mjs`
+- For an active human step with two conditional transitions (e.g. `pass`/`fail`), both
+  `actions` entries carry a `result` field matching their transition's `value`.
+  `automated: node --test tools/tests/human-step-projection.test.mjs`
+- For an active human step with a single unconditional transition, its one `actions` entry
+  has no `result` key (`'result' in entry` is `false`, not `entry.result === undefined`
+  with the key present) — and no other string (`'continue'` or otherwise) is substituted in
+  its place. `automated: node --test tools/tests/human-step-projection.test.mjs`
 - No file in this task's module references the literal string `'human-verification'`,
   `'owner-review'`, or `'acceptance'`, and no `HumanVerificationGate`/
   `FileHumanVerificationStore` import exists in this module.

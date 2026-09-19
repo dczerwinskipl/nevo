@@ -10,18 +10,17 @@ context:
 allowed_paths:
   - tools/dashboard/server/specs/human-step-transport.mjs
   - tools/dashboard/server/specs/routes.mjs
-  - tools/dashboard/ui/features/agent-sessions/queries.ts
+  - tools/dashboard/ui/shared/lib/human-step-request.ts
   - tools/dashboard/tests/**
 forbidden_paths:
   - tools/specs/**
   - tools/dashboard/server/specs/actions.mjs
-  - tools/dashboard/ui/features/specifications/tasks/**
-  - tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.tsx
-  - tools/dashboard/ui/features/agent-sessions/agent-session-workflow-bar.tsx
+  - tools/dashboard/ui/features/**
+  - tools/dashboard/ui/screens/**
   - src/**
 depends_on: [ human-step-execution-operations, execution-readiness-policy ]
 semantic_references:
-  decisions: [D14]
+  decisions: [D14, D17]
 ---
 
 # Task: Dashboard human-step transport
@@ -32,7 +31,9 @@ Add the one generic HTTP transport `HumanStepSurface` needs to reach
 `startHumanStep`/`submitHumanStepResult` — `POST /api/specs/:slug/tasks/:taskId/workflow/human-step`
 (plus the `:source/:slug` variant), body `{ action: 'start' } | { action: 'submit', result?,
 feedback?, artifacts? }` — closing the gap where those two domain operations exist but no
-browser-reachable route can call them (D14).
+browser-reachable route can call them (D14), and exposing the client-side call as one
+neutral, feature-agnostic function in `shared/lib/`, not a hook owned by either consuming
+feature (D17).
 
 ## Dependencies
 
@@ -69,12 +70,20 @@ readiness logic of its own.
   `executeHumanDecision` catch-all does.
 - The existing `/workflow/human-decision` route, `handleHumanDecision`, and
   `executeHumanDecision` are **not** touched by this task — they remain exactly as they are.
-- New client hook in `tools/dashboard/ui/features/agent-sessions/queries.ts` (or a
-  sibling specifications-queries file if more appropriate — the exact file is an
-  implementation choice, but it must live where `HumanStepSurface`, built in a later task,
-  can import it) wrapping the two POST shapes — this task builds the hook; it does not wire
-  it into `HumanStepSurface` itself (that's `human-step-surface-consolidation`'s scope,
-  which depends on this task).
+- **D17 — the client-side transport is one neutral, feature-agnostic function, not a
+  feature-owned hook.** `tools/dashboard/ui/features/agent-sessions/queries.ts` was the
+  original (wrong) location — placing the only reusable transport there while
+  `features/specifications` also needs it directly would make `TaskDialog` import
+  `features/agent-sessions`, a sibling-feature import
+  `tools/dashboard/tests/architecture-boundaries.test.mjs`'s test 1 forbids
+  unconditionally. Instead, add `tools/dashboard/ui/shared/lib/human-step-request.ts`:
+  a plain async function (e.g. `postHumanStepAction({ source?, slug, taskId, action,
+  result, feedback, artifacts })`) wrapping the two POST shapes, no React, no query-cache
+  concerns, no import from any `features/**`/`screens/**`/`routes/**`/`app/**` path (shared
+  layer purity, `architecture-boundaries.test.mjs` test 2). This task builds and exports
+  that function; it does not wire it into either feature or into `HumanStepSurface` itself
+  — each feature's own thin adapter hook (`human-step-surface-consolidation`'s scope, which
+  depends on this task) calls it independently.
 
 ## Acceptance criteria
 
@@ -97,17 +106,23 @@ readiness logic of its own.
 - The existing `/workflow/human-decision` route and `executeHumanDecision` are unchanged —
   regression test against existing fixtures.
   `automated: node --test tools/dashboard/tests/specs-actions.test.mjs`
+- `tools/dashboard/ui/shared/lib/human-step-request.ts` imports nothing from
+  `features/**`/`screens/**`/`routes/**`/`app/**` and is importable from both
+  `features/specifications` and `features/agent-sessions` without triggering a
+  sibling-feature or shared-layer-purity violation.
+  `automated: node --test tools/dashboard/tests/architecture-boundaries.test.mjs`
 
 ## Verification
 
 ```bash
 node --test tools/dashboard/tests/human-step-transport.test.mjs
 node --test tools/dashboard/tests/specs-actions.test.mjs
+node --test tools/dashboard/tests/architecture-boundaries.test.mjs
 ```
 
 ## Out of scope
 
-Wiring the client hook into `HumanStepSurface` (task `human-step-surface-consolidation`).
-Any change to `actions.mjs`'s existing mutation functions (task
-`dashboard-actions-lifecycle-split`, independent file scope). Any change to the legacy
-`/workflow/human-decision` route.
+Wiring the shared transport function into `HumanStepSurface` or into either feature's own
+adapter hook (task `human-step-surface-consolidation`). Any change to `actions.mjs`'s
+existing mutation functions (task `dashboard-actions-lifecycle-split`, independent file
+scope). Any change to the legacy `/workflow/human-decision` route.

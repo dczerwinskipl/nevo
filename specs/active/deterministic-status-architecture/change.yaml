@@ -75,16 +75,16 @@ tasks:
     file: tasks/13-execution-readiness-policy.md
     status: draft
     depends_on: [ workflow-task-publish-operation, deterministic-task-projection, step-executor-guard, human-step-execution-operations ]
-  - id: session-bootstrap-readiness-wiring
-    order: 14
-    file: tasks/14-session-bootstrap-readiness-wiring.md
-    status: draft
-    depends_on: [ execution-readiness-policy ]
   - id: dashboard-deterministic-action-projection
-    order: 15
-    file: tasks/15-dashboard-deterministic-action-projection.md
+    order: 14
+    file: tasks/14-dashboard-deterministic-action-projection.md
     status: draft
     depends_on: [ deterministic-task-projection, execution-readiness-policy ]
+  - id: session-bootstrap-readiness-wiring
+    order: 15
+    file: tasks/15-session-bootstrap-readiness-wiring.md
+    status: draft
+    depends_on: [ execution-readiness-policy, dashboard-deterministic-action-projection ]
   - id: dashboard-human-step-transport
     order: 16
     file: tasks/16-dashboard-human-step-transport.md

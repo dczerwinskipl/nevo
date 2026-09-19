@@ -246,7 +246,7 @@
   straight from the definition, no readiness/git/session dependency) → **`ExecutionReadiness`**
   (task 13 — composes `TaskProjection` with the executor guard and the *existing*
   activation-precondition checks already implemented by `ensureStepActivated`, reused not
-  duplicated per D13) → **`DashboardActionProjection`** (task 15 — composes both into the
+  duplicated per D13) → **`DashboardActionProjection`** (task 14 — composes both into the
   actual `availableActions` the UI renders: "Start implementation," "Start review," "Start
   human step," "Submit result," etc.).
 - **Rationale:** Avoids a circular responsibility where the "pure" projection has to know
@@ -255,8 +255,8 @@
   conflating the two made `TaskProjection` neither pure nor complete.
 - **Consequences:** `deterministic-task-projection` (task 12) never returns
   `availableActions`. Every consumer that previously would have read "available actions"
-  from the projection now reads it from the dashboard action DTO (task 15), which itself
-  depends on both task 12 and task 13 — corrected throughout the task graph (task 15's,
+  from the projection now reads it from the dashboard action DTO (task 14), which itself
+  depends on both task 12 and task 13 — corrected throughout the task graph (task 14's,
   18's, and 19's `depends_on`).
 - **Date:** 2026-09-19
 - **Affected artifacts:** `areas/deterministic-projection-and-human-step.md`,
@@ -389,7 +389,8 @@
 - **Consequences:** A new task, `dashboard-human-step-transport` (order 16), owns the new
   route, its server-side handler (a new module, not added to the mutation-split scope of
   `dashboard-actions-lifecycle-split`, to avoid file-overlap between two independently
-  developed concerns), and the client hook `HumanStepSurface` calls.
+  developed concerns), and the one neutral client-side function that calls it (see D17 for
+  why this is a `shared/lib` function, not a feature-owned hook).
   `human-step-surface-consolidation` (task 20) now depends on it.
 - **Date:** 2026-09-19
 - **Affected artifacts:** `change.yaml` (new task 16, renumbered 16–21 → 17–22),
@@ -409,7 +410,7 @@
   `start-implementation`/`start-review` as distinct hardcoded action ids, and the server
   never derives an action type by comparing literal step names. A small, explicitly
   transitional adapter lives at the UI boundary only (`session-bootstrap-readiness-wiring`,
-  task 14, which already owns `specification-detail-content.tsx`) mapping today's two known
+  task 15, which already owns `specification-detail-content.tsx`) mapping today's two known
   step ids (`implementation`, `review`) to today's two dispatch behaviors (edit-mode vs.
   agent-mode session creation, prompt wording) — clearly commented as a temporary,
   standard-workflow-specific mapping, not canonical workflow semantics, pending real
@@ -425,8 +426,8 @@
 - **Date:** 2026-09-19
 - **Affected artifacts:** `areas/dashboard-server-actions-wiring.md`,
   `areas/execution-readiness-and-session-bootstrap.md`,
-  `tasks/15-dashboard-deterministic-action-projection.md`,
-  `tasks/14-session-bootstrap-readiness-wiring.md`.
+  `tasks/14-dashboard-deterministic-action-projection.md`,
+  `tasks/15-session-bootstrap-readiness-wiring.md`.
 
 ## D16: Unconditional human-step submission never fabricates a `result`
 
@@ -455,4 +456,52 @@
   `areas/step-executor-model.md`, `areas/dashboard-server-actions-wiring.md`,
   `areas/human-step-surface.md`, `tasks/07-workflow-definition-schema-extensions.md`,
   `tasks/09-human-step-execution-operations.md`, `tasks/10-human-step-projection.md`,
+  `tasks/16-dashboard-human-step-transport.md`, `tasks/20-human-step-surface-consolidation.md`.
+
+## D17: `HumanStepSurface` lives in `shared/`, not in a feature — its transport is one neutral function plus per-feature adapters
+
+- **Question:** Pass 3 placed the reusable `HumanStepSurface` under
+  `tools/dashboard/ui/features/specifications/tasks/human-step-surface.tsx` while also
+  requiring `features/agent-sessions/` (the chat surface) to import it directly, and placed
+  its client transport hook under `features/agent-sessions/queries.ts` while requiring
+  `features/specifications/` to call it too. Both are direct sibling-feature imports —
+  confirmed, by reading `tools/dashboard/tests/architecture-boundaries.test.mjs` directly,
+  to be exactly what its test 1 ("Sibling feature isolation: `features/**` has zero imports
+  from other features") asserts against, unconditionally. Where should this component and
+  its transport actually live?
+- **Grounded fact (2026-09-19):** the repository already has a `shared/` layer
+  (`shared/ui/` — presentational primitives; `shared/lib/` — pure utilities) that both
+  `features/specifications/` and `features/agent-sessions/` already import from, and the
+  same boundary test's test 2 ("Shared layer purity") confirms `shared/**` may never import
+  `features/**`/`screens/**`/`routes/**`/`app/**` in return — a one-way dependency, exactly
+  the shape needed here. No feature currently has a project-wide neutral request helper;
+  each feature's `queries.ts` calls `fetch()` directly today.
+- **Decision:** `HumanStepSurface` moves to `tools/dashboard/ui/shared/workflow/human-step-surface.tsx`
+  — purely presentational, driven entirely by props (`stepDescriptor`, `interaction`,
+  `loading`, `error`, `onStart`, `onSubmit`) — importing only `shared/ui`/`shared/lib`,
+  never fetching itself, never knowing a route URL, a literal step id, or "approve"/
+  "request-changes." The transport splits in two: one neutral, feature-agnostic request
+  function, `tools/dashboard/ui/shared/lib/human-step-request.ts` (owned by
+  `dashboard-human-step-transport`, D14's task, alongside the server route it calls),
+  exposing the raw POST call with no React/query-cache concerns; and one thin, independently
+  owned React Query hook *per feature* (`features/specifications/tasks/human-step-mutations.ts`,
+  `features/agent-sessions/human-step-mutations.ts` — owned by
+  `human-step-surface-consolidation`) that each wrap the same shared function in their own
+  feature's `useMutation`/cache-invalidation concerns and pass `onStart`/`onSubmit` into the
+  shared component. Neither feature imports the other's hook file; both import only the
+  shared presentational component and the shared request function.
+- **Rationale:** The alternative — weakening or special-casing the architecture-boundaries
+  test for this one component — was explicitly ruled out by the corrective-pass request
+  itself. Splitting transport into "one neutral function, N thin feature-local callers" is
+  the same shape this repository's `shared/ui` primitives already use for cross-feature
+  reuse; it needed no new pattern invented.
+- **Consequences:** `dashboard-human-step-transport` (task 16)'s allowed paths move from
+  `features/agent-sessions/queries.ts` to `shared/lib/human-step-request.ts`.
+  `human-step-surface-consolidation` (task 20)'s allowed paths move from
+  `features/specifications/tasks/human-step-surface.tsx` to
+  `shared/workflow/human-step-surface.tsx`, plus the two new feature-local mutation-hook
+  files. `node --test tools/dashboard/tests/architecture-boundaries.test.mjs` is added to
+  both tasks' own verification.
+- **Date:** 2026-09-19
+- **Affected artifacts:** `areas/human-step-surface.md`,
   `tasks/16-dashboard-human-step-transport.md`, `tasks/20-human-step-surface-consolidation.md`.

@@ -6,6 +6,7 @@ context:
   required:
     - specs/active/deterministic-status-architecture/overview.md
     - specs/active/deterministic-status-architecture/areas/execution-readiness-and-session-bootstrap.md
+    - specs/active/deterministic-status-architecture/areas/dashboard-server-actions-wiring.md
 allowed_paths:
   - tools/dashboard/ui/features/agent-sessions/create-agent-session-dialog.tsx
   - tools/dashboard/ui/features/agent-sessions/queries.ts
@@ -16,7 +17,7 @@ forbidden_paths:
   - tools/specs/**
   - tools/dashboard/server/**
   - src/**
-depends_on: [ execution-readiness-policy ]
+depends_on: [ execution-readiness-policy, dashboard-deterministic-action-projection ]
 ---
 
 # Task: Session bootstrap readiness wiring (client)
@@ -35,7 +36,11 @@ that decides *how* to dispatch a given agent step (edit mode vs. agent mode).
 ## Dependencies
 
 `execution-readiness-policy` — this task's tests exercise that task's server-side behavior
-from the client's perspective.
+from the client's perspective. `dashboard-deterministic-action-projection` — this task's
+own D15 adapter consumes the `{ type: 'start-agent-step', step: {...} }` DTO contract that
+task first introduces; this task must not be authored or executed against a version of the
+DTO that doesn't exist yet (a corrected ordering issue — item 2 of the fourth corrective
+pass — the task graph previously placed this task before the one that owns that contract).
 
 ## Implementation constraints
 

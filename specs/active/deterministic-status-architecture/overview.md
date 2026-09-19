@@ -79,13 +79,33 @@ generic finish contract hardcodes `feedback.required: false` regardless of what 
 transition's own `action.feedback.required` declares, so nothing server-side actually
 enforced it (task 09, corrected); the dashboard DTO exposed only strings
 (`currentStep`/`nextStep`) with no way for `HumanStepSurface` to show `purpose`/
-`expectedWork` before activation (task 15, corrected); "Start implementation"/"Start
+`expectedWork` before activation (task 14, corrected); "Start implementation"/"Start
 review"/"Start human step" were described together as session-creation entry points, which
-is wrong for the human case (areas/tasks 13/14/20, corrected); `start-implementation`/
+is wrong for the human case (areas/tasks 13/15/20, corrected); `start-implementation`/
 `start-review` as distinct hardcoded action ids reintroduced exactly the step-name coupling
 this change removes elsewhere (D15, new generic `start-agent-step` action plus an isolated,
 explicitly transitional UI adapter); and a human step's single unconditional transition has
 no `result` to submit, which nothing previously said explicitly (D16).
+
+**Corrective pass 4 (2026-09-19, D17, final narrow cleanup):** self-review against the
+repository's own enforced frontend architecture test
+(`tools/dashboard/tests/architecture-boundaries.test.mjs`) and the task graph's
+dependency-vs-contract-introduction ordering found four remaining inconsistencies, none of
+them architectural: task 20 placed the shared `HumanStepSurface` under
+`features/specifications/` while also requiring `features/agent-sessions/` to import it
+directly — a sibling-feature import the boundary test explicitly forbids; the component
+moves to `shared/workflow/`, feature-neutral and prop-driven, with the transport call
+itself split into one neutral `shared/lib` request function plus a thin, feature-local hook
+per feature (D17). `session-bootstrap-readiness-wiring` (order 15, was 14) consumed the
+`start-agent-step` DTO contract `dashboard-deterministic-action-projection` (order 14, was
+15) introduces, without depending on it — the two tasks are reordered and the dependency
+added. `human-step-projection` (task 10) still described every projected human-step action
+as unconditionally carrying `result`, contradicting D16 — corrected to make `result`'s
+presence conditional on the transition actually declaring one, never fabricated, never
+`undefined`. `normalizeWorkflowDefinition()`'s `executor` default (`agent` when absent) was
+left for every downstream consumer to re-derive — task 07 now makes normalization itself
+materialize the canonical `executor` value on every step, so nothing downstream needs an
+`undefined`/absent case.
 
 ## Current architecture
 
@@ -313,8 +333,11 @@ engine source directly):
   legacy/deterministic mutation split), `routes.mjs` (new generic `workflow/human-step`
   transport route, D14), `data.mjs`/`status-stages.mjs` (board/lane projection).
 - `tools/dashboard/ui/features/specifications/**`, `tools/dashboard/ui/features/agent-sessions/**`
-  (UI composition-boundary split, including the shared `HumanStepSurface` consumed by both
-  `TaskDialog` and the chat surface, D11).
+  (UI composition-boundary split, each with its own thin `human-step-mutations.ts` adapter,
+  D17), `tools/dashboard/ui/shared/workflow/human-step-surface.tsx` (the shared, prop-driven
+  `HumanStepSurface`, D11/D17 — feature-neutral, consumed by both `TaskDialog` and the chat
+  surface without either importing the other), `tools/dashboard/ui/shared/lib/human-step-request.ts`
+  (the one neutral transport function both features' adapters call, D14/D17).
 - `.claude/skills/nevo-ai-spec-workflow/**` (or equivalent shared skill/instruction layer —
   lifecycle-specific instruction split, removing legacy-only assumptions from shared
   sections, not just adding a new deterministic reference).
@@ -355,7 +378,11 @@ implementation), D13 (the resume-vs-new-attempt distinction already exists in
 CLI-compatibility callers), D15 (agent-step dispatch stays a small, explicitly transitional
 UI-only adapter — the core projection exposes one generic `start-agent-step` action, never
 per-step-name action ids), D16 (a human step's unconditional transition submits with no
-`result` — never a fabricated placeholder value).
+`result` — never a fabricated placeholder value), D17 (`HumanStepSurface` lives in
+`shared/workflow/`, purely prop-driven; its transport is one neutral `shared/lib` function
+plus one thin adapter hook per consuming feature — never a feature-owned component/hook the
+sibling feature imports directly, which the repository's own
+`architecture-boundaries.test.mjs` forbids).
 
 ## Proposed architecture
 
