@@ -6,11 +6,11 @@ Build `DashboardActionProjection` (D10) — composing `TaskProjection`
 (`areas/deterministic-projection-and-human-step.md`) and `ExecutionReadiness`
 (`areas/execution-readiness-and-session-bootstrap.md`) into the dashboard's actual action
 DTO (`tools/dashboard/server/specs/actions.mjs`) — the file the UI really reads — replacing
-its current legacy-derived deterministic branch with generic state/action fields (D15's
-`start-agent-step`, never per-step-name action ids) and an explicit tier-1 step descriptor
-(D4/item 4); add the one new, generic HTTP transport `HumanStepSurface` calls to reach
-`startHumanStep`/`submitHumanStepResult` (D14); and split `actions.mjs`'s legacy and
-deterministic mutation implementations so neither calls the other.
+its current legacy-derived deterministic branch with generic state fields, **one** generic
+`start-step` lifecycle action (D15 — never a per-step or per-executor action id) and an
+explicit tier-1 step descriptor; add the one new, generic HTTP transport `HumanStepSurface`
+calls to reach `startHumanStep`/`submitHumanStepResult` (D14); and split `actions.mjs`'s
+legacy and deterministic mutation implementations so neither calls the other.
 
 ## Current state
 
@@ -46,15 +46,16 @@ them.
   (e.g. `currentStepDescriptor`/`nextStepDescriptor`, whichever is the relevant target for
   the task's present state — `{ id, executor, purpose, expectedWork }`, sourced from
   `TaskProjection`'s tier-1 generic descriptor, present *before* activation so
-  `HumanStepSurface` never has to reconstruct `purpose`/`expectedWork` from a step id,
-  item 4), the human-step interaction descriptor (tier 2) when applicable, and
-  `availableActions` expressed as **generic** actions, never a step-name-derived id (D15,
-  item 6): `{ type: 'start-agent-step', step: { id, purpose, expectedWork, ... } }` for an
-  agent step ready to start (never `'start-implementation'`/`'start-review'` as distinct
-  hardcoded ids); `{ type: 'start-human-step', step: {...} }` for a waiting human step;
-  `{ type: 'submit-human-step-result' }` (or equivalent) once a human step is active. The
-  server never derives which generic action applies by comparing a step's `id` to a literal
-  string — only `executor` and `TaskProjection`'s state.
+  `HumanStepSurface` never has to reconstruct `purpose`/`expectedWork` from a step id), the
+  human-step interaction descriptor (tier 2) when applicable, and `availableActions` kept
+  generic (D15, D18's frontend type note — `string[]`, not a new object-union type):
+  `["start-step"]` when the current position is waiting for a start and `ExecutionReadiness`
+  allows it, for **either** executor — never `'start-agent-step'`/`'start-human-step'`/
+  `'start-implementation'`/`'start-review'` as distinct ids. The caller reads the step
+  descriptor's own `executor` field to know which execution protocol `start-step` triggers;
+  the action id itself never encodes it. The server never derives `availableActions` by
+  comparing a step's `id`/`currentStep`/`nextStep` to a literal string anywhere in this
+  branch.
 - The legacy action-derivation branch (`approve`/`verify`/`finalize` and any other legacy
   read) is unchanged in behavior.
 
@@ -118,21 +119,28 @@ Consumed by: every dashboard UI surface that currently reads `actionGate`/
 ## Area-specific acceptance criteria
 
 - The deterministic action DTO for a task whose `status` is still the `approved`
-  compatibility value but whose `workflow_progress.current_step` is `review` reflects
-  `review`-appropriate state/actions — not a `status`-derived stale result.
+  compatibility value but whose `workflow_progress.current_step` is a non-`implementation`
+  agent step (e.g. `hardening`) reflects that state accurately — not a `status`-derived
+  stale result, and not something only correct for `implementation`/`review` specifically.
 - The DTO's current/next-step descriptor is populated for a task in `waiting-for-step-start`
   whose next step is human-owned, *before* that step is activated — including its `purpose`/
   `expectedWork`. The human-step interaction descriptor (tier 2) remains absent until that
   step is actually active.
-- `availableActions` reflects `ExecutionReadiness`'s output, expressed generically
-  (`start-agent-step`/`start-human-step`/`submit-human-step-result`) — never
-  `start-implementation`/`start-review`/a step-id-derived string.
+- `availableActions` is exactly `["start-step"]` when the current position is waiting and
+  `ExecutionReadiness` allows it — identical for an agent step and a human step (the caller
+  distinguishes protocol via the step descriptor's `executor`, not the action id) — never
+  `start-agent-step`/`start-human-step`/`start-implementation`/`start-review`/any
+  step-id-derived string.
 - `availableActions` reflects `ExecutionReadiness`'s output, not a re-derivation of
   readiness inside `actions.mjs` itself — a task blocked by an unsatisfied dependency or an
-  executor mismatch reports the corresponding empty/blocked action set.
+  executor mismatch reports an empty action set.
+- Two tasks, both `state: 'active'`, with different step ids (e.g. `review` and `hardening`)
+  produce structurally identical DTO shapes differing only in their step descriptor's
+  `id`/`purpose`/`expectedWork` — proving the DTO derivation never special-cases a
+  particular step id.
 - Grepping the deterministic branch (both the DTO derivation and the new transport module)
   for `task.status`, `isTaskReady`, or any literal step-name comparison (`'implementation'`,
-  `'review'`, `'human-verification'`) returns none.
+  `'review'`, `'human-verification'`, or any other specific step id) returns none.
 - The legacy action DTO's output is byte-for-byte unchanged for a legacy spec (regression
   test against existing fixtures).
 - No deterministic mutation implementation in this file calls a legacy mutation function
@@ -153,6 +161,6 @@ into `DashboardActionProjection`, D10), `areas/step-executor-model.md`
 
 Any change to the session-creation route
 (`areas/execution-readiness-and-session-bootstrap.md` owns that). Removing or changing the
-existing `/workflow/human-decision` route. The agent-step dispatch adapter's own UI-side
-mapping (D15 — owned by `areas/execution-readiness-and-session-bootstrap.md`'s
-session-bootstrap task; this area only emits the generic `start-agent-step` action).
+existing `/workflow/human-decision` route. Any per-step dispatch/execution-mode logic
+whatsoever (D15 — this area emits only the one generic `start-step` action; there is no
+adapter, transitional or otherwise, for this area or any other to own).

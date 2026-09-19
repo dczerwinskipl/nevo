@@ -104,12 +104,12 @@ tasks:
     order: 19
     file: tasks/19-task-card-lifecycle-split.md
     status: draft
-    depends_on: [ dashboard-deterministic-action-projection ]
+    depends_on: [ dashboard-deterministic-action-projection, session-bootstrap-readiness-wiring ]
   - id: human-step-surface-consolidation
     order: 20
     file: tasks/20-human-step-surface-consolidation.md
     status: draft
-    depends_on: [ dashboard-deterministic-action-projection, dashboard-human-step-transport, task-card-lifecycle-split ]
+    depends_on: [ dashboard-deterministic-action-projection, dashboard-human-step-transport, task-card-lifecycle-split, session-bootstrap-readiness-wiring ]
   - id: lifecycle-skill-instruction-split
     order: 21
     file: tasks/21-lifecycle-skill-instruction-split.md

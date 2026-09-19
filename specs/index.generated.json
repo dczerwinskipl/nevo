@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-19T12:26:25.129Z",
+  "generated": "2026-09-19T17:46:55.511Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -266,7 +266,8 @@
           "file": "tasks/19-task-card-lifecycle-split.md",
           "status": "draft",
           "depends_on": [
-            "dashboard-deterministic-action-projection"
+            "dashboard-deterministic-action-projection",
+            "session-bootstrap-readiness-wiring"
           ]
         },
         {
@@ -277,7 +278,8 @@
           "depends_on": [
             "dashboard-deterministic-action-projection",
             "dashboard-human-step-transport",
-            "task-card-lifecycle-split"
+            "task-card-lifecycle-split",
+            "session-bootstrap-readiness-wiring"
           ]
         },
         {

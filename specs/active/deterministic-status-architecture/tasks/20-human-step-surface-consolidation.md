@@ -21,9 +21,9 @@ forbidden_paths:
   - tools/dashboard/server/**
   - tools/dashboard/ui/shared/lib/human-step-request.ts
   - src/**
-depends_on: [ dashboard-deterministic-action-projection, dashboard-human-step-transport, task-card-lifecycle-split ]
+depends_on: [ dashboard-deterministic-action-projection, dashboard-human-step-transport, task-card-lifecycle-split, session-bootstrap-readiness-wiring ]
 semantic_references:
-  decisions: [D7, D11, D17]
+  decisions: [D7, D11, D15, D17, D18]
 ---
 
 # Task: Human step surface consolidation
@@ -49,7 +49,8 @@ function each feature's own adapter hook (built by this task) calls to reach
 directly, only through that shared function's HTTP requests. `task-card-lifecycle-split` —
 reuse its deterministic action sub-component(s) where the action set genuinely overlaps
 (within `features/specifications` only — that sub-component is feature-local, not moved to
-`shared/`).
+`shared/`). `session-bootstrap-readiness-wiring` — owns the frontend `types.ts` DTO type
+(D18) this task's rendering relies on.
 
 ## Implementation constraints
 
@@ -57,7 +58,8 @@ reuse its deterministic action sub-component(s) where the action set genuinely o
   **purely presentational, driven entirely by props**
   (`{ stepDescriptor, interaction, loading, error, onStart, onSubmit }`): for a step still
   `waiting-for-step-start` (`interaction` null), renders `stepDescriptor`'s `purpose`/
-  `expectedWork` and a "Start human step" control calling `onStart()`; once `interaction` is
+  `expectedWork` and a generic "Start" control calling `onStart()` — never "Start human
+  step" or any other step-id/executor-derived label (D15); once `interaction` is
   non-null, renders one button/control per `interaction.actions` entry (`label`/
   `feedbackRequired`, `result` present only when conditional — D16, item 7) and calls
   `onSubmit(result?, feedback?, artifacts?)` for the chosen one — omitting `result` entirely
@@ -87,9 +89,11 @@ reuse its deterministic action sub-component(s) where the action set genuinely o
   props, and file location stay generic (`HumanStepSurface`, `shared/workflow/`, a
   `start`/`submit` action shape, not `ReviewSurface`/`approve`/`requestChanges`).
 - `TaskDialog` also gains general deterministic projection awareness (current step,
-  executor, `waiting-for-step-start` shown honestly — e.g. "Ready for review"/"[Start
-  review]," never a fabricated active state — blocking dependencies, available actions),
-  with `HumanStepSurface` rendered prominently/as default content when a human decision is
+  executor, `waiting-for-step-start` shown honestly via the generic step descriptor and a
+  generic "Start" control — never "Ready for review"/"Start review" or any other
+  step-id-derived label, identically for an agent or human next step, D15 — never a
+  fabricated active state — blocking dependencies, available actions), with
+  `HumanStepSurface` rendered prominently/as default content when a human decision is
   pending or awaiting activation.
 - Legacy `TaskDialog` behavior (the existing `TaskActionFooter` path) is unchanged.
 
@@ -109,9 +113,11 @@ reuse its deterministic action sub-component(s) where the action set genuinely o
   `'approve'`/`'request-changes'` literal — every one of those lives in the feature-local
   adapter hooks or the shared transport function, not the component.
   `inspection: confirm shared/workflow/human-step-surface.tsx contains none of these`
-- `TaskDialog` opened on a deterministic task with implementation finished and the next
-  step (agent or human) not yet started shows "Ready for review"/"[Start review]" (or the
-  agent-step equivalent), never a fabricated active-review state.
+- `TaskDialog` opened on a deterministic task whose current step finished and the next step
+  (agent or human) not yet started shows the generic step descriptor and a generic
+  "[Start]" control — identical wording whether the next step is `review`, `hardening`, or
+  any other id — never a fabricated active state, and never "Ready for review"/"Start
+  review" as a special case.
   `automated: node --test tools/dashboard/tests/agent-session-workflow.test.tsx`
 - `TaskDialog`'s legacy rendering path (legacy spec, `TaskActionFooter`) is byte-for-byte
   unchanged (brief regression test #14's dialog half).

@@ -15,6 +15,8 @@ forbidden_paths:
   - tools/dashboard/ui/**
   - src/**
 depends_on: [ deterministic-task-projection ]
+semantic_references:
+  decisions: [D15]
 ---
 
 # Task: Deterministic board lane projection
@@ -40,20 +42,33 @@ derivation completely unchanged.
   deterministic path alongside it in the same file (or a small new sibling module) rather
   than branching inside `stageForStatus()`.
 - Map the projection's states (`draft`, `blocked`, `ready`, `active`,
-  `waiting-for-step-start`, `human-interaction`, `terminal`) onto the existing 6-lane set
+  `waiting-for-step-start`, `human-interaction`, `terminal`) — and, only if genuinely useful
+  for presentation, `executor` — onto the existing 6-lane set
   (`new/design/ready/implementation/review/done` from `lane-presentation.ts`) unless a
-  state genuinely needs a lane none of the six represent — prefer reuse.
+  state genuinely needs a lane none of the six represent — prefer reuse. **Never map by
+  `currentStep`/`nextStep` (D15, item 11)** — the mapping function's only inputs are
+  `state` (and optionally `executor`); it must not receive or branch on a step id at all.
+  If the legacy lane names (`implementation`, `review`, etc.) are reused as the
+  deterministic bucket names too, that reuse is a presentation/compatibility convenience
+  only — document it as such in the code — not a claim that a `review`-named lane means
+  "the step is literally named review." Two `active` tasks with step ids `review` and
+  `hardening` must land in the identical lane.
 
 ## Acceptance criteria
 
 - A deterministic task whose `status` is still the `approved` compatibility value but whose
-  `workflow_progress.current_step` is `review` renders in a review-appropriate lane, not a
+  `TaskProjection.state` is `active` renders in the active-state lane, not a
   `stageForStatus('approved')`-derived lane (brief regression test #13's board half).
+  `automated: node --test tools/dashboard/tests/specs-actions.test.mjs`
+- Two deterministic tasks, both `state: 'active'`, whose step ids are `review` and an
+  arbitrary non-standard fixture (e.g. `hardening`, item 15), render in the identical lane —
+  proving the mapping function never received or branched on the step id.
   `automated: node --test tools/dashboard/tests/specs-actions.test.mjs`
 - A legacy spec's lane assignment is unchanged — regression-tested against existing fixture
   data. `automated: node --test tools/dashboard/tests/specs-actions.test.mjs`
-- No deterministic task's lane is computed via `stageForStatus()` or `isTaskReady()`.
-  `inspection: confirm the deterministic lane path never calls stageForStatus/isTaskReady`
+- No deterministic task's lane is computed via `stageForStatus()` or `isTaskReady()`, and
+  the lane-derivation function's signature takes no `currentStep`/`nextStep`/step-id
+  parameter at all. `inspection: confirm the deterministic lane path never calls stageForStatus/isTaskReady and its function signature has no step-id input`
 
 ## Verification
 

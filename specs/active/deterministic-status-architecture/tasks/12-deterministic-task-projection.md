@@ -20,7 +20,7 @@ forbidden_paths:
   - src/**
 depends_on: [ human-step-projection, deterministic-dependency-satisfaction ]
 semantic_references:
-  decisions: [D10]
+  decisions: [D10, D15]
 ---
 
 # Task: Deterministic task projection
@@ -85,6 +85,11 @@ is `ExecutionReadiness`/`DashboardActionProjection`'s job (own tasks).
 - A task whose matched terminal transition has `outcome: success` projects `terminal` with
   a `success` outcome; `outcome: failure` projects `terminal` with a `failure` outcome.
   `automated: node --test tools/tests/deterministic-task-projection.test.mjs`
+- Using an arbitrary, non-`implementation`/`review` fixture definition (e.g. two agent
+  steps, `discovery` and `hardening`, item 15), the projection produces structurally
+  identical output shapes for both — differing only in the step descriptor's `id`/
+  `purpose`/`expectedWork` — proving this module contains no step-id-specific branching
+  (D15). `automated: node --test tools/tests/deterministic-task-projection.test.mjs`
 - The projection's returned object contains no `availableActions` field or any git/session
   state field. `inspection: confirm the projection's return shape has no availableActions or git/session-dependent field`
 

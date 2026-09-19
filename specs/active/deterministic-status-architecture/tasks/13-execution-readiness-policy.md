@@ -14,6 +14,8 @@ allowed_paths:
   - tools/specs/workflow/human-step/**
   - tools/dashboard/server/ai/sessions/**
   - tools/tests/execution-readiness-policy.test.mjs
+  - tools/dashboard/tests/session-task-bootstrap.test.mjs
+  - tools/dashboard/tests/agent-session-workflow.test.mjs
 forbidden_paths:
   - tools/specs/approve/**
   - tools/specs/start/**
@@ -24,7 +26,7 @@ forbidden_paths:
   - src/**
 depends_on: [ workflow-task-publish-operation, deterministic-task-projection, step-executor-guard, human-step-execution-operations ]
 semantic_references:
-  decisions: [D10, D13]
+  decisions: [D10, D13, D15, D18]
 ---
 
 # Task: Execution readiness policy
@@ -34,7 +36,12 @@ semantic_references:
 Build `ExecutionReadiness` (D10) — composing `TaskProjection` with the executor guard and
 the engine's own, already-correct activation preconditions (D13) — and wire it into
 `workflow step start`, `startHumanStep`, and the session-creation server route, without
-reimplementing anything `ensureStepActivated` already does.
+reimplementing anything `ensureStepActivated` already does. Also correct, in place, the two
+real bugs D18 found in `tools/dashboard/server/ai/sessions/service.mjs`: a single-item
+contextual `taskIds` silently becoming a session's authoritative `activeTaskId`, and a
+reachable `'implementation'` fallback in the turn-bootstrap path — without redesigning that
+file's already-correct `resolveDeterministicWorkflowInfo()`/`formatNevoWorkflowContext()`
+mechanism.
 
 ## Dependencies
 
@@ -79,9 +86,12 @@ that operation to already exist.
   `tools/dashboard/server/ai/sessions/{routes,service,binding-service}.mjs` first to
   establish whether a server-side readiness re-check already exists for deterministic
   execution-bound sessions; wire it to call this same policy function specifically for the
-  "Start implementation"/"Start review" entry points (`specification-detail-content.tsx`'s
-  `handleWorkflowAction`, `agent-session-page.tsx`'s `handleStartReviewTask`, server-side) —
-  not at `CreateAgentSessionDialog`'s generic, contextual-`taskIds` path.
+  agent-step entry points (`specification-detail-content.tsx`'s `handleWorkflowAction`,
+  `agent-session-page.tsx`'s `handleStartReviewTask`, server-side) — not at
+  `CreateAgentSessionDialog`'s generic, contextual-`taskIds` path. This task does not
+  construct or influence the session's initial trigger message — that stays a generic,
+  step-id-agnostic message owned by the client-side entry points
+  (`session-bootstrap-readiness-wiring`, task 15).
 - **Human-owned step:** no session route is involved at all (item 5 — starting a human step
   never creates or binds a session). The readiness composition for this case is wired
   directly into `startHumanStep`'s own implementation
@@ -94,6 +104,28 @@ that operation to already exist.
 - Only requests carrying an authoritative execution task id are subject to this check — a
   session with only contextual `taskIds` (including a draft task, no authoritative
   `taskId`) must never be checked against this policy.
+- **D18 fix 1 — `primaryTaskId` single-task bug, `AgentSessionService#createSession()`:**
+  remove the `taskIds.length === 1 ? taskIds[0] : undefined` branch entirely —
+  `const primaryTaskId = options.taskId;`. Update the adjacent comment, which currently
+  argues *for* the removed behavior ("a single associated task is unambiguous and may
+  become the active task") — that argument is exactly what this fix rejects. This affects
+  the `explicitActiveTaskId`/`bindSession` calls and the returned `activeTaskId`
+  downstream, unchanged in their own logic — only the one input value changes.
+- **D18 fix 2 — `'implementation'` fallback removal:** `formatNevoWorkflowContext`'s
+  `step`/`attempt` parameters lose their default values (`= 'implementation'`, `= 1`) and
+  become required — the function throws (e.g. a clear `TypeError`/explicit validation
+  error) if either is missing, rather than silently formatting a fabricated value. The
+  turn-bootstrap path's `bootstrapToRecord.step`/`.attempt` construction drops its own
+  `|| 'implementation'`/`?? 1` fallbacks the same way. The automatic,
+  `resolveDeterministicWorkflowInfo()`-driven path is unaffected by this change — that
+  function already never returns a `workflowInfo` without a real, resolved `step`; only an
+  explicit `workflowContext` override object missing `step` newly fails instead of silently
+  defaulting.
+- **D18 fix 3 — generic bootstrap wording:** change "When implementation and verification
+  are complete, inspect StepContext.finishContract.parameters and run:" to "When the current
+  step's work and required verification are complete, inspect
+  StepContext.finishContract.parameters and run:" in `formatNevoWorkflowContext`'s output —
+  the bootstrap text must never imply every agent step is implementation.
 
 ## Acceptance criteria
 
@@ -105,9 +137,9 @@ that operation to already exist.
 - `workflow step start <change> <task>` against a human-owned current step fails closed via
   the reused executor guard, not a second implementation.
   `automated: node --test tools/tests/execution-readiness-policy.test.mjs`
-- A "Start implementation"/"Start review" session-creation request naming an authoritative
-  execution task id that is not ready is refused server-side even when sent directly,
-  bypassing any UI-hidden button (brief regression test #9).
+- An agent-step session-creation request naming an authoritative execution task id that is
+  not ready is refused server-side even when sent directly, bypassing any UI-hidden button
+  (brief regression test #9).
   `automated: node --test tools/tests/execution-readiness-policy.test.mjs`
 - A `startHumanStep` call against an authoritative task id that is not ready (unpublished,
   unsatisfied dependency, terminal) is refused, with no session ever created or bound in
@@ -127,6 +159,21 @@ that operation to already exist.
 - `workflow step start`/session creation against a ready, published, dependency-satisfied,
   correctly-executor-matched task is unaffected — no new failure introduced for the
   already-working path. `automated: node --test tools/tests/workflow-cli.test.mjs`
+- A session created with `{ taskIds: ['draft-task'] }` (exactly one contextual task, no
+  `taskId`) results in `activeTaskId: undefined`/`taskId: undefined` on the returned
+  session — not `'draft-task'` — and creation succeeds even though `draft-task` is not
+  executable (item 9; this is a *new* regression, distinct from the existing zero-task and
+  multi-task coverage).
+  `automated: node --test tools/dashboard/tests/session-task-bootstrap.test.mjs`
+- `formatNevoWorkflowContext({ changeSlug, taskId })` (no `step`/`attempt`) throws rather
+  than formatting `'implementation'`/`attempt 1`. Calling it with explicit `step: 'hardening'`
+  formats that value verbatim, with no `'implementation'` substring anywhere in the output,
+  and its wording reads "When the current step's work and required verification are
+  complete…", not "When implementation and verification are complete…".
+  `automated: node --test tools/dashboard/tests/session-task-bootstrap.test.mjs`
+- The automatic, `resolveDeterministicWorkflowInfo()`-driven bootstrap path is unaffected by
+  fix 2 — a real deterministic task session still injects the correct, real `step`/`attempt`
+  exactly as before. `automated: node --test tools/dashboard/tests/agent-session-workflow.test.mjs`
 
 ## Verification
 
@@ -134,6 +181,8 @@ that operation to already exist.
 node --test tools/tests/execution-readiness-policy.test.mjs
 node --test tools/tests/workflow-step-context.test.mjs
 node --test tools/tests/workflow-cli.test.mjs
+node --test tools/dashboard/tests/session-task-bootstrap.test.mjs
+node --test tools/dashboard/tests/agent-session-workflow.test.mjs
 node tools/specs.mjs validate
 ```
 

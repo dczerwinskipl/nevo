@@ -44,8 +44,10 @@ both features today — this area's component fits the same existing pattern, no
   outcomes, calling `onSubmit(result?, feedback?, artifacts?)` for the chosen one — omitting
   `result` entirely for a single unconditional transition, never fabricating a placeholder
   value. For a step still `waiting-for-step-start` (`interaction` null, `stepDescriptor`
-  present), it shows the generic descriptor and a "Start human step" control calling
-  `onStart()`. It must **not**: import from `features/specifications` or
+  present), it shows the generic descriptor and a generic "Start" control calling
+  `onStart()` — the label is generic (D15's `start-step`, not step- or executor-specific
+  wording); the surface never says "Start human step" or any other step-id/executor-derived
+  phrase. It must **not**: import from `features/specifications` or
   `features/agent-sessions`; fetch directly; know the route URL; know `'approve'`/
   `'request-changes'`; or know a literal workflow step id — every one of these stays the
   caller's responsibility, passed in as props/callbacks.
@@ -69,8 +71,11 @@ both features today — this area's component fits the same existing pattern, no
   projection's non-null result (either tier) — never `currentStep === 'human-verification'`
   or any other literal step-name/id check.
 - `TaskDialog` also gains general deterministic projection awareness (current step,
-  executor, `waiting-for-step-start` shown honestly — e.g. "Ready for review"/"[Start
-  review]," never a fabricated active state — blocking dependencies, available actions from
+  executor, `waiting-for-step-start` shown honestly via the generic step descriptor and a
+  generic "Start" control — e.g. "Human action required — <purpose> — [Start]" for a
+  waiting human step, the identical generic wording for a waiting agent step (D15) — never a
+  fabricated active state, and never "Ready for review"/"Start review" or any other
+  step-id-derived label — blocking dependencies, available actions from
   `DashboardActionProjection`), with `HumanStepSurface` rendered prominently/as default
   content when a human decision is pending or awaiting activation.
 - Legacy `TaskDialog` behavior (the existing `TaskActionFooter` path) is unchanged.
@@ -113,9 +118,11 @@ adapter, neither imports the other.
   particular, no `features/specifications` file imports anything from
   `features/agent-sessions` (or vice versa), and no `shared/**` file imports from any
   feature/screen/route/app.
-- `TaskDialog` opened on a deterministic task with implementation finished and the next
-  (human or agent) step not yet started shows "Ready for review"/"[Start review]" (or the
-  equivalent for an agent next step), never a fabricated active state.
+- `TaskDialog` opened on a deterministic task whose current step finished and the next
+  (human or agent) step not yet started shows the generic step descriptor and a generic
+  "[Start]" control — identical wording regardless of whether the next step is `review`,
+  `hardening`, or any other id — never a fabricated active state, and never "Ready for
+  review"/"Start review" as a special case.
 - `TaskDialog`'s legacy rendering path is byte-for-byte unchanged.
 - Submitting a result through the surface from either entry point calls the generic
   `workflow/human-step` transport (via that feature's own adapter hook, both ultimately

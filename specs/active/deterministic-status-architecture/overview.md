@@ -107,6 +107,34 @@ left for every downstream consumer to re-derive — task 07 now makes normalizat
 materialize the canonical `executor` value on every step, so nothing downstream needs an
 `undefined`/absent case.
 
+**Corrective pass 5 (2026-09-19, D15 superseded, D18): the deterministic workflow step —
+not "implementation"/"review" — has always been the abstraction.** A fresh review found
+that pass 4's own D15 ("transitional UI adapter" mapping `implementation`/`review` to
+edit-mode/agent-mode dispatch) was itself an architectural mistake, not a bounded stopgap:
+isolating a step-id lookup at one call site is still a step-id lookup, and by pass 4 it had
+already spread — `start-agent-step`/`start-human-step` as distinct action ids,
+"review-appropriate lane," "Ready for review," "Start review" — into areas/tasks that
+treated it as load-bearing target behavior rather than a narrow, disposable gap. This pass
+supersedes D15 outright (never amended in place — the whole *question* was wrong, not just
+its answer) and adds D18: **one** generic lifecycle action, `start-step`, replaces
+`start-agent-step`/`start-human-step`/`start-implementation`/`start-review` everywhere;
+`executor` still determines the execution *protocol* (agent session vs. `startHumanStep`,
+D12/D16, unchanged), never the step's *meaning*; no `switch`/`if`/lookup keyed on a literal
+step id may exist anywhere in `TaskProjection`, `ExecutionReadiness`,
+`DashboardActionProjection`, session-bootstrap client code, or board/lane projection; an
+agent session's initial trigger is one generic, visible message, never a step-id-derived
+semantic prompt — the real work contract continues to come entirely from the *existing*,
+already-correct `StepContext`/`finishContract` mechanism (`compileStepContext()`,
+`resolveDeterministicWorkflowInfo()` + `formatNevoWorkflowContext()` in
+`tools/dashboard/server/ai/sessions/service.mjs`), which needed no redesign, only two real,
+grounded bugs fixed in place: a single-item contextual `taskIds` array was silently
+promoted to a session's authoritative `activeTaskId` (contradicting this change's own
+"contextual selection is never authoritative" principle), and an explicit
+`workflowContext` override missing its own `step` could still surface the literal string
+`'implementation'` via unused-in-the-automatic-path default parameters. Board/lane
+projection is corrected the same way: lane derives from `TaskProjection.state` (and,
+where genuinely useful, `executor`), never from `currentStep`.
+
 ## Current architecture
 
 Grounded in repository discovery (2026-09-17, deepened 2026-09-19 by reading the actual
@@ -301,6 +329,25 @@ engine source directly):
     `isTaskReady` elsewhere.
 18. A human step's single unconditional transition has no `result` to submit — nothing
     previously said whether to omit it or fabricate one.
+19. Pass 4's own "explicitly transitional" `implementation`/`review` dispatch adapter was
+    itself a step-id special case, not a bounded stopgap — isolating a lookup at one call
+    site doesn't stop it from breaking the moment a definition adds a third agent step, and
+    by the time it was found, `start-agent-step`/`start-human-step`, "review-appropriate
+    lane," and "Ready for review" had already spread it into several areas/tasks as if it
+    were generic target behavior.
+20. The board/lane requirements contradicted themselves — "derive lane from
+    `TaskProjection.state`" alongside "a `review` step lands in a review-appropriate lane"
+    cannot both be true for two different `active` steps named `review` and `hardening`.
+21. `AgentSessionService#createSession()` silently promotes a single-item contextual
+    `taskIds` array to the session's authoritative `activeTaskId` — `{ taskIds:
+    ['draft-task'] }` alone should never become execution intent, regardless of list
+    length, and the existing code's own comment argues for exactly the assumption this
+    change rejects.
+22. `formatNevoWorkflowContext`'s own default parameters, and a fallback in
+    `AgentSessionService`'s turn-bootstrap path, can still surface the literal string
+    `'implementation'` for a caller-supplied `workflowContext` override missing its own
+    `step` — dead weight contradicting "never fabricate `step`/`attempt`," even though the
+    automatic, `resolveDeterministicWorkflowInfo()`-driven path is unaffected.
 
 ## Constraints
 
@@ -329,9 +376,16 @@ engine source directly):
   extracted vocabulary for legacy callers; no deterministic module imports it directly
   after this change (D8) — legacy consumption of it is unaffected.
 - `tools/dashboard/server/specs/**`, including `actions.mjs` explicitly (deterministic
-  action DTO wiring, tier-1 descriptor, generic `start-agent-step` action, and
+  action DTO wiring, tier-1 descriptor, the one generic `start-step` action, D15, and
   legacy/deterministic mutation split), `routes.mjs` (new generic `workflow/human-step`
-  transport route, D14), `data.mjs`/`status-stages.mjs` (board/lane projection).
+  transport route, D14), `data.mjs`/`status-stages.mjs` (board/lane projection, corrected to
+  read only `TaskProjection.state`, never `currentStep`, D15).
+- `tools/dashboard/server/ai/sessions/service.mjs` (D18 — the `primaryTaskId` single-task
+  bug and the `'implementation'` fallback, both corrected in place; the existing
+  `resolveDeterministicWorkflowInfo()`/`formatNevoWorkflowContext()` bootstrap mechanism
+  itself is unchanged).
+- `tools/dashboard/ui/features/specifications/types.ts` (frontend DTO type, corrected to the
+  new projection shape, D18).
 - `tools/dashboard/ui/features/specifications/**`, `tools/dashboard/ui/features/agent-sessions/**`
   (UI composition-boundary split, each with its own thin `human-step-mutations.ts` adapter,
   D17), `tools/dashboard/ui/shared/workflow/human-step-surface.tsx` (the shared, prop-driven
@@ -375,14 +429,21 @@ implementation), D13 (the resume-vs-new-attempt distinction already exists in
 `ensureStepActivated` and is preserved, not reimplemented), D14 (one generic
 `workflow/human-step` route/transport, `{action: 'start'|'submit'}`, is the one thing
 `HumanStepSurface` calls — the existing `/workflow/human-decision` route stays only for
-CLI-compatibility callers), D15 (agent-step dispatch stays a small, explicitly transitional
-UI-only adapter — the core projection exposes one generic `start-agent-step` action, never
-per-step-name action ids), D16 (a human step's unconditional transition submits with no
-`result` — never a fabricated placeholder value), D17 (`HumanStepSurface` lives in
-`shared/workflow/`, purely prop-driven; its transport is one neutral `shared/lib` function
-plus one thin adapter hook per consuming feature — never a feature-owned component/hook the
-sibling feature imports directly, which the repository's own
-`architecture-boundaries.test.mjs` forbids).
+CLI-compatibility callers), D15 (**superseded, corrective pass 5** — one generic `start-step`
+lifecycle action replaces `start-agent-step`/`start-human-step`/`start-implementation`/
+`start-review`; no step-id dispatch anywhere in projection, readiness, DTO, session
+bootstrap, or board/lane projection; an agent session's initial trigger is a generic
+message, never a step-id-derived semantic prompt — the real work contract stays entirely in
+the existing `StepContext`/`finishContract` mechanism), D16 (a human step's unconditional
+transition submits with no `result` — never a fabricated placeholder value), D17
+(`HumanStepSurface` lives in `shared/workflow/`, purely prop-driven; its transport is one
+neutral `shared/lib` function plus one thin adapter hook per consuming feature — never a
+feature-owned component/hook the sibling feature imports directly, which the repository's
+own `architecture-boundaries.test.mjs` forbids), D18 (frontend DTO type owned by
+`session-bootstrap-readiness-wiring`; two real, grounded bugs in
+`tools/dashboard/server/ai/sessions/service.mjs` — a single-item contextual `taskIds`
+silently becoming authoritative, and a reachable `'implementation'` fallback — corrected in
+place, owned by `execution-readiness-policy`).
 
 ## Proposed architecture
 
@@ -471,7 +532,9 @@ explicit `outcome: success` — D9, resolved from `workflow_progress.history`'s 
 against the definition, never legacy `implemented`/`verified` status alone, never a "terminal
 step" that doesn't exist in this engine), a generic current/next-step descriptor (`{id,
 executor, purpose, expectedWork}`, available even before activation so the UI can render
-"Human action required — <purpose> — [Start human step]" without hardcoding a step id), and
+"Human action required — <purpose> — [Start]" (or the identical, generic "[Start]" for a
+waiting agent step — D15, no step-id-derived wording either way) without hardcoding a step
+id), and
 — only while a human step is actually active — its interaction-actions descriptor (`actions:
 [{result?, label, feedbackRequired}]` — `result` present only for a conditional step's
 transitions, absent for a single unconditional one, D16 — straight from that step's
@@ -502,15 +565,17 @@ confirmed `computeTaskAvailableActions()`/`computeTaskWorkflowProjection()` — 
 hardcode `wp.current_step === 'implementation'`/`'review'`/`'human-verification'` and
 literal action ids `'approve'`/`'request-changes'`/`'start-review'`/`'start-implementation'`
 — with: state, executor, attempt, blocked-by, terminal outcome, an explicit
-**current/next-step descriptor** (`{id, executor, purpose, expectedWork}`, D15's "carry
-tier-1 through the DTO" fix — present for the relevant target step whether or not it's
-activated yet, so `HumanStepSurface` never has to reconstruct `purpose`/`expectedWork` from
-a step id), human-step interaction metadata (tier 2, only once active), and
-`availableActions` expressed as one **generic** action per possibility — `start-agent-step`
-(agent steps, carrying the step descriptor — D15, never `start-implementation`/
-`start-review` as distinct hardcoded ids), `start-human-step`, `submit-human-step-result` —
-never a step-name-derived action id. `HumanStepSurface` reaches `startHumanStep`/
-`submitHumanStepResult` through one new, generic transport route,
+**current/next-step descriptor** (`{id, executor, purpose, expectedWork}`, present for the
+relevant target step whether or not it's activated yet, so `HumanStepSurface` never has to
+reconstruct `purpose`/`expectedWork` from a step id), human-step interaction metadata
+(tier 2, only once active), and **one generic lifecycle action** — `availableActions:
+["start-step"]` (a plain string, D15 superseding the original D14/D15 wording that had
+proposed `start-agent-step`/`start-human-step` as separate ids) — present exactly when the
+current position is waiting for a start and `ExecutionReadiness` allows it, for **either**
+executor; the caller reads the step descriptor's own `executor` to know which execution
+protocol `start-step` triggers, the action id itself never encodes it, and no application
+code anywhere derives `availableActions` by comparing a step id. `HumanStepSurface` reaches
+`startHumanStep`/`submitHumanStepResult` through one new, generic transport route,
 `POST .../workflow/human-step` (`{action: 'start'}` / `{action: 'submit', result?,
 feedback?, artifacts?}` — D14), returning structured domain/readiness/executor errors
 rather than an opaque failure; the existing `/workflow/human-decision` route (hardcoded
@@ -519,6 +584,30 @@ caller only. `actions.mjs`'s legacy (`approve`/`verify`/`finalize`) and determin
 mutation handling are split into separate implementations under shared composition/routing,
 resolving `workflowMode` once, with no cross-calls between them — covered by the same kind
 of import/call-boundary regression test as the CLI-level guard.
+
+**Agent-owned `start-step` never constructs a semantic prompt (D15).** Clicking `start-step`
+for an `executor: agent` task creates or reuses the task's authoritative execution session
+and sends one generic, visible trigger — conceptually "Execute the current workflow step
+for task `<task>`" — never "Implement task…"/"Review task…"/any wording derived from the
+step's id or purpose. The real work contract still comes entirely from the *existing*,
+unmodified bootstrap mechanism already implemented in
+`tools/dashboard/server/ai/sessions/service.mjs`: `resolveDeterministicWorkflowInfo()`
+resolves the task's authoritative current step/attempt from real `workflow_progress` (fail-
+closed — it throws rather than guessing), and `formatNevoWorkflowContext()` injects a hidden
+`[Nevo Workflow Context]` header instructing the agent to run
+`node tools/specs.mjs workflow step start <change> <task>` before touching any file — that
+command's own `StepContext` (`currentStep`, `attempt`, `instructions`,
+`stepContract.purpose`/`.expectedWork`/`.hints`, `expectedWork.allowedPaths`/
+`.forbiddenPaths`, `relevantDocs`, `previousTransition`, `finishContract`) is the one and
+only place step-specific instructions come from — the dashboard never builds a second,
+parallel instruction system. This pass corrects two real bugs in that same file rather than
+redesigning it (D18): `formatNevoWorkflowContext`'s own default parameters and a
+turn-bootstrap fallback could still surface the literal string `'implementation'` for an
+explicit `workflowContext` override missing its own `step` — removed, fail-closed instead;
+and `AgentSessionService#createSession()`'s `primaryTaskId` computation silently promoted a
+single-item contextual `taskIds` array to the session's authoritative `activeTaskId` —
+removed, so contextual `taskIds` of any length (0, 1, or many) never sets it. Neither fix
+touches the correct, already-generic parts of this mechanism.
 
 The dashboard UI composition splits only at the lifecycle-specific surfaces — shared shell,
 navigation, docs, PR info, sessions, chat runtime, and `TaskDetails`'s container role stay
@@ -568,12 +657,13 @@ deterministic spec.
   activation preconditions (D10, D13), plus session/chat bootstrap wiring.
 - `areas/dashboard-server-actions-wiring.md` — `DashboardActionProjection`, wiring
   `TaskProjection` + `ExecutionReadiness` into `tools/dashboard/server/specs/actions.mjs`'s
-  actual action DTO (D10, carrying the tier-1 step descriptor and a generic
-  `start-agent-step` action, D15), the new generic `workflow/human-step` transport route
+  actual action DTO (D10, carrying the tier-1 step descriptor and the one generic
+  `start-step` action, D15), the new generic `workflow/human-step` transport route
   `HumanStepSurface` calls (D14), and splitting `actions.mjs`'s legacy/deterministic
   mutation implementations.
-- `areas/ui-dashboard-board-split.md` — deterministic-aware board/lane projection and
-  `TaskCard`'s full visible-state split, reading from the corrected action DTO.
+- `areas/ui-dashboard-board-split.md` — deterministic-aware board/lane projection, derived
+  only from `TaskProjection.state` (never `currentStep`, D15), and `TaskCard`'s full
+  visible-state split, reading from the corrected action DTO.
 - `areas/human-step-surface.md` — one reusable `HumanStepSurface`, consumed by both
   `TaskDialog` and chat (D7, D11).
 - `areas/skills-instruction-split.md` — removes legacy-only assumptions from shared
@@ -593,6 +683,11 @@ deterministic spec.
   common UI shells) is unaffected for both modes.
 - No task in this change removes `task.status` from the schema, adds a new external
   dependency, or changes CI/CD configuration.
+- No file in `tools/specs/workflow/**` (projection/readiness/DTO layers), the dashboard
+  server's deterministic action derivation, the client-side session-bootstrap/board-lane
+  code, or `HumanStepSurface` contains a `switch`/`if`/lookup-object keyed on a literal
+  workflow step id — a newly authored agent-owned step (any id) works with zero
+  application-code changes (D15; verified concretely by task 15's generic fixture, item 15).
 
 ## Verification strategy
 
@@ -627,7 +722,9 @@ D9 adds; a full artifact/handover-attachment system on the human-step projection
 `HumanStepSurface` into entry points beyond `TaskDialog` and chat (task board,
 timeline/notifications remain future work); any change to `entryGates`/`exitGates`' own
 engine or to the `workflow verify-human --confirm` gate-confirmation path; a real,
-declarative per-step agent-dispatch metadata system (the transitional UI adapter, D15,
-deliberately stays small and isolated instead); full archetype/handover/provider-selection
-design for agent orchestration; removal or redesign of the existing
+declarative per-step agent-dispatch/execution-mode metadata system (D15 — `start-step` uses
+one consistent existing session/provider default for every agent step, independent of
+which step it is; no per-step mode/archetype is designed here, and no step-id-keyed
+adapter of any size is introduced to work around that); full archetype/handover/
+provider-selection design for agent orchestration; removal or redesign of the existing
 `/workflow/human-decision` route and its CLI-compatibility callers.

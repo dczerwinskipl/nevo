@@ -237,8 +237,7 @@
 ## D10: Three-layer separation — pure projection, readiness, dashboard action DTO
 
 - **Question:** Should the canonical deterministic task projection also own
-  runtime-dependent "available application actions" (Start implementation / Start review /
-  Start human step), or should that be a separate layer?
+  runtime-dependent "available application actions," or should that be a separate layer?
 - **Decision:** Three explicit layers, each with one owner: **`TaskProjection`** (pure
   workflow/domain state only — `state`, `currentStep`, `nextStep`, `executor`, `attempt`,
   `blockedBy`, terminal outcome, plus a generic current/next-step descriptor and, only
@@ -247,12 +246,13 @@
   (task 13 — composes `TaskProjection` with the executor guard and the *existing*
   activation-precondition checks already implemented by `ensureStepActivated`, reused not
   duplicated per D13) → **`DashboardActionProjection`** (task 14 — composes both into the
-  actual `availableActions` the UI renders: "Start implementation," "Start review," "Start
-  human step," "Submit result," etc.).
+  actual `availableActions` the UI renders — one generic `"start-step"` when the current
+  position is waiting and readiness allows it, never a per-step or per-executor action id;
+  see D15 for why even `start-agent-step`/`start-human-step` were too specific).
 - **Rationale:** Avoids a circular responsibility where the "pure" projection has to know
-  about git worktree state or session binding to answer "is Start implementation
-  available" — that question genuinely depends on more than workflow-definition state, and
-  conflating the two made `TaskProjection` neither pure nor complete.
+  about git worktree state or session binding to answer "can the current step start" —
+  that question genuinely depends on more than workflow-definition state, and conflating
+  the two made `TaskProjection` neither pure nor complete.
 - **Consequences:** `deterministic-task-projection` (task 12) never returns
   `availableActions`. Every consumer that previously would have read "available actions"
   from the projection now reads it from the dashboard action DTO (task 14), which itself
@@ -397,37 +397,168 @@
   `areas/dashboard-server-actions-wiring.md`, `areas/human-step-surface.md`,
   `tasks/16-dashboard-human-step-transport.md`, `tasks/20-human-step-surface-consolidation.md`.
 
-## D15: Agent-step dispatch stays an isolated, explicitly transitional UI adapter
+## D15: One generic `start-step` action; no step-id dispatch anywhere — the workflow step, not "implementation"/"review", has always been the abstraction (supersedes the 2026-09-19 "transitional adapter" version of this decision)
 
-- **Question:** `executor: agent` alone doesn't tell the application *how* to dispatch a
-  given agent step — today's UI genuinely behaves differently for `implementation` (edit
-  mode) vs. `review` (agent mode), and `DashboardActionProjection`'s old design
-  (`start-implementation`/`start-review` as distinct action ids) silently depended on that
-  without ever stating it. Should the core projection/server encode this, or should it
-  stay generic and push the difference somewhere else?
-- **Decision:** `TaskProjection`/`DashboardActionProjection` expose one generic action,
-  `{ type: 'start-agent-step', step: { id, purpose, expectedWork, ... } }` — never
-  `start-implementation`/`start-review` as distinct hardcoded action ids, and the server
-  never derives an action type by comparing literal step names. A small, explicitly
-  transitional adapter lives at the UI boundary only (`session-bootstrap-readiness-wiring`,
-  task 15, which already owns `specification-detail-content.tsx`) mapping today's two known
-  step ids (`implementation`, `review`) to today's two dispatch behaviors (edit-mode vs.
-  agent-mode session creation, prompt wording) — clearly commented as a temporary,
-  standard-workflow-specific mapping, not canonical workflow semantics, pending real
-  declarative dispatch metadata in a future change.
-- **Rationale:** The alternative — teaching the core projection about `implementation`/
-  `review` specifically — is exactly the step-name hardcoding this whole change exists to
-  remove; isolating the necessary, real, current UX difference at the one place that
-  already has to know about it (the UI's own session-bootstrap call site) is honest about
-  what's actually generic today versus what's a known, bounded gap.
-- **Consequences:** No new archetype/handover/provider-selection system is designed (out of
-  scope, unchanged). The adapter is small enough to delete outright once real per-step
-  dispatch metadata exists.
-- **Date:** 2026-09-19
-- **Affected artifacts:** `areas/dashboard-server-actions-wiring.md`,
+- **Question (original, now rejected):** `executor: agent` alone doesn't tell the
+  application *how* to dispatch a given agent step — today's UI genuinely behaves
+  differently for `implementation` (edit mode) vs. `review` (agent mode). The original
+  version of this decision answered that by keeping a small, "explicitly transitional"
+  `implementation`/`review` → dispatch-mode lookup at the UI boundary
+  (`session-bootstrap-readiness-wiring`). A fresh review found that answer itself wrong:
+  isolating a step-id lookup at one boundary is still a step-id lookup — it still breaks
+  the moment a definition adds a third agent step (`discovery`, `hardening`, anything), and
+  every one of this change's own areas/tasks that referenced it (`start-agent-step`,
+  `start-human-step`, "review-appropriate lane," "Ready for review") had already started
+  treating that lookup as load-bearing rather than a narrow, disposable stopgap. The
+  question was wrong at the root: the application does not need to know *how* to dispatch a
+  step at all — only that a step exists, who executes it, and (for an agent step) that a
+  session should run `workflow step start` and let the returned `StepContext` supply the
+  actual instructions.
+- **Grounded fact (2026-09-19, second read):** `compileStepContext()`
+  (`tools/specs/workflow/step-context.mjs`) already returns, for the authoritative current
+  step, everything an agent needs to act: `currentStep`, `attempt`, `instructions`,
+  `stepContract.purpose`/`.expectedWork`/`.hints`, `expectedWork.allowedPaths`/
+  `.forbiddenPaths`, `relevantDocs`, `previousTransition`, `entryState`, `finishContract`.
+  `AgentSessionService`'s existing `resolveDeterministicWorkflowInfo()` +
+  `formatNevoWorkflowContext()` (`tools/dashboard/server/ai/sessions/service.mjs`) already
+  inject a hidden `[Nevo Workflow Context]` header into a session's first turn instructing
+  the agent to run `node tools/specs.mjs workflow step start <change> <task>` before
+  touching any file — this mechanism is real, already fail-closed for the *task/step
+  resolution* itself (`resolveDeterministicWorkflowInfo` throws
+  `AiDeterministicWorkflowUnavailableError` rather than guessing), and needs no redesign.
+  There is no second, dashboard-owned instruction system to invent — one already exists and
+  is authoritative.
+- **Decision:**
+  1. **One generic lifecycle action.** `DashboardActionProjection` exposes
+     `availableActions: ["start-step"]` (a plain string, D14's `availableActions?: string[]`
+     shape, not a new object-union type) for a task in `waiting-for-step-start` when
+     `ExecutionReadiness` allows it — never `start-agent-step`, `start-human-step`,
+     `start-implementation`, or `start-review` as distinct action identifiers. `executor`
+     (already carried on the step descriptor) tells the *caller* which execution protocol
+     `start-step` triggers — it is never encoded into the action id itself.
+  2. **No step-id dispatch, anywhere, full stop.** No `switch`/`if`/lookup-object keyed on
+     `step.id` (or `currentStep`/`nextStep` as a string) may exist in `TaskProjection`,
+     `ExecutionReadiness`, `DashboardActionProjection`, the session-bootstrap client code,
+     or the board/lane projection. A newly authored agent-owned step (`discovery`,
+     `hardening`, anything) must work with zero application code changes — this is the
+     concrete, testable bar (item 15's generic fixture requirement).
+  3. **Session bootstrap sends a generic trigger, never a semantic prompt.** Clicking
+     `start-step` for an `executor: agent` step creates/reuses the task's authoritative
+     execution session and sends one generic, visible message — conceptually "Execute the
+     current workflow step for task `<task>`" — never "Implement task…"/"Review task…"/any
+     step-id-derived semantic prompt. The *actual* work contract still comes from the
+     existing `[Nevo Workflow Context]` injection → `workflow step start` → `StepContext`,
+     unchanged (this decision does not touch that mechanism beyond removing its two
+     `'implementation'` defaults — see the affected-artifacts task for the exact fix). The
+     application layer knows "this is deterministic task execution"; it must not know "this
+     is implementation" / "this is review" / "this is discovery" as semantic categories.
+  4. **Human-owned steps are unaffected in kind, only in naming.** `start-step` +
+     `executor: human` still routes through `startHumanStep` (no AI session, D12,
+     unchanged); an active human step's selectable results still come entirely from
+     `transitions[].action` (D5/D6, unchanged) via the human-interaction descriptor —
+     `availableActions` never duplicates or replaces that descriptor's own `result`/`label`
+     values.
+  5. **Board/lane projection is corrected to match.** A deterministic task's lane derives
+     only from `TaskProjection.state` (`draft`/`blocked`/`ready`/`waiting-for-step-start`/
+     `active`/`human-interaction`/`terminal`) and, if genuinely needed for presentation,
+     `executor` — never `currentStep`. If the legacy six lane ids are reused as
+     compatibility/presentation buckets for deterministic tasks, that reuse is explicitly
+     documented as a presentation convenience, not workflow-step semantics — an `active`
+     `review` task and an `active` `hardening` task land in the same bucket. There is no
+     dedicated "review lane."
+- **Rationale:** The workflow *step* — not "implementation" or "review" — has always been
+  this architecture's actual abstraction (D5's whole premise). A per-step dispatch lookup,
+  however small or "transitional" its label, is a step-id special case by construction, and
+  this change already has one working, generic instruction mechanism
+  (`StepContext`/`finishContract`) that makes a second one (semantic prompts, per-step UI
+  labels, per-step lane buckets) both redundant and actively wrong the moment a
+  non-`implementation`/`review` agent step is authored.
+- **Consequences:** Every area/task that referenced `start-agent-step`/`start-human-step`/
+  `start-implementation`/`start-review`/an `implementation`↔`review` dispatch mapping/
+  "review-appropriate lane"/"Ready for review" as *target* behavior is corrected to the
+  generic model above (see the full file list in this pass's own audit, tracked outside
+  this decision record). No new archetype/handover/provider-selection/per-step-mode system
+  is designed (still out of scope) — `start-step` for an agent step uses one consistent
+  existing session/provider default, independent of which step it is, exactly as before
+  this correction, just never keyed on step id to *choose* that default.
+- **Date:** 2026-09-19 (supersedes the earlier 2026-09-19 version of D15)
+- **Affected artifacts:** `overview.md`, `areas/dashboard-server-actions-wiring.md`,
   `areas/execution-readiness-and-session-bootstrap.md`,
+  `areas/deterministic-projection-and-human-step.md`, `areas/ui-dashboard-board-split.md`,
+  `areas/human-step-surface.md`, `tasks/13-execution-readiness-policy.md`,
   `tasks/14-dashboard-deterministic-action-projection.md`,
-  `tasks/15-session-bootstrap-readiness-wiring.md`.
+  `tasks/15-session-bootstrap-readiness-wiring.md`,
+  `tasks/18-deterministic-board-lane-projection.md`,
+  `tasks/19-task-card-lifecycle-split.md`,
+  `tasks/20-human-step-surface-consolidation.md`.
+
+## D18: Frontend DTO type ownership, and two real, grounded bugs in the existing session service corrected in place
+
+- **Question:** The corrected server projection (D10/D15) needs a matching frontend
+  TypeScript type — `tools/dashboard/ui/features/specifications/types.ts` still only models
+  the pre-correction shape (`status`/`currentStep`/`attempt`/`workflowState`/
+  `availableActions?: string[]`). Which task owns updating it? Separately, a fresh read of
+  the actual `tools/dashboard/server/ai/sessions/service.mjs` (not merely the spec's
+  description of it) found two real, already-existing bugs relevant to this change's own
+  "contextual `taskIds` is never authoritative" and "never fabricate `step`" principles —
+  which task corrects them?
+- **Grounded fact (2026-09-19):** `AgentSessionService#createSession()` computes
+  `const primaryTaskId = options.taskId || (taskIds.length === 1 ? taskIds[0] : undefined);`
+  — a single-item contextual `taskIds` array **is** silently promoted to the session's
+  authoritative `activeTaskId`/`taskId`, contradicting this change's own "contextual
+  `taskIds` is never authoritative execution intent, regardless of list length" principle
+  (`areas/execution-readiness-and-session-bootstrap.md`) — the existing code comment
+  arguing for this ("a single associated task is unambiguous and may become the active
+  task") is exactly the assumption this change rejects. Separately,
+  `formatNevoWorkflowContext({ ..., step = 'implementation', attempt = 1 })`'s own default
+  parameters, and the `step: deterministicWorkflowInfo?.step || opts.workflowContext?.step
+  || 'implementation'` fallback in `AgentSessionService`'s turn-bootstrap path, can inject
+  the literal string `'implementation'` for a caller-supplied `workflowContext` override
+  object that omits its own `step` — the *automatic*, `resolveDeterministicWorkflowInfo()`-driven
+  path is unaffected (that function already fails closed and never returns a workflowInfo
+  without a real, resolved `step`), but the fallback values themselves are still dead
+  weight that contradicts "never fabricate `step`/`attempt`" and must not remain reachable.
+  The turn-bootstrap wording "When implementation and verification are complete…" also
+  literally names "implementation" as if every agent step were that one.
+- **Decision:**
+  1. **Frontend DTO type**: `session-bootstrap-readiness-wiring` (task 15) owns updating
+     `types.ts` to the corrected shape (`state`, `executor`, current/next step descriptor,
+     `blockedBy`, terminal outcome, human-interaction descriptor, `availableActions?:
+     string[]` kept generic) — it is the first frontend task in dependency order that
+     actually needs the corrected DTO (it builds the generic agent-execution bootstrap
+     against it). `task-card-lifecycle-split` (19) and `human-step-surface-consolidation`
+     (20), both later consumers of the same type, add a dependency on task 15 for it.
+  2. **`primaryTaskId` single-task bug**: remove the `taskIds.length === 1 ? taskIds[0] :
+     undefined` branch entirely — `const primaryTaskId = options.taskId;`. A session's
+     `activeTaskId`/`taskId` is authoritative if and only if the caller explicitly supplied
+     `options.taskId`; contextual `taskIds` of any length (0, 1, or many) never sets it.
+  3. **`'implementation'` fallback removal**: `formatNevoWorkflowContext` requires
+     `step`/`attempt` as non-optional parameters (no default values) and throws if either is
+     missing, rather than silently defaulting; the turn-bootstrap path's
+     `bootstrapToRecord.step`/`.attempt` construction drops the `|| 'implementation'`/`?? 1`
+     fallbacks the same way — an explicit `workflowContext` override missing its own `step`
+     is a caller error, not a guessable default. Generalize "When implementation and
+     verification are complete…" to "When the current step's work and required verification
+     are complete…".
+  4. Both service.mjs corrections are owned by `execution-readiness-policy` (task 13),
+     which already has `tools/dashboard/server/ai/sessions/**` in its allowed paths.
+- **Rationale:** These are the same two principles this whole change already establishes
+  (contextual selection is never authoritative; deterministic facts are never fabricated),
+  found not yet actually true in the one file that implements both — correcting them here
+  keeps the spec's own claims accurate against the real, current code rather than the
+  code's pre-existing (and, for the single-task case, actively wrong) behavior.
+- **Consequences:** New regression coverage: a session created with `taskIds: ['draft-task']`
+  and no `taskId` stays ordinary contextual chat — no `activeTaskId`, no readiness check, no
+  execution bootstrap, and it must not fail merely because that task isn't executable (this
+  is explicitly a *new* test case beyond the existing zero-task/multi-task coverage). An
+  explicit `workflowContext` override missing `step` now throws instead of silently
+  becoming `'implementation'`.
+- **Date:** 2026-09-19
+- **Affected artifacts:** `areas/execution-readiness-and-session-bootstrap.md`,
+  `tasks/13-execution-readiness-policy.md`,
+  `tasks/15-session-bootstrap-readiness-wiring.md`,
+  `tasks/19-task-card-lifecycle-split.md`,
+  `tasks/20-human-step-surface-consolidation.md`.
 
 ## D16: Unconditional human-step submission never fabricates a `result`
 

@@ -30,9 +30,10 @@ in `tools/specs/lifecycle-primitives.mjs`) is off-limits to this area entirely (
 - Exposes two tiers, kept structurally distinct (item 11):
   1. A **generic current/next-step descriptor**, always available regardless of activation
      state — `{ id, executor, purpose, expectedWork }`, read straight from the definition.
-     This is what lets the UI render "Human action required — <purpose> — [Start review]"
-     for a step in `waiting-for-step-start`, before it has ever been activated, without
-     hardcoding a step id.
+     This is what lets the UI render "Human action required — <purpose> — [Start]" (or the
+     identical generic wording for a waiting agent step, D15) for a step in
+     `waiting-for-step-start`, before it has ever been activated, without hardcoding a step
+     id.
   2. A **human interaction actions descriptor**, present only when that step is the
      *currently active* step (`workflow_progress.state === 'active'`) and its
      `executor === 'human'` — `{ actions: [{ result?, label, feedbackRequired }], artifacts?
