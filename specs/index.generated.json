@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T17:30:30.357Z",
+  "generated": "2026-09-20T17:32:36.973Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -215,7 +215,7 @@
           "id": "dashboard-deterministic-action-projection",
           "order": 14,
           "file": "tasks/14-dashboard-deterministic-action-projection.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "deterministic-task-projection",
             "execution-readiness-policy"

@@ -94,7 +94,7 @@ tasks:
   - id: dashboard-deterministic-action-projection
     order: 14
     file: tasks/14-dashboard-deterministic-action-projection.md
-    status: draft
+    status: approved
     depends_on: [ deterministic-task-projection, execution-readiness-policy ]
   - id: session-bootstrap-readiness-wiring
     order: 15
