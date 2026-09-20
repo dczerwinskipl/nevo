@@ -60,8 +60,10 @@ tasks:
   - id: workflow-definition-schema-extensions
     order: 7
     file: tasks/07-workflow-definition-schema-extensions.md
-    status: approved
+    status: implemented
     depends_on: [ status-vocabulary-extraction ]
+    implementation:
+      baseline_revision: 3485d90aefc526085233023b985d5091d9820b9b
   - id: step-executor-guard
     order: 8
     file: tasks/08-step-executor-guard.md

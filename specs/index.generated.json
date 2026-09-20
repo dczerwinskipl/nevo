@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T17:33:42.116Z",
+  "generated": "2026-09-20T22:47:37.570Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -98,57 +98,78 @@
           "id": "legacy-mutation-guard",
           "order": 1,
           "file": "tasks/01-legacy-mutation-guard.md",
-          "status": "approved"
+          "status": "implemented",
+          "implementation": {
+            "baseline_revision": "6f6de214260025bdfdf2d73bb9009db425598d4f"
+          }
         },
         {
           "id": "deterministic-mutation-guard",
           "order": 2,
           "file": "tasks/02-deterministic-mutation-guard.md",
-          "status": "approved"
+          "status": "implemented",
+          "implementation": {
+            "baseline_revision": "a2703984f5705b5abc40a217c31692583d1c0e90"
+          }
         },
         {
           "id": "status-vocabulary-extraction",
           "order": 3,
           "file": "tasks/03-status-vocabulary-extraction.md",
-          "status": "approved"
+          "status": "implemented",
+          "implementation": {
+            "baseline_revision": "add62095803f33681e099d89b201951e953cc7e1"
+          }
         },
         {
           "id": "lifecycle-boundary-regression-tests",
           "order": 4,
           "file": "tasks/04-lifecycle-boundary-regression-tests.md",
-          "status": "approved",
+          "status": "implemented",
           "depends_on": [
             "legacy-mutation-guard",
             "deterministic-mutation-guard",
             "status-vocabulary-extraction"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "52e2f9513865ce35f5df5b8ec540c9e75e912aa7"
+          }
         },
         {
           "id": "workflow-task-publish-operation",
           "order": 5,
           "file": "tasks/05-workflow-task-publish-operation.md",
-          "status": "approved",
+          "status": "implemented",
           "depends_on": [
             "deterministic-mutation-guard"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "29523aa0be2da1960f201904de5c52193ef93b7c"
+          }
         },
         {
           "id": "deterministic-cli-default-task-resolution",
           "order": 6,
           "file": "tasks/06-deterministic-cli-default-task-resolution.md",
-          "status": "approved",
+          "status": "implemented",
           "depends_on": [
             "deterministic-mutation-guard"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "a9919edb9bf034c401e14ee4062fa0c1bc301538"
+          }
         },
         {
           "id": "workflow-definition-schema-extensions",
           "order": 7,
           "file": "tasks/07-workflow-definition-schema-extensions.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "status-vocabulary-extraction"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "3485d90aefc526085233023b985d5091d9820b9b"
+          }
         },
         {
           "id": "step-executor-guard",

@@ -172,6 +172,7 @@ steps:
       - id: commit-and-push
     transitions:
       - to: verified
+        outcome: success
 `;
 
 describe('Multi-step workflow end-to-end acceptance proof (AC1, AC2, AC3, AC4, AC5, AC6, AC10)', () => {
@@ -478,6 +479,7 @@ steps:
       - id: commit-and-push
     transitions:
       - to: verified
+        outcome: success
 `;
 
 describe('Gate isolation between workflow steps (AC3)', () => {
@@ -577,6 +579,7 @@ steps:
       - id: commit-and-push
     transitions:
       - to: verified
+        outcome: success
 `;
 
 describe('Step-level retry/resume semantics and crash reconciliation across steps (AC7)', () => {
@@ -716,6 +719,7 @@ steps:
       - id: commit-and-push
     transitions:
       - to: verified
+        outcome: success
 `;
 
 describe('Step- and gate-scoped human verification sign-off identity (AC11, D24)', () => {
@@ -813,6 +817,7 @@ steps:
       - id: commit-and-push
     transitions:
       - to: verified
+        outcome: success
 `;
 
 describe('Multiple human gates on the same step requiring explicit --gate disambiguation (AC12, D30)', () => {
@@ -906,6 +911,7 @@ steps:
       completed: completed-status
     transitions:
       - to: verified
+        outcome: success
 `;
     assert.throws(
       () => parseWorkflowDefinition(invalidYaml, { knownActions: actions }),
@@ -930,6 +936,7 @@ steps:
         id: shared-id
     transitions:
       - to: verified
+        outcome: success
 `;
     assert.throws(
       () => parseWorkflowDefinition(duplicateHumanYaml, { knownActions: actions }),
@@ -952,6 +959,7 @@ steps:
       - type: human
     transitions:
       - to: verified
+        outcome: success
 `;
     assert.throws(
       () => parseWorkflowDefinition(missingHumanYaml, { knownActions: actions }),
@@ -1067,6 +1075,7 @@ steps:
       - id: commit-and-push
     transitions:
       - to: verified
+        outcome: success
 `;
 
 describe('Second, differently-shaped 4-step workflow through identical CLI path (AC9)', () => {

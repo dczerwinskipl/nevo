@@ -10,12 +10,18 @@ context:
 allowed_paths:
   - tools/specs/workflow/definitions/schema.mjs
   - tools/specs/workflow/definitions/loader.mjs
+  - tools/specs/workflow/templates/standard.yaml
+  - tools/specs/workflow/templates/architectural.yaml
+  - tools/specs/workflow/templates/exploratory.yaml
+  - tools/specs/workflow/templates/small.yaml
   - .nevo-ai/workflows/standard.yaml
   - .nevo-ai/workflows/standard-v1.yaml
   - .nevo-ai/workflows/architectural.yaml
   - .nevo-ai/workflows/exploratory.yaml
   - .nevo-ai/workflows/small.yaml
   - tools/tests/workflow-definitions.test.mjs
+  - tools/tests/workflow-e2e.test.mjs
+  - tools/tests/workflow-multi-step-e2e.test.mjs
 forbidden_paths:
   - tools/specs/approve/**
   - tools/specs/start/**

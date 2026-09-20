@@ -6,6 +6,8 @@ import { TERMINAL_STATUSES } from '../../status-vocabulary.mjs';
 export const KNOWN_GATE_TYPES = new Set(['command', 'markdown', 'human']);
 export const KNOWN_COMMAND_ACTIONS = defaultCommandCatalog.asSet();
 export const KNOWN_TRANSITION_VALUES = new Set(['pass', 'fail', 'blocked']);
+export const KNOWN_STEP_EXECUTORS = new Set(['agent', 'human']);
+export const KNOWN_TRANSITION_OUTCOMES = new Set(['success', 'failure']);
 
 // D30: safe identifier contract for every workflow-definition-declared logical
 // id — step keys, `entryStep`, a step-name-shaped transition target, and any
@@ -164,7 +166,7 @@ export function validateActionReference(action, label, errors, { knownActions } 
  * @param {object} [options]
  * @param {Set<string>} [options.stepNames] - Every step name declared in this definition
  */
-export function validateTransitionDefinition(transition, label, errors, { stepNames } = {}) {
+export function validateTransitionDefinition(transition, label, errors, { stepNames, stepExecutor } = {}) {
   const target = typeof transition === 'string' ? transition : transition?.to;
   if (typeof target !== 'string' || !target.trim()) {
     errors.push(`${label}: transition must specify a non-empty target 'to'`);
@@ -176,6 +178,53 @@ export function validateTransitionDefinition(transition, label, errors, { stepNa
       `${label}: transition target '${target}' is neither a declared step nor a member of ` +
       `TERMINAL_STATUSES (${[...TERMINAL_STATUSES].join(', ')})`
     );
+  }
+
+  const isObject = isPlainObject(transition);
+
+  // Action metadata validation
+  if (isObject && transition.action !== undefined) {
+    if (!isPlainObject(transition.action)) {
+      errors.push(`${label}.action: must be an object`);
+    } else {
+      if (typeof transition.action.label !== 'string' || !transition.action.label.trim()) {
+        errors.push(`${label}.action.label: must be a non-empty string`);
+      }
+      if (transition.action.feedback !== undefined) {
+        if (!isPlainObject(transition.action.feedback)) {
+          errors.push(`${label}.action.feedback: must be an object`);
+        } else if (typeof transition.action.feedback.required !== 'boolean') {
+          errors.push(`${label}.action.feedback.required: must be a boolean`);
+        }
+      }
+    }
+  }
+
+  // Cross-field validation for executor: human — every transition must declare action.label
+  if (stepExecutor === 'human') {
+    if (!isObject || !isPlainObject(transition.action) || typeof transition.action.label !== 'string' || !transition.action.label.trim()) {
+      errors.push(`${label}: transition on an 'executor: human' step must declare a non-empty 'action.label'`);
+    }
+  }
+
+  // Outcome validation: required on terminal transitions, forbidden on internal transitions
+  const isTerminal = TERMINAL_STATUSES.has(target);
+  if (isTerminal) {
+    if (!isObject || transition.outcome === undefined) {
+      errors.push(
+        `${label}.outcome: required on a transition targeting a terminal status ('${target}'). Must be one of: success, failure`
+      );
+    } else if (typeof transition.outcome !== 'string' || !KNOWN_TRANSITION_OUTCOMES.has(transition.outcome)) {
+      errors.push(
+        `${label}.outcome: must be one of: ${[...KNOWN_TRANSITION_OUTCOMES].join(', ')}, got '${transition.outcome}'`
+      );
+    }
+  } else {
+    if (isObject && transition.outcome !== undefined) {
+      errors.push(
+        `${label}.outcome: cannot be declared on an internal transition targeting step '${target}'`
+      );
+    }
   }
 }
 
@@ -401,6 +450,15 @@ export function validateWorkflowDefinition(definition, options = {}) {
       continue;
     }
 
+    if (stepConfig.executor !== undefined) {
+      if (typeof stepConfig.executor !== 'string' || !KNOWN_STEP_EXECUTORS.has(stepConfig.executor)) {
+        errors.push(
+          `${stepLabel}.executor: must be one of: ${[...KNOWN_STEP_EXECUTORS].join(', ')}, got '${stepConfig.executor}'`
+        );
+      }
+    }
+    const stepExecutor = stepConfig.executor || 'agent';
+
     if (stepConfig.entryGates !== undefined) {
       if (!Array.isArray(stepConfig.entryGates)) {
         errors.push(`${stepLabel}.entryGates: must be an array`);
@@ -475,7 +533,7 @@ export function validateWorkflowDefinition(definition, options = {}) {
         if (isPlainObject(t) && t.value !== undefined) {
           errors.push(`${stepLabel}.transitions[0]: single transition must be unconditional and cannot specify 'value'`);
         }
-        validateTransitionDefinition(t, `${stepLabel}.transitions[0]`, errors, { stepNames });
+        validateTransitionDefinition(t, `${stepLabel}.transitions[0]`, errors, { stepNames, stepExecutor });
       }
     } else {
       const hasValueCount = transitions.filter(t => isPlainObject(t) && t.value !== undefined).length;
@@ -508,7 +566,7 @@ export function validateWorkflowDefinition(definition, options = {}) {
             seenValues.add(val);
           }
         }
-        validateTransitionDefinition(t, transLabel, errors, { stepNames });
+        validateTransitionDefinition(t, transLabel, errors, { stepNames, stepExecutor });
       });
     }
 
@@ -553,6 +611,7 @@ export function normalizeWorkflowDefinition(definition) {
 
   for (const [stepName, stepConfig] of Object.entries(definition.steps || {})) {
     normalizedSteps[stepName] = {
+      executor: stepConfig.executor ?? 'agent',
       entryGates: (stepConfig.entryGates || []).map(g => (typeof g === 'string' ? { type: g } : { ...g })),
       actions: (stepConfig.actions || []).map(a => (typeof a === 'string' ? { id: a } : { ...a })),
       exitGates: (stepConfig.exitGates || []).map(g => (typeof g === 'string' ? { type: g } : { ...g })),
@@ -564,6 +623,15 @@ export function normalizeWorkflowDefinition(definition) {
           norm.value = t.value;
         }
         norm.to = t.to;
+        if (t.action !== undefined) {
+          norm.action = {
+            label: t.action.label,
+            ...(t.action.feedback !== undefined ? { feedback: { required: t.action.feedback.required } } : {}),
+          };
+        }
+        if (t.outcome !== undefined) {
+          norm.outcome = t.outcome;
+        }
         return norm;
       }),
       ...(stepConfig.purpose !== undefined ? { purpose: stepConfig.purpose } : {}),

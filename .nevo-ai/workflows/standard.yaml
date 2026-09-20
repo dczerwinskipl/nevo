@@ -53,6 +53,7 @@ steps:
         to: implementation
 
   human-verification:
+    executor: human
     status:
       active: awaiting-human-verification
       completed: completed
@@ -71,6 +72,13 @@ steps:
     transitions:
       - value: pass
         to: verified
+        action:
+          label: Approve
+        outcome: success
       - value: fail
         to: implementation
+        action:
+          label: Request changes
+          feedback:
+            required: true
 

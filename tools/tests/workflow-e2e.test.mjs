@@ -66,6 +66,7 @@ steps:
       - id: commit-and-push
     transitions:
       - to: verified
+        outcome: success
 `;
 
 function git(root, args) {
@@ -376,8 +377,17 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
     assert.deepEqual(hv.exitGates, []);
     assert.deepEqual(hv.finalize, [{ id: 'commit-and-push' }]);
     assert.deepEqual(hv.transitions, [
-      { value: 'pass', to: 'verified' },
-      { value: 'fail', to: 'implementation' },
+      {
+        value: 'pass',
+        to: 'verified',
+        action: { label: 'Approve' },
+        outcome: 'success',
+      },
+      {
+        value: 'fail',
+        to: 'implementation',
+        action: { label: 'Request changes', feedback: { required: true } },
+      },
     ]);
   });
 
