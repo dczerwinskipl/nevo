@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T17:33:27.644Z",
+  "generated": "2026-09-20T17:33:34.741Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -299,7 +299,7 @@
           "id": "ownership-boundary-documentation",
           "order": 22,
           "file": "tasks/22-ownership-boundary-documentation.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "legacy-mutation-guard",
             "deterministic-mutation-guard",
