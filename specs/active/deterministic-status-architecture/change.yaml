@@ -84,7 +84,7 @@ tasks:
     order: 15
     file: tasks/15-session-bootstrap-readiness-wiring.md
     status: draft
-    depends_on: [ execution-readiness-policy, dashboard-deterministic-action-projection ]
+    depends_on: [ execution-readiness-policy, dashboard-deterministic-action-projection, dashboard-human-step-transport ]
   - id: dashboard-human-step-transport
     order: 16
     file: tasks/16-dashboard-human-step-transport.md

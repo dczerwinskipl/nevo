@@ -86,8 +86,8 @@ one-task case that requirement most needs to hold.
   execution session bound to the task, then sends **one generic, visible trigger** —
   conceptually "Execute the current workflow step for task `<task>`" — never a step-id- or
   purpose-derived semantic prompt ("Implement task…"/"Review task…"). This is genuine
-  session-creation/-bootstrap, at `specification-detail-content.tsx`'s
-  `handleWorkflowAction`/`agent-session-page.tsx`'s `handleStartReviewTask`, not at
+  session-creation/-bootstrap, at `specification-detail-content.tsx`'s generic `startStep`
+  dispatcher/`agent-session-page.tsx`'s renamed handler (D19), not at
   `CreateAgentSessionDialog`'s contextual-`taskIds` path. The actual, step-specific work
   contract is supplied entirely by the existing bootstrap mechanism this area corrects two
   bugs in (below) — this entry point does not, and must not, construct its own second
@@ -98,6 +98,14 @@ one-task case that requirement most needs to hold.
   `areas/dashboard-server-actions-wiring.md`). A contextual chat/session may already exist
   and display `HumanStepSurface`, but starting the human step is never itself a
   session-bootstrap action, regardless of whether such a session happens to exist.
+  Concretely (D19), the board and `TaskDialog` reach this branch through
+  `specification-detail-content.tsx`'s single `startStep(task, stepDescriptor)` dispatcher
+  (the same function used for the agent branch, differing only by the `executor` check);
+  chat reaches it through its own feature-local `human-step-mutations.ts` adapter hook
+  directly, since chat never needs to cross the specifications/agent-sessions boundary the
+  board/dialog case does. Neither `TaskCard` nor `TaskDialog` (both
+  `features/specifications`) implements this branch itself — both only call an
+  `onStartStep`/equivalent callback prop supplied from above.
 - Neither entry point's preflight check itself calls `ensureStepActivated`/activates
   anything — only the actual `workflow step start`/`startHumanStep` call does that.
 - **No step-id dispatch of any kind (D15, supersedes this area's own earlier "transitional
@@ -149,10 +157,11 @@ Exposes: the `ExecutionReadiness` function (task + caller kind → ready/not-rea
 including executor-mismatch as one possible reason).
 
 Consumed by: `areas/dashboard-server-actions-wiring.md`'s `DashboardActionProjection`, the
-agent-owned-step session-bootstrap entry points (both reached via the single generic
-`start-step` action), the human-owned-step entry point (`startHumanStep`, no session
-involved), and `workflow step start`/`startHumanStep` (both via the executor guard and
-activation-guard composition, not via a copy).
+single composition-level `startStep` dispatcher (D19) that reaches both the agent-owned-step
+session-bootstrap entry point and the human-owned-step entry point (`startHumanStep`, no
+session involved) via the same generic `start-step` action, and `workflow step start`/
+`startHumanStep` (both via the executor guard and activation-guard composition, not via a
+copy).
 
 ## Area-specific acceptance criteria
 

@@ -86,8 +86,9 @@ that operation to already exist.
   `tools/dashboard/server/ai/sessions/{routes,service,binding-service}.mjs` first to
   establish whether a server-side readiness re-check already exists for deterministic
   execution-bound sessions; wire it to call this same policy function specifically for the
-  agent-step entry points (`specification-detail-content.tsx`'s `handleWorkflowAction`,
-  `agent-session-page.tsx`'s `handleStartReviewTask`, server-side) — not at
+  agent-branch requests sent by the client's generic `start-step` dispatchers
+  (`specification-detail-content.tsx`'s `startStep`, `agent-session-page.tsx`'s renamed
+  agent-step handler, server-side — D19, `session-bootstrap-readiness-wiring`) — not at
   `CreateAgentSessionDialog`'s generic, contextual-`taskIds` path. This task does not
   construct or influence the session's initial trigger message — that stays a generic,
   step-id-agnostic message owned by the client-side entry points

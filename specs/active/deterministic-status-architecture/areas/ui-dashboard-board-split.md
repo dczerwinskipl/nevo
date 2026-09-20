@@ -56,6 +56,16 @@ batch-approve button in deterministic mode.
   `TaskProjection` and `ExecutionReadiness` — D10) — one generic `"start-step"` value, never
   re-derived ad hoc in the component, and never read directly off the pure projection (which
   does not own action-availability, D10).
+- **`TaskCard` never implements the `start-step` protocol itself (D19/D20).** For
+  `availableActions: ["start-step"]` it renders one generic "Start" control calling an
+  `onStartStep(stepDescriptor)` prop supplied by the composition layer
+  (`specification-detail-content.tsx`, `areas/execution-readiness-and-session-bootstrap.md`)
+  — identical for both `executor` values, `TaskCard` never branches on it. For an active
+  human interaction it renders a compact indicator only ("human action required") that opens
+  `TaskDialog` — it does not render the human-interaction descriptor's own `actions`/result
+  buttons inline, and does not import `HumanStepSurface`, `features/agent-sessions`, or any
+  human-step transport/mutation module (D20 — that full surface is `TaskDialog`/chat's
+  responsibility alone, `areas/human-step-surface.md`).
 
 ## Constraints
 
@@ -91,13 +101,22 @@ Consumed by: `status-board.tsx`/`TaskCard` only — no other area reads this dir
   `formatTaskStatus()`, or `taskStatusTone()` with a deterministic task's `task.status` as
   input, and no component chooses a lane, status label, or tone by comparing `currentStep`/
   `nextStep` to a literal string.
+- `TaskCard`'s generic "Start" control calls `onStartStep` for both `executor` values with
+  no internal branching, and its active-human-interaction rendering is the compact indicator
+  only — never the interaction's own result buttons rendered inline (D19/D20).
+- No file in this area's scope imports `features/agent-sessions`, `HumanStepSurface`, or any
+  human-step transport/mutation module.
 
 ## Dependencies
 
 `areas/deterministic-projection-and-human-step.md`,
-`areas/dashboard-server-actions-wiring.md` (the corrected action DTO this area reads).
+`areas/dashboard-server-actions-wiring.md` (the corrected action DTO this area reads),
+`areas/execution-readiness-and-session-bootstrap.md` (supplies the `onStartStep` callback
+this area's `TaskCard` calls but does not implement, D19).
 
 ## Out of scope
 
 Board/lane configurability as project config (explicitly out of scope for this whole change
-— D1). `TaskDialog`/chat (owned by `areas/human-step-surface.md`).
+— D1). The `onStartStep` callback's own implementation/executor branching (owned by
+`areas/execution-readiness-and-session-bootstrap.md`, D19). `TaskDialog`/chat and
+`HumanStepSurface` itself (owned by `areas/human-step-surface.md`, D20).

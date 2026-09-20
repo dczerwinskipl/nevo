@@ -135,6 +135,37 @@ promoted to a session's authoritative `activeTaskId` (contradicting this change'
 projection is corrected the same way: lane derives from `TaskProjection.state` (and,
 where genuinely useful, `executor`), never from `currentStep`.
 
+**Corrective pass 6 (2026-09-20, D19, D20): closing the UI-ownership wiring gap around the
+generic `start-step` action.** Pass 5 corrected the *model* — one generic `start-step`
+action, executor as protocol only — but a fresh read of the actual client code (not just the
+prior spec text) found the real UI never finished wiring it: `specification-detail-content.tsx`'s
+`handleWorkflowAction` still branched on the literal strings `'start-implementation'`/
+`'start-review'`/`'approve'`/`'request-changes'` and built step-id-derived prompts
+(`` `Implement task…` ``/`` `Review task…` ``); `agent-session-page.tsx`'s
+`handleStartReviewTask` sent an equivalent literal `` `Review task ${taskId}` `` prompt; and
+`agent-session-chat-surface.tsx` still rendered `'approve'`/`'request-changes'`/
+`'start-review'` action-id-gated buttons — the exact pre-D15 vocabulary, still live in three
+places pass 5 didn't touch. Worse, `tasks/19-task-card-lifecycle-split.md` and
+`tasks/20-human-step-surface-consolidation.md` directly contradicted each other: task 19
+required the board card to render an active human interaction's own result buttons inline,
+while task 20 declared wiring `HumanStepSurface` into the board out of scope — the same
+surface, required and forbidden by two different tasks. D19 resolves the wiring: one
+composition-level `startStep(task, stepDescriptor)` dispatcher per screen
+(`specification-detail-content.tsx` for the board/dialog; `agent-session-page.tsx` for chat),
+branching only on `stepDescriptor.executor` — agent creates/reuses a session and sends the
+generic trigger; human calls `startHumanStep` directly through the shared transport, no
+session involved — reusing the *existing* prop-bubbling pattern already present
+(`onWorkflowAction` → `StatusBoard`) rather than new plumbing, since a screen already legally
+composes both `features/specifications` and `features/agent-sessions`. `TaskCard`/`TaskDialog`
+never branch on `executor` themselves; they only call an `onStartStep`/renamed equivalent
+prop supplied from above. D20 resolves the task-19/20 contradiction: `DeterministicTaskCard`'s
+scope shrinks to state label/tone, step descriptor, generic Start, and a compact "human
+action required" indicator that opens `TaskDialog` — never the interaction's own result
+buttons, never `HumanStepSurface`, keeping exactly one implementation of the full interaction
+surface. `HumanStepSurface` itself narrows correspondingly to the active-interaction case
+only (`{interaction, loading, error, onSubmit}`); the generic waiting-state "Start" control
+is a separate, executor-agnostic piece each caller renders itself.
+
 ## Current architecture
 
 Grounded in repository discovery (2026-09-17, deepened 2026-09-19 by reading the actual
@@ -348,6 +379,19 @@ engine source directly):
     `'implementation'` for a caller-supplied `workflowContext` override missing its own
     `step` — dead weight contradicting "never fabricate `step`/`attempt`," even though the
     automatic, `resolveDeterministicWorkflowInfo()`-driven path is unaffected.
+23. D15's corrected model (one generic `start-step` action, executor as protocol only) had
+    no real client caller reaching it: `specification-detail-content.tsx`'s
+    `handleWorkflowAction`, `agent-session-page.tsx`'s `handleStartReviewTask`, and
+    `agent-session-chat-surface.tsx`'s action-bar rendering all still used the pre-D15
+    `'start-implementation'`/`'start-review'`/`'approve'`/`'request-changes'` vocabulary and
+    step-id-derived prompts — confirmed by reading each file directly (2026-09-20). A
+    human-owned step's "Start" control was a dead click in practice, since no path called
+    `startHumanStep` from any UI entry point.
+24. `tasks/19-task-card-lifecycle-split.md` and `tasks/20-human-step-surface-consolidation.md`
+    directly contradicted each other: task 19 required the board card to render an active
+    human interaction's own result buttons inline; task 20 declared wiring
+    `HumanStepSurface` into the board out of scope. The same surface was simultaneously
+    required and forbidden by two different tasks in the same change.
 
 ## Constraints
 
@@ -443,7 +487,15 @@ own `architecture-boundaries.test.mjs` forbids), D18 (frontend DTO type owned by
 `session-bootstrap-readiness-wiring`; two real, grounded bugs in
 `tools/dashboard/server/ai/sessions/service.mjs` — a single-item contextual `taskIds`
 silently becoming authoritative, and a reachable `'implementation'` fallback — corrected in
-place, owned by `execution-readiness-policy`).
+place, owned by `execution-readiness-policy`). D19 (**corrective pass 6** — one
+composition-level `startStep(task, stepDescriptor)` dispatcher per screen, branching only on
+`executor`, closes the gap between D15's model and the real client code; `TaskCard`/
+`TaskDialog` only ever call an `onStartStep`/renamed-equivalent prop supplied from the
+composition layer above them; `session-bootstrap-readiness-wiring` gains an explicit
+`change.yaml` dependency on `dashboard-human-step-transport`), D20 (`DeterministicTaskCard`
+never embeds the active human-interaction result form — it shows a compact indicator and
+defers to `TaskDialog`; `HumanStepSurface` narrows to the active-interaction case only,
+resolving the direct contradiction between the pass-5 versions of tasks 19 and 20).
 
 ## Proposed architecture
 
@@ -615,9 +667,16 @@ common; `status-board`'s lane derivation and `TaskCard`'s visible state/tone/lan
 actions (not only its action footer — a deterministic card's status label must stop reading
 `formatTaskStatus(task.status)` once a workflow has started) each read from
 `DashboardActionProjection` alongside the unchanged legacy path, rather than deriving
-deterministic state from `stageForStatus`/`isTaskReady`. One reusable `HumanStepSurface`
-(D7, D11) is built once and rendered directly by both `TaskDialog` and the existing chat
-surface — replacing chat's current separate implementation, not leaving it as a second one.
+deterministic state from `stageForStatus`/`isTaskReady`. `TaskCard`'s own active-human-
+interaction rendering is a compact indicator that opens `TaskDialog`, not the interaction's
+own result buttons rendered inline (D20). One reusable `HumanStepSurface` (D7, D11),
+scoped to the active human interaction only (D20), is built once and rendered directly by
+both `TaskDialog` and the existing chat surface — replacing chat's current separate
+implementation, not leaving it as a second one. The generic waiting-state "Start" control
+(identical for both executors) is a separate small piece each of `TaskCard`, `TaskDialog`,
+and chat renders itself, calling one composition-level `startStep`/renamed-chat-handler
+dispatcher that branches only on `executor` (D19) — `TaskCard`/`TaskDialog` never branch on
+`executor` or import `features/agent-sessions`/the human-step transport themselves.
 
 The shared spec-workflow skill/instructions keep discovery, authoring, and owner-decision
 policy common, and remove legacy-only lifecycle assumptions from those shared sections
@@ -663,9 +722,11 @@ deterministic spec.
   mutation implementations.
 - `areas/ui-dashboard-board-split.md` — deterministic-aware board/lane projection, derived
   only from `TaskProjection.state` (never `currentStep`, D15), and `TaskCard`'s full
-  visible-state split, reading from the corrected action DTO.
-- `areas/human-step-surface.md` — one reusable `HumanStepSurface`, consumed by both
-  `TaskDialog` and chat (D7, D11).
+  visible-state split, reading from the corrected action DTO; the board's own generic
+  `onStartStep` wiring and compact human-interaction indicator, not a duplicated interaction
+  surface (D19/D20).
+- `areas/human-step-surface.md` — one reusable `HumanStepSurface`, scoped to the active
+  interaction only, consumed by both `TaskDialog` and chat (D7, D11, D20).
 - `areas/skills-instruction-split.md` — removes legacy-only assumptions from shared
   sections and defines the explicit legacy/deterministic lifecycle instruction sets.
 - `areas/ownership-boundary-docs.md` — documents the enforced boundary, including the
@@ -688,6 +749,10 @@ deterministic spec.
   code, or `HumanStepSurface` contains a `switch`/`if`/lookup-object keyed on a literal
   workflow step id — a newly authored agent-owned step (any id) works with zero
   application-code changes (D15; verified concretely by task 15's generic fixture, item 15).
+- `TaskCard`, `TaskDialog`, and the chat surface each have a working generic `start-step`
+  control for both `executor` values — none is a no-op — and no file in
+  `tools/dashboard/ui/**` contains `'start-implementation'`, `'start-review'`,
+  `onStartReviewTask`, or `onApproveTask` after this change (D19, item 23/5).
 
 ## Verification strategy
 

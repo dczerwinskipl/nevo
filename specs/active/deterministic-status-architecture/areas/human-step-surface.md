@@ -33,24 +33,28 @@ both features today — this area's component fits the same existing pattern, no
 
 ## Requirements
 
-- One reusable, presentational `HumanStepSurface` component at
+- **One reusable, presentational `HumanStepSurface` component, scoped to the active human
+  interaction only (D19/D20 — narrower than this area's pass 3/4/5 version)**, at
   `tools/dashboard/ui/shared/workflow/human-step-surface.tsx` — driven **entirely by
-  props** (conceptually `{ stepDescriptor, interaction, loading, error, onStart, onSubmit
-  }`), sourced by each caller from the corrected action DTO
-  (`DashboardActionProjection`, `areas/dashboard-server-actions-wiring.md`): shows
-  `purpose`/`expectedWork` from `stepDescriptor` (tier-1, always available once waiting)
-  and, once `interaction` is non-null, renders its `actions` (`label`/`feedbackRequired`,
-  `result` present only for a conditional step's actions — D16, item 7) as the available
-  outcomes, calling `onSubmit(result?, feedback?, artifacts?)` for the chosen one — omitting
-  `result` entirely for a single unconditional transition, never fabricating a placeholder
-  value. For a step still `waiting-for-step-start` (`interaction` null, `stepDescriptor`
-  present), it shows the generic descriptor and a generic "Start" control calling
-  `onStart()` — the label is generic (D15's `start-step`, not step- or executor-specific
-  wording); the surface never says "Start human step" or any other step-id/executor-derived
-  phrase. It must **not**: import from `features/specifications` or
+  props** (`{ interaction, loading, error, onSubmit }`, no `stepDescriptor`/`onStart`),
+  sourced by each caller from the corrected action DTO (`DashboardActionProjection`,
+  `areas/dashboard-server-actions-wiring.md`): renders `interaction.actions` (`label`/
+  `feedbackRequired`, `result` present only for a conditional step's actions — D16, item 7)
+  as the available outcomes, calling `onSubmit(result?, feedback?, artifacts?)` for the
+  chosen one — omitting `result` entirely for a single unconditional transition, never
+  fabricating a placeholder value. It must **not**: import from `features/specifications` or
   `features/agent-sessions`; fetch directly; know the route URL; know `'approve'`/
   `'request-changes'`; or know a literal workflow step id — every one of these stays the
   caller's responsibility, passed in as props/callbacks.
+- **The generic waiting-for-step-start UI (step descriptor + a generic "Start" control,
+  D15/D19) is separate from `HumanStepSurface`, not one of its tiers.** Each caller
+  (`TaskCard`, `TaskDialog`, chat) renders it itself — identical wording regardless of
+  `executor` or step id, the label is generic (D15's `start-step`, never "Start human step"
+  or any other step-id/executor-derived phrase) — calling that caller's own `onStartStep`/
+  `onStartAgentStep`/feature-local `start` (`areas/execution-readiness-and-session-bootstrap.md`,
+  D19). This split means `HumanStepSurface` itself never needs an `onStart` prop nobody
+  wires, and the same waiting-state control already used for agent steps is reused verbatim
+  for human steps — no second, human-specific "waiting" implementation exists.
 - One neutral, feature-agnostic transport function,
   `tools/dashboard/ui/shared/lib/human-step-request.ts` (owned by
   `dashboard-human-step-transport`, D14's task, alongside the server route it calls) —
@@ -60,24 +64,30 @@ both features today — this area's component fits the same existing pattern, no
   `features/specifications/tasks/human-step-mutations.ts`, one in
   `features/agent-sessions/human-step-mutations.ts` (owned by
   `human-step-surface-consolidation`) — each wrapping the same shared transport function in
-  that feature's own `useMutation`/cache-invalidation concerns, and each passing
-  `onStart`/`onSubmit` into the shared component from its own feature's `TaskDialog`/chat
-  call site. Neither feature imports the other's hook file.
+  that feature's own `useMutation`/cache-invalidation concerns, and each passing `onSubmit`
+  into the shared component from its own feature's `TaskDialog`/chat call site
+  (`features/agent-sessions`'s hook additionally exposes the `start` method its feature's own
+  waiting-state control calls, D19). Neither feature imports the other's hook file.
 - Per D7: `HumanStepSurface` is rendered **directly** by both `TaskDialog` and the chat
   surface — chat is not redirected/navigated to `TaskDialog` to show it. Chat's existing
-  separate Approve/Request-changes implementation is replaced by this shared component, not
-  kept as a second implementation alongside it.
-- The surface's render condition (in each feature's own wrapper) is the human-step
-  projection's non-null result (either tier) — never `currentStep === 'human-verification'`
-  or any other literal step-name/id check.
+  separate Approve/Request-changes/`start-review` implementation is replaced by this shared
+  component plus each surface's own generic waiting-state control, not kept as a second
+  implementation alongside them.
+- `HumanStepSurface`'s render condition (in each feature's own wrapper) is the human-step
+  projection's `interaction` being non-null (the active-interaction tier specifically) —
+  never `currentStep === 'human-verification'` or any other literal step-name/id check. The
+  separate generic waiting-state control's render condition is
+  `availableActions.includes('start-step')` with no `interaction` yet — identical for both
+  executors (D15/D19).
 - `TaskDialog` also gains general deterministic projection awareness (current step,
-  executor, `waiting-for-step-start` shown honestly via the generic step descriptor and a
-  generic "Start" control — e.g. "Human action required — <purpose> — [Start]" for a
-  waiting human step, the identical generic wording for a waiting agent step (D15) — never a
-  fabricated active state, and never "Ready for review"/"Start review" or any other
-  step-id-derived label — blocking dependencies, available actions from
-  `DashboardActionProjection`), with `HumanStepSurface` rendered prominently/as default
-  content when a human decision is pending or awaiting activation.
+  executor, `waiting-for-step-start` shown honestly via the generic step descriptor and its
+  own generic "Start" control calling `onStartStep` — e.g. "Human action required — <purpose>
+  — [Start]" for a waiting human step, the identical generic wording for a waiting agent step
+  (D15) — never a fabricated active state, and never "Ready for review"/"Start review" or any
+  other step-id-derived label — blocking dependencies, available actions from
+  `DashboardActionProjection`), with `HumanStepSurface` rendered as the dialog's content
+  specifically when a human decision is pending (`interaction` non-null) — the waiting/
+  activation state is the dialog's own generic control, not `HumanStepSurface`.
 - Legacy `TaskDialog` behavior (the existing `TaskActionFooter` path) is unchanged.
 
 ## Constraints
@@ -144,7 +154,10 @@ within `features/specifications` only).
 
 ## Out of scope
 
-Wiring `HumanStepSurface` into the task board or timeline/notification entry points (future
-work). Full human-gate engine redesign. Any artifact/handover attachment rendering. A
-general-purpose shared API client covering routes beyond this one (the neutral transport
-function is scoped to the human-step endpoint only, not a project-wide fetch abstraction).
+Wiring `HumanStepSurface` **itself** into the task board or timeline/notification entry
+points (future work) — the board's own generic waiting-state "Start" control and "human
+action required" indicator are a separate, smaller mechanism (`areas/ui-dashboard-board-split.md`,
+D19/D20) that does not embed this component. Full human-gate engine redesign. Any
+artifact/handover attachment rendering. A general-purpose shared API client covering routes
+beyond this one (the neutral transport function is scoped to the human-step endpoint only,
+not a project-wide fetch abstraction).

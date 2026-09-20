@@ -636,3 +636,128 @@
 - **Date:** 2026-09-19
 - **Affected artifacts:** `areas/human-step-surface.md`,
   `tasks/16-dashboard-human-step-transport.md`, `tasks/20-human-step-surface-consolidation.md`.
+
+## D19: One composition-level `startStep` dispatcher per screen; `TaskCard`/`TaskDialog` only ever call `onStartStep`
+
+- **Question:** D15 (corrective pass 5) established that the server-side/UI *model* has
+  exactly one generic `start-step` action, branching only on `executor`. Pass 5 did not,
+  however, finish wiring that action to all three real UI entry points — `TaskCard`, the
+  board's cards; `TaskDialog`, opened from the board; and the chat surface
+  (`AgentSessionChatSurface`) — leaving the actual client code that was read as part of this
+  pass still on the obsolete pre-D15 vocabulary. Who dispatches `start-step` by executor
+  protocol from each of these three surfaces, without a `features/specifications` file
+  importing `features/agent-sessions` (forbidden by
+  `tools/dashboard/tests/architecture-boundaries.test.mjs`'s sibling-feature-isolation test)?
+- **Grounded fact (2026-09-20, this pass):** `tools/dashboard/ui/screens/specification-detail/specification-detail-content.tsx`
+  already legally imports **both** `features/specifications` (`TaskDialog`) and
+  `features/agent-sessions` (`useCreateAgentSession`, `queueAgentSessionInitialDispatch`,
+  `pendingActionModeStore`) — confirmed by reading its import block — because a screen sits
+  above both features in the layer direction `architecture-boundaries.test.mjs` enforces (the
+  test only forbids feature→feature and feature→screen imports, never screen→feature). Its
+  existing `handleWorkflowAction(task, action)` is a literal `if/else if` string-branch on
+  `'start-implementation'`/`'start-review'`/`'approve'`/`'request-changes'` that constructs
+  step-id-derived prompts (`` `Implement task ${task.id}: ${task.title}` ``,
+  `` `Review task ${task.id}: ${task.title}` ``) and, for `'approve'`, POSTs directly to the
+  legacy `/workflow/human-decision` route — exactly the pattern D15 already removed
+  server-side, still live client-side. The same pattern repeats in
+  `tools/dashboard/ui/features/agent-sessions/agent-session-page.tsx`'s
+  `handleStartReviewTask` (sends the literal prompt `` `Review task ${taskId}` `` via
+  `assistant.sendTurn(..., { mode: 'agent' })`) and
+  `agent-session-chat-surface.tsx`'s `availableActions.includes('start-review')`/
+  `('approve')`/`('request-changes')` rendering block, which calls `onStartReviewTask`/
+  `onApproveTask`/a `request-changes` composer mode. `TaskDialog`
+  (`features/specifications/tasks/task-dialog.tsx`) has no deterministic awareness and no
+  `onStartStep`-shaped prop at all today — only the pre-existing legacy `executeTaskAction`/
+  `TaskActionFooter` path, which stays unchanged (D7).
+- **Decision:** Each screen that composes both features owns exactly one generic dispatcher,
+  branching only on `stepDescriptor.executor` — never on `step.id`/`currentStep`/`nextStep`:
+  - `specification-detail-content.tsx` renames/rewrites `handleWorkflowAction` into
+    `startStep(task, stepDescriptor)`: for `executor: 'agent'`, create/reuse the task's
+    authoritative execution session and send the one generic trigger message (unchanged from
+    D15's session-bootstrap decision); for `executor: 'human'`, call `startHumanStep`
+    directly through the shared, neutral `human-step-request.ts` function (D14/D17) — no
+    session is created or bound. This single function is passed down as one `onStartStep`
+    prop to both `StatusBoard`→`TaskCard` (board entry point) and the newly added
+    `onStartStep` prop on `TaskDialog` (dialog entry point) — neither component branches on
+    executor itself; both only ever call `onStartStep(stepDescriptor)`.
+  - The prior `'approve'`/`'request-changes'` branches in `handleWorkflowAction` (the old
+    human-verification-gate action vocabulary D5 already superseded) are removed outright,
+    not preserved — the equivalent behavior (submitting an *active* human interaction's
+    result) is owned entirely by `HumanStepSurface`'s own `onSubmit`, reached only through
+    `TaskDialog`/chat (D7), never through this board-level dispatcher.
+  - `agent-session-page.tsx` renames `handleStartReviewTask` to a generic name (e.g.
+    `handleStartAgentStep`) and replaces its literal `` `Review task ${taskId}` `` prompt
+    with the same generic trigger wording used by the board/dialog path. Because chat already
+    operates inside `features/agent-sessions` for a session already bound to the task, its
+    dispatcher only ever needs the agent branch — a human-owned step's "start" and "submit"
+    in chat go through that feature's own `human-step-mutations.ts` adapter hook (D17)
+    directly, with no composition-layer indirection needed (chat never crosses the
+    specifications/agent-sessions boundary the board/dialog case does). `agent-session-chat-surface.tsx`
+    (owned by `human-step-surface-consolidation`) renames the corresponding prop
+    (`onStartReviewTask` → `onStartAgentStep`) and removes the `'approve'`/
+    `'request-changes'`/`'start-review'` literal-action-id rendering block entirely, replacing
+    it with: a generic waiting-step bar (works for both executors, the human branch calling
+    the feature's own adapter hook's `start`) and `HumanStepSurface` for an active human
+    interaction.
+  - `TaskCard`/`TaskDialog` (`features/specifications`) never import
+    `features/agent-sessions` or the human-step transport directly — both only ever receive
+    and call `onStartStep`/an equivalent callback prop supplied from the screen above them.
+  - `session-bootstrap-readiness-wiring` (task 15) gains an explicit dependency on
+    `dashboard-human-step-transport` (task 16), since its composition-level dispatcher now
+    calls that task's shared transport function directly for the human branch — added to
+    `change.yaml` as a `depends_on` edge; no reorder of `order`/filenames is needed since
+    NEvo's task readiness is governed by `depends_on`, not by the `order` field, and no cycle
+    results (task 16 does not depend on task 15).
+- **Rationale:** Reuses the *existing* prop-bubbling pattern already present
+  (`onWorkflowAction` → `StatusBoard`) rather than inventing new plumbing — only the internal
+  branch predicate changes, from an action-string comparison to an `executor` comparison.
+  Keeps `TaskCard`/`TaskDialog` presentational and within `features/specifications`'s own
+  boundary, matching the architecture-boundaries test's actual, verified rules rather than a
+  new one.
+- **Consequences:** Without this decision, a human-owned step's "Start" control anywhere in
+  the UI would be a dead click (D15's model already existed server-side with no client caller
+  reaching it) — this decision is what makes it real. `tasks/15-session-bootstrap-readiness-wiring.md`
+  is corrected to remove its own now-incorrect acceptance criterion that files in its scope
+  "never call any human-step operation/transport" — that constraint was written before this
+  pass established that the composition-level dispatcher this task owns is precisely where
+  the human branch's `startHumanStep` call belongs.
+- **Date:** 2026-09-20
+- **Affected artifacts:** `change.yaml`, `tasks/15-session-bootstrap-readiness-wiring.md`,
+  `tasks/19-task-card-lifecycle-split.md`, `tasks/20-human-step-surface-consolidation.md`,
+  `areas/execution-readiness-and-session-bootstrap.md`, `areas/human-step-surface.md`,
+  `areas/ui-dashboard-board-split.md`.
+
+## D20: `DeterministicTaskCard` never embeds the active human-interaction result form — it indicates and defers to `TaskDialog`
+
+- **Question:** `tasks/19-task-card-lifecycle-split.md` (as left after pass 5) required
+  `DeterministicTaskCard`'s footer to render an active human interaction's own result buttons
+  (`label`/`feedbackRequired` per action) directly on the board card. `tasks/20-human-step-surface-consolidation.md`
+  simultaneously lists "wiring `HumanStepSurface` from the task board" as future/out-of-scope
+  work. Rendering the interaction's own action buttons on the card *is* a second,
+  independent implementation of the same interaction surface `HumanStepSurface` exists to be
+  the one owner of (D7/D11) — a genuine internal contradiction between the two tasks, not
+  just a wording gap.
+- **Decision:** `DeterministicTaskCard`'s scope shrinks to: the state-derived status
+  label/tone (unchanged from D15/pass-5 scope), the step descriptor (`id`/`purpose`) when
+  waiting, one generic "Start" control calling `onStartStep(stepDescriptor)` for
+  `availableActions: ["start-step"]` — identical for both executors — and, for an active
+  human interaction, a compact **indicator only** (e.g. "Human action required" text/badge)
+  that opens `TaskDialog` on click rather than rendering the interaction's own result buttons
+  inline. `HumanStepSurface` is not imported into `features/specifications/detail/status-board.tsx`
+  or any `TaskCard` sub-component — it remains reachable only through `TaskDialog` and chat
+  (D7, unchanged). This is a genuine scope reduction from the pass-5 version of task 19, not
+  a preservation of its prior wording.
+- **Rationale:** Keeps exactly one implementation of the full interaction surface
+  (`HumanStepSurface`, D7/D11) rather than a second, board-local one that would have to be
+  kept in sync with it by hand; the board's job is to summarize state and route the user to
+  the one place that has the full surface, not to duplicate it.
+- **Consequences:** `tasks/19-task-card-lifecycle-split.md`'s acceptance criterion claiming
+  the card's "footer renders... the human-interaction descriptor's own actions for an active
+  human step" is replaced with the indicator-only requirement. This does not change
+  `human-step-surface-consolidation`'s own "out of scope: wiring `HumanStepSurface` from the
+  task board" statement — that statement is still true (the board never renders the full
+  surface); it now sits alongside, not in tension with, the board's separate generic
+  `onStartStep` wiring (D19), which is a different, smaller mechanism than embedding
+  `HumanStepSurface`.
+- **Date:** 2026-09-20
+- **Affected artifacts:** `tasks/19-task-card-lifecycle-split.md`, `areas/ui-dashboard-board-split.md`.
