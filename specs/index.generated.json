@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T17:30:04.565Z",
+  "generated": "2026-09-20T17:30:09.788Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -164,7 +164,7 @@
           "id": "human-step-execution-operations",
           "order": 9,
           "file": "tasks/09-human-step-execution-operations.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "workflow-definition-schema-extensions",
             "step-executor-guard",
