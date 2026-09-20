@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T17:32:36.973Z",
+  "generated": "2026-09-20T17:32:45.101Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -225,7 +225,7 @@
           "id": "session-bootstrap-readiness-wiring",
           "order": 15,
           "file": "tasks/15-session-bootstrap-readiness-wiring.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "execution-readiness-policy",
             "dashboard-deterministic-action-projection"

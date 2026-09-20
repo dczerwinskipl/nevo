@@ -99,7 +99,7 @@ tasks:
   - id: session-bootstrap-readiness-wiring
     order: 15
     file: tasks/15-session-bootstrap-readiness-wiring.md
-    status: draft
+    status: approved
     depends_on: [ execution-readiness-policy, dashboard-deterministic-action-projection ]
   - id: dashboard-human-step-transport
     order: 16
