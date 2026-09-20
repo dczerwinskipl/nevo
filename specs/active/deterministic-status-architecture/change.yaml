@@ -16,7 +16,9 @@ tasks:
   - id: legacy-mutation-guard
     order: 1
     file: tasks/01-legacy-mutation-guard.md
-    status: approved
+    status: implemented
+    implementation:
+      baseline_revision: 6f6de214260025bdfdf2d73bb9009db425598d4f
   - id: deterministic-mutation-guard
     order: 2
     file: tasks/02-deterministic-mutation-guard.md
