@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T17:33:14.187Z",
+  "generated": "2026-09-20T17:33:21.061Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -274,7 +274,7 @@
           "id": "human-step-surface-consolidation",
           "order": 20,
           "file": "tasks/20-human-step-surface-consolidation.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "dashboard-deterministic-action-projection",
             "dashboard-human-step-transport",
