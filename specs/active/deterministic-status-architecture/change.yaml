@@ -67,7 +67,7 @@ tasks:
   - id: step-executor-guard
     order: 8
     file: tasks/08-step-executor-guard.md
-    status: implemented
+    status: verified
     depends_on: [ deterministic-mutation-guard, workflow-definition-schema-extensions ]
     implementation:
       baseline_revision: 8c9a1b2841b34d3096ef2fb4df807b087d778cbb
