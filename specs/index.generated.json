@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T17:12:08.121Z",
+  "generated": "2026-09-20T17:12:13.251Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -110,7 +110,7 @@
           "id": "status-vocabulary-extraction",
           "order": 3,
           "file": "tasks/03-status-vocabulary-extraction.md",
-          "status": "draft"
+          "status": "approved"
         },
         {
           "id": "lifecycle-boundary-regression-tests",

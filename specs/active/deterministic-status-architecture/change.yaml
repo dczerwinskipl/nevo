@@ -24,7 +24,7 @@ tasks:
   - id: status-vocabulary-extraction
     order: 3
     file: tasks/03-status-vocabulary-extraction.md
-    status: draft
+    status: approved
   - id: lifecycle-boundary-regression-tests
     order: 4
     file: tasks/04-lifecycle-boundary-regression-tests.md
