@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T23:00:48.852Z",
+  "generated": "2026-09-20T23:06:59.023Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -239,13 +239,16 @@
           "id": "execution-readiness-policy",
           "order": 13,
           "file": "tasks/13-execution-readiness-policy.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "workflow-task-publish-operation",
             "deterministic-task-projection",
             "step-executor-guard",
             "human-step-execution-operations"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "1b3ad6f1eddc8a5afea50bc828385ebff278e11c"
+          }
         },
         {
           "id": "dashboard-deterministic-action-projection",

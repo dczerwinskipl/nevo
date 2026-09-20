@@ -107,7 +107,7 @@ tasks:
   - id: execution-readiness-policy
     order: 13
     file: tasks/13-execution-readiness-policy.md
-    status: implemented
+    status: verified
     depends_on:
       [
         workflow-task-publish-operation,
