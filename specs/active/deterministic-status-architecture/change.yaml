@@ -86,7 +86,7 @@ tasks:
   - id: human-step-projection
     order: 10
     file: tasks/10-human-step-projection.md
-    status: implemented
+    status: verified
     depends_on: [ workflow-definition-schema-extensions ]
     implementation:
       baseline_revision: 6618b1dab60452464e8f76e63efb0b73ad98c29a

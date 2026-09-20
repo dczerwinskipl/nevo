@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T22:57:51.820Z",
+  "generated": "2026-09-20T22:58:54.425Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -202,10 +202,13 @@
           "id": "human-step-projection",
           "order": 10,
           "file": "tasks/10-human-step-projection.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "workflow-definition-schema-extensions"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "6618b1dab60452464e8f76e63efb0b73ad98c29a"
+          }
         },
         {
           "id": "deterministic-dependency-satisfaction",
