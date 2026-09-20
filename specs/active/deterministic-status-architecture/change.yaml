@@ -53,8 +53,10 @@ tasks:
   - id: deterministic-cli-default-task-resolution
     order: 6
     file: tasks/06-deterministic-cli-default-task-resolution.md
-    status: approved
+    status: implemented
     depends_on: [ deterministic-mutation-guard ]
+    implementation:
+      baseline_revision: a9919edb9bf034c401e14ee4062fa0c1bc301538
   - id: workflow-definition-schema-extensions
     order: 7
     file: tasks/07-workflow-definition-schema-extensions.md

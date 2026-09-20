@@ -34,24 +34,18 @@ import { resolveHumanScopeTarget } from './gates/human-gate.mjs';
 import './actions/index.mjs';
 import { autoBindAgentSession } from '../../specs.mjs';
 
-function resolveDefaultTask(change) {
-  const candidates = change.tasks.filter(t => t.status === 'in-implementation');
-  if (candidates.length === 1) return candidates[0];
-  if (candidates.length === 0) {
-    throw new CliError(`No task is currently in-implementation for change '${change._slug}' — specify a task id explicitly`);
-  }
-  throw new CliError(
-    `Multiple tasks are in-implementation for change '${change._slug}' — specify a task id explicitly: ${candidates.map(t => t.id).join(', ')}`
-  );
-}
-
 /**
  * Resolves the change/task/normalized-definition/runtime-context tuple shared by all
- * three `workflow` CLI commands.
+ * deterministic workflow CLI commands.
  */
 export function resolveWorkflowRuntime(changeSlug, taskId, { activeDir = ACTIVE_DIR, repoRoot = ROOT } = {}) {
   const change = requireChange(changeSlug, activeDir);
-  const task = taskId ? requireTask(change, taskId) : resolveDefaultTask(change);
+  if (!taskId) {
+    throw new CliError(
+      `Task ID is required for deterministic commands. Usage: node tools/specs.mjs workflow step <start|finish> ${changeSlug || change.id} <task>`
+    );
+  }
+  const task = requireTask(change, taskId);
   const resolvedMode = resolveWorkflowMode(change);
   const definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot });
   assertWorkflowVersionCompatible(resolvedMode, definition);
