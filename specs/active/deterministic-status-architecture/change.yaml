@@ -68,7 +68,7 @@ tasks:
   - id: human-step-projection
     order: 10
     file: tasks/10-human-step-projection.md
-    status: draft
+    status: approved
     depends_on: [ workflow-definition-schema-extensions ]
   - id: deterministic-dependency-satisfaction
     order: 11
