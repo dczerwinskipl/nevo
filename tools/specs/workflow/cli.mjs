@@ -33,6 +33,7 @@ import { resolveHumanScopeTarget } from './gates/human-gate.mjs';
 // producing an empty finish contract for every real invocation.
 import './actions/index.mjs';
 import { autoBindAgentSession } from '../../specs.mjs';
+import { assertStepExecutor } from './executor-guard.mjs';
 
 /**
  * Resolves the change/task/normalized-definition/runtime-context tuple shared by all
@@ -253,6 +254,13 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
   }
   const { task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
   const position = resolveWorkflowPosition(definition, task);
+  const stepName = position.phase === 'new'
+    ? definition.entryStep
+    : (position.phase === 'completed' ? position.nextStep : position.step);
+  const step = definition.steps?.[stepName];
+  if (step) {
+    assertStepExecutor(step, 'agent', { stepId: stepName });
+  }
   const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, position.attempt);
   const stepContext = await compileStepContext({ change, task, definition, context, gateRegistry });
   autoBindAgentSession(change, task.id, 'execution', { step: stepContext.currentStep, attempt: stepContext.attempt, repoRoot: context.repoRoot });
@@ -275,15 +283,21 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
   // execution identity — resolveWorkflowPosition must not even run when one exists (see
   // the identical reasoning in finish-operation.mjs's planFinish).
   const position = inFlight ? null : resolveWorkflowPosition(definition, task);
-  const stepName = inFlight ? inFlight.step : position.step;
+  const stepName = inFlight
+    ? inFlight.step
+    : (position?.phase === 'active' ? position.step : (position?.phase === 'new' ? definition.entryStep : (position?.step || position?.nextStep)));
   const attempt = inFlight ? inFlight.attempt : position.attempt;
+  const step = definition.steps?.[stepName];
+  if (step) {
+    assertStepExecutor(step, 'agent', { stepId: stepName });
+  }
   autoBindAgentSession(change, task.id, 'finish', { step: stepName, attempt, repoRoot: context.repoRoot });
   const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, attempt);
 
-  const step = (position?.phase === 'active' || inFlight) ? definition.steps?.[stepName] : null;
-  if (step) {
-    const finalizeCheck = await aggregateFinalizeCheck(step, context);
-    const parameters = buildFinishContract(finalizeCheck, step);
+  const activeStep = (position?.phase === 'active' || inFlight) ? definition.steps?.[stepName] : null;
+  if (activeStep) {
+    const finalizeCheck = await aggregateFinalizeCheck(activeStep, context);
+    const parameters = buildFinishContract(finalizeCheck, activeStep);
     const effectiveInputs = inFlight?.resolvedInputs ? { ...inFlight.resolvedInputs, ...inputs } : inputs;
     validateFinishInputs(effectiveInputs, parameters, { allowMissing: Boolean(opts.check) });
   }

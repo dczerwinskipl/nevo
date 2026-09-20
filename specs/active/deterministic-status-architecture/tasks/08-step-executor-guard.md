@@ -11,6 +11,7 @@ allowed_paths:
   - tools/specs/workflow/executor-guard.mjs
   - tools/specs/workflow/cli.mjs
   - tools/tests/step-executor-guard.test.mjs
+  - tools/tests/workflow-cli.test.mjs
 forbidden_paths:
   - tools/specs/approve/**
   - tools/specs/start/**
