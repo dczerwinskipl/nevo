@@ -17,7 +17,7 @@ try {
   formatBoundTaskLabel = function (task) {
     const isVerified = task.status === 'verified';
     if (isVerified) return `✓ ${task.id} (verified)`;
-    const statusLabel = task.status || 'in-implementation';
+    const statusLabel = task.currentStep || task.status || 'unknown';
     const attemptLabel = task.attempt ? ` · attempt ${task.attempt}` : '';
     return `● ${task.id} (${statusLabel}${attemptLabel})`;
   };

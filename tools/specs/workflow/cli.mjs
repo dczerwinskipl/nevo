@@ -35,6 +35,7 @@ import './actions/index.mjs';
 import { autoBindAgentSession } from '../../specs.mjs';
 import { assertStepExecutor } from './executor-guard.mjs';
 import { startHumanStep, submitHumanStepResult } from './human-step/operations.mjs';
+import { assertExecutionReadiness } from './readiness-policy.mjs';
 
 /**
  * Resolves the change/task/normalized-definition/runtime-context tuple shared by all
@@ -255,12 +256,8 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
   }
   const { task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
   const position = resolveWorkflowPosition(definition, task);
-  const stepName = position.phase === 'new'
-    ? definition.entryStep
-    : (position.phase === 'completed' ? position.nextStep : position.step);
-  const step = definition.steps?.[stepName];
-  if (step) {
-    assertStepExecutor(step, 'agent', { stepId: stepName });
+  if (position.phase !== 'terminal') {
+    assertExecutionReadiness(task, change, 'agent', { definition, repoRoot: context.repoRoot });
   }
   const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, position.attempt);
   const stepContext = await compileStepContext({ change, task, definition, context, gateRegistry });

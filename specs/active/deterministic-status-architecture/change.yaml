@@ -107,7 +107,7 @@ tasks:
   - id: execution-readiness-policy
     order: 13
     file: tasks/13-execution-readiness-policy.md
-    status: approved
+    status: implemented
     depends_on:
       [
         workflow-task-publish-operation,
@@ -115,6 +115,8 @@ tasks:
         step-executor-guard,
         human-step-execution-operations
       ]
+    implementation:
+      baseline_revision: 1b3ad6f1eddc8a5afea50bc828385ebff278e11c
   - id: dashboard-deterministic-action-projection
     order: 14
     file: tasks/14-dashboard-deterministic-action-projection.md

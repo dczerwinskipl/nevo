@@ -16,6 +16,7 @@ import { listChanges, ROOT } from '../../../../specs/store.mjs';
 import { resolveWorkflowPosition } from '../../../../specs/workflow/step-runner.mjs';
 import { loadWorkflowDefinition } from '../../../../specs/workflow/definitions/loader.mjs';
 import { resolveWorkflowMode } from '../../../../specs/workflow/compatibility.mjs';
+import { evaluateExecutionReadiness } from '../../../../specs/workflow/readiness-policy.mjs';
 // Side-effect import: registers CommitAndPushAction into defaultActionRegistry (see
 // tools/specs/workflow/cli.mjs and actions/index.mjs). loadWorkflowDefinition() validates
 // every step's `finalize` action IDs against that registry — without this import, any
@@ -176,7 +177,13 @@ export function computeWorkSummary(turn) {
   };
 }
 
-export function formatNevoWorkflowContext({ changeSlug, taskId, step = 'implementation', attempt = 1 } = {}) {
+export function formatNevoWorkflowContext({ changeSlug, taskId, step, attempt } = {}) {
+  if (!step || typeof step !== 'string' || !step.trim()) {
+    throw new TypeError(`formatNevoWorkflowContext requires 'step' (got ${JSON.stringify(step)})`);
+  }
+  if (attempt === undefined || attempt === null || !Number.isInteger(attempt) || attempt < 1) {
+    throw new TypeError(`formatNevoWorkflowContext requires 'attempt' >= 1 (got ${JSON.stringify(attempt)})`);
+  }
   return [
     '[Nevo Workflow Context]',
     `Specification: ${changeSlug || 'active'}`,
@@ -196,7 +203,7 @@ export function formatNevoWorkflowContext({ changeSlug, taskId, step = 'implemen
     'Rules:',
     '1. Do not manually edit change.yaml or manifest files.',
     '2. Do not run manual git commit, git push, or git tag commands.',
-    '3. When implementation and verification are complete, inspect StepContext.finishContract.parameters and run:',
+    "3. When the current step's work and required verification are complete, inspect StepContext.finishContract.parameters and run:",
     `   node tools/specs.mjs workflow step finish ${changeSlug || 'active'} ${taskId} --input '{"commit.title":"..."}'`,
     '4. After successful step finish, summarize your work and STOP.',
   ].join('\n');
@@ -372,13 +379,26 @@ export class AgentSessionService {
       : options.taskId
         ? [options.taskId]
         : [];
-    // An explicit singular `options.taskId` is always authoritative. Absent that, a
-    // single associated task is unambiguous and may become the active task. But with
-    // *multiple* `taskIds` and no explicit primary, there is genuinely no authoritative
-    // active task — never guess `taskIds[0]`. A multi-task session with no designated
-    // primary is a valid neutral, spec-level context (e.g. the Create Agent Session
-    // dialog's multi-checkbox task selection).
-    const primaryTaskId = options.taskId || (taskIds.length === 1 ? taskIds[0] : undefined);
+    // D18 fix 1: An explicit singular `options.taskId` is always authoritative.
+    // A single contextual item in `taskIds` without an explicit `options.taskId` must
+    // never silently become the active task.
+    const primaryTaskId = options.taskId;
+
+    if (primaryTaskId && options.specId) {
+      const workflowInfo = resolveDeterministicWorkflowInfo(options.specId, primaryTaskId, this.repoRoot);
+      if (workflowInfo.mode === 'deterministic') {
+        const changes = listChanges(resolve(this.repoRoot, 'specs', 'active'));
+        const change = changes.find((c) => c.spec_id === options.specId || c.id === options.specId || c._slug === options.specId);
+        const resolvedTask = (change.tasks || []).find((t) => String(t.id) === String(primaryTaskId));
+        const readiness = evaluateExecutionReadiness(resolvedTask, change, 'agent', { repoRoot: this.repoRoot });
+        if (!readiness.ready) {
+          throw new AiDeterministicWorkflowUnavailableError(
+            `Task '${primaryTaskId}' in spec '${options.specId}' is not ready for execution: ${readiness.reason}`,
+            { specId: options.specId, taskId: primaryTaskId, readiness }
+          );
+        }
+      }
+    }
     const purpose = options.purpose || options.title || (primaryTaskId ? `task:${primaryTaskId}` : 'interactive');
     const mode = options.mode ? validateAgentExecutionMode(options.mode, 'mode') : descriptor.defaultMode || 'edit';
 
@@ -454,7 +474,7 @@ export class AgentSessionService {
     // intentionally left unestablished (providerSessionId absent), never fabricated. The
     // provider error itself is allowed to propagate — the session persisted above is not
     // rolled back, since the provider side effect may already have partially happened.
-    if (!providerSessionId && typeof entry.provider.createSession === 'function') {
+    if (!providerSessionId && typeof entry?.provider?.createSession === 'function') {
       const created = await entry.provider.createSession({
         sessionId,
         specId: options.specId,
@@ -1158,8 +1178,8 @@ export class AgentSessionService {
       if (deterministicWorkflowInfo || (typeof opts.workflowContext === 'object' && opts.workflowContext !== null)) {
         bootstrapToRecord = {
           taskId: deterministicWorkflowInfo?.taskId || opts.workflowContext?.taskId || effectiveTaskId,
-          step: deterministicWorkflowInfo?.step || opts.workflowContext?.step || 'implementation',
-          attempt: deterministicWorkflowInfo?.attempt ?? opts.workflowContext?.attempt ?? 1,
+          step: deterministicWorkflowInfo?.step || opts.workflowContext?.step,
+          attempt: deterministicWorkflowInfo?.attempt ?? opts.workflowContext?.attempt,
         };
       }
     }

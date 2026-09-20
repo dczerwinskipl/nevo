@@ -239,6 +239,37 @@ export function validateFinishInputs(inputs, parameters, { allowMissing = false 
  *   finish operation hasn't settled; `REPO_ROOT_REQUIRED` if position resolves to
  *   `completed` and no `context.repoRoot` was supplied to check it
  */
+/**
+ * Asserts that the Git worktree is clean before activating a new step attempt (D13).
+ *
+ * @param {string} [repoRoot] - Repository root path
+ * @throws {WorkflowError} DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT if working tree has uncommitted changes outside .nevo-ai-local/
+ * @throws {WorkflowError} WORKTREE_STATE_UNAVAILABLE if git inspection fails
+ */
+export function assertCleanWorktreeForNewAttempt(repoRoot) {
+  if (!repoRoot) return;
+  let dirtyPaths;
+  try {
+    dirtyPaths = git.getDirtyPaths(repoRoot);
+  } catch (err) {
+    if (err instanceof WorkflowError) throw err;
+    throw new WorkflowError(
+      `Unable to inspect Git working tree state before activating new attempt: ${err.message}`,
+      { code: 'WORKTREE_STATE_UNAVAILABLE', cause: err }
+    );
+  }
+  const relevantDirty = dirtyPaths.filter(p => {
+    const norm = p.replace(/\\/g, '/');
+    return norm !== '.nevo-ai-local' && !norm.startsWith('.nevo-ai-local/');
+  });
+  if (relevantDirty.length > 0) {
+    throw new WorkflowError(
+      `Working tree has uncommitted changes outside .nevo-ai-local/ (${relevantDirty.join(', ')}) — clean the workspace before starting a new attempt`,
+      { code: 'DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT', dirtyFiles: relevantDirty }
+    );
+  }
+}
+
 export function ensureStepActivated(change, task, definition, context = {}) {
   const position = resolveWorkflowPosition(definition, task);
   if (position.phase !== 'new' && position.phase !== 'completed') {
@@ -269,26 +300,7 @@ export function ensureStepActivated(change, task, definition, context = {}) {
   }
 
   if (context.repoRoot) {
-    let dirtyPaths;
-    try {
-      dirtyPaths = git.getDirtyPaths(context.repoRoot);
-    } catch (err) {
-      if (err instanceof WorkflowError) throw err;
-      throw new WorkflowError(
-        `Unable to inspect Git working tree state before activating new attempt: ${err.message}`,
-        { code: 'WORKTREE_STATE_UNAVAILABLE', cause: err }
-      );
-    }
-    const relevantDirty = dirtyPaths.filter(p => {
-      const norm = p.replace(/\\/g, '/');
-      return norm !== '.nevo-ai-local' && !norm.startsWith('.nevo-ai-local/');
-    });
-    if (relevantDirty.length > 0) {
-      throw new WorkflowError(
-        `Working tree has uncommitted changes outside .nevo-ai-local/ (${relevantDirty.join(', ')}) — clean the workspace before starting a new attempt`,
-        { code: 'DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT', dirtyFiles: relevantDirty }
-      );
-    }
+    assertCleanWorktreeForNewAttempt(context.repoRoot);
   }
 
   const targetStep = position.phase === 'new' ? definition.entryStep : position.nextStep;

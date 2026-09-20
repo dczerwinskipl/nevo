@@ -9,6 +9,7 @@ import { ensureStepActivated } from '../step-context.mjs';
 import { finishStep } from '../finish-operation.mjs';
 import { assertStepExecutor } from '../executor-guard.mjs';
 import { findInFlightOperationRecord } from '../operation-record.mjs';
+import { assertExecutionReadiness } from '../readiness-policy.mjs';
 
 /**
  * Activates a human-owned workflow step after verifying mode and executor guards.
@@ -31,20 +32,7 @@ export function startHumanStep(change, task, definition, context = {}) {
     );
   }
 
-  const position = resolveWorkflowPosition(definition, task);
-  const targetStepName = position.phase === 'new'
-    ? definition.entryStep
-    : (position.phase === 'completed' ? position.nextStep : position.step);
-
-  const targetStep = definition.steps?.[targetStepName];
-  if (!targetStep) {
-    throw new WorkflowError(
-      `Step '${targetStepName}' not found in workflow definition '${definition?.id}'`,
-      { code: 'STEP_NOT_FOUND', step: targetStepName }
-    );
-  }
-
-  assertStepExecutor(targetStep, 'human', { stepId: targetStepName });
+  assertExecutionReadiness(task, change, 'human', { definition, repoRoot: context?.repoRoot });
 
   return ensureStepActivated(change, task, definition, context);
 }
