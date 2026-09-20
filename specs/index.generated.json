@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T17:32:53.724Z",
+  "generated": "2026-09-20T17:33:00.786Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -245,7 +245,7 @@
           "id": "dashboard-actions-lifecycle-split",
           "order": 17,
           "file": "tasks/17-dashboard-actions-lifecycle-split.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "dashboard-deterministic-action-projection",
             "human-step-execution-operations"

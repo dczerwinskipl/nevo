@@ -109,7 +109,7 @@ tasks:
   - id: dashboard-actions-lifecycle-split
     order: 17
     file: tasks/17-dashboard-actions-lifecycle-split.md
-    status: draft
+    status: approved
     depends_on: [ dashboard-deterministic-action-projection, human-step-execution-operations ]
   - id: deterministic-board-lane-projection
     order: 18
