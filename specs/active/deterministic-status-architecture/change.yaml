@@ -100,7 +100,7 @@ tasks:
   - id: deterministic-task-projection
     order: 12
     file: tasks/12-deterministic-task-projection.md
-    status: implemented
+    status: verified
     depends_on: [ human-step-projection, deterministic-dependency-satisfaction ]
     implementation:
       baseline_revision: f302505d98fcbab99b3ded839a80d18475da07ff
