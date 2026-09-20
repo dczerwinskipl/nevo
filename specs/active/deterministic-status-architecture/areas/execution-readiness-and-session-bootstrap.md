@@ -174,10 +174,11 @@ copy).
 - A session-creation request from an agent-owned `start-step` click naming an authoritative
   execution task id that is not ready (unpublished, unsatisfied dependency, terminal, or
   executor-mismatched) is refused server-side, even when sent directly.
-- The session's initial trigger message is byte-for-byte identical regardless of which
-  agent step is being started (proven for at least two differently-named steps, e.g.
-  `implementation` and an arbitrary `hardening` fixture, item 15) — no step-id/purpose text
-  appears in it.
+- For the same task, the session's initial trigger message is byte-for-byte identical
+  regardless of which agent step is being started (proven for at least two differently-named
+  steps run against the same task, e.g. `implementation` and an arbitrary `hardening`
+  fixture, item 15) — no step-id/purpose text appears in it. (Across different tasks, the
+  message may legitimately differ by the task id it names — never by step id/purpose.)
 - No file in this area's scope contains a `switch`/`if`/lookup-object keyed on a literal
   step id, `currentStep`, or `nextStep`.
 - A session created with `{ taskIds: ['draft-task'] }` (exactly one contextual task, no

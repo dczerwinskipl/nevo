@@ -765,8 +765,41 @@
   `dashboard-human-step-transport` is removed from `change.yaml` (the human branch's
   `startHumanStep` call moved to the new final task, which depends on
   `dashboard-human-step-transport` directly instead).
+**Composition-path correction (2026-09-20, eighth pass — task 23's own scope, not the
+architecture above, was wrong):** the seventh pass assumed `specification-detail-content.tsx`
+renders `StatusBoard` directly. **Grounded fact:** it does not — reading both files directly
+shows `specification-detail-content.tsx` renders `SpecificationOverview`
+(`tools/dashboard/ui/screens/specification-detail/specification-overview.tsx`), which itself
+renders `StatusBoard` and owns the actual `onWorkflowAction?: (task, action: string) => void |
+Promise<void>` prop that gets forwarded into it — `TaskDialog`, by contrast, *is* rendered
+directly by `specification-detail-content.tsx`, no intermediate file. A task 23 that owned
+only `specification-detail-content.tsx` could wire `startStep` into `TaskDialog` but had no
+file in its `allowed_paths` capable of forwarding it into `StatusBoard`. Corrected: task 23's
+`allowed_paths` gains `specification-overview.tsx`; the composition chain is
+`SpecificationDetailContent.startStep` → `SpecificationOverview.onStartStep` →
+`StatusBoard.onStartStep` (a pure rename/forward in `SpecificationOverview`, replacing its
+`onWorkflowAction` prop) → `TaskDialog` receives the same `startStep` directly, no hop.
+**Grounded fact confirming this is safe:** `onWorkflowAction` is read only inside
+`TaskCard`'s `isDeterministic` branch — `SpecificationOverview`/`StatusBoard` each have a
+wholly separate, `SpecificationOwnerAction`-typed `onDirectTaskAction`/`onTaskAction` pair
+legacy cards use instead, confirmed by reading both files — so this rename cannot affect
+legacy behavior, and task 23's own acceptance criteria now prove that directly.
+
+**Task 20 real-vs-test-double correction (2026-09-20, eighth pass):** task 20 had claimed
+"activating from either entry point [`TaskDialog` or chat] POSTs the same `{action:
+'start'}` body identically" — but `TaskDialog`'s `onStartStep` is, by this same decision's
+own design, only a test double until task 23 supplies the real implementation; task 20
+cannot prove what a callback it doesn't implement actually does over the wire. Corrected:
+task 20 now proves (a) active-interaction *submission* identically for both `TaskDialog` and
+chat (a claim it can make — both go through its own feature-local adapters), (b) chat's own
+waiting-state *activation* for real (chat is fully self-contained within task 20, D19), and
+(c) `TaskDialog`'s waiting-state control only calls `onStartStep` with a test double. The
+real `TaskDialog`→`human-step-request.ts`→`{action: 'start'}` proof moves to task 23,
+alongside the equivalent, already-present proof for `TaskCard` — both real composition entry
+points are asserted to route through the identical `startStep` function instance.
 - **Date:** 2026-09-20; task-decomposition corrected 2026-09-20 (seventh, strictly
-  mechanical pass).
+  mechanical pass); composition-path and task 20/23 ownership refined further 2026-09-20
+  (eighth, strictly mechanical pass).
 - **Affected artifacts:** `change.yaml`, `tasks/15-session-bootstrap-readiness-wiring.md`,
   `tasks/19-task-card-lifecycle-split.md`, `tasks/20-human-step-surface-consolidation.md`,
   `tasks/23-specification-detail-composition-wiring.md` (new),

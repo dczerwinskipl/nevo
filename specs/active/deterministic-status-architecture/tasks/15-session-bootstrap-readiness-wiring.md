@@ -108,16 +108,22 @@ version of the DTO that doesn't exist yet.
   execution bootstrap, no readiness check — unaffected by this change (item 9's client-side
   half; the single-task server-side fix is D18/task 13's scope).
   `automated: node --test tools/dashboard/tests/agent-session-workflow.test.tsx`
-- `buildAgentStepTriggerMessage(taskId)` (or equivalent) produces byte-for-byte identical
-  output for at least two different `taskId`/step combinations that differ only in step
-  id/purpose (e.g. one whose next step is `review`, one whose next step is an arbitrary
-  `hardening` fixture, item 15) — proven by calling it directly in a unit test, independent
-  of any UI.
+- **Corrected invariant (this pass — the prior "byte-for-byte identical output for two
+  different `taskId`s" wording was self-contradictory, since the message legitimately
+  includes the task id and therefore differs whenever `taskId` differs):** for the **same**
+  `taskId`, `buildAgentStepTriggerMessage(taskId)` returns the identical string regardless of
+  which workflow step is about to be started — proven by calling it directly for a task
+  whose next step is `review` and, separately, for the same task with its next step swapped
+  to an arbitrary `hardening` fixture (item 15) and asserting the two calls return the exact
+  same string. Across **different** task ids, outputs may legitimately differ, but only by
+  the `taskId` value itself — never by step id, purpose, executor, or any other
+  step-semantic wording.
   `automated: node --test tools/dashboard/tests/agent-session-workflow.test.tsx`
-- The builder's signature and implementation contain no reference to a step's `id`/
-  `purpose`/`executor` — it accepts only what it needs to name the task (`taskId`), nothing
-  step-shaped.
-  `inspection: confirm buildAgentStepTriggerMessage's signature has no step-id/purpose/executor parameter`
+- **Structural guarantee (stronger than the behavioral proof above):** the builder's
+  signature accepts only `taskId` — no step id, purpose, or executor parameter exists at
+  all, so it is structurally incapable of varying by step regardless of what any test
+  exercises.
+  `inspection: confirm buildAgentStepTriggerMessage's signature has no step-id/purpose/executor parameter — taskId is its only input`
 - Neither `CreateAgentSessionDialog` nor any file in this task's scope ever auto-selects a
   contextual task as authoritative execution intent.
   `inspection: confirm task selection stays explicit and opt-in in all components in this task's scope`

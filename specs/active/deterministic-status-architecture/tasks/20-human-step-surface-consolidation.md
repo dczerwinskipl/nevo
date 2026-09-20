@@ -175,11 +175,22 @@ previously, incorrectly, assigned to `session-bootstrap-readiness-wiring`).
 - `TaskDialog`'s legacy rendering path (legacy spec, `TaskActionFooter`) is byte-for-byte
   unchanged (brief regression test #14's dialog half).
   `automated: node --test tools/dashboard/tests/agent-session-workflow.test.tsx`
-- Submitting a result from either `TaskDialog` or chat POSTs the same
-  `{action: 'submit', ...}` body through their own feature-local adapter hook, both
-  ultimately calling the same shared `human-step-request.ts` function; activating from
-  either entry point POSTs the same `{action: 'start'}` body identically — no divergent
-  behavior between the two call sites, and neither ever calls `/workflow/human-decision`.
+- **Active-interaction submission (this task's real scope for both entry points):**
+  submitting a result from either `TaskDialog` or chat POSTs the same
+  `{ action: 'submit', ... }` body through their own feature-local adapter hook
+  (`features/specifications/tasks/human-step-mutations.ts`,
+  `features/agent-sessions/human-step-mutations.ts` respectively), both ultimately calling
+  the same shared `human-step-request.ts` function — no divergent behavior between the two
+  call sites, and neither ever calls `/workflow/human-decision`.
+  `automated: node --test tools/dashboard/tests/agent-session-workflow.test.tsx`
+- **Chat's waiting-state activation (this task's real scope — chat is fully self-contained,
+  D19):** activating a waiting human step from chat's own generic Start control POSTs
+  `{ action: 'start' }` through this task's own `features/agent-sessions/human-step-mutations.ts`
+  hook's `start` method, directly calling the shared `human-step-request.ts` function — never
+  `/workflow/human-decision`. This task does **not** assert the equivalent for `TaskDialog`'s
+  activation — see the test-double-only criterion below; the real `TaskDialog`→transport
+  proof belongs to `specification-detail-composition-wiring` (task 23), since `TaskDialog`'s
+  `onStartStep` implementation does not exist until that task supplies it.
   `automated: node --test tools/dashboard/tests/agent-session-workflow.test.tsx`
 - Submitting from a human step with a single unconditional transition omits `result`
   entirely from the request body.

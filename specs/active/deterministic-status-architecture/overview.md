@@ -199,6 +199,35 @@ feature-adapter split clarified: `features/agent-sessions/human-step-mutations.t
 additionally exposes a `start` method for chat's own generic waiting control, since chat
 never needs the composition-layer indirection the board/dialog case requires.
 
+**Corrective pass 8 (2026-09-20, strictly mechanical): fixing task 23's own real composition
+path and a resulting over-claim in task 20.** A fresh re-review found `specification-detail-content.tsx`
+does not render `StatusBoard` directly — confirmed by reading the repository directly, it
+renders `SpecificationOverview` (`tools/dashboard/ui/screens/specification-detail/specification-overview.tsx`),
+which owns the actual `onWorkflowAction?: (task, action: string) => void | Promise<void>`
+prop forwarded into `StatusBoard`; `TaskDialog` alone is rendered directly by
+`specification-detail-content.tsx`. Task 23, owning only `specification-detail-content.tsx`,
+had no file capable of forwarding its `startStep` dispatcher into `StatusBoard` at all.
+Corrected: task 23's `allowed_paths` gains `specification-overview.tsx`; the real chain is
+`SpecificationDetailContent.startStep` → `SpecificationOverview.onStartStep` →
+`StatusBoard.onStartStep`, replacing `SpecificationOverview`'s `onWorkflowAction` prop with a
+pure rename/forward — confirmed safe because `onWorkflowAction` is read only inside
+`TaskCard`'s `isDeterministic` branch, entirely separate from the
+`SpecificationOwnerAction`-typed `onDirectTaskAction`/`onBatchTaskAction` pair legacy cards
+use. This same review found task 20 had claimed it could prove `TaskDialog`'s activation
+POSTs `{ action: 'start' }` — impossible, since `TaskDialog`'s `onStartStep` is intentionally
+only a test double within task 20's own scope (its real implementation is task 23's to
+supply). Corrected: task 20 now proves active-interaction *submission* identically for both
+entry points (its real scope) and chat's own waiting-state *activation* for real (chat is
+fully self-contained), while `TaskDialog`'s waiting-state control is proven only to *call*
+`onStartStep` with a test double; the real `TaskDialog`→transport proof moves to task 23,
+alongside the equivalent, already-present proof for `TaskCard` — both real entry points are
+now asserted to route through the identical `startStep` function instance. Finally, task 15's
+own acceptance criterion claiming `buildAgentStepTriggerMessage(taskId)` produces
+"byte-for-byte identical output for two different `taskId`s" was self-contradictory (the
+message legitimately includes the task id, so it must differ across tasks) — corrected to
+the precise invariant: for the **same** task, changing the workflow step never changes the
+message, and the builder's signature structurally accepts only `taskId`, nothing step-shaped.
+
 ## Current architecture
 
 Grounded in repository discovery (2026-09-17, deepened 2026-09-19 by reading the actual
@@ -437,6 +466,16 @@ engine source directly):
     unsatisfiable; and D17's written `HumanStepSurface` prop contract
     (`stepDescriptor`/`onStart` included) had gone stale the moment D19/D20 moved the
     waiting-state control out of the component, but was never updated to match.
+26. Pass 7's own task 23 had a further real-path defect, confirmed by reading the repository
+    directly (2026-09-20): `specification-detail-content.tsx` does not render `StatusBoard`
+    directly, it renders `SpecificationOverview`, which owns the actual `onWorkflowAction`
+    prop forwarded into `StatusBoard` — a task 23 that owned only
+    `specification-detail-content.tsx` had no file capable of wiring `onStartStep` into the
+    board at all. The same review found task 20 claiming a real
+    `TaskDialog`→`{action: 'start'}` proof it structurally cannot make, since `TaskDialog`'s
+    `onStartStep` is only a test double until task 23 supplies the real implementation; and
+    task 15's trigger-message criterion claimed byte-for-byte identical output across
+    *different* task ids, which is self-contradictory once the message includes the task id.
 
 ## Constraints
 
