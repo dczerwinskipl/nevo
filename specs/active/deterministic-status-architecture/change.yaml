@@ -34,13 +34,15 @@ tasks:
   - id: lifecycle-boundary-regression-tests
     order: 4
     file: tasks/04-lifecycle-boundary-regression-tests.md
-    status: approved
+    status: implemented
     depends_on:
       [
         legacy-mutation-guard,
         deterministic-mutation-guard,
         status-vocabulary-extraction
       ]
+    implementation:
+      baseline_revision: 52e2f9513865ce35f5df5b8ec540c9e75e912aa7
   - id: workflow-task-publish-operation
     order: 5
     file: tasks/05-workflow-task-publish-operation.md
