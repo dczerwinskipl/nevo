@@ -73,7 +73,7 @@ tasks:
   - id: deterministic-dependency-satisfaction
     order: 11
     file: tasks/11-deterministic-dependency-satisfaction.md
-    status: draft
+    status: approved
     depends_on: [ workflow-definition-schema-extensions ]
   - id: deterministic-task-projection
     order: 12

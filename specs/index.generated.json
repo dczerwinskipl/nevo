@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T17:30:14.964Z",
+  "generated": "2026-09-20T17:30:19.842Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -184,7 +184,7 @@
           "id": "deterministic-dependency-satisfaction",
           "order": 11,
           "file": "tasks/11-deterministic-dependency-satisfaction.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "workflow-definition-schema-extensions"
           ]
