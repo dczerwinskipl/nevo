@@ -24,7 +24,7 @@ forbidden_paths:
   - src/**
 depends_on: [ session-bootstrap-readiness-wiring, dashboard-human-step-transport, task-card-lifecycle-split, human-step-surface-consolidation ]
 semantic_references:
-  decisions: [D15, D19, D20]
+  decisions: [D5, D14, D15, D17, D18, D19, D20]
 ---
 
 # Task: `SpecificationDetailContent`/`SpecificationOverview` composition wiring

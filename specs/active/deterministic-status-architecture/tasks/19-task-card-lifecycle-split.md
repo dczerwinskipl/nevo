@@ -16,7 +16,7 @@ forbidden_paths:
   - src/**
 depends_on: [ dashboard-deterministic-action-projection, session-bootstrap-readiness-wiring ]
 semantic_references:
-  decisions: [D15, D18, D19, D20]
+  decisions: [D7, D10, D15, D18, D19, D20]
 ---
 
 # Task: `TaskCard` lifecycle split

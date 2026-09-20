@@ -20,6 +20,8 @@ forbidden_paths:
   - tools/specs/verify/**
   - tools/dashboard/**
   - src/**
+semantic_references:
+  decisions: [D8]
 ---
 
 # Task: Status vocabulary extraction

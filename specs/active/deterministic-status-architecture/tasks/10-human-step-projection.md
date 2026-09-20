@@ -20,7 +20,7 @@ forbidden_paths:
   - src/**
 depends_on: [ workflow-definition-schema-extensions ]
 semantic_references:
-  decisions: [D5, D10]
+  decisions: [D5, D10, D16]
 ---
 
 # Task: Human-step projection

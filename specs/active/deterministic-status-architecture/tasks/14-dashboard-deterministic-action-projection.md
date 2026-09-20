@@ -16,7 +16,7 @@ forbidden_paths:
   - src/**
 depends_on: [ deterministic-task-projection, execution-readiness-policy ]
 semantic_references:
-  decisions: [D10, D15]
+  decisions: [D10, D15, D18]
 ---
 
 # Task: Dashboard deterministic action projection

@@ -16,7 +16,7 @@ forbidden_paths:
   - src/**
 depends_on: [ deterministic-task-projection ]
 semantic_references:
-  decisions: [D15]
+  decisions: [D1, D15]
 ---
 
 # Task: Deterministic board lane projection

@@ -56,8 +56,9 @@ in `tools/specs/lifecycle-primitives.mjs`) is off-limits to this area entirely (
   `active`, `waiting-for-step-start`, `human-interaction`, `terminal`.
 - Facts exposed: current step, **executor** (of the current/next step), current attempt,
   the generic next-step descriptor (tier 1 above) when finished-but-not-started
-  (`waiting-for-step-start` — D37: only the next `step start`/`startHumanStep` advances
-  `current_step`; applies identically regardless of the next step's executor, and
+  (`waiting-for-step-start` — the engine's existing model: only the next
+  `step start`/`startHumanStep` advances `current_step`; applies identically regardless of
+  the next step's executor, and
   identically on a review-fail loop back to an agent step — never auto-activated), blocking
   dependencies (from dependency satisfaction below), the human interaction actions
   descriptor (tier 2) when applicable, and terminal state/outcome

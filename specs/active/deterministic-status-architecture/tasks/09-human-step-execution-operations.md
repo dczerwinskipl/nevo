@@ -21,7 +21,7 @@ forbidden_paths:
   - src/**
 depends_on: [ workflow-definition-schema-extensions, step-executor-guard, deterministic-mutation-guard ]
 semantic_references:
-  decisions: [D12]
+  decisions: [D11, D12, D13, D16]
 ---
 
 # Task: Human-step execution operations

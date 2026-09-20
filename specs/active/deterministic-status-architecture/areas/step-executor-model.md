@@ -21,8 +21,8 @@ needed: it resolves the target step via `resolveWorkflowPosition`, already calls
 `finishStep` with `{ result: 'pass'|'fail', feedback }`, which itself already matches
 `result` against the active step's declared `transitions[].value`. Nothing prevents
 `workflow step start` from being called against a would-be human step regardless of who is
-meant to execute it. Transition metadata (D37) is currently `{ to }`/`{ value, to }` only —
-no `action`/label/feedback metadata, no `outcome`.
+meant to execute it. Transition metadata is currently `{ to }`/`{ value, to }` only — no
+`action`/label/feedback metadata, no `outcome`.
 
 Per-definition audit (2026-09-19, D6): `standard.yaml`/`standard-v1.yaml` (identical) have a
 genuine standalone `human-verification` step with its own transitions

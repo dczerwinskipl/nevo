@@ -20,7 +20,7 @@ forbidden_paths:
   - src/**
 depends_on: [ human-step-projection, deterministic-dependency-satisfaction ]
 semantic_references:
-  decisions: [D10, D15]
+  decisions: [D8, D9, D10, D15]
 ---
 
 # Task: Deterministic task projection
@@ -49,8 +49,9 @@ is `ExecutionReadiness`/`DashboardActionProjection`'s job (own tasks).
   `human-step-projection`'s human-interaction function) when applicable, and terminal
   outcome (`success`/`failure`, resolved the same way dependency-satisfaction resolves it —
   D9).
-- `waiting-for-step-start` is derived directly from D37's `state: active|completed` model
-  (`resolveWorkflowPosition`/`workflow_progress.state`) — the previous step is `completed`
+- `waiting-for-step-start` is derived directly from the engine's existing
+  `state: active|completed` model (`resolveWorkflowPosition`/`workflow_progress.state`) — the
+  previous step is `completed`
   but `current_step` has not advanced. This applies identically regardless of the next
   step's `executor` (agent or human), and identically on a review-fail loop back to an
   agent step — the projection never auto-activates the new attempt.

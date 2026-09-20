@@ -26,7 +26,7 @@ forbidden_paths:
   - src/**
 depends_on: [ workflow-task-publish-operation, deterministic-task-projection, step-executor-guard, human-step-execution-operations ]
 semantic_references:
-  decisions: [D10, D13, D15, D18]
+  decisions: [D10, D13, D15, D18, D19]
 ---
 
 # Task: Execution readiness policy

@@ -26,7 +26,7 @@ forbidden_paths:
   - src/**
 depends_on: [ status-vocabulary-extraction ]
 semantic_references:
-  decisions: [D6, D9]
+  decisions: [D6, D9, D16]
 ---
 
 # Task: Workflow definition schema extensions

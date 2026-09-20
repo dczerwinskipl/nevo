@@ -25,7 +25,7 @@ forbidden_paths:
   - src/**
 depends_on: [ dashboard-deterministic-action-projection, dashboard-human-step-transport, task-card-lifecycle-split, session-bootstrap-readiness-wiring ]
 semantic_references:
-  decisions: [D7, D11, D15, D17, D18, D19, D20]
+  decisions: [D7, D11, D14, D15, D16, D17, D18, D19, D20]
 ---
 
 # Task: Human step surface consolidation
