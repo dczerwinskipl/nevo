@@ -19,6 +19,7 @@ import { resolveWorkflowMode, assertWorkflowVersionCompatible } from './compatib
 import { loadWorkflowDefinition } from './definitions/loader.mjs';
 import { compileStepContext, buildFinishContract, validateFinishInputs, aggregateFinalizeCheck, ensureStepActivated, resolveTaskScope, resolveWorkflowOwnedPaths } from './step-context.mjs';
 import { planFinish, finishStep } from './finish-operation.mjs';
+import { publishTask } from './publish/operation.mjs';
 import { resolveActiveStepName, resolveWorkflowPosition, gateDisplayId } from './step-runner.mjs';
 import { findInFlightOperationRecord } from './operation-record.mjs';
 import { WorkflowError } from './errors.mjs';
@@ -442,3 +443,15 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
   const record = store.confirm({ scope, targetId, role, stepId: stepName, attempt, gateId: gateConfig.id || null });
   return emit({ change: changeSlug, task: taskId, confirmed: true, record }, opts);
 }
+
+/**
+ * CLI entry point: publish a task in a deterministic spec for execution.
+ */
+export async function handleWorkflowTaskPublish(changeSlug, taskId, options = {}) {
+  const result = publishTask(changeSlug, taskId, options);
+  if (!options.silent) {
+    process.stdout.write(`Task '${result.taskId}' in change '${result.changeSlug}' published successfully.\n`);
+  }
+  return result;
+}
+
