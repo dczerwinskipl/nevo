@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict';
 import { test, describe, before, after } from 'node:test';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { buildDashboardApp } from '../server/index.mjs';
-import { computeTaskAvailableActions, computeTaskWorkflowProjection, loadSpecificationActions } from '../server/specs/actions.mjs';
+import {
+  computeTaskAvailableActions,
+  computeTaskWorkflowProjection,
+  computeDeterministicTaskActionProjection,
+  loadSpecificationActions,
+} from '../server/specs/actions.mjs';
 import { requireChange, requireTask } from '../../specs/store.mjs';
 
 const STANDARD_V1_YAML = `id: standard-v1
@@ -18,9 +23,13 @@ sourceControl:
   push: false
 steps:
   implementation:
+    executor: agent
     status:
       active: in-implementation
       completed: implemented
+    purpose: "Implementation"
+    expectedWork:
+      summary: "Write code"
     entryGates: []
     exitGates: []
     finalize:
@@ -28,9 +37,13 @@ steps:
     transitions:
       - to: review
   review:
+    executor: agent
     status:
       active: in-review
       completed: reviewed
+    purpose: "Review"
+    expectedWork:
+      summary: "Review code"
     entryGates: []
     exitGates: []
     finalize:
@@ -41,9 +54,13 @@ steps:
       - value: fail
         to: implementation
   human-verification:
+    executor: human
     status:
       active: awaiting-human-verification
       completed: completed
+    purpose: "Human verification"
+    expectedWork:
+      summary: "Signoff changes"
     entryGates: []
     exitGates: []
     finalize:
@@ -51,8 +68,15 @@ steps:
     transitions:
       - value: pass
         to: verified
+        outcome: success
+        action:
+          label: Approve
       - value: fail
         to: implementation
+        action:
+          label: Request changes
+          feedback:
+            required: true
 `;
 
 function createGitFixture(prefix = 'nevo-specs-actions-') {
@@ -93,113 +117,279 @@ function createGitFixture(prefix = 'nevo-specs-actions-') {
   };
 }
 
-describe('AC 9: Task read models project availableActions matching state-action matrix', () => {
-  test('computeTaskAvailableActions correctly evaluates matrix states', () => {
-    // 1. New task: approved (isTaskReady) with no unmet dependencies, no workflow progress
-    assert.deepEqual(
-      computeTaskAvailableActions({ id: 't1', status: 'approved', depends_on: [] }, { tasks: [{ id: 't1', status: 'approved', depends_on: [] }] }),
-      ['start-implementation'],
-    );
+describe('Dashboard deterministic action projection (Task 14, D10, D15, D18)', () => {
+  const CUSTOM_WF_YAML = `id: custom-wf
+title: "Custom Workflow"
+type: standard
+version: 1
+sourceControl:
+  enabled: true
+  push: false
+entryStep: implementation
+steps:
+  implementation:
+    executor: agent
+    status:
+      active: in-implementation
+      completed: implemented
+    purpose: "Implementation"
+    expectedWork:
+      summary: "Write code"
+    entryGates: []
+    exitGates: []
+    finalize:
+      - id: commit-and-push
+    transitions:
+      - to: hardening
+  hardening:
+    executor: agent
+    status:
+      active: in-hardening
+      completed: hardened
+    purpose: "Hardening"
+    expectedWork:
+      summary: "Harden code"
+    entryGates: []
+    exitGates: []
+    finalize:
+      - id: commit-and-push
+    transitions:
+      - to: signoff
+  signoff:
+    executor: human
+    status:
+      active: awaiting-signoff
+      completed: completed
+    purpose: "Signoff"
+    expectedWork:
+      summary: "Human review"
+    entryGates: []
+    exitGates: []
+    finalize:
+      - id: commit-and-push
+    transitions:
+      - value: pass
+        to: verified
+        outcome: success
+        action:
+          label: Approve
+      - value: fail
+        to: hardening
+        action:
+          label: Reject
+`;
 
-    // 2. Task with status in-implementation but no workflow progress yet
-    assert.deepEqual(computeTaskAvailableActions({ id: 't1', status: 'in-implementation' }), []);
+  test('AC 1: DTO reflects state-derived shape for review and arbitrary non-standard step (hardening), ignoring approved status', () => {
+    const fx = createGitFixture('nevo-actions-ac1-');
+    try {
+      const workflowsDir = join(fx.repo, '.nevo-ai', 'workflows');
+      writeFileSync(join(workflowsDir, 'custom-wf.yaml'), CUSTOM_WF_YAML);
 
-    // 3. Task in active phase on human-verification
-    assert.deepEqual(
-      computeTaskAvailableActions({
-        id: 't1',
-        status: 'awaiting-human-verification',
-        workflow_progress: { current_step: 'human-verification', state: 'active' },
-      }),
-      ['approve', 'request-changes'],
-    );
+      const changeDir = join(fx.activeDir, 'demo-change');
+      mkdirSync(join(changeDir, 'tasks'), { recursive: true });
+      const changeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: custom-wf
+tasks:
+  - id: t1
+    status: approved
+    file: tasks/01.md
+    workflow_progress:
+      current_step: hardening
+      current_attempt: 1
+      state: active
+`;
+      writeFileSync(join(changeDir, 'change.yaml'), changeYaml);
+      writeFileSync(join(changeDir, 'tasks', '01.md'), '# Task 1\n');
 
-    // 4. Task in active phase on other steps
-    assert.deepEqual(
-      computeTaskAvailableActions({
-        id: 't1',
-        status: 'in-implementation',
-        workflow_progress: { current_step: 'implementation', state: 'active' },
-      }),
-      [],
-    );
-    assert.deepEqual(
-      computeTaskAvailableActions({
-        id: 't1',
-        status: 'in-review',
-        workflow_progress: { current_step: 'review', state: 'active' },
-      }),
-      [],
-    );
+      const dto = computeDeterministicTaskActionProjection(
+        { id: 't1', status: 'approved', workflow_progress: { current_step: 'hardening', current_attempt: 1, state: 'active' } },
+        { id: 'demo-change', workflow: { mode: 'deterministic', definition: 'custom-wf' }, tasks: [{ id: 't1', status: 'approved' }] },
+        { root: fx.repo }
+      );
 
-    // 5. Task in completed phase transitioning to human-verification
-    assert.deepEqual(
-      computeTaskAvailableActions({
-        id: 't1',
-        status: 'in-implementation',
-        workflow_progress: {
-          current_step: 'review',
-          state: 'completed',
-          history: [{ step: 'review', result: 'pass', transitioned_to: 'human-verification' }],
-        },
-      }),
-      ['approve', 'request-changes'],
-    );
-
-    // 6. Task in completed phase transitioning to review
-    assert.deepEqual(
-      computeTaskAvailableActions({
-        id: 't1',
-        status: 'in-implementation',
-        workflow_progress: {
-          current_step: 'implementation',
-          state: 'completed',
-          history: [{ step: 'implementation', transitioned_to: 'review' }],
-        },
-      }),
-      ['start-review'],
-    );
-
-    // 7. Task in completed phase transitioning to implementation
-    assert.deepEqual(
-      computeTaskAvailableActions({
-        id: 't1',
-        status: 'in-implementation',
-        workflow_progress: {
-          current_step: 'review',
-          state: 'completed',
-          history: [{ step: 'review', result: 'fail', transitioned_to: 'implementation' }],
-        },
-      }),
-      ['start-implementation'],
-    );
-
-    // 8. Task in reconciliation-required state
-    assert.deepEqual(
-      computeTaskAvailableActions({
-        id: 't1',
-        status: 'reconciliation-required',
-        workflow_progress: { current_step: 'implementation', state: 'reconciliation-required' },
-      }),
-      ['operator-reconciliation'],
-    );
-
-    // 9. Verified task
-    assert.deepEqual(computeTaskAvailableActions({ id: 't1', status: 'verified' }), []);
-    assert.deepEqual(
-      computeTaskAvailableActions({
-        id: 't1',
-        status: 'verified',
-        workflow_progress: {
-          current_step: 'human-verification',
-          state: 'completed',
-          history: [{ step: 'human-verification', result: 'pass', transitioned_to: 'verified' }],
-        },
-      }),
-      [],
-    );
+      assert.equal(dto.state, 'active');
+      assert.equal(dto.executor, 'agent');
+      assert.equal(dto.attempt, 1);
+      assert.equal(dto.currentStep, 'hardening');
+      assert.deepEqual(dto.availableActions, []);
+      assert.equal(dto.stepDescriptor.id, 'hardening');
+      assert.equal(dto.stepDescriptor.purpose, 'Hardening');
+      assert.equal(dto.stepDescriptor.expectedWork.summary, 'Harden code');
+      assert.equal(dto.humanInteraction, null);
+    } finally {
+      fx.cleanup();
+    }
   });
 
+  test('AC 2: availableActions reflects ExecutionReadiness (empty when blocked or executor mismatch)', () => {
+    const fx = createGitFixture('nevo-actions-ac2-');
+    try {
+      const change = {
+        id: 'demo-change',
+        workflow: { mode: 'deterministic', definition: 'standard-v1' },
+        tasks: [
+          { id: '01', status: 'in-implementation' },
+          { id: '02', status: 'approved', depends_on: ['01'] },
+        ],
+      };
+
+      const dtoBlocked = computeDeterministicTaskActionProjection(
+        change.tasks[1],
+        change,
+        { root: fx.repo }
+      );
+
+      assert.equal(dtoBlocked.state, 'blocked');
+      assert.deepEqual(dtoBlocked.blockedBy, ['01']);
+      assert.deepEqual(dtoBlocked.availableActions, []);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test('AC 3: DTO includes executor and humanInteraction descriptor exactly when human step is active', () => {
+    const fx = createGitFixture('nevo-actions-ac3-');
+    try {
+      const change = {
+        id: 'demo-change',
+        workflow: { mode: 'deterministic', definition: 'standard-v1' },
+        tasks: [
+          {
+            id: 't-human',
+            status: 'awaiting-human-verification',
+            workflow_progress: {
+              current_step: 'human-verification',
+              current_attempt: 1,
+              state: 'active',
+            },
+          },
+        ],
+      };
+
+      const dto = computeDeterministicTaskActionProjection(
+        change.tasks[0],
+        change,
+        { root: fx.repo }
+      );
+
+      assert.equal(dto.state, 'human-interaction');
+      assert.equal(dto.executor, 'human');
+      assert.ok(dto.humanInteraction);
+      assert.equal(dto.stepDescriptor.id, 'human-verification');
+      assert.deepEqual(
+        dto.humanInteraction.actions.map(a => a.result),
+        ['pass', 'fail']
+      );
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test('AC 4: DTO stepDescriptor populated with purpose/expectedWork in waiting-for-step-start before activation', () => {
+    const fx = createGitFixture('nevo-actions-ac4-');
+    try {
+      const change = {
+        id: 'demo-change',
+        workflow: { mode: 'deterministic', definition: 'standard-v1' },
+        tasks: [
+          {
+            id: 't-wait',
+            status: 'approved',
+            workflow_progress: {
+              current_step: 'review',
+              current_attempt: 1,
+              state: 'completed',
+              history: [
+                { step: 'implementation', attempt: 1, transitioned_to: 'review' },
+                { step: 'review', attempt: 1, transitioned_to: 'human-verification', result: 'pass' },
+              ],
+            },
+          },
+        ],
+      };
+
+      const dto = computeDeterministicTaskActionProjection(
+        change.tasks[0],
+        change,
+        { root: fx.repo }
+      );
+
+      assert.equal(dto.state, 'waiting-for-step-start');
+      assert.equal(dto.executor, 'human');
+      assert.ok(dto.stepDescriptor);
+      assert.equal(dto.stepDescriptor.id, 'human-verification');
+      assert.equal(dto.stepDescriptor.executor, 'human');
+      assert.equal(dto.stepDescriptor.purpose, 'Human verification');
+      assert.equal(dto.stepDescriptor.expectedWork.summary, 'Signoff changes');
+      assert.equal(dto.humanInteraction, null);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test('AC 5 & AC 6: availableActions is exactly ["start-step"] for ready agent or human steps, never step-name-derived', () => {
+    const fx = createGitFixture('nevo-actions-ac5-6-');
+    try {
+      const workflowsDir = join(fx.repo, '.nevo-ai', 'workflows');
+      writeFileSync(join(workflowsDir, 'custom-wf.yaml'), CUSTOM_WF_YAML);
+      fx.git(['add', '-A']);
+      fx.git(['commit', '-m', 'add custom-wf']);
+
+      const changeAgent = {
+        id: 'demo-change',
+        workflow: { mode: 'deterministic', definition: 'custom-wf' },
+        tasks: [{ id: 't1', status: 'approved' }],
+      };
+
+      const dtoAgent = computeDeterministicTaskActionProjection(changeAgent.tasks[0], changeAgent, { root: fx.repo });
+      assert.equal(dtoAgent.state, 'ready');
+      assert.equal(dtoAgent.executor, 'agent');
+      assert.deepEqual(dtoAgent.availableActions, ['start-step']);
+
+      const changeHuman = {
+        id: 'demo-change',
+        workflow: { mode: 'deterministic', definition: 'custom-wf' },
+        tasks: [{
+          id: 't2',
+          status: 'approved',
+          workflow_progress: {
+            current_step: 'hardening',
+            current_attempt: 1,
+            state: 'completed',
+            history: [
+              { step: 'implementation', attempt: 1, transitioned_to: 'hardening' },
+              { step: 'hardening', attempt: 1, transitioned_to: 'signoff' },
+            ],
+          },
+        }],
+      };
+
+      const dtoHuman = computeDeterministicTaskActionProjection(changeHuman.tasks[0], changeHuman, { root: fx.repo });
+      assert.equal(dtoHuman.state, 'waiting-for-step-start');
+      assert.equal(dtoHuman.executor, 'human');
+      assert.deepEqual(dtoHuman.availableActions, ['start-step']);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test('AC 7: Grepping computeDeterministicTaskActionProjection for task.status, isTaskReady, or literal step names returns none', () => {
+    const actionsCode = readFileSync(new URL('../server/specs/actions.mjs', import.meta.url), 'utf8');
+    const fnMatch = actionsCode.match(/export function computeDeterministicTaskActionProjection[\s\S]*?return \{[\s\S]*?\};\s*\}/);
+    assert.ok(fnMatch, 'computeDeterministicTaskActionProjection must exist');
+    const fnBody = fnMatch[0];
+    assert.equal(fnBody.includes('task.status'), false, 'must not reference task.status');
+    assert.equal(fnBody.includes('isTaskReady'), false, 'must not reference isTaskReady');
+    assert.equal(fnBody.includes("'implementation'"), false, 'must not compare literal implementation step');
+    assert.equal(fnBody.includes("'review'"), false, 'must not compare literal review step');
+    assert.equal(fnBody.includes("'human-verification'"), false, 'must not compare literal human-verification step');
+  });
+});
+
+describe('Legacy task available actions and read model', () => {
   test('computeTaskAvailableActions never projects start-implementation for a not-yet-ready task (Task 03 corrective: blocked/draft tasks)', () => {
     // Not yet approved by the owner (draft) — must not expose an executable action even
     // though it superficially resembles a "new" task with no workflow_progress.
@@ -279,18 +469,22 @@ tasks:
       assert.equal(readModel.workflowDefinition, 'standard-v1');
 
       assert.ok(readModel.tasks['01-task']);
-      assert.deepEqual(readModel.tasks['01-task'].availableActions, ['approve', 'request-changes']);
-      // Authoritative workflow projection: the UI renders these fields directly instead
-      // of fabricating `status || 'in-implementation'` / `attempt || 1`.
-      assert.equal(readModel.tasks['01-task'].status, 'awaiting-human-verification');
+      assert.deepEqual(readModel.tasks['01-task'].availableActions, []);
+      assert.equal(readModel.tasks['01-task'].state, 'human-interaction');
+      assert.equal(readModel.tasks['01-task'].executor, 'human');
       assert.equal(readModel.tasks['01-task'].currentStep, 'human-verification');
       assert.equal(readModel.tasks['01-task'].attempt, 1);
-      assert.equal(readModel.tasks['01-task'].workflowState, 'active');
+      assert.ok(readModel.tasks['01-task'].humanInteraction);
+      assert.deepEqual(
+        readModel.tasks['01-task'].humanInteraction.actions.map(a => a.result),
+        ['pass', 'fail']
+      );
 
       assert.ok(readModel.tasks['02-task']);
-      assert.deepEqual(readModel.tasks['02-task'].availableActions, ['start-implementation']);
-      assert.equal(readModel.tasks['02-task'].status, 'approved');
-      // No workflow_progress recorded yet — never fabricated as 'implementation'/attempt 1.
+      assert.deepEqual(readModel.tasks['02-task'].availableActions, ['start-step']);
+      assert.equal(readModel.tasks['02-task'].state, 'ready');
+      assert.equal(readModel.tasks['02-task'].executor, 'agent');
+      assert.equal(readModel.tasks['02-task'].stepDescriptor.id, 'implementation');
       assert.equal(readModel.tasks['02-task'].currentStep, null);
       assert.equal(readModel.tasks['02-task'].attempt, null);
     } finally {
