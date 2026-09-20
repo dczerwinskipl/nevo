@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T17:30:25.038Z",
+  "generated": "2026-09-20T17:30:30.357Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -203,7 +203,7 @@
           "id": "execution-readiness-policy",
           "order": 13,
           "file": "tasks/13-execution-readiness-policy.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "workflow-task-publish-operation",
             "deterministic-task-projection",
