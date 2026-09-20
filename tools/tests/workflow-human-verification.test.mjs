@@ -160,6 +160,7 @@ steps:
       - value: fail
         to: implementation
   human-verification:
+    executor: human
     status:
       active: awaiting-human-verification
       completed: completed
@@ -170,8 +171,15 @@ steps:
     transitions:
       - value: pass
         to: verified
+        action:
+          label: Approve
+        outcome: success
       - value: fail
         to: implementation
+        action:
+          label: Request changes
+          feedback:
+            required: true
 `;
 
 describe('workflow verify-human direct decisions (AC5)', () => {
@@ -452,7 +460,7 @@ tasks:
         repoRoot: fx.repo,
         silent: true,
       }),
-      (err) => err instanceof WorkflowError && err.code === 'INVALID_HUMAN_DECISION_STEP'
+      (err) => err instanceof WorkflowError && (err.code === 'INVALID_HUMAN_DECISION_STEP' || err.code === 'WORKFLOW_STEP_EXECUTOR_MISMATCH')
     );
   });
 
@@ -485,7 +493,7 @@ tasks:
         repoRoot: fx.repo,
         silent: true,
       }),
-      (err) => err instanceof WorkflowError && err.code === 'INVALID_HUMAN_DECISION_STEP'
+      (err) => err instanceof WorkflowError && (err.code === 'INVALID_HUMAN_DECISION_STEP' || err.code === 'WORKFLOW_STEP_EXECUTOR_MISMATCH')
     );
   });
 });

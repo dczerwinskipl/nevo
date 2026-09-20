@@ -34,6 +34,7 @@ import { resolveHumanScopeTarget } from './gates/human-gate.mjs';
 import './actions/index.mjs';
 import { autoBindAgentSession } from '../../specs.mjs';
 import { assertStepExecutor } from './executor-guard.mjs';
+import { startHumanStep, submitHumanStepResult } from './human-step/operations.mjs';
 
 /**
  * Resolves the change/task/normalized-definition/runtime-context tuple shared by all
@@ -365,38 +366,16 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
       const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
       const position = resolveWorkflowPosition(definition, task);
 
-      let targetStep;
-      if (position.phase === 'active') {
-        targetStep = position.step;
-      } else if (position.phase === 'completed') {
-        targetStep = position.nextStep;
-      } else if (position.phase === 'new') {
-        targetStep = definition.entryStep;
-      }
-
-      if (targetStep !== 'human-verification') {
-        throw new WorkflowError(
-          `Cannot execute human decision on step '${targetStep || position.step}' — human decisions may only execute when the target step is 'human-verification'`,
-          { code: 'INVALID_HUMAN_DECISION_STEP', step: targetStep || position.step }
-        );
-      }
-
       let effectiveTask = task;
       let effectivePosition = position;
       if (position.phase !== 'active') {
-        const activation = ensureStepActivated(change, task, definition, context);
+        const activation = startHumanStep(change, task, definition, context);
         effectiveTask = activation.task;
         effectivePosition = activation.position;
       }
 
-      const stepName = effectivePosition.step;
-      const step = definition.steps?.[stepName];
-      if (!step) {
-        throw new WorkflowError(`Step '${stepName}' not found in workflow definition`, { code: 'STEP_NOT_FOUND', step: stepName });
-      }
-
-      const finalizeCheck = await aggregateFinalizeCheck(step, context);
-      const parameters = buildFinishContract(finalizeCheck, step);
+      const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, effectiveTask.id, effectivePosition.attempt);
+      const effectiveContext = { ...context, gateRegistry };
 
       const inputs = {
         result: isApprove ? 'pass' : 'fail',
@@ -404,20 +383,15 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
       if (opts.feedback) {
         inputs.feedback = opts.feedback.trim();
       }
-      if (parameters['commit.title']) {
-        inputs['commit.title'] = opts['commit.title'] || (isApprove ? `verify(${task.id}): approve human verification` : `verify(${task.id}): request changes`);
+      if (opts['commit.title']) {
+        inputs['commit.title'] = opts['commit.title'];
+      } else {
+        inputs['commit.title'] = isApprove
+          ? `verify(${task.id}): approve human verification`
+          : `verify(${task.id}): request changes`;
       }
 
-      const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, effectiveTask.id, effectivePosition.attempt);
-      const result = await finishStep({
-        change,
-        task: effectiveTask,
-        definition,
-        context,
-        inputs,
-        activeDir: context.activeDir,
-        gateRegistry,
-      });
+      const result = await submitHumanStepResult(change, effectiveTask, definition, effectiveContext, inputs);
       return emit(result, opts);
     })();
   }

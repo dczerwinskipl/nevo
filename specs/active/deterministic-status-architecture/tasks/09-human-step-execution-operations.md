@@ -11,6 +11,7 @@ allowed_paths:
   - tools/specs/workflow/human-step/**
   - tools/specs/workflow/cli.mjs
   - tools/tests/human-step-execution-operations.test.mjs
+  - tools/tests/workflow-human-verification.test.mjs
 forbidden_paths:
   - tools/specs/approve/**
   - tools/specs/start/**

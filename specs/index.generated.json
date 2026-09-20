@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T22:54:25.372Z",
+  "generated": "2026-09-20T22:57:42.432Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -188,12 +188,15 @@
           "id": "human-step-execution-operations",
           "order": 9,
           "file": "tasks/09-human-step-execution-operations.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "workflow-definition-schema-extensions",
             "step-executor-guard",
             "deterministic-mutation-guard"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "b1374cb39bf7451733ff6981aed917470c21e340"
+          }
         },
         {
           "id": "human-step-projection",

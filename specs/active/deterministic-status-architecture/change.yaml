@@ -74,13 +74,15 @@ tasks:
   - id: human-step-execution-operations
     order: 9
     file: tasks/09-human-step-execution-operations.md
-    status: approved
+    status: implemented
     depends_on:
       [
         workflow-definition-schema-extensions,
         step-executor-guard,
         deterministic-mutation-guard
       ]
+    implementation:
+      baseline_revision: b1374cb39bf7451733ff6981aed917470c21e340
   - id: human-step-projection
     order: 10
     file: tasks/10-human-step-projection.md
