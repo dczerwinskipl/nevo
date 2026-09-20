@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T17:12:33.879Z",
+  "generated": "2026-09-20T17:30:04.565Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -154,7 +154,7 @@
           "id": "step-executor-guard",
           "order": 8,
           "file": "tasks/08-step-executor-guard.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "deterministic-mutation-guard",
             "workflow-definition-schema-extensions"
