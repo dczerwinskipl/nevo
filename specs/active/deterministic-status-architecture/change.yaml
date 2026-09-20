@@ -162,7 +162,7 @@ tasks:
   - id: specification-detail-composition-wiring
     order: 23
     file: tasks/23-specification-detail-composition-wiring.md
-    status: draft
+    status: approved
     depends_on:
       [
         session-bootstrap-readiness-wiring,

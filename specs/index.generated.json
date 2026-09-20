@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T17:33:34.741Z",
+  "generated": "2026-09-20T17:33:42.116Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -311,7 +311,7 @@
           "id": "specification-detail-composition-wiring",
           "order": 23,
           "file": "tasks/23-specification-detail-composition-wiring.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "session-bootstrap-readiness-wiring",
             "dashboard-human-step-transport",
