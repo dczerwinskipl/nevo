@@ -20,7 +20,7 @@ tasks:
   - id: deterministic-mutation-guard
     order: 2
     file: tasks/02-deterministic-mutation-guard.md
-    status: draft
+    status: approved
   - id: status-vocabulary-extraction
     order: 3
     file: tasks/03-status-vocabulary-extraction.md
