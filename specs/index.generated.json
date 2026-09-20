@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T22:47:37.570Z",
+  "generated": "2026-09-20T22:51:03.922Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -163,7 +163,7 @@
           "id": "workflow-definition-schema-extensions",
           "order": 7,
           "file": "tasks/07-workflow-definition-schema-extensions.md",
-          "status": "in-implementation",
+          "status": "verified",
           "depends_on": [
             "status-vocabulary-extraction"
           ],
