@@ -120,7 +120,7 @@ tasks:
   - id: dashboard-deterministic-action-projection
     order: 14
     file: tasks/14-dashboard-deterministic-action-projection.md
-    status: implemented
+    status: verified
     depends_on: [ deterministic-task-projection, execution-readiness-policy ]
     implementation:
       baseline_revision: 1c32155f545aed8c85a170c75ae1ce1acf968358
