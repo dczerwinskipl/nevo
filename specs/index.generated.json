@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T17:33:21.061Z",
+  "generated": "2026-09-20T17:33:27.644Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -286,7 +286,7 @@
           "id": "lifecycle-skill-instruction-split",
           "order": 21,
           "file": "tasks/21-lifecycle-skill-instruction-split.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "legacy-mutation-guard",
             "deterministic-mutation-guard",
