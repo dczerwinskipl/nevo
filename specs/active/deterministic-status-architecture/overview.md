@@ -166,6 +166,39 @@ surface. `HumanStepSurface` itself narrows correspondingly to the active-interac
 only (`{interaction, loading, error, onSubmit}`); the generic waiting-state "Start" control
 is a separate, executor-agnostic piece each caller renders itself.
 
+**Corrective pass 7 (2026-09-20, strictly mechanical): fixing task-ownership defects in
+pass 6's own wiring correction, not the architecture it produced.** A fresh audit found
+three mechanical errors in how pass 6 assigned its own work, not in the wiring model itself
+(D19/D20 stand unchanged). First, `session-bootstrap-readiness-wiring`'s `allowed_paths`
+named a file that has never existed —
+`tools/dashboard/ui/features/specifications/detail/specification-detail-content.tsx` — while
+the real file, confirmed by reading the repository directly, is
+`tools/dashboard/ui/screens/specification-detail/specification-detail-content.tsx` (a screen,
+not a feature file); every reference across this specification is corrected to the real path,
+and no duplicate is created under `features/specifications`. Second, pass 6 had
+`session-bootstrap-readiness-wiring` (task 15) build the real `startStep`/renamed-chat-handler
+*implementations* and pass them into `StatusBoard`/`TaskDialog`/the chat surface — but the
+prop *contracts* those implementations plug into are introduced by
+`task-card-lifecycle-split` (task 19) and `human-step-surface-consolidation` (task 20), both
+of which depend on task 15. Task 15 would have had to satisfy its own acceptance criteria
+using a prop that only its own dependents define — an unsatisfiable ordering. Corrected by
+narrowing task 15 to a producer-only task (the frontend DTO type plus a pure,
+`buildAgentStepTriggerMessage(taskId)` trigger-message primitive with no session/UI
+mechanics of its own), moving `agent-session-page.tsx` into task 20 (so the parent-handler
+rename and the child's prop-rename happen inside the one task that owns both files), and
+adding a small final task, `specification-detail-composition-wiring` (order 23), that
+depends on all four tasks whose contracts it fills (`session-bootstrap-readiness-wiring`,
+`dashboard-human-step-transport`, `task-card-lifecycle-split`,
+`human-step-surface-consolidation`) and owns nothing but the real dispatcher and its wiring
+into the two already-defined `onStartStep` contracts. Third, D17's own written prop contract
+for `HumanStepSurface` (`{ stepDescriptor, interaction, loading, error, onStart, onSubmit }`)
+had gone stale the moment D19/D20 moved the generic waiting-state control out of the
+component and narrowed it to the active-interaction case alone — D17 is corrected in place
+to the current, canonical shape (`{ interaction, loading, error, onSubmit }`), with the
+feature-adapter split clarified: `features/agent-sessions/human-step-mutations.ts`
+additionally exposes a `start` method for chat's own generic waiting control, since chat
+never needs the composition-layer indirection the board/dialog case requires.
+
 ## Current architecture
 
 Grounded in repository discovery (2026-09-17, deepened 2026-09-19 by reading the actual
@@ -392,6 +425,18 @@ engine source directly):
     human interaction's own result buttons inline; task 20 declared wiring
     `HumanStepSurface` into the board out of scope. The same surface was simultaneously
     required and forbidden by two different tasks in the same change.
+25. Pass 6's own task assignments had three mechanical defects, confirmed by reading the
+    repository and the task files directly (2026-09-20): `session-bootstrap-readiness-wiring`'s
+    `allowed_paths` named a file that has never existed
+    (`features/specifications/detail/specification-detail-content.tsx`) instead of the real
+    screen file (`screens/specification-detail/specification-detail-content.tsx`); that same
+    task was required to build the real `startStep`/chat-handler implementations and pass
+    them into `StatusBoard`/`TaskDialog`/chat, but the prop contracts those implementations
+    plug into are introduced by `task-card-lifecycle-split` and
+    `human-step-surface-consolidation` — both of which depend on it, making the dependency
+    unsatisfiable; and D17's written `HumanStepSurface` prop contract
+    (`stepDescriptor`/`onStart` included) had gone stale the moment D19/D20 moved the
+    waiting-state control out of the component, but was never updated to match.
 
 ## Constraints
 
@@ -483,19 +528,24 @@ transition submits with no `result` — never a fabricated placeholder value), D
 (`HumanStepSurface` lives in `shared/workflow/`, purely prop-driven; its transport is one
 neutral `shared/lib` function plus one thin adapter hook per consuming feature — never a
 feature-owned component/hook the sibling feature imports directly, which the repository's
-own `architecture-boundaries.test.mjs` forbids), D18 (frontend DTO type owned by
-`session-bootstrap-readiness-wiring`; two real, grounded bugs in
-`tools/dashboard/server/ai/sessions/service.mjs` — a single-item contextual `taskIds`
+own `architecture-boundaries.test.mjs` forbids; **prop contract corrected, seventh pass** —
+`{ interaction, loading, error, onSubmit }` only, no `stepDescriptor`/`onStart` — the
+component owns the active human interaction alone, never the generic waiting-state control),
+D18 (frontend DTO type owned by `session-bootstrap-readiness-wiring`; two real, grounded bugs
+in `tools/dashboard/server/ai/sessions/service.mjs` — a single-item contextual `taskIds`
 silently becoming authoritative, and a reachable `'implementation'` fallback — corrected in
-place, owned by `execution-readiness-policy`). D19 (**corrective pass 6** — one
-composition-level `startStep(task, stepDescriptor)` dispatcher per screen, branching only on
-`executor`, closes the gap between D15's model and the real client code; `TaskCard`/
-`TaskDialog` only ever call an `onStartStep`/renamed-equivalent prop supplied from the
-composition layer above them; `session-bootstrap-readiness-wiring` gains an explicit
-`change.yaml` dependency on `dashboard-human-step-transport`), D20 (`DeterministicTaskCard`
-never embeds the active human-interaction result form — it shows a compact indicator and
-defers to `TaskDialog`; `HumanStepSurface` narrows to the active-interaction case only,
-resolving the direct contradiction between the pass-5 versions of tasks 19 and 20).
+place, owned by `execution-readiness-policy`). D19 (**corrective pass 6, task decomposition
+corrected in the seventh pass** — one composition-level `startStep(task, stepDescriptor)`
+dispatcher per screen, branching only on `executor`, closes the gap between D15's model and
+the real client code; `TaskCard`/`TaskDialog` only ever call an `onStartStep`/
+renamed-equivalent prop supplied from the composition layer above them; the real dispatcher
+now lives in a dedicated final task, `specification-detail-composition-wiring`, that depends
+on the three tasks introducing the contracts it fills, rather than in
+`session-bootstrap-readiness-wiring`, which would otherwise have consumed contracts only its
+own dependents introduce), D20 (`DeterministicTaskCard` never embeds the active
+human-interaction result form — it shows a compact indicator and defers to `TaskDialog`;
+`HumanStepSurface` narrows to the active-interaction case only, resolving the direct
+contradiction between the pass-5 versions of tasks 19 and 20).
 
 ## Proposed architecture
 

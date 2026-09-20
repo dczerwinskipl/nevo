@@ -11,6 +11,7 @@ allowed_paths:
   - tools/dashboard/ui/shared/workflow/human-step-surface.tsx
   - tools/dashboard/ui/features/specifications/tasks/task-dialog.tsx
   - tools/dashboard/ui/features/specifications/tasks/human-step-mutations.ts
+  - tools/dashboard/ui/features/agent-sessions/agent-session-page.tsx
   - tools/dashboard/ui/features/agent-sessions/agent-session-chat-surface.tsx
   - tools/dashboard/ui/features/agent-sessions/agent-session-workflow-bar.tsx
   - tools/dashboard/ui/features/agent-sessions/agent-session-workflow-bar-helpers.ts
@@ -20,6 +21,7 @@ forbidden_paths:
   - tools/specs/**
   - tools/dashboard/server/**
   - tools/dashboard/ui/shared/lib/human-step-request.ts
+  - tools/dashboard/ui/screens/specification-detail/specification-detail-content.tsx
   - src/**
 depends_on: [ dashboard-deterministic-action-projection, dashboard-human-step-transport, task-card-lifecycle-split, session-bootstrap-readiness-wiring ]
 semantic_references:
@@ -34,18 +36,24 @@ Build one reusable, **feature-neutral** `HumanStepSurface` (D11 — generic nami
 `human-review-surface`; D17 — lives in `shared/workflow/`, prop-driven, not in either
 consuming feature), scoped to the **active human interaction only** (D19/D20 — the generic
 waiting-step "Start" control that works identically for both executors is a separate,
-smaller mechanism owned by `session-bootstrap-readiness-wiring`/this task's own `TaskDialog`
-wiring, not part of `HumanStepSurface` itself), and render it directly from both
+smaller mechanism owned by `specification-detail-composition-wiring`'s dispatcher/this
+task's own `TaskDialog` wiring, not part of `HumanStepSurface` itself), and render it
+directly from both
 `TaskDialog` (`features/specifications`) and the existing chat surface
 (`features/agent-sessions`) — replacing chat's current separate Approve/Request-changes/
 `start-review` implementation, per D7 (shared component, not a chat→dialog redirect) — with
 each feature owning its own thin adapter hook that calls the shared transport function
 (D14/D17) for the surface's actions, never the legacy `/workflow/human-decision` route. This
-task also owns: adding `onStartStep` consumption to `TaskDialog` (the prop itself is
-supplied by `session-bootstrap-readiness-wiring`, D19) so a waiting step — either
-executor — has a working generic Start control in the dialog, not only on the board; and
-migrating the chat surface's obsolete `'start-review'`/`'approve'`/`'request-changes'`
-literal-action-id rendering block to the generic model (D19).
+task also owns: **defining** (not consuming — its real implementation is supplied later by
+`specification-detail-composition-wiring`) the `onStartStep(stepDescriptor)` prop contract
+`TaskDialog` accepts and calls, so a waiting step — either executor — has a working generic
+Start control in the dialog, not only on the board; and, in `agent-session-page.tsx` (also
+owned by this task, corrected per the seventh, strictly mechanical pass — previously
+misassigned to `session-bootstrap-readiness-wiring`), renaming `handleStartReviewTask` to a
+generic agent-step handler built on top of that task's pure `buildAgentStepTriggerMessage`
+primitive, and migrating the chat surface's obsolete
+`'start-review'`/`'approve'`/`'request-changes'` literal-action-id rendering block to the
+generic model (D19).
 
 ## Dependencies
 
@@ -58,11 +66,14 @@ directly, only through that shared function's HTTP requests. `task-card-lifecycl
 reuse its deterministic action sub-component(s) where the action set genuinely overlaps
 (within `features/specifications` only — that sub-component is feature-local, not moved to
 `shared/`). `session-bootstrap-readiness-wiring` — owns the frontend `types.ts` DTO type
-(D18), owns the `onStartStep` prop's value/implementation supplied to `TaskDialog` from
-`specification-detail-content.tsx` (D19 — this task only wires `TaskDialog`'s own
-consumption of that already-supplied prop, it does not implement the dispatcher), and owns
-renaming `agent-session-page.tsx`'s handler/prop to a generic name (D19) that this task's
-chat-surface changes consume.
+(D18) this task's `TaskDialog`/chat changes are authored against, and owns the pure
+`buildAgentStepTriggerMessage` primitive (D19) this task's `agent-session-page.tsx` handler
+calls to produce its generic trigger text — this task does **not** own or consume any
+`onStartStep` *implementation* from that task (there isn't one yet); this task only
+**defines** the `onStartStep` contract `TaskDialog` accepts, and owns
+`agent-session-page.tsx`'s own handler rename/prop wiring to the chat surface entirely
+itself (corrected per the seventh, strictly mechanical pass — `agent-session-page.tsx` was
+previously, incorrectly, assigned to `session-bootstrap-readiness-wiring`).
 
 ## Implementation constraints
 
@@ -116,19 +127,27 @@ chat-surface changes consume.
   `start`/`submit` action shape, not `ReviewSurface`/`approve`/`requestChanges`).
 - `TaskDialog` also gains general deterministic projection awareness (current step,
   executor, `waiting-for-step-start` shown honestly via the generic step descriptor and a
-  generic "Start" control calling the `onStartStep` prop it now accepts (supplied by
-  `specification-detail-content.tsx`, D19) — never "Ready for review"/"Start review" or any
+  generic "Start" control calling the `onStartStep` prop it now **accepts** — this task
+  defines the prop and calls it; its real implementation is supplied later by
+  `specification-detail-composition-wiring` — never "Ready for review"/"Start review" or any
   other step-id-derived label, identically for an agent or human next step, D15 — never a
   fabricated active state — blocking dependencies, available actions), with
   `HumanStepSurface` rendered as the dialog's content specifically for an **active** human
   interaction (`interaction` non-null) — the waiting-state "Start" control is the dialog's
   own generic rendering, shared with the agent case, not `HumanStepSurface`'s tier-1
   rendering duplicated a second time.
-- In `agent-session-page.tsx` (owned by `session-bootstrap-readiness-wiring`, not this
-  task), the prop passed down to the chat surface is renamed to `onStartAgentStep`
-  (D19); this task updates `agent-session-chat-surface.tsx`'s own prop interface and JSX to
-  consume that renamed prop — no file in this task's scope still declares or references
-  `onStartReviewTask`/`onApproveTask` as a prop name.
+- **In `agent-session-page.tsx` (owned by this task, corrected per the seventh, strictly
+  mechanical pass):** `handleStartReviewTask` is renamed to a generic agent-step handler
+  (e.g. `handleStartAgentStep`) whose trigger text is produced by calling
+  `session-bootstrap-readiness-wiring`'s pure `buildAgentStepTriggerMessage(taskId)`
+  primitive — this task does not reimplement that message-building logic, it only imports
+  and calls it. This task then renames the prop `agent-session-page.tsx` passes down to the
+  chat surface (e.g. `onStartAgentStep`) and updates
+  `agent-session-chat-surface.tsx`'s own prop interface and JSX to consume it — both the
+  parent's rename and the child's contract change happen inside this one task, since both
+  files belong to it, avoiding a consumer-before-producer split across two tasks. No file in
+  this task's scope still declares or references `onStartReviewTask`/`onApproveTask` as a
+  prop name.
 - Legacy `TaskDialog` behavior (the existing `TaskActionFooter` path) is unchanged.
 
 ## Acceptance criteria
@@ -176,11 +195,11 @@ chat-surface changes consume.
   `onStartAgentStep` only, and its waiting-step control's visible label is the same generic
   "Start" wording used everywhere else, not "Start review."
   `inspection: confirm none of these four strings appear anywhere in agent-session-chat-surface.tsx`
-- `TaskDialog` opened on a deterministic task whose next step is waiting and
-  `executor: 'human'` shows a working "Start" control that, when clicked, calls the
-  `onStartStep` prop (supplied by `specification-detail-content.tsx`) — it is not a no-op
-  (item 5 — the prior version of this task inherited a working control only for the agent
-  case).
+- `TaskDialog` opened on a deterministic task whose next step is waiting (either `executor`)
+  shows a generic "Start" control that, when clicked, calls the `onStartStep` prop this task
+  defines — proven with a test-double `onStartStep`, since this task does not own the real
+  dispatcher (`specification-detail-composition-wiring`, a later task, supplies it and owns
+  the full end-to-end "not a no-op" regression, item 5).
   `automated: node --test tools/dashboard/tests/agent-session-workflow.test.tsx`
 - Chat opened on a session bound to a task whose next step is waiting and
   `executor: 'human'` shows the same kind of working generic "Start" control, calling this
@@ -201,7 +220,8 @@ Wiring `HumanStepSurface` **itself** onto the task board (D20 — the board's ow
 "Start" control and "human action required" indicator are `task-card-lifecycle-split`'s
 scope, D19; they are a different, smaller mechanism than embedding `HumanStepSurface`, not
 this task's responsibility) or any timeline entry point beyond `TaskDialog` and chat (future
-work). The `onStartStep`/`onStartAgentStep` callbacks' own implementation (owned by
-`session-bootstrap-readiness-wiring`, D19) — this task only wires each surface's consumption
-of the prop it is given. Full human-gate engine redesign. Any artifact/handover attachment
-rendering.
+work). `TaskDialog`'s `onStartStep` prop's real implementation, and
+`specification-detail-content.tsx` itself (owned by `specification-detail-composition-wiring`,
+a later task that depends on this one, D19) — this task only defines the prop contract and
+wires `TaskDialog`'s own consumption of it. Full human-gate engine redesign. Any
+artifact/handover attachment rendering.

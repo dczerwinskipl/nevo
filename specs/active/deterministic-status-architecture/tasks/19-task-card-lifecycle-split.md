@@ -39,9 +39,13 @@ corrected action DTO (`state`, `availableActions`, etc.), not the raw `TaskProje
 directly, since the UI has never talked to backend projection modules directly and
 `availableActions` specifically only exists on the composed DTO (D10).
 `session-bootstrap-readiness-wiring` — that task owns the frontend `types.ts` DTO type
-(D18) and supplies the generic `onStartStep(stepDescriptor)` callback (D19) this task's
-`DeterministicTaskCard` calls but does not implement; this task consumes both and must not
-be authored against a stale type or reimplement executor branching locally.
+(D18) this task's `DeterministicTaskCard` is authored against; this task must not be
+authored against a stale type. **This task defines, but does not implement, the
+`onStartStep(stepDescriptor)` prop contract** — `DeterministicTaskCard`/`StatusBoard` accept
+and call it, but its real implementation (the composition-level dispatcher) is supplied
+later by `specification-detail-composition-wiring`, which depends on this task, not the
+other way around; this task's own tests exercise the contract with a test double, never a
+real dispatcher.
 
 ## Implementation constraints
 
@@ -61,9 +65,10 @@ be authored against a stale type or reimplement executor branching locally.
   `isDeterministic` footer) renders `'start-implementation'`/`'start-review'`/`'approve'`/
   `'request-changes'` action buttons; none of those ids survive into `DeterministicTaskCard`.
   For a task whose `availableActions` includes `"start-step"`, the card shows one generic
-  "Start" control that calls a new `onStartStep(stepDescriptor)` prop — supplied by
-  `specification-detail-content.tsx` (`session-bootstrap-readiness-wiring`'s composition
-  dispatcher, D19), never implemented locally — plus the step descriptor (`id`/`purpose`) —
+  "Start" control that calls a new `onStartStep(stepDescriptor)` prop — a contract this task
+  defines and this component calls, whose real implementation is supplied later by
+  `specification-detail-composition-wiring`'s composition dispatcher (D19), never
+  implemented locally — plus the step descriptor (`id`/`purpose`) —
   identical rendering regardless of the step's actual id or `executor`; this component never
   branches on `executor` itself, it only forwards the descriptor. **For a task with an
   active human interaction, `DeterministicTaskCard` renders a compact indicator only** (e.g.
@@ -123,6 +128,7 @@ node --test tools/dashboard/tests/ux-improvements-regression.test.mjs
 
 The server-side lane projection (task `deterministic-board-lane-projection`). The action DTO
 itself (task `dashboard-deterministic-action-projection`). The `onStartStep` callback's own
-implementation/executor branching (task `session-bootstrap-readiness-wiring`, D19) — this
-task only calls the prop it is given. `TaskDialog`/chat and `HumanStepSurface` itself (task
-`human-step-surface-consolidation`).
+implementation/executor branching, and `specification-detail-content.tsx` itself (task
+`specification-detail-composition-wiring`, a later task that depends on this one, D19) —
+this task only defines the prop contract and calls it. `TaskDialog`/chat and
+`HumanStepSurface` itself (task `human-step-surface-consolidation`).

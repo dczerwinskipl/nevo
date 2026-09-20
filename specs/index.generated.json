@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T06:53:03.682Z",
+  "generated": "2026-09-20T07:41:13.401Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -228,8 +228,7 @@
           "status": "draft",
           "depends_on": [
             "execution-readiness-policy",
-            "dashboard-deterministic-action-projection",
-            "dashboard-human-step-transport"
+            "dashboard-deterministic-action-projection"
           ]
         },
         {
@@ -306,6 +305,18 @@
             "deterministic-mutation-guard",
             "step-executor-guard",
             "status-vocabulary-extraction"
+          ]
+        },
+        {
+          "id": "specification-detail-composition-wiring",
+          "order": 23,
+          "file": "tasks/23-specification-detail-composition-wiring.md",
+          "status": "draft",
+          "depends_on": [
+            "session-bootstrap-readiness-wiring",
+            "dashboard-human-step-transport",
+            "task-card-lifecycle-split",
+            "human-step-surface-consolidation"
           ]
         }
       ]

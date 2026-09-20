@@ -84,7 +84,7 @@ tasks:
     order: 15
     file: tasks/15-session-bootstrap-readiness-wiring.md
     status: draft
-    depends_on: [ execution-readiness-policy, dashboard-deterministic-action-projection, dashboard-human-step-transport ]
+    depends_on: [ execution-readiness-policy, dashboard-deterministic-action-projection ]
   - id: dashboard-human-step-transport
     order: 16
     file: tasks/16-dashboard-human-step-transport.md
@@ -120,5 +120,10 @@ tasks:
     file: tasks/22-ownership-boundary-documentation.md
     status: draft
     depends_on: [ legacy-mutation-guard, deterministic-mutation-guard, step-executor-guard, status-vocabulary-extraction ]
+  - id: specification-detail-composition-wiring
+    order: 23
+    file: tasks/23-specification-detail-composition-wiring.md
+    status: draft
+    depends_on: [ session-bootstrap-readiness-wiring, dashboard-human-step-transport, task-card-lifecycle-split, human-step-surface-consolidation ]
 
 spec_id: 226954d0-b33e-4c89-a302-c27c4e51b1d8

@@ -608,32 +608,65 @@
   the shape needed here. No feature currently has a project-wide neutral request helper;
   each feature's `queries.ts` calls `fetch()` directly today.
 - **Decision:** `HumanStepSurface` moves to `tools/dashboard/ui/shared/workflow/human-step-surface.tsx`
-  — purely presentational, driven entirely by props (`stepDescriptor`, `interaction`,
-  `loading`, `error`, `onStart`, `onSubmit`) — importing only `shared/ui`/`shared/lib`,
-  never fetching itself, never knowing a route URL, a literal step id, or "approve"/
-  "request-changes." The transport splits in two: one neutral, feature-agnostic request
-  function, `tools/dashboard/ui/shared/lib/human-step-request.ts` (owned by
+  — purely presentational, importing only `shared/ui`/`shared/lib`, never fetching itself,
+  never knowing a route URL, a literal step id, or "approve"/"request-changes." The
+  transport splits in two: one neutral, feature-agnostic request function,
+  `tools/dashboard/ui/shared/lib/human-step-request.ts` (owned by
   `dashboard-human-step-transport`, D14's task, alongside the server route it calls),
   exposing the raw POST call with no React/query-cache concerns; and one thin, independently
   owned React Query hook *per feature* (`features/specifications/tasks/human-step-mutations.ts`,
   `features/agent-sessions/human-step-mutations.ts` — owned by
   `human-step-surface-consolidation`) that each wrap the same shared function in their own
-  feature's `useMutation`/cache-invalidation concerns and pass `onStart`/`onSubmit` into the
-  shared component. Neither feature imports the other's hook file; both import only the
-  shared presentational component and the shared request function.
+  feature's `useMutation`/cache-invalidation concerns. Neither feature imports the other's
+  hook file; both import only the shared presentational component and the shared request
+  function.
+  **Prop contract corrected 2026-09-20 (this pass) to agree with D19/D20 — the original
+  `{ stepDescriptor, interaction, loading, error, onStart, onSubmit }` shape below is
+  obsolete and must not be reintroduced:**
+  ```
+  HumanStepSurface({ interaction, loading, error, onSubmit })
+  ```
+  `HumanStepSurface` owns only an **active** human interaction (`interaction` non-null) —
+  waiting-for-step-start is not part of this component at all, so it has no
+  `stepDescriptor`/`onStart` prop and never will (D20 narrowed its scope to the
+  active-interaction case specifically, to resolve the direct contradiction between the
+  pass-5 versions of tasks 19/20 over who renders the board's/dialog's waiting state). The
+  generic waiting control (`availableActions` includes `"start-step"` + the step descriptor
+  → one generic "Start" control, dispatching by `executor` — agent → the agent execution
+  path; human → `startHumanStep`) is owned by each caller (`TaskCard`, `TaskDialog`, chat)
+  directly, calling its own `onStartStep`/equivalent callback (D19) — never a second,
+  unused `onStart` prop threaded through `HumanStepSurface` itself. The two feature-local
+  adapter hooks correspondingly narrow: `features/specifications/tasks/human-step-mutations.ts`
+  provides `TaskDialog`'s active-human-interaction result submission only (`onSubmit`);
+  `features/agent-sessions/human-step-mutations.ts` provides the same for chat's active
+  interaction, and *additionally* exposes a `start` method chat's own generic waiting
+  control calls directly for a human-owned step (chat never needs the composition-layer
+  indirection the board/dialog case requires, since it already lives inside
+  `features/agent-sessions` and never crosses into `features/specifications`).
 - **Rationale:** The alternative — weakening or special-casing the architecture-boundaries
   test for this one component — was explicitly ruled out by the corrective-pass request
   itself. Splitting transport into "one neutral function, N thin feature-local callers" is
   the same shape this repository's `shared/ui` primitives already use for cross-feature
-  reuse; it needed no new pattern invented.
+  reuse; it needed no new pattern invented. Narrowing the component's own prop contract
+  (this pass) removes a prop (`onStart`) that, once D19's composition-level dispatcher and
+  D20's TaskCard-indicator model were settled, no caller ever actually wired — keeping it
+  would have been dead surface area, not a real option two callers chose between.
 - **Consequences:** `dashboard-human-step-transport` (task 16)'s allowed paths move from
   `features/agent-sessions/queries.ts` to `shared/lib/human-step-request.ts`.
   `human-step-surface-consolidation` (task 20)'s allowed paths move from
   `features/specifications/tasks/human-step-surface.tsx` to
   `shared/workflow/human-step-surface.tsx`, plus the two new feature-local mutation-hook
   files. `node --test tools/dashboard/tests/architecture-boundaries.test.mjs` is added to
-  both tasks' own verification.
-- **Date:** 2026-09-19
+  both tasks' own verification. The generic waiting-state "Start" control's own
+  implementation is out of `HumanStepSurface`'s scope entirely — it is owned by whichever
+  task owns each caller (`task-card-lifecycle-split` for `TaskCard`;
+  `human-step-surface-consolidation` for `TaskDialog` and chat;
+  `specification-detail-composition-wiring` for the board/dialog dispatcher's real
+  implementation, D19).
+- **Date:** 2026-09-19 (placement/transport-split decision); prop contract corrected
+  2026-09-20 to agree with D19/D20, superseding this decision's original prop-shape wording
+  in place (not a parallel entry — the placement/transport-split reasoning above is
+  unchanged and still governs).
 - **Affected artifacts:** `areas/human-step-surface.md`,
   `tasks/16-dashboard-human-step-transport.md`, `tasks/20-human-step-surface-consolidation.md`.
 
@@ -693,21 +726,14 @@
     in chat go through that feature's own `human-step-mutations.ts` adapter hook (D17)
     directly, with no composition-layer indirection needed (chat never crosses the
     specifications/agent-sessions boundary the board/dialog case does). `agent-session-chat-surface.tsx`
-    (owned by `human-step-surface-consolidation`) renames the corresponding prop
-    (`onStartReviewTask` → `onStartAgentStep`) and removes the `'approve'`/
-    `'request-changes'`/`'start-review'` literal-action-id rendering block entirely, replacing
-    it with: a generic waiting-step bar (works for both executors, the human branch calling
-    the feature's own adapter hook's `start`) and `HumanStepSurface` for an active human
-    interaction.
+    renames the corresponding prop (`onStartReviewTask` → `onStartAgentStep`) and removes the
+    `'approve'`/`'request-changes'`/`'start-review'` literal-action-id rendering block
+    entirely, replacing it with: a generic waiting-step bar (works for both executors, the
+    human branch calling the feature's own adapter hook's `start`) and `HumanStepSurface` for
+    an active human interaction.
   - `TaskCard`/`TaskDialog` (`features/specifications`) never import
     `features/agent-sessions` or the human-step transport directly — both only ever receive
     and call `onStartStep`/an equivalent callback prop supplied from the screen above them.
-  - `session-bootstrap-readiness-wiring` (task 15) gains an explicit dependency on
-    `dashboard-human-step-transport` (task 16), since its composition-level dispatcher now
-    calls that task's shared transport function directly for the human branch — added to
-    `change.yaml` as a `depends_on` edge; no reorder of `order`/filenames is needed since
-    NEvo's task readiness is governed by `depends_on`, not by the `order` field, and no cycle
-    results (task 16 does not depend on task 15).
 - **Rationale:** Reuses the *existing* prop-bubbling pattern already present
   (`onWorkflowAction` → `StatusBoard`) rather than inventing new plumbing — only the internal
   branch predicate changes, from an action-string comparison to an `executor` comparison.
@@ -716,14 +742,34 @@
   new one.
 - **Consequences:** Without this decision, a human-owned step's "Start" control anywhere in
   the UI would be a dead click (D15's model already existed server-side with no client caller
-  reaching it) — this decision is what makes it real. `tasks/15-session-bootstrap-readiness-wiring.md`
-  is corrected to remove its own now-incorrect acceptance criterion that files in its scope
-  "never call any human-step operation/transport" — that constraint was written before this
-  pass established that the composition-level dispatcher this task owns is precisely where
-  the human branch's `startHumanStep` call belongs.
-- **Date:** 2026-09-20
+  reaching it) — this decision is what makes it real.
+  **Task-decomposition correction (2026-09-20, seventh pass — the architectural decision
+  above is unchanged; only which task owns which file is corrected):** the original version
+  of this decision packed the actual `startStep`/renamed-chat-handler *implementations* into
+  `session-bootstrap-readiness-wiring` (task 15) alongside `TaskCard`'s/`TaskDialog`'s
+  *contracts* — but those contracts are introduced by `task-card-lifecycle-split` (task 19)
+  and `human-step-surface-consolidation` (task 20), both of which *depend on* task 15. That
+  made task 15 consume a prop/API only its own dependents introduce — an unsatisfiable
+  ordering, not just an awkward one. Corrected as: task 15 narrows to a producer-only task
+  (the frontend DTO type plus a pure `buildAgentStepTriggerMessage(taskId)` primitive, no
+  `specification-detail-content.tsx`, no `agent-session-page.tsx`); a new final task,
+  `specification-detail-composition-wiring` (order 23, depends on `session-bootstrap-readiness-wiring`,
+  `dashboard-human-step-transport`, `task-card-lifecycle-split`, and
+  `human-step-surface-consolidation` — all four already-existing contracts), owns
+  `specification-detail-content.tsx`'s real `startStep` dispatcher and its wiring into
+  `StatusBoard`/`TaskDialog`; `human-step-surface-consolidation` (task 20) gains
+  `agent-session-page.tsx` (previously, incorrectly, assigned to task 15) alongside
+  `agent-session-chat-surface.tsx`, so the parent-handler rename and the child's prop-rename
+  happen inside the one task that owns both files, never split across a producer/consumer
+  boundary. `session-bootstrap-readiness-wiring`'s now-unneeded dependency on
+  `dashboard-human-step-transport` is removed from `change.yaml` (the human branch's
+  `startHumanStep` call moved to the new final task, which depends on
+  `dashboard-human-step-transport` directly instead).
+- **Date:** 2026-09-20; task-decomposition corrected 2026-09-20 (seventh, strictly
+  mechanical pass).
 - **Affected artifacts:** `change.yaml`, `tasks/15-session-bootstrap-readiness-wiring.md`,
   `tasks/19-task-card-lifecycle-split.md`, `tasks/20-human-step-surface-consolidation.md`,
+  `tasks/23-specification-detail-composition-wiring.md` (new),
   `areas/execution-readiness-and-session-bootstrap.md`, `areas/human-step-surface.md`,
   `areas/ui-dashboard-board-split.md`.
 
