@@ -248,7 +248,15 @@ function emit(payload, opts) {
 }
 
 export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
-  const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
+  const change = requireChange(changeSlug, opts.activeDir || ACTIVE_DIR);
+  const workflowMode = resolveWorkflowMode(change, opts);
+  if (workflowMode.mode === 'legacy') {
+    throw new CliError(
+      `Cannot run deterministic command 'workflow step start' against legacy specification '${changeSlug || change.id}'. ` +
+      `Use legacy command surface instead: approve, start, complete, verify.`
+    );
+  }
+  const { task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
   const position = resolveWorkflowPosition(definition, task);
   const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, position.attempt);
   const stepContext = await compileStepContext({ change, task, definition, context, gateRegistry });
@@ -257,8 +265,16 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
 }
 
 export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
+  const change = requireChange(changeSlug, opts.activeDir || ACTIVE_DIR);
+  const workflowMode = resolveWorkflowMode(change, opts);
+  if (workflowMode.mode === 'legacy') {
+    throw new CliError(
+      `Cannot run deterministic command 'workflow step finish' against legacy specification '${changeSlug || change.id}'. ` +
+      `Use legacy command surface instead: approve, start, complete, verify.`
+    );
+  }
   const inputs = parseFinishInputs(opts);
-  const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
+  const { task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
   const inFlight = context.repoRoot ? findInFlightOperationRecord(context.repoRoot, change._slug, task.id) : null;
   // Task 04 AC1: an in-flight record is authoritative over workflow_progress for choosing
   // execution identity — resolveWorkflowPosition must not even run when one exists (see
