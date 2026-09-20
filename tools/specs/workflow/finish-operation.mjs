@@ -9,7 +9,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { requireChange, requireTask, setTaskWorkflowState } from '../store.mjs';
-import { TERMINAL_STATUSES } from '../lifecycle-primitives.mjs';
+import { TERMINAL_STATUSES } from '../status-vocabulary.mjs';
 import { normalizeSourceControlConfig } from './definitions/schema.mjs';
 import { defaultActionRegistry, defaultGateRegistry } from './registry.mjs';
 import { defaultWorkflowEngine } from './engine.mjs';

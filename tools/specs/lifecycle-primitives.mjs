@@ -1,6 +1,6 @@
 // tools/specs/lifecycle-primitives.mjs — Pure lifecycle status and transition primitives
 
-export const TERMINAL_STATUSES = new Set(['implemented', 'verified', 'archived', 'abandoned']);
+export { TERMINAL_STATUSES } from './status-vocabulary.mjs';
 export const DEPENDENCY_SATISFYING_STATUSES = new Set(['implemented', 'verified', 'archived']);
 export const READY_STATUSES = new Set(['approved']);
 export const ACTIVE_CHANGE_STATUSES = new Set(['approved', 'in-implementation', 'draft']);

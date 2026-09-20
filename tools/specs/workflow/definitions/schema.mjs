@@ -1,7 +1,7 @@
 // Declarative workflow definition schema and validation.
 
 import { defaultCommandCatalog, CommandCatalog } from '../gates/command-catalog.mjs';
-import { TERMINAL_STATUSES } from '../../lifecycle-primitives.mjs';
+import { TERMINAL_STATUSES } from '../../status-vocabulary.mjs';
 
 export const KNOWN_GATE_TYPES = new Set(['command', 'markdown', 'human']);
 export const KNOWN_COMMAND_ACTIONS = defaultCommandCatalog.asSet();

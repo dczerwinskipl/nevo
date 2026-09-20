@@ -28,7 +28,9 @@ tasks:
   - id: status-vocabulary-extraction
     order: 3
     file: tasks/03-status-vocabulary-extraction.md
-    status: approved
+    status: implemented
+    implementation:
+      baseline_revision: add62095803f33681e099d89b201951e953cc7e1
   - id: lifecycle-boundary-regression-tests
     order: 4
     file: tasks/04-lifecycle-boundary-regression-tests.md
