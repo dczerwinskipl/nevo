@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T07:41:13.401Z",
+  "generated": "2026-09-20T17:11:57.105Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -98,7 +98,7 @@
           "id": "legacy-mutation-guard",
           "order": 1,
           "file": "tasks/01-legacy-mutation-guard.md",
-          "status": "draft"
+          "status": "approved"
         },
         {
           "id": "deterministic-mutation-guard",

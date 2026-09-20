@@ -16,7 +16,7 @@ tasks:
   - id: legacy-mutation-guard
     order: 1
     file: tasks/01-legacy-mutation-guard.md
-    status: draft
+    status: approved
   - id: deterministic-mutation-guard
     order: 2
     file: tasks/02-deterministic-mutation-guard.md
@@ -29,7 +29,12 @@ tasks:
     order: 4
     file: tasks/04-lifecycle-boundary-regression-tests.md
     status: draft
-    depends_on: [ legacy-mutation-guard, deterministic-mutation-guard, status-vocabulary-extraction ]
+    depends_on:
+      [
+        legacy-mutation-guard,
+        deterministic-mutation-guard,
+        status-vocabulary-extraction
+      ]
   - id: workflow-task-publish-operation
     order: 5
     file: tasks/05-workflow-task-publish-operation.md
@@ -54,7 +59,12 @@ tasks:
     order: 9
     file: tasks/09-human-step-execution-operations.md
     status: draft
-    depends_on: [ workflow-definition-schema-extensions, step-executor-guard, deterministic-mutation-guard ]
+    depends_on:
+      [
+        workflow-definition-schema-extensions,
+        step-executor-guard,
+        deterministic-mutation-guard
+      ]
   - id: human-step-projection
     order: 10
     file: tasks/10-human-step-projection.md
@@ -74,7 +84,13 @@ tasks:
     order: 13
     file: tasks/13-execution-readiness-policy.md
     status: draft
-    depends_on: [ workflow-task-publish-operation, deterministic-task-projection, step-executor-guard, human-step-execution-operations ]
+    depends_on:
+      [
+        workflow-task-publish-operation,
+        deterministic-task-projection,
+        step-executor-guard,
+        human-step-execution-operations
+      ]
   - id: dashboard-deterministic-action-projection
     order: 14
     file: tasks/14-dashboard-deterministic-action-projection.md
@@ -104,26 +120,55 @@ tasks:
     order: 19
     file: tasks/19-task-card-lifecycle-split.md
     status: draft
-    depends_on: [ dashboard-deterministic-action-projection, session-bootstrap-readiness-wiring ]
+    depends_on:
+      [
+        dashboard-deterministic-action-projection,
+        session-bootstrap-readiness-wiring
+      ]
   - id: human-step-surface-consolidation
     order: 20
     file: tasks/20-human-step-surface-consolidation.md
     status: draft
-    depends_on: [ dashboard-deterministic-action-projection, dashboard-human-step-transport, task-card-lifecycle-split, session-bootstrap-readiness-wiring ]
+    depends_on:
+      [
+        dashboard-deterministic-action-projection,
+        dashboard-human-step-transport,
+        task-card-lifecycle-split,
+        session-bootstrap-readiness-wiring
+      ]
   - id: lifecycle-skill-instruction-split
     order: 21
     file: tasks/21-lifecycle-skill-instruction-split.md
     status: draft
-    depends_on: [ legacy-mutation-guard, deterministic-mutation-guard, workflow-task-publish-operation, step-executor-guard, human-step-execution-operations ]
+    depends_on:
+      [
+        legacy-mutation-guard,
+        deterministic-mutation-guard,
+        workflow-task-publish-operation,
+        step-executor-guard,
+        human-step-execution-operations
+      ]
   - id: ownership-boundary-documentation
     order: 22
     file: tasks/22-ownership-boundary-documentation.md
     status: draft
-    depends_on: [ legacy-mutation-guard, deterministic-mutation-guard, step-executor-guard, status-vocabulary-extraction ]
+    depends_on:
+      [
+        legacy-mutation-guard,
+        deterministic-mutation-guard,
+        step-executor-guard,
+        status-vocabulary-extraction
+      ]
   - id: specification-detail-composition-wiring
     order: 23
     file: tasks/23-specification-detail-composition-wiring.md
     status: draft
-    depends_on: [ session-bootstrap-readiness-wiring, dashboard-human-step-transport, task-card-lifecycle-split, human-step-surface-consolidation ]
+    depends_on:
+      [
+        session-bootstrap-readiness-wiring,
+        dashboard-human-step-transport,
+        task-card-lifecycle-split,
+        human-step-surface-consolidation
+      ]
 
 spec_id: 226954d0-b33e-4c89-a302-c27c4e51b1d8
