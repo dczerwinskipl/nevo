@@ -160,16 +160,45 @@ export interface TaskStatusesPayload {
 
 export type SpecificationOwnerAction = 'approve' | 'verify' | 'finalize';
 
+export interface WorkflowStepDescriptor {
+  id: string | null;
+  executor: 'agent' | 'human' | string;
+  purpose?: string | null;
+  expectedWork?: { summary?: string; [key: string]: any } | null;
+}
+
+export interface WorkflowHumanInteractionAction {
+  result?: string;
+  label?: string;
+  feedbackRequired: boolean;
+}
+
+export interface WorkflowHumanInteractionDescriptor {
+  actions: WorkflowHumanInteractionAction[];
+}
+
 export interface SpecificationTaskActionGate {
   action: 'approve' | 'verify';
   enabled: boolean;
   reason: string | null;
   availableActions?: string[];
+
   /**
-   * Authoritative deterministic-workflow read model (see `computeTaskWorkflowProjection`
-   * in `tools/dashboard/server/specs/actions.mjs`). `null` fields mean the server has no
-   * such value — the UI must never substitute a guessed default (e.g. `attempt: 1`) when
-   * these are absent/null.
+   * Deterministic workflow action projection (DashboardActionProjection, D10, D18).
+   * Authoritative read model composed from TaskProjection and ExecutionReadiness.
+   */
+  state?: 'draft' | 'blocked' | 'ready' | 'active' | 'human-interaction' | 'waiting-for-step-start' | 'terminal' | string;
+  executor?: 'agent' | 'human' | string;
+  blockedBy?: string[];
+  terminalOutcome?: 'success' | 'failure' | string | null;
+  terminalStatus?: string | null;
+  stepDescriptor?: WorkflowStepDescriptor | null;
+  currentStepDescriptor?: WorkflowStepDescriptor | null;
+  nextStepDescriptor?: WorkflowStepDescriptor | null;
+  humanInteraction?: WorkflowHumanInteractionDescriptor | null;
+
+  /**
+   * Legacy / shared read model fields (see `computeLegacyTaskWorkflowProjection`).
    */
   status?: string | null;
   currentStep?: string | null;

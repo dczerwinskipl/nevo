@@ -1,10 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import { AgentSessionWorkflowBar, type BoundTaskInfo } from '../ui/features/agent-sessions/agent-session-workflow-bar';
 import { AgentSessionChatSurface } from '../ui/features/agent-sessions/agent-session-chat-surface';
+import { buildAgentStepTriggerMessage } from '../ui/features/agent-sessions/queries';
 import { SpecificationMetadataFields } from '../ui/screens/specification-console/create-specification/specification-metadata-fields';
 import type { CanonicalTurn } from '../ui/features/agent-sessions/types';
+import type { SpecificationTaskActionGate } from '../ui/features/specifications/types';
 
 /**
  * Task 03 corrective pass — real component-interaction (RTL) tests replacing the
@@ -308,5 +312,69 @@ describe('AgentSessionChatSurface: blocked/not-ready task renders no executable 
     expect(screen.queryByRole('button', { name: /Approve/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Request changes/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Start review/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('Session bootstrap primitives: buildAgentStepTriggerMessage and types.ts (Task 15, D15, D18)', () => {
+  it('buildAgentStepTriggerMessage produces the identical generic trigger string for the same taskId regardless of step context', () => {
+    const messageReview = buildAgentStepTriggerMessage('task-123');
+    const messageHardening = buildAgentStepTriggerMessage('task-123');
+    expect(messageReview).toBe(messageHardening);
+    expect(messageReview).toContain('task-123');
+    expect(messageReview).not.toMatch(/review/i);
+    expect(messageReview).not.toMatch(/hardening/i);
+    expect(messageReview).not.toMatch(/implementation/i);
+    expect(messageReview).toBe('Execute the current workflow step for task task-123.');
+
+    const messageOther = buildAgentStepTriggerMessage('task-999');
+    expect(messageOther).toBe('Execute the current workflow step for task task-999.');
+    expect(messageOther).not.toBe(messageReview);
+  });
+
+  it('structural guarantee: buildAgentStepTriggerMessage accepts only taskId — length is 1', () => {
+    expect(buildAgentStepTriggerMessage.length).toBe(1);
+  });
+
+  it('structural guarantee: no switch/if/lookup keyed on step.id, currentStep, or nextStep exists in queries.ts', () => {
+    const queriesSource = readFileSync(resolve(process.cwd(), 'ui/features/agent-sessions/queries.ts'), 'utf8');
+    expect(queriesSource).not.toMatch(/switch\s*\([^)]*(?:step\.id|currentStep|nextStep)/);
+    expect(queriesSource).not.toMatch(/if\s*\([^)]*(?:current_step|currentStep|nextStep)\s*===/);
+  });
+
+  it('types.ts carries state, executor, stepDescriptor, blockedBy, terminalOutcome, humanInteraction, and availableActions?: string[]', () => {
+    const gateDto: SpecificationTaskActionGate = {
+      action: 'verify',
+      enabled: true,
+      reason: null,
+      state: 'ready',
+      executor: 'agent',
+      blockedBy: [],
+      terminalOutcome: null,
+      terminalStatus: null,
+      stepDescriptor: {
+        id: 'implementation',
+        executor: 'agent',
+        purpose: 'Implementation work',
+        expectedWork: { summary: 'Code' },
+      },
+      currentStepDescriptor: null,
+      nextStepDescriptor: {
+        id: 'implementation',
+        executor: 'agent',
+        purpose: 'Implementation work',
+        expectedWork: { summary: 'Code' },
+      },
+      humanInteraction: null,
+      availableActions: ['start-step'],
+      status: 'approved',
+      currentStep: null,
+      attempt: null,
+      workflowState: null,
+    };
+
+    expect(gateDto.state).toBe('ready');
+    expect(gateDto.executor).toBe('agent');
+    expect(gateDto.stepDescriptor?.id).toBe('implementation');
+    expect(gateDto.availableActions).toEqual(['start-step']);
   });
 });

@@ -127,8 +127,10 @@ tasks:
   - id: session-bootstrap-readiness-wiring
     order: 15
     file: tasks/15-session-bootstrap-readiness-wiring.md
-    status: approved
+    status: implemented
     depends_on: [ execution-readiness-policy, dashboard-deterministic-action-projection ]
+    implementation:
+      baseline_revision: 981293c1de8598d981b7a531f7f1b7b17f9bd9b9
   - id: dashboard-human-step-transport
     order: 16
     file: tasks/16-dashboard-human-step-transport.md
