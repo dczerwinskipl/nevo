@@ -104,7 +104,7 @@ tasks:
   - id: dashboard-human-step-transport
     order: 16
     file: tasks/16-dashboard-human-step-transport.md
-    status: draft
+    status: approved
     depends_on: [ human-step-execution-operations, execution-readiness-policy ]
   - id: dashboard-actions-lifecycle-split
     order: 17

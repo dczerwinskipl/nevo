@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T17:32:45.101Z",
+  "generated": "2026-09-20T17:32:53.724Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -235,7 +235,7 @@
           "id": "dashboard-human-step-transport",
           "order": 16,
           "file": "tasks/16-dashboard-human-step-transport.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "human-step-execution-operations",
             "execution-readiness-policy"
