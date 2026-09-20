@@ -38,7 +38,7 @@ tasks:
   - id: workflow-task-publish-operation
     order: 5
     file: tasks/05-workflow-task-publish-operation.md
-    status: draft
+    status: approved
     depends_on: [ deterministic-mutation-guard ]
   - id: deterministic-cli-default-task-resolution
     order: 6

@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T17:12:18.492Z",
+  "generated": "2026-09-20T17:12:23.421Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -127,7 +127,7 @@
           "id": "workflow-task-publish-operation",
           "order": 5,
           "file": "tasks/05-workflow-task-publish-operation.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "deterministic-mutation-guard"
           ]
