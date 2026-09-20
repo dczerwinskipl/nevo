@@ -48,7 +48,7 @@ tasks:
   - id: workflow-definition-schema-extensions
     order: 7
     file: tasks/07-workflow-definition-schema-extensions.md
-    status: draft
+    status: approved
     depends_on: [ status-vocabulary-extraction ]
   - id: step-executor-guard
     order: 8
