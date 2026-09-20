@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T17:30:19.842Z",
+  "generated": "2026-09-20T17:30:25.038Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -193,7 +193,7 @@
           "id": "deterministic-task-projection",
           "order": 12,
           "file": "tasks/12-deterministic-task-projection.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "human-step-projection",
             "deterministic-dependency-satisfaction"

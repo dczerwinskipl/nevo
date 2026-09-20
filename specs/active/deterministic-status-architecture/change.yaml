@@ -78,7 +78,7 @@ tasks:
   - id: deterministic-task-projection
     order: 12
     file: tasks/12-deterministic-task-projection.md
-    status: draft
+    status: approved
     depends_on: [ human-step-projection, deterministic-dependency-satisfaction ]
   - id: execution-readiness-policy
     order: 13
