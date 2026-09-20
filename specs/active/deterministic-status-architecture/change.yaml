@@ -74,7 +74,7 @@ tasks:
   - id: human-step-execution-operations
     order: 9
     file: tasks/09-human-step-execution-operations.md
-    status: implemented
+    status: verified
     depends_on:
       [
         workflow-definition-schema-extensions,
