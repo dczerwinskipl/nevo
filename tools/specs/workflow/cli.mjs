@@ -336,7 +336,7 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
   const isApprove = Boolean(opts.approve || extraInputs.result === 'pass');
   const isRequestChanges = Boolean(opts.requestChanges || opts.reject || extraInputs.result === 'fail');
 
-  if (isApprove || isRequestChanges || (!opts.confirm)) {
+  if (isApprove || isRequestChanges) {
     return (async () => {
       if (isApprove && isRequestChanges) {
         throw new CliError('Cannot specify both --approve and --request-changes');
@@ -347,12 +347,6 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
       }
       const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
       const position = resolveWorkflowPosition(definition, task);
-
-      if (!isApprove && !isRequestChanges && !opts.confirm) {
-        if (position.phase !== 'terminal') {
-          throw new CliError('workflow verify-human requires --approve, --request-changes, or --confirm');
-        }
-      }
 
       let effectiveTask = task;
       let effectivePosition = position;
@@ -367,14 +361,14 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
 
       const inputs = {
         ...extraInputs,
-        ...(isApprove ? { result: 'pass' } : (isRequestChanges ? { result: 'fail' } : {})),
+        result: isApprove ? 'pass' : 'fail',
       };
       if (opts.feedback) {
         inputs.feedback = opts.feedback.trim();
       }
       if (opts['commit.title']) {
         inputs['commit.title'] = opts['commit.title'];
-      } else if (!inputs['commit.title'] && (isApprove || isRequestChanges)) {
+      } else if (!inputs['commit.title']) {
         inputs['commit.title'] = isApprove
           ? `verify(${task.id}): approve human verification`
           : `verify(${task.id}): request changes`;

@@ -502,6 +502,7 @@ describe('Production standard workflow review loop and multi-attempt E2E proof (
   test('Generic transport: accepts --input-file with JSON payload', async () => {
     const inputFilePath = join(fx.root, 'test-input.json');
     writeFileSync(inputFilePath, JSON.stringify({
+      result: 'pass',
       'commit.title': 'input file test',
       include: ['*'],
     }));
