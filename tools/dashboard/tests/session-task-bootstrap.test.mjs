@@ -1062,6 +1062,180 @@ test('9o. AgentSessionService: a multi-task session created with no primary task
   }
 });
 
+test('9p. AgentSessionService: attachSession with contextual-only taskIds has NO authoritative active task anywhere in the projection chain', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-attach-no-active-'));
+  let sessionService = null;
+  try {
+    const storageDir = join(tmpDir, 'sessions');
+    const bindingService = createAgentSessionBindingService({ storageDir });
+    const registry = createAgentProviderRegistry();
+    const specId = '44444444-5555-4666-8777-888888888899';
+    writeLegacySpecFixtureSync(tmpDir, specId, { taskIds: ['01', '02'] });
+
+    const turnRuntime = new AgentTurnRuntime({ registry });
+    registry.register({
+      descriptor: { id: 'mock', label: 'Mock Provider', defaultMode: 'edit', capabilities: {} },
+      startTurn: () =>
+        (async function* () {
+          yield { type: 'final_answer.delta', text: 'done' };
+        })(),
+      cancelTurn: async () => ({}),
+    });
+    sessionService = new AgentSessionService({ registry, turnRuntime, bindingService, repoRoot: tmpDir });
+
+    // Attached with BOTH tasks contextually, no explicit primary taskId
+    const session = await sessionService.attachSession('mock', {
+      providerSessionId: 'mock-ext-001',
+      specId,
+      taskIds: ['01', '02'],
+    });
+    assert.equal(session.activeTaskId, undefined, 'attachSession must not fabricate an active task from taskIds[0]');
+    assert.equal(session.taskId, undefined, 'the public taskId projection must mirror activeTaskId exactly');
+    assert.deepEqual(session.taskIds, ['01', '02']);
+
+    const details = await sessionService.getSessionDetails(session.sessionId);
+    assert.equal(details.taskId, undefined, 'getSessionDetails must not fabricate an active task either');
+
+    const listed = await sessionService.listSessions({ specId });
+    const projected = listed.find((s) => s.sessionId === session.sessionId);
+    assert.ok(projected, 'the session must still appear in listSessions');
+    assert.equal(projected.taskId, undefined, 'listSessions must not fabricate an active task from taskIds[0] or binding recency');
+
+    const rawSession = await bindingService.getSession(session.sessionId);
+    assert.equal(rawSession.activeTaskId ?? undefined, undefined);
+
+    const resolved = await bindingService.resolveCurrentBinding('mock', session.sessionId);
+    assert.equal(resolved.taskId, undefined, 'resolveCurrentBinding must mirror activeTaskId, never the most-recently-touched binding\'s taskId');
+    assert.equal(resolved.activeTaskId, undefined);
+  } finally {
+    await sessionService?.shutdown?.().catch(() => {});
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('9q. AgentSessionService: startTurn on existing/reused session with authoritative taskId evaluates execution readiness and rejects unready task', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-reused-readiness-'));
+  let sessionService = null;
+  try {
+    await mkdir(join(tmpDir, '.nevo-ai', 'workflows'), { recursive: true });
+    await cp(
+      join(REAL_REPO_ROOT, '.nevo-ai', 'workflows', 'standard-v1.yaml'),
+      join(tmpDir, '.nevo-ai', 'workflows', 'standard-v1.yaml'),
+    );
+
+    const specId = '99999999-9999-4999-8999-999999999995';
+    // Task is draft (unpublished)
+    const activeDir = join(tmpDir, 'specs', 'active');
+    const changeDir = join(activeDir, 'fixture-change');
+    await mkdir(changeDir, { recursive: true });
+    const yaml = `spec_id: ${specId}
+workflow:
+  mode: deterministic
+  definition: standard-v1
+tasks:
+  - id: "01"
+    status: draft
+`;
+    await writeFile(join(changeDir, 'change.yaml'), yaml, 'utf-8');
+
+    const storageDir = join(tmpDir, 'sessions');
+    const bindingService = createAgentSessionBindingService({ storageDir });
+    const registry = createAgentProviderRegistry();
+    let turnCalled = false;
+    registry.register({
+      descriptor: { id: 'mock', label: 'Mock Provider', defaultMode: 'edit', capabilities: {} },
+      startTurn: () => {
+        turnCalled = true;
+        return (async function* () {
+          yield { type: 'final_answer.delta', text: 'done' };
+        })();
+      },
+      cancelTurn: async () => ({}),
+    });
+
+    const turnRuntime = new AgentTurnRuntime({ registry });
+    sessionService = new AgentSessionService({ registry, turnRuntime, bindingService, repoRoot: tmpDir });
+
+    // Manually bind an existing session to task '01' (simulating a reused session created previously)
+    const session = await sessionService.attachSession('mock', {
+      providerSessionId: 'mock-reused-sess',
+      specId,
+      taskId: '01',
+      taskIds: ['01'],
+    });
+
+    // Starting a turn against the unready (draft) task must throw AiDeterministicWorkflowUnavailableError
+    await assert.rejects(
+      () => sessionService.startTurn('mock', undefined, { sessionId: session.sessionId, message: 'do work' }),
+      (err) => {
+        assert.equal(err.name, 'AiDeterministicWorkflowUnavailableError');
+        assert.match(err.message, /not ready for execution/);
+        assert.equal(err.readiness?.code, 'TASK_UNPUBLISHED');
+        return true;
+      },
+    );
+    assert.equal(turnCalled, false, 'Provider turn must never be admitted when execution readiness fails');
+  } finally {
+    await sessionService?.shutdown?.().catch(() => {});
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('9r. AgentSessionService: startTurn generic chat on deterministic spec without authoritative taskId is unaffected by execution readiness', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-chat-readiness-'));
+  let sessionService = null;
+  try {
+    await mkdir(join(tmpDir, '.nevo-ai', 'workflows'), { recursive: true });
+    await cp(
+      join(REAL_REPO_ROOT, '.nevo-ai', 'workflows', 'standard-v1.yaml'),
+      join(tmpDir, '.nevo-ai', 'workflows', 'standard-v1.yaml'),
+    );
+
+    const specId = '99999999-9999-4999-8999-999999999996';
+    const activeDir = join(tmpDir, 'specs', 'active');
+    const changeDir = join(activeDir, 'fixture-change');
+    await mkdir(changeDir, { recursive: true });
+    const yaml = `spec_id: ${specId}
+workflow:
+  mode: deterministic
+  definition: standard-v1
+tasks:
+  - id: "01"
+    status: draft
+`;
+    await writeFile(join(changeDir, 'change.yaml'), yaml, 'utf-8');
+
+    const storageDir = join(tmpDir, 'sessions');
+    const bindingService = createAgentSessionBindingService({ storageDir });
+    const registry = createAgentProviderRegistry();
+    let turnCalled = false;
+    registry.register({
+      descriptor: { id: 'mock', label: 'Mock Provider', defaultMode: 'edit', capabilities: {} },
+      startTurn: () => {
+        turnCalled = true;
+        return (async function* () {
+          yield { type: 'final_answer.delta', text: 'chat response' };
+        })();
+      },
+      cancelTurn: async () => ({}),
+    });
+
+    const turnRuntime = new AgentTurnRuntime({ registry });
+    sessionService = new AgentSessionService({ registry, turnRuntime, bindingService, repoRoot: tmpDir });
+
+    // Session on deterministic spec but with no active task (generic planning/chat turn)
+    const session = await sessionService.createSession('mock', { specId });
+    assert.equal(session.activeTaskId, undefined);
+
+    const turnResult = await sessionService.startTurn('mock', undefined, { sessionId: session.sessionId, message: 'let us plan' });
+    assert.ok(turnResult.turnId);
+    assert.equal(turnCalled, true, 'Generic chat turns must be admitted without task readiness gating');
+  } finally {
+    await sessionService?.shutdown?.().catch(() => {});
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test('6. tools/specs.mjs autoBindAgentSession writes SessionTaskBinding to <repoRoot>/.nevo-ai-local/sessions/ using discovered context', async () => {
   const tmpRepo = await mkdtemp(join(tmpdir(), 'nevo-autobind-test-'));
   const originalEnvSessionId = process.env.NEVO_SESSION_ID;

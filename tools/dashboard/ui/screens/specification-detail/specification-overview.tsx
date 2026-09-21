@@ -107,7 +107,7 @@ export function SpecificationOverview({
           onTaskSelect={onTaskSelect}
           onTaskAction={onDirectTaskAction}
           onBatchAction={onBatchTaskAction}
-          onStartStep={onStartStep as any}
+          onStartStep={onStartStep}
         />
       </div>
     </>

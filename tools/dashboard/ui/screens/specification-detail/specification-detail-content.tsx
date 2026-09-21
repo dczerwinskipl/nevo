@@ -131,51 +131,8 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
   const defaultProvider = availableProviders[0]?.id || enabledProviders[0]?.id || 'claude';
 
   const startStep = useCallback(
-    async (
-      arg1?: SpecificationTask | WorkflowStepDescriptor | null,
-      arg2?: WorkflowStepDescriptor | SpecificationTask | null,
-    ) => {
+    async (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor) => {
       setWorkflowError(null);
-
-      let task: SpecificationTask | null = null;
-      let stepDescriptor: WorkflowStepDescriptor | null = null;
-
-      if (arg1 && typeof arg1 === 'object') {
-        if ('executor' in arg1) {
-          stepDescriptor = arg1 as WorkflowStepDescriptor;
-          if (arg2 && 'title' in (arg2 as any)) {
-            task = arg2 as SpecificationTask;
-          }
-        } else if ('title' in arg1) {
-          task = arg1 as SpecificationTask;
-          if (arg2 && 'executor' in (arg2 as any)) {
-            stepDescriptor = arg2 as WorkflowStepDescriptor;
-          }
-        }
-      }
-
-      if (!stepDescriptor && arg2 && typeof arg2 === 'object' && 'executor' in arg2) {
-        stepDescriptor = arg2 as WorkflowStepDescriptor;
-      }
-
-      if (!task) {
-        if (selectedTask) {
-          task = selectedTask;
-        } else if (stepDescriptor) {
-          const candidate = specification.tasks.find((t) => {
-            const gate = actionsQuery.data?.tasks?.[t.id];
-            if (!gate?.availableActions?.includes('start-step')) return false;
-            const desc = gate.stepDescriptor || gate.nextStepDescriptor || gate.currentStepDescriptor;
-            if (!desc) return false;
-            if (stepDescriptor.id && desc.id && desc.id !== stepDescriptor.id) return false;
-            if (stepDescriptor.executor && desc.executor && desc.executor !== stepDescriptor.executor) return false;
-            return true;
-          });
-          if (candidate) {
-            task = candidate;
-          }
-        }
-      }
 
       if (!task || !stepDescriptor) {
         return;
@@ -186,7 +143,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
       if (stepDescriptor.executor === 'agent') {
         try {
           const bound = sessionsQuery.sessions.find(
-            (s) => (s.taskIds && s.taskIds.includes(targetTaskId)) || s.taskId === targetTaskId,
+            (s) => s.taskId === targetTaskId,
           );
           const targetSession =
             bound ||
@@ -238,7 +195,6 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
       defaultProvider,
       navigate,
       queryClient,
-      selectedTask,
       sessionsQuery.sessions,
       specification,
     ],

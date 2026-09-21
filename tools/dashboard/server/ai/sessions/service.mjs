@@ -390,7 +390,9 @@ export class AgentSessionService {
         const changes = listChanges(resolve(this.repoRoot, 'specs', 'active'));
         const change = changes.find((c) => c.spec_id === options.specId || c.id === options.specId || c._slug === options.specId);
         const resolvedTask = (change.tasks || []).find((t) => String(t.id) === String(primaryTaskId));
-        const readiness = evaluateExecutionReadiness(resolvedTask, change, 'agent', { repoRoot: this.repoRoot });
+        const resolvedMode = resolveWorkflowMode(change);
+        const definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot: this.repoRoot });
+        const readiness = evaluateExecutionReadiness(resolvedTask, change, 'agent', { repoRoot: this.repoRoot, definition });
         if (!readiness.ready) {
           throw new AiDeterministicWorkflowUnavailableError(
             `Task '${primaryTaskId}' in spec '${options.specId}' is not ready for execution: ${readiness.reason}`,
@@ -509,16 +511,20 @@ export class AgentSessionService {
   async attachSession(provider, { providerSessionId, specId, taskId, taskIds, purpose, mode, model } = {}) {
     validateAgentIdentity({ provider, providerSessionId });
     const resolvedTaskIds = Array.isArray(taskIds) ? taskIds.filter(Boolean) : taskId ? [taskId] : [];
+    const primaryTaskId = taskId;
 
     let binding;
     if (this.bindingService) {
       if (resolvedTaskIds.length > 0) {
+        const explicitActiveTaskId = primaryTaskId ?? null;
         for (const tId of resolvedTaskIds) {
           binding = await this.bindingService.bindSession({
             provider,
             providerSessionId,
             specId,
             taskId: tId,
+            activeTaskId: explicitActiveTaskId,
+            taskIds: resolvedTaskIds,
             purpose,
             mode,
             model,
@@ -529,21 +535,33 @@ export class AgentSessionService {
           provider,
           providerSessionId,
           specId,
-          taskId,
+          taskId: primaryTaskId,
+          activeTaskId: primaryTaskId ?? null,
           purpose,
           mode,
           model,
         });
       }
     } else {
-      binding = { provider, providerSessionId, specId, taskId, mode, model };
+      binding = {
+        provider,
+        providerSessionId,
+        specId,
+        taskId: primaryTaskId,
+        activeTaskId: primaryTaskId,
+        taskIds: resolvedTaskIds,
+        mode,
+        model,
+      };
     }
 
-    // Never fabricate an active task from `resolvedTaskIds[0]` — the authoritative value
-    // is whatever the binding itself actually reports (`activeTaskId` when backed by a
-    // real bindingService, `taskId` in the no-bindingService test-double shape). Multiple
-    // attached tasks with no explicit primary correctly yield no active task.
-    return { ...binding, taskIds: resolvedTaskIds, taskId: binding?.activeTaskId ?? binding?.taskId ?? undefined };
+    const activeTaskId = primaryTaskId ?? (binding?.activeTaskId ? binding.activeTaskId : undefined);
+    return {
+      ...binding,
+      taskIds: resolvedTaskIds,
+      taskId: activeTaskId,
+      activeTaskId,
+    };
   }
 
   async listSessions(filters = {}) {
@@ -1145,6 +1163,27 @@ export class AgentSessionService {
       workflowResolution.mode === 'deterministic' && workflowResolution.execution
         ? workflowResolution.workflowInfo
         : null;
+
+    if (workflowResolution.mode === 'deterministic' && workflowResolution.execution) {
+      let changes;
+      try {
+        changes = listChanges(resolve(this.repoRoot, 'specs', 'active'));
+      } catch (err) {
+        const message = `Failed to look up spec '${effectiveSpecId}' under repoRoot '${this.repoRoot}': ${err?.message || err}`;
+        throw new AiSpecContextUnavailableError(message, { specId: effectiveSpecId, repoRoot: this.repoRoot });
+      }
+      const change = changes.find((c) => c.spec_id === effectiveSpecId || c.id === effectiveSpecId || c._slug === effectiveSpecId);
+      const resolvedTask = (change?.tasks || []).find((t) => String(t.id) === String(effectiveTaskId));
+      const resolvedMode = resolveWorkflowMode(change);
+      const definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot: this.repoRoot });
+      const readiness = evaluateExecutionReadiness(resolvedTask, change, 'agent', { repoRoot: this.repoRoot, definition });
+      if (!readiness.ready) {
+        throw new AiDeterministicWorkflowUnavailableError(
+          `Task '${effectiveTaskId}' in spec '${effectiveSpecId}' is not ready for execution: ${readiness.reason}`,
+          { specId: effectiveSpecId, taskId: effectiveTaskId, readiness }
+        );
+      }
+    }
     const hasExplicitWorkflowContext = opts.workflowContext !== undefined && opts.workflowContext !== false;
     const shouldInjectAutomatic = opts.workflowContext !== false && Boolean(deterministicWorkflowInfo);
 

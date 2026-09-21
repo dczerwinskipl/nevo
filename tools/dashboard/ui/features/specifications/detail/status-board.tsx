@@ -128,7 +128,7 @@ export interface DeterministicTaskCardProps {
   task: SpecificationTask;
   actionGate?: SpecificationTaskActionGate | null;
   onSelect?: (task: SpecificationTask, trigger: HTMLElement) => void;
-  onStartStep?: (stepDescriptor: WorkflowStepDescriptor) => void;
+  onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor) => void;
 }
 
 export function DeterministicTaskCard({
@@ -198,7 +198,7 @@ export function DeterministicTaskCard({
                 id: null,
                 executor: actionGate?.executor ?? 'agent',
               };
-              onStartStep?.(descriptorToStart);
+              onStartStep?.(task, descriptorToStart);
             }}
             aria-label={`Start step: ${task.title}`}
           >
@@ -252,7 +252,7 @@ function TaskCard({
   isDeterministic?: boolean;
   onSelect?: (task: SpecificationTask, trigger: HTMLElement) => void;
   onAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
-  onStartStep?: (stepDescriptor: WorkflowStepDescriptor) => void;
+  onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor) => void;
 }) {
   if (isDeterministic) {
     return (
@@ -293,7 +293,7 @@ export function StatusBoard({
   onTaskAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
   onBatchAction?: (tasks: SpecificationTask[], action: SpecificationOwnerAction) => void;
   onWorkflowAction?: (task: SpecificationTask, action: string) => void;
-  onStartStep?: (stepDescriptor: WorkflowStepDescriptor) => void;
+  onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor) => void;
 }) {
   return (
     <section aria-labelledby="workflow-heading">

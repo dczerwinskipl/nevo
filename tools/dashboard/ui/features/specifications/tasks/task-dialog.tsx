@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { MessagesSquare, LoaderCircle, X, AlertCircle } from 'lucide-react';
-import type { SpecificationSummary, SpecificationTaskDocument, WorkflowStepDescriptor } from '../types';
+import type { SpecificationSummary, SpecificationTask, SpecificationTaskDocument, WorkflowStepDescriptor } from '../types';
 import { formatStatus } from '@/shared/lib/utils';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
@@ -16,7 +16,7 @@ export interface TaskDialogProps {
   onClose: () => void;
   onOperationStarted?: (operationId: string, label: string) => void;
   sessionsContent?: React.ReactNode;
-  onStartStep?: (stepDescriptor: WorkflowStepDescriptor) => void;
+  onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor) => void;
 }
 
 export function TaskDialog({ specification, taskId, onClose, onOperationStarted, sessionsContent, onStartStep }: TaskDialogProps) {
@@ -222,7 +222,7 @@ export function TaskDialog({ specification, taskId, onClose, onOperationStarted,
                 size="sm"
                 onClick={() => {
                   const stepDescriptor = actionGate.stepDescriptor || actionGate.currentStepDescriptor || actionGate.nextStepDescriptor;
-                  if (stepDescriptor) onStartStep?.(stepDescriptor);
+                  if (stepDescriptor && task) onStartStep?.(task, stepDescriptor);
                 }}
                 className="h-8 cursor-pointer px-4 text-xs font-semibold"
                 aria-label="Start"

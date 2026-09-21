@@ -44,6 +44,7 @@ steps:
     finalize: []
     transitions:
       - to: verified
+        outcome: success
 `;
   writeFileSync(join(workflowsDir, 'test-workflow.yaml'), workflowDef, 'utf8');
 

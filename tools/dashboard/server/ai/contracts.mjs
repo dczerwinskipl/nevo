@@ -214,6 +214,10 @@ export class AiDeterministicWorkflowUnavailableError extends AiError {
       details,
     });
     this.name = 'AiDeterministicWorkflowUnavailableError';
+    this.details = details;
+    if (details?.readiness) {
+      this.readiness = details.readiness;
+    }
   }
 }
 

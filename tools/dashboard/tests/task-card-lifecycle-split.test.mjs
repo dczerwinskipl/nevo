@@ -109,7 +109,7 @@ describe('TaskCard lifecycle split (Task 19, D7, D10, D15, D18, D19, D20)', () =
 
     // Renders generic Start control calling onStartStep
     assert.match(detCardBody, /canStartStep/);
-    assert.match(detCardBody, /onStartStep\?\.\(descriptorToStart\)/);
+    assert.match(detCardBody, /onStartStep\?\.\(task,\s*descriptorToStart\)/);
 
     // Renders compact human indicator opening TaskDialog (via onSelect)
     assert.match(detCardBody, /isHumanInteraction/);
@@ -138,7 +138,7 @@ describe('TaskCard lifecycle split (Task 19, D7, D10, D15, D18, D19, D20)', () =
     assert.doesNotMatch(src, /HumanStepSurface/);
 
     // DeterministicTaskCard accepts onStartStep and passes it down
-    assert.match(src, /onStartStep\?:\s*\(stepDescriptor:\s*WorkflowStepDescriptor\)\s*=>\s*void/);
+    assert.match(src, /onStartStep\?:\s*\(task:\s*SpecificationTask,\s*stepDescriptor:\s*WorkflowStepDescriptor\)\s*=>\s*void/);
   });
 
   test('AC 6: No component in status-board.tsx calls stageForStatus or isTaskReady or branches on step IDs', () => {

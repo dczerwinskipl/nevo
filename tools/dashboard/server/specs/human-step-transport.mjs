@@ -9,6 +9,9 @@ import { startHumanStep, submitHumanStepResult } from '../../../specs/workflow/h
 import { WorkflowError } from '../../../specs/workflow/errors.mjs';
 import { WorkflowStepExecutorMismatchError } from '../../../specs/workflow/executor-guard.mjs';
 import { CliError } from '../../../lib/cli-errors.mjs';
+import { resolveTaskScope, resolveWorkflowOwnedPaths } from '../../../specs/workflow/step-context.mjs';
+// Side-effect import: registers CommitAndPushAction into defaultActionRegistry
+import '../../../specs/workflow/actions/index.mjs';
 
 export class HumanStepTransportError extends Error {
   constructor(message, { status = 400, code, stepId, executor, allowedResults, blockedBy, details = {} } = {}) {
@@ -92,7 +95,23 @@ export async function executeHumanStepAction({
     });
   }
 
-  const context = { activeDir, repoRoot: root };
+  const resolvedChangeSlug = change._slug || change.id || slug;
+  const scope = resolveTaskScope(change, task, { activeDir, repoRoot: root });
+  const workflowOwnedPaths = resolveWorkflowOwnedPaths({ activeDir, repoRoot: root, changeSlug: resolvedChangeSlug });
+
+  const context = {
+    repoRoot: root,
+    activeDir,
+    taskId: task.id,
+    task,
+    changeId: change.id,
+    changeSlug: resolvedChangeSlug,
+    sourceControl: definition.sourceControl,
+    baseBranch: 'main',
+    taskAllowedPaths: scope.allowedPaths,
+    allowedPaths: scope.allowedPaths,
+    workflowOwnedPaths,
+  };
 
   if (action === 'start') {
     try {
@@ -138,7 +157,7 @@ function handleDomainError(err, definition, task, attemptedResult) {
     const stepId = err.details?.stepId || err.stepId;
     const executor = err.details?.executor || err.executor;
     throw new HumanStepTransportError(err.message, {
-      status: 400,
+      status: 403,
       code: 'WORKFLOW_STEP_EXECUTOR_MISMATCH',
       stepId,
       executor,

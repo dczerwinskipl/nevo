@@ -23,6 +23,7 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 
 const mockCreateSession = vi.fn();
+let mockAgentSessions: any[] = [];
 vi.mock('../ui/features/agent-sessions/queries', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../ui/features/agent-sessions/queries')>();
   return {
@@ -36,7 +37,7 @@ vi.mock('../ui/features/agent-sessions/queries', async (importOriginal) => {
       loading: false,
     }),
     useAgentSessions: () => ({
-      sessions: [],
+      sessions: mockAgentSessions,
       loading: false,
       error: null,
       refresh: vi.fn(),
@@ -482,11 +483,14 @@ describe('TaskDialog: deterministic human step surface and generic start step wi
 
     fireEvent.click(startBtn);
     expect(onStartStep).toHaveBeenCalledTimes(1);
-    expect(onStartStep).toHaveBeenCalledWith({
-      id: 'hardening',
-      executor: 'agent',
-      purpose: 'Security hardening work',
-    });
+    expect(onStartStep).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'task-waiting' }),
+      {
+        id: 'hardening',
+        executor: 'agent',
+        purpose: 'Security hardening work',
+      },
+    );
   });
 
   it('renders legacy TaskActionFooter byte-for-byte unchanged when workflowMode is legacy', () => {
@@ -730,6 +734,7 @@ describe('Task 23: SpecificationDetailContent and SpecificationOverview composit
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAgentSessions = [];
   });
 
   it('structural guarantee: specification-overview.tsx drops onWorkflowAction and declares onStartStep with unchanged onDirectTaskAction/onBatchTaskAction', () => {
@@ -1013,5 +1018,275 @@ describe('Task 23: SpecificationDetailContent and SpecificationOverview composit
 
     expect(within(screen.getByRole('alert')).getByText(/Unmet dependency on task-00/)).toBeInTheDocument();
   });
+
+  it('Task identity preservation: when two tasks wait for the same step, clicking task B starts task B and never task A', async () => {
+    const postSpy = vi.spyOn(humanStepRequest, 'postHumanStepAction').mockResolvedValue({
+      ok: true,
+      action: 'start',
+      taskId: 'task-human-2',
+    });
+
+    const twoTaskSpec: SpecificationSummary = {
+      ...baseDeterministicSpec,
+      tasks: [
+        {
+          id: 'task-human-1',
+          title: 'Human Task 1',
+          status: 'approved',
+          order: 1,
+          dependsOn: [],
+          blockedBy: [],
+        },
+        {
+          id: 'task-human-2',
+          title: 'Human Task 2',
+          status: 'approved',
+          order: 2,
+          dependsOn: [],
+          blockedBy: [],
+        },
+      ],
+      lanes: [
+        {
+          id: 'ready',
+          label: 'Oczekujące',
+          shortLabel: 'Oczekujące',
+          tasks: [
+            {
+              id: 'task-human-1',
+              title: 'Human Task 1',
+              status: 'approved',
+              order: 1,
+              dependsOn: [],
+              blockedBy: [],
+            },
+            {
+              id: 'task-human-2',
+              title: 'Human Task 2',
+              status: 'approved',
+              order: 2,
+              dependsOn: [],
+              blockedBy: [],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockActionsQueryData.data = {
+      workflowMode: 'deterministic',
+      worktree: baseWorktree,
+      finalize: { enabled: false, reason: null, checks: [], pullRequest: null },
+      tasks: {
+        'task-human-1': {
+          action: 'verify',
+          enabled: true,
+          reason: null,
+          state: 'waiting-for-step-start',
+          executor: 'human',
+          availableActions: ['start-step'],
+          stepDescriptor: {
+            id: 'verification',
+            executor: 'human',
+            purpose: 'Verification step',
+          },
+        },
+        'task-human-2': {
+          action: 'verify',
+          enabled: true,
+          reason: null,
+          state: 'waiting-for-step-start',
+          executor: 'human',
+          availableActions: ['start-step'],
+          stepDescriptor: {
+            id: 'verification',
+            executor: 'human',
+            purpose: 'Verification step',
+          },
+        },
+      },
+    };
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SpecificationDetailContent specification={twoTaskSpec} />
+      </QueryClientProvider>,
+    );
+
+    const startBtnB = screen.getByRole('button', { name: /Start step: Human Task 2/i });
+    fireEvent.click(startBtnB);
+
+    await waitFor(() => {
+      expect(postSpy).toHaveBeenCalledTimes(1);
+    });
+
+    expect(postSpy).toHaveBeenCalledWith({
+      source: 'active',
+      slug: 'spec-det-1',
+      taskId: 'task-human-2',
+      action: 'start',
+    });
+  });
+
+  it('Session reuse guard: a contextual-only session (taskIds: [A], taskId: undefined) is NOT reused as execution session', async () => {
+    mockAgentSessions = [
+      {
+        provider: 'claude',
+        sessionId: 'sess-contextual-only',
+        taskIds: ['task-agent-1'],
+        taskId: undefined,
+      },
+    ];
+
+    mockCreateSession.mockResolvedValue({
+      provider: 'claude',
+      sessionId: 'sess-new-exec',
+    });
+
+    const agentSpec: SpecificationSummary = {
+      ...baseDeterministicSpec,
+      lanes: [
+        {
+          id: 'ready',
+          label: 'Oczekujące',
+          shortLabel: 'Oczekujące',
+          tasks: [baseDeterministicSpec.tasks[1]], // task-agent-1
+        },
+      ],
+    };
+
+    mockActionsQueryData.data = {
+      workflowMode: 'deterministic',
+      worktree: baseWorktree,
+      finalize: { enabled: false, reason: null, checks: [], pullRequest: null },
+      tasks: {
+        'task-agent-1': {
+          action: 'verify',
+          enabled: true,
+          reason: null,
+          state: 'waiting-for-step-start',
+          executor: 'agent',
+          availableActions: ['start-step'],
+          stepDescriptor: {
+            id: 'implementation',
+            executor: 'agent',
+            purpose: 'Implementation work',
+          },
+        },
+      },
+    };
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SpecificationDetailContent specification={agentSpec} />
+      </QueryClientProvider>,
+    );
+
+    const startBtn = screen.getByRole('button', { name: /Start step: Agent step task/i });
+    fireEvent.click(startBtn);
+
+    await waitFor(() => {
+      expect(mockCreateSession).toHaveBeenCalledTimes(1);
+    });
+
+    expect(mockCreateSession).toHaveBeenCalledWith({
+      provider: 'claude',
+      specId: 'spec-det-1',
+      taskId: 'task-agent-1',
+      taskIds: ['task-agent-1'],
+      mode: 'edit',
+    });
+  });
+
+  it('Session reuse guard: a session bound to [A, B] with taskId: A is NOT reused when executing task B', async () => {
+    mockAgentSessions = [
+      {
+        provider: 'claude',
+        sessionId: 'sess-bound-to-a',
+        taskIds: ['task-agent-1', 'task-agent-2'],
+        taskId: 'task-agent-1',
+      },
+    ];
+
+    mockCreateSession.mockResolvedValue({
+      provider: 'claude',
+      sessionId: 'sess-new-exec-b',
+    });
+
+    const twoAgentSpec: SpecificationSummary = {
+      ...baseDeterministicSpec,
+      tasks: [
+        baseDeterministicSpec.tasks[1], // task-agent-1
+        {
+          id: 'task-agent-2',
+          title: 'Agent Task 2',
+          status: 'approved',
+          order: 3,
+          dependsOn: [],
+          blockedBy: [],
+        },
+      ],
+      lanes: [
+        {
+          id: 'ready',
+          label: 'Oczekujące',
+          shortLabel: 'Oczekujące',
+          tasks: [
+            {
+              id: 'task-agent-2',
+              title: 'Agent Task 2',
+              status: 'approved',
+              order: 3,
+              dependsOn: [],
+              blockedBy: [],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockActionsQueryData.data = {
+      workflowMode: 'deterministic',
+      worktree: baseWorktree,
+      finalize: { enabled: false, reason: null, checks: [], pullRequest: null },
+      tasks: {
+        'task-agent-2': {
+          action: 'verify',
+          enabled: true,
+          reason: null,
+          state: 'waiting-for-step-start',
+          executor: 'agent',
+          availableActions: ['start-step'],
+          stepDescriptor: {
+            id: 'implementation',
+            executor: 'agent',
+            purpose: 'Implementation work',
+          },
+        },
+      },
+    };
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SpecificationDetailContent specification={twoAgentSpec} />
+      </QueryClientProvider>,
+    );
+
+    const startBtn = screen.getByRole('button', { name: /Start step: Agent Task 2/i });
+    fireEvent.click(startBtn);
+
+    await waitFor(() => {
+      expect(mockCreateSession).toHaveBeenCalledTimes(1);
+    });
+
+    expect(mockCreateSession).toHaveBeenCalledWith({
+      provider: 'claude',
+      specId: 'spec-det-1',
+      taskId: 'task-agent-2',
+      taskIds: ['task-agent-2'],
+      mode: 'edit',
+    });
+  });
 });
+
 

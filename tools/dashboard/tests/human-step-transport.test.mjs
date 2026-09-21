@@ -374,6 +374,90 @@ tasks:
       assert.equal(lastHistory.feedback, 'Please fix edge cases in error handling.');
       assert.equal(lastHistory.transitioned_to, 'implementation');
 
+      // Verify commit-and-push executed: git log has the verify commit and worktree is clean
+      const gitLog = fx.git(['log', '-n', '1', '--oneline']);
+      assert.match(gitLog, /verify\(task-active-human\)/);
+      const gitStatus = fx.git(['status', '--porcelain']);
+      assert.equal(gitStatus.trim(), '', 'Worktree must be clean after submit completes with commit-and-push finalize');
+
+      await app.close();
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test('AC 2b: POST .../workflow/human-step with action: submit result: pass commits changes and leaves worktree clean', async () => {
+    const fx = createGitFixture('nevo-hst-pass-');
+    try {
+      const changeDir = join(fx.activeDir, 'demo-change');
+      const tasksDir = join(changeDir, 'tasks');
+      mkdirSync(tasksDir, { recursive: true });
+
+      const changeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: standard-v1
+tasks:
+  - id: task-pass-human
+    title: "Passing human verification task"
+    status: in-implementation
+    file: tasks/01-task.md
+    workflow_progress:
+      current_step: human-verification
+      current_attempt: 1
+      state: active
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: "2026-01-01T00:00:00.000Z"
+          transitioned_to: review
+        - step: review
+          attempt: 1
+          completed_at: "2026-01-01T01:00:00.000Z"
+          result: pass
+          transitioned_to: human-verification
+`;
+      writeFileSync(join(changeDir, 'change.yaml'), changeYaml);
+      writeFileSync(join(changeDir, 'overview.md'), '# Demo Change\n');
+      writeFileSync(join(tasksDir, '01-task.md'), '---\nid: task-pass-human\nstatus: in-implementation\n---\n# Task\n');
+
+      fx.git(['add', '-A']);
+      fx.git(['commit', '-m', 'task active in human-verification']);
+
+      const app = await buildDashboardApp({
+        config: {
+          root: fx.repo,
+          activeDir: fx.activeDir,
+          archiveDir: fx.archiveDir,
+        },
+      });
+
+      const resPass = await app.inject({
+        method: 'POST',
+        url: '/api/specs/demo-change/tasks/task-pass-human/workflow/human-step',
+        payload: {
+          action: 'submit',
+          result: 'pass',
+        },
+      });
+
+      assert.equal(resPass.statusCode, 200);
+      const passData = resPass.json();
+      assert.equal(passData.ok, true);
+      assert.equal(passData.action, 'submit');
+      assert.equal(passData.result?.status, 'completed');
+
+      const reloadedChange = loadChange('demo-change', fx.activeDir);
+      const reloadedTask = reloadedChange.tasks.find((t) => t.id === 'task-pass-human');
+      assert.equal(reloadedTask.workflow_progress?.state, 'completed');
+      assert.equal(reloadedTask.status, 'verified');
+
+      const gitLog = fx.git(['log', '-n', '1', '--oneline']);
+      assert.match(gitLog, /verify\(task-pass-human\)/);
+      const gitStatus = fx.git(['status', '--porcelain']);
+      assert.equal(gitStatus.trim(), '', 'Worktree must be clean after pass submit completes with commit-and-push');
+
       await app.close();
     } finally {
       fx.cleanup();
@@ -506,7 +590,7 @@ tasks:
         url: '/api/specs/demo-change/tasks/task-agent-owned/workflow/human-step',
         payload: { action: 'start' },
       });
-      assert.equal(resAgent.statusCode, 400);
+      assert.equal(resAgent.statusCode, 403);
       const errAgent = resAgent.json();
       assert.equal(errAgent.code, 'WORKFLOW_STEP_EXECUTOR_MISMATCH');
       assert.equal(errAgent.stepId, 'implementation');
