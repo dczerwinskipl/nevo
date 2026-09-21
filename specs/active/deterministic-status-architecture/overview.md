@@ -199,6 +199,124 @@ feature-adapter split clarified: `features/agent-sessions/human-step-mutations.t
 additionally exposes a `start` method for chat's own generic waiting control, since chat
 never needs the composition-layer indirection the board/dialog case requires.
 
+**Corrective pass 9 (2026-09-21, D21–D30, new areas + tasks 24–32): dogfooding findings
+from the first real execution of `ai-spec-history` (task `activity-core-model-and-contracts`,
+`workflow: standard-v1`).** Tasks 01–23 above proved the deterministic engine itself works —
+`publish → ready → start → workflow step start → implementation → workflow step finish → next
+step = review` completed correctly end-to-end for the first time. That same real run exposed
+a distinct, second layer of gaps this change had not yet addressed: **agent/session
+orchestration and dashboard UX** around the now-working engine. Grounded against the actual
+current code (`tools/specs/workflow/step-context.mjs`, `dependency-satisfaction.mjs`,
+`task-projection.mjs`, `finish-operation.mjs`, `publish/operation.mjs`,
+`tools/dashboard/server/ai/sessions/**`, `tools/dashboard/server/specs/{human-step-transport,
+routes}.mjs`, `tools/dashboard/ui/screens/specification-detail/**`,
+`tools/dashboard/ui/features/agent-sessions/**`, `.nevo-ai/workflows/standard-v1.yaml`,
+`definitions/schema.mjs`) — never assumed:
+
+1. **Execution-mode/provider selection is silently skipped on the first Start** (D21).
+   `startStep()` (`specification-detail-content.tsx`) calls `createSession.create({ provider:
+   defaultProvider, taskId, taskIds: [taskId] })` with no `mode` field at all — confirmed by
+   reading the function directly. The server resolves an omitted `mode` to `'edit'`
+   (`DEFAULT_AGENT_EXECUTION_MODE = 'edit'`, `contracts.mjs`), not `'agent'` — this is the
+   existing, correct provider contract (unchanged), but it means a real Claude session opened
+   in `edit` mode, which requires command approval the dashboard's non-interactive dispatch
+   cannot satisfy, so `workflow step start` repeatedly reported "This command requires
+   approval" until the user manually switched the session to `agent` mode. A separate,
+   already-existing `CreateAgentSessionDialog` (`features/agent-sessions/`) *does* let a user
+   pick provider + Ask/Edit/Agent mode, with its own default-mode logic (defaults to `'agent'`
+   when supported) — but `startStep` never opens it; it is wired only to the generic "new
+   session" affordance in `SpecificationOverview`, a different entry point entirely.
+2. **`StepContext` omits the task's own document** (D22). `compileStepContext()`'s returned
+   `task` field is only `effectiveTask.id` — confirmed by reading the function directly. No
+   task file path or content is included anywhere in the object, even though
+   `change.yaml → tasks[].file` deterministically names it and the (separate, legacy)
+   `buildContextPacket()` in `tools/specs/context.mjs` already resolves and surfaces exactly
+   this (`task.file`, full frontmatter) for the legacy path. The agent had to `find`/grep the
+   repository to discover its own task file — defeating the spec-anchored workflow's premise
+   that discovery happens once, at spec-authoring time.
+3. **Task-declared `context.required` is not distinguished from routing-derived
+   `relevantDocs`** (D23). `relevantDocs` in `compileStepContext()` comes only from
+   `resolveRelevantDocs(allowedPaths, routingIndex)` — routing-rule matches against affected
+   paths — confirmed by reading the function; it has no dependency on the task frontmatter's
+   own `context.required`/`optional` list. `buildContextPacket()` (legacy) already resolves
+   `context.required`/`optional` from the task frontmatter, but `compileStepContext()` never
+   reads it. The two concepts (task-declared execution contract vs. routing-inferred
+   repository rules) are real and already partially built for the legacy path, just not
+   connected to the deterministic one.
+4. **`StepContext` exposes internal finalize-action facts, and duplicates one field under two
+   names** (D24). `context.sourceControl` is `CommitAndPushAction.check()`'s full factual
+   context (`changedFiles`, `stagedFiles`, `taskAffectedFiles`, `currentBranch`, `baseBranch`,
+   `existingCommits`, `unpushedCommits`) — confirmed by reading `commit-and-push.mjs` and the
+   single shared `normalizeSourceControlFacts()` both `compileStepContext` and `planFinish`
+   consume; `existingCommits` in particular is effectively full branch history from `main`.
+   Separately, `finishContract.parameters` and `finishContract.requiredInputs` are, as
+   implemented today, the identical object reference (`requiredInputs: parameters`) — two
+   field names for one shape, confirmed by reading `compileStepContext`'s return statement
+   directly.
+5. **Engine-to-engine transitions stop instead of continuing** (D25). After `workflow step
+   finish` transitions a task to `waiting-for-step-start` with `nextStep: review`, nothing
+   creates the next session automatically — confirmed: `agent-session-page.tsx`'s
+   `onTurnCompleted` only refreshes the action projection; `handleStartAgentStep` exists but
+   fires only from a manual "Start" click (`agent-session-chat-surface.tsx`). No field in
+   `.nevo-ai/workflows/standard-v1.yaml`/`definitions/schema.mjs` distinguishes "continue
+   automatically" from "stop for an owner action" — confirmed absent from both.
+6. **Review can reuse the implementer's own session** (D26). `binding-service.mjs`'s
+   `listSessions`/`listSessionsSync` filter candidate sessions by `taskId`
+   (`activeTaskId`/`taskIds`) only — confirmed by reading the filter directly; `step` is
+   already a field on each *binding* (`binding.step`) but is never used as a session-selection
+   filter. No `parentSessionId`/`previousSessionId`/session-lineage concept, and no
+   execution-role (`implementer`/`reviewer`/`refiner`) concept, exists anywhere in
+   `tools/dashboard/server/ai/**` today — confirmed absent by grep.
+7. **A human-owned step needs a meaningless Start click before showing its real interaction**
+   (D27). Confirmed: reaching a human step's `waiting-for-step-start` state renders only a
+   generic "Start" control (`status-board.tsx`, `agent-session-chat-surface.tsx`,
+   `specification-detail-content.tsx`'s `postHumanStepAction({action:'start'})`) — the real
+   `HumanStepSurface` interaction never appears until that click resolves.
+8. **The definition-driven `HumanStepSurface` model itself is correct and must not
+   regress.** Confirmed by reading `human-step-surface.tsx` directly: it renders from
+   `interaction.actions[].{result, label, feedbackRequired}` alone, with no hardcoded
+   action-name string anywhere. No finding here requires a fix — this pass's own orchestration
+   changes (D25–D27) must not reintroduce a hardcoded "Approve"/"Request changes" anywhere in
+   the new continuation/activation code path.
+9. **Dependency satisfaction has no earlier release point, and no invalidation
+   consequence** (D28, OQ-A). Confirmed: `evaluateDependencySatisfaction` requires the
+   dependency's last history entry to resolve to a declared transition whose `to` is a
+   `TERMINAL_STATUSES` member **and** whose own `outcome === 'success'` — there is no earlier
+   release point today, and no `stale`/`suspend`/`revalidation-required` concept exists
+   anywhere in `dependency-satisfaction.mjs`/`task-projection.mjs`
+   (repository-wide `provenance`/`stale`/`suspend` hits are all legacy-lifecycle concepts —
+   `tools/specs/lifecycle/{stage,provenance}.mjs` — unconnected to deterministic dependency
+   tracking). This blocked `ai-spec-history` tasks 02/03 for the full duration of task 01's
+   review, even though task 01's implementation artifact already existed.
+10. **No deterministic batch/orchestration scheduler exists** (OQ-B). Confirmed: legacy
+    `batch-*` (`tools/specs/batch/{cli,operation}.mjs`, `tools/specs/lifecycle/batch.mjs`)
+    has no deterministic equivalent — `specs/archive/deterministic-workflow-foundation`'s own
+    D16 explicitly deferred one ("`batch-*` … has no deterministic-workflow equivalent yet;
+    explicitly out of scope"). The deterministic UI supports only one task's `startStep()` at
+    a time.
+11. **`workflow task publish` does not own its own Git mutation** (D29). Confirmed by reading
+    `publishTask()` end to end: it validates, calls `setTaskStatus(change, taskId,
+    'approved')`, and returns — no commit/push call anywhere in `publish/operation.mjs` or
+    `store.mjs`. In the real dogfooding run this left `change.yaml`'s Publish mutation dirty
+    in the worktree, and the next agent's own `commit-and-push` finalize action (already a
+    reusable, registered action — `defaultActionRegistry.require('commit-and-push')`, the same
+    one `finish-operation.mjs` already calls) absorbed the unrelated Publish mutation into its
+    own implementation commit.
+12. **No documented ownership boundary distinguishes a standalone user mutation from a
+    technical activation from a completed lifecycle mutation** (D30) — the exact ambiguity
+    that produced Finding 11.
+
+This pass narrows, rather than removes, two of this change's own standing "Out of scope"
+exclusions (see below): "handover automation" and "full archetype/handover/
+provider-selection design for agent orchestration" are addressed only to the bounded extent
+D25/D26/D28/OQ-B require — a declarative per-transition continuation policy, a three-value
+session-reuse policy plus a lineage field, and a first deterministic batch scheduler — not a
+general-purpose action/dispatch framework. Two sub-questions this pass's own findings raise
+(the dependency-invalidation consequence, Finding 9's second half; and the batch scheduler's
+default selection mode/concurrency limit, Finding 10) have no existing repository precedent
+to ground a decision in and are recorded as **open, owner-facing questions (OQ-A, OQ-B)**
+below, not as decided — see "Owner decisions."
+
 **Corrective pass 8 (2026-09-20, strictly mechanical): fixing task 23's own real composition
 path and a resulting over-claim in task 20.** A fresh re-review found `specification-detail-content.tsx`
 does not render `StatusBoard` directly — confirmed by reading the repository directly, it
@@ -476,6 +594,42 @@ engine source directly):
     `onStartStep` is only a test double until task 23 supplies the real implementation; and
     task 15's trigger-message criterion claimed byte-for-byte identical output across
     *different* task ids, which is self-contradictory once the message includes the task id.
+27. `startStep()` silently omits `mode`, which the provider contract then defaults to `'edit'`
+    — a real Claude session opened this way cannot satisfy the dashboard's non-interactive
+    `workflow step start` command-approval requirement (Finding 1, corrective pass 9).
+28. `StepContext` (`compileStepContext()`) carries only the task id, never the task's own file
+    path or content, forcing an executing agent to rediscover its own task file by searching
+    the repository (Finding 2, pass 9).
+29. `StepContext`'s `relevantDocs` is routing-derived only; the task's own frontmatter-declared
+    `context.required`/`optional` (already resolved for the legacy path by
+    `buildContextPacket()`) is never surfaced to the deterministic path (Finding 3, pass 9).
+30. `StepContext.context.sourceControl` exposes `CommitAndPushAction.check()`'s full internal
+    factual context, including effectively the complete branch history
+    (`existingCommits`), to the agent; `finishContract.parameters`/`.requiredInputs` are the
+    same object under two names (Finding 4, pass 9).
+31. No workflow-definition metadata distinguishes an automatic engine-to-engine continuation
+    from a stop requiring an owner action; nothing creates the next step's session after
+    `workflow step finish` transitions to it (Finding 5, pass 9).
+32. Session selection for a new step matches only on `taskId`, never `step` — an existing
+    implementer session can be reused for review, and no session-lineage
+    (`parentSessionId`)/execution-role concept exists to model "fresh reviewer session" as a
+    first-class relationship (Finding 6, pass 9).
+33. Reaching a human-owned step requires a manual, meaningless "Start" click before the actual
+    definition-driven interaction (`HumanStepSurface`) appears (Finding 7, pass 9).
+34. Dependency satisfaction has no earlier release point than the dependency's own successful
+    terminal transition, and no modeled consequence if a released dependency's own review
+    later fails after a downstream task has already started against it (Finding 9, pass 9;
+    OQ-A open).
+35. No deterministic equivalent of legacy `batch-*` exists; the deterministic UI can only
+    start one task at a time even when several are simultaneously ready (Finding 10, pass 9;
+    OQ-B open).
+36. `workflow task publish` mutates `change.yaml` (`status: approved`) and returns without
+    committing or pushing, leaving a standalone user mutation to be silently absorbed into
+    whichever agent's finalize commit happens to run next (Finding 11, pass 9).
+37. No documentation distinguishes a standalone user mutation (must own its own
+    commit/push) from a technical activation (may be finalized by the attempt it belongs to)
+    from a completed lifecycle mutation (already owns its own finalize) — the ambiguity that
+    produced item 36 (Finding 12, pass 9).
 
 ## Constraints
 
@@ -525,6 +679,21 @@ engine source directly):
   sections, not just adding a new deterministic reference).
 - `docs/development/agent-workflow-protocol.md` (ownership boundary documentation,
   including the executor invariant).
+- (corrective pass 9) `tools/specs/workflow/step-context.mjs` (`taskDefinition`,
+  `requiredContext`, internal/agent-facing separation, D22–D24); `.nevo-ai/workflows/*.yaml`,
+  `tools/specs/workflow/definitions/schema.mjs` (additive `continueOnSuccess`, `sessionPolicy`,
+  `role`, `releasesDependencies` schema, D25/D26/D28); `tools/specs/workflow/
+  dependency-satisfaction.mjs` (declarative release, D28); a new orchestration module (session
+  continuation/handover, D25–D27 — exact location decided during implementation, composing
+  existing `finishStep`/`startHumanStep`/session-creation calls, never itself becoming part of
+  the engine); `tools/dashboard/server/ai/sessions/**` (session lineage/role fields, D26); a
+  new deterministic batch/orchestration scheduler (D-pending OQ-B); `tools/specs/workflow/
+  publish/operation.mjs`, `tools/dashboard/server/specs/routes.mjs`
+  (`handlePublishTask`/`handleBatchPublish`, D29); `tools/dashboard/ui/screens/
+  specification-detail/**`, `tools/dashboard/ui/features/agent-sessions/**` (execution-mode/
+  provider selection UX and persisted execution policy, D21); `docs/development/
+  agent-workflow-protocol.md` (D30 ownership taxonomy, extending the existing section rather
+  than a new doc, consistent with D3).
 
 ## Options and trade-offs
 
@@ -585,6 +754,52 @@ own dependents introduce), D20 (`DeterministicTaskCard` never embeds the active
 human-interaction result form — it shows a compact indicator and defers to `TaskDialog`;
 `HumanStepSurface` narrows to the active-interaction case only, resolving the direct
 contradiction between the pass-5 versions of tasks 19 and 20).
+
+**Corrective pass 9 decisions (2026-09-21):** D21 (the first explicit Start for an
+`executor: agent` step must let the user choose provider/execution mode, reusing
+`CreateAgentSessionDialog`'s existing concept rather than inventing a second one; the
+resolved choice becomes a persisted execution policy so later automatic handovers don't
+re-ask), D22 (`StepContext` gains an explicit `taskDefinition: {id, path, content}` field —
+the agent never rediscovers its own task file), D23 (`StepContext` models task-declared
+`requiredContext` — from `context.required`, contents bundled inline — as a distinct field
+from routing-derived `relevantDocs`; neither replaces the other), D24 (`StepContext` exposes
+only the source-control facts an agent genuinely needs to act, never
+`CommitAndPushAction.check()`'s full internal context; `finishContract` keeps one canonical
+field, `parameters` — `requiredInputs` is dropped as a pure duplicate), D25 (a declarative
+per-transition continuation policy — `continueOnSuccess: auto | owner-action` — replaces
+inferring continuation from step names; a new orchestration layer, not `finishStep` itself,
+creates the next step's session when `auto` applies), D26 (session policy is declarative —
+`sessionPolicy: reuse | fresh` per step/role; `standard-v1`'s `review` step uses `fresh`; a
+new `parentSessionId` lineage field and an execution-role concept
+(`implementer`/`reviewer`/`refiner`) are added to session identity, never derived from a
+literal step name), D27 (the orchestrator auto-activates a human-owned step immediately on
+arrival via the existing `startHumanStep`, pausing there for the real declarative
+interaction — the redundant manual "Start" click before it is removed), D28 (a transition may
+declare `releasesDependencies: true` to satisfy dependents before its own workflow reaches a
+terminal transition; the default, unmarked behavior is unchanged — dependents wait for
+`outcome: success` on a terminal transition exactly as today), D29 (`workflow task publish`/
+Batch Publish validate → mutate → commit → push in one operation, reusing the existing,
+already-registered `commit-and-push` action with an auto-generated `chore(workflow): publish
+<task-id>` message — the user is never asked to type a commit message for this), D30 (three
+explicit, documented source-control ownership categories — standalone user mutation,
+technical activation, completed lifecycle mutation — govern which future dashboard actions
+must commit their own change vs. may be finalized by the attempt they belong to). **Two
+findings raised genuinely open questions with no repository precedent to decide from — not
+recorded as `D<n>` decisions per `references/decision-policy.md` ("silence is not agreement";
+unresolved questions stay open, not defaulted):**
+
+- **OQ-A (Finding 9, invalidation):** when a released dependency's own review later fails
+  after a downstream task has already started against it, what is the deterministic
+  consequence? Options: (a) a new `blockedBy: {taskId, reason: 'dependency-invalidated'}`
+  suspension state on the downstream task's `workflow_progress`, blocking only its *next*
+  `start-step`/`startHumanStep` (no rollback of work already done) until the upstream
+  dependency is satisfied again; (b) a dashboard-only warning banner with no engine-level
+  effect; (c) automatically pause the downstream task at its current step boundary the same
+  way (a) does, but additionally require an explicit owner acknowledgment before it can
+  resume (a stricter variant of (a)). Not yet decided.
+- **OQ-B (Finding 10, batch defaults):** what is the deterministic batch scheduler's default
+  task-selection mode (`currently-ready` / `named-subset` / `all-approved-reachable`) and
+  concurrency limit? Not yet decided.
 
 ## Proposed architecture
 
@@ -820,6 +1035,22 @@ deterministic spec.
   sections and defines the explicit legacy/deterministic lifecycle instruction sets.
 - `areas/ownership-boundary-docs.md` — documents the enforced boundary, including the
   executor invariant.
+- `areas/agent-step-bootstrap-and-context.md` — (corrective pass 9) extends `StepContext`
+  with the task's own document, task-declared `requiredContext` distinct from routing-derived
+  `relevantDocs`, and separates internal finalize context from the agent-facing payload
+  (D22–D24).
+- `areas/workflow-continuation-and-session-handover.md` — (pass 9) the execution-mode/provider
+  selection UX for the first explicit Start and its persisted execution policy (D21); the
+  declarative continuation/handover orchestration layer and session-lineage/role model
+  (D25–D27).
+- `areas/dependency-release-and-invalidation.md` — (pass 9) declarative per-transition
+  dependency release (D28); the invalidation consequence is an open question (OQ-A).
+- `areas/deterministic-batch-orchestrator.md` — (pass 9) a deterministic, concurrency-bounded
+  multi-task scheduler; default selection mode and concurrency limit are an open question
+  (OQ-B).
+- `areas/user-mutation-source-control-ownership.md` — (pass 9) Publish/Batch Publish own their
+  own commit/push (D29); the explicit user-action/technical-activation/completed-mutation
+  ownership taxonomy (D30).
 
 ## Change-wide acceptance criteria
 
@@ -880,5 +1111,20 @@ declarative per-step agent-dispatch/execution-mode metadata system (D15 — `sta
 one consistent existing session/provider default for every agent step, independent of
 which step it is; no per-step mode/archetype is designed here, and no step-id-keyed
 adapter of any size is introduced to work around that); full archetype/handover/
-provider-selection design for agent orchestration; removal or redesign of the existing
-`/workflow/human-decision` route and its CLI-compatibility callers.
+provider-selection design for agent orchestration (narrowed, not removed, by corrective pass
+9 — see below); removal or redesign of the existing `/workflow/human-decision` route and its
+CLI-compatibility callers.
+
+**Corrective pass 9 narrows two of the exclusions above, does not remove them.** "Handover
+automation" and "full archetype/handover/provider-selection design for agent orchestration"
+are addressed only to the bounded extent D25/D26/D28/OQ-B require: a declarative
+per-transition continuation policy (`continueOnSuccess`) and session-reuse policy
+(`sessionPolicy`, `role`, `parentSessionId` lineage) — not a general-purpose action/dispatch
+framework, not per-provider handover routing, and not a full artifact/attachment system
+beyond the `parentSessionId` lineage field itself. Still explicitly out of scope after this
+pass: Activity History as a feature (`ai-spec-history` remains the dogfooding workload, never
+the owner of these workflow-runtime fixes); any redesign of `entryGates`/`exitGates` or the
+`workflow verify-human --confirm` path; unrelated dashboard visual redesign; a fully general
+batch/orchestration framework beyond the one scheduler OQ-B's answer will bound; retrying or
+rolling back a task's own completed work as part of dependency invalidation (OQ-A's options
+are all forward-only suspension, never rollback).

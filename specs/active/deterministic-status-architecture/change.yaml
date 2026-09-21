@@ -216,5 +216,51 @@ tasks:
       ]
     implementation:
       baseline_revision: 669c558cb45b9ba1493b5cf8315921d784c02b44
+  - id: agent-step-bootstrap-and-context
+    order: 24
+    file: tasks/24-agent-step-bootstrap-and-context.md
+    status: draft
+  - id: execution-policy-and-mode-selection
+    order: 25
+    file: tasks/25-execution-policy-and-mode-selection.md
+    status: draft
+  - id: workflow-continuation-schema
+    order: 26
+    file: tasks/26-workflow-continuation-schema.md
+    status: draft
+  - id: automatic-workflow-continuation
+    order: 27
+    file: tasks/27-automatic-workflow-continuation.md
+    status: draft
+    depends_on: [ workflow-continuation-schema, execution-policy-and-mode-selection ]
+  - id: dependency-release-and-invalidation
+    order: 28
+    file: tasks/28-dependency-release-and-invalidation.md
+    status: draft
+    depends_on: [ workflow-continuation-schema ]
+  - id: deterministic-batch-orchestrator
+    order: 29
+    file: tasks/29-deterministic-batch-orchestrator.md
+    status: draft
+    depends_on: [ automatic-workflow-continuation, dependency-release-and-invalidation ]
+  - id: user-mutation-source-control-finalization
+    order: 30
+    file: tasks/30-user-mutation-source-control-finalization.md
+    status: draft
+  - id: dashboard-orchestration-wiring
+    order: 31
+    file: tasks/31-dashboard-orchestration-wiring.md
+    status: draft
+    depends_on:
+      [
+        execution-policy-and-mode-selection,
+        automatic-workflow-continuation,
+        deterministic-batch-orchestrator
+      ]
+  - id: orchestration-e2e-dogfood-tests
+    order: 32
+    file: tasks/32-orchestration-e2e-dogfood-tests.md
+    status: draft
+    depends_on: [ dashboard-orchestration-wiring, user-mutation-source-control-finalization ]
 
 spec_id: 226954d0-b33e-4c89-a302-c27c4e51b1d8

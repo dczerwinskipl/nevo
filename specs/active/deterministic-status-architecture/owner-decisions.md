@@ -840,3 +840,307 @@ points are asserted to route through the identical `startStep` function instance
   `HumanStepSurface`.
 - **Date:** 2026-09-20
 - **Affected artifacts:** `tasks/19-task-card-lifecycle-split.md`, `areas/ui-dashboard-board-split.md`.
+
+## D21: First explicit Start must let the user choose provider/execution mode; the choice becomes a persisted execution policy
+
+- **Question:** The first real dogfooding run of `ai-spec-history` had `startStep()` silently
+  pick a default provider and omit `mode` entirely, which the provider contract then defaults
+  to `'edit'` (`DEFAULT_AGENT_EXECUTION_MODE`, unchanged, `contracts.mjs`) — a real Claude
+  session in `edit` mode cannot satisfy `workflow step start`'s command-approval requirement
+  through the dashboard's non-interactive dispatch, so the workflow repeatedly stalled with
+  "This command requires approval" until the user manually switched the session to `agent`
+  mode. Should `start-step` keep silently defaulting, or must it give the user an explicit
+  choice — and if so, how, without inventing a second provider-configuration system or a
+  per-step mode mapping?
+- **Grounded fact (2026-09-21):** `CreateAgentSessionDialog`
+  (`features/agent-sessions/create-agent-session-dialog.tsx`) already has exactly this
+  selection UI (provider list + `AGENT_EXECUTION_MODES` picker, its own sensible default-mode
+  logic), but is wired only to the generic "new session" affordance in `SpecificationOverview`
+  — `startStep()` never opens it. No existing concept persists a resolved provider/mode choice
+  per task or change; every session creation call re-supplies (or omits) `provider`/`mode`
+  independently.
+- **Decision:** The first explicit `start-step` for an `executor: agent` step, when the
+  provider's permission model requires an execution-mode choice (i.e., the omitted-mode
+  default would not satisfy the deterministic command-approval requirement), must present the
+  same provider/mode selection `CreateAgentSessionDialog` already offers — reusing that
+  existing concept, not a second one — before creating the session. Once resolved, the
+  provider + mode choice is persisted as the task's (or change's, if the owner later chooses
+  that scope during implementation) **execution policy**, so subsequent automatic handovers
+  (D25) reuse it without re-asking. The existing provider contract is unchanged: an omitted
+  mode still defaults to `'edit'` wherever no execution policy has been resolved yet (e.g. the
+  generic "new session" path). No step-id-specific mode mapping is introduced — the policy is
+  keyed by task/change and provider, never by step id.
+- **Rationale:** Matches the constraint set given directly for this corrective pass: don't
+  silently escalate to "agent," give the user the choice when the provider permission model
+  requires it, don't violate the existing default-to-`edit` contract, reuse existing
+  selection UI rather than inventing a parallel one, and don't ask the same question at every
+  automatic handover.
+- **Consequences:** `start-step`'s dispatcher gains a readiness check: "does an execution
+  policy already exist for this task/provider?" If not, and the provider's permission model
+  needs an explicit mode, show the selection UI instead of creating a session directly. Exact
+  persistence location (session store vs. a new sidecar) is an implementation detail for
+  `areas/workflow-continuation-and-session-handover.md`'s owning task, not decided here.
+- **Date:** 2026-09-21
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `tasks/25-execution-policy-and-mode-selection.md`.
+
+## D22: `StepContext` gains an explicit `taskDefinition` field — the agent never rediscovers its own task file
+
+- **Question:** `compileStepContext()`'s returned `task` field is only the task id string
+  (confirmed by reading the function directly) — an executing agent has no way to reach its
+  own task file's path or content from the `workflow step start` payload alone, even though
+  `change.yaml → tasks[].file` deterministically names it.
+- **Grounded fact (2026-09-21):** the (separate, legacy) `buildContextPacket()`
+  (`tools/specs/context.mjs`) already resolves `task.file` via `resolveWithinBase(changeDir,
+  task.file)` and reads its frontmatter for the legacy path — the resolution logic already
+  exists in the codebase, just not connected to `compileStepContext()`.
+- **Decision:** `compileStepContext()`'s return value gains `taskDefinition: {id, path,
+  content}` — `path` relative to the repository root, `content` the task file's full raw
+  text. The agent must never need to discover the task filename by searching the repository.
+- **Rationale:** Directly closes the gap the corrective-pass brief named: "Spec Writer
+  performs discovery once → task contains the execution contract → execution receives that
+  contract directly."
+- **Consequences:** `step-context.mjs` reuses the existing `resolveWithinBase`/file-read
+  pattern already proven by `buildContextPacket()`/`publish/operation.mjs`'s own task-file
+  loading, rather than inventing a new one.
+- **Date:** 2026-09-21
+- **Affected artifacts:** `areas/agent-step-bootstrap-and-context.md`,
+  `tasks/24-agent-step-bootstrap-and-context.md`.
+
+## D23: `StepContext` models task-declared `requiredContext` distinctly from routing-derived `relevantDocs`
+
+- **Question:** The task's own frontmatter declares `context.required` (e.g. `overview.md`,
+  a specific `areas/*.md`, `owner-decisions.md`) — the exact documents the Spec Writer already
+  selected for this task's execution. `compileStepContext()`'s `relevantDocs` is unrelated:
+  purely routing-rule matches against the task's affected paths (`resolveRelevantDocs`,
+  confirmed by reading the function). Should these stay conflated, or become two explicit
+  fields?
+- **Decision:** Two distinct fields. `requiredContext` — sourced directly from the task
+  frontmatter's `context.required` (and `context.optional`, if the loader already
+  distinguishes them) — is part of the task's execution contract; it is never replaced or
+  filtered by routing inference. At minimum it carries canonical, repo-root-relative paths;
+  bundling each document's content inline (so the agent needs zero extra discovery/read calls)
+  is the preferred shape and must be evaluated against payload-size impact during
+  implementation, not decided as unconditional here. `relevantDocs` is unchanged in meaning
+  and computation (routing-derived repository rules/instructions) and stays a separate field
+  — neither field replaces the other.
+- **Rationale:** Matches the corrective-pass brief exactly: "Model two different concepts
+  explicitly... They are not interchangeable."
+- **Consequences:** `agent-step-bootstrap-and-context` (task 24) reuses the existing
+  frontmatter-loading path (`loadTaskFrontMatter`/`parseFrontMatterFile`, already used by
+  `buildContextPacket()`) rather than re-deriving `context.required` a second way.
+- **Date:** 2026-09-21
+- **Affected artifacts:** `areas/agent-step-bootstrap-and-context.md`,
+  `tasks/24-agent-step-bootstrap-and-context.md`.
+
+## D24: `StepContext` exposes only agent-relevant source-control facts; `finishContract` keeps one canonical field
+
+- **Question:** `context.sourceControl` in `compileStepContext()` is
+  `CommitAndPushAction.check()`'s full internal factual context, including `existingCommits`
+  (effectively full branch history from `main`) — confirmed by reading
+  `normalizeSourceControlFacts()`, the one shared normalizer both `compileStepContext` and
+  `planFinish` consume. Separately, `finishContract.parameters` and
+  `finishContract.requiredInputs` are, as implemented, the identical object reference
+  (`requiredInputs: parameters`) — confirmed by reading `compileStepContext`'s return
+  statement directly. Should the public `StepContext` keep exposing everything the internal
+  finalize action computes, and both duplicate field names?
+- **Decision:** `StepContext`'s `context.sourceControl` is trimmed to only what an executing
+  agent genuinely needs to act (at minimum: `currentBranch`, `changedFiles`,
+  `taskAffectedFiles` — `existingCommits`/full branch history is dropped from the agent-facing
+  payload). The full factual context `CommitAndPushAction.check()` computes remains available
+  internally to `finish-operation.mjs`'s own finalize/commit/push decision-making — this
+  decision trims what is *exposed*, not what the engine internally computes or relies on for
+  correctness. `finishContract` keeps exactly one canonical field, `parameters` —
+  `requiredInputs` is dropped as a pure duplicate unless implementation discovers a real
+  external consumer that needs the separate name (in which case that consumer, not this
+  decision, is wrong and gets fixed instead).
+- **Rationale:** Matches the brief: "smaller, execution-relevant `StepContext` … not removal
+  of correctness information from the workflow engine" — and "prefer one canonical
+  representation unless a real consumer requires both."
+- **Consequences:** `normalizeSourceControlFacts()` gains (or is wrapped by) an
+  agent-facing projection distinct from the internal shape `planFinish` already consumes
+  unchanged.
+- **Date:** 2026-09-21
+- **Affected artifacts:** `areas/agent-step-bootstrap-and-context.md`,
+  `tasks/24-agent-step-bootstrap-and-context.md`.
+
+## D25: Declarative per-transition continuation policy; a new orchestration layer, not `finishStep`, creates follow-on sessions
+
+- **Question:** After `workflow step finish` transitions a task to `waiting-for-step-start`
+  with a known `nextStep` and no owner decision required (e.g. `implementation → review`),
+  nothing today creates the next session — confirmed absent by reading
+  `agent-session-page.tsx`/`agent-session-chat-surface.tsx` directly; the user must click
+  "Start" again. Should `finishStep()` itself create the next session, or should a separate
+  layer own this, and how does the *workflow definition* (not application code) declare
+  which transitions continue automatically?
+- **Decision:** `.nevo-ai/workflows/*.yaml` transitions gain an additive field,
+  `continueOnSuccess: auto | owner-action` (default `owner-action` when absent, so every
+  existing definition is unaffected until explicitly migrated — the same additive-migration
+  discipline as D6/D9). A new orchestration layer — explicitly **not** `finishStep()` itself —
+  observes the result of a finish operation and, when the matched transition declares
+  `continueOnSuccess: auto`, creates or reuses the next step's session (per D26's session
+  policy) and issues the generic trigger (D15, unchanged: never a step-id-derived semantic
+  prompt). `finishStep()` remains provider-neutral and creates no AI sessions itself — the
+  engine stays deterministic; only the new orchestration layer is provider/session-aware.
+- **Rationale:** Directly matches the brief's explicit constraint: "Do not make `finishStep()`
+  itself create AI sessions. Keep the engine deterministic and provider-neutral. Instead
+  design an orchestration layer that consumes the resulting workflow position" — and "The
+  workflow definition must be able to declare the intended behavior rather than application
+  code inferring it from step names."
+- **Consequences:** No `if (nextStep === 'review')` or equivalent step-name dispatch is
+  introduced anywhere (same invariant D15 already established, extended to this new layer).
+  `standard-v1.yaml`'s `implementation → review` transition is the first candidate for
+  `continueOnSuccess: auto`; whether it should actually be set that way (vs. left
+  `owner-action`) is an implementation-time judgment against this decision's schema, not
+  fixed here.
+- **Date:** 2026-09-21
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `tasks/26-workflow-continuation-schema.md`, `tasks/27-automatic-workflow-continuation.md`.
+
+## D26: Declarative session-reuse policy, session lineage, and execution role — review uses a fresh session
+
+- **Question:** Session selection for starting a step currently matches only on `taskId`
+  (`binding-service.mjs`'s `listSessions`/`listSessionsSync`, confirmed by reading the filter
+  directly) — `binding.step` exists but is never used as a selection filter, so review can
+  silently reuse the implementer's own conversational session. No `parentSessionId`/session-
+  lineage or execution-role concept exists anywhere in `tools/dashboard/server/ai/**`
+  (confirmed absent by grep). How should "independent reviewer" be modeled without requiring a
+  different provider and without deriving it from a literal step name?
+- **Decision:** A declarative `sessionPolicy: reuse | fresh` field on a step (or, if cleaner
+  during implementation, on the transition entering it) determines whether the orchestrator
+  (D25) reuses the previous step's session or creates a fresh one. `standard-v1.yaml`'s
+  `review` step is set to `fresh`. A fresh session records `parentSessionId` — a new lineage
+  field on the existing canonical session identity (alongside `sessionId`,
+  `activeTaskId`/`taskIds`) — pointing at the session it followed, so lineage is queryable
+  without inventing a second identity system. An execution-role concept
+  (`role: implementer | reviewer | refiner`, extensible) is added to session identity,
+  assigned by the orchestrator from the *step's* own execution semantics (never derived from
+  a literal step id/name — e.g. `standard-v1`'s `human-verification`'s agent-owned
+  "request-changes" handover would use `role: refiner`, decided by the transition's own
+  declared handover target, not by string-matching `'human-verification'`). "Independent
+  reviewer" means a fresh session/execution context; provider/model selection stays the
+  separate policy D21 already governs.
+- **Rationale:** Matches the brief precisely: reuse the existing canonical session identity
+  for lineage rather than a new one; support at least reuse/fresh; assign roles from
+  declared semantics, never step-name derivation; independence is about session freshness,
+  not a forced provider change.
+- **Consequences:** `listSessions`/`listSessionsSync`'s `taskId`-only filter is unaffected by
+  this decision (still correct for "show me every session touching this task" — a UI listing
+  concern); the orchestrator's own "which session do I hand off to" decision is a separate,
+  new consumer of `sessionPolicy`/`parentSessionId`/`role`, not a change to the existing list
+  filter's semantics.
+- **Date:** 2026-09-21
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `tasks/26-workflow-continuation-schema.md`, `tasks/27-automatic-workflow-continuation.md`.
+
+## D27: The orchestrator auto-activates a human-owned step on arrival; the redundant manual "Start" click is removed
+
+- **Question:** Reaching a human-owned step's `waiting-for-step-start` state today requires a
+  user to click a generic "Start" control before the real, definition-driven interaction
+  (`HumanStepSurface`) appears — confirmed by reading `status-board.tsx`/
+  `agent-session-chat-surface.tsx`/`specification-detail-content.tsx`'s
+  `postHumanStepAction({action:'start'})` call sites directly. That first click carries no
+  user-level meaning; it only activates internal workflow state. Should it stay a required
+  manual step?
+- **Decision:** No. When the orchestrator (D25) reaches a position where `nextStep`'s executor
+  is `human`, it calls the existing `startHumanStep` operation itself (D12's existing
+  operation, unmodified) immediately, then pauses. The dashboard shows the real
+  `HumanStepSurface` interaction directly — the user's first and only click is a genuine
+  decision (Approve/Request changes/whatever the definition declares), never a no-op
+  activation step. `startHumanStep` itself is unchanged; only who calls it (and when) changes.
+- **Rationale:** Matches the brief exactly: "the human step should normally be activated
+  automatically... Preserve the domain operation `startHumanStep()`, but do not require a
+  redundant explicit UX action merely to call it."
+- **Consequences:** No hardcoded "Approve"/"Request changes" is introduced by this change —
+  `HumanStepSurface`'s existing definition-driven rendering (Finding 8, confirmed correct,
+  unchanged) is exactly what appears once auto-activation completes.
+- **Date:** 2026-09-21
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `tasks/27-automatic-workflow-continuation.md`.
+
+## D28: A transition may declare `releasesDependencies: true` to satisfy dependents before its own terminal transition
+
+- **Question:** `evaluateDependencySatisfaction` (`dependency-satisfaction.mjs`) requires the
+  dependency's last history entry to resolve to a terminal transition with `outcome:
+  'success'` before any dependent is released (confirmed by reading the function directly) —
+  there is no earlier release point. In the real dogfooding run this kept `ai-spec-history`
+  tasks 02/03 `blocked` for the full duration of task 01's review, even though task 01's
+  implementation artifact already existed and downstream tasks could legitimately have started
+  against it.
+- **Decision:** An additive, per-transition field, `releasesDependencies: true`, may be
+  declared on an *internal* (step-to-step) transition. When a task's `workflow_progress`
+  history's last entry matches a transition so declared, its dependents are satisfied — even
+  though the task's own workflow has not yet reached a terminal transition. The default,
+  unmarked behavior for every existing transition (and every existing definition) is
+  unchanged: dependents wait for a terminal transition with `outcome: success`, exactly as
+  D9 established. Field name/vocabulary chosen for consistency with `outcome`'s existing
+  per-transition placement (D9) rather than inventing a step-level or definition-level
+  concept.
+- **Rationale:** Matches the brief: "Make dependency release point declarative. Do not
+  hardcode 'implementation means dependency satisfied'... Design workflow metadata that can
+  explicitly state that a transition/milestone releases downstream dependencies." Placing it
+  on the transition (not the step) mirrors D9's own reasoning for `outcome` — the release
+  point is an event (a specific transition firing), not a static property of a step.
+- **Consequences:** `standard-v1.yaml`'s `implementation → review` transition is the natural
+  candidate to mark `releasesDependencies: true` (matching the corrective-pass brief's own
+  example); doing so is an implementation-time judgment against this schema, not fixed here.
+  This decision covers only the release point — the invalidation consequence when a released
+  dependency's later review fails is OQ-A, open, not decided by this entry.
+- **Date:** 2026-09-21
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/26-workflow-continuation-schema.md`, `tasks/28-dependency-release-and-invalidation.md`.
+
+## D29: `workflow task publish`/Batch Publish own their own commit/push
+
+- **Question:** `publishTask()` validates, calls `setTaskStatus(change, taskId, 'approved')`,
+  and returns — confirmed by reading the function end-to-end: no commit/push call anywhere in
+  `publish/operation.mjs` or `store.mjs`. In the real dogfooding run this left the Publish
+  mutation dirty in the worktree, and the next agent's own `commit-and-push` finalize action
+  silently absorbed it into an unrelated implementation commit. Should Publish keep leaving
+  its mutation for a later step to accidentally commit?
+- **Decision:** No. `publishTask()` (and the equivalent Batch Publish path) becomes:
+  validate → mutate → commit → push (only if the resolved `workflow.sourceControl` config
+  enables it, per existing per-definition `sourceControl: {enabled, push}` config, unchanged
+  in meaning) → return success. The commit message is auto-generated and deterministic —
+  `chore(workflow): publish <task-id>` — the user is never asked to type one for this routine
+  lifecycle action. The operation reuses the existing, already-registered `commit-and-push`
+  action (`defaultActionRegistry.require('commit-and-push')`, the same one `finish-operation.mjs`
+  already calls) rather than a second Git implementation. Crash/resume semantics follow the
+  same pattern that action already provides for `finishStep`'s own multi-stage
+  mutate-then-finalize sequence — no new crash-recovery mechanism is invented for Publish
+  specifically.
+- **Rationale:** Matches the brief's stated principle directly: "a user action that
+  independently completes a Git-tracked lifecycle mutation must own the source-control
+  finalization of that mutation." Reusing the existing action avoids duplicating Git
+  implementation and inherits its already-proven crash-safety properties.
+- **Consequences:** Publish's clean-worktree guarantee is preserved (the brief's explicit
+  "do not weaken" constraint) — if `commit-and-push` fails after the mutation, the worktree is
+  left exactly as dirty as any other action's own failure mode leaves it today, not worse.
+- **Date:** 2026-09-21
+- **Affected artifacts:** `areas/user-mutation-source-control-ownership.md`,
+  `tasks/30-user-mutation-source-control-finalization.md`.
+
+## D30: Explicit three-way source-control ownership taxonomy
+
+- **Question:** Finding 11 (D29) happened because no documentation distinguished a standalone
+  user mutation (which must finalize its own Git state) from a technical activation (which may
+  ride along with the attempt it belongs to) from a completed lifecycle mutation (which
+  already owns its own finalize). Without naming this boundary, a future dashboard action
+  could reproduce the same mistake.
+- **Decision:** Document three explicit categories (extending
+  `docs/development/agent-workflow-protocol.md`'s existing ownership-boundary section, per D3's
+  precedent — no new doc file): **(1) standalone user-originated Git-tracked mutation**
+  (e.g. Publish) — must finalize its own commit/push, per D29; **(2) technical activation
+  that is part of an execution attempt** (e.g. `workflow step start`, human-step
+  auto-activation, D27) — may remain part of that attempt, finalized by its own
+  `workflow step finish`/`submitHumanStepResult`; **(3) completed lifecycle mutation**
+  (e.g. `submitHumanStepResult`, `finishStep`) — already owns its deterministic
+  finalize/commit/push, unchanged.
+- **Rationale:** Matches the brief's own worked examples exactly; makes the boundary
+  reviewable rather than re-derived ad hoc for each new action.
+- **Consequences:** Any future user-facing dashboard action that mutates `change.yaml`/
+  `workflow_progress` must be classified against these three categories before being built —
+  a documentation-level guardrail, not a new enforced runtime check.
+- **Date:** 2026-09-21
+- **Affected artifacts:** `areas/user-mutation-source-control-ownership.md`,
+  `tasks/30-user-mutation-source-control-finalization.md`.
