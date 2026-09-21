@@ -69,6 +69,7 @@ export function projectTask(task, change, options = {}) {
     if (task.status === 'draft') {
       return {
         state: 'draft',
+        canPublish: true,
         currentStep: null,
         executor: entryStepDescriptor?.executor ?? 'agent',
         currentAttempt: null,
@@ -86,6 +87,7 @@ export function projectTask(task, change, options = {}) {
     if (!depCheck.satisfied) {
       return {
         state: 'blocked',
+        canPublish: false,
         currentStep: null,
         executor: entryStepDescriptor?.executor ?? 'agent',
         currentAttempt: null,
@@ -100,6 +102,7 @@ export function projectTask(task, change, options = {}) {
 
     return {
       state: 'ready',
+      canPublish: false,
       currentStep: null,
       executor: entryStepDescriptor?.executor ?? 'agent',
       currentAttempt: null,
@@ -119,6 +122,7 @@ export function projectTask(task, change, options = {}) {
     if (task.status === 'draft') {
       return {
         state: 'draft',
+        canPublish: true,
         currentStep: null,
         executor: entryStepDescriptor?.executor ?? 'agent',
         currentAttempt: null,
@@ -135,6 +139,7 @@ export function projectTask(task, change, options = {}) {
     if (!depCheck.satisfied) {
       return {
         state: 'blocked',
+        canPublish: false,
         currentStep: null,
         executor: entryStepDescriptor?.executor ?? 'agent',
         currentAttempt: null,
@@ -149,6 +154,7 @@ export function projectTask(task, change, options = {}) {
 
     return {
       state: 'ready',
+      canPublish: false,
       currentStep: null,
       executor: entryStepDescriptor?.executor ?? 'agent',
       currentAttempt: null,
@@ -169,6 +175,7 @@ export function projectTask(task, change, options = {}) {
       const humanInteraction = describeHumanInteraction(task, definition);
       return {
         state: 'human-interaction',
+        canPublish: false,
         currentStep: position.step,
         executor: 'human',
         currentAttempt: position.attempt,
@@ -183,6 +190,7 @@ export function projectTask(task, change, options = {}) {
 
     return {
       state: 'active',
+      canPublish: false,
       currentStep: position.step,
       executor: 'agent',
       currentAttempt: position.attempt,
@@ -199,6 +207,7 @@ export function projectTask(task, change, options = {}) {
     const nextStepDescriptor = describeStep(definition, position.nextStep);
     return {
       state: 'waiting-for-step-start',
+      canPublish: false,
       currentStep: position.step,
       executor: nextStepDescriptor?.executor ?? 'agent',
       currentAttempt: position.attempt,
@@ -218,6 +227,7 @@ export function projectTask(task, change, options = {}) {
 
     return {
       state: 'terminal',
+      canPublish: false,
       currentStep: position.step,
       executor: stepExecutor,
       currentAttempt: position.attempt,

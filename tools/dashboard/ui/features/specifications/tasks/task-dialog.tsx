@@ -9,6 +9,7 @@ import { TaskActionFooter } from '../actions/spec-actions';
 import { useSpecificationDocument, useSpecificationActions } from '../detail/spec-detail-queries';
 import { HumanStepSurface } from '@/shared/workflow/human-step-surface';
 import { useSpecificationHumanStepMutation } from './human-step-mutations';
+import { useSpecificationPublishMutation } from './publish-task-mutation';
 
 export interface TaskDialogProps {
   specification: SpecificationSummary;
@@ -35,6 +36,8 @@ export function TaskDialog({ specification, taskId, onClose, onOperationStarted,
     actionsQuery.data?.workflowMode === 'deterministic' ||
     (specification as any).workflowMode === 'deterministic';
 
+  const canPublish = Boolean(actionGate?.canPublish ?? (actionGate?.state === 'draft' || task?.status === 'draft'));
+
   const humanStepMutation = useSpecificationHumanStepMutation({
     source: specification.source,
     slug: specification.slug,
@@ -42,6 +45,15 @@ export function TaskDialog({ specification, taskId, onClose, onOperationStarted,
     onSuccess: async () => {
       await actionsQuery.refresh();
       onClose();
+    },
+  });
+
+  const publishMutation = useSpecificationPublishMutation({
+    source: specification.source,
+    slug: specification.slug,
+    taskId: task?.id ?? '',
+    onSuccess: async () => {
+      await actionsQuery.refresh();
     },
   });
 
@@ -228,6 +240,40 @@ export function TaskDialog({ specification, taskId, onClose, onOperationStarted,
                 aria-label="Start"
               >
                 Start
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {isDeterministic && !actionGate?.humanInteraction && !actionGate?.availableActions?.includes('start-step') && canPublish && (
+          <div className="border-t border-border bg-surface px-5 py-4 sm:px-7">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <span className="text-xs font-medium text-fg-secondary">
+                  Zadanie w wersji roboczej oczekuje na publikację
+                </span>
+                {publishMutation.error && (
+                  <p className="mt-1 text-[11px] text-status-error">{publishMutation.error}</p>
+                )}
+              </div>
+              <Button
+                size="sm"
+                disabled={publishMutation.loading}
+                onClick={async () => {
+                  if (task) {
+                    await publishMutation.publish(task.id);
+                  }
+                }}
+                className="h-8 cursor-pointer px-4 text-xs font-semibold"
+                aria-label="Publish"
+              >
+                {publishMutation.loading ? (
+                  <>
+                    <LoaderCircle className="mr-1.5 size-3.5 animate-spin" /> Publikowanie…
+                  </>
+                ) : (
+                  'Publish'
+                )}
               </Button>
             </div>
           </div>

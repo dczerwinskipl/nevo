@@ -129,6 +129,7 @@ export interface DeterministicTaskCardProps {
   actionGate?: SpecificationTaskActionGate | null;
   onSelect?: (task: SpecificationTask, trigger: HTMLElement) => void;
   onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor) => void;
+  onPublish?: (task: SpecificationTask) => void;
 }
 
 export function DeterministicTaskCard({
@@ -136,6 +137,7 @@ export function DeterministicTaskCard({
   actionGate,
   onSelect,
   onStartStep,
+  onPublish,
 }: DeterministicTaskCardProps) {
   const state = actionGate?.state ?? 'draft';
   const terminalOutcome = actionGate?.terminalOutcome ?? null;
@@ -145,6 +147,7 @@ export function DeterministicTaskCard({
   const stepDescriptor = actionGate?.stepDescriptor ?? actionGate?.nextStepDescriptor ?? actionGate?.currentStepDescriptor ?? null;
   const isHumanInteraction = state === 'human-interaction' || Boolean(actionGate?.humanInteraction);
   const canStartStep = Boolean(actionGate?.availableActions?.includes('start-step'));
+  const canPublish = Boolean(actionGate?.canPublish ?? (state === 'draft'));
   const needsReconciliation = Boolean(actionGate?.availableActions?.includes('operator-reconciliation'));
 
   const headerMeta = (
@@ -186,6 +189,22 @@ export function DeterministicTaskCard({
 
   return (
     <TaskCardShell task={task} onSelect={onSelect} headerMeta={headerMeta}>
+      {canPublish && !canStartStep && (
+        <div className="mt-3 flex justify-center border-t border-border pt-2.5">
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-7 shrink-0 cursor-pointer border border-accent/40 px-2.5 text-[10px] font-semibold text-accent hover:bg-accent/15"
+            onClick={(event) => {
+              event.stopPropagation();
+              onPublish?.(task);
+            }}
+            aria-label={`Publish: ${task.title}`}
+          >
+            <Play className="mr-1 size-2.5" /> Publish
+          </Button>
+        </div>
+      )}
       {canStartStep && (
         <div className="mt-3 flex justify-center border-t border-border pt-2.5">
           <Button
@@ -245,6 +264,7 @@ function TaskCard({
   onSelect,
   onAction,
   onStartStep,
+  onPublish,
 }: {
   task: SpecificationTask;
   actionGate?: SpecificationTaskActionGate | null;
@@ -253,6 +273,7 @@ function TaskCard({
   onSelect?: (task: SpecificationTask, trigger: HTMLElement) => void;
   onAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
   onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor) => void;
+  onPublish?: (task: SpecificationTask) => void;
 }) {
   if (isDeterministic) {
     return (
@@ -261,6 +282,7 @@ function TaskCard({
         actionGate={actionGate}
         onSelect={onSelect}
         onStartStep={onStartStep}
+        onPublish={onPublish}
       />
     );
   }
@@ -284,6 +306,8 @@ export function StatusBoard({
   onBatchAction,
   onWorkflowAction,
   onStartStep,
+  onPublishTask,
+  onBatchPublish,
 }: {
   specification: SpecificationSummary;
   actions?: Record<string, SpecificationTaskActionGate>;
@@ -294,6 +318,8 @@ export function StatusBoard({
   onBatchAction?: (tasks: SpecificationTask[], action: SpecificationOwnerAction) => void;
   onWorkflowAction?: (task: SpecificationTask, action: string) => void;
   onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor) => void;
+  onPublishTask?: (task: SpecificationTask) => void | Promise<void>;
+  onBatchPublish?: (tasks: SpecificationTask[]) => void | Promise<void>;
 }) {
   return (
     <section aria-labelledby="workflow-heading">
@@ -311,6 +337,12 @@ export function StatusBoard({
           const presentation = lanePresentation[lane.id];
           const actionableTasks = lane.tasks.filter((task) => actions?.[task.id]?.enabled);
           const firstAction = actionableTasks.length > 0 ? actions?.[actionableTasks[0].id]?.action : null;
+          const publishableTasks = isDeterministic
+            ? lane.tasks.filter((task) => {
+                const gate = actions?.[task.id];
+                return Boolean(gate?.canPublish ?? (gate?.state === 'draft' || task.status === 'draft'));
+              })
+            : [];
           return (
             <div key={lane.id} className={cn('min-w-0', lane.tasks.length === 0 && 'hidden sm:block')}>
               <div className="mb-2 flex items-center gap-2 px-1">
@@ -330,6 +362,7 @@ export function StatusBoard({
                     onSelect={onTaskSelect}
                     onAction={onTaskAction}
                     onStartStep={onStartStep}
+                    onPublish={onPublishTask}
                   />
                 ))}
                 {lane.tasks.length === 0 && <span className="sr-only">Brak zadań</span>}
@@ -343,6 +376,16 @@ export function StatusBoard({
                     {firstAction === 'approve'
                       ? `Zatwierdź (${actionableTasks.length})`
                       : `Zaakceptuj (${actionableTasks.length})`}
+                  </Button>
+                )}
+                {isDeterministic && publishableTasks.length > 1 && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-full justify-center text-[10px] font-semibold text-accent hover:bg-accent/10"
+                    onClick={() => onBatchPublish?.(publishableTasks)}
+                  >
+                    {`Publish all (${publishableTasks.length})`}
                   </Button>
                 )}
               </div>

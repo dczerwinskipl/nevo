@@ -113,6 +113,7 @@ export function computeDeterministicTaskActionProjection(task, change, options =
 
   return {
     state: projection.state,
+    canPublish: projection.canPublish ?? (projection.state === 'draft'),
     executor: projection.executor,
     attempt: projection.currentAttempt,
     currentStep: projection.currentStep,

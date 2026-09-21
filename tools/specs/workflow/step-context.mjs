@@ -261,7 +261,9 @@ export function assertCleanWorktreeForNewAttempt(repoRoot) {
   }
   const relevantDirty = dirtyPaths.filter(p => {
     const norm = p.replace(/\\/g, '/');
-    return norm !== '.nevo-ai-local' && !norm.startsWith('.nevo-ai-local/');
+    if (norm === '.nevo-ai-local' || norm.startsWith('.nevo-ai-local/')) return false;
+    if (norm === 'change.yaml' || norm.endsWith('/change.yaml')) return false;
+    return true;
   });
   if (relevantDirty.length > 0) {
     throw new WorkflowError(

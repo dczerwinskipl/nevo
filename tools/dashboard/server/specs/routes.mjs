@@ -5,6 +5,9 @@ import { SpecValidationError, SpecConflictError, SpecRollbackError } from '../..
 import { HttpError } from './http-utils.mjs';
 import specEventRoutes from './events.mjs';
 import { resolveSpecsPaths } from './paths.mjs';
+import { publishTask } from '../../../specs/workflow/publish/operation.mjs';
+import { requireChange } from '../../../specs/store.mjs';
+import { resolveWorkflowMode } from '../../../specs/workflow/compatibility.mjs';
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
 const SOURCES = new Set(['active', 'archive']);
@@ -263,6 +266,104 @@ export default async function specsRoutes(fastify, { config = {}, actionExecutor
   fastify.post('/api/specs/:source/:slug/tasks/:taskId/workflow/human-step', async (request, reply) => {
     if (rejectSource(reply, request.params.source, ACTIVE_ONLY)) return;
     return handleHumanStep(request, reply);
+  });
+
+  const handlePublishTask = async (request, reply) => {
+    const slug = decodedSlug(request.params.slug);
+    const taskId = request.params.taskId;
+    if (!slug) {
+      reply.code(404).send({ error: 'Specification document not found' });
+      return;
+    }
+    try {
+      const result = publishTask(slug, taskId, {
+        activeDir: paths.activeDir,
+        repoRoot: paths.root,
+      });
+      reply.code(200).send(result);
+    } catch (error) {
+      const message = error.message || 'Unable to publish task.';
+      if (message.includes('not found')) {
+        reply.code(404).send({ error: message, code: 'NOT_FOUND' });
+        return;
+      }
+      reply.code(400).send({
+        error: message,
+        code: 'TASK_PUBLISH_FAILED',
+      });
+    }
+  };
+
+  fastify.post('/api/specs/:slug/tasks/:taskId/workflow/publish', handlePublishTask);
+  fastify.post('/api/specs/:source/:slug/tasks/:taskId/workflow/publish', async (request, reply) => {
+    if (rejectSource(reply, request.params.source, ACTIVE_ONLY)) return;
+    return handlePublishTask(request, reply);
+  });
+
+  const handleBatchPublish = async (request, reply) => {
+    const slug = decodedSlug(request.params.slug);
+    if (!slug) {
+      reply.code(404).send({ error: 'Specification document not found' });
+      return;
+    }
+    const body = request.body ?? {};
+    if (typeof body !== 'object' || Array.isArray(body) || body === null) {
+      reply.code(400).send({ error: 'Request body must be a JSON object.' });
+      return;
+    }
+    try {
+      const change = requireChange(slug, paths.activeDir);
+      const resolvedMode = resolveWorkflowMode(change, { repoRoot: paths.root });
+      if (resolvedMode.mode !== 'deterministic') {
+        reply.code(400).send({
+          error: `Cannot run deterministic publish on legacy specification '${slug}'.`,
+          code: 'LEGACY_WORKFLOW_MODE',
+        });
+        return;
+      }
+
+      let taskIdsToPublish = [];
+      if (Array.isArray(body.taskIds) && body.taskIds.length > 0) {
+        taskIdsToPublish = body.taskIds;
+      } else {
+        const filterStatus = typeof body.status === 'string' ? body.status : 'draft';
+        taskIdsToPublish = change.tasks
+          .filter((t) => t.status === filterStatus)
+          .map((t) => t.id);
+      }
+
+      const published = [];
+      for (const taskId of taskIdsToPublish) {
+        const result = publishTask(slug, taskId, {
+          activeDir: paths.activeDir,
+          repoRoot: paths.root,
+        });
+        published.push(result.taskId);
+      }
+
+      reply.code(200).send({
+        ok: true,
+        changeSlug: slug,
+        published,
+        total: published.length,
+      });
+    } catch (error) {
+      const message = error.message || 'Unable to batch publish tasks.';
+      if (message.includes('not found')) {
+        reply.code(404).send({ error: message, code: 'NOT_FOUND' });
+        return;
+      }
+      reply.code(400).send({
+        error: message,
+        code: 'BATCH_PUBLISH_FAILED',
+      });
+    }
+  };
+
+  fastify.post('/api/specs/:slug/workflow/publish', handleBatchPublish);
+  fastify.post('/api/specs/:source/:slug/workflow/publish', async (request, reply) => {
+    if (rejectSource(reply, request.params.source, ACTIVE_ONLY)) return;
+    return handleBatchPublish(request, reply);
   });
 
 

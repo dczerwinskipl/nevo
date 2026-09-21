@@ -28,6 +28,8 @@ export function SpecificationOverview({
   onDirectTaskAction,
   onBatchTaskAction,
   onStartStep,
+  onPublishTask,
+  onBatchPublish,
   onCreateSession,
   onOpenTask,
 }: {
@@ -45,6 +47,8 @@ export function SpecificationOverview({
   onDirectTaskAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
   onBatchTaskAction?: (tasks: SpecificationTask[], action: SpecificationOwnerAction) => void;
   onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor) => void | Promise<void>;
+  onPublishTask?: (task: SpecificationTask) => void | Promise<void>;
+  onBatchPublish?: (tasks: SpecificationTask[]) => void | Promise<void>;
   onCreateSession: () => void;
   onOpenTask?: (target: TaskNavigationTarget | string) => void;
 }) {
@@ -108,6 +112,8 @@ export function SpecificationOverview({
           onTaskAction={onDirectTaskAction}
           onBatchAction={onBatchTaskAction}
           onStartStep={onStartStep}
+          onPublishTask={onPublishTask}
+          onBatchPublish={onBatchPublish}
         />
       </div>
     </>

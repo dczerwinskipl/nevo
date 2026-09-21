@@ -188,6 +188,7 @@ export interface SpecificationTaskActionGate {
    * Authoritative read model composed from TaskProjection and ExecutionReadiness.
    */
   state?: 'draft' | 'blocked' | 'ready' | 'active' | 'human-interaction' | 'waiting-for-step-start' | 'terminal' | string;
+  canPublish?: boolean;
   executor?: 'agent' | 'human' | string;
   blockedBy?: string[];
   terminalOutcome?: 'success' | 'failure' | string | null;

@@ -30,6 +30,7 @@ import { invalidatePullRequestQueries } from '@/features/pull-requests/queries';
 import { useAgentProviders, useAgentSessions, useCreateAgentSession, buildAgentStepTriggerMessage } from '@/features/agent-sessions/queries';
 import type { AgentSession } from '@/features/agent-sessions/types';
 import { useSpecWorkflowActions } from './use-spec-workflow-actions';
+import { useSpecificationPublishMutation } from '@/features/specifications/tasks/publish-task-mutation';
 
 const PullRequestsPanel = lazy(() =>
   import('@/features/pull-requests/pull-requests-panel').then((m) => ({ default: m.PullRequestsPanel })),
@@ -199,6 +200,40 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
     ],
   );
 
+  const publishMutation = useSpecificationPublishMutation({
+    source: specification.source,
+    slug: specification.slug,
+    onSuccess: async () => {
+      await Promise.all([actionsQuery.refresh(), invalidateSpecificationQueries(queryClient)]);
+    },
+  });
+
+  const handlePublishTask = useCallback(
+    async (task: SpecificationTask) => {
+      setWorkflowError(null);
+      try {
+        await publishMutation.publish(task.id);
+      } catch (err: any) {
+        const message = err instanceof Error ? err.message : String(err);
+        setWorkflowError(message);
+      }
+    },
+    [publishMutation],
+  );
+
+  const handleBatchPublish = useCallback(
+    async (tasks: SpecificationTask[]) => {
+      setWorkflowError(null);
+      try {
+        await publishMutation.publishBatch(tasks.map((t) => t.id));
+      } catch (err: any) {
+        const message = err instanceof Error ? err.message : String(err);
+        setWorkflowError(message);
+      }
+    },
+    [publishMutation],
+  );
+
   const handleOpenSession = (session: AgentSession) => {
     navigate({
       to: '/specs/$source/$slug/sessions/$sessionId',
@@ -349,6 +384,8 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
             taskActions={actionsQuery.data?.tasks}
             isDeterministic={actionsQuery.data?.workflowMode === 'deterministic'}
             onStartStep={startStep}
+            onPublishTask={handlePublishTask}
+            onBatchPublish={handleBatchPublish}
             onDirectTaskAction={workflow.executeDirectTaskAction}
             onBatchTaskAction={workflow.executeBatchTaskAction}
             onOpenTask={(target) => {
