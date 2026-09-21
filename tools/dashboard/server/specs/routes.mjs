@@ -1,4 +1,5 @@
 import { SpecificationActionError, executeHumanDecision } from './actions.mjs';
+import { executeHumanStepAction, HumanStepTransportError } from './human-step-transport.mjs';
 import { createSpecsCapability } from './service.mjs';
 import { SpecValidationError, SpecConflictError, SpecRollbackError } from '../../../specs/identity.mjs';
 import { HttpError } from './http-utils.mjs';
@@ -199,6 +200,71 @@ export default async function specsRoutes(fastify, { config = {}, actionExecutor
     if (rejectSource(reply, request.params.source, ACTIVE_ONLY)) return;
     return handleHumanDecision(request, reply);
   });
+
+  const handleHumanStep = async (request, reply) => {
+    const slug = decodedSlug(request.params.slug);
+    const taskId = request.params.taskId;
+    if (!slug) {
+      reply.code(404).send({ error: 'Specification document not found' });
+      return;
+    }
+    const body = request.body ?? {};
+    if (typeof body !== 'object' || Array.isArray(body) || body === null) {
+      reply.code(400).send({ error: 'Request body must be a JSON object.' });
+      return;
+    }
+    const { action, result, feedback, artifacts } = body;
+    if (action !== 'start' && action !== 'submit') {
+      reply.code(400).send({ error: "Action must be 'start' or 'submit'.", code: 'INVALID_ACTION' });
+      return;
+    }
+    try {
+      const response = await executeHumanStepAction({
+        slug,
+        taskId,
+        action,
+        result,
+        feedback,
+        artifacts,
+        activeDir: paths.activeDir,
+        root: paths.root,
+      });
+      reply.code(200).send(response);
+    } catch (error) {
+      const status = error.status || 400;
+      const errorBody = {
+        error: error.message || 'Unable to execute human-step action.',
+        code: error.code || error.details?.code || 'HUMAN_STEP_ACTION_FAILED',
+      };
+      if (error.stepId || error.details?.stepId) {
+        errorBody.stepId = error.stepId || error.details?.stepId;
+      }
+      if (error.executor || error.details?.executor) {
+        errorBody.executor = error.executor || error.details?.executor;
+      }
+      if (error.allowedResults || error.details?.allowedResults) {
+        errorBody.allowedResults = error.allowedResults || error.details?.allowedResults;
+      }
+      if (error.blockedBy || error.details?.blockedBy) {
+        errorBody.blockedBy = error.blockedBy || error.details?.blockedBy;
+      }
+      if (error.details && typeof error.details === 'object') {
+        for (const [k, v] of Object.entries(error.details)) {
+          if (errorBody[k] === undefined && v !== undefined) {
+            errorBody[k] = v;
+          }
+        }
+      }
+      reply.code(status).send(errorBody);
+    }
+  };
+
+  fastify.post('/api/specs/:slug/tasks/:taskId/workflow/human-step', handleHumanStep);
+  fastify.post('/api/specs/:source/:slug/tasks/:taskId/workflow/human-step', async (request, reply) => {
+    if (rejectSource(reply, request.params.source, ACTIVE_ONLY)) return;
+    return handleHumanStep(request, reply);
+  });
+
 
   fastify.get('/api/specs/:source/:slug/content/:docId', async (request, reply) => {
     if (rejectSource(reply, request.params.source, SOURCES)) return;
