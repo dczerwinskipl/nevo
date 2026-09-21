@@ -18,20 +18,22 @@ forbidden_paths:
   - tools/dashboard/**
 depends_on: [ workflow-continuation-schema ]
 semantic_references:
-  decisions: [D28]
+  decisions: [D28, D31]
 ---
 
 # Task: Dependency release and invalidation
 
 ## Goal
 
-Implement the declarative release half decided by D28: `evaluateDependencySatisfaction`
-reads a matched internal transition's `releasesDependencies: true` (task 26's schema) as an
-alternate satisfaction path, alongside the existing, unchanged terminal-transition
-`outcome: success` path (D9). **The invalidation half (what happens when a released
-dependency's review later fails) is OQ-A, not yet answered by the owner — do not implement
-it.** This task's scope, until OQ-A is answered, is the release half only; its acceptance
-criteria below are split accordingly, with the invalidation criteria marked blocked.
+Implement D28's declarative release: `evaluateDependencySatisfaction` reads a matched
+internal transition's `releasesDependencies: true` (task 26's schema) as an alternate
+satisfaction path, alongside the existing, unchanged terminal-transition `outcome: success`
+path (D9). Implement D31's remediation-group derivation: when a task whose release already
+satisfied dependents later transitions backward to an earlier step, derive the set of
+dependents that started against that release and haven't reached terminal, and mark the
+whole group (root task + those dependents) suspended from starting their own next step via
+an extended `TaskProjection.blockedBy` entry — without rolling back any group member's
+existing `workflow_progress` history.
 
 ## Implementation constraints
 
@@ -40,29 +42,43 @@ criteria below are split accordingly, with the invalidation criteria marked bloc
   `workflow_progress.history` entry matches an *internal* transition declaring
   `releasesDependencies: true` — resolved the same way the existing check resolves the
   matched transition (against the definition's declared `transitions` for that step), never
-  by step name.
-- Do not change the existing terminal-transition path's behavior at all — every existing test
-  covering it must pass unchanged.
-- **Stop here pending OQ-A.** Do not add a `blockedBy`/suspension field, a "stale" state, or
-  any invalidation-consequence code until the owner has answered OQ-A
-  (`areas/dependency-release-and-invalidation.md`). If OQ-A is answered before this task is
-  implemented, this task's scope expands to include it — update this file's own acceptance
-  criteria to no longer be provisional before starting that half.
+  by step name. Do not change the existing terminal-transition path's behavior at all.
+- Add a remediation-group derivation function: given a task whose `workflow_progress.history`
+  shows a `releasesDependencies` transition followed by a *later* entry for an earlier step
+  (i.e. the workflow moved backward from where the release fired), walk the change's other
+  tasks' `depends_on` to find dependents that reached `active` on any step while the release
+  was in effect and have not reached a terminal transition. Return the root task id plus this
+  dependent set as the remediation group.
+- Extend `TaskProjection.blockedBy` with a suspension entry shape (e.g. `{taskId, reason:
+  'dependency-invalidated', groupId}`) for every group member — additive to whatever
+  `blockedBy` already models for ordinary unsatisfied dependencies, not a replacement of that
+  existing shape.
+- Expose the derivation function so `areas/dependency-invalidation-remediation-review.md`
+  (task 33) can re-invoke/extend the group (D31's "group can grow" requirement) — do not
+  make the derivation a one-shot internal computation with no external entry point.
+- No rollback of any group member's `workflow_progress` history under any circumstance.
 
 ## Acceptance criteria
 
 - A dependency whose matched transition declares `releasesDependencies: true` satisfies its
-  dependents while the dependency's own workflow is still `active` at a later step (e.g.
-  `review`) — proven directly against `evaluateDependencySatisfaction`'s output, not
-  inferred.
+  dependents immediately, before its own workflow reaches a terminal transition.
   `automated: node --test tools/tests/deterministic-dependency-satisfaction.test.mjs`
 - Every existing terminal-transition-`outcome: success` test continues passing unchanged.
   `automated: node --test tools/tests/deterministic-dependency-satisfaction.test.mjs`
 - A dependency with no `releasesDependencies`-marked transition anywhere in its history
-  behaves exactly as today — dependents wait for its terminal transition.
+  behaves exactly as today.
   `automated: node --test tools/tests/deterministic-dependency-satisfaction.test.mjs`
-- **Blocked pending OQ-A** — invalidation-consequence acceptance criteria are written and
-  finalized only once the owner answers OQ-A; this task does not claim to satisfy them yet.
+- A fixture with one root task (released dependents, then moved backward) and two
+  dependents — one that started against the release, one that didn't — derives a
+  remediation group containing exactly the root task and the dependent that started.
+  `automated: node --test tools/tests/deterministic-dependency-satisfaction.test.mjs`
+- Every derived group member's `TaskProjection.blockedBy` contains a
+  `dependency-invalidated` entry; none of their `workflow_progress.history` entries are
+  modified or removed.
+  `automated: node --test tools/tests/deterministic-task-projection.test.mjs`
+- The derivation function is externally callable (not private to this module) so task 33 can
+  re-invoke it to extend a group.
+  `automated: node --test tools/tests/deterministic-dependency-satisfaction.test.mjs`
 
 ## Verification
 
@@ -74,6 +90,7 @@ node tools/specs.mjs validate
 
 ## Out of scope
 
-The invalidation consequence (OQ-A, blocked). The batch scheduler that consumes this release
-signal (`deterministic-batch-orchestrator`, task 29). The `releasesDependencies` schema field
-itself (`workflow-continuation-schema`, task 26).
+Running the remediation group's fix attempts (`areas/deterministic-batch-orchestrator.md`,
+task 29). The combined cross-task-aware review and suspension-clearing
+(`areas/dependency-invalidation-remediation-review.md`, task 33). The `releasesDependencies`
+schema field itself (`workflow-continuation-schema`, task 26).

@@ -619,10 +619,10 @@ engine source directly):
 34. Dependency satisfaction has no earlier release point than the dependency's own successful
     terminal transition, and no modeled consequence if a released dependency's own review
     later fails after a downstream task has already started against it (Finding 9, pass 9;
-    OQ-A open).
+    release resolved by D28, invalidation resolved by D31).
 35. No deterministic equivalent of legacy `batch-*` exists; the deterministic UI can only
     start one task at a time even when several are simultaneously ready (Finding 10, pass 9;
-    OQ-B open).
+    resolved by D32).
 36. `workflow task publish` mutates `change.yaml` (`status: approved`) and returns without
     committing or pushing, leaving a standalone user mutation to be silently absorbed into
     whichever agent's finalize commit happens to run next (Finding 11, pass 9).
@@ -687,7 +687,9 @@ engine source directly):
   continuation/handover, D25–D27 — exact location decided during implementation, composing
   existing `finishStep`/`startHumanStep`/session-creation calls, never itself becoming part of
   the engine); `tools/dashboard/server/ai/sessions/**` (session lineage/role fields, D26); a
-  new deterministic batch/orchestration scheduler (D-pending OQ-B); `tools/specs/workflow/
+  new deterministic batch/orchestration scheduler with a checkbox-picker selection model
+  (D32), also driving D31's remediation-group fix runs, plus a new cross-task-aware
+  remediation-review pass (D31, task 33); `tools/specs/workflow/
   publish/operation.mjs`, `tools/dashboard/server/specs/routes.mjs`
   (`handlePublishTask`/`handleBatchPublish`, D29); `tools/dashboard/ui/screens/
   specification-detail/**`, `tools/dashboard/ui/features/agent-sessions/**` (execution-mode/
@@ -784,22 +786,24 @@ already-registered `commit-and-push` action with an auto-generated `chore(workfl
 explicit, documented source-control ownership categories — standalone user mutation,
 technical activation, completed lifecycle mutation — govern which future dashboard actions
 must commit their own change vs. may be finalized by the attempt they belong to). **Two
-findings raised genuinely open questions with no repository precedent to decide from — not
-recorded as `D<n>` decisions per `references/decision-policy.md` ("silence is not agreement";
-unresolved questions stay open, not defaulted):**
+findings initially raised open questions with no repository precedent to decide from — routed
+to the owner rather than decided by inference, per `references/decision-policy.md`
+("silence is not agreement") — both are now resolved, in the owner's own direction rather
+than any of the originally offered options, superseding the option lists this document first
+presented:
 
-- **OQ-A (Finding 9, invalidation):** when a released dependency's own review later fails
-  after a downstream task has already started against it, what is the deterministic
-  consequence? Options: (a) a new `blockedBy: {taskId, reason: 'dependency-invalidated'}`
-  suspension state on the downstream task's `workflow_progress`, blocking only its *next*
-  `start-step`/`startHumanStep` (no rollback of work already done) until the upstream
-  dependency is satisfied again; (b) a dashboard-only warning banner with no engine-level
-  effect; (c) automatically pause the downstream task at its current step boundary the same
-  way (a) does, but additionally require an explicit owner acknowledgment before it can
-  resume (a stricter variant of (a)). Not yet decided.
-- **OQ-B (Finding 10, batch defaults):** what is the deterministic batch scheduler's default
-  task-selection mode (`currently-ready` / `named-subset` / `all-approved-reachable`) and
-  concurrency limit? Not yet decided.
+- **OQ-A (Finding 9, invalidation) → resolved by D31.** Not a simple suspend/warn/require-ack
+  choice among the original three options: the owner's actual workflow fixes a failed
+  dependency and every task that consumed its premature release *together*, as one
+  automatically-derived remediation group, reviewed in one combined, cross-task-aware pass
+  that can flag an unlisted group member for adjustment too (e.g. t2 needing a fix because of
+  a change to t1, even though t2 wasn't independently broken) — see D31 for the full model,
+  which reuses the existing legacy `implementation-review` cross-task-integration design as
+  its pattern.
+- **OQ-B (Finding 10, batch defaults) → resolved by D32.** Not three named selection "modes"
+  with a chosen default: the owner's actual workflow is a checkbox-based task picker,
+  pre-selected with ready tasks, freely adjustable, warning (never hard-blocking) when the
+  current selection includes a task blocked by a dependency outside the selection — see D32.
 
 ## Proposed architecture
 
@@ -1044,10 +1048,14 @@ deterministic spec.
   declarative continuation/handover orchestration layer and session-lineage/role model
   (D25–D27).
 - `areas/dependency-release-and-invalidation.md` — (pass 9) declarative per-transition
-  dependency release (D28); the invalidation consequence is an open question (OQ-A).
+  dependency release (D28); automatic remediation-group derivation and suspension on
+  invalidation (D31).
 - `areas/deterministic-batch-orchestrator.md` — (pass 9) a deterministic, concurrency-bounded
-  multi-task scheduler; default selection mode and concurrency limit are an open question
-  (OQ-B).
+  multi-task scheduler with a checkbox-picker selection model, pre-selected with ready tasks,
+  and a cross-selection dependency warning (D32); reused by D31's remediation-group fix runs.
+- `areas/dependency-invalidation-remediation-review.md` — (pass 9) the one combined,
+  cross-task-aware review pass for a dependency-invalidation remediation group, adapting the
+  existing legacy `implementation-review` two-pass design (D31).
 - `areas/user-mutation-source-control-ownership.md` — (pass 9) Publish/Batch Publish own their
   own commit/push (D29); the explicit user-action/technical-activation/completed-mutation
   ownership taxonomy (D30).
@@ -1117,14 +1125,17 @@ CLI-compatibility callers.
 
 **Corrective pass 9 narrows two of the exclusions above, does not remove them.** "Handover
 automation" and "full archetype/handover/provider-selection design for agent orchestration"
-are addressed only to the bounded extent D25/D26/D28/OQ-B require: a declarative
-per-transition continuation policy (`continueOnSuccess`) and session-reuse policy
-(`sessionPolicy`, `role`, `parentSessionId` lineage) — not a general-purpose action/dispatch
-framework, not per-provider handover routing, and not a full artifact/attachment system
-beyond the `parentSessionId` lineage field itself. Still explicitly out of scope after this
-pass: Activity History as a feature (`ai-spec-history` remains the dogfooding workload, never
-the owner of these workflow-runtime fixes); any redesign of `entryGates`/`exitGates` or the
+are addressed only to the bounded extent D25/D26/D28/D31/D32 require: a declarative
+per-transition continuation policy (`continueOnSuccess`), session-reuse policy
+(`sessionPolicy`, `role`, `parentSessionId` lineage), a checkbox-picker batch scheduler
+(D32), and one cross-task-aware remediation-review pass for a dependency-invalidation
+remediation group (D31) — not a general-purpose action/dispatch framework, not per-provider
+handover routing, and not a full artifact/attachment system beyond the `parentSessionId`
+lineage field itself. Still explicitly out of scope after this pass: Activity History as a
+feature (`ai-spec-history` remains the dogfooding workload, never the owner of these
+workflow-runtime fixes); any redesign of `entryGates`/`exitGates` or the
 `workflow verify-human --confirm` path; unrelated dashboard visual redesign; a fully general
-batch/orchestration framework beyond the one scheduler OQ-B's answer will bound; retrying or
-rolling back a task's own completed work as part of dependency invalidation (OQ-A's options
-are all forward-only suspension, never rollback).
+batch/orchestration framework beyond the one checkbox-picker scheduler D32 defines; rolling
+back or destructively reverting a task's own completed work as part of dependency
+invalidation (D31 is forward-only suspension plus grouped re-fix, never rollback); a general
+multi-change/cross-spec remediation mechanism beyond one change's own task graph.

@@ -5,11 +5,11 @@
 Make the dependency-satisfaction release point declarative (D28) instead of hardcoded to
 "the dependency's own terminal transition with `outcome: success`" — the real dogfooding run
 showed this kept downstream tasks `blocked` for a dependency's entire review duration, even
-once its implementation artifact already existed. The invalidation consequence — what happens
-when a released dependency's own review later fails after a downstream task has already
-started against it — is a genuinely open question (OQ-A) this area's own task must not
-silently resolve; it is routed to the owner before the corresponding acceptance criteria are
-finalized.
+once its implementation artifact already existed. When a released dependency's own review
+later turns out to have been premature, this area also derives the automatic remediation
+group it invalidates and suspends (D31) — the cross-task-aware review of that group's fix is
+a separate area (`areas/dependency-invalidation-remediation-review.md`, task 33), which
+consumes this area's signal rather than duplicating it.
 
 ## Current state (grounded, 2026-09-21)
 
@@ -23,47 +23,50 @@ deterministic dependency tracking.
 
 ## Requirements
 
-- **Declarative release (D28, decided).** An additive per-transition field,
-  `releasesDependencies: true`, may be declared on an internal (step-to-step) transition.
-  When a task's `workflow_progress` history's last entry matches such a transition, its
-  dependents are satisfied even though the task's own workflow has not reached a terminal
-  transition. Default, unmarked behavior for every existing transition/definition is
-  unchanged — dependents wait for `outcome: success` on a terminal transition exactly as
-  today.
-- **Invalidation consequence (OQ-A, NOT DECIDED — do not implement until answered).** When a
-  released dependency's workflow later returns from `review` (or wherever review lives) back
-  to an earlier step (i.e., the release turns out to have been premature), what happens to
-  a downstream task that already started against the release? Recorded options, not yet
-  chosen by the owner:
-  - (a) a new `blockedBy: {taskId, reason: 'dependency-invalidated'}` suspension state on the
-    downstream task's `workflow_progress`, blocking only its *next* `start-step`/
-    `startHumanStep` — no rollback of work already done — until the upstream dependency is
-    satisfied again;
-  - (b) a dashboard-only warning banner, no engine-level effect;
-  - (c) the same suspension as (a), plus a required explicit owner acknowledgment before the
-    downstream task may resume.
-  This task's own acceptance criteria for the invalidation half are drafted against option
-  (a) as the current recommendation only — marked explicitly provisional — and must be
-  confirmed or replaced once the owner answers.
+- **Declarative release (D28).** An additive per-transition field, `releasesDependencies:
+  true`, may be declared on an internal (step-to-step) transition. When a task's
+  `workflow_progress` history's last entry matches such a transition, its dependents are
+  satisfied even though the task's own workflow has not reached a terminal transition.
+  Default, unmarked behavior for every existing transition/definition is unchanged —
+  dependents wait for `outcome: success` on a terminal transition exactly as today.
+- **Automatic remediation-group derivation (D31).** When a task whose matched transition
+  previously satisfied dependents via `releasesDependencies` later transitions *backward* to
+  an earlier step (the release turns out to have been premature), derive the remediation
+  group: that task plus every dependent task that started (reached `active` on any step)
+  while the release was in effect and has not yet reached its own terminal transition. This
+  derivation reads only existing `workflow_progress` history — it introduces no new
+  persisted bookkeeping the owner must maintain by hand.
+- **Suspension, not rollback (D31).** Every task in the derived remediation group is marked
+  so it cannot start its own *next* step (a new `blockedBy` entry, extending the existing
+  `TaskProjection.blockedBy` field rather than inventing a second one) until the group's
+  remediation completes (defined by `areas/dependency-invalidation-remediation-review.md`).
+  No group member's already-completed `workflow_progress` history is altered or reverted.
+- **Group growth is a first-class signal, not a defect to hide (D31).** If the remediation
+  review (task 33) determines that an additional task outside the originally-derived group
+  also needs a fix (e.g. because of a change to the group's own root cause task), that task
+  is added to the group and suspended the same way — this area's derivation function must be
+  re-invokable/extendable by task 33, not a one-shot computation.
 
 ## Constraints
 
-- No destructive rollback of a downstream task's already-completed work under any option
-  (explicitly ruled out by the corrective-pass brief).
+- No destructive rollback of a downstream task's already-completed work.
 - The release-point field lives on the transition, mirroring `outcome`'s existing placement
   (D9) — never on the step, never a definition-level flag.
-- Do not implement the invalidation half against an unconfirmed option — land the release
-  half (D28) independently; gate the invalidation half's task completion on OQ-A's answer.
+- The remediation-group derivation is pure/read-only against `workflow_progress` history —
+  it does not itself drive re-implementation or review; that orchestration belongs to
+  `areas/deterministic-batch-orchestrator.md` (running the group's fix attempts) and
+  `areas/dependency-invalidation-remediation-review.md` (the combined review).
 
 ## Interfaces and boundaries
 
-Exposes: `evaluateDependencySatisfaction`'s extended logic (declarative release), and —
-pending OQ-A — a suspension/invalidation signal on `TaskProjection.blockedBy` (the existing
-field, extended in shape, not a new one, if option (a)/(c) is chosen).
+Exposes: `evaluateDependencySatisfaction`'s extended logic (declarative release); a
+remediation-group derivation function (root task → group member task ids); the extended
+`TaskProjection.blockedBy` suspension entry.
 
-Consumed by: `TaskProjection` (existing `blockedBy` field), `areas/deterministic-batch-orchestrator.md`
-(a scheduler must respect both the release point and any invalidation suspension when
-deciding what's newly startable).
+Consumed by: `areas/deterministic-batch-orchestrator.md` (must respect suspension when
+computing what's startable, and is the mechanism that runs a remediation group's fix
+attempts once unsuspended for that purpose), `areas/dependency-invalidation-remediation-review.md`
+(reads the derived group, may extend it).
 
 ## Area-specific acceptance criteria
 
@@ -74,10 +77,13 @@ deciding what's newly startable).
 - A transition without `releasesDependencies` (or every existing transition in today's five
   definitions) preserves exactly today's behavior — dependents wait for `outcome: success` on
   a terminal transition.
-- (Provisional, pending OQ-A) once answered, at minimum: a downstream task that started
-  against a released dependency, where that dependency's review later returns it to an
-  earlier step, cannot start its own *next* step until re-satisfied — proven without deleting
-  or reverting any of the downstream task's own `workflow_progress` history.
+- A dependency that transitions backward after having released dependents produces a
+  remediation group containing itself and every dependent that started against the release
+  and hasn't reached terminal — proven for a fixture with one dependency and two dependents,
+  only one of which had actually started.
+- Every group member is suspended from its own next step start; none of their
+  `workflow_progress` history is altered.
+  `automated: node --test tools/tests/deterministic-dependency-satisfaction.test.mjs`
 
 ## Dependencies
 
@@ -85,6 +91,7 @@ deciding what's newly startable).
 
 ## Out of scope
 
-Retrying or rolling back a task's own completed work as an invalidation response (excluded
-under every OQ-A option). A general revalidation workflow beyond the one suspension signal
-OQ-A's answer will define.
+Retrying or rolling back a task's own completed work. The cross-task-aware review pass that
+determines when a remediation group's fix is complete and whether it must grow
+(`areas/dependency-invalidation-remediation-review.md`, task 33). Running the group's actual
+fix implementation attempts (`areas/deterministic-batch-orchestrator.md`, task 29).

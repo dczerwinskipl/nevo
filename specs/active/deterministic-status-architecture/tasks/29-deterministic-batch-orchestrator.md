@@ -18,61 +18,64 @@ forbidden_paths:
   - src/**
 depends_on: [ automatic-workflow-continuation, dependency-release-and-invalidation ]
 semantic_references:
-  decisions: []
+  decisions: [D32, D31]
 ---
 
 # Task: Deterministic batch orchestrator
 
 ## Goal
 
-Build a deterministic, task-oriented scheduler that starts several independently-ready tasks
-and lets each continue through `automatic-workflow-continuation`'s own per-task orchestration,
-bounded by a concurrency limit, without reusing legacy `batch-*` implementation. **The default
-selection mode and concurrency limit are OQ-B, not yet answered by the owner — this task's
-acceptance criteria for the default behavior are provisional until answered; the mechanism
-itself (selection modes, concurrency bounding, enqueue-on-release) is not blocked.**
+Build a deterministic, task-oriented scheduler with the checkbox-picker selection model D32
+decided: a dashboard UI lets the owner select any set of tasks (pre-checked with currently-
+ready ones), starts each independently through `automatic-workflow-continuation`'s own
+per-task orchestration, bounded by a concurrency limit, and warns (never hard-blocks) when
+the selection includes a task blocked by a dependency outside the selection. The same
+scheduler runs a dependency-invalidation remediation group's fix attempts (D31) via the
+identical task-oriented path — no separate mechanism for that case.
 
 ## Implementation constraints
 
 - New module tree, `tools/specs/workflow/batch/**` — independent of
-  `tools/specs/batch/**`/`tools/specs/lifecycle/batch.mjs` (legacy; forbidden paths). Reuse
-  legacy selection-mode *vocabulary* only where genuinely applicable; do not import legacy
-  batch code.
-- Implement all three selection modes: `currently-ready`, `named-subset` (explicit task-id
-  list), `all-approved-reachable` (the approved DAG, including tasks reachable only via a
-  `releasesDependencies` milestone from `dependency-release-and-invalidation`, task 28).
-- Enforce a configurable concurrency limit — never start more sessions concurrently than the
-  limit; queue the excess.
-- When a dependency-release milestone makes a new task ready mid-run, enqueue it only if the
-  active run's selection mode covers it (`currently-ready`/`all-approved-reachable`: yes;
-  `named-subset`: only if named).
+  `tools/specs/batch/**`/`tools/specs/lifecycle/batch.mjs` (legacy; forbidden paths).
+- Accept an explicit set of selected task ids (no named "modes") plus a concurrency limit
+  (default a small configurable value, e.g. 3). Compute, for the given selection, which
+  selected tasks are ready now vs. blocked by a dependency; for each blocked-and-selected
+  task whose blocking dependency is **not** itself in the selection and not yet satisfied,
+  produce a structured warning naming the blocking task — never silently start it, never
+  reject the whole selection.
+- Start ready selected tasks up to the concurrency limit; queue the rest, starting queued
+  tasks as running ones free capacity or as previously-blocked selected tasks become ready.
 - Each selected task's own execution is delegated entirely to
   `automatic-workflow-continuation`'s per-task orchestration — this module never creates a
   session or calls `finishStep`/`startHumanStep` itself.
-- Add a dashboard UI surface (in `specification-overview.tsx`, or the smallest addition that
-  lets a user select/start multiple ready tasks) — a web path is required, not CLI-only.
-- **Do not hardcode a specific default selection mode or concurrency number as final** — wire
-  both as explicit, named configuration values (e.g. exported constants or a definition-level
-  config field) so the actual default can be set/changed in one place once OQ-B is answered,
-  without touching the scheduler's core logic.
+- Add the checkbox-picker UI to `specification-overview.tsx` (or the smallest real addition),
+  pre-checking currently-ready tasks (read from the existing task-projection/readiness data),
+  freely togglable, surfacing the cross-selection dependency warning inline.
+- Expose the same scheduling entry point for a dependency-invalidation remediation group's
+  task-id set (`areas/dependency-release-and-invalidation.md`) — no separate code path;
+  the caller (task 33's review flow) simply passes that group's ids as the selection.
 
 ## Acceptance criteria
 
-- `currently-ready` selection on a change with two independently-ready tasks starts both,
-  each with its own implementer session, without exceeding the concurrency limit.
+- Selecting two independently-ready tasks starts both, each with its own implementer
+  session, without exceeding the concurrency limit.
   `automated: node --test tools/tests/deterministic-batch-orchestrator.test.mjs`
-- `named-subset` selection starts only the named tasks, even if other tasks are also ready.
+- Selecting a task blocked by a dependency that is not in the selection and not yet
+  satisfied produces a warning naming that dependency; the rest of the selection still
+  starts.
   `automated: node --test tools/tests/deterministic-batch-orchestrator.test.mjs`
-- `all-approved-reachable` selection includes a task made reachable only via a
-  `releasesDependencies` milestone, not only tasks satisfied by a terminal transition.
+- Selecting a task blocked by a dependency that **is** also in the selection produces no
+  warning for that pair — the dependency starts, and the dependent starts once satisfied
+  (including via a `releasesDependencies` milestone, task 28).
   `automated: node --test tools/tests/deterministic-batch-orchestrator.test.mjs`
 - The concurrency limit is enforced: selecting more ready tasks than the limit queues the
   excess rather than starting them immediately.
   `automated: node --test tools/tests/deterministic-batch-orchestrator.test.mjs`
-- A web dashboard interaction can select and start a named subset of ready tasks end to end.
-- **Provisional, pending OQ-B:** once the owner answers, the confirmed default selection mode
-  and concurrency limit are exercised as the no-argument invocation's actual behavior — not
-  claimed as complete until then.
+- Passing a remediation group's task-id set (task 28) through this same entry point starts
+  each group member's fix attempt identically to a manual selection of the same ids.
+  `automated: node --test tools/tests/deterministic-batch-orchestrator.test.mjs`
+- A web dashboard interaction can check/uncheck tasks (pre-checked with ready ones) and start
+  the resulting selection end to end.
 
 ## Verification
 
@@ -84,4 +87,6 @@ node tools/specs.mjs validate
 ## Out of scope
 
 Legacy `batch-*` itself (unchanged). Automatic retry of failed tasks. Cross-change
-scheduling. The default selection mode/concurrency value (OQ-B, set once answered).
+scheduling. The combined cross-task-aware review of a remediation group's fixes
+(`areas/dependency-invalidation-remediation-review.md`, task 33) — this task only runs the
+fix attempts.

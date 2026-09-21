@@ -14,7 +14,7 @@ forbidden_paths:
   - tools/dashboard/server/**
   - tools/dashboard/ui/**
   - src/**
-depends_on: [ dashboard-orchestration-wiring, user-mutation-source-control-finalization ]
+depends_on: [ dashboard-orchestration-wiring, user-mutation-source-control-finalization, dependency-invalidation-remediation-review ]
 semantic_references:
   decisions: []
 ---
@@ -60,6 +60,12 @@ auto-activation → `HumanStepSurface` submission.
 - Publish's own commit is observable as a separate, correctly-attributed commit from the
   agent's own implementation commit (proving D29/Finding 11 is actually fixed, not just
   unit-tested in isolation).
+  `automated: node --test tools/tests/orchestration-e2e.test.mjs`
+- A fixture reproducing D31's remediation scenario (a released dependency returning
+  backward after a downstream task already started against it) is suspended, fixed as a
+  group via the batch orchestrator, reviewed by the combined cross-task pass — including a
+  member added only because the review found it needed adjustment — and has its suspension
+  cleared only once the whole group passes.
   `automated: node --test tools/tests/orchestration-e2e.test.mjs`
 
 ## Verification

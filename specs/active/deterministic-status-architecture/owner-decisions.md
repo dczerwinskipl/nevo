@@ -1144,3 +1144,97 @@ points are asserted to route through the identical `startStep` function instance
 - **Date:** 2026-09-21
 - **Affected artifacts:** `areas/user-mutation-source-control-ownership.md`,
   `tasks/30-user-mutation-source-control-finalization.md`.
+
+## D31: Dependency invalidation forms an automatic remediation group, fixed and re-reviewed together, with cross-task-aware review
+
+- **Question:** OQ-A, resolved. When a dependency task (e.g. t1) whose declarative release
+  (D28) already let downstream tasks (e.g. t2, t3) start, later fails its own review and
+  returns to implementation, what is the deterministic consequence — for t1's own fix cycle,
+  for the already-started downstream tasks, and for how the fix gets reviewed?
+- **Decision (owner's own direction, not option (a)/(b)/(c)):**
+  1. **Automatic remediation-group derivation.** The system — never the owner by hand —
+     computes the remediation group: t1 plus every downstream task whose start was enabled by
+     t1's premature `releasesDependencies` release and that has not yet reached its own
+     terminal transition. This is derived from existing `workflow_progress`
+     dependency-release history (D28), the same data `dependency-satisfaction.mjs` already
+     tracks — no new manual bookkeeping is introduced for the owner to maintain.
+  2. **Suspension, not rollback.** Every task in the remediation group is suspended from
+     starting its own *next* step (same forward-only, non-destructive shape as the original
+     option (a)) until the group's remediation completes — no already-completed work in any
+     group member is reverted.
+  3. **Grouped fix.** The owner (or the dashboard, surfacing the group) drives implementation
+     fixes across the group's affected tasks together — e.g. t1 and t3 both get their
+     implementation-fix attempts before either is resubmitted — reusing
+     `areas/deterministic-batch-orchestrator.md`'s scheduler to run the group's fix attempts,
+     not a separate mechanism.
+  4. **One combined review pass, cross-task-aware.** The group's fixes are submitted into a
+     single review pass over the whole remediation group, not independent per-task reviews
+     each auto-continuing on their own. This review must check cross-task consistency: if
+     t1's fix changes something a group member depends on, and that dependency is not
+     satisfied by the member's own current implementation, the review must flag that member
+     for a required fix — even if the member itself was not directly touched in this fix
+     round (e.g. t2, if t2 also depends on t1 but wasn't part of the original fix set) — with
+     an explicit, stated reason tying the flagged adjustment back to t1's specific change.
+     Silently passing a group member whose assumptions no longer hold is not acceptable.
+  5. **Reuse the existing cross-task review design, not a new one.** The legacy
+     `implementation-review` mechanism (`references/review-policy.md` § "Multi-task
+     implementation review") already solves exactly this shape for the legacy lifecycle:
+     file-overlap detection plus bounded semantic-integration pairs
+     (`selectSemanticIntegrationPairs`, `detectBatchIntegrationFindings`) across a scope of
+     tasks, producing a structured finding only for a real inconsistency, never a synthetic
+     one. That code is legacy-lifecycle-specific and is not reused directly (it is keyed to
+     legacy `task.status` and `task-review`'s own flow), but its *design* — deterministic
+     scope resolution, per-task review first, then a bounded semantic-integration pass over
+     related pairs, one aggregate verdict — is the pattern
+     `dependency-invalidation-remediation-review` (new task 33) adapts for the deterministic
+     `workflow_progress` engine, rather than inventing an unrelated design from scratch.
+  6. **Group can grow during its own review.** Discovering, during the combined review, that
+     an additional downstream task needs a fix is itself a real, structured finding the
+     review surfaces (extending the remediation group), never something silently absorbed or
+     dropped.
+- **Rationale:** Matches the owner's stated real workflow directly: fixes to a failed
+  dependency and its consumers happen together, not as isolated per-task auto-continuations
+  that would miss exactly the cross-task adjustment the owner described (t1 changes → t2
+  needs adjusting even though t2 wasn't itself broken). Reusing `implementation-review`'s
+  proven two-pass cross-task design avoids re-deriving a review algorithm this repository
+  already has working, tested code for, in spirit if not in literal reuse.
+- **Consequences:** `areas/dependency-release-and-invalidation.md`'s task (28) gains the
+  remediation-group derivation and suspension signal; a new task,
+  `dependency-invalidation-remediation-review` (task 33), owns the combined,
+  cross-task-aware review pass, depending on task 28 (the group signal) and task 29 (running
+  the group's fix attempts through the batch scheduler).
+- **Date:** 2026-09-21
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `areas/deterministic-batch-orchestrator.md`, `tasks/28-dependency-release-and-invalidation.md`,
+  `tasks/33-dependency-invalidation-remediation-review.md` (new).
+
+## D32: Batch task selection is a checkbox picker pre-selected with ready tasks, not named selection "modes"; cross-selection dependency gaps warn, never hard-block
+
+- **Question:** OQ-B, resolved. What does "task-selection mode" actually mean in real usage,
+  and what should the default behavior be?
+- **Decision (owner's own direction, replacing the original three-named-modes framing):**
+  There is one selection mechanism, not three named modes: a checkbox-based task picker,
+  pre-selected with whichever tasks are currently ready (the previous "currently-ready"
+  framing survives only as this picker's *default checked state*, not as a separate API
+  concept), which the owner can freely adjust — check more (including not-yet-ready tasks,
+  covering the old "named-subset"/"all-approved-reachable" cases as unconstrained manual
+  selection, not distinct modes) or fewer. The one behavior the UI must enforce: if the
+  current selection includes a task blocked by a dependency that is itself **not** in the
+  selection and not yet satisfied, show at least a warning — never silently start it (it
+  can't succeed anyway) and never hard-block the selection outright (the owner may be
+  intentionally staging a multi-step batch across two runs). A concrete bounded concurrency
+  limit is still required internally (the engine must not start unboundedly many concurrent
+  sessions even from a fully-manual selection) — defaulted to a small, configurable value
+  during implementation as an ordinary implementation detail, not gated further by this
+  decision.
+- **Rationale:** Matches the owner's actual described workflow (pick several, or all, or
+  one, via checkboxes) rather than an abstract enum of selection strategies that doesn't map
+  to how the picker is actually used. Warn-not-block on a selected-but-unsatisfied dependency
+  respects that the owner may deliberately be running a partial batch across multiple passes.
+- **Consequences:** `areas/deterministic-batch-orchestrator.md`'s three-named-"selection
+  modes" framing is replaced by this single checkbox-picker model;
+  `deterministic-batch-orchestrator` (task 29) and `dashboard-orchestration-wiring` (task 31)
+  are corrected accordingly.
+- **Date:** 2026-09-21
+- **Affected artifacts:** `areas/deterministic-batch-orchestrator.md`,
+  `tasks/29-deterministic-batch-orchestrator.md`, `tasks/31-dashboard-orchestration-wiring.md`.

@@ -257,10 +257,20 @@ tasks:
         automatic-workflow-continuation,
         deterministic-batch-orchestrator
       ]
+  - id: dependency-invalidation-remediation-review
+    order: 33
+    file: tasks/33-dependency-invalidation-remediation-review.md
+    status: draft
+    depends_on: [ dependency-release-and-invalidation, deterministic-batch-orchestrator ]
   - id: orchestration-e2e-dogfood-tests
     order: 32
     file: tasks/32-orchestration-e2e-dogfood-tests.md
     status: draft
-    depends_on: [ dashboard-orchestration-wiring, user-mutation-source-control-finalization ]
+    depends_on:
+      [
+        dashboard-orchestration-wiring,
+        user-mutation-source-control-finalization,
+        dependency-invalidation-remediation-review
+      ]
 
 spec_id: 226954d0-b33e-4c89-a302-c27c4e51b1d8
