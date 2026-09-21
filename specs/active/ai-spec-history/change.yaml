@@ -20,7 +20,7 @@ tasks:
     file: tasks/01-activity-core-model-and-contracts.md
     status: approved
     workflow_progress:
-      current_step: implementation
+      current_step: review
       current_attempt: 1
       state: completed
       history:
@@ -28,6 +28,23 @@ tasks:
           attempt: 1
           completed_at: 2026-09-21T17:03:12.123Z
           transitioned_to: review
+        - step: review
+          attempt: 1
+          completed_at: 2026-09-21T17:13:41.787Z
+          transitioned_to: human-verification
+          result: pass
+          feedback: "Independent review: model.mjs/activity-model.test.mjs fully satisfy
+            task 01 (required-field checks, ActorRef shape, no closed type enum,
+            no defaulting/mutation, all 19 tests pass). No corrective edits
+            needed within allowed_paths. Found, but did not fix (out of
+            scope/forbidden path): specs/index.generated.json is stale relative
+            to change.yaml (last regenerated at f9b946b, before workflow step
+            start/finish mutated change.yaml task statuses/workflow_progress),
+            causing 2 unrelated pre-existing failures in
+            tools/tests/cli-smoke.test.mjs and tools/tests/e2e-workflow.test.mjs
+            (REC-03). Root cause is the deterministic step-finish operation in
+            tools/specs/workflow/** not regenerating derived indexes after
+            mutating change.yaml — flagging for owner follow-up."
   - id: activity-local-store
     order: 2
     file: tasks/02-activity-local-store.md
