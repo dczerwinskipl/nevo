@@ -155,7 +155,7 @@ tasks:
   - id: task-card-lifecycle-split
     order: 19
     file: tasks/19-task-card-lifecycle-split.md
-    status: implemented
+    status: verified
     depends_on:
       [
         dashboard-deterministic-action-projection,

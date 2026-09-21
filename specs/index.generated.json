@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-21T06:21:24.253Z",
+  "generated": "2026-09-21T06:25:08.471Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -318,11 +318,14 @@
           "id": "task-card-lifecycle-split",
           "order": 19,
           "file": "tasks/19-task-card-lifecycle-split.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "dashboard-deterministic-action-projection",
             "session-bootstrap-readiness-wiring"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "e62150fc1585b1a90807e17cdbb9eba1dcf89f7d"
+          }
         },
         {
           "id": "human-step-surface-consolidation",
