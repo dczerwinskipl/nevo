@@ -44,9 +44,20 @@ this area adapts rather than re-deriving independently.
 - **One aggregate verdict.** Reuse the same top-to-bottom evaluation-table discipline
   `computeMultiTaskReviewVerdict` already establishes (blocked > owner-decision-required >
   changes-required > pass) rather than composing the verdict as prose.
-- **Only a fully-passing group releases suspension.** The remediation group's
-  `blockedBy` suspension (`areas/dependency-release-and-invalidation.md`) is cleared only
-  once every group member (including any added during this review) passes.
+- **Terminal group members get a finding, not a fix attempt (D31, corrected).** A group
+  member that already reached `verified` is never reopened or re-executed — it is included in
+  the cross-task consistency pass read-only; if its assumptions no longer hold, that produces
+  an `owner-decision-required`/`NEEDS_CLARIFICATION` finding (reopening mechanics are a future
+  decision, not solved here), never an automatic re-execution.
+- **Only a fully-passing group clears its `suspensions` entries.** The remediation group's
+  `suspensions` entries (`areas/dependency-release-and-invalidation.md`, D37 — never
+  `blockedBy`) are cleared only once every non-terminal group member (including any added
+  during this review) passes; a terminal member's advisory entry is cleared once its own
+  finding, if any, is resolved by the owner.
+- **Extends the durable record, not a parallel one (D36).** Adding a discovered member calls
+  back into `areas/dependency-release-and-invalidation.md`'s exported function to append to
+  the durable `.nevo-ai-local/remediation-groups/<change>/<remediationId>.json` record's
+  `discoveredMembers` — this area never writes its own separate group-membership file.
 
 ## Constraints
 
@@ -73,9 +84,11 @@ fix attempts, then this area's review once attempts complete);
   t2 gains a required-fix finding citing t1's specific change, and t2 is added to the group.
 - A remediation group where every member's fix is actually consistent (no real
   inconsistency) produces zero cross-task findings and an aggregate `pass` verdict, clearing
-  suspension for every member.
+  `suspensions` for every member.
 - The aggregate verdict is computed from an explicit table, never composed as prose, and
   matches the worst individual per-task/cross-task finding severity.
+- A terminal group member whose assumptions no longer hold produces an owner-facing finding,
+  never an automatic reopen/re-execution of that task.
 
 ## Dependencies
 
@@ -87,4 +100,5 @@ area's review).
 
 Any change to the legacy `implementation-review` mechanism itself. Reviewing a normal
 (non-invalidation) batch of independently-ready tasks — those continue through each task's
-own `continueOnSuccess: auto` review, not this area's combined pass.
+own `continuation: auto` review, not this area's combined pass. Reopening a terminal task's
+workflow (deferred to a future decision if it ever proves necessary).

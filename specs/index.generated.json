@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-21T13:41:17.438Z",
+  "generated": "2026-09-21T18:49:39.356Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -13,13 +13,63 @@
           "id": "activity-core-model-and-contracts",
           "order": 1,
           "file": "tasks/01-activity-core-model-and-contracts.md",
-          "status": "draft"
+          "status": "verified",
+          "workflow_progress": {
+            "current_step": "human-verification",
+            "current_attempt": 2,
+            "state": "completed",
+            "history": [
+              {
+                "step": "implementation",
+                "attempt": 1,
+                "completed_at": "2026-09-21T17:03:12.123Z",
+                "transitioned_to": "review"
+              },
+              {
+                "step": "review",
+                "attempt": 1,
+                "completed_at": "2026-09-21T17:13:41.787Z",
+                "transitioned_to": "human-verification",
+                "result": "pass",
+                "feedback": "Independent review: model.mjs/activity-model.test.mjs fully satisfy task 01 (required-field checks, ActorRef shape, no closed type enum, no defaulting/mutation, all 19 tests pass). No corrective edits needed within allowed_paths. Found, but did not fix (out of scope/forbidden path): specs/index.generated.json is stale relative to change.yaml (last regenerated at f9b946b, before workflow step start/finish mutated change.yaml task statuses/workflow_progress), causing 2 unrelated pre-existing failures in tools/tests/cli-smoke.test.mjs and tools/tests/e2e-workflow.test.mjs (REC-03). Root cause is the deterministic step-finish operation in tools/specs/workflow/** not regenerating derived indexes after mutating change.yaml — flagging for owner follow-up."
+              },
+              {
+                "step": "human-verification",
+                "attempt": 1,
+                "completed_at": "2026-09-21T17:15:48.177Z",
+                "transitioned_to": "implementation",
+                "result": "fail",
+                "feedback": "Zaakceptowane ale testuje czy dostałeś review. Jak dojdziesz do kolejnej implementacji, to napisz mi \"krowa\" w podsumowaniu."
+              },
+              {
+                "step": "implementation",
+                "attempt": 2,
+                "completed_at": "2026-09-21T17:16:22.446Z",
+                "transitioned_to": "review"
+              },
+              {
+                "step": "review",
+                "attempt": 2,
+                "completed_at": "2026-09-21T17:18:00.826Z",
+                "transitioned_to": "human-verification",
+                "result": "pass",
+                "feedback": "Deliverable files (tools/specs/activity/model.mjs, tools/tests/activity-model.test.mjs) are unchanged (byte-identical) since the prior full review at bb380f1, which already confirmed all task-01 acceptance criteria are met. Re-ran required verification: 19/19 tests pass, specs.mjs validate clean. No corrective edits needed."
+              },
+              {
+                "step": "human-verification",
+                "attempt": 2,
+                "completed_at": "2026-09-21T17:19:30.097Z",
+                "transitioned_to": "verified",
+                "result": "pass"
+              }
+            ]
+          }
         },
         {
           "id": "activity-local-store",
           "order": 2,
           "file": "tasks/02-activity-local-store.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "activity-core-model-and-contracts"
           ]
@@ -28,7 +78,7 @@
           "id": "actor-resolver",
           "order": 3,
           "file": "tasks/03-actor-resolver.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "activity-core-model-and-contracts"
           ]
@@ -37,7 +87,7 @@
           "id": "activity-query-and-export",
           "order": 4,
           "file": "tasks/04-activity-query-and-export.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "activity-core-model-and-contracts",
             "activity-local-store"
@@ -47,7 +97,7 @@
           "id": "activity-dashboard-api",
           "order": 5,
           "file": "tasks/05-activity-dashboard-api.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "activity-query-and-export"
           ]
@@ -56,7 +106,7 @@
           "id": "workflow-step-activity-producer",
           "order": 6,
           "file": "tasks/06-workflow-step-activity-producer.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "activity-local-store",
             "actor-resolver"
@@ -66,7 +116,7 @@
           "id": "human-verification-activity-producer",
           "order": 7,
           "file": "tasks/07-human-verification-activity-producer.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "activity-local-store",
             "actor-resolver"
@@ -76,7 +126,7 @@
           "id": "activity-adr-and-docs",
           "order": 8,
           "file": "tasks/08-activity-adr-and-docs.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "activity-dashboard-api",
             "workflow-step-activity-producer",
@@ -386,6 +436,93 @@
           "implementation": {
             "baseline_revision": "669c558cb45b9ba1493b5cf8315921d784c02b44"
           }
+        },
+        {
+          "id": "agent-step-bootstrap-and-context",
+          "order": 24,
+          "file": "tasks/24-agent-step-bootstrap-and-context.md",
+          "status": "draft"
+        },
+        {
+          "id": "workflow-continuation-schema",
+          "order": 25,
+          "file": "tasks/25-workflow-continuation-schema.md",
+          "status": "draft"
+        },
+        {
+          "id": "execution-policy-and-mode-selection",
+          "order": 26,
+          "file": "tasks/26-execution-policy-and-mode-selection.md",
+          "status": "draft"
+        },
+        {
+          "id": "dependency-release-and-invalidation",
+          "order": 27,
+          "file": "tasks/27-dependency-release-and-invalidation.md",
+          "status": "draft",
+          "depends_on": [
+            "workflow-continuation-schema"
+          ]
+        },
+        {
+          "id": "deterministic-batch-orchestrator",
+          "order": 28,
+          "file": "tasks/28-deterministic-batch-orchestrator.md",
+          "status": "draft",
+          "depends_on": [
+            "workflow-continuation-schema",
+            "dependency-release-and-invalidation"
+          ]
+        },
+        {
+          "id": "automatic-workflow-continuation",
+          "order": 29,
+          "file": "tasks/29-automatic-workflow-continuation.md",
+          "status": "draft",
+          "depends_on": [
+            "workflow-continuation-schema",
+            "execution-policy-and-mode-selection",
+            "deterministic-batch-orchestrator"
+          ]
+        },
+        {
+          "id": "dependency-invalidation-remediation-review",
+          "order": 30,
+          "file": "tasks/30-dependency-invalidation-remediation-review.md",
+          "status": "draft",
+          "depends_on": [
+            "dependency-release-and-invalidation",
+            "deterministic-batch-orchestrator"
+          ]
+        },
+        {
+          "id": "user-mutation-source-control-finalization",
+          "order": 31,
+          "file": "tasks/31-user-mutation-source-control-finalization.md",
+          "status": "draft"
+        },
+        {
+          "id": "dashboard-orchestration-wiring",
+          "order": 32,
+          "file": "tasks/32-dashboard-orchestration-wiring.md",
+          "status": "draft",
+          "depends_on": [
+            "execution-policy-and-mode-selection",
+            "deterministic-batch-orchestrator",
+            "automatic-workflow-continuation",
+            "dependency-invalidation-remediation-review"
+          ]
+        },
+        {
+          "id": "orchestration-e2e-dogfood-tests",
+          "order": 33,
+          "file": "tasks/33-orchestration-e2e-dogfood-tests.md",
+          "status": "draft",
+          "depends_on": [
+            "dashboard-orchestration-wiring",
+            "user-mutation-source-control-finalization",
+            "dependency-invalidation-remediation-review"
+          ]
         }
       ]
     },

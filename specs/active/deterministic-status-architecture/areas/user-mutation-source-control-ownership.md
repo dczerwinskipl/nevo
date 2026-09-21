@@ -22,20 +22,35 @@ mutations from technical activations from completed lifecycle mutations.
 
 ## Requirements
 
-- **Publish owns its commit/push (D29).** `publishTask()`/Batch Publish become: validate →
-  mutate (`setTaskStatus`, unchanged) → commit → push (only if the resolved
-  `workflow.sourceControl` config enables it, per the existing per-definition
-  `sourceControl: {enabled, push}` config, unchanged in meaning) → return success. Reuse the
-  existing, already-registered `commit-and-push` action — no second Git implementation.
-- **Deterministic commit message.** Auto-generate `chore(workflow): publish <task-id>` (or
-  the equivalent Batch Publish wording for multiple tasks) — never prompt the user for a
-  commit message on this routine lifecycle action.
-- **Crash/resume semantics.** Follow the same pattern `commit-and-push` already provides for
-  `finishStep`'s own multi-stage mutate-then-finalize sequence; do not invent a new
-  crash-recovery mechanism specific to Publish.
-- **Clean-worktree guarantee preserved.** If `commit-and-push` fails after the mutation, the
-  worktree is left exactly as dirty as any other action's own failure mode leaves it today —
-  never worse, never silently swallowed.
+- **Publish is a durable standalone operation, reusing `finishStep`'s real durability
+  primitives — not a bare `commit-and-push` call (D29, corrected).** `CommitAndPushAction`
+  alone does **not** inherit `finishStep`'s crash/resume semantics — those come from
+  `operation-record.mjs`'s intent-then-verify pattern, not from the Git action by itself.
+  `publishTask()` becomes: validate → durable intent (a
+  `.nevo-ai-local/workflow-operations/<change>/<task>/publish/attempt-<n>.json` record, same
+  convention/primitives `operation-record.mjs` already defines — `createOperationRecord`/
+  `saveOperationRecord`/`findInFlightOperationRecord` reused directly) → mutate
+  (`setTaskStatus`) → commit → push (only if the resolved `sourceControl` config enables it)
+  → mark the record completed. Stages mirror `finish-operation.mjs`'s own
+  `ensureUpdateTask`/`ensureCommit`/`ensurePush` intent-then-verify shape — extract these as
+  shared functions callable from both `finishStep` and `publishTask` rather than
+  reimplementing git-state reconciliation a second time.
+- **Deterministic commit message.** Auto-generate `chore(workflow): publish <task-id>` for a
+  single-task publish.
+- **Batch Publish is one atomic operation, not one commit per task (D29, corrected —
+  previously left undecided).** One dashboard "Publish selected tasks" action is one durable
+  operation record spanning the whole selected set
+  (`.nevo-ai-local/workflow-operations/<change>/_batch-publish/attempt-<n>.json`, a reserved
+  pseudo-task-id since the record spans multiple real tasks): prevalidate **every** selected
+  task first; only if all pass does mutation begin; mutate every selected task's status; one
+  deterministic combined commit (e.g. `chore(workflow): publish <id-1>, <id-2>, ...`, bounded/
+  summarized if the list is long) → optional push. If any task fails prevalidation, **none**
+  are published — no partial-batch mutation. Never prompt the user for a commit message for
+  either the single-task or batch case.
+- **Clean-worktree guarantee preserved.** A durable record left `running` after a crash is
+  reconciled the same way `finish-operation.mjs`'s own stages already reconcile an ambiguous
+  intent (compare persisted `intent` against real repository/task state; resume, no-op, or
+  fail closed with `reconciliation-required` — never guess).
 - **Ownership taxonomy documented (D30).** Extend `docs/development/agent-workflow-protocol.md`'s
   existing ownership-boundaries section (no new doc file, per D3's precedent) with three
   explicit categories: (1) standalone user-originated Git-tracked mutation (must finalize its
@@ -47,13 +62,13 @@ mutations from technical activations from completed lifecycle mutations.
 
 ## Constraints
 
-- No duplicate Git implementation — reuse `commit-and-push` exactly as `finish-operation.mjs`
-  already does.
+- No duplicate Git implementation and no duplicate crash-recovery implementation — reuse
+  `commit-and-push` and `operation-record.mjs`'s primitives exactly as `finish-operation.mjs`
+  already does; extract shared stage functions if `finish-operation.mjs`'s own
+  `ensureCommit`/`ensurePush` aren't already generic enough to call directly.
 - No new doc file for the taxonomy (D3's precedent: extend the existing section).
-- Batch Publish's multi-task commit must not partially apply — either all named tasks'
-  `change.yaml` mutations are committed together, or the failure is surfaced with the
-  worktree state `commit-and-push`'s own failure mode already leaves (no new semantics
-  invented for the batch case beyond what a single-task failure already produces).
+- Batch Publish prevalidates every selected task before any mutation — no partial-batch
+  mutation under any failure ordering.
 
 ## Interfaces and boundaries
 
@@ -71,17 +86,20 @@ which must classify themselves against the taxonomy before being built.
   afterward, not by mocking the commit call.
 - The generated commit message matches `chore(workflow): publish <task-id>` exactly, with no
   user-supplied message required or accepted for this action.
-- A `commit-and-push` failure after the `setTaskStatus` mutation leaves the worktree in the
-  same class of dirty state `finish-operation.mjs`'s own failure mode already produces —
-  proven by forcing a failure (e.g. a push rejection) and inspecting the resulting state.
+- A crash simulated between the durable-record write and the commit landing is reconciled on
+  the next `publishTask()` invocation the same way `finish-operation.mjs`'s own stages
+  reconcile an ambiguous intent — resumed, no-op, or a clear `reconciliation-required` error,
+  never a silent guess.
+- Batch Publish where one of three selected tasks fails prevalidation publishes **none** of
+  the three — proven directly, not merely asserted.
 - `docs/development/agent-workflow-protocol.md` states the three-category taxonomy with the
   concrete examples above, extending the existing section (`git diff` shows no new top-level
   heading/file).
 
 ## Dependencies
 
-None among this change's own prior tasks — reuses the existing `commit-and-push` action
-directly.
+None among this change's own prior tasks — reuses the existing `commit-and-push` action and
+`operation-record.mjs` primitives directly.
 
 ## Out of scope
 

@@ -876,13 +876,30 @@ points are asserted to route through the identical `startStep` function instance
   selection UI rather than inventing a parallel one, and don't ask the same question at every
   automatic handover.
 - **Consequences:** `start-step`'s dispatcher gains a readiness check: "does an execution
-  policy already exist for this task/provider?" If not, and the provider's permission model
-  needs an explicit mode, show the selection UI instead of creating a session directly. Exact
-  persistence location (session store vs. a new sidecar) is an implementation detail for
-  `areas/workflow-continuation-and-session-handover.md`'s owning task, not decided here.
-- **Date:** 2026-09-21
+  policy already exist for this change/provider?" If not, and the provider's permission model
+  needs an explicit mode, show the selection UI instead of creating a session directly.
+- **Corrected 2026-09-21 (pass 10 — scope and transport, no longer deferred):** "task or
+  change, decided during implementation" is resolved: the execution policy's canonical scope
+  is **the change/specification**, not the task — `{provider, mode}` resolved from the first
+  explicit Start (or batch Start) applies to every task in the spec's sequential queue (D33)
+  and every automatic handover, since the single-execution invariant (D33) means only one
+  execution is ever active for the spec at a time regardless of which task it belongs to.
+  Optional per-task overrides may layer on top of the change-level default (e.g. a task that
+  genuinely needs a different provider), but the change-level default is the only policy
+  persisted by default — task-level entries are additive exceptions, never the primary
+  storage. Persisted server-side at `.nevo-ai-local/execution-policy/<change>.json`
+  (git-ignored local runtime convention, same family as
+  `.nevo-ai-local/workflow-operations/**`), shape `{provider, mode, taskOverrides?: {
+  [taskId]: {provider?, mode?} }}`, atomic temp-file-then-rename writes matching
+  `operation-record.mjs`'s existing pattern. A real server transport owns read/write — a new
+  route (e.g. `GET`/`PUT /api/specs/:slug/execution-policy`) backed by a small service module
+  — the browser never reads/writes the local file directly. "Fresh reviewer session" (D26) is
+  independent of this policy: a fresh session still uses the same resolved provider/mode
+  unless a task-level override says otherwise — freshness and provider selection are
+  orthogonal axes, never conflated.
+- **Date:** 2026-09-21 (transport/scope corrected 2026-09-21, pass 10)
 - **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
-  `tasks/25-execution-policy-and-mode-selection.md`.
+  `tasks/26-execution-policy-and-mode-selection.md`.
 
 ## D22: `StepContext` gains an explicit `taskDefinition` field — the agent never rediscovers its own task file
 
@@ -918,18 +935,28 @@ points are asserted to route through the identical `startStep` function instance
 - **Decision:** Two distinct fields. `requiredContext` — sourced directly from the task
   frontmatter's `context.required` (and `context.optional`, if the loader already
   distinguishes them) — is part of the task's execution contract; it is never replaced or
-  filtered by routing inference. At minimum it carries canonical, repo-root-relative paths;
-  bundling each document's content inline (so the agent needs zero extra discovery/read calls)
-  is the preferred shape and must be evaluated against payload-size impact during
-  implementation, not decided as unconditional here. `relevantDocs` is unchanged in meaning
-  and computation (routing-derived repository rules/instructions) and stays a separate field
-  — neither field replaces the other.
+  filtered by routing inference. `relevantDocs` is unchanged in meaning and computation
+  (routing-derived repository rules/instructions) and stays a separate field — neither field
+  replaces the other.
 - **Rationale:** Matches the corrective-pass brief exactly: "Model two different concepts
   explicitly... They are not interchangeable."
 - **Consequences:** `agent-step-bootstrap-and-context` (task 24) reuses the existing
   frontmatter-loading path (`loadTaskFrontMatter`/`parseFrontMatterFile`, already used by
   `buildContextPacket()`) rather than re-deriving `context.required` a second way.
-- **Date:** 2026-09-21
+- **Corrected 2026-09-21 (pass 10 — content-bundling finalized, no longer deferred):**
+  "bundle inline vs. paths-only, evaluate against payload size during implementation" is
+  resolved now: `requiredContext` entries carry **path + content inline**, exactly like
+  `taskDefinition` (D22) — the same invariant applies to both: *the agent must not perform
+  repository discovery to determine which task or required-context documents it is supposed
+  to read.* Evaluated against real `ai-spec-history` task sizes (task 01's own
+  `context.required` names three documents — `overview.md`, one `areas/*.md`, `owner-
+  decisions.md` — each realistically a few KB to tens of KB in this repository's own specs);
+  inlining a handful of such documents is materially smaller than the routing-derived
+  `relevantDocs`/`instructions` payload `StepContext` already sends today, so there is no
+  payload-size justification for the paths-only fallback. If a future task's declared
+  `context.required` set becomes large enough to matter, that is a reason to revisit *task
+  authoring practice* (narrower `context.required`), not to weaken this contract.
+- **Date:** 2026-09-21 (content-bundling finalized 2026-09-21, pass 10)
 - **Affected artifacts:** `areas/agent-step-bootstrap-and-context.md`,
   `tasks/24-agent-step-bootstrap-and-context.md`.
 
@@ -989,13 +1016,30 @@ points are asserted to route through the identical `startStep` function instance
   code inferring it from step names."
 - **Consequences:** No `if (nextStep === 'review')` or equivalent step-name dispatch is
   introduced anywhere (same invariant D15 already established, extended to this new layer).
-  `standard-v1.yaml`'s `implementation → review` transition is the first candidate for
-  `continueOnSuccess: auto`; whether it should actually be set that way (vs. left
-  `owner-action`) is an implementation-time judgment against this decision's schema, not
-  fixed here.
-- **Date:** 2026-09-21
+- **Corrected 2026-09-21 (pass 10 — field renamed, semantics narrowed, full migration
+  decided):** `continueOnSuccess` was semantically wrong — continuation matters just as much
+  for a *failing* result (`review` fail → `implementation`, `human-verification`'s "Request
+  changes" → `implementation`) as for a passing one. Renamed to **`continuation: auto |
+  owner-action`** (default `owner-action` when absent, unchanged backward-compat), legal only
+  on an internal (step-to-step) transition — a terminal transition has no next position to
+  continue to, so the field is never written there. **`continuation: auto` means only that no
+  owner decision is required before the destination position may be scheduled — it does
+  **not** mean the destination executes immediately.** Whether it executes next, or waits
+  behind other runnable work, is the sequential queue's own scheduling decision (D33/D34),
+  never this field's concern; conflating "no owner action needed" with "run this next" was
+  the mistake corrected here. Full `standard-v1.yaml` migration (auditing every internal
+  transition, not only `implementation → review`): `implementation`'s `to: review` →
+  `continuation: auto`; `review`'s `value: fail, to: implementation` → `continuation: auto`;
+  `review`'s `value: pass, to: human-verification` → `continuation: auto` (destination is
+  human-owned — D27 auto-activates it, then pauses for the real decision);
+  `human-verification`'s `value: fail, to: implementation` ("Request changes") →
+  `continuation: auto`. `human-verification`'s `value: pass, to: verified` is terminal — no
+  `continuation` field. The orchestration layer that acts on `continuation: auto` is
+  server-side (D35), not `finishStep()` and not a React callback.
+- **Date:** 2026-09-21 (field renamed and full migration decided 2026-09-21, pass 10)
 - **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
-  `tasks/26-workflow-continuation-schema.md`, `tasks/27-automatic-workflow-continuation.md`.
+  `tasks/25-workflow-continuation-schema.md`, `tasks/29-automatic-workflow-continuation.md`,
+  `.nevo-ai/workflows/standard-v1.yaml`.
 
 ## D26: Declarative session-reuse policy, session lineage, and execution role — review uses a fresh session
 
@@ -1006,20 +1050,11 @@ points are asserted to route through the identical `startStep` function instance
   lineage or execution-role concept exists anywhere in `tools/dashboard/server/ai/**`
   (confirmed absent by grep). How should "independent reviewer" be modeled without requiring a
   different provider and without deriving it from a literal step name?
-- **Decision:** A declarative `sessionPolicy: reuse | fresh` field on a step (or, if cleaner
-  during implementation, on the transition entering it) determines whether the orchestrator
-  (D25) reuses the previous step's session or creates a fresh one. `standard-v1.yaml`'s
-  `review` step is set to `fresh`. A fresh session records `parentSessionId` — a new lineage
-  field on the existing canonical session identity (alongside `sessionId`,
-  `activeTaskId`/`taskIds`) — pointing at the session it followed, so lineage is queryable
-  without inventing a second identity system. An execution-role concept
-  (`role: implementer | reviewer | refiner`, extensible) is added to session identity,
-  assigned by the orchestrator from the *step's* own execution semantics (never derived from
-  a literal step id/name — e.g. `standard-v1`'s `human-verification`'s agent-owned
-  "request-changes" handover would use `role: refiner`, decided by the transition's own
-  declared handover target, not by string-matching `'human-verification'`). "Independent
-  reviewer" means a fresh session/execution context; provider/model selection stays the
-  separate policy D21 already governs.
+- **Decision:** A declarative `execution: {session: reuse | fresh, role: <string>}` object on
+  the **transition** (not the step — see correction below) determines whether the
+  orchestrator (D25/D35) reuses the previous session or creates a fresh one, and which role
+  the new session plays. `standard-v1.yaml`'s `implementation → review` transition sets
+  `execution: {session: fresh, role: reviewer}`.
 - **Rationale:** Matches the brief precisely: reuse the existing canonical session identity
   for lineage rather than a new one; support at least reuse/fresh; assign roles from
   declared semantics, never step-name derivation; independence is about session freshness,
@@ -1027,11 +1062,30 @@ points are asserted to route through the identical `startStep` function instance
 - **Consequences:** `listSessions`/`listSessionsSync`'s `taskId`-only filter is unaffected by
   this decision (still correct for "show me every session touching this task" — a UI listing
   concern); the orchestrator's own "which session do I hand off to" decision is a separate,
-  new consumer of `sessionPolicy`/`parentSessionId`/`role`, not a change to the existing list
-  filter's semantics.
-- **Date:** 2026-09-21
+  new consumer of `execution`/`parentSessionId`, not a change to the existing list filter's
+  semantics.
+- **Corrected 2026-09-21 (pass 10 — canonical location settled, role de-hardcoded):**
+  "on a step (or, if cleaner, the entering transition) — decide during implementation" left a
+  real ambiguity unresolved: `implementation` has **two** distinct inbound transitions
+  (`review`'s fail branch, `human-verification`'s "Request changes" branch) that may
+  legitimately want different session policies for the same destination step. Settled: the
+  **transition** is the sole canonical location — consistent with `outcome` (D9),
+  `releasesDependencies` (D28), and `continuation` (D25) all already living there, and it is
+  the only location expressive enough for `implementation`'s two different inbound cases.
+  Steps carry only `executor` (agent|human, protocol) — never session/role metadata. `role`
+  is a free-form, workflow-declared identifier — never a closed application enum — so a
+  future workflow can introduce a role this repository has never seen without an application
+  code change; `implementer`/`reviewer`/`refiner` are `standard-v1`'s own chosen values, not
+  reserved words. Full `standard-v1.yaml` migration: `implementation → review`:
+  `execution: {session: fresh, role: reviewer}`; `review` fail → `implementation`:
+  `execution: {session: fresh, role: refiner}`; `human-verification` fail (Request changes)
+  → `implementation`: `execution: {session: fresh, role: refiner}`. `review` pass →
+  `human-verification` carries no `execution` (destination is human-owned; D12 unchanged —
+  starting a human step never creates a session).
+- **Date:** 2026-09-21 (canonical location and role extensibility settled 2026-09-21, pass 10)
 - **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
-  `tasks/26-workflow-continuation-schema.md`, `tasks/27-automatic-workflow-continuation.md`.
+  `tasks/25-workflow-continuation-schema.md`, `tasks/29-automatic-workflow-continuation.md`,
+  `.nevo-ai/workflows/standard-v1.yaml`.
 
 ## D27: The orchestrator auto-activates a human-owned step on arrival; the redundant manual "Start" click is removed
 
@@ -1081,14 +1135,15 @@ points are asserted to route through the identical `startStep` function instance
   explicitly state that a transition/milestone releases downstream dependencies." Placing it
   on the transition (not the step) mirrors D9's own reasoning for `outcome` — the release
   point is an event (a specific transition firing), not a static property of a step.
-- **Consequences:** `standard-v1.yaml`'s `implementation → review` transition is the natural
-  candidate to mark `releasesDependencies: true` (matching the corrective-pass brief's own
-  example); doing so is an implementation-time judgment against this schema, not fixed here.
-  This decision covers only the release point — the invalidation consequence when a released
-  dependency's later review fails is OQ-A, open, not decided by this entry.
+- **Consequences:** `standard-v1.yaml`'s `implementation → review` transition carries
+  `releasesDependencies: true` (decided; see the full migration table under the corrected
+  D25). A release means a downstream task may **enter the sequential queue's runnable set**
+  (D33) — never that it starts concurrently with the releasing task's own continued
+  execution; the queue still enforces exactly one active agent execution for the spec. The
+  invalidation consequence when a released dependency's later review fails is D31 (resolved).
 - **Date:** 2026-09-21
 - **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
-  `tasks/26-workflow-continuation-schema.md`, `tasks/28-dependency-release-and-invalidation.md`.
+  `tasks/25-workflow-continuation-schema.md`, `tasks/27-dependency-release-and-invalidation.md`.
 
 ## D29: `workflow task publish`/Batch Publish own their own commit/push
 
@@ -1103,22 +1158,41 @@ points are asserted to route through the identical `startStep` function instance
   enables it, per existing per-definition `sourceControl: {enabled, push}` config, unchanged
   in meaning) → return success. The commit message is auto-generated and deterministic —
   `chore(workflow): publish <task-id>` — the user is never asked to type one for this routine
-  lifecycle action. The operation reuses the existing, already-registered `commit-and-push`
-  action (`defaultActionRegistry.require('commit-and-push')`, the same one `finish-operation.mjs`
-  already calls) rather than a second Git implementation. Crash/resume semantics follow the
-  same pattern that action already provides for `finishStep`'s own multi-stage
-  mutate-then-finalize sequence — no new crash-recovery mechanism is invented for Publish
-  specifically.
+  lifecycle action.
 - **Rationale:** Matches the brief's stated principle directly: "a user action that
   independently completes a Git-tracked lifecycle mutation must own the source-control
-  finalization of that mutation." Reusing the existing action avoids duplicating Git
-  implementation and inherits its already-proven crash-safety properties.
+  finalization of that mutation."
 - **Consequences:** Publish's clean-worktree guarantee is preserved (the brief's explicit
-  "do not weaken" constraint) — if `commit-and-push` fails after the mutation, the worktree is
-  left exactly as dirty as any other action's own failure mode leaves it today, not worse.
-- **Date:** 2026-09-21
+  "do not weaken" constraint).
+- **Corrected 2026-09-21 (pass 10 — durability was wrong, atomicity was undecided):** the
+  original text assumed invoking `commit-and-push` right after `setTaskStatus()` "inherits"
+  `finishStep`'s crash/resume semantics. **Grounded fact:** it does not — `finishStep`'s
+  durability comes from `operation-record.mjs`'s intent-then-verify pattern (a durable record
+  written *before* each mutating stage, reconciled on the next invocation via
+  `findInFlightOperationRecord`), not from `CommitAndPushAction` alone; calling that action
+  bare, with no durable record wrapping it, leaves Publish exactly as crash-unsafe as before
+  if the process dies between `setTaskStatus` and the commit actually landing. **Corrected
+  design:** `publishTask()` becomes a durable standalone operation using the *same*
+  `.nevo-ai-local/workflow-operations/<change>/<task>/publish/attempt-<n>.json` record
+  convention `operation-record.mjs` already defines (reusing `createOperationRecord`/
+  `saveOperationRecord`/`findInFlightOperationRecord` directly, not a parallel
+  implementation), with stages `['validate', 'update-task', 'commit', 'push']` mirroring
+  `finish-operation.mjs`'s own `ensureUpdateTask`/`ensureCommit`/`ensurePush` intent-then-
+  verify shape (extract these as shared, reusable stage functions if they aren't already
+  generic enough to call from both `finishStep` and `publishTask` — do not duplicate the
+  git-state-reconciliation logic a second time). **Batch Publish atomicity, also previously
+  left open, now decided:** one dashboard "Publish selected tasks" action is one durable
+  operation record spanning the whole selected set (not one record per task) —
+  prevalidate every selected task first; only if *all* pass does mutation begin; mutate every
+  selected task's status; one deterministic combined commit (e.g. `chore(workflow): publish
+  <task-id-1>, <task-id-2>, ...`, bounded/summarized if the list is long) → optional push.
+  If any task fails prevalidation, none are published — no partial-batch mutation. The
+  record lives at `.nevo-ai-local/workflow-operations/<change>/_batch-publish/attempt-<n>.json`
+  (a reserved pseudo-task-id, since the record spans multiple real tasks) using the same
+  primitives.
+- **Date:** 2026-09-21 (durability and batch atomicity corrected 2026-09-21, pass 10)
 - **Affected artifacts:** `areas/user-mutation-source-control-ownership.md`,
-  `tasks/30-user-mutation-source-control-finalization.md`.
+  `tasks/31-user-mutation-source-control-finalization.md`.
 
 ## D30: Explicit three-way source-control ownership taxonomy
 
@@ -1143,7 +1217,7 @@ points are asserted to route through the identical `startStep` function instance
   a documentation-level guardrail, not a new enforced runtime check.
 - **Date:** 2026-09-21
 - **Affected artifacts:** `areas/user-mutation-source-control-ownership.md`,
-  `tasks/30-user-mutation-source-control-finalization.md`.
+  `tasks/31-user-mutation-source-control-finalization.md`.
 
 ## D31: Dependency invalidation forms an automatic remediation group, fixed and re-reviewed together, with cross-task-aware review
 
@@ -1152,12 +1226,25 @@ points are asserted to route through the identical `startStep` function instance
   returns to implementation, what is the deterministic consequence — for t1's own fix cycle,
   for the already-started downstream tasks, and for how the fix gets reviewed?
 - **Decision (owner's own direction, not option (a)/(b)/(c)):**
-  1. **Automatic remediation-group derivation.** The system — never the owner by hand —
-     computes the remediation group: t1 plus every downstream task whose start was enabled by
-     t1's premature `releasesDependencies` release and that has not yet reached its own
-     terminal transition. This is derived from existing `workflow_progress`
-     dependency-release history (D28), the same data `dependency-satisfaction.mjs` already
-     tracks — no new manual bookkeeping is introduced for the owner to maintain.
+  1. **Automatic remediation-group derivation, including already-terminal consumers
+     (corrected 2026-09-21, pass 10).** The system — never the owner by hand — computes the
+     remediation group: t1 plus **every** downstream task that actually consumed t1's
+     premature `releasesDependencies` release, **regardless of that task's current state**
+     (`active`, `waiting`, `completed`, or already `terminal`) — the original wording
+     ("has not yet reached its own terminal transition") was itself unsafe: a downstream task
+     that already reached `verified` while built against the invalidated release is not
+     retroactively correct merely because it finished. This is derived from existing
+     `workflow_progress` dependency-release history (D28), the same data
+     `dependency-satisfaction.mjs` already tracks — no new manual bookkeeping is introduced
+     for the owner to maintain. **A terminal consumer is never reopened or reverted** —
+     reopening a completed deterministic workflow is not a supported engine operation today
+     and is not designed by this pass; instead, a terminal consumer is flagged in the group
+     with a `suspensions[]` entry (D37) whose meaning is advisory/blocking-for-finalization
+     ("this task's result requires revalidation"), not an enforceable next-step block (it has
+     no next step). If the combined review (task 30) determines a terminal consumer's actual
+     result is wrong, that is itself a structured `NEEDS_CLARIFICATION`/owner-decision
+     finding — reopening mechanics are explicitly deferred to a future decision if/when this
+     occurs in practice, not solved speculatively here.
   2. **Suspension, not rollback.** Every task in the remediation group is suspended from
      starting its own *next* step (same forward-only, non-destructive shape as the original
      option (a)) until the group's remediation completes — no already-completed work in any
@@ -1186,27 +1273,33 @@ points are asserted to route through the identical `startStep` function instance
      legacy `task.status` and `task-review`'s own flow), but its *design* — deterministic
      scope resolution, per-task review first, then a bounded semantic-integration pass over
      related pairs, one aggregate verdict — is the pattern
-     `dependency-invalidation-remediation-review` (new task 33) adapts for the deterministic
+     `dependency-invalidation-remediation-review` (task 30) adapts for the deterministic
      `workflow_progress` engine, rather than inventing an unrelated design from scratch.
-  6. **Group can grow during its own review.** Discovering, during the combined review, that
-     an additional downstream task needs a fix is itself a real, structured finding the
-     review surfaces (extending the remediation group), never something silently absorbed or
-     dropped.
+  6. **Group can grow during its own review — and that growth must be durable (corrected
+     2026-09-21, pass 10; see D36).** Discovering, during the combined review, that an
+     additional downstream task needs a fix is itself a real, structured finding the review
+     surfaces (extending the remediation group), never something silently absorbed or
+     dropped. This creates a real tension the original text left unresolved: a group "purely
+     derived from `workflow_progress` history" cannot also be "extended by a semantic review
+     finding" — an extension is not itself re-derivable from history alone. D36 resolves this
+     with a durable local orchestration record for the group, independent of but consistent
+     with `workflow_progress`.
 - **Rationale:** Matches the owner's stated real workflow directly: fixes to a failed
   dependency and its consumers happen together, not as isolated per-task auto-continuations
   that would miss exactly the cross-task adjustment the owner described (t1 changes → t2
   needs adjusting even though t2 wasn't itself broken). Reusing `implementation-review`'s
   proven two-pass cross-task design avoids re-deriving a review algorithm this repository
   already has working, tested code for, in spirit if not in literal reuse.
-- **Consequences:** `areas/dependency-release-and-invalidation.md`'s task (28) gains the
-  remediation-group derivation and suspension signal; a new task,
-  `dependency-invalidation-remediation-review` (task 33), owns the combined,
-  cross-task-aware review pass, depending on task 28 (the group signal) and task 29 (running
-  the group's fix attempts through the batch scheduler).
-- **Date:** 2026-09-21
+- **Consequences:** `areas/dependency-release-and-invalidation.md`'s task (27) gains the
+  remediation-group derivation and suspension signal (including terminal consumers); a new
+  task, `dependency-invalidation-remediation-review` (task 30), owns the combined,
+  cross-task-aware review pass, depending on task 27 (the group signal) and task 28 (running
+  the group's fix attempts through the sequential queue, never concurrently, per D33).
+- **Date:** 2026-09-21 (terminal-consumer inclusion and durability corrected 2026-09-21,
+  pass 10)
 - **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
-  `areas/deterministic-batch-orchestrator.md`, `tasks/28-dependency-release-and-invalidation.md`,
-  `tasks/33-dependency-invalidation-remediation-review.md` (new).
+  `areas/deterministic-batch-orchestrator.md`, `tasks/27-dependency-release-and-invalidation.md`,
+  `tasks/30-dependency-invalidation-remediation-review.md`.
 
 ## D32: Batch task selection is a checkbox picker pre-selected with ready tasks, not named selection "modes"; cross-selection dependency gaps warn, never hard-block
 
@@ -1233,8 +1326,270 @@ points are asserted to route through the identical `startStep` function instance
   respects that the owner may deliberately be running a partial batch across multiple passes.
 - **Consequences:** `areas/deterministic-batch-orchestrator.md`'s three-named-"selection
   modes" framing is replaced by this single checkbox-picker model;
-  `deterministic-batch-orchestrator` (task 29) and `dashboard-orchestration-wiring` (task 31)
+  `deterministic-batch-orchestrator` (task 28) and `dashboard-orchestration-wiring` (task 32)
   are corrected accordingly.
+- **SUPERSEDED 2026-09-21 (pass 10) — corrected in full by D33, not amended in place, because
+  the whole premise was wrong, not just a detail.** This decision's checkbox-picker selection
+  UX and warn-not-block behavior **stand, unchanged**. But "a concrete bounded concurrency
+  limit is still required internally… defaulted to a small, configurable value" is **retracted
+  outright**: this pass wrongly introduced *any* notion of concurrent agent execution within
+  one specification. Nevo's deterministic workflow model is a **single-active-execution**
+  invariant per specification — not "bounded concurrency," not "start two independently-ready
+  tasks," not "parallel agent sessions." A batch is a **queue**: selected tasks execute one at
+  a time, in a deterministically-ordered sequence, never concurrently. See D33 for the full,
+  corrected model — every "concurrency limit"/"bounded concurrency"/"parallel starts" phrase
+  anywhere in this spec's areas/tasks is removed, not merely bounded to a small number.
+- **Date:** 2026-09-21 (selection UX decided 2026-09-21; concurrency assumption retracted and
+  replaced by D33, 2026-09-21, pass 10)
+- **Affected artifacts:** `areas/deterministic-batch-orchestrator.md`,
+  `tasks/28-deterministic-batch-orchestrator.md`, `tasks/32-dashboard-orchestration-wiring.md`.
+
+## D33: Single active agent execution per specification — batch means a sequential queue, never concurrency
+
+- **Question:** Tasks 24–33 (D21–D32) incorrectly introduced concurrent execution of
+  multiple tasks belonging to the same specification/change — a "concurrency limit," "start
+  two independently-ready tasks," and bounded-parallelism language throughout
+  `deterministic-batch-orchestrator`. Is this the intended model?
+- **Decision:** No — corrected as a deliberate architecture invariant, not merely an initial
+  implementation limitation: **for one specification, at most one agent-owned execution may
+  be running at a time**, covering every current and future agent-owned step kind
+  (implementation, review, refinement, hardening, discovery, anything else). A "batch" means:
+  the user selects several tasks → Nevo creates a deterministic **queue** → executes them
+  **one by one** → recomputes readiness/eligibility after every transition → selects the
+  next runnable execution → repeats until the queue is exhausted, a real owner action is
+  required, execution fails/blocks, or remediation requires intervention. It never means two
+  task sessions running concurrently. A selected-but-not-yet-ready task stays queued and
+  becomes eligible automatically once its dependencies are satisfied (including via a
+  `releasesDependencies` milestone, D28) — no re-selection needed.
+- **Rationale:** Stated directly as a fundamental correction, not a preference: Nevo's
+  deterministic workflow model does not support parallel execution of tasks belonging to the
+  same specification. Sequential execution also sidesteps an entire category of complexity
+  (per-task Git worktrees, merge strategy, parallel-branch integration, workspace isolation)
+  that concurrent execution would have required and that this change does not need — none of
+  it is introduced.
+- **Consequences:** Every "concurrency limit"/"bounded concurrency"/"parallel agent
+  sessions"/"start two independently-ready tasks" phrase is removed from D32,
+  `areas/deterministic-batch-orchestrator.md`, `tasks/28-deterministic-batch-orchestrator.md`,
+  `tasks/32-dashboard-orchestration-wiring.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`,
+  and every other affected artifact — replaced by the queue model above.
+  `automatic-workflow-continuation`'s (task 29) own same-task continuation (D25) and the
+  cross-task queue (task 28) are **the same scheduler**, not two competing paths — a
+  same-task automatic continuation becomes eligible exactly like any other queued item and
+  goes through the identical "one active execution" gate (see D34 for how the scheduler picks
+  among several simultaneously-eligible items). No per-task worktrees, merge orchestration,
+  or workspace isolation of any kind is required or introduced by this change.
+- **Date:** 2026-09-21
+- **Affected artifacts:** `overview.md`, `owner-decisions.md` (D32, superseded above),
+  `areas/deterministic-batch-orchestrator.md`,
+  `areas/workflow-continuation-and-session-handover.md`,
+  `tasks/28-deterministic-batch-orchestrator.md`, `tasks/29-automatic-workflow-continuation.md`,
+  `tasks/32-dashboard-orchestration-wiring.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D34: Declarative scheduling priority resolves ordering among several simultaneously-runnable items — no step-name coupling
+
+- **Question:** With sequential (never concurrent) execution, the queue can have several
+  eligible items at once (e.g. `T1 review`, `T2 implementation`, `T3 implementation`, all
+  runnable after `T1`'s implementation releases `T2`/`T3`). The scheduler needs a
+  deterministic ordering policy without hardcoding `if step === 'implementation'`/
+  `if step === 'review'`. What expresses this declaratively?
+- **Grounded fact (2026-09-21):** no existing field in `.nevo-ai/workflows/*.yaml` or
+  `definitions/schema.mjs` expresses relative step ordering/priority (grep confirmed none).
+  `change.yaml`'s per-task `order` field **is** already used at runtime for scheduling —
+  `tools/specs/context.mjs`'s legacy `getNext()` sorts ready candidates by `change.priority`
+  then ascending `task.order ?? 999` — but this is a cross-*task* ordering signal (which task
+  to work on first), not a cross-*step-class* one (finish all implementation-class work
+  before starting review-class work across several tasks), so it does not by itself express
+  what's needed here, though its ascending-sort convention is reused below.
+- **Decision:** An additive, optional per-step field, `schedulingPriority: <integer>`,
+  ascending (lower runs first — the same convention `task.order` already uses), default `0`
+  when absent (so an unspecified workflow's steps are all equal-priority and the queue falls
+  back to FIFO/`task.order` tie-breaking, never an arbitrary bias). Tie-break order among
+  equal `schedulingPriority` values: ascending `task.order`, then the order the item became
+  eligible (FIFO) — reusing the existing `task.order` field as the tie-break, per the "reuse
+  a simpler existing mechanism if it can express this cleanly" instruction, rather than
+  inventing a second ordering axis for ties. `standard-v1.yaml`: `implementation` keeps the
+  default (`0`, unwritten); `review` sets `schedulingPriority: 10` — so, exactly matching the
+  desired worked example, once `T1`'s implementation releases `T2`/`T3`, the scheduler
+  prefers remaining `schedulingPriority: 0` implementation-class work (`T2`, `T3`) over `T1
+  review` (`10`), then works through the review wave once no lower-priority item remains
+  eligible. No application code compares a step id/name anywhere in this mechanism — the
+  scheduler only ever reads `schedulingPriority`/`task.order` values.
+- **Rationale:** Matches the requirement exactly: workflow definitions express relative
+  priority without application code knowing semantic step names; reuses `task.order` as the
+  tie-break rather than adding a second, redundant ordering field for that purpose.
+- **Consequences:** `sequential-task-queue` (task 28) implements this comparison as a pure
+  sort — `(schedulingPriority, task.order, eligibleAt)` ascending, first item wins — with no
+  step-name branch anywhere.
 - **Date:** 2026-09-21
 - **Affected artifacts:** `areas/deterministic-batch-orchestrator.md`,
-  `tasks/29-deterministic-batch-orchestrator.md`, `tasks/31-dashboard-orchestration-wiring.md`.
+  `tasks/25-workflow-continuation-schema.md`, `tasks/28-deterministic-batch-orchestrator.md`,
+  `.nevo-ai/workflows/standard-v1.yaml`.
+
+## D35: Server-side, idempotent continuation trigger — not a React page callback
+
+- **Question:** The prior draft implicitly made `agent-session-page.tsx`'s `onTurnCompleted`
+  callback responsible for triggering continuation — which only fires while that specific
+  browser tab is open and only ever re-fetches client-side state (confirmed: its one observed
+  effect is refreshing `availableActions`, not any server-side write). Automatic continuation
+  must not depend on a specific page being open. What is the actual authoritative server-side
+  boundary, and how does it stay correct after a dashboard reload, server restart, or missed
+  UI callback?
+- **Grounded fact (2026-09-21):** `AgentTurnRuntime.#finish()`
+  (`tools/dashboard/server/ai/sessions/turns/runtime.mjs`) is the one place a turn reaches a
+  terminal state (`turn.completed`/`turn.failed`) — entirely server-side, independent of any
+  connected browser client; it already runs from `#run`/timeout/cancel paths regardless of UI
+  presence. Separately, `turn-recovery.mjs`'s `reconcileOrphanedTurns()` already establishes
+  the precedent for idempotent, boot-adjacent reconciliation of state an ungraceful restart
+  may have left inconsistent (finalizing any `activeTurn` a crashed server never terminated),
+  currently invoked lazily on the first inbound HTTP request via `ensureReconciled()`
+  (`tools/dashboard/server/ai/routes.mjs`) rather than a true background boot task. The
+  existing `specs-changed` filesystem watcher (`tools/dashboard/server/specs/watcher.mjs`)
+  only pushes a change notification to connected SSE clients for them to re-fetch — no
+  server-side handler consumes it to recompute or persist anything today.
+- **Decision:** Continuation's authoritative trigger is server-side, hooked to
+  `AgentTurnRuntime`'s own `turn.completed`/`turn.failed` event — not a UI callback. On that
+  event, the new orchestration layer (task 29) resolves the task's authoritative
+  `workflow_progress` position, checks the matched transition's `continuation` field, and — if
+  `auto` — enqueues the destination into the sequential queue (task 28) rather than executing
+  it inline. **Idempotent reconciliation**, mirroring `reconcileOrphanedTurns()`'s own
+  established pattern, additionally runs on the same `ensureReconciled()`-style lazy
+  first-request hook: it inspects every in-progress spec's authoritative workflow position
+  against the queue's own durable state and enqueues any `continuation: auto` destination the
+  real-time event path might have missed (a missed UI callback is irrelevant either way, since
+  the UI was never the trigger; this reconciliation instead covers a server crash/restart
+  between the turn event firing and the queue recording it). The dashboard UI **observes**
+  queue/orchestration state (via the existing DTO/SSE mechanisms) — it is never required to
+  drive correctness by staying open or invoking anything itself.
+- **Rationale:** Matches the requirement directly: continuation must not depend on a specific
+  React page being open; reuses this repository's own existing reconciliation precedent
+  rather than inventing an unrelated one.
+- **Consequences:** `automatic-workflow-continuation` (task 29) moves its real ownership from
+  `agent-session-page.tsx`/`agent-session-chat-surface.tsx` (client-side, wrong) to a new
+  server-side module hooked into `AgentTurnRuntime`'s lifecycle events plus the existing
+  `ensureReconciled()` boot-adjacent hook — the client files are corrected only to stop
+  driving continuation themselves (they may still display state), not to gain new logic.
+- **Date:** 2026-09-21
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `tasks/29-automatic-workflow-continuation.md`.
+
+## D36: Durable local orchestration record for a remediation group — distinct from `workflow_progress`
+
+- **Question:** D31 says a remediation group is "purely derived from `workflow_progress`
+  history" and, separately, that cross-task review "may discover a new member and add it to
+  the group." Both cannot be true of a purely-derived value — an extension based on a
+  semantic review finding is not itself re-derivable from history alone. How does group
+  membership stay consistent and survive reload/restart once it can be extended?
+- **Decision:** Introduce a durable local orchestration record for each remediation group,
+  using the existing `.nevo-ai-local/` local-runtime convention (git-ignored, atomic
+  temp-file-then-rename writes, same family as `.nevo-ai-local/workflow-operations/**`):
+  `.nevo-ai-local/remediation-groups/<change>/<remediationId>.json`, shape at minimum
+  `{remediationId, rootTaskId, causeAttempt: {step, attempt}, members: string[],
+  discoveredMembers: string[], state: 'open'|'fixing'|'reviewing'|'resolved'}`. This record is
+  **orchestration state, not event sourcing** — `workflow_progress` remains the sole
+  authoritative record of each task's actual workflow history; the remediation record only
+  tracks which tasks are currently considered part of a given remediation effort and its
+  status. `dependency-release-and-invalidation` (task 27) owns creating/reading the initial
+  derivation into this record; `dependency-invalidation-remediation-review` (task 30) is the
+  one caller allowed to extend `discoveredMembers`. The owner never maintains this record by
+  hand.
+- **Rationale:** Resolves the internal contradiction directly: a value that can be extended
+  by a review finding needs its own durable state, not a claim of pure derivability from a
+  different, unrelated authoritative source.
+- **Consequences:** Group durability survives dashboard reload/server restart — the
+  remediation flow does not need to re-derive (and potentially re-compute differently) the
+  group from scratch after every restart.
+- **Date:** 2026-09-21
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `areas/dependency-invalidation-remediation-review.md`,
+  `tasks/27-dependency-release-and-invalidation.md`,
+  `tasks/30-dependency-invalidation-remediation-review.md`.
+
+## D37: `blockedBy` stays a plain task-id array; remediation/invalidation state gets its own `suspensions` field
+
+- **Question:** The dashboard's existing `blockedBy: string[]` contract (task ids, an
+  ordinary dependency signal) was at risk of being silently overloaded into a mixed
+  object array (`{taskId, reason, groupId}`) for remediation/invalidation state — a DTO
+  shape change every existing consumer (`status-board.tsx`, `task-dialog.tsx`, both calling
+  `.length`/`.join()` directly on it) would break without a full, deliberate migration.
+- **Grounded fact (2026-09-21):** `blockedBy` is `string[]` consistently across
+  `task-projection.mjs`, `actions.mjs`, and the frontend `types.ts`
+  (`SpecificationTask`/`TaskStatusSummary`/`SpecificationTaskActionGate`); three real UI call
+  sites call `.length`/`.join(', ')` on it directly.
+- **Decision:** `blockedBy` keeps its existing `string[]` shape and meaning unchanged —
+  ordinary unsatisfied-dependency task ids only. Remediation/invalidation state (D31's
+  suspension entries, including the terminal-consumer advisory case) lives in a new, separate
+  field, **`suspensions: [{taskId, reason, groupId?}]`**, additive to the existing DTO —
+  never merged into `blockedBy`. UI/projection tasks that need to render suspension state add
+  a new, explicit rendering path for `suspensions`, never repurpose the existing `blockedBy`
+  rendering.
+- **Rationale:** Avoids an unplanned breaking DTO migration for three existing call sites;
+  keeps the two concepts (ordinary dependency block vs. remediation/invalidation suspension)
+  explicit and independently evolvable.
+- **Consequences:** `TaskProjection`, the dashboard action DTO, and the frontend `types.ts`
+  each gain `suspensions?: {taskId, reason, groupId?}[]` alongside the unchanged `blockedBy`.
+- **Date:** 2026-09-21
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/27-dependency-release-and-invalidation.md`,
+  `tasks/32-dashboard-orchestration-wiring.md`.
+
+## D38: Workflow-core stays free of dashboard/AI-runtime imports — the sequential queue is pure domain logic, orchestration is a separate application layer
+
+- **Question:** The sequential queue (correcting `deterministic-batch-orchestrator`) must not
+  make `tools/specs/workflow/**` (core, provider-neutral engine) depend on
+  `tools/dashboard/server/ai/**` (AI/session runtime) — confirm the existing direction and
+  settle the queue's own placement.
+- **Grounded fact (2026-09-21):** no file under `tools/specs/workflow/**` imports anything
+  from `tools/dashboard/**` today (grep confirmed); the reverse is the normal, established
+  direction — `tools/dashboard/server/specs/actions.mjs`,
+  `tools/dashboard/server/specs/human-step-transport.mjs`, and others freely import
+  `tools/specs/workflow/**`'s exports. No `tools/specs/workflow/batch/` directory exists yet
+  (this spec's own tasks are still unimplemented text) — `tools/specs/batch/` is the
+  unrelated, pre-existing legacy batch feature.
+- **Decision:** Split ownership explicitly along the existing, correct dependency direction:
+  **`tools/specs/workflow/queue/**`** (new, pure domain module, core/provider-neutral) owns
+  only the queue/readiness/scheduling *plan* — given selected+queued task ids, each task's
+  current `TaskProjection`, and each candidate transition's `schedulingPriority`/
+  `continuation`, it computes the ordered runnable list and its own durable queue-membership
+  state (local FS I/O in the same family as `operation-record.mjs`/`human-verification-
+  store.mjs`, already precedented within this same directory tree — "pure" means no AI/
+  session/dashboard awareness, not "no I/O at all"). It has zero knowledge of AI sessions,
+  execution policy, or whether an execution is currently "active" in the dashboard's own
+  runtime sense. **A new dashboard-side application/orchestration module**
+  (`tools/dashboard/server/ai/orchestration/**`) consumes the queue's plan, tracks whether an
+  agent execution is currently active for the spec (reading existing session/binding state),
+  and — only when free — asks the queue "what's next," then creates/reuses a session (D26) or
+  calls `startHumanStep` (D27) accordingly. This module is also where D35's
+  `AgentTurnRuntime` event hook and reconciliation live.
+- **Rationale:** Matches the requirement directly and follows the repository's own,
+  already-correct existing direction rather than inventing a new one — dashboard depends on
+  workflow core, never the reverse.
+- **Consequences:** `deterministic-batch-orchestrator` (task 28) owns
+  `tools/specs/workflow/queue/**` only; `automatic-workflow-continuation` (task 29) owns
+  `tools/dashboard/server/ai/orchestration/**`. Neither task's `allowed_paths` overlaps the
+  other's core-vs-application boundary.
+- **Date:** 2026-09-21
+- **Affected artifacts:** `areas/deterministic-batch-orchestrator.md`,
+  `areas/workflow-continuation-and-session-handover.md`,
+  `tasks/28-deterministic-batch-orchestrator.md`, `tasks/29-automatic-workflow-continuation.md`.
+
+## D39: `schedulingPriority`/`execution`/`continuation`/`releasesDependencies` schema — final consolidated shape
+
+- **Question:** With D25/D26/D28/D34 each adding transition/step-level schema, record the
+  final, consolidated shape once so `workflow-continuation-schema` (task 25) implements a
+  single coherent extension rather than four uncoordinated ones.
+- **Decision:** Per internal (non-terminal) transition, all additive/optional:
+  `continuation: auto | owner-action` (default `owner-action`), `releasesDependencies: true`
+  (default absent/false), `execution: {session: reuse | fresh, role: <string>}` (meaningful
+  only when the transition's `to` targets an `executor: agent` step — omitted for a
+  human-owned or terminal destination). Per step, additive/optional: `schedulingPriority:
+  <integer>` (default `0`). `normalizeWorkflowDefinition()` preserves all four verbatim on
+  its normalized output, following the exact precedent D6/D9 already established for
+  `executor`/`action`/`outcome`.
+- **Rationale:** One consolidated schema task avoids four separately-reasoned, potentially
+  inconsistent additions to the same normalization function.
+- **Consequences:** `tasks/25-workflow-continuation-schema.md` implements and tests all four
+  fields together, migrating `standard-v1.yaml`'s every internal transition per the tables
+  recorded under the corrected D25/D26/D28/D34.
+- **Date:** 2026-09-21
+- **Affected artifacts:** `tasks/25-workflow-continuation-schema.md`,
+  `.nevo-ai/workflows/standard-v1.yaml`, `tools/specs/workflow/definitions/schema.mjs`.

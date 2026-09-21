@@ -220,51 +220,57 @@ tasks:
     order: 24
     file: tasks/24-agent-step-bootstrap-and-context.md
     status: draft
-  - id: execution-policy-and-mode-selection
-    order: 25
-    file: tasks/25-execution-policy-and-mode-selection.md
-    status: draft
   - id: workflow-continuation-schema
+    order: 25
+    file: tasks/25-workflow-continuation-schema.md
+    status: draft
+  - id: execution-policy-and-mode-selection
     order: 26
-    file: tasks/26-workflow-continuation-schema.md
+    file: tasks/26-execution-policy-and-mode-selection.md
     status: draft
-  - id: automatic-workflow-continuation
-    order: 27
-    file: tasks/27-automatic-workflow-continuation.md
-    status: draft
-    depends_on: [ workflow-continuation-schema, execution-policy-and-mode-selection ]
   - id: dependency-release-and-invalidation
-    order: 28
-    file: tasks/28-dependency-release-and-invalidation.md
+    order: 27
+    file: tasks/27-dependency-release-and-invalidation.md
     status: draft
     depends_on: [ workflow-continuation-schema ]
   - id: deterministic-batch-orchestrator
-    order: 29
-    file: tasks/29-deterministic-batch-orchestrator.md
+    order: 28
+    file: tasks/28-deterministic-batch-orchestrator.md
     status: draft
-    depends_on: [ automatic-workflow-continuation, dependency-release-and-invalidation ]
-  - id: user-mutation-source-control-finalization
+    depends_on: [ workflow-continuation-schema, dependency-release-and-invalidation ]
+  - id: automatic-workflow-continuation
+    order: 29
+    file: tasks/29-automatic-workflow-continuation.md
+    status: draft
+    depends_on:
+      [
+        workflow-continuation-schema,
+        execution-policy-and-mode-selection,
+        deterministic-batch-orchestrator
+      ]
+  - id: dependency-invalidation-remediation-review
     order: 30
-    file: tasks/30-user-mutation-source-control-finalization.md
+    file: tasks/30-dependency-invalidation-remediation-review.md
+    status: draft
+    depends_on: [ dependency-release-and-invalidation, deterministic-batch-orchestrator ]
+  - id: user-mutation-source-control-finalization
+    order: 31
+    file: tasks/31-user-mutation-source-control-finalization.md
     status: draft
   - id: dashboard-orchestration-wiring
-    order: 31
-    file: tasks/31-dashboard-orchestration-wiring.md
+    order: 32
+    file: tasks/32-dashboard-orchestration-wiring.md
     status: draft
     depends_on:
       [
         execution-policy-and-mode-selection,
+        deterministic-batch-orchestrator,
         automatic-workflow-continuation,
-        deterministic-batch-orchestrator
+        dependency-invalidation-remediation-review
       ]
-  - id: dependency-invalidation-remediation-review
-    order: 33
-    file: tasks/33-dependency-invalidation-remediation-review.md
-    status: draft
-    depends_on: [ dependency-release-and-invalidation, deterministic-batch-orchestrator ]
   - id: orchestration-e2e-dogfood-tests
-    order: 32
-    file: tasks/32-orchestration-e2e-dogfood-tests.md
+    order: 33
+    file: tasks/33-orchestration-e2e-dogfood-tests.md
     status: draft
     depends_on:
       [

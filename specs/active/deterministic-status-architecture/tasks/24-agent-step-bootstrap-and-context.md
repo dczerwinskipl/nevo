@@ -40,11 +40,9 @@ use of the same underlying facts.
   resolution helper.
 - Add `requiredContext`, resolved from the task frontmatter's `context.required`/`optional`
   (reuse the existing frontmatter-loading path, not a new parser). Bundle each listed
-  document's content inline unless doing so measurably bloats the payload for a realistic
-  task (judge against the existing `relevantDocs`/`instructions` payload size as a baseline);
-  if content is omitted, still return canonical repo-root-relative paths. Document whichever
-  choice is made directly in this file's own code comments — do not leave it ambiguous for
-  the next reader.
+  document's **path and content inline** (decided, D23 corrected pass 10 — not conditional on
+  payload size, not deferred): the agent must never perform repository discovery to determine
+  which required-context documents to read.
 - `relevantDocs`'s existing computation (`resolveRelevantDocs`) is unchanged — `requiredContext`
   is additive, never a replacement, and the two fields must never be merged/deduplicated
   against each other in the return value.

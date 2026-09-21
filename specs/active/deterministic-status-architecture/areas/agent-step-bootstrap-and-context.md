@@ -35,10 +35,10 @@ already exist in the codebase for a different consumer.
   `buildContextPacket()`/`publish/operation.mjs` already use (D22).
 - Add `requiredContext` — resolved from the task frontmatter's `context.required` (and
   `context.optional` if the loader already distinguishes them) — as a field distinct from
-  `relevantDocs`. Evaluate, during implementation, whether to bundle each document's content
-  inline (preferred, to avoid extra agent read calls) versus canonical paths only, against
-  real payload-size impact (D23). `relevantDocs`'s existing computation and meaning are
-  unchanged.
+  `relevantDocs`. Each entry carries **path + content inline** (decided, D23 corrected pass
+  10 — not paths-only, not deferred to implementation): the agent must never need a
+  repository-discovery round-trip to read a document its own task already declared required.
+  `relevantDocs`'s existing computation and meaning are unchanged.
 - Trim `context.sourceControl` to an agent-facing projection (at minimum `currentBranch`,
   `changedFiles`, `taskAffectedFiles`) distinct from the internal shape
   `normalizeSourceControlFacts()` already produces for `finish-operation.mjs` — do not change

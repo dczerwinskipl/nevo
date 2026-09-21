@@ -346,6 +346,52 @@ message legitimately includes the task id, so it must differ across tasks) — c
 the precise invariant: for the **same** task, changing the workflow step never changes the
 message, and the builder's signature structurally accepts only `taskId`, nothing step-shaped.
 
+**Corrective pass 10 (2026-09-21, D33–D39, corrections to D21/D25/D26/D29/D31/D32, renumbered
+tasks 24–33): fixing a wrong concurrency assumption pass 9 itself introduced, before any of
+tasks 24–33 were implemented.** Pass 9 correctly identified the orchestration gaps a real
+dogfooding run exposed, but its own D32 (batch defaults) and
+`areas/deterministic-batch-orchestrator.md` wrongly introduced **concurrent** execution of
+multiple tasks from one specification — "a concrete bounded concurrency limit... defaulted to
+a small, configurable value" and "start two independently-ready tasks" language throughout.
+That was never the intended model, and is corrected here as a **deliberate architecture
+invariant**, not merely an initial implementation limitation (D33): for one specification, at
+most one agent-owned execution — implementation, review, refinement, hardening, discovery, or
+any future agent-owned step kind — may be running at a time. A batch means Nevo creates a
+deterministic **queue** and executes selected tasks **one by one**, recomputing readiness
+after every transition, never two sessions running concurrently. This also means no per-task
+Git worktrees, merge strategy, or workspace-isolation architecture is required or introduced
+by this change — an entire category of complexity the wrongly-assumed concurrent model would
+have needed. Six further gaps a fresh self-review found alongside the concurrency
+correction, all resolved before any of tasks 24–33 are implemented: (1) pass 9 conflated
+"no owner decision required" (`continueOnSuccess`) with "execute immediately" — corrected by
+renaming to `continuation: auto | owner-action` (D25) and giving the sequential queue its own
+declarative `schedulingPriority` ordering (D34), so several simultaneously-eligible items
+(e.g. `T1 review` alongside `T2`/`T3 implementation`) are ordered without step-name coupling;
+(2) pass 9 left the continuation trigger implicitly owned by a React page
+(`agent-session-page.tsx`'s `onTurnCompleted`), which only fires while that tab is open —
+corrected to a server-side hook on `AgentTurnRuntime`'s own `turn.completed`/`turn.failed`
+event plus idempotent reconciliation reusing this repository's own existing
+`reconcileOrphanedTurns()` precedent (D35); (3) pass 9 left `sessionPolicy`'s canonical
+location and `role`'s vocabulary open — settled as a transition-level, workflow-declared
+`execution: {session, role}` (D26 corrected), since `implementation` has two distinct inbound
+transitions that may legitimately want different policies; (4) pass 9 assumed
+`commit-and-push` alone gives Publish `finishStep`-grade crash safety — it does not; Publish
+is corrected to a durable operation reusing `operation-record.mjs`'s actual intent-then-verify
+primitives, with Batch Publish's atomicity (prevalidate-all-then-mutate-all-then-one-commit)
+decided rather than left open (D29 corrected); (5) pass 9's remediation-group definition
+excluded already-terminal downstream consumers — unsafe, since a task that finished while
+built against a later-invalidated release is not retroactively correct; corrected to include
+terminal consumers (flagged advisory, never reopened) and made durable
+(`.nevo-ai-local/remediation-groups/**`) since cross-task review can extend a group beyond
+pure derivation (D31 corrected, D36); (6) the existing `blockedBy: string[]` dashboard
+contract is preserved unchanged — remediation/invalidation state gets its own additive
+`suspensions` field instead of overloading it (D37) — and the new sequential queue is placed
+as pure domain logic under `tools/specs/workflow/queue/**`, with the session/turn-aware
+orchestration kept in a separate `tools/dashboard/server/ai/orchestration/**` application
+layer, preserving the existing, correct workflow-core → never-imports-dashboard direction
+(D38). Tasks 24–33 are renumbered so `change.yaml`'s presentation order matches actual
+dependency order (previously, order 33 appeared before order 32).
+
 ## Current architecture
 
 Grounded in repository discovery (2026-09-17, deepened 2026-09-19 by reading the actual
@@ -679,23 +725,23 @@ engine source directly):
   sections, not just adding a new deterministic reference).
 - `docs/development/agent-workflow-protocol.md` (ownership boundary documentation,
   including the executor invariant).
-- (corrective pass 9) `tools/specs/workflow/step-context.mjs` (`taskDefinition`,
-  `requiredContext`, internal/agent-facing separation, D22–D24); `.nevo-ai/workflows/*.yaml`,
-  `tools/specs/workflow/definitions/schema.mjs` (additive `continueOnSuccess`, `sessionPolicy`,
-  `role`, `releasesDependencies` schema, D25/D26/D28); `tools/specs/workflow/
-  dependency-satisfaction.mjs` (declarative release, D28); a new orchestration module (session
-  continuation/handover, D25–D27 — exact location decided during implementation, composing
-  existing `finishStep`/`startHumanStep`/session-creation calls, never itself becoming part of
-  the engine); `tools/dashboard/server/ai/sessions/**` (session lineage/role fields, D26); a
-  new deterministic batch/orchestration scheduler with a checkbox-picker selection model
-  (D32), also driving D31's remediation-group fix runs, plus a new cross-task-aware
-  remediation-review pass (D31, task 33); `tools/specs/workflow/
-  publish/operation.mjs`, `tools/dashboard/server/specs/routes.mjs`
-  (`handlePublishTask`/`handleBatchPublish`, D29); `tools/dashboard/ui/screens/
-  specification-detail/**`, `tools/dashboard/ui/features/agent-sessions/**` (execution-mode/
-  provider selection UX and persisted execution policy, D21); `docs/development/
-  agent-workflow-protocol.md` (D30 ownership taxonomy, extending the existing section rather
-  than a new doc, consistent with D3).
+- (corrective pass 9/10) `tools/specs/workflow/step-context.mjs` (`taskDefinition`,
+  `requiredContext` — both inline content, D22–D24); `.nevo-ai/workflows/*.yaml`,
+  `tools/specs/workflow/definitions/schema.mjs` (additive `continuation`, `execution`
+  `{session, role}`, `releasesDependencies`, `schedulingPriority` schema, D25/D26/D28/D34/D39);
+  `tools/specs/workflow/dependency-satisfaction.mjs`, `tools/specs/workflow/
+  remediation-record.mjs` (new — declarative release and durable, terminal-consumer-inclusive
+  remediation groups, D28/D31/D36); `tools/specs/workflow/queue/**` (new — pure-domain
+  sequential queue, single-active-execution invariant, zero dashboard imports, D33/D34/D38);
+  `tools/dashboard/server/ai/orchestration/**` (new — server-side continuation trigger hooked
+  to `AgentTurnRuntime`, idempotent reconciliation, session lineage/role creation, D25–D27/
+  D35/D38); `tools/specs/workflow/publish/operation.mjs`, `tools/specs/workflow/
+  operation-record.mjs`, `tools/dashboard/server/specs/routes.mjs`
+  (durable Publish + atomic Batch Publish reusing `operation-record.mjs`'s primitives, D29);
+  `tools/dashboard/ui/screens/specification-detail/**`,
+  `tools/dashboard/server/ai/sessions/execution-policy-service.mjs` (new — change-level
+  execution-policy transport, D21); `docs/development/agent-workflow-protocol.md` (D30
+  ownership taxonomy, extending the existing section, consistent with D3).
 
 ## Options and trade-offs
 
@@ -804,6 +850,38 @@ presented:
   with a chosen default: the owner's actual workflow is a checkbox-based task picker,
   pre-selected with ready tasks, freely adjustable, warning (never hard-blocking) when the
   current selection includes a task blocked by a dependency outside the selection — see D32.
+
+**Corrective pass 10 decisions (2026-09-21):** D33 (**fundamental correction, supersedes
+D32's concurrency assumption in full**) — for one specification, at most one agent-owned
+execution runs at a time; a batch is a deterministic sequential queue, never concurrent
+sessions; no per-task worktrees/merge orchestration/workspace isolation is needed or
+introduced. D34 (declarative `schedulingPriority` per step, ascending, default `0`, tie-break
+on the existing `task.order` field — resolves ordering among several simultaneously-eligible
+items with no step-name coupling; `standard-v1`'s `review` step gets `schedulingPriority:
+10`). D35 (the continuation trigger is server-side — `AgentTurnRuntime`'s own
+`turn.completed`/`turn.failed` event, plus idempotent reconciliation reusing this
+repository's own `reconcileOrphanedTurns()` precedent — never a React page callback). D36 (a
+durable `.nevo-ai-local/remediation-groups/**` record for each remediation group, since
+cross-task review can extend membership beyond what pure `workflow_progress` derivation alone
+produces). D37 (`blockedBy` keeps its existing `string[]` shape; remediation/invalidation
+state gets its own additive `suspensions` field). D38 (the sequential queue is pure domain
+logic under `tools/specs/workflow/queue/**`, with zero dashboard/AI-runtime imports; the
+session/turn-aware orchestration lives in a separate `tools/dashboard/server/ai/
+orchestration/**` application layer — preserving the existing, correct workflow-core →
+dashboard dependency direction). D39 (the consolidated `continuation`/`releasesDependencies`/
+`execution`/`schedulingPriority` schema shape, implemented as one coherent extension). Five
+prior decisions corrected in place rather than superseded outright (the placement/reasoning
+each already recorded stands; only the specific gap the fresh self-review found is fixed):
+D21 (execution policy is change-level, not task-level, with a real server transport — no
+longer "decide during implementation"), D23 (`requiredContext` bundles content inline,
+finalized, not conditional on payload size), D25 (renamed `continueOnSuccess` →
+`continuation`; eligibility, not immediate execution; full `standard-v1` transition audit),
+D26 (`execution: {session, role}` is canonical on the **transition**, `role` is an
+extensible workflow-declared string), D29 (Publish is a durable operation reusing
+`operation-record.mjs`'s real intent-then-verify primitives — `commit-and-push` alone does
+not inherit `finishStep`'s crash safety; Batch Publish's atomicity is decided, not deferred),
+D31 (remediation-group derivation includes already-terminal consumers, flagged advisory and
+never reopened).
 
 ## Proposed architecture
 
@@ -1043,19 +1121,26 @@ deterministic spec.
   with the task's own document, task-declared `requiredContext` distinct from routing-derived
   `relevantDocs`, and separates internal finalize context from the agent-facing payload
   (D22–D24).
-- `areas/workflow-continuation-and-session-handover.md` — (pass 9) the execution-mode/provider
-  selection UX for the first explicit Start and its persisted execution policy (D21); the
-  declarative continuation/handover orchestration layer and session-lineage/role model
-  (D25–D27).
-- `areas/dependency-release-and-invalidation.md` — (pass 9) declarative per-transition
-  dependency release (D28); automatic remediation-group derivation and suspension on
-  invalidation (D31).
-- `areas/deterministic-batch-orchestrator.md` — (pass 9) a deterministic, concurrency-bounded
-  multi-task scheduler with a checkbox-picker selection model, pre-selected with ready tasks,
-  and a cross-selection dependency warning (D32); reused by D31's remediation-group fix runs.
-- `areas/dependency-invalidation-remediation-review.md` — (pass 9) the one combined,
+- `areas/workflow-continuation-and-session-handover.md` — (pass 9/10) the execution-mode/
+  provider selection UX for the first explicit Start and its persisted, **change-level**
+  execution policy with a real server transport (D21); the declarative continuation
+  (eligibility, not immediate execution) and session-lineage/role model, triggered
+  server-side off `AgentTurnRuntime`'s own events with idempotent reconciliation, never a
+  React page (D25–D27/D35); every eligible destination is handed to the sequential queue
+  (D33), never scheduled directly by this area.
+- `areas/dependency-release-and-invalidation.md` — (pass 9/10) declarative per-transition
+  dependency release (D28); automatic remediation-group derivation including terminal
+  consumers, durable and extensible, suspended via a separate `suspensions` field (D31/D36/
+  D37).
+- `areas/deterministic-batch-orchestrator.md` — (pass 9/10) a **sequential, single-execution**
+  task queue (never concurrent, D33), pure domain logic under `tools/specs/workflow/queue/**`
+  (D38), ordered by declarative `schedulingPriority` (D34), with a checkbox-picker selection
+  model and a cross-selection dependency warning (D32); reused by D31's remediation-group fix
+  runs.
+- `areas/dependency-invalidation-remediation-review.md` — (pass 9/10) the one combined,
   cross-task-aware review pass for a dependency-invalidation remediation group, adapting the
-  existing legacy `implementation-review` two-pass design (D31).
+  existing legacy `implementation-review` two-pass design, terminal members reviewed
+  read-only (D31).
 - `areas/user-mutation-source-control-ownership.md` — (pass 9) Publish/Batch Publish own their
   own commit/push (D29); the explicit user-action/technical-activation/completed-mutation
   ownership taxonomy (D30).
@@ -1135,7 +1220,14 @@ lineage field itself. Still explicitly out of scope after this pass: Activity Hi
 feature (`ai-spec-history` remains the dogfooding workload, never the owner of these
 workflow-runtime fixes); any redesign of `entryGates`/`exitGates` or the
 `workflow verify-human --confirm` path; unrelated dashboard visual redesign; a fully general
-batch/orchestration framework beyond the one checkbox-picker scheduler D32 defines; rolling
-back or destructively reverting a task's own completed work as part of dependency
+batch/orchestration framework beyond the one sequential, single-execution queue D33 defines;
+rolling back or destructively reverting a task's own completed work as part of dependency
 invalidation (D31 is forward-only suspension plus grouped re-fix, never rollback); a general
-multi-change/cross-spec remediation mechanism beyond one change's own task graph.
+multi-change/cross-spec remediation mechanism beyond one change's own task graph. **Corrective
+pass 10 adds, explicitly:** any form of concurrent/parallel agent execution within one
+specification (D33 — a deliberate invariant, not a limitation to relax later); per-task Git
+worktrees, merge strategy, or parallel-branch integration/workspace isolation of any kind
+(none of it is needed once execution is sequential); reopening a terminal task's workflow as
+part of remediation (D31 corrected — flagged advisory only, a future decision if it ever
+proves necessary); a general declarative-priority system beyond the one
+`schedulingPriority`/`task.order` ordering pair D34 defines.
