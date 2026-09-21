@@ -1,35 +1,29 @@
-import { CheckCircle2, Eye, GitBranch, LockKeyhole, Play } from 'lucide-react';
+import { AlertCircle, CheckCircle2, GitBranch, LockKeyhole, Play } from 'lucide-react';
 
 import type {
   SpecificationSummary,
   SpecificationTask,
   SpecificationOwnerAction,
   SpecificationTaskActionGate,
+  WorkflowStepDescriptor,
 } from '../types';
 import { cn } from '@/shared/lib/utils';
-import { lanePresentation } from './lane-presentation';
+import { lanePresentation, deterministicStateTone, formatDeterministicState } from './lane-presentation';
 import { Button } from '@/shared/ui/button';
 import { StatusLabel } from '@/shared/ui/status-label';
 import { formatTaskStatus, taskStatusTone } from '../status';
 
-function TaskCard({
+function TaskCardShell({
   task,
-  actionGate,
-  isDeterministic = false,
   onSelect,
-  onAction,
-  onWorkflowAction,
+  headerMeta,
+  children,
 }: {
   task: SpecificationTask;
-  actionGate?: SpecificationTaskActionGate | null;
-  /** Authoritative specification-level workflow mode (D15) — never a UI preference. */
-  isDeterministic?: boolean;
   onSelect?: (task: SpecificationTask, trigger: HTMLElement) => void;
-  onAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
-  onWorkflowAction?: (task: SpecificationTask, action: string) => void;
+  headerMeta: React.ReactNode;
+  children?: React.ReactNode;
 }) {
-  const hasAction = actionGate?.enabled;
-
   return (
     <div
       onClick={(e) => {
@@ -44,32 +38,7 @@ function TaskCard({
         <span className="text-[10px] font-bold tracking-wider text-fg-muted tabular-nums">
           #{String(task.order ?? '—').padStart(2, '0')}
         </span>
-        <div className="flex min-w-0 items-center gap-2 text-[9px] font-medium text-fg-muted tabular-nums">
-          <StatusLabel
-            tone={taskStatusTone(task.status)}
-            className="truncate text-[9px] font-semibold tracking-[0.08em]"
-          >
-            {formatTaskStatus(task.status)}
-          </StatusLabel>
-          {task.dependsOn.length > 0 && (
-            <span
-              className="inline-flex shrink-0 items-center gap-1"
-              title={`Zależności: ${task.dependsOn.join(', ')}`}
-            >
-              <GitBranch className="size-3 text-accent" />
-              {task.dependsOn.length}
-            </span>
-          )}
-          {task.blockedBy.length > 0 && (
-            <span
-              className="inline-flex shrink-0 items-center gap-1"
-              title={`Blokowane przez: ${task.blockedBy.join(', ')}`}
-            >
-              <LockKeyhole className="size-3 text-status-warning" />
-              {task.blockedBy.length}
-            </span>
-          )}
-        </div>
+        {headerMeta}
       </div>
       <button
         type="button"
@@ -81,84 +50,228 @@ function TaskCard({
           {task.title}
         </h3>
       </button>
-      {!isDeterministic ? (
-        hasAction && (
-          <div className="mt-3 flex justify-center border-t border-border pt-2.5">
-            <Button
-              size="sm"
-              variant="secondary"
-              className="h-7 shrink-0 cursor-pointer border border-accent/40 px-2.5 text-[10px] font-semibold text-accent hover:bg-accent/15"
-              onClick={() => onAction?.(task, actionGate.action)}
-              aria-label={`${actionGate.action === 'approve' ? 'Zatwierdź zadanie' : 'Zaakceptuj zadanie'}: ${task.title}`}
-            >
-              {actionGate.action === 'approve' ? (
-                <>
-                  <Play className="mr-1 size-2.5" /> Zatwierdź
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="mr-1 size-2.5" /> Zaakceptuj
-                </>
-              )}
-            </Button>
-          </div>
-        )
-      ) : (
-        actionGate?.availableActions && actionGate.availableActions.length > 0 && (
-          <div className="mt-3 flex flex-wrap justify-center gap-1.5 border-t border-border pt-2.5">
-            {actionGate.availableActions.includes('start-implementation') && (
-              <Button
-                size="sm"
-                variant="secondary"
-                className="h-7 shrink-0 cursor-pointer border border-accent/40 px-2.5 text-[10px] font-semibold text-accent hover:bg-accent/15"
-                onClick={() => onWorkflowAction?.(task, 'start-implementation')}
-                aria-label={`Start implementation: ${task.title}`}
-              >
-                <Play className="mr-1 size-2.5" /> Start implementation
-              </Button>
-            )}
-            {actionGate.availableActions.includes('start-review') && (
-              <Button
-                size="sm"
-                variant="secondary"
-                className="h-7 shrink-0 cursor-pointer border border-accent/40 px-2.5 text-[10px] font-semibold text-accent hover:bg-accent/15"
-                onClick={() => onWorkflowAction?.(task, 'start-review')}
-                aria-label={`Start review: ${task.title}`}
-              >
-                <Eye className="mr-1 size-2.5" /> Start review
-              </Button>
-            )}
-            {actionGate.availableActions.includes('approve') && (
-              <Button
-                size="sm"
-                variant="secondary"
-                className="h-7 shrink-0 cursor-pointer border border-status-success/40 px-2.5 text-[10px] font-semibold text-status-success hover:bg-status-success/15"
-                onClick={() => onWorkflowAction?.(task, 'approve')}
-                aria-label={`Approve: ${task.title}`}
-              >
-                <CheckCircle2 className="mr-1 size-2.5" /> Approve
-              </Button>
-            )}
-            {actionGate.availableActions.includes('request-changes') && (
-              <Button
-                size="sm"
-                variant="secondary"
-                className="h-7 shrink-0 cursor-pointer border border-status-warning/40 px-2.5 text-[10px] font-semibold text-status-warning hover:bg-status-warning/15"
-                onClick={() => onWorkflowAction?.(task, 'request-changes')}
-                aria-label={`Request changes: ${task.title}`}
-              >
-                Request changes
-              </Button>
-            )}
-            {actionGate.availableActions.includes('operator-reconciliation') && (
-              <span className="rounded bg-status-warning/10 px-2 py-0.5 text-[9px] font-semibold tracking-wider text-status-warning uppercase">
-                Operator reconciliation
-              </span>
-            )}
-          </div>
-        )
+      {children}
+    </div>
+  );
+}
+
+export function LegacyTaskCard({
+  task,
+  actionGate,
+  onSelect,
+  onAction,
+}: {
+  task: SpecificationTask;
+  actionGate?: SpecificationTaskActionGate | null;
+  onSelect?: (task: SpecificationTask, trigger: HTMLElement) => void;
+  onAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
+}) {
+  const hasAction = actionGate?.enabled;
+
+  const headerMeta = (
+    <div className="flex min-w-0 items-center gap-2 text-[9px] font-medium text-fg-muted tabular-nums">
+      <StatusLabel
+        tone={taskStatusTone(task.status)}
+        className="truncate text-[9px] font-semibold tracking-[0.08em]"
+      >
+        {formatTaskStatus(task.status)}
+      </StatusLabel>
+      {task.dependsOn.length > 0 && (
+        <span
+          className="inline-flex shrink-0 items-center gap-1"
+          title={`Zależności: ${task.dependsOn.join(', ')}`}
+        >
+          <GitBranch className="size-3 text-accent" />
+          {task.dependsOn.length}
+        </span>
+      )}
+      {task.blockedBy.length > 0 && (
+        <span
+          className="inline-flex shrink-0 items-center gap-1"
+          title={`Blokowane przez: ${task.blockedBy.join(', ')}`}
+        >
+          <LockKeyhole className="size-3 text-status-warning" />
+          {task.blockedBy.length}
+        </span>
       )}
     </div>
+  );
+
+  return (
+    <TaskCardShell task={task} onSelect={onSelect} headerMeta={headerMeta}>
+      {hasAction && (
+        <div className="mt-3 flex justify-center border-t border-border pt-2.5">
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-7 shrink-0 cursor-pointer border border-accent/40 px-2.5 text-[10px] font-semibold text-accent hover:bg-accent/15"
+            onClick={() => onAction?.(task, actionGate.action)}
+            aria-label={`${actionGate.action === 'approve' ? 'Zatwierdź zadanie' : 'Zaakceptuj zadanie'}: ${task.title}`}
+          >
+            {actionGate.action === 'approve' ? (
+              <>
+                <Play className="mr-1 size-2.5" /> Zatwierdź
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="mr-1 size-2.5" /> Zaakceptuj
+              </>
+            )}
+          </Button>
+        </div>
+      )}
+    </TaskCardShell>
+  );
+}
+
+export interface DeterministicTaskCardProps {
+  task: SpecificationTask;
+  actionGate?: SpecificationTaskActionGate | null;
+  onSelect?: (task: SpecificationTask, trigger: HTMLElement) => void;
+  onStartStep?: (stepDescriptor: WorkflowStepDescriptor) => void;
+}
+
+export function DeterministicTaskCard({
+  task,
+  actionGate,
+  onSelect,
+  onStartStep,
+}: DeterministicTaskCardProps) {
+  const state = actionGate?.state ?? 'draft';
+  const terminalOutcome = actionGate?.terminalOutcome ?? null;
+  const tone = deterministicStateTone(state, terminalOutcome);
+  const label = formatDeterministicState(state, terminalOutcome);
+  const blockedBy = actionGate?.blockedBy ?? task.blockedBy ?? [];
+  const stepDescriptor = actionGate?.stepDescriptor ?? actionGate?.nextStepDescriptor ?? actionGate?.currentStepDescriptor ?? null;
+  const isHumanInteraction = state === 'human-interaction' || Boolean(actionGate?.humanInteraction);
+  const canStartStep = Boolean(actionGate?.availableActions?.includes('start-step'));
+  const needsReconciliation = Boolean(actionGate?.availableActions?.includes('operator-reconciliation'));
+
+  const headerMeta = (
+    <div className="flex min-w-0 items-center gap-2 text-[9px] font-medium text-fg-muted tabular-nums">
+      <StatusLabel
+        tone={tone}
+        className="truncate text-[9px] font-semibold tracking-[0.08em]"
+      >
+        {label}
+      </StatusLabel>
+      {stepDescriptor && (stepDescriptor.purpose || stepDescriptor.id) && (
+        <span
+          className="hidden max-w-[90px] truncate text-[9px] text-fg-muted sm:inline-block"
+          title={stepDescriptor.purpose || stepDescriptor.id || undefined}
+        >
+          {stepDescriptor.purpose || stepDescriptor.id}
+        </span>
+      )}
+      {task.dependsOn.length > 0 && (
+        <span
+          className="inline-flex shrink-0 items-center gap-1"
+          title={`Zależności: ${task.dependsOn.join(', ')}`}
+        >
+          <GitBranch className="size-3 text-accent" />
+          {task.dependsOn.length}
+        </span>
+      )}
+      {blockedBy.length > 0 && (
+        <span
+          className="inline-flex shrink-0 items-center gap-1"
+          title={`Blokowane przez: ${blockedBy.join(', ')}`}
+        >
+          <LockKeyhole className="size-3 text-status-warning" />
+          {blockedBy.length}
+        </span>
+      )}
+    </div>
+  );
+
+  return (
+    <TaskCardShell task={task} onSelect={onSelect} headerMeta={headerMeta}>
+      {canStartStep && (
+        <div className="mt-3 flex justify-center border-t border-border pt-2.5">
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-7 shrink-0 cursor-pointer border border-accent/40 px-2.5 text-[10px] font-semibold text-accent hover:bg-accent/15"
+            onClick={(event) => {
+              event.stopPropagation();
+              const descriptorToStart = stepDescriptor ?? {
+                id: null,
+                executor: actionGate?.executor ?? 'agent',
+              };
+              onStartStep?.(descriptorToStart);
+            }}
+            aria-label={`Start step: ${task.title}`}
+          >
+            <Play className="mr-1 size-2.5" /> Start
+            {stepDescriptor && (stepDescriptor.purpose || stepDescriptor.id) && (
+              <span className="ml-1 text-[9px] opacity-80">
+                ({stepDescriptor.purpose || stepDescriptor.id})
+              </span>
+            )}
+          </Button>
+        </div>
+      )}
+      {isHumanInteraction && (
+        <div className="mt-3 flex justify-center border-t border-border pt-2.5">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onSelect?.(task, event.currentTarget);
+            }}
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-status-warning/30 bg-status-warning/10 px-2.5 py-1 text-[10px] font-semibold text-status-warning transition-colors hover:bg-status-warning/20"
+            aria-label={`Human action required: ${task.title}`}
+          >
+            <AlertCircle className="size-3" />
+            <span>Human action required</span>
+          </button>
+        </div>
+      )}
+      {needsReconciliation && (
+        <div className="mt-3 flex justify-center border-t border-border pt-2.5">
+          <span className="rounded bg-status-warning/10 px-2 py-0.5 text-[9px] font-semibold tracking-wider text-status-warning uppercase">
+            Operator reconciliation
+          </span>
+        </div>
+      )}
+    </TaskCardShell>
+  );
+}
+
+function TaskCard({
+  task,
+  actionGate,
+  isDeterministic = false,
+  onSelect,
+  onAction,
+  onStartStep,
+}: {
+  task: SpecificationTask;
+  actionGate?: SpecificationTaskActionGate | null;
+  /** Authoritative specification-level workflow mode (D15) — never a UI preference. */
+  isDeterministic?: boolean;
+  onSelect?: (task: SpecificationTask, trigger: HTMLElement) => void;
+  onAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
+  onStartStep?: (stepDescriptor: WorkflowStepDescriptor) => void;
+}) {
+  if (isDeterministic) {
+    return (
+      <DeterministicTaskCard
+        task={task}
+        actionGate={actionGate}
+        onSelect={onSelect}
+        onStartStep={onStartStep}
+      />
+    );
+  }
+
+  return (
+    <LegacyTaskCard
+      task={task}
+      actionGate={actionGate}
+      onSelect={onSelect}
+      onAction={onAction}
+    />
   );
 }
 
@@ -170,6 +283,7 @@ export function StatusBoard({
   onTaskAction,
   onBatchAction,
   onWorkflowAction,
+  onStartStep,
 }: {
   specification: SpecificationSummary;
   actions?: Record<string, SpecificationTaskActionGate>;
@@ -179,6 +293,7 @@ export function StatusBoard({
   onTaskAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
   onBatchAction?: (tasks: SpecificationTask[], action: SpecificationOwnerAction) => void;
   onWorkflowAction?: (task: SpecificationTask, action: string) => void;
+  onStartStep?: (stepDescriptor: WorkflowStepDescriptor) => void;
 }) {
   return (
     <section aria-labelledby="workflow-heading">
@@ -214,7 +329,7 @@ export function StatusBoard({
                     isDeterministic={isDeterministic}
                     onSelect={onTaskSelect}
                     onAction={onTaskAction}
-                    onWorkflowAction={onWorkflowAction}
+                    onStartStep={onStartStep}
                   />
                 ))}
                 {lane.tasks.length === 0 && <span className="sr-only">Brak zadań</span>}
