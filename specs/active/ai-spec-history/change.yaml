@@ -20,7 +20,7 @@ tasks:
     file: tasks/01-activity-core-model-and-contracts.md
     status: approved
     workflow_progress:
-      current_step: implementation
+      current_step: review
       current_attempt: 2
       state: completed
       history:
@@ -56,6 +56,17 @@ tasks:
           attempt: 2
           completed_at: 2026-09-21T17:16:22.446Z
           transitioned_to: review
+        - step: review
+          attempt: 2
+          completed_at: 2026-09-21T17:18:00.826Z
+          transitioned_to: human-verification
+          result: pass
+          feedback: "Deliverable files (tools/specs/activity/model.mjs,
+            tools/tests/activity-model.test.mjs) are unchanged (byte-identical)
+            since the prior full review at bb380f1, which already confirmed all
+            task-01 acceptance criteria are met. Re-ran required verification:
+            19/19 tests pass, specs.mjs validate clean. No corrective edits
+            needed."
   - id: activity-local-store
     order: 2
     file: tasks/02-activity-local-store.md
