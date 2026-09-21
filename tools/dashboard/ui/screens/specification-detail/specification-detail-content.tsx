@@ -3,7 +3,7 @@ import { CalendarClock, FileCode2, LayoutDashboard, BookOpenText, GitPullRequest
 import { useNavigate, Link } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 
-import type { SpecificationSummary, SpecificationTask } from '@/features/specifications/types';
+import type { SpecificationSummary, SpecificationTask, WorkflowStepDescriptor } from '@/features/specifications/types';
 import { computeVisibleTabs, type SpecTabId } from '@/features/specifications/detail/documentation-projection';
 import { formatDate, cn } from '@/shared/lib/utils';
 import { Badge } from '@/shared/ui/badge';
@@ -20,14 +20,14 @@ import { RepositoryActionsCard, FinalizeDialog } from '@/features/specifications
 import { CreateAgentSessionDialog } from '@/features/agent-sessions/create-agent-session-dialog';
 import { OperationModal } from '@/features/operations/operation-modal';
 import { queueAgentSessionInitialDispatch } from '@/features/agent-sessions/initial-dispatch';
-import { pendingActionModeStore } from '@/features/agent-sessions/runtime/pending-action-mode-store';
+import { postHumanStepAction } from '@/shared/lib/human-step-request';
 import {
   useSpecificationManifest,
   useSpecificationActions,
 } from '@/features/specifications/detail/spec-detail-queries';
 import { invalidateSpecificationQueries } from '@/features/specifications/queries';
 import { invalidatePullRequestQueries } from '@/features/pull-requests/queries';
-import { useAgentProviders, useAgentSessions, useCreateAgentSession } from '@/features/agent-sessions/queries';
+import { useAgentProviders, useAgentSessions, useCreateAgentSession, buildAgentStepTriggerMessage } from '@/features/agent-sessions/queries';
 import type { AgentSession } from '@/features/agent-sessions/types';
 import { useSpecWorkflowActions } from './use-spec-workflow-actions';
 
@@ -60,6 +60,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
   const [sessionSpecification, setSessionSpecification] = useState<SpecificationSummary | null>(null);
   const [activeTab, setActiveTab] = useState<SpecTabId>('overview');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [workflowError, setWorkflowError] = useState<string | null>(null);
   const taskTriggerRef = useRef<HTMLElement | null>(null);
 
   const manifestQuery = useSpecificationManifest(specification);
@@ -129,98 +130,118 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
   const availableProviders = enabledProviders.filter((p) => p.available !== false);
   const defaultProvider = availableProviders[0]?.id || enabledProviders[0]?.id || 'claude';
 
-  const handleWorkflowAction = useCallback(
-    async (task: SpecificationTask, action: string) => {
-      if (action === 'start-implementation') {
-        const provider = defaultProvider;
-        const session = await createSession.create({
-          provider,
-          specId: specification.specId || '',
-          taskId: task.id,
-          taskIds: [task.id],
-          mode: 'edit',
-        });
-        const userMessage = `Implement task ${task.id}: ${task.title}`;
-        queueAgentSessionInitialDispatch({
-          provider: session.provider,
-          sessionId: session.sessionId,
-          prompt: userMessage,
-          userMessage,
-        });
-        navigate({
-          to: '/specs/$source/$slug/sessions/$sessionId',
-          params: {
-            source: specification.source,
-            slug: specification.slug,
-            sessionId: session.sessionId,
-          },
-        });
-      } else if (action === 'start-review') {
-        const provider = defaultProvider;
-        const session = await createSession.create({
-          provider,
-          specId: specification.specId || '',
-          taskId: task.id,
-          taskIds: [task.id],
-          mode: 'agent',
-        });
-        const userMessage = `Review task ${task.id}: ${task.title}`;
-        queueAgentSessionInitialDispatch({
-          provider: session.provider,
-          sessionId: session.sessionId,
-          prompt: userMessage,
-          userMessage,
-        });
-        navigate({
-          to: '/specs/$source/$slug/sessions/$sessionId',
-          params: {
-            source: specification.source,
-            slug: specification.slug,
-            sessionId: session.sessionId,
-          },
-        });
-      } else if (action === 'approve') {
-        await fetch(
-          `/api/specs/${encodeURIComponent(specification.slug)}/tasks/${encodeURIComponent(task.id)}/workflow/human-decision`,
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ decision: 'approve' }),
-          },
-        );
-        await Promise.all([actionsQuery.refresh(), invalidateSpecificationQueries(queryClient)]);
-      } else if (action === 'request-changes') {
-        const bound = sessionsQuery.sessions.find(
-          (s) => (s.taskIds && s.taskIds.includes(task.id)) || s.taskId === task.id,
-        );
-        const targetSession =
-          bound ||
-          (await createSession.create({
-            provider: defaultProvider,
-            specId: specification.specId || '',
-            taskId: task.id,
-            taskIds: [task.id],
-            mode: 'edit',
-          }));
-        // Explicit, inspectable navigation intent (not a hidden global flag): the target
-        // session/chat surface reads and consumes this exactly once to make `task.id` the
-        // authoritative activeTaskId and open the composer directly in request-changes
-        // mode — no second click required.
-        pendingActionModeStore.setPending(targetSession.sessionId, {
-          action: 'request-changes',
-          taskId: task.id,
-        });
-        navigate({
-          to: '/specs/$source/$slug/sessions/$sessionId',
-          params: {
-            source: specification.source,
-            slug: specification.slug,
+  const startStep = useCallback(
+    async (
+      arg1?: SpecificationTask | WorkflowStepDescriptor | null,
+      arg2?: WorkflowStepDescriptor | SpecificationTask | null,
+    ) => {
+      setWorkflowError(null);
+
+      let task: SpecificationTask | null = null;
+      let stepDescriptor: WorkflowStepDescriptor | null = null;
+
+      if (arg1 && typeof arg1 === 'object') {
+        if ('executor' in arg1) {
+          stepDescriptor = arg1 as WorkflowStepDescriptor;
+          if (arg2 && 'title' in (arg2 as any)) {
+            task = arg2 as SpecificationTask;
+          }
+        } else if ('title' in arg1) {
+          task = arg1 as SpecificationTask;
+          if (arg2 && 'executor' in (arg2 as any)) {
+            stepDescriptor = arg2 as WorkflowStepDescriptor;
+          }
+        }
+      }
+
+      if (!stepDescriptor && arg2 && typeof arg2 === 'object' && 'executor' in arg2) {
+        stepDescriptor = arg2 as WorkflowStepDescriptor;
+      }
+
+      if (!task) {
+        if (selectedTask) {
+          task = selectedTask;
+        } else if (stepDescriptor) {
+          const candidate = specification.tasks.find((t) => {
+            const gate = actionsQuery.data?.tasks?.[t.id];
+            if (!gate?.availableActions?.includes('start-step')) return false;
+            const desc = gate.stepDescriptor || gate.nextStepDescriptor || gate.currentStepDescriptor;
+            if (!desc) return false;
+            if (stepDescriptor.id && desc.id && desc.id !== stepDescriptor.id) return false;
+            if (stepDescriptor.executor && desc.executor && desc.executor !== stepDescriptor.executor) return false;
+            return true;
+          });
+          if (candidate) {
+            task = candidate;
+          }
+        }
+      }
+
+      if (!task || !stepDescriptor) {
+        return;
+      }
+
+      const targetTaskId = task.id;
+
+      if (stepDescriptor.executor === 'agent') {
+        try {
+          const bound = sessionsQuery.sessions.find(
+            (s) => (s.taskIds && s.taskIds.includes(targetTaskId)) || s.taskId === targetTaskId,
+          );
+          const targetSession =
+            bound ||
+            (await createSession.create({
+              provider: defaultProvider,
+              specId: specification.specId || '',
+              taskId: targetTaskId,
+              taskIds: [targetTaskId],
+              mode: 'edit',
+            }));
+
+          const userMessage = buildAgentStepTriggerMessage(targetTaskId);
+          queueAgentSessionInitialDispatch({
+            provider: targetSession.provider,
             sessionId: targetSession.sessionId,
-          },
-        });
+            prompt: userMessage,
+            userMessage,
+          });
+          navigate({
+            to: '/specs/$source/$slug/sessions/$sessionId',
+            params: {
+              source: specification.source,
+              slug: specification.slug,
+              sessionId: targetSession.sessionId,
+            },
+          });
+        } catch (err: any) {
+          const message = err instanceof Error ? err.message : String(err);
+          setWorkflowError(message);
+        }
+      } else if (stepDescriptor.executor === 'human') {
+        try {
+          await postHumanStepAction({
+            source: specification.source,
+            slug: specification.slug,
+            taskId: targetTaskId,
+            action: 'start',
+          });
+          await Promise.all([actionsQuery.refresh(), invalidateSpecificationQueries(queryClient)]);
+        } catch (err: any) {
+          const message = err instanceof Error ? err.message : String(err);
+          setWorkflowError(message);
+        }
       }
     },
-    [defaultProvider, createSession, specification, navigate, actionsQuery, queryClient, sessionsQuery.sessions],
+    [
+      actionsQuery,
+      createSession,
+      defaultProvider,
+      navigate,
+      queryClient,
+      selectedTask,
+      sessionsQuery.sessions,
+      specification,
+    ],
   );
 
   const handleOpenSession = (session: AgentSession) => {
@@ -340,6 +361,21 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
       </nav>
 
       <div className="mt-7">
+        {workflowError && (
+          <div
+            role="alert"
+            className="mb-6 flex items-center justify-between gap-3 rounded-xl border border-status-error/30 bg-status-error/10 p-4 text-xs font-medium text-status-error"
+          >
+            <span>{workflowError}</span>
+            <button
+              type="button"
+              onClick={() => setWorkflowError(null)}
+              className="cursor-pointer font-semibold underline hover:opacity-80"
+            >
+              Zamknij
+            </button>
+          </div>
+        )}
         <div
           id="spec-panel-overview"
           role="tabpanel"
@@ -357,7 +393,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
             onCreateSession={() => setSessionSpecification(specification)}
             taskActions={actionsQuery.data?.tasks}
             isDeterministic={actionsQuery.data?.workflowMode === 'deterministic'}
-            onWorkflowAction={handleWorkflowAction}
+            onStartStep={startStep}
             onDirectTaskAction={workflow.executeDirectTaskAction}
             onBatchTaskAction={workflow.executeBatchTaskAction}
             onOpenTask={(target) => {
@@ -371,9 +407,12 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
                     data={actionsQuery.data}
                     loading={actionsQuery.loading}
                     refreshing={actionsQuery.refreshing}
-                    error={actionsQuery.error}
+                    error={workflowError || actionsQuery.error}
                     executing={actionsQuery.executing}
-                    onRefresh={() => void actionsQuery.refresh()}
+                    onRefresh={() => {
+                      setWorkflowError(null);
+                      void actionsQuery.refresh();
+                    }}
                     onFinalize={workflow.openFinalize}
                   />
                 </div>
@@ -417,6 +456,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           taskId={selectedTask.id}
           onOperationStarted={workflow.updateActiveOperation}
           onClose={closeTask}
+          onStartStep={startStep}
           sessionsContent={
             <AgentSessionList
               sessions={sessionsQuery.sessions.filter(

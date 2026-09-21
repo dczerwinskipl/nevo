@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { AgentSessionWorkflowBar, type BoundTaskInfo } from '../ui/features/agent-sessions/agent-session-workflow-bar';
 import { AgentSessionChatSurface } from '../ui/features/agent-sessions/agent-session-chat-surface';
@@ -9,10 +10,45 @@ import { buildAgentStepTriggerMessage } from '../ui/features/agent-sessions/quer
 import { SpecificationMetadataFields } from '../ui/screens/specification-console/create-specification/specification-metadata-fields';
 import { HumanStepSurface } from '../ui/shared/workflow/human-step-surface';
 import { TaskDialog } from '../ui/features/specifications/tasks/task-dialog';
+import { SpecificationOverview } from '../ui/screens/specification-detail/specification-overview';
+import { SpecificationDetailContent } from '../ui/screens/specification-detail/specification-detail-content';
+import * as humanStepRequest from '../ui/shared/lib/human-step-request';
 import type { CanonicalTurn } from '../ui/features/agent-sessions/types';
 import type { SpecificationSummary, SpecificationTaskActionGate } from '../ui/features/specifications/types';
 
-// Mock spec-detail-queries for TaskDialog tests
+const mockNavigate = vi.fn();
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: () => mockNavigate,
+  Link: ({ children }: any) => children,
+}));
+
+const mockCreateSession = vi.fn();
+vi.mock('../ui/features/agent-sessions/queries', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../ui/features/agent-sessions/queries')>();
+  return {
+    ...actual,
+    useAgentProviders: () => ({
+      data: {
+        providers: [
+          { id: 'claude', name: 'Claude', enabled: true, available: true },
+        ],
+      },
+      loading: false,
+    }),
+    useAgentSessions: () => ({
+      sessions: [],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    }),
+    useCreateAgentSession: () => ({
+      create: mockCreateSession,
+      isPending: false,
+    }),
+  };
+});
+
+// Mock spec-detail-queries for TaskDialog and SpecificationDetailContent tests
 const mockActionsQueryData = {
   data: null as any,
   loading: false,
@@ -20,6 +56,7 @@ const mockActionsQueryData = {
   executionError: null as string | null,
   refresh: vi.fn(),
   execute: vi.fn(),
+  resetExecution: vi.fn(),
 };
 
 const mockDocumentQueryData = {
@@ -32,6 +69,7 @@ const mockDocumentQueryData = {
 vi.mock('../ui/features/specifications/detail/spec-detail-queries', () => ({
   useSpecificationActions: () => mockActionsQueryData,
   useSpecificationDocument: () => mockDocumentQueryData,
+  useSpecificationManifest: () => ({ data: null, loading: false }),
 }));
 
 const NO_TURNS: CanonicalTurn[] = [];
@@ -630,3 +668,350 @@ describe('Structural and architectural guarantees (Task 20, D11, D17, D19, D20)'
     expect(chatSrc).not.toContain('onApproveTask');
   });
 });
+
+describe('Task 23: SpecificationDetailContent and SpecificationOverview composition wiring (D14, D15, D17, D18, D19, D20)', () => {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+
+  const baseDeterministicSpec: SpecificationSummary = {
+    id: 'spec-det-1',
+    specId: 'spec-det-1',
+    slug: 'spec-det-1',
+    source: 'active',
+    title: 'Deterministic Workflow Spec',
+    status: 'in-implementation',
+    metrics: {
+      progress: 0,
+      total: 2,
+      completed: 0,
+      inImplementation: 0,
+      inReview: 0,
+      ready: 0,
+      stageCounts: { 'in-implementation': 0, 'in-review': 0, ready: 0, completed: 0, blocked: 0, draft: 0 } as any,
+    },
+    lanes: [
+      {
+        id: 'ready',
+        label: 'Oczekujące na start',
+        shortLabel: 'Oczekujące',
+        tasks: [
+          {
+            id: 'task-human-1',
+            title: 'Human verification task',
+            status: 'approved',
+            order: 1,
+            dependsOn: [],
+            blockedBy: [],
+          },
+        ],
+      },
+    ],
+    tasks: [
+      {
+        id: 'task-human-1',
+        title: 'Human verification task',
+        status: 'approved',
+        order: 1,
+        dependsOn: [],
+        blockedBy: [],
+      },
+      {
+        id: 'task-agent-1',
+        title: 'Agent step task',
+        status: 'approved',
+        order: 2,
+        dependsOn: [],
+        blockedBy: [],
+      },
+    ],
+    workflowMode: 'deterministic',
+  } as any;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('structural guarantee: specification-overview.tsx drops onWorkflowAction and declares onStartStep with unchanged onDirectTaskAction/onBatchTaskAction', () => {
+    const overviewSrc = readFileSync(
+      resolve(process.cwd(), 'ui/screens/specification-detail/specification-overview.tsx'),
+      'utf8',
+    );
+
+    // onWorkflowAction is completely gone
+    expect(overviewSrc).not.toContain('onWorkflowAction');
+
+    // onStartStep is declared and forwarded to StatusBoard
+    expect(overviewSrc).toMatch(/onStartStep\?:\s*\(task:\s*SpecificationTask,\s*stepDescriptor:\s*WorkflowStepDescriptor\)/);
+    expect(overviewSrc).toMatch(/onStartStep=\{onStartStep/);
+
+    // Legacy direct/batch actions remain byte-for-byte untouched
+    expect(overviewSrc).toContain('onDirectTaskAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;');
+    expect(overviewSrc).toContain('onBatchTaskAction?: (tasks: SpecificationTask[], action: SpecificationOwnerAction) => void;');
+    expect(overviewSrc).toContain('onTaskAction={onDirectTaskAction}');
+    expect(overviewSrc).toContain('onBatchAction={onBatchTaskAction}');
+  });
+
+  it('structural guarantee: specification-detail-content.tsx has NO step-id-keyed switch/if/lookup and only branches on executor', () => {
+    const detailSrc = readFileSync(
+      resolve(process.cwd(), 'ui/screens/specification-detail/specification-detail-content.tsx'),
+      'utf8',
+    );
+
+    // No literal step names as branch conditions
+    expect(detailSrc).not.toMatch(/(?:switch|if)\s*\(.*(?:currentStep|stepDescriptor\.id|action)\s*===\s*['"]review['"]/);
+    expect(detailSrc).not.toMatch(/(?:switch|if)\s*\(.*(?:currentStep|stepDescriptor\.id|action)\s*===\s*['"]hardening['"]/);
+    expect(detailSrc).not.toMatch(/(?:switch|if)\s*\(.*(?:currentStep|stepDescriptor\.id|action)\s*===\s*['"]implementation['"]/);
+    expect(detailSrc).not.toMatch(/(?:switch|if)\s*\(.*(?:currentStep|stepDescriptor\.id|action)\s*===\s*['"]human-verification['"]/);
+
+    // The only branch predicate in startStep is stepDescriptor.executor
+    expect(detailSrc).toMatch(/stepDescriptor\.executor\s*===\s*['"]agent['"]/);
+    expect(detailSrc).toMatch(/stepDescriptor\.executor\s*===\s*['"]human['"]/);
+
+    // startStep is passed as onStartStep to SpecificationOverview and TaskDialog
+    expect(detailSrc).toMatch(/<SpecificationOverview[\s\S]*?onStartStep=\{startStep\}/);
+    expect(detailSrc).toMatch(/<TaskDialog[\s\S]*?onStartStep=\{startStep\}/);
+  });
+
+  const baseWorktree = {
+    hasUpstream: true,
+    ahead: 0,
+    behind: 0,
+    clean: true,
+    total: 0,
+    staged: 0,
+    unstaged: 0,
+    untracked: 0,
+    files: [],
+    branch: 'main',
+  };
+
+  it('TaskCard human Start (board): clicking start-step on board against human waiting-for-step-start task calls startHumanStep and creates no AI session', async () => {
+    const postSpy = vi.spyOn(humanStepRequest, 'postHumanStepAction').mockResolvedValue({
+      ok: true,
+      action: 'start',
+      taskId: 'task-human-1',
+    });
+
+    mockActionsQueryData.data = {
+      workflowMode: 'deterministic',
+      worktree: baseWorktree,
+      finalize: { enabled: false, reason: null, checks: [], pullRequest: null },
+      tasks: {
+        'task-human-1': {
+          action: 'verify',
+          enabled: true,
+          reason: null,
+          state: 'waiting-for-step-start',
+          executor: 'human',
+          availableActions: ['start-step'],
+          stepDescriptor: {
+            id: 'verification',
+            executor: 'human',
+            purpose: 'Human verification step',
+          },
+        },
+      },
+    };
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SpecificationDetailContent specification={baseDeterministicSpec} />
+      </QueryClientProvider>,
+    );
+
+    const startBtn = screen.getByRole('button', { name: /Start step: Human verification task/i });
+    expect(startBtn).toBeInTheDocument();
+
+    fireEvent.click(startBtn);
+
+    await waitFor(() => {
+      expect(postSpy).toHaveBeenCalledTimes(1);
+    });
+
+    expect(postSpy).toHaveBeenCalledWith({
+      source: 'active',
+      slug: 'spec-det-1',
+      taskId: 'task-human-1',
+      action: 'start',
+    });
+
+    // Zero AI execution sessions created or bound
+    expect(mockCreateSession).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('TaskDialog human Start (dialog): clicking generic Start in TaskDialog routes through identical dispatcher shape and creates no AI session', async () => {
+    const postSpy = vi.spyOn(humanStepRequest, 'postHumanStepAction').mockResolvedValue({
+      ok: true,
+      action: 'start',
+      taskId: 'task-human-1',
+    });
+
+    mockActionsQueryData.data = {
+      workflowMode: 'deterministic',
+      worktree: baseWorktree,
+      finalize: { enabled: false, reason: null, checks: [], pullRequest: null },
+      tasks: {
+        'task-human-1': {
+          action: 'verify',
+          enabled: true,
+          reason: null,
+          state: 'waiting-for-step-start',
+          executor: 'human',
+          availableActions: ['start-step'],
+          stepDescriptor: {
+            id: 'verification',
+            executor: 'human',
+            purpose: 'Human verification step',
+          },
+        },
+      },
+    };
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SpecificationDetailContent specification={baseDeterministicSpec} />
+      </QueryClientProvider>,
+    );
+
+    // Open TaskDialog
+    const taskTitleBtn = screen.getByRole('button', { name: /Otwórz szczegóły zadania: Human verification task/i });
+    fireEvent.click(taskTitleBtn);
+
+    // In TaskDialog: click Start
+    const dialogStartBtn = screen.getByRole('button', { name: 'Start' });
+    fireEvent.click(dialogStartBtn);
+
+    await waitFor(() => {
+      expect(postSpy).toHaveBeenCalledTimes(1);
+    });
+
+    expect(postSpy).toHaveBeenCalledWith({
+      source: 'active',
+      slug: 'spec-det-1',
+      taskId: 'task-human-1',
+      action: 'start',
+    });
+
+    expect(mockCreateSession).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('Agent Start: clicking start-step for agent task creates/reuses AI execution session and sends generic trigger message', async () => {
+    const postSpy = vi.spyOn(humanStepRequest, 'postHumanStepAction');
+    mockCreateSession.mockResolvedValue({
+      provider: 'claude',
+      sessionId: 'sess-new-1',
+    });
+
+    const agentSpec: SpecificationSummary = {
+      ...baseDeterministicSpec,
+      lanes: [
+        {
+          id: 'ready',
+          label: 'Oczekujące',
+          shortLabel: 'Oczekujące',
+          tasks: [baseDeterministicSpec.tasks[1]], // task-agent-1
+        },
+      ],
+    };
+
+    mockActionsQueryData.data = {
+      workflowMode: 'deterministic',
+      worktree: baseWorktree,
+      finalize: { enabled: false, reason: null, checks: [], pullRequest: null },
+      tasks: {
+        'task-agent-1': {
+          action: 'verify',
+          enabled: true,
+          reason: null,
+          state: 'waiting-for-step-start',
+          executor: 'agent',
+          availableActions: ['start-step'],
+          stepDescriptor: {
+            id: 'implementation',
+            executor: 'agent',
+            purpose: 'Implementation work',
+          },
+        },
+      },
+    };
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SpecificationDetailContent specification={agentSpec} />
+      </QueryClientProvider>,
+    );
+
+    const startBtn = screen.getByRole('button', { name: /Start step: Agent step task/i });
+    fireEvent.click(startBtn);
+
+    await waitFor(() => {
+      expect(mockCreateSession).toHaveBeenCalledTimes(1);
+    });
+
+    expect(mockCreateSession).toHaveBeenCalledWith({
+      provider: 'claude',
+      specId: 'spec-det-1',
+      taskId: 'task-agent-1',
+      taskIds: ['task-agent-1'],
+      mode: 'edit',
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: '/specs/$source/$slug/sessions/$sessionId',
+      params: {
+        source: 'active',
+        slug: 'spec-det-1',
+        sessionId: 'sess-new-1',
+      },
+    });
+
+    // Zero human-step requests sent
+    expect(postSpy).not.toHaveBeenCalled();
+  });
+
+  it('surfaces server readiness-refusal errors clearly in an alert banner', async () => {
+    vi.spyOn(humanStepRequest, 'postHumanStepAction').mockRejectedValue(
+      new Error("Task 'task-human-1' in spec 'spec-det-1' is not ready for execution: Unmet dependency on task-00"),
+    );
+
+    mockActionsQueryData.data = {
+      workflowMode: 'deterministic',
+      worktree: baseWorktree,
+      finalize: { enabled: false, reason: null, checks: [], pullRequest: null },
+      tasks: {
+        'task-human-1': {
+          action: 'verify',
+          enabled: true,
+          reason: null,
+          state: 'waiting-for-step-start',
+          executor: 'human',
+          availableActions: ['start-step'],
+          stepDescriptor: {
+            id: 'verification',
+            executor: 'human',
+            purpose: 'Human verification step',
+          },
+        },
+      },
+    };
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SpecificationDetailContent specification={baseDeterministicSpec} />
+      </QueryClientProvider>,
+    );
+
+    const startBtn = screen.getByRole('button', { name: /Start step: Human verification task/i });
+    fireEvent.click(startBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+    });
+
+    expect(within(screen.getByRole('alert')).getByText(/Unmet dependency on task-00/)).toBeInTheDocument();
+  });
+});
+

@@ -5,6 +5,7 @@ import type {
   SpecificationTask,
   SpecificationOwnerAction,
   SpecificationTaskActionGate,
+  WorkflowStepDescriptor,
 } from '@/features/specifications/types';
 import type { AgentSession, TaskNavigationTarget } from '@/features/agent-sessions/types';
 import { formatStatus } from '@/shared/lib/utils';
@@ -26,7 +27,7 @@ export function SpecificationOverview({
   isDeterministic = false,
   onDirectTaskAction,
   onBatchTaskAction,
-  onWorkflowAction,
+  onStartStep,
   onCreateSession,
   onOpenTask,
 }: {
@@ -43,7 +44,7 @@ export function SpecificationOverview({
   isDeterministic?: boolean;
   onDirectTaskAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
   onBatchTaskAction?: (tasks: SpecificationTask[], action: SpecificationOwnerAction) => void;
-  onWorkflowAction?: (task: SpecificationTask, action: string) => void | Promise<void>;
+  onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor) => void | Promise<void>;
   onCreateSession: () => void;
   onOpenTask?: (target: TaskNavigationTarget | string) => void;
 }) {
@@ -106,7 +107,7 @@ export function SpecificationOverview({
           onTaskSelect={onTaskSelect}
           onTaskAction={onDirectTaskAction}
           onBatchAction={onBatchTaskAction}
-          onWorkflowAction={onWorkflowAction}
+          onStartStep={onStartStep as any}
         />
       </div>
     </>

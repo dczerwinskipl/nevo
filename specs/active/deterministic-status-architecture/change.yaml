@@ -206,7 +206,7 @@ tasks:
   - id: specification-detail-composition-wiring
     order: 23
     file: tasks/23-specification-detail-composition-wiring.md
-    status: approved
+    status: implemented
     depends_on:
       [
         session-bootstrap-readiness-wiring,
@@ -214,5 +214,7 @@ tasks:
         task-card-lifecycle-split,
         human-step-surface-consolidation
       ]
+    implementation:
+      baseline_revision: 669c558cb45b9ba1493b5cf8315921d784c02b44
 
 spec_id: 226954d0-b33e-4c89-a302-c27c4e51b1d8
