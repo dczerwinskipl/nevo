@@ -179,7 +179,7 @@ tasks:
   - id: lifecycle-skill-instruction-split
     order: 21
     file: tasks/21-lifecycle-skill-instruction-split.md
-    status: approved
+    status: implemented
     depends_on:
       [
         legacy-mutation-guard,
@@ -188,6 +188,8 @@ tasks:
         step-executor-guard,
         human-step-execution-operations
       ]
+    implementation:
+      baseline_revision: a90f5f1076434493268f622613b91c0a48855492
   - id: ownership-boundary-documentation
     order: 22
     file: tasks/22-ownership-boundary-documentation.md
