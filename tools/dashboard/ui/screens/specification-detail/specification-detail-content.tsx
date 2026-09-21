@@ -152,7 +152,6 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
               specId: specification.specId || '',
               taskId: targetTaskId,
               taskIds: [targetTaskId],
-              mode: 'edit',
             }));
 
           const userMessage = buildAgentStepTriggerMessage(targetTaskId);

@@ -671,6 +671,16 @@ describe('Structural and architectural guarantees (Task 20, D11, D17, D19, D20)'
     expect(chatSrc).not.toContain('onStartReviewTask');
     expect(chatSrc).not.toContain('onApproveTask');
   });
+
+  it('confirm start step dispatch uses generic mode without branching on step id', () => {
+    const sessionPageSrc = readFileSync(resolve(process.cwd(), 'ui/features/agent-sessions/agent-session-page.tsx'), 'utf8');
+    const specDetailSrc = readFileSync(resolve(process.cwd(), 'ui/screens/specification-detail/specification-detail-content.tsx'), 'utf8');
+
+    expect(sessionPageSrc).toMatch(/assistant\.sendTurn\(prompt,\s*\{\s*mode:\s*currentMode/);
+    expect(specDetailSrc).not.toMatch(/mode:\s*['"]edit['"]/);
+    expect(sessionPageSrc).not.toMatch(/handleStartAgentStep[\s\S]*?(?:implementation|hardening|discovery)/);
+    expect(specDetailSrc).not.toMatch(/stepDescriptor\.id\s*===/);
+  });
 });
 
 describe('Task 23: SpecificationDetailContent and SpecificationOverview composition wiring (D14, D15, D17, D18, D19, D20)', () => {

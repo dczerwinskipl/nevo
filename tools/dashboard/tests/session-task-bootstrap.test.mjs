@@ -4,6 +4,7 @@ import { mkdtemp, rm, readFile, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 import {
   createAgentSessionBindingService,
@@ -1157,12 +1158,17 @@ tasks:
     sessionService = new AgentSessionService({ registry, turnRuntime, bindingService, repoRoot: tmpDir });
 
     // Manually bind an existing session to task '01' (simulating a reused session created previously)
-    const session = await sessionService.attachSession('mock', {
+    const sessionId = randomUUID();
+    await bindingService.bindSession({
+      sessionId,
+      provider: 'mock',
       providerSessionId: 'mock-reused-sess',
       specId,
       taskId: '01',
       taskIds: ['01'],
+      activeTaskId: '01',
     });
+    const session = { sessionId, provider: 'mock', specId, taskId: '01', taskIds: ['01'] };
 
     // Starting a turn against the unready (draft) task must throw AiDeterministicWorkflowUnavailableError
     await assert.rejects(

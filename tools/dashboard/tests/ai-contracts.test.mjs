@@ -410,43 +410,50 @@ test('AgentSessionService persists the canonical AgentSession before any provide
     async startTurn() {},
     async cancelTurn() {},
   };
+  const specFixtureRoot = await mkdtemp(join(tmpdir(), 'nevo-ai-contracts-spec-fixture-'));
+  writeLegacySpecFixtureSync(specFixtureRoot, 'spec-1');
   const registry = createAgentProviderRegistry([provider]);
-  const service = createAgentSessionService({ registry, bindingService });
+  try {
+    const service = createAgentSessionService({ registry, bindingService, repoRoot: specFixtureRoot });
 
-  const session = await service.createSession('owned', { specId: 'spec-1', taskId: 'task-1' });
-  assert.ok(observedDuringCreate, 'the canonical binding must be persisted before provider.createSession() runs');
-  assert.equal(observedDuringCreate.providerSessionId, undefined);
-  assert.equal(session.providerSessionId, 'provider-thread-1');
-  assert.equal(bindings.length, 1);
-  assert.equal(bindings[0].providerSessionId, 'provider-thread-1');
+    const session = await service.createSession('owned', { specId: 'spec-1', taskId: 'task-1' });
+    assert.ok(observedDuringCreate, 'the canonical binding must be persisted before provider.createSession() runs');
+    assert.equal(observedDuringCreate.providerSessionId, undefined);
+    assert.equal(session.providerSessionId, 'provider-thread-1');
+    assert.equal(bindings.length, 1);
+    assert.equal(bindings[0].providerSessionId, 'provider-thread-1');
 
-  // When the provider-native side effect itself fails, the already-persisted canonical
-  // binding is NOT rolled back — the provider error still propagates, but the session
-  // remains recorded (unestablished, never fabricated), since provider side effects may
-  // already have partially happened by the time the failure surfaces.
-  let bindCallCount = 0;
-  const failingProvider = {
-    descriptor: { id: 'failing-owned', label: 'Failing owned', capabilities },
-    async createSession() {
-      throw new Error('provider creation failed');
-    },
-    async startTurn() {},
-    async cancelTurn() {},
-  };
-  const failingService = createAgentSessionService({
-    registry: createAgentProviderRegistry([failingProvider]),
-    bindingService: {
-      async bindSession(binding) {
-        bindCallCount += 1;
-        return binding;
+    // When the provider-native side effect itself fails, the already-persisted canonical
+    // binding is NOT rolled back — the provider error still propagates, but the session
+    // remains recorded (unestablished, never fabricated), since provider side effects may
+    // already have partially happened by the time the failure surfaces.
+    let bindCallCount = 0;
+    const failingProvider = {
+      descriptor: { id: 'failing-owned', label: 'Failing owned', capabilities },
+      async createSession() {
+        throw new Error('provider creation failed');
       },
-    },
-  });
-  await assert.rejects(
-    () => failingService.createSession('failing-owned', { specId: 'spec-1' }),
-    /provider creation failed/,
-  );
-  assert.equal(bindCallCount, 1, 'the canonical binding must be persisted even though the provider side effect later failed');
+      async startTurn() {},
+      async cancelTurn() {},
+    };
+    const failingService = createAgentSessionService({
+      registry: createAgentProviderRegistry([failingProvider]),
+      bindingService: {
+        async bindSession(binding) {
+          bindCallCount += 1;
+          return binding;
+        },
+      },
+      repoRoot: specFixtureRoot,
+    });
+    await assert.rejects(
+      () => failingService.createSession('failing-owned', { specId: 'spec-1' }),
+      /provider creation failed/,
+    );
+    assert.equal(bindCallCount, 1, 'the canonical binding must be persisted even though the provider side effect later failed');
+  } finally {
+    await rm(specFixtureRoot, { recursive: true, force: true });
+  }
 });
 
 test('integration: new chat -> first prompt -> provider identity created and bound -> second prompt resumes', async () => {

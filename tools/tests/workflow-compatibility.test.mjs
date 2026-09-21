@@ -298,8 +298,17 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit re
     assert.deepEqual(hv.exitGates, []);
     assert.deepEqual(hv.finalize, [{ id: 'commit-and-push' }]);
     assert.deepEqual(hv.transitions, [
-      { value: 'pass', to: 'verified' },
-      { value: 'fail', to: 'implementation' },
+      {
+        value: 'pass',
+        to: 'verified',
+        action: { label: 'Approve' },
+        outcome: 'success',
+      },
+      {
+        value: 'fail',
+        to: 'implementation',
+        action: { label: 'Request changes', feedback: { required: true } },
+      },
     ]);
   });
 
@@ -441,13 +450,13 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit re
 
       writeFileSync(
         join(repoA, WORKFLOWS_REL_DIR, 'standard.yaml'),
-        'id: standard-repo-a\ntitle: "Repo A Workflow"\nsteps:\n  build:\n    status: { active: building, completed: built }\n    transitions: [{ to: verified }]\n',
+        'id: standard-repo-a\ntitle: "Repo A Workflow"\nsteps:\n  build:\n    status: { active: building, completed: built }\n    transitions: [{ to: verified, outcome: success }]\n',
         'utf8'
       );
 
       writeFileSync(
         join(repoB, WORKFLOWS_REL_DIR, 'standard.yaml'),
-        'id: standard-repo-b\ntitle: "Repo B Workflow"\nsteps:\n  test:\n    status: { active: testing, completed: tested }\n    transitions: [{ to: verified }]\n',
+        'id: standard-repo-b\ntitle: "Repo B Workflow"\nsteps:\n  test:\n    status: { active: testing, completed: tested }\n    transitions: [{ to: verified, outcome: success }]\n',
         'utf8'
       );
 
@@ -562,6 +571,7 @@ steps:
         action: test
     transitions:
       - to: verified
+        outcome: success
 `;
     const def = parseWorkflowDefinition(yaml);
     assert.equal(def.id, 'custom-v1');
@@ -627,6 +637,7 @@ steps:
       - id: run-check
     transitions:
       - to: verified
+        outcome: success
 `;
     const def = parseWorkflowDefinition(yaml);
     assert.equal(def.id, 'custom-v1');
@@ -649,6 +660,7 @@ steps:
         action: build
     transitions:
       - to: verified
+        outcome: success
 `;
     const def = parseWorkflowDefinition(yaml);
     assert.equal(def.id, 'custom-v1');
@@ -686,6 +698,7 @@ steps:
         action: lint
     transitions:
       - to: verified
+        outcome: success
 `;
     const def = parseWorkflowDefinition(yaml, { knownCommandActions: new Set(['test', 'build', 'lint']) });
     assert.equal(def.id, 'custom-v1');
@@ -703,6 +716,7 @@ steps:
         action: implement-task
     transitions:
       - to: verified
+        outcome: success
 `;
     // 'implement-task' is in knownActions, but NOT in knownCommandActions
     assert.throws(
@@ -732,6 +746,7 @@ steps:
         command: "npm run test:unit"
     transitions:
       - to: verified
+        outcome: success
 `;
     const def = parseWorkflowDefinition(yaml, { knownActions: new Set(['implement-task']) });
     assert.equal(def.id, 'custom-v1');
@@ -836,7 +851,7 @@ describe('Safe, unique step and gate identifiers (D30, task 08 AC12)', () => {
         implementation: {
           status: { active: 'implementing', completed: 'implemented' },
           actions: [{ id: 'a' }],
-          transitions: [{ to: 'verified' }],
+          transitions: [{ to: 'verified', outcome: 'success' }],
           ...overrides,
         },
       },
@@ -844,14 +859,14 @@ describe('Safe, unique step and gate identifiers (D30, task 08 AC12)', () => {
   }
 
   test('a step key containing "/" fails validation', () => {
-    const raw = { id: 'ids-v1', steps: { 'bad/step': { actions: [], transitions: [{ to: 'verified' }] } } };
+    const raw = { id: 'ids-v1', steps: { 'bad/step': { actions: [], transitions: [{ to: 'verified', outcome: 'success' }] } } };
     const { valid, errors } = validateWorkflowDefinition(raw);
     assert.equal(valid, false);
     assert.ok(errors.some(e => /must be a non-empty identifier matching/.test(e)));
   });
 
   test('an empty step key fails validation', () => {
-    const raw = { id: 'ids-v1', steps: { '': { actions: [], transitions: [{ to: 'verified' }] } } };
+    const raw = { id: 'ids-v1', steps: { '': { actions: [], transitions: [{ to: 'verified', outcome: 'success' }] } } };
     const { valid, errors } = validateWorkflowDefinition(raw);
     assert.equal(valid, false);
     assert.ok(errors.some(e => /must be a non-empty identifier matching/.test(e)));
@@ -927,7 +942,7 @@ describe('Transition cardinality and terminal-target correctness (D19 refined/D2
   });
 
   test('a step declaring exactly one transition validates successfully', () => {
-    const raw = { id: 'card-v1', steps: { implementation: { status: { active: 'implementing', completed: 'implemented' }, actions: [{ id: 'a' }], transitions: [{ to: 'verified' }] } } };
+    const raw = { id: 'card-v1', steps: { implementation: { status: { active: 'implementing', completed: 'implemented' }, actions: [{ id: 'a' }], transitions: [{ to: 'verified', outcome: 'success' }] } } };
     const { valid, errors } = validateWorkflowDefinition(raw);
     assert.equal(valid, true, errors.join('; '));
   });
@@ -965,7 +980,7 @@ describe('Transition cardinality and terminal-target correctness (D19 refined/D2
       id: 'multi-v1',
       steps: {
         stepA: { status: { active: 'a-active', completed: 'a-completed' }, actions: [{ id: 'a' }], transitions: [{ to: 'stepB' }] },
-        stepB: { status: { active: 'b-active', completed: 'b-completed' }, actions: [{ id: 'a' }], transitions: [{ to: 'verified' }] },
+        stepB: { status: { active: 'b-active', completed: 'b-completed' }, actions: [{ id: 'a' }], transitions: [{ to: 'verified', outcome: 'success' }] },
       },
     };
     const { valid, errors } = validateWorkflowDefinition(raw);
@@ -1180,6 +1195,7 @@ describe('workflow_progress validation contract (D18/D19/D28, AC1/AC19)', () => 
           '    transitions:',
           '      - value: pass',
           '        to: verified',
+          '        outcome: success',
           '      - value: fail',
           '        to: impl',
         ].join('\n')

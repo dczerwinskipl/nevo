@@ -16,7 +16,8 @@ import * as git from '../../lib/git.mjs';
 
 // D38: re-export resolveTaskScope from context.mjs as single source of truth
 export { resolveTaskScope } from '../context.mjs';
-export { resolveWorkflowOwnedPaths } from './actions/commit-and-push.mjs';
+import { resolveWorkflowOwnedPaths } from './actions/commit-and-push.mjs';
+export { resolveWorkflowOwnedPaths };
 
 /**
  * Runs `WorkflowEngine.checkStep` over a step's full, unfiltered finalize action list.
@@ -565,5 +566,29 @@ export async function compileStepContext({
       // attempt report the same blocking state (D9 clarification).
       gates: exitGateResults,
     },
+  };
+}
+
+/**
+ * Shared runtime context helper between CLI and HTTP transport.
+ * Constructs the standard execution context from change, task, and definition.
+ */
+export function buildWorkflowRuntimeContext(change, task, definition, { repoRoot, activeDir, changeSlug } = {}) {
+  const resolvedChangeSlug = changeSlug || change._slug || change.id;
+  const scope = resolveTaskScope(change, task, { activeDir, repoRoot });
+  const workflowOwnedPaths = resolveWorkflowOwnedPaths({ activeDir, repoRoot, changeSlug: resolvedChangeSlug });
+
+  return {
+    repoRoot,
+    activeDir,
+    taskId: task.id,
+    task,
+    changeId: change.id,
+    changeSlug: resolvedChangeSlug,
+    sourceControl: definition.sourceControl,
+    baseBranch: 'main',
+    taskAllowedPaths: scope.allowedPaths,
+    allowedPaths: scope.allowedPaths,
+    workflowOwnedPaths,
   };
 }

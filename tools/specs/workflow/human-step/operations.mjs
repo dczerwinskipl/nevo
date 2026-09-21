@@ -73,6 +73,28 @@ export async function submitHumanStepResult(
   const activeStepName = inFlight ? inFlight.step : (position?.phase === 'active' ? position.step : null);
 
   if (!activeStepName) {
+    if (position?.phase === 'terminal' || position?.phase === 'completed') {
+      const lastStepName = task?.workflow_progress?.current_step || null;
+      const lastStep = definition.steps?.[lastStepName];
+      if (lastStep) {
+        assertStepExecutor(lastStep, 'human', { stepId: lastStepName });
+      }
+      return await finishStep({
+        change,
+        task,
+        definition,
+        context,
+        inputs: {
+          ...(result !== undefined ? { result } : {}),
+          ...(feedback !== undefined ? { feedback } : {}),
+          ...(artifacts !== undefined ? { artifacts } : {}),
+          ...extraInputs,
+        },
+        activeDir: context?.activeDir,
+        gateRegistry: context?.gateRegistry,
+      });
+    }
+
     throw new WorkflowError(
       `No step is currently active for task '${task.id}' in change '${changeSlug}' (phase: '${position?.phase}')`,
       { code: 'NO_ACTIVE_STEP', step: activeStepName }
@@ -91,6 +113,13 @@ export async function submitHumanStepResult(
 
   const transitions = step.transitions || [];
   const isConditional = transitions.length > 1 || transitions.some(t => t.value !== undefined);
+
+  if (isConditional && !result) {
+    throw new WorkflowError(
+      `Step '${activeStepName}' requires a transition result (${transitions.map(t => t.value).filter(Boolean).join(', ')})`,
+      { code: 'MISSING_REQUIRED_INPUT', step: activeStepName }
+    );
+  }
 
   if (!isConditional) {
     if (result !== undefined) {

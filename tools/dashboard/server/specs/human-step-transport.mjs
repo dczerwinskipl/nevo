@@ -9,7 +9,7 @@ import { startHumanStep, submitHumanStepResult } from '../../../specs/workflow/h
 import { WorkflowError } from '../../../specs/workflow/errors.mjs';
 import { WorkflowStepExecutorMismatchError } from '../../../specs/workflow/executor-guard.mjs';
 import { CliError } from '../../../lib/cli-errors.mjs';
-import { resolveTaskScope, resolveWorkflowOwnedPaths } from '../../../specs/workflow/step-context.mjs';
+import { buildWorkflowRuntimeContext } from '../../../specs/workflow/step-context.mjs';
 // Side-effect import: registers CommitAndPushAction into defaultActionRegistry
 import '../../../specs/workflow/actions/index.mjs';
 
@@ -95,23 +95,11 @@ export async function executeHumanStepAction({
     });
   }
 
-  const resolvedChangeSlug = change._slug || change.id || slug;
-  const scope = resolveTaskScope(change, task, { activeDir, repoRoot: root });
-  const workflowOwnedPaths = resolveWorkflowOwnedPaths({ activeDir, repoRoot: root, changeSlug: resolvedChangeSlug });
-
-  const context = {
+  const context = buildWorkflowRuntimeContext(change, task, definition, {
     repoRoot: root,
     activeDir,
-    taskId: task.id,
-    task,
-    changeId: change.id,
-    changeSlug: resolvedChangeSlug,
-    sourceControl: definition.sourceControl,
-    baseBranch: 'main',
-    taskAllowedPaths: scope.allowedPaths,
-    allowedPaths: scope.allowedPaths,
-    workflowOwnedPaths,
-  };
+    changeSlug: slug,
+  });
 
   if (action === 'start') {
     try {

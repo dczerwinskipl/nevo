@@ -16,6 +16,7 @@ import { handleWorkflowStepStart } from '../specs/workflow/cli.mjs';
 import { startHumanStep } from '../specs/workflow/human-step/operations.mjs';
 import { WorkflowStepExecutorMismatchError } from '../specs/workflow/executor-guard.mjs';
 import { WorkflowError } from '../specs/workflow/errors.mjs';
+import { requireChange } from '../specs/store.mjs';
 import { AgentSessionService } from '../dashboard/server/ai/sessions/service.mjs';
 import { AiDeterministicWorkflowUnavailableError } from '../dashboard/server/ai/contracts.mjs';
 
@@ -200,7 +201,22 @@ describe('Execution Readiness Policy (Task 13, D10, D13, D15, D18)', () => {
     );
   });
 
-  test('AC3: workflow step start against human-owned current step fails closed via executor guard', async () => {
+  test('AC3: workflow step start against human-owned current step fails closed via executor guard with full metadata', async () => {
+    // 1. Direct evaluateExecutionReadiness verification
+    const change = requireChange('demo-change', fx.activeDir);
+    const taskHuman = change.tasks.find((t) => t.id === 't-human');
+    const directReadiness = evaluateExecutionReadiness(taskHuman, change, 'agent', { repoRoot: fx.root });
+    assert.equal(directReadiness.ready, false);
+    assert.equal(directReadiness.code, 'WORKFLOW_STEP_EXECUTOR_MISMATCH');
+    assert.equal(directReadiness.stepId, 'signoff');
+    assert.equal(directReadiness.executor, 'human');
+    assert.equal(directReadiness.purpose, 'Human review');
+    assert.deepEqual(directReadiness.expectedWork, { summary: 'Evaluate code' });
+    assert.deepEqual(directReadiness.availableActions, [
+      { label: 'Approve', feedbackRequired: false, to: 'verified' },
+    ]);
+
+    // 2. CLI handleWorkflowStepStart throws WorkflowStepExecutorMismatchError with identical metadata
     await assert.rejects(
       () => handleWorkflowStepStart('demo-change', 't-human', {
         activeDir: fx.activeDir,
@@ -213,6 +229,11 @@ describe('Execution Readiness Policy (Task 13, D10, D13, D15, D18)', () => {
         assert.equal(err.stepId, 'signoff');
         assert.equal(err.executor, 'human');
         assert.equal(err.callerKind, 'agent');
+        assert.equal(err.purpose, 'Human review');
+        assert.deepEqual(err.expectedWork, { summary: 'Evaluate code' });
+        assert.deepEqual(err.availableActions, [
+          { label: 'Approve', feedbackRequired: false, to: 'verified' },
+        ]);
         return true;
       }
     );
@@ -339,6 +360,40 @@ describe('Execution Readiness Policy (Task 13, D10, D13, D15, D18)', () => {
     assert.ok(session);
     assert.equal(session.taskId, undefined, 'taskId must be undefined when only contextual taskIds provided');
     assert.equal(session.activeTaskId, undefined, 'activeTaskId must be undefined when only contextual taskIds provided');
+  });
+
+  test('attachSession with explicit taskId checks readiness and rejects unready task without creating binding', async () => {
+    const service = new AgentSessionService({
+      registry: makeMockRegistry(),
+      repoRoot: fx.root,
+    });
+
+    // 1. attachSession with unready taskId (t-draft) is rejected
+    await assert.rejects(
+      () => service.attachSession('mock-provider', {
+        providerSessionId: 'mock-p-session-1',
+        specId: '00000000-0000-4000-8000-000000000001',
+        taskId: 't-draft',
+      }),
+      (err) => {
+        assert.ok(err instanceof AiDeterministicWorkflowUnavailableError);
+        assert.ok(err.message.includes('not ready for execution'));
+        assert.ok(err.message.includes('draft'));
+        return true;
+      }
+    );
+
+    // 2. attachSession with taskIds only (contextual association) succeeds without readiness check and activeTaskId remains absent
+    const attached = await service.attachSession('mock-provider', {
+      providerSessionId: 'mock-p-session-2',
+      specId: '00000000-0000-4000-8000-000000000001',
+      taskIds: ['t-draft', 't-blocked'],
+    });
+
+    assert.ok(attached);
+    assert.deepEqual(attached.taskIds, ['t-draft', 't-blocked']);
+    assert.equal(attached.taskId, undefined);
+    assert.equal(attached.activeTaskId, undefined);
   });
 
   test('AC7: New attempt against dirty baseline worktree fails closed; resume active attempt succeeds', async () => {

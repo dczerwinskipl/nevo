@@ -277,13 +277,13 @@ export function AgentSessionPage({
       setRuntimeError(null);
       try {
         const prompt = buildAgentStepTriggerMessage(taskId);
-        await assistant.sendTurn(prompt, { mode: 'agent', userMessage: prompt });
+        await assistant.sendTurn(prompt, { mode: currentMode, userMessage: prompt });
         await onRefreshTaskActions?.();
       } catch (err) {
         setRuntimeError(err instanceof Error ? err.message : String(err));
       }
     },
-    [assistant, onRefreshTaskActions],
+    [assistant, currentMode, onRefreshTaskActions],
   );
 
   const handleComposerSubmit = useCallback(

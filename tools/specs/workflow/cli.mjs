@@ -17,7 +17,7 @@ import { parseVerificationCommands } from '../fingerprint.mjs';
 import { CliError } from '../../lib/cli-errors.mjs';
 import { resolveWorkflowMode, assertWorkflowVersionCompatible } from './compatibility.mjs';
 import { loadWorkflowDefinition } from './definitions/loader.mjs';
-import { compileStepContext, buildFinishContract, validateFinishInputs, aggregateFinalizeCheck, ensureStepActivated, resolveTaskScope, resolveWorkflowOwnedPaths } from './step-context.mjs';
+import { compileStepContext, buildFinishContract, validateFinishInputs, aggregateFinalizeCheck, ensureStepActivated, resolveTaskScope, resolveWorkflowOwnedPaths, buildWorkflowRuntimeContext } from './step-context.mjs';
 import { planFinish, finishStep } from './finish-operation.mjs';
 import { publishTask } from './publish/operation.mjs';
 import { resolveActiveStepName, resolveWorkflowPosition, gateDisplayId } from './step-runner.mjs';
@@ -53,23 +53,7 @@ export function resolveWorkflowRuntime(changeSlug, taskId, { activeDir = ACTIVE_
   const definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot });
   assertWorkflowVersionCompatible(resolvedMode, definition);
 
-  const scope = resolveTaskScope(change, task, { activeDir, repoRoot });
-  const resolvedChangeSlug = change._slug || change.id || changeSlug;
-  const workflowOwnedPaths = resolveWorkflowOwnedPaths({ activeDir, repoRoot, changeSlug: resolvedChangeSlug });
-
-  const context = {
-    repoRoot,
-    activeDir,
-    taskId: task.id,
-    task,
-    changeId: change.id,
-    changeSlug: resolvedChangeSlug,
-    sourceControl: definition.sourceControl,
-    baseBranch: 'main',
-    taskAllowedPaths: scope.allowedPaths,
-    allowedPaths: scope.allowedPaths,
-    workflowOwnedPaths,
-  };
+  const context = buildWorkflowRuntimeContext(change, task, definition, { repoRoot, activeDir, changeSlug });
 
   return { change, task, definition, context };
 }
@@ -348,24 +332,31 @@ function resolveHumanGateForConfirmation(definition, task, stepName, gateIdOptio
 }
 
 export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
-  const isApprove = Boolean(opts.approve);
-  const isRequestChanges = Boolean(opts.requestChanges || opts.reject);
+  const extraInputs = parseFinishInputs(opts);
+  const isApprove = Boolean(opts.approve || extraInputs.result === 'pass');
+  const isRequestChanges = Boolean(opts.requestChanges || opts.reject || extraInputs.result === 'fail');
 
-  if (isApprove || isRequestChanges) {
+  if (isApprove || isRequestChanges || (!opts.confirm)) {
     return (async () => {
       if (isApprove && isRequestChanges) {
         throw new CliError('Cannot specify both --approve and --request-changes');
       }
 
-      if (isRequestChanges && (!opts.feedback || typeof opts.feedback !== 'string' || opts.feedback.trim() === '')) {
+      if (isRequestChanges && (!opts.feedback && !extraInputs.feedback)) {
         throw new CliError('--request-changes requires --feedback <text>');
       }
       const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
       const position = resolveWorkflowPosition(definition, task);
 
+      if (!isApprove && !isRequestChanges && !opts.confirm) {
+        if (position.phase !== 'terminal') {
+          throw new CliError('workflow verify-human requires --approve, --request-changes, or --confirm');
+        }
+      }
+
       let effectiveTask = task;
       let effectivePosition = position;
-      if (position.phase !== 'active') {
+      if (position.phase !== 'active' && position.phase !== 'terminal') {
         const activation = startHumanStep(change, task, definition, context);
         effectiveTask = activation.task;
         effectivePosition = activation.position;
@@ -375,14 +366,15 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
       const effectiveContext = { ...context, gateRegistry };
 
       const inputs = {
-        result: isApprove ? 'pass' : 'fail',
+        ...extraInputs,
+        ...(isApprove ? { result: 'pass' } : (isRequestChanges ? { result: 'fail' } : {})),
       };
       if (opts.feedback) {
         inputs.feedback = opts.feedback.trim();
       }
       if (opts['commit.title']) {
         inputs['commit.title'] = opts['commit.title'];
-      } else {
+      } else if (!inputs['commit.title'] && (isApprove || isRequestChanges)) {
         inputs['commit.title'] = isApprove
           ? `verify(${task.id}): approve human verification`
           : `verify(${task.id}): request changes`;

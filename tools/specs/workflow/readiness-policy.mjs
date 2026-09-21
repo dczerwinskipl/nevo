@@ -1,7 +1,7 @@
 // Execution readiness policy (Task 13, D10, D13, D15, D18, D19).
 // Composes TaskProjection with the executor guard and activation preconditions.
 
-import { projectTask } from './task-projection.mjs';
+import { projectTask, resolveDefinition } from './task-projection.mjs';
 import { assertStepExecutor } from './executor-guard.mjs';
 import { assertCleanWorktreeForNewAttempt } from './step-context.mjs';
 import { loadOperationRecord } from './operation-record.mjs';
@@ -74,7 +74,12 @@ export function evaluateExecutionReadiness(task, change, callerKind = 'agent', o
     targetStepExecutor = projection.executor ?? 'agent';
   }
 
-  const targetStep = { id: targetStepId, executor: targetStepExecutor };
+  const definition = resolveDefinition(change, options.definition, options);
+  const stepDef = definition?.steps?.[targetStepId];
+  const targetStep = stepDef
+    ? { id: targetStepId, ...stepDef }
+    : { id: targetStepId, executor: targetStepExecutor };
+
   try {
     assertStepExecutor(targetStep, callerKind, { stepId: targetStepId });
   } catch (err) {
@@ -85,6 +90,11 @@ export function evaluateExecutionReadiness(task, change, callerKind = 'agent', o
       error: err,
       projection,
       targetStep,
+      stepId: err.stepId ?? targetStepId,
+      executor: err.executor ?? targetStepExecutor,
+      purpose: err.purpose,
+      expectedWork: err.expectedWork,
+      availableActions: err.availableActions ?? [],
     };
   }
 

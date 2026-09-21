@@ -327,6 +327,31 @@ export function resolveDeterministicWorkflowInfo(specId, taskId, repoRoot = ROOT
   };
 }
 
+export function assertTaskExecutionReadiness(specId, taskId, repoRoot = ROOT) {
+  if (!taskId || !specId) return;
+  const workflowInfo = resolveDeterministicWorkflowInfo(specId, taskId, repoRoot);
+  if (workflowInfo.mode === 'deterministic') {
+    let changes;
+    try {
+      changes = listChanges(resolve(repoRoot, 'specs', 'active'));
+    } catch (err) {
+      const message = `Failed to look up spec '${specId}' under repoRoot '${repoRoot}': ${err?.message || err}`;
+      throw new AiSpecContextUnavailableError(message, { specId, repoRoot });
+    }
+    const change = changes.find((c) => c.spec_id === specId || c.id === specId || c._slug === specId);
+    const resolvedTask = (change?.tasks || []).find((t) => String(t.id) === String(taskId));
+    const resolvedMode = resolveWorkflowMode(change);
+    const definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot });
+    const readiness = evaluateExecutionReadiness(resolvedTask, change, 'agent', { repoRoot, definition });
+    if (!readiness.ready) {
+      throw new AiDeterministicWorkflowUnavailableError(
+        `Task '${taskId}' in spec '${specId}' is not ready for execution: ${readiness.reason}`,
+        { specId, taskId, readiness }
+      );
+    }
+  }
+}
+
 export class AgentSessionService {
   // The one authoritative repository root this service's deterministic workflow
   // resolution reads from — the same root createDefaultAgentSessionService() threads into
@@ -385,21 +410,7 @@ export class AgentSessionService {
     const primaryTaskId = options.taskId;
 
     if (primaryTaskId && options.specId) {
-      const workflowInfo = resolveDeterministicWorkflowInfo(options.specId, primaryTaskId, this.repoRoot);
-      if (workflowInfo.mode === 'deterministic') {
-        const changes = listChanges(resolve(this.repoRoot, 'specs', 'active'));
-        const change = changes.find((c) => c.spec_id === options.specId || c.id === options.specId || c._slug === options.specId);
-        const resolvedTask = (change.tasks || []).find((t) => String(t.id) === String(primaryTaskId));
-        const resolvedMode = resolveWorkflowMode(change);
-        const definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot: this.repoRoot });
-        const readiness = evaluateExecutionReadiness(resolvedTask, change, 'agent', { repoRoot: this.repoRoot, definition });
-        if (!readiness.ready) {
-          throw new AiDeterministicWorkflowUnavailableError(
-            `Task '${primaryTaskId}' in spec '${options.specId}' is not ready for execution: ${readiness.reason}`,
-            { specId: options.specId, taskId: primaryTaskId, readiness }
-          );
-        }
-      }
+      assertTaskExecutionReadiness(options.specId, primaryTaskId, this.repoRoot);
     }
     const purpose = options.purpose || options.title || (primaryTaskId ? `task:${primaryTaskId}` : 'interactive');
     const mode = options.mode ? validateAgentExecutionMode(options.mode, 'mode') : descriptor.defaultMode || 'edit';
@@ -512,6 +523,10 @@ export class AgentSessionService {
     validateAgentIdentity({ provider, providerSessionId });
     const resolvedTaskIds = Array.isArray(taskIds) ? taskIds.filter(Boolean) : taskId ? [taskId] : [];
     const primaryTaskId = taskId;
+
+    if (primaryTaskId && specId) {
+      assertTaskExecutionReadiness(specId, primaryTaskId, this.repoRoot);
+    }
 
     let binding;
     if (this.bindingService) {
@@ -1165,24 +1180,7 @@ export class AgentSessionService {
         : null;
 
     if (workflowResolution.mode === 'deterministic' && workflowResolution.execution) {
-      let changes;
-      try {
-        changes = listChanges(resolve(this.repoRoot, 'specs', 'active'));
-      } catch (err) {
-        const message = `Failed to look up spec '${effectiveSpecId}' under repoRoot '${this.repoRoot}': ${err?.message || err}`;
-        throw new AiSpecContextUnavailableError(message, { specId: effectiveSpecId, repoRoot: this.repoRoot });
-      }
-      const change = changes.find((c) => c.spec_id === effectiveSpecId || c.id === effectiveSpecId || c._slug === effectiveSpecId);
-      const resolvedTask = (change?.tasks || []).find((t) => String(t.id) === String(effectiveTaskId));
-      const resolvedMode = resolveWorkflowMode(change);
-      const definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot: this.repoRoot });
-      const readiness = evaluateExecutionReadiness(resolvedTask, change, 'agent', { repoRoot: this.repoRoot, definition });
-      if (!readiness.ready) {
-        throw new AiDeterministicWorkflowUnavailableError(
-          `Task '${effectiveTaskId}' in spec '${effectiveSpecId}' is not ready for execution: ${readiness.reason}`,
-          { specId: effectiveSpecId, taskId: effectiveTaskId, readiness }
-        );
-      }
+      assertTaskExecutionReadiness(effectiveSpecId, effectiveTaskId, this.repoRoot);
     }
     const hasExplicitWorkflowContext = opts.workflowContext !== undefined && opts.workflowContext !== false;
     const shouldInjectAutomatic = opts.workflowContext !== false && Boolean(deterministicWorkflowInfo);

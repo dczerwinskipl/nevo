@@ -212,7 +212,8 @@ test('Agent session routes expose the complete provider-neutral session and turn
     // The mock provider has no createSession(): the native id is unknown until a turn runs.
     assert.equal(createModalBody.session.providerSessionId, undefined);
     assert.equal(createModalBody.session.specId, specId);
-    assert.equal(createModalBody.session.taskId, 'task-a');
+    assert.deepEqual(createModalBody.session.taskIds, ['task-a']);
+    assert.equal(createModalBody.session.taskId, undefined);
 
     // 9. Delete / unbind session
     const deleteResponse = await fetch(`${baseUrl}/api/agent-sessions/mock/pre-allocated-sess-1`, {

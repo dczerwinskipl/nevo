@@ -12,7 +12,7 @@ import { loadWorkflowDefinition } from './definitions/loader.mjs';
 /**
  * Resolves workflow definition from change or passed definition.
  */
-function resolveDefinition(change, maybeDefinition, options = {}) {
+export function resolveDefinition(change, maybeDefinition, options = {}) {
   if (maybeDefinition?.steps) {
     return maybeDefinition;
   }

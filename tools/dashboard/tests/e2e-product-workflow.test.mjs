@@ -42,6 +42,7 @@ steps:
       - value: fail
         to: implementation
   human-verification:
+    executor: human
     status:
       active: awaiting-human-verification
       completed: completed
@@ -52,8 +53,15 @@ steps:
     transitions:
       - value: pass
         to: verified
+        action:
+          label: Approve
+        outcome: success
       - value: fail
         to: implementation
+        action:
+          label: Request changes
+          feedback:
+            required: true
 `;
 
 const AI_PROVIDERS_CONFIG = `version: 1
@@ -485,7 +493,7 @@ allowed_paths:
     assert.equal(finishReview2.status, 'completed');
   });
 
-  test('Step 14: Task transitions to awaiting-human-verification with availableActions [approve, request-changes]', async () => {
+  test('Step 14: Task transitions to awaiting-human-verification with generic start-step', async () => {
     const resActions = await app.inject({
       method: 'GET',
       url: `/api/specs/active/${changeSlug}/actions`,
@@ -494,7 +502,7 @@ allowed_paths:
     assert.equal(resActions.statusCode, 200);
     const actionsData = resActions.json();
     assert.ok(actionsData.tasks[taskId]);
-    assert.deepEqual(actionsData.tasks[taskId].availableActions, ['approve', 'request-changes']);
+    assert.deepEqual(actionsData.tasks[taskId].availableActions, ['start-step']);
 
     const change = requireChange(changeSlug, fx.activeDir);
     const task = requireTask(change, taskId);
@@ -581,7 +589,7 @@ allowed_paths:
       method: 'GET',
       url: `/api/specs/active/${changeSlug}/actions`,
     });
-    assert.deepEqual(resActions.json().tasks[taskId].availableActions, ['approve', 'request-changes']);
+    assert.deepEqual(resActions.json().tasks[taskId].availableActions, ['start-step']);
   });
 
   test('Step 17: Human [ Approve ] dispatches POST human-decision -> transitions to verified with clean tree commit', async () => {
