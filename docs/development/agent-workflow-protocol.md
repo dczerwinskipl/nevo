@@ -159,3 +159,27 @@ Specifications implementing workflow infrastructure (such as `agent-workflow-pro
 3. Merge the foundational pull request.
 4. Create a dedicated new specification explicitly configured for deterministic mode (e.g. `spec-history-and-timeline`).
 5. Run the first controlled end-to-end deterministic smoke/dogfood flow there, exercising full multi-attempt review and human verification loops.
+
+### 5. Architectural Module Trees & Mutation Ownership
+Lifecycle and status mutations are strictly partitioned into two non-overlapping module trees within the codebase:
+- **Legacy mutation tree:** `tools/specs/{approve,start,complete,verify}/**` (and associated legacy CLI commands). These modules govern specifications operating under standard legacy status lifecycles (`status: draft | in-implementation | review | completed | verified`).
+- **Deterministic mutation tree:** `tools/specs/workflow/**` mutation entry points (`workflow task publish`, `workflow step start`, `workflow step finish`, and human step operations `startHumanStep`, `submitHumanStepResult`). These modules govern specifications declared with `workflow.mode: deterministic`.
+
+#### Hard Mode-Guard & Fail-Closed Routing
+The CLI implements strict, fail-closed guards preventing cross-mode mutation:
+- Invoking deterministic commands on a legacy specification throws `CliError` with code `LEGACY_WORKFLOW_MODE`.
+- Invoking legacy lifecycle commands (`start`, `complete`, `verify`, `approve`) on a deterministic specification throws `CliError` with code `WORKFLOW_MODE_MISMATCH`.
+- The CLI never silently falls back or executes legacy logic against a deterministic specification or vice-versa.
+- For complete operational guidance and normative command allow/forbid sets per mode, agents must reference [.claude/skills/nevo-ai-spec-workflow/references/lifecycle-instructions.md](../../.claude/skills/nevo-ai-spec-workflow/references/lifecycle-instructions.md).
+
+#### No-Cross-Import Boundary & Neutral Status Vocabulary (D8)
+To prevent coupling between the two lifecycle architectures:
+- No file under `tools/specs/workflow/**` may import `tools/specs/lifecycle-primitives.mjs`.
+- Shared persistence vocabulary (`TERMINAL_STATUSES`) is extracted to `tools/specs/status-vocabulary.mjs`, providing a neutral contract without dragging legacy state transition machinery into the deterministic engine.
+- This boundary is structurally enforced by automated architecture guard tests (`tools/specs/tests/lifecycle-boundary-guards.test.mjs`).
+
+### 6. Step Executor Invariants
+Deterministic workflow steps define an explicit `executor` (`agent` vs. `human`) in their step descriptors. The engine enforces strict executor separation via `assertStepExecutor`:
+- **AI Agent Prohibition on Human Steps:** An AI agent must **never** attempt to start or finish human-owned steps (`executor: human`, such as verification, review sign-off, or manual checks). Any agent invocation of `workflow step start` or `workflow step finish` targeting a human step fails immediately with `WORKFLOW_STEP_EXECUTOR_MISMATCH`.
+- **Human Endpoint Separation:** Conversely, human step operations (`startHumanStep`, `submitHumanStepResult`) can only be executed against human-owned steps and will reject agent-owned steps with `WORKFLOW_STEP_EXECUTOR_MISMATCH`.
+

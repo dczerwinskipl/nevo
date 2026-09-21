@@ -193,7 +193,7 @@ tasks:
   - id: ownership-boundary-documentation
     order: 22
     file: tasks/22-ownership-boundary-documentation.md
-    status: approved
+    status: implemented
     depends_on:
       [
         legacy-mutation-guard,
@@ -201,6 +201,8 @@ tasks:
         step-executor-guard,
         status-vocabulary-extraction
       ]
+    implementation:
+      baseline_revision: b7df363a90c52fbe7a27d4d7c93e5d4c5bdc6ada
   - id: specification-detail-composition-wiring
     order: 23
     file: tasks/23-specification-detail-composition-wiring.md
