@@ -18,9 +18,9 @@ tasks:
   - id: activity-core-model-and-contracts
     order: 1
     file: tasks/01-activity-core-model-and-contracts.md
-    status: approved
+    status: verified
     workflow_progress:
-      current_step: review
+      current_step: human-verification
       current_attempt: 2
       state: completed
       history:
@@ -67,6 +67,11 @@ tasks:
             task-01 acceptance criteria are met. Re-ran required verification:
             19/19 tests pass, specs.mjs validate clean. No corrective edits
             needed."
+        - step: human-verification
+          attempt: 2
+          completed_at: 2026-09-21T17:19:30.097Z
+          transitioned_to: verified
+          result: pass
   - id: activity-local-store
     order: 2
     file: tasks/02-activity-local-store.md
