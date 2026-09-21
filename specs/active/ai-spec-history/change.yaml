@@ -20,8 +20,8 @@ tasks:
     file: tasks/01-activity-core-model-and-contracts.md
     status: approved
     workflow_progress:
-      current_step: human-verification
-      current_attempt: 1
+      current_step: implementation
+      current_attempt: 2
       state: completed
       history:
         - step: implementation
@@ -52,6 +52,10 @@ tasks:
           result: fail
           feedback: Zaakceptowane ale testuje czy dostałeś review. Jak dojdziesz do
             kolejnej implementacji, to napisz mi "krowa" w podsumowaniu.
+        - step: implementation
+          attempt: 2
+          completed_at: 2026-09-21T17:16:22.446Z
+          transitioned_to: review
   - id: activity-local-store
     order: 2
     file: tasks/02-activity-local-store.md
