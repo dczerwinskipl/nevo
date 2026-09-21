@@ -148,7 +148,7 @@ tasks:
   - id: deterministic-board-lane-projection
     order: 18
     file: tasks/18-deterministic-board-lane-projection.md
-    status: implemented
+    status: verified
     depends_on: [ deterministic-task-projection ]
     implementation:
       baseline_revision: ba25894dbdecbd4b65c1871ca15b1a0b29419178
