@@ -20,7 +20,7 @@ tasks:
     file: tasks/01-activity-core-model-and-contracts.md
     status: approved
     workflow_progress:
-      current_step: review
+      current_step: human-verification
       current_attempt: 1
       state: completed
       history:
@@ -45,6 +45,13 @@ tasks:
             (REC-03). Root cause is the deterministic step-finish operation in
             tools/specs/workflow/** not regenerating derived indexes after
             mutating change.yaml — flagging for owner follow-up."
+        - step: human-verification
+          attempt: 1
+          completed_at: 2026-09-21T17:15:48.177Z
+          transitioned_to: implementation
+          result: fail
+          feedback: Zaakceptowane ale testuje czy dostałeś review. Jak dojdziesz do
+            kolejnej implementacji, to napisz mi "krowa" w podsumowaniu.
   - id: activity-local-store
     order: 2
     file: tasks/02-activity-local-store.md
