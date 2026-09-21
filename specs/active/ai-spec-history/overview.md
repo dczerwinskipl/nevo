@@ -24,6 +24,9 @@ only, that never becomes the workflow's source of truth.
 
 ## Current architecture
 
+- The deterministic workflow executes generic, definition-driven steps where the step's
+  `executor` property (`agent` vs `human`) determines execution protocol rather than literal
+  step names (`StepContext` drives agent work).
 - The deterministic workflow's authoritative execution boundary is `finishStep` in
   `tools/specs/workflow/finish-operation.mjs`, driving a fixed, resumable stage sequence
   (`verify-gates -> update-task -> commit -> push -> transition`) against a durable
@@ -37,7 +40,14 @@ only, that never becomes the workflow's source of truth.
   (`tools/dashboard/server/ai/sessions/binding-service.mjs`), persisted one JSON file per
   spec at `.nevo-ai-local/sessions/<specId>.json`. The current actor is resolved from
   environment variables via `readAgentExecutionContext` (`binding-service.mjs`).
-- Human verification (`workflow verify-human --confirm`) persists a sign-off at
+- Human workflow steps (`executor: human`) execute without creating AI execution sessions.
+  Activation (`startHumanStep`) and decision submission (`submitHumanStepResult`) live in
+  `tools/specs/workflow/human-step/operations.mjs`, serving as the shared domain boundary
+  for both the CLI (`handleWorkflowVerifyHuman --approve/--request-changes`) and the
+  dashboard HTTP transport (`POST /api/specs/:slug/tasks/:taskId/workflow/human-step`).
+- Human exit verification gates (`HumanVerificationGate`, evaluated during finish of any
+  arbitrary step) are distinct from first-class human steps: a gate sign-off is confirmed
+  via `workflow verify-human --confirm` and persists a record at
   `.nevo-ai-local/human-verifications/<change>/<task>/<step>/attempt-<n>/<gate>.json`
   (`tools/specs/workflow/human-verification-store.mjs`) — but only a configured `role`
   string (e.g. `'owner'`), never a real human identity. No production code reads
@@ -90,12 +100,17 @@ chronological, human-readable timeline of a spec's activity — across tasks —
 - New: `tools/specs/activity/` (core model, store, actor resolver, query).
 - New: `tools/dashboard/server/activity/` (read-only Fastify capability).
 - Touched: `tools/specs.mjs` (`autoBindAgentSession` returns its canonical session
-  binding), `tools/specs/workflow/cli.mjs`, `tools/specs/workflow/finish-operation.mjs`
+  binding), `tools/specs/workflow/cli.mjs`, `tools/specs/workflow/human-step/operations.mjs`
+  (`startHumanStep` emits `workflow.step.started` for human steps; `submitHumanStepResult`
+  propagates `user` actor to `finishStep`), `tools/specs/workflow/finish-operation.mjs`
   (`finishStep` accepts an `actor` parameter; activity emission at the finish sequence's
   `update-task` call site, unconditional on every call — see § Idempotency for resumable
   operations).
 - **Not touched** (D12): `tools/specs/workflow/human-verification-store.mjs` — activity
   emission for the legacy `--confirm` path lives entirely in `cli.mjs`, not the store.
+- **Not touched** (D19): `tools/dashboard/server/specs/human-step-transport.mjs` — human-step
+  activity recording lives at the domain operations boundary (`operations.mjs`), which the
+  transport already calls.
 - Touched: `tools/lib/git.mjs` (small addition: read local git user identity).
 - New: `docs/decisions/ADR-00NN-local-append-only-activity-history.md`.
 
@@ -107,7 +122,7 @@ store — see Proposed architecture below.
 
 ## Owner decisions
 
-See `owner-decisions.md` (D1–D18) for the full decision record. Summary: separate store
+See `owner-decisions.md` (D1–D19) for the full decision record. Summary: separate store
 from diagnostics (D1), no pruning (D2), one NDJSON file per spec (D3), `git config` as the
 v1 human-identity source (D4), `triggeredBy` references a prior activity id (D5), review
 findings carry per-finding authorship in `data` rather than one activity per comment (D6),
@@ -117,10 +132,12 @@ ids + read-side dedup as the idempotency mechanism (D10), correct `update-task` 
 (D11), human-verification emission boundary moved to `cli.mjs` (D12), v1 `user`
 presentation model (D13), `autoBindAgentSession` returns its canonical session binding
 (D14), emission moved to the `finishStep` call site so the recovery path can't silently
-skip it (D15), explicit user-actor propagation for the direct `--approve`/
-`--request-changes` path (D16), the actor is captured durably on the operation record at
-creation rather than re-read from each resume call (D17), and a failed Activity append
-gets a further retry opportunity on every later already-completed `finish` call (D18).
+skip it (D15), explicit user-actor propagation for the direct human decision path (D16),
+the actor is captured durably on the operation record at creation rather than re-read from
+each resume call (D17), and a failed Activity append gets a further retry opportunity on
+every later already-completed `finish` call (D18); aligned with deterministic-status
+generic-step architecture, executor-neutral step started, domain-level human actor
+propagation, and exit-gate vs human-step separation (D19).
 
 ## Proposed architecture
 
@@ -242,9 +259,15 @@ always stored as immutable event `data`, never inferred from presentation state.
 
 ### Producers (first, deliberately small slice)
 
-1. `workflow.step.started` — `handleWorkflowStepStart` (`cli.mjs`). Actor: agent-session
-   (from `autoBindAgentSession`'s returned canonical session binding, see Actor resolution
-   above) or `SYSTEM_ACTOR`.
+1. `workflow.step.started` — executor-neutral step activation (D19).
+   - Agent activation: `handleWorkflowStepStart` (`cli.mjs`). Actor: `agent-session`
+     (from `autoBindAgentSession`'s returned canonical session binding, see Actor resolution
+     above) or `SYSTEM_ACTOR`.
+   - Human activation: `startHumanStep` (`tools/specs/workflow/human-step/operations.mjs`).
+     Actor: `user` (from `resolveUserActor()` in `actor-resolver.mjs`).
+     Because both CLI and dashboard HTTP transport activate human steps through
+     `startHumanStep`, instrumenting this domain boundary records all human step starts
+     without duplicating emission logic or creating an AI execution session.
 2. `workflow.step.completed` — emitted from **`finishStep`'s main stage sequence in
    `finish-operation.mjs`, immediately after `await ensureUpdateTask(...)` returns** (not
    from inside `ensureUpdateTask` itself, and not from the later `transition` stage — see
@@ -258,28 +281,30 @@ always stored as immutable event `data`, never inferred from presentation state.
    in-memory operation `record` — no re-read from disk needed), and — only when already
    present at this boundary — a `findings` list with per-finding `author` (D6). A later
    `workflow.step.settled`-shaped event covering full durable completion (post commit/push)
-   is explicitly out of scope for v1 (see Out of scope). **Actor (revised 2026-09-17,
-   review round 3, Blocking):** `finishStep` still gains an optional `actor` parameter,
-   but it is **not** read directly at the emission call site. It is captured once, into
-   the durable operation record itself, at the moment that record is first created
-   (`createOperationRecord`, before any stage runs) — see § Idempotency for resumable
-   operations for why a per-call parameter alone is wrong here (D17).
-3. `human.verification.confirmed` — `handleWorkflowVerifyHuman`'s legacy `--confirm`
-   branch only (`cli.mjs`), immediately after a successful
-   `FileHumanVerificationStore.confirm()` call — **not inside the store**
+   is explicitly out of scope for v1 (see Out of scope).
+   - **Actor capture and propagation (D16, D17, D19):** `finishStep` gains an optional
+     `actor` parameter. The initial actor is passed by callers into `finishStep`:
+     - Agent path: `handleWorkflowStepFinish` passes `actor = agentSessionActor`.
+     - Human path: `submitHumanStepResult` in `tools/specs/workflow/human-step/operations.mjs`
+       resolves `resolveUserActor()` and passes `actor = userActor`. Because both CLI
+       (`handleWorkflowVerifyHuman --approve/--request-changes`) and dashboard HTTP transport
+       (`POST /api/specs/:slug/tasks/:taskId/workflow/human-step`) delegate directly to
+       `submitHumanStepResult`, all human step decisions carry `actor.type = 'user'` into
+       `finishStep` without duplicating logic or attributing dashboard human actions to
+       `SYSTEM_ACTOR`.
+     - Durable capture (D17): `finishStep` captures this actor once into the durable
+       operation record itself (`createOperationRecord`, before any stage runs). The emission
+       call site reads `record.actor`, so resuming calls cannot replace it with another actor.
+3. `human.verification.confirmed` — `handleWorkflowVerifyHuman`'s `--confirm` branch only
+   (`cli.mjs`), immediately after a successful `FileHumanVerificationStore.confirm()` call
+   for a blocking `HumanVerificationGate` — **not inside the store**
    (`FileHumanVerificationStore` only knows repo root/change slug/task/attempt/gate data,
    not the stable `spec_id` the Activity store keys on; the CLI handler already resolves
-   the full `change` object). Actor resolved via the git-config-based user resolver.
-   **`--approve`/`--request-changes` do not get this event type** — they call
-   `finishStep()` directly (same function `handleWorkflowStepFinish` uses), so they get
-   `workflow.step.completed` like any other finish, but with a **`user` actor explicitly
-   passed in** (2026-09-17 review round 2, Major — `handleWorkflowVerifyHuman`'s direct
-   `--approve`/`--request-changes` path calls `finishStep()` without ever calling
-   `autoBindAgentSession`, so without this explicit propagation the completion would have
-   fallen back to `SYSTEM_ACTOR` and misrepresented a human decision as a system action;
-   D16): that branch resolves `resolveUserActor()` (task 03) and passes it as
-   `finishStep`'s `actor` argument, the same parameter `handleWorkflowStepFinish` uses for
-   the agent-session actor.
+   the full `change` object). Actor resolved via `resolveUserActor()`.
+   **Human workflow steps (`executor: human`) do not produce this event type** (D19):
+   first-class human steps finish via `submitHumanStepResult` -> `finishStep` and produce
+   `workflow.step.completed` with `actor.type = 'user'`. `human.verification.confirmed`
+   remains dedicated exclusively to blocking exit gate signoffs.
 
 ### Idempotency for resumable operations
 
@@ -427,10 +452,10 @@ changes; `workflow_progress` remains authoritative and unaffected.
     stage still `pending`, and no `workflow.step.completed` activity recorded yet — a
     resumed `finishStep` call yields exactly **one** queryable `workflow.step.completed`
     activity (proves the missing-event gap is closed, not just the duplicate-event gap).
-12. A `human-verification` step completed via `--approve` and one completed via
-    `--request-changes` both produce a `workflow.step.completed` activity with a
-    `user`-type actor, never `SYSTEM_ACTOR` (proves direct human decisions are correctly
-    attributed).
+12. A human-owned workflow step completed via CLI (`--approve` / `--request-changes`)
+    or via dashboard HTTP transport (`POST .../human-step` action `submit`) produces a
+    `workflow.step.completed` activity with a `user`-type actor, never `SYSTEM_ACTOR`
+    (proves direct human decisions are correctly attributed across both entry points).
 13. Simulating the D17 crash scenario — actor A's `finishStep` call creates the operation
     record and gets as far as the `workflow_progress` write, then a *different* actor
     (actor B, or no actor at all) resumes the same finish — the resulting
@@ -443,6 +468,9 @@ changes; `workflow_progress` remains authoritative and unaffected.
     sequence): the `workflow.step.completed` activity that failed to record the first
     time is now present when queried, with the original actor (proves D18's retry-on-
     already-completed closes the "Activity failed and got no further retry" gap).
+15. A human-owned workflow step activated via `startHumanStep` (CLI or dashboard HTTP
+    transport) produces a queryable `workflow.step.started` activity with a `user`-type
+    actor.
 
 ## Verification strategy
 

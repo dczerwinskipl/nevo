@@ -1,5 +1,5 @@
 ---
-id: ai-spec-history.activity-core-model-and-contracts
+id: activity-core-model-and-contracts
 status: draft
 change: ai-spec-history
 context:

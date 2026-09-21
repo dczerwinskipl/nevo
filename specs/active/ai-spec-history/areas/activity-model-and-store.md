@@ -52,7 +52,7 @@ diagnostics-scoped NDJSON log and is explicitly not shared with or reused by thi
     than spawning `git` ad hoc). Falls back to a fixed placeholder id if config is absent.
   - `agent-session`: wraps a session id into an `ActorRef`. That `sessionId` is supplied
     by the caller (the producers area resolves it from `autoBindAgentSession`'s now-
-    returned execution context — see `areas/activity-producers-workflow-and-verification.md`)
+    returned canonical session binding — see `areas/activity-producers-workflow-and-verification.md`)
     — this module does not itself reach into `AgentSessionBindingService`/
     `readAgentExecutionContext`.
   - `system`: a fixed constant `ActorRef`.

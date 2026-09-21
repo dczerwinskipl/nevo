@@ -298,3 +298,57 @@
 - **Date:** 2026-09-17
 - **Affected artifacts:** `overview.md`, `areas/activity-producers-workflow-and-verification.md`,
   `tasks/06-workflow-step-activity-producer.md`.
+
+## D19: Alignment with generic-step architecture and first-class human workflow steps
+
+- **Question:** How should Activity History producers align with the deterministic generic-step
+  architecture and first-class human workflow steps? Specifically, how are human step starts
+  and completions attributed across both CLI and dashboard HTTP transport without deriving
+  behavior from literal step names or conflating first-class human steps with exit gates?
+- **Decision:**
+  1. **Generic steps:** Workflow steps have arbitrary names (`implementation`, `review`,
+     `human-verification`, and future arbitrary steps like `discovery`, `hardening`).
+     The step definition's `executor` (`agent` vs `human`) determines execution protocol;
+     `StepContext` determines agent work. Activity History observes generic lifecycle
+     events (`workflow.step.started`, `workflow.step.completed`) without branching on literal
+     step names.
+  2. **Executor-neutral `workflow.step.started`:** Emitted upon step activation across both
+     executors:
+     - Agent activation: `handleWorkflowStepStart` (`tools/specs/workflow/cli.mjs`) resolves
+       `actor = { type: 'agent-session', id: binding.sessionId }` (or `SYSTEM_ACTOR`).
+     - Human activation: `startHumanStep` (`tools/specs/workflow/human-step/operations.mjs`)
+       resolves `actor = { type: 'user', id: gitEmailOrName }`.
+     - Both emit `workflow.step.started` with deterministic id
+       `` `workflow.step.started:${specId}:${taskId}:${step}:${attempt}` ``.
+  3. **Shared domain boundary for human execution:**
+     - Both CLI (`handleWorkflowVerifyHuman --approve/--request-changes`) and dashboard HTTP
+       transport (`POST /api/specs/:slug/tasks/:taskId/workflow/human-step`) delegate directly
+       to the shared domain operations `startHumanStep` and `submitHumanStepResult` in
+       `tools/specs/workflow/human-step/operations.mjs`.
+     - `startHumanStep` activates the step and emits `workflow.step.started` (`actor.type = 'user'`).
+     - `submitHumanStepResult` resolves `resolveUserActor()` and passes `actor: userActor` into
+       `finishStep({ ..., actor: userActor })`.
+     - This guarantees that human actions originating from either CLI or dashboard HTTP transport
+       are consistently attributed to `actor.type = 'user'` at the domain boundary, without
+       duplicating activity emission in HTTP adapters and without misclassifying dashboard human
+       actions as `SYSTEM_ACTOR`.
+  4. **Durable finish boundary (`finishStep` in `tools/specs/workflow/finish-operation.mjs`):**
+     - Emits `workflow.step.completed` immediately after `ensureUpdateTask` returns.
+     - Operates under D17 (actor captured once on brand-new operation record in
+       `createOperationRecord`; resumes cannot override it) and D18 (retry on already-completed
+       short-circuits).
+  5. **Clear separation of `HumanVerificationGate` vs `executor: human`:**
+     - `HumanVerificationGate`: Blocking exit gate evaluated during finish on an arbitrary step.
+       Confirmed explicitly via `workflow verify-human --confirm`, emitting
+       `human.verification.confirmed` (actor: user). Owned by task 07.
+     - `executor: human`: First-class workflow step. Started via `startHumanStep` and completed
+       via `submitHumanStepResult` -> `finishStep`. Emits `workflow.step.started` and
+       `workflow.step.completed` with `actor.type = 'user'`. Owned by task 06.
+- **Rationale:** Aligns Activity producers with the single authoritative domain boundary pattern.
+  Prevents step-name coupling, avoids duplicate emission logic across CLI and HTTP transport
+  layers, and cleanly separates exit gate confirmation from first-class human step execution.
+- **Date:** 2026-09-21
+- **Affected artifacts:** `overview.md`, `areas/activity-producers-workflow-and-verification.md`,
+  `tasks/06-workflow-step-activity-producer.md`, `tasks/07-human-verification-activity-producer.md`,
+  `change.yaml`.
+

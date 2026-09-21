@@ -1,5 +1,5 @@
 ---
-id: ai-spec-history.actor-resolver
+id: actor-resolver
 status: draft
 change: ai-spec-history
 context:

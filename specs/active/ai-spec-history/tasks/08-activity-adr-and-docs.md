@@ -1,5 +1,5 @@
 ---
-id: ai-spec-history.activity-adr-and-docs
+id: activity-adr-and-docs
 status: draft
 change: ai-spec-history
 context:

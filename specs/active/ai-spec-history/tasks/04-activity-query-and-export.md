@@ -1,5 +1,5 @@
 ---
-id: ai-spec-history.activity-query-and-export
+id: activity-query-and-export
 status: draft
 change: ai-spec-history
 context:

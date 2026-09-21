@@ -2,14 +2,19 @@
 
 ## Responsibility
 
-Wire the three first-slice activity producers into their existing authoritative execution
+Wire the first-slice activity producers into their existing authoritative execution
 boundaries, without breaking the workflow's resumability/idempotency guarantees, and with
-correct actor attribution for both agent-driven and direct-human execution paths.
+correct actor attribution for both agent-driven and human-driven execution paths across
+CLI and dashboard HTTP transport.
 
 ## Current state
 
+- The deterministic workflow executes generic, definition-driven steps where the step's
+  `executor` property (`agent` vs `human`) determines execution protocol rather than literal
+  step names (`StepContext` drives agent work; arbitrary steps like `discovery`, `hardening`,
+  `review`, or `security-audit` require no step-specific engine logic).
 - `handleWorkflowStepStart`/`handleWorkflowStepFinish` (`tools/specs/workflow/cli.mjs`)
-  are the CLI entry points. Both call `autoBindAgentSession(...)` (`tools/specs.mjs`),
+  are the agent CLI entry points. Both call `autoBindAgentSession(...)` (`tools/specs.mjs`),
   which resolves an `AgentExecutionContext` (via `readAgentExecutionContext`, environment
   variables) and calls `AgentSessionBindingService.bindSessionSync(...)` — but currently
   discards `bindSessionSync`'s return value and returns nothing itself. Critically,
@@ -19,6 +24,12 @@ correct actor attribution for both agent-driven and direct-human execution paths
   randomUUID()`, or an existing session's `sessionId` if one already matches this
   `provider`+`providerSessionId`) and returns it in its result. There is currently no way
   for a caller to obtain either value (review round 2, Blocking).
+- Human workflow steps (`executor: human`) execute without creating an AI execution session.
+  Step activation (`startHumanStep`) and decision submission (`submitHumanStepResult`) live
+  in `tools/specs/workflow/human-step/operations.mjs`. Both the CLI (`handleWorkflowVerifyHuman
+  --approve/--request-changes`) and the dashboard HTTP transport (`POST
+  /api/specs/:slug/tasks/:taskId/workflow/human-step`) delegate directly to these shared domain
+  operations.
 - `finishStep` (`tools/specs/workflow/finish-operation.mjs`) drives a fixed, resumable
   stage sequence (`verify-gates -> update-task -> commit -> push -> transition`) against a
   durable per-attempt operation record (`tools/specs/workflow/operation-record.mjs`), in a
@@ -41,35 +52,39 @@ correct actor attribution for both agent-driven and direct-human execution paths
   fully settled), both carrying `plan.existingRecord` — neither re-enters the stage
   sequence, so neither currently gives a previously-failed Activity append any further
   chance to succeed.
-- `handleWorkflowVerifyHuman` (`cli.mjs`) has **two** distinct decision paths that both end
-  a `human-verification` step, and only one of them is agent-adjacent:
-  - `--confirm`: calls `FileHumanVerificationStore.confirm()`
+- `HumanVerificationGate` (`workflow verify-human --confirm`) is a blocking exit gate
+  evaluated during finish of an arbitrary step, distinct from first-class human workflow
+  steps:
+  - `--confirm` calls `FileHumanVerificationStore.confirm()`
     (`tools/specs/workflow/human-verification-store.mjs`), which persists a sign-off with
     only a `role` string, no real actor identity, and does not know `spec_id` — only repo
     root, change slug, task, attempt, gate data.
-  - `--approve` / `--request-changes`: calls `finishStep({...})` **directly** — the same
-    function `handleWorkflowStepFinish` uses — without ever calling
-    `autoBindAgentSession`. This is the primary path for a human decision (not the legacy
-    `--confirm` one), and today it carries no actor information into `finishStep` at all
-    (review round 2, Major).
+  - In contrast, first-class human workflow steps (`executor: human`) finish via
+    `submitHumanStepResult` -> `finishStep` and represent regular workflow transitions.
 
 ## Requirements
 
 - **Session actor contract (corrected — review round 2, Blocking):** `autoBindAgentSession`
   (`tools/specs.mjs`) is changed to **return `bindSessionSync()`'s own result** (which
   always includes a resolved canonical `sessionId`) on a successful bind, and `null` on
-  every early-return/no-op/error branch (no context, no valid `specId`, or a thrown
+  every early-return/no-op/error branch (no context, no valid `specId`, or a caught
   error). It must **not** return the raw pre-bind `AgentExecutionContext` — that object can
   legitimately lack a canonical `sessionId`, which would misclassify a validly-bound,
-  provider-native-only session as `SYSTEM_ACTOR`. Both call sites in `cli.mjs`
+  provider-native-only session as `SYSTEM_ACTOR`. Both agent call sites in `cli.mjs`
   (`handleWorkflowStepStart`, `handleWorkflowStepFinish`) capture this return value (call
   it `binding`) and use `binding?.sessionId` to resolve the `agent-session` actor, falling
   back to `SYSTEM_ACTOR` when `binding` is `null`.
-- `workflow.step.started`: emitted from `handleWorkflowStepStart`, actor = resolved
-  agent-session actor from `binding?.sessionId` (or `SYSTEM_ACTOR`), `data` includes `step`
-  and `attempt`. Id: `` `workflow.step.started:${specId}:${taskId}:${step}:${attempt}` ``
-  — deterministic per attempt, so repeated `step start` calls (intentionally allowed while
-  a step is active) dedup to one logical activity on read (overview.md § Idempotency).
+- **`workflow.step.started` (executor-neutral step activation, D19):**
+  - **Agent activation:** emitted from `handleWorkflowStepStart` (`cli.mjs`). Actor =
+    resolved agent-session actor from `binding?.sessionId` (or `SYSTEM_ACTOR`).
+  - **Human activation:** emitted from `startHumanStep` (`tools/specs/workflow/human-step/operations.mjs`).
+    Actor = resolved `user` actor (`resolveUserActor()`). Because both CLI and dashboard
+    HTTP transport pass through `startHumanStep`, instrumenting this domain boundary covers
+    all human step starts cleanly without duplicating emission logic or creating an AI session.
+  - `data` includes `step` and `attempt`.
+  - Id: `` `workflow.step.started:${specId}:${taskId}:${step}:${attempt}` `` — deterministic
+    per attempt, so repeated step start calls (intentionally allowed while a step is active)
+    dedup to one logical activity on read (overview.md § Idempotency).
 - **`workflow.step.completed` (corrected emission point — review round 2, Blocking):**
   `finishStep` gains a new optional `actor` parameter (a pre-resolved `ActorRef`). Emission
   happens in `finishStep`'s own stage sequence in `finish-operation.mjs` — **immediately
@@ -102,15 +117,16 @@ correct actor attribution for both agent-driven and direct-human execution paths
   This is the one explicit, additive exception to "must not change the operation record
   shape" (see Constraints) — no code change is needed in `operation-record.mjs` itself,
   since it persists/reads the whole record as opaque JSON.
-- **Actor propagation into `finishStep` (review round 2, Major — feeds D17's capture):**
+- **Actor propagation into `finishStep` (review round 2, Major — D16, D19):**
   - `handleWorkflowStepFinish` resolves the agent-session actor (as above) and passes it
     as `finishStep`'s `actor` argument.
-  - `handleWorkflowVerifyHuman`'s `--approve`/`--request-changes` branch resolves
-    `resolveUserActor()` (task 03) and passes it as `finishStep`'s `actor` argument — this
-    is what makes a direct human decision show up with a `user` actor on its
-    `workflow.step.completed` activity instead of falling back to `SYSTEM_ACTOR`. No new
-    activity type is introduced for this path; it reuses `workflow.step.completed` with
-    the correct actor.
+  - `submitHumanStepResult` in `tools/specs/workflow/human-step/operations.mjs` resolves
+    `resolveUserActor()` (task 03) and passes it as `finishStep`'s `actor` argument.
+    Because both the CLI (`handleWorkflowVerifyHuman --approve/--request-changes`) and the
+    dashboard HTTP transport (`POST /api/specs/:slug/tasks/:taskId/workflow/human-step`)
+    delegate directly to `submitHumanStepResult`, this domain-level propagation ensures
+    all human decisions show up with a `user` actor on `workflow.step.completed` instead
+    of falling back to `SYSTEM_ACTOR`.
 - **Retry past already-completed (review round 3, Major — D18):** `finishStep`'s two
   already-settled short-circuit returns (`plan.status === 'already-completed'` and `plan.
   status === 'completed'`, both carrying `plan.existingRecord`) also idempotently
@@ -121,14 +137,14 @@ correct actor attribution for both agent-driven and direct-human execution paths
   (e.g. a disk error) failed. Extract the "build+emit `workflow.step.completed` from a
   record" logic into one small helper shared by all three call sites (the main sequence
   call and these two short-circuits) rather than duplicating it.
-- **`human.verification.confirmed`:** emitted from `handleWorkflowVerifyHuman`'s legacy
-  `--confirm` branch only, immediately after a successful
+- **`human.verification.confirmed` (exit gate confirmation only, D19):** emitted from
+  `handleWorkflowVerifyHuman`'s `--confirm` branch only, immediately after a successful
   `FileHumanVerificationStore.confirm()` call returns — not from inside the store, which
   has neither `spec_id` nor any business resolving git identity or Activity concerns.
   Actor = resolved `user` actor (git config). `data` includes `scope`, `targetId`, `role`,
   `gateId`. Id: `` `human.verification.confirmed:${specId}:${taskId}:${step}:${attempt}:
   ${gateId}` `` (gate-qualified, since one step/attempt can have more than one gate).
-  `--approve`/`--request-changes` never produce this type — see above.
+  First-class human steps (`executor: human`) never produce this type — see above.
 - All ids above are the deterministic-id / read-side-dedup scheme defined in overview.md §
   Idempotency for resumable operations — combined with the corrected emission call site,
   this is what actually closes both the duplicate-event and missing-event gaps.
@@ -148,6 +164,8 @@ correct actor attribution for both agent-driven and direct-human execution paths
   caller that doesn't pass it must keep working exactly as before (the record's `actor`
   defaults to `SYSTEM_ACTOR`; the parameter has no effect on `finishStep`'s actual workflow
   behavior).
+- Do not introduce step-name branching: workflow step activities observe generic step execution
+  for arbitrary steps.
 - Must not add new capture logic to the review command to manufacture `findings` data that
   doesn't already exist at the finish boundary (D6 / overview.md § Out of scope).
 - Must not change `FileHumanVerificationStore`'s persisted record shape or make it aware
@@ -159,16 +177,20 @@ Consumes: `recordActivity()`, the actor resolvers, and the `Activity` type from
 `areas/activity-model-and-store.md`.
 
 Exposes: `finishStep`'s new `actor` parameter (consumed by both `handleWorkflowStepFinish`
-and `handleWorkflowVerifyHuman`), the operation record's new durable `actor` field
+and `submitHumanStepResult`), the operation record's new durable `actor` field
 (read by the shared emission helper at all three call sites), and
 `autoBindAgentSession`'s new return value (consumed by both `handleWorkflowStepStart` and
 `handleWorkflowStepFinish`).
 
 ## Area-specific acceptance criteria
 
-- A normal (non-resumed) step start + finish produces exactly one queryable
+- A normal (non-resumed) agent step start + finish produces exactly one queryable
   `workflow.step.started` and one queryable `workflow.step.completed` activity, with
   `attempt` and `result` matching what was written to `workflow_progress.history[]`.
+- A human-owned step activated via `startHumanStep` produces a queryable
+  `workflow.step.started` activity with a `user`-type actor.
+- A human-owned step completed via `submitHumanStepResult` (CLI or dashboard HTTP
+  transport) produces a `workflow.step.completed` activity with a `user`-type actor.
 - Simulating the crash window (workflow history already persisted, operation record's
   `update-task` stage still `pending`, no activity recorded) and resuming `finishStep`
   yields exactly **one** queryable `workflow.step.completed` activity — proves the
@@ -177,16 +199,13 @@ and `handleWorkflowVerifyHuman`), the operation record's new durable `actor` fie
   `completed` (a second, independent resume) does not surface a duplicate
   `workflow.step.completed` activity when queried — proves the duplicate-event gap stays
   closed.
-- Calling `handleWorkflowStepStart` twice for the same active attempt surfaces exactly one
-  queryable `workflow.step.started` activity.
+- Calling `handleWorkflowStepStart` or `startHumanStep` twice for the same active attempt
+  surfaces exactly one queryable `workflow.step.started` activity.
 - `autoBindAgentSession` returns `bindSessionSync()`'s result (with a resolved
   `sessionId`) even when the input execution context contained only `provider` +
   `providerSessionId` and no canonical `sessionId` — proves the corrected contract
   actually classifies such a session as `agent-session`, not `SYSTEM_ACTOR`.
-- Completing a `human-verification` step via `--approve` produces a
-  `workflow.step.completed` activity with a `user`-type actor; the same is proven for
-  `--request-changes`.
-- A human-verification confirmation (`--confirm`) produces exactly one
+- A human-verification exit gate confirmation (`--confirm`) produces exactly one
   `human.verification.confirmed` activity with a resolved `user` actor, and the store
   never needs to know `spec_id` to produce it.
 - Simulating a resume under a *different* actor than the one that started the operation
@@ -214,5 +233,5 @@ Depends on `areas/activity-model-and-store.md`. Independent of
   create/finalize, etc.) — future work per overview.md § Out of scope.
 - New capture of per-finding review authorship if it doesn't already exist at the finish
   boundary.
-- A dedicated "human decision" activity type distinct from `workflow.step.completed` — the
-  chosen approach reuses the existing type with correct actor propagation instead.
+- Modifying dashboard HTTP transport adapters (`human-step-transport.mjs` delegates directly
+  to domain operations).

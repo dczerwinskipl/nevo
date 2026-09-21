@@ -1,5 +1,5 @@
 ---
-id: ai-spec-history.activity-local-store
+id: activity-local-store
 status: draft
 change: ai-spec-history
 context:

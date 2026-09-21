@@ -1,5 +1,5 @@
 ---
-id: ai-spec-history.activity-dashboard-api
+id: activity-dashboard-api
 status: draft
 change: ai-spec-history
 context:
