@@ -141,8 +141,10 @@ tasks:
   - id: dashboard-actions-lifecycle-split
     order: 17
     file: tasks/17-dashboard-actions-lifecycle-split.md
-    status: approved
+    status: implemented
     depends_on: [ dashboard-deterministic-action-projection, human-step-execution-operations ]
+    implementation:
+      baseline_revision: 921cd13d9b14a4b8a7b8ca69bffef3c9010a51a6
   - id: deterministic-board-lane-projection
     order: 18
     file: tasks/18-deterministic-board-lane-projection.md

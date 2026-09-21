@@ -750,3 +750,87 @@ tasks:
     }
   });
 });
+
+describe('Dashboard actions lifecycle split (Task 17, D1, D4)', () => {
+  test('AC 3 & AC 4: Import and call boundary: legacy and deterministic mutation modules are strictly isolated', () => {
+    const legacySrc = readFileSync(new URL('../server/specs/actions/legacy-mutations.mjs', import.meta.url), 'utf8');
+    const deterministicSrc = readFileSync(new URL('../server/specs/actions/deterministic-mutations.mjs', import.meta.url), 'utf8');
+
+    // Deterministic module must never import or call legacy mutation functions or lifecycle-primitives
+    assert.doesNotMatch(deterministicSrc, /import.*(?:approveTask|verifyTask|finalizeChange)/);
+    assert.doesNotMatch(deterministicSrc, /(?:approveTask|verifyTask|finalizeChange)\s*\(/);
+    assert.doesNotMatch(deterministicSrc, /lifecycle-primitives/);
+
+    // Legacy module must never import or call deterministic human decision or verify human
+    assert.doesNotMatch(legacySrc, /import.*(?:executeDeterministicHumanDecision|handleWorkflowVerifyHuman|submitHumanStepResult)/);
+    assert.doesNotMatch(legacySrc, /(?:executeDeterministicHumanDecision|handleWorkflowVerifyHuman|submitHumanStepResult)\s*\(/);
+  });
+
+  test('AC 5: Cross-mode mutation attempt fails before any mutation with zero side-effects', async () => {
+    const fx = createGitFixture('nevo-cross-mode-');
+    try {
+      // 1. Create a deterministic spec
+      const detDir = join(fx.activeDir, 'det-spec');
+      mkdirSync(join(detDir, 'tasks'), { recursive: true });
+      writeFileSync(
+        join(detDir, 'change.yaml'),
+        `id: det-spec\ntitle: "Deterministic"\nworkflow:\n  mode: deterministic\n  definition: standard-v1\ntasks:\n  - id: t1\n    title: "T1"\n    status: approved\n    file: tasks/01-t.md\n`,
+      );
+      writeFileSync(join(detDir, 'overview.md'), '# Det\n');
+      writeFileSync(join(detDir, 'tasks', '01-t.md'), '---\nid: t1\nstatus: approved\n---\n# T1\n');
+
+      // 2. Create a legacy spec
+      const legDir = join(fx.activeDir, 'leg-spec');
+      mkdirSync(join(legDir, 'tasks'), { recursive: true });
+      writeFileSync(
+        join(legDir, 'change.yaml'),
+        `id: leg-spec\ntitle: "Legacy"\nworkflow:\n  mode: legacy\ntasks:\n  - id: t2\n    title: "T2"\n    status: approved\n    file: tasks/02-t.md\n`,
+      );
+      writeFileSync(join(legDir, 'overview.md'), '# Leg\n');
+      writeFileSync(join(legDir, 'tasks', '02-t.md'), '---\nid: t2\nstatus: approved\n---\n# T2\n');
+
+      fx.git(['add', '-A']);
+      fx.git(['commit', '-m', 'add cross-mode specs']);
+
+      const headBefore = fx.git(['rev-parse', 'HEAD']).trim();
+
+      const app = await buildDashboardApp({
+        config: {
+          root: fx.repo,
+          activeDir: fx.activeDir,
+          archiveDir: fx.archiveDir,
+        },
+      });
+
+      // Attempt legacy action (approve) against deterministic spec
+      const resLegacyOnDet = await app.inject({
+        method: 'POST',
+        url: '/api/specs/active/det-spec/actions',
+        headers: { 'x-nevo-dashboard-action': '1' },
+        payload: { action: 'approve', taskId: 't1' },
+      });
+      assert.equal(resLegacyOnDet.statusCode, 400);
+      assert.match(resLegacyOnDet.json().error, /Cannot run legacy 'approve' against deterministic specification/i);
+
+      // Attempt deterministic human decision against legacy spec
+      const resDetOnLegacy = await app.inject({
+        method: 'POST',
+        url: '/api/specs/leg-spec/tasks/t2/workflow/human-decision',
+        payload: { decision: 'approve' },
+      });
+      assert.equal(resDetOnLegacy.statusCode, 400);
+      assert.match(resDetOnLegacy.json().error, /Cannot run deterministic human decision against legacy specification/i);
+
+      // Assert zero side-effects: git HEAD unchanged, no unstaged changes
+      const headAfter = fx.git(['rev-parse', 'HEAD']).trim();
+      assert.equal(headBefore, headAfter);
+      const statusOutput = fx.git(['status', '--porcelain']).trim();
+      assert.equal(statusOutput, '');
+
+      await app.close();
+    } finally {
+      fx.cleanup();
+    }
+  });
+});
+

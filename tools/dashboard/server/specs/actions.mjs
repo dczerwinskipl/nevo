@@ -2,15 +2,12 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import * as git from '../../../lib/git.mjs';
-import { createProgressEmitter } from '../../../lib/operation-progress.mjs';
 import { evaluateGate, evaluateTaskGate } from '../../../specs/gates.mjs';
 import { isTaskReady } from '../../../specs/lifecycle-primitives.mjs';
 import { ACTIVE_DIR, loadChange } from '../../../specs/store.mjs';
 import { loadFollowUps } from '../../../specs/follow-ups.mjs';
-import { approveTask } from '../../../specs/approve/operation.mjs';
-import { verifyTask } from '../../../specs/verify/operation.mjs';
-import { finalizeChange } from '../../../specs/finalize/operation.mjs';
-import { handleWorkflowVerifyHuman } from '../../../specs/workflow/cli.mjs';
+import { executeLegacySpecificationAction } from './actions/legacy-mutations.mjs';
+import { executeDeterministicHumanDecision } from './actions/deterministic-mutations.mjs';
 import { resolveWorkflowMode } from '../../../specs/workflow/compatibility.mjs';
 import { loadWorkflowDefinition } from '../../../specs/workflow/definitions/loader.mjs';
 import { projectTask } from '../../../specs/workflow/task-projection.mjs';
@@ -277,125 +274,28 @@ export function executeSpecificationAction({
   signal = null,
 } = {}) {
   const change = requireActiveChange(slug, activeDir);
-
-  let operationType;
-  if (action === 'approve' || action === 'verify') {
-    const task = change.tasks.find((candidate) => candidate.id === taskId);
-    if (!task) throw new SpecificationActionError('Task not found.', 404);
-    operationType = `spec-action-${action}`;
-  } else if (action === 'finalize') {
-    if (!confirmed) throw new SpecificationActionError('Finalization requires explicit confirmation.', 400);
-    operationType = 'spec-action-finalize';
-  } else {
-    throw new SpecificationActionError('Unknown specification action.', 400);
+  const workflowMode = resolveWorkflowMode(change, { activeDir, repoRoot: root });
+  if (workflowMode.mode === 'deterministic') {
+    throw new SpecificationActionError(
+      `Cannot run legacy '${action}' against deterministic specification '${slug || change.id}'. ` +
+      `Use deterministic command surface instead: workflow task publish, workflow step start, workflow step finish, startHumanStep, submitHumanStepResult, or workflow verify-human.`,
+      400,
+    );
   }
 
-  let finished = false;
-  function markFinished() {
-    if (finished) return;
-    finished = true;
-    if (typeof onFinished === 'function') {
-      try {
-        onFinished();
-      } catch {}
-    }
-  }
-
-  const operationId = operationRuntime ? operationRuntime.createOperation({ type: operationType }) : `op-${Date.now()}`;
-
-  // Forward only non-terminal step and progress events to OperationRuntime.
-  // Terminal state is owned exclusively by OperationRuntime.completeOperation / failOperation.
-  const emitter = createProgressEmitter({
-    out: null,
-    onEvent: (event) => {
-      if (
-        operationRuntime &&
-        event.type !== 'operation.started' &&
-        event.type !== 'operation.completed' &&
-        event.type !== 'operation.failed'
-      ) {
-        operationRuntime.recordEvent(operationId, event);
-      }
-    },
-  });
-
-  const useGit = useGitParam ?? root === REPOSITORY_ROOT;
-
-  let resolveCompletion;
-  const completion = new Promise((resolvePromise) => {
-    resolveCompletion = resolvePromise;
-  });
-
-  const runner = async () => {
-    try {
-      let result;
-      if (action === 'approve') {
-        result = await approveTask({
-          changeSlug: slug,
-          taskId,
-          activeDir,
-          gitRoot: root,
-          git: useGit,
-          emitter,
-          signal,
-        });
-      } else if (action === 'verify') {
-        result = await verifyTask({
-          changeSlug: slug,
-          taskId,
-          activeDir,
-          gitRoot: root,
-          git: useGit,
-          emitter,
-          signal,
-        });
-      } else if (action === 'finalize') {
-        result = await finalizeChange({
-          changeSlug: slug,
-          gitRoot: root,
-          emitter,
-          signal,
-        });
-      }
-
-      if (operationRuntime) {
-        operationRuntime.completeOperation(
-          operationId,
-          result || {
-            ok: true,
-            action,
-            ...(taskId ? { taskId } : {}),
-          },
-        );
-      }
-    } catch (error) {
-      if (operationRuntime) {
-        operationRuntime.failOperation(operationId, {
-          message: error?.message || 'Operation failed',
-          code: error?.code,
-        });
-      }
-    } finally {
-      markFinished();
-      resolveCompletion();
-    }
-  };
-
-  void runner();
-
-  return {
-    ok: true,
-    operationId,
+  return executeLegacySpecificationAction({
+    change,
+    slug,
     action,
-    ...(taskId ? { taskId } : {}),
-    message:
-      action === 'approve'
-        ? 'Zadanie zostało zatwierdzone.'
-        : action === 'verify'
-          ? 'Implementacja została zaakceptowana.'
-          : 'Specyfikacja została sfinalizowana.',
-    completion,
-  };
+    taskId,
+    confirmed,
+    activeDir,
+    root,
+    git: useGitParam,
+    operationRuntime,
+    onFinished,
+    signal,
+  });
 }
 
 /**
@@ -483,33 +383,23 @@ export async function executeHumanDecision({
   activeDir = ACTIVE_DIR,
   root = REPOSITORY_ROOT,
 } = {}) {
-  if (decision !== 'approve' && decision !== 'request-changes') {
-    throw new SpecificationActionError("Decision must be 'approve' or 'request-changes'.", 400);
-  }
-  if (decision === 'request-changes' && (!feedback || typeof feedback !== 'string' || feedback.trim() === '')) {
-    throw new SpecificationActionError('Feedback is required when requesting changes.', 400);
+  const change = requireActiveChange(slug, activeDir);
+  const workflowMode = resolveWorkflowMode(change, { activeDir, repoRoot: root });
+  if (workflowMode.mode === 'legacy') {
+    throw new SpecificationActionError(
+      `Cannot run deterministic human decision against legacy specification '${slug || change.id}'. ` +
+      `Use legacy command surface instead: approve, start, complete, verify.`,
+      400,
+    );
   }
 
-  const opts = {
-    approve: decision === 'approve',
-    requestChanges: decision === 'request-changes',
-    feedback: feedback ? feedback.trim() : undefined,
+  return await executeDeterministicHumanDecision({
+    change,
+    slug,
+    taskId,
+    decision,
+    feedback,
     activeDir,
-    repoRoot: root,
-    silent: true,
-  };
-
-  try {
-    const result = await handleWorkflowVerifyHuman(slug, taskId, opts);
-    return {
-      ok: true,
-      decision,
-      taskId,
-      result,
-    };
-  } catch (err) {
-    if (err instanceof SpecificationActionError) throw err;
-    const status = err.status || (err.message && err.message.includes('not found') ? 404 : 400);
-    throw new SpecificationActionError(err.message, status);
-  }
+    root,
+  });
 }
