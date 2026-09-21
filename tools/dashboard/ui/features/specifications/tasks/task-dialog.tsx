@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { MessagesSquare, LoaderCircle, X, AlertCircle } from 'lucide-react';
-import type { SpecificationSummary, SpecificationTaskDocument } from '../types';
+import type { SpecificationSummary, SpecificationTaskDocument, WorkflowStepDescriptor } from '../types';
 import { formatStatus } from '@/shared/lib/utils';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { MarkdownContent } from '@/shared/markdown/markdown-content';
 import { TaskActionFooter } from '../actions/spec-actions';
 import { useSpecificationDocument, useSpecificationActions } from '../detail/spec-detail-queries';
+import { HumanStepSurface } from '@/shared/workflow/human-step-surface';
+import { useSpecificationHumanStepMutation } from './human-step-mutations';
 
 export interface TaskDialogProps {
   specification: SpecificationSummary;
@@ -14,9 +16,10 @@ export interface TaskDialogProps {
   onClose: () => void;
   onOperationStarted?: (operationId: string, label: string) => void;
   sessionsContent?: React.ReactNode;
+  onStartStep?: (stepDescriptor: WorkflowStepDescriptor) => void;
 }
 
-export function TaskDialog({ specification, taskId, onClose, onOperationStarted, sessionsContent }: TaskDialogProps) {
+export function TaskDialog({ specification, taskId, onClose, onOperationStarted, sessionsContent, onStartStep }: TaskDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -27,6 +30,20 @@ export function TaskDialog({ specification, taskId, onClose, onOperationStarted,
 
   const actionsQuery = useSpecificationActions(specification, specification.source === 'active');
   const actionGate = taskId && actionsQuery.data?.tasks ? (actionsQuery.data.tasks[taskId] ?? null) : null;
+
+  const isDeterministic =
+    actionsQuery.data?.workflowMode === 'deterministic' ||
+    (specification as any).workflowMode === 'deterministic';
+
+  const humanStepMutation = useSpecificationHumanStepMutation({
+    source: specification.source,
+    slug: specification.slug,
+    taskId: task?.id ?? '',
+    onSuccess: async () => {
+      await actionsQuery.refresh();
+      onClose();
+    },
+  });
 
   const executeTaskAction = useCallback(async () => {
     if (!actionGate || !task) return;
@@ -165,13 +182,56 @@ export function TaskDialog({ specification, taskId, onClose, onOperationStarted,
           )}
         </div>
 
-        <TaskActionFooter
-          gate={actionGate}
-          loading={actionsQuery.loading}
-          executing={actionsQuery.executing}
-          error={actionsQuery.executionError}
-          onExecute={() => void executeTaskAction()}
-        />
+        {!isDeterministic && (
+          <TaskActionFooter
+            gate={actionGate}
+            loading={actionsQuery.loading}
+            executing={actionsQuery.executing}
+            error={actionsQuery.executionError}
+            onExecute={() => void executeTaskAction()}
+          />
+        )}
+
+        {isDeterministic && actionGate?.humanInteraction && (
+          <div className="border-t border-border bg-surface px-5 py-4 sm:px-7">
+            <HumanStepSurface
+              interaction={actionGate.humanInteraction}
+              loading={humanStepMutation.loading}
+              error={humanStepMutation.error}
+              onSubmit={async (result, feedback, artifacts) => {
+                await humanStepMutation.submit(result, feedback, artifacts);
+              }}
+            />
+          </div>
+        )}
+
+        {isDeterministic && !actionGate?.humanInteraction && actionGate?.availableActions?.includes('start-step') && (
+          <div className="border-t border-border bg-surface px-5 py-4 sm:px-7">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                {(() => {
+                  const stepDescriptor = actionGate.stepDescriptor || actionGate.currentStepDescriptor || actionGate.nextStepDescriptor;
+                  return (
+                    <span className="text-xs font-medium text-fg-secondary">
+                      {stepDescriptor?.purpose || stepDescriptor?.id || 'Kolejny krok oczekuje na rozpoczęcie'}
+                    </span>
+                  );
+                })()}
+              </div>
+              <Button
+                size="sm"
+                onClick={() => {
+                  const stepDescriptor = actionGate.stepDescriptor || actionGate.currentStepDescriptor || actionGate.nextStepDescriptor;
+                  if (stepDescriptor) onStartStep?.(stepDescriptor);
+                }}
+                className="h-8 cursor-pointer px-4 text-xs font-semibold"
+                aria-label="Start"
+              >
+                Start
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
