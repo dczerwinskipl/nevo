@@ -148,8 +148,10 @@ tasks:
   - id: deterministic-board-lane-projection
     order: 18
     file: tasks/18-deterministic-board-lane-projection.md
-    status: approved
+    status: implemented
     depends_on: [ deterministic-task-projection ]
+    implementation:
+      baseline_revision: ba25894dbdecbd4b65c1871ca15b1a0b29419178
   - id: task-card-lifecycle-split
     order: 19
     file: tasks/19-task-card-lifecycle-split.md

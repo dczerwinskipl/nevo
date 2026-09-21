@@ -12,6 +12,7 @@ import {
   computeDeterministicTaskActionProjection,
   loadSpecificationActions,
 } from '../server/specs/actions.mjs';
+import { loadDashboardData, loadTaskStatuses } from '../server/specs/data.mjs';
 import { requireChange, requireTask } from '../../specs/store.mjs';
 
 const STANDARD_V1_YAML = `id: standard-v1
@@ -79,46 +80,7 @@ steps:
             required: true
 `;
 
-function createGitFixture(prefix = 'nevo-specs-actions-') {
-  const base = mkdtempSync(join(tmpdir(), prefix));
-  const repo = join(base, 'repo');
-  mkdirSync(repo, { recursive: true });
-
-  const git = (args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-  git(['init', '-b', 'main']);
-  git(['config', 'user.name', 'Test User']);
-  git(['config', 'user.email', 'test@example.com']);
-
-  const workflowsDir = join(repo, '.nevo-ai', 'workflows');
-  mkdirSync(workflowsDir, { recursive: true });
-  writeFileSync(join(workflowsDir, 'standard-v1.yaml'), STANDARD_V1_YAML);
-
-  const activeDir = join(repo, 'specs', 'active');
-  const archiveDir = join(repo, 'specs', 'archive');
-  mkdirSync(activeDir, { recursive: true });
-  mkdirSync(archiveDir, { recursive: true });
-
-  writeFileSync(join(repo, '.gitignore'), '.nevo-ai-local/\n');
-  writeFileSync(join(repo, 'root.txt'), 'initial\n');
-  git(['add', '-A']);
-  git(['commit', '-m', 'initial commit']);
-
-  return {
-    base,
-    repo,
-    activeDir,
-    archiveDir,
-    git,
-    cleanup: () => {
-      try {
-        rmSync(base, { recursive: true, force: true });
-      } catch {}
-    },
-  };
-}
-
-describe('Dashboard deterministic action projection (Task 14, D10, D15, D18)', () => {
-  const CUSTOM_WF_YAML = `id: custom-wf
+const CUSTOM_WF_YAML = `id: custom-wf
 title: "Custom Workflow"
 type: standard
 version: 1
@@ -135,6 +97,20 @@ steps:
     purpose: "Implementation"
     expectedWork:
       summary: "Write code"
+    entryGates: []
+    exitGates: []
+    finalize:
+      - id: commit-and-push
+    transitions:
+      - to: review
+  review:
+    executor: agent
+    status:
+      active: in-review
+      completed: reviewed
+    purpose: "Review"
+    expectedWork:
+      summary: "Review code"
     entryGates: []
     exitGates: []
     finalize:
@@ -178,6 +154,45 @@ steps:
         action:
           label: Reject
 `;
+
+function createGitFixture(prefix = 'nevo-specs-actions-') {
+  const base = mkdtempSync(join(tmpdir(), prefix));
+  const repo = join(base, 'repo');
+  mkdirSync(repo, { recursive: true });
+
+  const git = (args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+  git(['init', '-b', 'main']);
+  git(['config', 'user.name', 'Test User']);
+  git(['config', 'user.email', 'test@example.com']);
+  git(['config', 'commit.gpgsign', 'false']);
+
+  const workflowsDir = join(repo, '.nevo-ai', 'workflows');
+  mkdirSync(workflowsDir, { recursive: true });
+  writeFileSync(join(workflowsDir, 'standard-v1.yaml'), STANDARD_V1_YAML);
+
+  const activeDir = join(repo, 'specs', 'active');
+  const archiveDir = join(repo, 'specs', 'archive');
+  mkdirSync(activeDir, { recursive: true });
+  mkdirSync(archiveDir, { recursive: true });
+
+  git(['add', '-A']);
+  git(['commit', '-m', 'initial fixture commit']);
+
+  return {
+    base,
+    repo,
+    activeDir,
+    archiveDir,
+    git,
+    cleanup: () => {
+      try {
+        rmSync(base, { recursive: true, force: true });
+      } catch {}
+    },
+  };
+}
+
+describe('Dashboard deterministic action projection (Task 14, D10, D15, D18)', () => {
 
   test('AC 1: DTO reflects state-derived shape for review and arbitrary non-standard step (hardening), ignoring approved status', () => {
     const fx = createGitFixture('nevo-actions-ac1-');
@@ -831,6 +846,166 @@ describe('Dashboard actions lifecycle split (Task 17, D1, D4)', () => {
     } finally {
       fx.cleanup();
     }
+  });
+});
+
+describe('Deterministic board lane projection (Task 18, D1, D15)', () => {
+  test('AC 1: Deterministic task with status: approved and state: active renders in implementation lane, not ready', async () => {
+    const fx = createGitFixture('nevo-lane-ac1-');
+    try {
+      const workflowsDir = join(fx.repo, '.nevo-ai', 'workflows');
+      writeFileSync(join(workflowsDir, 'custom-wf.yaml'), CUSTOM_WF_YAML);
+
+      const detDir = join(fx.activeDir, 'det-lane-spec');
+      mkdirSync(join(detDir, 'tasks'), { recursive: true });
+      writeFileSync(
+        join(detDir, 'change.yaml'),
+        `id: det-lane-spec\ntitle: "Deterministic Lane Spec"\nworkflow:\n  mode: deterministic\n  definition: standard-v1\ntasks:\n  - id: t1\n    title: "Task 1"\n    status: approved\n    file: tasks/01-t1.md\n    workflow_progress:\n      current_step: implementation\n      current_attempt: 1\n      state: active\n`,
+      );
+      writeFileSync(join(detDir, 'overview.md'), '# Overview\n');
+      writeFileSync(join(detDir, 'tasks', '01-t1.md'), '# Task 1\n');
+
+      fx.git(['add', '-A']);
+      fx.git(['commit', '-m', 'add det spec']);
+
+      const data = await loadDashboardData({
+        activeDir: fx.activeDir,
+        archiveDir: fx.archiveDir,
+        repoRoot: fx.repo,
+      });
+
+      const change = data.active.find((c) => c.id === 'det-lane-spec');
+      assert.ok(change, 'change found');
+
+      // The task's status is still "approved"
+      const task = change.tasks.find((t) => t.id === 't1');
+      assert.equal(task.status, 'approved');
+
+      // But its stage is 'implementation' (active-state lane), NOT 'ready' (which stageForStatus('approved') would yield)
+      assert.equal(task.stage, 'implementation');
+
+      // Board lanes check: task must be in 'implementation' lane, not 'ready' lane
+      const readyLane = change.lanes.find((l) => l.id === 'ready');
+      const implLane = change.lanes.find((l) => l.id === 'implementation');
+      assert.equal(readyLane.tasks.some((t) => t.id === 't1'), false);
+      assert.equal(implLane.tasks.some((t) => t.id === 't1'), true);
+
+      // Same for loadTaskStatuses
+      const statusData = loadTaskStatuses({
+        source: 'active',
+        slug: 'det-lane-spec',
+        activeDir: fx.activeDir,
+        archiveDir: fx.archiveDir,
+        repoRoot: fx.repo,
+      });
+      const statusTask = statusData.tasks.find((t) => t.id === 't1');
+      assert.equal(statusTask.status, 'approved');
+      assert.equal(statusTask.stage, 'implementation');
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test('AC 2: Two deterministic tasks in state: active with different step IDs (review vs hardening) render in the identical lane', async () => {
+    const fx = createGitFixture('nevo-lane-ac2-');
+    try {
+      const workflowsDir = join(fx.repo, '.nevo-ai', 'workflows');
+      writeFileSync(join(workflowsDir, 'custom-wf.yaml'), CUSTOM_WF_YAML);
+
+      const detDir = join(fx.activeDir, 'det-diff-steps');
+      mkdirSync(join(detDir, 'tasks'), { recursive: true });
+      writeFileSync(
+        join(detDir, 'change.yaml'),
+        `id: det-diff-steps\ntitle: "Deterministic Different Steps"\nworkflow:\n  mode: deterministic\n  definition: custom-wf\ntasks:\n  - id: t-review\n    title: "Task Review"\n    status: approved\n    file: tasks/01-review.md\n    workflow_progress:\n      current_step: review\n      current_attempt: 1\n      state: active\n  - id: t-hardening\n    title: "Task Hardening"\n    status: approved\n    file: tasks/02-hardening.md\n    workflow_progress:\n      current_step: hardening\n      current_attempt: 1\n      state: active\n`,
+      );
+      writeFileSync(join(detDir, 'overview.md'), '# Overview\n');
+      writeFileSync(join(detDir, 'tasks', '01-review.md'), '# Task Review\n');
+      writeFileSync(join(detDir, 'tasks', '02-hardening.md'), '# Task Hardening\n');
+
+      fx.git(['add', '-A']);
+      fx.git(['commit', '-m', 'add multi-step active tasks']);
+
+      const data = await loadDashboardData({
+        activeDir: fx.activeDir,
+        archiveDir: fx.archiveDir,
+        repoRoot: fx.repo,
+      });
+
+      const change = data.active.find((c) => c.id === 'det-diff-steps');
+      assert.ok(change);
+
+      const taskReview = change.tasks.find((t) => t.id === 't-review');
+      const taskHardening = change.tasks.find((t) => t.id === 't-hardening');
+
+      // Both must be in the identical lane: 'implementation' (active agent step)
+      assert.equal(taskReview.stage, 'implementation');
+      assert.equal(taskHardening.stage, 'implementation');
+      assert.equal(taskReview.stage, taskHardening.stage);
+
+      const implLane = change.lanes.find((l) => l.id === 'implementation');
+      assert.ok(implLane.tasks.some((t) => t.id === 't-review'));
+      assert.ok(implLane.tasks.some((t) => t.id === 't-hardening'));
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test('AC 3: Legacy specification lane assignment is completely unchanged', async () => {
+    const fx = createGitFixture('nevo-lane-ac3-');
+    try {
+      const legDir = join(fx.activeDir, 'legacy-spec');
+      mkdirSync(join(legDir, 'tasks'), { recursive: true });
+      writeFileSync(
+        join(legDir, 'change.yaml'),
+        `id: legacy-spec\ntitle: "Legacy Spec"\ntasks:\n  - id: t-draft\n    status: draft\n    file: tasks/01.md\n  - id: t-ready\n    status: approved\n    file: tasks/02.md\n  - id: t-impl\n    status: in-implementation\n    file: tasks/03.md\n  - id: t-rev\n    status: implemented\n    file: tasks/04.md\n  - id: t-done\n    status: verified\n    file: tasks/05.md\n`,
+      );
+      writeFileSync(join(legDir, 'overview.md'), '# Overview\n');
+      for (let i = 1; i <= 5; i++) {
+        writeFileSync(join(legDir, 'tasks', `0${i}.md`), `# Task ${i}\n`);
+      }
+
+      fx.git(['add', '-A']);
+      fx.git(['commit', '-m', 'add legacy spec']);
+
+      const data = await loadDashboardData({
+        activeDir: fx.activeDir,
+        archiveDir: fx.archiveDir,
+        repoRoot: fx.repo,
+      });
+
+      const change = data.active.find((c) => c.id === 'legacy-spec');
+      assert.ok(change);
+
+      assert.equal(change.lanes.find((l) => l.id === 'design').tasks[0].id, 't-draft');
+      assert.equal(change.lanes.find((l) => l.id === 'ready').tasks[0].id, 't-ready');
+      assert.equal(change.lanes.find((l) => l.id === 'implementation').tasks[0].id, 't-impl');
+      assert.equal(change.lanes.find((l) => l.id === 'review').tasks[0].id, 't-rev');
+      assert.equal(change.lanes.find((l) => l.id === 'done').tasks[0].id, 't-done');
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test('AC 4: Inspection: deterministic lane path never calls stageForStatus/isTaskReady and function signature has no step-id input', () => {
+    const dataSrc = readFileSync(new URL('../server/specs/data.mjs', import.meta.url), 'utf8');
+    const stagesSrc = readFileSync(new URL('../server/specs/status-stages.mjs', import.meta.url), 'utf8');
+
+    // stageForDeterministicState signature inspection:
+    // Signature must be (state, executor = null) or similar, taking no currentStep/nextStep/stepId
+    const fnDefMatch = stagesSrc.match(/export function stageForDeterministicState\s*\(([^)]*)\)/);
+    assert.ok(fnDefMatch, 'stageForDeterministicState function must exist in status-stages.mjs');
+    const params = fnDefMatch[1].split(',').map((p) => p.trim());
+    assert.ok(params.length >= 1 && params.length <= 2, 'Signature has 1 or 2 parameters');
+    for (const p of params) {
+      assert.doesNotMatch(p, /(?:currentStep|nextStep|stepId|step)/i, `Parameter '${p}' must not refer to step ID`);
+    }
+
+    // Body of stageForDeterministicState must not branch on step names
+    assert.doesNotMatch(stagesSrc, /case\s+['"](?:implementation|review|hardening|human-verification)['"]/);
+
+    // In data.mjs, confirm deterministic branch does not call stageForStatus or isTaskReady
+    assert.match(dataSrc, /workflowMode\?\.mode === 'deterministic'/);
+    assert.match(dataSrc, /stageForDeterministicState\(/);
   });
 });
 
