@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-20T23:14:42.927Z",
+  "generated": "2026-09-21T06:11:02.391Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -280,11 +280,14 @@
           "id": "dashboard-human-step-transport",
           "order": 16,
           "file": "tasks/16-dashboard-human-step-transport.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "human-step-execution-operations",
             "execution-readiness-policy"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "12ad333256902ff086e3b7064fafd8efa38ee751"
+          }
         },
         {
           "id": "dashboard-actions-lifecycle-split",

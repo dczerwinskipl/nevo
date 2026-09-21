@@ -134,7 +134,7 @@ tasks:
   - id: dashboard-human-step-transport
     order: 16
     file: tasks/16-dashboard-human-step-transport.md
-    status: implemented
+    status: verified
     depends_on: [ human-step-execution-operations, execution-readiness-policy ]
     implementation:
       baseline_revision: 12ad333256902ff086e3b7064fafd8efa38ee751
