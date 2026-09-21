@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-21T06:35:39.985Z",
+  "generated": "2026-09-21T06:37:42.044Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -362,13 +362,16 @@
           "id": "ownership-boundary-documentation",
           "order": 22,
           "file": "tasks/22-ownership-boundary-documentation.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "legacy-mutation-guard",
             "deterministic-mutation-guard",
             "step-executor-guard",
             "status-vocabulary-extraction"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "b7df363a90c52fbe7a27d4d7c93e5d4c5bdc6ada"
+          }
         },
         {
           "id": "specification-detail-composition-wiring",

@@ -193,7 +193,7 @@ tasks:
   - id: ownership-boundary-documentation
     order: 22
     file: tasks/22-ownership-boundary-documentation.md
-    status: implemented
+    status: verified
     depends_on:
       [
         legacy-mutation-guard,
