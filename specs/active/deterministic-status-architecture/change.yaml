@@ -166,7 +166,7 @@ tasks:
   - id: human-step-surface-consolidation
     order: 20
     file: tasks/20-human-step-surface-consolidation.md
-    status: implemented
+    status: verified
     depends_on:
       [
         dashboard-deterministic-action-projection,

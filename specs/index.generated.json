@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-21T06:25:08.471Z",
+  "generated": "2026-09-21T06:34:16.964Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -331,13 +331,16 @@
           "id": "human-step-surface-consolidation",
           "order": 20,
           "file": "tasks/20-human-step-surface-consolidation.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "dashboard-deterministic-action-projection",
             "dashboard-human-step-transport",
             "task-card-lifecycle-split",
             "session-bootstrap-readiness-wiring"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "bdf0d57f285bd35e1af0685a16beb1c7943cdd76"
+          }
         },
         {
           "id": "lifecycle-skill-instruction-split",
