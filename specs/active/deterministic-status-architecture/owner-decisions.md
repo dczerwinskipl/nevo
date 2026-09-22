@@ -2615,3 +2615,360 @@ points are asserted to route through the identical `startStep` function instance
 - **Date:** 2026-09-22
 - **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
   `tasks/27-dependency-release-and-invalidation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D59: A workspace-writer claim releases only when its execution is *settled* — never merely because the AI/session turn (or CLI process) reached terminal
+
+- **Question:** D56 releases an agent-kind workspace-writer claim as soon as
+  `AgentSessionService`'s per-turn subscription reports the turn terminal
+  (completed/failed/cancelled), or when boot-time reconciliation finds an orphaned turn. This
+  is too early: a terminal AI/session turn does not imply the physical worktree is safe. A
+  turn that failed or was cancelled may already have run `workflow step start` (mutating
+  `workflow_progress`/`change.yaml`) and left source files dirty, with `finishStep` never
+  invoked; a turn reported "completed" may correspond to a `finishStep` invocation that itself
+  never fully settled (its own durable finish-operation record still `running`). Releasing the
+  claim in either case admits the next writer (a queued human-submit, Publish, Batch Publish,
+  or the next automatically-dispatched agent execution) onto worktree state nobody has
+  finished with or accounted for.
+- **Decision:** Introduce **execution settlement**, a concept distinct from and strictly
+  downstream of "AI/session turn terminal." A workspace-writing execution (agent-kind or the
+  new `cli-manual` kind, D62) passes through four explicit states:
+  - **active** — the claim is held and the execution is still genuinely in progress.
+  - **terminal-unsettled** — the AI/session turn (or CLI invocation) has ended, but settlement
+    has not yet been established.
+  - **settled** — settlement is proven (D60); the claim may be released.
+  - **recovery-required** — reconciliation attempted to establish settlement and could not;
+    the claim is retained, unreleased, and blocks every subsequent writer until an
+    owner/operator resolves it (D61).
+  Turn-terminal (or CLI-process-exit) is only the trigger to *attempt* the active →
+  terminal-unsettled transition and immediately run the settlement check (D60) — it is never
+  itself sufficient to release the claim. Only a proven `settled` outcome releases the claim;
+  anything else moves to `recovery-required` rather than releasing.
+- **Rationale:** Matches the brief precisely: the workspace-writer slot exists to protect the
+  physical worktree, not to mirror the AI turn's own lifecycle; equating "turn terminal" with
+  "workspace releasable" was the exact bug the brief identifies. A fail-closed default
+  (`recovery-required`, not release) prevents ever silently exposing an unreconciled dirty
+  worktree to the next writer.
+- **Consequences:** `automatic-workflow-continuation` (task 29)'s Hook 1 (per-turn
+  subscription) and Hook 3 (boot-time orphaned-turn reconciliation) no longer call
+  `forceReleaseWorkspaceWriter` directly on terminal/orphan detection — they first run the
+  settlement check (D60) and only release on a proven-settled result, else mark
+  `recovery-required` (D61).
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `areas/dependency-release-and-invalidation.md`, `tasks/27-dependency-release-and-invalidation.md`,
+  `tasks/29-automatic-workflow-continuation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D60: Execution settlement is defined concretely from existing durable/ownership primitives — never a raw `git status` check
+
+- **Question:** "Safe to release" cannot be left as implementation intuition, and must not be
+  simply "git status is clean" — unrelated, pre-existing user changes may already be dirty in
+  the worktree for reasons that have nothing to do with the execution being reconciled, and
+  the system already has ownership/scope concepts that know the difference.
+- **Decision:** A new function, `assessExecutionSettlement({repoRoot, changeSlug, taskId})`
+  (`tools/specs/workflow/execution-settlement.mjs`, new file, task 27), resolves the task's
+  current attempt and reports `settled` only when **all** of the following hold — each
+  checked via an already-existing primitive, never re-derived or newly invented:
+  1. No in-flight `workflow-start-operations/<change>/<task>/**` record remains for that task
+     (`findInFlightStartOperation`, `start-operation.mjs`, D52).
+  2. No in-flight finish-operation record remains for that task (`findInFlightOperationRecord`,
+     `operation-record.mjs`, D50).
+  3. The task's current `workflow_progress` position for the attempt this execution owns is
+     **not** `active` — an active position with no in-flight finish-operation means
+     `finishStep` was simply never invoked for a mutation `workflow step start` already made;
+     this alone is decisive and is checked before any file-content inspection.
+  4. No dirty tracked change remains within this execution's own **owned scope** — the same
+     scope `resolveTaskScope`'s `allowedPaths` and `resolveWorkflowOwnedPaths`
+     (`step-context.mjs`, `commit-and-push.mjs`) already compute for
+     `OUT_OF_SCOPE_WORKTREE_CHANGES` detection, inverted: here, checking whether the *in-scope*
+     paths are dirty, not whether out-of-scope paths are. A dirty file entirely outside this
+     execution's own owned scope (e.g. a human operator's unrelated, pre-existing edit) never
+     blocks settlement — only dirt attributable to this execution's own scope does.
+  Any of these failing → not settled (`recovery-required`, D61) — never a partial or
+  best-effort release.
+- **Rationale:** Every fact used already exists and is already the system's own definition of
+  "this execution's business" — reusing it means settlement can never disagree with what
+  `finishStep`/`workflow step start`/the scope-enforcement machinery themselves already
+  believe, and avoids inventing a second, competing notion of "dirty."
+- **Consequences:** task 27 gains one new small file (`execution-settlement.mjs`), importing
+  from `start-operation.mjs`/`operation-record.mjs`/`step-context.mjs` (import-only) and its
+  own `workspace-writer.mjs`. Task 29 imports (never edits) it for Hooks 1/3 (agent-kind);
+  task 27's own `cli.mjs` wrapper imports it for the `cli-manual` kind (D62).
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `tasks/29-automatic-workflow-continuation.md`,
+  `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D61: Reconciliation must assess settlement before releasing an ambiguous claim; `forceReleaseWorkspaceWriter` is constrained to already-proven-safe callers, never the default recovery path
+
+- **Question:** D56's boot-time orphaned-turn reconciliation currently calls
+  `forceReleaseWorkspaceWriter` unconditionally whenever it finds a persisted `activeTurn`
+  left behind by an ungraceful restart. That is unsafe precisely when the orphaned execution
+  left dirty, un-finalized state behind — the exact case D59/D60 now define.
+- **Decision:** Every reconciliation path that used to call `forceReleaseWorkspaceWriter` on a
+  terminal/orphaned agent-kind claim (Hook 1's per-turn subscription, Hook 3's boot-time orphan
+  detection) now calls `assessExecutionSettlement` (D60) first:
+  - **settled** → call `forceReleaseWorkspaceWriter` (unchanged mechanism) — this remains the
+    *only* legitimate caller of that function for an ambiguous/orphaned agent claim.
+  - **not settled, but canonical session/turn state shows the execution is still genuinely,
+    actively running** (a false alarm — not actually orphaned) → no action; the claim
+    correctly stays `active`.
+  - **not settled, and genuinely orphaned/terminal** → a new function,
+    `markWorkspaceWriterRecoveryRequired` (`workspace-writer.mjs`, task 27), flips the claim's
+    persisted `status` to `recovery-required` **without deleting it**. The claim stays held,
+    blocking every subsequent writer.
+  `forceReleaseWorkspaceWriter` itself gains no new internal safety logic (it stays an
+  unconditional, mechanical delete) — the constraint is enforced entirely at the call site: it
+  is documented as callable **only** once a caller has already established settlement (or, for
+  the `kind !== 'agent'` pid-mismatch case D56 already covers, genuine unconditional
+  process-lifetime staleness — unchanged) — never as a blind "clean up an ambiguous owner"
+  default. A workspace-writer record whose `status` is `recovery-required` is never
+  auto-reclaimed by anything — not by another kind's pid-staleness check, not by a later
+  boot-time pass finding yet another mismatch. It is cleared only by an explicit,
+  out-of-scope-for-this-pass reconciliation action (a human operator or a future dedicated
+  recovery task inspecting and resolving the underlying dirty state) — this pass defines the
+  state and its blocking behavior, not its resolution workflow. No auto-clean, auto-stash, or
+  auto-discard of any file is ever performed by this reconciliation.
+- **Rationale:** Matches the brief precisely — fail closed, no auto-clean/stash/discard,
+  `forceReleaseWorkspaceWriter` is not the normal recovery operation for an ambiguous owner,
+  and ambiguity always surfaces as an explicit, blocking `recovery-required` state rather than
+  a silent release.
+- **Consequences:** `workspace-writer.mjs` gains `markWorkspaceWriterRecoveryRequired` and a
+  `status` field on its record; `acquireWorkspaceWriter` treats an existing
+  `recovery-required` record as an unconditional block (a plain, mechanical status-field
+  check, not a liveness judgment) and reports it distinguishably to the caller (D67). Task 29's
+  Hooks 1/3 are the only call sites invoking this reconciliation sequence for agent-kind
+  claims; task 27's own `cli.mjs` wrapper invokes the symmetric sequence for `cli-manual`
+  claims (D62).
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `areas/dependency-release-and-invalidation.md`, `tasks/27-dependency-release-and-invalidation.md`,
+  `tasks/29-automatic-workflow-continuation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D62: Workspace-writer arbitration covers every deterministic tracked-mutation entry point, including the CLI — a new `cli-manual` kind for direct invocation outside dashboard orchestration
+
+- **Question:** `workflow step start`/`workflow step finish` are public deterministic CLI
+  commands, independent of the dashboard. A correctness invariant cannot depend on the caller
+  having come through `admitAgentExecution`. Today a raw/manual CLI invocation of
+  `workflow step start` mutates `workflow_progress`/`change.yaml` (via `ensureStepActivated`,
+  inside `compileStepContext`) with no workspace-writer claim at all — indistinguishable, from
+  the worktree's point of view, from the exact hazard D55 exists to prevent, just reached from
+  a different caller.
+- **Decision:** All deterministic tracked-workspace mutations participate in the same
+  workspace-writer protocol — one canonical rule, no dashboard/CLI split in safety semantics.
+  `cli.mjs`'s `handleWorkflowStepStart` (task 27, already an allowed path) wraps its own call
+  to `compileStepContext` (the actual mutation point, via `ensureStepActivated`) whenever the
+  resolved position is non-terminal (a mutation will actually occur):
+  1. **If an existing claim already covers this exact spec/task/attempt** (a
+     dashboard-orchestrated `agent`-kind claim whose recorded `taskId` matches — this CLI
+     process is itself one of that execution's own tool-call subprocesses) — proceed without
+     acquiring a second claim; the existing claim already protects this exact mutation (D55's
+     "held for the whole execution").
+  2. **Otherwise** — attempt to acquire the workspace-writer slot with a new
+     `kind: 'cli-manual'`, waiting/failing per the same arbitration rules as any other kind
+     (D66). Before waiting on a pre-existing `agent`/`cli-manual` claim found here, this same
+     `cli.mjs` wrapper first attempts settlement-based reconciliation of that pre-existing
+     claim via `assessExecutionSettlement` (D60/D61) — symmetric to how task 29's Hooks 1/3 do
+     the same for agent-kind claims — since there is no CLI "boot" event to hang a
+     reconciliation pass off of; reconciliation is attempted lazily, at the next acquisition
+     attempt. `workspace-writer.mjs`'s own `acquireWorkspaceWriter` remains mechanism-only and
+     never attempts settlement checking on its own initiative (D55/D56 unchanged) beyond the
+     one purely-mechanical check of an existing record's persisted `status` field being
+     `recovery-required`, which requires no liveness judgment at all.
+  `handleWorkflowStepFinish` (also task 27's file) checks whether the currently-held claim is
+  `kind: 'cli-manual'` and belongs to this same task/attempt; if so, once `finishStep` returns
+  successfully (commit landed — settlement is trivially proven synchronously, in-process, no
+  async reconciliation needed for this path), it releases that claim immediately, in the same
+  process. A `cli-manual` claim left behind by a crashed/abandoned CLI process (no matching
+  `workflow step finish` ever ran) is reconciled the same way any other ambiguous claim is
+  (D61), attempted the next time *any* caller tries to acquire the slot and finds the existing
+  `cli-manual` record.
+- **Rationale:** Matches the brief precisely — one canonical rule, not two safety models; the
+  manual/CLI case reuses the exact same settlement definition (D60) as the
+  dashboard-orchestrated agent case, since both ultimately go through the identical
+  `ensureStepActivated`/`finishStep` engine primitives — only the caller and the claim's
+  `kind`/identity fields differ.
+- **Consequences:** `cli.mjs`'s `handleWorkflowStepStart`/`handleWorkflowStepFinish` gain this
+  wrapping logic (task 27); no change to their existing return contracts/CLI UX.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D63: `workflow verify-human`'s CLI human-decision path delegates to the same combined `activateAndSubmitHumanStep` operation the dashboard uses
+
+- **Question:** `cli.mjs`'s `handleWorkflowVerifyHuman` (its `--approve`/`--request-changes`
+  branch) currently calls `startHumanStep` then `submitHumanStepResult` directly — the exact
+  legacy two-step shape D47 already replaced for the dashboard with the combined,
+  workspace-writer-and-git-finalize-lease-protected `activateAndSubmitHumanStep`. Left as-is,
+  the CLI retains a second, arbitration-free path to the identical mutation, defeating D55's
+  own invariant the moment anyone runs this command directly (a human operator, a test, a
+  script) while an agent execution is active.
+- **Decision:** `handleWorkflowVerifyHuman`'s `--approve`/`--request-changes` branch calls
+  `activateAndSubmitHumanStep` (`human-step/operations.mjs`, task 29) instead of
+  `startHumanStep`/`submitHumanStepResult` directly — one implementation, two callers
+  (dashboard's `human-step-transport.mjs`, and now the CLI). Its `--confirm` branch (writing a
+  `FileHumanVerificationStore` signoff record — untracked, `.nevo-ai-local`-local state, not a
+  `workflow_progress`/`change.yaml` mutation) is unaffected and needs no workspace-writer
+  claim, preserving "`HumanStepSurface` preview is mutation-free" exactly as today. CLI UX
+  (flags, output shape, error messages) is preserved unchanged — only the internal call graph
+  changes.
+- **Rationale:** One correctness implementation, not two; matches the brief precisely.
+- **Consequences:** `automatic-workflow-continuation` (task 29) gains
+  `tools/specs/workflow/cli.mjs` in its `allowed_paths` (shared with task 27 — task 27 owns
+  `handleWorkflowStepStart`/`handleWorkflowStepFinish`'s workspace-writer wrapping (D62) and
+  its own pre-existing dependency-consumption call-site insertion (D52/D53); task 29 owns only
+  `handleWorkflowVerifyHuman`'s delegation to `activateAndSubmitHumanStep` — each task's own
+  out-of-scope section names the other's exact function boundary so neither treats the whole
+  file as its own).
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `tasks/29-automatic-workflow-continuation.md`,
+  `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D64: `publishTask()` itself — not merely its callers — owns workspace-writer and git-finalize arbitration
+
+- **Question:** The workspace-writer invariant must hold regardless of whether Publish is
+  reached from the dashboard route, the CLI (`workflow task publish`), or a direct domain call
+  (tests/tools). Placing the `acquireWorkspaceWriter`/`withGitFinalizeLock` sequence only in
+  the dashboard's route handler would leave the CLI and any direct caller of `publishTask()`
+  completely unprotected — the identical class of gap D62 just closed for `workflow step
+  start`.
+- **Decision:** `publishTask()` itself (`tools/specs/workflow/publish/operation.mjs`, task 31
+  — the one function both `cli.mjs`'s `handleWorkflowTaskPublish` and the dashboard's Publish
+  route call identically) acquires the workspace-writer slot (`kind: 'publish'`) and the
+  nested git-finalize lease around its own mutate-then-commit sequence, exactly as already
+  planned (D55/D56) — this decision only makes explicit *where*: inside the shared domain
+  function, never only in one caller. Batch Publish remains the one dashboard-only exception:
+  its atomic multi-task record lives in `handleBatchPublish` (`routes.mjs`, no CLI equivalent
+  exists), so its `kind: 'batch-publish'` workspace-writer claim is acquired there, around the
+  whole prevalidate-then-mutate-then-commit sequence, not inside per-task `publishTask()` calls
+  it may reuse internally for prevalidation logic only.
+- **Rationale:** Matches the brief precisely — put safety at the lowest sensible shared
+  domain/application boundary; a caller-side-only safeguard is exactly the kind of gap this
+  whole spec exists to close (the original dogfooding incident was precisely a caller
+  forgetting to protect a shared mutation).
+- **Consequences:** task 31's own implementation constraints are clarified (no behavior change
+  from pass 14's plan — this decision states explicitly which function owns the acquisition,
+  since the prior wording was ambiguous between "the Publish path" and the `publishTask()`
+  function specifically).
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/user-mutation-source-control-ownership.md`,
+  `tasks/31-user-mutation-source-control-finalization.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D65: Workspace-writer identity is keyed by the physical worktree, matching the git-finalize lease's own already-correct convention — never by `specId`
+
+- **Question:** `.nevo-ai-local/workspace-writers/<specId>.json` (D56) allows two different
+  specs in the *same* physical repository checkout to each acquire their own, independent
+  workspace-writer record — defeating the entire purpose of protecting the one shared worktree
+  the moment more than one spec is active in it (already true today: this very repository
+  routinely has many active specs under `specs/active/**` sharing one checkout). An agent
+  execution for spec A and a Publish for spec B would arbitrate against each other not at all,
+  while both mutate the same physical files.
+- **Decision:** The workspace-writer record is keyed by the physical worktree, not by
+  `specId` — one single, well-known file per checkout, mirroring `git-finalize-lock.mjs`'s own
+  already-correct convention (`.nevo-ai-local/locks/git-finalize.lock`, no `specId` in its
+  path, already scoped to the whole worktree since `.nevo-ai-local` itself lives at the repo
+  root). Corrected path: `.nevo-ai-local/locks/workspace-writer.lock` (same directory as its
+  sibling git-finalize lock, both worktree-scoped, both `.nevo-ai-local`-local-runtime files).
+  The record body still carries `specId`/`taskId`/`sessionId`/`turnId` for attribution and for
+  the caller-side reconciliation logic (D60–D62) — these fields identify *who* holds the
+  claim, they are never used to compute *where* the claim is stored. Acquisition/contention is
+  therefore now correctly **cross-spec**: an agent execution for spec A and a Publish for spec
+  B, sharing one worktree, now correctly serialize against each other via this one shared
+  claim.
+- **Rationale:** Matches the brief precisely; reuses an already-accepted, already-correct
+  sibling primitive's own convention rather than inventing a new identity scheme (a realpath
+  hash, a worktree-id file, etc.) that this single-checkout-per-server architecture does not
+  need.
+- **Consequences:** `dependency-release-and-invalidation` (task 27)'s `workspace-writer.mjs`
+  record path changes; D55/D56's own "for one specification, at most one workspace writer"
+  phrasing is corrected to "for one physical worktree" — D33/D41/D49's own, separate,
+  unchanged invariant ("one agent-owned execution per specification") still governs agent
+  admission specifically and is not affected. Every area doc's "cross-spec workspace-writer
+  arbitration: out of scope" line is corrected — cross-spec arbitration is now the explicit,
+  required behavior, not an exclusion.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `areas/workflow-continuation-and-session-handover.md`,
+  `areas/user-mutation-source-control-ownership.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `tasks/29-automatic-workflow-continuation.md`,
+  `tasks/31-user-mutation-source-control-finalization.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D66: Canonical lock-acquisition ordering across the admission mutex and the workspace-writer claim, applied identically by every caller
+
+- **Question:** `admitAgentExecution` must atomically ensure both "one agent execution per
+  spec" (D41/D49) and "one workspace writer per physical worktree" (D65) while avoiding any
+  possibility of two coordination primitives deadlocking against each other.
+- **Decision:** One fixed ordering, used by every caller, no exceptions:
+  1. Spec-level admission mutex (agent-only; D41/D49's own in-process, per-`specId`
+     promise-chain mutex) — acquired first, and **only** by the agent-execution-creation path.
+     No other kind (`human-submit`, `publish`, `batch-publish`, `cli-manual`) ever acquires
+     this mutex at all.
+  2. Workspace-writer claim (D65, per-physical-worktree) — acquired second by the agent path
+     (immediately after the admission mutex, before session/turn creation begins); acquired
+     **first and only** (no admission mutex involved) by every non-agent path.
+  3. Session/turn creation proceeds (agent path only).
+  4. Durable visibility confirmed (agent path only).
+  5. Admission mutex released (agent path only) — short-lived, released as soon as durable
+     visibility is confirmed.
+  6. Workspace-writer claim retained until settlement (D59) — held for the agent path's entire
+     execution lifetime; held for a non-agent path only around that operation's own short,
+     self-contained duration.
+  Because the admission mutex is acquired by exactly one path (agent) and always before the
+  workspace-writer claim on that same path, and no other path ever touches the admission
+  mutex, no cycle can form: nothing ever waits for the workspace-writer claim while holding the
+  admission mutex in the reverse order, and nothing ever waits for the admission mutex while
+  holding the workspace-writer claim. **Rollback on failure:** if session/turn creation fails
+  after both claims are held but before durable visibility, both are released together, in the
+  same failure path, in the reverse of acquisition order (workspace-writer claim, then
+  admission mutex) — unchanged from D56's own existing rollback description, now stated as the
+  general rule every future workspace-writing operation's own failure path must follow.
+- **Rationale:** Matches the brief precisely — one documented ordering removes any need to
+  reason about deadlock case-by-case; the ordering is exactly what D41/D49/D55/D56 already
+  implied informally, this decision only makes it an explicit, binding rule for all present and
+  future callers.
+- **Consequences:** No implementation change beyond what D55/D56/D59 already require — this
+  decision is a documentation/binding-rule correction, closing the risk of a future caller
+  (e.g. a not-yet-designed workspace-writing operation) inventing a different, conflicting
+  order.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `tasks/29-automatic-workflow-continuation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D67: A pending user-submitted workspace mutation's wait is a durable, request-level status, distinct from and outliving the low-level bounded acquisition-retry timeout
+
+- **Question:** `acquireWorkspaceWriter`'s own internal bounded retry/backoff timeout (task
+  27's own existing description: "a bounded — generously long — timeout") exists as a safety
+  valve against a genuinely stuck acquisition attempt. If that internal timeout is allowed to
+  surface directly as the outcome of a user-submitted Approve/Publish/Batch-Publish request, a
+  perfectly valid pending user intent would fail outright merely because the currently-active
+  agent execution happened to run long, or (per D59–D61) entered `recovery-required`.
+- **Decision:** Two distinct concepts, never conflated:
+  - **Low-level acquisition timeout** (`acquireWorkspaceWriter`'s own internal bound) — an
+    implementation safety valve only; never surfaced directly as a user-facing failure.
+  - **Request-level waiting status** — the durable user-submitted operation (Publish's own
+    already-durable intent record, D29; Batch Publish's own record; a human-submit request)
+    reports one of two distinct, explicit statuses whenever it has not yet begun its own
+    tracked mutation: **`waiting-for-workspace`** (ordinary contention — another kind or an
+    active agent currently holds the claim) or **`blocked-by-recovery`** (the existing claim's
+    persisted `status` is `recovery-required`, D61). A request in either status is never
+    silently dropped or failed by the passage of time alone; the calling operation
+    retries/re-attempts acquisition transparently across any number of internal low-level
+    timeout cycles, remaining `waiting-for-workspace`/`blocked-by-recovery` at the request
+    level until the slot is actually free (or, for `blocked-by-recovery`, until an
+    out-of-scope-for-this-pass reconciliation action clears the `recovery-required` claim).
+    This status is surfaced to the dashboard/API layer as a distinct, named state — never
+    reported as a generic error.
+- **Rationale:** Matches the brief precisely — differentiate request-waiting semantics from
+  low-level lock-acquisition timeout; a durable user intent should survive waiting where
+  appropriate, never converted into an arbitrary failure by an unrelated, long-running agent
+  turn.
+- **Consequences:** `automatic-workflow-continuation` (task 29, human-submit) and
+  `user-mutation-source-control-finalization` (task 31, Publish/Batch Publish) both surface
+  this two-value status distinctly wherever they already report a pending operation's state;
+  neither introduces a new durable operation-record stage for it (a lightweight status
+  surface, not a new stage in the existing `validate/update-task/commit/push`-style stage
+  machine).
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `areas/user-mutation-source-control-ownership.md`, `tasks/29-automatic-workflow-continuation.md`,
+  `tasks/31-user-mutation-source-control-finalization.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.

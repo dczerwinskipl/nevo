@@ -73,41 +73,77 @@ transitions. No wording or logic anywhere references a transition going "backwar
   are a CLI subprocess and the dashboard server, or two of either kind) — no in-process
   mutex, since an agent's `workflow step finish` runs in its own OS process.
 
-### Workspace-writer slot — a third primitive, never conflated with admission or the git-finalize lease (D55/D56)
+### Workspace-writer slot — a third primitive, never conflated with admission or the git-finalize lease (D55/D56, identity and release corrected D59–D62/D65)
 
 - **Three distinct roles.** Agent-admission lock (D41/D49, owned by task 29): in-process,
   dashboard-only, prevents two agent executions being *created* concurrently for one spec.
-  **Workspace-writer slot (new, this area):** for one specification, at most one
+  **Workspace-writer slot (new, this area):** for one **physical worktree** (D65, corrected
+  from "one specification" — this checkout routinely hosts many active specs at once, and all
+  of them share the one real worktree the slot exists to protect), at most one
   workspace-writing operation holds it at a time — an active agent execution (from admission
-  until its execution reaches its safe completion/finalization boundary),
-  `activateAndSubmitHumanStep`, Publish, Batch Publish. A *pending* (not yet submitted) human
-  interaction is never a workspace writer (D45 unchanged). Git-finalize lease (D47/D50/D51):
-  nested *inside* whichever operation holds the workspace-writer slot, around the mutate-
-  then-commit instant specifically.
+  until its execution is proven *settled*, D59), a direct/manual CLI execution (`kind:
+  'cli-manual'`, D62), `activateAndSubmitHumanStep`, Publish, Batch Publish. A *pending* (not
+  yet submitted) human interaction is never a workspace writer (D45 unchanged). Git-finalize
+  lease (D47/D50/D51): nested *inside* whichever operation holds the workspace-writer slot,
+  around the mutate-then-commit instant specifically.
 - **`tools/specs/workflow/workspace-writer.mjs` (new).** Durable record at
-  `.nevo-ai-local/workspace-writers/<specId>.json`: `{ownerId, kind: 'agent'|'human-submit'|
-  'publish'|'batch-publish', specId, taskId?, sessionId?, turnId?, pid?, createdAt}`. Atomic
-  acquisition (exclusive create); release verifies `ownerId` first. Also maintains an
-  in-process (dashboard-only) record of currently-waiting acquisition attempts, tagged by
-  `kind`, so a caller can ask "is any non-agent acquisition already pending for this spec"
-  (D57).
-- **Reconciliation branches by `kind` (D56).** `kind: 'agent'`: liveness is the dashboard's
-  own canonical session/turn state, never a pid check — released from the same real hook D42
-  already established (turn-terminal via `AgentSessionService`'s per-turn subscription;
-  orphaned-turn detection via the existing `reconcileOrphanedTurns()` boot hook also releases
-  the associated workspace-writer claim). `kind !== 'agent'`: liveness is a `pid` check
-  against the *current* process's own `process.pid` — any claim whose recorded pid doesn't
-  match the current process at boot-time reconciliation is unconditionally stale (single-
-  server architecture; no clustering) and is cleared. Failed admission/session creation
-  releases the workspace-writer claim in the same rollback path that already clears the
-  admission "occupied" marker (D41/D49).
+  `.nevo-ai-local/locks/workspace-writer.lock` — **one single, well-known file per checkout,
+  never keyed by `specId`** (D65), mirroring `git-finalize-lock.mjs`'s own sibling file
+  (`.nevo-ai-local/locks/git-finalize.lock`) in the same directory:
+  `{ownerId, kind: 'agent'|'cli-manual'|'human-submit'|'publish'|'batch-publish', status:
+  'active'|'recovery-required', specId, taskId?, sessionId?, turnId?, pid?, createdAt}`.
+  `specId`/`taskId`/`sessionId`/`turnId` identify *who* holds the claim for attribution and
+  caller-side reconciliation — they are never part of the file path, so a claim for one spec
+  now correctly contends against an operation on a *different* spec sharing the same
+  checkout. Atomic acquisition (exclusive create); release verifies `ownerId` first. A record
+  whose `status` is `recovery-required` is an unconditional block on acquisition — a plain
+  field check, never treated as ordinary live contention, never auto-reclaimed by any kind's
+  staleness check. Also maintains an in-process (dashboard-only) record of currently-waiting
+  acquisition attempts, tagged by `kind`, so a caller can ask "is any non-agent acquisition
+  already pending" (D57) and can distinguish `waiting-for-workspace` from `blocked-by-recovery`
+  (D67).
+- **Release requires proven settlement, never merely turn-terminal (D59/D60/D61).** An
+  `agent`- or `cli-manual`-kind claim moves through four states — `active` →
+  `terminal-unsettled` → (`settled` → released) or → `recovery-required` (retained, blocking).
+  Reaching AI/session turn-terminal (or CLI process exit) only triggers an *attempt* at
+  settlement via `assessExecutionSettlement` (`tools/specs/workflow/execution-settlement.mjs`,
+  new file, this area) — checking, from already-existing primitives only: no in-flight
+  start-operation (D52) or finish-operation (D50) record remains for the task; the task's
+  `workflow_progress` position for that attempt is not `active`; no dirty tracked change
+  remains within the execution's own owned scope (`resolveTaskScope`/`resolveWorkflowOwnedPaths`,
+  inverted from their existing `OUT_OF_SCOPE_WORKTREE_CHANGES` use). All four hold → settled →
+  release via `forceReleaseWorkspaceWriter` (its only legitimate caller for an
+  ambiguous/orphaned claim). Any fail → `markWorkspaceWriterRecoveryRequired` (new export) —
+  the claim is retained, not deleted; no auto-clean/stash/discard of any file is ever
+  performed. `kind !== 'agent', 'cli-manual'` (human-submit/publish/batch-publish): unchanged
+  from D56 — liveness is a `pid` check against the *current* process's own `process.pid`; any
+  claim whose recorded pid doesn't match the current process at boot-time reconciliation is
+  unconditionally stale (single-server architecture; no clustering) and is cleared — these
+  kinds never leave dangling tracked mutation across a process boundary the way `agent`/
+  `cli-manual` can, so no settlement check is needed for them. Failed admission/session
+  creation releases the workspace-writer claim in the same rollback path that already clears
+  the admission "occupied" marker (D41/D49/D66).
+- **`cli-manual` kind — every deterministic CLI entry point participates too (D62).**
+  `cli.mjs`'s `handleWorkflowStepStart`/`handleWorkflowStepFinish` (task 27, already an
+  allowed path) wrap `compileStepContext`'s own mutation (`ensureStepActivated`) in the same
+  protocol: reuse an already-covering `agent`-kind claim when this CLI invocation is itself
+  one of that execution's own tool-call subprocesses; otherwise acquire/release a `cli-manual`
+  claim for the attempt's own duration, releasing it synchronously and in-process the moment
+  `finishStep` returns successfully. A `cli-manual` claim abandoned by a crashed CLI process is
+  reconciled lazily — attempted by the same `cli.mjs` wrapper the next time any caller tries
+  to acquire the slot and finds it, via `assessExecutionSettlement`, exactly as Hooks 1/3
+  reconcile an `agent`-kind claim.
 - **Priority: pending user mutations before the next automatic agent item (D57).** Before
   dispatching the sequential queue's `nextRunnable` item through `admitAgentExecution`,
   `automatic-workflow-continuation` (task 29) checks whether a non-agent acquisition is
-  already waiting for this spec's workspace-writer slot; if so, it defers — the already-queued
+  already waiting for the workspace-writer slot; if so, it defers — the already-queued
   waiter resolves next via the slot's own FIFO wait order once the current holder releases.
   This area exposes the queryable pending-waiters view task 29 checks; it does not itself
   decide dispatch order.
+- **Canonical lock ordering (D66).** Admission mutex (agent-only) always acquired before the
+  workspace-writer claim, never the reverse, and no other kind ever touches the admission
+  mutex at all — see `areas/workflow-continuation-and-session-handover.md` for the full
+  ordering and rollback rule this area's primitives must support.
 
 ### Dependency-consumption provenance — declarative trigger, durable start-operation, step-scoped identity, sequence-based authoritative matching (D52/D53/D58)
 
@@ -195,25 +231,37 @@ modified**. `ExecutionReadiness` (`readiness-policy.mjs`) composes `TaskProjecti
   synonym or substitute for another.
 - `consumptionSequence` is never allocated from an in-memory counter — always derived from
   and frozen into the durable start-operation record before activation (D58).
+- A workspace-writer claim's release is never triggered by AI/session turn-terminal alone —
+  always gated on a proven-settled result from `assessExecutionSettlement` (D59/D60); no file
+  in this area calls `forceReleaseWorkspaceWriter` from a terminal/orphan-detection hook
+  directly, only after that settlement check.
+- No auto-clean, auto-stash, or auto-discard of any tracked or untracked file, ever, as part
+  of workspace-writer reconciliation (D61).
 
 ## Interfaces and boundaries
 
 Exposes: `evaluateDependencySatisfaction`'s epoch-aware release logic;
 `acquireGitFinalizeLease`/`withGitFinalizeLock`; `workspace-writer.mjs`'s acquire/release/
-pending-waiters primitives; the start-operation module (D52, including `consumptionSequence`
+mark-recovery-required/pending-waiters primitives; `execution-settlement.mjs`'s
+`assessExecutionSettlement`; the start-operation module (D52, including `consumptionSequence`
 allocation); `dependency-consumption.mjs`'s step-scoped write/read primitives and
 sequence-based authoritative-record resolution; the remediation-group derivation function and
-its durable record primitives; `projectSuspensions(task, change)`.
+its durable record primitives; `projectSuspensions(task, change)`; `cli.mjs`'s
+`handleWorkflowStepStart`/`handleWorkflowStepFinish` `cli-manual`-kind workspace-writer wrapping.
 
-Consumed by: `tools/specs/workflow/cli.mjs` (the one call site running the D52 start-operation
-flow for a `consumesDependencies` step), `finish-operation.mjs` (acquires/accepts the
+Consumed by: `tools/specs/workflow/cli.mjs` (the D52 start-operation flow for a
+`consumesDependencies` step, and its own `cli-manual` workspace-writer wrapping around
+`handleWorkflowStepStart`/`handleWorkflowStepFinish`, both owned by this area/task 27;
+`handleWorkflowVerifyHuman`'s delegation to `activateAndSubmitHumanStep` is owned by task 29,
+D63, a distinct function in the same file), `finish-operation.mjs` (acquires/accepts the
 git-finalize lease), `automatic-workflow-continuation` (task 29 — reads release/invalidation
 state; claims the workspace-writer slot for agent admission and for
 `activateAndSubmitHumanStep`; threads one acquired git-finalize lease through
 `activateAndSubmitHumanStep`; checks the pending-waiters view before dispatching the next
-automatic agent item), `publish/operation.mjs` (task 31 — claims the workspace-writer slot
-and acquires its own git-finalize lease), `readiness-policy.mjs`,
-`areas/deterministic-sequential-queue.md`, `areas/dependency-invalidation-remediation-review.md`.
+automatic agent item; imports `assessExecutionSettlement` for Hooks 1/3), `publish/operation.mjs`
+(task 31 — `publishTask()` itself claims the workspace-writer slot and acquires its own
+git-finalize lease, D64), `readiness-policy.mjs`, `areas/deterministic-sequential-queue.md`,
+`areas/dependency-invalidation-remediation-review.md`.
 
 ## Area-specific acceptance criteria
 
@@ -260,11 +308,29 @@ and acquires its own git-finalize lease), `readiness-policy.mjs`,
 - **Workspace-writer arbitration:** an active agent's workspace-writer claim blocks a
   concurrently-attempted `activateAndSubmitHumanStep`/Publish acquisition until the agent
   releases; neither the blocked operation nor the active agent can observe or absorb the
-  other's uncommitted tracked mutation. A workspace-writer claim left by a confirmed-terminal/
-  orphaned agent turn is released by the same reconciliation pass that already handles that
-  turn (D42); a `kind !== 'agent'` claim whose pid doesn't match the current process at boot
-  is cleared unconditionally. A failed agent admission releases both the admission marker and
-  the workspace-writer claim together.
+  other's uncommitted tracked mutation. This holds **across specs** sharing the same physical
+  worktree, not only within one spec (D65).
+- **Settlement-gated release:** a workspace-writer claim is released only when
+  `assessExecutionSettlement` reports settled — a terminal/orphaned agent turn whose
+  `finishStep` never completed, or whose step position is still `active`, or which left dirty
+  tracked change within its own owned scope, moves the claim to `recovery-required` instead of
+  releasing it; a subsequent acquisition attempt by any kind is blocked, not merely delayed,
+  until that state is explicitly cleared. A `kind !== 'agent'/'cli-manual'` claim whose pid
+  doesn't match the current process at boot is cleared unconditionally (unchanged, D56). A
+  failed agent admission releases both the admission marker and the workspace-writer claim
+  together.
+- **`cli-manual` parity:** a direct/manual `workflow step start` invocation with no covering
+  dashboard-orchestrated claim acquires its own `cli-manual` workspace-writer claim and is
+  blocked identically by a concurrently-active agent execution or Publish; `workflow step
+  finish` releases a `cli-manual` claim it owns immediately upon its own successful, in-process
+  completion.
+- **`workflow verify-human --approve`/`--request-changes`** acquires the workspace-writer slot
+  and git-finalize lease via `activateAndSubmitHumanStep` identically to the dashboard's own
+  combined submit — proven by racing it against an active agent execution the same way the
+  dashboard path is raced.
+- **`publishTask()` called directly** (no dashboard route, no CLI wrapper — a bare domain
+  call) still waits for an active agent's workspace-writer claim and never absorbs its dirty
+  state — proving the arbitration lives inside `publishTask()` itself, not only in one caller.
 
 ## Dependencies
 
@@ -278,11 +344,17 @@ review pass (`areas/dependency-invalidation-remediation-review.md`). Running the
 actual fix implementation attempts (`areas/deterministic-sequential-queue.md`). The new
 combined human-decision operation itself, and the actual dispatch-priority check
 (`automatic-workflow-continuation`, task 29 — this area only provides the primitives and the
-pending-waiters view). Publish's own workspace-writer/lease acquisition call sites
-(`user-mutation-source-control-finalization`, task 31 — imports only). Per-task Git
-worktrees, parallel branches, concurrent agent execution, or Git merge orchestration — the
-workspace-writer slot is an arbitration rule, not workspace isolation. An external locking
-library or new runtime dependency (both primitives are implemented from Node built-ins and
-this repo's existing atomic-file convention). Cross-spec worktree-writer arbitration (this
-area's invariant is scoped per specification, matching D33/D41/D49's own existing scope — a
-pre-existing, unaddressed limitation, not a regression this pass introduces).
+pending-waiters view). `handleWorkflowVerifyHuman`'s delegation to `activateAndSubmitHumanStep`
+(task 29, D63 — a distinct function in the same `cli.mjs` file this area also edits for
+`handleWorkflowStepStart`/`handleWorkflowStepFinish`). Publish's own workspace-writer/lease
+acquisition call sites inside `publishTask()`/`handleBatchPublish`
+(`user-mutation-source-control-finalization`, task 31 — this area provides the primitives
+only). Per-task Git worktrees, parallel branches, concurrent agent execution, or Git merge
+orchestration — the workspace-writer slot is an arbitration rule, not workspace isolation. An
+external locking library or new runtime dependency (both primitives are implemented from Node
+built-ins and this repo's existing atomic-file convention). Resolving a `recovery-required`
+claim (D61 — this pass defines the state and its blocking behavior; the actual reconciliation
+workflow/tooling for an operator to clear it is a future task's own scope). **Cross-spec
+workspace-writer arbitration is no longer out of scope — it is the explicit, required
+behavior as of D65**, since the workspace-writer record is now keyed by the physical worktree,
+not by `specId`.

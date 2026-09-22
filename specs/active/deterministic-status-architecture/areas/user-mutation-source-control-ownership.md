@@ -65,18 +65,32 @@ mutations from technical activations from completed lifecycle mutations.
   operation acquire, since a concurrently-running agent turn for a different task in the same
   change (legal under D45) could otherwise sweep Publish's own uncommitted mutation into its
   commit, the exact class of bug this whole area exists to fix.
-- **Workspace-writer slot claimed first, git-finalize lease nested inside (D55/D56,
-  corrective pass 14).** The git-finalize lease alone only protects the mutate-then-commit
-  instant — it does not protect the whole period an agent execution actively holds the
-  shared worktree between its own `workflow step start` succeeding and its own eventual
-  finish. `publishTask()`/Batch Publish therefore first call `acquireWorkspaceWriter({specId,
-  kind: 'publish' | 'batch-publish'})` (`workspace-writer.mjs`, task 27) — waiting if an agent
-  execution or any other writer currently holds the slot — and only once held, acquire
-  `withGitFinalizeLock` nested inside it around the mutate-then-commit sequence specifically.
-  This guarantees Publish never observes, is scoped-error-blocked by, or absorbs an actively-
-  editing agent's own dirty source files/uncommitted `change.yaml`. The workspace-writer claim
-  is released after the git-finalize-protected sequence completes (success or failure); the
-  git-finalize lease itself remains exactly as narrow as D50/D51 already established.
+- **Workspace-writer slot claimed first, git-finalize lease nested inside — inside
+  `publishTask()` itself, not only in one caller (D55/D56/D64, corrected pass 15).** The
+  git-finalize lease alone only protects the mutate-then-commit instant — it does not protect
+  the whole period an agent execution actively holds the shared worktree between its own
+  `workflow step start` succeeding and its own eventual finish. **`publishTask()`
+  (`tools/specs/workflow/publish/operation.mjs`) itself** — the one function both `cli.mjs`'s
+  `handleWorkflowTaskPublish` and the dashboard's Publish route call identically — therefore
+  first calls `acquireWorkspaceWriter({kind: 'publish'})` (`workspace-writer.mjs`, task 27,
+  keyed by the physical worktree, D65, not by `specId`) — waiting if an agent execution or any
+  other writer currently holds the slot — and only once held, acquires `withGitFinalizeLock`
+  nested inside it around the mutate-then-commit sequence specifically. Because the claim
+  lives inside the shared domain function itself, the CLI, the dashboard route, and any direct
+  test/tool call into `publishTask()` all get identical protection — safety does not depend on
+  which caller remembered to arrange it (D64). This guarantees Publish never observes, is
+  scoped-error-blocked by, or absorbs an actively-editing agent's own dirty source
+  files/uncommitted `change.yaml` — including an agent execution belonging to a **different**
+  spec that happens to share this same physical worktree (D65). Batch Publish is the one
+  exception: its `kind: 'batch-publish'` claim is acquired in `handleBatchPublish`
+  (`routes.mjs`, dashboard-only — no CLI equivalent exists) around the whole
+  prevalidate-then-mutate-then-commit sequence, not inside the per-task `publishTask()` calls
+  it reuses for prevalidation logic only. The workspace-writer claim is released after the
+  git-finalize-protected sequence completes (success or failure); the git-finalize lease
+  itself remains exactly as narrow as D50/D51 already established. A pending Publish/Batch
+  Publish request that has not yet acquired the slot reports `waiting-for-workspace` or
+  `blocked-by-recovery` (D67) — never a generic failure merely because the current holder is
+  taking a while.
 - **Ownership taxonomy documented (D30), corrected (pass 12 — human-step auto-activation
   removed as an example).** Extend `docs/development/agent-workflow-protocol.md`'s existing
   ownership-boundaries section (no new doc file, per D3's precedent) with three explicit
@@ -134,6 +148,17 @@ which must classify themselves against the taxonomy before being built.
   than proceeding, never fails with a scope error caused by the agent's own unrelated dirty
   files, and never observes/absorbs the agent's own uncommitted `change.yaml` state; once the
   agent's execution releases the slot, the waiting Publish proceeds and completes normally.
+- Calling `publishTask()` directly (no dashboard route, no CLI wrapper) still waits for an
+  active agent's workspace-writer claim and never absorbs its dirty state — proving the
+  arbitration lives inside `publishTask()` itself, not only in the dashboard route or the CLI
+  handler.
+- Publish for spec B waits while an agent execution for a **different** spec, A, actively
+  holds the workspace-writer slot, because both share the same physical worktree (D65) —
+  proven directly, not merely for the same-spec case.
+- A Publish request waiting on an active agent that later fails/cancels with dirty,
+  un-finalized state (moving the claim to `recovery-required` rather than releasing it, D59)
+  reports `blocked-by-recovery`, not a timeout failure, and remains pending rather than
+  erroring out.
 
 ## Dependencies
 

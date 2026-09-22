@@ -21,7 +21,7 @@ forbidden_paths:
   - src/**
 depends_on: [ dependency-release-and-invalidation ]
 semantic_references:
-  decisions: [D29, D30, D47, D50, D51, D55, D56]
+  decisions: [D29, D30, D47, D50, D51, D55, D56, D64, D65, D67]
 ---
 
 # Task: User-mutation source-control finalization (corrected — durable operation, atomic batch, workspace-writer-aware)
@@ -32,13 +32,20 @@ Make `workflow task publish`/Batch Publish durable standalone operations (D29, c
 `CommitAndPushAction` alone does not inherit `finishStep`'s crash/resume semantics — those
 come from `operation-record.mjs`'s intent-then-verify pattern. `publishTask()` reuses that
 same pattern directly. Batch Publish is one atomic operation (prevalidate all → mutate all →
-one commit → optional push), not one commit per task. Additionally claim the shared
-**workspace-writer slot** (D55, `kind: 'publish'`/`'batch-publish'`) around its whole own
-operation, and the git-finalize lease (D47/D50) nested inside it, around the mutate-then-
-commit sequence specifically — so a concurrently-active agent execution (which itself holds
-the workspace-writer slot for its whole turn, D55) cannot have its dirty worktree/uncommitted
-`change.yaml` interfered with by Publish, and vice versa. Document the three-way ownership
-taxonomy (D30) in `docs/development/agent-workflow-protocol.md`'s existing section.
+one commit → optional push), not one commit per task. **`publishTask()` itself (D64) —** not
+merely its dashboard-route caller **—** additionally claims the shared **workspace-writer
+slot** (D55, `kind: 'publish'`, keyed by the physical worktree not `specId`, D65) around its
+whole own operation, and the git-finalize lease (D47/D50) nested inside it, around the
+mutate-then-commit sequence specifically — so a concurrently-active agent execution *for this
+spec or any other sharing the same checkout* (which itself holds the workspace-writer slot
+for its whole turn, D55/D65) cannot have its dirty worktree/uncommitted `change.yaml`
+interfered with by Publish, and vice versa. Batch Publish's own `kind: 'batch-publish'` claim
+is acquired in `handleBatchPublish` (`routes.mjs`, dashboard-only — no CLI equivalent exists),
+around its own whole prevalidate-then-mutate-then-commit sequence, not inside the per-task
+`publishTask()` calls it reuses for prevalidation logic only. A pending Publish/Batch Publish
+request waiting on the slot reports `waiting-for-workspace`/`blocked-by-recovery` (D67), never
+a generic failure merely because the current holder is taking a while. Document the three-way
+ownership taxonomy (D30) in `docs/development/agent-workflow-protocol.md`'s existing section.
 
 ## Implementation constraints
 
@@ -61,16 +68,26 @@ taxonomy (D30) in `docs/development/agent-workflow-protocol.md`'s existing secti
   result exactly as `finish-operation.mjs`'s own `planFinish` does — reconcile an ambiguous
   `running` stage against real repository/task state (resume, no-op, or fail closed with
   `reconciliation-required`), never guess.
-- **Claim the workspace-writer slot first, then the git-finalize lease nested inside it
-  (D47/D50/D55).** Call `acquireWorkspaceWriter({specId, kind: 'publish'})` (or
-  `'batch-publish'` for the batch path) — imported from `tools/specs/workflow/
+- **Claim the workspace-writer slot first, inside `publishTask()` itself, then the
+  git-finalize lease nested inside it (D47/D50/D55/D64).** Inside `publishTask()`
+  (`publish/operation.mjs`) — never only in a caller — call
+  `acquireWorkspaceWriter({kind: 'publish'})` — imported from `tools/specs/workflow/
   workspace-writer.mjs`, task 27, import only, do not edit that file — waiting if an agent
-  execution or another writer currently holds the slot. Once held, call `withGitFinalizeLock(fn)`
-  — with **no** `existingLease` argument, since Publish has no inner call into `finishStep`/
-  `activateAndSubmitHumanStep`; it acquires its own fresh lease, runs its own mutate-then-
-  commit sequence (from `setTaskStatus` through the commit call) inside `fn`, and releases
-  automatically. Release the workspace-writer claim after the git-finalize-protected sequence
-  completes (success or failure). For both single-task and Batch Publish.
+  execution or another writer (for this spec or any other sharing the same physical worktree,
+  D65) currently holds the slot. If the existing claim's `status` is `recovery-required`,
+  report this request as `blocked-by-recovery` (D67) rather than waiting silently forever.
+  Once held, call `withGitFinalizeLock(fn)` — with **no** `existingLease` argument, since
+  Publish has no inner call into `finishStep`/`activateAndSubmitHumanStep`; it acquires its
+  own fresh lease, runs its own mutate-then-commit sequence (from `setTaskStatus` through the
+  commit call) inside `fn`, and releases automatically. Release the workspace-writer claim
+  after the git-finalize-protected sequence completes (success or failure). For Batch
+  Publish, the equivalent `acquireWorkspaceWriter({kind: 'batch-publish'})` call lives in
+  `handleBatchPublish` (`routes.mjs`) around the whole batch sequence instead — since Batch
+  Publish has no CLI equivalent and its atomic multi-task record already lives at that layer
+  — never duplicated inside the per-task `publishTask()` calls it reuses for prevalidation.
+  `acquireWorkspaceWriter`'s own internal bounded retry timeout is never surfaced directly as
+  a Publish failure (D67) — retry transparently across it while the request's own reported
+  status stays `waiting-for-workspace`.
 - **Batch Publish, atomic, real path convention (corrected, pass 11).** Extend
   `handleBatchPublish` (`routes.mjs`): prevalidate every selected task first (reuse
   `publishTask()`'s own validation logic without its mutation/commit stages); only if all
@@ -122,6 +139,18 @@ taxonomy (D30) in `docs/development/agent-workflow-protocol.md`'s existing secti
 - Once the agent's execution releases the workspace-writer slot, a Publish request that was
   waiting proceeds and completes normally.
   `automated: node --test tools/tests/workflow-task-publish.test.mjs`
+- Calling `publishTask()` directly (no dashboard route, no CLI wrapper) still waits for an
+  active agent's workspace-writer claim — proving the arbitration lives inside `publishTask()`
+  itself (D64).
+  `automated: node --test tools/tests/workflow-task-publish.test.mjs`
+- Publish for spec B waits while an agent execution for a **different** spec, A, sharing the
+  same physical worktree, actively holds the workspace-writer slot (D65) — proven directly,
+  not merely for the same-spec case.
+  `automated: node --test tools/tests/workflow-task-publish.test.mjs`
+- A Publish request waiting on an agent claim that is subsequently marked `recovery-required`
+  (rather than released) reports `blocked-by-recovery`, never a timeout failure, and remains
+  pending rather than erroring out (D67).
+  `automated: node --test tools/tests/workflow-task-publish.test.mjs`
 
 ## Verification
 
@@ -134,7 +163,11 @@ node tools/specs.mjs validate
 ## Out of scope
 
 Redesigning `commit-and-push` itself. Any change whatsoever to `finish-operation.mjs`/
-`operation-record.mjs`/`git-finalize-lock.mjs`/`workspace-writer.mjs` — this task only calls
-their existing, genuinely-exported functions, never edits them. Deciding dispatch priority
-between a pending Publish and the next automatic agent item (owned by task 29, D57).
-Retroactively re-classifying every other existing dashboard action against the new taxonomy.
+`operation-record.mjs`/`git-finalize-lock.mjs`/`workspace-writer.mjs`/`execution-settlement.mjs`
+— this task only calls their existing, genuinely-exported functions, never edits them.
+Deciding dispatch priority between a pending Publish and the next automatic agent item (owned
+by task 29, D57). The workspace-writer record's own physical-worktree keying (D65 — this task
+only calls `acquireWorkspaceWriter`, already correctly keyed by task 27). Resolving a
+`recovery-required` claim once marked (D61 — a future task's own scope; this task only reports
+`blocked-by-recovery`, D67). Retroactively re-classifying every other existing dashboard
+action against the new taxonomy.
