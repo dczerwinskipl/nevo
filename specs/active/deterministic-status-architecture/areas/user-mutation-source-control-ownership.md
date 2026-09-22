@@ -85,12 +85,28 @@ mutations from technical activations from completed lifecycle mutations.
   exception: its `kind: 'batch-publish'` claim is acquired in `handleBatchPublish`
   (`routes.mjs`, dashboard-only — no CLI equivalent exists) around the whole
   prevalidate-then-mutate-then-commit sequence, not inside the per-task `publishTask()` calls
-  it reuses for prevalidation logic only. The workspace-writer claim is released after the
-  git-finalize-protected sequence completes (success or failure); the git-finalize lease
-  itself remains exactly as narrow as D50/D51 already established. A pending Publish/Batch
-  Publish request that has not yet acquired the slot reports `waiting-for-workspace` or
-  `blocked-by-recovery` (D67) — never a generic failure merely because the current holder is
-  taking a while.
+  it reuses for prevalidation logic only. **The workspace-writer claim is held through the
+  entire operation, including `push` and the durable record reaching `completed` — never
+  released merely after the git-finalize-protected commit (D68, corrected pass 16).** Releasing
+  it right after commit would let a second writer's own commit-and-push interleave with this
+  operation's still-in-flight push; the git-finalize lease itself remains exactly as narrow as
+  D50/D51 already established — only the outer workspace-writer boundary widens. Release is
+  ownership-conditional (`releaseWorkspaceWriterIfOwned`, using the `workspaceOwnerId` this
+  operation stored when it acquired the claim, D70) — never a blind, unconditional release
+  that could touch a different operation's claim if this reconciliation runs late. A pending
+  Publish/Batch Publish request that has not yet acquired the slot reports
+  `waiting-for-workspace` or `blocked-by-recovery` (D67) — never a generic failure merely
+  because the current holder is taking a while — and that pending state is itself durable
+  (below), surviving a dashboard restart.
+- **A durable workspace-request coordinates waiting, referencing Publish's own operation record
+  rather than duplicating it (D72/D76).** Before `publishTask()`/`handleBatchPublish` ever
+  calls `acquireWorkspaceWriter`, a workspace-request record (`kind: 'publish'`/
+  `'batch-publish'`) is persisted `status: 'queued'`, naming the about-to-run Publish
+  operation's own identity (`operationFilePath`'s convention) via `operationRef` — never
+  copying its payload. The request is promoted to `running` (storing the acquired
+  `workspaceOwnerId`) only once the claim is actually acquired, and to `completed`/`failed`
+  once Publish's own existing durable record reaches its own terminal state — the request never
+  maintains an independent copy of Publish's `validate/update-task/commit/push` stage machine.
 - **Ownership taxonomy documented (D30), corrected (pass 12 — human-step auto-activation
   removed as an example).** Extend `docs/development/agent-workflow-protocol.md`'s existing
   ownership-boundaries section (no new doc file, per D3's precedent) with three explicit
@@ -159,18 +175,39 @@ which must classify themselves against the taxonomy before being built.
   un-finalized state (moving the claim to `recovery-required` rather than releasing it, D59)
   reports `blocked-by-recovery`, not a timeout failure, and remains pending rather than
   erroring out.
+- **Claim held through `push`, not just commit (D68):** a second writer attempting to acquire
+  the workspace-writer slot while Publish has committed but not yet pushed still waits — proven
+  by holding `push` open (a controllable fake remote/test double) and asserting the second
+  writer has not acquired the slot until after `push` completes and the durable record reaches
+  `completed`.
+- **Ownership-conditional release (D70):** a delayed reconciliation call carrying a *previous*
+  Publish attempt's own captured `ownerId`, run after that attempt's claim was already released
+  and a different operation has since acquired it, is rejected as `not-current-owner` and does
+  not touch the new operation's claim.
+- **Durable request survives restart (D72/D75):** a Publish whose workspace-request is still
+  `queued`/`waiting-for-workspace` when the dashboard restarts is rediscovered afterward with
+  identical content and resumes contending for the slot, never silently lost; a `running`
+  request whose underlying Publish operation actually completed is reconciled to `completed`,
+  never re-published.
+- **No duplicated state machine (D76):** the workspace-request's own status never disagrees
+  with Publish's own durable operation record — proven by asserting the request reaches
+  `completed` if and only if the operation record does, for both the success and the
+  `reconciliation-required` paths.
 
 ## Dependencies
 
-`dependency-release-and-invalidation` (task 27 — the `git-finalize-lock.mjs` and
-`workspace-writer.mjs` this area's Publish path acquires, D47/D55/D56); otherwise reuses the
-existing `commit-and-push` action and `operation-record.mjs` primitives directly.
+`dependency-release-and-invalidation` (task 27 — the `git-finalize-lock.mjs`,
+`workspace-writer.mjs`, and `workspace-request.mjs` this area's Publish path acquires/creates,
+D47/D55/D56/D72); otherwise reuses the existing `commit-and-push` action and
+`operation-record.mjs` primitives directly.
 
 ## Out of scope
 
 Redesigning `commit-and-push` itself. Any change to `finishStep`'s own finalize sequence.
 Retroactively re-classifying every existing dashboard action against the new taxonomy (this
 area documents the taxonomy and fixes the one action it names — Publish — not an audit of
-every other action). The workspace-writer slot/reconciliation primitive itself and the
-dispatch-priority policy between a pending Publish and the next automatic agent item (owned by
+every other action). The workspace-writer/workspace-request primitives themselves and their
+ownership-conditional/reconciliation mechanics (task 27, D70/D72/D75 — this area only calls
+them). The dispatch-priority policy between a pending Publish and the next automatic agent item
+(owned by
 task 27 and task 29 respectively, D55/D56/D57).

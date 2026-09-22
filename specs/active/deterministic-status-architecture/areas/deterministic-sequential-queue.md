@@ -45,8 +45,10 @@ established, correct direction, and this area's own module must preserve it.
   actually start, nor whether a pending user mutation should run first (D57)** — those are
   `areas/workflow-continuation-and-session-handover.md`'s own layers on top: it calls this
   module for "what's next," checks whether a pending user-submitted workspace mutation should
-  go first instead (D57), and only then calls `admitAgentExecution` (D41/D49), which also
-  claims the workspace-writer slot (D55) — none of that state or logic lives in this module.
+  go first instead — read from the durable, physical-worktree-scoped request queue, not this
+  spec's own eligible set (D57/D74) — and only then calls `admitAgentExecution` (D41/D49),
+  which also claims the workspace-writer slot (D55) — none of that state or logic lives in
+  this module.
 - **Checkbox-picker selection (D32, unchanged in this dimension).** One selection mechanism,
   owned by `dashboard-orchestration-wiring` (task 32), not this module: a checkbox-based task
   picker, pre-selected with whichever tasks are currently ready. The owner can freely check

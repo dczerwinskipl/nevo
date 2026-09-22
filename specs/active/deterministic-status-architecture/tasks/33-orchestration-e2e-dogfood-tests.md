@@ -16,7 +16,7 @@ forbidden_paths:
   - src/**
 depends_on: [ dashboard-orchestration-wiring, user-mutation-source-control-finalization, dependency-invalidation-remediation-review ]
 semantic_references:
-  decisions: [D33, D40, D41, D42, D44, D45, D47, D49, D50, D51, D52, D53, D55, D56, D57, D58, D59, D60, D61, D62, D63, D64, D65, D66, D67]
+  decisions: [D33, D40, D41, D42, D44, D45, D47, D49, D50, D51, D52, D53, D55, D56, D57, D58, D59, D60, D61, D62, D63, D64, D65, D66, D67, D68, D69, D70, D71, D72, D73, D74, D75, D76, D77, D78]
 ---
 
 # Task: Orchestration end-to-end dogfood tests
@@ -34,10 +34,17 @@ turn-terminal (D59/D60/D61) — with a deterministic dispatch priority for pendi
 mutations reported as a durable `waiting-for-workspace`/`blocked-by-recovery` status, never a
 generic failure (D67); human interaction available without mutation and finalized as one
 self-owned operation, identically whether reached from the dashboard or the CLI's own
-`workflow verify-human` (D63); Publish's arbitration living inside `publishTask()` itself
-regardless of caller (D64); dependency-consumption recorded durably at step activation with a
-crash-safe, monotonic `consumptionSequence` giving a real total order across arbitrary
-consuming steps; and declarative release/invalidation.
+`workflow verify-human` (D63); Publish's arbitration living inside `publishTask()` itself,
+held through `push`, regardless of caller (D64/D68); every workspace-writer claim
+release/mark-recovery-required reconciliation being **ownership-conditional** — never a blind
+mutation of whatever claim happens to be live, with `workspaceOwnerId` durably recoverable
+after a restart (D70/D71); user-submitted workspace mutations (human-submit, Publish, Batch
+Publish) becoming **durable requests**, persisted before contention begins and surviving a
+restart, coordinating (never duplicating) their own underlying durable operation (D72/D73/D76/
+D77/D78); D57's dispatch priority reading that durable request queue for the **whole physical
+worktree**, never one spec's own view (D74); dependency-consumption recorded durably at step
+activation with a crash-safe, monotonic `consumptionSequence` giving a real total order across
+arbitrary consuming steps; and declarative release/invalidation.
 
 ## Implementation constraints
 
@@ -58,6 +65,14 @@ consuming steps; and declarative release/invalidation.
   "completed") in each of the three relevant states — settled, terminal-unsettled-with-dirty-
   state, and terminal-with-an-unresolved-finish-operation — to exercise all branches of
   `assessExecutionSettlement` (D59/D60).
+- Include a fixture that simulates a **delayed/stale reconciliation callback** — execution A's
+  claim is released normally, execution B then acquires the same physical-worktree claim, and
+  a reconciliation call carrying A's own previously-captured `ownerId` is invoked *after* that
+  — to exercise the ownership-conditional API's core race fix directly (D70).
+- Include a fixture that simulates a **dashboard restart while a human-submit and a Publish
+  request are each `waiting-for-workspace`/`queued`**, to exercise durable-request survival
+  (D72/D73/D75), and one that simulates a **crash between acquiring a workspace-writer claim
+  and persisting `{status: 'running', workspaceOwnerId}`** into a request record (D78).
 - Do not implement behavior beyond whatever tasks 24–32 actually shipped.
 
 ## Acceptance criteria
@@ -71,7 +86,8 @@ consuming steps; and declarative release/invalidation.
 
 **Workspace-writer arbitration (D55/D56/D57):**
 4. An active agent execution owns the shared workspace-writer slot from successful admission
-   until that execution's own turn reaches terminal.
+   until that execution is proven *settled* (D59/D60) — not merely until its own turn reaches
+   terminal.
 5. A human-submit (`activateAndSubmitHumanStep`) attempted while an agent execution actively
    holds the workspace-writer slot waits and does not mutate any tracked file until the slot
    is free.
@@ -152,14 +168,18 @@ consuming steps; and declarative release/invalidation.
     (an unsettled completion) is treated identically to scenario 26 — marked
     `recovery-required`, not released.
 28. A simulated server restart with a persisted, orphaned `activeTurn` that is genuinely
-    settled releases its workspace-writer claim via boot-time reconciliation; one that left
-    dirty, un-finalized state is instead marked `recovery-required` — never blindly
-    force-released by `forceReleaseWorkspaceWriter` without an intervening settlement check.
+    settled releases its workspace-writer claim (ownership-conditionally, using
+    `workspaceOwnerId` recovered from that turn's own durable record) via boot-time
+    reconciliation; one that left dirty, un-finalized state is instead marked
+    `recovery-required` (also ownership-conditionally) — never blindly force-released via an
+    unconditional API without an intervening settlement *and* ownership check.
 29. A direct/manual `workflow step start` invocation (no covering dashboard-orchestrated
     claim) acquires a `cli-manual` workspace-writer claim; a concurrently-active agent
     execution or Publish blocks it identically to blocking another agent. `workflow step
-    finish` for that same attempt releases the `cli-manual` claim immediately upon its own
-    successful, in-process completion.
+    finish` for that same attempt releases the `cli-manual` claim **only once
+    `assessExecutionSettlement` reports settled** after `finishStep` settles — a legitimate
+    `blocked`/`input-required`/`reconciliation-required` return (no exception) leaves the
+    claim held.
 30. A `cli-manual` claim abandoned by a crashed/abandoned CLI process (no matching
     `workflow step finish` ever ran) is reconciled via `assessExecutionSettlement` the next
     time any caller attempts to acquire the slot — never silently stolen, never left forever
@@ -193,9 +213,66 @@ consuming steps; and declarative release/invalidation.
     a `recovery-required` claim leaves every file exactly as the failed/cancelled execution
     left it.
 
+**Ownership-conditional reconciliation and durable workspace requests (D68–D78):**
+38. A stale terminal callback for execution A (its own claim already released, execution B
+    having since acquired the same physical-worktree claim) cannot release B's newer
+    workspace claim — `releaseWorkspaceWriterIfOwned` rejects it as `not-current-owner` and B's
+    claim is left byte-for-byte unchanged.
+39. The identical scenario for `markWorkspaceWriterRecoveryRequiredIfOwned` — a stale recovery
+    callback for A cannot mark B's claim `recovery-required`.
+40. Conditional release succeeds only when the supplied `expectedOwnerId` matches the current
+    claim's own `ownerId` — proven by attempting release with a deliberately wrong owner id
+    against a claim genuinely held by the caller, and observing it fail with
+    `not-current-owner` despite the caller "believing" it owns the claim.
+41. Conditional mark-recovery-required succeeds only under the identical ownership match.
+42. Boot reconciliation recovers the original `workspaceOwnerId` for an orphaned execution from
+    that execution's own durable session/turn record (never an in-memory value) and uses it to
+    perform a correctly-scoped conditional release.
+43. If boot reconciliation cannot establish ownership identity at all (no persisted
+    `workspaceOwnerId` found for the orphaned execution), it does not release or mark the
+    current workspace claim — the claim is left exactly as found.
+44. A human-submit waiting behind an active agent execution survives a simulated dashboard
+    restart — its durable request and durable operation record are both rediscovered
+    afterward, and the submitted decision resumes waiting/executing, never silently dropped.
+45. A waiting Publish survives a simulated dashboard restart without losing its request —
+    rediscovered with identical content, resumes contending for the slot.
+46. A waiting Batch Publish survives a simulated dashboard restart identically.
+47. A pending user request restored after restart runs before the next automatic agent
+    execution is admitted, per D57's own priority policy, exactly as it would have pre-restart.
+48. A pending Publish request from Spec B blocks automatic next-agent dispatch from Spec A
+    sharing the same physical worktree — proven directly with the second, independent fixture
+    spec, both before and after a simulated restart.
+49. Two independent physical worktrees (simulated via two separate `repoRoot`s) have
+    completely independent workspace-request queues — a request in one is invisible to and
+    never influences dispatch in the other.
+50. A human-submit request's durable record is persisted **before** any
+    `workflow_progress`/`change.yaml` mutation — proven by inspecting its existence, then
+    asserting no tracked mutation exists yet, then only afterward observing the mutation once
+    the request actually runs.
+51. A restored human-submit (after a simulated restart while `running`) executes exactly
+    once — never a duplicate activation/submission of the same decision.
+52. A human-submit interrupted partway (durable operation record `pending`, ambiguous
+    downstream state) is reconciled via the same resume/no-op/`reconciliation-required`
+    discipline as Publish — never blindly re-run, never silently duplicated.
+53. A workspace-request stores its acquired `workspaceOwnerId` the moment it actually acquires
+    the workspace-writer claim, and that stored value is recoverable from the durable record
+    alone (a fresh read, no shared in-memory state) for use in later conditional release.
+54. Request completion releases the workspace-writer claim conditionally, by the request's own
+    stored `ownerId` — never using only `repoRoot`/the workspace path.
+55. Simulating the loss of the in-process pending-waiters list alone (e.g. a same-process
+    restart of just that in-memory structure, durable records untouched) does not lose or
+    reorder any durable user-submitted request — the durable queue alone remains authoritative.
+56. FIFO ordering among several already-pending user-submitted requests of equal priority is
+    deterministic, driven by each request's own durable `requestSequence` — proven by creating
+    three requests in a controlled order and asserting they are served in that exact order
+    regardless of which one's own internal timeout cycle happens to wake first.
+57. Automatic agent dispatch for any spec proceeds only when no higher-priority durable
+    user-submitted workspace request is eligible/pending anywhere in the physical worktree —
+    re-asserted as the single, final gate after every other scenario above.
+
 All scenarios: `automated: node --test tools/tests/orchestration-e2e.test.mjs` (or
 `tools/dashboard/tests/orchestration-e2e.test.mjs` for scenarios that must exercise the
-dashboard-side dispatch/admission code — 2, 8, 20, 21, 28, 34, 35, 36 specifically).
+dashboard-side dispatch/admission code — 2, 8, 20, 21, 28, 34, 35, 36, 42–57 specifically).
 
 ## Verification
 

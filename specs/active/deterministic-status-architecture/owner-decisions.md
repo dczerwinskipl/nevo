@@ -2792,6 +2792,13 @@ points are asserted to route through the identical `startStep` function instance
 - **Date:** 2026-09-22
 - **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
   `tasks/27-dependency-release-and-invalidation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+- **Corrected 2026-09-22 (same pass) — see D69.** "Once `finishStep` returns successfully...
+  settlement is trivially proven synchronously" is wrong: `finishStep` can legitimately return
+  a non-exception result that is not terminal (`blocked`, `input-required`,
+  `reconciliation-required`) — a returned value, not a thrown error, and none of them mean the
+  tracked mutation actually landed. The release condition is corrected to "call
+  `assessExecutionSettlement` after `finishStep` settles, whatever its outcome, and release
+  only if it reports settled" — never a bare "the call returned without throwing."
 
 ## D63: `workflow verify-human`'s CLI human-decision path delegates to the same combined `activateAndSubmitHumanStep` operation the dashboard uses
 
@@ -2853,6 +2860,13 @@ points are asserted to route through the identical `startStep` function instance
 - **Date:** 2026-09-22
 - **Affected artifacts:** `areas/user-mutation-source-control-ownership.md`,
   `tasks/31-user-mutation-source-control-finalization.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+- **Corrected 2026-09-22 (same pass) — see D68.** "Around its own mutate-then-commit sequence"
+  described the wrong outer boundary for the *workspace-writer* claim specifically (the
+  git-finalize lease itself is correctly that narrow, unchanged) — releasing the
+  workspace-writer slot immediately after commit, before `push` runs, lets a second writer's
+  own commit-then-push interleave with this one's still-in-flight push. Corrected: the
+  workspace-writer claim is held through the whole operation, including `push` and the
+  durable record reaching its own terminal state.
 
 ## D65: Workspace-writer identity is keyed by the physical worktree, matching the git-finalize lease's own already-correct convention — never by `specId`
 
@@ -2972,3 +2986,392 @@ points are asserted to route through the identical `startStep` function instance
 - **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
   `areas/user-mutation-source-control-ownership.md`, `tasks/29-automatic-workflow-continuation.md`,
   `tasks/31-user-mutation-source-control-finalization.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+- **Corrected 2026-09-22 (later pass) — see D72/D73/D77.** "A human-submit request" was
+  described here as already durable, and the status was described as "a lightweight status
+  surface, not a new durable operation-record stage" — neither was true: at this point no
+  durable human-submit request/operation record existed at all, and the in-process pending-
+  waiter list this status read from does not survive a server restart, so the described
+  survive-arbitrary-waiting guarantee did not actually hold end to end. Corrected: a durable,
+  worktree-level workspace-request record (D72) — including, newly, a durable human-submit
+  request/operation record (D73) — is now the authoritative source for this status, persisted
+  before waiting begins and surviving restart; the in-process waiter list is retained only as a
+  local wakeup optimization, never the source of truth (D72).
+
+## D68: Publish's workspace-writer claim covers the whole operation through `push` and durable-record settlement — never released merely after the git-finalize-protected commit
+
+- **Question:** D64 described releasing Publish's workspace-writer claim "after the
+  git-finalize-protected sequence completes." The git-finalize lease is deliberately narrow
+  (mutate-then-commit only, D50/D51's own established boundary; `push`/`transition` already
+  run outside it because they don't mutate local tracked files a concurrent commit could sweep
+  in). If the workspace-writer claim were released at that same narrow boundary, a second
+  writer (another Publish, an agent's `finishStep`, `activateAndSubmitHumanStep`) could acquire
+  the slot and run its own full mutate→commit→push sequence while the *first* Publish's own
+  `push` call is still in flight — the first push could then inadvertently push a branch state
+  interleaved with the second's later commit, an ordering/attribution hazard the workspace-
+  writer slot exists specifically to prevent.
+- **Decision:** `publishTask()`'s workspace-writer claim (`kind: 'publish'`) is held for the
+  **entire operation** — validate → mutate → commit (git-finalize lease nested here
+  specifically) → push → mark the durable record `completed` — released only once the whole
+  operation reaches its own terminal, settled outcome (reusing the exact same operation-record
+  intent-then-verify discipline D29 already established, not a new concept). The git-finalize
+  lease itself stays exactly as narrow as D50/D51 — this decision only widens the *outer*
+  workspace-writer boundary, mirroring the relationship already established for agent
+  executions (workspace-writer for the whole turn, git-finalize lease only for the
+  mutate-commit instant inside it, D55). Batch Publish's own `kind: 'batch-publish'` claim in
+  `handleBatchPublish` follows the identical rule — held through its own push, not merely its
+  own commit.
+- **Rationale:** Matches the brief precisely; `push` is a tracked-remote-state mutation this
+  operation is itself responsible for — releasing the workspace-writer claim before push
+  completes lets a second writer's commit and push interleave with the first's, a hazard no
+  other primitive protects against (the git-finalize lease was never meant to, and push already
+  deliberately runs outside it).
+- **Consequences:** task 31's own implementation constraints/acceptance criteria are corrected
+  — "release after the git-finalize-protected sequence" becomes "release only once the whole
+  publish operation, through push, is complete."
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/user-mutation-source-control-ownership.md`,
+  `tasks/31-user-mutation-source-control-finalization.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D69: A `cli-manual` workspace-writer claim releases only when `assessExecutionSettlement` reports settled — never merely because `finishStep` returned without throwing
+
+- **Question:** D62 described `handleWorkflowStepFinish` releasing a `cli-manual` claim "once
+  `finishStep` returns successfully... settlement is trivially proven synchronously." That is
+  wrong: `finishStep` can legitimately return a non-exception result that is not terminal —
+  `blocked` (an unmet finalize gate), `input-required` (missing finish inputs), or
+  `reconciliation-required` (an ambiguous in-flight operation record) are all real, expected
+  return shapes with no exception thrown. Releasing the claim on any non-throwing return would
+  free the workspace while the task's own step is still genuinely active/unfinished — exactly
+  the class of premature release D59 already closed for the agent-kind case, reopened here for
+  `cli-manual` through a different door.
+- **Decision:** `handleWorkflowStepFinish`'s `cli-manual` release path always calls
+  `assessExecutionSettlement` (D60) after `finishStep` settles — whatever its outcome, a
+  returned result of any shape or a thrown error — and releases the claim (via
+  `releaseWorkspaceWriterIfOwned`, D70) if and only if that reports settled. A non-settled
+  result (including a legitimate `blocked`/`input-required`/`reconciliation-required` return)
+  leaves the claim held, `active` — this is not an anomaly requiring `recovery-required`; the
+  execution is simply still genuinely in progress (the same task/attempt will call
+  `workflow step finish` again once whatever is missing is supplied), and the claim correctly
+  continues to protect the worktree until either a later attempt actually settles it, or it is
+  later found genuinely abandoned via D61/D62's own lazy reconciliation path (attempted by a
+  different caller's next acquisition attempt, which is the only place `recovery-required` is
+  legitimately reached for an idle `cli-manual` claim).
+- **Rationale:** Matches the brief precisely — the only trustworthy release signal is
+  `assessExecutionSettlement` itself, reused uniformly rather than trusting a call's own
+  success/failure as a proxy for settlement, exactly as D59/D60 already established for the
+  agent-kind case; this closes the same gap for `cli-manual`.
+- **Consequences:** task 27's own `cli.mjs` wrapper for `handleWorkflowStepFinish` (D62) is
+  corrected — "release immediately, in-process, no async reconciliation needed" is wrong; it
+  always calls `assessExecutionSettlement`, exactly as any other reconciliation path does, and
+  releases via the ownership-conditional API (D70), never unconditionally.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D70: Workspace-writer claim mutation (release / mark-recovery-required) must be ownership-conditional — never an unconditional, worktree-global operation
+
+- **Question:** `forceReleaseWorkspaceWriter({repoRoot})` and
+  `markWorkspaceWriterRecoveryRequired({repoRoot})` (D56/D61) are keyed only by `repoRoot` —
+  effectively worktree-global, unconditional operations. A *delayed* reconciliation event for
+  execution A (a turn-terminal callback scheduled while A was active, or a boot-time
+  reconciliation pass started before a race resolved) can run *after* A's own claim was already
+  released through the normal path and execution B has since acquired the same physical
+  worktree. If that delayed callback still concludes "A is settled, release the claim" (or
+  "A is orphaned, mark recovery-required"), it acts on whatever claim is *currently* there —
+  which by then is B's, not A's — corrupting B's still-legitimately-active execution.
+- **Decision:** Every reconciliation action that mutates or removes the workspace-writer claim
+  must first verify the *current* claim still belongs to the exact execution/request being
+  reconciled — ownership-conditional, never blind. Two new exported functions
+  (`tools/specs/workflow/workspace-writer.mjs`, task 27) replace the *ordinary* reconciliation
+  API:
+  - `releaseWorkspaceWriterIfOwned({repoRoot, expectedOwnerId, expectedKind?, expectedSpecId?,
+    expectedTaskId?, expectedSessionId?, expectedTurnId?})` → `{released: true} |
+    {released: false, reason: 'not-current-owner', currentClaim}`.
+  - `markWorkspaceWriterRecoveryRequiredIfOwned({repoRoot, expectedOwnerId, ...same optional
+    identity fields})` → the same two-shape result, `{marked: true} | {marked: false, reason:
+    'not-current-owner', currentClaim}`.
+  Both read the current record and compare `ownerId` (**mandatory** — the single, always-
+  required check) plus whichever of the optional identity fields the caller actually supplied
+  (defense in depth; any supplied field that doesn't match is also a mismatch) — this is the
+  **exact same ownerId-verification discipline `releaseWorkspaceWriter(lease)`'s own normal,
+  happy-path release already applies** (D56: "verifies `ownerId` before deleting"), now
+  extended to the two reconciliation-only entry points that had incorrectly skipped it — not a
+  new CAS/locking primitive. On a mismatch: do nothing, never delete the claim, never change
+  its `status`, return the distinguishable `not-current-owner` result, and the caller treats
+  this as "already resolved by someone else" — never as an error requiring cleanup of its own.
+  This applies to **every** reconciliation path without exception: turn-terminal callbacks
+  (however delayed), boot reconciliation, failed-admission rollback, `cli-manual` settlement
+  (D69), and any future recovery path. A low-level, genuinely unconditional primitive may
+  remain internally (renamed `forceReleaseWorkspaceWriterUnsafe({repoRoot})`, clearly marked
+  internal/unsafe in its own name and docstring) but is **not exported for, and never called
+  by, ordinary orchestration/reconciliation code** — at most a future, explicitly out-of-scope
+  manual-operator recovery tool might use it, deliberately, with a human already in the loop.
+- **Rationale:** Matches the brief precisely — the failure mode is a stale reconciliation event
+  acting on a claim it no longer owns; the fix reuses a discipline this module already applies
+  correctly in one place (the normal release path) and extends it to the two places that had
+  skipped it, rather than inventing new locking machinery.
+- **Consequences:** `workspace-writer.mjs` (task 27) gains these two functions and renames the
+  old unconditional ones; every caller of the old `forceReleaseWorkspaceWriter`/
+  `markWorkspaceWriterRecoveryRequired` (task 29's Hooks 1/3, task 27's own `cli.mjs` wrapper)
+  switches to the ownership-conditional equivalents, threading through whatever identity
+  fields it already has (D71 defines where the durable ones come from for the boot-restart
+  case).
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `areas/workflow-continuation-and-session-handover.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `tasks/29-automatic-workflow-continuation.md`,
+  `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D71: `workspaceOwnerId` is persisted onto the execution's own durable record — never held only in an in-memory closure — so restart reconciliation can recover the exact claim it must act on
+
+- **Question:** `releaseWorkspaceWriterIfOwned`/`markWorkspaceWriterRecoveryRequiredIfOwned`
+  (D70) need an `expectedOwnerId` to compare against. Within one server lifetime, a
+  turn-terminal callback can simply carry the `ownerId` it captured when the claim was
+  acquired (an ordinary in-memory value, fine within one process's own lifetime — D70 alone
+  already fixes the same-process delayed-callback race in the brief's own worked example).
+  Boot-time reconciliation has no such luxury: it starts fresh, with no in-memory closures at
+  all, yet must still determine "this orphaned execution originally owned workspace claim X"
+  before it can call the ownership-conditional API meaningfully.
+- **Decision:** The agent execution lifecycle durably persists `workspaceOwnerId` onto the
+  **same existing durable session/turn record** D42's own orphan-detection already reads (an
+  existing record — not a new file), written at the same moment the workspace-writer claim's
+  durable visibility is established (D66's steps 3–4, "session/turn creation... to the point
+  its canonical identity is durably observable"). For a `cli-manual` claim, the equivalent
+  durable slot is the task's own start-operation record (`start-operation.mjs`, D52 — already
+  owned by task 27, already keyed by the same task/step/attempt identity a `cli-manual` claim
+  carries): `workspaceOwnerId` is written into it at claim-acquisition time. Boot/turn-terminal
+  reconciliation reads `workspaceOwnerId` from there — never solely from an in-memory closure —
+  and passes it as `expectedOwnerId` (plus `expectedSessionId`/`expectedTurnId`/`expectedTaskId`
+  from that same durable record) to the ownership-conditional API. **If no persisted
+  `workspaceOwnerId` can be found for an orphaned execution, identity is unestablished: do not
+  release, do not mark anything — fail closed**, surfaced identically to a `recovery-required`
+  outcome (an operator must resolve it; this pass does not design that resolution UX, per D61).
+- **Rationale:** Matches the brief precisely — an in-memory closure cannot survive a restart;
+  reusing an already-existing durable record (rather than inventing a new one) keeps this
+  addition small and consistent with the repo's own preference for reusing established
+  primitives (D59/D60's own "never re-derive, always reuse existing durable facts" precedent).
+- **Consequences:** The dashboard's existing session/turn record (owned by prior, already-
+  accepted architecture — not newly introduced by this spec) gains one additional field,
+  `workspaceOwnerId`, written by `automatic-workflow-continuation` (task 29) at admission time;
+  `start-operation.mjs` (task 27) gains the same field for the `cli-manual` case.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `areas/dependency-release-and-invalidation.md`, `tasks/27-dependency-release-and-invalidation.md`,
+  `tasks/29-automatic-workflow-continuation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D72: A durable, physical-worktree-scoped workspace-request queue — not an in-process pending-waiter list — is the authoritative record of a pending user-submitted workspace mutation
+
+- **Question:** D67 asserted a pending Approve/Publish/Batch-Publish request survives arbitrary
+  waiting, but the mechanism it actually relied on (`workspace-writer.mjs`'s in-process
+  pending-waiters list, D55/D56) is exactly that — in-process. A dashboard restart while a
+  request is `waiting-for-workspace` silently loses it: the user's already-submitted decision
+  simply vanishes, with nothing durable ever having recorded that it existed.
+- **Decision:** A new durable record family, `.nevo-ai-local/workspace-requests/<requestId>.json`
+  (new module, `tools/specs/workflow/workspace-request.mjs`, task 27 — living beside
+  `workspace-writer.mjs`, already worktree-scoped by construction since `.nevo-ai-local` itself
+  is repo-root-local, needing no separate worktree key in the path, D65's own precedent):
+  `{requestId, requestSequence, kind: 'human-submit'|'publish'|'batch-publish', specId,
+  taskId?, createdAt, status: 'queued'|'waiting-for-workspace'|'running'|'completed'|'failed'|
+  'blocked-by-recovery'|'reconciliation-required', workspaceOwnerId?, operationRef}`.
+  `requestSequence` is a durable, monotonic, per-worktree sequence — allocated and frozen by
+  the exact same "scan existing records for the current maximum, +1, freeze before use" pattern
+  already established for `consumptionSequence` (D58's own pattern, reused for a different
+  purpose — not a reopening of D58 itself). `operationRef` names the identity of the underlying
+  durable operation this request coordinates (D76) — the request record itself never duplicates
+  that operation's own payload. **A request is persisted, `status: 'queued'`, before it ever
+  begins contending for the workspace-writer slot** — this is what makes the earlier
+  `waiting-for-workspace`/`blocked-by-recovery` promise (D67) actually true end to end. The
+  in-process pending-waiters list (D56) is retained **only** as a local wakeup/optimization
+  hint (so a freed slot can notify an already-in-process waiter immediately rather than only on
+  the next poll) — it is never read as the source of truth for D57's dispatch-priority
+  ordering (D74) or for reporting a request's own status (D77).
+- **Rationale:** Matches the brief precisely — a durable-request contract requires a durable
+  record, not a promise that happens to be kept only as long as the process stays up.
+- **Consequences:** `tools/specs/workflow/workspace-request.mjs` (new, task 27) owns this
+  record family; task 29 (human-submit) and task 31 (Publish/Batch Publish) both create and
+  transition a workspace-request record around their own existing operations rather than
+  relying on the in-process waiter list for durability.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `areas/workflow-continuation-and-session-handover.md`,
+  `areas/user-mutation-source-control-ownership.md`, `areas/deterministic-sequential-queue.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `tasks/29-automatic-workflow-continuation.md`,
+  `tasks/31-user-mutation-source-control-finalization.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D73: Human-submit becomes a durable request — persisted, with enough data to resume safely, before any workflow mutation
+
+- **Question:** Publish already has a durable operation record (D29); a submitted human
+  decision (Approve/Request-changes) had no equivalent. If the dashboard restarts while a
+  human-submit is `waiting-for-workspace` (or mid-flight), the user's decision — the specific
+  transition, feedback, and any inputs they already provided — is gone, and `activateAndSubmit-
+  HumanStep` has never even run `startHumanStep` yet, so nothing about the decision exists
+  anywhere durable.
+- **Decision:** A new, minimal durable record,
+  `.nevo-ai-local/human-submit-operations/<change>/<task>/attempt-<n>.json` (new small file,
+  `tools/specs/workflow/human-step/submit-request.mjs`, task 29 — mirroring Publish's own
+  `PUBLISH_STAGE_IDS`-style convention, not a new pattern): `{taskId, transition/result,
+  feedback, inputs, requestId, createdAt, status: 'pending'|'completed'|'failed'}`. This record
+  is written **before** the workspace-request (D72, `kind: 'human-submit'`) begins contending
+  for the workspace-writer slot, and strictly before `startHumanStep`/any
+  `workflow_progress`/`change.yaml` mutation — the existing "`HumanStepSurface` preview is
+  mutation-free" invariant is unaffected, since only the *submitted* decision becomes durable,
+  never the preview itself. On restart, pending human-submit operations are rediscovered from
+  this record family (ordered via their paired workspace-request's own `requestSequence`,
+  D72), resumed by re-invoking `activateAndSubmitHumanStep` with the exact stored
+  transition/feedback/inputs — never re-prompting the user, never silently dropping the
+  decision. A human-submit operation whose record shows `pending` with a `running`-equivalent
+  workspace-request that cannot be proven complete is reconciled (D75), never blindly re-run.
+- **Rationale:** Matches the brief precisely — the smallest new durable record that closes the
+  gap Publish's own D29 record already closed for Publish, reusing the exact same
+  file-per-attempt/atomic-write convention rather than inventing a different shape.
+- **Consequences:** `automatic-workflow-continuation` (task 29) gains this new file in its
+  `allowed_paths`; `activateAndSubmitHumanStep` (D47/D55) is extended to write this record
+  first, then proceed exactly as already specified (workspace-writer claim, then git-finalize
+  lease, then `startHumanStep`/`submitHumanStepResult`).
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `tasks/29-automatic-workflow-continuation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D74: D57's dispatch-priority scheduling reads the durable workspace-request queue for the whole physical worktree — never `listPendingWorkspaceWriters(specId)` scoped to one spec
+
+- **Question:** D65 already moved workspace-writer arbitration from spec-scoped to
+  physical-worktree-scoped, because this checkout routinely hosts many active specs at once.
+  D57's own dispatch-priority policy, however, still queried
+  `listPendingWorkspaceWriters(specId)` — scoped to one spec. Concretely: Spec A's agent
+  finishes; Spec B (sharing the same physical worktree) has a pending Publish; Spec A has
+  another automatic agent item ready. Querying only `specId = A`'s own pending waiters finds
+  nothing, and the scheduler would incorrectly admit Spec A's next agent item immediately,
+  even though D57's own policy ("an already-pending, explicit user-submitted workspace
+  mutation runs before the next automatic agent item") should defer to Spec B's Publish first
+  — the resource actually being arbitrated is the physical worktree, not a specification.
+- **Decision:** The dispatch-priority check (task 29) queries the durable workspace-request
+  queue (D72) for the **entire physical worktree** — every `queued`/`waiting-for-workspace`
+  request across every spec sharing that worktree, not filtered by the spec whose next agent
+  item is under consideration. If any such request exists (with a `requestSequence` earlier
+  than the moment of this dispatch decision), the next automatic agent admission — for *any*
+  spec — defers until no such request remains eligible. `listPendingWorkspaceWriters(specId)`
+  is no longer the scheduling authority (D72) — it may still exist as a same-process
+  optimization signal, but the durable, worktree-wide request queue is what dispatch actually
+  consults.
+- **Rationale:** Matches the brief precisely — the physical worktree is the shared resource
+  (D65), so its own scheduling policy must be worktree-scoped too, not per-spec; two different
+  physical worktrees (a scenario this single-checkout architecture doesn't create today, but
+  the rule generalizes cleanly) would have entirely independent request queues and no
+  cross-influence.
+- **Consequences:** `automatic-workflow-continuation` (task 29)'s dispatch-priority check reads
+  `workspace-request.mjs` (task 27, import only) instead of (or in addition to, as a fast local
+  hint only) `listPendingWorkspaceWriters`.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `areas/deterministic-sequential-queue.md`, `tasks/29-automatic-workflow-continuation.md`,
+  `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D75: Restart/first-request reconciliation classifies every non-terminal durable workspace request — never blindly reruns a mutation that may have already partially landed
+
+- **Decision:** On boot/first-request reconciliation, scan all durable workspace-request
+  records (D72) for the physical worktree. For each non-terminal request:
+  - `queued`/`waiting-for-workspace` → simply restore scheduling eligibility (re-enter D74's
+    ordering) — no tracked mutation was ever begun, nothing to reconcile beyond that.
+  - `blocked-by-recovery` → remains blocked, unchanged, visible to UI/API exactly as before
+    restart.
+  - `running` → reconcile using the same "resume, no-op, or fail closed with
+    `reconciliation-required` — never guess" discipline D29/D50 already established: check
+    whether a live workspace-writer claim still exists whose identity matches this request
+    (via `workspaceOwnerId`, D71); check the underlying operation's own durable record
+    (`operationRef`, D76) for its real state. If the operation shows genuinely `completed`,
+    mark the request `completed` and release its claim (`releaseWorkspaceWriterIfOwned`, D70).
+    If the operation's own state is ambiguous, or no live claim matches this request's stored
+    `workspaceOwnerId` at all, classify the request `reconciliation-required` — never
+    re-execute the underlying mutation speculatively.
+- **Rationale:** Matches the brief precisely — reuses existing durable-operation reconciliation
+  semantics (D29/D50) at the request layer rather than inventing a second one, and never risks
+  a double-commit/double-push/double-activation by guessing that an interrupted `running`
+  request never got anywhere.
+- **Consequences:** The same boot-reconciliation pass that already handles orphaned turns (D42,
+  Hook 3) and stale `agent`/`cli-manual` workspace-writer claims (D61) also scans the workspace-
+  request queue; no new reconciliation *mechanism*, one more record family it inspects.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `tasks/29-automatic-workflow-continuation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D76: A workspace request coordinates waiting/scheduling; it never duplicates an underlying operation's own durability — Publish/Batch Publish are referenced, not re-modeled
+
+- **Question:** Publish and Batch Publish already have durable, stage-based operation records
+  (D29). The new workspace-request layer (D72) must not become a second, competing mutation
+  state machine that could drift from the real one.
+- **Decision:** A workspace-request record answers exactly one question — "is this
+  user-submitted operation waiting for, or currently holding, the physical workspace?" — via
+  its own small state set (D77). It never re-implements or shadows the underlying operation's
+  own stages (Publish's `validate/update-task/commit/push`; the human-submit record's own
+  `pending`/`completed`/`failed`, D73). `operationRef` on the workspace-request names that
+  operation's own durable identity (for Publish: `{change, taskId: <or _batch-publish>,
+  step: 'publish', attempt}`, exactly `operationFilePath`'s own existing convention; for
+  human-submit: D73's own record identity) — the request's own status transitions are driven
+  by observing that referenced operation's real state and the workspace-writer claim's own
+  real state, never an independently-maintained duplicate of either.
+- **Rationale:** Matches the brief precisely — "do not invent a second full mutation state
+  machine"; a thin coordinating record referencing an existing durable operation is strictly
+  smaller and cannot drift from the operation it describes, unlike a parallel copy of its state.
+- **Consequences:** `publishTask()`/`handleBatchPublish` (task 31) keep their own D64/D68
+  acquisition and stage machinery entirely unchanged; they additionally create/transition a
+  paired workspace-request record (D72) around themselves. `activateAndSubmitHumanStep`
+  (task 29) does the same, paired with its own new D73 record.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/user-mutation-source-control-ownership.md`,
+  `areas/workflow-continuation-and-session-handover.md`, `tasks/29-automatic-workflow-continuation.md`,
+  `tasks/31-user-mutation-source-control-finalization.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D77: One generic workspace-request lifecycle, with idempotent transitions, storing its own acquired `workspaceOwnerId`
+
+- **Decision:** Every workspace-request (D72), regardless of `kind`, moves through the same
+  state set: `queued` → `waiting-for-workspace` → `running` → `completed` | `failed`, with two
+  side states reachable from `waiting-for-workspace`/`running`: `blocked-by-recovery` (the
+  workspace-writer claim it's contending for, or once held, is `recovery-required`) and
+  `reconciliation-required` (restart-time ambiguity, D75). Every transition is **idempotent** —
+  re-applying a transition already recorded is a no-op, matching this repo's existing
+  intent-then-verify convention (D29). **The moment a request actually acquires the
+  workspace-writer claim, it durably stores the acquired `workspaceOwnerId` into its own
+  record before beginning any tracked mutation** — this is the value later used for conditional
+  release (D70) when the request completes or is reconciled; a request's own claim is never
+  released using only `repoRoot`/the workspace path (D70's own rule, applied here specifically).
+- **Rationale:** Matches the brief precisely — one lifecycle, not one per `kind`; idempotent
+  transitions make restart reconciliation (D75) safe to re-run without side effects; storing
+  the acquired owner id closes the loop back to D70's ownership-conditional release.
+- **Consequences:** `workspace-request.mjs` (task 27) defines this lifecycle and its transition
+  functions; tasks 29/31 drive their own requests through it, never inventing a parallel state
+  set.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D78: Race-safe workspace-request acquisition — atomic claim/update discipline, safe against a crash between acquiring the workspace and persisting that fact
+
+- **Question:** Two request processors must not both promote the same durable request to
+  `running`. Separately, if a process dies after `acquireWorkspaceWriter` actually succeeds for
+  a request but *before* that fact (the `workspaceOwnerId`, D77) is persisted into the
+  request's own record, restart recovery must still be able to match the live workspace-writer
+  claim back to the request that holds it — otherwise D75's reconciliation has no way to tell
+  which request a live claim belongs to.
+- **Decision:** Promoting a request from `queued`/`waiting-for-workspace` to `running` is a
+  single, atomic record replace (this repo's existing temp-file-then-rename convention) — no
+  two processors race to write it, since only the one that actually receives the
+  `acquireWorkspaceWriter` grant performs the write (the workspace-writer slot's own atomicity,
+  D55/D56, is what serializes this — no separate locking is layered on top of it). The write
+  order is fixed: **acquire the workspace-writer claim first, obtain its `ownerId`, then
+  immediately persist `{status: 'running', workspaceOwnerId}` into the request record, before
+  any tracked mutation begins.** If the process dies between those two steps, restart
+  reconciliation (D75) detects the mismatch — a request still showing `queued`/
+  `waiting-for-workspace` while a *live* workspace-writer claim exists whose identity fields
+  (`specId`/`taskId`/`kind`) match that request — and completes the missed write (adopting the
+  live claim's own `ownerId` into the request record) before applying D75's own
+  resume/no-op/`reconciliation-required` classification against the underlying operation.
+- **Rationale:** Matches the brief precisely — reuses the workspace-writer slot's own existing
+  atomic-acquisition guarantee rather than adding a second lock, and defines the one safe
+  ordering (acquire, then persist) plus the one recovery rule for the narrow crash window
+  between those two steps.
+- **Consequences:** `workspace-request.mjs` (task 27) implements this fixed ordering as part of
+  its own request-transition functions; D75's reconciliation logic includes the "adopt a live
+  claim's `ownerId` into a `queued`/`waiting-for-workspace` request whose identity matches it"
+  step explicitly.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `tasks/27-dependency-release-and-invalidation.md`,
+  `tasks/29-automatic-workflow-continuation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
