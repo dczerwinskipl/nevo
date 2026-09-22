@@ -7,7 +7,7 @@ remains valid until an explicit, declarative invalidation transition fires** (D4
 means a downstream task may **enter the sequential queue's runnable set** (D33) — never that
 it starts concurrently with the releasing task's own continued execution. When a release is
 explicitly invalidated, this area derives the automatic remediation group using durable,
-step-scoped, authoritative-record dependency-consumption provenance (D48/D52/D53/D54) —
+step-scoped, authoritative-record dependency-consumption provenance (D48/D52/D53/D58) —
 never guessed from `workflow_progress` state or timestamps — **including consumers that have
 already reached a terminal transition** (D31). Group membership persists durably (D36). This
 area also owns `SuspensionProjection` (D44), kept strictly separate from the pure
@@ -160,7 +160,8 @@ transitions. No wording or logic anywhere references a transition going "backwar
 ### Remediation-group derivation and suspensions
 
 When a release epoch is invalidated, the remediation group is: the releasing task, plus every
-task whose **authoritative** consumption record names that exact epoch (D54) —
+task whose **authoritative** (highest-`consumptionSequence`, D58) consumption record names
+that exact epoch —
 **regardless of that consumer's current state** (`active`, `waiting`, `completed`, or already
 `terminal`). A terminal consumer is never reopened or reverted — flagged via `suspensions:
 [{taskId, reason: 'dependency-invalidated', groupId}]` (additive, never merged into

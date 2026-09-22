@@ -65,6 +65,18 @@ mutations from technical activations from completed lifecycle mutations.
   operation acquire, since a concurrently-running agent turn for a different task in the same
   change (legal under D45) could otherwise sweep Publish's own uncommitted mutation into its
   commit, the exact class of bug this whole area exists to fix.
+- **Workspace-writer slot claimed first, git-finalize lease nested inside (D55/D56,
+  corrective pass 14).** The git-finalize lease alone only protects the mutate-then-commit
+  instant — it does not protect the whole period an agent execution actively holds the
+  shared worktree between its own `workflow step start` succeeding and its own eventual
+  finish. `publishTask()`/Batch Publish therefore first call `acquireWorkspaceWriter({specId,
+  kind: 'publish' | 'batch-publish'})` (`workspace-writer.mjs`, task 27) — waiting if an agent
+  execution or any other writer currently holds the slot — and only once held, acquire
+  `withGitFinalizeLock` nested inside it around the mutate-then-commit sequence specifically.
+  This guarantees Publish never observes, is scoped-error-blocked by, or absorbs an actively-
+  editing agent's own dirty source files/uncommitted `change.yaml`. The workspace-writer claim
+  is released after the git-finalize-protected sequence completes (success or failure); the
+  git-finalize lease itself remains exactly as narrow as D50/D51 already established.
 - **Ownership taxonomy documented (D30), corrected (pass 12 — human-step auto-activation
   removed as an example).** Extend `docs/development/agent-workflow-protocol.md`'s existing
   ownership-boundaries section (no new doc file, per D3's precedent) with three explicit
@@ -117,16 +129,23 @@ which must classify themselves against the taxonomy before being built.
 - A concurrently-running agent `finishStep` for a different task in the same change waits for
   `withGitFinalizeLock` rather than committing while Publish's own mutation is uncommitted —
   proven by racing the two directly.
+- Publish attempted while an agent execution actively holds the workspace-writer slot (source
+  files genuinely dirty from that agent's own in-progress edits) waits for the slot rather
+  than proceeding, never fails with a scope error caused by the agent's own unrelated dirty
+  files, and never observes/absorbs the agent's own uncommitted `change.yaml` state; once the
+  agent's execution releases the slot, the waiting Publish proceeds and completes normally.
 
 ## Dependencies
 
-`dependency-release-and-invalidation` (task 27 — the `git-finalize-lock.mjs` this area's
-Publish path acquires, D47); otherwise reuses the existing `commit-and-push` action and
-`operation-record.mjs` primitives directly.
+`dependency-release-and-invalidation` (task 27 — the `git-finalize-lock.mjs` and
+`workspace-writer.mjs` this area's Publish path acquires, D47/D55/D56); otherwise reuses the
+existing `commit-and-push` action and `operation-record.mjs` primitives directly.
 
 ## Out of scope
 
 Redesigning `commit-and-push` itself. Any change to `finishStep`'s own finalize sequence.
 Retroactively re-classifying every existing dashboard action against the new taxonomy (this
 area documents the taxonomy and fixes the one action it names — Publish — not an audit of
-every other action).
+every other action). The workspace-writer slot/reconciliation primitive itself and the
+dispatch-priority policy between a pending Publish and the next automatic agent item (owned by
+task 27 and task 29 respectively, D55/D56/D57).

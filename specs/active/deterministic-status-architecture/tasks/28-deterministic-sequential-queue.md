@@ -17,7 +17,7 @@ forbidden_paths:
   - src/**
 depends_on: [ workflow-continuation-schema, dependency-release-and-invalidation ]
 semantic_references:
-  decisions: [D32, D33, D34, D38, D45]
+  decisions: [D32, D33, D34, D38, D45, D55, D57]
 ---
 
 # Task: Deterministic sequential queue (renamed from "batch orchestrator", D46)
@@ -30,9 +30,14 @@ single-active-execution invariant (D33): computes exactly one `nextRunnable` ite
 declarative `schedulingPriority` (D34), never by step-name comparison. **This task does not
 decide whether an execution may actually start** — that atomic admission decision is
 `admitAgentExecution` (D41, owned by `automatic-workflow-continuation`, task 29), which calls this
-module for "what's next" and separately claims the spec-level slot. This task must not
+module for "what's next" and separately claims the spec-level slot, which is now also the
+shared **workspace-writer** slot (D55) for the whole execution. **This task also does not
+decide whether a pending, explicitly user-submitted workspace mutation should run before that
+next automatic item** — that dispatch-priority policy (D57) is task 29's own layer on top,
+checked via `workspace-writer.mjs`'s `listPendingWorkspaceWriters` (task 27) immediately
+before task 29 calls `admitAgentExecution`, never inside this module. This task must not
 contain any concurrency limit, bounded-concurrency value, or "start N sessions" concept of
-any kind.
+any kind, and must not import or reference `workspace-writer.mjs` at all.
 
 ## Implementation constraints
 
@@ -108,4 +113,7 @@ scheduling. The `admitAgentExecution` atomic admission gate (`automatic-workflow
 task 29 — this task only computes the plan). Creating sessions or calling `startHumanStep`
 (task 29). The combined cross-task-aware review of a remediation group's fixes
 (`dependency-invalidation-remediation-review`, task 30). Any form of concurrent execution,
-per-task Git worktrees, merge orchestration, or workspace isolation.
+per-task Git worktrees, merge orchestration, or workspace isolation. The workspace-writer
+slot/reconciliation primitive itself and the dispatch-priority check that consults it
+(`workspace-writer.mjs`, task 27; the check itself, task 29, D55/D57) — this task neither
+implements nor calls either.
