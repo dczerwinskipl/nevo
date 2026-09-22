@@ -20,7 +20,7 @@ forbidden_paths:
   - src/**
 depends_on: [ dependency-release-and-invalidation ]
 semantic_references:
-  decisions: [D29, D30, D47]
+  decisions: [D29, D30, D47, D50, D51]
 ---
 
 # Task: User-mutation source-control finalization (corrected — durable operation, atomic batch)
@@ -32,7 +32,7 @@ Make `workflow task publish`/Batch Publish durable standalone operations (D29, c
 come from `operation-record.mjs`'s intent-then-verify pattern. `publishTask()` reuses that
 same pattern directly. Batch Publish is one atomic operation (prevalidate all → mutate all →
 one commit → optional push), not one commit per task. Additionally acquire the shared
-`withGitFinalizeLock` (task 27, D47) around the mutate-then-commit sequence, so a
+`withGitFinalizeLock` (task 27, D47/D50) around the mutate-then-commit sequence, so a
 concurrently-running agent `finishStep` for a different task in the same change (legal under
 D45) cannot sweep Publish's own uncommitted mutation into its own commit. Document the
 three-way ownership taxonomy (D30) in `docs/development/agent-workflow-protocol.md`'s
@@ -59,11 +59,13 @@ existing section.
   result exactly as `finish-operation.mjs`'s own `planFinish` does — reconcile an ambiguous
   `running` stage against real repository/task state (resume, no-op, or fail closed with
   `reconciliation-required`), never guess.
-- **Acquire the shared git-finalize lock (D47).** Import `withGitFinalizeLock` from
-  `tools/specs/workflow/git-finalize-lock.mjs` (task 27, import only — forbidden path to
-  edit) and wrap the mutate-then-commit sequence (from `setTaskStatus` through the commit
-  call) in it, for both single-task and Batch Publish. This is the same lock agent-driven
-  `finishStep` and the new combined human-decision operation acquire.
+- **Acquire the shared git-finalize lease, standalone (D47/D50).** Call
+  `withGitFinalizeLock(fn)` — with **no** `existingLease` argument, since Publish has no
+  inner call into `finishStep`/`activateAndSubmitHumanStep`; it simply acquires its own fresh
+  lease, runs its own mutate-then-commit sequence (from `setTaskStatus` through the commit
+  call) inside `fn`, and releases automatically — for both single-task and Batch Publish.
+  This is the same lease-acquisition function agent-driven `finishStep` and the combined
+  human-decision operation use (each acquiring their own, independently, per D50).
 - **Batch Publish, atomic, real path convention (corrected, pass 11).** Extend
   `handleBatchPublish` (`routes.mjs`): prevalidate every selected task first (reuse
   `publishTask()`'s own validation logic without its mutation/commit stages); only if all

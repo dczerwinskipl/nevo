@@ -2049,7 +2049,21 @@ points are asserted to route through the identical `startStep` function instance
   same lock into `publish/operation.mjs`'s own commit stage — task 31 gains a `depends_on`
   edge to `dependency-release-and-invalidation` for it (still forward in task-graph order:
   27 < 31).
-- **Date:** 2026-09-22
+- **SUPERSEDED IN PART 2026-09-22 (pass 13) — item 3's lock boundary was self-contradictory;
+  see D50/D51 for the corrected model.** Item 3 said `activateAndSubmitHumanStep` and
+  `finishStep` "each acquire" the lock "around their own mutate-then-commit critical
+  section" — but `activateAndSubmitHumanStep` **calls** `submitHumanStepResult` →
+  `finishStep` internally (item 2), so if both independently acquire the same
+  non-reentrant advisory lock, the combined operation self-deadlocks (or times out) against
+  itself. Separately, `finishStep`'s own tracked mutation (`ensureUpdateTask`) happens
+  **before** its commit stage (`ensureCommit`) — if the lock is acquired only "around" the
+  commit stage as item 3's wording implied, the mutation itself is unprotected, leaving the
+  exact dirty-then-uncommitted window this whole decision exists to close. D50 corrects the
+  boundary (lock wraps from the first tracked mutation through the commit, one owner per
+  combined operation, no recursive acquisition) and D51 adds crash recovery for the lease
+  itself. Items 1, 2, and 4 above (mutation-free preview; one combined user operation; unified
+  `HumanStepSurface` rendering) are unaffected and still stand.
+- **Date:** 2026-09-22 (lock boundary corrected 2026-09-22, pass 13 — see D50/D51)
 - **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
   `areas/dependency-release-and-invalidation.md`,
   `areas/user-mutation-source-control-ownership.md`,
@@ -2105,8 +2119,31 @@ points are asserted to route through the identical `startStep` function instance
   consumption-recording responsibility entirely — its own file no longer needs
   `dependency-consumption.mjs` write access. `dependency-release-and-invalidation` (task 27)
   gains `tools/specs/workflow/cli.mjs` in its `allowed_paths` for the one call-site insertion.
-- **Date:** 2026-09-22
+- **SUPERSEDED IN PART 2026-09-22 (pass 13) — see D52/D53/D54.** Three real gaps found on
+  fresh review: (a) "right after `ensureStepActivated` succeeds" leaves a genuine crash
+  window — activation can durably succeed while the very next line (the consumption write)
+  never runs, and once that happens the task is no longer a fresh "first activation," so the
+  missing provenance could never be reconstructed on retry (D52 introduces a durable,
+  resumable start-operation spanning both); (b) gating recording on "first-ever task
+  activation" is wrong for rework — a task returned to `implementation` for a second attempt
+  after `T1` was invalidated-then-fixed must be able to consume `T1`'s *new* release epoch on
+  that second attempt, which "first-ever" by construction forbids (D53 replaces it with a
+  declarative, step-level `consumesDependencies: true` flag, decoupled from step-graph
+  position or attempt number); (c) one record path per `<change>/<consumingTaskId>/
+  attempt-<n>.json` collides the moment more than one declared consuming step could exist for
+  a task, and even for a single declared step conflates identity across the step it belongs
+  to (D53/D54 add `<step>` to the record's path and to remediation's authoritative-record
+  resolution). Item 3 (remediation matches "any dependency entry") is also refined by D54:
+  matching *any historical* record is wrong once a later attempt has superseded an earlier
+  dependency snapshot — only a task's *authoritative* (latest relevant) record should be
+  checked. The core shape (`{consumingTaskId, consumingStep, consumingAttempt, dependencies:
+  [...]}`) and the "no session-admission guessing" principle both survive unchanged into
+  D52–D54; only the recording point's durability, the recording trigger, the path identity,
+  and the remediation-matching rule are corrected.
+- **Date:** 2026-09-22 (recording durability, trigger, identity, and matching rule corrected
+  2026-09-22, pass 13 — see D52/D53/D54)
 - **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/25-workflow-continuation-schema.md`,
   `tasks/27-dependency-release-and-invalidation.md`, `tasks/29-automatic-workflow-continuation.md`.
 
 ## D49: `admitAgentExecution`'s claim lifecycle is atomic through to durable visibility; human dispatch is a distinct path that never calls it
@@ -2150,3 +2187,235 @@ points are asserted to route through the identical `startStep` function instance
 - **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
   `tasks/29-automatic-workflow-continuation.md`, `tasks/28-deterministic-sequential-queue.md`,
   `tasks/32-dashboard-orchestration-wiring.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D50: The git-finalize lock wraps from the first tracked mutation through the commit; one lease per combined operation, never recursive acquisition
+
+- **Question:** D47 said `finishStep` and `activateAndSubmitHumanStep` "each acquire" the
+  git-finalize lock "around their own mutate-then-commit critical section" — but
+  `activateAndSubmitHumanStep` *calls* `submitHumanStepResult` → `finishStep` internally, so
+  if both independently call `withGitFinalizeLock`, the combined operation acquires the same
+  non-reentrant lock twice from within its own call stack — self-deadlock (or a timeout
+  against itself) on every single human submission. Separately, exactly where does the lock
+  need to start? `finishStep`'s own tracked mutation (`ensureUpdateTask`, writing
+  `workflow_progress`) happens **before** its commit stage (`ensureCommit`) in the existing
+  `FINISH_STAGE_IDS` order (`verify-gates, update-task, commit, push, transition`) — if the
+  lock is only held "around" the commit stage, `ensureUpdateTask`'s own write is unprotected,
+  leaving exactly the dirty-then-uncommitted window this whole mechanism exists to close.
+- **Decision:**
+  1. **Lock boundary: first tracked mutation through the commit, never narrower.**
+     `finishStep` itself acquires `withGitFinalizeLock` **before** `ensureUpdateTask` begins
+     and releases it **after** `ensureCommit` completes (success or failure — release in a
+     `finally`) — covering the one continuous window where tracked state can be dirty and
+     uncommitted. `push`/`transition` (stages after `commit`) run **outside** the lock — they
+     don't mutate local tracked files a concurrent commit could sweep in, and holding a
+     cross-process lock through a network-bound push would cost throughput for no
+     correctness benefit.
+  2. **`withGitFinalizeLock(fn, existingLease?)` supports explicit lease-passing — never
+     implicit reentrancy.** When called with no `existingLease`, it acquires a fresh lease,
+     runs `fn(lease)`, and releases in `finally` (this is `finishStep`'s own normal,
+     CLI-driven path, and `publishTask`'s own path — both are the sole owner of their own
+     lease). When called *with* an `existingLease` already held by the same logical
+     operation, it does **not** acquire a second lease or block — it runs `fn(existingLease)`
+     directly, and the *original* acquirer remains solely responsible for eventual release.
+     This is an explicit parameter, never automatic/implicit reentrancy detection — a caller
+     must know it already holds the lease to pass it.
+  3. **`activateAndSubmitHumanStep` acquires exactly one lease for the whole combined
+     operation.** It calls `acquireGitFinalizeLease()` once, up front (before `startHumanStep`
+     — activation is itself a tracked mutation that must be protected until it's committed),
+     passes that lease through to `startHumanStep` (which itself performs no locking of its
+     own — the caller holds the lease around it) and into `submitHumanStepResult` → `finishStep`
+     (as `existingLease`, so `finishStep` does not acquire a second one), and releases the one
+     lease itself, once, after `finishStep` returns (success or failure, `finally`). This
+     makes the *entire* activate-then-finalize sequence one continuous critical section under
+     one owner, with no recursive acquisition anywhere in the call stack.
+  4. **`finishStep` gains an optional `finalizeLease` input** (threaded via its existing
+     `context`/inputs shape, not a new top-level required parameter) — when present, it is
+     used as the `existingLease` passed to `withGitFinalizeLock`; when absent (the normal,
+     directly-CLI-driven `workflow step finish` path), `finishStep` acquires its own, exactly
+     as before this correction.
+  5. **`publishTask`/Batch Publish are unaffected by this correction** — they have no inner
+     call into `finishStep`, so they simply acquire-and-release their own single lease around
+     their own mutate-then-commit sequence, exactly as D47 already specified.
+- **Rationale:** Matches the brief precisely: make it impossible for human submit to
+  self-deadlock, for Publish to commit an agent's uncommitted mutation, or for an agent's
+  `finishStep` to commit Publish's/the human operation's uncommitted mutation — by choosing
+  one explicit ownership model (lease-passing) rather than an implicit reentrant lock, which
+  risks accidentally serializing unrelated concurrent operations that happen to share a call
+  frame in the future.
+- **Consequences:** `dependency-release-and-invalidation` (task 27) implements
+  `withGitFinalizeLock`'s lease-passing signature and moves `finishStep`'s own lock
+  acquisition to wrap `ensureUpdateTask` through `ensureCommit` (still a small, additive
+  change to `finish-operation.mjs` — the stage sequence itself is unchanged, only lock
+  acquisition/release points are added around it). `automatic-workflow-continuation`
+  (task 29) threads the one acquired lease through `activateAndSubmitHumanStep`'s own calls.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `areas/workflow-continuation-and-session-handover.md`,
+  `tasks/27-dependency-release-and-invalidation.md`,
+  `tasks/29-automatic-workflow-continuation.md`.
+
+## D51: The git-finalize lease supports stale-owner recovery via PID-liveness, not lock-file age alone
+
+- **Question:** A plain "exclusive file create, delete in `finally`" advisory lock (D47's
+  original design) never releases if the holding process is killed or crashes before the
+  `finally` runs — since this lock is now a real correctness primitive (D50), a stale lock
+  left behind by a crash must not permanently block every future Publish/finish/human-submit
+  operation.
+- **Decision:** The lease file's content becomes `{ownerId, pid, createdAt}` (`ownerId` a
+  fresh random id generated per acquisition attempt, not reused). Acquisition: exclusive file
+  creation; on `EEXIST`, read the existing lease and check `process.kill(existingLease.pid,
+  0)` (a standard, synchronous, zero-signal liveness probe — throws `ESRCH` if that pid is
+  not running, does not actually signal anything if it is). If the recorded pid is
+  **confirmed dead**, the lease is stale — delete it and retry acquisition immediately (safe:
+  a dead process cannot still be relying on the lock). If the recorded pid **is** alive (or
+  the probe is inconclusive), treat this as genuine contention — retry with backoff up to a
+  bounded overall timeout, then fail with a clear, actionable error naming the lock file and
+  the current holder's pid (never hang indefinitely, never silently steal a live lock).
+  Release verifies ownership first: read the current lease file, compare its `ownerId` to the
+  one this caller was issued at acquisition time — delete only on a match; on a mismatch
+  (someone else already reclaimed it, implying this caller's own liveness was
+  mis-detected as dead — an accepted, extremely narrow residual risk of PID-based recovery,
+  identical to that of established lockfile libraries using the same technique), skip
+  deletion rather than removing a lease this caller no longer actually owns.
+- **Rationale:** Matches the brief precisely: exclusive acquisition stays atomic; a live
+  owner is never stolen (liveness is checked, not merely lock age); a genuinely orphaned lock
+  is safely reclaimed; timeout still exists for real contention; unlock verifies ownership;
+  the mechanism works identically whether the two contending processes are a CLI subprocess
+  and the dashboard server or two of either kind, since PID liveness is a normal OS-level
+  fact, not something scoped to one process's own memory.
+- **Consequences:** `git-finalize-lock.mjs` (task 27) implements this acquire/reclaim/release
+  algorithm; no external locking library or new runtime dependency is introduced — it reuses
+  Node's built-in `process.kill(pid, 0)` and the existing atomic-file-write convention.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/27-dependency-release-and-invalidation.md`.
+
+## D52: Step activation and its dependency-consumption snapshot become durable together via a resumable start-operation, distinct from finish-operation records
+
+- **Question:** D48 wrote the consumption record immediately after `ensureStepActivated`
+  succeeded, as two separate, sequential actions. If the process crashes between them,
+  `workflow_progress` shows the step already `active`, but no consumption record exists — and
+  since the task is no longer a fresh "first activation" on retry (that concept is itself
+  replaced by D53, but the crash-window problem is independent of it), the missing
+  provenance could never be reconstructed, especially once upstream dependency state has
+  since moved on.
+- **Decision:** Introduce a durable, resumable **start-operation** record — a distinct record
+  family from `finish-operation.mjs`'s own (per the brief: do not overload finish-operation
+  records with a different identity) — at `.nevo-ai-local/workflow-start-operations/<change>/
+  <task>/<step>/attempt-<n>.json`, with its own small module (owned by
+  `dependency-release-and-invalidation`, task 27, alongside its other new primitives),
+  reusing the same atomic-write/intent-then-verify *pattern* `operation-record.mjs` already
+  established (not its literal file family, to keep the two identities distinct as the brief
+  requires). Flow, for a step declaring `consumesDependencies: true` (D53):
+  1. **Plan + freeze the snapshot.** Before any mutation, resolve dependency satisfaction
+     (`checkTaskDependencies`/`evaluateDependencySatisfaction`) and collect every
+     currently-release-based dependency into a snapshot. Write the start-operation record
+     with `status: 'running'`, this frozen `dependencySnapshot`, and per-stage markers
+     (`snapshot: completed`, `activate: pending`, `record-consumption: pending`).
+  2. **Activate.** Call `ensureStepActivated`. Mark `activate: completed` in the record.
+  3. **Record consumption from the frozen snapshot — never re-resolved.** Call
+     `recordDependencyConsumption` using exactly the snapshot captured in step 1, even if
+     real dependency/release state has since changed. Mark `record-consumption: completed`
+     and the record's own `status: 'completed'`.
+  4. **Resume semantics, mirroring `finish-operation.mjs`'s own established discipline:** on
+     the next `workflow step start` for this task/step, check for an in-flight (`status !==
+     'completed'`) start-operation record first. If found: resume from its **already-frozen**
+     `dependencySnapshot` (never re-resolve to newer epochs) and complete whichever stages
+     are still `pending`, idempotently (re-running `record-consumption` for an
+     already-completed `activate` stage is safe and produces the same record). If the live
+     `workflow_progress` state is inconsistent with what the record expects (e.g., activation
+     the record expected to have happened, didn't, per the real workflow state) — fail closed
+     with a clear reconciliation-required-style error, exactly as `finish-operation.mjs`
+     already does for its own ambiguous intents, never guessing.
+- **Rationale:** Matches the brief precisely: a successful `workflow step start` must mean
+  both the activation *and* its dependency snapshot are durably settled, together; retries
+  must never silently re-resolve to different upstream state than what the original attempt
+  actually relied on.
+- **Consequences:** `dependency-release-and-invalidation` (task 27) owns this new record
+  family and its resume logic, wired into the same `cli.mjs` call site D48 already
+  identified. `tools/tests/deterministic-dependency-satisfaction.test.mjs` gains crash-resume
+  coverage for this specific boundary.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/27-dependency-release-and-invalidation.md`.
+
+## D53: Dependency consumption is declared per step (`consumesDependencies: true`), recorded on every relevant attempt, identified by step and attempt
+
+- **Question:** D48 gated consumption recording on a task's first-ever step activation —
+  which cannot represent a rework cycle: after `T1`'s release is invalidated and `T1` is
+  fixed (a *new* release epoch), a downstream task sent back to `implementation` for its own
+  second attempt must be able to consume `T1`'s *new* epoch then, not only at its own
+  long-past first activation. The brief also explicitly forbids inferring this from a literal
+  step-name check (`if step === 'implementation'`).
+- **Decision:**
+  1. **Declarative step metadata, additive schema (task 25 owns it, not hidden inside task
+     27's implementation text).** A new, optional step-level field,
+     `consumesDependencies: true` (default `false`/absent), added to the same consolidated
+     schema D39 already tracks (`continuation`, `execution`, `releasesDependencies`,
+     `invalidatesDependencyRelease`, `schedulingPriority`). `standard.yaml`/`standard-v1.yaml`
+     migration: `implementation` gets `consumesDependencies: true` (it is the step that
+     performs the actual dependency-consuming work, on every attempt — first or rework);
+     `review`/`human-verification` do **not** (they consume no new upstream dependency,
+     unless a future definition explicitly declares otherwise).
+  2. **Recording triggers on every activation of a declared step, not "first-ever."** The
+     start-operation flow (D52) runs whenever a step declaring `consumesDependencies: true`
+     activates, for **any** attempt number — `handleWorkflowStepStart` checks the *target
+     step's own* declared flag, never the task's own history/attempt-count, and never a
+     literal step-id/name comparison. A newly-authored, arbitrarily-named step that declares
+     the flag works identically, with zero application-code changes.
+  3. **Record identity includes step, not just task.** Path becomes
+     `.nevo-ai-local/dependency-consumption/<change>/<task>/<step>/attempt-<n>.json` — the
+     previous `<change>/<task>/attempt-<n>.json` shape (no step segment) could collide the
+     moment more than one declared step exists for a task, and conflated identity even for a
+     single step. Record shape is otherwise unchanged from D48: `{consumingTaskId,
+     consumingStep, consumingAttempt, dependencies: [{taskId, releaseEpoch}]}`.
+     `findConsumersOfEpoch` scans every `<change>/<task>/<step>/attempt-*.json` file, matching
+     if any `dependencies[]` entry names the target epoch (before D54's authoritative-record
+     narrowing is applied).
+- **Rationale:** Matches the brief precisely: arbitrary step names must work via declarative
+  metadata alone; rework attempts must be able to record fresh consumption; the schema
+  addition belongs in task 25 (the one place this specification's own schema decisions live),
+  not buried in task 27's implementation prose.
+- **Consequences:** `tasks/25-workflow-continuation-schema.md` gains
+  `consumesDependencies` in its consolidated schema and its own `standard-v1.yaml` migration
+  entry. `dependency-release-and-invalidation` (task 27) reads the flag (never a step-name
+  check) to decide whether to run the D52 start-operation flow, and adopts the corrected,
+  step-scoped record path.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `tasks/25-workflow-continuation-schema.md`,
+  `areas/dependency-release-and-invalidation.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `.nevo-ai/workflows/standard-v1.yaml`.
+
+## D54: Remediation lookup uses only a task's authoritative (latest relevant) consumption record per dependency — never any historical record
+
+- **Question:** Once a task can record consumption more than once (D53, rework), a single
+  invalidated epoch could appear in an *old*, since-superseded record even though the task's
+  *later* attempt already consumed a fresh, still-valid epoch of the very same dependency.
+  Flagging the task as a remediation-group member in that case would be wrong — its later
+  work already moved past the stale state the old record captured.
+- **Decision:** For a given `(consumingTask, dependencyTaskId)` pair, the **authoritative**
+  consumption record is the one with the highest `consumingAttempt` among records sharing the
+  same `consumingStep` that name that `dependencyTaskId` (ties/cross-step ordering, if a
+  definition ever declares more than one consuming step for one task, resolve by the
+  consuming step's own position in `workflow_progress.history` — later history entry wins;
+  not needed by any current definition, but the record's own `consumingStep`+
+  `consumingAttempt` fields make it resolvable without guessing if it ever is).
+  `findConsumersOfEpoch` is corrected to return a task as a match **only** when its
+  authoritative record for that specific dependency names the invalidated epoch — a task
+  whose authoritative (latest) record already names a different, still-valid epoch is
+  **not** a match, even if an older, superseded record of its own once named the
+  now-invalidated one. This applies identically whether the task's own current state is
+  active, waiting, completed, or terminal (D31's terminal-consumer inclusion is unaffected —
+  it is about *which task states are eligible to be flagged at all*, unchanged; D54 is about
+  *which of a task's own possibly-multiple records governs that check*).
+- **Rationale:** Matches the brief precisely: prefer a model based on the task's latest
+  applicable dependency-consumption snapshot per dependency, not "any historical record ever
+  mentioned this epoch" — a later, successful attempt genuinely supersedes an earlier
+  dependency snapshot, and treating a superseded record as still-live would produce false
+  remediation-group membership.
+- **Consequences:** `dependency-release-and-invalidation` (task 27)'s `findConsumersOfEpoch`
+  gains this authoritative-record resolution step before matching; remediation-group
+  derivation (D31) is otherwise unchanged.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/27-dependency-release-and-invalidation.md`.

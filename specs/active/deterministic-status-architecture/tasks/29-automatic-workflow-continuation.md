@@ -24,7 +24,7 @@ forbidden_paths:
   - src/**
 depends_on: [ workflow-continuation-schema, execution-policy-and-mode-selection, deterministic-sequential-queue, dependency-release-and-invalidation ]
 semantic_references:
-  decisions: [D25, D26, D27, D33, D41, D42, D45, D47, D48, D49]
+  decisions: [D25, D26, D27, D33, D41, D42, D45, D47, D49, D50]
 ---
 
 # Task: Automatic workflow continuation (agent admission + reconciliation + human dispatch)
@@ -40,8 +40,8 @@ reconciliation operation, triggered from three real, verified server-side points
 the **human dispatch path** (D47/D49): a mutation-free interaction preview plus a new,
 combined `activateAndSubmitHumanStep` operation for the user's own Approve/Request-changes
 submission — a distinct branch from agent admission, never described as a form of it. This
-task does **not** record dependency-consumption (moved to workflow core at step activation,
-D48) and does **not** auto-activate a human step on arrival (D47).
+task does **not** record dependency-consumption (owned entirely by workflow core's durable
+start-operation, D52/D53) and does **not** auto-activate a human step on arrival (D47).
 
 ## Implementation constraints
 
@@ -75,14 +75,26 @@ D48) and does **not** auto-activate a human step on arrival (D47).
   step — no `ensureStepActivated` call, no `workflow_progress` read/write beyond what's
   already needed to know which step is next (already available, D15). `HumanStepSurface`
   renders this identically to the active case (no component change needed).
-- **`activateAndSubmitHumanStep` (new, D47).** New exported function in
+- **`activateAndSubmitHumanStep` (new, D47/D50) — one lease for the whole sequence, never
+  recursive acquisition.** New exported function in
   `tools/specs/workflow/human-step/operations.mjs` (core engine — not dashboard-only, since
-  the CLI could reasonably expose the same combined behavior): calls `startHumanStep`
-  immediately followed by `submitHumanStepResult({result, feedback, artifacts})` within one
-  call, both wrapped by `withGitFinalizeLock` (imported from
-  `tools/specs/workflow/git-finalize-lock.mjs`, task 27 — import only, do not edit that
-  file) around the combined mutate-then-commit sequence. `human-step-transport.mjs`'s handler
-  calls this new function instead of `startHumanStep`+`submitHumanStepResult` separately.
+  the CLI could reasonably expose the same combined behavior):
+  1. `acquireGitFinalizeLease()` once, up front (imported from
+     `tools/specs/workflow/git-finalize-lock.mjs`, task 27 — import only, do not edit that
+     file).
+  2. Call `startHumanStep` (activation — itself a tracked mutation, now protected by the
+     lease this function already holds).
+  3. Call `submitHumanStepResult(change, task, definition, {...context, finalizeLease: lease},
+     {result, feedback, artifacts})` — threading the lease through `context` (never mixed
+     into the user-facing transition `inputs`), so the internal `finishStep` call uses it as
+     `existingLease` and does **not** acquire a second one (which would self-deadlock, since
+     this function is already inside the call stack that will call `finishStep`). This is a
+     small, additive parameter on `submitHumanStepResult`'s existing `context` shape — its
+     own signature and behavior are otherwise unchanged for every other caller that doesn't
+     pass one.
+  4. Release the lease in a `finally`, once, after step 3 settles (success or failure).
+  `human-step-transport.mjs`'s handler calls this new function instead of
+  `startHumanStep`+`submitHumanStepResult` separately.
 - **Session policy application (D26), human-step auto-activation removed (D27/D45/D47
   corrected).** On an admitted agent-owned destination, create/reuse a session per
   `execution: {session, role}` and the resolved execution policy (task 26). A human-owned
@@ -105,8 +117,12 @@ D48) and does **not** auto-activate a human step on arrival (D47).
   **zero** `workflow_progress` mutation — proven by inspecting `change.yaml`'s content is
   byte-for-byte unchanged before and after the preview becomes visible.
   `automated: node --test tools/tests/workflow-continuation.test.mjs`
-- `activateAndSubmitHumanStep` performs activation, submission, and commit as one call;
-  a test asserting no other operation can observe an uncommitted activation write (using the
+- `activateAndSubmitHumanStep` performs activation, submission, and commit as one call under
+  exactly **one** acquired lease — proven by asserting exactly one acquire/release pair for
+  the whole call (never two), and proven to complete without deadlocking or timing out
+  against itself.
+  `automated: node --test tools/tests/workflow-continuation.test.mjs`
+- A test asserting no other operation can observe an uncommitted activation write (using the
   git-finalize lock's own test double/instrumentation from task 27) passes.
   `automated: node --test tools/tests/workflow-continuation.test.mjs`
 - A human-owned destination reached via reconciliation never calls `admitAgentExecution` and

@@ -16,88 +16,105 @@ forbidden_paths:
   - src/**
 depends_on: [ dashboard-orchestration-wiring, user-mutation-source-control-finalization, dependency-invalidation-remediation-review ]
 semantic_references:
-  decisions: [D33, D40, D41, D42, D43, D44, D45, D47, D48, D49]
+  decisions: [D33, D40, D41, D42, D44, D45, D47, D49, D50, D51, D52, D53, D54]
 ---
 
 # Task: Orchestration end-to-end dogfood tests
 
 ## Goal
 
-Prove the exact flow that failed during real dogfooding now works end to end: sequential,
-race-safe agent admission with rollback on failure; human interaction available without
-mutation and finalized as one self-owned operation; dependency consumption recorded only at
-real step activation with a multi-dependency shape; declarative release/invalidation; and a
-pending human decision that never pauses other agent-owned work nor leaks dirty state into
-another task's commit.
+Prove the exact flow that failed during real dogfooding now works end to end: race-safe
+agent admission with rollback on failure; a git-finalize lease with a correct boundary,
+lease-passing (no self-deadlock), and stale-owner recovery; human interaction available
+without mutation and finalized as one self-owned operation; dependency-consumption recorded
+durably at step activation, triggered declaratively per attempt (not "first-ever"), with
+step-scoped identity and authoritative-record remediation matching; declarative release/
+invalidation; and a pending human decision that never pauses other agent-owned work nor
+leaks dirty state into another task's commit.
 
 ## Implementation constraints
 
 - Test-only task — no production code changes. Compose the real modules from tasks 24–32
   against a realistic fixture change/definition.
 - Include one fixture with a newly-authored, non-`implementation`/`review`-named agent step
-  to prove no step-id dispatch survived anywhere in the new orchestration code.
+  declaring `consumesDependencies: true` to prove no step-id dispatch survived anywhere in
+  the new orchestration or consumption-recording code.
 - Do not implement behavior beyond whatever tasks 24–32 actually shipped.
 
 ## Acceptance criteria
 
-1. Reaching `human-verification` via reconciliation exposes the interaction preview with
-   `change.yaml` byte-for-byte unchanged — no unowned dirty mutation from merely showing the
-   interaction.
+1. `finishStep` acquires the git-finalize lease **before** its `update-task` mutation runs —
+   proven by holding the lease externally and asserting the mutation stage itself waits, not
+   only the commit stage.
    `automated: node --test tools/tests/orchestration-e2e.test.mjs`
-2. While T1 waits on its human interaction (no mutation from that wait), T2 (a different,
-   independently-eligible task in the same spec) runs its own agent-owned work and commits —
-   T2's commit contains only T2's own changes, never any trace of T1's state.
-   `automated: node --test tools/tests/orchestration-e2e.test.mjs`
-3. Clicking Approve (or Request changes) performs `activateAndSubmitHumanStep` as one
-   operation — the resulting workflow mutation and its commit are both attributable to that
-   one user action, never split across two separately-owned steps.
+2. `activateAndSubmitHumanStep`'s combined submit does **not** recursively acquire the
+   git-finalize lease — proven by asserting exactly one acquire/release pair for the whole
+   call, and proven not to deadlock or time out against itself.
    `automated: node --test tools/dashboard/tests/orchestration-e2e.test.mjs`
-4. A dependency-consumption record is written only after `workflow step start` actually
-   succeeds for a task's first step — never merely because a session was created for it.
+3. Publish and a concurrently-running agent `finishStep` for a different task cannot commit
+   each other's `change.yaml` mutation — proven by racing the two directly and inspecting
+   each resulting commit's actual diff.
    `automated: node --test tools/tests/orchestration-e2e.test.mjs`
-5. A session created for a task whose `workflow step start` is never actually run (or fails)
-   produces no consumption record.
+4. A process holding the git-finalize lease that dies without releasing it (simulated kill,
+   no `finally` run) is recoverable by a new acquirer without any manual file deletion —
+   proven via the PID-liveness reclaim path.
    `automated: node --test tools/tests/orchestration-e2e.test.mjs`
-6. One task's first-step activation, depending on two upstream tasks both currently satisfied
-   via release epochs, records both epochs in one atomic consumption record.
+5. A crash simulated after a step's activation succeeds but before its consumption-record
+   write completes is reconciled on the next `workflow step start` for that task/step.
    `automated: node --test tools/tests/orchestration-e2e.test.mjs`
-7. Invalidating **either** of those two release epochs finds this same consumer via
-   `findConsumersOfEpoch`.
+6. The reconciled retry in scenario 5 completes using the **original, frozen** dependency
+   snapshot, not a newly-resolved one — proven by changing upstream release/invalidation
+   state between the crash and the retry and asserting the retry still uses the old snapshot.
    `automated: node --test tools/tests/orchestration-e2e.test.mjs`
-8. Two simultaneous `admitAgentExecution` requests for one spec result in at most one created
-   execution — the second is rejected/deferred, never a second session.
+7. A task records dependency consumption again on a later, declared-step work attempt
+   (rework) — attempt 1 consumes epoch #1 of a dependency; after that dependency is
+   invalidated and fixed (a fresh epoch #2), the reworked attempt 2 consumes epoch #2.
    `automated: node --test tools/tests/orchestration-e2e.test.mjs`
-9. A simulated session/execution-creation failure occurring after an admission claim is
-   marked releases that claim — a subsequent admission request for the same spec succeeds
-   (retry works; no stale "occupied" state survives a failure).
+8. Invalidating epoch #2 (the authoritative record from scenario 7) discovers this consumer
+   via `findConsumersOfEpoch`; invalidating the earlier, superseded epoch #1 does not.
    `automated: node --test tools/tests/orchestration-e2e.test.mjs`
-10. The first explicit Start for a change with no resolved execution policy always opens the
-    provider + mode picker — proven for a provider that would not have needed an explicit
-    mode under the retracted conditional logic.
+9. Consumption record identity distinguishes different step/attempt pairs for the same task —
+   proven by a fixture with two distinct declared-consuming steps (or two attempts of one)
+   whose records persist independently with no path collision.
+   `automated: node --test tools/tests/orchestration-e2e.test.mjs`
+10. Remediation lookup respects a newer consumption snapshot superseding an older one — the
+    scenario-7/8 fixture's task is never flagged as a remediation-group member when only the
+    superseded epoch #1 is invalidated, only when epoch #2 is.
+    `automated: node --test tools/tests/orchestration-e2e.test.mjs`
+11. The fixture step with an arbitrary, custom name and `consumesDependencies: true` records
+    consumption and participates in remediation identically to `implementation`, with zero
+    step-name branching anywhere in the exercised call path.
+    `automated: node --test tools/tests/orchestration-e2e.test.mjs`
+12. A session created for a task whose `workflow step start` never actually runs (or fails
+    before activation) produces no consumption record and no start-operation left `running`
+    forever (it is either absent or itself reconcilable).
+    `automated: node --test tools/tests/orchestration-e2e.test.mjs`
+13. Two simultaneous `admitAgentExecution` requests for one spec result in at most one created
+    execution.
+    `automated: node --test tools/tests/orchestration-e2e.test.mjs`
+14. A simulated session/execution-creation failure occurring after an admission claim is
+    marked releases that claim — a subsequent admission request for the same spec succeeds.
+    `automated: node --test tools/tests/orchestration-e2e.test.mjs`
+15. The first explicit Start for a change with no resolved execution policy always opens the
+    provider + mode picker.
     `automated: node --test tools/dashboard/tests/orchestration-e2e.test.mjs`
+16. Reaching `human-verification` via reconciliation exposes the interaction preview with
+    `change.yaml` byte-for-byte unchanged — no unowned dirty mutation from merely showing the
+    interaction.
+    `automated: node --test tools/tests/orchestration-e2e.test.mjs`
+17. While T1 waits on its human interaction, T2 (a different, independently-eligible task in
+    the same spec) runs its own agent-owned work and commits — T2's commit contains only T2's
+    own changes, never any trace of T1's state.
+    `automated: node --test tools/tests/orchestration-e2e.test.mjs`
 - Release remains satisfied after a later, non-invalidating transition; a declared
   `invalidatesDependencyRelease: true` transition revokes a previously-valid release.
-  `automated: node --test tools/tests/orchestration-e2e.test.mjs`
-- A remediation group's membership is derived from persisted dependency-consumption records
-  naming the invalidated epoch — including an already-`verified` consumer — never from
-  current task state or timestamps; fixed one at a time through the sequential queue, reviewed
-  by the combined cross-task pass, with `suspensions` cleared only once the whole non-terminal
-  group passes.
   `automated: node --test tools/tests/orchestration-e2e.test.mjs`
 - `TaskProjection`/`projectTask()` remains provably pure even while a `suspensions` entry —
   read from a separate `SuspensionProjection` — blocks that task's `ExecutionReadiness`.
   `automated: node --test tools/tests/orchestration-e2e.test.mjs`
-- The fixture using a newly-authored, non-`implementation`/`review` step name completes
-  through the same orchestration code with zero step-id-specific branches, and its declared
-  `schedulingPriority` is honored.
-  `automated: node --test tools/dashboard/tests/orchestration-e2e.test.mjs`
 - **Standing invariant, re-asserted end to end:** for one spec/change, there is never more
   than one active agent execution created by deterministic orchestration at any inspected
   point, including while one or more human decisions are pending on other tasks.
-  `automated: node --test tools/tests/orchestration-e2e.test.mjs`
-- Publish's own commit is observable as a separate, correctly-attributed commit from the
-  agent's own implementation commit, even when a concurrent agent turn is in flight for
-  another task (proving the shared git-finalize lock, not merely non-overlapping timing).
   `automated: node --test tools/tests/orchestration-e2e.test.mjs`
 
 ## Verification

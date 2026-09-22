@@ -74,15 +74,20 @@ in-process mutex.
     (`{result?, label, feedbackRequired}[]`) purely from the workflow definition's own
     declared transitions for that step — no `ensureStepActivated` call, no mutation.
     `HumanStepSurface` renders this identically to the active-interaction case.
-  - **One combined, self-owned operation on submit.** A new domain operation,
-    `activateAndSubmitHumanStep` (`human-step/operations.mjs`), performs `startHumanStep`
-    immediately followed by `submitHumanStepResult` within one call — no intervening `await`
-    boundary that could hand control to another caller between the activation write and its
-    own commit.
-  - **Serialized via the shared git-finalize lock, not the admission gate.** This combined
-    operation acquires `withGitFinalizeLock` (owned by `dependency-release-and-invalidation`,
-    task 27) around its own mutate-then-commit sequence — the same lock agent-driven
-    `finishStep` and Publish acquire — so none of the three ever interleaves with another.
+  - **One combined, self-owned operation on submit, one lease for the whole sequence
+    (D50, corrected).** A new domain operation, `activateAndSubmitHumanStep`
+    (`human-step/operations.mjs`), acquires exactly **one** git-finalize lease up front
+    (before `startHumanStep` — activation is itself a tracked mutation needing protection),
+    then calls `startHumanStep` followed by `submitHumanStepResult` → `finishStep`, passing
+    that same lease through as `finishStep`'s `finalizeLease` input so `finishStep` does
+    **not** acquire a second one (which would self-deadlock, since this operation already
+    calls into `finishStep` internally) — and releases the one lease itself after
+    `finishStep` returns. No intervening `await` boundary hands control to another caller
+    between the activation write and the eventual commit.
+  - **Serialized via the shared git-finalize lease, not the admission gate.** The lease this
+    operation holds (owned by `dependency-release-and-invalidation`, task 27) is the same one
+    agent-driven `finishStep` (in its own, separate acquisition, when not passed an existing
+    one) and Publish acquire — so none of the three ever interleaves with another.
     `admitAgentExecution` is never involved in this branch.
 - **Session policy on the transition, role extensible (D26).** Unchanged.
 - **Preserve Finding 8.** `HumanStepSurface`'s existing definition-driven rendering is
@@ -125,12 +130,11 @@ imports).
   **no** `workflow_progress`/`change.yaml` mutation — proven by inspecting git status before
   the user submits anything.
 - Clicking Approve/Request-changes performs activation + submission + commit as one
-  operation; inspecting git state between the activation write and the commit (a deliberately
-  instrumented test) finds no window where the mutation exists uncommitted while another
-  operation could observe it.
-- While `activateAndSubmitHumanStep` holds the git-finalize lock, a concurrently-triggered
-  agent `finishStep` for a different task in the same spec waits for the lock rather than
-  committing a dirty `change.yaml`.
+  operation, under exactly **one** acquired lease — proven by asserting exactly one
+  acquire/release pair for the whole call, never two, and never a self-deadlock/timeout.
+- While `activateAndSubmitHumanStep` holds its lease, a concurrently-triggered agent
+  `finishStep` for a different task in the same spec (which acquires its own lease, since it
+  wasn't given one) waits rather than committing a dirty `change.yaml`.
 - A human-owned destination reached via reconciliation never calls `admitAgentExecution`.
 - No file in this area contains a `switch`/`if`/lookup-object keyed on a literal step id, and
   no file describes human interaction activation as "agent admission."

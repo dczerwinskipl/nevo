@@ -498,6 +498,50 @@ design, grounded against `human-step/operations.mjs`, `commit-and-push.mjs`, and
    Corrected in place, pointing to D47 — the underlying goal (no meaningless manual "Start"
    click) is unchanged; only the mechanism is.
 
+**Corrective pass 13 (2026-09-22, D50–D54, corrections to D27/D47/D48): closing the remaining
+transaction/provenance correctness gaps a fresh review found in pass 12's own design,
+grounded against `finish-operation.mjs`'s real `FINISH_STAGE_IDS` order and the crash/rework
+scenarios pass 12 didn't yet cover.**
+
+1. **The git-finalize lock self-deadlocked and protected the wrong window (D50).**
+   `activateAndSubmitHumanStep` calling `withGitFinalizeLock` and then internally calling
+   `submitHumanStepResult` → `finishStep`, which also calls `withGitFinalizeLock`, is a
+   guaranteed self-deadlock against a non-reentrant lock. Separately, confirmed by reading
+   `FINISH_STAGE_IDS` (`verify-gates, update-task, commit, push, transition`) directly:
+   `update-task` (the tracked mutation) runs before `commit` — a lock held only "around" the
+   commit stage leaves the mutation itself unprotected. Corrected: the lease wraps from
+   before `update-task` through the commit; `withGitFinalizeLock(fn, existingLease?)` supports
+   explicit lease-passing (never implicit reentrancy) so a combined operation acquires exactly
+   one lease for its whole sequence and threads it into `finishStep` via a new, optional
+   `finalizeLease` input.
+2. **The lease had no crash recovery (D51).** A plain exclusive-create-then-`finally`-delete
+   lock never releases if its holder is killed. Corrected: the lease file records
+   `{ownerId, pid, createdAt}`; a stale lease (confirmed-dead pid via `process.kill(pid, 0)`)
+   is safely reclaimed, a live one is never stolen, and release verifies ownership before
+   deleting.
+3. **Activation and its consumption record could land on opposite sides of a crash (D52).**
+   Writing the consumption record as a separate step right after activation leaves a real
+   crash window where `workflow_progress` shows the step active but no provenance exists —
+   and once that happens, re-resolving fresh dependency state on retry could silently record
+   the wrong epoch. Corrected: a new, durable, resumable start-operation record — distinct
+   from `finish-operation.mjs`'s own record family — freezes the dependency snapshot before
+   activation and completes both stages idempotently on resume, from that frozen snapshot,
+   never a re-resolved one.
+4. **"First-ever task activation" cannot represent rework (D53).** A task returned to
+   `implementation` for a second attempt after its own dependency was invalidated-then-fixed
+   must be able to consume the *new* release epoch then — which a first-activation-only gate
+   forbids by construction. Corrected: a declarative, step-level `consumesDependencies: true`
+   field (owned by task 25's schema, not hidden in task 27's implementation prose) triggers
+   recording on every activation of a declared step, any attempt, with zero step-name checks.
+   Record identity gains the consuming step (`<change>/<task>/<step>/attempt-<n>.json`),
+   closing a real path-collision risk the previous two-segment identity had.
+5. **Remediation matched any historical record, not the authoritative one (D54).** Once a
+   task can record consumption more than once, matching an old, superseded record against a
+   later-invalidated-but-already-abandoned epoch would falsely flag a task whose later,
+   successful attempt already moved past that dependency state. Corrected: remediation
+   lookup resolves each task's authoritative (latest-attempt) record per dependency and
+   matches only against that one.
+
 ## Current architecture
 
 Grounded in repository discovery (2026-09-17, deepened 2026-09-19 by reading the actual
@@ -835,16 +879,21 @@ engine source directly):
   `requiredContext` — both inline content, D22–D24); `.nevo-ai/workflows/*.yaml`,
   `tools/specs/workflow/definitions/schema.mjs` (additive `continuation`, `execution`
   `{session, role}`, `releasesDependencies`, `invalidatesDependencyRelease`,
-  `schedulingPriority` schema, D25/D26/D28/D34/D39/D40); `tools/specs/workflow/
-  dependency-satisfaction.mjs` (epoch-based release/invalidation, D40); `tools/specs/workflow/
-  remediation-record.mjs`, `tools/specs/workflow/dependency-consumption.mjs` (new — durable
-  remediation groups and multi-dependency consumption provenance recorded at step activation,
-  D31/D36/D48); `tools/specs/workflow/cli.mjs` (`handleWorkflowStepStart` gains the
-  consumption-recording call site, D48); `tools/specs/workflow/git-finalize-lock.mjs` (new —
-  cross-process advisory lock, D47), with call sites inserted into `finish-operation.mjs`
-  (task 27), `human-step/operations.mjs`'s new `activateAndSubmitHumanStep` (task 29), and
-  `publish/operation.mjs` (task 31); `tools/specs/workflow/suspension-projection.mjs` (new —
-  `SuspensionProjection`, kept separate from the unmodified, pure `task-projection.mjs`, D44);
+  `schedulingPriority`, `consumesDependencies` schema, D25/D26/D28/D34/D39/D40/D53);
+  `tools/specs/workflow/dependency-satisfaction.mjs` (epoch-based release/invalidation, D40);
+  `tools/specs/workflow/remediation-record.mjs`, `tools/specs/workflow/dependency-consumption.mjs`
+  (new — durable remediation groups and step-scoped, multi-dependency consumption provenance,
+  D31/D36/D53/D54); `tools/specs/workflow/start-operation.mjs` (new — durable, resumable
+  activation-plus-consumption record, distinct from `finish-operation.mjs`'s own family, D52);
+  `tools/specs/workflow/cli.mjs` (`handleWorkflowStepStart` gains the start-operation call
+  site for any step declaring `consumesDependencies`, D52/D53); `tools/specs/workflow/
+  git-finalize-lock.mjs` (new — cross-process, PID-liveness-recoverable advisory lease with
+  explicit lease-passing, D47/D50/D51), with its acquisition wrapping `finish-operation.mjs`'s
+  own mutation-through-commit window (task 27), `human-step/operations.mjs`'s new
+  `activateAndSubmitHumanStep` (task 29, threading one lease through its own `finishStep`
+  call via `finalizeLease`), and `publish/operation.mjs`'s own standalone acquisition
+  (task 31); `tools/specs/workflow/suspension-projection.mjs` (new — `SuspensionProjection`,
+  kept separate from the unmodified, pure `task-projection.mjs`, D44);
   `tools/specs/workflow/readiness-policy.mjs` (existing, verified file — gains an explicit
   suspension check, D44); `tools/specs/workflow/queue/**` (pure-domain sequential queue,
   single-active-execution invariant, zero dashboard imports, D33/D34/D38/D45);
@@ -1037,16 +1086,31 @@ record-shaping helper is locally defined, since `createOperationRecord` is priva
 activation, derived purely from the workflow definition, no mutation; Approve/Request-changes
 performs `activateAndSubmitHumanStep` — activation + submission + finalization — as one
 self-owned operation; a new cross-process `withGitFinalizeLock`, owned by workflow core,
-serializes it against agent-driven `finishStep` and Publish, since an agent's `finishStep`
-runs in its own CLI subprocess, not the dashboard's). D48 (dependency-consumption recording
-moves to successful first-step activation inside workflow core, never AI-session admission;
-one atomic, multi-dependency record per attempt; remediation lookup matches any entry). D49
-(`admitExecution` renamed `admitAgentExecution`; its claim lifecycle is atomic through to
-durable visibility with rollback on failed session creation; human dispatch is an explicit,
-separate branch that never calls it and is never described as a form of admission). Two prior
-decisions corrected in place: D27 (the auto-activation *mechanism* is superseded by D47; the
-no-meaningless-click *goal* is unchanged), D45 (re-verified — its guarantee now holds for the
-right reason, D47's fix, not only the previously-checked one).
+serializes it against agent-driven `finishStep` and Publish — **lock boundary/reentrancy
+corrected by pass 13's D50**). D48 (dependency-consumption recording moves to successful step
+activation inside workflow core, never AI-session admission — **durability, trigger, and
+identity corrected by pass 13's D52/D53/D54**). D49 (`admitExecution` renamed
+`admitAgentExecution`; its claim lifecycle is atomic through to durable visibility with
+rollback on failed session creation; human dispatch is an explicit, separate branch). Two
+prior decisions corrected in place: D27 (the auto-activation *mechanism* is superseded by
+D47; the no-meaningless-click *goal* is unchanged), D45 (re-verified — its guarantee now
+holds for the right reason, D47's fix, not only the previously-checked one).
+
+**Corrective pass 13 decisions (2026-09-22):** D50 (the git-finalize lease wraps from the
+first tracked mutation through the commit, never narrower; `withGitFinalizeLock(fn,
+existingLease?)` supports explicit lease-passing so a combined operation acquires exactly one
+lease for its whole sequence — never implicit/recursive reentrancy — with `finishStep`
+gaining an optional `finalizeLease` input). D51 (the lease supports stale-owner recovery via
+`process.kill(pid, 0)` liveness checking, not lock-file age alone — a live owner is never
+stolen, a confirmed-dead one is safely reclaimed, release verifies ownership first). D52 (step
+activation and its dependency-consumption snapshot become durable together via a new,
+resumable start-operation record, distinct from `finish-operation.mjs`'s own — retries resume
+from the originally-frozen snapshot, never re-resolve to newer epochs). D53 (a declarative,
+step-level `consumesDependencies: true` field — owned by task 25's schema — triggers
+consumption recording on every activation of a declared step, any attempt, replacing
+"first-ever task activation"; record identity gains the consuming step). D54 (remediation
+lookup matches only a task's authoritative — latest-attempt — consumption record per
+dependency, never any historical record a later attempt has already superseded).
 
 ## Proposed architecture
 
@@ -1295,26 +1359,27 @@ deterministic spec.
   distinct human-dispatch branch — mutation-free interaction preview,
   `activateAndSubmitHumanStep` as one self-owned operation, never called "agent admission"
   (D27/D47/D49); a pending human decision never pauses the rest of the queue (D45).
-- `areas/dependency-release-and-invalidation.md` — (pass 9/10/11/12) declarative, epoch-based
-  dependency release with explicit invalidation (D28/D40); automatic remediation-group
-  derivation from durable, multi-dependency consumption evidence recorded at successful step
-  activation (D31/D48), including terminal consumers; a separate `SuspensionProjection`
-  alongside the unmodified, pure `TaskProjection` (D44), surfaced via a distinct
-  `suspensions` field (D37), durable and extensible (D36); owns the shared, cross-process
-  `withGitFinalizeLock` (D47).
+- `areas/dependency-release-and-invalidation.md` — (pass 9/10/11/12/13) declarative,
+  epoch-based dependency release with explicit invalidation (D28/D40); a correctly-bounded,
+  lease-passing, crash-recoverable git-finalize lease (D47/D50/D51); durable, declaratively-
+  triggered, step-scoped dependency-consumption via a resumable start-operation (D52/D53);
+  automatic remediation-group derivation from each consumer's authoritative consumption
+  record (D31/D54), including terminal consumers; a separate `SuspensionProjection` alongside
+  the unmodified, pure `TaskProjection` (D44), surfaced via `suspensions` (D37), durable and
+  extensible (D36).
 - `areas/deterministic-sequential-queue.md` — (pass 9/10/11) a **sequential, single-execution**
   task queue (never concurrent, D33), pure domain logic under `tools/specs/workflow/queue/**`
   (D38), ordered by declarative `schedulingPriority` (D34); never blocked by a pending human
   decision elsewhere in the spec (D45); reused by D31's remediation-group fix runs. The
   checkbox-picker UI and the agent-admission gate (D41/D49) are owned elsewhere.
-- `areas/dependency-invalidation-remediation-review.md` — (pass 9/10/11) the one combined,
+- `areas/dependency-invalidation-remediation-review.md` — (pass 9/10/11/13) the one combined,
   cross-task-aware review pass for a dependency-invalidation remediation group (membership
-  from D48's durable evidence), adapting the existing legacy `implementation-review` two-pass
-  design, terminal members reviewed read-only (D31).
-- `areas/user-mutation-source-control-ownership.md` — (pass 9/12) Publish/Batch Publish own
-  their own commit/push (D29), now also serialized against agent-driven `finishStep` via the
-  shared git-finalize lock (D47); the explicit user-action/technical-activation/completed-
-  mutation ownership taxonomy (D30).
+  from D54's authoritative evidence), adapting the existing legacy `implementation-review`
+  two-pass design, terminal members reviewed read-only (D31).
+- `areas/user-mutation-source-control-ownership.md` — (pass 9/12/13) Publish/Batch Publish own
+  their own commit/push (D29), acquiring their own standalone git-finalize lease (D47/D50) so
+  a concurrently-running agent `finishStep` cannot absorb Publish's mutation; the explicit
+  user-action/technical-activation/completed-mutation ownership taxonomy (D30).
 
 ## Change-wide acceptance criteria
 
