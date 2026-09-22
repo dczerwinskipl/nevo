@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-22T00:32:36.200Z",
+  "generated": "2026-09-22T06:32:55.139Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -500,7 +500,10 @@
           "id": "user-mutation-source-control-finalization",
           "order": 31,
           "file": "tasks/31-user-mutation-source-control-finalization.md",
-          "status": "draft"
+          "status": "draft",
+          "depends_on": [
+            "dependency-release-and-invalidation"
+          ]
         },
         {
           "id": "dashboard-orchestration-wiring",

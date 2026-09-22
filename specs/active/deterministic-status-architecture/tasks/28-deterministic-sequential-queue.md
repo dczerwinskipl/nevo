@@ -29,7 +29,7 @@ AI/session/dashboard awareness — implementing the eligibility/ordering half of
 single-active-execution invariant (D33): computes exactly one `nextRunnable` item, ordered by
 declarative `schedulingPriority` (D34), never by step-name comparison. **This task does not
 decide whether an execution may actually start** — that atomic admission decision is
-`admitExecution` (D41, owned by `automatic-workflow-continuation`, task 29), which calls this
+`admitAgentExecution` (D41, owned by `automatic-workflow-continuation`, task 29), which calls this
 module for "what's next" and separately claims the spec-level slot. This task must not
 contain any concurrency limit, bounded-concurrency value, or "start N sessions" concept of
 any kind.
@@ -104,7 +104,7 @@ node tools/specs.mjs validate
 ## Out of scope
 
 Legacy `batch-*` itself (unchanged). Automatic retry of failed tasks. Cross-change
-scheduling. The `admitExecution` atomic admission gate (`automatic-workflow-continuation`,
+scheduling. The `admitAgentExecution` atomic admission gate (`automatic-workflow-continuation`,
 task 29 — this task only computes the plan). Creating sessions or calling `startHumanStep`
 (task 29). The combined cross-task-aware review of a remediation group's fixes
 (`dependency-invalidation-remediation-review`, task 30). Any form of concurrent execution,

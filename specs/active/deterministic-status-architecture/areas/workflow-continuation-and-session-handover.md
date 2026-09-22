@@ -5,144 +5,147 @@
 Own the application/orchestration layer between a finished workflow position and the next
 execution surface. This area covers: the execution-mode/provider selection UX for a spec's
 first explicit `start-step`/batch-Start, **always** shown when no change-level policy exists
-(D21, corrected pass 11 — never conditional on provider capability); a declarative
-per-transition `continuation: auto | owner-action` policy (D25) that marks eligibility only
-— never immediate execution; a declarative per-transition `execution: {session, role}`
-policy (D26); auto-activation of a human-owned step on arrival (D27), which never occupies
-the spec's single-execution slot (D33/D45); **the one spec-level admission gate**
-(`admitExecution`, D41) every execution path funnels through, atomically enforcing "at most
-one active agent execution per spec"; and **continuation reconciliation** (D42), triggered
-from three real server-side points, never a fictitious global turn event. Every eligible
-destination this area produces is handed to the sequential queue
-(`areas/deterministic-sequential-queue.md`) for ordering — this area decides *whether* an
-execution may start (via `admitExecution`) and *how* (session policy), the queue decides
-*which* eligible item is next.
+(D21); a declarative per-transition `continuation: auto | owner-action` policy (D25) that
+marks eligibility only — never immediate execution; a declarative per-transition `execution:
+{session, role}` policy (D26); **the one spec-level agent-admission gate**
+(`admitAgentExecution`, D41/D49) every **agent-owned** execution path funnels through,
+atomically enforcing "at most one active agent execution per spec," with a rollback path if
+the claim never becomes durably visible; **continuation reconciliation** (D42), triggered
+from three real server-side points, never a fictitious global turn event; and **the human
+dispatch path** (D47/D49) — a distinct branch, never called "agent admission," that exposes a
+mutation-free interaction preview and, on the user's own combined submit, performs
+activation + result submission + finalization as one self-owned operation, serialized against
+other finalize operations via a shared, cross-process git-finalize lock. Every eligible
+agent-owned destination this area produces is handed to the sequential queue
+(`areas/deterministic-sequential-queue.md`) for ordering.
 
 ## Current state (grounded, 2026-09-22)
 
-`startStep()` (`specification-detail-content.tsx`) creates a session directly with
-`provider: defaultProvider` and no `mode` — bypassing any queue/admission concept entirely.
-After `workflow step finish` transitions to `waiting-for-step-start`, nothing creates the
-next session. `AgentTurnRuntime.#eventStream.emit(state.turnId, type, data)`
-(`turns/runtime.mjs`) emits **keyed by `turnId`** for per-turn streaming — there is **no**
-global "any turn, anywhere, reached terminal" bus; `startTurn()` itself returns as soon as
-the turn is established (fired via `queueMicrotask`), not once it completes, so
-`AgentSessionService`'s own call site does not already run code after every turn finishes.
-`AgentSessionService` (`service.mjs`) is nonetheless the one module that already centralizes
-every `startTurn()` call server-wide (one shared `turnRuntime` instance) — the real
-ownership point for adding a per-turn completion hook. `human-step-transport.mjs`'s handler
-already `await`s `submitHumanStepResult(...)` synchronously, a clean existing hook point for
-the human path. `AgentTurnRuntime.#acquireStartLock(key)` (a promise-chain mutex keyed by
-session id, serializing concurrent callers within the single Node process) is an existing,
-proven pattern for exactly the kind of atomic claim `admitExecution` needs, just keyed
-differently. `binding-service.mjs`'s `listSessions`/`listSessionsSync` filter by `taskId`
-only; no `parentSessionId`/lineage or `role` concept exists yet.
+`startStep()` (`specification-detail-content.tsx`) creates a session directly, bypassing any
+queue/admission concept. `startHumanStep` (`human-step/operations.mjs`) calls
+`ensureStepActivated` directly — confirmed by reading the function — mutating
+`workflow_progress` (hence `change.yaml`) with no commit of its own; only
+`submitHumanStepResult` → `finishStep` later commits. `CommitAndPushAction`
+(`commit-and-push.mjs`) always `derived.push('specs/active/<changeSlug>/change.yaml')` —
+confirmed by reading it — so *any* task's own commit-and-push in the same change stages and
+commits the entire current on-disk `change.yaml`, including another task's still-uncommitted
+mutation. Under D45 (pending human decisions don't block the agent queue), a different task's
+own agent-driven `finishStep` can run concurrently with a human decision — creating exactly
+this leak risk for human auto-activation, the same class of bug D29 already fixed for
+Publish. `AgentTurnRuntime.#eventStream.emit` is keyed per-`turnId` (no global "any turn
+terminal" bus); `startTurn()` returns before the turn completes. `AgentSessionService`
+(`service.mjs`) centralizes every `startTurn()` call server-wide. `human-step-transport.mjs`
+already `await`s `submitHumanStepResult` synchronously. `AgentTurnRuntime.#acquireStartLock`
+is an in-process promise-chain mutex — correct for admission (dashboard-internal), but an
+agent's `workflow step finish` runs in its own **CLI subprocess**, a separate OS process from
+the dashboard server, so a finalize-serialization lock must be cross-process, not an
+in-process mutex.
 
 ## Requirements
 
-- **Execution-mode/provider selection, always shown (D21, corrected).** When a spec/change
-  has no resolved execution policy, the first explicit `start-step`/batch-Start **always**
-  shows the provider + mode picker (sensible defaults preselected) — never conditioned on
-  whether a provider "needs" it. Confirming persists `{provider, mode}` as the change-level
-  default at `.nevo-ai-local/execution-policy/<change>.json` via a real server transport.
-  Optional per-task overrides may layer on top.
-- **Continuation is eligibility, not scheduling (D25).** `.nevo-ai/workflows/*.yaml`
-  transitions gain `continuation: auto | owner-action` (default `owner-action`). `auto` means
-  only "no owner decision required before this destination may be scheduled." Full
-  `standard-v1.yaml` migration (all four internal transitions, per task 25's schema).
-- **One spec-level admission gate for every execution path (D41).** `admitExecution(specId,
-  candidate)` (`tools/dashboard/server/ai/orchestration/admission.mjs`) is the **only** path
-  capable of creating a new agent session or calling `startHumanStep` for deterministic
-  execution. It reuses `AgentTurnRuntime.#acquireStartLock`'s exact promise-chain-mutex
-  pattern, keyed by `specId`: acquire the lock, check for an already-active agent execution
-  for the spec, and if none, atomically claim the slot before returning "admitted" — check
-  and claim happen inside the same held lock so two simultaneous callers can never both
-  observe "free." Manual single Start, batch Start, automatic continuation, and remediation
-  execution all enqueue their candidate(s) into the sequential queue and then call this same
-  gate — `startStep()` and every other UI entry point are corrected to call it exclusively,
-  never `createSession`/`startHumanStep` directly for deterministic execution.
-- **Continuation reconciliation, three real hook points, never a fictitious event (D42).**
-  One shared function, `reconcileWorkflowPosition(change, task)`, resolves the authoritative
-  workflow position, checks the matched transition's `continuation`, and — if `auto` —
-  enqueues the destination then calls `admitExecution`. Invoked from: (1) `AgentSessionService`,
-  corrected to attach its own listener via the existing per-turn `subscribeToSession`-style
-  mechanism when it starts a turn for a deterministic-task-bound session, firing
-  `reconcileWorkflowPosition` on that turn's terminal event; (2) `human-step-transport.mjs`'s
-  handler, immediately after `submitHumanStepResult` resolves; (3) the existing
-  `ensureReconciled()`-style lazy first-request hook, extended to also reconcile every
-  in-progress deterministic task (restart/crash recovery). `finishStep()` stays exactly as
-  provider-neutral as before — none of this logic moves into `tools/specs/workflow/**`.
-- **Session policy on the transition, role extensible (D26).** `execution: {session: reuse |
-  fresh, role: <string>}` lives on the transition. Migration: `implementation → review` →
-  `{session: fresh, role: reviewer}`; `review` fail → `implementation` →
-  `{session: fresh, role: refiner}`; `human-verification` fail (Request changes) →
-  `implementation` → `{session: fresh, role: refiner}`.
-- **Human-step auto-activation never occupies the execution slot (D27/D45).** When
-  `reconcileWorkflowPosition` resolves an eligible human-owned destination, it calls
-  `startHumanStep` directly — no session, no `admitExecution` call (a human decision is not
-  an agent execution). Per D45, other agent-owned queued work for the same spec may continue
-  while this human decision is pending; several may accumulate.
+- **Execution-mode/provider selection, always shown (D21).** Whenever a spec/change has no
+  resolved execution policy, the first explicit `start-step`/batch-Start **always** shows the
+  provider + mode picker (sensible defaults preselected) — never conditioned on provider
+  capability. Confirming persists `{provider, mode}` as the change-level default via a real
+  server transport.
+- **Continuation is eligibility, not scheduling (D25).** Unchanged from prior passes.
+- **One spec-level agent-admission gate, atomic through to durable visibility, with rollback
+  (D41/D49).** `admitAgentExecution(specId, candidate)`
+  (`tools/dashboard/server/ai/orchestration/admission.mjs`) is the **only** path that can
+  create a new agent session — never a human interaction. It reuses
+  `AgentTurnRuntime.#acquireStartLock`'s exact promise-chain-mutex pattern, keyed by
+  `specId`: acquire lock → re-read active-execution state → if occupied, reject/defer
+  (candidate stays eligible) → if free, mark occupied → synchronously drive session/turn
+  creation to the point its canonical identity is durably observable → only then release the
+  lock. **If creation fails after the claim but before durable visibility, the claim is
+  rolled back** before returning — the candidate remains eligible/retryable; the spec is
+  never left falsely, permanently occupied. Manual Start, batch Start, automatic
+  continuation, and remediation execution for **agent-owned** candidates all funnel through
+  this one gate.
+- **Continuation reconciliation, three real hook points (D42).** Unchanged in mechanism
+  (`AgentSessionService`'s per-turn subscription; `human-step-transport.mjs`'s post-submit
+  call; boot/first-request reconciliation) — but for a **human-owned** destination, it no
+  longer calls `startHumanStep` automatically (see below); it only makes the interaction
+  available.
+- **Human dispatch is a distinct branch — never "agent admission" (D47/D49).**
+  - **Interaction preview requires no mutation.** For a `waiting-for-step-start` position
+    whose destination step is human-owned, the dashboard action DTO (`actions.mjs`, task 14's
+    existing file) computes an interaction-actions preview
+    (`{result?, label, feedbackRequired}[]`) purely from the workflow definition's own
+    declared transitions for that step — no `ensureStepActivated` call, no mutation.
+    `HumanStepSurface` renders this identically to the active-interaction case.
+  - **One combined, self-owned operation on submit.** A new domain operation,
+    `activateAndSubmitHumanStep` (`human-step/operations.mjs`), performs `startHumanStep`
+    immediately followed by `submitHumanStepResult` within one call — no intervening `await`
+    boundary that could hand control to another caller between the activation write and its
+    own commit.
+  - **Serialized via the shared git-finalize lock, not the admission gate.** This combined
+    operation acquires `withGitFinalizeLock` (owned by `dependency-release-and-invalidation`,
+    task 27) around its own mutate-then-commit sequence — the same lock agent-driven
+    `finishStep` and Publish acquire — so none of the three ever interleaves with another.
+    `admitAgentExecution` is never involved in this branch.
+- **Session policy on the transition, role extensible (D26).** Unchanged.
 - **Preserve Finding 8.** `HumanStepSurface`'s existing definition-driven rendering is
-  unchanged.
+  unchanged by any of the above — only *when* the underlying mutation happens changes.
 
 ## Constraints
 
 - No step-id/name dispatch anywhere in this area.
-- `finishStep`/`ensureStepActivated`/`startHumanStep` stay the only mutating engine entry
-  points; this area's orchestration module only sequences calls to them, and only for the one
-  item `admitExecution` actually admitted.
-- This area's modules live under `tools/dashboard/server/ai/orchestration/**` plus two real,
-  existing files it corrects (`tools/dashboard/server/ai/sessions/service.mjs`,
-  `tools/dashboard/server/specs/human-step-transport.mjs`) — it may freely import
-  `tools/specs/workflow/**`; the reverse must never occur.
-- No new public API is added to `tools/dashboard/server/ai/sessions/turns/runtime.mjs` itself
-  — `AgentSessionService` uses only its existing per-turn subscription mechanism.
-- The existing default-to-`'edit'` provider contract is unchanged for any path that has not
-  gone through this area's execution-policy resolution.
+- `finishStep`/`ensureStepActivated`/`startHumanStep`/`submitHumanStepResult` stay the only
+  mutating engine entry points; `activateAndSubmitHumanStep` is a thin composition of the
+  latter two, not a new implementation.
+- `admitAgentExecution` must never be called for a human-owned destination, and no area/task
+  artifact describes human dispatch as a form of admission.
+- This area's dashboard-side modules live under `tools/dashboard/server/ai/orchestration/**`
+  plus two real, existing files it corrects (`service.mjs`, `human-step-transport.mjs`); the
+  git-finalize lock itself lives in workflow core (task 27), not here, since a CLI subprocess
+  must be able to acquire it too.
+- No new public API is added to `tools/dashboard/server/ai/sessions/turns/runtime.mjs`.
 
 ## Interfaces and boundaries
 
-Exposes: the always-shown execution-policy picker and its server transport;
-`admitExecution`; `reconcileWorkflowPosition`; session lineage/role fields on session
-identity; human-step auto-activation.
+Exposes: the always-shown execution-policy picker; `admitAgentExecution` (agent-owned only);
+`reconcileWorkflowPosition`; the human interaction preview (via `actions.mjs`);
+`activateAndSubmitHumanStep`.
 
-Consumed by: `areas/deterministic-sequential-queue.md` (this area calls the queue for "what's
-next," then separately admits it); `AgentSessionService`/`human-step-transport.mjs` (the two
-real files this area's reconciliation hooks into).
+Consumed by: `areas/deterministic-sequential-queue.md` (agent-owned eligible destinations);
+`dependency-release-and-invalidation` (the git-finalize lock this area's human operation
+imports).
 
 ## Area-specific acceptance criteria
 
 - A first `start-step`/batch-Start for a change with no resolved execution policy always
-  shows the picker — proven for a provider that would not have needed an explicit mode under
-  the old, retracted conditional logic.
-- Two simultaneous admission requests for the same spec never both result in a created
-  session — proven with a test that races two concurrent `admitExecution` calls.
-- Simulating a turn-completion event for `implementation → review` via `AgentSessionService`'s
-  own per-turn subscription (not a fictitious global event) results in `review` being
-  enqueued and admitted with `execution: {session: fresh, role: reviewer}`.
-- Simulating `submitHumanStepResult` returning a `continuation: auto` result (e.g. "Request
-  changes") results in the resulting agent work being enqueued and admitted without any
-  further user action.
-- Killing and restarting the server between a reconciliation-triggering event and the queue
-  recording it results in the destination still being enqueued once the boot/first-request
-  reconciliation runs.
-- A human-owned destination reached via reconciliation renders `HumanStepSurface` immediately
-  with no session created and no `admitExecution` call.
-- While a human decision is pending on one task, `admitExecution` still admits a different,
-  independently-eligible agent-owned task in the same spec.
+  shows the picker.
+- Two simultaneous `admitAgentExecution` requests for the same spec never both result in a
+  created session.
+- A session/turn-creation failure occurring after the claim is marked but before it becomes
+  durably visible leaves the spec's slot free again — a subsequent admission request for the
+  same spec succeeds, proving no stale occupied state survives the failure.
+- Reaching a human-owned destination via reconciliation exposes the interaction preview with
+  **no** `workflow_progress`/`change.yaml` mutation — proven by inspecting git status before
+  the user submits anything.
+- Clicking Approve/Request-changes performs activation + submission + commit as one
+  operation; inspecting git state between the activation write and the commit (a deliberately
+  instrumented test) finds no window where the mutation exists uncommitted while another
+  operation could observe it.
+- While `activateAndSubmitHumanStep` holds the git-finalize lock, a concurrently-triggered
+  agent `finishStep` for a different task in the same spec waits for the lock rather than
+  committing a dirty `change.yaml`.
+- A human-owned destination reached via reconciliation never calls `admitAgentExecution`.
 - No file in this area contains a `switch`/`if`/lookup-object keyed on a literal step id, and
-  `tools/dashboard/server/ai/sessions/turns/runtime.mjs` gains no new exported API.
+  no file describes human interaction activation as "agent admission."
 
 ## Dependencies
 
 `areas/agent-step-bootstrap-and-context.md`, `tasks/25-workflow-continuation-schema.md`,
 `areas/deterministic-sequential-queue.md`, `areas/dependency-release-and-invalidation.md`
-(this area writes dependency-consumption records at admission, D43).
+(the git-finalize lock this area's human operation acquires).
 
 ## Out of scope
 
 A general-purpose action/dispatch framework. Per-provider handover routing beyond the
-provider/mode selection this area's execution policy already resolves. Any artifact/
-attachment system beyond the `parentSessionId` lineage field itself. Rolling back or
-retrying already-completed work. Deciding *which* eligible item runs next when several are
-eligible (the queue's own `schedulingPriority` ordering, D34).
+provider/mode selection this area's execution policy already resolves. Rolling back or
+retrying already-completed work. Deciding *which* eligible agent-owned item runs next when
+several are eligible (the queue's own `schedulingPriority` ordering, D34). Writing
+dependency-consumption records (moved to workflow core at step activation, D48 — this area no
+longer does this).

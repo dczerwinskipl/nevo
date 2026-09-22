@@ -411,7 +411,7 @@ remaining correctness gaps a fresh review found in pass 10's own design, before 
 2. **No single admission path; no race safety (D41).** `startStep()` could still create a
    session directly, bypassing any queue. Even a corrected queue's `nextRunnable: one item`
    answer is a read, not a claim — two simultaneous requests could both observe "free" and
-   both create sessions. Corrected: one `admitExecution(specId, candidate)` gate, reusing the
+   both create sessions. Corrected: one `admitAgentExecution(specId, candidate)` gate, reusing the
    exact promise-chain-mutex pattern `AgentTurnRuntime.#acquireStartLock` already proves
    (confirmed by reading it directly), keyed by `specId` instead of session id — every
    execution path (manual Start, batch Start, automatic continuation, remediation) funnels
@@ -456,6 +456,47 @@ remaining correctness gaps a fresh review found in pass 10's own design, before 
    Corrected: Publish defines its own small, local record-shaping helper, reusing only what's
    genuinely exported. Separately, `operationFilePath`'s real signature always produces a
    four-segment path; the original three-segment batch-publish path was corrected to match.
+
+**Corrective pass 12 (2026-09-22, D47–D49, corrections to D27/D41/D42/D43/D45): closing the
+remaining Git-ownership and provenance-timing gaps a fresh review found in pass 11's own
+design, grounded against `human-step/operations.mjs`, `commit-and-push.mjs`, and
+`AgentTurnRuntime`'s process boundary, read directly.**
+
+1. **Auto-activating a human step still leaked dirty tracked state (D47).** Confirmed:
+   `startHumanStep` mutates `workflow_progress` via `ensureStepActivated` with no commit of
+   its own, and `CommitAndPushAction` always includes the change's own `change.yaml` in
+   whatever it commits — so a different task's own agent-driven commit (legal to run
+   concurrently under D45) could sweep a pending human step's uncommitted activation into an
+   unrelated commit, recreating the exact Publish bug D29 already fixed. Corrected: the
+   interaction becomes visible without any mutation (derived purely from the workflow
+   definition), and Approve/Request-changes performs activation + submission + finalization
+   as one self-owned operation, serialized against every other finalize operation
+   (agent-driven `finishStep`, Publish) via a new, cross-process advisory file lock — an
+   in-process mutex cannot serialize against an agent's own CLI subprocess, confirmed by
+   reading `AgentTurnRuntime`'s process boundary directly.
+2. **Dependency-consumption recording happened at session admission, not step activation
+   (D48).** A session being admitted never guarantees `workflow step start` actually runs or
+   succeeds. Corrected: recording moves inside workflow core, to the exact point a task's
+   first step successfully activates — entirely within `tools/specs/workflow/**`, no
+   dashboard involvement needed for correctness.
+3. **One dependency per consumption record was insufficient (D48).** A task may depend on
+   several upstream tasks simultaneously, more than one release-based. Corrected: one atomic
+   record per attempt, holding an array of every release-based dependency it relies on;
+   remediation lookup matches on any entry.
+4. **Admission's claim lifecycle was underspecified (D49).** Corrected: `admitAgentExecution`
+   (renamed from `admitExecution`) owns the full check-claim-through-to-durable-visibility
+   boundary, with an explicit rollback path if session creation fails before the claim
+   becomes durably visible — the candidate stays eligible/retryable, the spec is never left
+   falsely occupied.
+5. **"Admission" and "human dispatch" were still described as one shared path in places
+   (D49).** Every reference describing human interaction activation as a form of "agent
+   admission" is corrected — the two are explicit, separate branches of orchestrator dispatch.
+6. **A stale conditional-picker sentence survived pass 11's own fix in one task's acceptance
+   criteria (task 32).** Removed — the picker always shows when no change-level policy
+   exists, consistently everywhere now.
+7. **D27's own decision text still described the now-corrected auto-activation mechanism.**
+   Corrected in place, pointing to D47 — the underlying goal (no meaningless manual "Start"
+   click) is unchanged; only the mechanism is.
 
 ## Current architecture
 
@@ -790,23 +831,30 @@ engine source directly):
   sections, not just adding a new deterministic reference).
 - `docs/development/agent-workflow-protocol.md` (ownership boundary documentation,
   including the executor invariant).
-- (corrective pass 9/10/11) `tools/specs/workflow/step-context.mjs` (`taskDefinition`,
+- (corrective pass 9/10/11/12) `tools/specs/workflow/step-context.mjs` (`taskDefinition`,
   `requiredContext` — both inline content, D22–D24); `.nevo-ai/workflows/*.yaml`,
   `tools/specs/workflow/definitions/schema.mjs` (additive `continuation`, `execution`
   `{session, role}`, `releasesDependencies`, `invalidatesDependencyRelease`,
   `schedulingPriority` schema, D25/D26/D28/D34/D39/D40); `tools/specs/workflow/
   dependency-satisfaction.mjs` (epoch-based release/invalidation, D40); `tools/specs/workflow/
   remediation-record.mjs`, `tools/specs/workflow/dependency-consumption.mjs` (new — durable
-  remediation groups and admission-time consumption provenance, D31/D36/D43); `tools/specs/
-  workflow/suspension-projection.mjs` (new — `SuspensionProjection`, kept separate from the
-  unmodified, pure `task-projection.mjs`, D44); `tools/specs/workflow/readiness-policy.mjs`
-  (existing, verified file — gains an explicit suspension check, D44); `tools/specs/workflow/
-  queue/**` (pure-domain sequential queue, single-active-execution invariant, zero dashboard
-  imports, D33/D34/D38/D45); `tools/dashboard/server/ai/orchestration/**` (new —
-  `admitExecution` admission gate, D41; continuation reconciliation, D42), plus two existing
-  files it corrects rather than replaces — `tools/dashboard/server/ai/sessions/service.mjs`
-  (per-turn reconciliation hook) and `tools/dashboard/server/specs/human-step-transport.mjs`
-  (post-submit reconciliation hook); `tools/specs/workflow/publish/operation.mjs`,
+  remediation groups and multi-dependency consumption provenance recorded at step activation,
+  D31/D36/D48); `tools/specs/workflow/cli.mjs` (`handleWorkflowStepStart` gains the
+  consumption-recording call site, D48); `tools/specs/workflow/git-finalize-lock.mjs` (new —
+  cross-process advisory lock, D47), with call sites inserted into `finish-operation.mjs`
+  (task 27), `human-step/operations.mjs`'s new `activateAndSubmitHumanStep` (task 29), and
+  `publish/operation.mjs` (task 31); `tools/specs/workflow/suspension-projection.mjs` (new —
+  `SuspensionProjection`, kept separate from the unmodified, pure `task-projection.mjs`, D44);
+  `tools/specs/workflow/readiness-policy.mjs` (existing, verified file — gains an explicit
+  suspension check, D44); `tools/specs/workflow/queue/**` (pure-domain sequential queue,
+  single-active-execution invariant, zero dashboard imports, D33/D34/D38/D45);
+  `tools/dashboard/server/ai/orchestration/**` (new — `admitAgentExecution` agent-admission
+  gate with rollback, D41/D49; continuation reconciliation, D42), plus existing files it
+  corrects rather than replaces — `tools/dashboard/server/ai/sessions/service.mjs` (per-turn
+  reconciliation hook), `tools/dashboard/server/specs/human-step-transport.mjs` (post-submit
+  reconciliation hook, now calling `activateAndSubmitHumanStep`), and
+  `tools/dashboard/server/specs/actions.mjs` (existing, verified task-14 file — gains the
+  mutation-free human-interaction preview, D47); `tools/specs/workflow/publish/operation.mjs`,
   `tools/dashboard/server/specs/routes.mjs` (durable Publish + atomic Batch Publish reusing
   `operation-record.mjs`'s actually-exported primitives, D29); `tools/dashboard/ui/screens/
   specification-detail/**`, `tools/dashboard/server/ai/sessions/execution-policy-service.mjs`
@@ -891,9 +939,12 @@ creates the next step's session when `auto` applies), D26 (session policy is dec
 `sessionPolicy: reuse | fresh` per step/role; `standard-v1`'s `review` step uses `fresh`; a
 new `parentSessionId` lineage field and an execution-role concept
 (`implementer`/`reviewer`/`refiner`) are added to session identity, never derived from a
-literal step name), D27 (the orchestrator auto-activates a human-owned step immediately on
-arrival via the existing `startHumanStep`, pausing there for the real declarative
-interaction — the redundant manual "Start" click before it is removed), D28 (a transition may
+literal step name), D27 (the orchestrator makes a human-owned step's real declarative
+interaction available immediately on arrival — the redundant manual "Start" click before it
+is removed; **mechanism corrected by pass 12's D47** — the interaction preview is derived
+from the workflow definition with no mutation, and `startHumanStep` fires only as part of the
+user's own combined Approve/Request-changes operation, not automatically on arrival), D28 (a
+transition may
 declare `releasesDependencies: true` to satisfy dependents before its own workflow reaches a
 terminal transition; the default, unmarked behavior is unchanged — dependents wait for
 `outcome: success` on a terminal transition exactly as today), D29 (`workflow task publish`/
@@ -957,18 +1008,23 @@ never reopened).
 **Corrective pass 11 decisions (2026-09-22):** D40 (dependency release is an epoch that
 remains valid until an explicit `invalidatesDependencyRelease: true` transition fires — never
 "the last history entry has the flag," never inferred from step-graph position; corrects
-D28's satisfaction mechanism, not its placement). D41 (one spec-level `admitExecution` gate,
-reusing `AgentTurnRuntime`'s own proven promise-chain-mutex pattern keyed by `specId`, is the
-only path that can start deterministic execution — atomic, race-safe, no per-task worktrees
-or concurrency limit). D42 (continuation reconciliation is one shared operation triggered from
-three real points — `AgentSessionService`'s own per-turn subscription, `human-step-transport.mjs`'s
-post-submit call, and boot/first-request reconciliation — never a nonexistent global turn
-event; `finishStep` stays provider-neutral). D43 (durable dependency-consumption provenance,
-recorded at admission, makes remediation-group membership an exact record match rather than a
-guess from unpersisted state). D44 (`SuspensionProjection` is a new, separate layer;
-`TaskProjection`/`projectTask()` stays exactly as pure as D10 already established).
-D45 (a pending human decision never pauses the rest of the spec's queue — the single-execution
-invariant is scoped to agent-owned executions only; several human decisions may accumulate).
+D28's satisfaction mechanism, not its placement). D41 (one spec-level `admitAgentExecution`
+gate — renamed and its claim lifecycle strengthened by D49 — reusing `AgentTurnRuntime`'s own
+proven promise-chain-mutex pattern keyed by `specId`, is the only path that can start a new
+**agent-owned** execution — atomic, race-safe, no per-task worktrees or concurrency limit).
+D42 (continuation reconciliation is one shared operation triggered from three real points —
+`AgentSessionService`'s own per-turn subscription, `human-step-transport.mjs`'s post-submit
+call, and boot/first-request reconciliation — never a nonexistent global turn event;
+`finishStep` stays provider-neutral; the human branch corrected by D47 to expose a preview
+rather than auto-activating). D43 (durable dependency-consumption provenance — recording
+point and record shape corrected by D48 to fire at successful step activation, not admission,
+and to cover multiple dependencies atomically — makes remediation-group membership an exact
+record match rather than a guess from unpersisted state). D44 (`SuspensionProjection` is a
+new, separate layer; `TaskProjection`/`projectTask()` stays exactly as pure as D10 already
+established). D45 (a pending human decision never pauses the rest of the spec's queue — the
+single-execution invariant is scoped to agent-owned executions only; several human decisions
+may accumulate; re-verified by pass 12 once D47 closed the Git-ownership gap this claim
+depended on).
 D46 (renamed `deterministic-batch-orchestrator` → `deterministic-sequential-queue`
 throughout; "batch" stays the user-facing selection word, "queue" the runtime concept). Three
 further corrections in place: D21 (the picker always shows on first Start when no
@@ -976,6 +1032,21 @@ change-level policy exists — never conditional on provider capability), D29 (P
 record-shaping helper is locally defined, since `createOperationRecord` is private to
 `finish-operation.mjs`, not exported; Batch Publish's path corrected to the real four-segment
 `operationFilePath` convention), D39 (extended with `invalidatesDependencyRelease`).
+
+**Corrective pass 12 decisions (2026-09-22):** D47 (a human interaction is visible before
+activation, derived purely from the workflow definition, no mutation; Approve/Request-changes
+performs `activateAndSubmitHumanStep` — activation + submission + finalization — as one
+self-owned operation; a new cross-process `withGitFinalizeLock`, owned by workflow core,
+serializes it against agent-driven `finishStep` and Publish, since an agent's `finishStep`
+runs in its own CLI subprocess, not the dashboard's). D48 (dependency-consumption recording
+moves to successful first-step activation inside workflow core, never AI-session admission;
+one atomic, multi-dependency record per attempt; remediation lookup matches any entry). D49
+(`admitExecution` renamed `admitAgentExecution`; its claim lifecycle is atomic through to
+durable visibility with rollback on failed session creation; human dispatch is an explicit,
+separate branch that never calls it and is never described as a form of admission). Two prior
+decisions corrected in place: D27 (the auto-activation *mechanism* is superseded by D47; the
+no-meaningless-click *goal* is unchanged), D45 (re-verified — its guarantee now holds for the
+right reason, D47's fix, not only the previously-checked one).
 
 ## Proposed architecture
 
@@ -1215,33 +1286,35 @@ deterministic spec.
   with the task's own document, task-declared `requiredContext` distinct from routing-derived
   `relevantDocs`, and separates internal finalize context from the agent-facing payload
   (D22–D24).
-- `areas/workflow-continuation-and-session-handover.md` — (pass 9/10/11) the execution-mode/
-  provider selection UX, **always shown** on first Start when no change-level policy exists
-  (D21); the declarative continuation (eligibility, not immediate execution) and
-  session-lineage/role model (D25–D27); the one spec-level `admitExecution` admission gate,
-  race-safe via a proven promise-chain-mutex pattern (D41); continuation reconciliation from
-  three real server-side points, not a fictitious global turn event (D42); a pending human
-  decision never pauses the rest of the queue (D45).
-- `areas/dependency-release-and-invalidation.md` — (pass 9/10/11) declarative, epoch-based
+- `areas/workflow-continuation-and-session-handover.md` — (pass 9/10/11/12) the
+  execution-mode/provider selection UX, **always shown** on first Start when no change-level
+  policy exists (D21); the declarative continuation (eligibility, not immediate execution)
+  and session-lineage/role model (D25/D26); the one spec-level `admitAgentExecution`
+  agent-admission gate, atomic through to durable visibility with rollback on failure
+  (D41/D49); continuation reconciliation from three real server-side points (D42); the
+  distinct human-dispatch branch — mutation-free interaction preview,
+  `activateAndSubmitHumanStep` as one self-owned operation, never called "agent admission"
+  (D27/D47/D49); a pending human decision never pauses the rest of the queue (D45).
+- `areas/dependency-release-and-invalidation.md` — (pass 9/10/11/12) declarative, epoch-based
   dependency release with explicit invalidation (D28/D40); automatic remediation-group
-  derivation from durable consumption evidence, including terminal consumers (D31/D43); a
-  separate `SuspensionProjection` alongside the unmodified, pure `TaskProjection` (D44),
-  surfaced via a distinct `suspensions` field (D37), durable and extensible (D36).
-- `areas/deterministic-sequential-queue.md` — (pass 9/10/11, renamed from "deterministic
-  batch orchestrator," D46) a **sequential, single-execution** task queue (never concurrent,
-  D33), pure domain logic under `tools/specs/workflow/queue/**` (D38), ordered by declarative
-  `schedulingPriority` (D34); never blocked by a pending human decision elsewhere in the spec
-  (D45); reused by D31's remediation-group fix runs. The checkbox-picker UI and the atomic
-  admission gate (D41) are owned elsewhere (`dashboard-orchestration-wiring`,
-  `workflow-continuation-and-session-handover`, respectively) — this area is the pure
-  ordering function only.
+  derivation from durable, multi-dependency consumption evidence recorded at successful step
+  activation (D31/D48), including terminal consumers; a separate `SuspensionProjection`
+  alongside the unmodified, pure `TaskProjection` (D44), surfaced via a distinct
+  `suspensions` field (D37), durable and extensible (D36); owns the shared, cross-process
+  `withGitFinalizeLock` (D47).
+- `areas/deterministic-sequential-queue.md` — (pass 9/10/11) a **sequential, single-execution**
+  task queue (never concurrent, D33), pure domain logic under `tools/specs/workflow/queue/**`
+  (D38), ordered by declarative `schedulingPriority` (D34); never blocked by a pending human
+  decision elsewhere in the spec (D45); reused by D31's remediation-group fix runs. The
+  checkbox-picker UI and the agent-admission gate (D41/D49) are owned elsewhere.
 - `areas/dependency-invalidation-remediation-review.md` — (pass 9/10/11) the one combined,
   cross-task-aware review pass for a dependency-invalidation remediation group (membership
-  from D43's durable evidence), adapting the existing legacy `implementation-review` two-pass
+  from D48's durable evidence), adapting the existing legacy `implementation-review` two-pass
   design, terminal members reviewed read-only (D31).
-- `areas/user-mutation-source-control-ownership.md` — (pass 9) Publish/Batch Publish own their
-  own commit/push (D29); the explicit user-action/technical-activation/completed-mutation
-  ownership taxonomy (D30).
+- `areas/user-mutation-source-control-ownership.md` — (pass 9/12) Publish/Batch Publish own
+  their own commit/push (D29), now also serialized against agent-driven `finishStep` via the
+  shared git-finalize lock (D47); the explicit user-action/technical-activation/completed-
+  mutation ownership taxonomy (D30).
 
 ## Change-wide acceptance criteria
 

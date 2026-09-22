@@ -55,18 +55,27 @@ mutations from technical activations from completed lifecycle mutations.
   publish <id-1>, <id-2>, ...`, bounded/summarized if the list is long) → optional push. If
   any task fails prevalidation, **none** are published. Never prompt the user for a commit
   message for either the single-task or batch case.
-- **Clean-worktree guarantee preserved.** A durable record left `running` after a crash is
-  reconciled the same way `finish-operation.mjs`'s own stages already reconcile an ambiguous
-  intent (compare persisted `intent` against real repository/task state; resume, no-op, or
-  fail closed with `reconciliation-required` — never guess).
-- **Ownership taxonomy documented (D30).** Extend `docs/development/agent-workflow-protocol.md`'s
-  existing ownership-boundaries section (no new doc file, per D3's precedent) with three
-  explicit categories: (1) standalone user-originated Git-tracked mutation (must finalize its
-  own commit/push — e.g. Publish); (2) technical activation that is part of an execution
-  attempt (may remain part of that attempt, finalized by its own
-  `workflow step finish`/`submitHumanStepResult` — e.g. `workflow step start`, human-step
-  auto-activation); (3) completed lifecycle mutation (already owns its own finalize,
-  unchanged — e.g. `submitHumanStepResult`, `finishStep`).
+- **Clean-worktree guarantee preserved, and serialized against concurrent finalize operations
+  (D47).** A durable record left `running` after a crash is reconciled the same way
+  `finish-operation.mjs`'s own stages already reconcile an ambiguous intent (resume, no-op, or
+  fail closed with `reconciliation-required` — never guess). `publishTask()`/Batch Publish
+  additionally acquire `withGitFinalizeLock` (`git-finalize-lock.mjs`, owned by
+  `dependency-release-and-invalidation`, task 27) around their own mutate-then-commit
+  sequence — the same lock agent-driven `finishStep` and the new combined human-decision
+  operation acquire, since a concurrently-running agent turn for a different task in the same
+  change (legal under D45) could otherwise sweep Publish's own uncommitted mutation into its
+  commit, the exact class of bug this whole area exists to fix.
+- **Ownership taxonomy documented (D30), corrected (pass 12 — human-step auto-activation
+  removed as an example).** Extend `docs/development/agent-workflow-protocol.md`'s existing
+  ownership-boundaries section (no new doc file, per D3's precedent) with three explicit
+  categories: (1) standalone user-originated Git-tracked mutation (must finalize its own
+  commit/push — e.g. Publish); (2) technical activation that is part of an execution attempt
+  (may remain part of that attempt, finalized by its own `workflow step finish` — e.g.
+  `workflow step start`); (3) completed lifecycle mutation (already owns its own finalize,
+  unchanged — e.g. `submitHumanStepResult`/`finishStep`, and, per D47, the new combined human
+  `activateAndSubmitHumanStep` operation, which owns both its own activation *and* its own
+  finalize as a single unit — it is not an instance of category (2), since D47 specifically
+  removed the standalone "activate now, finalize later" shape for the human case).
 
 ## Constraints
 
@@ -105,10 +114,14 @@ which must classify themselves against the taxonomy before being built.
 - `docs/development/agent-workflow-protocol.md` states the three-category taxonomy with the
   concrete examples above, extending the existing section (`git diff` shows no new top-level
   heading/file).
+- A concurrently-running agent `finishStep` for a different task in the same change waits for
+  `withGitFinalizeLock` rather than committing while Publish's own mutation is uncommitted —
+  proven by racing the two directly.
 
 ## Dependencies
 
-None among this change's own prior tasks — reuses the existing `commit-and-push` action and
+`dependency-release-and-invalidation` (task 27 — the `git-finalize-lock.mjs` this area's
+Publish path acquires, D47); otherwise reuses the existing `commit-and-push` action and
 `operation-record.mjs` primitives directly.
 
 ## Out of scope

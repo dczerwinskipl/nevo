@@ -1121,9 +1121,19 @@ points are asserted to route through the identical `startStep` function instance
 - **Consequences:** No hardcoded "Approve"/"Request changes" is introduced by this change —
   `HumanStepSurface`'s existing definition-driven rendering (Finding 8, confirmed correct,
   unchanged) is exactly what appears once auto-activation completes.
-- **Date:** 2026-09-21
+- **SUPERSEDED IN MECHANISM 2026-09-22 (pass 12) — see D47.** "Calls `startHumanStep`
+  itself... then pauses" is wrong: `startHumanStep` mutates `change.yaml` with no commit of
+  its own, and D45 (pending human decisions don't block other agent-owned work) makes it
+  possible for a different task's own commit to sweep that uncommitted mutation in — the same
+  bug D29 fixed for Publish. D47 corrects the *mechanism*, not the *goal* this decision states
+  (no redundant manual "Start" click; the user's first click is a genuine decision): the
+  interaction becomes visible from the workflow definition alone, with no mutation, and
+  `startHumanStep` fires only as the first half of the user's own combined Approve/
+  Request-changes operation. The user experience this decision describes is unchanged — they
+  still never see a meaningless "Start" button.
+- **Date:** 2026-09-21 (activation mechanism corrected 2026-09-22, pass 12 — see D47)
 - **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
-  `tasks/27-automatic-workflow-continuation.md`.
+  `tasks/29-automatic-workflow-continuation.md`.
 
 ## D28: A transition may declare `releasesDependencies: true` to satisfy dependents before its own terminal transition
 
@@ -1719,7 +1729,7 @@ points are asserted to route through the identical `startStep` function instance
   proven, already-in-production pattern for exactly this class of problem, just keyed by
   session id instead of spec id.
 - **Decision:** One spec-level admission function —
-  `tools/dashboard/server/ai/orchestration/admission.mjs`'s `admitExecution(specId,
+  `tools/dashboard/server/ai/orchestration/admission.mjs`'s `admitAgentExecution(specId,
   candidate)` — is the **only** path capable of resulting in a new agent session or
   `startHumanStep` call for deterministic workflow execution. It reuses the exact
   `#acquireStartLock`-style promise-chain mutex pattern, keyed by `specId`: acquire the
@@ -1728,10 +1738,10 @@ points are asserted to route through the identical `startStep` function instance
   duration of the check-and-claim) before returning "admitted" — the check and the claim
   happen inside the same held lock, so two simultaneous callers can never both observe "free."
   All four paths funnel through it: **manual single Start** = enqueue one item, then call
-  `admitExecution`; **batch Start** = enqueue several items, then call `admitExecution` once
+  `admitAgentExecution`; **batch Start** = enqueue several items, then call `admitAgentExecution` once
   (it only ever admits one); **automatic continuation** (D42) = enqueue the eligible
-  destination, then call `admitExecution`; **remediation execution** = enqueue the group's
-  task-id set as an ordinary queue selection (D31 unchanged), then call `admitExecution`.
+  destination, then call `admitAgentExecution`; **remediation execution** = enqueue the group's
+  task-id set as an ordinary queue selection (D31 unchanged), then call `admitAgentExecution`.
   `startStep()` and every other UI entry point are corrected to call this gate — never
   `createSession`/`startHumanStep` directly for deterministic execution.
 - **Rationale:** Matches the requirement directly: one gate, no second path, and race-safety
@@ -1742,8 +1752,16 @@ points are asserted to route through the identical `startStep` function instance
   `dashboard-orchestration-wiring` (task 32)'s `startStep()` calls this gate exclusively — its
   own direct `createSession.create(...)` call for the deterministic execution path is removed
   (task 26's execution-policy-selection UI still precedes it, unchanged, but the actual
-  session creation now happens only inside `admitExecution`'s admitted branch).
-- **Date:** 2026-09-22
+  session creation now happens only inside `admitAgentExecution`'s admitted branch).
+- **Corrected 2026-09-22 (pass 12 — renamed, atomicity strengthened, human path removed —
+  see D49):** "may result in a new agent session or `startHumanStep` call" was itself wrong —
+  a human decision never occupies this slot and is never gated by this function (contradicted
+  task 29's own, correct text; resolved by D49's explicit two-branch dispatch). The name
+  itself is now `admitAgentExecution` (was `admitExecution`), and its claim lifecycle is
+  strengthened to hold through to durable visibility with rollback on failure — see D49 for
+  the full, corrected contract; this entry's core decision (one gate, all agent-owned paths,
+  reusing `#acquireStartLock`'s proven pattern) stands.
+- **Date:** 2026-09-22 (renamed and lifecycle strengthened 2026-09-22, pass 12 — see D49)
 - **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
   `areas/deterministic-sequential-queue.md`, `tasks/29-automatic-workflow-continuation.md`,
   `tasks/32-dashboard-orchestration-wiring.md`.
@@ -1774,7 +1792,7 @@ points are asserted to route through the identical `startStep` function instance
   (`tools/dashboard/server/ai/orchestration/**`), is the single place that: resolves the
   task's authoritative `workflow_progress` position, finds the matched transition, and — if
   `continuation: auto` — enqueues the destination (D28/D40) via the sequential queue, then
-  calls `admitExecution` (D41). It is invoked from exactly three real points, not a fictitious
+  calls `admitAgentExecution` (D41). It is invoked from exactly three real points, not a fictitious
   one: (1) **`AgentSessionService`**, corrected to attach its own internal listener via the
   existing per-turn `subscribeToSession`-style mechanism at the moment it starts a turn for a
   session bound to a deterministic task, firing `reconcileWorkflowPosition` when that specific
@@ -1796,7 +1814,16 @@ points are asserted to route through the identical `startStep` function instance
   `tools/dashboard/server/ai/sessions/service.mjs` and `tools/dashboard/server/specs/
   human-step-transport.mjs` in addition to its own `orchestration/**` tree and
   `ai/routes.mjs` — it does not touch `runtime.mjs` itself (no new public API needed there).
-- **Date:** 2026-09-22
+- **Corrected 2026-09-22 (pass 12 — human branch no longer auto-activates — see D47):** "if
+  `continuation: auto` — enqueues the destination, then calls `admitAgentExecution`" applied
+  this uniformly regardless of executor. Corrected: for an **agent-owned** destination, this
+  is unchanged. For a **human-owned** destination, `reconcileWorkflowPosition` no longer calls
+  `startHumanStep` automatically at all (D47 — that write would dirty `change.yaml` before
+  any commit finalizes it, risking exactly the leak D47 fixes) — instead it makes the
+  interaction *available* (a definition-derived preview, no mutation); `startHumanStep` fires
+  only as the first half of the user's own combined Approve/Request-changes operation (D47).
+  `admitAgentExecution` is never called for the human branch, consistent with D49.
+- **Date:** 2026-09-22 (human-branch activation corrected 2026-09-22, pass 12 — see D47)
 - **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
   `tasks/29-automatic-workflow-continuation.md`.
 
@@ -1808,7 +1835,7 @@ points are asserted to route through the identical `startStep` function instance
   re-release cycles for the same dependency. How is "T2 actually started because of T1's
   release X, not some other/later release" known reliably, including after a restart?
 - **Decision:** Introduce a durable dependency-consumption record, written at the moment a
-  task is actually **admitted** to start (D41's `admitExecution`, not merely enqueued) when
+  task is actually **admitted** to start (D41's `admitAgentExecution`, not merely enqueued) when
   that task has an unsatisfied-without-release dependency currently satisfied only via a
   release epoch (D40): `.nevo-ai-local/dependency-consumption/<change>/<consumingTaskId>/
   attempt-<n>.json`, shape `{consumingTaskId, consumingAttempt, dependencyTaskId,
@@ -1826,7 +1853,16 @@ points are asserted to route through the identical `startStep` function instance
   remediation groups from these records; `automatic-workflow-continuation` (task 29) owns
   writing them, since admission (D41) is where "this task is starting, and here is which
   release epoch its currently-satisfied dependency relies on" is actually known.
-- **Date:** 2026-09-22
+- **SUPERSEDED 2026-09-22 (pass 12) — see D48 for the corrected recording point and
+  record shape.** "Recorded at admission" is wrong: a session being admitted does not imply
+  `workflow step start` will ever actually succeed. D48 moves recording to successful step
+  activation inside workflow core (`handleWorkflowStepStart`, `cli.mjs`), owned entirely by
+  task 27 — `automatic-workflow-continuation` (task 29) no longer writes consumption records
+  at all. D48 also corrects the record shape from one dependency per record to an array
+  covering every release-based dependency an attempt relies on. This entry's remaining
+  correct content — evidence-based remediation lookup, never guessed from state/timestamps —
+  is restated, unchanged, under D48.
+- **Date:** 2026-09-22 (recording point and shape corrected 2026-09-22, pass 12 — see D48)
 - **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
   `tasks/27-dependency-release-and-invalidation.md`, `tasks/29-automatic-workflow-continuation.md`.
 
@@ -1895,9 +1931,19 @@ points are asserted to route through the identical `startStep` function instance
   concern for `standard-v1` today.
 - **Consequences:** The sequential queue's eligibility computation (`deterministic-sequential-
   queue`, task 28) never excludes an item merely because a different task in the same spec has
-  a pending human interaction. `admitExecution` (D41) only ever checks for an active
+  a pending human interaction. `admitAgentExecution` (D41) only ever checks for an active
   **agent** execution, never a pending human one.
-- **Date:** 2026-09-22
+- **Re-verified 2026-09-22 (pass 12, after the D47 Git-ownership fix) — this decision stands,
+  strengthened.** Rationale item 3 originally grounded source-control safety in "T1's *prior
+  step's* commit already landed before human-verification is reached" — true, but incomplete:
+  it did not yet address T1's *own* human-step activation write. D47 closes that gap directly
+  (no activation write happens merely to show the interaction; the one write that does happen
+  is finalized atomically, under a shared lock, as part of the same user operation) — so this
+  decision's guarantee now holds for the actual reason needed (no unowned dirty state from
+  T1's human step, at any point), not only the previously-checked one (T1's prior step's own
+  commit). Several human decisions may still accumulate safely, and each submit remains
+  independently attributable to the one user operation that produced it (D47).
+- **Date:** 2026-09-22 (re-verified 2026-09-22, pass 12 — see D47)
 - **Affected artifacts:** `areas/deterministic-sequential-queue.md`,
   `areas/workflow-continuation-and-session-handover.md`,
   `tasks/28-deterministic-sequential-queue.md`, `tasks/29-automatic-workflow-continuation.md`.
@@ -1924,3 +1970,183 @@ points are asserted to route through the identical `startStep` function instance
 - **Date:** 2026-09-22
 - **Affected artifacts:** `change.yaml`, `overview.md`, every `D<n>` entry and area/task file
   that previously referenced `deterministic-batch-orchestrator`.
+
+## D47: A human interaction is visible before activation; Approve/Request-changes performs one combined, self-owned operation — no unowned dirty `change.yaml` mutation
+
+- **Question:** D27/D45's design has `startHumanStep` fire automatically on arrival to make
+  `HumanStepSurface` visible without a meaningless "Start" click. **Grounded fact:**
+  `startHumanStep` (`tools/specs/workflow/human-step/operations.mjs`) calls
+  `ensureStepActivated` directly, which mutates `workflow_progress` (hence `change.yaml`) for
+  a `phase: 'new'`/`'completed'` activation — confirmed by reading the function. It performs
+  no commit of its own; only the later `submitHumanStepResult` → `finishStep` commits (via
+  the step's `finalize: [{id: commit-and-push}]`). Separately, `CommitAndPushAction`
+  (`commit-and-push.mjs`) always `derived.push('specs/active/<changeSlug>/change.yaml')` —
+  confirmed by reading the function — meaning **any** task's own commit-and-push in that same
+  change stages and commits the *entire current on-disk* `change.yaml`, including any other
+  task's still-uncommitted mutation sitting in the same file. Under D45, a different task
+  (T2) may keep running its own agent-owned work while T1 waits on a human — so T1's
+  auto-activation mutation could sit uncommitted exactly long enough for T2's own
+  `finishStep`/commit to sweep it in, silently, as an unrelated change — the identical
+  ownership bug D29/Finding 11 already fixed for Publish, recurring here for human
+  auto-activation.
+- **Decision:** Separate **"human interaction available"** from **"human step formally
+  activated"**:
+  1. **Interaction preview requires no mutation.** The dashboard action DTO/projection layer
+     (`DashboardActionProjection`, already-verified task 14's file,
+     `tools/dashboard/server/specs/actions.mjs`) computes an interaction-actions preview
+     (`{result?, label, feedbackRequired}[]`) for a `waiting-for-step-start` position whose
+     destination step is human-owned, derived **entirely from the workflow definition's own
+     declared transitions for that step** (`action.label`/`action.feedback.required`/`value`
+     — the exact same fields the *active*-state descriptor already reads) — no
+     `ensureStepActivated` call, no `workflow_progress` write, no `change.yaml` mutation.
+     `HumanStepSurface` renders this preview identically to the active-interaction case — the
+     user sees the real Approve/Request-changes controls immediately, with zero meaningless
+     click, and zero unowned dirty state.
+  2. **One combined, self-owned operation on submit.** When the user selects a result, one
+     new domain operation (owned by `human-step/operations.mjs`, e.g.
+     `activateAndSubmitHumanStep`) performs, within a single request/call, in order:
+     `startHumanStep` (activation) immediately followed by `submitHumanStepResult` (which
+     itself durably finalizes via `finishStep`'s existing commit-and-push). The whole
+     sequence is the one user action's own responsibility to finalize — no intervening
+     `await` boundary hands control back to any other caller between the activation write and
+     its own commit.
+  3. **A shared, cross-process git-finalize lock serializes every mutate-then-commit
+     operation — not an in-process mutex.** Because T2's own agent-driven `finishStep` can
+     run concurrently with T1's human decision (D45), these two writers must be serialized.
+     **Grounded fact:** an agent's `workflow step finish` runs inside the agent's own CLI
+     subprocess (`node tools/specs.mjs workflow step finish ...`), a **separate OS process**
+     from the dashboard server — unlike D41's admission lock (purely dashboard-internal, an
+     in-process promise-chain mutex is correct there), a lock guarding this critical section
+     must be **cross-process**. Corrected: `withGitFinalizeLock(fn)` lives entirely in
+     **workflow core** (`tools/specs/workflow/git-finalize-lock.mjs`), implemented as a
+     simple advisory file lock under `.nevo-ai-local/locks/git-finalize.lock` (exclusive
+     file creation, retry-with-backoff acquisition, delete-on-release — the same atomic-file
+     convention already used throughout `.nevo-ai-local/**`, not a new kind of
+     infrastructure) — reachable identically from a CLI subprocess or the dashboard's own
+     process. `finish-operation.mjs`'s `finishStep`, `human-step/operations.mjs`'s new
+     `activateAndSubmitHumanStep`, and `publish/operation.mjs`'s `publishTask`/Batch Publish
+     each acquire it around their own mutate-then-commit critical section — entirely within
+     `tools/specs/workflow/**`, no dashboard involvement needed for correctness. This is the
+     same class of fix D29 already made for Publish, generalized to cover the newly legal
+     T1-human/T2-agent concurrency D45 introduces, and extended to close the equivalent,
+     previously-unnoticed Publish-vs-agent-finishStep race the same mechanism also covers.
+  4. **`HumanStepSurface`'s existing declarative action rendering is unchanged** (Finding 8) —
+     this decision changes only *when* the underlying mutation happens, never what the user
+     sees or which actions a definition can declare.
+- **Rationale:** Matches the brief's preferred model exactly: distinguish interaction-available
+  from formally-activated; one user operation does startHumanStep + submitHumanStepResult +
+  finalization; guarantee no unowned tracked Git mutation survives for another task to absorb.
+- **Consequences:** `startHumanStep` is no longer called automatically on arrival — the
+  orchestrator's reconciliation (D42) computes/exposes the preview instead of activating.
+  `dependency-release-and-invalidation` (task 27) owns creating
+  `tools/specs/workflow/git-finalize-lock.mjs` and inserting its acquisition into
+  `finish-operation.mjs`'s own commit stage (a small, additive wrap, not a redesign of
+  `finishStep`) — task 27 already needs core-engine access for its own D40/D43/D48 work, and
+  comes earliest in the task graph among the three real callers, avoiding a dependency-order
+  inversion. `automatic-workflow-continuation` (task 29) owns the new
+  `activateAndSubmitHumanStep` combined operation in `human-step/operations.mjs`, importing
+  the lock task 27 created. `user-mutation-source-control-finalization` (task 31) imports the
+  same lock into `publish/operation.mjs`'s own commit stage — task 31 gains a `depends_on`
+  edge to `dependency-release-and-invalidation` for it (still forward in task-graph order:
+  27 < 31).
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `areas/dependency-release-and-invalidation.md`,
+  `areas/user-mutation-source-control-ownership.md`,
+  `tasks/27-dependency-release-and-invalidation.md`,
+  `tasks/29-automatic-workflow-continuation.md`, `tasks/32-dashboard-orchestration-wiring.md`,
+  `tasks/31-user-mutation-source-control-finalization.md`.
+
+## D48: Dependency consumption is recorded at successful step activation inside workflow core, not at AI-session admission; one record holds all of an attempt's release-based dependencies
+
+- **Question:** D43 recorded dependency consumption inside `admitAgentExecution` — but a
+  session being admitted does not imply `workflow step start` will ever actually succeed (the
+  agent might never run it, or it might fail). Separately, D43's record shape assumed exactly
+  one dependency per consuming attempt, but a task may `depends_on` several upstream tasks,
+  more than one of which may currently be satisfied only via a release epoch.
+- **Decision:**
+  1. **Recording point moves to actual step activation, inside workflow core.** Dependency
+     checking (`checkTaskDependencies`) already gates whether a task's **first** step
+     (`phase: 'new'`, no prior `workflow_progress` — dependencies are checked once, at a
+     task's initial activation, never re-checked at each subsequent step within the same
+     task) may activate at all. The consuming task id, consuming step, consuming attempt, the
+     authoritative dependency-satisfaction result, and the exact active release epochs are
+     all simultaneously available at exactly one place: right after `ensureStepActivated`
+     succeeds for that first-step activation, inside the CLI-level caller
+     (`handleWorkflowStepStart`, `tools/specs/workflow/cli.mjs`) — the one call site every
+     real `workflow step start` invocation (agent-driven or raw CLI) already goes through.
+     `dependency-release-and-invalidation` (task 27) exports the recording function; `cli.mjs`
+     calls it immediately after a successful first-step activation. This keeps the write
+     entirely within `tools/specs/workflow/**` — no AI/session/dashboard involvement needed
+     for correctness, matching "keep AI/session orchestration outside workflow core."
+     `admitAgentExecution` (D41) no longer records consumption at all — it has no reliable way
+     to know whether the admitted session's turn will ever actually reach `workflow step
+     start`, so it must not guess.
+  2. **Multi-dependency record shape.** One record per consuming attempt, holding every
+     release-based dependency it currently relies on:
+     ```
+     {
+       consumingTaskId, consumingStep, consumingAttempt,
+       dependencies: [ { taskId, releaseEpoch: { step, attempt } } ]
+     }
+     ```
+     at `.nevo-ai-local/dependency-consumption/<change>/<consumingTaskId>/attempt-<n>.json`,
+     written atomically as one file covering all of that attempt's release-based
+     dependencies together — never one file per dependency. A dependency currently satisfied
+     via a terminal `outcome: success` (not a release epoch) needs no entry here unless a
+     future provenance need arises — out of scope now.
+  3. **Remediation lookup matches on any dependency entry.** `findConsumersOfEpoch` (task 27)
+     returns a consuming task if **any** entry in its `dependencies` array names the
+     invalidated epoch — a task with two release-based dependencies is found via either one.
+- **Rationale:** Matches the brief precisely: correctness must align with actual step
+  activation, not session admission; a task can depend on multiple upstream tasks
+  simultaneously and the record must reflect that atomically.
+- **Consequences:** `automatic-workflow-continuation` (task 29) drops its D43-era
+  consumption-recording responsibility entirely — its own file no longer needs
+  `dependency-consumption.mjs` write access. `dependency-release-and-invalidation` (task 27)
+  gains `tools/specs/workflow/cli.mjs` in its `allowed_paths` for the one call-site insertion.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `tasks/29-automatic-workflow-continuation.md`.
+
+## D49: `admitAgentExecution`'s claim lifecycle is atomic through to durable visibility; human dispatch is a distinct path that never calls it
+
+- **Question:** D41 described admission as "lock → check → mark occupied → return admitted,"
+  leaving the claim's actual lifecycle underspecified — what happens if session/turn creation
+  fails *after* the claim is marked? Separately, D41's own wording ("the only path that may
+  create an agent session **or call `startHumanStep`**") contradicted task 29's own, correct
+  statement that a human destination never calls admission at all.
+- **Decision:**
+  1. **Renamed** `admitExecution` → **`admitAgentExecution`** throughout (mechanical, no
+     behavior change beyond what's specified below) — the name itself now states what it
+     gates: agent-owned execution only.
+  2. **Atomic claim lifecycle.** `admitAgentExecution(specId, candidate)` owns the full
+     check-and-claim-through-to-durable-visibility boundary, not merely a permission check for
+     some other code path to act on later: acquire the spec's lock → re-read active-execution
+     state → if occupied, reject/defer (candidate stays eligible, unchanged) → if free, mark
+     occupied → **synchronously drive session/turn creation to the point its canonical
+     identity is durably observable to a subsequent admission check** (e.g. the binding
+     record is persisted) → only then release the lock. **If session/turn creation fails
+     after the claim was marked but before it becomes durably visible**, `admitAgentExecution`
+     rolls back the claim (clears "occupied") before releasing the lock or returning — the
+     candidate remains eligible/retryable in the queue; the spec is never left permanently,
+     falsely occupied.
+  3. **Orchestrator dispatch, two distinct branches, never conflated.** Every destination
+     resolved by `reconcileWorkflowPosition`/a manual or batch Start branches once, on
+     `executor`: **agent-owned** → enqueue → `admitAgentExecution` → (on admission) create/
+     reuse a session per D26 → the spec-level single-agent-execution slot (D33) applies.
+     **human-owned** → expose/activate the human interaction path (D47's preview-then-
+     combined-operation model) → **no agent-execution slot is claimed, `admitAgentExecution`
+     is never called for this branch, and it is never described as "agent admission" in any
+     artifact.**
+- **Rationale:** Matches the brief precisely: the invariant must be real (atomic through to
+  visibility, with rollback on failure), and the two dispatch kinds must never share
+  terminology that implies a human decision consumes the same slot an agent execution does.
+- **Consequences:** `tasks/29-automatic-workflow-continuation.md`'s `admission.mjs` gains an
+  explicit rollback path; every reference to "admission" for the human branch is removed from
+  every area/task file — human dispatch is described only as exposing/activating the
+  interaction (D47), never as a form of admission.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `tasks/29-automatic-workflow-continuation.md`, `tasks/28-deterministic-sequential-queue.md`,
+  `tasks/32-dashboard-orchestration-wiring.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.

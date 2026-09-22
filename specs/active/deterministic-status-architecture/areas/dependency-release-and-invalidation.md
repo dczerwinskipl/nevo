@@ -39,20 +39,36 @@ by three UI call sites (`status-board.tsx`, `task-dialog.tsx`) — must not be o
   released via this path (a subsequent new `releasesDependencies` transition starts a fresh
   epoch). No wording or logic anywhere references a transition going "backward" or to an
   "earlier step" — only which declared transitions fired, and in what order.
-- **Durable dependency-consumption provenance, recorded at admission (D43).** A new module,
-  `tools/specs/workflow/dependency-consumption.mjs`, persists
-  `.nevo-ai-local/dependency-consumption/<change>/<consumingTaskId>/attempt-<n>.json`
-  (`{consumingTaskId, consumingAttempt, dependencyTaskId, releaseEpoch: {step, attempt}}`),
-  written by the orchestration layer (`automatic-workflow-continuation`, task 29) at the
-  moment a task is **admitted** to start against a dependency currently satisfied only via a
-  release epoch. This area exposes the write/read primitives; task 29 calls the write at the
-  right moment.
-- **Remediation-group derivation is evidence-based (D31 corrected, D43).** When a release
+- **Durable dependency-consumption provenance, recorded at successful step activation, not
+  admission (D48, corrected).** A new module, `tools/specs/workflow/dependency-consumption.mjs`,
+  persists `.nevo-ai-local/dependency-consumption/<change>/<consumingTaskId>/attempt-<n>.json`
+  with a **multi-dependency** shape covering every release-based dependency an attempt relies
+  on, written atomically as one file:
+  ```
+  { consumingTaskId, consumingStep, consumingAttempt,
+    dependencies: [ { taskId, releaseEpoch: { step, attempt } } ] }
+  ```
+  Recorded by this area's own call-site insertion into `handleWorkflowStepStart`
+  (`tools/specs/workflow/cli.mjs`), immediately after a successful **first-step**
+  (`phase: 'new'`) activation — never at AI-session admission, since an admitted session does
+  not guarantee `workflow step start` will ever actually run or succeed. This keeps the write
+  entirely within `tools/specs/workflow/**`.
+- **Shared git-finalize lock (D47).** This area owns `tools/specs/workflow/git-finalize-lock.mjs`
+  (`withGitFinalizeLock(fn)`), a cross-process advisory file lock
+  (`.nevo-ai-local/locks/git-finalize.lock`, exclusive-create + retry-with-backoff +
+  delete-on-release — same atomic-file family as the rest of `.nevo-ai-local/**`) — needed
+  because an agent's `workflow step finish` runs in its own CLI subprocess, not the dashboard
+  server's process, so an in-process mutex (unlike D41's admission lock) cannot serialize
+  against it. This area inserts its acquisition into `finish-operation.mjs`'s own
+  commit-producing stage (a small, additive wrap around the existing call, not a redesign);
+  `human-step/operations.mjs`'s new combined operation (task 29) and `publish/operation.mjs`
+  (task 31) import and acquire the same lock around their own commit-producing stages.
+- **Remediation-group derivation is evidence-based (D31 corrected, D48).** When a release
   epoch is invalidated, the remediation group is: the releasing task, plus every task whose
-  durable consumption record names that exact `releaseEpoch` — **regardless of that
-  consumer's current state** (`active`, `waiting`, `completed`, or already `terminal`). A
-  terminal consumer is never reopened or reverted — flagged via `suspensions` (below) as
-  advisory only.
+  durable consumption record has **any** `dependencies[]` entry naming that exact
+  `releaseEpoch` — **regardless of that consumer's current state** (`active`, `waiting`,
+  `completed`, or already `terminal`). A terminal consumer is never reopened or reverted —
+  flagged via `suspensions` (below) as advisory only.
 - **`suspensions`, not `blockedBy` (D37).** Every non-terminal group member is marked via a
   new, separate field, `suspensions: [{taskId, reason: 'dependency-invalidated', groupId}]`
   — additive, never merged into `blockedBy`, which keeps its unchanged `string[]` shape.
@@ -89,11 +105,14 @@ Exposes: `evaluateDependencySatisfaction`'s epoch-aware release logic;
 function and its durable record read/create primitives (`remediation-record.mjs`); the new
 `suspensions` field; `projectSuspensions(task, change)`.
 
-Consumed by: `automatic-workflow-continuation` (task 29 — writes consumption records at
-admission, reads release/invalidation state to decide eligibility), `readiness-policy.mjs`
-(composes `SuspensionProjection` into `ExecutionReadiness`), `areas/deterministic-sequential-
-queue.md` (respects `suspensions` when computing eligibility), `areas/dependency-
-invalidation-remediation-review.md` (reads and may extend the durable remediation record).
+Consumed by: `tools/specs/workflow/cli.mjs` (calls the consumption-recording function right
+after a successful first-step activation), `automatic-workflow-continuation` (task 29 — reads
+release/invalidation state to decide eligibility; imports the git-finalize lock and the new
+combined human operation's dependency on it), `publish/operation.mjs` (task 31 — imports the
+git-finalize lock), `readiness-policy.mjs` (composes `SuspensionProjection` into
+`ExecutionReadiness`), `areas/deterministic-sequential-queue.md` (respects `suspensions` when
+computing eligibility), `areas/dependency-invalidation-remediation-review.md` (reads and may
+extend the durable remediation record).
 
 ## Area-specific acceptance criteria
 
@@ -109,6 +128,15 @@ invalidation-remediation-review.md` (reads and may extend the durable remediatio
   root, proven from the consumption records, not from task state/timestamps.
 - A dependent whose consumption record names a **different**, still-valid epoch of the same
   dependency is excluded from the group even though it depends on the same task.
+- One consuming attempt whose task depends on **two** upstream tasks, both currently
+  satisfied via release epochs, records both in the same `dependencies[]` array in one
+  atomic write; invalidating **either** epoch finds this consumer.
+- A session admitted for a task, where the agent never actually runs (or fails)
+  `workflow step start`, produces **no** consumption record — proven directly, not merely
+  absent evidence.
+- `withGitFinalizeLock` serializes two concurrent callers (simulated) attempting their own
+  mutate-then-commit sequence — the second caller's critical section only begins once the
+  first's commit has fully landed.
 - `projectTask()`'s existing test suite is unaffected — it gains no new parameters, return
   fields, or file reads.
 - `readiness-policy.mjs`'s existing readiness checks are unaffected for a non-suspended task;
@@ -126,6 +154,6 @@ invalidation-remediation-review.md` (reads and may extend the durable remediatio
 Retrying, rolling back, or reopening a task's own completed work. The cross-task-aware
 review pass that determines when a remediation group's fix is complete and whether it must
 grow (`areas/dependency-invalidation-remediation-review.md`). Running the group's actual fix
-implementation attempts (`areas/deterministic-sequential-queue.md`). Writing consumption
-records (owned by `automatic-workflow-continuation`, task 29, at admission time) — this area
-only defines the record shape and read-side derivation logic.
+implementation attempts (`areas/deterministic-sequential-queue.md`). The new combined
+human-decision operation itself (`automatic-workflow-continuation`, task 29 — this area only
+provides the lock it acquires).

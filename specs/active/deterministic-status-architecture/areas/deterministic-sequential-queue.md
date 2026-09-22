@@ -42,7 +42,7 @@ established, correct direction, and this area's own module must preserve it.
   (D34) — a pure sort, no step-name branch anywhere. It also owns the queue's own durable
   membership state (local FS I/O, same family as `operation-record.mjs`, additive to but
   independent of `workflow_progress`). **This module never decides whether an execution may
-  actually start** — that atomic admission decision is `admitExecution` (D41), owned by
+  actually start** — that atomic admission decision is `admitAgentExecution` (D41), owned by
   `areas/workflow-continuation-and-session-handover.md`, which calls this module for "what's
   next" and then separately claims the spec-level slot.
 - **Checkbox-picker selection (D32, unchanged in this dimension).** One selection mechanism,
@@ -51,7 +51,7 @@ established, correct direction, and this area's own module must preserve it.
   more (including tasks that aren't yet ready) or fewer.
 - **A pending human decision never blocks the queue (D45).** The queue's eligibility
   computation never excludes an agent-owned item merely because a different task in the same
-  spec has a pending human interaction — `admitExecution` (D41) only ever gates on an active
+  spec has a pending human interaction — `admitAgentExecution` (D41) only ever gates on an active
   **agent** execution, never a pending human one.
 - **Cross-selection dependency warning, never a hard block (D32).** If the current selection
   includes a task blocked by a dependency that is itself not in the selection and not yet

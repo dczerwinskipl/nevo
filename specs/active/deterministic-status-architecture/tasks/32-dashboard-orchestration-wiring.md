@@ -26,7 +26,7 @@ depends_on:
     dependency-invalidation-remediation-review
   ]
 semantic_references:
-  decisions: [D32, D33]
+  decisions: [D32, D33, D47, D49]
 ---
 
 # Task: Dashboard orchestration wiring (corrected — sequential, checkbox picker, no parallel starts)
@@ -43,17 +43,21 @@ starting more than one execution at once), and the UI reflects queue/continuatio
 ## Implementation constraints
 
 - `specification-detail-content.tsx`'s `startStep` calls task 26's execution-policy check
-  first (always shown when unresolved, D21); once resolved, it submits the candidate to
-  `admitExecution` (D41, task 29's route) — it **never** calls `createSession.create(...)`
-  directly for deterministic execution. This is the single change that closes the "second
-  session-creation path" gap: every entry point in this task calls the same admission gate,
-  never session creation directly.
+  first — **always shown when no change-level policy exists, never conditional on the
+  provider** (D21); once a policy exists (or is just resolved), it submits the candidate to
+  `admitAgentExecution` (D41/D49, task 29's route) — it **never** calls
+  `createSession.create(...)` directly for deterministic execution. This is the single change
+  that closes the "second session-creation path" gap: every entry point in this task calls
+  the same admission gate, never session creation directly.
+- For a **human-owned** destination, `startStep` never calls `admitAgentExecution` at all
+  (D49) — it renders the mutation-free interaction preview (D47) directly from the DTO; the
+  actual `activateAndSubmitHumanStep` call happens only when the user picks a result.
 - Add the checkbox-picker UI to `specification-overview.tsx`: pre-checks currently-ready
   tasks, freely togglable, renders cross-selection dependency warnings inline (naming the
   specific blocking task), and submits the selection via the server-side orchestration
   layer's own route (task 29 — the browser never imports `tools/specs/workflow/queue/**`
   directly) — **never** starts more than one task's session directly from this UI; the queue
-  and `admitExecution` own execution order and atomicity.
+  and `admitAgentExecution` own execution order and atomicity.
 - A task with a pending human interaction never visually implies the whole board is frozen
   (D45) — other tasks' own "Start"/state continue to update normally.
 - Add an affordance for triggering `dependency-invalidation-remediation-review` (task 30)
@@ -71,8 +75,10 @@ starting more than one execution at once), and the UI reflects queue/continuatio
 
 ## Acceptance criteria
 
-- Clicking `start-step` for a task/provider needing mode selection shows the selection UI;
-  for one that doesn't, or that already has a resolved policy, it proceeds directly.
+- Clicking `start-step` for a change with **no** resolved execution policy **always** shows
+  the selection UI; once a policy is resolved, subsequent clicks proceed directly — proven for
+  a provider that would not have needed an explicit mode under the retracted conditional
+  logic.
   `automated: node --test tools/tests/dashboard-orchestration-wiring.test.mjs`
 - Selecting several tasks via the checkbox picker and submitting starts exactly one session
   (for the queue's first `nextRunnable` item) — never more than one, proven directly against
@@ -83,8 +89,10 @@ starting more than one execution at once), and the UI reflects queue/continuatio
   it — proven by asserting the UI only ever reads projection state, never calls a
   "start next" function of its own.
   `automated: node --test tools/tests/dashboard-orchestration-wiring.test.mjs`
-- A human step auto-activated by the server-side orchestrator renders `HumanStepSurface`'s
-  real interaction immediately in both the board/dialog path and chat.
+- A human-owned destination reached via reconciliation renders `HumanStepSurface`'s real
+  interaction preview immediately in both the board/dialog path and chat, with **no**
+  preceding activation mutation — the board/dialog/chat all read the same mutation-free DTO
+  preview (D47), never a "Start" click that activates anything first.
   `automated: node --test tools/tests/dashboard-orchestration-wiring.test.mjs`
 - Selecting a task blocked by an unselected, unsatisfied dependency shows a warning naming
   that dependency; submitting the selection anyway is still possible.

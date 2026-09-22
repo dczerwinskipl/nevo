@@ -40,7 +40,7 @@ ownership in pass 10; unconditional picker in pass 11).
   provider-list/`AGENT_EXECUTION_MODES` picker so `startStep()`
   (`specification-detail-content.tsx`) can present the identical choice before proceeding —
   this task owns only the policy check/selection/persistence; the actual session-creation
-  call it gates is `admitExecution` (D41, owned by `automatic-workflow-continuation`/
+  call it gates is `admitAgentExecution` (D41, owned by `automatic-workflow-continuation`/
   `dashboard-orchestration-wiring`, tasks 29/32), not a direct `createSession.create(...)`
   call from this task's own code.
 - **Server-side ownership (corrected — was previously unowned).** Add
