@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-21T18:49:39.356Z",
+  "generated": "2026-09-22T00:32:36.200Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -465,9 +465,9 @@
           ]
         },
         {
-          "id": "deterministic-batch-orchestrator",
+          "id": "deterministic-sequential-queue",
           "order": 28,
-          "file": "tasks/28-deterministic-batch-orchestrator.md",
+          "file": "tasks/28-deterministic-sequential-queue.md",
           "status": "draft",
           "depends_on": [
             "workflow-continuation-schema",
@@ -482,7 +482,8 @@
           "depends_on": [
             "workflow-continuation-schema",
             "execution-policy-and-mode-selection",
-            "deterministic-batch-orchestrator"
+            "deterministic-sequential-queue",
+            "dependency-release-and-invalidation"
           ]
         },
         {
@@ -492,7 +493,7 @@
           "status": "draft",
           "depends_on": [
             "dependency-release-and-invalidation",
-            "deterministic-batch-orchestrator"
+            "deterministic-sequential-queue"
           ]
         },
         {
@@ -508,7 +509,7 @@
           "status": "draft",
           "depends_on": [
             "execution-policy-and-mode-selection",
-            "deterministic-batch-orchestrator",
+            "deterministic-sequential-queue",
             "automatic-workflow-continuation",
             "dependency-invalidation-remediation-review"
           ]

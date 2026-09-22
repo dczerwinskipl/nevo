@@ -1,4 +1,8 @@
-# Area: Deterministic batch orchestrator (sequential queue)
+# Area: Deterministic sequential queue
+
+> Renamed from "Deterministic batch orchestrator" (D46) — "batch" is the user-facing
+> selection concept (the checkbox picker); "queue" is the runtime/orchestration concept this
+> area actually implements. No behavior change from the rename itself.
 
 ## Responsibility
 
@@ -28,17 +32,27 @@ established, correct direction, and this area's own module must preserve it.
 ## Requirements
 
 - **Pure domain queue, no AI/session awareness (D38).** `tools/specs/workflow/queue/**`
-  exposes: given a change's selected+queued task ids, each task's current `TaskProjection`,
-  and each candidate transition's `schedulingPriority`/`continuation`, compute (a) which
-  queued tasks are currently eligible (ready now, or blocked — surfaced as a warning, never
-  silently dropped or hard-blocked) and (b) the single next-runnable item, ordered by
+  exposes: given a change's selected+queued task ids, each task's `TaskProjection` (pure,
+  D10/D44 — never itself carrying `suspensions`) composed with `ExecutionReadiness`'s verdict
+  (which already folds in `SuspensionProjection`, D44), and each candidate transition's
+  `schedulingPriority`/`continuation`, compute (a) which queued tasks are currently eligible
+  (ready and not suspended — a suspended task is treated as blocked, surfaced as a warning,
+  never silently dropped or hard-blocked) and (b) the single next-runnable item, ordered by
   `schedulingPriority` ascending, then `task.order` ascending, then FIFO-by-eligible-time
   (D34) — a pure sort, no step-name branch anywhere. It also owns the queue's own durable
   membership state (local FS I/O, same family as `operation-record.mjs`, additive to but
-  independent of `workflow_progress`).
-- **Checkbox-picker selection (D32, unchanged in this dimension).** One selection mechanism:
-  a checkbox-based task picker, pre-selected with whichever tasks are currently ready. The
-  owner can freely check more (including tasks that aren't yet ready) or fewer.
+  independent of `workflow_progress`). **This module never decides whether an execution may
+  actually start** — that atomic admission decision is `admitExecution` (D41), owned by
+  `areas/workflow-continuation-and-session-handover.md`, which calls this module for "what's
+  next" and then separately claims the spec-level slot.
+- **Checkbox-picker selection (D32, unchanged in this dimension).** One selection mechanism,
+  owned by `dashboard-orchestration-wiring` (task 32), not this module: a checkbox-based task
+  picker, pre-selected with whichever tasks are currently ready. The owner can freely check
+  more (including tasks that aren't yet ready) or fewer.
+- **A pending human decision never blocks the queue (D45).** The queue's eligibility
+  computation never excludes an agent-owned item merely because a different task in the same
+  spec has a pending human interaction — `admitExecution` (D41) only ever gates on an active
+  **agent** execution, never a pending human one.
 - **Cross-selection dependency warning, never a hard block (D32).** If the current selection
   includes a task blocked by a dependency that is itself not in the selection and not yet
   satisfied, surface a warning naming the specific blocking task — never silently start it,
@@ -86,10 +100,10 @@ display); `areas/dependency-invalidation-remediation-review.md` (remediation-gro
 
 ## Area-specific acceptance criteria
 
-- The checkbox picker pre-selects exactly the currently-ready tasks; the owner can check/
-  uncheck freely.
-- Selecting a task blocked by an unselected, unsatisfied dependency produces a warning naming
-  that dependency; the selection is still submittable.
+- A task suspended (D37/D44) is treated as ineligible by this module's own eligibility
+  computation, proven directly against a suspended fixture task.
+- A task with a pending human interaction on a *different* task in the same spec remains
+  eligible — proven directly, not merely by absence of a counterexample.
 - Given three eligible items (`T1 review` at `schedulingPriority: 10`, `T2`/`T3
   implementation` at the default `0`), the queue's next-runnable item is always one of `T2`/
   `T3` until neither remains eligible, only then `T1 review` — proven directly against the

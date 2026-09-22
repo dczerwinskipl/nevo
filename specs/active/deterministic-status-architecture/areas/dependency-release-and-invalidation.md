@@ -2,108 +2,130 @@
 
 ## Responsibility
 
-Make the dependency-satisfaction release point declarative (D28) instead of hardcoded to
-"the dependency's own terminal transition with `outcome: success`." A release means a
-downstream task may **enter the sequential queue's runnable set** (D33) — never that it
-starts concurrently with the releasing task's own continued execution. When a released
-dependency's own review later turns out to have been premature, this area also derives the
-automatic remediation group it invalidates and suspends (D31), **including consumers that
-have already reached a terminal transition** (D31, corrected — a terminal consumer is not
-retroactively correct merely because it finished), persisted durably (D36) since a
-cross-task review can extend the group beyond what pure derivation alone produces. The
-cross-task-aware review of that group's fix is a separate area
-(`areas/dependency-invalidation-remediation-review.md`), which consumes this area's signal
-rather than duplicating it.
+Make the dependency-satisfaction release point declarative (D28) as a **release epoch that
+remains valid until an explicit, declarative invalidation transition fires** (D40 — not "the
+last history entry has the flag," which breaks the moment any further, non-invalidating
+transition happens). A release means a downstream task may **enter the sequential queue's
+runnable set** (D33) — never that it starts concurrently with the releasing task's own
+continued execution. When a release is explicitly invalidated, this area derives the
+automatic remediation group using durable dependency-consumption provenance (D43) — never
+guessed from `workflow_progress` state or timestamps — **including consumers that have
+already reached a terminal transition** (D31, corrected). Group membership persists durably
+(D36) since cross-task review can extend it. This area also owns `SuspensionProjection`
+(D44), kept strictly separate from the pure `TaskProjection` (D10, unchanged). The cross-
+task-aware review of a remediation group's fix is a separate area
+(`areas/dependency-invalidation-remediation-review.md`), which consumes this area's signals.
 
-## Current state (grounded, 2026-09-21)
+## Current state (grounded, 2026-09-22)
 
-`evaluateDependencySatisfaction` (`dependency-satisfaction.mjs`) requires the dependency's
-last `workflow_progress.history` entry to resolve to a declared transition whose `to` is a
-`TERMINAL_STATUSES` member **and** whose own `outcome === 'success'` (D9, unchanged) — there
-is no earlier release point. No `stale`/`suspend`/`revalidation-required` concept exists in
-this file or in `task-projection.mjs`. `blockedBy` is a plain `string[]` of task ids
-consumed directly by three UI call sites (`status-board.tsx`, `task-dialog.tsx`) — it must
-not be overloaded into a mixed shape (D37).
+`evaluateDependencySatisfaction` (`dependency-satisfaction.mjs`) reads only
+`history.at(-1)` — confirmed by reading the function directly — so a release recorded by an
+earlier transition appears to lapse the moment any later, non-invalidating transition occurs
+(e.g. `review → human-verification` after `implementation → review` released dependents).
+`projectTask()` (`task-projection.mjs`) takes only in-memory `(task, change, options)` and
+does no file I/O — confirmed pure, must stay that way. No dependency-consumption provenance,
+no release-epoch concept, and no `stale`/`suspend` concept of any kind exists yet in this
+file or `task-projection.mjs`. `blockedBy` is a plain `string[]` of task ids, read directly
+by three UI call sites (`status-board.tsx`, `task-dialog.tsx`) — must not be overloaded.
 
 ## Requirements
 
-- **Declarative release (D28).** An additive per-transition field, `releasesDependencies:
-  true`, may be declared on an internal (step-to-step) transition — `standard-v1.yaml`'s
-  `implementation → review` transition carries it. When a task's `workflow_progress` history's
-  last entry matches such a transition, its dependents may enter the sequential queue's
-  runnable set — never that they execute concurrently with it. Default, unmarked behavior for
-  every other transition/definition is unchanged.
-- **Automatic remediation-group derivation, including terminal consumers (D31, corrected).**
-  When a task whose matched transition previously satisfied dependents via
-  `releasesDependencies` later transitions *backward* to an earlier step, derive the
-  remediation group: that task plus **every** dependent task that actually consumed the
-  release — regardless of current state (`active`, `waiting`, `completed`, or already
-  `terminal`). This derivation reads existing `workflow_progress` history — no new manual
-  bookkeeping for the owner. A terminal consumer is never reopened or reverted (reopening a
-  completed deterministic workflow is not a supported engine operation); it is instead
-  flagged with a `suspensions[]` entry (below) whose meaning is advisory
-  ("this result requires revalidation"), since it has no next step to enforceably block.
-- **Suspension via `suspensions`, not `blockedBy` (D37).** Every non-terminal group member is
-  marked so it cannot start its own *next* step, via a new, separate `suspensions:
-  [{taskId, reason: 'dependency-invalidated', groupId}]` field — additive to the existing DTO,
-  never merged into or replacing `blockedBy`, which keeps its plain `string[]` shape and
-  ordinary-dependency meaning unchanged. A terminal group member gets the same `suspensions`
-  entry, understood as advisory rather than an enforceable block.
-- **Durable, extensible remediation record (D36).** Group membership persists at
-  `.nevo-ai-local/remediation-groups/<change>/<remediationId>.json` (`remediationId,
-  rootTaskId, causeAttempt, members, discoveredMembers, state`) — orchestration state,
-  distinct from `workflow_progress` (which stays the sole authoritative workflow-history
-  record). This area owns creating/reading the initial derivation into the record; only
+- **Release epoch, not a last-entry flag (D40).** `evaluateDependencySatisfaction`'s release
+  path scans the **full** `workflow_progress.history` for the latest entry whose matched
+  transition declares `releasesDependencies: true` (its `{step, attempt}` is the release
+  epoch), then checks whether any **later** entry's matched transition declares
+  `invalidatesDependencyRelease: true`. No later invalidation → still released, regardless of
+  how many intervening non-invalidating transitions occurred. A later invalidation → not
+  released via this path (a subsequent new `releasesDependencies` transition starts a fresh
+  epoch). No wording or logic anywhere references a transition going "backward" or to an
+  "earlier step" — only which declared transitions fired, and in what order.
+- **Durable dependency-consumption provenance, recorded at admission (D43).** A new module,
+  `tools/specs/workflow/dependency-consumption.mjs`, persists
+  `.nevo-ai-local/dependency-consumption/<change>/<consumingTaskId>/attempt-<n>.json`
+  (`{consumingTaskId, consumingAttempt, dependencyTaskId, releaseEpoch: {step, attempt}}`),
+  written by the orchestration layer (`automatic-workflow-continuation`, task 29) at the
+  moment a task is **admitted** to start against a dependency currently satisfied only via a
+  release epoch. This area exposes the write/read primitives; task 29 calls the write at the
+  right moment.
+- **Remediation-group derivation is evidence-based (D31 corrected, D43).** When a release
+  epoch is invalidated, the remediation group is: the releasing task, plus every task whose
+  durable consumption record names that exact `releaseEpoch` — **regardless of that
+  consumer's current state** (`active`, `waiting`, `completed`, or already `terminal`). A
+  terminal consumer is never reopened or reverted — flagged via `suspensions` (below) as
+  advisory only.
+- **`suspensions`, not `blockedBy` (D37).** Every non-terminal group member is marked via a
+  new, separate field, `suspensions: [{taskId, reason: 'dependency-invalidated', groupId}]`
+  — additive, never merged into `blockedBy`, which keeps its unchanged `string[]` shape.
+- **Durable, extensible remediation record (D36).** `.nevo-ai-local/remediation-groups/
+  <change>/<remediationId>.json` (`remediationId, rootTaskId, causeAttempt, members,
+  discoveredMembers, state`) — orchestration state, distinct from `workflow_progress`. This
+  area owns creating/reading the initial derivation; only
   `areas/dependency-invalidation-remediation-review.md` extends `discoveredMembers`.
+- **`SuspensionProjection` is separate from `TaskProjection` (D44).** A new function,
+  `projectSuspensions(task, change)` (`tools/specs/workflow/suspension-projection.mjs`), reads
+  the remediation-group and dependency-consumption records and returns a task's
+  `suspensions`. `projectTask()` itself is **not modified** — no new parameter, no new field,
+  no file I/O added to it. `ExecutionReadiness` (`readiness-policy.mjs`, already
+  verified/implemented by task 13) composes `TaskProjection` + `SuspensionProjection` and
+  gains an explicit new check: a suspended task's readiness is refused.
 
 ## Constraints
 
 - No destructive rollback of a downstream task's already-completed work, and no reopening of
   a terminal task's workflow.
-- The release-point field lives on the transition, mirroring `outcome`'s existing placement.
-- `blockedBy`'s shape and meaning are never changed by this area — `suspensions` is the only
-  new field.
-- The remediation-group derivation is pure/read-only against `workflow_progress` history for
-  its *initial* computation; extension (`discoveredMembers`) is owned exclusively by the
-  durable record, never re-derived silently.
+- `releasesDependencies`/`invalidatesDependencyRelease` are mutually exclusive on any one
+  transition and legal only on internal transitions (D25/D28/D40).
+- `blockedBy`'s shape and meaning are never changed by this area.
+- `projectTask()`/`task-projection.mjs` gain no new parameters, fields, or file I/O — pure,
+  unchanged (D44). Suspension data is composed only at the `ExecutionReadiness` layer or
+  above, never inside `TaskProjection`.
+- Remediation-group membership is never inferred from current task state or timestamps —
+  only from durable consumption records naming the exact invalidated epoch (D43).
 
 ## Interfaces and boundaries
 
-Exposes: `evaluateDependencySatisfaction`'s extended logic (declarative release); a
-remediation-group derivation function (root task → member task ids, including terminal
-ones) plus the durable record's read/create primitives; the new `suspensions` field.
+Exposes: `evaluateDependencySatisfaction`'s epoch-aware release logic;
+`dependency-consumption.mjs`'s write/read primitives; the remediation-group derivation
+function and its durable record read/create primitives (`remediation-record.mjs`); the new
+`suspensions` field; `projectSuspensions(task, change)`.
 
-Consumed by: `areas/deterministic-batch-orchestrator.md`'s sequential queue (must respect
-`suspensions` when computing eligibility, and runs a remediation group's fix attempts once
-unsuspended for that purpose), `areas/dependency-invalidation-remediation-review.md` (reads
-and may extend the durable record).
+Consumed by: `automatic-workflow-continuation` (task 29 — writes consumption records at
+admission, reads release/invalidation state to decide eligibility), `readiness-policy.mjs`
+(composes `SuspensionProjection` into `ExecutionReadiness`), `areas/deterministic-sequential-
+queue.md` (respects `suspensions` when computing eligibility), `areas/dependency-
+invalidation-remediation-review.md` (reads and may extend the durable remediation record).
 
 ## Area-specific acceptance criteria
 
-- A dependency whose matched transition declares `releasesDependencies: true` makes its
-  dependents eligible to enter the queue immediately, before its own workflow reaches a
-  terminal transition — proven for a task whose dependency is still `active` in `review`
-  after its `implementation → review` transition released dependents, and proven that the
-  dependent and the dependency are never both "the current running item" simultaneously.
-- A dependency that transitions backward after having released dependents produces a
-  remediation group containing itself and **every** dependent that started against the
-  release, including one that already reached `verified` — proven for a fixture with three
-  dependents: one still active, one waiting, one terminal.
-- Every non-terminal group member gets a `suspensions` entry and is excluded from the queue's
-  eligible set; the terminal member gets the same entry but is not treated as blocking
-  anything enforceable.
-- The durable remediation record survives a simulated process restart with its
-  `discoveredMembers` intact.
-- `blockedBy`'s existing tests are unaffected — its shape/values are unchanged by this area's
-  work.
+- A dependency released at `implementation → review` remains released after the further,
+  non-invalidating `review → human-verification` transition — proven directly, not merely
+  asserted for the single-transition case.
+- A dependency released, then invalidated by `review`'s `fail → implementation` transition,
+  no longer satisfies dependents via the release path (though it may still satisfy them via a
+  fresh release epoch or a terminal `outcome: success`, checked independently).
+- A fixture with one root task (release epoch, later invalidated) and three dependents whose
+  durable consumption records name that exact epoch — one still `active`, one `waiting`, one
+  already `terminal` — derives a remediation group containing exactly those three plus the
+  root, proven from the consumption records, not from task state/timestamps.
+- A dependent whose consumption record names a **different**, still-valid epoch of the same
+  dependency is excluded from the group even though it depends on the same task.
+- `projectTask()`'s existing test suite is unaffected — it gains no new parameters, return
+  fields, or file reads.
+- `readiness-policy.mjs`'s existing readiness checks are unaffected for a non-suspended task;
+  a suspended task's readiness is refused with a clear reason naming the suspension.
+- The durable remediation record and consumption records both survive a simulated process
+  restart with identical content.
 
 ## Dependencies
 
-`tasks/25-workflow-continuation-schema.md` (schema carrier for `releasesDependencies`).
+`tasks/25-workflow-continuation-schema.md` (schema carrier for `releasesDependencies`/
+`invalidatesDependencyRelease`).
 
 ## Out of scope
 
 Retrying, rolling back, or reopening a task's own completed work. The cross-task-aware
 review pass that determines when a remediation group's fix is complete and whether it must
 grow (`areas/dependency-invalidation-remediation-review.md`). Running the group's actual fix
-implementation attempts (`areas/deterministic-batch-orchestrator.md`).
+implementation attempts (`areas/deterministic-sequential-queue.md`). Writing consumption
+records (owned by `automatic-workflow-continuation`, task 29, at admission time) — this area
+only defines the record shape and read-side derivation logic.

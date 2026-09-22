@@ -6,7 +6,7 @@ context:
   required:
     - specs/active/deterministic-status-architecture/overview.md
     - specs/active/deterministic-status-architecture/areas/workflow-continuation-and-session-handover.md
-    - specs/active/deterministic-status-architecture/areas/deterministic-batch-orchestrator.md
+    - specs/active/deterministic-status-architecture/areas/deterministic-sequential-queue.md
     - specs/active/deterministic-status-architecture/owner-decisions.md
 allowed_paths:
   - tools/dashboard/ui/screens/specification-detail/specification-detail-content.tsx
@@ -21,7 +21,7 @@ forbidden_paths:
 depends_on:
   [
     execution-policy-and-mode-selection,
-    deterministic-batch-orchestrator,
+    deterministic-sequential-queue,
     automatic-workflow-continuation,
     dependency-invalidation-remediation-review
   ]
@@ -43,13 +43,19 @@ starting more than one execution at once), and the UI reflects queue/continuatio
 ## Implementation constraints
 
 - `specification-detail-content.tsx`'s `startStep` calls task 26's execution-policy check
-  first; only when unresolved does it show the selection UI.
+  first (always shown when unresolved, D21); once resolved, it submits the candidate to
+  `admitExecution` (D41, task 29's route) — it **never** calls `createSession.create(...)`
+  directly for deterministic execution. This is the single change that closes the "second
+  session-creation path" gap: every entry point in this task calls the same admission gate,
+  never session creation directly.
 - Add the checkbox-picker UI to `specification-overview.tsx`: pre-checks currently-ready
   tasks, freely togglable, renders cross-selection dependency warnings inline (naming the
   specific blocking task), and submits the selection via the server-side orchestration
   layer's own route (task 29 — the browser never imports `tools/specs/workflow/queue/**`
   directly) — **never** starts more than one task's session directly from this UI; the queue
-  and server-side orchestrator own execution order.
+  and `admitExecution` own execution order and atomicity.
+- A task with a pending human interaction never visually implies the whole board is frozen
+  (D45) — other tasks' own "Start"/state continue to update normally.
 - Add an affordance for triggering `dependency-invalidation-remediation-review` (task 30)
   against a derived remediation group, reusing this same checkbox/scheduling surface rather
   than a second UI.
@@ -82,6 +88,13 @@ starting more than one execution at once), and the UI reflects queue/continuatio
   `automated: node --test tools/tests/dashboard-orchestration-wiring.test.mjs`
 - Selecting a task blocked by an unselected, unsatisfied dependency shows a warning naming
   that dependency; submitting the selection anyway is still possible.
+  `automated: node --test tools/tests/dashboard-orchestration-wiring.test.mjs`
+- `specification-detail-content.tsx` contains no direct `createSession.create(...)` call for
+  the deterministic `start-step`/batch-Start path — an explicit grep-style check, not just
+  behavioral inference.
+  `automated: node --test tools/tests/dashboard-orchestration-wiring.test.mjs`
+- While one task shows a pending human interaction, a different, independently-eligible
+  task's own "Start" control and state continue to update normally.
   `automated: node --test tools/tests/dashboard-orchestration-wiring.test.mjs`
 - No file in this task's scope contains a `switch`/`if`/lookup-object keyed on a literal step
   id, and no file in this task's scope contains logic that could issue more than one

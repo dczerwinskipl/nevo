@@ -897,7 +897,20 @@ points are asserted to route through the identical `startStep` function instance
   independent of this policy: a fresh session still uses the same resolved provider/mode
   unless a task-level override says otherwise — freshness and provider selection are
   orthogonal axes, never conflated.
-- **Date:** 2026-09-21 (transport/scope corrected 2026-09-21, pass 10)
+- **Corrected 2026-09-22 (pass 11 — remove the "if the provider needs it" condition; always
+  ask on first Start):** conditioning the picker on "does the provider's permission model
+  need an explicit mode choice" was itself wrong — provider *selection* is part of what's
+  unresolved when no change-level policy exists, so a per-provider capability check can't run
+  first without already assuming an answer to the question it's supposed to gate. Corrected
+  rule: whenever a change has **no** resolved execution policy, the first explicit
+  `start-step`/batch-Start **always** shows the provider + mode picker (sensible defaults
+  preselected, e.g. the first available provider and its own default mode) — never
+  conditionally. The user confirms (accepting the defaults counts as confirming); the result
+  persists as the change-level policy exactly as already specified above. Every subsequent
+  queued item and automatic handover reuses it without asking again, unless a task-level
+  override applies.
+- **Date:** 2026-09-21 (transport/scope corrected 2026-09-21, pass 10; unconditional picker
+  corrected 2026-09-22, pass 11)
 - **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
   `tasks/26-execution-policy-and-mode-selection.md`.
 
@@ -1141,7 +1154,14 @@ points are asserted to route through the identical `startStep` function instance
   (D33) — never that it starts concurrently with the releasing task's own continued
   execution; the queue still enforces exactly one active agent execution for the spec. The
   invalidation consequence when a released dependency's later review fails is D31 (resolved).
-- **Date:** 2026-09-21
+- **Superseded in substance 2026-09-22 (pass 11) — see D40.** The mechanism above ("last
+  history entry matches the release transition") is factually wrong the moment a *second*
+  transition happens after the release (e.g. `review → human-verification`) — the dependency
+  remains released, but "last entry has the flag" would report it as no longer released. D40
+  replaces the satisfaction *mechanism* with a release-epoch model; this entry's core
+  decision — an additive, transition-level, declarative release field, chosen for consistency
+  with `outcome`'s placement — is unchanged and still governs.
+- **Date:** 2026-09-21 (satisfaction mechanism corrected 2026-09-22, pass 11 — see D40)
 - **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
   `tasks/25-workflow-continuation-schema.md`, `tasks/27-dependency-release-and-invalidation.md`.
 
@@ -1174,23 +1194,43 @@ points are asserted to route through the identical `startStep` function instance
   if the process dies between `setTaskStatus` and the commit actually landing. **Corrected
   design:** `publishTask()` becomes a durable standalone operation using the *same*
   `.nevo-ai-local/workflow-operations/<change>/<task>/publish/attempt-<n>.json` record
-  convention `operation-record.mjs` already defines (reusing `createOperationRecord`/
-  `saveOperationRecord`/`findInFlightOperationRecord` directly, not a parallel
-  implementation), with stages `['validate', 'update-task', 'commit', 'push']` mirroring
-  `finish-operation.mjs`'s own `ensureUpdateTask`/`ensureCommit`/`ensurePush` intent-then-
-  verify shape (extract these as shared, reusable stage functions if they aren't already
-  generic enough to call from both `finishStep` and `publishTask` — do not duplicate the
-  git-state-reconciliation logic a second time). **Batch Publish atomicity, also previously
-  left open, now decided:** one dashboard "Publish selected tasks" action is one durable
-  operation record spanning the whole selected set (not one record per task) —
-  prevalidate every selected task first; only if *all* pass does mutation begin; mutate every
-  selected task's status; one deterministic combined commit (e.g. `chore(workflow): publish
-  <task-id-1>, <task-id-2>, ...`, bounded/summarized if the list is long) → optional push.
-  If any task fails prevalidation, none are published — no partial-batch mutation. The
-  record lives at `.nevo-ai-local/workflow-operations/<change>/_batch-publish/attempt-<n>.json`
-  (a reserved pseudo-task-id, since the record spans multiple real tasks) using the same
-  primitives.
-- **Date:** 2026-09-21 (durability and batch atomicity corrected 2026-09-21, pass 10)
+  convention `operation-record.mjs` already defines, reusing its **actually-exported**
+  primitives (`operationFilePath`, `loadOperationRecord`, `saveOperationRecord`,
+  `findInFlightOperationRecord`), with stages `['validate', 'update-task', 'commit', 'push']`
+  mirroring `finish-operation.mjs`'s own `ensureUpdateTask`/`ensureCommit`/`ensurePush`
+  intent-then-verify shape. **Batch Publish atomicity, also previously left open, now
+  decided:** one dashboard "Publish selected tasks" action is one durable operation record
+  spanning the whole selected set (not one record per task) — prevalidate every selected task
+  first; only if *all* pass does mutation begin; mutate every selected task's status; one
+  deterministic combined commit (e.g. `chore(workflow): publish <task-id-1>, <task-id-2>,
+  ...`, bounded/summarized if the list is long) → optional push. If any task fails
+  prevalidation, none are published — no partial-batch mutation.
+- **Corrected 2026-09-22 (pass 11 — `createOperationRecord` is not an exported primitive;
+  the batch-publish path was missing a required segment):** a fresh read of
+  `tools/specs/workflow/operation-record.mjs` in full found `createOperationRecord` is a
+  **private, non-exported** local function inside `finish-operation.mjs` (line 32,
+  `function createOperationRecord(...)`, no `export` keyword) — only `operationFilePath`/
+  `loadOperationRecord`/`saveOperationRecord`/`findInFlightOperationRecord` are actually
+  exported from `operation-record.mjs`. The prior wording ("reusing `createOperationRecord`…
+  directly") documented a primitive as shared that is not. **Corrected:** Publish defines its
+  own small, local record-shaping helper (its own `PUBLISH_STAGE_IDS = ['validate',
+  'update-task', 'commit', 'push']` and a trivial function building `{operationId, change,
+  task, step: 'publish', attempt, status: 'running', operations: PUBLISH_STAGE_IDS.map(...)}`,
+  following the exact same shape convention `finish-operation.mjs`'s own private helper uses)
+  — it reuses only the genuinely-exported persistence functions
+  (`saveOperationRecord`/`loadOperationRecord`/`findInFlightOperationRecord`/
+  `operationFilePath`), never a cross-file import of `createOperationRecord` itself. Separately,
+  `operationFilePath(repoRoot, changeSlug, taskId, stepName, attempt)`'s real signature always
+  produces a **four-segment** path — `<change>/<taskId>/<stepName>/attempt-<n>.json` — so the
+  originally-specified Batch Publish path,
+  `.nevo-ai-local/workflow-operations/<change>/_batch-publish/attempt-<n>.json` (three
+  segments, missing the step-name level), does not match the real convention and would not
+  round-trip through `operationFilePath`/`findInFlightOperationRecord` correctly. Corrected to
+  `.nevo-ai-local/workflow-operations/<change>/_batch-publish/publish/attempt-<n>.json` —
+  pseudo-`taskId` `_batch-publish`, real step name `publish` — calling `operationFilePath`
+  exactly as a single-task publish does, just with a reserved task-id.
+- **Date:** 2026-09-21 (durability and batch atomicity corrected 2026-09-21, pass 10;
+  operation-record export and batch path corrected 2026-09-22, pass 11)
 - **Affected artifacts:** `areas/user-mutation-source-control-ownership.md`,
   `tasks/31-user-mutation-source-control-finalization.md`.
 
@@ -1252,7 +1292,7 @@ points are asserted to route through the identical `startStep` function instance
   3. **Grouped fix.** The owner (or the dashboard, surfacing the group) drives implementation
      fixes across the group's affected tasks together — e.g. t1 and t3 both get their
      implementation-fix attempts before either is resubmitted — reusing
-     `areas/deterministic-batch-orchestrator.md`'s scheduler to run the group's fix attempts,
+     `areas/deterministic-sequential-queue.md`'s scheduler to run the group's fix attempts,
      not a separate mechanism.
   4. **One combined review pass, cross-task-aware.** The group's fixes are submitted into a
      single review pass over the whole remediation group, not independent per-task reviews
@@ -1295,10 +1335,28 @@ points are asserted to route through the identical `startStep` function instance
   task, `dependency-invalidation-remediation-review` (task 30), owns the combined,
   cross-task-aware review pass, depending on task 27 (the group signal) and task 28 (running
   the group's fix attempts through the sequential queue, never concurrently, per D33).
+- **Corrected 2026-09-22 (pass 11 — trigger and membership evidence, not step-graph position
+  or guesswork):** two remaining gaps. First, "later fails its own review and returns to
+  implementation" and any wording keyed on the workflow transitioning "backward" to an
+  "earlier step" is removed — workflow steps form a graph; there is no generic "earlier"
+  step, and D40 already replaces "the last history entry" with an explicit, declarative
+  **invalidation** trigger (`invalidatesDependencyRelease: true`, a transition property,
+  exactly symmetric with `releasesDependencies`). A remediation group is derived when — and
+  only when — a transition so declared actually fires; never inferred from step-graph
+  position. Second, "every downstream task that actually consumed t1's premature release" is
+  no longer derived by scanning `workflow_progress` for tasks that merely "became active
+  while the release was in effect" — D43 found this cannot be reconstructed reliably across
+  multiple release/invalidate/re-release cycles, since `workflow_progress.history` does not
+  record consumption provenance. Membership is instead read directly from the durable
+  dependency-consumption records D43 introduces (`{consumingTaskId, consumingAttempt,
+  dependencyTaskId, releaseEpoch}`, written at admission time) — every task whose recorded
+  `releaseEpoch` matches the now-invalidated epoch is a group member, evidence-based, never
+  guessed from current state or timestamps.
 - **Date:** 2026-09-21 (terminal-consumer inclusion and durability corrected 2026-09-21,
-  pass 10)
+  pass 10; invalidation trigger and membership evidence corrected 2026-09-22, pass 11 — see
+  D40, D43)
 - **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
-  `areas/deterministic-batch-orchestrator.md`, `tasks/27-dependency-release-and-invalidation.md`,
+  `areas/deterministic-sequential-queue.md`, `tasks/27-dependency-release-and-invalidation.md`,
   `tasks/30-dependency-invalidation-remediation-review.md`.
 
 ## D32: Batch task selection is a checkbox picker pre-selected with ready tasks, not named selection "modes"; cross-selection dependency gaps warn, never hard-block
@@ -1324,9 +1382,9 @@ points are asserted to route through the identical `startStep` function instance
   one, via checkboxes) rather than an abstract enum of selection strategies that doesn't map
   to how the picker is actually used. Warn-not-block on a selected-but-unsatisfied dependency
   respects that the owner may deliberately be running a partial batch across multiple passes.
-- **Consequences:** `areas/deterministic-batch-orchestrator.md`'s three-named-"selection
+- **Consequences:** `areas/deterministic-sequential-queue.md`'s three-named-"selection
   modes" framing is replaced by this single checkbox-picker model;
-  `deterministic-batch-orchestrator` (task 28) and `dashboard-orchestration-wiring` (task 32)
+  `deterministic-sequential-queue` (task 28) and `dashboard-orchestration-wiring` (task 32)
   are corrected accordingly.
 - **SUPERSEDED 2026-09-21 (pass 10) — corrected in full by D33, not amended in place, because
   the whole premise was wrong, not just a detail.** This decision's checkbox-picker selection
@@ -1341,15 +1399,15 @@ points are asserted to route through the identical `startStep` function instance
   anywhere in this spec's areas/tasks is removed, not merely bounded to a small number.
 - **Date:** 2026-09-21 (selection UX decided 2026-09-21; concurrency assumption retracted and
   replaced by D33, 2026-09-21, pass 10)
-- **Affected artifacts:** `areas/deterministic-batch-orchestrator.md`,
-  `tasks/28-deterministic-batch-orchestrator.md`, `tasks/32-dashboard-orchestration-wiring.md`.
+- **Affected artifacts:** `areas/deterministic-sequential-queue.md`,
+  `tasks/28-deterministic-sequential-queue.md`, `tasks/32-dashboard-orchestration-wiring.md`.
 
 ## D33: Single active agent execution per specification — batch means a sequential queue, never concurrency
 
 - **Question:** Tasks 24–33 (D21–D32) incorrectly introduced concurrent execution of
   multiple tasks belonging to the same specification/change — a "concurrency limit," "start
   two independently-ready tasks," and bounded-parallelism language throughout
-  `deterministic-batch-orchestrator`. Is this the intended model?
+  `deterministic-sequential-queue`. Is this the intended model?
 - **Decision:** No — corrected as a deliberate architecture invariant, not merely an initial
   implementation limitation: **for one specification, at most one agent-owned execution may
   be running at a time**, covering every current and future agent-owned step kind
@@ -1369,7 +1427,7 @@ points are asserted to route through the identical `startStep` function instance
   it is introduced.
 - **Consequences:** Every "concurrency limit"/"bounded concurrency"/"parallel agent
   sessions"/"start two independently-ready tasks" phrase is removed from D32,
-  `areas/deterministic-batch-orchestrator.md`, `tasks/28-deterministic-batch-orchestrator.md`,
+  `areas/deterministic-sequential-queue.md`, `tasks/28-deterministic-sequential-queue.md`,
   `tasks/32-dashboard-orchestration-wiring.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`,
   and every other affected artifact — replaced by the queue model above.
   `automatic-workflow-continuation`'s (task 29) own same-task continuation (D25) and the
@@ -1380,9 +1438,9 @@ points are asserted to route through the identical `startStep` function instance
   or workspace isolation of any kind is required or introduced by this change.
 - **Date:** 2026-09-21
 - **Affected artifacts:** `overview.md`, `owner-decisions.md` (D32, superseded above),
-  `areas/deterministic-batch-orchestrator.md`,
+  `areas/deterministic-sequential-queue.md`,
   `areas/workflow-continuation-and-session-handover.md`,
-  `tasks/28-deterministic-batch-orchestrator.md`, `tasks/29-automatic-workflow-continuation.md`,
+  `tasks/28-deterministic-sequential-queue.md`, `tasks/29-automatic-workflow-continuation.md`,
   `tasks/32-dashboard-orchestration-wiring.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
 
 ## D34: Declarative scheduling priority resolves ordering among several simultaneously-runnable items — no step-name coupling
@@ -1421,8 +1479,8 @@ points are asserted to route through the identical `startStep` function instance
   sort — `(schedulingPriority, task.order, eligibleAt)` ascending, first item wins — with no
   step-name branch anywhere.
 - **Date:** 2026-09-21
-- **Affected artifacts:** `areas/deterministic-batch-orchestrator.md`,
-  `tasks/25-workflow-continuation-schema.md`, `tasks/28-deterministic-batch-orchestrator.md`,
+- **Affected artifacts:** `areas/deterministic-sequential-queue.md`,
+  `tasks/25-workflow-continuation-schema.md`, `tasks/28-deterministic-sequential-queue.md`,
   `.nevo-ai/workflows/standard-v1.yaml`.
 
 ## D35: Server-side, idempotent continuation trigger — not a React page callback
@@ -1534,7 +1592,7 @@ points are asserted to route through the identical `startStep` function instance
 
 ## D38: Workflow-core stays free of dashboard/AI-runtime imports — the sequential queue is pure domain logic, orchestration is a separate application layer
 
-- **Question:** The sequential queue (correcting `deterministic-batch-orchestrator`) must not
+- **Question:** The sequential queue (correcting `deterministic-sequential-queue`) must not
   make `tools/specs/workflow/**` (core, provider-neutral engine) depend on
   `tools/dashboard/server/ai/**` (AI/session runtime) — confirm the existing direction and
   settle the queue's own placement.
@@ -1563,14 +1621,14 @@ points are asserted to route through the identical `startStep` function instance
 - **Rationale:** Matches the requirement directly and follows the repository's own,
   already-correct existing direction rather than inventing a new one — dashboard depends on
   workflow core, never the reverse.
-- **Consequences:** `deterministic-batch-orchestrator` (task 28) owns
+- **Consequences:** `deterministic-sequential-queue` (task 28) owns
   `tools/specs/workflow/queue/**` only; `automatic-workflow-continuation` (task 29) owns
   `tools/dashboard/server/ai/orchestration/**`. Neither task's `allowed_paths` overlaps the
   other's core-vs-application boundary.
 - **Date:** 2026-09-21
-- **Affected artifacts:** `areas/deterministic-batch-orchestrator.md`,
+- **Affected artifacts:** `areas/deterministic-sequential-queue.md`,
   `areas/workflow-continuation-and-session-handover.md`,
-  `tasks/28-deterministic-batch-orchestrator.md`, `tasks/29-automatic-workflow-continuation.md`.
+  `tasks/28-deterministic-sequential-queue.md`, `tasks/29-automatic-workflow-continuation.md`.
 
 ## D39: `schedulingPriority`/`execution`/`continuation`/`releasesDependencies` schema — final consolidated shape
 
@@ -1590,6 +1648,279 @@ points are asserted to route through the identical `startStep` function instance
 - **Consequences:** `tasks/25-workflow-continuation-schema.md` implements and tests all four
   fields together, migrating `standard-v1.yaml`'s every internal transition per the tables
   recorded under the corrected D25/D26/D28/D34.
-- **Date:** 2026-09-21
+- **Corrected 2026-09-22 (pass 11 — one field added):** `invalidatesDependencyRelease: true`
+  (D40) joins this same consolidated list, on the same terms as `releasesDependencies`
+  (additive, internal-transition-only, mutually consistent — a transition may never declare
+  both).
+- **Date:** 2026-09-21 (extended 2026-09-22, pass 11 — see D40)
 - **Affected artifacts:** `tasks/25-workflow-continuation-schema.md`,
   `.nevo-ai/workflows/standard-v1.yaml`, `tools/specs/workflow/definitions/schema.mjs`.
+
+## D40: Dependency release is an epoch that remains valid until an explicit, declarative invalidation fires
+
+- **Question:** `evaluateDependencySatisfaction`'s release check (D28) only reads
+  `history.at(-1)` — the *last* history entry. Confirmed by reading the function directly:
+  after `implementation → review` releases dependents, the very next transition
+  (`review → human-verification`) becomes the new "last entry," which carries no
+  `releasesDependencies` flag of its own — under the as-built logic the release would appear
+  to have lapsed even though nothing invalidated it. How should a release remain effective
+  across further, non-invalidating transitions, and what explicitly ends it?
+- **Decision:** A release is a **release epoch**, not a point-in-time flag on the latest
+  entry. `evaluateDependencySatisfaction`'s release path scans a task's **full**
+  `workflow_progress.history`, not just the last entry: it finds the *last* history entry
+  whose matched transition declares `releasesDependencies: true` (call its index/attempt the
+  release epoch), then checks whether any **later** history entry's matched transition
+  declares the new, symmetric field **`invalidatesDependencyRelease: true`**. If no such
+  later entry exists, the release remains in effect regardless of how many non-invalidating
+  transitions happened in between. If one does exist, the release from that epoch is no
+  longer in effect (a later `releasesDependencies` transition, if any, starts a new epoch).
+  No wording or logic anywhere in this mechanism references a transition going "backward" or
+  to an "earlier step" — workflow steps form a graph, not a line, and there is no generic
+  "earlier" step; the only two facts that matter are which declared transitions actually
+  fired and in what history order. `standard-v1.yaml` declares both a release point and its
+  invalidation points explicitly (task 25's schema): `implementation → review`
+  (`releasesDependencies: true`, unchanged); `review`'s `value: fail, to: implementation`
+  (`invalidatesDependencyRelease: true` — a failed review means the released implementation
+  needs rework); `human-verification`'s `value: fail, to: implementation` (`action.label:
+  "Request changes"`, `invalidatesDependencyRelease: true` — same reasoning, the human found
+  a problem with what was released). Neither field may be declared on the same transition as
+  the other, and both remain legal only on internal transitions (D25/D28's existing
+  constraint, unchanged).
+- **Rationale:** Matches the brief precisely: model release as a milestone/epoch that remains
+  effective until explicitly invalidated, not a per-entry flag; declare both release and
+  invalidation points explicitly in the workflow definition; never infer either from
+  step-graph position.
+- **Consequences:** `dependency-satisfaction.mjs`'s release-checking logic changes from an
+  `O(1)` last-entry read to an `O(history length)` scan — history is small and bounded per
+  task, so this has no real performance concern. The release epoch identifier (`{step,
+  attempt}` of the releasing history entry) is the same identifier D43's dependency-
+  consumption provenance records reference, so remediation-group membership (D31, corrected)
+  can be resolved by exact epoch match rather than guessed from current task state.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/25-workflow-continuation-schema.md`, `tasks/27-dependency-release-and-invalidation.md`,
+  `.nevo-ai/workflows/standard-v1.yaml`.
+
+## D41: One spec-level admission gate for every execution path; atomic via an in-process serialized claim
+
+- **Question:** The single-active-execution invariant (D33) must hold across manual single
+  Start, batch Start, automatic continuation, and remediation execution — but `startStep()`
+  (and equivalent entry points) can still call session-creation directly, bypassing the
+  sequential queue entirely. Even if every path *did* go through the queue, the queue's
+  `nextRunnable: one item` answer is a read, not a claim — two simultaneous requests could
+  both read "spec is free" and both create a session before either write is visible to the
+  other. How is the invariant actually enforced, atomically, across all four paths?
+- **Grounded fact (2026-09-22):** `AgentTurnRuntime` (`tools/dashboard/server/ai/sessions/
+  turns/runtime.mjs`) already solves an analogous problem for a different key: `startTurn()`
+  calls `await this.#acquireStartLock(key)` (`key` = session id) before touching any shared
+  state — `#acquireStartLock` is a promise-chain mutex (`#startQueueBySession: Map<key,
+  Promise>`) that serializes concurrent callers for the same key with no external lock file
+  or database, because the whole dashboard server is a single Node process. This is a real,
+  proven, already-in-production pattern for exactly this class of problem, just keyed by
+  session id instead of spec id.
+- **Decision:** One spec-level admission function —
+  `tools/dashboard/server/ai/orchestration/admission.mjs`'s `admitExecution(specId,
+  candidate)` — is the **only** path capable of resulting in a new agent session or
+  `startHumanStep` call for deterministic workflow execution. It reuses the exact
+  `#acquireStartLock`-style promise-chain mutex pattern, keyed by `specId`: acquire the
+  spec's lock, check whether an agent execution is already active for that spec (reading real
+  session/binding state), and if not, atomically mark the spec occupied (in-process, for the
+  duration of the check-and-claim) before returning "admitted" — the check and the claim
+  happen inside the same held lock, so two simultaneous callers can never both observe "free."
+  All four paths funnel through it: **manual single Start** = enqueue one item, then call
+  `admitExecution`; **batch Start** = enqueue several items, then call `admitExecution` once
+  (it only ever admits one); **automatic continuation** (D42) = enqueue the eligible
+  destination, then call `admitExecution`; **remediation execution** = enqueue the group's
+  task-id set as an ordinary queue selection (D31 unchanged), then call `admitExecution`.
+  `startStep()` and every other UI entry point are corrected to call this gate — never
+  `createSession`/`startHumanStep` directly for deterministic execution.
+- **Rationale:** Matches the requirement directly: one gate, no second path, and race-safety
+  solved by reusing this repository's own proven serialization pattern rather than inventing
+  file locks, database transactions, or (explicitly ruled out) per-task worktrees or a
+  concurrency limit.
+- **Consequences:** `automatic-workflow-continuation` (task 29) owns `admission.mjs`.
+  `dashboard-orchestration-wiring` (task 32)'s `startStep()` calls this gate exclusively — its
+  own direct `createSession.create(...)` call for the deterministic execution path is removed
+  (task 26's execution-policy-selection UI still precedes it, unchanged, but the actual
+  session creation now happens only inside `admitExecution`'s admitted branch).
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `areas/deterministic-sequential-queue.md`, `tasks/29-automatic-workflow-continuation.md`,
+  `tasks/32-dashboard-orchestration-wiring.md`.
+
+## D42: Continuation reconciliation is one shared operation, triggered from three real server-side points — not a fictitious global turn event
+
+- **Question:** The prior design assumed `AgentTurnRuntime` exposes a global
+  `turn.completed`/`turn.failed` event any outside module could subscribe to. It also only
+  addressed agent-owned continuation, not `submitHumanStepResult`'s own
+  `continuation: auto` case (e.g. human "Request changes" → implementation must be enqueued
+  immediately). What does the real API surface support, and where does reconciliation
+  actually need to be triggered from?
+- **Grounded fact (2026-09-22):** `AgentTurnRuntime.#eventStream.emit(state.turnId, type,
+  data)` (`runtime.mjs`) emits **keyed by `turnId`**, for streaming to whichever client calls
+  `subscribeToSession`/an equivalent per-turn subscription — there is **no** global "any turn,
+  anywhere, reached terminal" bus. `startTurn()` itself fires its work via `queueMicrotask(()
+  => this.#run(...))` and returns immediately once the turn is established — the caller
+  (`AgentSessionService`, `service.mjs`) does not `await` full completion, so
+  `service.mjs`'s own call site is not a valid "runs after every turn" hook either, as
+  written today. `AgentSessionService` (`service.mjs`) is the one module that already
+  centralizes every `startTurn()` call across the whole server (one shared `turnRuntime`
+  instance, held by one `AgentSessionService` instance) — it is the real, existing ownership
+  point the brief's fallback names. Separately, `tools/dashboard/server/specs/
+  human-step-transport.mjs`'s handler already `await`s `submitHumanStepResult(...)`
+  synchronously and returns its result (`finishResult`) — a clean, already-existing
+  server-side point to call reconciliation right after a human decision lands.
+- **Decision:** One shared function, `reconcileWorkflowPosition(change, task)`
+  (`tools/dashboard/server/ai/orchestration/**`), is the single place that: resolves the
+  task's authoritative `workflow_progress` position, finds the matched transition, and — if
+  `continuation: auto` — enqueues the destination (D28/D40) via the sequential queue, then
+  calls `admitExecution` (D41). It is invoked from exactly three real points, not a fictitious
+  one: (1) **`AgentSessionService`**, corrected to attach its own internal listener via the
+  existing per-turn `subscribeToSession`-style mechanism at the moment it starts a turn for a
+  session bound to a deterministic task, firing `reconcileWorkflowPosition` when that specific
+  turn reaches terminal; (2) **`human-step-transport.mjs`**'s handler, immediately after
+  `submitHumanStepResult` resolves successfully; (3) the existing `ensureReconciled()`-style
+  lazy first-request hook (`tools/dashboard/server/ai/routes.mjs`), extended to also run
+  `reconcileWorkflowPosition` for every in-progress deterministic task, covering a server
+  restart/crash between (1) or (2) firing and the queue recording it. `finishStep()` stays
+  exactly as provider-neutral as D25 already established — none of this reconciliation logic
+  moves into `tools/specs/workflow/**`; it is entirely `tools/dashboard/server/ai/
+  orchestration/**` and its two real caller sites.
+- **Rationale:** Matches the brief's explicit instruction to inspect the real API before
+  specifying a hook, and not to document a nonexistent event. Using `AgentSessionService` as
+  the ownership point (rather than inventing a new event bus inside `runtime.mjs`) is the
+  smaller, more honest change; covering the human path directly at its own existing
+  synchronous call site is simpler than trying to force human decisions through an
+  agent-turn-shaped event.
+- **Consequences:** `automatic-workflow-continuation` (task 29)'s `allowed_paths` include
+  `tools/dashboard/server/ai/sessions/service.mjs` and `tools/dashboard/server/specs/
+  human-step-transport.mjs` in addition to its own `orchestration/**` tree and
+  `ai/routes.mjs` — it does not touch `runtime.mjs` itself (no new public API needed there).
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `tasks/29-automatic-workflow-continuation.md`.
+
+## D43: Durable dependency-consumption provenance, recorded at admission — remediation membership is evidence-based, never guessed
+
+- **Question:** Remediation-group derivation (D31) said "find dependents that became active
+  while the release was in effect" — but `workflow_progress.history` does not reliably record
+  activation time or release-epoch provenance, especially across multiple release/invalidate/
+  re-release cycles for the same dependency. How is "T2 actually started because of T1's
+  release X, not some other/later release" known reliably, including after a restart?
+- **Decision:** Introduce a durable dependency-consumption record, written at the moment a
+  task is actually **admitted** to start (D41's `admitExecution`, not merely enqueued) when
+  that task has an unsatisfied-without-release dependency currently satisfied only via a
+  release epoch (D40): `.nevo-ai-local/dependency-consumption/<change>/<consumingTaskId>/
+  attempt-<n>.json`, shape `{consumingTaskId, consumingAttempt, dependencyTaskId,
+  releaseEpoch: {step, attempt}}` (atomic temp-file-then-rename, same convention family as
+  `operation-record.mjs`). Remediation-group derivation (D31) reads these records directly:
+  when a release epoch is invalidated (D40), every consumption record whose `releaseEpoch`
+  matches that exact epoch identifies a real group member — never inferred from current task
+  state, `workflow_progress` timestamps that aren't actually persisted, or "became active
+  while the release was in effect" reasoning.
+- **Rationale:** Matches the brief precisely: do not guess consumption from current state or
+  unpersisted timestamps; the exact local record format is this pass's to decide, but it must
+  identify the dependency task, the specific release epoch consumed, the consuming task/
+  attempt, and survive restart — all four are satisfied by this record.
+- **Consequences:** `dependency-release-and-invalidation` (task 27) owns reading/deriving
+  remediation groups from these records; `automatic-workflow-continuation` (task 29) owns
+  writing them, since admission (D41) is where "this task is starting, and here is which
+  release epoch its currently-satisfied dependency relies on" is actually known.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `tasks/29-automatic-workflow-continuation.md`.
+
+## D44: `SuspensionProjection` is a separate layer — `TaskProjection`/`projectTask()` stays pure and untouched
+
+- **Question:** D10 established `TaskProjection` as a pure workflow/domain projection —
+  confirmed still true today: `projectTask(task, change, options)`
+  (`tools/specs/workflow/task-projection.mjs`) takes only in-memory arguments and does no
+  file I/O of its own. Task 27's `suspensions` field was specified directly on
+  `TaskProjection` in the prior pass — but reading `.nevo-ai-local/remediation-groups/**`
+  from inside `projectTask()` would make it read filesystem/orchestration state, breaking the
+  purity D10 already established and this pass must not regress.
+- **Decision:** `projectTask()` is **not modified** to add `suspensions` or any other
+  orchestration-derived field — it keeps its exact current signature and purity. A new,
+  separate function, `projectSuspensions(task, change)`
+  (`tools/specs/workflow/suspension-projection.mjs`, owned by `dependency-release-and-
+  invalidation`, task 27, alongside the remediation/consumption records it already reads),
+  reads the durable remediation-group records (D36) and dependency-consumption records (D43)
+  and returns `{taskId, suspensions: [{taskId, reason, groupId}]}` for a task. Composition
+  happens one layer up, mirroring D10's existing three-layer shape:
+  `TaskProjection` (pure) + `SuspensionProjection` (orchestration-derived) →
+  `ExecutionReadiness` (must now explicitly check `SuspensionProjection` and refuse readiness
+  for a suspended task — a real behavior addition to `readiness-policy.mjs`, not just a data
+  pass-through) → `DashboardActionProjection` (combines both into the DTO, alongside the
+  unchanged `blockedBy`, D37).
+- **Rationale:** Matches D10's own purity requirement, restated as a hard constraint this pass
+  must not regress; keeps orchestration/runtime state (suspensions) architecturally separate
+  from filesystem/runtime-independent domain state (`TaskProjection`), exactly the same
+  separation D10 already drew between "pure projection" and "readiness."
+- **Consequences:** `execution-readiness-policy`'s existing file
+  (`tools/specs/workflow/readiness-policy.mjs`, already verified/implemented by task 13) gains
+  a new check — a suspended task's readiness is refused — making this pass's only edit to an
+  already-verified task's file an explicit, additive behavior change, not a silent one.
+  `dependency-release-and-invalidation` (task 27) owns `suspension-projection.mjs`; no task
+  in this pass adds `.nevo-ai-local/**` reads to `task-projection.mjs`.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `tools/specs/workflow/readiness-policy.mjs`.
+
+## D45: A pending human decision does not pause the rest of the spec's sequential queue
+
+- **Question:** The design so far implicitly assumed a human-owned step awaiting a decision
+  freezes the whole spec's queue — no other task's agent-owned work runs until the human
+  responds. Is that the intended model, or should other agent-owned queued work continue
+  sequentially while a human decision is pending (possibly letting several human decisions
+  accumulate)?
+- **Decision:** **Model B — the sequential queue continues past a pending human decision.**
+  A human-owned step reaching `waiting-for-step-start`/being auto-activated (D27) never
+  occupies the spec's single-execution slot (D33) — that slot is specifically for
+  **agent-owned** executions, and a human decision is not one. While `T1` awaits a human
+  decision, `T2`/`T3`'s own agent-owned work may continue, one at a time, through the same
+  queue. Several human decisions may accumulate simultaneously across different tasks — each
+  surfaces its own `HumanStepSurface` interaction independently; the owner is not forced to
+  resolve them strictly one at a time.
+- **Rationale:** (1) Does not weaken D33 — D33's invariant is scoped to agent-owned
+  executions specifically, and a human decision was never counted against it. (2) Matches the
+  batch/queue feature's own original purpose (select several tasks, let Nevo manage them) —
+  pausing the entire queue behind the first task to reach a human gate would make batching
+  provide little value whenever any task needs sign-off, which defeats the point of batching
+  at all. (3) Source-control safety: inspected for `standard-v1` specifically —
+  `human-verification` is reached only after `review`'s own `commit-and-push` finalize has
+  already landed that task's work, so a pending human decision on `T1` never leaves `T1`'s own
+  worktree state in a way `T2`/`T3`'s independent, unrelated implementation work could
+  conflict with. A future workflow definition whose human step sits *before* some of its own
+  task's remaining commits would need this re-examined for that specific definition — not a
+  concern for `standard-v1` today.
+- **Consequences:** The sequential queue's eligibility computation (`deterministic-sequential-
+  queue`, task 28) never excludes an item merely because a different task in the same spec has
+  a pending human interaction. `admitExecution` (D41) only ever checks for an active
+  **agent** execution, never a pending human one.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/deterministic-sequential-queue.md`,
+  `areas/workflow-continuation-and-session-handover.md`,
+  `tasks/28-deterministic-sequential-queue.md`, `tasks/29-automatic-workflow-continuation.md`.
+
+## D46: "Batch" is a user-facing selection concept; "queue" is the runtime/orchestration concept — renamed accordingly
+
+- **Question:** The runtime abstraction is a deterministic sequential queue, not a concurrent
+  batch orchestrator — the prior pass's own task/area identifier,
+  `deterministic-batch-orchestrator`, still named it after the wrong mental model even after
+  its content was corrected to be sequential.
+- **Decision:** Renamed throughout this specification: `deterministic-batch-orchestrator` →
+  **`deterministic-sequential-queue`** (task id, task file `tasks/28-deterministic-sequential-
+  queue.md`, area file `areas/deterministic-sequential-queue.md`, and every cross-reference in
+  `owner-decisions.md`/`overview.md`/other tasks' `depends_on`/prose). "Batch" remains the
+  correct, plain word for the **user-facing** selection UX (the checkbox picker, "Publish
+  selected tasks," "Batch Publish") — it is never used again as a runtime/module/ownership
+  concept. "Queue" is the one runtime/orchestration concept for the sequential execution
+  mechanism itself.
+- **Rationale:** Matches the brief directly; prevents future confusion between the UX concept
+  (what the user selects) and the runtime concept (how Nevo executes the selection) from
+  bleeding into code ownership.
+- **Consequences:** No behavior change — this is a naming-only correction, applied
+  mechanically across every affected file.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `change.yaml`, `overview.md`, every `D<n>` entry and area/task file
+  that previously referenced `deterministic-batch-orchestrator`.

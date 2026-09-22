@@ -350,7 +350,7 @@ message, and the builder's signature structurally accepts only `taskId`, nothing
 tasks 24–33): fixing a wrong concurrency assumption pass 9 itself introduced, before any of
 tasks 24–33 were implemented.** Pass 9 correctly identified the orchestration gaps a real
 dogfooding run exposed, but its own D32 (batch defaults) and
-`areas/deterministic-batch-orchestrator.md` wrongly introduced **concurrent** execution of
+`areas/deterministic-sequential-queue.md` wrongly introduced **concurrent** execution of
 multiple tasks from one specification — "a concrete bounded concurrency limit... defaulted to
 a small, configurable value" and "start two independently-ready tasks" language throughout.
 That was never the intended model, and is corrected here as a **deliberate architecture
@@ -391,6 +391,71 @@ orchestration kept in a separate `tools/dashboard/server/ai/orchestration/**` ap
 layer, preserving the existing, correct workflow-core → never-imports-dashboard direction
 (D38). Tasks 24–33 are renumbered so `change.yaml`'s presentation order matches actual
 dependency order (previously, order 33 appeared before order 32).
+
+**Corrective pass 11 (2026-09-22, D40–D46, corrections to D21/D28/D29/D31/D39): closing nine
+remaining correctness gaps a fresh review found in pass 10's own design, before any of tasks
+24–33 are implemented.** Grounded against real code read directly (not assumed) —
+`dependency-satisfaction.mjs`, `task-projection.mjs`, `operation-record.mjs`,
+`finish-operation.mjs`, `tools/dashboard/server/ai/sessions/turns/runtime.mjs`,
+`tools/dashboard/server/ai/sessions/service.mjs`,
+`tools/dashboard/server/specs/human-step-transport.mjs`:
+
+1. **Dependency release modeled as "last history entry has the flag," not an epoch (D40).**
+   `evaluateDependencySatisfaction` reads only `history.at(-1)` — confirmed by reading the
+   function directly — so a release would appear to lapse the instant any further,
+   non-invalidating transition happened (e.g. `review → human-verification` right after
+   `implementation → review` released dependents). Corrected: a release is an epoch that
+   remains valid until an explicit `invalidatesDependencyRelease: true` transition fires — no
+   wording or logic based on a transition going "backward" to an "earlier step" (workflow
+   steps form a graph, not a line).
+2. **No single admission path; no race safety (D41).** `startStep()` could still create a
+   session directly, bypassing any queue. Even a corrected queue's `nextRunnable: one item`
+   answer is a read, not a claim — two simultaneous requests could both observe "free" and
+   both create sessions. Corrected: one `admitExecution(specId, candidate)` gate, reusing the
+   exact promise-chain-mutex pattern `AgentTurnRuntime.#acquireStartLock` already proves
+   (confirmed by reading it directly), keyed by `specId` instead of session id — every
+   execution path (manual Start, batch Start, automatic continuation, remediation) funnels
+   through it, with no second path capable of starting a session.
+3. **The continuation trigger assumed a nonexistent global turn event (D42).** Confirmed by
+   reading `runtime.mjs` directly: `#eventStream.emit` is keyed per-`turnId` for streaming,
+   not a global "any turn completed" bus, and `startTurn()` returns before the turn actually
+   completes (fired via `queueMicrotask`). Corrected to three real hook points:
+   `AgentSessionService`'s own per-turn subscription (the real, existing centralization
+   point), `human-step-transport.mjs`'s already-synchronous post-`submitHumanStepResult` call
+   site (closing the gap where human "Request changes" → auto-continuation wasn't covered at
+   all), and the existing `ensureReconciled()`-style boot/first-request hook.
+4. **Remediation membership guessed from unpersisted state (D43).** "Tasks that became active
+   while the release was in effect" cannot be reconstructed from `workflow_progress.history`
+   alone, especially across multiple release/invalidate/re-release cycles. Corrected: a
+   durable dependency-consumption record, written at admission time, names exactly which
+   release epoch a consuming task/attempt relied on — remediation membership is an exact
+   record match, never inferred.
+5. **`TaskProjection` was about to lose its purity (D44).** `projectTask()` — confirmed still
+   a pure function of its in-memory arguments, no file I/O — would have needed to read
+   `.nevo-ai-local/remediation-groups/**` to carry a `suspensions` field directly, regressing
+   D10's own established purity. Corrected: a new, separate `SuspensionProjection`, composed
+   only at the `ExecutionReadiness` layer and above.
+6. **First-Start provider/mode selection was conditional on an unresolved question (D21,
+   further corrected).** Gating the picker on "does the provider need an explicit mode" can't
+   run before the provider itself is chosen — the check assumed an answer to the very
+   question it was meant to gate. Corrected: the picker always shows when no change-level
+   policy exists, full stop.
+7. **Whether a pending human decision pauses the whole queue was an accidental consequence,
+   not a decision (D45).** Resolved explicitly: it does not — the single-execution invariant
+   (D33) is scoped to agent-owned executions specifically, and pausing the entire queue behind
+   one task's human gate would defeat the purpose of batching multiple tasks in the first
+   place. Other agent-owned queued work continues; several human decisions may accumulate.
+8. **Runtime terminology still said "batch orchestrator" after its content became sequential
+   (D46).** Renamed throughout: `deterministic-batch-orchestrator` → task/area id
+   `deterministic-sequential-queue`. "Batch" remains the correct word for the user-facing
+   checkbox-picker selection; "queue" is the one runtime/orchestration concept.
+9. **Publish's operation-record reuse documented a primitive that isn't exported, and the
+   batch-publish path didn't match the real convention (D29, further corrected).** A fresh
+   read of `operation-record.mjs` in full found `createOperationRecord` is private to
+   `finish-operation.mjs` — only the four persistence functions are actually exported.
+   Corrected: Publish defines its own small, local record-shaping helper, reusing only what's
+   genuinely exported. Separately, `operationFilePath`'s real signature always produces a
+   four-segment path; the original three-segment batch-publish path was corrected to match.
 
 ## Current architecture
 
@@ -725,23 +790,29 @@ engine source directly):
   sections, not just adding a new deterministic reference).
 - `docs/development/agent-workflow-protocol.md` (ownership boundary documentation,
   including the executor invariant).
-- (corrective pass 9/10) `tools/specs/workflow/step-context.mjs` (`taskDefinition`,
+- (corrective pass 9/10/11) `tools/specs/workflow/step-context.mjs` (`taskDefinition`,
   `requiredContext` — both inline content, D22–D24); `.nevo-ai/workflows/*.yaml`,
   `tools/specs/workflow/definitions/schema.mjs` (additive `continuation`, `execution`
-  `{session, role}`, `releasesDependencies`, `schedulingPriority` schema, D25/D26/D28/D34/D39);
-  `tools/specs/workflow/dependency-satisfaction.mjs`, `tools/specs/workflow/
-  remediation-record.mjs` (new — declarative release and durable, terminal-consumer-inclusive
-  remediation groups, D28/D31/D36); `tools/specs/workflow/queue/**` (new — pure-domain
-  sequential queue, single-active-execution invariant, zero dashboard imports, D33/D34/D38);
-  `tools/dashboard/server/ai/orchestration/**` (new — server-side continuation trigger hooked
-  to `AgentTurnRuntime`, idempotent reconciliation, session lineage/role creation, D25–D27/
-  D35/D38); `tools/specs/workflow/publish/operation.mjs`, `tools/specs/workflow/
-  operation-record.mjs`, `tools/dashboard/server/specs/routes.mjs`
-  (durable Publish + atomic Batch Publish reusing `operation-record.mjs`'s primitives, D29);
-  `tools/dashboard/ui/screens/specification-detail/**`,
-  `tools/dashboard/server/ai/sessions/execution-policy-service.mjs` (new — change-level
-  execution-policy transport, D21); `docs/development/agent-workflow-protocol.md` (D30
-  ownership taxonomy, extending the existing section, consistent with D3).
+  `{session, role}`, `releasesDependencies`, `invalidatesDependencyRelease`,
+  `schedulingPriority` schema, D25/D26/D28/D34/D39/D40); `tools/specs/workflow/
+  dependency-satisfaction.mjs` (epoch-based release/invalidation, D40); `tools/specs/workflow/
+  remediation-record.mjs`, `tools/specs/workflow/dependency-consumption.mjs` (new — durable
+  remediation groups and admission-time consumption provenance, D31/D36/D43); `tools/specs/
+  workflow/suspension-projection.mjs` (new — `SuspensionProjection`, kept separate from the
+  unmodified, pure `task-projection.mjs`, D44); `tools/specs/workflow/readiness-policy.mjs`
+  (existing, verified file — gains an explicit suspension check, D44); `tools/specs/workflow/
+  queue/**` (pure-domain sequential queue, single-active-execution invariant, zero dashboard
+  imports, D33/D34/D38/D45); `tools/dashboard/server/ai/orchestration/**` (new —
+  `admitExecution` admission gate, D41; continuation reconciliation, D42), plus two existing
+  files it corrects rather than replaces — `tools/dashboard/server/ai/sessions/service.mjs`
+  (per-turn reconciliation hook) and `tools/dashboard/server/specs/human-step-transport.mjs`
+  (post-submit reconciliation hook); `tools/specs/workflow/publish/operation.mjs`,
+  `tools/dashboard/server/specs/routes.mjs` (durable Publish + atomic Batch Publish reusing
+  `operation-record.mjs`'s actually-exported primitives, D29); `tools/dashboard/ui/screens/
+  specification-detail/**`, `tools/dashboard/server/ai/sessions/execution-policy-service.mjs`
+  (new — change-level execution-policy transport, always shown on first Start, D21);
+  `docs/development/agent-workflow-protocol.md` (D30 ownership taxonomy, extending the
+  existing section, consistent with D3).
 
 ## Options and trade-offs
 
@@ -882,6 +953,29 @@ extensible workflow-declared string), D29 (Publish is a durable operation reusin
 not inherit `finishStep`'s crash safety; Batch Publish's atomicity is decided, not deferred),
 D31 (remediation-group derivation includes already-terminal consumers, flagged advisory and
 never reopened).
+
+**Corrective pass 11 decisions (2026-09-22):** D40 (dependency release is an epoch that
+remains valid until an explicit `invalidatesDependencyRelease: true` transition fires — never
+"the last history entry has the flag," never inferred from step-graph position; corrects
+D28's satisfaction mechanism, not its placement). D41 (one spec-level `admitExecution` gate,
+reusing `AgentTurnRuntime`'s own proven promise-chain-mutex pattern keyed by `specId`, is the
+only path that can start deterministic execution — atomic, race-safe, no per-task worktrees
+or concurrency limit). D42 (continuation reconciliation is one shared operation triggered from
+three real points — `AgentSessionService`'s own per-turn subscription, `human-step-transport.mjs`'s
+post-submit call, and boot/first-request reconciliation — never a nonexistent global turn
+event; `finishStep` stays provider-neutral). D43 (durable dependency-consumption provenance,
+recorded at admission, makes remediation-group membership an exact record match rather than a
+guess from unpersisted state). D44 (`SuspensionProjection` is a new, separate layer;
+`TaskProjection`/`projectTask()` stays exactly as pure as D10 already established).
+D45 (a pending human decision never pauses the rest of the spec's queue — the single-execution
+invariant is scoped to agent-owned executions only; several human decisions may accumulate).
+D46 (renamed `deterministic-batch-orchestrator` → `deterministic-sequential-queue`
+throughout; "batch" stays the user-facing selection word, "queue" the runtime concept). Three
+further corrections in place: D21 (the picker always shows on first Start when no
+change-level policy exists — never conditional on provider capability), D29 (Publish's own
+record-shaping helper is locally defined, since `createOperationRecord` is private to
+`finish-operation.mjs`, not exported; Batch Publish's path corrected to the real four-segment
+`operationFilePath` convention), D39 (extended with `invalidatesDependencyRelease`).
 
 ## Proposed architecture
 
@@ -1121,26 +1215,30 @@ deterministic spec.
   with the task's own document, task-declared `requiredContext` distinct from routing-derived
   `relevantDocs`, and separates internal finalize context from the agent-facing payload
   (D22–D24).
-- `areas/workflow-continuation-and-session-handover.md` — (pass 9/10) the execution-mode/
-  provider selection UX for the first explicit Start and its persisted, **change-level**
-  execution policy with a real server transport (D21); the declarative continuation
-  (eligibility, not immediate execution) and session-lineage/role model, triggered
-  server-side off `AgentTurnRuntime`'s own events with idempotent reconciliation, never a
-  React page (D25–D27/D35); every eligible destination is handed to the sequential queue
-  (D33), never scheduled directly by this area.
-- `areas/dependency-release-and-invalidation.md` — (pass 9/10) declarative per-transition
-  dependency release (D28); automatic remediation-group derivation including terminal
-  consumers, durable and extensible, suspended via a separate `suspensions` field (D31/D36/
-  D37).
-- `areas/deterministic-batch-orchestrator.md` — (pass 9/10) a **sequential, single-execution**
-  task queue (never concurrent, D33), pure domain logic under `tools/specs/workflow/queue/**`
-  (D38), ordered by declarative `schedulingPriority` (D34), with a checkbox-picker selection
-  model and a cross-selection dependency warning (D32); reused by D31's remediation-group fix
-  runs.
-- `areas/dependency-invalidation-remediation-review.md` — (pass 9/10) the one combined,
-  cross-task-aware review pass for a dependency-invalidation remediation group, adapting the
-  existing legacy `implementation-review` two-pass design, terminal members reviewed
-  read-only (D31).
+- `areas/workflow-continuation-and-session-handover.md` — (pass 9/10/11) the execution-mode/
+  provider selection UX, **always shown** on first Start when no change-level policy exists
+  (D21); the declarative continuation (eligibility, not immediate execution) and
+  session-lineage/role model (D25–D27); the one spec-level `admitExecution` admission gate,
+  race-safe via a proven promise-chain-mutex pattern (D41); continuation reconciliation from
+  three real server-side points, not a fictitious global turn event (D42); a pending human
+  decision never pauses the rest of the queue (D45).
+- `areas/dependency-release-and-invalidation.md` — (pass 9/10/11) declarative, epoch-based
+  dependency release with explicit invalidation (D28/D40); automatic remediation-group
+  derivation from durable consumption evidence, including terminal consumers (D31/D43); a
+  separate `SuspensionProjection` alongside the unmodified, pure `TaskProjection` (D44),
+  surfaced via a distinct `suspensions` field (D37), durable and extensible (D36).
+- `areas/deterministic-sequential-queue.md` — (pass 9/10/11, renamed from "deterministic
+  batch orchestrator," D46) a **sequential, single-execution** task queue (never concurrent,
+  D33), pure domain logic under `tools/specs/workflow/queue/**` (D38), ordered by declarative
+  `schedulingPriority` (D34); never blocked by a pending human decision elsewhere in the spec
+  (D45); reused by D31's remediation-group fix runs. The checkbox-picker UI and the atomic
+  admission gate (D41) are owned elsewhere (`dashboard-orchestration-wiring`,
+  `workflow-continuation-and-session-handover`, respectively) — this area is the pure
+  ordering function only.
+- `areas/dependency-invalidation-remediation-review.md` — (pass 9/10/11) the one combined,
+  cross-task-aware review pass for a dependency-invalidation remediation group (membership
+  from D43's durable evidence), adapting the existing legacy `implementation-review` two-pass
+  design, terminal members reviewed read-only (D31).
 - `areas/user-mutation-source-control-ownership.md` — (pass 9) Publish/Batch Publish own their
   own commit/push (D29); the explicit user-action/technical-activation/completed-mutation
   ownership taxonomy (D30).

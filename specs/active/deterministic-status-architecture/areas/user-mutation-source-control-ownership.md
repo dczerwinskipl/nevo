@@ -27,26 +27,34 @@ mutations from technical activations from completed lifecycle mutations.
   alone does **not** inherit `finishStep`'s crash/resume semantics — those come from
   `operation-record.mjs`'s intent-then-verify pattern, not from the Git action by itself.
   `publishTask()` becomes: validate → durable intent (a
-  `.nevo-ai-local/workflow-operations/<change>/<task>/publish/attempt-<n>.json` record, same
-  convention/primitives `operation-record.mjs` already defines — `createOperationRecord`/
-  `saveOperationRecord`/`findInFlightOperationRecord` reused directly) → mutate
-  (`setTaskStatus`) → commit → push (only if the resolved `sourceControl` config enables it)
-  → mark the record completed. Stages mirror `finish-operation.mjs`'s own
-  `ensureUpdateTask`/`ensureCommit`/`ensurePush` intent-then-verify shape — extract these as
-  shared functions callable from both `finishStep` and `publishTask` rather than
-  reimplementing git-state reconciliation a second time.
+  `.nevo-ai-local/workflow-operations/<change>/<task>/publish/attempt-<n>.json` record) →
+  mutate (`setTaskStatus`) → commit → push (only if the resolved `sourceControl` config
+  enables it) → mark the record completed.
+- **Reuse only the genuinely-exported primitives (D29, corrected pass 11 — `createOperationRecord`
+  is not one of them).** A fresh read of `operation-record.mjs` in full found
+  `createOperationRecord` is a **private, non-exported** function inside
+  `finish-operation.mjs` — only `operationFilePath`/`loadOperationRecord`/
+  `saveOperationRecord`/`findInFlightOperationRecord` are actually exported. Publish defines
+  its own small, local record-shaping helper (its own `PUBLISH_STAGE_IDS = ['validate',
+  'update-task', 'commit', 'push']`, following the exact shape convention
+  `finish-operation.mjs`'s private helper uses) and reuses only the four genuinely-exported
+  functions — never a cross-file import of `createOperationRecord` itself.
 - **Deterministic commit message.** Auto-generate `chore(workflow): publish <task-id>` for a
   single-task publish.
-- **Batch Publish is one atomic operation, not one commit per task (D29, corrected —
-  previously left undecided).** One dashboard "Publish selected tasks" action is one durable
-  operation record spanning the whole selected set
-  (`.nevo-ai-local/workflow-operations/<change>/_batch-publish/attempt-<n>.json`, a reserved
-  pseudo-task-id since the record spans multiple real tasks): prevalidate **every** selected
-  task first; only if all pass does mutation begin; mutate every selected task's status; one
-  deterministic combined commit (e.g. `chore(workflow): publish <id-1>, <id-2>, ...`, bounded/
-  summarized if the list is long) → optional push. If any task fails prevalidation, **none**
-  are published — no partial-batch mutation. Never prompt the user for a commit message for
-  either the single-task or batch case.
+- **Batch Publish is one atomic operation, not one commit per task, using the real path
+  convention (D29, corrected).** One dashboard "Publish selected tasks" action is one durable
+  operation record spanning the whole selected set at
+  `.nevo-ai-local/workflow-operations/<change>/_batch-publish/publish/attempt-<n>.json` —
+  `operationFilePath(repoRoot, changeSlug, taskId, stepName, attempt)`'s real signature always
+  produces a **four-segment** path (`<change>/<taskId>/<stepName>/attempt-<n>.json`); the
+  original three-segment path (missing the step-name level) did not match this and would not
+  round-trip through the real primitives. Corrected: pseudo-`taskId` `_batch-publish`, real
+  step name `publish`, calling `operationFilePath` exactly as a single-task publish does.
+  Prevalidate **every** selected task first; only if all pass does mutation begin; mutate
+  every selected task's status; one deterministic combined commit (e.g. `chore(workflow):
+  publish <id-1>, <id-2>, ...`, bounded/summarized if the list is long) → optional push. If
+  any task fails prevalidation, **none** are published. Never prompt the user for a commit
+  message for either the single-task or batch case.
 - **Clean-worktree guarantee preserved.** A durable record left `running` after a crash is
   reconciled the same way `finish-operation.mjs`'s own stages already reconcile an ambiguous
   intent (compare persisted `intent` against real repository/task state; resume, no-op, or
@@ -63,9 +71,11 @@ mutations from technical activations from completed lifecycle mutations.
 ## Constraints
 
 - No duplicate Git implementation and no duplicate crash-recovery implementation — reuse
-  `commit-and-push` and `operation-record.mjs`'s primitives exactly as `finish-operation.mjs`
-  already does; extract shared stage functions if `finish-operation.mjs`'s own
-  `ensureCommit`/`ensurePush` aren't already generic enough to call directly.
+  `commit-and-push` and `operation-record.mjs`'s actually-exported persistence primitives
+  exactly as `finish-operation.mjs` already does; Publish's own record-shaping helper
+  (`createOperationRecord`-shaped but locally defined, since the real one is private to
+  `finish-operation.mjs`) is a small, honest duplication of a ~10-line shape function, not of
+  any git-state-reconciliation logic.
 - No new doc file for the taxonomy (D3's precedent: extend the existing section).
 - Batch Publish prevalidates every selected task before any mutation — no partial-batch
   mutation under any failure ordering.

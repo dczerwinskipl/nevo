@@ -17,9 +17,9 @@ forbidden_paths:
   - tools/specs/workflow/remediation-record.mjs
   - tools/dashboard/**
   - src/**
-depends_on: [ dependency-release-and-invalidation, deterministic-batch-orchestrator ]
+depends_on: [ dependency-release-and-invalidation, deterministic-sequential-queue ]
 semantic_references:
-  decisions: [D31, D36, D37]
+  decisions: [D31, D36, D37, D43]
 ---
 
 # Task: Dependency-invalidation remediation review
@@ -27,7 +27,9 @@ semantic_references:
 ## Goal
 
 Implement D31's combined, cross-task-aware review pass for a dependency-invalidation
-remediation group: after the group's fix attempts run (via the sequential queue, task 28 —
+remediation group whose membership was derived from durable consumption evidence (D43, task
+27's own module) — this task never re-derives membership itself, only reads it. After the
+group's fix attempts run (via the sequential queue, task 28 —
 one at a time, never concurrently), review the group as a whole — per-task reviews first,
 then a cross-task consistency pass modeled on the legacy `implementation-review` mechanism's
 own two-pass design — and only clear the group's `suspensions` entries (task 27, D37) once
@@ -96,4 +98,4 @@ Any change to the legacy `implementation-review` mechanism itself. Reviewing a n
 non-invalidation batch of independently-ready tasks. Reopening a terminal task's workflow.
 Any dashboard UI/route surface for triggering this review — this task exposes a callable
 module only; `dashboard-orchestration-wiring` (task 32) wires it into the UI, reusing the
-same checkbox/scheduling surface `deterministic-batch-orchestrator` already provides.
+same checkbox/scheduling surface `deterministic-sequential-queue` already provides.

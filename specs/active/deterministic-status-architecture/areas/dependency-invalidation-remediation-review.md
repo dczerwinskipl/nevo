@@ -3,8 +3,10 @@
 ## Responsibility
 
 Own the one combined, cross-task-aware review pass D31 requires for a dependency-invalidation
-remediation group (`areas/dependency-release-and-invalidation.md`): after the group's fix
-attempts run (via `areas/deterministic-batch-orchestrator.md`), review the group as a whole —
+remediation group, whose membership is derived from durable dependency-consumption evidence
+(D43), never guessed (`areas/dependency-release-and-invalidation.md`): after the group's fix
+attempts run (via `areas/deterministic-sequential-queue.md`, one at a time), review the group
+as a whole —
 not each member independently — checking whether each member's implementation is still
 consistent with the root cause task's now-updated implementation, flagging any member that
 needs adjustment even if it wasn't part of the original fix round, and only then releasing
@@ -73,7 +75,7 @@ Exposes: the remediation-group review entry point (group task ids → per-task v
 cross-task findings + aggregate verdict + suspension-clear decision).
 
 Consumed by: the dashboard's remediation-group UI surface (reusing
-`areas/deterministic-batch-orchestrator.md`'s checkbox/scheduling UI for running the group's
+`areas/deterministic-sequential-queue.md`'s checkbox/scheduling UI for running the group's
 fix attempts, then this area's review once attempts complete);
 `areas/dependency-release-and-invalidation.md` (suspension clearing, group extension).
 
@@ -93,7 +95,7 @@ fix attempts, then this area's review once attempts complete);
 ## Dependencies
 
 `areas/dependency-release-and-invalidation.md` (the group signal this area consumes/extends),
-`areas/deterministic-batch-orchestrator.md` (runs the group's fix attempts before this
+`areas/deterministic-sequential-queue.md` (runs the group's fix attempts before this
 area's review).
 
 ## Out of scope

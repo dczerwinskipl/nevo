@@ -233,9 +233,9 @@ tasks:
     file: tasks/27-dependency-release-and-invalidation.md
     status: draft
     depends_on: [ workflow-continuation-schema ]
-  - id: deterministic-batch-orchestrator
+  - id: deterministic-sequential-queue
     order: 28
-    file: tasks/28-deterministic-batch-orchestrator.md
+    file: tasks/28-deterministic-sequential-queue.md
     status: draft
     depends_on: [ workflow-continuation-schema, dependency-release-and-invalidation ]
   - id: automatic-workflow-continuation
@@ -246,13 +246,14 @@ tasks:
       [
         workflow-continuation-schema,
         execution-policy-and-mode-selection,
-        deterministic-batch-orchestrator
+        deterministic-sequential-queue,
+        dependency-release-and-invalidation
       ]
   - id: dependency-invalidation-remediation-review
     order: 30
     file: tasks/30-dependency-invalidation-remediation-review.md
     status: draft
-    depends_on: [ dependency-release-and-invalidation, deterministic-batch-orchestrator ]
+    depends_on: [ dependency-release-and-invalidation, deterministic-sequential-queue ]
   - id: user-mutation-source-control-finalization
     order: 31
     file: tasks/31-user-mutation-source-control-finalization.md
@@ -264,7 +265,7 @@ tasks:
     depends_on:
       [
         execution-policy-and-mode-selection,
-        deterministic-batch-orchestrator,
+        deterministic-sequential-queue,
         automatic-workflow-continuation,
         dependency-invalidation-remediation-review
       ]

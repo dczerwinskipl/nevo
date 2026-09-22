@@ -27,18 +27,22 @@ semantic_references:
 
 ## Goal
 
-Stop `start-step` from silently defaulting provider/mode: when a **change/specification**
-has no resolved execution policy and the provider's permission model needs an explicit mode,
-present the same provider/mode selection `CreateAgentSessionDialog` already implements, and
-persist the resolved `{provider, mode}` as the change-level default through a real server
-transport (D21, corrected — change-level scope and transport ownership, not deferred).
+Stop `start-step` from silently defaulting provider/mode: whenever a **change/specification**
+has no resolved execution policy, **always** present the same provider/mode selection
+`CreateAgentSessionDialog` already implements (sensible defaults preselected) — never
+conditionally — and persist the resolved `{provider, mode}` as the change-level default
+through a real server transport (D21, corrected twice: change-level scope + transport
+ownership in pass 10; unconditional picker in pass 11).
 
 ## Implementation constraints
 
 - Do not duplicate `CreateAgentSessionDialog`'s selection UI. Extract or directly reuse its
   provider-list/`AGENT_EXECUTION_MODES` picker so `startStep()`
-  (`specification-detail-content.tsx`) can present the identical choice before calling
-  `createSession.create(...)`.
+  (`specification-detail-content.tsx`) can present the identical choice before proceeding —
+  this task owns only the policy check/selection/persistence; the actual session-creation
+  call it gates is `admitExecution` (D41, owned by `automatic-workflow-continuation`/
+  `dashboard-orchestration-wiring`, tasks 29/32), not a direct `createSession.create(...)`
+  call from this task's own code.
 - **Server-side ownership (corrected — was previously unowned).** Add
   `tools/dashboard/server/ai/sessions/execution-policy-service.mjs`: reads/writes
   `.nevo-ai-local/execution-policy/<change>.json` (git-ignored local runtime convention,
@@ -51,9 +55,11 @@ transport (D21, corrected — change-level scope and transport ownership, not de
   every task in the change's sequential queue and every automatic handover (D33). A
   `taskOverrides` entry is an optional, additive exception on top of the change-level
   default, never the primary storage.
-- Add a small, explicit "does this provider need an explicit mode choice" check — reuse
-  whatever provider-capability signal already exists (e.g. the mode list a provider descriptor
-  declares) rather than hardcoding a provider-id comparison.
+- **No conditional gate (corrected, pass 11).** Do not add a "does this provider need an
+  explicit mode choice" check — that was itself wrong, since provider selection is part of
+  what the picker resolves; a per-provider capability check can't run before the provider
+  itself is chosen. The picker shows whenever the change has no resolved policy, full stop —
+  every provider, every time, on the first Start/batch-Start.
 - The existing default-to-`'edit'` provider contract (`DEFAULT_AGENT_EXECUTION_MODE`,
   `contracts.mjs`) is unchanged for any session-creation path that has not gone through this
   resolution (e.g. `CreateAgentSessionDialog`'s own generic "new session" path).
@@ -62,9 +68,9 @@ transport (D21, corrected — change-level scope and transport ownership, not de
 
 ## Acceptance criteria
 
-- A first `start-step`/batch-Start click for a change with no resolved execution policy,
-  where the provider needs an explicit mode, shows the selection UI before
-  `createSession.create(...)` is called.
+- A first `start-step`/batch-Start click for a change with no resolved execution policy
+  **always** shows the selection UI before any session-creation call — proven for a provider
+  that would not have needed an explicit mode under the retracted conditional logic.
   `automated: node --test tools/dashboard/tests/execution-policy.test.mjs`
 - Once resolved, a second `start-step` for a **different task in the same change** does not
   show the selection UI again — it reads the change-level policy directly (proving the scope
@@ -76,9 +82,6 @@ transport (D21, corrected — change-level scope and transport ownership, not de
   `automated: node --test tools/dashboard/tests/execution-policy.test.mjs`
 - A `taskOverrides` entry for one task does not affect the change-level default read by any
   other task.
-  `automated: node --test tools/dashboard/tests/execution-policy.test.mjs`
-- A provider whose permission model does not need an explicit mode choice is unaffected —
-  `start-step` behaves exactly as before this task for that provider.
   `automated: node --test tools/dashboard/tests/execution-policy.test.mjs`
 - `CreateAgentSessionDialog`'s own generic "new session" default-mode behavior is unchanged.
   `automated: node --test tools/dashboard/tests/execution-policy.test.mjs`
