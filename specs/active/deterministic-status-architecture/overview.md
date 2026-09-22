@@ -542,6 +542,44 @@ scenarios pass 12 didn't yet cover.**
    lookup resolves each task's authoritative (latest-attempt) record per dependency and
    matches only against that one.
 
+**Corrective pass 14 (2026-09-22, D55–D58, corrections to D54): closing the last two
+correctness gaps — shared-worktree mutation arbitration while an agent is actively working,
+and a real total order for dependency-consumption across arbitrary consuming steps.**
+
+1. **The git-finalize lease protects only the mutate-then-commit instant, not the whole
+   period an agent actively holds the shared worktree (D55).** A `workflow step start`
+   mutates `change.yaml`, then the agent edits source files for the rest of its turn — the
+   worktree stays genuinely dirty far longer than any lease-protected commit window. A
+   concurrently-submitted human decision or Publish (legal under D45, which never gated
+   either on "is an agent active") could encounter the agent's own dirty files, fail with a
+   scope error, or interfere with its edits. Corrected: an explicit **workspace-writer**
+   invariant — for one specification, at most one workspace-writing operation (an active
+   agent execution, `activateAndSubmitHumanStep`, Publish, Batch Publish) holds the shared
+   worktree at a time — a third primitive, distinct from and outer to both the agent-admission
+   lock and the git-finalize lease, never conflated with either.
+2. **The workspace-writer slot needs durable, `kind`-aware crash recovery, not one universal
+   liveness check (D56).** An agent-kind claim's liveness is the dashboard's own session/turn
+   state (a PID check is meaningless for the agent's own short-lived, repeated tool-call
+   subprocess) — released via the same real hooks D42 already established. A non-agent
+   claim's liveness is a PID check against the current process, since Publish/human-submit
+   are short, dashboard-process-local operations — any claim whose pid doesn't match the
+   current process at boot is unconditionally stale (single-server architecture).
+3. **No deterministic priority existed between a pending user mutation and the next
+   automatic agent item (D57).** Chosen now: an already-pending, explicitly user-submitted
+   workspace mutation is serviced before the next automatically-dispatched agent-queue item —
+   reusing the workspace-writer slot's own FIFO wait order, no new priority mechanism
+   invented.
+4. **D54's authoritative-record ordering (highest attempt within a step, falling back to
+   `workflow_progress.history` position across steps) is not a reliable total order (D58).**
+   The currently-activating step's own entry isn't yet in *completion* history at the moment
+   it needs comparing, and attempt numbers carry no chronological relationship across two
+   independently-numbered consuming steps. Corrected: a durable, monotonic
+   `consumptionSequence`, allocated per task and frozen into the start-operation record
+   before activation (crash-safe: retries reuse the frozen value, never re-allocate) —
+   authoritative-record resolution becomes "highest `consumptionSequence` naming that
+   dependency," full stop, safe under concurrency because only one workspace-writing
+   operation can be active per spec at a time (D55).
+
 ## Current architecture
 
 Grounded in repository discovery (2026-09-17, deepened 2026-09-19 by reading the actual
@@ -882,9 +920,10 @@ engine source directly):
   `schedulingPriority`, `consumesDependencies` schema, D25/D26/D28/D34/D39/D40/D53);
   `tools/specs/workflow/dependency-satisfaction.mjs` (epoch-based release/invalidation, D40);
   `tools/specs/workflow/remediation-record.mjs`, `tools/specs/workflow/dependency-consumption.mjs`
-  (new — durable remediation groups and step-scoped, multi-dependency consumption provenance,
-  D31/D36/D53/D54); `tools/specs/workflow/start-operation.mjs` (new — durable, resumable
-  activation-plus-consumption record, distinct from `finish-operation.mjs`'s own family, D52);
+  (new — durable remediation groups and step-scoped, multi-dependency, sequence-ordered
+  consumption provenance, D31/D36/D53/D58); `tools/specs/workflow/start-operation.mjs` (new —
+  durable, resumable activation-plus-consumption record with crash-safe `consumptionSequence`
+  allocation, distinct from `finish-operation.mjs`'s own family, D52/D58);
   `tools/specs/workflow/cli.mjs` (`handleWorkflowStepStart` gains the start-operation call
   site for any step declaring `consumesDependencies`, D52/D53); `tools/specs/workflow/
   git-finalize-lock.mjs` (new — cross-process, PID-liveness-recoverable advisory lease with
@@ -892,13 +931,17 @@ engine source directly):
   own mutation-through-commit window (task 27), `human-step/operations.mjs`'s new
   `activateAndSubmitHumanStep` (task 29, threading one lease through its own `finishStep`
   call via `finalizeLease`), and `publish/operation.mjs`'s own standalone acquisition
-  (task 31); `tools/specs/workflow/suspension-projection.mjs` (new — `SuspensionProjection`,
-  kept separate from the unmodified, pure `task-projection.mjs`, D44);
+  (task 31); `tools/specs/workflow/workspace-writer.mjs` (new — the durable, `kind`-aware
+  workspace-writer slot, D55/D56, a third primitive nesting the git-finalize lease inside it,
+  claimed by agent admission for the whole execution and by `activateAndSubmitHumanStep`/
+  Publish for their own duration); `tools/specs/workflow/suspension-projection.mjs` (new —
+  `SuspensionProjection`, kept separate from the unmodified, pure `task-projection.mjs`, D44);
   `tools/specs/workflow/readiness-policy.mjs` (existing, verified file — gains an explicit
   suspension check, D44); `tools/specs/workflow/queue/**` (pure-domain sequential queue,
   single-active-execution invariant, zero dashboard imports, D33/D34/D38/D45);
   `tools/dashboard/server/ai/orchestration/**` (new — `admitAgentExecution` agent-admission
-  gate with rollback, D41/D49; continuation reconciliation, D42), plus existing files it
+  gate with rollback, now also claiming/releasing the workspace-writer slot, D41/D49/D55/D56;
+  continuation reconciliation, D42; the dispatch-priority check, D57), plus existing files it
   corrects rather than replaces — `tools/dashboard/server/ai/sessions/service.mjs` (per-turn
   reconciliation hook), `tools/dashboard/server/specs/human-step-transport.mjs` (post-submit
   reconciliation hook, now calling `activateAndSubmitHumanStep`), and
@@ -1109,8 +1152,26 @@ from the originally-frozen snapshot, never re-resolve to newer epochs). D53 (a d
 step-level `consumesDependencies: true` field — owned by task 25's schema — triggers
 consumption recording on every activation of a declared step, any attempt, replacing
 "first-ever task activation"; record identity gains the consuming step). D54 (remediation
-lookup matches only a task's authoritative — latest-attempt — consumption record per
-dependency, never any historical record a later attempt has already superseded).
+lookup matches only a task's authoritative consumption record per dependency, never any
+historical record a later attempt has already superseded — **ordering rule itself corrected
+by pass 14's D58**).
+
+**Corrective pass 14 decisions (2026-09-22):** D55 (a third, explicit **workspace-writer**
+invariant — for one specification, at most one workspace-writing operation, agent or
+otherwise, holds the shared worktree at a time — distinct from and never conflated with the
+agent-admission lock or the git-finalize lease; a pending, not-yet-submitted human
+interaction is never a workspace writer, D45 unchanged). D56 (the workspace-writer slot is a
+durable record reconciled by `kind` — an agent-kind claim via the dashboard's own session/
+turn state through the existing D42 hooks, a non-agent claim via a PID check against the
+current process at boot; failed admission releases both the admission and workspace-writer
+claims together). D57 (an already-pending, explicitly user-submitted workspace mutation is
+serviced before the next automatically-dispatched agent-queue item — reusing the
+workspace-writer slot's own FIFO wait order). D58 (dependency-consumption's authoritative-
+record ordering is a durable, monotonic `consumptionSequence`, allocated per task and frozen
+into the start-operation record before activation — crash-safe, never re-allocated on retry,
+safe under concurrency because D55 guarantees no overlapping workspace-writing operation for
+the same spec; corrects D54's step/attempt/history-position rule, which could not reliably
+order arbitrary consuming steps).
 
 ## Proposed architecture
 
@@ -1350,35 +1411,43 @@ deterministic spec.
   with the task's own document, task-declared `requiredContext` distinct from routing-derived
   `relevantDocs`, and separates internal finalize context from the agent-facing payload
   (D22–D24).
-- `areas/workflow-continuation-and-session-handover.md` — (pass 9/10/11/12) the
+- `areas/workflow-continuation-and-session-handover.md` — (pass 9/10/11/12/14) the
   execution-mode/provider selection UX, **always shown** on first Start when no change-level
   policy exists (D21); the declarative continuation (eligibility, not immediate execution)
   and session-lineage/role model (D25/D26); the one spec-level `admitAgentExecution`
-  agent-admission gate, atomic through to durable visibility with rollback on failure
-  (D41/D49); continuation reconciliation from three real server-side points (D42); the
-  distinct human-dispatch branch — mutation-free interaction preview,
-  `activateAndSubmitHumanStep` as one self-owned operation, never called "agent admission"
-  (D27/D47/D49); a pending human decision never pauses the rest of the queue (D45).
-- `areas/dependency-release-and-invalidation.md` — (pass 9/10/11/12/13) declarative,
+  agent-admission gate, atomic through to durable visibility with rollback on failure, now
+  also claiming the workspace-writer slot for the whole admitted execution (D41/D49/D55);
+  continuation reconciliation from three real server-side points, which now also release the
+  workspace-writer slot on turn-terminal/orphan detection (D42/D56); the distinct
+  human-dispatch branch — mutation-free interaction preview, `activateAndSubmitHumanStep`
+  claiming the workspace-writer slot then a nested git-finalize lease, never called "agent
+  admission" (D27/D47/D49/D55); a pending human decision never pauses the rest of the queue
+  (D45); dispatch defers to an already-pending user mutation before the next automatic agent
+  item (D57).
+- `areas/dependency-release-and-invalidation.md` — (pass 9/10/11/12/13/14) declarative,
   epoch-based dependency release with explicit invalidation (D28/D40); a correctly-bounded,
-  lease-passing, crash-recoverable git-finalize lease (D47/D50/D51); durable, declaratively-
-  triggered, step-scoped dependency-consumption via a resumable start-operation (D52/D53);
-  automatic remediation-group derivation from each consumer's authoritative consumption
-  record (D31/D54), including terminal consumers; a separate `SuspensionProjection` alongside
-  the unmodified, pure `TaskProjection` (D44), surfaced via `suspensions` (D37), durable and
-  extensible (D36).
-- `areas/deterministic-sequential-queue.md` — (pass 9/10/11) a **sequential, single-execution**
+  lease-passing, crash-recoverable git-finalize lease (D47/D50/D51); the workspace-writer
+  slot, a third primitive with `kind`-aware crash recovery (D55/D56); durable, declaratively-
+  triggered, step-scoped dependency-consumption via a resumable start-operation, with a
+  crash-safe, monotonic `consumptionSequence` giving a real cross-step total order (D52/D53/
+  D58); automatic remediation-group derivation from each consumer's sequence-based
+  authoritative record (D31/D58), including terminal consumers; a separate
+  `SuspensionProjection` alongside the unmodified, pure `TaskProjection` (D44), surfaced via
+  `suspensions` (D37), durable and extensible (D36).
+- `areas/deterministic-sequential-queue.md` — (pass 9/10/11/14) a **sequential, single-execution**
   task queue (never concurrent, D33), pure domain logic under `tools/specs/workflow/queue/**`
   (D38), ordered by declarative `schedulingPriority` (D34); never blocked by a pending human
   decision elsewhere in the spec (D45); reused by D31's remediation-group fix runs. The
-  checkbox-picker UI and the agent-admission gate (D41/D49) are owned elsewhere.
-- `areas/dependency-invalidation-remediation-review.md` — (pass 9/10/11/13) the one combined,
-  cross-task-aware review pass for a dependency-invalidation remediation group (membership
-  from D54's authoritative evidence), adapting the existing legacy `implementation-review`
-  two-pass design, terminal members reviewed read-only (D31).
-- `areas/user-mutation-source-control-ownership.md` — (pass 9/12/13) Publish/Batch Publish own
-  their own commit/push (D29), acquiring their own standalone git-finalize lease (D47/D50) so
-  a concurrently-running agent `finishStep` cannot absorb Publish's mutation; the explicit
+  checkbox-picker UI, the agent-admission/workspace-writer claim (D41/D49/D55), and the
+  dispatch-priority check (D57) are all owned elsewhere.
+- `areas/dependency-invalidation-remediation-review.md` — (pass 9/10/11/13/14) the one
+  combined, cross-task-aware review pass for a dependency-invalidation remediation group
+  (membership from D58's sequence-based authoritative evidence), adapting the existing legacy
+  `implementation-review` two-pass design, terminal members reviewed read-only (D31).
+- `areas/user-mutation-source-control-ownership.md` — (pass 9/12/13/14) Publish/Batch Publish
+  own their own commit/push (D29), claiming the workspace-writer slot then their own
+  standalone git-finalize lease (D47/D50/D55) so a concurrently-active agent execution can
+  neither absorb nor be interfered with by Publish's mutation; the explicit
   user-action/technical-activation/completed-mutation ownership taxonomy (D30).
 
 ## Change-wide acceptance criteria

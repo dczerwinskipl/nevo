@@ -42,9 +42,11 @@ established, correct direction, and this area's own module must preserve it.
   (D34) — a pure sort, no step-name branch anywhere. It also owns the queue's own durable
   membership state (local FS I/O, same family as `operation-record.mjs`, additive to but
   independent of `workflow_progress`). **This module never decides whether an execution may
-  actually start** — that atomic admission decision is `admitAgentExecution` (D41), owned by
-  `areas/workflow-continuation-and-session-handover.md`, which calls this module for "what's
-  next" and then separately claims the spec-level slot.
+  actually start, nor whether a pending user mutation should run first (D57)** — those are
+  `areas/workflow-continuation-and-session-handover.md`'s own layers on top: it calls this
+  module for "what's next," checks whether a pending user-submitted workspace mutation should
+  go first instead (D57), and only then calls `admitAgentExecution` (D41/D49), which also
+  claims the workspace-writer slot (D55) — none of that state or logic lives in this module.
 - **Checkbox-picker selection (D32, unchanged in this dimension).** One selection mechanism,
   owned by `dashboard-orchestration-wiring` (task 32), not this module: a checkbox-based task
   picker, pre-selected with whichever tasks are currently ready. The owner can freely check

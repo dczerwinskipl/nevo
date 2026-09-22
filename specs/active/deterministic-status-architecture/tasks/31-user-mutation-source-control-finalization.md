@@ -16,14 +16,15 @@ forbidden_paths:
   - tools/specs/workflow/finish-operation.mjs
   - tools/specs/workflow/operation-record.mjs
   - tools/specs/workflow/git-finalize-lock.mjs
+  - tools/specs/workflow/workspace-writer.mjs
   - tools/specs/store.mjs
   - src/**
 depends_on: [ dependency-release-and-invalidation ]
 semantic_references:
-  decisions: [D29, D30, D47, D50, D51]
+  decisions: [D29, D30, D47, D50, D51, D55, D56]
 ---
 
-# Task: User-mutation source-control finalization (corrected — durable operation, atomic batch)
+# Task: User-mutation source-control finalization (corrected — durable operation, atomic batch, workspace-writer-aware)
 
 ## Goal
 
@@ -31,12 +32,13 @@ Make `workflow task publish`/Batch Publish durable standalone operations (D29, c
 `CommitAndPushAction` alone does not inherit `finishStep`'s crash/resume semantics — those
 come from `operation-record.mjs`'s intent-then-verify pattern. `publishTask()` reuses that
 same pattern directly. Batch Publish is one atomic operation (prevalidate all → mutate all →
-one commit → optional push), not one commit per task. Additionally acquire the shared
-`withGitFinalizeLock` (task 27, D47/D50) around the mutate-then-commit sequence, so a
-concurrently-running agent `finishStep` for a different task in the same change (legal under
-D45) cannot sweep Publish's own uncommitted mutation into its own commit. Document the
-three-way ownership taxonomy (D30) in `docs/development/agent-workflow-protocol.md`'s
-existing section.
+one commit → optional push), not one commit per task. Additionally claim the shared
+**workspace-writer slot** (D55, `kind: 'publish'`/`'batch-publish'`) around its whole own
+operation, and the git-finalize lease (D47/D50) nested inside it, around the mutate-then-
+commit sequence specifically — so a concurrently-active agent execution (which itself holds
+the workspace-writer slot for its whole turn, D55) cannot have its dirty worktree/uncommitted
+`change.yaml` interfered with by Publish, and vice versa. Document the three-way ownership
+taxonomy (D30) in `docs/development/agent-workflow-protocol.md`'s existing section.
 
 ## Implementation constraints
 
@@ -59,13 +61,16 @@ existing section.
   result exactly as `finish-operation.mjs`'s own `planFinish` does — reconcile an ambiguous
   `running` stage against real repository/task state (resume, no-op, or fail closed with
   `reconciliation-required`), never guess.
-- **Acquire the shared git-finalize lease, standalone (D47/D50).** Call
-  `withGitFinalizeLock(fn)` — with **no** `existingLease` argument, since Publish has no
-  inner call into `finishStep`/`activateAndSubmitHumanStep`; it simply acquires its own fresh
-  lease, runs its own mutate-then-commit sequence (from `setTaskStatus` through the commit
-  call) inside `fn`, and releases automatically — for both single-task and Batch Publish.
-  This is the same lease-acquisition function agent-driven `finishStep` and the combined
-  human-decision operation use (each acquiring their own, independently, per D50).
+- **Claim the workspace-writer slot first, then the git-finalize lease nested inside it
+  (D47/D50/D55).** Call `acquireWorkspaceWriter({specId, kind: 'publish'})` (or
+  `'batch-publish'` for the batch path) — imported from `tools/specs/workflow/
+  workspace-writer.mjs`, task 27, import only, do not edit that file — waiting if an agent
+  execution or another writer currently holds the slot. Once held, call `withGitFinalizeLock(fn)`
+  — with **no** `existingLease` argument, since Publish has no inner call into `finishStep`/
+  `activateAndSubmitHumanStep`; it acquires its own fresh lease, runs its own mutate-then-
+  commit sequence (from `setTaskStatus` through the commit call) inside `fn`, and releases
+  automatically. Release the workspace-writer claim after the git-finalize-protected sequence
+  completes (success or failure). For both single-task and Batch Publish.
 - **Batch Publish, atomic, real path convention (corrected, pass 11).** Extend
   `handleBatchPublish` (`routes.mjs`): prevalidate every selected task first (reuse
   `publishTask()`'s own validation logic without its mutation/commit stages); only if all
@@ -108,6 +113,15 @@ existing section.
   `withGitFinalizeLock` rather than committing while Publish's own mutation is uncommitted —
   proven by racing the two directly, not merely by absence of a flaky failure.
   `automated: node --test tools/tests/workflow-task-publish.test.mjs`
+- Publish attempted while an agent execution actively holds the workspace-writer slot (source
+  files genuinely dirty from that agent's own in-progress edits, not merely mid-commit) waits
+  for the slot rather than proceeding — and never fails with a scope error caused by the
+  agent's own unrelated dirty files, and never observes/absorbs the agent's own uncommitted
+  `change.yaml` state.
+  `automated: node --test tools/tests/workflow-task-publish.test.mjs`
+- Once the agent's execution releases the workspace-writer slot, a Publish request that was
+  waiting proceeds and completes normally.
+  `automated: node --test tools/tests/workflow-task-publish.test.mjs`
 
 ## Verification
 
@@ -120,6 +134,7 @@ node tools/specs.mjs validate
 ## Out of scope
 
 Redesigning `commit-and-push` itself. Any change whatsoever to `finish-operation.mjs`/
-`operation-record.mjs`/`git-finalize-lock.mjs` — this task only calls their existing,
-genuinely-exported functions, never edits them. Retroactively re-classifying every other
-existing dashboard action against the new taxonomy.
+`operation-record.mjs`/`git-finalize-lock.mjs`/`workspace-writer.mjs` — this task only calls
+their existing, genuinely-exported functions, never edits them. Deciding dispatch priority
+between a pending Publish and the next automatic agent item (owned by task 29, D57).
+Retroactively re-classifying every other existing dashboard action against the new taxonomy.

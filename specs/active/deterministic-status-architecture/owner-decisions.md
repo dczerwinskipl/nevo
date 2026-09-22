@@ -2416,6 +2416,202 @@ points are asserted to route through the identical `startStep` function instance
 - **Consequences:** `dependency-release-and-invalidation` (task 27)'s `findConsumersOfEpoch`
   gains this authoritative-record resolution step before matching; remediation-group
   derivation (D31) is otherwise unchanged.
-- **Date:** 2026-09-22
+- **SUPERSEDED 2026-09-22 (pass 14) — see D58.** "Highest `consumingAttempt` within a step,
+  falling back to `workflow_progress.history` position across steps" is not a reliable total
+  order: the *currently-active* consuming step's own activation is, by construction, not yet
+  present in *completion* history at the moment it needs to be compared, and `consumingAttempt`
+  is only chronological *within* one step, never across two independently-numbered steps
+  (e.g. step A's attempt 2 could easily be chronologically later than step B's attempt 1, with
+  no attempt-number relationship between them). D58 replaces this with an explicit, durable,
+  monotonic `consumptionSequence` allocated once per activation — the authoritative record for
+  `(consumingTask, dependencyTaskId)` becomes "highest `consumptionSequence` naming that
+  dependency," full stop, regardless of which step or attempt produced it.
+- **Date:** 2026-09-22 (authoritative-record ordering corrected 2026-09-22, pass 14 — see D58)
 - **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
   `tasks/27-dependency-release-and-invalidation.md`.
+
+## D55: A shared-workspace-writer invariant, distinct from agent admission and the git-finalize lease
+
+- **Question:** D50/D51's git-finalize lease only protects the mutate-then-commit *instant*
+  — it is not held while an agent is actively editing the shared worktree between
+  `workflow step start` succeeding and its own eventual `finishStep`. Concretely: T2's agent
+  session mutates `change.yaml` (via `workflow step start`) and begins editing source files,
+  leaving the worktree genuinely dirty for the *duration of its whole active turn* — not just
+  a brief mutate-then-commit window. Meanwhile (legal under D45, since a pending human
+  decision doesn't block other agent-owned work, and Publish/human-submit were never gated on
+  "is an agent currently active" at all), the user clicks Approve on T1 or Publish on T3. That
+  operation's own `withGitFinalizeLock` only guards *its own* mutate-then-commit instant — it
+  has no way to know T2's worktree is *already* dirty for reasons unrelated to its own
+  operation, and could fail with a scope error, interfere with T2's in-progress edits, or (in
+  the worst case) sweep T2's own uncommitted `change.yaml` mutation into an unrelated commit.
+  This project deliberately does not support per-task worktrees or concurrent agent
+  execution, so the fix must be a new arbitration rule, not workspace isolation.
+- **Decision:** Introduce an explicit **workspace-writer** invariant, a third primitive,
+  never conflated with the other two:
+  - **Agent-admission lock (D41/D49, unchanged):** an in-process, dashboard-only, short-lived
+    mutex preventing two agent executions from being *created* concurrently for one spec.
+  - **Workspace-writer slot (new, this decision):** for one specification, **at most one
+    workspace-writing operation may hold it at a time.** Workspace-writing operations are: an
+    active agent execution, from the moment its session is admitted until that execution
+    reaches its safe completion/finalization boundary; `activateAndSubmitHumanStep`; Publish;
+    Batch Publish; and any future tracked-mutation operation. A **pending** human interaction
+    (not yet submitted) is **not** a workspace writer — D45 stands unchanged: it never blocks
+    the sequential agent queue merely by existing. A queued user action is not a workspace
+    writer until it actually begins its own tracked mutation attempt.
+  - **Git-finalize lease (D47/D50/D51, unchanged in role):** a narrower, cross-process lease
+    around the mutate-then-commit critical section specifically — nested *inside* whichever
+    operation currently holds the workspace-writer slot (D47's own lease-passing/boundary
+    rules are otherwise untouched).
+  - **Behavior when a user submits a workspace mutation while an agent holds the slot:** the
+    user's intent is accepted/recorded immediately (never silently dropped or bounced) but
+    its tracked mutation does **not** begin — the operation waits for the workspace-writer
+    slot exactly as any other blocked acquirer would, then proceeds once it is free. Before
+    the scheduler admits the *next* automatic agent-queue item, it services any
+    already-pending, explicitly-user-submitted workspace mutation first (D57).
+- **Rationale:** Matches the brief precisely: an explicit arbitration rule, not per-task
+  worktrees, parallel branches, concurrent agents, or Git merge orchestration; three
+  primitives with three distinct, non-overlapping roles, stated explicitly so future work
+  never re-conflates them.
+- **Consequences:** `dependency-release-and-invalidation` (task 27) owns the new
+  `workspace-writer.mjs` primitive (alongside `git-finalize-lock.mjs`, the same durable-file
+  family). `automatic-workflow-continuation` (task 29) integrates it into
+  `admitAgentExecution` (claim before session creation, release on turn-terminal) and
+  `activateAndSubmitHumanStep` (claim for the operation's own duration).
+  `user-mutation-source-control-finalization` (task 31) integrates it into
+  `publishTask`/Batch Publish the same way.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `owner-decisions.md`,
+  `areas/workflow-continuation-and-session-handover.md`,
+  `areas/dependency-release-and-invalidation.md`,
+  `areas/deterministic-sequential-queue.md`,
+  `tasks/27-dependency-release-and-invalidation.md`,
+  `tasks/29-automatic-workflow-continuation.md`,
+  `tasks/31-user-mutation-source-control-finalization.md`.
+
+## D56: The workspace-writer slot is a durable, recoverable record — reconciled by kind, not by a single universal liveness check
+
+- **Question:** The slot must not exist only in memory (a server restart would either
+  falsely-forever-occupy it or silently forget a real, still-relevant claim). What durable
+  shape recovers correctly for both an agent's own claim (held by a session/turn the
+  dashboard itself tracks) and a human-submit/Publish claim (held by the dashboard's own
+  process for a short, synchronous-ish operation)?
+- **Decision:** `.nevo-ai-local/workspace-writers/<specId>.json`:
+  `{ownerId, kind: 'agent'|'human-submit'|'publish'|'batch-publish', specId, taskId?,
+  sessionId?, turnId?, pid?, createdAt}`. Acquisition is atomic (exclusive file create);
+  release verifies `ownerId` first (same discipline as D51). **Reconciliation branches by
+  `kind`:**
+  - **`kind: 'agent'`** — liveness is determined by the dashboard's own canonical
+    session/turn state (`sessionId`/`turnId`), never a PID check (the agent's own tool-call
+    subprocess is short-lived and repeated, not a single long-lived process for the whole
+    turn — a PID check would be meaningless here). Release is triggered from the *same* real
+    hook D42 already established: when `AgentSessionService`'s per-turn subscription reports
+    that turn as terminal (completed/failed/cancelled), the workspace-writer claim for that
+    execution is released as part of the same reconciliation pass. Boot-time recovery reuses
+    `reconcileOrphanedTurns()`'s own existing detection of a persisted `activeTurn` left
+    behind by an ungraceful restart — when it finds one, it also releases that turn's
+    workspace-writer claim, if any.
+  - **`kind !== 'agent'`** (human-submit/Publish/Batch Publish) — these are short,
+    dashboard-process-local operations; liveness is a `pid` check against the *current*
+    process's own `process.pid`. Because this whole architecture is single-server (no
+    clustering), any claim whose `pid` does not match the current process's own pid at
+    boot-time reconciliation is unconditionally stale (it belongs to a previous server
+    lifetime) and is cleared unconditionally — a simpler, safe special case of D51's own
+    PID-liveness pattern, not a new mechanism.
+  - **Failed admission/session creation** (D41/D49's own rollback path) releases the
+    workspace-writer claim in the same rollback, exactly as it already clears the admission
+    "occupied" marker — the two are released together, atomically, from the same failure
+    path.
+- **Rationale:** Matches the brief precisely: acquisition atomic; live owner never stolen;
+  stale owner recoverable; agent ownership reconciled against canonical session/turn state;
+  failed admission releases the claim; a queued human/Publish mutation that never actually
+  started never leaves the workspace falsely occupied (it never acquired the slot in the
+  first place); restart reconciliation recovers a missed release — all without inventing a
+  second PID-liveness mechanism for the agent case, where PID is not the right signal.
+- **Consequences:** `dependency-release-and-invalidation` (task 27) owns this record's
+  primitives; `automatic-workflow-continuation` (task 29) wires the agent-kind release into
+  its existing Hook 1/Hook 3 reconciliation; `user-mutation-source-control-finalization`
+  (task 31) relies on normal `finally`-based release plus boot-time pid-mismatch clearing for
+  the Publish case.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `areas/workflow-continuation-and-session-handover.md`,
+  `tasks/27-dependency-release-and-invalidation.md`,
+  `tasks/29-automatic-workflow-continuation.md`.
+
+## D57: Explicit, already-pending user-submitted workspace mutations are serviced before the next automatically-dispatched agent item
+
+- **Question:** When an agent releases the workspace-writer slot, there may simultaneously be
+  a next agent-queue item ready, a pending human submission, a pending Publish, or a
+  remediation action all wanting the slot next. What deterministic order governs this,
+  chosen now rather than left to implementation?
+- **Decision:** **Default policy: an explicit, already-pending user-submitted workspace
+  mutation is serviced before the next automatically-dispatched agent-queue item.**
+  Mechanism: `workspace-writer.mjs` maintains an in-process (dashboard-only — every real
+  caller of this policy is dashboard-mediated) record of currently-waiting acquisition
+  attempts, tagged by `kind`. Before `automatic-workflow-continuation`'s dispatch logic calls
+  `admitAgentExecution` for the sequential queue's own `nextRunnable` item, it checks whether
+  any **non-agent** (`human-submit`/`publish`/`batch-publish`) acquisition attempt is already
+  waiting for this spec's workspace-writer slot. If one is, dispatch defers admitting the
+  next agent item until that waiter has acquired, completed, and released the slot — the
+  waiter's own acquisition, already queued in the slot's FIFO wait order, is what actually
+  resolves next once the agent releases; dispatch does not additionally race it. This is a
+  generic, `kind`-based policy — no application code branches on a literal action name to
+  implement it.
+- **Rationale:** Matches the brief's own worked example and preferred default directly (T2
+  finishes; pending Approve T1; T3 queued → Approve T1 runs, then T3); reuses the FIFO
+  ordering a wait-queue already provides rather than inventing a second priority mechanism,
+  while still making a race between "next-agent dispatch" and "a not-yet-queued user click
+  arriving at nearly the same instant" resolve deterministically toward the already-recorded
+  intent, not an ad hoc timing race.
+- **Consequences:** `automatic-workflow-continuation` (task 29) owns this check, immediately
+  before its own `admitAgentExecution` call for the next queue item. `deterministic-sequential-
+  queue` (task 28) is unaffected — it remains a pure "what's eligible" computation; this
+  policy is applied one layer up, at dispatch.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `areas/deterministic-sequential-queue.md`, `tasks/29-automatic-workflow-continuation.md`.
+
+## D58: Dependency-consumption authoritative-record ordering is a durable, monotonic `consumptionSequence`, not step/attempt/history position
+
+- **Question:** D54's ordering rule (highest `consumingAttempt` within a step, falling back
+  to `workflow_progress.history` position across different consuming steps) is not a
+  reliable total order: the currently-activating step's own entry is not yet present in
+  *completion* history at the exact moment it needs to be compared against another step's
+  own attempts, and nothing guarantees `consumingAttempt` numbers are chronologically
+  comparable *across* two independently-numbered consuming steps (schema allows arbitrarily
+  many steps to declare `consumesDependencies: true`).
+- **Decision:** Add a persisted, monotonically-increasing `consumptionSequence: <integer>`,
+  allocated **per task**, to both the start-operation snapshot (D52) and the final
+  dependency-consumption record: `{consumingTaskId, consumingStep, consumingAttempt,
+  consumptionSequence, dependencies: [...]}`. **Allocation, crash-safe by construction:**
+  when `planStart` creates a *new* start-operation record for a `consumesDependencies` step
+  activation, it computes `consumptionSequence` as one more than the current maximum found
+  across *all* of that task's own durable records (both completed
+  `dependency-consumption/<change>/<task>/**` records and any `workflow-start-operations/
+  <change>/<task>/**` records, in-flight or completed) and freezes it into the new record
+  *before* activation mutates anything. **On resume**, the already-frozen sequence in the
+  existing in-flight record is reused verbatim — never re-derived, never re-allocated — so a
+  crash cannot produce two different sequence values for the same logical activation.
+  **Concurrency safety** follows directly from D55: `planStart` only ever runs while this
+  task's own step activation is proceeding, which — because only one agent execution can be
+  active per spec (D33) and that execution holds the workspace-writer slot for its entire
+  duration (D55) — can never overlap with any other workspace-writing operation for the same
+  spec, so the scan-then-allocate sequence has no concurrent writer to race against. No
+  separate lock or in-memory counter is introduced for this allocation.
+- **Decision (authoritative-record resolution, corrected from D54):** For a given
+  `(consumingTask, dependencyTaskId)` pair, the authoritative consumption record is the one
+  with the **highest `consumptionSequence`** among all of that task's records (across any
+  consuming step) naming that dependency — full stop, regardless of which step or attempt
+  produced it. `findConsumersOfEpoch` matches only against each candidate's authoritative
+  record by this rule.
+- **Rationale:** Matches the brief precisely: do not infer order from step names, lexical
+  step order, completion history alone, or attempt number alone; a later activation must
+  always win regardless of which differently-numbered step produced it; sequence allocation
+  must integrate with the already-durable start-operation rather than an in-memory counter.
+- **Consequences:** `dependency-release-and-invalidation` (task 27)'s `start-operation.mjs`
+  and `dependency-consumption.mjs` both gain `consumptionSequence`; `findConsumersOfEpoch`'s
+  authoritative-record resolution is corrected from D54's step/attempt/history rule to this
+  one, simpler, total-order rule.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
