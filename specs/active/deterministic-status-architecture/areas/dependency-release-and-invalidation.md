@@ -137,17 +137,25 @@ transitions. No wording or logic anywhere references a transition going "backwar
   without throwing** (a legitimate `blocked`/`input-required`/`reconciliation-required` return
   is not settlement, D69). **`kind !== 'agent', 'cli-manual'` (human-submit/publish/
   batch-publish) — dead pid never means safe to release; it means reconcile the durable request
-  (D79, corrected from D56).** These kinds are now backed by a durable workspace request (D72)
-  and a durable operation record (D29/D73) — a dead process may already have mutated tracked
-  state. A pid mismatch is therefore never itself grounds for deletion. Instead: read
-  `claim.requestId` → load the workspace-request and its `operationRef` → inspect the
-  referenced operation's own real durable state → **genuinely settled/completed** → release
-  ownership-conditionally (D70) and mark the request `completed`/`failed`; **ambiguous** → mark
-  the request `reconciliation-required` and either retain the claim or mark it
-  `recovery-required` (never delete it). A request-backed claim with no resolvable
-  `requestId`/request record fails closed — no release, no mutation. Failed admission/session
-  creation releases the workspace-writer claim in the same rollback path that already clears
-  the admission "occupied" marker (D41/D49/D66).
+  through one shared, generic reconciler (D79, corrected D56/D88).** These kinds are now backed
+  by a durable workspace request (D72) and a durable operation record (D29/D73) — a dead
+  process may already have mutated tracked state. A pid mismatch is therefore never itself
+  grounds for deletion. `acquireWorkspaceWriter` calls `reconcileRequestBackedWorkspaceClaim`
+  (`workspace-claim-reconciliation.mjs`, this area) internally: load the workspace-request by
+  `claim.requestId` → dispatch to whichever settlement-checker is registered for `claim.kind`
+  (task 29's own for `'human-submit'`, task 31's own for `'publish'`/`'batch-publish'` — an
+  operation-*protocol* discriminator, never a workflow-step name) → **genuinely
+  settled/completed** → release ownership-conditionally (D70) and mark the request
+  `completed`/`failed`; **ambiguous** → mark the request `reconciliation-required` and either
+  retain the claim or mark it `recovery-required` (never delete it). **No caller needs to know
+  which kind previously owned the claim it's contending for** — this is what makes agent
+  admission correctly reconcile a dead Publish claim, human-submit correctly reconcile a dead
+  Batch Publish claim, Publish correctly reconcile a dead human-submit claim, and `cli-manual`
+  correctly reconcile a dead Publish claim, all through one identical code path, with zero
+  per-caller duplication of this logic. A request-backed claim with no resolvable
+  `requestId`/request record, or whose `kind` has no registered checker, fails closed — no
+  release, no mutation. Failed admission/session creation releases the workspace-writer claim
+  in the same rollback path that already clears the admission "occupied" marker (D41/D49/D66).
 - **Release/mark-recovery-required is ownership-conditional, never a blind
   worktree-global mutation (D70).** A *delayed* reconciliation event (a turn-terminal callback
   that finally runs after that execution's claim was already released and a different
@@ -180,6 +188,18 @@ transitions. No wording or logic anywhere references a transition going "backwar
   closure — to populate `expectedOwnerId`. If no persisted `workspaceOwnerId` can be found for
   an orphaned execution, identity is unestablished: never release, never mark anything — fail
   closed (`recovery-required`-equivalent).
+- **An `agent`-kind claim's `sessionId`/`turnId` are enriched onto the exact claim after it is
+  acquired, before the provider executes — never left permanently absent (D89).** The claim is
+  necessarily created before the new session/turn exist (D66's own ordering). `updateWorkspaceWriterIfOwned({repoRoot,
+  expectedOwnerId, sessionId, turnId, specId, taskId})` (new export, control-lock-protected like
+  every other mutation, D80) merges the now-known identity into the *exact* claim just
+  acquired, ownership-conditionally — a mismatch fails the whole admission closed rather than
+  silently enriching nothing or, worse, a different claim. Only once this succeeds does
+  `workspaceOwnerId` get persisted onto the durable session/turn record (D71) and only then does
+  the provider process actually spawn — with `NEVO_SESSION_ID` equal to the identity the claim
+  now carries — so D86's exact-match reuse check always has a real value from the very first
+  CLI invocation that execution ever makes. A crash between claim acquisition and enrichment
+  leaves a `sessionId`-less claim, treated identically to D71's own unestablished-identity case.
 - **`cli-manual` kind — every deterministic CLI entry point participates too (D62), reuse of an
   existing `agent` claim requires trusted ambient identity (D86).** `cli.mjs`'s
   `handleWorkflowStepStart`/`handleWorkflowStepFinish` (task 27, already an allowed path) wrap
@@ -391,23 +411,38 @@ modified**. `ExecutionReadiness` (`readiness-policy.mjs`) composes `TaskProjecti
   references the real operation's identity (D76).
 - The durable workspace-request queue is scoped to the physical worktree, never filtered by
   `specId`, when used as D57's scheduling authority (D65/D74).
+- A human-submit workspace claim is never released in a bare `finally` — always gated on
+  `assessExecutionSettlement`, and always released after (never before) its durable operation/
+  request records are marked terminal (D87).
+- No acquisition path (agent admission, human-submit, Publish, Batch Publish, `cli-manual`)
+  contains its own copy of D79's dead-pid reconciliation logic — every path reaches the same
+  `reconcileRequestBackedWorkspaceClaim`, dispatching by registered kind (D88).
+- An `agent`-kind claim's `sessionId`/`turnId` are never left permanently absent once a session/
+  turn exists for that execution — enriched ownership-conditionally before the provider process
+  spawns (D89).
+- At most one non-terminal human-submit operation exists per `(change, task, step, attempt)` —
+  no file creates a second concurrent one for the same attempt (D90).
+- A request-backed operation's own durable intent record is always written before its paired
+  workspace-request becomes durable, never after (D91).
 
 ## Interfaces and boundaries
 
 Exposes: `evaluateDependencySatisfaction`'s epoch-aware release logic;
 `acquireGitFinalizeLease`/`withGitFinalizeLock`; the workspace-control lock (internal to
 `workspace-writer.mjs`, not exposed directly); `workspace-writer.mjs`'s acquire/
-ownership-conditional-release/ownership-conditional-mark-recovery-required/pending-waiters
-primitives, all control-lock-protected; `execution-settlement.mjs`'s
-`assessExecutionSettlement`; `workspace-request.mjs`'s durable request-queue primitives
-(D72/D75-D78, including atomic `requestSequence` allocation and CAS `transitionWorkspaceRequest`,
-D81/D83); `cli-workspace-execution.mjs`'s durable `cli-manual` owner-id record (D85); the
-start-operation module (D52, including `consumptionSequence` allocation — unaffected by this
-pass); `dependency-consumption.mjs`'s step-scoped write/read primitives and sequence-based
-authoritative-record resolution; the remediation-group derivation function and its durable
-record primitives; `projectSuspensions(task, change)`; `cli.mjs`'s `handleWorkflowStepStart`/
-`handleWorkflowStepFinish` `cli-manual`-kind workspace-writer wrapping, including the trusted
-ambient-identity reuse check (D86).
+ownership-conditional-release/ownership-conditional-mark-recovery-required/ownership-
+conditional-enrichment (`updateWorkspaceWriterIfOwned`, D89)/pending-waiters primitives, all
+control-lock-protected; `execution-settlement.mjs`'s `assessExecutionSettlement`;
+`workspace-claim-reconciliation.mjs`'s `reconcileRequestBackedWorkspaceClaim`/
+`registerRequestKindReconciler` (D88); `workspace-request.mjs`'s durable request-queue
+primitives (D72/D75-D78, including atomic `requestSequence` allocation and CAS
+`transitionWorkspaceRequest`, D81/D83); `cli-workspace-execution.mjs`'s durable `cli-manual`
+owner-id record (D85); the start-operation module (D52, including `consumptionSequence`
+allocation — unaffected by this pass); `dependency-consumption.mjs`'s step-scoped write/read
+primitives and sequence-based authoritative-record resolution; the remediation-group derivation
+function and its durable record primitives; `projectSuspensions(task, change)`; `cli.mjs`'s
+`handleWorkflowStepStart`/`handleWorkflowStepFinish` `cli-manual`-kind workspace-writer
+wrapping, including the trusted ambient-identity reuse check (D86).
 
 Consumed by: `tools/specs/workflow/cli.mjs` (the D52 start-operation flow for a
 `consumesDependencies` step, and its own `cli-manual` workspace-writer wrapping — now also
@@ -560,6 +595,32 @@ CAS; reconciles its own dead-pid claims, D79), `readiness-policy.mjs`,
   workspace-control lock, workspace-writer claim, and git-finalize lease across every
   documented path (agent admission, human-submit, Publish) and finds no pair of paths acquiring
   any two of these primitives in opposite order — no cycle is constructible.
+- **Human-submit release is settlement-gated, never a bare `finally` (D87):** a human-submit
+  whose `finishStep` returns `reconciliation-required`, or throws after `startHumanStep`'s own
+  mutation, does **not** release the workspace-writer claim; a successful submission marks the
+  durable operation/request `completed` *before* releasing the claim; a crash after the commit
+  lands but before those markers are written is recovered on restart by the same settlement
+  check, releasing the exact claim only once the records are settled.
+- **Generic reconciliation is truly kind-agnostic (D88):** an agent admission encountering a
+  dead Publish claim, a human-submit encountering a dead Batch Publish claim, a Publish
+  encountering a dead human-submit claim, and a `cli-manual` acquisition encountering a dead
+  Publish claim all resolve through the identical `reconcileRequestBackedWorkspaceClaim` call —
+  no acquisition path contains its own duplicated D79 algorithm for a kind it doesn't own.
+- **Agent claim identity enrichment (D89):** a fresh agent admission's claim carries no session
+  identity immediately after acquisition and does carry the exact enriched `sessionId`/`turnId`
+  by the time the provider process is spawned; a stale enrichment attempt using an already-
+  superseded `ownerId` fails as `not-current-owner` and cannot modify a newer claim; a crash
+  between acquisition and enrichment leaves the claim's identity unestablished, and restart
+  reconciliation takes no release/mark action against it.
+- **Human-submit duplicate/conflict invariant (D90):** two rapid, identical submissions for one
+  non-terminal attempt collapse to one durable request; a conflicting second decision for that
+  same non-terminal attempt is rejected without overwriting the first; a new human-submit
+  operation is created normally once the prior one is terminal and the workflow has moved to a
+  later attempt.
+- **Durable operation-record-before-workspace-request ordering (D91):** for each of
+  human-submit, Publish, and Batch Publish, a crash simulated immediately after workspace-
+  request creation finds the referenced `operationRef` already resolving to real, durably-
+  written intent — never a dangling reference.
 
 ## Dependencies
 

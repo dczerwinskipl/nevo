@@ -17,6 +17,7 @@ allowed_paths:
   - tools/specs/workflow/git-finalize-lock.mjs
   - tools/specs/workflow/workspace-writer.mjs
   - tools/specs/workflow/workspace-request.mjs
+  - tools/specs/workflow/workspace-claim-reconciliation.mjs
   - tools/specs/workflow/execution-settlement.mjs
   - tools/specs/workflow/cli-workspace-execution.mjs
   - tools/specs/workflow/cli.mjs
@@ -29,6 +30,7 @@ allowed_paths:
   - tools/tests/execution-settlement.test.mjs
   - tools/tests/workspace-request.test.mjs
   - tools/tests/cli-workspace-execution.test.mjs
+  - tools/tests/workspace-claim-reconciliation.test.mjs
 forbidden_paths:
   - tools/specs/workflow/task-projection.mjs
   - tools/specs/workflow/step-context.mjs
@@ -37,7 +39,7 @@ forbidden_paths:
   - tools/dashboard/**
 depends_on: [ workflow-continuation-schema ]
 semantic_references:
-  decisions: [D28, D31, D36, D37, D40, D44, D47, D50, D51, D52, D53, D55, D56, D58, D59, D60, D61, D62, D65, D66, D69, D70, D71, D72, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86]
+  decisions: [D28, D31, D36, D37, D40, D44, D47, D50, D51, D52, D53, D55, D56, D58, D59, D60, D61, D62, D65, D66, D69, D70, D71, D72, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D91]
 ---
 
 # Task: Dependency release and invalidation
@@ -59,14 +61,21 @@ dashboard-orchestrated agent executions (D62), releasing it only once
 `assessExecutionSettlement` — never a bare non-throwing `finishStep` return — reports settled
 (D69), with its own durable owner-id home independent of `consumesDependencies` (a new
 `cli-workspace-execution.mjs`, D85), and reusing an existing `agent`-kind claim only when
-trusted ambient execution identity proves it (D86). Implement a dead-pid finding on any
-request-backed claim (`human-submit`/`publish`/`batch-publish`) as a trigger for durable
-request/operation reconciliation, never an unconditional delete (D79). Implement the new
-`workspace-request.mjs` — a durable, physical-worktree-scoped queue of pending user-submitted
-workspace mutations, with atomically-allocated `requestSequence` (D81), an exact `requestId`
-embedded in the workspace-writer claim it acquires (D82), and compare-and-set transitions so no
-request is ever executed twice (D83) — replacing the in-process pending-waiters list as the
-source of truth for D57's dispatch priority and for a request's own survive-restart durability
+trusted ambient execution identity proves it (D86). Implement one shared, generic
+`reconcileRequestBackedWorkspaceClaim` (a new `workspace-claim-reconciliation.mjs`) so a dead
+pid on **any** request-backed claim (`human-submit`/`publish`/`batch-publish`) — encountered by
+**any** acquisition path, regardless of which kind that path itself owns — dispatches to a
+per-kind settlement-checker registered by that kind's own owning task, never an unconditional
+delete and never a duplicated per-caller reconciliation (D79, corrected D88). Implement
+`updateWorkspaceWriterIfOwned`, ownership-conditional enrichment of an already-acquired
+`agent`-kind claim with `sessionId`/`turnId` once the new session/turn exists, before the
+provider process is ever spawned, so D86's exact-identity check always has a real value to
+compare against (D89). Implement the new `workspace-request.mjs` — a durable,
+physical-worktree-scoped queue of pending user-submitted workspace mutations, with
+atomically-allocated `requestSequence` (D81), an exact `requestId` embedded in the
+workspace-writer claim it acquires (D82), and compare-and-set transitions so no request is ever
+executed twice (D83) — replacing the in-process pending-waiters list as the source of truth for
+D57's dispatch priority and for a request's own survive-restart durability
 (D72/D74/D75/D77/D78). Implement D52's durable
 start-operation record so step activation and its dependency-consumption snapshot become
 jointly durable and crash-resumable, now also allocating and freezing a durable, monotonic
@@ -171,6 +180,15 @@ and D44's separate `SuspensionProjection`.
     use.** No orchestration/reconciliation code calls this; at most a future, explicitly
     out-of-scope manual-operator recovery tool might, deliberately, with a human already
     involved.
+  - **`updateWorkspaceWriterIfOwned({repoRoot, expectedOwnerId, sessionId?, turnId?, specId?,
+    taskId?})` (new, D89) — ownership-conditional enrichment, not release.** Inside
+    `withWorkspaceControlLock`: if `ownerId` matches, merges the supplied fields (e.g.
+    `sessionId`/`turnId`, unknown at an `agent`-kind claim's own creation time) into the
+    existing record and returns `{updated: true}`; on a mismatch, does nothing and returns
+    `{updated: false, reason: 'not-current-owner', currentClaim}` — the same discipline as
+    every other conditional mutation here, just merging instead of deleting/flagging. This is
+    how a claim acquired before session/turn identity exists later becomes durably matchable
+    against D86's trusted-ambient-identity check, without a second claim-creation path.
   - `listPendingWorkspaceWriters(specId)` — returns the in-process pending-waiters list
     (`kind`, `requestedAt`) as a **local wakeup/optimization hint only** — no longer the
     authority for D57's dispatch-priority ordering, which now reads the durable
@@ -259,25 +277,43 @@ and D44's separate `SuspensionProjection`.
   finish` ever comes) is only ever found stale later, via the lazy reconciliation path above,
   triggered by a *different* caller's next acquisition attempt.
 
-### Dead-pid reconciliation for request-backed claims — never a bare delete (D79)
+### One generic, shared reconciler for any dead request-backed claim — no per-caller duplication (D79, corrected D88)
 
-- A dead-pid finding for a `human-submit`/`publish`/`batch-publish` claim (during
-  `acquireWorkspaceWriter`'s own `EEXIST` handling, above) never deletes the claim on its own.
-  It surfaces `{requestId, operationRef}` from the existing claim to the *caller* (task 29 for
-  `human-submit`, task 31 for `publish`/`batch-publish` — the only code with durable
-  request/operation readers), which then:
-  1. Loads the workspace-request by `requestId`. Missing/unresolvable → fail closed, no
+- **`tools/specs/workflow/workspace-claim-reconciliation.mjs` (new).** Exports
+  `reconcileRequestBackedWorkspaceClaim({repoRoot, claim})` and
+  `registerRequestKindReconciler(kind, checkSettledFn)`
+  (`checkSettledFn: ({repoRoot, operationRef}) => {settled: true} | {settled: false, reason}`).
+  `reconcileRequestBackedWorkspaceClaim`:
+  1. Loads the workspace-request by `claim.requestId`. Missing/unresolvable → fail closed, no
      release, no mutation.
-  2. Loads the referenced operation record via `operationRef` and inspects its own real state,
-     reusing the exact resume/no-op/`reconciliation-required` discipline D29/D75 already apply.
-  3. **Genuinely settled/completed** → `transitionWorkspaceRequest(..., to: 'completed'/'failed')`
-     and `releaseWorkspaceWriterIfOwned` (D70), using the requestId-matched `ownerId`.
-  4. **Ambiguous** → `transitionWorkspaceRequest(..., to: 'reconciliation-required')` and either
+  2. Verifies `workspaceRequest.requestId === claim.requestId` (defense in depth).
+  3. Looks up the checker registered for `claim.kind` (`'human-submit'|'publish'|
+     'batch-publish'` — a discriminated **operation-protocol** kind, never a workflow-step
+     name; no branch here inspects a step id). No registered checker for the claim's own kind
+     → fail closed, treat as unresolvable, never guess.
+  4. Calls the checker with `{repoRoot, operationRef: claim.operationRef}`.
+  5. **Settled** → `transitionWorkspaceRequest(..., to: 'completed'/'failed')` and
+     `releaseWorkspaceWriterIfOwned` (D70), using `claim.ownerId` as `expectedOwnerId`.
+  6. **Ambiguous** → `transitionWorkspaceRequest(..., to: 'reconciliation-required')` and either
      retain the claim or `markWorkspaceWriterRecoveryRequiredIfOwned` — never delete
      speculatively.
-- `workspace-writer.mjs` itself performs no part of steps 1–4 — it only detects the dead pid
-  and hands identity back to the caller, exactly as it already does for `agent`/`cli-manual`
-  settlement checks (D61/D62).
+- **`acquireWorkspaceWriter`'s own `EEXIST` handling calls this reconciler directly, internally,
+  for any request-backed kind with a dead pid** — no caller (agent admission, human-submit,
+  Publish, Batch Publish, `cli-manual`) needs its own copy of steps 1–6, and no caller needs to
+  know which kind previously owned the claim it's contending for. This is what makes agent
+  admission correctly reconcile a dead Publish claim, human-submit correctly reconcile a dead
+  Batch Publish claim, Publish correctly reconcile a dead human-submit claim, and `cli-manual`
+  correctly reconcile a dead Publish claim — all through the identical code path.
+  `workspace-writer.mjs` still never guesses settlement itself — it only invokes whichever
+  checker the owning task registered.
+- **Registration, owned by each kind's own task, not this task.** Task 29
+  (`human-step/operations.mjs`) calls `registerRequestKindReconciler('human-submit', ...)` at
+  its own module-load time, wrapping `assessExecutionSettlement` (D87). Task 31
+  (`publish/operation.mjs`) calls `registerRequestKindReconciler('publish', ...)` and
+  `registerRequestKindReconciler('batch-publish', ...)` at its own module-load time, inspecting
+  the referenced Publish/Batch-Publish operation record's own real durable state (D29/D75).
+  Neither registration requires this task to import `human-step/**`/`publish/**` — both remain
+  forbidden paths; the dependency points the other way.
 
 ### Durable start-operation, sequence allocation (D52/D58) + declarative trigger (D53)
 
@@ -400,8 +436,8 @@ and D44's separate `SuspensionProjection`.
   ownership-conditional API, called by a caller that has already established settlement.
   `automated: node --test tools/tests/workspace-writer.test.mjs`
 - **A dead-pid finding on a request-backed claim (`human-submit`/`publish`/`batch-publish`)
-  never triggers a bare delete (D79):** `acquireWorkspaceWriter` surfaces the existing claim's
-  `requestId`/`operationRef` to the caller instead of deleting it — proven directly by
+  never triggers a bare delete (D79):** `acquireWorkspaceWriter` calls
+  `reconcileRequestBackedWorkspaceClaim` internally instead of deleting it — proven directly by
   asserting the claim survives an `EEXIST`-with-dead-pid contention attempt for these kinds,
   in contrast to the pre-D79 behavior a regression here would reintroduce.
   `automated: node --test tools/tests/workspace-writer.test.mjs`
@@ -413,6 +449,21 @@ and D44's separate `SuspensionProjection`.
   `automated: node --test tools/tests/workspace-writer.test.mjs`
 - **A request-backed claim with no resolvable `requestId`/request record fails closed (D79):**
   no release, no mutation of the live claim.
+  `automated: node --test tools/tests/workspace-writer.test.mjs`
+- **`reconcileRequestBackedWorkspaceClaim` is genuinely kind-agnostic (D88):** using a fixture
+  registry with `'human-submit'` and `'publish'` checkers registered, a simulated agent
+  admission encountering a dead `publish` claim, a simulated human-submit encountering a dead
+  `publish` claim, and a simulated `publish` acquisition encountering a dead `human-submit`
+  claim all resolve correctly through the identical function call — no test double needs to
+  know which kind it's reconciling in advance.
+  `automated: node --test tools/tests/workspace-claim-reconciliation.test.mjs`
+- **No kind reaches `reconcileRequestBackedWorkspaceClaim` with an unregistered kind silently
+  granting the slot (D88):** a claim whose `kind` has no registered checker fails closed.
+  `automated: node --test tools/tests/workspace-claim-reconciliation.test.mjs`
+- **`updateWorkspaceWriterIfOwned` enriches only the exact owned claim (D89):** a call with a
+  matching `expectedOwnerId` merges `sessionId`/`turnId` into the live record; a call with a
+  mismatched `expectedOwnerId` leaves the record completely untouched and returns
+  `{updated: false, reason: 'not-current-owner'}`.
   `automated: node --test tools/tests/workspace-writer.test.mjs`
 - `listPendingWorkspaceWriters` correctly reports a queued non-agent acquisition attempt
   while the slot is held by another kind.
@@ -588,6 +639,7 @@ node --test tools/tests/workspace-writer.test.mjs
 node --test tools/tests/execution-settlement.test.mjs
 node --test tools/tests/workspace-request.test.mjs
 node --test tools/tests/cli-workspace-execution.test.mjs
+node --test tools/tests/workspace-claim-reconciliation.test.mjs
 node --test tools/tests/workflow-start-operation.test.mjs
 node --test tools/tests/workflow-finish-operation.test.mjs
 node tools/specs.mjs validate
@@ -600,19 +652,22 @@ The combined cross-task-aware review and `suspensions`-clearing
 (`dependency-invalidation-remediation-review`, task 30). The `releasesDependencies`/
 `invalidatesDependencyRelease`/`consumesDependencies` schema fields themselves
 (`workflow-continuation-schema`, task 25). Deciding *when* to reclaim an agent-kind
-workspace-writer claim after settlement is assessed, running the D79 dead-pid reconciliation
-sequence itself (steps 1–4, which require real session/turn/operation-record readers), and the
-worktree-wide dispatch-priority policy that reads `workspace-request.mjs` (both task 29, which
-has real session/turn state — this task only provides `assessExecutionSettlement`/the
-ownership-conditional release/mark-recovery-required API/`workspace-request.mjs`'s own record
-primitives for it to call). `handleWorkflowVerifyHuman`'s delegation to
-`activateAndSubmitHumanStep` (task 29, D63 — a distinct function in the same `cli.mjs` file
-this task edits only for `handleWorkflowStepStart`/`handleWorkflowStepFinish`). The new
-combined human-decision operation itself, its own durable human-submit request record (D73),
-and its own lease/workspace-writer/workspace-request/CAS threading; Publish's own acquisition
-calls and its own workspace-request creation/CAS-execution inside
-`publishTask()`/`handleBatchPublish` (owned by tasks 29 and 31 respectively — this task only
-provides the primitives and wires its own `finish-operation.mjs` call site). Resolving a
+workspace-writer claim after settlement is assessed, calling `updateWorkspaceWriterIfOwned`
+during admission, and the worktree-wide dispatch-priority policy that reads
+`workspace-request.mjs` (both task 29, which has real session/turn state — this task only
+provides `assessExecutionSettlement`/the ownership-conditional release/mark-recovery-required/
+enrichment API/`workspace-request.mjs`'s own record primitives for it to call). *Registering*
+a per-kind settlement-checker (`registerRequestKindReconciler('human-submit', ...)` is task
+29's own call; `'publish'`/`'batch-publish'` are task 31's own calls — this task only defines
+and dispatches through the registry, never populates it). `handleWorkflowVerifyHuman`'s
+delegation to `activateAndSubmitHumanStep` (task 29, D63 — a distinct function in the same
+`cli.mjs` file this task edits only for `handleWorkflowStepStart`/`handleWorkflowStepFinish`).
+The new combined human-decision operation itself, its own durable human-submit request record
+(D73), its own settlement-gated release ordering (D87), and its own lease/workspace-writer/
+workspace-request/CAS threading; Publish's own acquisition calls, its own operation-record-
+before-workspace-request ordering (D91), and its own workspace-request creation/CAS-execution
+inside `publishTask()`/`handleBatchPublish` (owned by tasks 29 and 31 respectively — this task
+only provides the primitives and wires its own `finish-operation.mjs` call site). Resolving a
 `recovery-required` claim or a `reconciliation-required` request once marked (a future task's
 own scope). Reopening a terminal task's workflow. Any external locking library or new runtime
 dependency (the workspace-control lock reuses the same Node built-ins/atomic-file convention as

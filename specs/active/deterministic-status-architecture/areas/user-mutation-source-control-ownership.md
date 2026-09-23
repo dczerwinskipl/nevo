@@ -96,18 +96,27 @@ mutations from technical activations from completed lifecycle mutations.
   under the workspace-control lock (D80) — never a blind, unconditional release, and never a
   separate read-then-later-write that could touch a different operation's claim if
   reconciliation runs late. A dead pid found on a Publish/Batch Publish claim never means safe
-  release by itself — it always triggers reconciliation against the paired request/operation
-  state first (D79). A pending Publish/Batch Publish request that has not yet acquired the slot
+  release by itself — `acquireWorkspaceWriter` always routes it through the one shared, generic
+  `reconcileRequestBackedWorkspaceClaim` (D79/D88), which dispatches to Publish's own registered
+  settlement-checker; this area's own code contains no reconciliation logic of its own, and the
+  identical shared path also correctly reconciles a dead claim of a *different* kind (e.g. a
+  stale human-submit claim) that a Publish attempt might encounter. A pending Publish/Batch
+  Publish request that has not yet acquired the slot
   reports `waiting-for-workspace` or `blocked-by-recovery` (D67) — never a generic failure
   merely because the current holder is taking a while — and that pending state is itself
   durable (below), surviving a dashboard restart.
 - **A durable workspace-request coordinates waiting, referencing Publish's own operation record
   rather than duplicating it, with an exact-`requestId` claim linkage and CAS-safe execution
-  (D72/D76/D82/D83).** Before `publishTask()`/`handleBatchPublish` ever calls
-  `acquireWorkspaceWriter`, a workspace-request record (`kind: 'publish'`/`'batch-publish'`,
-  with its own atomically-allocated `requestSequence`, D81) is persisted `status: 'queued'`,
-  naming the about-to-run Publish operation's own identity (`operationFilePath`'s convention)
-  via `operationRef` — never copying its payload. Once the workspace-writer claim is acquired
+  (D72/D76/D82/D83).** `publishTask()`/`handleBatchPublish` first write their own durable
+  operation record (the real `PUBLISH_STAGE_IDS`-shaped intent, `status: 'running'`) — this is
+  what the workspace-request's `operationRef` will name, and it must already exist as real,
+  durable intent before the workspace-request itself becomes durable (D91), so a crash
+  immediately after request creation never leaves a dangling reference. Only then, before
+  `acquireWorkspaceWriter` is ever called, is a workspace-request record (`kind: 'publish'`/
+  `'batch-publish'`, with its own atomically-allocated `requestSequence`, D81) persisted
+  `status: 'queued'`, naming that now-real operation's own identity
+  (`operationFilePath`'s convention) via `operationRef` — never copying its payload. Once the
+  workspace-writer claim is acquired
   — with the request's own `requestId` embedded into it (D82) — `publishTask()`/
   `handleBatchPublish` re-reads the request's own authoritative state and attempts
   `transitionWorkspaceRequest({requestId, expectedStatus: ['queued', 'waiting-for-workspace'],
@@ -203,11 +212,16 @@ which must classify themselves against the taxonomy before being built.
   with Publish's own durable operation record — proven by asserting the request reaches
   `completed` if and only if the operation record does, for both the success and the
   `reconciliation-required` paths.
-- **Dead pid on a Publish claim triggers reconciliation, never a bare delete (D79):** a Publish
-  claim whose pid is confirmed dead but whose commit genuinely landed (per the durable
-  operation record) is released and the request marked `completed`; the identical claim with
-  an ambiguous/partial commit state is instead marked `reconciliation-required`/
-  `recovery-required`.
+- **Dead pid on a Publish claim triggers the shared, generic reconciliation, never a bare
+  delete or a bespoke Publish-only check (D79/D88):** a Publish claim whose pid is confirmed
+  dead but whose commit genuinely landed (per the durable operation record) is released and the
+  request marked `completed`; the identical claim with an ambiguous/partial commit state is
+  instead marked `reconciliation-required`/`recovery-required`; a Publish acquisition
+  encountering a dead *human-submit* claim resolves correctly through the same shared path
+  without this area's own code recognizing that kind.
+- **Durable operation intent precedes the workspace-request that references it (D91):** a crash
+  simulated immediately after workspace-request creation finds `operationRef` already
+  resolving to a real, durably-written Publish operation record — never a dangling reference.
 - **`requestId` prevents cross-request confusion, and CAS prevents double-publish (D82/D83):**
   two Publish requests for the same spec/task remain unambiguously distinguishable via their
   own claims' `requestId`; a second processor holding a stale view of an already-completed

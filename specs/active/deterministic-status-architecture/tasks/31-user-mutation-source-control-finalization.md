@@ -18,11 +18,12 @@ forbidden_paths:
   - tools/specs/workflow/git-finalize-lock.mjs
   - tools/specs/workflow/workspace-writer.mjs
   - tools/specs/workflow/workspace-request.mjs
+  - tools/specs/workflow/workspace-claim-reconciliation.mjs
   - tools/specs/store.mjs
   - src/**
 depends_on: [ dependency-release-and-invalidation ]
 semantic_references:
-  decisions: [D29, D30, D47, D50, D51, D55, D56, D64, D65, D67, D68, D70, D72, D76, D77, D79, D81, D82, D83]
+  decisions: [D29, D30, D47, D50, D51, D55, D56, D64, D65, D67, D68, D70, D72, D76, D77, D79, D81, D82, D83, D88, D91]
 ---
 
 # Task: User-mutation source-control finalization (corrected — durable operation, atomic batch, workspace-writer-aware)
@@ -72,21 +73,37 @@ taxonomy (D30) in `docs/development/agent-workflow-protocol.md`'s existing secti
   `findInFlightOperationRecord`), never a cross-file import of the private function itself.
   Record path: `operationFilePath(repoRoot, change, task, 'publish', attempt)` →
   `.nevo-ai-local/workflow-operations/<change>/<task>/publish/attempt-<n>.json` (the real,
-  confirmed convention). Then mutate (`setTaskStatus`), commit (`chore(workflow): publish
-  <task-id>`), push (per resolved `sourceControl` config), and mark the record `completed`.
+  confirmed convention).
+- **This durable operation record is written *first* — before the paired workspace-request,
+  before any workspace contention (D91).** `publishTask()`'s own sequence: (1) write the
+  operation record above, `status: 'running'`, all stages `pending` — this touches only
+  `.nevo-ai-local` runtime state, never a tracked file, so it needs no workspace protection at
+  all; (2) create the paired workspace-request (`workspace-request.mjs`, task 27 — import only;
+  `kind: 'publish'`, its own atomically-allocated `requestSequence`, D81 — this task never
+  scans/allocates it directly), `operationRef` naming that now-real record's own identity,
+  `status: 'queued'`; (3) only then call `acquireWorkspaceWriter`. This ordering guarantees a
+  workspace-request can never survive a crash pointing at intent that was never durably
+  written. The equivalent `kind: 'batch-publish'` sequence (batch operation record, then its
+  own paired request) is created in `handleBatchPublish` before its own first
+  `acquireWorkspaceWriter` call. Then mutate (`setTaskStatus`), commit (`chore(workflow):
+  publish <task-id>`), push (per resolved `sourceControl` config), and mark the record
+  `completed`.
 - On the next `publishTask()` invocation, resume from any `findInFlightOperationRecord`
   result exactly as `finish-operation.mjs`'s own `planFinish` does — reconcile an ambiguous
   `running` stage against real repository/task state (resume, no-op, or fail closed with
   `reconciliation-required`), never guess.
-- **Create the durable workspace-request before any contention begins, with atomically-allocated
-  `requestSequence` (D72/D76/D81).** Inside `publishTask()`, before calling
-  `acquireWorkspaceWriter` at all, create a workspace-request record (`workspace-request.mjs`,
-  task 27 — import only; `kind: 'publish'`) with `operationRef` naming the Publish operation's
-  own identity (`operationFilePath(repoRoot, change, task, 'publish', attempt)` convention) —
-  `status: 'queued'`. `requestSequence` is allocated by `createWorkspaceRequest` itself, under
-  the workspace-control lock — this task never scans/allocates it directly. The equivalent
-  `kind: 'batch-publish'` request is created in `handleBatchPublish` before its own first
-  `acquireWorkspaceWriter` call.
+- **Register `'publish'`/`'batch-publish'` settlement-checkers into the generic reconciler
+  (D88).** At `publish/operation.mjs`'s own module-load time, call
+  `registerRequestKindReconciler('publish', checkerFn)` and (from `routes.mjs`)
+  `registerRequestKindReconciler('batch-publish', checkerFn)`
+  (`workspace-claim-reconciliation.mjs`, task 27 — import only), where each `checkerFn`
+  inspects the referenced Publish/Batch-Publish operation record's own real durable state
+  (`findInFlightOperationRecord`, unchanged D29 logic) and returns `{settled: true}` once the
+  commit (and push, where configured) genuinely landed. This task supplies **no** dead-pid
+  reconciliation code of its own for claims of any kind — `acquireWorkspaceWriter` calls the
+  shared `reconcileRequestBackedWorkspaceClaim` (task 27) internally, dispatching to whichever
+  checker matches the encountered claim's own `kind`, including a dead human-submit or Batch
+  Publish claim this task's own Publish path might encounter.
 - **Claim the workspace-writer slot first, embedding this request's own `requestId`, inside
   `publishTask()` itself, held through the whole operation including `push`, then the
   git-finalize lease nested inside it for the mutate-then-commit instant specifically
@@ -97,10 +114,12 @@ taxonomy (D30) in `docs/development/agent-workflow-protocol.md`'s existing secti
   other sharing the same physical worktree, D65) currently holds the slot, transitioning the
   workspace-request to `waiting-for-workspace` while it does. If the existing claim's `status`
   is `recovery-required`, transition the request to `blocked-by-recovery` (D67) rather than
-  waiting silently forever. **If the existing claim is request-backed with a dead pid, run the
-  D79 reconciliation sequence (this task owns steps 1–4 for `publish`/`batch-publish` claims,
-  since it has the real Publish operation-record readers) before deciding whether the slot is
-  actually free — never delete it merely because the pid is dead.**
+  waiting silently forever. **A dead pid on any pre-existing request-backed claim found here is
+  reconciled by `acquireWorkspaceWriter`'s own internal, generic call to
+  `reconcileRequestBackedWorkspaceClaim` (task 27, D88)** — never deleted merely because the
+  pid is dead, and this task supplies no kind-specific reconciliation code of its own, even for
+  a dead claim of a *different* kind (e.g. a stale human-submit claim this Publish attempt
+  happens to encounter).
   Once acquired: **re-read this request's own authoritative durable state and attempt
   `transitionWorkspaceRequest({requestId, expectedStatus: ['queued', 'waiting-for-workspace'],
   to: 'running', workspaceOwnerId})` (D83)** — a failed CAS (another processor already
@@ -224,11 +243,20 @@ taxonomy (D30) in `docs/development/agent-workflow-protocol.md`'s existing secti
   matches the live claim to the exact request by `requestId` — never `kind`/`specId`/`taskId`
   — and adopts its own `ownerId` into the request record before proceeding.
   `automated: node --test tools/tests/workflow-task-publish.test.mjs`
-- **Dead pid on a Publish/Batch Publish claim never triggers a bare delete (D79):** a claim
+- **Dead pid on a Publish/Batch Publish claim never triggers a bare delete (D79/D88):** a claim
   whose recorded pid is confirmed dead but whose commit genuinely landed (per the durable
   operation record) is released and the request marked `completed`; the identical claim with
   an ambiguous/partial commit state is instead marked `reconciliation-required`/
   `recovery-required` — never deleted merely because the pid is dead.
+  `automated: node --test tools/tests/workflow-task-publish.test.mjs`
+- **Publish encountering a dead human-submit claim invokes the same generic reconciler (D88):**
+  proven directly with a fixture whose `'human-submit'` checker is registered by a different
+  module — this task's own Publish acquisition code contains no branch recognizing that kind.
+  `automated: node --test tools/tests/workflow-task-publish.test.mjs`
+- **Durable operation record precedes its paired workspace-request (D91):** the Publish
+  operation record exists (via `findInFlightOperationRecord`) at the exact moment the
+  workspace-request is first persisted — proven by a crash simulated immediately after request
+  creation, confirming `operationRef` already resolves to real, durable intent.
   `automated: node --test tools/tests/workflow-task-publish.test.mjs`
 - **Atomic `requestSequence` under concurrent creation (D81):** two workspace requests created
   back-to-back from independent callers (e.g. a concurrent Approve and Publish, or two
@@ -262,5 +290,9 @@ API's own mechanics, `requestSequence`'s own atomic-allocation implementation, a
 `transitionWorkspaceRequest`, already correctly implemented by task 27). Resolving a
 `recovery-required` claim or a `reconciliation-required` request once marked (D61/D75 — a
 future task's own scope; this task only reports `blocked-by-recovery`/creates and transitions
-its own request, D67/D72). Retroactively re-classifying every other existing dashboard action
-against the new taxonomy.
+its own request, D67/D72). The generic `reconcileRequestBackedWorkspaceClaim`/
+`registerRequestKindReconciler` mechanics themselves (`workspace-claim-reconciliation.mjs`,
+task 27, D88 — this task only registers its own `'publish'`/`'batch-publish'` checkers into
+it). Human-submit's own settlement-gated release ordering, duplicate/conflict invariant, and
+checker registration (task 29, D87/D90). Retroactively re-classifying every other existing
+dashboard action against the new taxonomy.

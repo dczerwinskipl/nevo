@@ -16,7 +16,7 @@ forbidden_paths:
   - src/**
 depends_on: [ dashboard-orchestration-wiring, user-mutation-source-control-finalization, dependency-invalidation-remediation-review ]
 semantic_references:
-  decisions: [D33, D40, D41, D42, D44, D45, D47, D49, D50, D51, D52, D53, D55, D56, D57, D58, D59, D60, D61, D62, D63, D64, D65, D66, D67, D68, D69, D70, D71, D72, D73, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86]
+  decisions: [D33, D40, D41, D42, D44, D45, D47, D49, D50, D51, D52, D53, D55, D56, D57, D58, D59, D60, D61, D62, D63, D64, D65, D66, D67, D68, D69, D70, D71, D72, D73, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D90, D91]
 ---
 
 # Task: Orchestration end-to-end dogfood tests
@@ -86,6 +86,18 @@ declarative release/invalidation.
   independent callers) to exercise atomic `requestSequence` allocation (D81) and, separately,
   simulates two processors racing to execute the same request to exercise the CAS transition
   (D83) and exact-`requestId` claim matching (D82).
+- Include a fixture with cross-kind dead claims — an agent admission finding a dead Publish
+  claim, a human-submit finding a dead Batch Publish claim, a Publish finding a dead
+  human-submit claim, and a `cli-manual` acquisition finding a dead Publish claim — to prove the
+  generic reconciler (D88) works without any acquisition path knowing the other's kind.
+- Include a fixture that forces `finishStep` to return `reconciliation-required`, and a
+  separate fixture that throws mid-`activateAndSubmitHumanStep`, to exercise D87's
+  settlement-gated release; and a fixture simulating two rapid identical human-submit clicks
+  and a separate fixture simulating a conflicting second decision for the same non-terminal
+  attempt, to exercise D90.
+- Include a fixture that inspects a freshly-admitted agent's workspace claim immediately after
+  acquisition (no session identity yet) and again after the provider process spawns (enriched),
+  and a fixture asserting the spawned provider's own `NEVO_SESSION_ID` matches, to exercise D89.
 - Include a fixture that simulates a turn reaching terminal (failed, cancelled, and
   "completed") in each of the three relevant states — settled, terminal-unsettled-with-dirty-
   state, and terminal-with-an-unresolved-finish-operation — to exercise all branches of
@@ -322,8 +334,10 @@ declarative release/invalidation.
 67. A crash simulated between claim acquisition and the request's own `running` persistence is
     reconciled using the exact `requestId` — not `kind`/`specId`/`taskId` — even when a second,
     unrelated request shares identical `kind`/`specId`/`taskId`.
-68. Two human-submit requests for the identical spec/task remain unambiguously distinguishable
-    via their own claims' `requestId`.
+68. Two human-submit requests for *different attempts* of the same spec/task remain
+    unambiguously distinguishable via their own claims' `requestId` — never two concurrent,
+    independently-`requestId`'d requests for the identical non-terminal attempt (D90 permits
+    at most one of those at a time).
 69. Processor A completes request R and releases its claim; processor B, holding a stale
     pre-completion view of R, later acquires the freed workspace but does **not** execute R
     again — its own CAS transition to `running` fails against R's actual `completed` state.
@@ -353,10 +367,54 @@ declarative release/invalidation.
     human-submit path, and the Publish path, and finds no pair of paths acquiring any two of
     these primitives in opposite order — no cycle is constructible.
 
+**Human-submit settlement, the generic cross-kind reconciler, agent identity enrichment, and human-submit identity (D87–D91):**
+79. A human-submit whose `startHumanStep` mutates state but whose `finishStep` returns
+    `reconciliation-required` does **not** release the workspace claim.
+80. A human-submit that throws after activation but before commit leaves the workspace
+    blocked/`recovery-required` — no next writer is admitted.
+81. A successful human-submit marks the durable operation/request `completed` **before**
+    releasing the workspace claim — proven by asserting the write order directly.
+82. A crash simulated after the human-decision commit lands but before the durable completion
+    markers exist is recovered on restart — reconciliation completes the records and then
+    releases the exact claim.
+83. Agent admission encountering a dead Publish claim invokes the generic, shared
+    `reconcileRequestBackedWorkspaceClaim` — proven by asserting the admission code path itself
+    contains no Publish-specific reconciliation logic.
+84. Human-submit encountering a dead Batch Publish claim invokes the identical generic
+    reconciler.
+85. Publish encountering a dead human-submit claim invokes the identical generic reconciler.
+86. `cli-manual` acquisition encountering a dead request-backed claim invokes the identical
+    generic reconciler.
+87. No acquisition call site (agent admission, human-submit, Publish, Batch Publish,
+    `cli-manual`) contains its own duplicated kind-specific D79 algorithm — verified by
+    inspecting which module registers which kind's settlement-checker and confirming no
+    acquisition path branches on a kind it doesn't own.
+88. A fresh agent admission whose workspace claim initially lacks session identity is enriched
+    with the exact `sessionId`/`turnId` before the provider child process starts.
+89. Stale enrichment using an old, already-superseded `ownerId` cannot modify a newer workspace
+    claim.
+90. The provider child process receives `NEVO_SESSION_ID` equal to the `sessionId` recorded on
+    the current workspace claim.
+91. An agent-invoked `workflow step start` successfully reuses its own, now-enriched claim.
+92. A manual CLI invocation with matching spec/task but no trusted ambient session identity
+    cannot reuse that agent claim.
+93. Release/reconciliation using the expected session/turn identity succeeds for the enriched
+    claim.
+94. Two rapid, identical human-submit clicks for one step attempt resolve to one durable
+    request.
+95. A conflicting second human decision for the same non-terminal step attempt is rejected
+    (`HUMAN_DECISION_CONFLICT`) and does not overwrite the first decision's stored result.
+96. A new human-submit can be created for a later attempt once the prior one is terminal.
+97. No two human-submit operation records collide or overwrite one another under the
+    at-most-one-non-terminal-per-attempt invariant.
+98. Every workspace request's `operationRef` resolves to already-durable operation intent after
+    a simulated crash immediately following request creation — for human-submit, Publish, and
+    Batch Publish alike.
+
 All scenarios: `automated: node --test tools/tests/orchestration-e2e.test.mjs` (or
 `tools/dashboard/tests/orchestration-e2e.test.mjs` for scenarios that must exercise the
 dashboard-side dispatch/admission code — 2, 8, 20, 21, 28, 34, 35, 36, 42–57, 61–63, 69–71,
-73–75, 78 specifically).
+73–75, 78, 83, 88–93 specifically).
 
 ## Verification
 

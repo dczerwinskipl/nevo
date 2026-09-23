@@ -85,7 +85,8 @@ arbitrated against each other at all.
   server transport.
 - **Continuation is eligibility, not scheduling (D25).** Unchanged from prior passes.
 - **One spec-level agent-admission gate, atomic through to durable visibility, with rollback
-  (D41/D49) — and it also claims the workspace-writer slot, in one fixed lock order (D55/D66).**
+  (D41/D49) — claims the workspace-writer slot in one fixed lock order, then enriches it with
+  session/turn identity before the provider ever runs (D55/D66/D89).**
   `admitAgentExecution(specId, candidate)`
   (`tools/dashboard/server/ai/orchestration/admission.mjs`) is the **only** path that can
   create a new agent session — never a human interaction. It reuses
@@ -93,22 +94,28 @@ arbitrated against each other at all.
   `specId`, for its own short-lived check-then-claim moment: acquire the admission mutex →
   re-read active-execution state → if occupied, reject/defer (candidate stays eligible) → if
   free, mark occupied **and claim the workspace-writer slot second** (`workspace-writer.mjs`,
-  task 27, `kind: 'agent'`, recording `sessionId`/`taskId` — the workspace-writer claim is now
-  scoped to the whole physical worktree, D65, not merely this spec) → **persist the acquired
-  `workspaceOwnerId` onto this execution's own durable session/turn record** as part of the
-  same durable-visibility write (D71 — never left only in an in-memory closure) →
-  synchronously drive session/turn creation to the point its canonical identity is durably
-  observable → only then release the (short-lived) admission mutex — **the workspace-writer
-  claim stays held for the entire active execution, until that execution is proven
-  *settled*** (D59/D60), never merely because its turn reached terminal. **If creation fails
-  after either claim but before durable visibility, both are rolled back together, in reverse
-  acquisition order** (workspace-writer claim, via the ownership-conditional release using the
-  `ownerId` this same attempt just acquired, D70, then admission mutex, D66) — the candidate
-  remains eligible/retryable; the spec is never left falsely, permanently occupied. Manual
-  Start, batch Start, automatic continuation, and remediation execution for **agent-owned**
-  candidates all funnel through this one gate. No other workspace-writing path (human-submit,
-  Publish, Batch Publish, `cli-manual`) ever acquires the admission mutex — only the
-  workspace-writer claim (D66).
+  task 27, `kind: 'agent'`, `specId`/`taskId` only — `sessionId`/`turnId` genuinely do not exist
+  yet — the workspace-writer claim is now scoped to the whole physical worktree, D65, not merely
+  this spec) → synchronously drive session/turn creation to the point its canonical
+  `sessionId`/`turnId` exist → **ownership-conditionally enrich the exact claim just acquired
+  with that now-known identity** (`updateWorkspaceWriterIfOwned`, D89 — a `not-current-owner`
+  result here fails the whole admission closed, treated identically to a session/turn-creation
+  failure) → **persist the acquired `workspaceOwnerId` onto this execution's own durable
+  session/turn record** as part of the same durable-visibility write (D71 — never left only in
+  an in-memory closure) → release the (short-lived) admission mutex → **only now** spawn the
+  provider process, with `NEVO_SESSION_ID` equal to the identity the claim now carries — **the
+  workspace-writer claim stays held for the entire active execution, until that execution is
+  proven *settled*** (D59/D60), never merely because its turn reached terminal. **If session/
+  turn creation or identity enrichment fails after the claim exists but before durable
+  visibility, everything is rolled back together, in reverse acquisition order** (workspace-
+  writer claim, via the ownership-conditional release using the `ownerId` this same attempt
+  just acquired, D70, then admission mutex, D66) — the candidate remains eligible/retryable;
+  the spec is never left falsely, permanently occupied, and a provider process is never spawned
+  against a claim whose identity was never durably enriched. Manual Start, batch Start,
+  automatic continuation, and remediation execution for **agent-owned** candidates all funnel
+  through this one gate. No other workspace-writing path (human-submit, Publish, Batch
+  Publish, `cli-manual`) ever acquires the admission mutex — only the workspace-writer claim
+  (D66).
 - **Settlement-gated, ownership-conditional release, not turn-terminal (D59/D60/D61/D70/D71).**
   Hook 1 (per-turn subscription) and Hook 3 (boot-time orphaned-turn reconciliation) no longer
   release an agent's workspace-writer claim directly on terminal/orphan detection. Each first
@@ -138,34 +145,50 @@ arbitrated against each other at all.
     (`{result?, label, feedbackRequired}[]`) purely from the workflow definition's own
     declared transitions for that step — no `ensureStepActivated` call, no mutation.
     `HumanStepSurface` renders this identically to the active-interaction case.
-  - **Persists a durable human-submit request first, before any contention or mutation
-    (D73).** The submitted transition/result/feedback/inputs are written to a new durable
-    record (`human-step/submit-request.mjs`, task 29) and a paired workspace-request (`kind:
-    'human-submit'`, D72) is created `status: 'queued'` **before** `activateAndSubmitHumanStep`
-    ever calls `acquireWorkspaceWriter` — this is what makes the submitted decision survive a
-    dashboard restart while waiting; the mutation-free preview itself is completely unaffected.
+  - **Persists a durable human-submit request first, before any contention or mutation, at
+    most one non-terminal per attempt (D73/D90).** The submitted transition/result/feedback/
+    inputs are written to a new durable record (`human-step/submit-request.mjs`, task 29) and a
+    paired workspace-request (`kind: 'human-submit'`, D72) is created `status: 'queued'`
+    **before** `activateAndSubmitHumanStep` ever calls `acquireWorkspaceWriter` — this is what
+    makes the submitted decision survive a dashboard restart while waiting; the mutation-free
+    preview itself is completely unaffected. An identical resubmission while a prior one is
+    still non-terminal reuses it idempotently; a conflicting one is rejected
+    (`HUMAN_DECISION_CONFLICT`), never overwriting the stored decision (D90).
   - **Claims the workspace-writer slot for its own short duration, embedding its own
     `requestId`, then one git-finalize lease nested inside it (D55/D50/D82).**
     `activateAndSubmitHumanStep` claims the workspace-writer slot (`kind: 'human-submit'`,
     `requestId` embedded at acquisition, D82) — waiting for it if an agent (or another writer)
     currently holds it, per D55's arbitration rule, its own wait reported via the durable
-    request's `waiting-for-workspace`/`blocked-by-recovery` status (D67/D72) — then, once held,
-    **re-reads the request's own authoritative durable state and attempts a CAS
-    transition to `running` (`expectedStatus: ['queued', 'waiting-for-workspace']`, storing the
-    acquired `workspaceOwnerId`, D83)**; only on a successful transition does it proceed —
-    a failed CAS (the request is already `running`/`completed`/`failed`/`reconciliation-required`,
-    meaning a different processor already owns it) releases the just-acquired claim
+    request's `waiting-for-workspace`/`blocked-by-recovery` status (D67/D72); a dead pid found
+    on a live request-backed claim here is reconciled by the one shared, generic
+    `reconcileRequestBackedWorkspaceClaim` (D79/D88) — never a bare delete, and this area's own
+    code contains no per-kind reconciliation logic of its own. Once held, **re-reads the
+    request's own authoritative durable state and attempts a CAS transition to `running`
+    (`expectedStatus: ['queued', 'waiting-for-workspace']`, storing the acquired
+    `workspaceOwnerId`, D83)**; only on a successful transition does it proceed — a failed CAS
+    (the request is already `running`/`completed`/`failed`/`reconciliation-required`, meaning a
+    different processor already owns it) releases the just-acquired claim
     (ownership-conditionally) and does **not** execute the operation. On success, acquires
     exactly **one** git-finalize lease (before `startHumanStep` — activation is itself a
     tracked mutation needing protection), calls `startHumanStep` followed by
     `submitHumanStepResult` → `finishStep`, passing that same lease through as `finishStep`'s
     `finalizeLease` input so `finishStep` does **not** acquire a second one (self-deadlock
-    avoidance, D50), releases the git-finalize lease after `finishStep` returns, then releases
-    the workspace-writer slot (ownership-conditionally, using the request's own stored
-    `workspaceOwnerId`, D70) and marks the request `completed`/`failed`. No intervening `await`
-    boundary hands control to another caller between the activation write and the eventual
-    commit. A dead pid found on a live `human-submit` claim during this process never triggers
-    a bare delete — it reconciles the paired request/operation state first (D79).
+    avoidance, D50), releases the git-finalize lease after `finishStep` returns (unaffected by
+    the correction below — its own narrow correctness never depended on the wider operation's
+    settlement).
+  - **The workspace-writer slot releases only after the combined operation is proven settled —
+    never in a bare `finally` (D87).** Whatever `finishStep`'s own outcome — a returned result
+    of any shape, or a thrown error — call `assessExecutionSettlement` (D60, reused unchanged).
+    **Settled** → mark the durable human-submit operation record and its paired
+    workspace-request `completed`/`failed` **first**, then release the workspace-writer slot
+    (ownership-conditionally, using the request's own stored `workspaceOwnerId`, D70) — in that
+    order, so the durable records are already authoritative the instant the slot frees up.
+    **Not settled** → mark the request `reconciliation-required`; mark the claim
+    `recovery-required` if the execution is genuinely no longer running — **the claim is
+    retained, not released, in this branch.** No intervening `await` boundary hands control to
+    another caller between the activation write and the eventual commit. A crash after the Git
+    commit lands but before the durable completion markers are written is recovered on restart
+    by the identical settlement check (D75).
   - **Restart resumes a pending human-submit exactly once, never drops it, never duplicates it
     (D73/D75/D82/D83).** After a restart, a `pending` human-submit operation record paired with
     a non-terminal workspace-request is rediscovered, its ordering preserved via the request's
@@ -337,23 +360,38 @@ function from the same file's `cli-manual` wiring, owned by task 27).
   A's own next agent item is also eligible — dispatch defers Spec A's next agent item until
   Spec B's request is no longer pending, proven directly with two fixture specs sharing one
   worktree.
-- **Dead pid on a `human-submit` claim never means safe release:** a `human-submit` claim whose
-  pid is confirmed dead is reconciled through its paired request/operation state — released
-  only if genuinely settled, marked `reconciliation-required`/`recovery-required` otherwise —
-  never deleted merely because the pid is dead.
-- **`requestId` distinguishes two otherwise-identical human-submit requests:** two human-submit
-  requests for the identical spec/task remain unambiguously distinguishable via their own
-  claims' `requestId`; a crash after claim acquisition but before the request's `running`
-  transition is reconciled using the exact `requestId` match.
+- **Dead pid on a `human-submit` claim never means safe release, and is reconciled through the
+  same generic path any other kind uses (D88):** a `human-submit` claim whose pid is confirmed
+  dead is reconciled through its paired request/operation state — released only if genuinely
+  settled, marked `reconciliation-required`/`recovery-required` otherwise — never deleted
+  merely because the pid is dead, and never via this area's own bespoke reconciliation code.
+- **`requestId` distinguishes two otherwise-identical human-submit requests across attempts —
+  never within one non-terminal attempt (D82/D90):** two human-submit requests for *different*
+  attempts of the same spec/task remain unambiguously distinguishable via their own claims'
+  `requestId`; a crash after claim acquisition but before the request's `running` transition is
+  reconciled using the exact `requestId` match.
 - **Only one processor executes a given human-submit request:** a stale-viewing processor that
   later acquires the workspace for an already-completed request fails its own CAS transition
   to `running` and does not re-execute `activateAndSubmitHumanStep`'s underlying mutation.
+- **Settlement-gated release ordering (D87):** a `finishStep` returning `reconciliation-required`
+  leaves the claim held; a successful submission marks the durable records `completed` strictly
+  before releasing the claim; a crash after the commit lands but before those markers exist is
+  recovered on restart by the identical settlement check, releasing the exact claim only once
+  settled.
+- **Duplicate/conflict invariant (D90):** two rapid identical submissions for one non-terminal
+  attempt collapse to one request; a conflicting decision for that same attempt is rejected
+  without overwriting the stored result; a later attempt may create a new request normally.
+- **Identity enrichment (D89):** a fresh admission's claim is enriched with `sessionId`/`turnId`
+  before the provider spawns; a stale enrichment attempt cannot modify a newer claim; a crash
+  before enrichment leaves the claim's identity unestablished and blocks release/marking until
+  explicitly resolved.
 - No file in this area contains a `switch`/`if`/lookup-object keyed on a literal step id, and
   no file describes human interaction activation as "agent admission," or the workspace-writer
   slot as interchangeable with the admission lock or the git-finalize lease. No file releases
   a workspace-writer claim by wiring an unconditional force-release directly to turn-terminal
   without an intervening settlement *and* ownership check. No file reads
-  `listPendingWorkspaceWriters(specId)` as the authority for dispatch priority.
+  `listPendingWorkspaceWriters(specId)` as the authority for dispatch priority. No file
+  implements its own copy of D79's dead-pid reconciliation logic for a kind it doesn't own.
 
 ## Dependencies
 

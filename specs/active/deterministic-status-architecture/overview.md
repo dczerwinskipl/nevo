@@ -708,6 +708,38 @@ workspace protocol genuinely race-safe and identity-safe.**
    by an unrelated manual invocation (D86, corrects D62).** Corrected: reuse requires the CLI's
    own trusted ambient execution identity (`readAgentExecutionContext`'s `sessionId`) to match.
 
+**Corrective pass 18 (2026-09-24, D87–D91, corrections to D66/D73/D79/D86): completing one
+end-to-end ownership chain — durable intent → exact request → exact workspace owner → exact
+execution identity → mutation → proven settlement → exact release.**
+
+1. **`activateAndSubmitHumanStep` released its workspace claim in a bare `finally`, regardless
+   of whether the combined operation actually settled (D87, corrects the implicit design
+   D59/D60 already ruled out for the agent/`cli-manual` cases).** `startHumanStep` may already
+   have mutated tracked state before `finishStep` throws, returns `reconciliation-required`, or
+   otherwise fails to land. Corrected: release is gated on `assessExecutionSettlement` (already
+   fully generic, reused unchanged), and only after the durable operation/request records are
+   marked terminal — never before, never unconditionally.
+2. **D79 left reconciliation to whichever caller happened to encounter a dead claim, so every
+   acquisition path would need to understand every other kind (D88, corrects D79's own
+   "surfaces to caller" design).** Corrected: one shared `reconcileRequestBackedWorkspaceClaim`,
+   dispatching by a small, explicit kind registry each owning task populates with its own
+   settlement-checker — every acquisition path calls the identical function, ignorant of which
+   kind it's reconciling.
+3. **An agent's workspace claim was acquired before its session/turn identity existed, but D86
+   requires exact `sessionId` matching — leaving a brand-new claim with nothing to match against
+   (D89, extends D66).** Corrected: ownership-conditional enrichment
+   (`updateWorkspaceWriterIfOwned`) merges the now-known identity into the exact claim once the
+   session/turn exists, before the provider process is ever spawned.
+4. **The human-submit operation record's own attempt-scoped path assumed one request per
+   attempt, but D82 separately required distinct `requestId`s per request — an unresolved
+   collision for two requests on the identical attempt (D90, extends D73).** Corrected: at most
+   one non-terminal human-submit operation per `(change, task, step, attempt)` — a duplicate
+   reuses it idempotently, a conflicting decision is rejected, never silently overwritten.
+5. **Nothing previously stated, for every request-backed kind, that the underlying operation's
+   own durable intent must exist before its paired workspace-request becomes durable (D91).**
+   Corrected: an explicit, binding, cross-kind ordering — write intent first, then the request,
+   then contend for the workspace — making a dangling `operationRef` impossible by construction.
+
 ## Current architecture
 
 Grounded in repository discovery (2026-09-17, deepened 2026-09-19 by reading the actual
@@ -1395,7 +1427,8 @@ identity-matching rule itself corrected by pass 17's D82**).
 
 **Corrective pass 17 decisions (2026-09-23):** D79 (a dead pid on a request-backed workspace-
 writer claim never releases it by itself — it only triggers durable request/operation
-reconciliation, reusing D75's own resume/no-op/`reconciliation-required` discipline). D80 (a
+reconciliation, reusing D75's own resume/no-op/`reconciliation-required` discipline —
+**the per-caller design itself corrected by pass 18's D88**). D80 (a
 new, short-lived, cross-process workspace-control lock makes every workspace-writer record
 inspection-and-mutation one atomic critical section — a distinct primitive from the
 workspace-writer claim, the git-finalize lease, and the admission mutex, never held while
@@ -1414,7 +1447,22 @@ dependency-consumption-independent record — never `start-operation.mjs`, which
 all). D86 (CLI reuse of a live `agent`-kind claim requires the CLI process's own trusted
 ambient execution identity — `readAgentExecutionContext`'s resolved `sessionId`, never a CLI
 argument — to match the claim's own recorded `sessionId`; spec/task equality alone is never
-sufficient).
+sufficient — **the acquisition-time-identity gap this left open closed by pass 18's D89**).
+
+**Corrective pass 18 decisions (2026-09-24):** D87 (a human-submit workspace claim releases
+only after the combined operation is proven settled via `assessExecutionSettlement`, reused
+unchanged — durable records marked terminal first, claim released second — never a bare
+`finally`). D88 (one shared, generic `reconcileRequestBackedWorkspaceClaim`, dispatching to a
+per-kind settlement-checker each owning task registers, replaces D79's own per-caller
+reconciliation design — no acquisition path needs to know which kind it's reconciling). D89
+(an agent workspace claim is ownership-conditionally enriched with `sessionId`/`turnId` once
+the session/turn exists, before the provider process is spawned — never left permanently
+without the identity D86 requires; a crash before enrichment fails closed). D90 (at most one
+non-terminal human-submit operation per `(change, task, step, attempt)` — a duplicate
+resubmission reuses it idempotently, a conflicting decision is rejected, never silently
+overwritten). D91 (a request-backed operation's own durable intent record is always written
+before its paired workspace-request becomes durable, for human-submit, Publish, and Batch
+Publish alike — a workspace-request can never survive a crash pointing at unwritten intent).
 
 ## Proposed architecture
 
