@@ -740,6 +740,42 @@ execution identity → mutation → proven settlement → exact release.**
    Corrected: an explicit, binding, cross-kind ordering — write intent first, then the request,
    then contend for the workspace — making a dangling `operationRef` impossible by construction.
 
+**Corrective pass 19 (2026-09-24, D92–D96, corrections to D80/D88/D89/D71/D90/D94): six
+concrete inconsistencies in the pass-18 design, grounded against the real runtime/session
+code.**
+
+1. **D88's "calls the reconciler internally" read as happening inside the same control-lock
+   critical section D80 already wraps `acquireWorkspaceWriter` in — but the reconciler's own
+   primitives acquire that identical lock themselves, a non-reentrant self-deadlock (D92).**
+   Corrected: dead-claim handling is explicitly two-phase — Phase A inspects under the lock and
+   releases it before Phase B ever reconciles; the invariant is precisely "never recursively
+   acquired by one call chain," not "no lock during a transition or release" (each of those
+   remains its own short, freshly-acquired critical section, D80/D83 unweakened).
+2. **D89's "enrich after session/turn creation, before the provider spawns" is impossible
+   against the real `AgentTurnRuntime.startTurn()`, which allocates `turnId` and schedules the
+   provider spawn internally before the caller's own `await` resumes (D93).** Corrected: two
+   separate enrichments — `sessionId` before `startTurn()` is ever called (via the
+   already-accepted `AgentSessionService.createSession()`), `turnId` only after its own promise
+   resolves; `turnId`'s absence during that narrow window never blocks a legitimate CLI reuse.
+3. **D71's persistence target was never named precisely enough to be implementable within task
+   29's own `allowed_paths`.** Corrected: `workspaceOwnerId` is persisted through the real
+   `AgentSessionBindingService` boundary (`binding-service.mjs`, added to task 29's
+   `allowed_paths`), via one new setter mirroring the exact shape of the existing
+   `setProviderSessionId`.
+4. **The `'batch-publish'` checker was described as registered from dashboard `routes.mjs` — a
+   file a bare CLI process never imports, defeating D88's own cross-kind guarantee for that one
+   kind (D96).** Corrected: both `'publish'` and `'batch-publish'` register from
+   `publish/operation.mjs`, a module every relevant process already imports identically; the
+   actual Batch Publish mutation orchestration stays exactly where D64 put it.
+5. **D90's at-most-one-non-terminal invariant had no exact-key read to enforce it against, and
+   `findInFlightHumanSubmitOperation` intentionally excludes the terminal case it also needed to
+   protect (D94).** Corrected: a distinct `loadHumanSubmitOperation` reads the exact
+   `(change, task, step, attempt)` key regardless of status, classifying absent/non-terminal/
+   terminal before any duplicate/conflict logic runs; a terminal record is never overwritten by
+   a later, stale submission.
+6. **D88's checker contract only answered "safe to release," never "what actually happened"
+   (D95, from the prior pass, reaffirmed here alongside D96's registration fix).**
+
 ## Current architecture
 
 Grounded in repository discovery (2026-09-17, deepened 2026-09-19 by reading the actual
@@ -1463,6 +1499,28 @@ resubmission reuses it idempotently, a conflicting decision is rejected, never s
 overwritten). D91 (a request-backed operation's own durable intent record is always written
 before its paired workspace-request becomes durable, for human-submit, Publish, and Batch
 Publish alike — a workspace-request can never survive a crash pointing at unwritten intent).
+
+**Corrective pass 19 decisions (2026-09-24):** D92 (dead-claim reconciliation is explicitly
+two-phase — the workspace-control lock is released before `reconcileRequestBackedWorkspaceClaim`
+ever runs; the invariant is "never recursively/nestedly acquired by one call chain," never "no
+lock during a transition or release," since each metadata primitive remains its own short,
+freshly-acquired critical section, D80/D83 unweakened). D93 (agent workspace-claim identity is
+enriched in two separate, ownership-conditional steps — `sessionId` before
+`AgentTurnRuntime.startTurn()` is ever called, via the already-accepted
+`AgentSessionService.createSession()`; `turnId` only after `startTurn()`'s own promise resolves,
+since the real runtime allocates it internally and schedules the provider spawn before the
+caller regains control; `turnId`'s absence during that window is additive, never blocking). D94
+(the human-submit durable-operation identity is step-scoped, with a distinct
+`loadHumanSubmitOperation` exact-key read — never `findInFlightHumanSubmitOperation`, which
+intentionally excludes terminal records — classifying absent/non-terminal/terminal before any
+duplicate/conflict logic runs; a terminal record is never overwritten by a stale resubmission).
+D95 (the generic request-backed reconciler's per-kind checker returns a discriminated terminal
+outcome, `completed` or `failed`, sourced from the operation's own durable record — never
+fabricated from settlement safety alone). D96 (every D88 operation-kind checker is registered
+from a module every relevant process already imports — `'batch-publish'`'s own checker moves
+from dashboard-only `routes.mjs` to `publish/operation.mjs`, alongside `'publish'`'s own
+registration, so a bare CLI process can reconcile a dead `batch-publish` claim without ever
+importing dashboard code).
 
 ## Proposed architecture
 

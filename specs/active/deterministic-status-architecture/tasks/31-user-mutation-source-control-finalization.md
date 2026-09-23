@@ -23,7 +23,7 @@ forbidden_paths:
   - src/**
 depends_on: [ dependency-release-and-invalidation ]
 semantic_references:
-  decisions: [D29, D30, D47, D50, D51, D55, D56, D64, D65, D67, D68, D70, D72, D76, D77, D79, D81, D82, D83, D88, D91]
+  decisions: [D29, D30, D47, D50, D51, D55, D56, D64, D65, D67, D68, D70, D72, D76, D77, D79, D81, D82, D83, D88, D91, D92, D95, D96]
 ---
 
 # Task: User-mutation source-control finalization (corrected — durable operation, atomic batch, workspace-writer-aware)
@@ -92,18 +92,32 @@ taxonomy (D30) in `docs/development/agent-workflow-protocol.md`'s existing secti
   result exactly as `finish-operation.mjs`'s own `planFinish` does — reconcile an ambiguous
   `running` stage against real repository/task state (resume, no-op, or fail closed with
   `reconciliation-required`), never guess.
-- **Register `'publish'`/`'batch-publish'` settlement-checkers into the generic reconciler
-  (D88).** At `publish/operation.mjs`'s own module-load time, call
-  `registerRequestKindReconciler('publish', checkerFn)` and (from `routes.mjs`)
-  `registerRequestKindReconciler('batch-publish', checkerFn)`
-  (`workspace-claim-reconciliation.mjs`, task 27 — import only), where each `checkerFn`
-  inspects the referenced Publish/Batch-Publish operation record's own real durable state
-  (`findInFlightOperationRecord`, unchanged D29 logic) and returns `{settled: true}` once the
-  commit (and push, where configured) genuinely landed. This task supplies **no** dead-pid
-  reconciliation code of its own for claims of any kind — `acquireWorkspaceWriter` calls the
-  shared `reconcileRequestBackedWorkspaceClaim` (task 27) internally, dispatching to whichever
-  checker matches the encountered claim's own `kind`, including a dead human-submit or Batch
-  Publish claim this task's own Publish path might encounter.
+- **Register `'publish'`/`'batch-publish'` checkers into the generic reconciler at
+  `publish/operation.mjs`'s own module-load time — never from `routes.mjs` (D88, corrected
+  D92/D95/D96).** **Both** `registerRequestKindReconciler('publish', checkerFn)` **and**
+  `registerRequestKindReconciler('batch-publish', checkerFn)` are called from
+  `publish/operation.mjs` (`workspace-claim-reconciliation.mjs`, task 27 — import only) — the
+  one domain module both `cli.mjs` and `routes.mjs` already import identically. The
+  `'batch-publish'` checker itself only needs to *inspect* the referenced Batch-Publish
+  operation record (`findInFlightOperationRecord` against the `_batch-publish` pseudo-taskId
+  path, unchanged D29 logic) — it has no dependency on `handleBatchPublish`'s own mutation
+  orchestration, which stays in `routes.mjs` exactly as D64 already established (dashboard-only,
+  no CLI equivalent). Registering the *checker* from `publish/operation.mjs` therefore makes it
+  available in **every** process that can call `acquireWorkspaceWriter` — including a bare CLI
+  process running `workflow step start`/`workflow task publish` that never imports `routes.mjs`
+  at all (D96) — while the actual batch mutation flow remains exactly where D64 put it. Each
+  `checkerFn` returns **`{settled: true, terminalStatus: 'completed'}`** once the commit (and
+  push, where configured) genuinely landed, **`{settled: true, terminalStatus: 'failed'}`** if
+  the operation's own durable record shows it failed at some stage, or `{settled: false, reason,
+  reconciliationRequired: true}` otherwise — `terminalStatus` is read from the operation
+  record's own actual stage outcome, never fabricated from settlement safety alone (D95). This
+  task supplies **no** dead-pid reconciliation code of its own for claims of any kind, and never
+  calls `transitionWorkspaceRequest`/`releaseWorkspaceWriterIfOwned` directly from inside a
+  registered checker — `acquireWorkspaceWriter`'s own two-phase acquisition (D92) calls the
+  shared `reconcileRequestBackedWorkspaceClaim` (task 27) *after* releasing its own
+  workspace-control lock, dispatching to whichever checker matches the encountered claim's own
+  `kind`, including a dead human-submit or Batch Publish claim this task's own Publish path
+  might encounter.
 - **Claim the workspace-writer slot first, embedding this request's own `requestId`, inside
   `publishTask()` itself, held through the whole operation including `push`, then the
   git-finalize lease nested inside it for the mutate-then-commit instant specifically
@@ -257,6 +271,22 @@ taxonomy (D30) in `docs/development/agent-workflow-protocol.md`'s existing secti
   operation record exists (via `findInFlightOperationRecord`) at the exact moment the
   workspace-request is first persisted — proven by a crash simulated immediately after request
   creation, confirming `operationRef` already resolves to real, durable intent.
+- **A settled failed Publish becomes a `failed` workspace-request, never `completed` (D95):** a
+  fixture where the durable Publish operation record itself shows a failed stage results in the
+  registered `'publish'` checker returning `{settled: true, terminalStatus: 'failed'}`, and the
+  workspace-request transitions to `failed`, not `completed` — the claim is still released
+  either way.
+  `automated: node --test tools/tests/workflow-task-publish.test.mjs`
+- **A fresh CLI process reconciles a dead `batch-publish` claim without ever importing
+  `routes.mjs` (D96):** a fixture that persists a `batch-publish` workspace claim, kills the
+  owning process, and runs `workflow step start`/`workflow task publish` from a fresh process
+  that never imports the dashboard's `routes.mjs` module at all — the generic reconciler still
+  finds the `'batch-publish'` checker (registered from `publish/operation.mjs`) and resolves the
+  claim correctly.
+  `automated: node --test tools/tests/workflow-task-publish.test.mjs`
+- **Registration for `'publish'` and `'batch-publish'` is available independent of module-import
+  order (D96):** importing `publish/operation.mjs` alone (without ever importing `routes.mjs`)
+  registers both checkers.
   `automated: node --test tools/tests/workflow-task-publish.test.mjs`
 - **Atomic `requestSequence` under concurrent creation (D81):** two workspace requests created
   back-to-back from independent callers (e.g. a concurrent Approve and Publish, or two

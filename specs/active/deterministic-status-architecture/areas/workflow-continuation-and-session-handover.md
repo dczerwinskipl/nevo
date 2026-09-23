@@ -85,33 +85,41 @@ arbitrated against each other at all.
   server transport.
 - **Continuation is eligibility, not scheduling (D25).** Unchanged from prior passes.
 - **One spec-level agent-admission gate, atomic through to durable visibility, with rollback
-  (D41/D49) — claims the workspace-writer slot in one fixed lock order, then enriches it with
-  session/turn identity before the provider ever runs (D55/D66/D89).**
+  (D41/D49) — claims the workspace-writer slot in one fixed lock order, enriches it with
+  `sessionId` before `AgentTurnRuntime.startTurn()` is ever called, `turnId` only after it
+  returns (D55/D66/D89, sequencing corrected D93, grounded in the real runtime API).**
   `admitAgentExecution(specId, candidate)`
   (`tools/dashboard/server/ai/orchestration/admission.mjs`) is the **only** path that can
-  create a new agent session — never a human interaction. It reuses
+  create a new agent session — never a human interaction. `startTurn()`
+  (`turns/runtime.mjs`, forbidden path) allocates `turnId` synchronously inside its own call and
+  schedules the actual provider spawn via `queueMicrotask` before the caller's own `await`
+  resumes — no external caller can hold a known `turnId` and still delay that spawn without
+  editing that forbidden file. `sessionId`, by contrast, is genuinely available first, via the
+  already-accepted `AgentSessionService.createSession()`, which allocates and persists it
+  synchronously before any provider-native side effect runs. It reuses
   `AgentTurnRuntime.#acquireStartLock`'s exact promise-chain-mutex pattern, keyed by
   `specId`, for its own short-lived check-then-claim moment: acquire the admission mutex →
   re-read active-execution state → if occupied, reject/defer (candidate stays eligible) → if
   free, mark occupied **and claim the workspace-writer slot second** (`workspace-writer.mjs`,
   task 27, `kind: 'agent'`, `specId`/`taskId` only — `sessionId`/`turnId` genuinely do not exist
   yet — the workspace-writer claim is now scoped to the whole physical worktree, D65, not merely
-  this spec) → synchronously drive session/turn creation to the point its canonical
-  `sessionId`/`turnId` exist → **ownership-conditionally enrich the exact claim just acquired
-  with that now-known identity** (`updateWorkspaceWriterIfOwned`, D89 — a `not-current-owner`
-  result here fails the whole admission closed, treated identically to a session/turn-creation
-  failure) → **persist the acquired `workspaceOwnerId` onto this execution's own durable
-  session/turn record** as part of the same durable-visibility write (D71 — never left only in
-  an in-memory closure) → release the (short-lived) admission mutex → **only now** spawn the
-  provider process, with `NEVO_SESSION_ID` equal to the identity the claim now carries — **the
-  workspace-writer claim stays held for the entire active execution, until that execution is
-  proven *settled*** (D59/D60), never merely because its turn reached terminal. **If session/
-  turn creation or identity enrichment fails after the claim exists but before durable
-  visibility, everything is rolled back together, in reverse acquisition order** (workspace-
-  writer claim, via the ownership-conditional release using the `ownerId` this same attempt
-  just acquired, D70, then admission mutex, D66) — the candidate remains eligible/retryable;
-  the spec is never left falsely, permanently occupied, and a provider process is never spawned
-  against a claim whose identity was never durably enriched. Manual Start, batch Start,
+  this spec) → `createSession(...)` → obtain the canonical `sessionId` → **first
+  ownership-conditional enrichment**, `sessionId` only (`updateWorkspaceWriterIfOwned`, D89/D93
+  — a `not-current-owner` result here fails the whole admission closed) → persist
+  `workspaceOwnerId` through `AgentSessionBindingService.setWorkspaceOwnerId` (D71, grounded)
+  → release the (short-lived) admission mutex → call `startTurn({..., sessionId, ...})`,
+  **passing the already-decided `sessionId` in**, so the provider's own already-scheduled spawn
+  sets `NEVO_SESSION_ID` to a value that already matches the claim, even though the spawn itself
+  precedes the next step → once `startTurn()`'s own promise resolves, **second
+  ownership-conditional enrichment**, adding `turnId` (same mechanism, called again; it does not
+  gate the already-real, already-running turn). **The workspace-writer claim stays held for the
+  entire active execution, until that execution is proven *settled*** (D59/D60), never merely
+  because its turn reached terminal. **If session creation or the first enrichment fails after
+  the claim exists but before durable visibility, everything is rolled back together, in reverse
+  acquisition order** (workspace-writer claim, via the ownership-conditional release using the
+  `ownerId` this same attempt just acquired, D70, then admission mutex, D66) — the candidate
+  remains eligible/retryable; `startTurn()` is never called against a claim whose `sessionId`
+  never got durably enriched. Manual Start, batch Start,
   automatic continuation, and remediation execution for **agent-owned** candidates all funnel
   through this one gate. No other workspace-writing path (human-submit, Publish, Batch
   Publish, `cli-manual`) ever acquires the admission mutex — only the workspace-writer claim
@@ -378,13 +386,18 @@ function from the same file's `cli-manual` wiring, owned by task 27).
   before releasing the claim; a crash after the commit lands but before those markers exist is
   recovered on restart by the identical settlement check, releasing the exact claim only once
   settled.
-- **Duplicate/conflict invariant (D90):** two rapid identical submissions for one non-terminal
-  attempt collapse to one request; a conflicting decision for that same attempt is rejected
-  without overwriting the stored result; a later attempt may create a new request normally.
-- **Identity enrichment (D89):** a fresh admission's claim is enriched with `sessionId`/`turnId`
-  before the provider spawns; a stale enrichment attempt cannot modify a newer claim; a crash
-  before enrichment leaves the claim's identity unestablished and blocks release/marking until
-  explicitly resolved.
+- **Duplicate/conflict invariant, step-scoped (D90, corrected D94):** two rapid identical
+  submissions for one non-terminal attempt collapse to one request; a conflicting decision for
+  that same attempt is rejected without overwriting the stored result; a later attempt may
+  create a new request normally; a terminal record at that exact `(step, attempt)` is found via
+  `loadHumanSubmitOperation` (never `findInFlightHumanSubmitOperation`, which excludes it) and
+  is never overwritten by a stale resubmission.
+- **Identity enrichment, two steps grounded in the real runtime API (D89, corrected D93):** a
+  fresh admission's claim carries `sessionId` before `startTurn()` is ever called; `turnId` only
+  after it returns, and its absence during that window never blocks a legitimate CLI reuse; a
+  stale enrichment attempt cannot modify a newer claim; a crash before `sessionId` enrichment
+  leaves the claim's identity unestablished and blocks release/marking until explicitly
+  resolved.
 - No file in this area contains a `switch`/`if`/lookup-object keyed on a literal step id, and
   no file describes human interaction activation as "agent admission," or the workspace-writer
   slot as interchangeable with the admission lock or the git-finalize lease. No file releases

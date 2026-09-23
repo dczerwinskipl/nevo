@@ -16,7 +16,7 @@ forbidden_paths:
   - src/**
 depends_on: [ dashboard-orchestration-wiring, user-mutation-source-control-finalization, dependency-invalidation-remediation-review ]
 semantic_references:
-  decisions: [D33, D40, D41, D42, D44, D45, D47, D49, D50, D51, D52, D53, D55, D56, D57, D58, D59, D60, D61, D62, D63, D64, D65, D66, D67, D68, D69, D70, D71, D72, D73, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D90, D91]
+  decisions: [D33, D40, D41, D42, D44, D45, D47, D49, D50, D51, D52, D53, D55, D56, D57, D58, D59, D60, D61, D62, D63, D64, D65, D66, D67, D68, D69, D70, D71, D72, D73, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D90, D91, D92, D93, D94, D95, D96]
 ---
 
 # Task: Orchestration end-to-end dogfood tests
@@ -411,10 +411,28 @@ declarative release/invalidation.
     a simulated crash immediately following request creation — for human-submit, Publish, and
     Batch Publish alike.
 
+**Lock-nesting precision, real-boundary grounding, and cross-process registration (D92 clarified, D71 grounded, D96):**
+99. `transitionWorkspaceRequest` still acquires the workspace-control lock for its own CAS, but
+    is never invoked while the caller already holds that lock.
+100. `releaseWorkspaceWriterIfOwned` and `markWorkspaceWriterRecoveryRequiredIfOwned` each
+     acquire their own short control-lock critical section only after Phase A has already
+     released its own.
+101. Task 29 persists `workspaceOwnerId` through the real `AgentSessionBindingService`
+     persistence boundary, and the value survives a simulated process restart.
+102. A fresh CLI process can reconcile a dead `batch-publish` claim without ever importing
+     dashboard route modules.
+103. Reconciler registration for `human-submit`, `publish`, and `batch-publish` is available
+     independent of incidental module-import order.
+104. An exact terminal human-submit record for `(change, task, step, attempt)` is found via
+     `loadHumanSubmitOperation` even though `findInFlightHumanSubmitOperation` intentionally
+     excludes it.
+105. A stale resubmission against that terminal record does not rewrite its bytes or create a
+     replacement operation/request.
+
 All scenarios: `automated: node --test tools/tests/orchestration-e2e.test.mjs` (or
 `tools/dashboard/tests/orchestration-e2e.test.mjs` for scenarios that must exercise the
 dashboard-side dispatch/admission code — 2, 8, 20, 21, 28, 34, 35, 36, 42–57, 61–63, 69–71,
-73–75, 78, 83, 88–93 specifically).
+73–75, 78, 83, 88–93, 101–103 specifically).
 
 ## Verification
 

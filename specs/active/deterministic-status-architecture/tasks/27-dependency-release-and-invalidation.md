@@ -39,7 +39,7 @@ forbidden_paths:
   - tools/dashboard/**
 depends_on: [ workflow-continuation-schema ]
 semantic_references:
-  decisions: [D28, D31, D36, D37, D40, D44, D47, D50, D51, D52, D53, D55, D56, D58, D59, D60, D61, D62, D65, D66, D69, D70, D71, D72, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D91]
+  decisions: [D28, D31, D36, D37, D40, D44, D47, D50, D51, D52, D53, D55, D56, D58, D59, D60, D61, D62, D65, D66, D69, D70, D71, D72, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D91, D92, D93, D95]
 ---
 
 # Task: Dependency release and invalidation
@@ -248,20 +248,25 @@ and D44's separate `SuspensionProjection`.
   liveness judgment of any kind — it is purely a durable-record and worktree-scope
   inspection, safe to call from any context (task 29's dashboard-side hooks, or this task's own
   `cli.mjs` wrapper).
-- **`cli-manual` workspace-writer kind, `agent`-claim reuse requires trusted ambient identity
-  (D62/D86).** `cli.mjs`'s `handleWorkflowStepStart` wraps its own call to `compileStepContext`
-  (the actual mutation point, via `ensureStepActivated`, `step-context.mjs`, forbidden path —
-  read/imported, never edited) whenever the resolved position is non-terminal:
+- **`cli-manual` workspace-writer kind, `agent`-claim reuse requires trusted ambient identity —
+  `sessionId` alone is the exact-match requirement, `turnId` is additive only (D62/D86,
+  corrected D93).** `cli.mjs`'s `handleWorkflowStepStart` wraps its own call to
+  `compileStepContext` (the actual mutation point, via `ensureStepActivated`, `step-context.mjs`,
+  forbidden path — read/imported, never edited) whenever the resolved position is non-terminal:
   - **If an existing `agent`-kind claim's spec/task/attempt matches** — this is a *necessary*
     pre-check, never sufficient on its own (D86). Additionally call
     `readAgentExecutionContext(process.env, {repoRoot, specId, taskId})`
     (`tools/dashboard/server/ai/sessions/binding-service.mjs`, import only — the same function
     `autoBindAgentSession` already calls). Reuse the existing claim **only if** the resolved
-    `sessionId` matches the claim's own recorded `sessionId` exactly (and `turnId`, where
-    independently resolvable). If `readAgentExecutionContext` returns `null` (no ambient
-    identity — a genuine manual/human terminal invocation) or the `sessionId` mismatches — do
-    **not** reuse the claim; fall through to normal `cli-manual` acquisition below, which
-    correctly blocks behind the live agent claim.
+    `sessionId` matches the claim's own recorded `sessionId` exactly. If the claim already
+    carries a `turnId`, compare it too (additional corroboration); **the claim's own `turnId`
+    being absent or not yet enriched must never by itself block reuse** — a brand-new execution
+    may legitimately be racing the brief window between `startTurn()` returning and its own
+    second, `turnId`-adding enrichment completing (D93), and the provider's own earliest CLI
+    invocations must still succeed during it. If `readAgentExecutionContext` returns `null` (no
+    ambient identity — a genuine manual/human terminal invocation) or the `sessionId`
+    mismatches — do **not** reuse the claim; fall through to normal `cli-manual` acquisition
+    below, which correctly blocks behind the live agent claim.
   - **Otherwise** — acquire a `cli-manual` claim for the attempt's own duration, first
     attempting settlement-based reconciliation of any pre-existing `agent`/`cli-manual` claim
     found via `assessExecutionSettlement` (lazy reconciliation — there is no CLI "boot" event).
@@ -277,43 +282,81 @@ and D44's separate `SuspensionProjection`.
   finish` ever comes) is only ever found stale later, via the lazy reconciliation path above,
   triggered by a *different* caller's next acquisition attempt.
 
-### One generic, shared reconciler for any dead request-backed claim — no per-caller duplication (D79, corrected D88)
+### One generic, shared reconciler for any dead request-backed claim — two-phase, lock-safe, terminal-outcome-aware (D79, corrected D88/D92/D95)
 
+- **`acquireWorkspaceWriter` is explicitly two-phase for the dead-claim case — the control lock
+  is released before reconciliation ever runs (D92).**
+  - **Phase A, inside `withWorkspaceControlLock`:** read the current record. Free → create the
+    claim, return `{acquired: true, ...}`. `status: 'recovery-required'` → return `{blocked:
+    true, reason: 'recovery-required'}`. Request-backed kind with a dead pid → return
+    `{needsReconciliation: true, claimSnapshot: {ownerId, requestId, operationRef, kind,
+    specId, taskId, sessionId?, turnId?}}` — a **snapshot**, not a live reference; the lock is
+    released the instant this function returns, before any branch below runs. Otherwise
+    (genuine live contention) → return `{contended: true}`.
+  - **Phase B, outside the lock:** on `needsReconciliation`, call
+    `reconcileRequestBackedWorkspaceClaim({repoRoot, claimSnapshot})` (below) — its own
+    primitives (`transitionWorkspaceRequest`, `releaseWorkspaceWriterIfOwned`,
+    `markWorkspaceWriterRecoveryRequiredIfOwned`) each acquire the control lock themselves,
+    which is safe precisely because Phase A already released it. Once reconciliation completes
+    (any outcome), **retry `acquireWorkspaceWriter` from Phase A** against the now-current,
+    authoritative claim state. `blocked`/`contended` proceed exactly as before (surface
+    `blocked-by-recovery`, or register as a pending waiter and retry with backoff) —
+    unaffected by this correction.
+  - **Invariant, precisely:** the control lock is never *recursively/nestedly* acquired by one
+    call chain — Phase A must never still be holding its own acquisition when it reads operation
+    records, runs settlement/checker logic, invokes a registered reconciler, calls
+    `transitionWorkspaceRequest`/`releaseWorkspaceWriterIfOwned`/
+    `markWorkspaceWriterRecoveryRequiredIfOwned`, runs Git commands, or waits/backs off — Phase A
+    has already returned and released before any of those happen. This is **not** "no lock is
+    ever engaged during a workspace-request transition or claim release" — each of those
+    primitives remains intentionally control-lock-protected for its own short, freshly-acquired
+    atomic critical section (D80/D83's own CAS atomicity is unweakened); Phase A's own critical
+    section is simply the only place D81's `requestSequence` allocation and this decision's own
+    inspect/create/return section live.
 - **`tools/specs/workflow/workspace-claim-reconciliation.mjs` (new).** Exports
-  `reconcileRequestBackedWorkspaceClaim({repoRoot, claim})` and
-  `registerRequestKindReconciler(kind, checkSettledFn)`
-  (`checkSettledFn: ({repoRoot, operationRef}) => {settled: true} | {settled: false, reason}`).
+  `reconcileRequestBackedWorkspaceClaim({repoRoot, claimSnapshot})` and
+  `registerRequestKindReconciler(kind, checkOperationStateFn)` —
+  `checkOperationStateFn: ({repoRoot, operationRef}) => {settled: true, terminalStatus:
+  'completed'|'failed'} | {settled: false, reason, reconciliationRequired?: true}` (D95 — a
+  discriminated terminal outcome, not merely a settlement-safety boolean).
   `reconcileRequestBackedWorkspaceClaim`:
-  1. Loads the workspace-request by `claim.requestId`. Missing/unresolvable → fail closed, no
-     release, no mutation.
-  2. Verifies `workspaceRequest.requestId === claim.requestId` (defense in depth).
-  3. Looks up the checker registered for `claim.kind` (`'human-submit'|'publish'|
+  1. Loads the workspace-request by `claimSnapshot.requestId`. Missing/unresolvable → fail
+     closed, no release, no mutation.
+  2. Verifies `workspaceRequest.requestId === claimSnapshot.requestId` (defense in depth).
+  3. Looks up the checker registered for `claimSnapshot.kind` (`'human-submit'|'publish'|
      'batch-publish'` — a discriminated **operation-protocol** kind, never a workflow-step
-     name; no branch here inspects a step id). No registered checker for the claim's own kind
-     → fail closed, treat as unresolvable, never guess.
-  4. Calls the checker with `{repoRoot, operationRef: claim.operationRef}`.
-  5. **Settled** → `transitionWorkspaceRequest(..., to: 'completed'/'failed')` and
-     `releaseWorkspaceWriterIfOwned` (D70), using `claim.ownerId` as `expectedOwnerId`.
-  6. **Ambiguous** → `transitionWorkspaceRequest(..., to: 'reconciliation-required')` and either
-     retain the claim or `markWorkspaceWriterRecoveryRequiredIfOwned` — never delete
+     name; no branch here inspects a step id). No registered checker → fail closed, treat as
+     unresolvable, never guess.
+  4. Calls the checker with `{repoRoot, operationRef: claimSnapshot.operationRef}`.
+  5. **`settled: true, terminalStatus: 'completed'`** → `transitionWorkspaceRequest(...,
+     to: 'completed')`, then `releaseWorkspaceWriterIfOwned` (D70) using
+     `claimSnapshot.ownerId` as `expectedOwnerId`.
+  6. **`settled: true, terminalStatus: 'failed'`** → `transitionWorkspaceRequest(..., to:
+     'failed')`, then `releaseWorkspaceWriterIfOwned` identically — a failed operation is just
+     as safe to release as a completed one; only the request's own recorded outcome differs.
+     `terminalStatus` is never fabricated from `settled: true` alone — it is always sourced from
+     the checker's own inspection of the operation's durable record.
+  7. **`settled: false`** → `transitionWorkspaceRequest(..., to: 'reconciliation-required')` and
+     either retain the claim or `markWorkspaceWriterRecoveryRequiredIfOwned` — never delete
      speculatively.
-- **`acquireWorkspaceWriter`'s own `EEXIST` handling calls this reconciler directly, internally,
-  for any request-backed kind with a dead pid** — no caller (agent admission, human-submit,
-  Publish, Batch Publish, `cli-manual`) needs its own copy of steps 1–6, and no caller needs to
-  know which kind previously owned the claim it's contending for. This is what makes agent
-  admission correctly reconcile a dead Publish claim, human-submit correctly reconcile a dead
-  Batch Publish claim, Publish correctly reconcile a dead human-submit claim, and `cli-manual`
-  correctly reconcile a dead Publish claim — all through the identical code path.
-  `workspace-writer.mjs` still never guesses settlement itself — it only invokes whichever
-  checker the owning task registered.
+  No caller (agent admission, human-submit, Publish, Batch Publish, `cli-manual`) needs its own
+  copy of this logic, and none needs to know which kind previously owned the claim it's
+  contending for — this is what makes agent admission correctly reconcile a dead Publish claim,
+  human-submit correctly reconcile a dead Batch Publish claim, Publish correctly reconcile a
+  dead human-submit claim, and `cli-manual` correctly reconcile a dead Publish claim, all
+  through the identical code path. `workspace-writer.mjs` still never guesses settlement or
+  outcome itself — it only invokes whichever checker the owning task registered.
 - **Registration, owned by each kind's own task, not this task.** Task 29
   (`human-step/operations.mjs`) calls `registerRequestKindReconciler('human-submit', ...)` at
-  its own module-load time, wrapping `assessExecutionSettlement` (D87). Task 31
-  (`publish/operation.mjs`) calls `registerRequestKindReconciler('publish', ...)` and
-  `registerRequestKindReconciler('batch-publish', ...)` at its own module-load time, inspecting
-  the referenced Publish/Batch-Publish operation record's own real durable state (D29/D75).
-  Neither registration requires this task to import `human-step/**`/`publish/**` — both remain
-  forbidden paths; the dependency points the other way.
+  its own module-load time — settlement safety via `assessExecutionSettlement` (D87),
+  `terminalStatus` read from the durable human-submit operation record's own `status` field
+  (D94), never inferred from settlement alone. Task 31 (`publish/operation.mjs`) calls
+  `registerRequestKindReconciler('publish', ...)` and
+  `registerRequestKindReconciler('batch-publish', ...)` at its own module-load time,
+  `terminalStatus` read from the referenced Publish/Batch-Publish operation record's own real
+  stage state (D29). Neither registration requires this task to import
+  `human-step/**`/`publish/**` — both remain forbidden paths; the dependency points the other
+  way.
 
 ### Durable start-operation, sequence allocation (D52/D58) + declarative trigger (D53)
 
@@ -460,10 +503,54 @@ and D44's separate `SuspensionProjection`.
 - **No kind reaches `reconcileRequestBackedWorkspaceClaim` with an unregistered kind silently
   granting the slot (D88):** a claim whose `kind` has no registered checker fails closed.
   `automated: node --test tools/tests/workspace-claim-reconciliation.test.mjs`
-- **`updateWorkspaceWriterIfOwned` enriches only the exact owned claim (D89):** a call with a
-  matching `expectedOwnerId` merges `sessionId`/`turnId` into the live record; a call with a
-  mismatched `expectedOwnerId` leaves the record completely untouched and returns
+- **`acquireWorkspaceWriter` releases the workspace-control lock before reconciliation begins,
+  never recurses into it (D92):** proven directly by instrumenting the lock's own
+  acquire/release calls — Phase A acquires and releases exactly once per attempt, and
+  `reconcileRequestBackedWorkspaceClaim`'s own calls to `transitionWorkspaceRequest`/
+  `releaseWorkspaceWriterIfOwned`/`markWorkspaceWriterRecoveryRequiredIfOwned` each acquire the
+  lock fresh, never while Phase A's own acquisition is still held — no deadlock, no timeout,
+  even under a real (not mocked) file-based lock implementation.
+  `automated: node --test tools/tests/workspace-writer.test.mjs`
+- **`transitionWorkspaceRequest` still acquires the workspace-control lock for its own CAS, but
+  is never invoked while the caller already holds that lock (D92):** proven by instrumenting
+  both — `transitionWorkspaceRequest` itself does acquire and release the lock exactly once per
+  call (its own CAS remains genuinely atomic, D83 unweakened), and Phase A never calls it while
+  its own acquisition is still open.
+  `automated: node --test tools/tests/workspace-writer.test.mjs`
+- **`releaseWorkspaceWriterIfOwned` and `markWorkspaceWriterRecoveryRequiredIfOwned` each acquire
+  their own short control-lock critical section only *after* Phase A has already released its
+  own (D92):** proven identically to the above for both functions.
+  `automated: node --test tools/tests/workspace-writer.test.mjs`
+- **No workspace-control lock is held during operation-record settlement checks (D92):** a
+  registered checker that intentionally blocks (simulating slow I/O) does not prevent a
+  *different*, concurrent `acquireWorkspaceWriter` call for an unrelated claim from completing
+  its own Phase A.
+  `automated: node --test tools/tests/workspace-writer.test.mjs`
+- **After reconciliation completes, acquisition retries from authoritative current state
+  (D92):** a claim reconciled to `completed` (freed) is then acquired successfully by the
+  retrying caller within the same `acquireWorkspaceWriter` call, with no separate manual retry
+  required by the caller.
+  `automated: node --test tools/tests/workspace-writer.test.mjs`
+- **Generic reconciler receives and acts on `terminalStatus`, never fabricates it (D95):** a
+  checker returning `{settled: true, terminalStatus: 'failed'}` results in the request
+  transitioning to `failed`, not `completed`; a checker returning `{settled: true,
+  terminalStatus: 'completed'}` results in `completed`; both release the claim identically.
+  `automated: node --test tools/tests/workspace-claim-reconciliation.test.mjs`
+- **Ambiguous operation state remains blocking (D95, unchanged from D88):** `{settled: false,
+  reason}` results in `reconciliation-required` and the claim retained/marked
+  `recovery-required` — never `completed` or `failed`.
+  `automated: node --test tools/tests/workspace-claim-reconciliation.test.mjs`
+- **`updateWorkspaceWriterIfOwned` enriches only the exact owned claim, supports independent
+  partial enrichment (D89/D93):** a call supplying only `sessionId` merges just that field,
+  leaving `turnId` absent; a later call from the same matching `expectedOwnerId` supplying
+  `turnId` merges it additively without disturbing the already-enriched `sessionId`; any call
+  with a mismatched `expectedOwnerId` leaves the record completely untouched and returns
   `{updated: false, reason: 'not-current-owner'}`.
+  `automated: node --test tools/tests/workspace-writer.test.mjs`
+- **Trusted-identity reuse succeeds on `sessionId` alone; `turnId` absence never blocks it
+  (D86, corrected D93):** a claim enriched with `sessionId` but not yet `turnId` is still
+  reusable by a CLI invocation whose ambient `sessionId` matches; a claim already carrying
+  `turnId` additionally requires it to match once present.
   `automated: node --test tools/tests/workspace-writer.test.mjs`
 - `listPendingWorkspaceWriters` correctly reports a queued non-agent acquisition attempt
   while the slot is held by another kind.
