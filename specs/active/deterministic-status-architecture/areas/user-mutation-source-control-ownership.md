@@ -92,21 +92,31 @@ mutations from technical activations from completed lifecycle mutations.
   operation's still-in-flight push; the git-finalize lease itself remains exactly as narrow as
   D50/D51 already established — only the outer workspace-writer boundary widens. Release is
   ownership-conditional (`releaseWorkspaceWriterIfOwned`, using the `workspaceOwnerId` this
-  operation stored when it acquired the claim, D70) — never a blind, unconditional release
-  that could touch a different operation's claim if this reconciliation runs late. A pending
-  Publish/Batch Publish request that has not yet acquired the slot reports
-  `waiting-for-workspace` or `blocked-by-recovery` (D67) — never a generic failure merely
-  because the current holder is taking a while — and that pending state is itself durable
-  (below), surviving a dashboard restart.
+  operation stored when it acquired the claim, D70), performed as one atomic critical section
+  under the workspace-control lock (D80) — never a blind, unconditional release, and never a
+  separate read-then-later-write that could touch a different operation's claim if
+  reconciliation runs late. A dead pid found on a Publish/Batch Publish claim never means safe
+  release by itself — it always triggers reconciliation against the paired request/operation
+  state first (D79). A pending Publish/Batch Publish request that has not yet acquired the slot
+  reports `waiting-for-workspace` or `blocked-by-recovery` (D67) — never a generic failure
+  merely because the current holder is taking a while — and that pending state is itself
+  durable (below), surviving a dashboard restart.
 - **A durable workspace-request coordinates waiting, referencing Publish's own operation record
-  rather than duplicating it (D72/D76).** Before `publishTask()`/`handleBatchPublish` ever
-  calls `acquireWorkspaceWriter`, a workspace-request record (`kind: 'publish'`/
-  `'batch-publish'`) is persisted `status: 'queued'`, naming the about-to-run Publish
-  operation's own identity (`operationFilePath`'s convention) via `operationRef` — never
-  copying its payload. The request is promoted to `running` (storing the acquired
-  `workspaceOwnerId`) only once the claim is actually acquired, and to `completed`/`failed`
-  once Publish's own existing durable record reaches its own terminal state — the request never
-  maintains an independent copy of Publish's `validate/update-task/commit/push` stage machine.
+  rather than duplicating it, with an exact-`requestId` claim linkage and CAS-safe execution
+  (D72/D76/D82/D83).** Before `publishTask()`/`handleBatchPublish` ever calls
+  `acquireWorkspaceWriter`, a workspace-request record (`kind: 'publish'`/`'batch-publish'`,
+  with its own atomically-allocated `requestSequence`, D81) is persisted `status: 'queued'`,
+  naming the about-to-run Publish operation's own identity (`operationFilePath`'s convention)
+  via `operationRef` — never copying its payload. Once the workspace-writer claim is acquired
+  — with the request's own `requestId` embedded into it (D82) — `publishTask()`/
+  `handleBatchPublish` re-reads the request's own authoritative state and attempts
+  `transitionWorkspaceRequest({requestId, expectedStatus: ['queued', 'waiting-for-workspace'],
+  to: 'running', workspaceOwnerId})` (D83) **before** any tracked mutation begins; only a
+  successful CAS proceeds to mutate. This is what prevents a second processor — holding a stale
+  view of a request another processor already ran to completion — from re-publishing it. The
+  request reaches `completed`/`failed` once Publish's own existing durable record reaches its
+  own terminal state — the request never maintains an independent copy of Publish's
+  `validate/update-task/commit/push` stage machine.
 - **Ownership taxonomy documented (D30), corrected (pass 12 — human-step auto-activation
   removed as an example).** Extend `docs/development/agent-workflow-protocol.md`'s existing
   ownership-boundaries section (no new doc file, per D3's precedent) with three explicit
@@ -193,13 +203,25 @@ which must classify themselves against the taxonomy before being built.
   with Publish's own durable operation record — proven by asserting the request reaches
   `completed` if and only if the operation record does, for both the success and the
   `reconciliation-required` paths.
+- **Dead pid on a Publish claim triggers reconciliation, never a bare delete (D79):** a Publish
+  claim whose pid is confirmed dead but whose commit genuinely landed (per the durable
+  operation record) is released and the request marked `completed`; the identical claim with
+  an ambiguous/partial commit state is instead marked `reconciliation-required`/
+  `recovery-required`.
+- **`requestId` prevents cross-request confusion, and CAS prevents double-publish (D82/D83):**
+  two Publish requests for the same spec/task remain unambiguously distinguishable via their
+  own claims' `requestId`; a second processor holding a stale view of an already-completed
+  Publish request fails its own CAS transition to `running` and does not publish again.
+- **Atomic `requestSequence` under concurrent Publish/Approve creation (D81):** two workspace
+  requests created back-to-back from independent callers (e.g. a concurrently-submitted Approve
+  and Publish) receive distinct, non-colliding `requestSequence` values.
 
 ## Dependencies
 
 `dependency-release-and-invalidation` (task 27 — the `git-finalize-lock.mjs`,
-`workspace-writer.mjs`, and `workspace-request.mjs` this area's Publish path acquires/creates,
-D47/D55/D56/D72); otherwise reuses the existing `commit-and-push` action and
-`operation-record.mjs` primitives directly.
+`workspace-writer.mjs`, `workspace-request.mjs`, and the workspace-control lock this area's
+Publish path acquires/creates, D47/D55/D56/D72/D80); otherwise reuses the existing
+`commit-and-push` action and `operation-record.mjs` primitives directly.
 
 ## Out of scope
 

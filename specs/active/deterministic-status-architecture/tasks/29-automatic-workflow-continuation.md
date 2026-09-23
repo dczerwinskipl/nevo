@@ -29,7 +29,7 @@ forbidden_paths:
   - src/**
 depends_on: [ workflow-continuation-schema, execution-policy-and-mode-selection, deterministic-sequential-queue, dependency-release-and-invalidation ]
 semantic_references:
-  decisions: [D25, D26, D27, D33, D41, D42, D45, D47, D49, D50, D55, D56, D57, D59, D60, D61, D63, D65, D66, D67, D70, D71, D72, D73, D74, D75, D76, D77, D78]
+  decisions: [D25, D26, D27, D33, D41, D42, D45, D47, D49, D50, D55, D56, D57, D59, D60, D61, D63, D65, D66, D67, D70, D71, D72, D73, D74, D75, D76, D77, D78, D79, D80, D82, D83, D84]
 ---
 
 # Task: Automatic workflow continuation (agent admission + workspace-writer ownership + reconciliation + human dispatch)
@@ -176,21 +176,29 @@ auto-activate a human step on arrival (D47), and does **not** implement
   small local record-shaping helper, not a shared one). Written **before**
   `activateAndSubmitHumanStep` creates its paired workspace-request or calls
   `acquireWorkspaceWriter` at all.
-- **`activateAndSubmitHumanStep` (D47/D50/D55/D72/D73) — durable request first, workspace-writer
-  slot outer, git-finalize lease inner, one of each, never recursive.** New exported function in
-  `tools/specs/workflow/human-step/operations.mjs`:
+- **`activateAndSubmitHumanStep` (D47/D50/D55/D72/D73, requestId/CAS corrected D82/D83) —
+  durable request first, workspace-writer slot outer, git-finalize lease inner, one of each,
+  never recursive.** New exported function in `tools/specs/workflow/human-step/operations.mjs`:
   1. Write the durable human-submit operation record (D73, above): `status: 'pending'`.
   2. Create a paired workspace-request (`workspace-request.mjs`, task 27 — import only;
-     `kind: 'human-submit'`, `operationRef` naming the record from step 1): `status: 'queued'`.
-  3. `acquireWorkspaceWriter({kind: 'human-submit', specId, taskId})` (task 27 — import only;
-     `specId`/`taskId` are attribution fields only — the claim itself is keyed by the physical
-     worktree, not `specId`, D65) — waits if an agent or another writer (for this spec or any
-     other sharing the same physical worktree) currently holds the slot, transitioning the
-     request to `waiting-for-workspace`; if the existing claim's `status` is
-     `recovery-required`, transition the request to `blocked-by-recovery` (D67) rather than
-     waiting silently forever.
-  4. Once acquired: transition the request to `running`, storing the acquired
-     `workspaceOwnerId` into its own record (D77) — before any further mutation.
+     `kind: 'human-submit'`, its own atomically-allocated `requestSequence`, D81,
+     `operationRef` naming the record from step 1): `status: 'queued'`.
+  3. `acquireWorkspaceWriter({kind: 'human-submit', requestId, operationRef, specId, taskId})`
+     (task 27 — import only; `requestId` is embedded in the claim itself, D82 — `specId`/
+     `taskId` remain attribution fields only, the claim is keyed by the physical worktree, D65)
+     — waits if an agent or another writer (for this spec or any other sharing the same
+     physical worktree) currently holds the slot, transitioning the request to
+     `waiting-for-workspace`; if the existing claim's `status` is `recovery-required`,
+     transition the request to `blocked-by-recovery` (D67) rather than waiting silently
+     forever. If the existing claim is request-backed with a dead pid, run the D79
+     reconciliation sequence (this task owns steps 1–4 of that sequence for `human-submit`
+     claims) before deciding whether the slot is actually free.
+  4. Once acquired: **re-read the request's own authoritative durable state and attempt
+     `transitionWorkspaceRequest({requestId, expectedStatus: ['queued',
+     'waiting-for-workspace'], to: 'running', workspaceOwnerId})` (D83)** — a failed CAS (a
+     different processor already transitioned this exact request) means: do **not** proceed to
+     step 5; release the just-acquired claim (ownership-conditionally) and return the request's
+     own current state to the caller instead. Only a successful CAS proceeds.
   5. `acquireGitFinalizeLease()` once, up front (task 27 — import only).
   6. Call `startHumanStep` (now protected by both claims).
   7. Call `submitHumanStepResult(change, task, definition, {...context, finalizeLease: lease},
@@ -282,6 +290,20 @@ auto-activate a human step on arrival (D47), and does **not** implement
   `running`, but `finishStep`'s own state ambiguous) is reconciled after restart — never
   blindly re-run, never duplicated.**
   `automated: node --test tools/tests/workflow-continuation.test.mjs`
+- **Two human-submit requests for the identical spec/task are unambiguously distinguishable
+  (D82):** each acquires a claim carrying its own distinct `requestId`; a crash simulated
+  between claim acquisition and the request's own `running` CAS is reconciled by matching
+  `claim.requestId` exactly, never inferred from `kind`/`specId`/`taskId`.
+  `automated: node --test tools/tests/workflow-continuation.test.mjs`
+- **A stale-viewing processor cannot re-execute an already-completed human-submit (D83):** a
+  simulated second processor holding a pre-completion view of a request, which later acquires
+  the freed workspace, fails its own CAS to `running` against the request's actual `completed`
+  state and does not call `startHumanStep`/`submitHumanStepResult` again.
+  `automated: node --test tools/tests/workflow-continuation.test.mjs`
+- **A dead pid on a `human-submit` claim never triggers a bare delete (D79):** the claim is
+  reconciled through its paired request/operation state — released only if genuinely settled,
+  marked `reconciliation-required`/`recovery-required` otherwise.
+  `automated: node --test tools/tests/workflow-continuation.test.mjs`
 - A pending human-submit request waiting on an active agent reports `waiting-for-workspace`;
   once that agent's claim is marked `recovery-required` instead of released, the same pending
   request's reported status changes to `blocked-by-recovery` — neither ever surfaces as a
@@ -351,4 +373,9 @@ functions from `handleWorkflowVerifyHuman`, which this task does edit, D63). Res
 creation and stage machine (`user-mutation-source-control-finalization`, task 31, D76). Any
 form of concurrent agent execution. Implementing cross-spec workspace-writer arbitration
 itself (this task only calls the already-cross-spec-keyed primitive, D65 — the keying
-correction is task 27's own scope).
+correction is task 27's own scope). The `workspace-control-lock.mjs` primitive itself and its
+own internal atomicity (D80 — this task only benefits from it transitively, through
+`workspace-writer.mjs`'s/`workspace-request.mjs`'s already-protected exports, never acquiring
+it directly). The `cli-workspace-execution.mjs` record and the trusted-ambient-identity
+`agent`-claim-reuse check (D85/D86 — both exclusively `cli.mjs`'s `handleWorkflowStepStart`/
+`handleWorkflowStepFinish`, task 27's own scope, not `handleWorkflowVerifyHuman`).

@@ -23,11 +23,15 @@ own combined submit, claims the workspace-writer slot for its own short duration
 activation + result submission + finalization as one self-owned operation under a nested
 git-finalize lease, reused identically by the CLI's own `workflow verify-human` (D63) so
 dashboard and CLI share one arbitration-safe implementation, and now persisting a durable
-human-submit request (D73) before any of that begins. **All workspace-writer claim
-reconciliation this area performs (turn-terminal, boot orphan recovery, failed-admission
-rollback) is ownership-conditional** — it verifies the exact claim it means to touch before
-touching it, using a `workspaceOwnerId` durably recoverable from this area's own session/turn
-records, never a blind worktree-global mutation (D70/D71). **Dispatch priority** (D57): before
+human-submit request (D73), CAS-transitioned through its own lifecycle (D83), before any of
+that begins. **All workspace-writer claim reconciliation this area performs (turn-terminal,
+boot orphan recovery, failed-admission rollback) is ownership-conditional and atomic under the
+workspace-control lock** — it verifies the exact claim it means to touch, by `requestId` for
+its own human-submit requests (D82) and by `workspaceOwnerId` for agent claims, before touching
+it, as one indivisible critical section, never a blind worktree-global mutation and never a
+separate read-then-later-write (D70/D71/D80). A dead pid on this area's own human-submit claim
+never means safe release — it triggers durable request/operation reconciliation instead (D79).
+**Dispatch priority** (D57): before
 admitting the sequential queue's next automatic agent item, this area services any
 already-pending, explicitly user-submitted workspace mutation first, read from a durable,
 physical-worktree-scoped request queue — not one spec's own in-process waiters (D65/D72/D74) —
@@ -140,27 +144,35 @@ arbitrated against each other at all.
     'human-submit'`, D72) is created `status: 'queued'` **before** `activateAndSubmitHumanStep`
     ever calls `acquireWorkspaceWriter` — this is what makes the submitted decision survive a
     dashboard restart while waiting; the mutation-free preview itself is completely unaffected.
-  - **Claims the workspace-writer slot for its own short duration, then one git-finalize
-    lease nested inside it (D55/D50).** `activateAndSubmitHumanStep` claims the
-    workspace-writer slot (`kind: 'human-submit'`) — waiting for it if an agent (or another
-    writer) currently holds it, per D55's arbitration rule, its own wait reported via the
-    durable request's `waiting-for-workspace`/`blocked-by-recovery` status (D67/D72) — then,
-    once held, stores the acquired `workspaceOwnerId` into that same request record (D77) and
-    acquires exactly **one** git-finalize lease (before `startHumanStep` — activation is itself
-    a tracked mutation needing protection), calls `startHumanStep` followed by
+  - **Claims the workspace-writer slot for its own short duration, embedding its own
+    `requestId`, then one git-finalize lease nested inside it (D55/D50/D82).**
+    `activateAndSubmitHumanStep` claims the workspace-writer slot (`kind: 'human-submit'`,
+    `requestId` embedded at acquisition, D82) — waiting for it if an agent (or another writer)
+    currently holds it, per D55's arbitration rule, its own wait reported via the durable
+    request's `waiting-for-workspace`/`blocked-by-recovery` status (D67/D72) — then, once held,
+    **re-reads the request's own authoritative durable state and attempts a CAS
+    transition to `running` (`expectedStatus: ['queued', 'waiting-for-workspace']`, storing the
+    acquired `workspaceOwnerId`, D83)**; only on a successful transition does it proceed —
+    a failed CAS (the request is already `running`/`completed`/`failed`/`reconciliation-required`,
+    meaning a different processor already owns it) releases the just-acquired claim
+    (ownership-conditionally) and does **not** execute the operation. On success, acquires
+    exactly **one** git-finalize lease (before `startHumanStep` — activation is itself a
+    tracked mutation needing protection), calls `startHumanStep` followed by
     `submitHumanStepResult` → `finishStep`, passing that same lease through as `finishStep`'s
     `finalizeLease` input so `finishStep` does **not** acquire a second one (self-deadlock
     avoidance, D50), releases the git-finalize lease after `finishStep` returns, then releases
     the workspace-writer slot (ownership-conditionally, using the request's own stored
     `workspaceOwnerId`, D70) and marks the request `completed`/`failed`. No intervening `await`
     boundary hands control to another caller between the activation write and the eventual
-    commit.
-  - **Restart resumes a pending human-submit exactly once, never drops it (D73/D75).** After a
-    restart, a `pending` human-submit operation record paired with a non-terminal
-    workspace-request is rediscovered, its ordering preserved via the request's own
-    `requestSequence`, and resumed by re-invoking `activateAndSubmitHumanStep` with the exact
-    stored transition/feedback/inputs — reconciled (never blindly re-run) if it may have
-    already partially landed.
+    commit. A dead pid found on a live `human-submit` claim during this process never triggers
+    a bare delete — it reconciles the paired request/operation state first (D79).
+  - **Restart resumes a pending human-submit exactly once, never drops it, never duplicates it
+    (D73/D75/D82/D83).** After a restart, a `pending` human-submit operation record paired with
+    a non-terminal workspace-request is rediscovered, its ordering preserved via the request's
+    own `requestSequence`, and resumed by re-invoking `activateAndSubmitHumanStep` — which
+    re-attempts the same CAS transition above, so a request another processor already promoted
+    to `running` (or completed) is never re-executed — reconciled via `requestId` matching, not
+    a `kind`/`specId`/`taskId` heuristic, if it may have already partially landed.
   - **Two nested layers of serialization, not one.** The workspace-writer slot (outer,
     D55/D56) prevents this operation from ever starting while an agent — or Publish — is
     actively holding the shared worktree; the git-finalize lease (inner, D47/D50/D51) governs
@@ -213,22 +225,33 @@ arbitrated against each other at all.
   workspace-writer record's own reconciliation must be readable/writable from wherever it's
   needed.
 - No new public API is added to `tools/dashboard/server/ai/sessions/turns/runtime.mjs`.
-- The agent-admission lock, the workspace-writer slot, and the git-finalize lease are never
-  conflated: this area owns/calls the first directly, claims-and-releases the second around
-  an admitted execution's lifetime and around `activateAndSubmitHumanStep`'s own duration, and
-  threads/acquires the third only for the mutate-then-commit instant nested inside whichever
-  of the first two currently applies.
-- **Canonical lock ordering, no exceptions (D66):** admission mutex before workspace-writer
-  claim, always, on the one path (agent) that ever acquires both; no other path acquires the
-  admission mutex at all. Rollback on failure releases in the reverse order.
+- The agent-admission lock, the workspace-control lock, the workspace-writer slot, and the
+  git-finalize lease are never conflated: this area owns/calls the first directly,
+  claims-and-releases the third around an admitted execution's lifetime and around
+  `activateAndSubmitHumanStep`'s own duration (via the second, briefly, for each record
+  mutation), and threads/acquires the fourth only for the mutate-then-commit instant nested
+  inside whichever of the first/third currently applies.
+- **Canonical lock ordering, no exceptions, now including the control lock (D66/D84):**
+  admission mutex before the workspace-control lock, always, on the one path (agent) that ever
+  acquires both; no other path acquires the admission mutex at all. The workspace-control lock
+  is always the innermost, briefest-held primitive in any sequence — never held while waiting
+  on the workspace-writer claim itself, an agent turn, `activateAndSubmitHumanStep`, or the
+  git-finalize lease. Rollback on failure releases in the reverse order.
 - A workspace-writer claim's release is never wired directly to AI/session turn-terminal —
   always gated on `assessExecutionSettlement` (D59/D60), and the ownership-conditional release
   is called only once that check reports settled, using `workspaceOwnerId` read from this
-  execution's own durable record (D61/D70/D71) — never a blind, unconditional release.
+  execution's own durable record (D61/D70/D71), as one atomic critical section under the
+  workspace-control lock (D80) — never a blind, unconditional release, and never a
+  separate read-then-later-write.
 - Dispatch priority (D57) is decided from the durable `workspace-request.mjs` queue for the
   whole physical worktree, never from a single spec's own `listPendingWorkspaceWriters` view
   (D65/D74).
-- A human-submit is never acquired/mutated before its own durable request record exists (D73).
+- A human-submit is never acquired/mutated before its own durable request record exists (D73),
+  and its own workspace-writer claim always embeds that request's own `requestId` (D82); no
+  processor executes its underlying operation without first winning the CAS transition to
+  `running` (D83).
+- A dead pid on this area's own `human-submit` claims never triggers a bare delete — always
+  durable request/operation reconciliation first (D79).
 - The workspace-writer slot's scope is the physical worktree (D65) — this area's own
   invariant is therefore no longer "per specification" for that one primitive, even though
   the agent-admission lock and D33's "one active execution per spec" remain unchanged and
@@ -237,12 +260,13 @@ arbitrated against each other at all.
 ## Interfaces and boundaries
 
 Exposes: the always-shown execution-policy picker; `admitAgentExecution` (agent-owned only,
-also claiming the workspace-writer slot per D66's ordering and persisting `workspaceOwnerId`,
+also claiming the workspace-writer slot per D66/D84's ordering and persisting `workspaceOwnerId`,
 D71); `reconcileWorkflowPosition`; the human interaction preview (via `actions.mjs`);
 `activateAndSubmitHumanStep` (now also the CLI's own `workflow verify-human` implementation,
-D63, and now creating a durable human-submit request/operation first, D73); the
-worktree-wide dispatch-priority check (D57/D74); the settlement-gated, ownership-conditional
-release wired into Hooks 1/3 (D59/D61/D70/D71).
+D63, now creating a durable human-submit request/operation first (D73) and CAS-transitioning
+it before executing (D83)); the worktree-wide dispatch-priority check (D57/D74); the
+settlement-gated, ownership-conditional, control-lock-protected release wired into Hooks 1/3
+(D59/D61/D70/D71/D80); dead-pid reconciliation for its own `human-submit` claims (D79).
 
 Consumed by: `areas/deterministic-sequential-queue.md` (agent-owned eligible destinations,
 read only after this area's dispatch-priority check clears); `dependency-release-and-invalidation`
@@ -313,6 +337,17 @@ function from the same file's `cli-manual` wiring, owned by task 27).
   A's own next agent item is also eligible — dispatch defers Spec A's next agent item until
   Spec B's request is no longer pending, proven directly with two fixture specs sharing one
   worktree.
+- **Dead pid on a `human-submit` claim never means safe release:** a `human-submit` claim whose
+  pid is confirmed dead is reconciled through its paired request/operation state — released
+  only if genuinely settled, marked `reconciliation-required`/`recovery-required` otherwise —
+  never deleted merely because the pid is dead.
+- **`requestId` distinguishes two otherwise-identical human-submit requests:** two human-submit
+  requests for the identical spec/task remain unambiguously distinguishable via their own
+  claims' `requestId`; a crash after claim acquisition but before the request's `running`
+  transition is reconciled using the exact `requestId` match.
+- **Only one processor executes a given human-submit request:** a stale-viewing processor that
+  later acquires the workspace for an already-completed request fails its own CAS transition
+  to `running` and does not re-execute `activateAndSubmitHumanStep`'s underlying mutation.
 - No file in this area contains a `switch`/`if`/lookup-object keyed on a literal step id, and
   no file describes human interaction activation as "agent admission," or the workspace-writer
   slot as interchangeable with the admission lock or the git-finalize lease. No file releases

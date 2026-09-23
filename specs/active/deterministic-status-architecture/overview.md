@@ -675,6 +675,39 @@ waiting.**
     adding a second lock; a crash in that narrow window is recovered by matching a live claim
     back to its own request by identity.
 
+**Corrective pass 17 (2026-09-23, D79–D86, corrections to D56/D71/D62/D77/D78): making the
+workspace protocol genuinely race-safe and identity-safe.**
+
+1. **A dead pid on a request-backed claim (`human-submit`/`publish`/`batch-publish`) was still
+   grounds for unconditional deletion (D79, corrects D56).** These kinds are now backed by
+   durable requests/operations — a dead process may have already mutated tracked state.
+   Corrected: a dead pid triggers durable request/operation reconciliation, never a bare
+   delete.
+2. **D70's ownerId comparison was still a separate read then a later conditional write — a
+   TOCTOU race (D80).** Corrected: a new, short-lived, cross-process workspace-control lock
+   makes every workspace-writer record inspection-and-mutation one atomic critical section,
+   never held while waiting for the workspace itself.
+3. **`requestSequence` allocation ("scan for max, +1") was unlocked, and requests are created
+   before workspace ownership is contended for — two concurrent requests could collide on the
+   same value (D81).** Corrected: allocation happens under the same workspace-control lock.
+4. **A crash-window claim was matched to its request by `kind`/`specId`/`taskId` — not unique
+   when two requests share that triple (D82, corrects D78).** Corrected: the claim itself
+   carries the exact `requestId`; reconciliation matches on that field alone.
+5. **"Idempotent" transitions didn't prevent a stale-viewing processor from re-executing an
+   already-completed request — workspace exclusivity proves only who holds it *now*, not
+   whether a request has already run (D83, corrects D77).** Corrected: compare-and-set
+   transitions with explicit `expectedStatus` preconditions.
+6. **No documented ordering existed for the new control lock (D84).** Corrected: admission
+   mutex → control lock (brief) → ... , with the control lock always innermost and briefest —
+   proven cycle-free.
+7. **A `cli-manual` claim's `workspaceOwnerId` lived in `start-operation.mjs`, which only
+   exists for `consumesDependencies` steps — leaving any other direct CLI step with nowhere
+   durable to store it (D85, corrects D71).** Corrected: a new, dependency-consumption-
+   independent record.
+8. **CLI reuse of a live `agent` claim was decided from spec/task equality alone — satisfiable
+   by an unrelated manual invocation (D86, corrects D62).** Corrected: reuse requires the CLI's
+   own trusted ambient execution identity (`readAgentExecutionContext`'s `sessionId`) to match.
+
 ## Current architecture
 
 Grounded in repository discovery (2026-09-17, deepened 2026-09-19 by reading the actual
@@ -1035,15 +1068,24 @@ engine source directly):
   (D61), gaining a `cli-manual` kind so raw `workflow step start`/`finish` CLI invocations
   participate identically (D62), and gaining an ownership-conditional release/mark-recovery-
   required API (`releaseWorkspaceWriterIfOwned`/`markWorkspaceWriterRecoveryRequiredIfOwned`,
-  D70) — the old unconditional functions renamed and no longer exported for ordinary use**;
-  `tools/specs/workflow/execution-settlement.mjs` (new — the reusable, session/liveness-agnostic
-  settlement check every reconciliation path calls before releasing an `agent`/`cli-manual`
-  claim, D60); `tools/specs/workflow/workspace-request.mjs` (new — a durable,
-  physical-worktree-scoped queue of pending user-submitted workspace mutations, coordinating
-  but never duplicating Publish's/human-submit's own durable operation records, and now the
-  authoritative source for D57's dispatch priority and D67's request-level status, D72/D74/
-  D75/D76/D77/D78); `tools/specs/workflow/human-step/submit-request.mjs` (new — the minimal
-  durable human-submit operation record D73 introduces, mirroring Publish's own D29 record);
+  D70), a dead pid on a request-backed claim now triggering reconciliation instead of an
+  unconditional delete (D79), and every record mutation now wrapped in the new
+  `workspace-control-lock.mjs` (D80) so compare-then-mutate is one atomic unit — the old
+  unconditional functions renamed and no longer exported for ordinary use**;
+  `tools/specs/workflow/workspace-control-lock.mjs` (new — a short-lived, cross-process lock
+  purpose-distinct from the workspace-writer claim, the git-finalize lease, and the admission
+  mutex, D80); `tools/specs/workflow/execution-settlement.mjs` (new — the reusable,
+  session/liveness-agnostic settlement check every reconciliation path calls before releasing
+  an `agent`/`cli-manual` claim, D60); `tools/specs/workflow/cli-workspace-execution.mjs` (new —
+  the dependency-consumption-independent durable home for a `cli-manual` claim's
+  `workspaceOwnerId`, working for any step regardless of `consumesDependencies`, D85);
+  `tools/specs/workflow/workspace-request.mjs` (new — a durable, physical-worktree-scoped queue
+  of pending user-submitted workspace mutations, coordinating but never duplicating Publish's/
+  human-submit's own durable operation records, now the authoritative source for D57's dispatch
+  priority and D67's request-level status, with atomic `requestSequence` allocation and
+  compare-and-set `transitionWorkspaceRequest` transitions, D72/D74/D75/D76/D77/D78/D81/D83);
+  `tools/specs/workflow/human-step/submit-request.mjs` (new — the minimal durable human-submit
+  operation record D73 introduces, mirroring Publish's own D29 record);
   `tools/specs/workflow/suspension-projection.mjs` (new —
   `SuspensionProjection`, kept separate from the unmodified, pure `task-projection.mjs`, D44);
   `tools/specs/workflow/readiness-policy.mjs` (existing, verified file — gains an explicit
@@ -1332,7 +1374,8 @@ primitive may remain internally, clearly marked unsafe, never called by ordinary
 code). D71 (`workspaceOwnerId` is persisted onto the execution's own durable record — the same
 session/turn record for `agent` kind, the same start-operation record for `cli-manual` kind —
 never held only in an in-memory closure, so restart reconciliation can recover the exact claim
-it must act on; unestablished identity fails closed). D72 (a durable,
+it must act on; unestablished identity fails closed — **the `cli-manual` durable home itself
+corrected by pass 17's D85**). D72 (a durable,
 physical-worktree-scoped workspace-request queue — not an in-process pending-waiter list — is
 the authoritative record of a pending user-submitted workspace mutation, persisted before
 contention begins). D73 (human-submit becomes a durable request, persisted with enough data to
@@ -1344,9 +1387,34 @@ reconciliation classifies every non-terminal durable workspace request — resum
 landed). D76 (a workspace request coordinates waiting/scheduling only; it never duplicates
 Publish's or human-submit's own durable operation — `operationRef` names the real operation's
 identity). D77 (one generic workspace-request lifecycle, idempotent transitions, storing its
-own acquired `workspaceOwnerId`). D78 (race-safe workspace-request acquisition — reusing the
+own acquired `workspaceOwnerId` — **the "idempotent" framing itself corrected by pass 17's
+D83's compare-and-set semantics**). D78 (race-safe workspace-request acquisition — reusing the
 workspace-writer slot's own atomicity, with a defined recovery rule for the narrow crash window
-between acquiring the claim and persisting that fact into the request record).
+between acquiring the claim and persisting that fact into the request record — **the
+identity-matching rule itself corrected by pass 17's D82**).
+
+**Corrective pass 17 decisions (2026-09-23):** D79 (a dead pid on a request-backed workspace-
+writer claim never releases it by itself — it only triggers durable request/operation
+reconciliation, reusing D75's own resume/no-op/`reconciliation-required` discipline). D80 (a
+new, short-lived, cross-process workspace-control lock makes every workspace-writer record
+inspection-and-mutation one atomic critical section — a distinct primitive from the
+workspace-writer claim, the git-finalize lease, and the admission mutex, never held while
+waiting for the workspace itself). D81 (`requestSequence` allocation happens under the
+workspace-control lock, never an unlocked scan-max-plus-one). D82 (a request-backed
+workspace-writer claim carries the exact `requestId` it belongs to; reconciliation matches on
+that field alone, never `kind`/`specId`/`taskId`, which can collide across distinct requests).
+D83 (workspace-request execution is idempotent under multiple processors via compare-and-set
+`transitionWorkspaceRequest` calls with explicit `expectedStatus` preconditions — workspace
+exclusivity alone does not prove a request has only one executor over its lifetime). D84 (one
+documented, cycle-free lock ordering across the admission mutex, the workspace-control lock,
+the workspace-writer claim, and the git-finalize lease — the control lock always innermost and
+briefest). D85 (a `cli-manual` claim's durable `workspaceOwnerId` home is a new, small,
+dependency-consumption-independent record — never `start-operation.mjs`, which exists only for
+`consumesDependencies` steps and would leave any other direct CLI step with no durable home at
+all). D86 (CLI reuse of a live `agent`-kind claim requires the CLI process's own trusted
+ambient execution identity — `readAgentExecutionContext`'s resolved `sessionId`, never a CLI
+argument — to match the claim's own recorded `sessionId`; spec/task equality alone is never
+sufficient).
 
 ## Proposed architecture
 

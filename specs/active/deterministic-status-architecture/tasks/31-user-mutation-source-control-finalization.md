@@ -22,7 +22,7 @@ forbidden_paths:
   - src/**
 depends_on: [ dependency-release-and-invalidation ]
 semantic_references:
-  decisions: [D29, D30, D47, D50, D51, D55, D56, D64, D65, D67, D68, D70, D72, D76, D77]
+  decisions: [D29, D30, D47, D50, D51, D55, D56, D64, D65, D67, D68, D70, D72, D76, D77, D79, D81, D82, D83]
 ---
 
 # Task: User-mutation source-control finalization (corrected — durable operation, atomic batch, workspace-writer-aware)
@@ -78,50 +78,60 @@ taxonomy (D30) in `docs/development/agent-workflow-protocol.md`'s existing secti
   result exactly as `finish-operation.mjs`'s own `planFinish` does — reconcile an ambiguous
   `running` stage against real repository/task state (resume, no-op, or fail closed with
   `reconciliation-required`), never guess.
-- **Create the durable workspace-request before any contention begins (D72/D76).** Inside
-  `publishTask()`, before calling `acquireWorkspaceWriter` at all, create a workspace-request
-  record (`workspace-request.mjs`, task 27 — import only; `kind: 'publish'`) with
-  `operationRef` naming the Publish operation's own identity
-  (`operationFilePath(repoRoot, change, task, 'publish', attempt)` convention) — `status:
-  'queued'`. The equivalent `kind: 'batch-publish'` request is created in `handleBatchPublish`
-  before its own first `acquireWorkspaceWriter` call.
-- **Claim the workspace-writer slot first, inside `publishTask()` itself, held through the
-  whole operation including `push`, then the git-finalize lease nested inside it for the
-  mutate-then-commit instant specifically (D47/D50/D55/D64/D68).** Inside `publishTask()`
-  (`publish/operation.mjs`) — never only in a caller — call
-  `acquireWorkspaceWriter({kind: 'publish'})` — imported from `tools/specs/workflow/
-  workspace-writer.mjs`, task 27, import only, do not edit that file — waiting if an agent
-  execution or another writer (for this spec or any other sharing the same physical worktree,
-  D65) currently holds the slot, transitioning the workspace-request to
-  `waiting-for-workspace` while it does. If the existing claim's `status` is
-  `recovery-required`, transition the request to `blocked-by-recovery` (D67) rather than
-  waiting silently forever. Once acquired: transition the request to `running`, storing the
-  acquired `workspaceOwnerId` into its own record (D77) — before any tracked mutation begins.
-  Then call `withGitFinalizeLock(fn)` — with **no** `existingLease` argument, since Publish has
-  no inner call into `finishStep`/`activateAndSubmitHumanStep`; it acquires its own fresh
-  lease, runs its own mutate-then-commit sequence (from `setTaskStatus` through the commit
-  call) inside `fn`, and releases automatically — `push` and marking the durable operation
-  record `completed` run **after** the lease releases, still inside the workspace-writer
-  claim. **Release the workspace-writer claim only once `push` completes and the durable
-  operation record reaches its own terminal state (success or failure)** — via
-  `releaseWorkspaceWriterIfOwned` using the `workspaceOwnerId` this operation itself stored
-  (D70), never an unconditional release. Mark the paired workspace-request `completed`/`failed`
-  to match. For Batch Publish, the equivalent `acquireWorkspaceWriter({kind:
-  'batch-publish'})` call lives in `handleBatchPublish` (`routes.mjs`) around the whole batch
-  sequence, held through its own `push` identically — since Batch Publish has no CLI
-  equivalent and its atomic multi-task record already lives at that layer — never duplicated
-  inside the per-task `publishTask()` calls it reuses for prevalidation.
+- **Create the durable workspace-request before any contention begins, with atomically-allocated
+  `requestSequence` (D72/D76/D81).** Inside `publishTask()`, before calling
+  `acquireWorkspaceWriter` at all, create a workspace-request record (`workspace-request.mjs`,
+  task 27 — import only; `kind: 'publish'`) with `operationRef` naming the Publish operation's
+  own identity (`operationFilePath(repoRoot, change, task, 'publish', attempt)` convention) —
+  `status: 'queued'`. `requestSequence` is allocated by `createWorkspaceRequest` itself, under
+  the workspace-control lock — this task never scans/allocates it directly. The equivalent
+  `kind: 'batch-publish'` request is created in `handleBatchPublish` before its own first
+  `acquireWorkspaceWriter` call.
+- **Claim the workspace-writer slot first, embedding this request's own `requestId`, inside
+  `publishTask()` itself, held through the whole operation including `push`, then the
+  git-finalize lease nested inside it for the mutate-then-commit instant specifically
+  (D47/D50/D55/D64/D68/D82).** Inside `publishTask()` (`publish/operation.mjs`) — never only in
+  a caller — call `acquireWorkspaceWriter({kind: 'publish', requestId, operationRef, specId,
+  taskId})` — imported from `tools/specs/workflow/workspace-writer.mjs`, task 27, import only,
+  do not edit that file — waiting if an agent execution or another writer (for this spec or any
+  other sharing the same physical worktree, D65) currently holds the slot, transitioning the
+  workspace-request to `waiting-for-workspace` while it does. If the existing claim's `status`
+  is `recovery-required`, transition the request to `blocked-by-recovery` (D67) rather than
+  waiting silently forever. **If the existing claim is request-backed with a dead pid, run the
+  D79 reconciliation sequence (this task owns steps 1–4 for `publish`/`batch-publish` claims,
+  since it has the real Publish operation-record readers) before deciding whether the slot is
+  actually free — never delete it merely because the pid is dead.**
+  Once acquired: **re-read this request's own authoritative durable state and attempt
+  `transitionWorkspaceRequest({requestId, expectedStatus: ['queued', 'waiting-for-workspace'],
+  to: 'running', workspaceOwnerId})` (D83)** — a failed CAS (another processor already
+  transitioned this exact request, e.g. two concurrent `publishTask()` invocations for the same
+  request) means: release the just-acquired claim (ownership-conditionally) and do **not**
+  mutate/commit/push; only a successful CAS proceeds, before any tracked mutation begins. Then
+  call `withGitFinalizeLock(fn)` — with **no** `existingLease` argument, since Publish has no
+  inner call into `finishStep`/`activateAndSubmitHumanStep`; it acquires its own fresh lease,
+  runs its own mutate-then-commit sequence (from `setTaskStatus` through the commit call) inside
+  `fn`, and releases automatically — `push` and marking the durable operation record `completed`
+  run **after** the lease releases, still inside the workspace-writer claim. **Release the
+  workspace-writer claim only once `push` completes and the durable operation record reaches
+  its own terminal state (success or failure)** — via `releaseWorkspaceWriterIfOwned` using the
+  `workspaceOwnerId` this operation itself stored (D70), never an unconditional release. Mark
+  the paired workspace-request `completed`/`failed` to match. For Batch Publish, the equivalent
+  `acquireWorkspaceWriter({kind: 'batch-publish', requestId, ...})` call, its own CAS to
+  `running`, and its own dead-pid reconciliation all live in `handleBatchPublish` (`routes.mjs`)
+  around the whole batch sequence, held through its own `push` identically — since Batch
+  Publish has no CLI equivalent and its atomic multi-task record already lives at that layer —
+  never duplicated inside the per-task `publishTask()` calls it reuses for prevalidation.
   `acquireWorkspaceWriter`'s own internal bounded retry timeout is never surfaced directly as
   a Publish failure (D67) — retry transparently across it while the request's own reported
   status stays `waiting-for-workspace`.
 - **Restart reconciliation reuses D75's discipline, never re-executes speculatively.** A
   workspace-request found `running` after a restart is checked against its own `operationRef`'s
-  real durable-operation state and the live workspace-writer claim's identity (via
-  `workspaceOwnerId`) before being classified `completed` (if the operation genuinely finished),
-  `reconciliation-required` (ambiguous), or resumed — never blindly re-published. A crash
-  simulated between acquiring the claim and persisting `{status: 'running',
-  workspaceOwnerId}` into the request is recovered the same way (D78) — the next reconciliation
-  pass matches the live claim to the request by identity and adopts its `ownerId`.
+  real durable-operation state and the live workspace-writer claim's own `requestId` (D82,
+  never `kind`/`specId`/`taskId`) before being classified `completed` (if the operation
+  genuinely finished), `reconciliation-required` (ambiguous), or resumed — never blindly
+  re-published. A crash simulated between acquiring the claim and completing the CAS to
+  `running` is recovered the same way (D78/D82) — the next reconciliation pass matches the
+  live claim to the request by exact `requestId` and adopts its `ownerId`.
 - **Batch Publish, atomic, real path convention (corrected, pass 11).** Extend
   `handleBatchPublish` (`routes.mjs`): prevalidate every selected task first (reuse
   `publishTask()`'s own validation logic without its mutation/commit stages); only if all
@@ -209,10 +219,25 @@ taxonomy (D30) in `docs/development/agent-workflow-protocol.md`'s existing secti
   with Publish's own durable operation record, for both the success and the
   `reconciliation-required` paths.
   `automated: node --test tools/tests/workflow-task-publish.test.mjs`
-- **Race-safe promotion (D78):** a crash simulated between acquiring the workspace-writer
-  claim and persisting `{status: 'running', workspaceOwnerId}` into the request is recovered
-  by the next reconciliation pass, which adopts the live claim's own `ownerId` into the
-  request record before proceeding.
+- **Race-safe promotion (D78/D82):** a crash simulated between acquiring the workspace-writer
+  claim and completing the CAS to `running` is recovered by the next reconciliation pass, which
+  matches the live claim to the exact request by `requestId` — never `kind`/`specId`/`taskId`
+  — and adopts its own `ownerId` into the request record before proceeding.
+  `automated: node --test tools/tests/workflow-task-publish.test.mjs`
+- **Dead pid on a Publish/Batch Publish claim never triggers a bare delete (D79):** a claim
+  whose recorded pid is confirmed dead but whose commit genuinely landed (per the durable
+  operation record) is released and the request marked `completed`; the identical claim with
+  an ambiguous/partial commit state is instead marked `reconciliation-required`/
+  `recovery-required` — never deleted merely because the pid is dead.
+  `automated: node --test tools/tests/workflow-task-publish.test.mjs`
+- **Atomic `requestSequence` under concurrent creation (D81):** two workspace requests created
+  back-to-back from independent callers (e.g. a concurrent Approve and Publish, or two
+  concurrent Publish attempts) receive distinct, non-colliding `requestSequence` values.
+  `automated: node --test tools/tests/workflow-task-publish.test.mjs`
+- **CAS prevents double-publish (D83):** a second processor holding a stale pre-completion view
+  of an already-completed Publish request fails its own `transitionWorkspaceRequest` CAS to
+  `running` against the request's actual `completed` state, releases the workspace-writer claim
+  it just acquired, and does not run `publishTask()`'s own mutate/commit/push sequence again.
   `automated: node --test tools/tests/workflow-task-publish.test.mjs`
 
 ## Verification
@@ -227,12 +252,14 @@ node tools/specs.mjs validate
 
 Redesigning `commit-and-push` itself. Any change whatsoever to `finish-operation.mjs`/
 `operation-record.mjs`/`git-finalize-lock.mjs`/`workspace-writer.mjs`/`workspace-request.mjs`/
-`execution-settlement.mjs` — this task only calls their existing, genuinely-exported
-functions, never edits them. Deciding dispatch priority between a pending Publish and the next
-automatic agent item, worktree-wide or otherwise (owned by task 29, D57/D74). The
-workspace-writer record's own physical-worktree keying and the ownership-conditional API's own
-mechanics (D65/D70 — this task only calls `acquireWorkspaceWriter`/
-`releaseWorkspaceWriterIfOwned`, already correctly implemented by task 27). Resolving a
+`execution-settlement.mjs`/`workspace-control-lock.mjs` — this task only calls their existing,
+genuinely-exported functions, never edits them. Deciding dispatch priority between a pending
+Publish and the next automatic agent item, worktree-wide or otherwise (owned by task 29,
+D57/D74). The workspace-writer record's own physical-worktree keying, the ownership-conditional
+API's own mechanics, `requestSequence`'s own atomic-allocation implementation, and
+`transitionWorkspaceRequest`'s own CAS mechanics (D65/D70/D80/D81/D83 — this task only calls
+`acquireWorkspaceWriter`/`releaseWorkspaceWriterIfOwned`/`createWorkspaceRequest`/
+`transitionWorkspaceRequest`, already correctly implemented by task 27). Resolving a
 `recovery-required` claim or a `reconciliation-required` request once marked (D61/D75 — a
 future task's own scope; this task only reports `blocked-by-recovery`/creates and transitions
 its own request, D67/D72). Retroactively re-classifying every other existing dashboard action

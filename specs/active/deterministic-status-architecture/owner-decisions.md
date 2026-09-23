@@ -2537,6 +2537,16 @@ points are asserted to route through the identical `startStep` function instance
   `areas/workflow-continuation-and-session-handover.md`,
   `tasks/27-dependency-release-and-invalidation.md`,
   `tasks/29-automatic-workflow-continuation.md`.
+- **Corrected 2026-09-22 (later pass) — see D79.** "`kind !== 'agent'` ... is cleared
+  unconditionally" on a dead-pid match is unsafe once `human-submit`/`publish`/`batch-publish`
+  claims are backed by a durable workspace request (D72) and durable operation record (D29/D73):
+  a dead process may have already begun a tracked mutation, and unconditionally deleting its
+  claim on pid-mismatch alone hands the worktree to a new writer while that mutation's real
+  state (committed? partially committed? never started?) is unknown. Corrected: a dead-pid
+  match for a request-backed kind triggers durable request/operation reconciliation (D79),
+  never an unconditional clear. PID-mismatch-alone clearing remains valid only for a kind with
+  no durable request/operation behind it (none currently exists in this design — every
+  non-agent, non-`cli-manual` kind is now request-backed, D72).
 
 ## D57: Explicit, already-pending user-submitted workspace mutations are serviced before the next automatically-dispatched agent item
 
@@ -2799,6 +2809,15 @@ points are asserted to route through the identical `startStep` function instance
   tracked mutation actually landed. The release condition is corrected to "call
   `assessExecutionSettlement` after `finishStep` settles, whatever its outcome, and release
   only if it reports settled" — never a bare "the call returned without throwing."
+- **Corrected 2026-09-22 (later pass) — see D86.** Step 1's "an existing claim already covers
+  this exact spec/task/attempt" is an insufficient reuse check: spec/task/attempt equality can
+  be satisfied by a completely unrelated human/manual terminal invocation targeting the same
+  spec/task a live dashboard agent happens to be executing — this would incorrectly let that
+  manual invocation ride along on the agent's own claim instead of correctly blocking behind
+  it. Corrected: reuse requires the CLI process's own trusted ambient execution identity
+  (`readAgentExecutionContext`'s resolved `sessionId` — never a CLI argument) to match the live
+  claim's own recorded `sessionId` exactly (D86); spec/task/attempt equality alone is never
+  sufficient.
 
 ## D63: `workflow verify-human`'s CLI human-decision path delegates to the same combined `activateAndSubmitHumanStep` operation the dashboard uses
 
@@ -3157,6 +3176,15 @@ points are asserted to route through the identical `startStep` function instance
 - **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
   `areas/dependency-release-and-invalidation.md`, `tasks/27-dependency-release-and-invalidation.md`,
   `tasks/29-automatic-workflow-continuation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+- **Corrected 2026-09-22 (later pass) — see D85.** The `cli-manual` clause is wrong:
+  `start-operation.mjs` records exist only for steps declaring `consumesDependencies: true`
+  (D53) — a direct CLI invocation of an arbitrary step (`review`, a custom agent step, anything
+  not declaring that field) would have no such record to write `workspaceOwnerId` into at all.
+  Corrected: a new, small, dependency-consumption-independent durable record
+  (`cli-workspace-execution.mjs`) is the durable home for a `cli-manual` claim's
+  `workspaceOwnerId`, created for *every* `cli-manual` acquisition regardless of the step's own
+  `consumesDependencies` declaration. The `agent`-kind clause (the session/turn record) is
+  unaffected and remains correct as originally decided.
 
 ## D72: A durable, physical-worktree-scoped workspace-request queue — not an in-process pending-waiter list — is the authoritative record of a pending user-submitted workspace mutation
 
@@ -3342,6 +3370,14 @@ points are asserted to route through the identical `startStep` function instance
 - **Date:** 2026-09-22
 - **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
   `tasks/27-dependency-release-and-invalidation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+- **Corrected 2026-09-22 (later pass) — see D83.** "Idempotent" alone does not prevent two
+  *different* processors from each independently deciding to run the same request: workspace
+  exclusivity proves only that one holder has the physical worktree at a time, not that a
+  *given request* has never already been executed by an earlier, now-finished holder.
+  Corrected: `transitionWorkspaceRequest` gains explicit compare-and-set semantics —
+  `expectedStatus` preconditions, a distinct state-conflict result on mismatch — and every
+  processor re-reads and CAS-transitions the request's own authoritative state immediately
+  after acquiring the workspace, before ever executing the underlying operation (D83).
 
 ## D78: Race-safe workspace-request acquisition — atomic claim/update discipline, safe against a crash between acquiring the workspace and persisting that fact
 
@@ -3375,3 +3411,303 @@ points are asserted to route through the identical `startStep` function instance
 - **Date:** 2026-09-22
 - **Affected artifacts:** `tasks/27-dependency-release-and-invalidation.md`,
   `tasks/29-automatic-workflow-continuation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D79: A dead PID never releases a request-backed workspace-writer claim by itself — it only triggers durable request/operation reconciliation
+
+- **Question:** D56's `kind !== 'agent'` rule clears a claim unconditionally the moment its
+  recorded `pid` doesn't match the current process. That was safe when those claims were
+  short, synchronous, in-process operations with nothing durable behind them. It is unsafe now
+  that `human-submit`/`publish`/`batch-publish` claims are backed by a durable workspace
+  request (D72) and a durable operation record (D29/D73): a Publish request can reach
+  `running`, mutate tracked state, and have its process die before the commit lands — a new
+  acquirer seeing only "pid is dead" and deleting the claim would start writing onto an
+  ambiguous, possibly-dirty worktree, completely bypassing the durable-request reconciliation
+  model these kinds now have.
+- **Decision:** PID liveness establishes only "the owning process is no longer alive" — never
+  "the workspace is safe to release." For any claim whose `kind` is backed by a durable
+  workspace request (`human-submit`/`publish`/`batch-publish`, and any future request-backed
+  kind), a dead-pid finding triggers the following reconciliation instead of a delete:
+  1. Read `claim.requestId` (D82). If absent or the referenced workspace-request record cannot
+     be loaded — **fail closed: do not release, do not mark anything.** (A request-backed claim
+     with no resolvable request is exactly the ambiguity this pass exists to never guess
+     through.)
+  2. Load the workspace-request record and its own `operationRef` (D76); load the referenced
+     durable operation record (Publish's D29 record, or the human-submit D73 record).
+  3. If the operation's own durable state shows it genuinely reached a terminal, settled
+     outcome (matching the same "resume, no-op, or fail closed — never guess" discipline D29/
+     D75 already apply) → the request is `completed`/`failed` to match, and the claim is
+     released **via the ownership-conditional API** (`releaseWorkspaceWriterIfOwned`, D70),
+     using the requestId-matched `ownerId` — never a bare pid-triggered delete.
+  4. If the operation's own state is ambiguous (partially landed, unclear) → the workspace
+     request is marked `reconciliation-required` and the claim is **retained**, marked
+     `recovery-required` if genuinely orphaned (via `markWorkspaceWriterRecoveryRequiredIfOwned`)
+     — never deleted speculatively.
+  This entire sequence is exactly D75's own restart-reconciliation discipline, invoked here
+  from the dead-pid trigger instead of (or in addition to) a boot pass — the two triggers
+  (boot scan, and a caller discovering a dead pid mid-acquisition) converge on the identical
+  reconciliation logic. If any future workspace-writer kind is ever introduced with **no**
+  durable request/operation behind it, PID-mismatch-alone clearing remains valid for that kind
+  specifically and must be documented as such at the point it's introduced — it is not the
+  default for any kind going forward.
+- **Rationale:** Matches the brief precisely — the entire point of making Publish/human-submit
+  durable (D29/D72/D73) is defeated if a dead process can still cause an unconditional delete
+  that ignores every bit of that durability; PID is a liveness signal, never a safety proof.
+- **Consequences:** `workspace-writer.mjs`'s own `acquireWorkspaceWriter` EEXIST-branch (task
+  27) no longer performs an unconditional pid-mismatch delete for request-backed kinds — it
+  surfaces the dead-pid finding to the caller (exactly as it already does for `agent`/
+  `cli-manual`, D56/D62), which then runs the reconciliation sequence above using
+  `workspace-request.mjs` and the relevant operation-record readers. Task 29 (human-submit) and
+  task 31 (Publish/Batch Publish) each wire this reconciliation into their own acquisition
+  call sites.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `tasks/29-automatic-workflow-continuation.md`,
+  `tasks/31-user-mutation-source-control-finalization.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D80: A short-lived, cross-process "workspace-control lock" makes every workspace-writer record mutation a single atomic critical section
+
+- **Question:** D70's ownership-conditional API still conceptually performs "read current
+  claim → compare `expectedOwnerId` → delete/update" as separate steps. That remains
+  vulnerable to a TOCTOU race: reconciler A reads the claim (currently A's own), the normal
+  owner A releases it through another path, execution B acquires the same physical-worktree
+  claim, and *then* reconciler A's own delayed delete/update — having already decided based on
+  its stale read — proceeds to mutate what is now B's claim. Comparing `ownerId` is only
+  correct if the compare and the mutation happen inside one indivisible critical section; two
+  separate file operations (a read, then later a conditional write) are not one critical
+  section no matter how careful the comparison logic is.
+- **Decision:** A new, short-lived, cross-process lock — the **workspace-control lock**
+  (`.nevo-ai-local/locks/workspace-control.lock`, sibling to `git-finalize.lock` and
+  `workspace-writer.lock`, same exclusive-create-plus-`process.kill(pid, 0)`-stale-reclaim
+  pattern `git-finalize-lock.mjs` already established) — guards every operation that inspects
+  and/or mutates the workspace-writer record as one atomic sequence: **acquire the control lock
+  → read the current record → decide (compare identity, check settlement result, whatever the
+  caller needs) → atomically create/update/delete the record → release the control lock.** This
+  is a distinct primitive from, and never conflated with:
+  - the **workspace-writer claim** itself (the resource being arbitrated — an agent turn, a
+    Publish operation, a pending request);
+  - the **git-finalize lease** (protects only the Git mutate-then-commit instant);
+  - the **agent-admission mutex** (in-process, per-spec, D41/D49).
+  The control lock is held only for the metadata read-decide-mutate step — **never** while
+  waiting for the actual workspace to free up, never while an agent turn, Publish operation, or
+  Git command runs, and never across any other long-lived primitive. Its own critical section
+  is pure local file I/O and should complete in the same order of magnitude as any other
+  lock-file operation in this design.
+- **Rationale:** Matches the brief precisely — owner comparison is only meaningful if compare
+  and mutate are one atomic unit; a dedicated, purpose-named, short-lived lock is simpler and
+  more obviously correct than trying to make the record's own file operations individually
+  race-proof through cleverness.
+- **Consequences:** `workspace-writer.mjs` (task 27) wraps `acquireWorkspaceWriter`,
+  `releaseWorkspaceWriter`, `releaseWorkspaceWriterIfOwned`,
+  `markWorkspaceWriterRecoveryRequiredIfOwned`, and any future record mutation in this lock
+  (D81 below extends it to `requestSequence` allocation too).
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `areas/workflow-continuation-and-session-handover.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D81: `requestSequence` allocation happens under the workspace-control lock — never an unlocked scan-max-plus-one
+
+- **Question:** D72's allocation ("one more than the current maximum found across existing
+  records") is only safe if nothing else can allocate concurrently. But workspace requests are
+  created *before* workspace ownership is acquired (D72's own design, intentionally, so waiting
+  is durable) — meaning two independent user actions (an Approve and a Publish, say) can both
+  read the same "current maximum" before either persists its own request, both computing the
+  identical next sequence value and colliding, breaking D74's own authoritative FIFO ordering.
+- **Decision:** `requestSequence` allocation is performed **inside the same workspace-control
+  lock (D80)** a request's own creation uses: acquire the control lock → read the durable
+  current max/next sequence → allocate `N` → persist the new request record with `requestSequence:
+  N` → release the control lock. (Whether the implementation derives the max by scanning
+  existing request records under the lock, or maintains a small durable counter file updated
+  in the same critical section, is an implementation choice — either is acceptable as long as
+  allocation and persistence happen inside one lock-held critical section, never a read outside
+  the lock followed by a write.)
+- **Rationale:** Matches the brief precisely — the collision the brief describes is exactly
+  what an unlocked "scan then plus one" produces under concurrent request creation; serializing
+  allocation through the same control lock D80 already introduces costs nothing new.
+- **Consequences:** `workspace-request.mjs`'s (task 27) request-creation function performs
+  allocation and persistence as one control-lock-protected step, never two.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D82: A request-backed workspace-writer claim carries the exact `requestId` it belongs to — reconciliation matches on `requestId`, never on `kind`/`specId`/`taskId` alone
+
+- **Question:** D78's own crash-window recovery ("adopt a live claim's `ownerId` into a
+  request whose identity fields — `specId`/`taskId`/`kind` — match") is not unique: two
+  distinct requests (e.g. two separate human-submit requests created for the same spec/task,
+  one an abandoned earlier attempt) share identical `kind`/`specId`/`taskId`. Matching on that
+  triple cannot tell them apart.
+- **Decision:** The workspace-writer record schema gains `requestId?` (and, for diagnostics,
+  `operationRef?`) for every request-backed kind: `{ownerId, kind, requestId?, operationRef?,
+  specId, taskId?, sessionId?, turnId?, pid?, status, createdAt}`. The claim is created with
+  `requestId` embedded **at acquisition time**, before the request's own record is updated to
+  `running`. All reconciliation involving a request-backed claim — D78's crash-window recovery,
+  D79's dead-pid reconciliation, D75's restart classification — matches
+  **`claim.requestId === workspaceRequest.requestId`** exclusively. `kind`/`specId`/`taskId`
+  remain useful for filtering/attribution and for the `agent`/`cli-manual` kinds (which have no
+  `requestId`, D72's own scope — unless a future pass models them through the same request
+  abstraction, out of scope here), but are never the sole match key for a request-backed claim.
+- **Rationale:** Matches the brief precisely — `requestId` is the one field guaranteed unique
+  per logical request; reusing `kind`/`specId`/`taskId` as a proxy for identity was always an
+  approximation this pass closes.
+- **Consequences:** `workspace-writer.mjs`'s record shape and `acquireWorkspaceWriter`'s
+  accepted identity fields both gain `requestId`/`operationRef` (task 27); `workspace-request.mjs`
+  passes its own `requestId` through at acquisition time; D78's own crash-window text is
+  corrected to match on `requestId`.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `tasks/29-automatic-workflow-continuation.md`,
+  `tasks/31-user-mutation-source-control-finalization.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D83: Workspace-request execution is idempotent under multiple processors via compare-and-set transitions, not "only one workspace holder at a time"
+
+- **Question:** Workspace exclusivity proves only that one holder has the physical worktree at
+  any instant — it does not prove a *given request* has never already been executed. Processor
+  A can acquire the workspace for request R, run it to completion, and release; a processor B
+  holding a stale local view of R (e.g. it observed R as `waiting-for-workspace` before A ever
+  ran) can later acquire the now-free workspace and, without re-checking R's own current
+  durable state, execute R a second time.
+- **Decision:** `transitionWorkspaceRequest` gains explicit compare-and-set semantics:
+  `transitionWorkspaceRequest({requestId, expectedStatus: [...], to, ...fields})` succeeds —
+  and applies the mutation — only if the request's *current* persisted `status` is one of
+  `expectedStatus`; otherwise it performs no mutation and returns a distinct
+  `{transitioned: false, reason: 'state-conflict', currentStatus}` result. This CAS is
+  performed under the same workspace-control lock (D80) (or an equivalent per-request critical
+  section) so the check and the mutation are one atomic unit, exactly as D80 requires for the
+  workspace-writer record itself. **Every processor that acquires the workspace-writer claim
+  for a request must, immediately after acquiring it and before executing anything, re-read the
+  request's own authoritative durable state and attempt
+  `transitionWorkspaceRequest({requestId, expectedStatus: ['queued', 'waiting-for-workspace'],
+  to: 'running', workspaceOwnerId})`:**
+  - **Transition succeeds** → proceed to execute the underlying operation.
+  - **Transition fails because the current state is already `running`, `completed`, `failed`,
+    or `reconciliation-required`** → do **not** execute the operation again; release the
+    just-acquired workspace-writer claim (this processor turns out not to be the legitimate
+    executor for this request) via the ownership-conditional API (D70), using the `ownerId`
+    this processor itself just acquired.
+- **Rationale:** Matches the brief precisely — CAS with explicit preconditions is the only way
+  to guarantee "at most one execution of this request," since workspace exclusivity alone
+  answers a different question (who holds the worktree *now*, not whether this request has
+  already run).
+- **Consequences:** `workspace-request.mjs` (task 27) implements `transitionWorkspaceRequest`
+  with these CAS semantics, superseding the earlier "idempotent" framing (D77, corrected).
+  Tasks 29/31 both perform the re-read-then-CAS step immediately after acquiring the workspace,
+  before beginning any tracked mutation.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `tasks/29-automatic-workflow-continuation.md`,
+  `tasks/31-user-mutation-source-control-finalization.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D84: Canonical lock ordering, extended to include the workspace-control lock — no cycle among admission mutex, control lock, workspace-writer claim, and git-finalize lease
+
+- **Decision:** Extending D66's own ordering with the new control lock (D80):
+  - **Agent admission:** admission mutex → **workspace-control lock (brief)** → create the
+    workspace-writer claim (with its own atomicity, inside the control lock's critical
+    section) → **release the control lock** → session/turn creation proceeds → durable
+    visibility confirmed → admission mutex released → workspace-writer claim retained
+    (uncontrolled by any lock) through the whole execution, until settled (D59).
+  - **Request-backed operation (human-submit/Publish/Batch Publish):** workspace-control lock
+    (brief, to attempt claim creation) → release control lock → **if contended, wait outside
+    any lock** → once the claim is acquired, workspace-control lock again (brief, to CAS the
+    request to `running`, D83) → release control lock → tracked mutation proceeds → git-finalize
+    lease acquired only for its own narrow mutate-then-commit instant, nested inside the
+    (lock-free) workspace-writer claim → workspace-control lock (brief, to conditionally
+    release the claim, D70) → release control lock.
+  - The admission mutex is **never** acquired by any request-backed path (unchanged, D66); the
+    workspace-control lock is acquired by **every** path that touches the workspace-writer
+    record, always released before that same path does anything else (wait, run Git, run an
+    agent, run Publish).
+  No path ever holds the workspace-control lock while also waiting on the admission mutex, the
+  workspace-writer claim's own contention, or the git-finalize lease — the control lock's own
+  critical sections are always the innermost, briefest operation in any sequence, entered and
+  exited before any longer-lived primitive is touched. This ordering therefore has no cycle:
+  a cycle would require two lock acquisitions in opposite order across two code paths, and
+  every path here acquires (at most) admission mutex → control lock → [release control lock
+  before anything else], or control lock alone → [release before anything else] — the control
+  lock is never nested inside the workspace-writer claim's own contention wait or the
+  git-finalize lease.
+- **Rationale:** Matches the brief precisely — document the ordering explicitly enough that a
+  cycle can be ruled out by inspection, not merely assumed; the "control lock is always
+  innermost and always briefly held" property is what makes this proof straightforward.
+- **Consequences:** No implementation change beyond what D80/D81/D83 already require — this
+  decision is the binding, documented ordering every present and future caller must follow.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
+  `areas/dependency-release-and-invalidation.md`, `tasks/29-automatic-workflow-continuation.md`,
+  `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D85: Generic `cli-manual` durable ownership does not depend on `consumesDependencies`-gated start-operation existence
+
+- **Question:** D71 persists a `cli-manual` claim's `workspaceOwnerId` into the task's own
+  start-operation record — but that record (`start-operation.mjs`, D52) is created only for
+  steps declaring `consumesDependencies: true` (D53). A direct/manual CLI invocation of any
+  other step (`review`, a custom agent step, anything not declaring that field) would have no
+  start-operation record to write into at all, leaving a `cli-manual` claim for such a step
+  with nowhere durable to store its owner id.
+- **Decision:** A new, small, **dependency-consumption-independent** durable record,
+  `tools/specs/workflow/cli-workspace-execution.mjs` (task 27):
+  `.nevo-ai-local/cli-workspace-executions/<change>/<task>/<step>/attempt-<n>.json` —
+  `{taskId, step, attempt, workspaceOwnerId, createdAt, status: 'active'|'completed'|'failed'}`.
+  Created for **every** `cli-manual` claim acquisition, regardless of whether the step declares
+  `consumesDependencies` — `handleWorkflowStepStart` writes it once the claim is acquired
+  (storing `workspaceOwnerId`); `handleWorkflowStepFinish` marks it `completed`/`failed` to
+  match the same settlement-gated outcome D69 already governs for the claim's own release. This
+  record participates in **nothing** dependency-consumption-related — no `consumptionSequence`,
+  no release-epoch interaction, no remediation involvement — it exists solely so
+  `workspaceOwnerId` has an always-available durable home for the `cli-manual` case, mirroring
+  what the session/turn record already provides for `agent`. (Chosen over broadening
+  `start-operation.mjs` itself into a generic per-step durability record: that would require
+  changing *when* `start-operation.mjs` is created — for every step, not only
+  `consumesDependencies` ones — which risks coupling unrelated dependency-consumption semantics
+  into steps that have nothing to do with it, exactly the outcome this decision avoids.)
+- **Rationale:** Matches the brief precisely — a small, independent record keeps
+  dependency-consumption's own durability model (D52/D53/D58, explicitly not reopened by this
+  pass) completely untouched, while still giving every `cli-manual` claim, on any step, a real
+  durable owner-id home.
+- **Consequences:** Corrects D71's `cli-manual` clause (its `agent`-kind clause — the
+  session/turn record — is unaffected). `start-operation.mjs` itself gains no new trigger
+  condition and no new field for this purpose.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D86: CLI reuse of an existing `agent`-kind workspace claim requires trusted ambient execution identity — spec/task equality alone is never sufficient
+
+- **Question:** D62 lets a CLI invocation reuse an existing `agent`-kind claim when it "covers
+  this exact spec/task." Spec/task equality alone is satisfiable by a completely unrelated
+  process — a human operator or a script running `workflow step start` by hand against the
+  same spec/task a live dashboard agent execution happens to be working on — which would then
+  incorrectly ride along on the agent's own claim instead of correctly contending against it
+  through normal `cli-manual` arbitration.
+- **Decision:** Reuse of an `agent`-kind claim requires the CLI process's own **trusted ambient
+  execution identity** — `readAgentExecutionContext(process.env, {repoRoot, specId, taskId})`
+  (`tools/dashboard/server/ai/sessions/binding-service.mjs`, the exact function
+  `autoBindAgentSession` already calls, populated only by each provider's own spawn code via
+  `NEVO_SESSION_ID`/`NEVO_AGENT_PROVIDER`/`NEVO_AGENT_PROVIDER_SESSION_ID` environment
+  variables — **never** a CLI flag/argument, which would be trivially spoofable) — to resolve a
+  `sessionId` that matches the live claim's own recorded `sessionId` **exactly**. Where a
+  current turn identity is independently resolvable from that same trusted session context,
+  `turnId` is compared too. If `readAgentExecutionContext` returns `null` (no ambient identity
+  at all — a genuine human/manual terminal invocation) or resolves a `sessionId` that does
+  **not** match the claim's own — reuse is refused; the CLI falls through to normal
+  `cli-manual` arbitration (D62), which correctly blocks behind the still-active agent claim
+  until it releases. Spec/task/attempt equality remains a **necessary** pre-check (an
+  obviously-unrelated claim is never reused regardless of session identity) but is **never
+  sufficient** on its own.
+- **Rationale:** Matches the brief precisely — this repository already has exactly the right
+  trusted-identity primitive (ambient environment variables set only by real provider spawn
+  code, already used by `autoBindAgentSession` for the identical trust question), so reusing it
+  here is the smallest correct fix; accepting a caller-supplied session id as a CLI argument
+  would reopen the same spoofing risk this primitive was built to avoid elsewhere.
+- **Consequences:** `cli.mjs`'s workspace-writer wrapper (task 27, D62) imports
+  `readAgentExecutionContext` (already imported elsewhere in the same file via
+  `autoBindAgentSession`'s own module) and applies this check before treating an existing
+  `agent`-kind claim as reusable.
+- **Date:** 2026-09-22
+- **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
+  `tasks/27-dependency-release-and-invalidation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+- **Corrected 2026-09-22 (later pass) — see D82.** "Identity fields (`specId`/`taskId`/`kind`)
+  match" is not unique — two distinct requests (e.g. two separate human-submit requests for the
+  same spec/task, one superseding an earlier abandoned one) share identical `specId`/`taskId`/
+  `kind`. Matching a live claim to a request must use the claim's own `requestId` field
+  exclusively (D82) — never inferred from `kind`/`specId`/`taskId` alone.

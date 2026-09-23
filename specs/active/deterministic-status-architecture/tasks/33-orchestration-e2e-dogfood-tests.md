@@ -16,7 +16,7 @@ forbidden_paths:
   - src/**
 depends_on: [ dashboard-orchestration-wiring, user-mutation-source-control-finalization, dependency-invalidation-remediation-review ]
 semantic_references:
-  decisions: [D33, D40, D41, D42, D44, D45, D47, D49, D50, D51, D52, D53, D55, D56, D57, D58, D59, D60, D61, D62, D63, D64, D65, D66, D67, D68, D69, D70, D71, D72, D73, D74, D75, D76, D77, D78]
+  decisions: [D33, D40, D41, D42, D44, D45, D47, D49, D50, D51, D52, D53, D55, D56, D57, D58, D59, D60, D61, D62, D63, D64, D65, D66, D67, D68, D69, D70, D71, D72, D73, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86]
 ---
 
 # Task: Orchestration end-to-end dogfood tests
@@ -42,9 +42,21 @@ after a restart (D70/D71); user-submitted workspace mutations (human-submit, Pub
 Publish) becoming **durable requests**, persisted before contention begins and surviving a
 restart, coordinating (never duplicating) their own underlying durable operation (D72/D73/D76/
 D77/D78); D57's dispatch priority reading that durable request queue for the **whole physical
-worktree**, never one spec's own view (D74); dependency-consumption recorded durably at step
-activation with a crash-safe, monotonic `consumptionSequence` giving a real total order across
-arbitrary consuming steps; and declarative release/invalidation.
+worktree**, never one spec's own view (D74); a dead pid on any request-backed claim
+(`human-submit`/`publish`/`batch-publish`) triggering durable request/operation reconciliation,
+never an unconditional delete (D79); every workspace-writer record mutation being a single
+atomic critical section under a new, short-lived workspace-control lock (D80); `requestSequence`
+allocated atomically under that same lock, never an unlocked scan-max-plus-one (D81); a
+request-backed claim carrying the exact `requestId` it belongs to, reconciled by that field
+alone, never `kind`/`specId`/`taskId` (D82); a request's own execution guarded by
+compare-and-set transitions so no processor ever executes it twice (D83); one documented,
+cycle-free lock ordering across the admission mutex, the workspace-control lock, the
+workspace-writer claim, and the git-finalize lease (D84); generic `cli-manual` ownership
+working for any step, not only `consumesDependencies` ones (D85); and CLI reuse of a live
+`agent` claim requiring trusted ambient execution identity, never spec/task equality alone
+(D86); dependency-consumption recorded durably at step activation with a crash-safe, monotonic
+`consumptionSequence` giving a real total order across arbitrary consuming steps; and
+declarative release/invalidation.
 
 ## Implementation constraints
 
@@ -60,7 +72,20 @@ arbitrary consuming steps; and declarative release/invalidation.
   the CLI handlers**, with no dashboard session/turn involved, to exercise the `cli-manual`
   workspace-writer kind (D62) — and a fixture that simulates a crashed/abandoned CLI process
   (a `cli-manual` claim left behind with no matching `finish`) to exercise settlement-based
-  reconciliation (D60/D61).
+  reconciliation (D60/D61). Include a second such fixture using a step that does **not**
+  declare `consumesDependencies: true` (e.g. `review`) to exercise generic `cli-manual`
+  ownership independent of dependency-consumption durability (D85).
+- Include a fixture that simulates the CLI running with ambient `NEVO_SESSION_ID`/
+  `NEVO_AGENT_PROVIDER` environment variables matching (and, separately, not matching) a live
+  dashboard-orchestrated agent's own session, to exercise trusted-identity `agent`-claim reuse
+  (D86) — and a fixture with no ambient identity at all (a genuine manual invocation).
+- Include a fixture that simulates a dead pid on a `human-submit`/`publish`/`batch-publish`
+  claim with each of: a genuinely-settled underlying operation, and an ambiguous one, to
+  exercise D79's reconciliation branches without ever deleting the claim outright.
+- Include a fixture that creates two or more workspace requests concurrently (simulated from
+  independent callers) to exercise atomic `requestSequence` allocation (D81) and, separately,
+  simulates two processors racing to execute the same request to exercise the CAS transition
+  (D83) and exact-`requestId` claim matching (D82).
 - Include a fixture that simulates a turn reaching terminal (failed, cancelled, and
   "completed") in each of the three relevant states — settled, terminal-unsettled-with-dirty-
   state, and terminal-with-an-unresolved-finish-operation — to exercise all branches of
@@ -270,9 +295,68 @@ arbitrary consuming steps; and declarative release/invalidation.
     user-submitted workspace request is eligible/pending anywhere in the physical worktree —
     re-asserted as the single, final gate after every other scenario above.
 
+**Ownership-conditional atomicity, request identity, and CLI trust (D79–D86):**
+58. A dead-PID Publish claim with a `running` durable request whose underlying commit has not
+    actually landed is **not** automatically reclaimed — the acquisition attempt against it
+    triggers request/operation reconciliation instead of an immediate grant.
+59. A dead-PID human-submit claim is reconciled through its paired request/operation state —
+    released only if genuinely settled, marked `reconciliation-required`/`recovery-required`
+    otherwise.
+60. A dead-PID Batch Publish claim behaves identically to scenario 58.
+61. A workspace-writer claim's conditional release cannot race with a new acquire-and-delete:
+    injecting a concurrent acquire between a reconciler's read and its own conditional mutation
+    does not let the reconciler delete the new owner's claim (the workspace-control lock
+    serializes the two).
+62. The identical race for `markWorkspaceWriterRecoveryRequiredIfOwned` — a delayed reconciler
+    cannot mark a *different*, newer owner's claim `recovery-required`.
+63. Every create/update/delete of the workspace-writer record observed during this task's own
+    fixtures happens inside the workspace-control lock's own critical section — proven by
+    instrumenting the lock's acquire/release calls and asserting they bracket every record
+    mutation with no gap.
+64. Two concurrent workspace-request creations (simulated from independent callers) receive
+    distinct `requestSequence` values — never a collision.
+65. `requestSequence` ordering remains monotonic across a simulated process restart — a request
+    created after restart never receives a value lower than or equal to one already persisted.
+66. A workspace-writer claim acquired for a request-backed kind contains that request's own
+    exact `requestId`.
+67. A crash simulated between claim acquisition and the request's own `running` persistence is
+    reconciled using the exact `requestId` — not `kind`/`specId`/`taskId` — even when a second,
+    unrelated request shares identical `kind`/`specId`/`taskId`.
+68. Two human-submit requests for the identical spec/task remain unambiguously distinguishable
+    via their own claims' `requestId`.
+69. Processor A completes request R and releases its claim; processor B, holding a stale
+    pre-completion view of R, later acquires the freed workspace but does **not** execute R
+    again — its own CAS transition to `running` fails against R's actual `completed` state.
+70. Only one of two simulated concurrent processors can successfully CAS a given request from
+    `queued`/`waiting-for-workspace` to `running`.
+71. A `transitionWorkspaceRequest` call whose `expectedStatus` no longer matches the request's
+    actual current status (`completed`, `running` by another processor, or
+    `reconciliation-required`) cannot overwrite that state — it is a no-op returning a distinct
+    state-conflict result.
+72. A direct CLI invocation of `workflow step start` for a step that does **not** declare
+    `consumesDependencies: true` still persists and recovers a `cli-manual` workspace-owner id,
+    with zero interaction with `start-operation.mjs`/`consumptionSequence`.
+73. A CLI invocation whose spec/task match a live `agent`-kind claim, but whose `process.env`
+    carries no `NEVO_SESSION_ID` (or one that does not match the claim's own recorded
+    `sessionId`), cannot reuse that claim — it falls through to normal `cli-manual` arbitration
+    and blocks behind the active agent.
+74. A CLI invocation carrying the exact trusted `NEVO_SESSION_ID` of the active dashboard agent
+    may reuse that claim without acquiring a second one.
+75. A mismatched (but present) `NEVO_SESSION_ID` cannot reuse the claim (distinct from scenario
+    73's "absent identity" case).
+76. A request-backed claim whose `requestId` cannot be resolved to any workspace-request record
+    fails closed — no release, no mutation.
+77. A request-backed claim whose `requestId` does not match the workspace-request being
+    reconciled against it fails closed identically.
+78. A directed lock-order test exercises the admission mutex, the workspace-control lock, the
+    workspace-writer claim, and the git-finalize lease across the agent-admission path, the
+    human-submit path, and the Publish path, and finds no pair of paths acquiring any two of
+    these primitives in opposite order — no cycle is constructible.
+
 All scenarios: `automated: node --test tools/tests/orchestration-e2e.test.mjs` (or
 `tools/dashboard/tests/orchestration-e2e.test.mjs` for scenarios that must exercise the
-dashboard-side dispatch/admission code — 2, 8, 20, 21, 28, 34, 35, 36, 42–57 specifically).
+dashboard-side dispatch/admission code — 2, 8, 20, 21, 28, 34, 35, 36, 42–57, 61–63, 69–71,
+73–75, 78 specifically).
 
 ## Verification
 
