@@ -23,6 +23,7 @@ import { mcpInteractionRegistry } from './interactions/mcp/index.mjs';
 import { createTrustedNetworkAiAccessPolicy } from './access-policy.mjs';
 import { aiErrorHandler } from './sessions/http.mjs';
 import { reconcileBootState } from './orchestration/reconciliation.mjs';
+import { setDefaultSessionService } from './orchestration/admission.mjs';
 
 /**
  * Builds the real production Agent session stack for one repository root.
@@ -167,6 +168,7 @@ export default async function aiRoutes(
   };
 
   const service = serviceOverride ?? createDefaultAgentSessionService({ root, mcpEndpointResolver: resolveFastifyMcpUrl });
+  setDefaultSessionService(service);
   const claudeProvider = service?.registry?.getProvider?.('claude');
   if (claudeProvider && typeof claudeProvider.configureMcpEndpoint === 'function') {
     claudeProvider.configureMcpEndpoint(resolveFastifyMcpUrl);
@@ -179,7 +181,11 @@ export default async function aiRoutes(
     if (!reconciliationPromise) {
       reconciliationPromise = Promise.all([
         Promise.resolve(service.turnRuntime?.reconcileOrphanedTurns?.()),
-        reconcileBootState({ repoRoot: root, transcriptCache: service.transcriptCache }),
+        reconcileBootState({
+          repoRoot: root,
+          transcriptCache: service.transcriptCache,
+          sessionService: service,
+        }),
       ]).catch((err) => {
         console.error(`[ai] [reconcile] boot-time turn reconciliation failed: ${err.message}`);
       });
@@ -195,7 +201,7 @@ export default async function aiRoutes(
   // from the application-wide parser registered once in app.mjs.
   fastify.setErrorHandler(aiErrorHandler);
 
-  const deps = { service, accessPolicy };
+  const deps = { service, accessPolicy, repoRoot: root };
   await fastify.register(providerRoutes, deps);
   await fastify.register(sessionRoutes, deps);
   await fastify.register(turnRoutes, deps);

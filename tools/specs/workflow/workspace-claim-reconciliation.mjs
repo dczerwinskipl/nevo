@@ -62,12 +62,15 @@ export async function reconcileRequestBackedWorkspaceClaim({ repoRoot, claimSnap
 
   // 5. Settled completed
   if (checkResult.settled && checkResult.terminalStatus === 'completed') {
-    await transitionWorkspaceRequest({
+    const casRes = await transitionWorkspaceRequest({
       repoRoot,
       requestId: claimSnapshot.requestId,
       expectedStatus,
       to: 'completed',
     });
+    if (!casRes.transitioned) {
+      return { reconciled: false, reason: 'cas-transition-failed' };
+    }
     await releaseWorkspaceWriterIfOwned({
       repoRoot,
       expectedOwnerId: claimSnapshot.ownerId,
@@ -78,12 +81,15 @@ export async function reconcileRequestBackedWorkspaceClaim({ repoRoot, claimSnap
 
   // 6. Settled failed
   if (checkResult.settled && checkResult.terminalStatus === 'failed') {
-    await transitionWorkspaceRequest({
+    const casRes = await transitionWorkspaceRequest({
       repoRoot,
       requestId: claimSnapshot.requestId,
       expectedStatus,
       to: 'failed',
     });
+    if (!casRes.transitioned) {
+      return { reconciled: false, reason: 'cas-transition-failed' };
+    }
     await releaseWorkspaceWriterIfOwned({
       repoRoot,
       expectedOwnerId: claimSnapshot.ownerId,

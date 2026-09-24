@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { WorkflowError } from './errors.mjs';
 
-function isProcessAlive(pid) {
+export function isProcessAlive(pid) {
   if (typeof pid !== 'number' || pid <= 0) return false;
   try {
     process.kill(pid, 0);
@@ -27,6 +27,17 @@ function getWorkspaceWriterLockPath(repoRoot) {
 
 function getWorkspaceControlLockPath(repoRoot) {
   return path.join(getLocksDir(repoRoot), 'workspace-control.lock');
+}
+
+function atomicWriteWorkspaceWriterClaim(repoRoot, claim) {
+  const locksDir = getLocksDir(repoRoot);
+  if (!fs.existsSync(locksDir)) {
+    fs.mkdirSync(locksDir, { recursive: true });
+  }
+  const lockFile = getWorkspaceWriterLockPath(repoRoot);
+  const tempFile = path.join(locksDir, `workspace-writer.${randomUUID()}.tmp`);
+  fs.writeFileSync(tempFile, JSON.stringify(claim, null, 2), 'utf8');
+  fs.renameSync(tempFile, lockFile);
 }
 
 /**
@@ -129,8 +140,12 @@ export function getWorkspaceWriterClaim(repoRoot) {
   try {
     if (!fs.existsSync(lockFile)) return null;
     return JSON.parse(fs.readFileSync(lockFile, 'utf8'));
-  } catch {
-    return null;
+  } catch (err) {
+    return {
+      status: 'recovery-required',
+      reason: 'corrupt-claim',
+      rawError: err.message,
+    };
   }
 }
 
@@ -198,6 +213,7 @@ export async function acquireWorkspaceWriter(params = {}) {
           ...(requestId ? { requestId } : {}),
           ...(operationRef ? { operationRef } : {}),
           specId,
+          ...(params.changeSlug ? { changeSlug: params.changeSlug } : {}),
           ...(taskId ? { taskId } : {}),
           ...(sessionId ? { sessionId } : {}),
           ...(turnId ? { turnId } : {}),
@@ -205,16 +221,20 @@ export async function acquireWorkspaceWriter(params = {}) {
           pid: process.pid,
           createdAt: new Date().toISOString(),
         };
-        fs.writeFileSync(lockFile, JSON.stringify(claim, null, 2), 'utf8');
+        atomicWriteWorkspaceWriterClaim(repoRoot, claim);
         return { phase: 'acquired', claim };
       }
 
       let current;
       try {
         current = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
-      } catch {
-        try { fs.unlinkSync(lockFile); } catch {}
-        return { phase: 'retry' };
+      } catch (err) {
+        const corruptClaim = {
+          status: 'recovery-required',
+          reason: 'corrupt-claim',
+          rawError: err.message,
+        };
+        return { phase: 'blocked', reason: 'recovery-required', currentClaim: corruptClaim };
       }
 
       if (current.status === 'recovery-required') {
@@ -329,6 +349,7 @@ export async function releaseWorkspaceWriterIfOwned(params = {}) {
     expectedRequestId,
     expectedKind,
     expectedSpecId,
+    expectedChangeSlug,
     expectedTaskId,
     expectedSessionId,
     expectedTurnId,
@@ -364,6 +385,9 @@ export async function releaseWorkspaceWriterIfOwned(params = {}) {
     if (expectedSpecId !== undefined && current.specId !== expectedSpecId) {
       return { released: false, reason: 'not-current-owner', currentClaim: current };
     }
+    if (expectedChangeSlug !== undefined && current.changeSlug !== expectedChangeSlug) {
+      return { released: false, reason: 'not-current-owner', currentClaim: current };
+    }
     if (expectedTaskId !== undefined && current.taskId !== expectedTaskId) {
       return { released: false, reason: 'not-current-owner', currentClaim: current };
     }
@@ -395,6 +419,7 @@ export async function markWorkspaceWriterRecoveryRequiredIfOwned(params = {}) {
     expectedRequestId,
     expectedKind,
     expectedSpecId,
+    expectedChangeSlug,
     expectedTaskId,
     expectedSessionId,
     expectedTurnId,
@@ -430,6 +455,9 @@ export async function markWorkspaceWriterRecoveryRequiredIfOwned(params = {}) {
     if (expectedSpecId !== undefined && current.specId !== expectedSpecId) {
       return { marked: false, reason: 'not-current-owner', currentClaim: current };
     }
+    if (expectedChangeSlug !== undefined && current.changeSlug !== expectedChangeSlug) {
+      return { marked: false, reason: 'not-current-owner', currentClaim: current };
+    }
     if (expectedTaskId !== undefined && current.taskId !== expectedTaskId) {
       return { marked: false, reason: 'not-current-owner', currentClaim: current };
     }
@@ -442,7 +470,7 @@ export async function markWorkspaceWriterRecoveryRequiredIfOwned(params = {}) {
 
     current.status = 'recovery-required';
     current.updatedAt = new Date().toISOString();
-    fs.writeFileSync(lockFile, JSON.stringify(current, null, 2), 'utf8');
+    atomicWriteWorkspaceWriterClaim(repoRoot, current);
 
     return { marked: true, currentClaim: current };
   }, { repoRoot });
@@ -458,6 +486,7 @@ export async function markWorkspaceWriterRecoveryRequiredIfOwned(params = {}) {
  * @param {string} [params.turnId]
  * @param {'prepared'|'invoking'|'started'} [params.turnStartState]
  * @param {string} [params.specId]
+ * @param {string} [params.changeSlug]
  * @param {string} [params.taskId]
  * @returns {Promise<{ updated: boolean, reason?: string, currentClaim?: object }>}
  */
@@ -465,10 +494,16 @@ export async function updateWorkspaceWriterIfOwned(params = {}) {
   const {
     repoRoot,
     expectedOwnerId,
+    expectedRequestId,
+    expectedKind,
+    expectedSpecId,
+    expectedChangeSlug,
+    expectedTaskId,
     sessionId,
     turnId,
     turnStartState,
     specId,
+    changeSlug,
     taskId,
   } = params;
 
@@ -493,6 +528,21 @@ export async function updateWorkspaceWriterIfOwned(params = {}) {
     if (current.ownerId !== expectedOwnerId) {
       return { updated: false, reason: 'not-current-owner', currentClaim: current };
     }
+    if (expectedRequestId !== undefined && current.requestId !== expectedRequestId) {
+      return { updated: false, reason: 'not-current-owner', currentClaim: current };
+    }
+    if (expectedKind !== undefined && current.kind !== expectedKind) {
+      return { updated: false, reason: 'not-current-owner', currentClaim: current };
+    }
+    if (expectedSpecId !== undefined && current.specId !== expectedSpecId) {
+      return { updated: false, reason: 'not-current-owner', currentClaim: current };
+    }
+    if (expectedChangeSlug !== undefined && current.changeSlug !== expectedChangeSlug) {
+      return { updated: false, reason: 'not-current-owner', currentClaim: current };
+    }
+    if (expectedTaskId !== undefined && current.taskId !== expectedTaskId) {
+      return { updated: false, reason: 'not-current-owner', currentClaim: current };
+    }
 
     if (turnStartState !== undefined) {
       if (current.kind !== 'agent') {
@@ -507,10 +557,11 @@ export async function updateWorkspaceWriterIfOwned(params = {}) {
     if (sessionId !== undefined) current.sessionId = sessionId;
     if (turnId !== undefined) current.turnId = turnId;
     if (specId !== undefined) current.specId = specId;
+    if (changeSlug !== undefined) current.changeSlug = changeSlug;
     if (taskId !== undefined) current.taskId = taskId;
 
     current.updatedAt = new Date().toISOString();
-    fs.writeFileSync(lockFile, JSON.stringify(current, null, 2), 'utf8');
+    atomicWriteWorkspaceWriterClaim(repoRoot, current);
 
     return { updated: true, currentClaim: current };
   }, { repoRoot });

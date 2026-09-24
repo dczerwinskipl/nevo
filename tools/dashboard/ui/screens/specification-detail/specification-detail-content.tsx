@@ -130,11 +130,12 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
   const [pendingStart, setPendingStart] = useState<{
     task: SpecificationTask;
     stepDescriptor: WorkflowStepDescriptor;
+    taskIds?: string[];
   } | null>(null);
 
   /**
-   * Submits candidate to the agent-admission gate (D41/D49, Task 29) instead of
-   * calling direct session creation for deterministic execution.
+   * Submits candidate to the agent-admission gate (Item 1, D41/D49, Task 29) instead of
+   * bypassing admission for deterministic execution.
    */
   const proceedWithAgentExecution = useCallback(
     async (
@@ -142,46 +143,34 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
       policy: { provider: string; mode?: AgentExecutionMode },
       taskIds?: string[],
     ) => {
-      const bound = sessionsQuery.sessions.find(
-        (s) => s.taskId === targetTaskId,
-      );
-
-      let sessionId = bound?.sessionId;
-      if (!sessionId) {
-        const userMessage = buildAgentStepTriggerMessage(targetTaskId);
-        const res = await fetch('/api/agent-sessions/turns', {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'x-nevo-dashboard-action': '1',
-          },
-          body: JSON.stringify({
-            provider: policy.provider,
-            mode: policy.mode,
-            specId: specification.specId,
-            taskId: targetTaskId,
-            taskIds: taskIds || [targetTaskId],
-            prompt: userMessage,
-            userMessage,
-          }),
-        });
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error?.message || err.message || `Failed to admit agent execution: ${res.status}`);
-        }
-
-        const data = await res.json();
-        sessionId = data.sessionId || data.session?.sessionId;
-      } else if (bound) {
-        const userMessage = buildAgentStepTriggerMessage(targetTaskId);
-        queueAgentSessionInitialDispatch({
-          provider: bound.provider,
-          sessionId: bound.sessionId,
+      const userMessage = buildAgentStepTriggerMessage(targetTaskId);
+      const res = await fetch('/api/agent-sessions/turns', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-nevo-dashboard-action': '1',
+        },
+        body: JSON.stringify({
+          provider: policy.provider,
+          mode: policy.mode,
+          specId: specification.specId,
+          slug: specification.slug,
+          changeSlug: specification.slug,
+          taskId: targetTaskId,
+          taskIds: taskIds && taskIds.length > 0 ? taskIds : [targetTaskId],
+          purpose: 'execution',
           prompt: userMessage,
           userMessage,
-        });
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error?.message || err.message || `Failed to admit agent execution: ${res.status}`);
       }
+
+      const data = await res.json();
+      const sessionId = data.sessionId || data.session?.sessionId;
 
       if (sessionId) {
         navigate({
@@ -194,11 +183,11 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
         });
       }
     },
-    [navigate, sessionsQuery.sessions, specification],
+    [navigate, specification],
   );
 
   const startStep = useCallback(
-    async (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor) => {
+    async (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor, taskIds?: string[]) => {
       setWorkflowError(null);
 
       if (!task || !stepDescriptor) {
@@ -211,11 +200,11 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
         try {
           const currentPolicy = executionPolicyQuery.policy;
           if (!currentPolicy) {
-            setPendingStart({ task, stepDescriptor });
+            setPendingStart({ task, stepDescriptor, taskIds });
             return;
           }
           const effective = resolvePolicyForTask(currentPolicy, targetTaskId) || currentPolicy;
-          await proceedWithAgentExecution(targetTaskId, effective);
+          await proceedWithAgentExecution(targetTaskId, effective, taskIds);
         } catch (err: any) {
           const message = err instanceof Error ? err.message : String(err);
           setWorkflowError(message);
@@ -563,7 +552,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
               });
               const target = pendingStart;
               setPendingStart(null);
-              await proceedWithAgentExecution(target.task.id, chosen);
+              await proceedWithAgentExecution(target.task.id, chosen, target.taskIds);
             } catch (err: any) {
               const message = err instanceof Error ? err.message : String(err);
               setWorkflowError(message);

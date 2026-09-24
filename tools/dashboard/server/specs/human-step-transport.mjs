@@ -124,11 +124,30 @@ export async function executeHumanStepAction({
         context,
         { result, feedback, artifacts },
       );
+
+      // Trigger automatic continuation if the step or queue enables it (Item 5 & Item 12)
+      let continuation = null;
+      try {
+        const { reconcileContinuation } = await import('../ai/orchestration/reconciliation.mjs');
+        const reloadedChange = loadChange(slug, activeDir);
+        const reloadedTask = reloadedChange?.tasks?.find((t) => t.id === taskId);
+        if (reloadedChange && reloadedTask) {
+          continuation = await reconcileContinuation(reloadedChange, reloadedTask, {
+            repoRoot: root,
+            activeDir,
+            definition,
+          });
+        }
+      } catch (contErr) {
+        console.error('[human-step-transport] continuation failed:', contErr);
+      }
+
       return {
         ok: true,
         action: 'submit',
         taskId,
         result: finishResult,
+        ...(continuation ? { continuation } : {}),
       };
     } catch (err) {
       handleDomainError(err, definition, task, result);

@@ -339,6 +339,16 @@ export default async function specsRoutes(fastify, { config = {}, actionExecutor
           .map((t) => t.id);
       }
 
+      if (taskIdsToPublish.length === 0) {
+        reply.code(200).send({
+          ok: true,
+          changeSlug: slug,
+          published: [],
+          total: 0,
+        });
+        return;
+      }
+
       // Prevalidate every selected task first (AC 198: if one fails, mutate none and commit nothing!)
       const tasksToPublish = [];
       for (const taskId of taskIdsToPublish) {

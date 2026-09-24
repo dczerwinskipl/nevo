@@ -3,6 +3,7 @@ import { test, describe, beforeEach, afterEach } from 'node:test';
 import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 
 import sessionRoutes from '../server/ai/sessions/routes.mjs';
@@ -216,7 +217,7 @@ describe('Task 26: Execution policy and mode selection (D21)', () => {
 
   test('UI structural contract: specification-detail-content gates agent start with execution policy and CreateAgentSessionDialog reuses picker', () => {
     const detailContentSrc = readFileSync(
-      join(process.cwd(), 'tools', 'dashboard', 'ui', 'screens', 'specification-detail', 'specification-detail-content.tsx'),
+      fileURLToPath(new URL('../ui/screens/specification-detail/specification-detail-content.tsx', import.meta.url)),
       'utf8',
     );
     assert.match(detailContentSrc, /useExecutionPolicy/);
@@ -225,14 +226,14 @@ describe('Task 26: Execution policy and mode selection (D21)', () => {
     assert.match(detailContentSrc, /resolvePolicyForTask/);
 
     const dialogSrc = readFileSync(
-      join(process.cwd(), 'tools', 'dashboard', 'ui', 'features', 'agent-sessions', 'create-agent-session-dialog.tsx'),
+      fileURLToPath(new URL('../ui/features/agent-sessions/create-agent-session-dialog.tsx', import.meta.url)),
       'utf8',
     );
     assert.match(dialogSrc, /export function ProviderAndModePicker/);
     assert.match(dialogSrc, /export function ExecutionPolicySelectionDialog/);
 
     const policyClientSrc = readFileSync(
-      join(process.cwd(), 'tools', 'dashboard', 'ui', 'features', 'agent-sessions', 'execution-policy.ts'),
+      fileURLToPath(new URL('../ui/features/agent-sessions/execution-policy.ts', import.meta.url)),
       'utf8',
     );
     assert.match(policyClientSrc, /export async function fetchExecutionPolicy/);

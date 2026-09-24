@@ -16,6 +16,7 @@ import {
   acquireWorkspaceWriter,
   releaseWorkspaceWriterIfOwned,
   markWorkspaceWriterRecoveryRequiredIfOwned,
+  withWorkspaceControlLock,
 } from '../workspace-writer.mjs';
 import {
   createWorkspaceRequest,
@@ -247,6 +248,9 @@ export async function activateAndSubmitHumanStep(
   const changeSlug = change._slug || change.id;
   const inFlight = repoRoot ? findInFlightOperationRecord(repoRoot, changeSlug, task.id) : null;
   const position = inFlight ? null : resolveWorkflowPosition(definition, task);
+  if (!inFlight && position?.phase === 'terminal') {
+    return await submitHumanStepResult(change, task, definition, context, inputs);
+  }
   const stepName = inFlight
     ? inFlight.step
     : (position?.phase === 'active'
@@ -281,16 +285,8 @@ export async function activateAndSubmitHumanStep(
     }
   }
 
-  // 1. Classification via exact durable key (D90, D94, D96)
-  const existingOp = loadHumanSubmitOperation({
-    repoRoot,
-    changeSlug,
-    taskId: task.id,
-    step: stepName,
-    attempt,
-  });
-
-  if (existingOp) {
+  // 1 & 2. Atomic classification and creation via exact durable key (D90, D94, D96)
+  const evaluateExistingOp = (existingOp) => {
     const isSameDecision =
       existingOp.result === inputs.result &&
       (existingOp.feedback || '') === (inputs.feedback || '');
@@ -325,21 +321,70 @@ export async function activateAndSubmitHumanStep(
         { code: 'HUMAN_DECISION_CONFLICT', step: stepName, attempt }
       );
     }
+
+    if (isSameDecision) {
+      return {
+        ok: false,
+        status: existingOp.status,
+        requestId: existingOp.requestId,
+        idempotent: true,
+      };
+    }
+    throw new WorkflowError(
+      `Cannot submit conflicting decision against existing human-submit attempt with status '${existingOp.status}'`,
+      { code: 'HUMAN_DECISION_CONFLICT', step: stepName, attempt }
+    );
+  };
+
+  const opResolution = await withWorkspaceControlLock(async () => {
+    const existing = loadHumanSubmitOperation({
+      repoRoot,
+      changeSlug,
+      taskId: task.id,
+      step: stepName,
+      attempt,
+    });
+    if (existing) {
+      return { existing };
+    }
+
+    const requestId = randomUUID();
+    try {
+      const created = createHumanSubmitOperationRecord({
+        repoRoot,
+        changeSlug,
+        taskId: task.id,
+        step: stepName,
+        attempt,
+        result: inputs.result,
+        feedback: inputs.feedback,
+        inputs,
+        requestId,
+      });
+      return { created, requestId };
+    } catch (err) {
+      if (err.code === 'OPERATION_ALREADY_EXISTS') {
+        const reloaded = loadHumanSubmitOperation({
+          repoRoot,
+          changeSlug,
+          taskId: task.id,
+          step: stepName,
+          attempt,
+        });
+        if (reloaded) {
+          return { existing: reloaded };
+        }
+      }
+      throw err;
+    }
+  }, { repoRoot });
+
+  if (opResolution.existing) {
+    return evaluateExistingOp(opResolution.existing);
   }
 
-  // 2. Persist durable operation record (status: 'pending') (D73)
-  const requestId = randomUUID();
-  const op = createHumanSubmitOperationRecord({
-    repoRoot,
-    changeSlug,
-    taskId: task.id,
-    step: stepName,
-    attempt,
-    result: inputs.result,
-    feedback: inputs.feedback,
-    inputs,
-    requestId,
-  });
+  const op = opResolution.created;
+  const requestId = opResolution.requestId;
 
   // 3. Create paired workspace-request (status: 'queued') (D91)
   const operationRef = { change: changeSlug, task: task.id, step: stepName, attempt };
@@ -359,6 +404,7 @@ export async function activateAndSubmitHumanStep(
     requestId,
     operationRef,
     specId: change.id || changeSlug,
+    changeSlug,
     taskId: task.id,
   });
 

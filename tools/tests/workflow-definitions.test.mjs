@@ -412,6 +412,12 @@ describe('Workflow definition schema extensions (Task 07, D6, D9, D16)', () => {
         value: 'fail',
         to: 'implementation',
         action: { label: 'Request changes', feedback: { required: true } },
+        continuation: 'auto',
+        invalidatesDependencyRelease: true,
+        execution: {
+          session: 'fresh',
+          role: 'refiner',
+        },
       },
     ]);
 

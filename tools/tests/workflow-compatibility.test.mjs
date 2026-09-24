@@ -275,8 +275,14 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit re
     assert.deepEqual(impl.actions, []);
     assert.equal(impl.exitGates.length, 1);
     assert.deepEqual(impl.exitGates[0], { type: 'command', action: 'test' });
-    assert.deepEqual(impl.finalize, [{ id: 'commit-and-push' }]);
-    assert.deepEqual(impl.transitions, [{ to: 'review' }]);
+    assert.deepEqual(impl.transitions, [
+      {
+        to: 'review',
+        continuation: 'auto',
+        releasesDependencies: true,
+        execution: { session: 'fresh', role: 'reviewer' },
+      },
+    ]);
 
     // 2. review step (D39)
     assert.ok(standardDef.steps.review);
@@ -286,8 +292,14 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit re
     assert.deepEqual(rev.exitGates[0], { type: 'command', action: 'test' });
     assert.deepEqual(rev.finalize, [{ id: 'commit-and-push' }]);
     assert.deepEqual(rev.transitions, [
-      { value: 'pass', to: 'human-verification' },
-      { value: 'fail', to: 'implementation' },
+      { value: 'pass', to: 'human-verification', continuation: 'auto' },
+      {
+        value: 'fail',
+        to: 'implementation',
+        continuation: 'auto',
+        invalidatesDependencyRelease: true,
+        execution: { session: 'fresh', role: 'refiner' },
+      },
     ]);
 
     // 3. human-verification step (D39)
@@ -308,6 +320,9 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit re
         value: 'fail',
         to: 'implementation',
         action: { label: 'Request changes', feedback: { required: true } },
+        continuation: 'auto',
+        invalidatesDependencyRelease: true,
+        execution: { session: 'fresh', role: 'refiner' },
       },
     ]);
   });

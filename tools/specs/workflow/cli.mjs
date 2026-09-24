@@ -41,6 +41,7 @@ import {
   acquireWorkspaceWriter,
   releaseWorkspaceWriterIfOwned,
   markWorkspaceWriterRecoveryRequiredIfOwned,
+  isProcessAlive,
 } from './workspace-writer.mjs';
 import { readAgentExecutionContext } from '../../dashboard/server/ai/sessions/binding-service.mjs';
 import {
@@ -274,41 +275,50 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
     // Workspace writer arbitration (D55, D62, D86)
     const specId = change.id || slug;
     const existingClaim = getWorkspaceWriterClaim(context.repoRoot);
-    let reusedAgentClaim = false;
+    let reusedClaim = false;
 
-    if (existingClaim && existingClaim.kind === 'agent' && existingClaim.specId === specId && (!existingClaim.taskId || existingClaim.taskId === task.id)) {
-      const ambientContext = readAgentExecutionContext(process.env, { repoRoot: context.repoRoot, specId, taskId: task.id });
-      if (ambientContext?.sessionId && existingClaim.sessionId === ambientContext.sessionId) {
-        if (!existingClaim.turnId || !ambientContext.turnId || existingClaim.turnId === ambientContext.turnId) {
-          reusedAgentClaim = true;
+    if (existingClaim && existingClaim.specId === specId && (!existingClaim.taskId || existingClaim.taskId === task.id)) {
+      if (existingClaim.kind === 'agent') {
+        const ambientContext = readAgentExecutionContext(process.env, { repoRoot: context.repoRoot, specId, taskId: task.id });
+        if (ambientContext?.sessionId && existingClaim.sessionId === ambientContext.sessionId) {
+          if (!existingClaim.turnId || !ambientContext.turnId || existingClaim.turnId === ambientContext.turnId) {
+            reusedClaim = true;
+          }
         }
+      } else if (existingClaim.kind === 'cli-manual') {
+        reusedClaim = true;
       }
     }
 
-    if (!reusedAgentClaim) {
-      if (existingClaim && (existingClaim.kind === 'agent' || existingClaim.kind === 'cli-manual')) {
-        const settlement = await assessExecutionSettlement({
-          repoRoot: context.repoRoot,
-          changeSlug: slug,
-          taskId: existingClaim.taskId || task.id,
-          activeDir: context.activeDir,
-        });
-        if (settlement.settled) {
-          await releaseWorkspaceWriterIfOwned({
+    if (!reusedClaim) {
+      if (existingClaim && existingClaim.kind === 'cli-manual') {
+        const isLiveCli = existingClaim.pid && isProcessAlive(existingClaim.pid);
+        if (!isLiveCli) {
+          const settlement = await assessExecutionSettlement({
             repoRoot: context.repoRoot,
-            expectedOwnerId: existingClaim.ownerId,
-            expectedKind: existingClaim.kind,
-            expectedSpecId: existingClaim.specId,
-            expectedTaskId: existingClaim.taskId,
+            changeSlug: slug,
+            taskId: existingClaim.taskId || task.id,
+            activeDir: context.activeDir,
           });
-        } else {
-          await markWorkspaceWriterRecoveryRequiredIfOwned({
-            repoRoot: context.repoRoot,
-            expectedOwnerId: existingClaim.ownerId,
-            expectedKind: existingClaim.kind,
-            expectedSpecId: existingClaim.specId,
-            expectedTaskId: existingClaim.taskId,
-          });
+          if (settlement.settled) {
+            await releaseWorkspaceWriterIfOwned({
+              repoRoot: context.repoRoot,
+              expectedOwnerId: existingClaim.ownerId,
+              expectedKind: existingClaim.kind,
+              expectedSpecId: existingClaim.specId,
+              expectedChangeSlug: existingClaim.changeSlug,
+              expectedTaskId: existingClaim.taskId,
+            });
+          } else {
+            await markWorkspaceWriterRecoveryRequiredIfOwned({
+              repoRoot: context.repoRoot,
+              expectedOwnerId: existingClaim.ownerId,
+              expectedKind: existingClaim.kind,
+              expectedSpecId: existingClaim.specId,
+              expectedChangeSlug: existingClaim.changeSlug,
+              expectedTaskId: existingClaim.taskId,
+            });
+          }
         }
       }
 
@@ -316,6 +326,7 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
         repoRoot: context.repoRoot,
         kind: 'cli-manual',
         specId,
+        changeSlug: slug,
         taskId: task.id,
       });
 
@@ -467,8 +478,8 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
 
   // D69: Settlement-gated release of cli-manual claim
   const slug = change._slug || changeSlug || change.id;
-  const cliExec = loadCliWorkspaceExecution(context.repoRoot, slug, task.id, stepName, attempt);
-  if (cliExec && cliExec.status === 'active') {
+  const existingClaim = getWorkspaceWriterClaim(context.repoRoot);
+  if (existingClaim && existingClaim.kind === 'cli-manual' && (!existingClaim.taskId || existingClaim.taskId === task.id)) {
     const settlement = await assessExecutionSettlement({
       repoRoot: context.repoRoot,
       changeSlug: slug,
@@ -478,12 +489,15 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
     if (settlement.settled) {
       await releaseWorkspaceWriterIfOwned({
         repoRoot: context.repoRoot,
-        expectedOwnerId: cliExec.workspaceOwnerId,
+        expectedOwnerId: existingClaim.ownerId,
         expectedKind: 'cli-manual',
-        expectedSpecId: change.id || slug,
-        expectedTaskId: task.id,
+        expectedSpecId: existingClaim.specId,
+        ...(existingClaim.changeSlug ? { expectedChangeSlug: existingClaim.changeSlug } : {}),
+        expectedTaskId: existingClaim.taskId,
       });
-      updateCliWorkspaceExecutionStatus(context.repoRoot, slug, task.id, stepName, attempt, finishError ? 'failed' : 'completed');
+      try {
+        updateCliWorkspaceExecutionStatus(context.repoRoot, slug, task.id, stepName, attempt, finishError ? 'failed' : 'completed');
+      } catch {}
     }
   }
 

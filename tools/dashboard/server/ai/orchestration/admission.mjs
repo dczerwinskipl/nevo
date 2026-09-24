@@ -3,6 +3,7 @@
 // Claims workspace-writer slot in canonical lock order, enriches with session identity and turnStartState,
 // releases only upon proven execution settlement.
 
+import { join } from 'node:path';
 import {
   acquireWorkspaceWriter,
   releaseWorkspaceWriterIfOwned,
@@ -17,6 +18,15 @@ import { WorkflowError } from '../../../../specs/workflow/errors.mjs';
 // In-process admission tracking per specId
 const activeExecutions = new Map(); // specId -> { ownerId, sessionId, turnId, taskId, candidate }
 const startLocks = new Map(); // specId -> Promise chain mutex
+let defaultSessionService = null;
+
+export function setDefaultSessionService(service) {
+  defaultSessionService = service;
+}
+
+export function getDefaultSessionService() {
+  return defaultSessionService;
+}
 
 async function acquireStartLock(specId) {
   let release;
@@ -43,6 +53,7 @@ export function getActiveAgentExecution(specId) {
 export function resetAdmissionStateForTest() {
   activeExecutions.clear();
   startLocks.clear();
+  defaultSessionService = null;
 }
 
 /**
@@ -60,16 +71,16 @@ export function resetAdmissionStateForTest() {
  * @returns {Promise<{ admitted: boolean, reason?: string, ownerId?: string, sessionId?: string, turnId?: string, claim?: object }>}
  */
 export async function admitAgentExecution(specId, candidate, options = {}) {
-  const {
-    repoRoot,
-    sessionService,
-    turnRuntime = sessionService?.turnRuntime,
-    onTurnTerminal,
-  } = options;
+  const repoRoot = options.repoRoot;
+  const sessionService = options.sessionService || defaultSessionService;
+  const turnRuntime = options.turnRuntime || sessionService?.turnRuntime;
+  const onTurnTerminal = options.onTurnTerminal;
 
   if (!specId || !candidate?.taskId) {
     throw new WorkflowError('admitAgentExecution requires specId and candidate.taskId');
   }
+
+  const changeSlug = candidate.changeSlug || options.changeSlug || specId;
 
   // 1. Acquire admission mutex for specId (D66)
   const releaseLock = await acquireStartLock(specId);
@@ -105,6 +116,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
       repoRoot,
       kind: 'agent',
       specId,
+      changeSlug,
       taskId: candidate.taskId,
     });
 
@@ -126,21 +138,36 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
     try {
       if (!canonicalSessionId) {
         if (sessionPolicy === 'reuse' && sessionService) {
-          // Resolve existing session for task/spec if available
-          const existing = await sessionService.getSession(candidate.provider || 'mock', {
-            specId,
-            taskId: candidate.taskId,
-          }).catch(() => null);
-          if (existing?.sessionId) {
-            canonicalSessionId = existing.sessionId;
+          if (typeof sessionService.listSessions === 'function') {
+            const sessions = await sessionService.listSessions({
+              specId,
+              taskId: candidate.taskId,
+              provider: candidate.provider,
+            }).catch(() => []);
+            if (Array.isArray(sessions) && sessions.length > 0) {
+              const match = sessions.find(s => s.activeTaskId === candidate.taskId || (Array.isArray(s.taskIds) && s.taskIds.includes(candidate.taskId))) || sessions[0];
+              canonicalSessionId = match.sessionId;
+            }
+          } else if (typeof sessionService.getSession === 'function') {
+            const sess = await sessionService.getSession(candidate.provider, {
+              specId,
+              taskId: candidate.taskId,
+            }).catch(() => null);
+            if (sess?.sessionId) {
+              canonicalSessionId = sess.sessionId;
+            }
           }
         }
 
         if (!canonicalSessionId && sessionService) {
-          const created = await sessionService.createSession(candidate.provider || 'mock', {
+          const resolvedProvider = candidate.provider || sessionService?.registry?.list?.()?.[0];
+          const created = await sessionService.createSession(resolvedProvider, {
             specId,
             taskId: candidate.taskId,
+            taskIds: candidate.taskIds || (candidate.taskId ? [candidate.taskId] : undefined),
             purpose: 'execution',
+            mode: candidate.mode,
+            model: candidate.model,
           });
           canonicalSessionId = created.sessionId;
         }
@@ -157,6 +184,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
         expectedOwnerId: ownerId,
         expectedKind: 'agent',
         expectedSpecId: specId,
+        expectedChangeSlug: changeSlug,
         expectedTaskId: candidate.taskId,
         sessionId: canonicalSessionId,
         turnStartState: 'prepared',
@@ -169,6 +197,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
           expectedOwnerId: ownerId,
           expectedKind: 'agent',
           expectedSpecId: specId,
+          expectedChangeSlug: changeSlug,
           expectedTaskId: candidate.taskId,
         });
         return {
@@ -183,6 +212,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
         expectedOwnerId: ownerId,
         expectedKind: 'agent',
         expectedSpecId: specId,
+        expectedChangeSlug: changeSlug,
         expectedTaskId: candidate.taskId,
       });
       throw sessionErr;
@@ -194,6 +224,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
       sessionId: canonicalSessionId,
       taskId: candidate.taskId,
       specId,
+      changeSlug,
       candidate,
       turnId: null,
       admittedAt: new Date().toISOString(),
@@ -201,20 +232,31 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
 
     activeExecutions.set(specId, executionRecord);
 
-    // 7. Invoke turn if runtime or function provided
+    // 7. Invoke turn if sessionService, runtime, or function provided
     let turnId = candidate.turnId || null;
 
-    if (turnRuntime || typeof candidate.invokeStartTurn === 'function') {
+    if (sessionService?.startTurn || turnRuntime || typeof candidate.invokeStartTurn === 'function') {
       // 8. Immediately before invoking startTurn: second enrichment, turnStartState: 'invoking' alone (D99)
-      await updateWorkspaceWriterIfOwned({
+      const enrichRes2 = await updateWorkspaceWriterIfOwned({
         repoRoot,
         expectedOwnerId: ownerId,
         expectedKind: 'agent',
         expectedSpecId: specId,
+        expectedChangeSlug: changeSlug,
         expectedTaskId: candidate.taskId,
         sessionId: canonicalSessionId,
         turnStartState: 'invoking',
       });
+
+      if (!enrichRes2.updated) {
+        // MUST succeed ownership-conditionally. If not, DO NOT start the provider! Fail closed!
+        activeExecutions.delete(specId);
+        return {
+          admitted: false,
+          reason: 'INVOKING_STATE_TRANSITION_FAILED',
+          currentClaim: enrichRes2.currentClaim,
+        };
+      }
 
       try {
         let startResult;
@@ -223,6 +265,22 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             sessionId: canonicalSessionId,
             taskId: candidate.taskId,
             stepId: candidate.stepId,
+            provider: candidate.provider,
+          });
+        } else if (sessionService?.startTurn) {
+          startResult = await sessionService.startTurn(candidate.provider, canonicalSessionId, {
+            sessionId: canonicalSessionId,
+            taskId: candidate.taskId,
+            taskIds: candidate.taskIds || (candidate.taskId ? [candidate.taskId] : undefined),
+            stepId: candidate.stepId,
+            specId,
+            purpose: 'execution',
+            message: candidate.message ?? candidate.prompt,
+            userMessage: candidate.userMessage,
+            mode: candidate.mode,
+            model: candidate.model,
+            effort: candidate.effort,
+            idempotencyKey: candidate.idempotencyKey,
           });
         } else if (turnRuntime?.startTurn) {
           startResult = await turnRuntime.startTurn({
@@ -237,16 +295,27 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
         executionRecord.turnId = turnId;
 
         // 9. Third ownership-conditional enrichment: turnId and turnStartState: 'started' in one atomic merge (D99)
-        await updateWorkspaceWriterIfOwned({
+        const enrichRes3 = await updateWorkspaceWriterIfOwned({
           repoRoot,
           expectedOwnerId: ownerId,
           expectedKind: 'agent',
           expectedSpecId: specId,
+          expectedChangeSlug: changeSlug,
           expectedTaskId: candidate.taskId,
           sessionId: canonicalSessionId,
           turnId,
           turnStartState: 'started',
         });
+
+        if (!enrichRes3.updated) {
+          // If that update fails: do not report as cleanly admitted
+          return {
+            admitted: false,
+            reason: 'STARTED_STATE_TRANSITION_FAILED',
+            turnId,
+            currentClaim: enrichRes3.currentClaim,
+          };
+        }
       } catch (startErr) {
         // If startTurn throws, leave claim at 'invoking' (or assess settlement if not started)
         throw startErr;
@@ -257,23 +326,34 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
     const capturedOwnerId = ownerId;
     const capturedSessionId = canonicalSessionId;
     const capturedTaskId = candidate.taskId;
+    const capturedChangeSlug = changeSlug;
+
+    let unsub = null;
 
     const reconcileHook1 = async (turnOutcome = {}) => {
+      if (unsub) {
+        try { unsub(); } catch {}
+        unsub = null;
+      }
+
       const turnIdResolved = executionRecord.turnId || turnOutcome.turnId || null;
 
       // Settlement check before touching claim (D59, D60)
       const settlement = await assessExecutionSettlement({
         repoRoot,
-        changeSlug: specId,
+        changeSlug: capturedChangeSlug,
         taskId: capturedTaskId,
+        activeDir: options.activeDir,
       });
 
+      let hookOutcome;
       if (settlement.settled) {
         const relRes = await releaseWorkspaceWriterIfOwned({
           repoRoot,
           expectedOwnerId: capturedOwnerId,
           expectedKind: 'agent',
           expectedSpecId: specId,
+          expectedChangeSlug: capturedChangeSlug,
           expectedTaskId: capturedTaskId,
           ...(capturedSessionId ? { expectedSessionId: capturedSessionId } : {}),
           ...(turnIdResolved ? { expectedTurnId: turnIdResolved } : {}),
@@ -282,13 +362,37 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
         if (typeof onTurnTerminal === 'function') {
           await onTurnTerminal({ specId, taskId: capturedTaskId, settled: true, released: relRes.released });
         }
-        return { settled: true, released: relRes.released };
+        hookOutcome = { settled: true, released: relRes.released };
+
+        // Automatic continuation for settled turn (Item 5 & Item 12)
+        if (repoRoot && capturedChangeSlug) {
+          try {
+            const { requireChange, requireTask } = await import('../../../../specs/store.mjs');
+            const { reconcileContinuation } = await import('./reconciliation.mjs');
+            const activeDir = options.activeDir || (repoRoot ? join(repoRoot, 'specs', 'active') : undefined);
+            const reloadedChange = requireChange(capturedChangeSlug, activeDir);
+            let reloadedTask = null;
+            try {
+              reloadedTask = requireTask(reloadedChange, capturedTaskId);
+            } catch {}
+            const contRes = await reconcileContinuation(reloadedChange, reloadedTask, {
+              repoRoot,
+              sessionService,
+              turnRuntime,
+              activeDir,
+            });
+            hookOutcome.continuation = contRes;
+          } catch (contErr) {
+            console.error('[admission] Hook 1 continuation failed:', contErr);
+          }
+        }
       } else {
         const markRes = await markWorkspaceWriterRecoveryRequiredIfOwned({
           repoRoot,
           expectedOwnerId: capturedOwnerId,
           expectedKind: 'agent',
           expectedSpecId: specId,
+          expectedChangeSlug: capturedChangeSlug,
           expectedTaskId: capturedTaskId,
           ...(capturedSessionId ? { expectedSessionId: capturedSessionId } : {}),
           ...(turnIdResolved ? { expectedTurnId: turnIdResolved } : {}),
@@ -297,11 +401,32 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
         if (typeof onTurnTerminal === 'function') {
           await onTurnTerminal({ specId, taskId: capturedTaskId, settled: false, markedRecovery: markRes.marked });
         }
-        return { settled: false, markedRecovery: markRes.marked };
+        hookOutcome = { settled: false, markedRecovery: markRes.marked };
       }
+
+      return hookOutcome;
     };
 
     executionRecord.reconcile = reconcileHook1;
+
+    // Install real per-turn terminal subscription (Hook 1, Item 5)
+    if (sessionService?.subscribeToSession && canonicalSessionId) {
+      try {
+        unsub = sessionService.subscribeToSession(canonicalSessionId, {
+          onEvent: async (event) => {
+            if (event.type === 'turn.completed' || event.type === 'turn.failed' || event.type === 'turn.cancelled') {
+              if (unsub) {
+                try { unsub(); } catch {}
+                unsub = null;
+              }
+              await reconcileHook1({ turnId: event.turnId || turnId, terminalEvent: event });
+            }
+          },
+        });
+      } catch (subErr) {
+        console.error('[admission] Failed to subscribe to session for Hook 1:', subErr);
+      }
+    }
 
     return {
       admitted: true,

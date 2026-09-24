@@ -11,6 +11,7 @@ import { requireChange, requireTask } from '../store.mjs';
 import { findInFlightOperationRecord } from './operation-record.mjs';
 import { findInFlightStartOperation } from './start-operation.mjs';
 import { resolveTaskScope, resolveWorkflowOwnedPaths } from './step-context.mjs';
+import { loadWorkflowDefinition } from './definitions/loader.mjs';
 import * as git from '../../lib/git.mjs';
 
 function matchesFilePattern(filePath, pattern) {
@@ -118,25 +119,37 @@ export async function assessExecutionSettlement({ repoRoot, changeSlug, taskId, 
     };
   }
 
-  // 4. Check dirty tracked changes in owned scope
-  const rawDirtyPaths = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
-  const dirtyPaths = expandDirtyPaths(repoRoot, rawDirtyPaths);
+  // 4. Check dirty tracked changes in owned scope (when source control is enabled)
+  let sourceControlEnabled = true;
+  if (change.workflow?.definition) {
+    try {
+      const def = loadWorkflowDefinition(change.workflow.definition, { repoRoot });
+      if (def?.sourceControl && def.sourceControl.enabled === false) {
+        sourceControlEnabled = false;
+      }
+    } catch {}
+  }
 
-  if (dirtyPaths.length > 0) {
-    const { allowedPaths } = resolveTaskScope(change, task, { repoRoot, activeDir: resolvedActiveDir });
-    const workflowOwnedPaths = resolveWorkflowOwnedPaths({ repoRoot, changeSlug, activeDir: resolvedActiveDir });
-    const ownedScope = [
-      ...(allowedPaths || []),
-      ...(workflowOwnedPaths || []),
-    ];
+  if (sourceControlEnabled) {
+    const rawDirtyPaths = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
+    const dirtyPaths = expandDirtyPaths(repoRoot, rawDirtyPaths);
 
-    const inScopeDirty = dirtyPaths.filter(p => ownedScope.some(pat => matchesFilePattern(p, pat)));
-    if (inScopeDirty.length > 0) {
-      return {
-        settled: false,
-        reason: 'dirty-in-scope-files',
-        dirtyPaths: inScopeDirty,
-      };
+    if (dirtyPaths.length > 0) {
+      const { allowedPaths } = resolveTaskScope(change, task, { repoRoot, activeDir: resolvedActiveDir });
+      const workflowOwnedPaths = resolveWorkflowOwnedPaths({ repoRoot, changeSlug, activeDir: resolvedActiveDir });
+      const ownedScope = [
+        ...(allowedPaths || []),
+        ...(workflowOwnedPaths || []),
+      ];
+
+      const inScopeDirty = dirtyPaths.filter(p => ownedScope.some(pat => matchesFilePattern(p, pat)));
+      if (inScopeDirty.length > 0) {
+        return {
+          settled: false,
+          reason: 'dirty-in-scope-files',
+          dirtyPaths: inScopeDirty,
+        };
+      }
     }
   }
 

@@ -272,7 +272,7 @@ function TaskCard({
   isDeterministic?: boolean;
   onSelect?: (task: SpecificationTask, trigger: HTMLElement) => void;
   onAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
-  onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor) => void;
+  onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor, taskIds?: string[]) => void | Promise<void>;
   onPublish?: (task: SpecificationTask) => void;
 }) {
   if (isDeterministic) {
@@ -317,7 +317,7 @@ export function StatusBoard({
   onTaskAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
   onBatchAction?: (tasks: SpecificationTask[], action: SpecificationOwnerAction) => void;
   onWorkflowAction?: (task: SpecificationTask, action: string) => void;
-  onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor) => void;
+  onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor, taskIds?: string[]) => void | Promise<void>;
   onPublishTask?: (task: SpecificationTask) => void | Promise<void>;
   onBatchPublish?: (tasks: SpecificationTask[]) => void | Promise<void>;
 }) {

@@ -58,15 +58,16 @@ registerRequestKindReconciler('publish', async ({ repoRoot, operationRef }) => {
   }
 
   if (record.status === 'completed') {
-    return { settled: true, terminalStatus: 'completed' };
+    const allStagesCompleted = Array.isArray(record.operations) &&
+      record.operations.length > 0 &&
+      record.operations.every(o => o.status === 'completed');
+    if (allStagesCompleted) {
+      return { settled: true, terminalStatus: 'completed' };
+    }
+    return { settled: false, reason: 'incomplete-stages', reconciliationRequired: true };
   }
   if (record.status === 'failed') {
     return { settled: true, terminalStatus: 'failed' };
-  }
-
-  const commitStage = record.operations?.find(o => o.id === 'commit');
-  if (commitStage?.status === 'completed') {
-    return { settled: true, terminalStatus: 'completed' };
   }
 
   return { settled: false, reason: 'incomplete-stages', reconciliationRequired: true };
@@ -85,15 +86,16 @@ registerRequestKindReconciler('batch-publish', async ({ repoRoot, operationRef }
   }
 
   if (record.status === 'completed') {
-    return { settled: true, terminalStatus: 'completed' };
+    const allStagesCompleted = Array.isArray(record.operations) &&
+      record.operations.length > 0 &&
+      record.operations.every(o => o.status === 'completed');
+    if (allStagesCompleted) {
+      return { settled: true, terminalStatus: 'completed' };
+    }
+    return { settled: false, reason: 'incomplete-stages', reconciliationRequired: true };
   }
   if (record.status === 'failed') {
     return { settled: true, terminalStatus: 'failed' };
-  }
-
-  const commitStage = record.operations?.find(o => o.id === 'commit');
-  if (commitStage?.status === 'completed') {
-    return { settled: true, terminalStatus: 'completed' };
   }
 
   return { settled: false, reason: 'incomplete-stages', reconciliationRequired: true };
@@ -187,7 +189,8 @@ function createPublishRecord(changeSlug, taskId, attempt = 1) {
  * @returns {Promise<{ ok: boolean, changeSlug: string, taskId: string, status: string }>}
  */
 export function publishTask(changeSlug, taskId, options = {}) {
-  const { activeDir = ACTIVE_DIR, repoRoot = ROOT } = options;
+  const repoRoot = options.repoRoot || ROOT;
+  const activeDir = options.activeDir || (options.repoRoot ? join(options.repoRoot, 'specs', 'active') : ACTIVE_DIR);
 
   // 1. Guard: Spec resolves to deterministic
   const change = requireChange(changeSlug, activeDir);
@@ -202,8 +205,15 @@ export function publishTask(changeSlug, taskId, options = {}) {
   // 2. Task exists
   const task = requireTask(change, taskId);
 
-  // 3. Task status is draft
-  if (task.status !== 'draft') {
+  // Check in-flight operation record BEFORE failing the status check
+  let inFlight = null;
+  try {
+    inFlight = findInFlightOperationRecord(repoRoot, changeSlug, taskId);
+  } catch {}
+  const isResuming = inFlight && inFlight.step === 'publish' && inFlight.status !== 'failed' && inFlight.status !== 'completed';
+
+  // 3. Task status is draft (or resuming an in-flight publish operation)
+  if (!isResuming && task.status !== 'draft') {
     throw new CliError(
       `Task '${taskId}' in change '${changeSlug || change.id}' has status '${task.status}'. Only 'draft' tasks can be published.`
     );
@@ -247,24 +257,23 @@ export function publishTask(changeSlug, taskId, options = {}) {
     }
 
     // Step 1: Write durable operation record FIRST (D91)
-    let inFlight = null;
-    try {
-      inFlight = findInFlightOperationRecord(repoRoot, changeSlug, taskId);
-    } catch {}
-
     let record;
     let recordPath;
+    let requestId;
     if (inFlight && inFlight.step === 'publish') {
       record = inFlight;
       recordPath = operationFilePath(repoRoot, changeSlug, taskId, 'publish', record.attempt);
+      requestId = record.requestId || randomUUID();
+      record.requestId = requestId;
     } else {
       record = createPublishRecord(changeSlug, taskId, 1);
+      requestId = randomUUID();
+      record.requestId = requestId;
       recordPath = operationFilePath(repoRoot, changeSlug, taskId, 'publish', 1);
       saveOperationRecord(repoRoot, record);
     }
 
     // Step 2: Create paired workspace-request with status: 'queued' (D72, D81, D91)
-    const requestId = randomUUID();
     await createWorkspaceRequest({
       repoRoot,
       requestId,
@@ -281,6 +290,7 @@ export function publishTask(changeSlug, taskId, options = {}) {
       requestId,
       operationRef: recordPath,
       specId: change.id || changeSlug,
+      changeSlug,
       taskId,
       timeoutMs: options.timeoutMs || 15000,
     });
@@ -316,6 +326,7 @@ export function publishTask(changeSlug, taskId, options = {}) {
         requestId,
         operationRef: recordPath,
         specId: change.id || changeSlug,
+        changeSlug,
         taskId,
         timeoutMs: options.timeoutMs || 15000,
       });

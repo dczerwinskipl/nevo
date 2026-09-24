@@ -12,7 +12,7 @@ import { AiValidationError } from '../../contracts.mjs';
 const TURN_BODY_LIMIT = 128 * 1024;
 const CANCEL_BODY_LIMIT = 512;
 
-export default async function turnRoutes(fastify, { service, accessPolicy }) {
+export default async function turnRoutes(fastify, { service, accessPolicy, repoRoot }) {
   // Atomic first-turn + session creation.
   fastify.post('/api/agent-sessions/turns', { bodyLimit: TURN_BODY_LIMIT }, async (request, reply) => {
     authorize(accessPolicy, 'control', request);
@@ -27,6 +27,81 @@ export default async function turnRoutes(fastify, { service, accessPolicy }) {
     if (effort !== undefined && (typeof effort !== 'string' || !effort.trim())) {
       throw new AiValidationError('Effort must be a non-empty string when provided.');
     }
+
+    const isDeterministicExecution = body.purpose === 'execution' && body.specId && body.taskId;
+
+    if (isDeterministicExecution) {
+      // Deterministic task execution path (Item 1 & 2):
+      // UI -> server orchestration boundary -> admitAgentExecution -> workspace claim -> AgentSessionService.startTurn
+      const changeSlug = body.changeSlug || body.slug || body.specId;
+      const effectiveRepoRoot = repoRoot || service.repoRoot || process.cwd();
+
+      // If multiple taskIds provided (SequentialQueueTaskPicker batch), enqueue them (Item 12)
+      if (Array.isArray(body.taskIds) && body.taskIds.length > 0) {
+        const { enqueueTasks } = await import('../../../../../specs/workflow/queue/index.mjs');
+        enqueueTasks(effectiveRepoRoot, changeSlug, body.taskIds);
+      }
+
+      const { admitAgentExecution } = await import('../../orchestration/admission.mjs');
+
+      let sessionPolicy = body.sessionPolicy || 'fresh';
+      try {
+        if (service.executionPolicyService?.getPolicy) {
+          const policy = await service.executionPolicyService.getPolicy(changeSlug, body.taskId);
+          if (policy?.session) sessionPolicy = policy.session;
+        }
+      } catch {}
+
+      const candidate = {
+        taskId: body.taskId,
+        stepId: body.stepId,
+        provider,
+        changeSlug,
+        sessionPolicy,
+        sessionId: body.sessionId,
+        message: body.message ?? body.prompt,
+        userMessage: body.userMessage,
+        mode: body.mode,
+        model: body.model ? body.model.trim() : undefined,
+        effort: effort ? effort.trim() : undefined,
+        idempotencyKey: body.idempotencyKey,
+      };
+
+      console.log(
+        `[ai] [deterministic:admit] provider=${provider} specId=${body.specId} changeSlug=${changeSlug} taskId=${body.taskId} sessionPolicy=${sessionPolicy}`,
+      );
+
+      const admission = await admitAgentExecution(body.specId, candidate, {
+        repoRoot: effectiveRepoRoot,
+        sessionService: service,
+        turnRuntime: service.turnRuntime,
+      });
+
+      if (!admission.admitted) {
+        reply.code(409).send({
+          error: {
+            code: admission.reason || 'ADMISSION_BLOCKED',
+            message: `Agent execution admission failed: ${admission.reason}`,
+            details: admission,
+          },
+        });
+        return;
+      }
+
+      console.log(
+        `[ai] [deterministic:started] provider=${provider} session=${admission.sessionId} turnId=${admission.turnId} ownerId=${admission.ownerId}`,
+      );
+
+      reply.code(201).send({
+        sessionId: admission.sessionId,
+        turnId: admission.turnId,
+        ownerId: admission.ownerId,
+        provider,
+        idempotent: false,
+      });
+      return;
+    }
+
     console.log(
       `[ai] [turn:start] provider=${provider} session=new specId=${body.specId || '-'} taskId=${body.taskId || '-'}${body.mode ? ` mode=${body.mode}` : ''}${body.model ? ` model=${body.model}` : ''}`,
     );
@@ -64,6 +139,56 @@ export default async function turnRoutes(fastify, { service, accessPolicy }) {
       }
       const session = await service.getSession(sessionId);
       const provider = session?.provider;
+
+      if (body.purpose === 'execution' && session?.specId && (body.taskId || session?.activeTaskId)) {
+        const taskId = body.taskId || session.activeTaskId;
+        const specId = session.specId;
+        const changeSlug = body.changeSlug || body.slug || specId;
+        const effectiveRepoRoot = repoRoot || service.repoRoot || process.cwd();
+
+        const { admitAgentExecution } = await import('../../orchestration/admission.mjs');
+        const candidate = {
+          taskId,
+          stepId: body.stepId,
+          provider: session.provider || provider,
+          changeSlug,
+          sessionPolicy: 'reuse',
+          sessionId,
+          message: body.message ?? body.prompt,
+          userMessage: body.userMessage,
+          mode: body.mode,
+          model: body.model ? body.model.trim() : undefined,
+          effort: effort ? effort.trim() : undefined,
+          idempotencyKey: body.idempotencyKey,
+        };
+
+        const admission = await admitAgentExecution(specId, candidate, {
+          repoRoot: effectiveRepoRoot,
+          sessionService: service,
+          turnRuntime: service.turnRuntime,
+        });
+
+        if (!admission.admitted) {
+          reply.code(409).send({
+            error: {
+              code: admission.reason || 'ADMISSION_BLOCKED',
+              message: `Agent execution admission failed: ${admission.reason}`,
+              details: admission,
+            },
+          });
+          return;
+        }
+
+        reply.code(202).send({
+          sessionId: admission.sessionId,
+          turnId: admission.turnId,
+          ownerId: admission.ownerId,
+          provider: session.provider || provider,
+          idempotent: false,
+        });
+        return;
+      }
+
       console.log(
         `[ai] [turn:start] provider=${provider || 'unknown'} sessionId=${sessionId}${body.mode ? ` mode=${body.mode}` : ''}${body.model ? ` model=${body.model}` : ''} prompt="${(body.message ?? body.prompt ?? '').slice(0, 60)}"`,
       );

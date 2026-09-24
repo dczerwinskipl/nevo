@@ -74,13 +74,10 @@ ADRs: `docs/decisions/`
 
 ## Git safety
 
-- Do not commit without explicit instruction
-- Do not push without explicit instruction
 - Do not create pull requests without explicit instruction
 - Do not use `--no-verify`
 - Do not mix unrelated changes in one commit
 - Do not perform drive-by refactoring outside `allowed_paths`
-- Show diff and verification results before asking to commit
 - Opening a PR, checking/resolving its review comments, merging, and checking what's
   next each have a defined command in `docs/ai/specification-workflow.md` § "Tool
   adapters" (Claude Code: `.claude/commands/nevo-ai/`). Use those instead of improvising

@@ -94,10 +94,8 @@ describe('AC2: Dashboard task cards render availableActions (D8, C9, C10)', () =
     const contentSource = readSource('../ui/screens/specification-detail/specification-detail-content.tsx');
 
     // Canonical sessionId anchor — queueAgentSessionInitialDispatch's identity key is
-    // named sessionId, never providerSessionId (Task 03 corrective pass). (Route params
-    // in navigate() calls legitimately keep the `providerSessionId` URL segment name —
-    // that is route-path cosmetics, not the runtime application identity.)
-    assert.match(contentSource, /queueAgentSessionInitialDispatch\(\{\s*provider: targetSession\.provider,\s*sessionId: targetSession\.sessionId,/);
+    // named sessionId, never providerSessionId (Task 03 corrective pass).
+    assert.match(contentSource, /queueAgentSessionInitialDispatch\(\{\s*provider:\s*session\.provider,\s*sessionId:\s*session\.sessionId,/);
     assert.match(contentSource, /queueAgentSessionInitialDispatch/);
     assert.match(contentSource, /const startStep = useCallback/);
   });

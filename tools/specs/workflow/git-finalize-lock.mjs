@@ -5,6 +5,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { ROOT } from '../store.mjs';
 import { WorkflowError } from './errors.mjs';
 
 function isProcessAlive(pid) {
@@ -56,7 +57,7 @@ export function releaseGitFinalizeLease({ repoRoot, ownerId }) {
  * @param {number} [params.retryIntervalMs=50] - Poll interval
  * @returns {Promise<{ ownerId: string, pid: number, createdAt: string, release: () => boolean }>}
  */
-export async function acquireGitFinalizeLease({ repoRoot, timeoutMs = 5000, retryIntervalMs = 50 } = {}) {
+export async function acquireGitFinalizeLease({ repoRoot = ROOT, timeoutMs = 5000, retryIntervalMs = 50 } = {}) {
   if (!repoRoot) {
     throw new WorkflowError('acquireGitFinalizeLease requires repoRoot');
   }
@@ -142,8 +143,10 @@ export async function withGitFinalizeLock(fn, existingLeaseOrOptions, maybeOptio
   if (existingLeaseOrOptions && (existingLeaseOrOptions.ownerId || typeof existingLeaseOrOptions.release === 'function')) {
     existingLease = existingLeaseOrOptions;
     options = maybeOptions || {};
+  } else if (existingLeaseOrOptions) {
+    options = existingLeaseOrOptions;
   } else {
-    options = existingLeaseOrOptions || {};
+    options = maybeOptions || {};
   }
 
   if (existingLease) {

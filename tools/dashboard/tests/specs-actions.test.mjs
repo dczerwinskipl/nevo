@@ -339,7 +339,11 @@ tasks:
       assert.equal(dto.stepDescriptor.executor, 'human');
       assert.equal(dto.stepDescriptor.purpose, 'Human verification');
       assert.equal(dto.stepDescriptor.expectedWork.summary, 'Signoff changes');
-      assert.equal(dto.humanInteraction, null);
+      assert.ok(dto.humanInteraction);
+      assert.deepEqual(
+        dto.humanInteraction.actions.map(a => a.result),
+        ['pass', 'fail']
+      );
     } finally {
       fx.cleanup();
     }

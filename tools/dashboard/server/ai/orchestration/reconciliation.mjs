@@ -84,9 +84,6 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
     ) || priorStepDef?.transitions?.find((t) => t.to === targetStepName || t.step === targetStepName);
 
     continuationPolicy = matchedTransition?.continuation || null;
-  } else if (position.phase === 'new') {
-    // Entry step defaults to auto continuation if selected
-    continuationPolicy = 'auto';
   }
 
   if (continuationPolicy !== 'auto') {
@@ -145,7 +142,7 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
  * @returns {Promise<{ reconciledClaims: number, reconciledRequests: number }>}
  */
 export async function reconcileBootState(options = {}) {
-  const { repoRoot, transcriptCache } = options;
+  const { repoRoot, transcriptCache, sessionService, bindingService } = options;
   if (!repoRoot) return { reconciledClaims: 0, reconciledRequests: 0 };
 
   let reconciledClaims = 0;
@@ -155,6 +152,7 @@ export async function reconcileBootState(options = {}) {
   const claimSnapshot = getWorkspaceWriterClaim(repoRoot);
   if (claimSnapshot && claimSnapshot.kind === 'agent') {
     const { ownerId, sessionId, turnId, turnStartState, specId, taskId } = claimSnapshot;
+    const changeSlug = claimSnapshot.changeSlug || specId;
 
     // Unestablished identity: fail closed (D71, D97)
     if (!sessionId && !turnStartState) {
@@ -163,7 +161,7 @@ export async function reconcileBootState(options = {}) {
       // Prepared state: startTurn was never called. Settle directly (D99)
       const settlement = await assessExecutionSettlement({
         repoRoot,
-        changeSlug: specId,
+        changeSlug,
         taskId,
       });
 
@@ -173,6 +171,7 @@ export async function reconcileBootState(options = {}) {
           expectedOwnerId: ownerId,
           expectedKind: 'agent',
           expectedSpecId: specId,
+          ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
           expectedTaskId: taskId,
           expectedSessionId: sessionId,
         });
@@ -183,6 +182,7 @@ export async function reconcileBootState(options = {}) {
           expectedOwnerId: ownerId,
           expectedKind: 'agent',
           expectedSpecId: specId,
+          ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
           expectedTaskId: taskId,
           expectedSessionId: sessionId,
         });
@@ -190,83 +190,115 @@ export async function reconcileBootState(options = {}) {
       }
     } else if (turnStartState === 'invoking') {
       // Invoking state: ambiguous start boundary (D99)
-      // Inspect transcriptCache for positive turn evidence attributable to this claim
-      let recoveredTurnId = null;
-      if (transcriptCache && sessionId) {
-        try {
-          const transcript = transcriptCache.getTranscript?.(claimSnapshot.provider || 'mock', sessionId);
-          if (transcript?.activeTurn?.id) {
-            recoveredTurnId = transcript.activeTurn.id;
-          } else if (Array.isArray(transcript?.turns) && transcript.turns.length > 0) {
-            // Check for matching turn
-            const matchingTurn = transcript.turns.find(
-              (t) => t.id === turnId || t.taskId === taskId
-            );
-            if (matchingTurn) {
-              recoveredTurnId = matchingTurn.id;
-            }
-          }
-        } catch {}
+      // Resolve provider through canonical sessionId using sessionService / binding state (Item 7)
+      let resolvedProvider = claimSnapshot.provider || null;
+      if (!resolvedProvider && sessionId) {
+        if (sessionService?.getSession) {
+          const sess = await sessionService.getSession(sessionId).catch(() => null);
+          if (sess?.provider) resolvedProvider = sess.provider;
+        } else if (bindingService?.getSession) {
+          const sess = await bindingService.getSession(sessionId).catch(() => null);
+          if (sess?.provider) resolvedProvider = sess.provider;
+        } else if (sessionService?.bindingService?.getSession) {
+          const sess = await sessionService.bindingService.getSession(sessionId).catch(() => null);
+          if (sess?.provider) resolvedProvider = sess.provider;
+        }
       }
 
-      if (recoveredTurnId) {
-        // Positive evidence: advance claim to started and check settlement
-        await updateWorkspaceWriterIfOwned({
-          repoRoot,
-          expectedOwnerId: ownerId,
-          expectedKind: 'agent',
-          expectedSpecId: specId,
-          expectedTaskId: taskId,
-          sessionId,
-          turnId: recoveredTurnId,
-          turnStartState: 'started',
-        });
-
-        const settlement = await assessExecutionSettlement({
-          repoRoot,
-          changeSlug: specId,
-          taskId,
-        });
-
-        if (settlement.settled) {
-          await releaseWorkspaceWriterIfOwned({
-            repoRoot,
-            expectedOwnerId: ownerId,
-            expectedKind: 'agent',
-            expectedSpecId: specId,
-            expectedTaskId: taskId,
-            expectedSessionId: sessionId,
-            expectedTurnId: recoveredTurnId,
-          });
-        } else {
-          await markWorkspaceWriterRecoveryRequiredIfOwned({
-            repoRoot,
-            expectedOwnerId: ownerId,
-            expectedKind: 'agent',
-            expectedSpecId: specId,
-            expectedTaskId: taskId,
-            expectedSessionId: sessionId,
-            expectedTurnId: recoveredTurnId,
-          });
-        }
-        reconciledClaims++;
-      } else {
-        // Inconclusive evidence: fail closed, mark recovery-required (D99)
+      // If provider cannot be resolved, fail closed
+      if (!resolvedProvider) {
         await markWorkspaceWriterRecoveryRequiredIfOwned({
           repoRoot,
           expectedOwnerId: ownerId,
           expectedKind: 'agent',
           expectedSpecId: specId,
+          ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
           expectedTaskId: taskId,
           expectedSessionId: sessionId,
         });
         reconciledClaims++;
+      } else {
+        // Inspect transcriptCache for positive turn evidence attributable to this claim
+        let recoveredTurnId = null;
+        if (transcriptCache && sessionId) {
+          try {
+            const transcript = await transcriptCache.getTranscript(resolvedProvider, sessionId);
+            if (transcript?.activeTurn?.turnId) {
+              recoveredTurnId = transcript.activeTurn.turnId;
+            } else if (Array.isArray(transcript?.turns) && transcript.turns.length > 0) {
+              const matchingTurn = transcript.turns.find(
+                (t) => (t.turnId && t.turnId === turnId) || t.taskId === taskId
+              );
+              if (matchingTurn) {
+                recoveredTurnId = matchingTurn.turnId || matchingTurn.id;
+              }
+            }
+          } catch {}
+        }
+
+        if (recoveredTurnId) {
+          // Positive evidence: advance claim to started and check settlement
+          await updateWorkspaceWriterIfOwned({
+            repoRoot,
+            expectedOwnerId: ownerId,
+            expectedKind: 'agent',
+            expectedSpecId: specId,
+            ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
+            expectedTaskId: taskId,
+            sessionId,
+            turnId: recoveredTurnId,
+            turnStartState: 'started',
+          });
+
+          const settlement = await assessExecutionSettlement({
+            repoRoot,
+            changeSlug,
+            taskId,
+          });
+
+          if (settlement.settled) {
+            await releaseWorkspaceWriterIfOwned({
+              repoRoot,
+              expectedOwnerId: ownerId,
+              expectedKind: 'agent',
+              expectedSpecId: specId,
+              ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
+              expectedTaskId: taskId,
+              expectedSessionId: sessionId,
+              expectedTurnId: recoveredTurnId,
+            });
+          } else {
+            await markWorkspaceWriterRecoveryRequiredIfOwned({
+              repoRoot,
+              expectedOwnerId: ownerId,
+              expectedKind: 'agent',
+              expectedSpecId: specId,
+              ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
+              expectedTaskId: taskId,
+              expectedSessionId: sessionId,
+              expectedTurnId: recoveredTurnId,
+            });
+          }
+          reconciledClaims++;
+        } else {
+          // Inconclusive evidence: fail closed, mark recovery-required (D99)
+          await markWorkspaceWriterRecoveryRequiredIfOwned({
+            repoRoot,
+            expectedOwnerId: ownerId,
+            expectedKind: 'agent',
+            expectedSpecId: specId,
+            ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
+            expectedTaskId: taskId,
+            expectedSessionId: sessionId,
+          });
+          reconciledClaims++;
+        }
       }
     } else if (turnStartState === 'started') {
       // Started state: authoritative (D99)
       const settlement = await assessExecutionSettlement({
         repoRoot,
-        changeSlug: specId,
+        changeSlug,
         taskId,
       });
 
@@ -276,6 +308,7 @@ export async function reconcileBootState(options = {}) {
           expectedOwnerId: ownerId,
           expectedKind: 'agent',
           expectedSpecId: specId,
+          ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
           expectedTaskId: taskId,
           expectedSessionId: sessionId,
           expectedTurnId: turnId,
@@ -287,6 +320,7 @@ export async function reconcileBootState(options = {}) {
           expectedOwnerId: ownerId,
           expectedKind: 'agent',
           expectedSpecId: specId,
+          ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
           expectedTaskId: taskId,
           expectedSessionId: sessionId,
           expectedTurnId: turnId,
@@ -296,50 +330,126 @@ export async function reconcileBootState(options = {}) {
     }
   }
 
-  // 2. Reconcile workspace requests (Hook 3, D75)
-  const pendingRequests = listWorkspaceRequests(repoRoot, {
+  // Generic request-backed claim reconciliation (Item 7)
+  const isRequestBacked = ['human-submit', 'publish', 'batch-publish'].includes(claimSnapshot?.kind);
+  if (claimSnapshot && isRequestBacked) {
+    const { reconcileRequestBackedWorkspaceClaim } = await import('../../../../specs/workflow/workspace-claim-reconciliation.mjs');
+    const claimRecon = await reconcileRequestBackedWorkspaceClaim({
+      repoRoot,
+      claimSnapshot,
+    });
+    if (claimRecon.reconciled) {
+      reconciledClaims++;
+    }
+  }
+
+  // 2. Reconcile workspace requests (Hook 3, D75, D88, D96)
+  const pendingRequests = listWorkspaceRequests({
+    repoRoot,
     status: ['queued', 'waiting-for-workspace', 'running'],
   });
 
+  const { reconcileRequestBackedWorkspaceClaim } = await import('../../../../specs/workflow/workspace-claim-reconciliation.mjs');
+
   for (const req of pendingRequests) {
-    if (req.kind === 'human-submit' && req.operationRef) {
-      const { change, task, step, attempt } = req.operationRef;
-      const op = loadHumanSubmitOperation({
-        repoRoot,
-        changeSlug: change,
-        taskId: task,
-        step,
-        attempt,
-      });
+    if (claimSnapshot && claimSnapshot.requestId === req.requestId) {
+      continue;
+    }
 
-      if (op) {
-        const settlement = await assessExecutionSettlement({
-          repoRoot,
-          changeSlug: change,
-          taskId: task,
-        });
+    const syntheticSnapshot = {
+      ownerId: req.workspaceOwnerId || 'unassigned',
+      requestId: req.requestId,
+      kind: req.kind,
+      specId: req.specId,
+      taskId: req.taskId,
+      operationRef: req.operationRef,
+    };
 
-        if (settlement.settled && (op.status === 'completed' || op.status === 'failed')) {
-          await transitionWorkspaceRequest({
-            repoRoot,
-            requestId: req.requestId,
-            expectedStatus: req.status,
-            to: op.status,
-          });
-          if (claimSnapshot && claimSnapshot.requestId === req.requestId) {
-            await releaseWorkspaceWriterIfOwned({
-              repoRoot,
-              expectedOwnerId: claimSnapshot.ownerId,
-              expectedKind: 'human-submit',
-              expectedSpecId: claimSnapshot.specId,
-              expectedTaskId: claimSnapshot.taskId,
-            });
-          }
-          reconciledRequests++;
-        }
-      }
+    const res = await reconcileRequestBackedWorkspaceClaim({
+      repoRoot,
+      claimSnapshot: syntheticSnapshot,
+    });
+    if (res.reconciled) {
+      reconciledRequests++;
     }
   }
 
   return { reconciledClaims, reconciledRequests };
+}
+
+/**
+ * Drives automatic workflow continuation for a change: checks single-task auto-continuation first,
+ * and if none or if task is complete, checks the durable queue for the change to admit nextRunnable (D38, D42, Item 5, Item 12).
+ *
+ * @param {object} change - Change manifest
+ * @param {object} [task] - Task record
+ * @param {object} [options]
+ * @returns {Promise<{ action: 'agent-admitted'|'queue-agent-admitted'|'human-preview'|'noop', nextStep?: string, admission?: any, nextRunnable?: any }>}
+ */
+export async function reconcileContinuation(change, task, options = {}) {
+  // 1. Single-task continuation check (if task provided)
+  if (task) {
+    const taskCont = await reconcileWorkflowPosition(change, task, options);
+    if (taskCont.action === 'agent-admitted' || taskCont.action === 'human-preview') {
+      return taskCont;
+    }
+  }
+
+  // 2. Multi-task durable queue continuation check (Item 12, D38)
+  const repoRoot = options.repoRoot;
+  const changeSlug = change._slug || change.id;
+  if (!repoRoot || !changeSlug) {
+    return { action: 'noop' };
+  }
+
+  const { loadTaskQueue, dequeueTask } = await import('../../../../specs/workflow/queue/store.mjs');
+  const queueRecord = loadTaskQueue(repoRoot, changeSlug);
+  if (!queueRecord || !Array.isArray(queueRecord.taskIds) || queueRecord.taskIds.length === 0) {
+    return { action: 'noop' };
+  }
+
+  // Purge any tasks that are already terminal or completed
+  for (const tid of [...queueRecord.taskIds]) {
+    const t = change.tasks?.find((x) => x.id === tid);
+    if (t && (t.status === 'completed' || t.status === 'verified' || t.status === 'closed' || t.workflow_progress?.state === 'completed')) {
+      dequeueTask(repoRoot, changeSlug, tid);
+    }
+  }
+
+  const refreshedQueue = loadTaskQueue(repoRoot, changeSlug);
+  if (!refreshedQueue || !Array.isArray(refreshedQueue.taskIds) || refreshedQueue.taskIds.length === 0) {
+    return { action: 'noop' };
+  }
+
+  let definition = options.definition;
+  if (!definition) {
+    const resolvedMode = resolveWorkflowMode(change, options);
+    if (resolvedMode.definition) {
+      definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot });
+    }
+  }
+
+  const queueState = evaluateTaskQueue({
+    change,
+    selectedTaskIds: refreshedQueue.taskIds,
+    queueRecord: refreshedQueue,
+    definition,
+    repoRoot,
+  });
+
+  if (queueState.nextRunnable) {
+    const specId = change.id || changeSlug;
+    const admissionRes = await admitAgentExecution(specId, queueState.nextRunnable, {
+      ...options,
+      repoRoot,
+      changeSlug,
+    });
+    return {
+      action: 'queue-agent-admitted',
+      nextRunnable: queueState.nextRunnable,
+      admission: admissionRes,
+    };
+  }
+
+  return { action: 'noop', queueState };
 }

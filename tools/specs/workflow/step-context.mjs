@@ -3,22 +3,26 @@
 // (Task 03) and `GateContract.inspect()` (Task 05) into one step-level payload —
 // this module aggregates, it never re-implements, that underlying evaluation.
 
-import { existsSync } from 'node:fs';
-import { relative, join } from 'node:path';
 import { defaultWorkflowEngine } from './engine.mjs';
 import { defaultActionRegistry } from './registry.mjs';
 import { resolveWorkflowPosition, resolveSemanticStatus, inspectGates } from './step-runner.mjs';
 import { WorkflowError } from './errors.mjs';
 import { setTaskWorkflowState, ROOT, ACTIVE_DIR } from '../store.mjs';
-import { loadRoutingIndex, matchRoutingRules, resolveTaskScope, loadTaskFrontMatter } from '../context.mjs';
-import { readUtf8, resolveWithinBase } from '../../lib/fs.mjs';
+import {
+  loadRoutingIndex,
+  matchRoutingRules,
+  resolveTaskScope,
+  loadTaskFrontMatter,
+  resolveTaskDefinition,
+  resolveRequiredContext,
+} from '../context.mjs';
 // D37 correction: read via `operation-record.mjs` directly (not `finish-operation.mjs`,
 // which itself imports from this module — importing it here would create a cycle).
 import { loadOperationRecord } from './operation-record.mjs';
 import * as git from '../../lib/git.mjs';
 
-// D38: re-export resolveTaskScope from context.mjs as single source of truth
-export { resolveTaskScope } from '../context.mjs';
+// D38: re-export scope and context helpers from context.mjs as single source of truth
+export { resolveTaskScope, resolveTaskDefinition, resolveRequiredContext } from '../context.mjs';
 import { resolveWorkflowOwnedPaths } from './actions/commit-and-push.mjs';
 export { resolveWorkflowOwnedPaths };
 
@@ -446,80 +450,6 @@ export function extractPreviousTransition(task) {
     });
   }
   return transition;
-}
-
-/**
- * Resolves the task's own definition document (D22).
- * Returns { id, path, content } where path is repository-root-relative,
- * and content is the task markdown file's full raw text.
- *
- * @param {object} change
- * @param {object} task
- * @param {object} [context]
- * @returns {{ id: string, path: string|null, content: string }}
- */
-export function resolveTaskDefinition(change, task, context = {}) {
-  const repoRoot = context.repoRoot || ROOT;
-  const activeDir = context.activeDir || (repoRoot ? resolveWithinBase(repoRoot, 'specs/active') : ACTIVE_DIR);
-  const changeSlug = change.id || change._slug;
-  const changeDir = change._dir || (changeSlug && activeDir ? resolveWithinBase(activeDir, changeSlug) : null);
-
-  let taskFile = null;
-  let content = task.content || null;
-
-  if (task.file && changeDir) {
-    try {
-      const resolved = resolveWithinBase(changeDir, task.file);
-      if (existsSync(resolved)) {
-        taskFile = resolved;
-        if (content === null) {
-          content = readUtf8(resolved);
-        }
-      }
-    } catch {}
-  }
-
-  const relPath = taskFile && repoRoot
-    ? relative(repoRoot, taskFile).replace(/\\/g, '/')
-    : (task.file ? (changeSlug ? `specs/active/${changeSlug}/${task.file}` : task.file) : null);
-
-  return {
-    id: task.id,
-    path: relPath,
-    content: content ?? '',
-  };
-}
-
-/**
- * Resolves task-declared required context documents (D23).
- * Sourced directly from task frontmatter's context.required (or in-memory task.context.required).
- * Each entry carries path and content inline.
- *
- * @param {object} change
- * @param {object} task
- * @param {object} [context]
- * @returns {Array<{ path: string, content: string }>}
- */
-export function resolveRequiredContext(change, task, context = {}) {
-  const taskFm = loadTaskFrontMatter(change, task, context);
-  const required = task?.context?.required || taskFm?.context?.required;
-  if (!Array.isArray(required) || required.length === 0) {
-    return [];
-  }
-  const repoRoot = context.repoRoot || ROOT;
-  const changeSlug = change.id || change._slug;
-  return required.map(rawPath => {
-    const relPath = typeof rawPath === 'string' && rawPath.startsWith('../')
-      ? join('specs/active', changeSlug, rawPath).replace(/\\/g, '/')
-      : (typeof rawPath === 'string' ? rawPath.replace(/\\/g, '/') : String(rawPath));
-    try {
-      const absPath = repoRoot ? resolveWithinBase(repoRoot, relPath) : relPath;
-      const content = absPath && existsSync(absPath) ? readUtf8(absPath) : '';
-      return { path: relPath, content };
-    } catch {
-      return { path: relPath, content: '' };
-    }
-  });
 }
 
 /**

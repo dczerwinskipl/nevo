@@ -124,24 +124,19 @@ export function createHumanSubmitOperationRecord(params = {}) {
   };
 
   const targetPath = getHumanSubmitOperationFilePath(repoRoot, changeSlug, taskId, step, attempt);
-  const tempPath = path.join(dir, `attempt-${attempt}.${randomUUID()}.tmp`);
 
-  fs.writeFileSync(tempPath, JSON.stringify(record, null, 2), 'utf8');
   try {
-    fs.renameSync(tempPath, targetPath);
+    fs.writeFileSync(targetPath, JSON.stringify(record, null, 2), { flag: 'wx', encoding: 'utf8' });
   } catch (err) {
-    if (err.code === 'EEXIST' || err.code === 'EPERM' || err.code === 'EBUSY') {
-      try {
-        if (fs.existsSync(targetPath)) fs.unlinkSync(targetPath);
-        fs.renameSync(tempPath, targetPath);
-      } catch (retryErr) {
-        try { fs.unlinkSync(tempPath); } catch {}
-        throw retryErr;
-      }
-    } else {
-      try { fs.unlinkSync(tempPath); } catch {}
-      throw err;
+    if (err.code === 'EEXIST') {
+      const collisionErr = new WorkflowError(
+        `Human submit operation already exists at ${changeSlug}/${taskId}/${step}/attempt-${attempt}`,
+        { code: 'OPERATION_ALREADY_EXISTS', changeSlug, taskId, step, attempt }
+      );
+      collisionErr.code = 'OPERATION_ALREADY_EXISTS';
+      throw collisionErr;
     }
+    throw err;
   }
 
   return record;

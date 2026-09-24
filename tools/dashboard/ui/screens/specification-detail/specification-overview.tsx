@@ -19,7 +19,7 @@ import { StatusBoard } from '@/features/specifications/detail/status-board';
 export interface SequentialQueueTaskPickerProps {
   tasks: SpecificationTask[];
   taskActions?: Record<string, SpecificationTaskActionGate>;
-  onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor) => void | Promise<void>;
+  onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor, taskIds?: string[]) => void | Promise<void>;
   onTriggerRemediationReview?: (remediationTaskIds: string[]) => void | Promise<void>;
 }
 
@@ -142,7 +142,7 @@ export function SequentialQueueTaskPicker({
           executor: gate?.executor || 'agent',
         };
       // Exactly ONE session start is initiated
-      onStartStep?.(nextRunnable, descriptor);
+      onStartStep?.(nextRunnable, descriptor, Array.from(selectedTaskIds));
     }
   }, [onStartStep, selectedTaskIds, tasks, taskActions]);
 
@@ -284,7 +284,7 @@ export function SpecificationOverview({
   isDeterministic?: boolean;
   onDirectTaskAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
   onBatchTaskAction?: (tasks: SpecificationTask[], action: SpecificationOwnerAction) => void;
-  onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor) => void | Promise<void>;
+  onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor, taskIds?: string[]) => void | Promise<void>;
   onPublishTask?: (task: SpecificationTask) => void | Promise<void>;
   onBatchPublish?: (tasks: SpecificationTask[]) => void | Promise<void>;
   onCreateSession: () => void;
