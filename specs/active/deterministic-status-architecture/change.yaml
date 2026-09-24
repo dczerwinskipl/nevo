@@ -291,12 +291,14 @@ tasks:
   - id: orchestration-e2e-dogfood-tests
     order: 33
     file: tasks/33-orchestration-e2e-dogfood-tests.md
-    status: approved
+    status: verified
     depends_on:
       [
         dashboard-orchestration-wiring,
         user-mutation-source-control-finalization,
         dependency-invalidation-remediation-review
       ]
+    implementation:
+      baseline_revision: 87f7348cfc4632ad709e0cc7d90138610484f70d
 
 spec_id: 226954d0-b33e-4c89-a302-c27c4e51b1d8

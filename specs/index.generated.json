@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-24T08:10:03.997Z",
+  "generated": "2026-09-24T08:19:50.902Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -548,12 +548,15 @@
           "id": "orchestration-e2e-dogfood-tests",
           "order": 33,
           "file": "tasks/33-orchestration-e2e-dogfood-tests.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "dashboard-orchestration-wiring",
             "user-mutation-source-control-finalization",
             "dependency-invalidation-remediation-review"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "87f7348cfc4632ad709e0cc7d90138610484f70d"
+          }
         }
       ]
     },
