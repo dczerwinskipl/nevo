@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-24T06:54:01.981Z",
+  "generated": "2026-09-24T07:03:23.162Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -459,7 +459,10 @@
           "id": "execution-policy-and-mode-selection",
           "order": 26,
           "file": "tasks/26-execution-policy-and-mode-selection.md",
-          "status": "draft"
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "28446f550c1128dec555d196303d56dfeba8fd4e"
+          }
         },
         {
           "id": "dependency-release-and-invalidation",

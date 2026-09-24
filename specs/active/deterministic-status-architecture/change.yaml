@@ -231,7 +231,9 @@ tasks:
   - id: execution-policy-and-mode-selection
     order: 26
     file: tasks/26-execution-policy-and-mode-selection.md
-    status: draft
+    status: verified
+    implementation:
+      baseline_revision: 28446f550c1128dec555d196303d56dfeba8fd4e
   - id: dependency-release-and-invalidation
     order: 27
     file: tasks/27-dependency-release-and-invalidation.md
