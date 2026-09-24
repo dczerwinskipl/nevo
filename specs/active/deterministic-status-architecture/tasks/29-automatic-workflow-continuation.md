@@ -31,7 +31,7 @@ forbidden_paths:
   - src/**
 depends_on: [ workflow-continuation-schema, execution-policy-and-mode-selection, deterministic-sequential-queue, dependency-release-and-invalidation ]
 semantic_references:
-  decisions: [D25, D26, D27, D33, D41, D42, D45, D47, D49, D50, D55, D56, D57, D59, D60, D61, D63, D65, D66, D67, D70, D71, D72, D73, D74, D75, D76, D77, D78, D79, D80, D82, D83, D84, D87, D88, D89, D90, D92, D93, D94, D95, D96, D97, D98]
+  decisions: [D25, D26, D27, D33, D41, D42, D45, D47, D49, D50, D55, D56, D57, D59, D60, D61, D63, D65, D66, D67, D70, D71, D72, D73, D74, D75, D76, D77, D78, D79, D80, D82, D83, D84, D87, D88, D89, D90, D92, D93, D94, D95, D96, D97, D98, D99, D100]
 ---
 
 # Task: Automatic workflow continuation (agent admission + workspace-writer ownership + reconciliation + human dispatch)
@@ -47,13 +47,18 @@ shared workspace-writer slot** (D55, keyed by the physical worktree, D65) for th
 lifetime of the admitted execution, resolving the canonical session identity according to the
 transition's own **D26 `execution.session: fresh | reuse` policy** (D98 — a new session is
 created only for `fresh`; `reuse` resolves the existing target session instead) and **enriching
-that exact claim with the canonical `sessionId` before `AgentTurnRuntime.startTurn()` is ever
-called, then with `turnId` only after its own promise resolves** (D93/D97 — a claim is never left
-permanently without the identity D86 later needs to verify; the claim's own enriched fields are
-the sole durable ownership evidence, never a separate session-level copy, D98), releasing it only
-once that execution is proven **settled** (D59/D60) via an **ownership-conditional**
-release/mark-recovery-required call (D70) — never merely because its turn reached terminal, and
-never a blind mutation of whatever claim happens to be live at reconciliation time. Also build
+that exact claim with the canonical `sessionId` and a durable `turnStartState: 'prepared'` before
+`AgentTurnRuntime.startTurn()` is ever called, `turnStartState: 'invoking'` immediately before
+invoking it, then `turnId`/`turnStartState: 'started'` atomically once its promise resolves**
+(D93/D97/D99 — a claim is never left permanently without the identity D86 later needs to verify;
+the claim's own enriched fields are the sole durable ownership evidence, never a separate
+session-level copy, D98; `turnStartState` is a positive fact recovery can trust even when
+transcript persistence hasn't caught up, D99), releasing it only once that execution is proven
+**settled** (D59/D60) via an **ownership-conditional** release/mark-recovery-required call (D70)
+— using the correct identity source for the hook doing the reconciling (D100: Hook 1's own
+admission-time-captured identity, or Hook 3's fresh claim snapshot — never a mix) — never merely
+because its turn reached terminal, and never a blind mutation of whatever claim happens to be
+live at reconciliation time. Also build
 **`reconcileWorkflowPosition(change, task)` (D42)**; the **human dispatch path** (D47/D49) — a
 mutation-free interaction preview plus `activateAndSubmitHumanStep`, which now **persists a
 durable human-submit request before any contention or mutation** (D73, at most one non-terminal
@@ -76,11 +81,12 @@ generic reconciler's registry (D88) at its own module-load time.
 
 - **`admitAgentExecution`, atomic through to durable visibility, with rollback, claiming the
   workspace-writer slot in the canonical lock order, branching on D26's `session: fresh|reuse`
-  policy, enriching the claim with `sessionId` before `AgentTurnRuntime.startTurn()` is ever
-  called and with `turnId` only after it returns, with no session-level ownership copy
-  (D41/D49/D55/D66/D71/D93/D97/D98 — corrects D89's own impossible "enrich-then-spawn"
-  sequencing, D93's own ambiguous crash classification, and D71's session-scalar
-  `workspaceOwnerId` field).** New file, `tools/dashboard/server/ai/
+  policy, enriching the claim with `sessionId`/`turnStartState: 'prepared'` before
+  `AgentTurnRuntime.startTurn()` is ever called, `turnStartState: 'invoking'` immediately before
+  invoking it, and `turnId`/`turnStartState: 'started'` atomically once it returns, with no
+  session-level ownership copy (D41/D49/D55/D66/D71/D93/D97/D98/D99 — corrects D89's own
+  impossible "enrich-then-spawn" sequencing, D93/D97's own crash classification, and D71's
+  session-scalar `workspaceOwnerId` field).** New file, `tools/dashboard/server/ai/
   orchestration/admission.mjs`. Reuses the `AgentTurnRuntime.#acquireStartLock` promise-
   chain-mutex pattern (`turns/runtime.mjs`, forbidden path — read for reference, reimplement
   small, do not modify), keyed by `specId`. **Grounded against the real API:** `startTurn()`
@@ -88,13 +94,17 @@ generic reconciler's registry (D88) at its own module-load time.
   via `queueMicrotask` before the caller's own `await startTurn(...)` resumes — there is no
   seam where an external caller holds a known `turnId` and can still delay the spawn without
   editing `turns/runtime.mjs` (forbidden). `sessionId`, by contrast, is genuinely available
-  *before* `startTurn()` is called. Sequence:
+  *before* `startTurn()` is called. **Also grounded: `transcript-cache.mjs`'s own
+  `recordCanonicalTurn`/`#markDirty` persist via a *debounced* flush (`flushDebounceMs`, default
+  50ms), never synchronously — a crash inside that window can leave a genuinely-created,
+  possibly-still-running turn with no persisted `activeTurn`/`turns[]` entry at all, so an absent
+  transcript entry can never, by itself, prove `startTurn()` was never invoked (D99).** Sequence:
   1. Acquire the admission mutex → re-read active-execution state → if occupied, reject/defer
      (candidate stays eligible).
   2. If free, mark occupied **and call `acquireWorkspaceWriter({kind: 'agent', specId, taskId})`**
      (`workspace-writer.mjs`, task 27 — import only; the claim is keyed by the physical
-     worktree, D65, not `specId`; `sessionId`/`turnId` are genuinely unknown at this point —
-     the claim is created without them, never with a placeholder).
+     worktree, D65, not `specId`; `sessionId`/`turnId`/`turnStartState` are genuinely unknown at
+     this point — the claim is created without them, never with a placeholder).
   3. **Resolve the canonical session according to the entering transition's own D26
      `execution.session` policy (D98) — never unconditionally create one:**
      - `session: fresh` → call `AgentSessionService.createSession(...)` (`sessions/service.mjs`,
@@ -105,28 +115,40 @@ generic reconciler's registry (D88) at its own module-load time.
        (`sessions/service.mjs`) — this task does not redefine how `reuse` selects its target
        session, only consumes the resulting `sessionId`. `createSession(...)` is never called on
        this branch.
-  4. **First ownership-conditional enrichment — `sessionId` only:**
-     `updateWorkspaceWriterIfOwned({expectedOwnerId: <step 2's own ownerId>, sessionId:
-     canonicalSessionId, specId, taskId})` (`workspace-writer.mjs`, task 27 — import only,
-     D89/D93). A `not-current-owner` result here fails the whole admission closed (roll back,
-     below); never proceed with an unenriched claim. This enriched claim record is the sole
-     durable ownership evidence for this execution — no separate session-level or turn-level copy
-     is written (D98; D71's session-scalar `workspaceOwnerId` field is withdrawn).
+  4. **First ownership-conditional enrichment — `sessionId` and `turnStartState: 'prepared'`,
+     one atomic merge:** `updateWorkspaceWriterIfOwned({expectedOwnerId: <step 2's own ownerId>,
+     sessionId: canonicalSessionId, turnStartState: 'prepared', specId, taskId})`
+     (`workspace-writer.mjs`, task 27 — import only, D89/D93/D99). A `not-current-owner` result
+     here fails the whole admission closed (roll back, below); never proceed with an unenriched
+     claim. This enriched claim record is the sole durable ownership evidence for this execution —
+     no separate session-level or turn-level copy is written (D98; D71's session-scalar
+     `workspaceOwnerId` field is withdrawn).
   5. Release the (short-lived) admission mutex.
-  6. Call `AgentTurnRuntime.startTurn({..., sessionId: canonicalSessionId, ...})`, **passing the
+  6. **Immediately before invoking `startTurn()` — second ownership-conditional enrichment,
+     `turnStartState: 'invoking'` alone (D99):** `updateWorkspaceWriterIfOwned({expectedOwnerId,
+     sessionId: canonicalSessionId, turnStartState: 'invoking', specId, taskId})`. Only once this
+     durably lands does step 7 actually run. This is the one new durable write D99 introduces: it
+     marks, *before* crossing it, the exact instant the process is about to enter the ambiguous
+     `startTurn()` boundary — so a crash inside that boundary is later distinguishable from a
+     crash before it ever began (step 4's `'prepared'` state).
+  7. Call `AgentTurnRuntime.startTurn({..., sessionId: canonicalSessionId, ...})`, **passing the
      already-decided `canonicalSessionId` in** — `startTurn()` uses the caller-supplied
      `sessionId` rather than inventing its own (or, for `reuse`, resuming the existing one), so
      whatever the provider's own spawn (`#run`, scheduled internally via `queueMicrotask`,
      already in flight before this call's own `await` resumes) sets as `NEVO_SESSION_ID`
      **already matches the claim's own enriched identity**, even though the spawn itself precedes
-     step 7 below.
-  7. Once `startTurn()`'s own promise resolves with `{turnId, ...}`: **second ownership-
-     conditional enrichment — adding `turnId`:** `updateWorkspaceWriterIfOwned({expectedOwnerId,
-     sessionId: canonicalSessionId, turnId, specId, taskId})` — same mechanism, called again. A
-     stale/mismatched `expectedOwnerId` here fails to modify a newer claim, exactly as the
-     mechanism already guarantees; it does **not** abort the already-running turn (the turn is
-     real and already admitted by this point — this second enrichment is best-effort identity
-     completeness, not a gate on the turn's own existence).
+     step 8 below.
+  8. Once `startTurn()`'s own promise resolves with `{turnId, ...}`: **third ownership-
+     conditional enrichment — `turnId` and `turnStartState: 'started'`, one atomic merge (D99):**
+     `updateWorkspaceWriterIfOwned({expectedOwnerId, sessionId: canonicalSessionId, turnId,
+     turnStartState: 'started', specId, taskId})` — same mechanism, called again, both fields in
+     the same call so they can never land separately. A stale/mismatched `expectedOwnerId` here
+     fails to modify a newer claim, exactly as the mechanism already guarantees; it does **not**
+     abort the already-running turn (the turn is real and already admitted by this point — this
+     enrichment is best-effort identity completeness, not a gate on the turn's own existence).
+     Because `turnId` and `turnStartState: 'started'` are written together, a claim observed as
+     `'started'` is *guaranteed* to carry `turnId` — there is no separate "started but turnId
+     missing" case to handle.
   **The workspace-writer claim stays held for the whole active execution, until that execution
   is proven settled (D59/D60)** — it is not released merely because the admission mutex is
   released, and not released merely because the turn reaches terminal (see below). **If session
@@ -134,62 +156,89 @@ generic reconciler's registry (D88) at its own module-load time.
   visibility, roll back everything, in reverse acquisition order** (workspace-writer claim via
   `releaseWorkspaceWriterIfOwned` using the `ownerId` this same attempt just acquired, D70,
   then the admission mutex, D66) — the candidate remains eligible/retryable; `startTurn()` is
-  never called against a claim whose `sessionId` never got durably enriched. **Crash cases,
-  explicit, using only authoritative persisted evidence, never inferring "no turn" from an
-  unresolved `startTurn()` call (D97):**
-  - **Case A — crash between step 2 and step 4** (claim exists, no `sessionId` at all) → identity
+  never called against a claim whose `sessionId` never got durably enriched. **Crash
+  classification, keyed on the claim's own durable `turnStartState`, never on transcript absence
+  alone (D97, corrected D99):**
+  - **No `sessionId`/`turnStartState` at all** (a crash between step 2 and step 4) → identity
     unestablished exactly as D71 already defines it: fail closed, never guess.
-  - **Case A — crash after step 4 but before step 6 is ever invoked at all** → the claim carries
-    `ownerId` + `sessionId` and a durable session exists, but `transcriptCache.getTranscript(
-    provider, canonicalSessionId)` shows no `activeTurn` and no matching `turns[]` entry: no turn
-    was ever created. `assessExecutionSettlement` finds nothing in-flight for the task and the
-    claim settles normally, exactly like any other "nothing was ever actually started" case.
-  - **Case B — crash or process loss after step 6 is invoked but before its return value is ever
-    received (the ambiguous start boundary)** → recovery MUST NOT assume no turn exists merely
-    because the caller never observed a return. It inspects the same authoritative evidence
-    `reconcileOrphanedTurns()` (`turn-recovery.mjs`, import-only) already uses: if
-    `transcriptCache.getTranscript(provider, canonicalSessionId)` shows a real `activeTurn`/
-    `turns[]` entry, recover its `turnId` and enrich the claim with it ownership-conditionally
-    (as step 7 would have) before any settlement decision; if it conclusively shows no turn was
-    ever created, settle normally as in Case A; if the evidence is inconclusive, fail closed
-    (`markWorkspaceWriterRecoveryRequiredIfOwned`) rather than guess either way.
-  - **Case C — crash after step 6 returns but before step 7 completes** → `ownerId` + the
-    already-enriched canonical `sessionId` remain fully authoritative on their own; boot
-    reconciliation may additionally recover `turnId` from the same transcript-cache evidence as
-    Case B and enrich it then, but no release/settlement decision ever depends on `turnId` being
-    present.
+  - **`turnStartState: 'prepared'`** (a crash after step 4 but before step 6 ever lands) →
+    authoritative: `startTurn()` invocation had not yet begun. There is no ambiguous
+    provider-start window. `assessExecutionSettlement` finds nothing in-flight for the task and
+    the claim settles normally, exactly like any other "nothing was ever actually started" case —
+    **negative transcript evidence is not required** to reach this; the claim's own state already
+    proves it.
+  - **`turnStartState: 'invoking'`** (a crash after step 6 lands but before step 8 is ever
+    reached — the ambiguous start boundary) → recovery MUST NOT assume no turn exists merely
+    because the caller never observed step 7's return, **and MUST NOT treat an absent transcript
+    entry as proof either**, since transcript persistence is debounced (see above), not
+    synchronous. It inspects the same authoritative evidence `reconcileOrphanedTurns()`
+    (`turn-recovery.mjs`, import-only) already uses: if `transcriptCache.getTranscript(provider,
+    canonicalSessionId)` shows a real `activeTurn`/`turns[]` entry, recover its `turnId` and
+    enrich the claim with it ownership-conditionally (advancing to `turnStartState: 'started'` at
+    the same time, as step 8 would have) before any settlement decision; **if no matching
+    evidence is found, this is inconclusive, never proof of absence — fail closed
+    (`markWorkspaceWriterRecoveryRequiredIfOwned`)**, never release, never settle as if the turn
+    never started.
+  - **`turnStartState: 'started'`** (a crash after step 8 lands) → `turnId` is guaranteed present
+    (the atomic write in step 8); `ownerId` + the already-enriched canonical `sessionId` +
+    `turnId` are fully authoritative on their own; normal settlement/orphan reconciliation
+    applies with no ambiguity.
   No other path in this task (human-submit, the dispatch-priority check) ever acquires the
   admission mutex — only the workspace-writer claim.
 - **Workspace-writer release requires proven settlement AND matching ownership — never bare
   turn-terminal, never a blind mutation of whatever claim is currently live
-  (D59/D60/D61/D70/D97/D98).** When Hook 1 (`AgentSessionService`'s per-turn subscription)
-  observes a turn reach terminal, or Hook 3 (boot/first-request reconciliation, reusing
-  `reconcileOrphanedTurns()`'s own existing detection of a persisted `activeTurn` left behind
-  by an ungraceful restart) finds an orphaned turn, call `assessExecutionSettlement`
-  (`execution-settlement.mjs`, task 27 — import only) for that execution's task **before**
-  touching its workspace-writer claim:
-  - **settled** → read `ownerId`/`sessionId`/`turnId`/`taskId` directly from the **workspace-
-    writer claim record being reconciled** (its own durable fields, already established at
-    admission time per steps 4/7 above — never a separate session-level copy, D98; Hook 1's own
-    in-process closure, D70, is an equivalent, same-process-only source of the identical
-    `ownerId`) and call `releaseWorkspaceWriterIfOwned({expectedOwnerId, expectedSessionId,
-    expectedTurnId, expectedTaskId})` (task 27 — import only). **A `not-current-owner` result
-    (the live claim already belongs to a different, later execution because this reconciliation
-    ran late) is a safe no-op — never an error, never a retry, never touches the other
-    execution's claim** (this is precisely the stale-reconciliation race the brief describes, and
-    is guaranteed by D65's single-claim-per-worktree uniqueness plus D80/D83's own CAS/
-    control-lock atomicity — no other execution can have silently rewritten the fields of the
-    claim actually being reconciled).
+  (D59/D60/D61/D70/D97/D98/D99/D100).** Two distinct reconciliation entry points exist, and each
+  has exactly one legitimate identity source — never a third "whichever claim is live, use that"
+  rule (D100):
+  - **Hook 1 (`AgentSessionService`'s per-turn subscription) — a live, same-process callback for
+    a *specific* execution.** At admission time (the moment the claim for this execution was
+    created/enriched), the subscription captures that execution's own immutable identity —
+    `ownerId`, `sessionId`, `taskId`, and `turnId` once available — in its own closure (D70's
+    already-accepted in-process mechanism; no new durable store). **When this callback fires,
+    however delayed, it uses only its own captured identity — never the identity of whatever
+    claim happens to be live at that moment.** It may read the current claim to log/compare
+    against its captured values, but never to source the `expected*` arguments passed to the
+    ownership-conditional API.
+  - **Hook 3 (boot/first-request reconciliation, reusing `reconcileOrphanedTurns()`'s own
+    existing detection of a persisted `activeTurn` left behind by an ungraceful restart, or any
+    other lazy/next-acquisition reconciliation) — claim-driven, no in-memory identity available.**
+    It begins by atomically reading/snapshotting the currently persisted workspace-writer claim
+    (control-lock-protected). That snapshot's own `ownerId`/`sessionId`/`turnId`/`taskId`/
+    `turnStartState` **defines the execution being reconciled** — Hook 3 never starts from a
+    previously-known historical turn and then substitutes identity from a different, later claim.
+  Whichever hook is reconciling, call `assessExecutionSettlement` (`execution-settlement.mjs`,
+  task 27 — import only) for that execution's task **before** touching its workspace-writer
+  claim, first checking the identity source's own `turnStartState` (D99):
+  - **`turnStartState: 'prepared'`** → settle via `assessExecutionSettlement` directly; no
+    ambiguous window exists, and negative transcript evidence is never required to reach this.
+  - **`turnStartState: 'invoking'`** → inspect `transcriptCache.getTranscript` for matching turn
+    evidence (D99): positive evidence recovers `turnId` and continues below; **no evidence found
+    is inconclusive, never proof of absence — fail closed
+    (`markWorkspaceWriterRecoveryRequiredIfOwned`) rather than settle or release.**
+  - **`turnStartState: 'started'`** (or, for Hook 1's own captured identity, once `turnId` is
+    known) → proceed to the settlement outcomes below normally.
+  - **settled** → call `releaseWorkspaceWriterIfOwned({expectedOwnerId, expectedSessionId,
+    expectedTurnId, expectedTaskId})` (task 27 — import only) using **the identity source
+    established above** (Hook 1's own captured closure identity for execution A, or Hook 3's own
+    claim snapshot identity — never a mix of the two). **A `not-current-owner` result (the live
+    claim already belongs to a different, later execution because this reconciliation ran late)
+    is a safe no-op — never an error, never a retry, never touches the other execution's claim**
+    (this is precisely the stale-reconciliation race the brief describes, and is guaranteed by
+    D65's single-claim-per-worktree uniqueness plus D80/D83's own CAS/control-lock atomicity —
+    no other execution can have silently rewritten the fields of the claim actually being
+    reconciled *by this identity source*, since that source was captured/snapshotted
+    independently of whatever the live claim now says).
   - **not settled, but canonical session/turn state shows the execution is still genuinely
     active** (a false alarm, not truly orphaned) → no action.
   - **not settled, and genuinely terminal/orphaned** → call
     `markWorkspaceWriterRecoveryRequiredIfOwned({expectedOwnerId, ...same identity fields})`
-    (task 27 — import only), same ownership-conditional discipline. The claim is retained, not
-    deleted; every subsequent writer (human-submit, Publish, Batch Publish, the next agent
-    admission) remains blocked until an out-of-scope-for-this-task reconciliation action clears
-    it. No auto-clean/stash/discard of any file is ever performed here.
-  - **If the claim being reconciled carries no `sessionId` at all** (a crash between steps 2 and
-    4 — Case A above) — identity is unestablished: do nothing, fail closed (treat as
+    (task 27 — import only), same ownership-conditional discipline, same identity-source rule.
+    The claim is retained, not deleted; every subsequent writer (human-submit, Publish, Batch
+    Publish, the next agent admission) remains blocked until an out-of-scope-for-this-task
+    reconciliation action clears it. No auto-clean/stash/discard of any file is ever performed
+    here.
+  - **If the identity source carries no `sessionId`/`turnStartState` at all** (a crash between
+    steps 2 and 4 above) — identity is unestablished: do nothing, fail closed (treat as
     `recovery-required`-equivalent), never guess and never fall back to an unconditional release.
   `workspace-writer.mjs` and `execution-settlement.mjs` themselves never guess agent liveness
   or attempt settlement checking on their own initiative (D55/D60), and never expose an
@@ -372,9 +421,10 @@ generic reconciler's registry (D88) at its own module-load time.
   `automated: node --test tools/tests/workflow-continuation.test.mjs`
 - Simulating a turn reaching terminal **with settlement proven** (its `finishStep` completed,
   position no longer `active`, no dirty in-scope files) releases that execution's
-  workspace-writer claim (via `releaseWorkspaceWriterIfOwned`, using `workspaceOwnerId` read
-  directly from the claim record itself, D98) as part of the same reconciliation pass — a waiting
-  `activateAndSubmitHumanStep`/Publish request then proceeds.
+  workspace-writer claim (via `releaseWorkspaceWriterIfOwned`, using Hook 1's own
+  admission-time-captured `workspaceOwnerId` — D100 — never a fresh read of whatever the claim
+  record says at the moment the callback fires) as part of the same reconciliation pass — a
+  waiting `activateAndSubmitHumanStep`/Publish request then proceeds.
   `automated: node --test tools/tests/workflow-continuation.test.mjs`
 - Simulating a turn reaching **failed/cancelled with `workflow step start`'s own mutation left
   un-finalized** (no `finishStep` ever ran, position still `active`) does **not** release the
@@ -386,12 +436,13 @@ generic reconciler's registry (D88) at its own module-load time.
   `running`** (an unsettled completion) also does **not** release the claim — marked
   `recovery-required` identically to the failed/cancelled case.
   `automated: node --test tools/tests/workflow-continuation.test.mjs`
-- **Stale-reconciliation race, proven directly (D70/D71):** execution A reaches terminal and
+- **Stale-reconciliation race, proven directly (D70/D71/D100):** execution A reaches terminal and
   its claim is released through the normal path; execution B then acquires the workspace-writer
   claim for the same physical worktree; a *delayed* Hook 1 callback for A (representing a
   reconciliation event scheduled while A was still active but only run after B's own
-  acquisition) is then invoked — it reads A's own persisted `workspaceOwnerId`, calls
-  `releaseWorkspaceWriterIfOwned` with it, receives `{released: false, reason:
+  acquisition) is then invoked — it uses **A's own identity, captured in its closure at
+  admission time** (never a fresh read of the live claim record, which by now belongs to B),
+  calls `releaseWorkspaceWriterIfOwned` with it, receives `{released: false, reason:
   'not-current-owner'}`, and B's claim is completely unaffected (session/turn state, `status`,
   every field unchanged).
   `automated: node --test tools/tests/workflow-continuation.test.mjs`
@@ -513,36 +564,61 @@ generic reconciler's registry (D88) at its own module-load time.
   and takes no release/mark action — treated identically to D71's own unestablished-identity
   case.
   `automated: node --test tools/tests/workflow-continuation.test.mjs`
-- **Crash before `startTurn()` is ever invoked settles safely (D97, Case A):** with `sessionId`
-  already durably enriched but `startTurn()` never called, `transcriptCache.getTranscript`
-  confirms no `activeTurn`/`turns[]` entry exists for that session; `assessExecutionSettlement`
-  finds nothing in-flight and the claim settles normally.
+- **The claim is durably marked `'prepared'` after `sessionId` enrichment, before the invocation
+  boundary (D99):** immediately after step 4, the claim carries `sessionId` and `turnStartState:
+  'prepared'`; `startTurn()` has not yet been called.
   `automated: node --test tools/tests/workflow-continuation.test.mjs`
-- **A registered-but-unobserved turn is discovered, not assumed absent (D97, Case B):**
-  `startTurn()` is invoked and internally registers/persists a real turn, but the simulated caller
-  never receives the returned `{turnId,...}` (process loss before promise resolution). Boot
-  reconciliation, using `reconcileOrphanedTurns()`'s own transcript-cache evidence, discovers the
-  real turn, recovers its `turnId`, and enriches the claim with it ownership-conditionally —
-  never treating the claim as if no turn had ever started.
+- **The claim becomes `'invoking'` immediately before `startTurn()` is called (D99):** step 6's
+  own `updateWorkspaceWriterIfOwned` call lands and is observable as `turnStartState: 'invoking'`
+  strictly before `AgentTurnRuntime.startTurn()` is ever invoked.
   `automated: node --test tools/tests/workflow-continuation.test.mjs`
-- **Ambiguous Case B evidence fails closed rather than guessing either way (D97):** when the
-  transcript-cache evidence needed to confirm or rule out a turn for the ambiguous
-  `startTurn()` boundary is unavailable/inconclusive, reconciliation marks the claim
-  `recovery-required` rather than assuming settlement or assuming an active turn.
+- **`turnId` and `turnStartState: 'started'` are persisted together, ownership-conditionally,
+  once `startTurn()` returns (D99):** after step 8, the claim carries both fields; no intermediate
+  state exists where one is present without the other.
   `automated: node --test tools/tests/workflow-continuation.test.mjs`
-- **Crash after `startTurn()` returns but before `turnId` enrichment completes is safely
-  reconciled by `ownerId` + canonical `sessionId` alone (D93/D97, Case C):** boot reconciliation
-  may recover `turnId` from the same transcript-cache evidence as Case B and enrich it, but no
-  release/settlement decision depends on `turnId` being present.
+- **Crash with `turnStartState: 'prepared'` settles safely without transcript evidence (D99):**
+  with the claim durably at `'prepared'` and `startTurn()` never invoked, reconciliation settles
+  normally via `assessExecutionSettlement` alone — no `transcriptCache.getTranscript` call is
+  required to reach that conclusion, and none needs to prove a negative.
+  `automated: node --test tools/tests/workflow-continuation.test.mjs`
+- **Crash with `turnStartState: 'invoking'` plus persisted matching turn evidence recovers
+  `turnId` and continues normal reconciliation (D99):** `startTurn()` is invoked (the claim
+  reaches `'invoking'`), and internally registers/persists a real turn, but the simulated caller
+  never receives the returned `{turnId,...}` (process loss before promise resolution). With a
+  matching `activeTurn`/`turns[]` entry actually persisted, reconciliation discovers the real
+  turn via `reconcileOrphanedTurns()`'s own transcript-cache evidence, recovers its `turnId`, and
+  enriches the claim with it ownership-conditionally (advancing to `'started'`) — never treating
+  the claim as if no turn had ever started.
+  `automated: node --test tools/tests/workflow-continuation.test.mjs`
+- **Crash with `turnStartState: 'invoking'` and NO persisted matching transcript evidence does
+  NOT release the claim and becomes `recovery-required` (D99):** the identical scenario above, but
+  the transcript flush never landed before the crash (simulating the debounce window). Absence of
+  a matching `activeTurn`/`turns[]` entry is treated as inconclusive, never as proof the turn
+  never started — reconciliation marks the claim `recovery-required`
+  (`markWorkspaceWriterRecoveryRequiredIfOwned`) rather than settling normally or releasing it.
+  `automated: node --test tools/tests/workflow-continuation.test.mjs`
+- **`execution.session: reuse` with an old persisted transcript but no newly-flushed turn still
+  treats `'invoking'` as ambiguous, never "not started" (D99):** the session being reused already
+  has a persisted transcript containing older, unrelated turns from a prior execution; the new
+  execution's own turn was never flushed before the crash. Reconciliation does not mistake the
+  session's pre-existing transcript for evidence about *this* execution's own turn — the claim
+  still fails closed exactly as the single-execution case above, never settling merely because
+  *some* transcript exists for that session.
+  `automated: node --test tools/tests/workflow-continuation.test.mjs`
+- **The `turnId`/`turnStartState: 'started'` transition is atomic from the claim protocol's own
+  perspective; a claim can never be observed as `'started'` with a missing `turnId` (D99):**
+  simulating a crash around step 8's own single `updateWorkspaceWriterIfOwned` call never produces
+  a claim with `turnStartState: 'started'` and no `turnId` — the claim is observed either still at
+  `'invoking'` (the update never landed) or fully `'started'` with `turnId` present (it did).
   `automated: node --test tools/tests/workflow-continuation.test.mjs`
 - **Settlement/release never depends on assuming an unresolved `startTurn()` call means "not
-  started" (D97):** across Cases A/B/C above, the only signal ever used to distinguish them is
-  authoritative transcript-cache evidence — never the mere absence of a caller-observed return
-  value.
+  started" (D97/D99):** across every `turnStartState` case above, the only signal ever used to
+  settle a claim without transcript evidence is `turnStartState: 'prepared'` itself — an absent
+  transcript entry during `'invoking'` is never treated as equivalent proof.
   `automated: node --test tools/tests/workflow-continuation.test.mjs`
-- **`execution.session: fresh` creates a new canonical session and then follows D93/D97 (D98):**
-  a `fresh`-policy transition calls `createSession(...)`, and the resulting `sessionId` is
-  enriched onto the claim before `startTurn()` is invoked.
+- **`execution.session: fresh` creates a new canonical session and then follows D93/D97/D99
+  (D98):** a `fresh`-policy transition calls `createSession(...)`, and the resulting `sessionId`
+  is enriched onto the claim (with `turnStartState: 'prepared'`) before `startTurn()` is invoked.
   `automated: node --test tools/tests/workflow-continuation.test.mjs`
 - **`execution.session: reuse` reuses the selected canonical session and never creates another
   one (D98):** a `reuse`-policy transition resolves the existing target session's `sessionId`
@@ -555,17 +631,37 @@ generic reconciler's registry (D88) at its own module-load time.
   matches it.
   `automated: node --test tools/tests/workflow-continuation.test.mjs`
 - **Two sequential reused-session executions cannot let a delayed reconciliation for the older one
-  act using the newer one's ownership evidence (D98):** execution A (turn T1) and execution B
+  act using the newer one's ownership evidence (D98/D100):** execution A (turn T1) and execution B
   (turn T2) both reuse canonical session S, each owning a distinct workspace claim over time.
   Reconciliation for A is delayed until after B has already been admitted and enriched its own
   claim. Because `expectedOwnerId`/`expectedSessionId`/`expectedTurnId` for A's reconciliation are
-  read from A's own claim snapshot (never from any session-level field), the delayed
-  reconciliation for A cannot match, mutate, or release B's live claim.
+  sourced from A's own admission-time-captured identity (Hook 1's closure) — never from whatever
+  claim happens to be currently live — the delayed reconciliation for A cannot match, mutate, or
+  release B's live claim.
   `automated: node --test tools/tests/workflow-continuation.test.mjs`
-- **Delayed reconciliation for an older turn remains ownership-conditional and cannot release or
-  mark the newer execution's claim (D98):** with A's claim already superseded by B's live claim,
-  `releaseWorkspaceWriterIfOwned`/`markWorkspaceWriterRecoveryRequiredIfOwned` called with A's own
-  `expectedOwnerId` return `not-current-owner` and leave B's claim entirely untouched.
+- **Delayed Hook 1 for execution A runs after execution B has acquired a newer claim and still
+  calls the ownership-conditional mutation using A's own captured `ownerId`, not B's current one
+  (D100):** A's per-turn subscription fires only once, long after A's own claim was released and
+  B's own claim is now live; the callback's `expectedOwnerId` argument is provably A's own
+  captured value throughout, never read from B's live claim record.
+  `automated: node --test tools/tests/workflow-continuation.test.mjs`
+- **That delayed A callback returns `not-current-owner` and leaves B's claim byte-for-byte
+  unchanged (D98/D100):** `releaseWorkspaceWriterIfOwned`/`markWorkspaceWriterRecoveryRequiredIfOwned`
+  called with A's own `expectedOwnerId` return `not-current-owner` and leave B's claim entirely
+  untouched.
+  `automated: node --test tools/tests/workflow-continuation.test.mjs`
+- **Hook 3 restart reconciliation starts from the current durable claim snapshot and only resolves
+  turn evidence attributable to that claim's own session/turn identity (D100):** boot
+  reconciliation reads the live workspace-writer claim first, and every subsequent
+  turn/transcript lookup uses that snapshot's own `sessionId`/`turnId`, never a different,
+  historically-known execution's identity.
+  `automated: node --test tools/tests/workflow-continuation.test.mjs`
+- **Restart reconciliation never associates a historical turn from a reused session with a
+  different current workspace claim merely because the canonical `sessionId` matches (D100):** a
+  reused session S has an older, already-terminal turn T1 (execution A) and the current claim
+  belongs to execution B (a newer turn T2, same session S). Boot reconciliation resolves identity
+  from the *current claim's own* `turnId` (T2), never accidentally reconciling using T1's own,
+  unrelated evidence merely because both share `sessionId` S.
   `automated: node --test tools/tests/workflow-continuation.test.mjs`
 - A pending human-submit request waiting on an active agent reports `waiting-for-workspace`;
   once that agent's claim is marked `recovery-required` instead of released, the same pending

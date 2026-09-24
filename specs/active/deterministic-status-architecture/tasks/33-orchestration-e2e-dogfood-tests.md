@@ -16,7 +16,7 @@ forbidden_paths:
   - src/**
 depends_on: [ dashboard-orchestration-wiring, user-mutation-source-control-finalization, dependency-invalidation-remediation-review ]
 semantic_references:
-  decisions: [D33, D40, D41, D42, D44, D45, D47, D49, D50, D51, D52, D53, D55, D56, D57, D58, D59, D60, D61, D62, D63, D64, D65, D66, D67, D68, D69, D70, D71, D72, D73, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D90, D91, D92, D93, D94, D95, D96, D97, D98]
+  decisions: [D33, D40, D41, D42, D44, D45, D47, D49, D50, D51, D52, D53, D55, D56, D57, D58, D59, D60, D61, D62, D63, D64, D65, D66, D67, D68, D69, D70, D71, D72, D73, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D90, D91, D92, D93, D94, D95, D96, D97, D98, D99, D100]
 ---
 
 # Task: Orchestration end-to-end dogfood tests
@@ -461,42 +461,78 @@ declarative release/invalidation.
 105. A stale resubmission against that terminal record does not rewrite its bytes or create a
      replacement operation/request.
 
-**Corrected `startTurn()` crash classification (D97):**
-106. A crash before `AgentTurnRuntime.startTurn()` is ever invoked settles the claim normally —
-     authoritative transcript-cache evidence confirms no turn was ever created.
-107. `startTurn()` has already registered/persisted a real turn internally, but the caller
-     crashes/loses the process before ever receiving the returned `turnId` — reconciliation
-     discovers the real turn from transcript-cache evidence rather than assuming none exists.
-108. The same ambiguous boundary as 107, but with the transcript-cache evidence unavailable or
-     inconclusive — reconciliation fails closed (`recovery-required`) rather than guessing either
-     way.
-109. A persisted active turn discovered after a simulated restart allows ownership-conditional
-     `turnId` enrichment of the claim it belongs to.
-110. A stale recovered `turnId` (belonging to an older, already-superseded execution) cannot
-     enrich a newer workspace claim.
-111. Across scenarios 106–110, no settlement/release decision is ever made by assuming an
-     unresolved `startTurn()` call means "not started" — each is driven only by authoritative
-     transcript-cache evidence.
+**Corrected `startTurn()` crash classification, keyed on the durable `turnStartState` marker, never on transcript absence alone (D97, corrected D99):**
+106. The agent claim is durably marked `turnStartState: 'prepared'` after canonical `sessionId`
+     enrichment and before the invocation boundary — observable strictly before
+     `AgentTurnRuntime.startTurn()` is ever called.
+107. Immediately before calling `startTurn()`, the exact claim becomes `turnStartState:
+     'invoking'` — observable strictly before the call, via its own dedicated
+     ownership-conditional update.
+108. After `startTurn()` returns, `turnId` and `turnStartState: 'started'` are persisted
+     ownership-conditionally in one atomic update — never observable as two separately-landed
+     writes.
+109. A crash with `turnStartState: 'prepared'` is reconciled as "start invocation never began" —
+     `assessExecutionSettlement` settles the claim normally, and no transcript-cache lookup is
+     needed or performed to reach that conclusion.
+110. A crash with `turnStartState: 'invoking'` plus persisted matching turn evidence
+     (`activeTurn`/`turns[]`) recovers the real `turnId` from `reconcileOrphanedTurns()`'s own
+     transcript-cache evidence and continues normal reconciliation — never treating the claim as
+     if no turn had started.
+111. A crash with `turnStartState: 'invoking'` and **no** persisted matching transcript evidence
+     does **not** release the claim and does **not** settle it normally — it becomes
+     `recovery-required`, because absent evidence during this window is inconclusive (transcript
+     persistence is debounced), never proof of absence.
+112. `execution.session: reuse` with an old, already-persisted transcript (containing only older,
+     unrelated turns from a prior execution on the same session) but no newly-flushed turn for
+     *this* execution still treats `turnStartState: 'invoking'` as ambiguous, never "not
+     started" — the pre-existing transcript is not mistaken for evidence about this execution.
+113. The transition to `turnStartState: 'started'` and the persistence of `turnId` are atomic
+     from the workspace-claim protocol's own perspective — simulating a crash around that single
+     update never produces a claim observed as `'started'` with a missing `turnId`; it is either
+     still `'invoking'` or fully `'started'` with `turnId` present.
+114. Across scenarios 106–113, no settlement/release decision is ever made by assuming an
+     unresolved `startTurn()` call means "not started" — the only signal that ever settles a
+     claim without transcript evidence is `turnStartState: 'prepared'` itself.
 
 **D26 `execution.session: fresh|reuse` integration (D98):**
-112. `execution.session: fresh` creates a new canonical session and then follows D93's
-     `sessionId`-before-`startTurn()`/`turnId`-after-`startTurn()` sequence.
-113. `execution.session: reuse` resolves the existing target session's own `sessionId` and never
+115. `execution.session: fresh` creates a new canonical session and then follows D93/D99's
+     `sessionId`/`'prepared'`-before-`startTurn()`, `'invoking'`-immediately-before-`startTurn()`,
+     `turnId`/`'started'`-after-`startTurn()` sequence.
+116. `execution.session: reuse` resolves the existing target session's own `sessionId` and never
      calls `createSession()`.
-114. Both the `fresh` and `reuse` branches enrich the claim with the canonical `sessionId` before
+117. Both the `fresh` and `reuse` branches enrich the claim with the canonical `sessionId` before
      `startTurn()` is ever invoked.
-115. Two sequential executions reusing the same canonical session but owning distinct workspace
+118. Two sequential executions reusing the same canonical session but owning distinct workspace
      claims cannot let a delayed reconciliation for the older execution read or act on the newer
-     execution's ownership evidence — each reconciliation sources `expectedOwnerId`/
-     `expectedSessionId`/`expectedTurnId` from its own claim snapshot, never a session-level
-     field.
-116. Delayed reconciliation for the older of two reused-session executions remains
+     execution's ownership evidence — Hook 1's own reconciliation for the older execution sources
+     `expectedOwnerId`/`expectedSessionId`/`expectedTurnId` from that execution's own
+     admission-time-captured identity, never from whichever claim happens to be currently live
+     (D100).
+119. Delayed reconciliation for the older of two reused-session executions remains
      ownership-conditional and cannot release or mark the newer execution's claim.
+
+**Identity-source distinction for reconciliation — Hook 1's captured identity vs. Hook 3's claim snapshot, never a third "whichever claim is current" rule (D100):**
+120. Delayed Hook 1 for execution A runs only after execution B has already acquired a newer
+     claim for the same physical worktree, and the callback's ownership-conditional mutation
+     provably uses A's own identity, captured at A's own admission time — never a value read from
+     B's live claim record at the moment the callback fires.
+121. That delayed A callback returns `not-current-owner` and leaves B's claim byte-for-byte
+     unchanged — every field (`ownerId`, `sessionId`, `turnId`, `status`, `turnStartState`)
+     identical before and after the callback runs.
+122. Hook 3 restart reconciliation starts from an atomic snapshot of the current durable
+     workspace-writer claim, and every turn/session evidence lookup it performs is scoped to that
+     snapshot's own `sessionId`/`turnId` — never a different, previously-known execution's
+     identity.
+123. Restart reconciliation never associates a historical turn from a reused session with a
+     different, current workspace claim merely because the canonical `sessionId` matches — a
+     reused session with an older, already-terminal turn (execution A) and a current claim
+     belonging to a newer turn (execution B) resolves identity from the current claim's own
+     `turnId`, never A's.
 
 All scenarios: `automated: node --test tools/tests/orchestration-e2e.test.mjs` (or
 `tools/dashboard/tests/orchestration-e2e.test.mjs` for scenarios that must exercise the
 dashboard-side dispatch/admission code — 2, 8, 20, 21, 28, 34, 35, 36, 42–57, 61–63, 69–71,
-73–75, 78, 83, 88–93, 101–103, 106–116 specifically).
+73–75, 78, 83, 88–93, 101–103, 106–123 specifically).
 
 ## Verification
 

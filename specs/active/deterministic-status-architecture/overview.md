@@ -795,7 +795,11 @@ contradictions in the agent-admission identity/session sequence before implement
    but the return was never observed (recover the real turn from evidence if one exists, settle
    normally if evidence proves none was created, fail closed if the evidence is inconclusive);
    returned but `turnId` enrichment incomplete (unchanged from D93). Never guesses "not started"
-   from a caller's own missing return value.
+   from a caller's own missing return value. **Corrected further by pass 21's D99** — "evidence
+   proves none was created" was itself too strong: transcript persistence is debounced, so a bare
+   absent lookup during the ambiguous window is inconclusive, not conclusive; D99 introduces a
+   durable `turnStartState` marker so the truly-safe-to-settle case (`'prepared'`) never depends
+   on transcript evidence at all.
 2. **D93's admission sequence unconditionally called `AgentSessionService.createSession()`,
    silently overriding D26's already-accepted `execution.session: fresh|reuse` transition policy
    (D98).** Corrected: admission branches on the entering transition's own D26 policy —
@@ -812,6 +816,43 @@ contradictions in the agent-admission identity/session sequence before implement
    D80/D83 CAS/control-lock atomicity. `AgentSessionBindingService.setWorkspaceOwnerId`/
    `setWorkspaceOwnerIdSync` and task 29's `binding-service.mjs` `allowed_paths` entry (both added
    by pass 19) are removed as unnecessary. This is a net simplification, not a new subsystem.
+   **Extended by pass 21's D100** — "the claim record being reconciled" is precise for Hook 3/lazy
+   reconciliation but was ambiguous enough to be misread as a rule for Hook 1's own delayed
+   per-turn callback too, which must instead use its own admission-time-captured identity, never
+   whatever claim happens to be live when it finally fires.
+
+**Corrective pass 21 (2026-09-24, D99–D100, corrections to D97/D98): closing the final
+crash-recovery ambiguity and delayed-reconciliation identity race before implementation
+starts.**
+
+1. **D97's own Case B "if authoritative evidence proves no turn was ever created... → settle
+   normally" branch treats a negative transcript lookup as conclusive, but
+   `transcript-cache.mjs`'s own `recordCanonicalTurn`/`#markDirty` flush is debounced
+   (`flushDebounceMs`, default 50ms), not synchronous — a crash inside that window can leave a
+   genuinely-created, possibly-still-running turn with no persisted `activeTurn`/`turns[]` entry
+   at all (D99).** Corrected: a new, agent-only, durable `turnStartState: 'prepared' | 'invoking'
+   | 'started'` marker on the workspace-writer claim itself. `'prepared'` is set with `sessionId`
+   before `startTurn()` is ever called — recovery may settle a `'prepared'` claim with **no**
+   transcript lookup at all, since the claim's own state already proves no invocation began.
+   `'invoking'` is set by a new, dedicated write immediately before `startTurn()` is actually
+   invoked — recovery for an `'invoking'` claim inspects transcript-cache evidence exactly as
+   before, but a **negative** result is now inconclusive, not conclusive, and fails closed
+   (`recovery-required`) rather than settling normally. `turnId` and `turnStartState: 'started'`
+   are written together, atomically, once `startTurn()` returns, so a `'started'` claim is
+   guaranteed to carry `turnId`. No new subsystem — one additional optional field on the existing
+   claim record, merged via the existing `updateWorkspaceWriterIfOwned` mechanism.
+2. **D98's own "read `ownerId`/`sessionId`/`turnId`/`taskId` directly from the workspace-writer
+   claim record being reconciled" is precise for Hook 3/lazy reconciliation but ambiguous enough
+   to be misread as a universal rule — for a *delayed* Hook 1 callback, reading "the current
+   claim record" could return a newer execution's own identity if that execution's claim was
+   released and reacquired before the delayed callback finally runs, defeating the
+   ownership-conditional protection by supplying the mutation API with the wrong (but genuinely
+   current) identity (D100).** Corrected: exactly two legitimate identity sources, never a third.
+   Hook 1 (live, same-process, per-turn) captures its own execution's identity in its own closure
+   at admission time and always uses that captured identity, regardless of what the live claim
+   says when the callback finally fires. Hook 3 (boot/lazy, no in-memory identity) is, and
+   remains, claim-driven — it snapshots the current durable claim first, and that snapshot alone
+   defines the execution being reconciled. Neither hook ever substitutes the other's source.
 
 ## Current architecture
 
@@ -1568,14 +1609,34 @@ importing dashboard code).
 evidence confirms no turn exists; invoked but the caller never received the return value is
 resolved from that same evidence rather than assumed absent, recovering a genuinely-registered
 turn's `turnId` or failing closed when the evidence is inconclusive; returned but `turnId`
-enrichment incomplete is unchanged from D93 — never infers "not started" from an unresolved call).
-D98 (agent admission branches on D26's `execution.session: fresh|reuse` policy instead of
-unconditionally calling `createSession()` — `fresh` creates a new canonical session, `reuse`
-resolves the existing target session's own `sessionId` without inventing a new selection
-mechanism; and D71's session-level `workspaceOwnerId` field is withdrawn as unsafe under session
-reuse and unnecessary, since the workspace-writer claim's own already-durable, already-atomic
-`ownerId`/`sessionId`/`turnId` fields are sufficient reconciliation evidence on their own — a net
-simplification, not a new subsystem).
+enrichment incomplete is unchanged from D93 — never infers "not started" from an unresolved call —
+**its own "evidence confirms no turn exists" branch itself corrected by pass 21's D99**, since
+transcript persistence is debounced and a bare negative lookup during the ambiguous window is
+inconclusive, not confirmatory). D98 (agent admission branches on D26's `execution.session:
+fresh|reuse` policy instead of unconditionally calling `createSession()` — `fresh` creates a new
+canonical session, `reuse` resolves the existing target session's own `sessionId` without
+inventing a new selection mechanism; and D71's session-level `workspaceOwnerId` field is withdrawn
+as unsafe under session reuse and unnecessary, since the workspace-writer claim's own
+already-durable, already-atomic `ownerId`/`sessionId`/`turnId` fields are sufficient
+reconciliation evidence on their own — a net simplification, not a new subsystem — **its own
+"claim record being reconciled" identity-sourcing wording itself clarified by pass 21's D100** for
+the delayed-Hook-1 case).
+
+**Corrective pass 21 decisions (2026-09-24):** D99 (a durable `turnStartState: 'prepared' |
+'invoking' | 'started'` marker on the `agent`-kind workspace-writer claim, set with `sessionId`
+before `startTurn()`, advanced to `'invoking'` immediately before invoking it, and to
+`'started'`/`turnId` atomically once it returns — recovery settles a `'prepared'` claim with no
+transcript evidence required, treats a negative transcript lookup for an `'invoking'` claim as
+inconclusive rather than proof of absence and fails closed instead of guessing, and finds a
+`'started'` claim's `turnId` always present by construction — corrects D97's own too-strong
+negative-evidence branch without changing transcript-cache's own durability semantics or
+introducing a new subsystem). D100 (exactly two legitimate identity sources for workspace-claim
+reconciliation, never a third "whichever claim is current" rule — Hook 1's own
+admission-time-captured closure identity for its live, same-process, per-turn callbacks, or a
+fresh snapshot of the current durable claim for Hook 3/lazy reconciliation, which begins only
+from that snapshot's own identity and never substitutes in a different, previously-known
+execution's identity — clarifies D70/D98's own wording without changing the ownership-conditional
+mechanism itself or reintroducing a session-level `workspaceOwnerId`).
 
 ## Proposed architecture
 

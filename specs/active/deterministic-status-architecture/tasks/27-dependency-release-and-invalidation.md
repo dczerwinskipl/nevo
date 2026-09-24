@@ -39,7 +39,7 @@ forbidden_paths:
   - tools/dashboard/**
 depends_on: [ workflow-continuation-schema ]
 semantic_references:
-  decisions: [D28, D31, D36, D37, D40, D44, D47, D50, D51, D52, D53, D55, D56, D58, D59, D60, D61, D62, D65, D66, D69, D70, D71, D72, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D91, D92, D93, D95, D97, D98]
+  decisions: [D28, D31, D36, D37, D40, D44, D47, D50, D51, D52, D53, D55, D56, D58, D59, D60, D61, D62, D65, D66, D69, D70, D71, D72, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D91, D92, D93, D95, D97, D98, D99, D100]
 ---
 
 # Task: Dependency release and invalidation
@@ -118,7 +118,11 @@ and D44's separate `SuspensionProjection`.
   same directory, so two different specs sharing this checkout correctly contend against each
   other: `{ownerId, kind: 'agent'|'cli-manual'|'human-submit'|'publish'|'batch-publish',
   status: 'active'|'recovery-required', requestId?, operationRef?, specId, taskId?, sessionId?,
-  turnId?, pid?, createdAt}`. **`requestId` (D82) is required for every request-backed kind**
+  turnId?, turnStartState?, pid?, createdAt}`. **`turnStartState: 'prepared'|'invoking'|'started'`
+  is legal only for `kind: 'agent'`** (D99) — a positive, durably-written marker of how far
+  `startTurn()` invocation has progressed, so recovery never has to treat absent transcript
+  evidence as proof no turn was created during the debounced-flush window (see below).
+  **`requestId` (D82) is required for every request-backed kind**
   (`human-submit`/`publish`/`batch-publish`) and is the sole match key reconciliation uses for
   those kinds — `kind`/`specId`/`taskId` remain attribution fields only, never the acquisition
   key and never a substitute for `requestId` (two distinct requests can share identical
@@ -180,15 +184,20 @@ and D44's separate `SuspensionProjection`.
     use.** No orchestration/reconciliation code calls this; at most a future, explicitly
     out-of-scope manual-operator recovery tool might, deliberately, with a human already
     involved.
-  - **`updateWorkspaceWriterIfOwned({repoRoot, expectedOwnerId, sessionId?, turnId?, specId?,
-    taskId?})` (new, D89) — ownership-conditional enrichment, not release.** Inside
-    `withWorkspaceControlLock`: if `ownerId` matches, merges the supplied fields (e.g.
-    `sessionId`/`turnId`, unknown at an `agent`-kind claim's own creation time) into the
-    existing record and returns `{updated: true}`; on a mismatch, does nothing and returns
-    `{updated: false, reason: 'not-current-owner', currentClaim}` — the same discipline as
-    every other conditional mutation here, just merging instead of deleting/flagging. This is
-    how a claim acquired before session/turn identity exists later becomes durably matchable
-    against D86's trusted-ambient-identity check, without a second claim-creation path.
+  - **`updateWorkspaceWriterIfOwned({repoRoot, expectedOwnerId, sessionId?, turnId?,
+    turnStartState?, specId?, taskId?})` (new, D89; `turnStartState` added D99) —
+    ownership-conditional enrichment, not release.** Inside `withWorkspaceControlLock`: if
+    `ownerId` matches, merges the supplied fields (e.g. `sessionId`/`turnId`, unknown at an
+    `agent`-kind claim's own creation time, and `turnStartState`, D99) into the existing record
+    and returns `{updated: true}`; on a mismatch, does nothing and returns `{updated: false,
+    reason: 'not-current-owner', currentClaim}` — the same discipline as every other conditional
+    mutation here, just merging instead of deleting/flagging. This is how a claim acquired before
+    session/turn identity exists later becomes durably matchable against D86's trusted-ambient-
+    identity check, without a second claim-creation path. Callers may merge multiple fields in one
+    call (e.g. `{sessionId, turnStartState: 'prepared'}` together, or `{turnId, turnStartState:
+    'started'}` together, D99) — the merge itself is a single atomic write regardless of how many
+    fields are supplied, so two logically-paired fields (like `turnId` and `turnStartState:
+    'started'`) can be made to land together or not at all.
   - `listPendingWorkspaceWriters(specId)` — returns the in-process pending-waiters list
     (`kind`, `requestedAt`) as a **local wakeup/optimization hint only** — no longer the
     authority for D57's dispatch-priority ordering, which now reads the durable
@@ -234,6 +243,48 @@ and D44's separate `SuspensionProjection`.
   an orphaned execution being reconciled, treat identity as unestablished: never release, never
   mark anything — surface this identically to `recovery-required` (an operator must resolve it;
   resolving it is out of scope for this task, D61).
+
+### `turnStartState` — a positive invocation-phase marker so absent transcript evidence is never mistaken for proof `startTurn()` was never invoked (D99)
+
+- **Why this module owns the field, not task 29.** `turnStartState` lives on the same
+  `agent`-kind workspace-writer claim record this module already owns and mutates
+  ownership-conditionally — task 29 only calls `updateWorkspaceWriterIfOwned` with the field's
+  value at the right moments (below); this module defines what the field means and stores it.
+- **Three legal values, `kind: 'agent'` only:**
+  - **`'prepared'`** — set together with `sessionId` in the same ownership-conditional call, once
+    canonical session identity is resolved and before `AgentTurnRuntime.startTurn()` is ever
+    called. Authoritative meaning: the `startTurn()` invocation has not yet begun. There is no
+    ambiguous provider-start window for a claim in this state.
+  - **`'invoking'`** — set by its own dedicated ownership-conditional call, immediately before
+    `startTurn()` is actually invoked (never merged with the `'prepared'` write, since a real time
+    gap — session/turn-policy resolution, dispatch — can separate them). Authoritative meaning:
+    the process crossed the durable point immediately before invoking `startTurn()`, but no
+    durable post-return acknowledgement exists yet. This is the ambiguous start boundary.
+  - **`'started'`** — set together with `turnId` in one atomic ownership-conditional call once
+    `startTurn()` returns. Authoritative meaning: the caller observed `startTurn()`'s own return
+    and both fields are now durable. Because they are written together, a claim can never be
+    observed as `'started'` with a missing `turnId` — this state does not, by itself, need a
+    separate "is `turnId` present" check.
+- **Recovery reads `turnStartState` first, before ever consulting transcript-cache evidence:**
+  - **Absent** (claim has no `sessionId`/`turnStartState` at all) — identity unestablished
+    exactly as D71 already defines it: fail closed, never guess.
+  - **`'prepared'`** — settle via `assessExecutionSettlement` exactly as any other "nothing was
+    ever actually started" case. **Negative transcript evidence is not required** to reach this —
+    the claim's own state already proves no invocation began.
+  - **`'invoking'`** — inspect the same transcript-cache evidence `reconcileOrphanedTurns()`
+    already uses (`listPersistedSessions()`/`getTranscript()`) for a matching `activeTurn`/
+    `turns[]` entry. **Positive** evidence → recover `turnId`, enrich the claim (advancing it to
+    `'started'` at the same time), continue normal reconciliation. **No matching evidence** →
+    this is inconclusive, never proof of absence (`transcript-cache.mjs`'s own `recordCanonicalTurn`/
+    `#markDirty` flush is debounced, not synchronous) — fail closed
+    (`markWorkspaceWriterRecoveryRequiredIfOwned`), never release, never settle as if nothing
+    happened.
+  - **`'started'`** — `turnId` is guaranteed present; normal settlement/orphan reconciliation
+    applies with no ambiguity.
+- **Never a substitute for `expectedOwnerId`.** `turnStartState` narrows *when* transcript
+  evidence is trustworthy as negative proof — it is never itself an identity field passed as an
+  `expected*` argument, and never changes which identity source a caller uses (D100 governs that
+  separately).
 
 ### Execution settlement — the concrete, reusable "is it safe to release" check (D59/D60)
 
@@ -622,6 +673,18 @@ and D44's separate `SuspensionProjection`.
   attempted with no persisted `workspaceOwnerId` available at all (the claim itself carries none,
   e.g. a crash before enrichment) takes the fail-closed path — no release, no mutation of the live
   claim.
+  `automated: node --test tools/tests/workspace-writer.test.mjs`
+- **`turnStartState` transitions through `updateWorkspaceWriterIfOwned` (D99).** An `agent`-kind
+  claim can be enriched with `turnStartState: 'prepared'` alongside `sessionId` in one call, later
+  advanced to `'invoking'` alone, then advanced to `'started'` together with `turnId` in one final
+  call — each transition ownership-conditional, each a single atomic merge; `turnStartState` is
+  never accepted for a `cli-manual`/`human-submit`/`publish`/`batch-publish` claim.
+  `automated: node --test tools/tests/workspace-writer.test.mjs`
+- **`turnId` and `turnStartState: 'started'` land atomically or not at all (D99).** Simulating a
+  crash between "compute the update" and "the single `updateWorkspaceWriterIfOwned` call landing"
+  never produces a claim with `turnStartState: 'started'` and a missing `turnId` — the claim is
+  observed either still at `'invoking'` (both fields absent from this update) or fully `'started'`
+  (both present), never a hybrid.
   `automated: node --test tools/tests/workspace-writer.test.mjs`
 - **Generic `cli-manual` ownership does not depend on `consumesDependencies` (D85):** a
   `cli-manual` claim acquired for a step that does **not** declare `consumesDependencies: true`
