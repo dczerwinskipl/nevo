@@ -10,7 +10,7 @@ workflow:
 
 branch:
   mode: per-change
-  name: feature/deterministic-status-architecture
+  name: feature/ai-spec-history
 
 tasks:
   - id: legacy-mutation-guard
@@ -219,7 +219,9 @@ tasks:
   - id: agent-step-bootstrap-and-context
     order: 24
     file: tasks/24-agent-step-bootstrap-and-context.md
-    status: draft
+    status: verified
+    implementation:
+      baseline_revision: e4a1d0a4ef4bd14ef454959000ad53fdedaa903b
   - id: workflow-continuation-schema
     order: 25
     file: tasks/25-workflow-continuation-schema.md

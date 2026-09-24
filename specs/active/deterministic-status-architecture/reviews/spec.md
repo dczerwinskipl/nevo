@@ -1,14 +1,14 @@
 ---
 review-of: spec
 change: deterministic-status-architecture
-generated: 2026-09-20
+generated: 2026-09-24
 verdict: ready-for-approval
 ready_for_approval: true
 implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 5938c4f4fa9060548be734351e2b4feaf1b47cbcb6d5b47bc7bf72535bbe3e74
+spec_fingerprint: 465489d9d03c3f3ccf29749cae33c0d1185c7f538806c3d2e9cb6c549923f773
 task_fingerprints:
   legacy-mutation-guard: 95b032872677163ce7af2ef4ce9a07b879924508efcfeb396f45ca9ddad955e8
   deterministic-mutation-guard: bcfadd6a91fa7af1f3adf7596f497764df769a7f639344d165b330fbe005109e
@@ -16,9 +16,9 @@ task_fingerprints:
   lifecycle-boundary-regression-tests: b09635077cc398d1abfee7b441414f0889322dbe7b3b128f5624968d2fe53038
   workflow-task-publish-operation: eb5ca8a1556d37f260d614ca4eaa7ca9000d321c9b1e5b5110a75a971945f947
   deterministic-cli-default-task-resolution: 7ecd54203da388c4f7780b0c59c88687e7423b368a66e314f0389dacd9582157
-  workflow-definition-schema-extensions: 5f13740a520a9a8474397a15b026f212855e9da954cf45feeb2f875d354daf0c
-  step-executor-guard: 0f19c9024543f35c9eb7dbef9e886115b981a7c1c2b278bc66541b18ab25ed26
-  human-step-execution-operations: 7aa1f12a9d90bcdb7ccbcb51bc6f1567d54c103a82e4e919c7484fb8444d3295
+  workflow-definition-schema-extensions: 6c40cde8b4e6fe49acf61250bfaf47d2757a70dea9a4cefe7dc67acce53b19dd
+  step-executor-guard: bffda34282e06d8068f4dff3753b3f66d6a719ba879d2505abb361dd511de60f
+  human-step-execution-operations: ef2a755b27a9be0362de826ad1bf6881db55e95d62a828452e62386445e85598
   human-step-projection: 6d37cef2e093580c06b07faeee0e0ed699aac3bd76443dab012b1ffebafe5362
   deterministic-dependency-satisfaction: 14dee95ca92eeb6f8127ce2cdffa1cd26868cca4a4003c43addce3483cffcd52
   deterministic-task-projection: f69ef76c4a85717f6453f8d28ed80fee6cb4699b409ebe1cb46a4a907c155554
@@ -28,11 +28,21 @@ task_fingerprints:
   dashboard-human-step-transport: cba2c8b20ed807cb73afcfda0aa8f1d4dd1285fa3ef733520fb97806c94fc0f0
   dashboard-actions-lifecycle-split: 9bed806ba90212065b7b4517df12afa696fd385d47d6899c44ba1e489d38f1f7
   deterministic-board-lane-projection: 4180fb263235849f05e34861837d9feec26b29be7efc02c3ac05a9b3976072ff
-  task-card-lifecycle-split: bf93b259ed3580f75f6ddb77b474744de9a86c7a15ea6419d4e3fdf825f4827b
-  human-step-surface-consolidation: 444efe67acf2166ea4e64b9d560bdc48230f3078771f9c9b3e7756e4e342a56d
+  task-card-lifecycle-split: ecbb7e16b215e118527fa82880ce58dd7e1ea6a93d4ff93f2d7acf1ae0bd7e80
+  human-step-surface-consolidation: 5a4a688e65ff7d870dc53889117dc49c334d512273760f38ac668620542ed9d1
   lifecycle-skill-instruction-split: bc5bce489b1e3b4266152f4831776fa236323364bf7ee1b4c7d9ae10d95ff693
   ownership-boundary-documentation: ebe5cb1c58368fe615e4d91225674cf651b534e3ec4cebb69eaca8612be79155
-  specification-detail-composition-wiring: 27bec5b4ac1e61fad748c6b1525c7130c93ea5b17fcc5e902b5e8b9b47984c07
+  specification-detail-composition-wiring: 59a71127a5822f567b573b39e223a13b02817781f80003f08110da26776eab6d
+  agent-step-bootstrap-and-context: 3aa1ad41cfde7714a4a986e00b451cc266629f1b88e5682782967f79ca119dab
+  workflow-continuation-schema: 68dc4ff056e9967de00b1f57cfd26bdc6cfdd7a92dc99ad98690d98dc39e1187
+  execution-policy-and-mode-selection: 06a9e130645981a555a99122d39430b940db353eb542003434d55c38dbd8c4ce
+  dependency-release-and-invalidation: ac300a2b2a35dbe3e481ff7b1f175bf321a4f74113acab528a981e0b67f27841
+  deterministic-sequential-queue: 40b673a9232cca6e3c39864849eb5a183ce40faad203a718258eb08295f035a3
+  automatic-workflow-continuation: e2ba855c70774a72907c93dc66782d3c444228d400a710f8e4f2fbf2fe0c8f85
+  dependency-invalidation-remediation-review: eae0a5945e642760b4c1418d84065672e62f71934cb008e89d1d7de33542ecce
+  user-mutation-source-control-finalization: 582920d2a3b243916f9c2bfea47d6858b2785d62a02ca829edcc623bf55db889
+  dashboard-orchestration-wiring: 9be8ff0631d0356f62b48d86910cbbb46a331d3fc5ef9ac1415a17bc39116e7a
+  orchestration-e2e-dogfood-tests: 5830aeb273b9f4727f4c5aa31cad76648c03a3e71180cd8aa65d234587f74e21
 ---
 
 # Review: deterministic-status-architecture

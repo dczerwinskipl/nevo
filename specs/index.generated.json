@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-24T05:59:34.500Z",
+  "generated": "2026-09-24T06:43:15.409Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -441,7 +441,10 @@
           "id": "agent-step-bootstrap-and-context",
           "order": 24,
           "file": "tasks/24-agent-step-bootstrap-and-context.md",
-          "status": "draft"
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "e4a1d0a4ef4bd14ef454959000ad53fdedaa903b"
+          }
         },
         {
           "id": "workflow-continuation-schema",
