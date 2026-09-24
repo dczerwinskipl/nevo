@@ -2973,6 +2973,12 @@ points are asserted to route through the identical `startStep` function instance
   itself is updated with the now-known `sessionId`/`turnId` before the admission mutex releases
   and before the provider process is spawned, so D86's exact-session-match reuse check has a
   real value to compare against from the moment any CLI invocation could occur.
+  **Superseded 2026-09-24 (later pass) — see D93/D97/D98.** "`sessionId`/`turnId`... before the
+  provider process is spawned," as one combined step, is impossible against the real
+  `AgentTurnRuntime.startTurn()`; D93 splits it into `sessionId` before `startTurn()` is called
+  and `turnId` only after it returns, D97 corrects the crash classification around that boundary,
+  and D98 makes session resolution respect D26 `fresh|reuse`. The binding requirement here —
+  admission mutex ordering relative to the workspace-writer claim — is otherwise unchanged.
 
 ## D67: A pending user-submitted workspace mutation's wait is a durable, request-level status, distinct from and outliving the low-level bounded acquisition-retry timeout
 
@@ -3192,7 +3198,7 @@ points are asserted to route through the identical `startStep` function instance
   `workspaceOwnerId`, created for *every* `cli-manual` acquisition regardless of the step's own
   `consumesDependencies` declaration. The `agent`-kind clause (the session/turn record) is
   unaffected and remains correct as originally decided.
-- **Grounded 2026-09-24 (later pass).** "The dashboard's existing session/turn record" was
+- **Grounded 2026-09-23 (later pass).** "The dashboard's existing session/turn record" was
   never named precisely enough to be implementable within task 29's own declared
   `allowed_paths`. The real, existing durable session-storage mutation boundary is
   `AgentSessionBindingService` (`tools/dashboard/server/ai/sessions/binding-service.mjs`) —
@@ -3209,6 +3215,14 @@ points are asserted to route through the identical `startStep` function instance
   `getSession`/`getSessionSync`, which already return the full session record. No second,
   orchestration-owned identity store is introduced; `AgentSession` storage itself is not
   redesigned.
+- **Withdrawn 2026-09-24 (later pass) — see D98.** The `agent`-kind clause above (this setter
+  pair) is withdrawn: it is unsafe under D26 `session: reuse` (a later execution reusing the same
+  session overwrites the one scalar field, so delayed reconciliation for an earlier execution
+  would read the wrong `ownerId`), and it is also unnecessary — reconciliation is always
+  claim-triggered, and the workspace-writer claim's own durable record (already carrying
+  `ownerId`/`sessionId`/`turnId` per D89/D93) is sufficient evidence on its own, with no
+  session-level copy required. The `cli-manual` clause (`cli-workspace-execution.mjs`, D85) is
+  unaffected and remains correct as decided.
 
 ## D72: A durable, physical-worktree-scoped workspace-request queue — not an in-process pending-waiter list — is the authoritative record of a pending user-submitted workspace mutation
 
@@ -3289,7 +3303,7 @@ points are asserted to route through the identical `startStep` function instance
   two independent, concurrently-live records at that exact key. D90 resolves this: at most one
   non-terminal human-submit operation per attempt; an identical resubmission reuses it
   idempotently, a conflicting one is rejected, never silently overwritten or duplicated.
-- **Corrected 2026-09-24 (later pass) — see D94.** The record path itself,
+- **Corrected 2026-09-23 (later pass) — see D94.** The record path itself,
   `.nevo-ai-local/human-submit-operations/<change>/<task>/attempt-<n>.json`, omits `step` — a
   generic workflow with more than one human-owned step, each with its own attempt counter, can
   collide two genuinely distinct human decisions (different steps, same numeric attempt) onto
@@ -3556,7 +3570,7 @@ points are asserted to route through the identical `startStep` function instance
 - **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
   `areas/workflow-continuation-and-session-handover.md`,
   `tasks/27-dependency-release-and-invalidation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
-- **Corrected 2026-09-24 (later pass) — see D92.** D88's own description of
+- **Corrected 2026-09-23 (later pass) — see D92.** D88's own description of
   `acquireWorkspaceWriter` calling `reconcileRequestBackedWorkspaceClaim` "internally" while
   still inside this lock's own critical section is wrong: the reconciler's own primitives
   (`transitionWorkspaceRequest`, `releaseWorkspaceWriterIfOwned`,
@@ -3863,7 +3877,7 @@ points are asserted to route through the identical `startStep` function instance
 - **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
   `tasks/27-dependency-release-and-invalidation.md`, `tasks/29-automatic-workflow-continuation.md`,
   `tasks/31-user-mutation-source-control-finalization.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
-- **Corrected 2026-09-24 (later pass) — see D92.** "`acquireWorkspaceWriter`'s own dead-pid...
+- **Corrected 2026-09-23 (later pass) — see D92.** "`acquireWorkspaceWriter`'s own dead-pid...
   branch can now call it directly, internally" implied the call happens while
   `acquireWorkspaceWriter` still holds the workspace-control lock (D80) — but step 5/6 above
   call `transitionWorkspaceRequest`/`releaseWorkspaceWriterIfOwned`/
@@ -3871,14 +3885,14 @@ points are asserted to route through the identical `startStep` function instance
   Corrected: `acquireWorkspaceWriter`'s own control-lock-protected phase only *detects* a dead
   request-backed claim and returns a snapshot — it releases the lock before
   `reconcileRequestBackedWorkspaceClaim` ever runs (D92).
-- **Corrected 2026-09-24 (later pass) — see D95.** `checkSettledFn`'s own return shape,
+- **Corrected 2026-09-23 (later pass) — see D95.** `checkSettledFn`'s own return shape,
   `{settled: true} | {settled: false, reason}`, conflates two different facts: whether it is
   *safe* to release the claim, and what the operation's own *logical outcome* was
   (`completed` vs `failed`). Step 5's "`transitionWorkspaceRequest(..., to: 'completed'/
   'failed')`" gave no rule for choosing between the two. Corrected: the checker returns a
   `terminalStatus` alongside `settled: true`, sourced from the operation's own durable record —
   never fabricated from settlement safety alone (D95).
-- **Corrected 2026-09-24 (later pass) — see D96.** "Task 31 registers... at
+- **Corrected 2026-09-23 (later pass) — see D96.** "Task 31 registers... at
   `publish/operation.mjs`'s own module-load time" is this decision's own text, and remains
   correct — but an earlier draft of task 31 itself contradicted it, describing
   `'batch-publish'`'s own registration as happening "from `routes.mjs`" instead, a
@@ -3925,7 +3939,7 @@ points are asserted to route through the identical `startStep` function instance
 - **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
   `areas/dependency-release-and-invalidation.md`, `tasks/27-dependency-release-and-invalidation.md`,
   `tasks/29-automatic-workflow-continuation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
-- **Corrected 2026-09-24 (later pass) — see D93.** "After session/turn creation completes...
+- **Corrected 2026-09-23 (later pass) — see D93.** "After session/turn creation completes...
   enrich the claim... only after that does the provider process actually get spawned" describes
   an impossible seam against the real `AgentTurnRuntime.startTurn()`: it allocates `turnId`
   synchronously and schedules the actual provider spawn via `queueMicrotask` *inside its own
@@ -3937,6 +3951,14 @@ points are asserted to route through the identical `startStep` function instance
   `AgentSessionService.createSession()`) with `turnId` (genuinely unavailable until after it) —
   is wrong. Corrected: two separate enrichments, `sessionId` before `startTurn()` is ever
   called, `turnId` after its own promise resolves (D93).
+- **Corrected 2026-09-24 (later pass) — see D97/D98.** D93's own crash-case bullet
+  ("attributable to a real, durable session with no active turn... settles normally") is itself
+  corrected by D97 (it conflated "`startTurn()` never invoked" with "`startTurn()` invoked but
+  its return was never observed" — the latter cannot safely assume no turn exists). D98
+  additionally corrects the sequence to branch on D26 `session: fresh|reuse` rather than
+  unconditionally calling `createSession()`, and withdraws persisting `workspaceOwnerId` onto the
+  session record (D71's "Grounded" addition) in favor of reading identity directly off the
+  workspace-writer claim.
 
 ## D90: At most one non-terminal human-submit operation per `(change, task, step, attempt)` — a duplicate reuses it, a conflicting decision is rejected
 
@@ -3978,7 +4000,7 @@ points are asserted to route through the identical `startStep` function instance
 - **Date:** 2026-09-23
 - **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
   `tasks/29-automatic-workflow-continuation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
-- **Corrected 2026-09-24 (later pass) — see D94.** "The attempt-scoped path remains valid" and
+- **Corrected 2026-09-23 (later pass) — see D94.** "The attempt-scoped path remains valid" and
   "the missing piece was enforcing at-most-one-non-terminal, not changing the path's own shape"
   are both wrong: `.nevo-ai-local/human-submit-operations/<change>/<task>/attempt-<n>.json` has
   no `step` segment, yet the very invariant this decision states is keyed by `(change, task,
@@ -4084,7 +4106,7 @@ points are asserted to route through the identical `startStep` function instance
   into the Phase A / Phase B / retry loop above; `reconcileRequestBackedWorkspaceClaim`'s own
   signature is corrected to accept `claimSnapshot` (the data captured under the lock) rather
   than a live `claim` reference, making the phase boundary explicit in the API itself.
-- **Date:** 2026-09-24
+- **Date:** 2026-09-23
 - **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
   `areas/workflow-continuation-and-session-handover.md`,
   `tasks/27-dependency-release-and-invalidation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
@@ -4158,10 +4180,29 @@ points are asserted to route through the identical `startStep` function instance
   existing, already-accepted call this task already needed to make) before `startTurn()`, and
   performs two `updateWorkspaceWriterIfOwned` calls instead of one. D86's own claim-reuse check
   (`cli.mjs`, task 27) drops its `turnId` requirement to "additional, when present."
-- **Date:** 2026-09-24
+- **Date:** 2026-09-23
 - **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
   `areas/dependency-release-and-invalidation.md`, `tasks/27-dependency-release-and-invalidation.md`,
   `tasks/29-automatic-workflow-continuation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+- **Corrected 2026-09-24 (later pass) — see D97.** The crash-case bullet "Crash after `sessionId`
+  enrichment but before `startTurn()` is ever called or completes → the claim is attributable to
+  a real, canonical, durably-persisted session with no active turn... settles normally" is wrong
+  where it covers "or completes": `startTurn()` allocates/registers the turn internally before
+  the caller's own `await` resumes, so an interrupted/never-observed return does not prove no
+  turn was created. D97 splits this into three authoritative-evidence-driven cases (before
+  invocation; invoked but return never observed; returned but `turnId` enrichment incomplete) —
+  this decision's own two-step enrichment mechanism and its "before invocation" and "after return"
+  bullets are otherwise unchanged.
+- **Corrected 2026-09-24 (later pass) — see D98.** Step 3 ("Call `AgentSessionService.
+  createSession(...)`") is corrected to branch on the entering transition's own D26
+  `execution.session: fresh|reuse` policy — `createSession()` is called only for `fresh`; `reuse`
+  resolves the existing target session's own `sessionId` instead. Step 5 (persisting
+  `workspaceOwnerId` onto the session record via `binding-service.mjs`, added by D71's
+  "Grounded" correction) is withdrawn — the workspace-writer claim's own enriched `sessionId`/
+  `turnId` (steps 4 and 8, unchanged) are the sole durable ownership evidence; a session-level
+  copy is unsafe once a session is reused across sequential executions. This decision's own
+  `sessionId`-before-`startTurn()`/`turnId`-after-`startTurn()` split and `updateWorkspaceWriterIfOwned`
+  mechanism are otherwise unchanged.
 
 ## D94: The human-submit durable-operation identity is step-scoped; a terminal record at a given `(change, task, step, attempt)` is never overwritten by a later, stale submission
 
@@ -4212,7 +4253,7 @@ points are asserted to route through the identical `startStep` function instance
   rather than assuming a single implicit one, plus a regression test proving a terminal record
   is found by `loadHumanSubmitOperation` even though `findInFlightHumanSubmitOperation` would
   intentionally exclude it.
-- **Date:** 2026-09-24
+- **Date:** 2026-09-23
 - **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
   `tasks/29-automatic-workflow-continuation.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
 
@@ -4250,7 +4291,7 @@ points are asserted to route through the identical `startStep` function instance
   (`workspace-claim-reconciliation.mjs`, task 27) is corrected; task 29's `'human-submit'`
   checker and task 31's `'publish'`/`'batch-publish'` checkers are updated to return
   `terminalStatus` sourced from their own durable records.
-- **Date:** 2026-09-24
+- **Date:** 2026-09-23
 - **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
   `tasks/27-dependency-release-and-invalidation.md`, `tasks/29-automatic-workflow-continuation.md`,
   `tasks/31-user-mutation-source-control-finalization.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
@@ -4290,7 +4331,151 @@ points are asserted to route through the identical `startStep` function instance
 - **Consequences:** Task 31's own implementation constraints are corrected: `'batch-publish'`'s
   checker registration moves from `routes.mjs` to `publish/operation.mjs`, alongside
   `'publish'`'s own registration.
-- **Date:** 2026-09-24
+- **Date:** 2026-09-23
 - **Affected artifacts:** `areas/dependency-release-and-invalidation.md`,
   `areas/user-mutation-source-control-ownership.md`,
   `tasks/31-user-mutation-source-control-finalization.md`, `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D97: Corrected crash classification around `AgentTurnRuntime.startTurn()` — an interrupted or never-observed return never proves "no turn exists"
+
+- **Question:** D93's own crash-case bullet ("Crash after `sessionId` enrichment but before
+  `startTurn()` completes → the claim is attributable to a real, durable session with no active
+  turn... settles normally") conflates two different situations under one label: (a)
+  `startTurn()` was truly never invoked, and (b) `startTurn()` was invoked and, per its own
+  grounded internal ordering (`turnId` allocated synchronously, the turn registered
+  (`#turns.set`), `#registerActiveBySession`/`#notifyProviderState`/`#emit(state,
+  'turn.started', ...)` all run, and the provider spawn scheduled via `queueMicrotask` — all
+  before the caller's own `await` resumes), the caller crashed or lost the process before ever
+  observing the returned `{turnId, ...}`. In case (b), a real turn may already be durably
+  registered/emitted and even mid-flight with the provider, despite the external caller holding
+  no evidence of it. Treating (b) identically to "no active turn" risks settling and releasing a
+  workspace claim a still-running (or already-progressed) turn actually depends on.
+- **Decision:** Recovery classifies this window into three cases, using only authoritative
+  persisted evidence — never inferring "not started" from an unresolved or unobserved
+  `startTurn()` call:
+  - **Case A — crash before `startTurn()` is invoked at all:** the claim carries `ownerId` +
+    `sessionId` (durably enriched) but no turn was ever created for that session. Recovery
+    classifies this from authoritative durable state: `transcriptCache.getTranscript(provider,
+    sessionId)` (`transcript-cache.mjs`, already-existing, import-only) shows no `activeTurn`
+    and no matching entry in `turns[]`. No turn exists; settlement/release proceeds exactly as
+    any other "nothing was ever actually started" case (`assessExecutionSettlement` finds
+    nothing in-flight for the task).
+  - **Case B — crash or process loss after `startTurn()` is invoked but before the caller ever
+    receives its return value (the ambiguous start boundary):** recovery MUST NOT assume no turn
+    exists, no provider process started, or no `turnId` was ever allocated. It inspects the same
+    authoritative evidence `reconcileOrphanedTurns()` (`turn-recovery.mjs`, already-existing,
+    import-only) already uses at boot: `transcriptCache.listPersistedSessions()` to find the
+    session, then `transcriptCache.getTranscript(provider, sessionId)` to check for a persisted
+    `activeTurn`/matching entry in `turns[]`.
+    - If a turn is found → it was genuinely created. Recover its `turnId` from that record and
+      enrich the claim with it ownership-conditionally (`updateWorkspaceWriterIfOwned({
+      expectedOwnerId, sessionId, turnId, specId, taskId})`, D89/D93's own mechanism, unchanged)
+      before any settlement/release decision is made. If the recovered turn's own state (via
+      `reconcileTurnState`/`reconcileOrphanedTurns`'s existing "authoritative provider evidence
+      resolves the outcome; confirmed process termination alone never fabricates a
+      completed/failed outcome" discipline) shows it is genuinely terminal/orphaned, proceed to
+      settlement exactly as the "genuinely orphaned" branch below already does.
+    - If authoritative evidence proves no turn was ever created for this session (the same
+      negative check as Case A, reached via this ambiguous path rather than a known-clean one) →
+      settle normally, identical to Case A.
+    - If the evidence is inconclusive (no persisted transcript reachable, a read failure, or
+      state that cannot be attributed with confidence to this specific execution) → fail closed:
+      mark `recovery-required` (`markWorkspaceWriterRecoveryRequiredIfOwned`), never guess.
+  - **Case C — crash after `startTurn()` returns but before the second (`turnId`) enrichment
+    completes (D93, unchanged):** `ownerId` + the already-enriched canonical `sessionId` remain
+    fully authoritative on their own; recovery may additionally recover `turnId` from the same
+    `getTranscript`/`activeTurn` evidence as Case B and enrich it then, but no settlement/release
+    decision ever depends on `turnId` being present.
+  In all three cases, `expectedOwnerId`/`expectedSessionId`/`expectedTurnId` passed to the
+  ownership-conditional APIs are read from the workspace-writer claim's own durable record being
+  reconciled — never from a separate session-level copy (see D98).
+- **Rationale:** Matches the brief precisely — grounds the classification in the real,
+  already-accepted `reconcileOrphanedTurns()`/transcript-cache evidence model instead of assuming
+  a caller's own missing return value proves anything about internal state it does not control;
+  never fabricates "completed" or "no turn" the same way `reconcileTurnState`'s own existing Rule
+  1/Rule 2 discipline already refuses to fabricate an outcome from process termination alone.
+- **Consequences:** Task 29's `admitAgentExecution` crash-case documentation and Hook 3 boot
+  reconciliation are corrected to perform the transcript-cache lookup described above for the
+  "crash around `startTurn()`" window, rather than assuming settlement is trivial whenever the
+  caller's own `await` never resolved. No new file; reuses `turn-recovery.mjs`/
+  `transcript-cache.mjs` (import-only, already-existing modules).
+- **Date:** 2026-09-24
+- **Affected artifacts:** `overview.md`, `areas/workflow-continuation-and-session-handover.md`,
+  `areas/dependency-release-and-invalidation.md`, `tasks/29-automatic-workflow-continuation.md`,
+  `tasks/33-orchestration-e2e-dogfood-tests.md`.
+
+## D98: Agent admission branches on D26's `session: fresh|reuse` policy instead of unconditionally creating a session; the workspace-writer claim's own durable record is the sole durable ownership evidence — D71's session-level `workspaceOwnerId` field is withdrawn as unnecessary and unsafe under session reuse
+
+- **Question:** Two separate problems in the current admission sequence (D93/task 29):
+  1. Step 3 unconditionally calls `AgentSessionService.createSession(...)` for every admission,
+     contradicting D26's already-accepted declarative `execution: {session: fresh|reuse, role}`
+     transition policy — a `reuse` transition must resolve the existing target session's own
+     identity, never mint a new one merely to obtain a `sessionId`.
+  2. D71 (grounded) persists `workspaceOwnerId` as a single scalar field on the session record
+     (`AgentSessionBindingService.setWorkspaceOwnerId(provider, sessionId, workspaceOwnerId)`).
+     Under `session: reuse`, one canonical session hosts more than one sequential execution's
+     turns over its lifetime. A later execution's own admission overwrites that one scalar field
+     with its own `ownerId`. If reconciliation for an **earlier** execution (crashed, delayed, or
+     discovered late during boot) is attempted after a **later** execution has already admitted
+     and overwritten the field, it would read the later execution's `ownerId` as
+     `expectedOwnerId` — silently reconciling using the wrong execution's identity.
+- **Decision:**
+  - **Fresh/reuse branching:** `admitAgentExecution`'s step 3 branches on the entering
+    transition's own `execution.session` value (already resolved by the existing D25/D26
+    orchestration layer that decides continuation and session policy — this task does not
+    redefine how `reuse` selects its target session, only consumes the resulting identity):
+    - `session: fresh` → call `AgentSessionService.createSession(...)` exactly as today;
+      `canonicalSessionId = ` the newly allocated `sessionId`.
+    - `session: reuse` → resolve `canonicalSessionId` from the existing session D26's own reuse
+      policy already identifies (the prior step's own session for this task/lineage) — via
+      `AgentSessionService`'s own existing session-lookup surface (`sessions/service.mjs`,
+      already an allowed path for task 29 — the same boundary this task already relies on for
+      `createSession()`), never a new selection heuristic invented by this task, and
+      `createSession()` is never called.
+    Both branches converge on a single `canonicalSessionId` before proceeding to the (unchanged)
+    enrichment/`startTurn()` sequence (D93, corrected for the crash window by D97).
+  - **`workspaceOwnerId` persistence is withdrawn from the session record.** Re-examining D71's
+    own original justification ("boot-time reconciliation... must still determine 'this orphaned
+    execution originally owned workspace claim X' before it can call the ownership-conditional
+    API") against the actual reconciliation trigger this spec already establishes: reconciliation
+    is always **claim-triggered**, never session/turn-triggered — a new acquisition attempt (or
+    Hook 3's boot pass) inspects the physical worktree's own single, already-durable
+    workspace-writer claim record directly (D55/D65: at most one live claim per worktree;
+    D80/D83's own CAS/control-lock atomicity already guarantees nothing else can have overwritten
+    *that* claim's `ownerId`/`sessionId`/`turnId` between the crash and the reconciliation
+    attempt). The claim record being reconciled is *itself* the durable evidence of who last
+    owned it — `expectedOwnerId`/`expectedSessionId`/`expectedTurnId` are read directly off that
+    claim, never re-derived from a separate, independently-mutable copy. A session-level (or,
+    equally, a session-scoped-by-`turnId`) copy would be pure duplication with no reconciliation
+    path that actually needs it, while introducing exactly the reuse-collision risk described
+    above. Corrected: `AgentSessionBindingService.setWorkspaceOwnerId`/`setWorkspaceOwnerIdSync`
+    (D71's "Grounded" addition) are withdrawn; `binding-service.mjs` is removed from task 29's
+    `allowed_paths` (it was added solely for this setter). Admission's step 5 ("persist
+    `workspaceOwnerId` through the session-storage boundary") is deleted outright; the claim's
+    own two ownership-conditional enrichments (`sessionId` at step 4, `turnId` after
+    `startTurn()` returns, D93/D97) are already sufficient and are the *only* place this identity
+    is durably recorded.
+  - **Hook 1/Hook 3 release logic (task 29's "release requires proven settlement" section) is
+    corrected to match:** `expectedOwnerId`/`expectedSessionId`/`expectedTurnId`/`expectedTaskId`
+    are read from the **workspace-writer claim record currently being reconciled** (its own
+    `ownerId`/`sessionId`/`turnId`/`taskId` fields — already durable per D55/D65/D89/D93), never
+    from "that execution's own durable session/turn record." Hook 1's in-process closure (D70)
+    remains valid and equivalent; Hook 3 (and any lazy claim-triggered reconciliation) reads the
+    live claim file directly, which — because of D65's uniqueness and D80/D83's atomicity —
+    always still reflects whichever execution most recently held it until reconciliation itself
+    transitions or releases it.
+- **Rationale:** Matches the brief precisely — D26's reuse policy must actually be consumed, not
+  silently overridden by an unconditional `createSession()`; and the safest way to make
+  execution-scoped ownership evidence immune to session reuse is to stop duplicating it onto a
+  separately-mutable record at all, relying instead on the claim's own already-durable,
+  already-atomic identity fields, which this spec's own concurrency primitives (D65/D80/D83)
+  already guarantee cannot be corrupted by a later execution. This is a net simplification, not a
+  new subsystem.
+- **Consequences:** Task 29's admission sequence gains the fresh/reuse branch at step 3; step 5
+  (session-level `workspaceOwnerId` persistence) is deleted; the release-logic section's
+  identity-sourcing text is corrected to read from the claim record; `binding-service.mjs`'s
+  `setWorkspaceOwnerId`/`setWorkspaceOwnerIdSync` addition (D71 "Grounded") is withdrawn.
+- **Date:** 2026-09-24
+- **Affected artifacts:** `overview.md`, `areas/workflow-continuation-and-session-handover.md`,
+  `areas/dependency-release-and-invalidation.md`, `tasks/29-automatic-workflow-continuation.md`,
+  `tasks/33-orchestration-e2e-dogfood-tests.md`.

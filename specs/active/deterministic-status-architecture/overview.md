@@ -648,9 +648,11 @@ waiting.**
    ordinary orchestration code.
 4. **The `ownerId` needed for that conditional check had no durable home for the boot-restart
    case (D71).** An in-memory closure cannot survive a restart. Corrected: `workspaceOwnerId`
-   is persisted onto the same durable session/turn record (agent kind) or start-operation
-   record (`cli-manual` kind) already read elsewhere — never a new file, never only in memory.
-   Unestablished identity fails closed.
+   is durably recoverable — never only in memory — from the same durable session/turn record
+   (agent kind) or start-operation record (`cli-manual` kind) already read elsewhere. Unestablished
+   identity fails closed. **The `agent`-kind durable home itself corrected by pass 17's D85
+   (`cli-manual`) and pass 20's D98 (`agent` — withdraws the session-level copy in favor of the
+   workspace-writer claim's own already-durable fields).**
 5. **D67's "durable, request-level waiting" status actually rested on an in-process pending-
    waiters list — lost on restart (D72).** Corrected: a new durable,
    physical-worktree-scoped workspace-request record family, persisted before contention
@@ -729,7 +731,10 @@ execution identity → mutation → proven settlement → exact release.**
    requires exact `sessionId` matching — leaving a brand-new claim with nothing to match against
    (D89, extends D66).** Corrected: ownership-conditional enrichment
    (`updateWorkspaceWriterIfOwned`) merges the now-known identity into the exact claim once the
-   session/turn exists, before the provider process is ever spawned.
+   session/turn exists, before the provider process is ever spawned. **Superseded by pass 19's
+   D93 below** — "before the provider process is spawned" describes a sequencing that is
+   impossible against the real `AgentTurnRuntime.startTurn()`; the corrected two-step
+   `sessionId`-then-`turnId` enrichment replaces it.
 4. **The human-submit operation record's own attempt-scoped path assumed one request per
    attempt, but D82 separately required distinct `requestId`s per request — an unresolved
    collision for two requests on the identical attempt (D90, extends D73).** Corrected: at most
@@ -761,7 +766,9 @@ code.**
    29's own `allowed_paths`.** Corrected: `workspaceOwnerId` is persisted through the real
    `AgentSessionBindingService` boundary (`binding-service.mjs`, added to task 29's
    `allowed_paths`), via one new setter mirroring the exact shape of the existing
-   `setProviderSessionId`.
+   `setProviderSessionId`. **Superseded by pass 20's D98 below** — a session-level field cannot
+   survive `execution.session: reuse` and is withdrawn in favor of reading identity directly off
+   the workspace-writer claim.
 4. **The `'batch-publish'` checker was described as registered from dashboard `routes.mjs` — a
    file a bare CLI process never imports, defeating D88's own cross-kind guarantee for that one
    kind (D96).** Corrected: both `'publish'` and `'batch-publish'` register from
@@ -775,6 +782,36 @@ code.**
    a later, stale submission.
 6. **D88's checker contract only answered "safe to release," never "what actually happened"
    (D95, from the prior pass, reaffirmed here alongside D96's registration fix).**
+
+**Corrective pass 20 (2026-09-24, D97–D98, corrections to D93/D71): removing the last
+contradictions in the agent-admission identity/session sequence before implementation begins.**
+
+1. **D93's own crash-case bullet treated "crash after `sessionId` enrichment but before
+   `startTurn()` completes" as equivalent to "no active turn exists" — but `startTurn()`
+   registers/persists the turn internally before the caller's own `await` resumes, so an
+   interrupted or never-observed return does not prove no turn was created (D97).** Corrected:
+   a three-way classification grounded in the same authoritative transcript-cache evidence
+   `reconcileOrphanedTurns()` already uses at boot — before invocation (settles normally); invoked
+   but the return was never observed (recover the real turn from evidence if one exists, settle
+   normally if evidence proves none was created, fail closed if the evidence is inconclusive);
+   returned but `turnId` enrichment incomplete (unchanged from D93). Never guesses "not started"
+   from a caller's own missing return value.
+2. **D93's admission sequence unconditionally called `AgentSessionService.createSession()`,
+   silently overriding D26's already-accepted `execution.session: fresh|reuse` transition policy
+   (D98).** Corrected: admission branches on the entering transition's own D26 policy —
+   `createSession()` only for `fresh`; `reuse` resolves the existing target session's own
+   `sessionId` instead, via `AgentSessionService`'s existing session-lookup surface, never
+   inventing a new selection mechanism.
+3. **D71's session-level `workspaceOwnerId` field (added by pass 19's "Grounded" correction) is
+   unsafe under `execution.session: reuse` — a later execution reusing the same session
+   overwrites the one scalar field, so a delayed reconciliation for an earlier execution would
+   read the wrong `ownerId` (D98).** Corrected: the field is withdrawn. Reconciliation is always
+   claim-triggered, never session/turn-triggered — the workspace-writer claim's own durable
+   record (already enriched with `ownerId`/`sessionId`/`turnId` by D89/D93) is the sole ownership
+   evidence, made safe by this spec's own existing D65 single-claim-per-worktree uniqueness and
+   D80/D83 CAS/control-lock atomicity. `AgentSessionBindingService.setWorkspaceOwnerId`/
+   `setWorkspaceOwnerIdSync` and task 29's `binding-service.mjs` `allowed_paths` entry (both added
+   by pass 19) are removed as unnecessary. This is a net simplification, not a new subsystem.
 
 ## Current architecture
 
@@ -1439,11 +1476,11 @@ throwing — corrects D62). D70 (workspace-writer claim mutation is ownership-co
 `releaseWorkspaceWriterIfOwned`/`markWorkspaceWriterRecoveryRequiredIfOwned`, requiring an
 `ownerId` match — never an unconditional, worktree-global operation; a genuinely unconditional
 primitive may remain internally, clearly marked unsafe, never called by ordinary orchestration
-code). D71 (`workspaceOwnerId` is persisted onto the execution's own durable record — the same
-session/turn record for `agent` kind, the same start-operation record for `cli-manual` kind —
-never held only in an in-memory closure, so restart reconciliation can recover the exact claim
-it must act on; unestablished identity fails closed — **the `cli-manual` durable home itself
-corrected by pass 17's D85**). D72 (a durable,
+code). D71 (`workspaceOwnerId` is durably recoverable from the execution's own record — never
+held only in an in-memory closure, so restart reconciliation can recover the exact claim it must
+act on; unestablished identity fails closed — **the `cli-manual` durable home itself corrected by
+pass 17's D85; the `agent`-kind durable home itself corrected by pass 20's D98, which withdraws a
+session-level copy in favor of the workspace-writer claim's own already-durable fields**). D72 (a durable,
 physical-worktree-scoped workspace-request queue — not an in-process pending-waiter list — is
 the authoritative record of a pending user-submitted workspace mutation, persisted before
 contention begins). D73 (human-submit becomes a durable request, persisted with enough data to
@@ -1493,7 +1530,9 @@ per-kind settlement-checker each owning task registers, replaces D79's own per-c
 reconciliation design — no acquisition path needs to know which kind it's reconciling). D89
 (an agent workspace claim is ownership-conditionally enriched with `sessionId`/`turnId` once
 the session/turn exists, before the provider process is spawned — never left permanently
-without the identity D86 requires; a crash before enrichment fails closed). D90 (at most one
+without the identity D86 requires; a crash before enrichment fails closed — **the
+"before the provider process is spawned" sequencing itself corrected as impossible by pass 19's
+D93**). D90 (at most one
 non-terminal human-submit operation per `(change, task, step, attempt)` — a duplicate
 resubmission reuses it idempotently, a conflicting decision is rejected, never silently
 overwritten). D91 (a request-backed operation's own durable intent record is always written
@@ -1506,10 +1545,12 @@ ever runs; the invariant is "never recursively/nestedly acquired by one call cha
 lock during a transition or release," since each metadata primitive remains its own short,
 freshly-acquired critical section, D80/D83 unweakened). D93 (agent workspace-claim identity is
 enriched in two separate, ownership-conditional steps — `sessionId` before
-`AgentTurnRuntime.startTurn()` is ever called, via the already-accepted
-`AgentSessionService.createSession()`; `turnId` only after `startTurn()`'s own promise resolves,
-since the real runtime allocates it internally and schedules the provider spawn before the
-caller regains control; `turnId`'s absence during that window is additive, never blocking). D94
+`AgentTurnRuntime.startTurn()` is ever called; `turnId` only after `startTurn()`'s own promise
+resolves, since the real runtime allocates it internally and schedules the provider spawn before
+the caller regains control; `turnId`'s absence during that window is additive, never blocking —
+**its own crash-case classification of the ambiguous `startTurn()` boundary itself corrected by
+pass 20's D97, and its unconditional `createSession()` call corrected to respect D26
+`fresh|reuse` by pass 20's D98**). D94
 (the human-submit durable-operation identity is step-scoped, with a distinct
 `loadHumanSubmitOperation` exact-key read — never `findInFlightHumanSubmitOperation`, which
 intentionally excludes terminal records — classifying absent/non-terminal/terminal before any
@@ -1521,6 +1562,20 @@ from a module every relevant process already imports — `'batch-publish'`'s own
 from dashboard-only `routes.mjs` to `publish/operation.mjs`, alongside `'publish'`'s own
 registration, so a bare CLI process can reconcile a dead `batch-publish` claim without ever
 importing dashboard code).
+
+**Corrective pass 20 decisions (2026-09-24):** D97 (corrected crash classification around
+`AgentTurnRuntime.startTurn()` — before invocation settles normally once transcript-cache
+evidence confirms no turn exists; invoked but the caller never received the return value is
+resolved from that same evidence rather than assumed absent, recovering a genuinely-registered
+turn's `turnId` or failing closed when the evidence is inconclusive; returned but `turnId`
+enrichment incomplete is unchanged from D93 — never infers "not started" from an unresolved call).
+D98 (agent admission branches on D26's `execution.session: fresh|reuse` policy instead of
+unconditionally calling `createSession()` — `fresh` creates a new canonical session, `reuse`
+resolves the existing target session's own `sessionId` without inventing a new selection
+mechanism; and D71's session-level `workspaceOwnerId` field is withdrawn as unsafe under session
+reuse and unnecessary, since the workspace-writer claim's own already-durable, already-atomic
+`ownerId`/`sessionId`/`turnId` fields are sufficient reconciliation evidence on their own — a net
+simplification, not a new subsystem).
 
 ## Proposed architecture
 

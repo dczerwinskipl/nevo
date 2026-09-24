@@ -16,7 +16,7 @@ forbidden_paths:
   - src/**
 depends_on: [ dashboard-orchestration-wiring, user-mutation-source-control-finalization, dependency-invalidation-remediation-review ]
 semantic_references:
-  decisions: [D33, D40, D41, D42, D44, D45, D47, D49, D50, D51, D52, D53, D55, D56, D57, D58, D59, D60, D61, D62, D63, D64, D65, D66, D67, D68, D69, D70, D71, D72, D73, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D90, D91, D92, D93, D94, D95, D96]
+  decisions: [D33, D40, D41, D42, D44, D45, D47, D49, D50, D51, D52, D53, D55, D56, D57, D58, D59, D60, D61, D62, D63, D64, D65, D66, D67, D68, D69, D70, D71, D72, D73, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D90, D91, D92, D93, D94, D95, D96, D97, D98]
 ---
 
 # Task: Orchestration end-to-end dogfood tests
@@ -96,8 +96,32 @@ declarative release/invalidation.
   and a separate fixture simulating a conflicting second decision for the same non-terminal
   attempt, to exercise D90.
 - Include a fixture that inspects a freshly-admitted agent's workspace claim immediately after
-  acquisition (no session identity yet) and again after the provider process spawns (enriched),
-  and a fixture asserting the spawned provider's own `NEVO_SESSION_ID` matches, to exercise D89.
+  acquisition (no session identity yet), again once `sessionId` is enriched (before
+  `AgentTurnRuntime.startTurn()` is ever called), and again once `turnId` is enriched (after
+  `startTurn()` returns) — and a fixture asserting the spawned provider's own `NEVO_SESSION_ID`
+  matches the claim's `sessionId` from its very first invocation, even though the provider spawn
+  itself precedes the `turnId` enrichment — to exercise D93.
+- Include a fixture covering D97's crash classification around `AgentTurnRuntime.startTurn()`:
+  (1) a crash before `startTurn()` is ever invoked, where the claim settles normally because no
+  turn was ever created; (2) `startTurn()` internally registering/persisting a real turn before
+  the simulated caller ever observes its returned `turnId` (a process-loss simulation), where
+  reconciliation discovers the real turn via transcript-cache evidence rather than assuming none
+  exists; (3) the same ambiguous boundary with the transcript-cache evidence made unavailable/
+  inconclusive, where reconciliation fails closed (`recovery-required`) instead of guessing; (4)
+  a persisted active turn allowing ownership-conditional `turnId` enrichment after a simulated
+  restart; (5) a stale recovered `turnId` failing to enrich a newer workspace claim; (6) an
+  assertion that no settlement/release decision anywhere in this fixture set ever depends on
+  assuming an unresolved `startTurn()` call means "not started."
+- Include a fixture covering D98's `execution.session: fresh|reuse` integration: (7) a `fresh`
+  transition creates a new canonical session before following D93's enrichment sequence; (8) a
+  `reuse` transition resolves the existing target session's `sessionId` without ever calling
+  `createSession()`; (9) both branches enrich the claim with the canonical `sessionId` before
+  `startTurn()` is invoked; (10) two sequential executions reusing the same canonical session but
+  owning distinct workspace claims — reconciliation delayed for the older execution cannot read
+  or act on the newer execution's ownership evidence, because identity is sourced from each
+  execution's own claim snapshot, never a session-level field; (11) delayed reconciliation for
+  the older turn remains ownership-conditional and cannot release or mark the newer execution's
+  claim.
 - Include a fixture that simulates a turn reaching terminal (failed, cancelled, and
   "completed") in each of the three relevant states — settled, terminal-unsettled-with-dirty-
   state, and terminal-with-an-unresolved-finish-operation — to exercise all branches of
@@ -262,9 +286,10 @@ declarative release/invalidation.
     against a claim genuinely held by the caller, and observing it fail with
     `not-current-owner` despite the caller "believing" it owns the claim.
 41. Conditional mark-recovery-required succeeds only under the identical ownership match.
-42. Boot reconciliation recovers the original `workspaceOwnerId` for an orphaned execution from
-    that execution's own durable session/turn record (never an in-memory value) and uses it to
-    perform a correctly-scoped conditional release.
+42. Boot reconciliation recovers the original `workspaceOwnerId` for an orphaned execution
+    directly from the workspace-writer claim record itself (never an in-memory value, and never a
+    separate session-level copy, D98) and uses it to perform a correctly-scoped conditional
+    release.
 43. If boot reconciliation cannot establish ownership identity at all (no persisted
     `workspaceOwnerId` found for the orphaned execution), it does not release or mark the
     current workspace claim — the claim is left exactly as found.
@@ -390,16 +415,21 @@ declarative release/invalidation.
     inspecting which module registers which kind's settlement-checker and confirming no
     acquisition path branches on a kind it doesn't own.
 88. A fresh agent admission whose workspace claim initially lacks session identity is enriched
-    with the exact `sessionId`/`turnId` before the provider child process starts.
+    with the exact `sessionId` before `AgentTurnRuntime.startTurn()` is ever called, and with the
+    exact `turnId` only after `startTurn()` returns (D93) — never both together "before the
+    provider child process starts," which is impossible against the real `startTurn()` ordering.
 89. Stale enrichment using an old, already-superseded `ownerId` cannot modify a newer workspace
     claim.
 90. The provider child process receives `NEVO_SESSION_ID` equal to the `sessionId` recorded on
-    the current workspace claim.
+    the workspace claim from its very first invocation, even though the provider spawn itself
+    precedes the `turnId` enrichment step (D93).
 91. An agent-invoked `workflow step start` successfully reuses its own, now-enriched claim.
 92. A manual CLI invocation with matching spec/task but no trusted ambient session identity
-    cannot reuse that agent claim.
-93. Release/reconciliation using the expected session/turn identity succeeds for the enriched
-    claim.
+    cannot reuse that agent claim; one whose ambient `sessionId` matches the claim can reuse it
+    even before `turnId` enrichment completes (D86/D93).
+93. Release/reconciliation using the expected `ownerId`/`sessionId`/`turnId` read directly from
+    the workspace claim being reconciled — never a separate session-level copy (D98) — succeeds
+    for the enriched claim.
 94. Two rapid, identical human-submit clicks for one step attempt resolve to one durable
     request.
 95. A conflicting second human decision for the same non-terminal step attempt is rejected
@@ -411,14 +441,16 @@ declarative release/invalidation.
     a simulated crash immediately following request creation — for human-submit, Publish, and
     Batch Publish alike.
 
-**Lock-nesting precision, real-boundary grounding, and cross-process registration (D92 clarified, D71 grounded, D96):**
+**Lock-nesting precision, real-boundary grounding, and cross-process registration (D92 clarified, D98 corrected, D96):**
 99. `transitionWorkspaceRequest` still acquires the workspace-control lock for its own CAS, but
     is never invoked while the caller already holds that lock.
 100. `releaseWorkspaceWriterIfOwned` and `markWorkspaceWriterRecoveryRequiredIfOwned` each
      acquire their own short control-lock critical section only after Phase A has already
      released its own.
-101. Task 29 persists `workspaceOwnerId` through the real `AgentSessionBindingService`
-     persistence boundary, and the value survives a simulated process restart.
+101. Task 29 never persists `workspaceOwnerId` onto the session record — the workspace-writer
+     claim's own enriched `ownerId`/`sessionId`/`turnId` fields survive a simulated process
+     restart on their own and are what reconciliation reads (D98; corrects the withdrawn D71
+     "Grounded" `AgentSessionBindingService.setWorkspaceOwnerId` addition).
 102. A fresh CLI process can reconcile a dead `batch-publish` claim without ever importing
      dashboard route modules.
 103. Reconciler registration for `human-submit`, `publish`, and `batch-publish` is available
@@ -429,10 +461,42 @@ declarative release/invalidation.
 105. A stale resubmission against that terminal record does not rewrite its bytes or create a
      replacement operation/request.
 
+**Corrected `startTurn()` crash classification (D97):**
+106. A crash before `AgentTurnRuntime.startTurn()` is ever invoked settles the claim normally —
+     authoritative transcript-cache evidence confirms no turn was ever created.
+107. `startTurn()` has already registered/persisted a real turn internally, but the caller
+     crashes/loses the process before ever receiving the returned `turnId` — reconciliation
+     discovers the real turn from transcript-cache evidence rather than assuming none exists.
+108. The same ambiguous boundary as 107, but with the transcript-cache evidence unavailable or
+     inconclusive — reconciliation fails closed (`recovery-required`) rather than guessing either
+     way.
+109. A persisted active turn discovered after a simulated restart allows ownership-conditional
+     `turnId` enrichment of the claim it belongs to.
+110. A stale recovered `turnId` (belonging to an older, already-superseded execution) cannot
+     enrich a newer workspace claim.
+111. Across scenarios 106–110, no settlement/release decision is ever made by assuming an
+     unresolved `startTurn()` call means "not started" — each is driven only by authoritative
+     transcript-cache evidence.
+
+**D26 `execution.session: fresh|reuse` integration (D98):**
+112. `execution.session: fresh` creates a new canonical session and then follows D93's
+     `sessionId`-before-`startTurn()`/`turnId`-after-`startTurn()` sequence.
+113. `execution.session: reuse` resolves the existing target session's own `sessionId` and never
+     calls `createSession()`.
+114. Both the `fresh` and `reuse` branches enrich the claim with the canonical `sessionId` before
+     `startTurn()` is ever invoked.
+115. Two sequential executions reusing the same canonical session but owning distinct workspace
+     claims cannot let a delayed reconciliation for the older execution read or act on the newer
+     execution's ownership evidence — each reconciliation sources `expectedOwnerId`/
+     `expectedSessionId`/`expectedTurnId` from its own claim snapshot, never a session-level
+     field.
+116. Delayed reconciliation for the older of two reused-session executions remains
+     ownership-conditional and cannot release or mark the newer execution's claim.
+
 All scenarios: `automated: node --test tools/tests/orchestration-e2e.test.mjs` (or
 `tools/dashboard/tests/orchestration-e2e.test.mjs` for scenarios that must exercise the
 dashboard-side dispatch/admission code — 2, 8, 20, 21, 28, 34, 35, 36, 42–57, 61–63, 69–71,
-73–75, 78, 83, 88–93, 101–103 specifically).
+73–75, 78, 83, 88–93, 101–103, 106–116 specifically).
 
 ## Verification
 

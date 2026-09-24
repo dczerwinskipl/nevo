@@ -39,7 +39,7 @@ forbidden_paths:
   - tools/dashboard/**
 depends_on: [ workflow-continuation-schema ]
 semantic_references:
-  decisions: [D28, D31, D36, D37, D40, D44, D47, D50, D51, D52, D53, D55, D56, D58, D59, D60, D61, D62, D65, D66, D69, D70, D71, D72, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D91, D92, D93, D95]
+  decisions: [D28, D31, D36, D37, D40, D44, D47, D50, D51, D52, D53, D55, D56, D58, D59, D60, D61, D62, D65, D66, D69, D70, D71, D72, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D91, D92, D93, D95, D97, D98]
 ---
 
 # Task: Dependency release and invalidation
@@ -201,15 +201,22 @@ and D44's separate `SuspensionProjection`.
   marked `recovery-required` when told to, and only when the caller's claimed identity actually
   still matches what's currently there (D70/D82).
 
-### Durable workspaceOwnerId, recoverable after restart (D71)
+### Durable workspaceOwnerId, recoverable after restart (D71, corrected D98)
 
 - **Agent kind.** `workspaceOwnerId` (the `ownerId` returned by a successful
-  `acquireWorkspaceWriter` call) is written onto the same durable session/turn record D42's own
-  orphan-detection already reads — an existing record, owned by prior, already-accepted
-  architecture, not a new file this task introduces — at the same moment that record's own
-  canonical identity becomes durably observable (D66's steps 3–4). This task does not own that
-  record (task 29 does); it only defines the field's meaning and consumes it via
-  `expectedOwnerId` in the ownership-conditional API above.
+  `acquireWorkspaceWriter` call) is durably recoverable from the workspace-writer claim record
+  itself — the same record `updateWorkspaceWriterIfOwned` (above) already enriches with
+  `sessionId` (before `AgentTurnRuntime.startTurn()` is ever called) and `turnId` (once it
+  returns) — never from a separate copy on the session/turn record. D71's original text persisted
+  a second copy onto the durable session record; **D98 withdraws that** because a single scalar
+  field on a session cannot survive `execution.session: reuse` (a later execution sharing that
+  session would overwrite it, corrupting a delayed reconciliation for an earlier one), and because
+  it is unnecessary — reconciliation is always triggered from the claim's own record (D65's
+  single-claim-per-worktree uniqueness plus this module's own CAS/control-lock atomicity, D80/D83,
+  already guarantee that record still reflects whichever execution most recently held it). This
+  task does not own the session/turn record (task 29 does); it only defines the workspace-writer
+  claim's own field meanings and consumes them via `expectedOwnerId`/`expectedSessionId`/
+  `expectedTurnId` in the ownership-conditional API above.
 - **`cli-manual` kind — a new, dependency-consumption-independent record, not the task's own
   start-operation record (D85, corrects an earlier draft of this same section).**
   `start-operation.mjs`'s record exists only for steps declaring `consumesDependencies: true`
@@ -606,13 +613,15 @@ and D44's separate `SuspensionProjection`.
   `recovery-required` (via `markWorkspaceWriterRecoveryRequiredIfOwned`) rather than granting
   the slot.
   `automated: node --test tools/tests/workspace-writer.test.mjs`
-- **`workspaceOwnerId` is durably recoverable for both kinds.** An agent-kind claim's
-  `workspaceOwnerId`, once written to the session/turn record, is readable independent of any
-  in-memory value; a `cli-manual` claim's `workspaceOwnerId`, written into the new
-  `cli-workspace-execution.mjs` record, is readable across a simulated process restart (a fresh
-  `require`/import, no shared module-level state). Reconciliation attempted with no persisted
-  `workspaceOwnerId` available at all takes the fail-closed path — no release, no mutation of
-  the live claim.
+- **`workspaceOwnerId` is durably recoverable for both kinds (D98).** An agent-kind claim's
+  `workspaceOwnerId`/`sessionId`/`turnId` are readable directly from the workspace-writer claim's
+  own durable record (no separate session-level copy — D71's original session-record persistence
+  is withdrawn) independent of any in-memory value; a `cli-manual` claim's `workspaceOwnerId`,
+  written into the new `cli-workspace-execution.mjs` record, is readable across a simulated
+  process restart (a fresh `require`/import, no shared module-level state). Reconciliation
+  attempted with no persisted `workspaceOwnerId` available at all (the claim itself carries none,
+  e.g. a crash before enrichment) takes the fail-closed path — no release, no mutation of the live
+  claim.
   `automated: node --test tools/tests/workspace-writer.test.mjs`
 - **Generic `cli-manual` ownership does not depend on `consumesDependencies` (D85):** a
   `cli-manual` claim acquired for a step that does **not** declare `consumesDependencies: true`

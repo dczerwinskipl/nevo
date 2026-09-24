@@ -182,9 +182,16 @@ transitions. No wording or logic anywhere references a transition going "backwar
   (`forceReleaseWorkspaceWriterUnsafe`), clearly marked unsafe, never called by ordinary
   orchestration code.
 - **`workspaceOwnerId` persisted durably, recoverable after restart (D71, `cli-manual`'s own
-  durable home corrected by D85).** For `agent` claims: written onto the same durable
-  session/turn record D42's own orphan-detection already reads, at the moment that record's own
-  identity becomes durably observable. For `cli-manual` claims: written into a new, small,
+  durable home corrected by D85; `agent`-kind storage corrected by D98).** For `agent` claims:
+  `ownerId`/`sessionId`/`turnId` are durably recoverable directly from the workspace-writer claim
+  record itself — the same record `updateWorkspaceWriterIfOwned` enriches at admission time —
+  never from a separate copy on the session/turn record. D98 withdraws D71's original session-
+  record persistence for this kind: a single scalar field on a session cannot survive
+  `execution.session: reuse` (a later execution sharing that session would overwrite it,
+  corrupting a delayed reconciliation for an earlier one), and it is unnecessary — reconciliation
+  is always claim-triggered, and D65's single-claim-per-worktree uniqueness plus this module's own
+  CAS/control-lock atomicity (D80/D83) already guarantee the claim record still reflects whichever
+  execution most recently held it. For `cli-manual` claims: written into a new, small,
   **dependency-consumption-independent** record, `tools/specs/workflow/
   cli-workspace-execution.mjs` (`.nevo-ai-local/cli-workspace-executions/<change>/<task>/
   <step>/attempt-<n>.json`) — **not** the task's own start-operation record (D52), which exists
@@ -193,38 +200,49 @@ transitions. No wording or logic anywhere references a transition going "backwar
   This new record is created for every `cli-manual` acquisition regardless of the step's own
   `consumesDependencies` declaration, and participates in nothing dependency-consumption-related
   — no `consumptionSequence`, no release-epoch interaction, no remediation involvement (D85).
-  Reconciliation reads `workspaceOwnerId` from these records — never solely from an in-memory
-  closure — to populate `expectedOwnerId`. If no persisted `workspaceOwnerId` can be found for
-  an orphaned execution, identity is unestablished: never release, never mark anything — fail
-  closed (`recovery-required`-equivalent).
+  Reconciliation reads `workspaceOwnerId` from the claim record (`agent`) or the
+  `cli-workspace-execution.mjs` record (`cli-manual`) — never solely from an in-memory closure —
+  to populate `expectedOwnerId`. If no persisted `workspaceOwnerId` can be found for an orphaned
+  execution, identity is unestablished: never release, never mark anything — fail closed
+  (`recovery-required`-equivalent).
 - **An `agent`-kind claim's `sessionId` is enriched onto the exact claim before
   `AgentTurnRuntime.startTurn()` is ever called; `turnId` only after it returns — never a single
   "before the provider executes" enrichment, which the real runtime API makes impossible (D89,
-  corrected D93).** `startTurn()` (`turns/runtime.mjs`, forbidden path) allocates `turnId`
+  corrected D93); session resolution branches on D26's `execution.session: fresh|reuse` policy,
+  and crash classification never infers "no turn" from an unresolved `startTurn()` call
+  (D97/D98).** `startTurn()` (`turns/runtime.mjs`, forbidden path) allocates `turnId`
   synchronously inside its own call and schedules the actual provider spawn via
   `queueMicrotask` before the caller's own `await` resumes — no external caller can hold a
   known `turnId` and still delay that spawn without editing that forbidden file. `sessionId`,
-  by contrast, is genuinely available first, via the already-accepted
-  `AgentSessionService.createSession()`, which allocates and persists it synchronously before
-  any provider-native side effect runs. Corrected sequence: claim acquired with no session
-  identity → `createSession()` → **first** `updateWorkspaceWriterIfOwned({repoRoot,
-  expectedOwnerId, sessionId, specId, taskId})` (control-lock-protected like every other
-  mutation, D80) → `workspaceOwnerId` persisted onto the durable session record (D71) →
-  `startTurn({..., sessionId, ...})` called with the already-decided `sessionId`, so the
-  provider's own spawn (already scheduled internally, before this call's own `await` resumes)
-  sets `NEVO_SESSION_ID` to a value that **already matches** the claim — satisfying D86 from the
-  very first CLI invocation even though the spawn precedes the second enrichment below — →
-  once `startTurn()`'s own promise resolves, **second** `updateWorkspaceWriterIfOwned({...,
-  sessionId, turnId, ...})` adds `turnId`. Either enrichment call is ownership-conditional — a
-  mismatch fails the whole admission closed (first call) or simply fails to modify a newer claim
-  (second call, which never gates the turn's own already-real existence). A crash before the
-  first enrichment leaves a `sessionId`-less claim, treated identically to D71's own
-  unestablished-identity case; a crash after it but before `startTurn()` completes leaves a
-  claim attributable to a real session with no active turn, settling normally via
-  `assessExecutionSettlement`; a crash after `startTurn()` returns but before the second
-  enrichment leaves `ownerId` + the canonical `sessionId` fully authoritative on their own —
-  `turnId` is recoverable later from the session's own durable turn state but is never required
-  for a correct release/settlement decision.
+  by contrast, is genuinely available first. Corrected sequence: claim acquired with no session
+  identity → resolve `canonicalSessionId` per the entering transition's own D26 policy — `fresh`
+  calls the already-accepted `AgentSessionService.createSession()`, which allocates and persists a
+  new `sessionId` synchronously before any provider-native side effect runs; `reuse` resolves the
+  existing target session's own `sessionId` via `AgentSessionService`'s existing session-lookup
+  surface, never calling `createSession()` (D98; this area does not redefine D26's own
+  reuse-selection mechanism) → **first** `updateWorkspaceWriterIfOwned({repoRoot, expectedOwnerId,
+  sessionId: canonicalSessionId, specId, taskId})` (control-lock-protected like every other
+  mutation, D80) — this enriched claim is now the sole durable ownership evidence, no separate
+  session-level copy is written (D98) → `startTurn({..., sessionId: canonicalSessionId, ...})`
+  called with the already-decided `canonicalSessionId`, so the provider's own spawn (already
+  scheduled internally, before this call's own `await` resumes) sets `NEVO_SESSION_ID` to a value
+  that **already matches** the claim — satisfying D86 from the very first CLI invocation even
+  though the spawn precedes the second enrichment below — → once `startTurn()`'s own promise
+  resolves, **second** `updateWorkspaceWriterIfOwned({..., sessionId: canonicalSessionId, turnId,
+  ...})` adds `turnId`. Either enrichment call is ownership-conditional — a mismatch fails the
+  whole admission closed (first call) or simply fails to modify a newer claim (second call, which
+  never gates the turn's own already-real existence). **Crash classification (D97), grounded in
+  the same transcript-cache evidence `reconcileOrphanedTurns()` already uses, never inferring
+  "not started" from an unresolved `startTurn()` call:** a crash before the first enrichment
+  leaves a `sessionId`-less claim, treated identically to D71's own unestablished-identity case; a
+  crash before `startTurn()` is ever invoked settles normally once authoritative evidence confirms
+  no turn was created; a crash/process loss after invocation but before the caller ever receives
+  the return value (the ambiguous boundary) is resolved by inspecting that same evidence — a
+  genuinely discovered turn is recovered and enriched, a genuinely absent one settles normally,
+  and inconclusive evidence fails closed rather than guessing either way; a crash after
+  `startTurn()` returns but before the second enrichment leaves `ownerId` + the canonical
+  `sessionId` fully authoritative on their own — `turnId` is recoverable later from the same
+  transcript-cache evidence but is never required for a correct release/settlement decision.
 - **`cli-manual` kind — every deterministic CLI entry point participates too (D62), reuse of an
   existing `agent` claim requires trusted ambient identity (D86).** `cli.mjs`'s
   `handleWorkflowStepStart`/`handleWorkflowStepFinish` (task 27, already an allowed path) wrap
@@ -492,8 +510,10 @@ reading `readAgentExecutionContext` for trusted claim-reuse, D86, and writing
 delegation to `activateAndSubmitHumanStep` is owned by task 29, D63, a distinct function in the
 same file), `finish-operation.mjs` (acquires/accepts the git-finalize lease),
 `automatic-workflow-continuation` (task 29 — reads release/invalidation state; claims the
-workspace-writer slot for agent admission and for `activateAndSubmitHumanStep`; persists
-`workspaceOwnerId` onto its own session/turn record; creates/transitions a durable human-submit
+workspace-writer slot for agent admission and for `activateAndSubmitHumanStep`, resolving
+canonical session identity per D26's `fresh|reuse` policy and enriching `workspaceOwnerId`
+directly onto that claim (D98, never a separate session-level copy); creates/transitions a
+durable human-submit
 workspace-request via CAS; reconciles dead-pid request-backed claims, D79; queries the durable,
 worktree-wide request queue before dispatching the next automatic agent item; imports
 `assessExecutionSettlement` and the ownership-conditional API for Hooks 1/3),
@@ -582,9 +602,10 @@ CAS; reconciles its own dead-pid claims, D79), `readiness-policy.mjs`,
   reconciliation call carrying A's own captured `ownerId` is attempted against the live
   record — it is rejected as `not-current-owner` and B's claim is completely unaffected,
   proven for both the release and the mark-recovery-required paths.
-- **`workspaceOwnerId` recoverable after restart (D71):** boot-time reconciliation for an
-  orphaned agent turn reads `workspaceOwnerId` from the session/turn record (not an in-memory
-  value) and performs a conditional release/mark against it; if no such field is found, no
+- **`workspaceOwnerId` recoverable after restart (D71, corrected D98):** boot-time reconciliation
+  for an orphaned agent turn reads `ownerId`/`sessionId`/`turnId` directly from the workspace-
+  writer claim record itself (not an in-memory value, and not a separate session-level copy) and
+  performs a conditional release/mark against it; if the claim carries no `sessionId`, no
   release/mark is attempted at all.
 - **Durable workspace-request survives restart (D72/D75):** a request persisted `queued`/
   `waiting-for-workspace` before a simulated dashboard restart is rediscovered afterward with
@@ -654,10 +675,25 @@ CAS; reconciles its own dead-pid claims, D79), `readiness-policy.mjs`,
   never blocks a legitimate CLI reuse on `sessionId` alone; a stale enrichment attempt using an
   already-superseded `ownerId` fails as `not-current-owner` and cannot modify a newer claim; a
   crash before `sessionId` enrichment leaves the claim's identity unestablished and restart
-  reconciliation takes no release/mark action; a crash after `sessionId` enrichment but before
-  `startTurn()` completes settles normally via `assessExecutionSettlement`; a crash after
-  `startTurn()` returns but before `turnId` enrichment is safely reconciled by `ownerId` +
-  canonical `sessionId` alone.
+  reconciliation takes no release/mark action.
+- **`startTurn()` crash classification never assumes "not started" (D97):** a crash before
+  `startTurn()` is ever invoked settles normally via `assessExecutionSettlement` once
+  authoritative transcript-cache evidence confirms no turn was created; a crash/process loss
+  after invocation but before the caller ever receives the return value (the ambiguous boundary)
+  is resolved from that same evidence — a genuinely-registered turn is discovered and its
+  `turnId` recovered/enriched, a genuinely absent one settles normally, and inconclusive evidence
+  fails closed (`recovery-required`) rather than guessing either way; a crash after `startTurn()`
+  returns but before `turnId` enrichment is safely reconciled by `ownerId` + canonical `sessionId`
+  alone.
+- **D26 `session: fresh|reuse` is respected and ownership evidence is reuse-safe (D98):** a
+  `fresh`-policy transition creates a new canonical session and follows D93's sequence; a
+  `reuse`-policy transition resolves the existing target session's `sessionId` without ever
+  calling `createSession()`; both enrich the claim with that canonical `sessionId` before
+  `startTurn()` is invoked; two sequential executions reusing one canonical session but owning
+  distinct workspace claims cannot let a delayed reconciliation for the older execution read or
+  mutate the newer execution's claim, because `expectedOwnerId`/`expectedSessionId`/
+  `expectedTurnId` are always sourced from each execution's own claim snapshot, never a
+  session-level field.
 - **Human-submit duplicate/conflict invariant, step-scoped (D90, corrected D94):** two rapid,
   identical submissions for one non-terminal attempt collapse to one durable request; a
   conflicting second decision for that same non-terminal attempt is rejected without
