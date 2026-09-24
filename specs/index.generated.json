@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-24T07:22:12.779Z",
+  "generated": "2026-09-24T07:25:56.517Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -480,11 +480,14 @@
           "id": "deterministic-sequential-queue",
           "order": 28,
           "file": "tasks/28-deterministic-sequential-queue.md",
-          "status": "draft",
+          "status": "verified",
           "depends_on": [
             "workflow-continuation-schema",
             "dependency-release-and-invalidation"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "3e699f30416258eb25ee8f474978d96674588e11"
+          }
         },
         {
           "id": "automatic-workflow-continuation",
