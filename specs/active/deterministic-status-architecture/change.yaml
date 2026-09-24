@@ -291,7 +291,7 @@ tasks:
   - id: orchestration-e2e-dogfood-tests
     order: 33
     file: tasks/33-orchestration-e2e-dogfood-tests.md
-    status: draft
+    status: approved
     depends_on:
       [
         dashboard-orchestration-wiring,

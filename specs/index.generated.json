@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-24T08:08:21.182Z",
+  "generated": "2026-09-24T08:10:03.997Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -548,7 +548,7 @@
           "id": "orchestration-e2e-dogfood-tests",
           "order": 33,
           "file": "tasks/33-orchestration-e2e-dogfood-tests.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "dashboard-orchestration-wiring",
             "user-mutation-source-control-finalization",
