@@ -225,7 +225,9 @@ tasks:
   - id: workflow-continuation-schema
     order: 25
     file: tasks/25-workflow-continuation-schema.md
-    status: draft
+    status: verified
+    implementation:
+      baseline_revision: faaf50ece26073b15ddeaf89e1c57595b98125cc
   - id: execution-policy-and-mode-selection
     order: 26
     file: tasks/26-execution-policy-and-mode-selection.md
