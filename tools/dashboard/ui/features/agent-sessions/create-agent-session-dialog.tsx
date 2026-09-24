@@ -357,22 +357,25 @@ export function ProviderAndModePicker({
       <fieldset className="mt-4">
         <legend className="text-xs font-semibold text-fg-primary">Tryb wykonania</legend>
         <div className="mt-2 grid grid-cols-3 gap-2">
-          {AI_MODES.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              aria-pressed={selectedMode === item.id}
-              onClick={() => onSelectMode(item.id)}
-              className={cn(
-                'flex flex-col items-start rounded-xl border p-2.5 text-left transition-all',
-                selectedMode === item.id && 'border-accent bg-accent/8 ring-1 ring-accent',
-                selectedMode !== item.id && 'border-border bg-surface hover:border-border-strong',
-              )}
-            >
-              <span className="text-xs font-semibold text-fg-primary">{item.label}</span>
-              <span className="mt-0.5 text-[10px] text-fg-muted">{item.description}</span>
-            </button>
-          ))}
+          {AI_MODES.map((item) => {
+            const mode = selectedMode;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                aria-pressed={mode === item.id}
+                onClick={() => onSelectMode(item.id)}
+                className={cn(
+                  'flex flex-col items-start rounded-xl border p-2.5 text-left transition-all',
+                  selectedMode === item.id && 'border-accent bg-accent/8 ring-1 ring-accent',
+                  selectedMode !== item.id && 'border-border bg-surface hover:border-border-strong',
+                )}
+              >
+                <span className="text-xs font-semibold text-fg-primary">{item.label}</span>
+                <span className="mt-0.5 text-[10px] text-fg-muted">{item.description}</span>
+              </button>
+            );
+          })}
         </div>
       </fieldset>
     </>
@@ -465,7 +468,7 @@ export function ExecutionPolicySelectionDialog({
         />
 
         <div className="mt-6 flex items-center justify-end gap-3 border-t border-border pt-4">
-          <Button type="button" variant="outline" onClick={onClose} disabled={confirming}>
+          <Button type="button" variant="secondary" onClick={onClose} disabled={confirming}>
             Anuluj
           </Button>
           <Button
