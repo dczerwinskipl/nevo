@@ -10,6 +10,9 @@ import {
   ensureStepActivated,
   buildFinishContract,
   validateFinishInputs,
+  resolveTaskDefinition,
+  resolveRequiredContext,
+  pickAgentFacingSourceControl,
 } from '../specs/workflow/step-context.mjs';
 import { WorkflowError } from '../specs/workflow/errors.mjs';
 import { requireChange, requireTask } from '../specs/store.mjs';
@@ -617,5 +620,215 @@ tasks:
     });
 
     assert.equal(stepContext.previousTransition, undefined);
+  });
+});
+
+describe('Task 24: Agent step bootstrap and context (taskDefinition, requiredContext, sourceControl projection)', () => {
+  let fx;
+  before(() => { fx = makeGitFixture('nevo-step-ctx-task24'); });
+  after(() => cleanupFixture(fx));
+
+  test('pickAgentFacingSourceControl drops existingCommits and unpushedCommits while keeping factual fields', () => {
+    assert.equal(pickAgentFacingSourceControl(null), null);
+    const facts = {
+      currentBranch: 'feature/demo',
+      baseBranch: 'main',
+      changedFiles: ['file1.txt'],
+      stagedFiles: [],
+      taskAffectedFiles: ['file1.txt'],
+      generatedFiles: [],
+      existingCommits: ['abc1234 initial'],
+      unpushedCommits: ['def5678 wip'],
+      extraProp: 'hello',
+    };
+    const projected = pickAgentFacingSourceControl(facts);
+    assert.deepEqual(projected, {
+      currentBranch: 'feature/demo',
+      baseBranch: 'main',
+      changedFiles: ['file1.txt'],
+      stagedFiles: [],
+      taskAffectedFiles: ['file1.txt'],
+      generatedFiles: [],
+      extraProp: 'hello',
+    });
+    assert.equal('existingCommits' in projected, false);
+    assert.equal('unpushedCommits' in projected, false);
+  });
+
+  test('compileStepContext returns taskDefinition with byte-identical content for active and terminal phases', async () => {
+    const rawTaskMd = '---\nid: demo-task\nstatus: in-implementation\ncontext:\n  required:\n    - docs/sample.md\n---\n# Task 01: Build feature\n\nDetailed content here.\n';
+    const changeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: review-loop-v1
+tasks:
+  - id: demo-task
+    file: tasks/01-demo-task.md
+    status: in-implementation
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+      history: []
+`;
+    writeFileSync(join(fx.changeDir, 'change.yaml'), changeYaml);
+    writeFileSync(join(fx.tasksDir, '01-demo-task.md'), rawTaskMd);
+    const docPath = join(fx.repo, 'docs', 'sample.md');
+    mkdirSync(join(fx.repo, 'docs'), { recursive: true });
+    writeFileSync(docPath, '# Sample Doc Content\n');
+
+    const change = requireChange('demo-change', fx.activeDir);
+    const task = requireTask(change, 'demo-task');
+
+    // 1. Active phase
+    const activeCtx = await compileStepContext({
+      change,
+      task,
+      definition: CONDITIONAL_WORKFLOW,
+      context: { repoRoot: fx.repo, activeDir: fx.activeDir },
+    });
+
+    assert.ok(activeCtx.taskDefinition);
+    assert.equal(activeCtx.taskDefinition.id, 'demo-task');
+    assert.equal(activeCtx.taskDefinition.path, 'specs/active/demo-change/tasks/01-demo-task.md');
+    assert.equal(activeCtx.taskDefinition.content, rawTaskMd);
+
+    // requiredContext inline bundling
+    assert.ok(Array.isArray(activeCtx.requiredContext));
+    assert.equal(activeCtx.requiredContext.length, 1);
+    assert.equal(activeCtx.requiredContext[0].path, 'docs/sample.md');
+    assert.equal(activeCtx.requiredContext[0].content, '# Sample Doc Content\n');
+
+    // Source control projection: existingCommits dropped
+    if (activeCtx.context?.sourceControl) {
+      assert.equal('existingCommits' in activeCtx.context.sourceControl, false);
+      assert.equal('unpushedCommits' in activeCtx.context.sourceControl, false);
+      assert.ok('currentBranch' in activeCtx.context.sourceControl);
+      assert.ok('changedFiles' in activeCtx.context.sourceControl);
+    }
+
+    // 2. Terminal phase
+    const terminalChangeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: review-loop-v1
+tasks:
+  - id: demo-task
+    file: tasks/01-demo-task.md
+    status: verified
+    workflow_progress:
+      current_step: review
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: "2026-01-01T00:00:00.000Z"
+          transitioned_to: review
+        - step: review
+          attempt: 1
+          completed_at: "2026-01-01T01:00:00.000Z"
+          result: pass
+          transitioned_to: verified
+`;
+    writeFileSync(join(fx.changeDir, 'change.yaml'), terminalChangeYaml);
+    const termChange = requireChange('demo-change', fx.activeDir);
+    const termTask = requireTask(termChange, 'demo-task');
+
+    const termCtx = await compileStepContext({
+      change: termChange,
+      task: termTask,
+      definition: CONDITIONAL_WORKFLOW,
+      context: { repoRoot: fx.repo, activeDir: fx.activeDir },
+    });
+
+    assert.equal(termCtx.stepStatus, 'complete');
+    assert.ok(termCtx.taskDefinition);
+    assert.equal(termCtx.taskDefinition.id, 'demo-task');
+    assert.equal(termCtx.taskDefinition.path, 'specs/active/demo-change/tasks/01-demo-task.md');
+    assert.equal(termCtx.taskDefinition.content, rawTaskMd);
+    assert.deepEqual(termCtx.requiredContext, [
+      { path: 'docs/sample.md', content: '# Sample Doc Content\n' }
+    ]);
+  });
+
+  test('requiredContext returns empty array when task declares no context.required', async () => {
+    const rawTaskMd = '---\nid: bare-task\nstatus: in-implementation\n---\n# Bare Task\n';
+    const changeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: review-loop-v1
+tasks:
+  - id: bare-task
+    file: tasks/02-bare-task.md
+    status: in-implementation
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+      history: []
+`;
+    writeFileSync(join(fx.changeDir, 'change.yaml'), changeYaml);
+    writeFileSync(join(fx.tasksDir, '02-bare-task.md'), rawTaskMd);
+
+    const change = requireChange('demo-change', fx.activeDir);
+    const task = requireTask(change, 'bare-task');
+
+    const ctx = await compileStepContext({
+      change,
+      task,
+      definition: CONDITIONAL_WORKFLOW,
+      context: { repoRoot: fx.repo, activeDir: fx.activeDir },
+    });
+
+    assert.deepEqual(ctx.requiredContext, []);
+  });
+
+  test('relevantDocs and requiredContext can both be non-empty without deduplication', async () => {
+    const rawTaskMd = '---\nid: multi-ctx-task\nstatus: in-implementation\nallowed_paths:\n  - src/feature/**\ncontext:\n  required:\n    - docs/api.md\n---\n# Multi Context Task\n';
+    const changeYaml = `id: demo-change
+title: "Demo Change"
+workflow:
+  mode: deterministic
+  definition: review-loop-v1
+tasks:
+  - id: multi-ctx-task
+    file: tasks/03-multi-ctx-task.md
+    status: in-implementation
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+      history: []
+`;
+    writeFileSync(join(fx.changeDir, 'change.yaml'), changeYaml);
+    writeFileSync(join(fx.tasksDir, '03-multi-ctx-task.md'), rawTaskMd);
+    writeFileSync(join(fx.repo, 'docs', 'api.md'), '# API Doc\n');
+
+    // Fake routing index with a rule matching src/feature/**
+    const fakeRoutingIndex = {
+      rules: [
+        { rule_id: 'RT-01', doc_ref: 'docs/routing-guide.md', path_glob: 'src/feature/**' },
+      ],
+    };
+
+    const change = requireChange('demo-change', fx.activeDir);
+    const task = requireTask(change, 'multi-ctx-task');
+
+    const ctx = await compileStepContext({
+      change,
+      task,
+      definition: CONDITIONAL_WORKFLOW,
+      context: { repoRoot: fx.repo, activeDir: fx.activeDir, routingIndex: fakeRoutingIndex },
+    });
+
+    assert.equal(ctx.relevantDocs.length, 1);
+    assert.equal(ctx.relevantDocs[0].docRef, 'docs/routing-guide.md');
+    assert.equal(ctx.requiredContext.length, 1);
+    assert.equal(ctx.requiredContext[0].path, 'docs/api.md');
+    assert.equal(ctx.requiredContext[0].content, '# API Doc\n');
   });
 });
