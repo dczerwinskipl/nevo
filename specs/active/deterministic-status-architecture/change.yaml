@@ -264,8 +264,10 @@ tasks:
   - id: dependency-invalidation-remediation-review
     order: 30
     file: tasks/30-dependency-invalidation-remediation-review.md
-    status: draft
+    status: verified
     depends_on: [ dependency-release-and-invalidation, deterministic-sequential-queue ]
+    implementation:
+      baseline_revision: df79270600091f19f9f99125ef0c29d522f5a907
   - id: user-mutation-source-control-finalization
     order: 31
     file: tasks/31-user-mutation-source-control-finalization.md
