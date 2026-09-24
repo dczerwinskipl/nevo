@@ -271,8 +271,10 @@ tasks:
   - id: user-mutation-source-control-finalization
     order: 31
     file: tasks/31-user-mutation-source-control-finalization.md
-    status: draft
+    status: verified
     depends_on: [ dependency-release-and-invalidation ]
+    implementation:
+      baseline_revision: a719ec882ec124de29d9d7eea3842d827276f51e
   - id: dashboard-orchestration-wiring
     order: 32
     file: tasks/32-dashboard-orchestration-wiring.md
