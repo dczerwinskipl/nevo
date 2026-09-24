@@ -20,14 +20,13 @@ import { RepositoryActionsCard, FinalizeDialog } from '@/features/specifications
 import { CreateAgentSessionDialog, ExecutionPolicySelectionDialog } from '@/features/agent-sessions/create-agent-session-dialog';
 import { OperationModal } from '@/features/operations/operation-modal';
 import { queueAgentSessionInitialDispatch } from '@/features/agent-sessions/initial-dispatch';
-import { postHumanStepAction } from '@/shared/lib/human-step-request';
 import {
   useSpecificationManifest,
   useSpecificationActions,
 } from '@/features/specifications/detail/spec-detail-queries';
 import { invalidateSpecificationQueries } from '@/features/specifications/queries';
 import { invalidatePullRequestQueries } from '@/features/pull-requests/queries';
-import { useAgentProviders, useAgentSessions, useCreateAgentSession, buildAgentStepTriggerMessage } from '@/features/agent-sessions/queries';
+import { useAgentProviders, useAgentSessions, buildAgentStepTriggerMessage } from '@/features/agent-sessions/queries';
 import { useExecutionPolicy, resolvePolicyForTask } from '@/features/agent-sessions/execution-policy';
 import type { AgentSession, AgentExecutionMode } from '@/features/agent-sessions/types';
 import { useSpecWorkflowActions } from './use-spec-workflow-actions';
@@ -127,48 +126,75 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
   };
 
   const providersQuery = useAgentProviders();
-  const createSession = useCreateAgentSession();
   const executionPolicyQuery = useExecutionPolicy(specification.slug);
   const [pendingStart, setPendingStart] = useState<{
     task: SpecificationTask;
     stepDescriptor: WorkflowStepDescriptor;
   } | null>(null);
 
+  /**
+   * Submits candidate to the agent-admission gate (D41/D49, Task 29) instead of
+   * calling direct session creation for deterministic execution.
+   */
   const proceedWithAgentExecution = useCallback(
     async (
       targetTaskId: string,
       policy: { provider: string; mode?: AgentExecutionMode },
+      taskIds?: string[],
     ) => {
       const bound = sessionsQuery.sessions.find(
         (s) => s.taskId === targetTaskId,
       );
-      const targetSession =
-        bound ||
-        (await createSession.create({
-          provider: policy.provider,
-          mode: policy.mode,
-          specId: specification.specId || '',
-          taskId: targetTaskId,
-          taskIds: [targetTaskId],
-        }));
 
-      const userMessage = buildAgentStepTriggerMessage(targetTaskId);
-      queueAgentSessionInitialDispatch({
-        provider: targetSession.provider,
-        sessionId: targetSession.sessionId,
-        prompt: userMessage,
-        userMessage,
-      });
-      navigate({
-        to: '/specs/$source/$slug/sessions/$sessionId',
-        params: {
-          source: specification.source,
-          slug: specification.slug,
-          sessionId: targetSession.sessionId,
-        },
-      });
+      let sessionId = bound?.sessionId;
+      if (!sessionId) {
+        const userMessage = buildAgentStepTriggerMessage(targetTaskId);
+        const res = await fetch('/api/agent-sessions/turns', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-nevo-dashboard-action': '1',
+          },
+          body: JSON.stringify({
+            provider: policy.provider,
+            mode: policy.mode,
+            specId: specification.specId,
+            taskId: targetTaskId,
+            taskIds: taskIds || [targetTaskId],
+            prompt: userMessage,
+            userMessage,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error?.message || err.message || `Failed to admit agent execution: ${res.status}`);
+        }
+
+        const data = await res.json();
+        sessionId = data.sessionId || data.session?.sessionId;
+      } else if (bound) {
+        const userMessage = buildAgentStepTriggerMessage(targetTaskId);
+        queueAgentSessionInitialDispatch({
+          provider: bound.provider,
+          sessionId: bound.sessionId,
+          prompt: userMessage,
+          userMessage,
+        });
+      }
+
+      if (sessionId) {
+        navigate({
+          to: '/specs/$source/$slug/sessions/$sessionId',
+          params: {
+            source: specification.source,
+            slug: specification.slug,
+            sessionId,
+          },
+        });
+      }
     },
-    [createSession, navigate, sessionsQuery.sessions, specification],
+    [navigate, sessionsQuery.sessions, specification],
   );
 
   const startStep = useCallback(
@@ -195,26 +221,15 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           setWorkflowError(message);
         }
       } else if (stepDescriptor.executor === 'human') {
-        try {
-          await postHumanStepAction({
-            source: specification.source,
-            slug: specification.slug,
-            taskId: targetTaskId,
-            action: 'start',
-          });
-          await Promise.all([actionsQuery.refresh(), invalidateSpecificationQueries(queryClient)]);
-        } catch (err: any) {
-          const message = err instanceof Error ? err.message : String(err);
-          setWorkflowError(message);
-        }
+        // D47/D49: Human-owned destination renders mutation-free interaction preview directly from DTO.
+        // Never call admitAgentExecution or activate on startStep; the actual activateAndSubmitHumanStep happens on submit.
+        openTask(task, document.body);
       }
     },
     [
-      actionsQuery,
       executionPolicyQuery.policy,
+      openTask,
       proceedWithAgentExecution,
-      queryClient,
-      specification,
     ],
   );
 
