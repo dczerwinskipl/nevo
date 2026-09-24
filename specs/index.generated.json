@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-24T07:52:40.665Z",
+  "generated": "2026-09-24T07:53:04.409Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -533,7 +533,7 @@
           "id": "dashboard-orchestration-wiring",
           "order": 32,
           "file": "tasks/32-dashboard-orchestration-wiring.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "execution-policy-and-mode-selection",
             "deterministic-sequential-queue",

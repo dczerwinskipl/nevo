@@ -278,7 +278,7 @@ tasks:
   - id: dashboard-orchestration-wiring
     order: 32
     file: tasks/32-dashboard-orchestration-wiring.md
-    status: draft
+    status: approved
     depends_on:
       [
         execution-policy-and-mode-selection,
