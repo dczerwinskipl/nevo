@@ -251,7 +251,7 @@ tasks:
   - id: automatic-workflow-continuation
     order: 29
     file: tasks/29-automatic-workflow-continuation.md
-    status: draft
+    status: verified
     depends_on:
       [
         workflow-continuation-schema,
@@ -259,6 +259,8 @@ tasks:
         deterministic-sequential-queue,
         dependency-release-and-invalidation
       ]
+    implementation:
+      baseline_revision: 712ef73665e61bb1689e7449e3ed21c2106105bf
   - id: dependency-invalidation-remediation-review
     order: 30
     file: tasks/30-dependency-invalidation-remediation-review.md

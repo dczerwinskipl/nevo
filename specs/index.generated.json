@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-24T07:25:56.517Z",
+  "generated": "2026-09-24T07:37:16.431Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -493,13 +493,16 @@
           "id": "automatic-workflow-continuation",
           "order": 29,
           "file": "tasks/29-automatic-workflow-continuation.md",
-          "status": "draft",
+          "status": "verified",
           "depends_on": [
             "workflow-continuation-schema",
             "execution-policy-and-mode-selection",
             "deterministic-sequential-queue",
             "dependency-release-and-invalidation"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "712ef73665e61bb1689e7449e3ed21c2106105bf"
+          }
         },
         {
           "id": "dependency-invalidation-remediation-review",
