@@ -20,6 +20,7 @@ import {
 } from '../contracts.mjs';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 
 /**
  * Deterministic comparison for ranking session bindings to determine current association (D10 Option C).
@@ -301,6 +302,8 @@ function normalizeStorageContent(parsed) {
           ...(row.mode ? { mode: row.mode } : {}),
           ...(row.model ? { model: row.model } : {}),
           ...(row.purpose ? { purpose: row.purpose } : {}),
+          ...(row.role ? { role: row.role } : {}),
+          ...(row.parentSessionId ? { parentSessionId: row.parentSessionId } : {}),
           ...(row.activeTaskId || row.taskId ? { activeTaskId: row.activeTaskId || row.taskId } : {}),
           taskIds: Array.isArray(row.taskIds) ? [...row.taskIds] : (row.taskId ? [row.taskId] : []),
           createdAt: row.createdAt || new Date().toISOString(),
@@ -313,6 +316,8 @@ function normalizeStorageContent(parsed) {
       } else {
         if (row.mode && !session.mode) session.mode = row.mode;
         if (row.model && !session.model) session.model = row.model;
+        if (row.role && !session.role) session.role = row.role;
+        if (row.parentSessionId && !session.parentSessionId) session.parentSessionId = row.parentSessionId;
         if (row.activeTaskId) session.activeTaskId = row.activeTaskId;
         if (row.taskId && !session.taskIds.includes(row.taskId)) session.taskIds.push(row.taskId);
         if (Array.isArray(row.taskIds)) {
@@ -567,6 +572,8 @@ export class AgentSessionBindingService {
               purpose: s.purpose,
               mode: s.mode,
               model: s.model,
+              ...(s.role ? { role: s.role } : {}),
+              ...(s.parentSessionId ? { parentSessionId: s.parentSessionId } : {}),
               activeTaskId: s.activeTaskId,
               taskIds: s.taskIds,
               createdAt: b.createdAt || s.createdAt,
@@ -582,6 +589,8 @@ export class AgentSessionBindingService {
             purpose: s.purpose,
             mode: s.mode,
             model: s.model,
+            ...(s.role ? { role: s.role } : {}),
+            ...(s.parentSessionId ? { parentSessionId: s.parentSessionId } : {}),
             activeTaskId: s.activeTaskId,
             taskIds: s.taskIds,
             createdAt: s.createdAt,
@@ -618,6 +627,8 @@ export class AgentSessionBindingService {
               purpose: s.purpose,
               mode: s.mode,
               model: s.model,
+              ...(s.role ? { role: s.role } : {}),
+              ...(s.parentSessionId ? { parentSessionId: s.parentSessionId } : {}),
               activeTaskId: s.activeTaskId,
               taskIds: s.taskIds,
               createdAt: b.createdAt || s.createdAt,
@@ -633,6 +644,8 @@ export class AgentSessionBindingService {
             purpose: s.purpose,
             mode: s.mode,
             model: s.model,
+            ...(s.role ? { role: s.role } : {}),
+            ...(s.parentSessionId ? { parentSessionId: s.parentSessionId } : {}),
             activeTaskId: s.activeTaskId,
             taskIds: s.taskIds,
             createdAt: s.createdAt,
@@ -848,6 +861,8 @@ export class AgentSessionBindingService {
     purpose,
     mode,
     model,
+    role,
+    parentSessionId,
     createdAt,
     lastSeenAt,
     activeTaskId,
@@ -858,8 +873,8 @@ export class AgentSessionBindingService {
       throw new AiValidationError("'provider' must be a valid string.", { field: 'provider' });
     }
     if (specId !== undefined && specId !== null) {
-      if (typeof specId !== 'string' || !UUID_RE.test(specId)) {
-        throw new AiValidationError("'specId' must be a valid canonical UUID.", { field: 'specId' });
+      if (typeof specId !== 'string' || (!UUID_RE.test(specId) && !IDENTIFIER_PATTERN.test(specId))) {
+        throw new AiValidationError("'specId' must be a valid canonical identifier or UUID.", { field: 'specId' });
       }
     }
     if (taskId !== undefined && (typeof taskId !== 'string' || taskId.trim().length === 0)) {
@@ -898,6 +913,8 @@ export class AgentSessionBindingService {
         if (purpose !== undefined) session.purpose = purpose;
         if (mode !== undefined) session.mode = mode;
         if (model !== undefined) session.model = model.trim();
+        if (role !== undefined) session.role = role;
+        if (parentSessionId !== undefined) session.parentSessionId = parentSessionId;
         if (cleanProvSessionId && !session.providerSessionId) session.providerSessionId = cleanProvSessionId;
         if (resolvedActiveTaskId !== undefined) session.activeTaskId = resolvedActiveTaskId;
         session.taskIds = accumulatedTaskIds;
@@ -910,6 +927,8 @@ export class AgentSessionBindingService {
           ...(mode ? { mode } : {}),
           ...(model ? { model: model.trim() } : {}),
           ...(purpose ? { purpose } : {}),
+          ...(role ? { role } : {}),
+          ...(parentSessionId ? { parentSessionId } : {}),
           ...(resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {}),
           taskIds: accumulatedTaskIds,
           createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
@@ -956,6 +975,8 @@ export class AgentSessionBindingService {
         ...(session.purpose ? { purpose: session.purpose } : {}),
         ...(session.mode ? { mode: session.mode } : {}),
         ...(session.model ? { model: session.model } : {}),
+        ...(session.role ? { role: session.role } : {}),
+        ...(session.parentSessionId ? { parentSessionId: session.parentSessionId } : {}),
         activeTaskId: session.activeTaskId,
         taskIds: session.taskIds,
         createdAt: session.createdAt,
@@ -975,6 +996,8 @@ export class AgentSessionBindingService {
     purpose,
     mode,
     model,
+    role,
+    parentSessionId,
     createdAt,
     lastSeenAt,
     activeTaskId,
@@ -985,8 +1008,8 @@ export class AgentSessionBindingService {
       throw new AiValidationError("'provider' must be a valid string.", { field: 'provider' });
     }
     if (specId !== undefined && specId !== null) {
-      if (typeof specId !== 'string' || !UUID_RE.test(specId)) {
-        throw new AiValidationError("'specId' must be a valid canonical UUID.", { field: 'specId' });
+      if (typeof specId !== 'string' || (!UUID_RE.test(specId) && !IDENTIFIER_PATTERN.test(specId))) {
+        throw new AiValidationError("'specId' must be a valid canonical identifier or UUID.", { field: 'specId' });
       }
     }
     if (taskId !== undefined && (typeof taskId !== 'string' || taskId.trim().length === 0)) {
@@ -1024,6 +1047,8 @@ export class AgentSessionBindingService {
         if (purpose !== undefined) session.purpose = purpose;
         if (mode !== undefined) session.mode = mode;
         if (model !== undefined) session.model = model.trim();
+        if (role !== undefined) session.role = role;
+        if (parentSessionId !== undefined) session.parentSessionId = parentSessionId;
         if (cleanProvSessionId && !session.providerSessionId) session.providerSessionId = cleanProvSessionId;
         if (resolvedActiveTaskId !== undefined) session.activeTaskId = resolvedActiveTaskId;
         session.taskIds = accumulatedTaskIds;
@@ -1036,6 +1061,8 @@ export class AgentSessionBindingService {
           ...(mode ? { mode } : {}),
           ...(model ? { model: model.trim() } : {}),
           ...(purpose ? { purpose } : {}),
+          ...(role ? { role } : {}),
+          ...(parentSessionId ? { parentSessionId } : {}),
           ...(resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {}),
           taskIds: accumulatedTaskIds,
           createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
@@ -1079,6 +1106,8 @@ export class AgentSessionBindingService {
         ...(session.purpose ? { purpose: session.purpose } : {}),
         ...(session.mode ? { mode: session.mode } : {}),
         ...(session.model ? { model: session.model } : {}),
+        ...(session.role ? { role: session.role } : {}),
+        ...(session.parentSessionId ? { parentSessionId: session.parentSessionId } : {}),
         activeTaskId: session.activeTaskId,
         taskIds: session.taskIds,
         createdAt: session.createdAt,

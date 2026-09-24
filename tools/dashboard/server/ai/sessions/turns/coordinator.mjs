@@ -50,6 +50,7 @@ export class TurnLifecycleCoordinator {
     userMessage = null,
     traceSink = null,
     turn = null,
+    ownerId = null,
     onTurnUpdated = null,
   }) {
     this.#onTurnUpdated = onTurnUpdated;
@@ -62,6 +63,7 @@ export class TurnLifecycleCoordinator {
           providerSessionId: providerSessionId || null,
           mode,
           ...(model ? { model } : {}),
+          ...(ownerId ? { ownerId } : {}),
         });
     if (prompt && !this.#turn.prompt) {
       this.#turn.prompt = prompt;

@@ -21,7 +21,7 @@ function getLocksDir(repoRoot) {
   return path.join(repoRoot, '.nevo-ai-local', 'locks');
 }
 
-function getWorkspaceWriterLockPath(repoRoot) {
+export function getWorkspaceWriterLockPath(repoRoot) {
   return path.join(getLocksDir(repoRoot), 'workspace-writer.lock');
 }
 

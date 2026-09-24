@@ -75,11 +75,12 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
   // Determine transition continuation policy
   // Check prior step's transition to targetStepName
   let continuationPolicy = null;
+  let matchedTransition = null;
   const history = task.workflow_progress?.history || [];
   if (history.length > 0) {
     const lastHistory = history[history.length - 1];
     const priorStepDef = definition.steps?.[lastHistory.step];
-    const matchedTransition = priorStepDef?.transitions?.find(
+    matchedTransition = priorStepDef?.transitions?.find(
       (t) => (t.to === targetStepName || t.step === targetStepName) && (t.value === undefined || t.value === lastHistory.transitionResult)
     ) || priorStepDef?.transitions?.find((t) => t.to === targetStepName || t.step === targetStepName);
 
@@ -92,8 +93,9 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
 
   // Destination is agent-owned: enqueue and admit
   if (executor === 'agent') {
+    const changeSlug = change._slug || change.id;
     if (repoRoot) {
-      enqueueTasks(repoRoot, change._slug || change.id, [task.id]);
+      enqueueTasks(repoRoot, changeSlug, [task.id]);
     }
 
     const queueState = evaluateTaskQueue({
@@ -104,7 +106,35 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
     });
 
     if (queueState.nextRunnable) {
-      const admissionRes = await admitAgentExecution(specId, queueState.nextRunnable, options);
+      let policy = null;
+      try {
+        const { executionPolicyService } = await import('../sessions/execution-policy-service.mjs');
+        policy = executionPolicyService.resolveExecutionPolicy(changeSlug, task.id, { repoRoot });
+      } catch {}
+
+      const provider = policy?.provider || options.provider;
+      const mode = policy?.mode || options.mode || 'agent';
+      const sessionPolicy = matchedTransition?.execution?.session || 'fresh';
+      const role = matchedTransition?.execution?.role;
+      const parentSessionId = options.parentSessionId || options.priorSessionId || null;
+      const genericTrigger = options.message || options.prompt || `Start workflow step '${targetStepName}' for task '${task.id}'.`;
+
+      const candidate = {
+        ...queueState.nextRunnable,
+        provider,
+        mode,
+        changeSlug,
+        specId,
+        sessionPolicy,
+        role,
+        parentSessionId,
+        ...(sessionPolicy === 'reuse' && parentSessionId ? { sessionId: parentSessionId } : {}),
+        message: genericTrigger,
+        prompt: genericTrigger,
+        userMessage: genericTrigger,
+      };
+
+      const admissionRes = await admitAgentExecution(specId, candidate, options);
       return {
         action: 'agent-admitted',
         nextStep: targetStepName,
@@ -223,11 +253,18 @@ export async function reconcileBootState(options = {}) {
         if (transcriptCache && sessionId) {
           try {
             const transcript = await transcriptCache.getTranscript(resolvedProvider, sessionId);
-            if (transcript?.activeTurn?.turnId) {
-              recoveredTurnId = transcript.activeTurn.turnId;
-            } else if (Array.isArray(transcript?.turns) && transcript.turns.length > 0) {
+            const active = transcript?.activeTurn;
+            if (active?.turnId) {
+              if (
+                (active.ownerId && active.ownerId === ownerId) ||
+                (turnId && (active.turnId === turnId || active.id === turnId))
+              ) {
+                recoveredTurnId = active.turnId;
+              }
+            }
+            if (!recoveredTurnId && Array.isArray(transcript?.turns) && transcript.turns.length > 0) {
               const matchingTurn = transcript.turns.find(
-                (t) => (t.turnId && t.turnId === turnId) || t.taskId === taskId
+                (t) => (t.ownerId && t.ownerId === ownerId) || (turnId && (t.turnId === turnId || t.id === turnId))
               );
               if (matchingTurn) {
                 recoveredTurnId = matchingTurn.turnId || matchingTurn.id;
@@ -439,14 +476,36 @@ export async function reconcileContinuation(change, task, options = {}) {
 
   if (queueState.nextRunnable) {
     const specId = change.id || changeSlug;
-    const admissionRes = await admitAgentExecution(specId, queueState.nextRunnable, {
+    let policy = null;
+    try {
+      const { executionPolicyService } = await import('../sessions/execution-policy-service.mjs');
+      policy = executionPolicyService.resolveExecutionPolicy(changeSlug, queueState.nextRunnable.taskId, { repoRoot });
+    } catch {}
+
+    const provider = policy?.provider || options.provider;
+    const mode = policy?.mode || options.mode || 'agent';
+    const genericTrigger = options.message || options.prompt || `Start workflow task '${queueState.nextRunnable.taskId}'.`;
+    const candidate = {
+      ...queueState.nextRunnable,
+      provider,
+      mode,
+      changeSlug,
+      specId,
+      sessionPolicy: 'fresh',
+      parentSessionId: options.parentSessionId || options.priorSessionId || null,
+      message: genericTrigger,
+      prompt: genericTrigger,
+      userMessage: genericTrigger,
+    };
+
+    const admissionRes = await admitAgentExecution(specId, candidate, {
       ...options,
       repoRoot,
       changeSlug,
     });
     return {
       action: 'queue-agent-admitted',
-      nextRunnable: queueState.nextRunnable,
+      nextRunnable: candidate,
       admission: admissionRes,
     };
   }

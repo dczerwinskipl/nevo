@@ -448,6 +448,8 @@ export class AgentSessionService {
             purpose: options.purpose || options.title || `task:${tId}`,
             mode,
             model: options.model,
+            role: options.role,
+            parentSessionId: options.parentSessionId,
           });
         }
       } else {
@@ -460,6 +462,8 @@ export class AgentSessionService {
           purpose,
           mode,
           model: options.model,
+          role: options.role,
+          parentSessionId: options.parentSessionId,
         });
       }
     } else {
@@ -474,6 +478,8 @@ export class AgentSessionService {
         purpose,
         mode,
         model: options.model,
+        role: options.role,
+        parentSessionId: options.parentSessionId,
         title: options.title || `${provider} session`,
         createdAt: new Date().toISOString(),
         lastSeenAt: new Date().toISOString(),
@@ -496,6 +502,8 @@ export class AgentSessionService {
         purpose,
         mode,
         model: options.model,
+        role: options.role,
+        parentSessionId: options.parentSessionId,
         title: options.title,
       });
       providerSessionId = typeof created === 'string' ? created : created?.providerSessionId;
@@ -516,6 +524,8 @@ export class AgentSessionService {
       taskId: primaryTaskId,
       activeTaskId: primaryTaskId,
       model: options.model,
+      role: options.role || binding?.role,
+      parentSessionId: options.parentSessionId || binding?.parentSessionId,
     };
   }
 
@@ -1049,6 +1059,14 @@ export class AgentSessionService {
       sessId = opts.sessionId || opts.providerSessionId;
     }
 
+    if (!prov || typeof prov !== 'string' || !prov.trim()) {
+      throw new AiValidationError("'provider' is required to start a turn.", { field: 'provider' });
+    }
+    const rawMessage = opts.message ?? opts.prompt;
+    if (rawMessage === undefined || rawMessage === null || (typeof rawMessage === 'string' && !rawMessage.trim())) {
+      throw new AiValidationError("'message' or 'prompt' is required and must not be empty to start a turn.", { field: 'message' });
+    }
+
     let session = null;
     // canonicalSessionId is only ever populated from an EXPLICIT sessionId (opts.sessionId,
     // or the legacy positional identity once a real store lookup — never string shape —
@@ -1245,6 +1263,7 @@ export class AgentSessionService {
       mode: effectiveMode,
       model: effectiveModel,
       effort: opts.effort ?? opts.reasoningEffort,
+      ownerId: opts.ownerId,
       onProviderSessionIdAvailable: handleProviderSessionId,
     });
 

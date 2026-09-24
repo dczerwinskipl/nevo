@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import {
   PROVIDER_PATTERN,
   TURN_PATTERN,
@@ -8,9 +9,43 @@ import {
 } from '../http.mjs';
 import { authorize } from '../../access-policy.mjs';
 import { AiValidationError } from '../../contracts.mjs';
+import { loadChange, listChanges } from '../../../../../specs/store.mjs';
+import { resolveWorkflowMode } from '../../../../../specs/workflow/compatibility.mjs';
 
 const TURN_BODY_LIMIT = 128 * 1024;
 const CANCEL_BODY_LIMIT = 512;
+const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
+
+export function resolveDeterministicExecutionTarget({ specId, slug, changeSlug, repoRoot }) {
+  const effectiveRoot = repoRoot || process.cwd();
+  const activeDir = join(effectiveRoot, 'specs', 'active');
+  const archiveDir = join(effectiveRoot, 'specs', 'archive');
+  const identifier = changeSlug || slug || specId;
+  if (!identifier) return null;
+
+  let change = loadChange(identifier, activeDir) || loadChange(identifier, archiveDir);
+  if (!change) {
+    const all = [...listChanges(activeDir), ...listChanges(archiveDir)];
+    change = all.find((c) => c.spec_id === identifier || c.id === identifier || c._slug === identifier) || null;
+  }
+  if (!change) return null;
+
+  const resolvedWorkflow = resolveWorkflowMode(change, { repoRoot: effectiveRoot, activeDir });
+  if (resolvedWorkflow?.mode !== 'deterministic') {
+    return { isDeterministic: false, change };
+  }
+
+  const resolvedChangeSlug = change._slug || identifier;
+  const canonicalSpecId = change.id || change.spec_id || resolvedChangeSlug;
+
+  return {
+    isDeterministic: true,
+    change,
+    changeSlug: resolvedChangeSlug,
+    specId: canonicalSpecId,
+    resolvedWorkflow,
+  };
+}
 
 export default async function turnRoutes(fastify, { service, accessPolicy, repoRoot }) {
   // Atomic first-turn + session creation.
@@ -18,7 +53,11 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
     authorize(accessPolicy, 'control', request);
     const body = assertBodyObject(request.body);
     const provider = validatedSegment(body.provider, PROVIDER_PATTERN, 'provider ID');
-    if (body.specId && !UUID_PATTERN.test(body.specId)) throw new AiValidationError('Invalid specification ID.');
+    if (body.specId !== undefined && body.specId !== null) {
+      if (typeof body.specId !== 'string' || !IDENTIFIER_PATTERN.test(body.specId)) {
+        throw new AiValidationError('Invalid specification ID.');
+      }
+    }
     if (body.taskId && !TURN_PATTERN.test(body.taskId)) throw new AiValidationError('Invalid task ID.');
     if (body.model !== undefined && (typeof body.model !== 'string' || !body.model.trim())) {
       throw new AiValidationError('Model must be a non-empty string when provided.');
@@ -28,13 +67,22 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
       throw new AiValidationError('Effort must be a non-empty string when provided.');
     }
 
-    const isDeterministicExecution = body.purpose === 'execution' && body.specId && body.taskId;
+    const effectiveRepoRoot = repoRoot || service.repoRoot || process.cwd();
+    const deterministicTarget = body.purpose === 'execution' && body.taskId
+      ? resolveDeterministicExecutionTarget({
+          specId: body.specId,
+          slug: body.slug,
+          changeSlug: body.changeSlug,
+          repoRoot: effectiveRepoRoot,
+        })
+      : null;
+
+    const isDeterministicExecution = deterministicTarget?.isDeterministic === true;
 
     if (isDeterministicExecution) {
       // Deterministic task execution path (Item 1 & 2):
       // UI -> server orchestration boundary -> admitAgentExecution -> workspace claim -> AgentSessionService.startTurn
-      const changeSlug = body.changeSlug || body.slug || body.specId;
-      const effectiveRepoRoot = repoRoot || service.repoRoot || process.cwd();
+      const { changeSlug, specId: canonicalSpecId } = deterministicTarget;
 
       // If multiple taskIds provided (SequentialQueueTaskPicker batch), enqueue them (Item 12)
       if (Array.isArray(body.taskIds) && body.taskIds.length > 0) {
@@ -42,14 +90,25 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         enqueueTasks(effectiveRepoRoot, changeSlug, body.taskIds);
       }
 
+      // Persist spec-level execution policy from D21
+      if (provider && (body.mode || 'agent')) {
+        try {
+          const { executionPolicyService } = await import('../execution-policy-service.mjs');
+          executionPolicyService.saveExecutionPolicy(
+            changeSlug,
+            { provider, mode: body.mode || 'agent' },
+            { repoRoot: effectiveRepoRoot },
+          );
+        } catch {}
+      }
+
       const { admitAgentExecution } = await import('../../orchestration/admission.mjs');
 
       let sessionPolicy = body.sessionPolicy || 'fresh';
       try {
-        if (service.executionPolicyService?.getPolicy) {
-          const policy = await service.executionPolicyService.getPolicy(changeSlug, body.taskId);
-          if (policy?.session) sessionPolicy = policy.session;
-        }
+        const { executionPolicyService } = await import('../execution-policy-service.mjs');
+        const policy = executionPolicyService.resolveExecutionPolicy(changeSlug, body.taskId, { repoRoot: effectiveRepoRoot });
+        if (policy?.session) sessionPolicy = policy.session;
       } catch {}
 
       const candidate = {
@@ -57,6 +116,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         stepId: body.stepId,
         provider,
         changeSlug,
+        specId: canonicalSpecId,
         sessionPolicy,
         sessionId: body.sessionId,
         message: body.message ?? body.prompt,
@@ -68,10 +128,10 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
       };
 
       console.log(
-        `[ai] [deterministic:admit] provider=${provider} specId=${body.specId} changeSlug=${changeSlug} taskId=${body.taskId} sessionPolicy=${sessionPolicy}`,
+        `[ai] [deterministic:admit] provider=${provider} specId=${canonicalSpecId} changeSlug=${changeSlug} taskId=${body.taskId} sessionPolicy=${sessionPolicy}`,
       );
 
-      const admission = await admitAgentExecution(body.specId, candidate, {
+      const admission = await admitAgentExecution(canonicalSpecId, candidate, {
         repoRoot: effectiveRepoRoot,
         sessionService: service,
         turnRuntime: service.turnRuntime,
@@ -140,18 +200,31 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
       const session = await service.getSession(sessionId);
       const provider = session?.provider;
 
-      if (body.purpose === 'execution' && session?.specId && (body.taskId || session?.activeTaskId)) {
-        const taskId = body.taskId || session.activeTaskId;
-        const specId = session.specId;
-        const changeSlug = body.changeSlug || body.slug || specId;
-        const effectiveRepoRoot = repoRoot || service.repoRoot || process.cwd();
+      if (body.specId !== undefined && body.specId !== null) {
+        if (typeof body.specId !== 'string' || !IDENTIFIER_PATTERN.test(body.specId)) {
+          throw new AiValidationError('Invalid specification ID.');
+        }
+      }
+      const taskId = body.taskId || session?.activeTaskId;
+      const effectiveRepoRoot = repoRoot || service.repoRoot || process.cwd();
+      const deterministicTarget = body.purpose === 'execution' && taskId
+        ? resolveDeterministicExecutionTarget({
+            specId: body.specId || session?.specId,
+            slug: body.slug || body.changeSlug || session?.specId,
+            changeSlug: body.changeSlug || body.slug,
+            repoRoot: effectiveRepoRoot,
+          })
+        : null;
 
+      if (deterministicTarget?.isDeterministic) {
+        const { changeSlug, specId: canonicalSpecId } = deterministicTarget;
         const { admitAgentExecution } = await import('../../orchestration/admission.mjs');
         const candidate = {
           taskId,
           stepId: body.stepId,
-          provider: session.provider || provider,
+          provider: session?.provider || provider,
           changeSlug,
+          specId: canonicalSpecId,
           sessionPolicy: 'reuse',
           sessionId,
           message: body.message ?? body.prompt,
@@ -162,7 +235,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
           idempotencyKey: body.idempotencyKey,
         };
 
-        const admission = await admitAgentExecution(specId, candidate, {
+        const admission = await admitAgentExecution(canonicalSpecId, candidate, {
           repoRoot: effectiveRepoRoot,
           sessionService: service,
           turnRuntime: service.turnRuntime,
@@ -183,7 +256,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
           sessionId: admission.sessionId,
           turnId: admission.turnId,
           ownerId: admission.ownerId,
-          provider: session.provider || provider,
+          provider: session?.provider || provider,
           idempotent: false,
         });
         return;

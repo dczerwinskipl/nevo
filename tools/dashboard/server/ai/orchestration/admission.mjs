@@ -168,6 +168,8 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             purpose: 'execution',
             mode: candidate.mode,
             model: candidate.model,
+            role: candidate.role,
+            parentSessionId: candidate.parentSessionId,
           });
           canonicalSessionId = created.sessionId;
         }
@@ -268,7 +270,8 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             provider: candidate.provider,
           });
         } else if (sessionService?.startTurn) {
-          startResult = await sessionService.startTurn(candidate.provider, canonicalSessionId, {
+          const effectiveProvider = candidate.provider || (canonicalSessionId && sessionService?.getSession ? (await sessionService.getSession(canonicalSessionId).catch(() => null))?.provider : null);
+          startResult = await sessionService.startTurn(effectiveProvider, canonicalSessionId, {
             sessionId: canonicalSessionId,
             taskId: candidate.taskId,
             taskIds: candidate.taskIds || (candidate.taskId ? [candidate.taskId] : undefined),
@@ -280,6 +283,9 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             mode: candidate.mode,
             model: candidate.model,
             effort: candidate.effort,
+            role: candidate.role,
+            parentSessionId: candidate.parentSessionId,
+            ownerId,
             idempotencyKey: candidate.idempotencyKey,
           });
         } else if (turnRuntime?.startTurn) {
@@ -288,6 +294,9 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             taskId: candidate.taskId,
             stepId: candidate.stepId,
             provider: candidate.provider,
+            role: candidate.role,
+            parentSessionId: candidate.parentSessionId,
+            ownerId,
           });
         }
 
@@ -308,10 +317,27 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
         });
 
         if (!enrichRes3.updated) {
-          // If that update fails: do not report as cleanly admitted
+          // If that update fails: mark recovery-required to prevent leaking active state and abort cleanly (Finding 4)
+          await markWorkspaceWriterRecoveryRequiredIfOwned({
+            repoRoot,
+            expectedOwnerId: ownerId,
+            expectedKind: 'agent',
+            expectedSpecId: specId,
+            expectedChangeSlug: changeSlug,
+            expectedTaskId: candidate.taskId,
+            sessionId: canonicalSessionId,
+            turnStartState: 'invoking',
+          }).catch(() => {});
+
+          const currentActive = activeExecutions.get(specId);
+          if (currentActive?.ownerId === ownerId) {
+            activeExecutions.delete(specId);
+          }
+
           return {
             admitted: false,
             reason: 'STARTED_STATE_TRANSITION_FAILED',
+            recoveryRequired: true,
             turnId,
             currentClaim: enrichRes3.currentClaim,
           };
@@ -358,7 +384,10 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
           ...(capturedSessionId ? { expectedSessionId: capturedSessionId } : {}),
           ...(turnIdResolved ? { expectedTurnId: turnIdResolved } : {}),
         });
-        activeExecutions.delete(specId);
+        const currentActiveSettled = activeExecutions.get(specId);
+        if (currentActiveSettled?.ownerId === capturedOwnerId) {
+          activeExecutions.delete(specId);
+        }
         if (typeof onTurnTerminal === 'function') {
           await onTurnTerminal({ specId, taskId: capturedTaskId, settled: true, released: relRes.released });
         }
@@ -380,6 +409,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
               sessionService,
               turnRuntime,
               activeDir,
+              parentSessionId: capturedSessionId,
             });
             hookOutcome.continuation = contRes;
           } catch (contErr) {
@@ -397,7 +427,10 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
           ...(capturedSessionId ? { expectedSessionId: capturedSessionId } : {}),
           ...(turnIdResolved ? { expectedTurnId: turnIdResolved } : {}),
         });
-        activeExecutions.delete(specId);
+        const currentActiveFailed = activeExecutions.get(specId);
+        if (currentActiveFailed?.ownerId === capturedOwnerId) {
+          activeExecutions.delete(specId);
+        }
         if (typeof onTurnTerminal === 'function') {
           await onTurnTerminal({ specId, taskId: capturedTaskId, settled: false, markedRecovery: markRes.marked });
         }

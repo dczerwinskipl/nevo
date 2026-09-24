@@ -2259,11 +2259,18 @@ test('Task 07: Canonical V2 SSE streaming and replay deliver exact canonical Wor
     const created = await service.createSession('manual', { providerSessionId: 'sess-v2-test' });
     const sessionId = created.sessionId;
 
+    let resolveTerminal;
+    const terminalPromise = new Promise((resolve) => {
+      resolveTerminal = resolve;
+    });
+
     // Subscribe to live session stream before starting turn
     const unsubscribe = service.subscribeToSession(sessionId, {
       onEvent: (ev) => {
         if (ev.type === 'turn.updated') {
           liveV2Updates.push(ev.turn);
+        } else if (ev.type === 'turn.completed' || ev.type === 'turn.failed') {
+          resolveTerminal();
         }
       },
     });
@@ -2272,7 +2279,8 @@ test('Task 07: Canonical V2 SSE streaming and replay deliver exact canonical Wor
       prompt: 'V2 canonical stream test',
     });
 
-    await new Promise((r) => setTimeout(r, 20));
+    await Promise.race([terminalPromise, new Promise((r) => setTimeout(r, 2000))]);
+    await new Promise((r) => setTimeout(r, 10));
     unsubscribe();
 
     // 1. Live stream received turn.updated events including nested ToolActions and FinalAnswer

@@ -194,6 +194,7 @@ export class SessionTranscriptCacheService {
         turnId: cloned.id,
         startedAt: cloned.startedAt,
         mode: cloned.mode,
+        ...(cloned.ownerId ? { ownerId: cloned.ownerId } : {}),
       };
       if (cloned.status?.status === 'requiresAttention') {
         const pendingItem = cloned.work?.find((w) => w.type === 'interaction' && w.status === 'pending');
