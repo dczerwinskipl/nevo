@@ -53,6 +53,7 @@ export function createRemediationRecord(params = {}) {
       role: m.role || 'consumer',
       terminal: Boolean(m.terminal),
     })),
+    discoveredMembers: [],
     status: 'active',
     createdAt: new Date().toISOString(),
   };
@@ -64,20 +65,79 @@ export function createRemediationRecord(params = {}) {
 
 /**
  * Loads a remediation record by id.
+ * Supports both positional (repoRoot, change, remediationId) and object params.
  *
- * @param {string} repoRoot
- * @param {string} change
- * @param {string} remediationId
+ * @param {string|object} repoRootOrParams
+ * @param {string} [change]
+ * @param {string} [remediationId]
  * @returns {object|null}
  */
-export function loadRemediationRecord(repoRoot, change, remediationId) {
-  const filePath = getRemediationFilePath(repoRoot, change, remediationId);
+export function loadRemediationRecord(repoRootOrParams, change, remediationId) {
+  let root = repoRootOrParams;
+  let ch = change;
+  let id = remediationId;
+  if (typeof repoRootOrParams === 'object' && repoRootOrParams !== null) {
+    root = repoRootOrParams.repoRoot;
+    ch = repoRootOrParams.change;
+    id = repoRootOrParams.remediationId || repoRootOrParams.groupId;
+  }
+  const filePath = getRemediationFilePath(root, ch, id);
   try {
     if (!fs.existsSync(filePath)) return null;
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
   } catch {
     return null;
   }
+}
+
+export const loadRemediationGroup = loadRemediationRecord;
+
+/**
+ * Adds a discovered member to a remediation group record (D31, D36).
+ *
+ * @param {string|object} repoRootOrParams
+ * @param {string} [change]
+ * @param {string} [remediationId]
+ * @param {string|object} [memberOrTaskId]
+ * @returns {object|null}
+ */
+export function addDiscoveredMember(repoRootOrParams, change, remediationId, memberOrTaskId) {
+  let root = repoRootOrParams;
+  let ch = change;
+  let id = remediationId;
+  let member = memberOrTaskId;
+  if (typeof repoRootOrParams === 'object' && repoRootOrParams !== null) {
+    root = repoRootOrParams.repoRoot;
+    ch = repoRootOrParams.change;
+    id = repoRootOrParams.remediationId || repoRootOrParams.groupId;
+    member = repoRootOrParams.member || repoRootOrParams.taskId;
+  }
+
+  const record = loadRemediationRecord(root, ch, id);
+  if (!record) return null;
+
+  if (!Array.isArray(record.discoveredMembers)) {
+    record.discoveredMembers = [];
+  }
+
+  const taskId = typeof member === 'string' ? member : member?.taskId;
+  if (!taskId) return record;
+
+  const existsInDiscovered = record.discoveredMembers.some(m =>
+    (typeof m === 'string' ? m : m.taskId) === taskId
+  );
+  const existsInMembers = record.members.some(m => m.taskId === taskId);
+
+  if (!existsInDiscovered && !existsInMembers) {
+    const entry = typeof member === 'string' ? member : { taskId, ...member };
+    record.discoveredMembers.push(entry);
+    record.updatedAt = new Date().toISOString();
+
+    const filePath = getRemediationFilePath(root, ch, id);
+    fs.writeFileSync(filePath, JSON.stringify(record, null, 2), 'utf8');
+  }
+
+  return record;
 }
 
 /**
