@@ -11,7 +11,7 @@ import { executeDeterministicHumanDecision } from './actions/deterministic-mutat
 import { resolveWorkflowMode } from '../../../specs/workflow/compatibility.mjs';
 import { loadWorkflowDefinition } from '../../../specs/workflow/definitions/loader.mjs';
 import { projectTask } from '../../../specs/workflow/task-projection.mjs';
-import { describeStep } from '../../../specs/workflow/human-step/projection.mjs';
+import { describeStep, describeHumanInteraction } from '../../../specs/workflow/human-step/projection.mjs';
 import { evaluateExecutionReadiness } from '../../../specs/workflow/readiness-policy.mjs';
 import { REPOSITORY_ROOT } from '../infrastructure/paths.mjs';
 
@@ -111,6 +111,14 @@ export function computeDeterministicTaskActionProjection(task, change, options =
     }
   }
 
+  let humanInteraction = projection.humanInteraction;
+  if (!humanInteraction && isWaitingForStart && targetDescriptor?.executor === 'human') {
+    const stepDef = definition?.steps?.[targetDescriptor.id];
+    if (stepDef) {
+      humanInteraction = describeHumanInteraction(stepDef, true);
+    }
+  }
+
   return {
     state: projection.state,
     canPublish: projection.canPublish ?? (projection.state === 'draft'),
@@ -124,7 +132,7 @@ export function computeDeterministicTaskActionProjection(task, change, options =
     stepDescriptor: targetDescriptor,
     currentStepDescriptor: isCurrentlyActive ? targetDescriptor : null,
     nextStepDescriptor: !isCurrentlyActive ? targetDescriptor : null,
-    humanInteraction: projection.humanInteraction,
+    humanInteraction,
     availableActions,
   };
 }

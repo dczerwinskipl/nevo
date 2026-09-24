@@ -22,6 +22,7 @@ import { mcpInteractionRegistry } from './interactions/mcp/index.mjs';
 
 import { createTrustedNetworkAiAccessPolicy } from './access-policy.mjs';
 import { aiErrorHandler } from './sessions/http.mjs';
+import { reconcileBootState } from './orchestration/reconciliation.mjs';
 
 /**
  * Builds the real production Agent session stack for one repository root.
@@ -176,7 +177,10 @@ export default async function aiRoutes(
   let reconciliationPromise = null;
   const ensureReconciled = () => {
     if (!reconciliationPromise) {
-      reconciliationPromise = Promise.resolve(service.turnRuntime?.reconcileOrphanedTurns?.()).catch((err) => {
+      reconciliationPromise = Promise.all([
+        Promise.resolve(service.turnRuntime?.reconcileOrphanedTurns?.()),
+        reconcileBootState({ repoRoot: root, transcriptCache: service.transcriptCache }),
+      ]).catch((err) => {
         console.error(`[ai] [reconcile] boot-time turn reconciliation failed: ${err.message}`);
       });
     }

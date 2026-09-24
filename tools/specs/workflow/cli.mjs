@@ -34,7 +34,7 @@ import { resolveHumanScopeTarget } from './gates/human-gate.mjs';
 import './actions/index.mjs';
 import { autoBindAgentSession } from '../../specs.mjs';
 import { assertStepExecutor } from './executor-guard.mjs';
-import { startHumanStep, submitHumanStepResult } from './human-step/operations.mjs';
+import { startHumanStep, submitHumanStepResult, activateAndSubmitHumanStep } from './human-step/operations.mjs';
 import { assertExecutionReadiness } from './readiness-policy.mjs';
 import {
   getWorkspaceWriterClaim,
@@ -549,17 +549,6 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
       const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
       const position = resolveWorkflowPosition(definition, task);
 
-      let effectiveTask = task;
-      let effectivePosition = position;
-      if (position.phase !== 'active' && position.phase !== 'terminal') {
-        const activation = startHumanStep(change, task, definition, context);
-        effectiveTask = activation.task;
-        effectivePosition = activation.position;
-      }
-
-      const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, effectiveTask.id, effectivePosition.attempt);
-      const effectiveContext = { ...context, gateRegistry };
-
       const inputs = {
         ...extraInputs,
         result: isApprove ? 'pass' : 'fail',
@@ -575,7 +564,7 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
           : `verify(${task.id}): request changes`;
       }
 
-      const result = await submitHumanStepResult(change, effectiveTask, definition, effectiveContext, inputs);
+      const result = await activateAndSubmitHumanStep(change, task, definition, context, inputs);
       return emit(result, opts);
     })();
   }

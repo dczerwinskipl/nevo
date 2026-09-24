@@ -5,7 +5,7 @@ import { ACTIVE_DIR, loadChange } from '../../../specs/store.mjs';
 import { REPOSITORY_ROOT } from '../infrastructure/paths.mjs';
 import { resolveWorkflowMode } from '../../../specs/workflow/compatibility.mjs';
 import { loadWorkflowDefinition } from '../../../specs/workflow/definitions/loader.mjs';
-import { startHumanStep, submitHumanStepResult } from '../../../specs/workflow/human-step/operations.mjs';
+import { startHumanStep, submitHumanStepResult, activateAndSubmitHumanStep } from '../../../specs/workflow/human-step/operations.mjs';
 import { WorkflowError } from '../../../specs/workflow/errors.mjs';
 import { WorkflowStepExecutorMismatchError } from '../../../specs/workflow/executor-guard.mjs';
 import { CliError } from '../../../lib/cli-errors.mjs';
@@ -117,7 +117,7 @@ export async function executeHumanStepAction({
 
   if (action === 'submit') {
     try {
-      const finishResult = await submitHumanStepResult(
+      const finishResult = await activateAndSubmitHumanStep(
         change,
         task,
         definition,
