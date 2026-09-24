@@ -45,6 +45,54 @@ function resolveDefinition(changeOrDefinition, maybeDefinition, options = {}) {
  * @param {object} [options]
  * @returns {{ satisfied: boolean, reason: string|null, outcome?: string|null, terminalStatus?: string|null }}
  */
+/**
+ * Finds the latest release epoch from history if one exists and has not been invalidated.
+ *
+ * @param {Array<{ entry: object, transition: object|null }>} matchedHistory
+ * @returns {{ step: string, attempt: number }|null}
+ */
+export function findActiveReleaseEpoch(matchedHistory) {
+  let releaseIdx = -1;
+  for (let i = matchedHistory.length - 1; i >= 0; i--) {
+    const item = matchedHistory[i];
+    if (item.transition && item.transition.releasesDependencies === true) {
+      releaseIdx = i;
+      break;
+    }
+  }
+  if (releaseIdx === -1) return null;
+
+  for (let i = releaseIdx + 1; i < matchedHistory.length; i++) {
+    const item = matchedHistory[i];
+    if (item.transition && item.transition.invalidatesDependencyRelease === true) {
+      return null;
+    }
+  }
+
+  const releasingEntry = matchedHistory[releaseIdx].entry;
+  return {
+    step: releasingEntry.step,
+    attempt: releasingEntry.attempt,
+  };
+}
+
+/**
+ * Evaluates whether a single dependency task has completed successfully or released its dependencies.
+ *
+ * Given a dependency task and its change/definition:
+ * 1. Read workflow_progress.history and match each entry's transition.
+ * 2. If terminal outcome is 'success' -> satisfied.
+ * 3. If terminal outcome is 'failure' -> unsatisfied.
+ * 4. Scan for latest release epoch (releasesDependencies: true); satisfied if no later
+ *    transition declares invalidatesDependencyRelease: true (D40).
+ * 5. If not satisfied via terminal success or release epoch: report active or internal transition.
+ *
+ * @param {object} dependencyTask - Task to check
+ * @param {object} changeOrDefinition - Task's change or workflow definition
+ * @param {object} [maybeDefinition] - Workflow definition if change was passed
+ * @param {object} [options]
+ * @returns {{ satisfied: boolean, reason: string|null, outcome?: string|null, terminalStatus?: string|null, releaseEpoch?: { step: string, attempt: number } }}
+ */
 export function evaluateDependencySatisfaction(dependencyTask, changeOrDefinition, maybeDefinition, options = {}) {
   if (!dependencyTask) {
     return { satisfied: false, reason: 'Task is missing or null' };
@@ -55,6 +103,73 @@ export function evaluateDependencySatisfaction(dependencyTask, changeOrDefinitio
     return { satisfied: false, reason: 'Task has no workflow progress' };
   }
 
+  const definition = resolveDefinition(changeOrDefinition, maybeDefinition, options);
+  if (!definition?.steps) {
+    return { satisfied: false, reason: 'Workflow definition could not be resolved' };
+  }
+
+  const history = Array.isArray(progress.history) ? progress.history : [];
+
+  const matchedHistory = history.map(entry => {
+    const stepName = entry.step;
+    const stepConfig = definition.steps[stepName];
+    if (!stepConfig) return { entry, transition: null };
+    const transitions = Array.isArray(stepConfig.transitions) ? stepConfig.transitions : [];
+    const matched = transitions.find(t => {
+      if (t.to !== entry.transitioned_to) return false;
+      if (t.value !== undefined) {
+        return t.value === entry.result;
+      }
+      return true;
+    });
+    return { entry, transition: matched || null };
+  });
+
+  let terminalOutcome = null;
+  let terminalStatus = null;
+  let isTerminal = false;
+  if (history.length > 0) {
+    const lastItem = matchedHistory.at(-1);
+    if (lastItem.transition) {
+      terminalStatus = lastItem.entry.transitioned_to;
+      isTerminal = TERMINAL_STATUSES.has(terminalStatus);
+      if (isTerminal) {
+        terminalOutcome = lastItem.transition.outcome || null;
+      }
+    }
+  }
+
+  if (isTerminal && terminalOutcome === 'success') {
+    const releaseEpoch = findActiveReleaseEpoch(matchedHistory);
+    return {
+      satisfied: true,
+      reason: null,
+      outcome: 'success',
+      terminalStatus,
+      ...(releaseEpoch ? { releaseEpoch } : {}),
+    };
+  }
+
+  if (isTerminal && terminalOutcome === 'failure') {
+    return {
+      satisfied: false,
+      reason: `Terminal transition from step '${matchedHistory.at(-1).entry.step}' to '${terminalStatus}' ended with failure outcome`,
+      outcome: 'failure',
+      terminalStatus,
+    };
+  }
+
+  const activeReleaseEpoch = findActiveReleaseEpoch(matchedHistory);
+  if (activeReleaseEpoch) {
+    return {
+      satisfied: true,
+      reason: null,
+      outcome: terminalOutcome,
+      terminalStatus: isTerminal ? terminalStatus : undefined,
+      releaseEpoch: activeReleaseEpoch,
+    };
+  }
+
   if (progress.state === 'active') {
     return {
       satisfied: false,
@@ -62,78 +177,31 @@ export function evaluateDependencySatisfaction(dependencyTask, changeOrDefinitio
     };
   }
 
-  const history = progress.history;
-  if (!Array.isArray(history) || history.length === 0) {
+  if (history.length === 0) {
     return { satisfied: false, reason: 'Task has empty workflow history' };
   }
 
   const lastEntry = history.at(-1);
-  if (!lastEntry) {
-    return { satisfied: false, reason: 'Task has no history entries' };
-  }
-
-  const definition = resolveDefinition(changeOrDefinition, maybeDefinition, options);
-  if (!definition?.steps) {
-    return { satisfied: false, reason: 'Workflow definition could not be resolved' };
-  }
-
-  const stepName = lastEntry.step;
-  const stepConfig = definition.steps[stepName];
-  if (!stepConfig) {
-    return { satisfied: false, reason: `Step '${stepName}' not declared in workflow definition` };
-  }
-
-  const transitionedTo = lastEntry.transitioned_to;
-  const result = lastEntry.result;
-  const transitions = Array.isArray(stepConfig.transitions) ? stepConfig.transitions : [];
-
-  const matchedTransition = transitions.find(t => {
-    if (t.to !== transitionedTo) return false;
-    if (t.value !== undefined) {
-      return t.value === result;
-    }
-    return true;
-  });
-
-  if (!matchedTransition) {
+  const lastMatched = matchedHistory.at(-1);
+  if (!lastMatched?.transition) {
     return {
       satisfied: false,
-      reason: `No matching transition found from step '${stepName}' to '${transitionedTo}'`,
+      reason: `No matching transition found from step '${lastEntry.step}' to '${lastEntry.transitioned_to}'`,
     };
   }
 
-  const isTerminal = TERMINAL_STATUSES.has(transitionedTo);
   if (!isTerminal) {
     return {
       satisfied: false,
-      reason: `Task transitioned from step '${stepName}' to internal step '${transitionedTo}', not a terminal status`,
-    };
-  }
-
-  const outcome = matchedTransition.outcome;
-  if (outcome === 'success') {
-    return {
-      satisfied: true,
-      reason: null,
-      outcome: 'success',
-      terminalStatus: transitionedTo,
-    };
-  }
-
-  if (outcome === 'failure') {
-    return {
-      satisfied: false,
-      reason: `Terminal transition from step '${stepName}' to '${transitionedTo}' ended with failure outcome`,
-      outcome: 'failure',
-      terminalStatus: transitionedTo,
+      reason: `Task transitioned from step '${lastEntry.step}' to internal step '${lastEntry.transitioned_to}', not a terminal status`,
     };
   }
 
   return {
     satisfied: false,
-    reason: `Terminal transition from step '${stepName}' to '${transitionedTo}' has unexpected outcome '${outcome}'`,
-    outcome: outcome ?? null,
-    terminalStatus: transitionedTo,
+    reason: `Terminal transition from step '${lastEntry.step}' to '${lastEntry.transitioned_to}' has unexpected outcome '${terminalOutcome}'`,
+    outcome: terminalOutcome,
+    terminalStatus,
   };
 }
 
@@ -213,3 +281,18 @@ export function checkTaskDependencies(task, changeOrDefinition, allTasks = [], m
     blockingDependencies,
   };
 }
+
+/**
+ * Resolves the active release epoch for a task if one exists.
+ *
+ * @param {object} task
+ * @param {object} changeOrDefinition
+ * @param {object} [maybeDefinition]
+ * @param {object} [options]
+ * @returns {{ step: string, attempt: number }|null}
+ */
+export function resolveTaskReleaseEpoch(task, changeOrDefinition, maybeDefinition, options = {}) {
+  const result = evaluateDependencySatisfaction(task, changeOrDefinition, maybeDefinition, options);
+  return result.releaseEpoch || null;
+}
+

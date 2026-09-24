@@ -2,6 +2,7 @@
 // Composes TaskProjection with the executor guard and activation preconditions.
 
 import { projectTask, resolveDefinition } from './task-projection.mjs';
+import { projectSuspensions } from './suspension-projection.mjs';
 import { assertStepExecutor } from './executor-guard.mjs';
 import { assertCleanWorktreeForNewAttempt } from './step-context.mjs';
 import { loadOperationRecord } from './operation-record.mjs';
@@ -59,6 +60,19 @@ export function evaluateExecutionReadiness(task, change, callerKind = 'agent', o
       reason: `Task '${task?.id}' workflow has already completed with terminal outcome '${projection.terminalOutcome}'`,
       terminalOutcome: projection.terminalOutcome,
       terminalStatus: projection.terminalStatus,
+      projection,
+    };
+  }
+
+  // 3b. Active non-advisory suspensions from remediation groups (D44)
+  const suspensions = options.suspensions || (options.repoRoot && task && change ? projectSuspensions(task, change, options) : []);
+  const activeSuspension = suspensions.find(s => !s.advisory);
+  if (activeSuspension) {
+    return {
+      ready: false,
+      code: 'TASK_SUSPENDED',
+      reason: `Task '${task?.id}' is suspended: ${activeSuspension.reason} (group: ${activeSuspension.groupId})`,
+      suspensions,
       projection,
     };
   }
@@ -143,6 +157,7 @@ export function evaluateExecutionReadiness(task, change, callerKind = 'agent', o
     reason: null,
     projection,
     targetStep,
+    suspensions,
   };
 }
 

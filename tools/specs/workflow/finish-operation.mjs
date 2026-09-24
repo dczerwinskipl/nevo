@@ -22,6 +22,7 @@ import * as git from '../../lib/git.mjs';
 // `step start` activation guard can read these records too, without a circular import
 // between this module and `step-context.mjs`.
 import { loadOperationRecord, saveOperationRecord, findInFlightOperationRecord } from './operation-record.mjs';
+import { withGitFinalizeLock } from './git-finalize-lock.mjs';
 
 export const FINISH_STAGE_IDS = ['verify-gates', 'update-task', 'commit', 'push', 'transition'];
 
@@ -772,8 +773,11 @@ export async function finishStep({
 
   try {
     await ensureVerifyGates(record, step, effectiveContext, gateRegistry, repoRoot);
-    await ensureUpdateTask(record, definition, resolvedActiveDir, changeSlug, task.id, repoRoot);
-    await ensureCommit(record, effectiveContext, repoRoot);
+    const existingLease = context.finalizeLease || effectiveContext.finalizeLease;
+    await withGitFinalizeLock(async () => {
+      await ensureUpdateTask(record, definition, resolvedActiveDir, changeSlug, task.id, repoRoot);
+      await ensureCommit(record, effectiveContext, repoRoot);
+    }, existingLease, { repoRoot });
     await ensurePush(record, effectiveContext, repoRoot);
     await ensureTransition(record, definition);
   } catch (err) {

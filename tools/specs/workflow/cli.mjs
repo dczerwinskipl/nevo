@@ -36,6 +36,27 @@ import { autoBindAgentSession } from '../../specs.mjs';
 import { assertStepExecutor } from './executor-guard.mjs';
 import { startHumanStep, submitHumanStepResult } from './human-step/operations.mjs';
 import { assertExecutionReadiness } from './readiness-policy.mjs';
+import {
+  getWorkspaceWriterClaim,
+  acquireWorkspaceWriter,
+  releaseWorkspaceWriterIfOwned,
+  markWorkspaceWriterRecoveryRequiredIfOwned,
+} from './workspace-writer.mjs';
+import { readAgentExecutionContext } from '../../dashboard/server/ai/sessions/binding-service.mjs';
+import {
+  recordCliWorkspaceExecution,
+  loadCliWorkspaceExecution,
+  updateCliWorkspaceExecutionStatus,
+} from './cli-workspace-execution.mjs';
+import { assessExecutionSettlement } from './execution-settlement.mjs';
+import {
+  planStart,
+  completeActivateStage,
+  completeConsumptionStage,
+  findInFlightStartOperation,
+} from './start-operation.mjs';
+import { recordDependencyConsumption } from './dependency-consumption.mjs';
+import { evaluateDependencySatisfaction } from './dependency-satisfaction.mjs';
 
 /**
  * Resolves the change/task/normalized-definition/runtime-context tuple shared by all
@@ -240,10 +261,160 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
   }
   const { task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
   const position = resolveWorkflowPosition(definition, task);
+  const targetStepName = position.phase === 'new'
+    ? definition.entryStep
+    : (position.phase === 'active' ? position.step : (position.nextStep?.id || position.nextStep));
+  const targetStepConfig = definition.steps?.[targetStepName];
+  const slug = change._slug || changeSlug || change.id;
+  const currentAttempt = position.attempt || (task.workflow_progress?.history || []).filter(h => h.step === targetStepName).length + 1;
+
   if (position.phase !== 'terminal') {
     assertExecutionReadiness(task, change, 'agent', { definition, repoRoot: context.repoRoot });
+
+    // Workspace writer arbitration (D55, D62, D86)
+    const specId = change.id || slug;
+    const existingClaim = getWorkspaceWriterClaim(context.repoRoot);
+    let reusedAgentClaim = false;
+
+    if (existingClaim && existingClaim.kind === 'agent' && existingClaim.specId === specId && (!existingClaim.taskId || existingClaim.taskId === task.id)) {
+      const ambientContext = readAgentExecutionContext(process.env, { repoRoot: context.repoRoot, specId, taskId: task.id });
+      if (ambientContext?.sessionId && existingClaim.sessionId === ambientContext.sessionId) {
+        if (!existingClaim.turnId || !ambientContext.turnId || existingClaim.turnId === ambientContext.turnId) {
+          reusedAgentClaim = true;
+        }
+      }
+    }
+
+    if (!reusedAgentClaim) {
+      if (existingClaim && (existingClaim.kind === 'agent' || existingClaim.kind === 'cli-manual')) {
+        const settlement = await assessExecutionSettlement({
+          repoRoot: context.repoRoot,
+          changeSlug: slug,
+          taskId: existingClaim.taskId || task.id,
+          activeDir: context.activeDir,
+        });
+        if (settlement.settled) {
+          await releaseWorkspaceWriterIfOwned({
+            repoRoot: context.repoRoot,
+            expectedOwnerId: existingClaim.ownerId,
+            expectedKind: existingClaim.kind,
+            expectedSpecId: existingClaim.specId,
+            expectedTaskId: existingClaim.taskId,
+          });
+        } else {
+          await markWorkspaceWriterRecoveryRequiredIfOwned({
+            repoRoot: context.repoRoot,
+            expectedOwnerId: existingClaim.ownerId,
+            expectedKind: existingClaim.kind,
+            expectedSpecId: existingClaim.specId,
+            expectedTaskId: existingClaim.taskId,
+          });
+        }
+      }
+
+      const acquireRes = await acquireWorkspaceWriter({
+        repoRoot: context.repoRoot,
+        kind: 'cli-manual',
+        specId,
+        taskId: task.id,
+      });
+
+      if (!acquireRes.acquired) {
+        if (acquireRes.blocked) {
+          throw new WorkflowError(`Workspace writer is blocked by recovery-required`, {
+            code: 'WORKSPACE_WRITER_BLOCKED_BY_RECOVERY',
+            currentClaim: acquireRes.currentClaim,
+          });
+        }
+        throw new WorkflowError(`Workspace writer slot is currently held by ${acquireRes.currentClaim?.kind || 'another process'}`, {
+          code: 'WORKSPACE_WRITER_CONTENDED',
+          currentClaim: acquireRes.currentClaim,
+        });
+      }
+
+      recordCliWorkspaceExecution({
+        repoRoot: context.repoRoot,
+        change: slug,
+        taskId: task.id,
+        step: targetStepName,
+        attempt: currentAttempt,
+        workspaceOwnerId: acquireRes.ownerId,
+      });
+    }
+
+    // Start operation and dependency consumption (D52, D53, D58)
+    if (targetStepConfig?.consumesDependencies === true) {
+      const inFlightStart = findInFlightStartOperation(context.repoRoot, slug, task.id);
+      if (inFlightStart) {
+        const activateStage = inFlightStart.stages?.find(s => s.id === 'activate');
+        if (activateStage?.status !== 'completed') {
+          ensureStepActivated(change, task, definition, context);
+          completeActivateStage(context.repoRoot, inFlightStart);
+        }
+        const consumeStage = inFlightStart.stages?.find(s => s.id === 'record-consumption');
+        if (consumeStage?.status !== 'completed') {
+          recordDependencyConsumption({
+            repoRoot: context.repoRoot,
+            change: slug,
+            consumingTaskId: task.id,
+            consumingStep: inFlightStart.step,
+            consumingAttempt: inFlightStart.attempt,
+            consumptionSequence: inFlightStart.consumptionSequence,
+            dependencies: inFlightStart.dependencySnapshot,
+          });
+          completeConsumptionStage(context.repoRoot, inFlightStart);
+        }
+      } else {
+        const dependencySnapshot = [];
+        const dependsOn = Array.isArray(task.depends_on) ? task.depends_on : [];
+        if (dependsOn.length > 0) {
+          const allTasks = change.tasks || [];
+          for (const depId of dependsOn) {
+            let depTask = allTasks.find(t => t.id === depId || t.file?.endsWith(`/${depId}.md`) || t.file?.endsWith(`\\${depId}.md`));
+            if (!depTask) {
+              try {
+                depTask = requireTask(change, depId);
+              } catch {}
+            }
+            if (depTask) {
+              const evalResult = evaluateDependencySatisfaction(depTask, change, definition);
+              if (evalResult.releaseEpoch) {
+                dependencySnapshot.push({
+                  taskId: depId,
+                  releaseEpoch: evalResult.releaseEpoch,
+                });
+              }
+            }
+          }
+        }
+
+        const startOp = planStart({
+          repoRoot: context.repoRoot,
+          change: slug,
+          task: task.id,
+          step: targetStepName,
+          attempt: currentAttempt,
+          dependencySnapshot,
+        });
+
+        ensureStepActivated(change, task, definition, context);
+        completeActivateStage(context.repoRoot, startOp);
+
+        recordDependencyConsumption({
+          repoRoot: context.repoRoot,
+          change: slug,
+          consumingTaskId: task.id,
+          consumingStep: targetStepName,
+          consumingAttempt: currentAttempt,
+          consumptionSequence: startOp.consumptionSequence,
+          dependencies: startOp.dependencySnapshot,
+        });
+        completeConsumptionStage(context.repoRoot, startOp);
+      }
+    }
   }
-  const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, position.attempt);
+
+  const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, slug, task.id, currentAttempt);
   const stepContext = await compileStepContext({ change, task, definition, context, gateRegistry });
   autoBindAgentSession(change, task.id, 'execution', { step: stepContext.currentStep, attempt: stepContext.attempt, repoRoot: context.repoRoot });
   return emit(stepContext, opts);
@@ -261,9 +432,6 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
   const inputs = parseFinishInputs(opts);
   const { task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
   const inFlight = context.repoRoot ? findInFlightOperationRecord(context.repoRoot, change._slug, task.id) : null;
-  // Task 04 AC1: an in-flight record is authoritative over workflow_progress for choosing
-  // execution identity — resolveWorkflowPosition must not even run when one exists (see
-  // the identical reasoning in finish-operation.mjs's planFinish).
   const position = inFlight ? null : resolveWorkflowPosition(definition, task);
   const stepName = inFlight
     ? inFlight.step
@@ -289,7 +457,40 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
     return emit(plan, opts);
   }
 
-  const result = await finishStep({ change, task, definition, context, inputs, activeDir: context.activeDir, gateRegistry });
+  let result;
+  let finishError = null;
+  try {
+    result = await finishStep({ change, task, definition, context, inputs, activeDir: context.activeDir, gateRegistry });
+  } catch (err) {
+    finishError = err;
+  }
+
+  // D69: Settlement-gated release of cli-manual claim
+  const slug = change._slug || changeSlug || change.id;
+  const cliExec = loadCliWorkspaceExecution(context.repoRoot, slug, task.id, stepName, attempt);
+  if (cliExec && cliExec.status === 'active') {
+    const settlement = await assessExecutionSettlement({
+      repoRoot: context.repoRoot,
+      changeSlug: slug,
+      taskId: task.id,
+      activeDir: context.activeDir,
+    });
+    if (settlement.settled) {
+      await releaseWorkspaceWriterIfOwned({
+        repoRoot: context.repoRoot,
+        expectedOwnerId: cliExec.workspaceOwnerId,
+        expectedKind: 'cli-manual',
+        expectedSpecId: change.id || slug,
+        expectedTaskId: task.id,
+      });
+      updateCliWorkspaceExecutionStatus(context.repoRoot, slug, task.id, stepName, attempt, finishError ? 'failed' : 'completed');
+    }
+  }
+
+  if (finishError) {
+    throw finishError;
+  }
+
   return emit(result, opts);
 }
 
