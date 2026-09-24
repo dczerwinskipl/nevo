@@ -8,6 +8,10 @@ import {
 } from './http.mjs';
 import { authorize } from '../access-policy.mjs';
 import { AiValidationError } from '../contracts.mjs';
+import {
+  ExecutionPolicyService,
+  executionPolicyService as defaultExecutionPolicyService,
+} from './execution-policy-service.mjs';
 
 const SESSION_CREATE_BODY_LIMIT = 16_384;
 const SESSION_PATCH_BODY_LIMIT = 4_096;
@@ -19,7 +23,25 @@ const SESSION_PATCH_BODY_LIMIT = 4_096;
  * directly — that composition lives behind `service.createSession`/
  * `getSessionDetails`/`updateSessionMode`/`deleteSession`.
  */
-export default async function sessionRoutes(fastify, { service, accessPolicy }) {
+export default async function sessionRoutes(fastify, { service, accessPolicy, executionPolicyService } = {}) {
+  const policyService =
+    executionPolicyService ||
+    (service?.repoRoot ? new ExecutionPolicyService({ repoRoot: service.repoRoot }) : defaultExecutionPolicyService);
+
+  fastify.get('/api/specs/:slug/execution-policy', async (request, reply) => {
+    authorize(accessPolicy, 'read', request);
+    const slug = request.params.slug;
+    const policy = policyService.getExecutionPolicy(slug);
+    reply.send({ policy });
+  });
+
+  fastify.put('/api/specs/:slug/execution-policy', async (request, reply) => {
+    authorize(accessPolicy, 'control', request);
+    const slug = request.params.slug;
+    const body = assertBodyObject(request.body);
+    const policy = policyService.saveExecutionPolicy(slug, body);
+    reply.send({ policy });
+  });
   fastify.get('/api/agent-sessions', async (request, reply) => {
     authorize(accessPolicy, 'read', request);
     const specId = request.query?.specId || undefined;

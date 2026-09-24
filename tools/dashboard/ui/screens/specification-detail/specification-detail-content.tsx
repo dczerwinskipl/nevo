@@ -17,7 +17,7 @@ import { TaskDialog } from '@/features/specifications/tasks/task-dialog';
 import { AgentSessionList } from '@/features/agent-sessions/agent-session-list';
 import { DocumentationPanel } from '@/features/specifications/detail/documentation-panel';
 import { RepositoryActionsCard, FinalizeDialog } from '@/features/specifications/actions/spec-actions';
-import { CreateAgentSessionDialog } from '@/features/agent-sessions/create-agent-session-dialog';
+import { CreateAgentSessionDialog, ExecutionPolicySelectionDialog } from '@/features/agent-sessions/create-agent-session-dialog';
 import { OperationModal } from '@/features/operations/operation-modal';
 import { queueAgentSessionInitialDispatch } from '@/features/agent-sessions/initial-dispatch';
 import { postHumanStepAction } from '@/shared/lib/human-step-request';
@@ -28,7 +28,8 @@ import {
 import { invalidateSpecificationQueries } from '@/features/specifications/queries';
 import { invalidatePullRequestQueries } from '@/features/pull-requests/queries';
 import { useAgentProviders, useAgentSessions, useCreateAgentSession, buildAgentStepTriggerMessage } from '@/features/agent-sessions/queries';
-import type { AgentSession } from '@/features/agent-sessions/types';
+import { useExecutionPolicy, resolvePolicyForTask } from '@/features/agent-sessions/execution-policy';
+import type { AgentSession, AgentExecutionMode } from '@/features/agent-sessions/types';
 import { useSpecWorkflowActions } from './use-spec-workflow-actions';
 import { useSpecificationPublishMutation } from '@/features/specifications/tasks/publish-task-mutation';
 
@@ -127,9 +128,48 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
 
   const providersQuery = useAgentProviders();
   const createSession = useCreateAgentSession();
-  const enabledProviders = providersQuery.data?.providers.filter((p) => p.enabled) ?? [];
-  const availableProviders = enabledProviders.filter((p) => p.available !== false);
-  const defaultProvider = availableProviders[0]?.id || enabledProviders[0]?.id || 'claude';
+  const executionPolicyQuery = useExecutionPolicy(specification.slug);
+  const [pendingStart, setPendingStart] = useState<{
+    task: SpecificationTask;
+    stepDescriptor: WorkflowStepDescriptor;
+  } | null>(null);
+
+  const proceedWithAgentExecution = useCallback(
+    async (
+      targetTaskId: string,
+      policy: { provider: string; mode?: AgentExecutionMode },
+    ) => {
+      const bound = sessionsQuery.sessions.find(
+        (s) => s.taskId === targetTaskId,
+      );
+      const targetSession =
+        bound ||
+        (await createSession.create({
+          provider: policy.provider,
+          mode: policy.mode,
+          specId: specification.specId || '',
+          taskId: targetTaskId,
+          taskIds: [targetTaskId],
+        }));
+
+      const userMessage = buildAgentStepTriggerMessage(targetTaskId);
+      queueAgentSessionInitialDispatch({
+        provider: targetSession.provider,
+        sessionId: targetSession.sessionId,
+        prompt: userMessage,
+        userMessage,
+      });
+      navigate({
+        to: '/specs/$source/$slug/sessions/$sessionId',
+        params: {
+          source: specification.source,
+          slug: specification.slug,
+          sessionId: targetSession.sessionId,
+        },
+      });
+    },
+    [createSession, navigate, sessionsQuery.sessions, specification],
+  );
 
   const startStep = useCallback(
     async (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor) => {
@@ -143,33 +183,13 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
 
       if (stepDescriptor.executor === 'agent') {
         try {
-          const bound = sessionsQuery.sessions.find(
-            (s) => s.taskId === targetTaskId,
-          );
-          const targetSession =
-            bound ||
-            (await createSession.create({
-              provider: defaultProvider,
-              specId: specification.specId || '',
-              taskId: targetTaskId,
-              taskIds: [targetTaskId],
-            }));
-
-          const userMessage = buildAgentStepTriggerMessage(targetTaskId);
-          queueAgentSessionInitialDispatch({
-            provider: targetSession.provider,
-            sessionId: targetSession.sessionId,
-            prompt: userMessage,
-            userMessage,
-          });
-          navigate({
-            to: '/specs/$source/$slug/sessions/$sessionId',
-            params: {
-              source: specification.source,
-              slug: specification.slug,
-              sessionId: targetSession.sessionId,
-            },
-          });
+          const currentPolicy = executionPolicyQuery.policy;
+          if (!currentPolicy) {
+            setPendingStart({ task, stepDescriptor });
+            return;
+          }
+          const effective = resolvePolicyForTask(currentPolicy, targetTaskId) || currentPolicy;
+          await proceedWithAgentExecution(targetTaskId, effective);
         } catch (err: any) {
           const message = err instanceof Error ? err.message : String(err);
           setWorkflowError(message);
@@ -191,11 +211,9 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
     },
     [
       actionsQuery,
-      createSession,
-      defaultProvider,
-      navigate,
+      executionPolicyQuery.policy,
+      proceedWithAgentExecution,
       queryClient,
-      sessionsQuery.sessions,
       specification,
     ],
   );
@@ -513,6 +531,28 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
                 sessionId: session.sessionId,
               },
             });
+          }}
+        />
+      )}
+
+      {pendingStart && (
+        <ExecutionPolicySelectionDialog
+          specificationTitle={specification.title}
+          onClose={() => setPendingStart(null)}
+          confirming={executionPolicyQuery.saving}
+          onConfirm={async (chosen) => {
+            try {
+              await executionPolicyQuery.savePolicy({
+                provider: chosen.provider,
+                mode: chosen.mode,
+              });
+              const target = pendingStart;
+              setPendingStart(null);
+              await proceedWithAgentExecution(target.task.id, chosen);
+            } catch (err: any) {
+              const message = err instanceof Error ? err.message : String(err);
+              setWorkflowError(message);
+            }
           }}
         />
       )}
