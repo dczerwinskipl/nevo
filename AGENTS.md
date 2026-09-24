@@ -74,6 +74,7 @@ ADRs: `docs/decisions/`
 
 ## Git safety
 
+- Commit and push verified changes when a task or requested pass is complete and all tests pass (do not leave completed work uncommitted)
 - Do not create pull requests without explicit instruction
 - Do not use `--no-verify`
 - Do not mix unrelated changes in one commit

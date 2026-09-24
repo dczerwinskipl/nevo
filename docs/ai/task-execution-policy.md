@@ -58,7 +58,7 @@ standalone or inside an authorized batch.
 3. Update any affected documentation in the same branch
 4. Run `node tools/specs.mjs complete <change> <task>`
 5. Show the owner the diff and test results
-6. Do not commit without explicit instruction
+6. Commit and push verified changes once all checks pass (do not create PRs without explicit instruction)
 
 ## Owner-authorized sequential batch operation
 
@@ -133,8 +133,7 @@ Do not self-verify behavioral changes as complete without owner review.
 
 ## Forbidden actions
 
-- `git commit` without explicit instruction
-- `git push` without explicit instruction
+- Creating pull requests without explicit instruction
 - `git push --force` — never
 - `--no-verify` — never
 - Modifying files outside `allowed_paths`

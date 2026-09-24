@@ -55,7 +55,7 @@ For legacy lifecycle tasks:
 1. Run `node tools/specs.mjs next` to find the approved task (if starting new work).
 2. Run `node tools/specs.mjs context <change> <task>` to get the context packet.
 3. Load only what the context packet declares as `required`.
-4. Do not commit, push, or create PRs without explicit owner instruction.
+4. Do not create PRs without explicit owner instruction (commit and push verified task work once all tests pass).
 
 ## Human-led rules
 
