@@ -183,3 +183,13 @@ Deterministic workflow steps define an explicit `executor` (`agent` vs. `human`)
 - **AI Agent Prohibition on Human Steps:** An AI agent must **never** attempt to start or finish human-owned steps (`executor: human`, such as verification, review sign-off, or manual checks). Any agent invocation of `workflow step start` or `workflow step finish` targeting a human step fails immediately with `WORKFLOW_STEP_EXECUTOR_MISMATCH`.
 - **Human Endpoint Separation:** Conversely, human step operations (`startHumanStep`, `submitHumanStepResult`) can only be executed against human-owned steps and will reject agent-owned steps with `WORKFLOW_STEP_EXECUTOR_MISMATCH`.
 
+### 7. Three-Way Source-Control Ownership Taxonomy (D30)
+To prevent uncommitted state leaks and preserve deterministic Git finalization integrity, all operations modifying repository or manifest state are partitioned into three explicit categories:
+1. **Standalone user-originated Git-tracked mutation** (e.g. `workflow task publish`, Batch Publish):
+   Must finalize its own Git state (commit and push) under the git-finalize lease and workspace-writer claim (D29). It claims the shared workspace-writer slot (`kind: 'publish'` or `'batch-publish'`) for the entire operation through push, nesting the git-finalize lease around the mutate-then-commit critical section specifically.
+2. **Technical activation that is part of an execution attempt** (e.g. `workflow step start`, human-step auto-activation, D27):
+   Does not perform an immediate standalone Git commit. It rides along with the execution attempt it belongs to, finalized by that attempt's own eventual completion (`workflow step finish` or `submitHumanStepResult`).
+3. **Completed lifecycle mutation** (e.g. `submitHumanStepResult`, `workflow step finish`):
+   Already owns its deterministic finalize/commit/push lifecycle sequence, protected under git-finalize lease and workspace-writer ownership.
+
+

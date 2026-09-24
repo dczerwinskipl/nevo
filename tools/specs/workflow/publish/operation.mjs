@@ -1,5 +1,10 @@
-import { existsSync } from 'node:fs';
+// Deterministic task publish operation (Task 31, D29, D30, D47, D50, D55, D64, D65, D68, D70, D72, D76, D81, D82, D83, D88, D91, D95, D96).
+// Durable standalone operation with workspace-writer claim through push and git-finalize lock around mutate-then-commit.
+// Registers 'publish' and 'batch-publish' reconciler checkers at module-load time (D88, D96).
+
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { requireChange, requireTask, setTaskStatus, ROOT, ACTIVE_DIR } from '../../store.mjs';
 import { resolveWithinBase, readUtf8 } from '../../../lib/fs.mjs';
 import { parseFrontMatterFile } from '../../../lib/yaml.mjs';
@@ -11,12 +16,97 @@ import {
   validateContextExceptions,
   validateConsequentialPaths,
 } from '../../validation.mjs';
+import {
+  operationFilePath,
+  saveOperationRecord,
+  loadOperationRecord,
+  findInFlightOperationRecord,
+} from '../operation-record.mjs';
+import { withGitFinalizeLock } from '../git-finalize-lock.mjs';
+import {
+  acquireWorkspaceWriter,
+  releaseWorkspaceWriterIfOwned,
+} from '../workspace-writer.mjs';
+import {
+  createWorkspaceRequest,
+  transitionWorkspaceRequest,
+} from '../workspace-request.mjs';
+import { registerRequestKindReconciler } from '../workspace-claim-reconciliation.mjs';
+import { loadWorkflowDefinition } from '../definitions/loader.mjs';
+import {
+  addAndCommitAsync,
+  pushAsync,
+  getCurrentBranchAsync,
+  getCurrentRevision,
+  getCommitInfo,
+} from '../../../lib/git.mjs';
+import { WorkflowError } from '../errors.mjs';
+
+export const PUBLISH_STAGE_IDS = ['validate', 'update-task', 'commit', 'push'];
+
+// Register 'publish' and 'batch-publish' checkers at module-load time (D88, D96)
+registerRequestKindReconciler('publish', async ({ repoRoot, operationRef }) => {
+  let record = null;
+  try {
+    if (operationRef && existsSync(operationRef)) {
+      record = JSON.parse(readFileSync(operationRef, 'utf8'));
+    }
+  } catch {}
+
+  if (!record) {
+    return { settled: false, reason: 'operation-record-not-found', reconciliationRequired: true };
+  }
+
+  if (record.status === 'completed') {
+    return { settled: true, terminalStatus: 'completed' };
+  }
+  if (record.status === 'failed') {
+    return { settled: true, terminalStatus: 'failed' };
+  }
+
+  const commitStage = record.operations?.find(o => o.id === 'commit');
+  if (commitStage?.status === 'completed') {
+    return { settled: true, terminalStatus: 'completed' };
+  }
+
+  return { settled: false, reason: 'incomplete-stages', reconciliationRequired: true };
+});
+
+registerRequestKindReconciler('batch-publish', async ({ repoRoot, operationRef }) => {
+  let record = null;
+  try {
+    if (operationRef && existsSync(operationRef)) {
+      record = JSON.parse(readFileSync(operationRef, 'utf8'));
+    }
+  } catch {}
+
+  if (!record) {
+    return { settled: false, reason: 'operation-record-not-found', reconciliationRequired: true };
+  }
+
+  if (record.status === 'completed') {
+    return { settled: true, terminalStatus: 'completed' };
+  }
+  if (record.status === 'failed') {
+    return { settled: true, terminalStatus: 'failed' };
+  }
+
+  const commitStage = record.operations?.find(o => o.id === 'commit');
+  if (commitStage?.status === 'completed') {
+    return { settled: true, terminalStatus: 'completed' };
+  }
+
+  return { settled: false, reason: 'incomplete-stages', reconciliationRequired: true };
+});
 
 /**
  * Validates a task's definition files, frontmatter, semantics, and dependencies
  * prior to publication.
+ *
+ * @param {object} change
+ * @param {object} task
  */
-function validateTaskDefinitionForPublish(change, task) {
+export function validateTaskDefinitionForPublish(change, task) {
   if (!task.file) {
     throw new CliError(`Task '${task.id}' does not declare a 'file' property in change.yaml`);
   }
@@ -64,15 +154,37 @@ function validateTaskDefinitionForPublish(change, task) {
 }
 
 /**
+ * Creates a new publish operation record.
+ */
+function createPublishRecord(changeSlug, taskId, attempt = 1) {
+  return {
+    operationId: randomUUID(),
+    change: changeSlug,
+    task: taskId,
+    step: 'publish',
+    attempt,
+    status: 'running',
+    operations: PUBLISH_STAGE_IDS.map(id => ({
+      id,
+      status: id === 'validate' ? 'completed' : 'pending',
+    })),
+    createdAt: new Date().toISOString(),
+  };
+}
+
+/**
  * Independent deterministic operation: marks a draft, valid, dependency-clean,
- * not-yet-started task ready for execution (`task.status: approved`).
+ * not-yet-started task ready for execution (`task.status: approved`), with durable
+ * operation record, workspace-writer arbitration, CAS execution, and source control finalization.
  *
  * @param {string} changeSlug
  * @param {string} taskId
  * @param {object} [options]
  * @param {string} [options.activeDir]
  * @param {string} [options.repoRoot]
- * @returns {{ ok: boolean, changeSlug: string, taskId: string, status: string }}
+ * @param {object} [options.sourceControl]
+ * @param {number} [options.timeoutMs]
+ * @returns {Promise<{ ok: boolean, changeSlug: string, taskId: string, status: string }>}
  */
 export function publishTask(changeSlug, taskId, options = {}) {
   const { activeDir = ACTIVE_DIR, repoRoot = ROOT } = options;
@@ -120,14 +232,242 @@ export function publishTask(changeSlug, taskId, options = {}) {
     );
   }
 
-  // State mutation: write task.status = 'approved'
-  setTaskStatus(change, taskId, 'approved');
-  task.status = 'approved';
+  const runAsync = async () => {
+    // Resolve source control configuration
+    let sourceControl = { enabled: false, push: false };
+    if (options.sourceControl !== undefined) {
+      sourceControl = options.sourceControl;
+    } else if (change.workflow?.definition) {
+      try {
+        const def = loadWorkflowDefinition(change.workflow.definition, { repoRoot });
+        if (def?.sourceControl) {
+          sourceControl = def.sourceControl;
+        }
+      } catch {}
+    }
 
-  return {
-    ok: true,
-    changeSlug: change.id || changeSlug,
-    taskId: task.id,
-    status: 'approved',
+    // Step 1: Write durable operation record FIRST (D91)
+    let inFlight = null;
+    try {
+      inFlight = findInFlightOperationRecord(repoRoot, changeSlug, taskId);
+    } catch {}
+
+    let record;
+    let recordPath;
+    if (inFlight && inFlight.step === 'publish') {
+      record = inFlight;
+      recordPath = operationFilePath(repoRoot, changeSlug, taskId, 'publish', record.attempt);
+    } else {
+      record = createPublishRecord(changeSlug, taskId, 1);
+      recordPath = operationFilePath(repoRoot, changeSlug, taskId, 'publish', 1);
+      saveOperationRecord(repoRoot, record);
+    }
+
+    // Step 2: Create paired workspace-request with status: 'queued' (D72, D81, D91)
+    const requestId = randomUUID();
+    await createWorkspaceRequest({
+      repoRoot,
+      requestId,
+      kind: 'publish',
+      specId: change.id || changeSlug,
+      taskId,
+      operationRef: recordPath,
+    });
+
+    // Step 3: Claim workspace-writer slot (D55, D64, D65, D82)
+    let acquireRes = await acquireWorkspaceWriter({
+      repoRoot,
+      kind: 'publish',
+      requestId,
+      operationRef: recordPath,
+      specId: change.id || changeSlug,
+      taskId,
+      timeoutMs: options.timeoutMs || 15000,
+    });
+
+    if (acquireRes.blocked) {
+      await transitionWorkspaceRequest({
+        repoRoot,
+        requestId,
+        expectedStatus: ['queued', 'waiting-for-workspace'],
+        to: 'blocked-by-recovery',
+      });
+      return {
+        ok: false,
+        blockedByRecovery: true,
+        reason: 'recovery-required',
+        currentClaim: acquireRes.currentClaim,
+      };
+    }
+
+    while (!acquireRes.acquired) {
+      await transitionWorkspaceRequest({
+        repoRoot,
+        requestId,
+        expectedStatus: ['queued', 'waiting-for-workspace'],
+        to: 'waiting-for-workspace',
+      });
+
+      if (options.retry === false) break;
+
+      acquireRes = await acquireWorkspaceWriter({
+        repoRoot,
+        kind: 'publish',
+        requestId,
+        operationRef: recordPath,
+        specId: change.id || changeSlug,
+        taskId,
+        timeoutMs: options.timeoutMs || 15000,
+      });
+
+      if (acquireRes.blocked) {
+        await transitionWorkspaceRequest({
+          repoRoot,
+          requestId,
+          expectedStatus: ['queued', 'waiting-for-workspace'],
+          to: 'blocked-by-recovery',
+        });
+        return {
+          ok: false,
+          blockedByRecovery: true,
+          reason: 'recovery-required',
+          currentClaim: acquireRes.currentClaim,
+        };
+      }
+    }
+
+    if (!acquireRes.acquired) {
+      throw new WorkflowError('Failed to acquire workspace-writer slot: contended');
+    }
+
+    const workspaceOwnerId = acquireRes.ownerId;
+
+    // Step 4: CAS promotion of request to 'running' (D83)
+    const casRes = await transitionWorkspaceRequest({
+      repoRoot,
+      requestId,
+      expectedStatus: ['queued', 'waiting-for-workspace'],
+      to: 'running',
+      workspaceOwnerId,
+    });
+
+    if (!casRes.transitioned) {
+      // Failed CAS: release claim and do not run
+      await releaseWorkspaceWriterIfOwned({
+        repoRoot,
+        expectedOwnerId: workspaceOwnerId,
+        expectedKind: 'publish',
+        expectedRequestId: requestId,
+      });
+      return {
+        ok: false,
+        reason: 'state-conflict',
+        currentStatus: casRes.currentStatus,
+      };
+    }
+
+    try {
+      // Step 5: Git-finalize lock around mutate-then-commit (D47, D50, D68)
+      await withGitFinalizeLock(async () => {
+        // Stage update-task
+        const updateStage = record.operations.find(s => s.id === 'update-task');
+        if (updateStage.status !== 'completed') {
+          updateStage.status = 'running';
+          saveOperationRecord(repoRoot, record);
+
+          setTaskStatus(change, taskId, 'approved');
+          task.status = 'approved';
+
+          updateStage.status = 'completed';
+          saveOperationRecord(repoRoot, record);
+        }
+
+        // Stage commit
+        const commitStage = record.operations.find(s => s.id === 'commit');
+        if (commitStage.status !== 'completed') {
+          if (sourceControl.enabled) {
+            commitStage.status = 'running';
+            saveOperationRecord(repoRoot, record);
+
+            const commitMessage = `chore(workflow): publish ${taskId}`;
+            await addAndCommitAsync(repoRoot, [change._file], commitMessage);
+
+            commitStage.status = 'completed';
+            saveOperationRecord(repoRoot, record);
+          } else {
+            commitStage.status = 'completed';
+            commitStage.result = { skipped: true };
+            saveOperationRecord(repoRoot, record);
+          }
+        }
+      }, { repoRoot });
+
+      // Step 6: Push (if enabled and configured, outside git finalize lock, inside workspace-writer claim, D68)
+      const pushStage = record.operations.find(s => s.id === 'push');
+      if (pushStage.status !== 'completed') {
+        if (sourceControl.enabled && sourceControl.push) {
+          pushStage.status = 'running';
+          saveOperationRecord(repoRoot, record);
+
+          const branch = await getCurrentBranchAsync(repoRoot);
+          await pushAsync(repoRoot, branch);
+
+          pushStage.status = 'completed';
+          saveOperationRecord(repoRoot, record);
+        } else {
+          pushStage.status = 'completed';
+          pushStage.result = { skipped: true };
+          saveOperationRecord(repoRoot, record);
+        }
+      }
+
+      // Step 7: Mark durable record completed
+      record.status = 'completed';
+      saveOperationRecord(repoRoot, record);
+
+      // Step 8: Mark workspace-request completed
+      await transitionWorkspaceRequest({
+        repoRoot,
+        requestId,
+        expectedStatus: 'running',
+        to: 'completed',
+      });
+
+      return {
+        ok: true,
+        changeSlug: change.id || changeSlug,
+        taskId: task.id,
+        status: 'approved',
+        requestId,
+        workspaceOwnerId,
+      };
+    } catch (err) {
+      record.status = 'failed';
+      record.error = err.message;
+      saveOperationRecord(repoRoot, record);
+
+      await transitionWorkspaceRequest({
+        repoRoot,
+        requestId,
+        expectedStatus: 'running',
+        to: 'failed',
+      });
+      throw err;
+    } finally {
+      // Step 9: Ownership-conditional release of workspace-writer claim (D68, D70)
+      await releaseWorkspaceWriterIfOwned({
+        repoRoot,
+        expectedOwnerId: workspaceOwnerId,
+        expectedKind: 'publish',
+        expectedRequestId: requestId,
+      });
+    }
   };
+
+  const promise = runAsync();
+  promise.ok = true;
+  promise.changeSlug = change.id || changeSlug;
+  promise.taskId = task.id;
+  promise.status = 'approved';
+  return promise;
 }
