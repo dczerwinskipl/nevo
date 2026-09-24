@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-24T07:53:04.409Z",
+  "generated": "2026-09-24T08:08:21.182Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -533,13 +533,16 @@
           "id": "dashboard-orchestration-wiring",
           "order": 32,
           "file": "tasks/32-dashboard-orchestration-wiring.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "execution-policy-and-mode-selection",
             "deterministic-sequential-queue",
             "automatic-workflow-continuation",
             "dependency-invalidation-remediation-review"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "0fe61fac792a386130bb76b65cca50f902942afc"
+          }
         },
         {
           "id": "orchestration-e2e-dogfood-tests",

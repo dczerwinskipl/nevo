@@ -278,7 +278,7 @@ tasks:
   - id: dashboard-orchestration-wiring
     order: 32
     file: tasks/32-dashboard-orchestration-wiring.md
-    status: approved
+    status: verified
     depends_on:
       [
         execution-policy-and-mode-selection,
@@ -286,6 +286,8 @@ tasks:
         automatic-workflow-continuation,
         dependency-invalidation-remediation-review
       ]
+    implementation:
+      baseline_revision: 0fe61fac792a386130bb76b65cca50f902942afc
   - id: orchestration-e2e-dogfood-tests
     order: 33
     file: tasks/33-orchestration-e2e-dogfood-tests.md
