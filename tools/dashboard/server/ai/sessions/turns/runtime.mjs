@@ -124,7 +124,6 @@ export class AgentTurnRuntime {
     model,
     effort,
     reasoningEffort,
-    ownerId,
     idempotencyKey,
     onProviderSessionIdAvailable,
   } = {}) {
@@ -229,7 +228,6 @@ export class AgentTurnRuntime {
         prompt: inputMessage,
         userMessage: displayMessage,
         traceSink: this.traceSink,
-        ownerId: ownerId || null,
         onTurnUpdated: (turnSnapshot, { semantic = true } = {}) => {
           if (this.transcriptCache?.recordCanonicalTurn) {
             turnSnapshot.prompt = turnSnapshot.prompt || inputMessage;
@@ -253,7 +251,6 @@ export class AgentTurnRuntime {
         specId: specId || undefined,
         taskId: taskId || undefined,
         activeTaskId: activeTaskId || undefined,
-        ownerId: ownerId || undefined,
         identity: providerSessionId ? { provider, providerSessionId } : undefined,
         key: effSessionId,
         mode: validatedMode,

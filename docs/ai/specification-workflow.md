@@ -1095,8 +1095,10 @@ change active indefinitely.
 
 ## Git safety
 
-- Commit and push verified changes upon task completion once tests pass; do not create pull requests without explicit owner instruction.
-- Never `--no-verify`, never force-push.
+- For deterministic workflow tasks (`workflow.mode: deterministic`), `workflow step finish` owns the declared finalize actions (including commit-and-push). Do not run raw `git commit`/`git push` manually before running the workflow completion command.
+- For work outside such a workflow-owned finalize protocol, commit and push verified changes when a task or requested pass is complete and all tests pass (do not leave completed work uncommitted), unless explicitly instructed otherwise.
+- Do not create pull requests without explicit owner instruction.
+- Never `--no-verify`, never force-push (`git push --force`).
 - No drive-by refactoring outside a task's `allowed_paths`.
 - Branches are created via `tools/specs.mjs start`, not by hand, except where an agent
   has been explicitly authorized to create one outside the specs lifecycle.

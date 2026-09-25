@@ -98,6 +98,7 @@ function createTempRepo(prefix = 'det-corrective') {
     path.join(sDir, 'change.yaml'),
     `schema_version: '1.0'
 id: '11111111-1111-4111-8111-111111111111'
+spec_id: '11111111-1111-4111-8111-111111111111'
 title: spec-test
 workflow:
   mode: deterministic
@@ -231,7 +232,7 @@ test('Item 3: Distinct specId !== changeSlug preserves settlement and boot recon
     // Update change.yaml with UUID specId
     const manifestPath = path.join(newDir, 'change.yaml');
     let content = fs.readFileSync(manifestPath, 'utf8');
-    content = content.replace('11111111-1111-4111-8111-111111111111', specId);
+    content = content.replaceAll('11111111-1111-4111-8111-111111111111', specId);
     content = content.replace('title: spec-test', `title: ${changeSlug}`);
     fs.writeFileSync(manifestPath, content, 'utf8');
 
@@ -758,33 +759,15 @@ test('Item 12: Sequential queue automation advances nextRunnable task server-sid
   }
 });
 
-test('Finding 1: Deterministic dashboard Start with no spec_id enters admission and creates workspace claim before provider start', async () => {
-  const tmpRepo = createTempRepo('finding1-no-spec-id');
+test('Finding 1: Deterministic dashboard Start resolves canonical spec_id UUID from slug and uses UUID in admission and workspace claim', async () => {
+  const tmpRepo = createTempRepo('finding1-uuid-resolution');
   resetAdmissionStateForTest();
 
   try {
-    // Production-shaped manifest without spec_id
-    const changeYamlPath = path.join(tmpRepo, 'specs', 'active', 'spec-test', 'change.yaml');
-    fs.writeFileSync(
-      changeYamlPath,
-      `id: my-feature
-title: My Feature
-workflow:
-  mode: deterministic
-  definition: standard
-tasks:
-  - id: t1
-    file: tasks/t1.md
-    status: in-progress
-`,
-      'utf8',
-    );
-    execFileSync('git', ['add', '.'], { cwd: tmpRepo, stdio: 'ignore' });
-    execFileSync('git', ['commit', '-m', 'manifest without spec_id'], { cwd: tmpRepo, stdio: 'ignore' });
-
+    const specId = '11111111-1111-4111-8111-111111111111';
     let claimObservedInsideTurn = null;
 
-    const baseMock = createMockAgentProvider({ specId: 'my-feature', taskIds: ['t1'], streamDelayMs: 1 });
+    const baseMock = createMockAgentProvider({ specId, taskIds: ['t1'], streamDelayMs: 1 });
     const registry = createAgentProviderRegistry([baseMock]);
     const transcriptCache = createTranscriptCacheService({ baseDir: path.join(tmpRepo, '.nevo-ai-local', 'transcripts') });
     const bindingService = createAgentSessionBindingService({ storageDir: path.join(tmpRepo, '.nevo-ai-local', 'sessions') });
@@ -830,16 +813,99 @@ tasks:
     assert.ok(body.turnId);
     assert.ok(body.ownerId, 'Response must carry ownerId from deterministic admission');
 
-    // Claim MUST have existed before provider execution started
+    // Claim MUST have existed before provider execution started, and MUST carry canonical UUID specId
     assert.ok(claimObservedInsideTurn, 'Claim must exist before provider execution');
     assert.equal(claimObservedInsideTurn.kind, 'agent');
     assert.equal(claimObservedInsideTurn.turnStartState, 'invoking');
-    assert.equal(claimObservedInsideTurn.specId, 'my-feature');
-    assert.equal(claimObservedInsideTurn.changeSlug, 'spec-test');
+    assert.equal(claimObservedInsideTurn.specId, specId, 'Claim specId must be canonical UUID spec_id');
+    assert.equal(claimObservedInsideTurn.changeSlug, 'spec-test', 'Claim changeSlug must remain slug');
 
     const finalClaim = getWorkspaceWriterClaim(tmpRepo);
     assert.ok(finalClaim);
     assert.equal(finalClaim.turnStartState, 'started');
+    assert.equal(finalClaim.specId, specId);
+    assert.equal(finalClaim.changeSlug, 'spec-test');
+    await app.close();
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('Finding 1: Deterministic dashboard Start for spec without spec_id fails closed with backfill error and does NOT fall through to generic startTurn', async () => {
+  const tmpRepo = createTempRepo('finding1-missing-spec-id');
+  resetAdmissionStateForTest();
+
+  try {
+    // Overwrite change.yaml without spec_id
+    const changeYamlPath = path.join(tmpRepo, 'specs', 'active', 'spec-test', 'change.yaml');
+    fs.writeFileSync(
+      changeYamlPath,
+      `id: my-feature
+title: My Feature
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: t1
+    file: tasks/t1.md
+    status: in-progress
+`,
+      'utf8',
+    );
+    execFileSync('git', ['add', '.'], { cwd: tmpRepo, stdio: 'ignore' });
+    execFileSync('git', ['commit', '-m', 'manifest without spec_id'], { cwd: tmpRepo, stdio: 'ignore' });
+
+    let genericStartTurnCalled = false;
+    const baseMock = createMockAgentProvider({ specId: 'my-feature', taskIds: ['t1'], streamDelayMs: 1 });
+    const registry = createAgentProviderRegistry([baseMock]);
+    const transcriptCache = createTranscriptCacheService({ baseDir: path.join(tmpRepo, '.nevo-ai-local', 'transcripts') });
+    const bindingService = createAgentSessionBindingService({ storageDir: path.join(tmpRepo, '.nevo-ai-local', 'sessions') });
+    const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+
+    const originalStartTurn = turnRuntime.startTurn.bind(turnRuntime);
+    turnRuntime.startTurn = async (params) => {
+      genericStartTurnCalled = true;
+      return await originalStartTurn(params);
+    };
+
+    const service = createAgentSessionService({
+      registry,
+      turnRuntime,
+      transcriptCache,
+      bindingService,
+      repoRoot: tmpRepo,
+    });
+
+    const app = await buildAiTestApp({ service, repoRoot: tmpRepo });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: {
+        'content-type': 'application/json',
+        'x-nevo-dashboard-action': '1',
+      },
+      payload: {
+        provider: 'mock',
+        slug: 'spec-test',
+        specId: null,
+        taskId: 't1',
+        purpose: 'execution',
+        prompt: 'Start t1',
+      },
+    });
+
+    assert.equal(res.statusCode, 400, 'Must return 400 error when spec_id is missing');
+    const body = JSON.parse(res.body);
+    assert.match(
+      body.error?.message || '',
+      /has no persisted spec_id — run 'node tools\/specs\.mjs backfill-spec-id'/i,
+      'Error message must state spec_id is missing and advise backfill',
+    );
+    assert.equal(genericStartTurnCalled, false, 'Must NOT fall through to generic startTurn');
+    assert.equal(getWorkspaceWriterClaim(tmpRepo), null, 'No workspace claim must be acquired');
+    await app.close();
   } finally {
     resetAdmissionStateForTest();
     fs.rmSync(tmpRepo, { recursive: true, force: true });
@@ -864,6 +930,7 @@ test('Finding 2: Auto-continuation enriches candidate from execution policy, cap
     const change = {
       _slug: 'spec-test',
       id: '11111111-1111-4111-8111-111111111111',
+      spec_id: '11111111-1111-4111-8111-111111111111',
       workflow: { mode: 'deterministic', definition: 'custom' },
     };
 
@@ -902,7 +969,7 @@ test('Finding 2: Auto-continuation enriches candidate from execution policy, cap
           attempt: 1,
           completed_at: new Date().toISOString(),
           transitioned_to: 'step-2',
-          transitionResult: 'success',
+          result: 'success',
         }],
       },
     };
@@ -995,7 +1062,296 @@ test('Finding 2: Auto-continuation enriches candidate from execution policy, cap
   }
 });
 
-test('Finding 3: Hook 3 boot recovery does not match older reused-session turn without positive proof and marks recovery-required; recovers when ownerId matches', async () => {
+test('Finding 2b: Auto-continuation matches transition on canonical result and fails closed on ambiguous matches', async () => {
+  const tmpRepo = createTempRepo('finding2b-transitions');
+  resetAdmissionStateForTest();
+
+  try {
+    const { reconcileWorkflowPosition } = await import('../dashboard/server/ai/orchestration/reconciliation.mjs');
+
+    const change = {
+      _slug: 'spec-test',
+      id: '11111111-1111-4111-8111-111111111111',
+      spec_id: '11111111-1111-4111-8111-111111111111',
+      workflow: { mode: 'deterministic', definition: 'custom' },
+    };
+
+    const multiTransitionDef = {
+      entryStep: 'step-review',
+      steps: {
+        'step-review': {
+          executor: 'agent',
+          transitions: [
+            {
+              to: 'step-fix',
+              value: 'changes-requested',
+              continuation: 'auto',
+              execution: { session: 'fresh', role: 'implementer' },
+            },
+            {
+              to: 'step-fix',
+              value: 'approved-with-comments',
+              continuation: 'auto',
+              execution: { session: 'fresh', role: 'refiner' },
+            },
+          ],
+        },
+        'step-fix': {
+          executor: 'agent',
+          status: { active: 'in-progress', completed: 'completed' },
+        },
+      },
+    };
+
+    const mockSessionService = {
+      async createSession(provider, opts) {
+        return { sessionId: 'sess-new' };
+      },
+      async listSessions() {
+        return [];
+      },
+      async startTurn(provider, sessionId, opts) {
+        return { turnId: 'turn-new' };
+      },
+      subscribeToSession() {
+        return () => {};
+      },
+    };
+
+    // 1. Exact match on result: 'changes-requested'
+    const taskRequested = {
+      id: 't1',
+      status: 'in-progress',
+      workflow_progress: {
+        current_step: 'step-review',
+        current_attempt: 1,
+        state: 'completed',
+        history: [{
+          step: 'step-review',
+          attempt: 1,
+          completed_at: new Date().toISOString(),
+          transitioned_to: 'step-fix',
+          result: 'changes-requested',
+        }],
+      },
+    };
+    change.tasks = [taskRequested];
+
+    const res1 = await reconcileWorkflowPosition(change, taskRequested, {
+      repoRoot: tmpRepo,
+      definition: multiTransitionDef,
+      sessionService: mockSessionService,
+      provider: 'mock',
+    });
+
+    assert.equal(res1.action, 'agent-admitted');
+    resetAdmissionStateForTest();
+    await releaseWorkspaceWriterIfOwned({ repoRoot: tmpRepo, expectedOwnerId: res1.admission.ownerId });
+
+    // 2. Ambiguous match when multiple transitions match without distinguishing value
+    const ambiguousDef = {
+      entryStep: 'step-review',
+      steps: {
+        'step-review': {
+          executor: 'agent',
+          transitions: [
+            {
+              to: 'step-fix',
+              continuation: 'auto',
+              execution: { session: 'fresh', role: 'implementer' },
+            },
+            {
+              to: 'step-fix',
+              continuation: 'auto',
+              execution: { session: 'fresh', role: 'refiner' },
+            },
+          ],
+        },
+        'step-fix': {
+          executor: 'agent',
+          status: { active: 'in-progress', completed: 'completed' },
+        },
+      },
+    };
+
+    const resAmbiguous = await reconcileWorkflowPosition(change, taskRequested, {
+      repoRoot: tmpRepo,
+      definition: ambiguousDef,
+      sessionService: mockSessionService,
+      provider: 'mock',
+    });
+
+    assert.equal(resAmbiguous.action, 'noop');
+    assert.equal(resAmbiguous.reason, 'AMBIGUOUS_TRANSITION_MATCH');
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('Finding 2c: Fresh auto-continuation inherits parentSessionId from bindingService across human hops', async () => {
+  const tmpRepo = createTempRepo('finding2c-human-hop');
+  resetAdmissionStateForTest();
+
+  try {
+    const { reconcileWorkflowPosition } = await import('../dashboard/server/ai/orchestration/reconciliation.mjs');
+    const specId = '11111111-1111-4111-8111-111111111111';
+
+    const bindingService = createAgentSessionBindingService({ storageDir: path.join(tmpRepo, '.nevo-ai-local', 'sessions') });
+
+    // Seed prior reviewer session in bindingService
+    await bindingService.bindSession({
+      provider: 'mock',
+      sessionId: 'sess-reviewer-456',
+      specId,
+      taskId: 't1',
+      role: 'reviewer',
+    });
+
+    const change = {
+      _slug: 'spec-test',
+      id: specId,
+      spec_id: specId,
+      workflow: { mode: 'deterministic', definition: 'custom' },
+    };
+
+    // Transition from human verification step to agent step-fix with fresh session
+    const definition = {
+      entryStep: 'step-human-verify',
+      steps: {
+        'step-human-verify': {
+          executor: 'human',
+          transitions: [
+            {
+              to: 'step-fix',
+              continuation: 'auto',
+              execution: { session: 'fresh', role: 'implementer' },
+            },
+          ],
+        },
+        'step-fix': {
+          executor: 'agent',
+          status: { active: 'in-progress', completed: 'completed' },
+        },
+      },
+    };
+
+    const taskAfterHuman = {
+      id: 't1',
+      status: 'in-progress',
+      workflow_progress: {
+        current_step: 'step-human-verify',
+        current_attempt: 1,
+        state: 'completed',
+        history: [{
+          step: 'step-human-verify',
+          attempt: 1,
+          completed_at: new Date().toISOString(),
+          transitioned_to: 'step-fix',
+          result: 'request-changes',
+        }],
+      },
+    };
+    change.tasks = [taskAfterHuman];
+
+    let capturedParentSessionId = undefined;
+    const mockSessionService = {
+      async createSession(provider, opts) {
+        capturedParentSessionId = opts.parentSessionId;
+        return { sessionId: 'sess-fix-789' };
+      },
+      async listSessions() {
+        return [];
+      },
+      async startTurn(provider, sessionId, opts) {
+        return { turnId: 'turn-fix-1' };
+      },
+      subscribeToSession() {
+        return () => {};
+      },
+    };
+
+    // reconcileWorkflowPosition called with no explicit parentSessionId
+    const res = await reconcileWorkflowPosition(change, taskAfterHuman, {
+      repoRoot: tmpRepo,
+      definition,
+      sessionService: mockSessionService,
+      bindingService,
+      provider: 'mock',
+    });
+
+    assert.equal(res.action, 'agent-admitted');
+    assert.equal(
+      capturedParentSessionId,
+      'sess-reviewer-456',
+      'Fresh session must inherit parentSessionId from the most recent session for this task in bindingService',
+    );
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('Finding 2d: Queue continuation for next task sets parentSessionId to null', async () => {
+  const tmpRepo = createTempRepo('finding2d-queue-lineage');
+  resetAdmissionStateForTest();
+
+  try {
+    const { enqueueTasks } = await import('../specs/workflow/queue/index.mjs');
+    const { reconcileContinuation } = await import('../dashboard/server/ai/orchestration/reconciliation.mjs');
+    const { requireChange, requireTask, setTaskStatus } = await import('../specs/store.mjs');
+    const specId = '11111111-1111-4111-8111-111111111111';
+
+    enqueueTasks(tmpRepo, 'spec-test', ['t1', 't2']);
+
+    const activeDir = path.join(tmpRepo, 'specs', 'active');
+    const initialChange = requireChange('spec-test', activeDir);
+    setTaskStatus(initialChange, 't1', 'completed');
+    setTaskStatus(initialChange, 't2', 'approved');
+    execFileSync('git', ['add', '.'], { cwd: tmpRepo, stdio: 'ignore' });
+    execFileSync('git', ['commit', '-m', 'complete t1, approve t2'], { cwd: tmpRepo, stdio: 'ignore' });
+
+    const change = requireChange('spec-test', activeDir);
+    const task1 = requireTask(change, 't1');
+
+    let admittedCandidate = null;
+    const mockSessionService = {
+      async createSession() {
+        return { sessionId: 'sess-t2' };
+      },
+      async listSessions() {
+        return [];
+      },
+      async startTurn(provider, sessionId, opts) {
+        return { turnId: 'turn-t2' };
+      },
+      subscribeToSession() {
+        return () => {};
+      },
+    };
+
+    const res = await reconcileContinuation(change, task1, {
+      repoRoot: tmpRepo,
+      activeDir,
+      sessionService: mockSessionService,
+      provider: 'mock',
+      priorSessionId: 'sess-t1-old', // Should NOT be used for queued next task!
+    });
+
+    assert.equal(res.action, 'queue-agent-admitted');
+    assert.equal(res.nextRunnable.taskId, 't2');
+    assert.equal(
+      res.nextRunnable.parentSessionId,
+      null,
+      'Queued task advancement must set parentSessionId to null and not inherit previous task session',
+    );
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('Finding 3: Hook 3 boot recovery does not match older reused-session turn without positive proof and marks recovery-required; recovers when turnId matches', async () => {
   const tmpRepo = createTempRepo('finding3-hook3');
   resetAdmissionStateForTest();
 
@@ -1003,7 +1359,7 @@ test('Finding 3: Hook 3 boot recovery does not match older reused-session turn w
     const { reconcileBootState } = await import('../dashboard/server/ai/orchestration/reconciliation.mjs');
 
     // 1. Negative test: Reused session S has an older completed turn for task t1.
-    // A new execution crashes while in 'invoking' state with turnId: null and ownerId: 'owner-execution-B'.
+    // A new execution crashes while in 'invoking' state with turnId: null.
     await acquireWorkspaceWriter({
       repoRoot: tmpRepo,
       kind: 'agent',
@@ -1033,7 +1389,6 @@ test('Finding 3: Hook 3 boot recovery does not match older reused-session turn w
               id: 'turn-old-completed-1',
               turnId: 'turn-old-completed-1',
               taskId: 't1',
-              ownerId: 'owner-earlier-run',
               status: { status: 'terminal', outcome: 'completed' },
             },
           ],
@@ -1060,7 +1415,7 @@ test('Finding 3: Hook 3 boot recovery does not match older reused-session turn w
     assert.ok(claimAfterNeg, 'Claim must still exist');
     assert.equal(claimAfterNeg.status, 'recovery-required', 'Claim must be marked status=recovery-required due to inconclusive evidence');
 
-    // 2. Positive test: Active turn matches ownerId
+    // 2. Positive test: Active turn matches claim turnId
     resetAdmissionStateForTest();
     await updateWorkspaceWriterIfOwned({
       repoRoot: tmpRepo,
@@ -1070,6 +1425,7 @@ test('Finding 3: Hook 3 boot recovery does not match older reused-session turn w
       expectedChangeSlug: 'spec-test',
       expectedTaskId: 't1',
       sessionId: 'sess-reused-1',
+      turnId: 'turn-new-active-2',
       recoveryRequired: false,
       turnStartState: 'invoking',
     });
@@ -1079,7 +1435,6 @@ test('Finding 3: Hook 3 boot recovery does not match older reused-session turn w
         return {
           activeTurn: {
             turnId: 'turn-new-active-2',
-            ownerId: currentClaim.ownerId, // Positive proof attributable to this exact execution!
           },
           turns: [],
         };

@@ -56,9 +56,9 @@ standalone or inside an authorized batch.
 1. Build must pass: `dotnet build`
 2. Tests must pass: `dotnet test`
 3. Update any affected documentation in the same branch
-4. Run `node tools/specs.mjs complete <change> <task>`
-5. Show the owner the diff and test results
-6. Commit and push verified changes once all checks pass (do not create PRs without explicit instruction)
+4. For deterministic tasks: run `node tools/specs.mjs workflow step finish <change> <task> --input '<json>'` — the workflow engine owns declared finalize actions (including commit and push); do not commit manually beforehand.
+5. For tasks outside a workflow-owned finalize protocol: run `node tools/specs.mjs complete <change> <task>`, show the owner the diff and test results, and commit/push verified completed changes.
+6. Do not create PRs without explicit instruction.
 
 ## Owner-authorized sequential batch operation
 
@@ -133,6 +133,7 @@ Do not self-verify behavioral changes as complete without owner review.
 
 ## Forbidden actions
 
+- Running raw `git commit`/`git push` on deterministic workflow steps that own commit/push through finalize actions
 - Creating pull requests without explicit instruction
 - `git push --force` — never
 - `--no-verify` — never

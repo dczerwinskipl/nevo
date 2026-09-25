@@ -74,9 +74,11 @@ ADRs: `docs/decisions/`
 
 ## Git safety
 
-- Commit and push verified changes when a task or requested pass is complete and all tests pass (do not leave completed work uncommitted)
+- For deterministic workflow tasks (`workflow.mode: deterministic`), `workflow step finish` owns the declared finalize actions (including commit-and-push). Do not run raw `git commit`/`git push` manually before running the workflow completion command.
+- For work outside such a workflow-owned finalize protocol, commit and push verified changes when a task or requested pass is complete and all tests pass (do not leave completed work uncommitted), unless explicitly instructed otherwise.
 - Do not create pull requests without explicit instruction
 - Do not use `--no-verify`
+- Never force-push (`git push --force`)
 - Do not mix unrelated changes in one commit
 - Do not perform drive-by refactoring outside `allowed_paths`
 - Opening a PR, checking/resolving its review comments, merging, and checking what's

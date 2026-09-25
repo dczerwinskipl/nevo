@@ -285,7 +285,6 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             effort: candidate.effort,
             role: candidate.role,
             parentSessionId: candidate.parentSessionId,
-            ownerId,
             idempotencyKey: candidate.idempotencyKey,
           });
         } else if (turnRuntime?.startTurn) {
@@ -296,7 +295,6 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             provider: candidate.provider,
             role: candidate.role,
             parentSessionId: candidate.parentSessionId,
-            ownerId,
           });
         }
 

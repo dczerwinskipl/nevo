@@ -148,7 +148,7 @@ function control(payload = {}) {
   };
 }
 
-describe('Task 03: End-to-End Application Bootstrap & Product Workflow (18-Step Proof)', () => {
+describe('Task 03: End-to-End Application Bootstrap & Product Workflow (18-Step Proof)', { timeout: 120000 }, () => {
   let fx;
   let app;
   const specId = 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d';

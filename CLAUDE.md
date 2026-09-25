@@ -49,13 +49,13 @@ node --test tools/tests/ 2>&1 | tail -150
 For deterministic workflow tasks (`workflow.mode: deterministic`):
 1. Run `node tools/specs.mjs workflow step start <change> <task>`.
 2. Follow `docs/development/agent-workflow-protocol.md` and treat the returned `StepContext` as authoritative.
-3. Finish the step using `node tools/specs.mjs workflow step finish <change> <task> --input '<json>'` according to `finishContract.parameters`, then STOP.
+3. Finish the step using `node tools/specs.mjs workflow step finish <change> <task> --input '<json>'` according to `finishContract.parameters`, then STOP. The workflow's finalize actions own commit and push; do not run raw `git commit`/`git push` manually beforehand.
 
 For legacy lifecycle tasks:
 1. Run `node tools/specs.mjs next` to find the approved task (if starting new work).
 2. Run `node tools/specs.mjs context <change> <task>` to get the context packet.
 3. Load only what the context packet declares as `required`.
-4. Do not create PRs without explicit owner instruction (commit and push verified task work once all tests pass).
+4. Commit and push verified task work once all tests pass, but do not create PRs without explicit owner instruction. Never force-push or use `--no-verify`.
 
 ## Human-led rules
 

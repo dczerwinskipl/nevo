@@ -11,6 +11,7 @@ import { authorize } from '../../access-policy.mjs';
 import { AiValidationError } from '../../contracts.mjs';
 import { loadChange, listChanges } from '../../../../../specs/store.mjs';
 import { resolveWorkflowMode } from '../../../../../specs/workflow/compatibility.mjs';
+import { resolveCanonicalSpec } from '../../../../../specs/identity.mjs';
 
 const TURN_BODY_LIMIT = 128 * 1024;
 const CANCEL_BODY_LIMIT = 512;
@@ -21,28 +22,32 @@ export function resolveDeterministicExecutionTarget({ specId, slug, changeSlug, 
   const activeDir = join(effectiveRoot, 'specs', 'active');
   const archiveDir = join(effectiveRoot, 'specs', 'archive');
   const identifier = changeSlug || slug || specId;
-  if (!identifier) return null;
-
-  let change = loadChange(identifier, activeDir) || loadChange(identifier, archiveDir);
-  if (!change) {
-    const all = [...listChanges(activeDir), ...listChanges(archiveDir)];
-    change = all.find((c) => c.spec_id === identifier || c.id === identifier || c._slug === identifier) || null;
+  if (!identifier) {
+    throw new AiValidationError('Specification identifier (slug or specId) is required for execution.');
   }
-  if (!change) return null;
 
+  let canonical;
+  try {
+    canonical = resolveCanonicalSpec(identifier, { activeDir, archiveDir });
+  } catch (err) {
+    throw new AiValidationError(err.message, { cause: err });
+  }
+
+  if (!canonical?.change) {
+    throw new AiValidationError(`Specification '${identifier}' not found.`);
+  }
+
+  const change = canonical.change;
   const resolvedWorkflow = resolveWorkflowMode(change, { repoRoot: effectiveRoot, activeDir });
   if (resolvedWorkflow?.mode !== 'deterministic') {
     return { isDeterministic: false, change };
   }
 
-  const resolvedChangeSlug = change._slug || identifier;
-  const canonicalSpecId = change.id || change.spec_id || resolvedChangeSlug;
-
   return {
     isDeterministic: true,
     change,
-    changeSlug: resolvedChangeSlug,
-    specId: canonicalSpecId,
+    changeSlug: canonical.slug,
+    specId: canonical.specId,
     resolvedWorkflow,
   };
 }
@@ -68,20 +73,24 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
     }
 
     const effectiveRepoRoot = repoRoot || service.repoRoot || process.cwd();
-    const deterministicTarget = body.purpose === 'execution' && body.taskId
-      ? resolveDeterministicExecutionTarget({
-          specId: body.specId,
-          slug: body.slug,
-          changeSlug: body.changeSlug,
-          repoRoot: effectiveRepoRoot,
-        })
-      : null;
 
-    const isDeterministicExecution = deterministicTarget?.isDeterministic === true;
+    if (body.purpose === 'execution') {
+      if (!body.taskId) {
+        throw new AiValidationError('Task ID is required for deterministic execution.');
+      }
+      const deterministicTarget = resolveDeterministicExecutionTarget({
+        specId: body.specId,
+        slug: body.slug,
+        changeSlug: body.changeSlug,
+        repoRoot: effectiveRepoRoot,
+      });
 
-    if (isDeterministicExecution) {
-      // Deterministic task execution path (Item 1 & 2):
-      // UI -> server orchestration boundary -> admitAgentExecution -> workspace claim -> AgentSessionService.startTurn
+      if (!deterministicTarget?.isDeterministic) {
+        throw new AiValidationError(
+          `Specification '${body.changeSlug || body.slug || body.specId}' is not configured for deterministic execution.`
+        );
+      }
+
       const { changeSlug, specId: canonicalSpecId } = deterministicTarget;
 
       // If multiple taskIds provided (SequentialQueueTaskPicker batch), enqueue them (Item 12)
@@ -205,18 +214,24 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
           throw new AiValidationError('Invalid specification ID.');
         }
       }
-      const taskId = body.taskId || session?.activeTaskId;
-      const effectiveRepoRoot = repoRoot || service.repoRoot || process.cwd();
-      const deterministicTarget = body.purpose === 'execution' && taskId
-        ? resolveDeterministicExecutionTarget({
-            specId: body.specId || session?.specId,
-            slug: body.slug || body.changeSlug || session?.specId,
-            changeSlug: body.changeSlug || body.slug,
-            repoRoot: effectiveRepoRoot,
-          })
-        : null;
+      if (body.purpose === 'execution') {
+        const taskId = body.taskId || session?.activeTaskId;
+        if (!taskId) {
+          throw new AiValidationError('Task ID is required for deterministic execution.');
+        }
+        const deterministicTarget = resolveDeterministicExecutionTarget({
+          specId: body.specId || session?.specId,
+          slug: body.slug || body.changeSlug || session?.specId,
+          changeSlug: body.changeSlug || body.slug,
+          repoRoot: effectiveRepoRoot,
+        });
 
-      if (deterministicTarget?.isDeterministic) {
+        if (!deterministicTarget?.isDeterministic) {
+          throw new AiValidationError(
+            `Specification '${body.changeSlug || body.slug || body.specId || session?.specId}' is not configured for deterministic execution.`
+          );
+        }
+
         const { changeSlug, specId: canonicalSpecId } = deterministicTarget;
         const { admitAgentExecution } = await import('../../orchestration/admission.mjs');
         const candidate = {

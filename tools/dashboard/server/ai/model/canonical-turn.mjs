@@ -142,7 +142,6 @@ export function validateCanonicalTurn(value) {
       : {}),
     createdAt,
     updatedAt,
-    ...(value.ownerId ? { ownerId: requiredString(value.ownerId, 'turn.ownerId', 256) } : {}),
     ...(value.completedAt ? { completedAt: normalizeTimestamp(value.completedAt, 'turn.completedAt') } : {}),
   };
 }
@@ -155,7 +154,6 @@ export function createCanonicalTurn({
   providerSessionId,
   mode = DEFAULT_AGENT_EXECUTION_MODE,
   model,
-  ownerId,
   status = createTurnStatus('active', { detail: 'startup' }),
   createdAt = new Date().toISOString(),
 }) {
@@ -167,7 +165,6 @@ export function createCanonicalTurn({
     providerSessionId,
     mode,
     ...(model ? { model } : {}),
-    ...(ownerId ? { ownerId } : {}),
     status: typeof status === 'string' ? createTurnStatus(status) : status,
     work: [],
     activityCount: 0,

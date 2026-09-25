@@ -1263,7 +1263,6 @@ export class AgentSessionService {
       mode: effectiveMode,
       model: effectiveModel,
       effort: opts.effort ?? opts.reasoningEffort,
-      ownerId: opts.ownerId,
       onProviderSessionIdAvailable: handleProviderSessionId,
     });
 

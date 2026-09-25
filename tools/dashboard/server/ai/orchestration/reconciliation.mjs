@@ -21,6 +21,8 @@ import {
   loadHumanSubmitOperation,
   updateHumanSubmitOperationStatus,
 } from '../../../../specs/workflow/human-step/submit-request.mjs';
+import { join } from 'node:path';
+import { resolveStableSpecId } from '../../../../specs/identity.mjs';
 
 /**
  * Reconciles a task's workflow position and drives automatic continuation (D42).
@@ -34,7 +36,8 @@ import {
  */
 export async function reconcileWorkflowPosition(change, task, options = {}) {
   const repoRoot = options.repoRoot;
-  const specId = change.id || change._slug;
+  const specId = change.spec_id || resolveStableSpecId(change);
+  const changeSlug = change._slug || change.slug;
 
   let definition = options.definition;
   if (!definition) {
@@ -80,9 +83,29 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
   if (history.length > 0) {
     const lastHistory = history[history.length - 1];
     const priorStepDef = definition.steps?.[lastHistory.step];
-    matchedTransition = priorStepDef?.transitions?.find(
-      (t) => (t.to === targetStepName || t.step === targetStepName) && (t.value === undefined || t.value === lastHistory.transitionResult)
-    ) || priorStepDef?.transitions?.find((t) => t.to === targetStepName || t.step === targetStepName);
+    const candidateTransitions = (priorStepDef?.transitions || []).filter(
+      (t) => (t.to === targetStepName || t.step === targetStepName)
+    );
+
+    const historyResult = lastHistory.result;
+
+    const matching = candidateTransitions.filter((t) => {
+      if (t.value !== undefined) {
+        return t.value === historyResult;
+      }
+      return true;
+    });
+
+    if (matching.length === 1) {
+      matchedTransition = matching[0];
+    } else if (matching.length > 1) {
+      const exactMatches = matching.filter((t) => t.value !== undefined && t.value === historyResult);
+      if (exactMatches.length === 1) {
+        matchedTransition = exactMatches[0];
+      } else {
+        return { action: 'noop', reason: 'AMBIGUOUS_TRANSITION_MATCH', step: targetStepName, matches: matching.length };
+      }
+    }
 
     continuationPolicy = matchedTransition?.continuation || null;
   }
@@ -93,7 +116,6 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
 
   // Destination is agent-owned: enqueue and admit
   if (executor === 'agent') {
-    const changeSlug = change._slug || change.id;
     if (repoRoot) {
       enqueueTasks(repoRoot, changeSlug, [task.id]);
     }
@@ -116,7 +138,19 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
       const mode = policy?.mode || options.mode || 'agent';
       const sessionPolicy = matchedTransition?.execution?.session || 'fresh';
       const role = matchedTransition?.execution?.role;
-      const parentSessionId = options.parentSessionId || options.priorSessionId || null;
+      let parentSessionId = options.parentSessionId || options.priorSessionId || null;
+      if (!parentSessionId && repoRoot && sessionPolicy === 'fresh') {
+        try {
+          const { createAgentSessionBindingService } = await import('../sessions/binding-service.mjs');
+          const bindingService = options.bindingService || createAgentSessionBindingService({
+            storageDir: join(repoRoot, '.nevo-ai-local', 'sessions'),
+          });
+          const sessions = await bindingService.getSessionsForTask(specId, task.id);
+          if (sessions.length > 0) {
+            parentSessionId = sessions[0].sessionId;
+          }
+        } catch {}
+      }
       const genericTrigger = options.message || options.prompt || `Start workflow step '${targetStepName}' for task '${task.id}'.`;
 
       const candidate = {
@@ -255,16 +289,13 @@ export async function reconcileBootState(options = {}) {
             const transcript = await transcriptCache.getTranscript(resolvedProvider, sessionId);
             const active = transcript?.activeTurn;
             if (active?.turnId) {
-              if (
-                (active.ownerId && active.ownerId === ownerId) ||
-                (turnId && (active.turnId === turnId || active.id === turnId))
-              ) {
+              if (turnId && (active.turnId === turnId || active.id === turnId)) {
                 recoveredTurnId = active.turnId;
               }
             }
             if (!recoveredTurnId && Array.isArray(transcript?.turns) && transcript.turns.length > 0) {
               const matchingTurn = transcript.turns.find(
-                (t) => (t.ownerId && t.ownerId === ownerId) || (turnId && (t.turnId === turnId || t.id === turnId))
+                (t) => turnId && (t.turnId === turnId || t.id === turnId)
               );
               if (matchingTurn) {
                 recoveredTurnId = matchingTurn.turnId || matchingTurn.id;
@@ -434,7 +465,7 @@ export async function reconcileContinuation(change, task, options = {}) {
 
   // 2. Multi-task durable queue continuation check (Item 12, D38)
   const repoRoot = options.repoRoot;
-  const changeSlug = change._slug || change.id;
+  const changeSlug = change._slug || change.slug;
   if (!repoRoot || !changeSlug) {
     return { action: 'noop' };
   }
@@ -475,7 +506,7 @@ export async function reconcileContinuation(change, task, options = {}) {
   });
 
   if (queueState.nextRunnable) {
-    const specId = change.id || changeSlug;
+    const specId = change.spec_id || resolveStableSpecId(change);
     let policy = null;
     try {
       const { executionPolicyService } = await import('../sessions/execution-policy-service.mjs');
@@ -492,7 +523,7 @@ export async function reconcileContinuation(change, task, options = {}) {
       changeSlug,
       specId,
       sessionPolicy: 'fresh',
-      parentSessionId: options.parentSessionId || options.priorSessionId || null,
+      parentSessionId: null, // Ordinary queued task advancement does not fabricate lineage from prior task
       message: genericTrigger,
       prompt: genericTrigger,
       userMessage: genericTrigger,
