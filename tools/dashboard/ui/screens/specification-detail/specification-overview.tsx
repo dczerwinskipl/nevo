@@ -9,6 +9,7 @@ import type {
   WorkflowStepDescriptor,
 } from '@/features/specifications/types';
 import type { AgentSession, TaskNavigationTarget } from '@/features/agent-sessions/types';
+import type { ExecutionPolicy } from '@/features/agent-sessions/execution-policy';
 import { formatStatus, cn } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
@@ -21,6 +22,9 @@ export interface SequentialQueueTaskPickerProps {
   taskActions?: Record<string, SpecificationTaskActionGate>;
   onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor, taskIds?: string[]) => void | Promise<void>;
   onTriggerRemediationReview?: (remediationTaskIds: string[]) => void | Promise<void>;
+  executionPolicy?: ExecutionPolicy | null;
+  onConfigureExecutionPolicy?: () => void;
+  durableRemediationTaskIds?: string[];
 }
 
 export function SequentialQueueTaskPicker({
@@ -28,6 +32,9 @@ export function SequentialQueueTaskPicker({
   taskActions,
   onStartStep,
   onTriggerRemediationReview,
+  executionPolicy,
+  onConfigureExecutionPolicy,
+  durableRemediationTaskIds,
 }: SequentialQueueTaskPickerProps) {
   // Pre-checks currently-ready tasks (D32, AC 104)
   const readyTaskIds = useMemo(() => {
@@ -97,21 +104,8 @@ export function SequentialQueueTaskPicker({
     return warnings;
   }, [selectedTaskIds, tasks, taskActions]);
 
-  // Derived remediation group tasks (D31, AC 63)
-  const remediationTaskIds = useMemo(() => {
-    const ids: string[] = [];
-    for (const t of tasks) {
-      const gate = taskActions?.[t.id];
-      if (
-        gate?.state === 'blocked' ||
-        (gate?.blockedBy && gate.blockedBy.length > 0) ||
-        (t as any).suspensions?.length > 0
-      ) {
-        ids.push(t.id);
-      }
-    }
-    return ids;
-  }, [tasks, taskActions]);
+  // Durable remediation group tasks (backed only by explicit durable remediation record, D31)
+  const remediationTaskIds = durableRemediationTaskIds ?? [];
 
   const handleSelectRemediationGroup = () => {
     if (remediationTaskIds.length > 0) {
@@ -119,6 +113,11 @@ export function SequentialQueueTaskPicker({
       onTriggerRemediationReview?.(remediationTaskIds);
     }
   };
+
+  const defaultProvider = executionPolicy?.default?.provider || executionPolicy?.provider || 'Claude';
+  const implementerProvider = executionPolicy?.roles?.implementer?.provider || defaultProvider;
+  const reviewerProvider = executionPolicy?.roles?.reviewer?.provider || defaultProvider;
+  const refinerProvider = executionPolicy?.roles?.refiner?.provider || defaultProvider;
 
   // Submits the selection via server-side orchestration layer
   // Starts exactly ONE session (for the queue's first nextRunnable item), never more than one (D33, AC 2, AC 8)
@@ -197,6 +196,37 @@ export function SequentialQueueTaskPicker({
         </div>
       </div>
 
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 bg-surface-muted/40 px-3 py-1.5 text-xs text-fg-muted">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Konfiguracja wykonawców:</span>
+          <span className="inline-flex items-center gap-1 text-fg-secondary">
+            <span className="text-fg-muted">Implementer:</span>
+            <span className="font-semibold capitalize text-fg-primary">{implementerProvider}</span>
+          </span>
+          <span className="text-border">•</span>
+          <span className="inline-flex items-center gap-1 text-fg-secondary">
+            <span className="text-fg-muted">Reviewer:</span>
+            <span className="font-semibold capitalize text-fg-primary">{reviewerProvider}</span>
+          </span>
+          <span className="text-border">•</span>
+          <span className="inline-flex items-center gap-1 text-fg-secondary">
+            <span className="text-fg-muted">Refiner:</span>
+            <span className="font-semibold capitalize text-fg-primary">{refinerProvider}</span>
+          </span>
+        </div>
+        {onConfigureExecutionPolicy && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onConfigureExecutionPolicy}
+            className="h-6 px-2 text-[11px] font-medium text-accent hover:bg-accent/10 hover:text-accent"
+            title="Konfiguruj wykonawców dla ról"
+          >
+            Konfiguruj
+          </Button>
+        )}
+      </div>
+
       {dependencyWarnings.length > 0 && (
         <div className="mt-4 space-y-1.5" role="alert" aria-label="Ostrzeżenia o zależnościach">
           {dependencyWarnings.map((w) => (
@@ -270,6 +300,8 @@ export function SpecificationOverview({
   onBatchPublish,
   onCreateSession,
   onOpenTask,
+  executionPolicy,
+  onConfigureExecutionPolicy,
 }: {
   specification: SpecificationSummary;
   onTaskSelect: (task: SpecificationTask, trigger: HTMLElement) => void;
@@ -289,6 +321,8 @@ export function SpecificationOverview({
   onBatchPublish?: (tasks: SpecificationTask[]) => void | Promise<void>;
   onCreateSession: () => void;
   onOpenTask?: (target: TaskNavigationTarget | string) => void;
+  executionPolicy?: ExecutionPolicy | null;
+  onConfigureExecutionPolicy?: () => void;
 }) {
   return (
     <>
@@ -346,6 +380,8 @@ export function SpecificationOverview({
           tasks={specification.tasks}
           taskActions={taskActions}
           onStartStep={onStartStep}
+          executionPolicy={executionPolicy}
+          onConfigureExecutionPolicy={onConfigureExecutionPolicy}
         />
       )}
 

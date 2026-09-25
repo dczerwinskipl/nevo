@@ -6,9 +6,19 @@ export interface TaskExecutionOverride {
   mode?: AgentExecutionMode;
 }
 
+export interface RoleExecutionOverride {
+  provider: string;
+  mode?: AgentExecutionMode;
+}
+
 export interface ExecutionPolicy {
   provider: string;
   mode: AgentExecutionMode;
+  default?: {
+    provider: string;
+    mode: AgentExecutionMode;
+  };
+  roles?: Record<string, RoleExecutionOverride>;
   taskOverrides?: Record<string, TaskExecutionOverride>;
 }
 
@@ -31,7 +41,13 @@ export async function fetchExecutionPolicy(slug: string): Promise<ExecutionPolic
 
 export async function saveExecutionPolicy(
   slug: string,
-  policy: { provider: string; mode: AgentExecutionMode; taskOverrides?: Record<string, TaskExecutionOverride> },
+  policy: {
+    provider: string;
+    mode: AgentExecutionMode;
+    default?: { provider: string; mode: AgentExecutionMode };
+    roles?: Record<string, RoleExecutionOverride>;
+    taskOverrides?: Record<string, TaskExecutionOverride>;
+  },
 ): Promise<ExecutionPolicy> {
   const response = await fetch(`/api/specs/${encodeURIComponent(slug)}/execution-policy`, {
     method: 'PUT',
@@ -51,18 +67,28 @@ export async function saveExecutionPolicy(
 export function resolvePolicyForTask(
   policy: ExecutionPolicy | null,
   taskId?: string,
+  options?: { role?: string },
 ): { provider: string; mode: AgentExecutionMode } | null {
   if (!policy) return null;
+  const defaultProvider = policy.default?.provider || policy.provider;
+  const defaultMode = policy.default?.mode || policy.mode;
   if (taskId && policy.taskOverrides?.[taskId]) {
     const override = policy.taskOverrides[taskId];
     return {
-      provider: override.provider || policy.provider,
-      mode: override.mode || policy.mode,
+      provider: override.provider || defaultProvider,
+      mode: override.mode || defaultMode,
+    };
+  }
+  if (options?.role && policy.roles?.[options.role]) {
+    const roleOverride = policy.roles[options.role];
+    return {
+      provider: roleOverride.provider || defaultProvider,
+      mode: roleOverride.mode || defaultMode,
     };
   }
   return {
-    provider: policy.provider,
-    mode: policy.mode,
+    provider: defaultProvider,
+    mode: defaultMode,
   };
 }
 

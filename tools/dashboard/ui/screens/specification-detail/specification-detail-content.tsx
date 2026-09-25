@@ -203,7 +203,8 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
             setPendingStart({ task, stepDescriptor, taskIds });
             return;
           }
-          const effective = resolvePolicyForTask(currentPolicy, targetTaskId) || currentPolicy;
+          const stepRole = (stepDescriptor as any).role || (stepDescriptor as any).execution?.role;
+          const effective = resolvePolicyForTask(currentPolicy, targetTaskId, { role: stepRole }) || currentPolicy;
           await proceedWithAgentExecution(targetTaskId, effective, taskIds);
         } catch (err: any) {
           const message = err instanceof Error ? err.message : String(err);
@@ -405,6 +406,13 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
             onCreateSession={() => setSessionSpecification(specification)}
             taskActions={actionsQuery.data?.tasks}
             isDeterministic={actionsQuery.data?.workflowMode === 'deterministic'}
+            executionPolicy={executionPolicyQuery.policy}
+            onConfigureExecutionPolicy={() => {
+              setPendingStart({
+                task: specification.tasks?.[0] as SpecificationTask,
+                stepDescriptor: { id: '__configure_only__', executor: 'agent' },
+              });
+            }}
             onStartStep={startStep}
             onPublishTask={handlePublishTask}
             onBatchPublish={handleBatchPublish}
@@ -549,10 +557,14 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
               await executionPolicyQuery.savePolicy({
                 provider: chosen.provider,
                 mode: chosen.mode,
+                ...(chosen.default ? { default: chosen.default } : {}),
+                ...(chosen.roles ? { roles: chosen.roles } : {}),
               });
               const target = pendingStart;
               setPendingStart(null);
-              await proceedWithAgentExecution(target.task.id, chosen, target.taskIds);
+              if (target.task && target.stepDescriptor?.id !== '__configure_only__') {
+                await proceedWithAgentExecution(target.task.id, chosen, target.taskIds);
+              }
             } catch (err: any) {
               const message = err instanceof Error ? err.message : String(err);
               setWorkflowError(message);

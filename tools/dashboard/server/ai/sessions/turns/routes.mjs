@@ -105,15 +105,18 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         enqueueTasks(effectiveRepoRoot, changeSlug, body.taskIds);
       }
 
-      // Persist spec-level execution policy from D21
+      // Persist spec-level execution policy from D21 if no policy exists yet
       if (provider && (body.mode || 'agent')) {
         try {
           const { executionPolicyService } = await import('../execution-policy-service.mjs');
-          executionPolicyService.saveExecutionPolicy(
-            changeSlug,
-            { provider, mode: body.mode || 'agent' },
-            { repoRoot: effectiveRepoRoot },
-          );
+          const existing = executionPolicyService.getExecutionPolicy(changeSlug, { repoRoot: effectiveRepoRoot });
+          if (!existing) {
+            executionPolicyService.saveExecutionPolicy(
+              changeSlug,
+              { provider, mode: body.mode || 'agent' },
+              { repoRoot: effectiveRepoRoot },
+            );
+          }
         } catch {}
       }
 
@@ -122,7 +125,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
       let sessionPolicy = body.sessionPolicy || 'fresh';
       try {
         const { executionPolicyService } = await import('../execution-policy-service.mjs');
-        const policy = executionPolicyService.resolveExecutionPolicy(changeSlug, body.taskId, { repoRoot: effectiveRepoRoot });
+        const policy = executionPolicyService.resolveExecutionPolicy(changeSlug, body.taskId, { role: body.role, repoRoot: effectiveRepoRoot });
         if (policy?.session) sessionPolicy = policy.session;
       } catch {}
 
@@ -133,6 +136,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         changeSlug,
         specId: canonicalSpecId,
         sessionPolicy,
+        role: body.role,
         sessionId: body.sessionId,
         message: body.message ?? body.prompt,
         userMessage: body.userMessage,

@@ -128,16 +128,17 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
     });
 
     if (queueState.nextRunnable) {
+      const sessionPolicy = matchedTransition?.execution?.session || 'fresh';
+      const role = matchedTransition?.execution?.role;
+
       let policy = null;
       try {
         const { executionPolicyService } = await import('../sessions/execution-policy-service.mjs');
-        policy = executionPolicyService.resolveExecutionPolicy(changeSlug, task.id, { repoRoot });
+        policy = executionPolicyService.resolveExecutionPolicy(changeSlug, task.id, { role, repoRoot });
       } catch {}
 
       const provider = policy?.provider || options.provider;
       const mode = policy?.mode || options.mode || 'agent';
-      const sessionPolicy = matchedTransition?.execution?.session || 'fresh';
-      const role = matchedTransition?.execution?.role;
       let parentSessionId = options.parentSessionId || options.priorSessionId || null;
       if (!parentSessionId && repoRoot) {
         const history = task.workflow_progress?.history || [];
@@ -437,10 +438,14 @@ export async function reconcileContinuation(change, task, options = {}) {
 
   if (queueState.nextRunnable) {
     const specId = resolveStableSpecId(change);
+    const entryStep = definition?.entryStep || queueState.nextRunnable.stepId;
+    const entryStepDef = definition?.steps?.[entryStep];
+    const role = entryStepDef?.execution?.role || entryStepDef?.role || 'implementer';
+
     let policy = null;
     try {
       const { executionPolicyService } = await import('../sessions/execution-policy-service.mjs');
-      policy = executionPolicyService.resolveExecutionPolicy(changeSlug, queueState.nextRunnable.taskId, { repoRoot });
+      policy = executionPolicyService.resolveExecutionPolicy(changeSlug, queueState.nextRunnable.taskId, { role, repoRoot });
     } catch {}
 
     const provider = policy?.provider || options.provider;
@@ -453,6 +458,7 @@ export async function reconcileContinuation(change, task, options = {}) {
       changeSlug,
       specId,
       sessionPolicy: 'fresh',
+      role,
       parentSessionId: null, // Ordinary queued task advancement does not fabricate lineage from prior task
       message: genericTrigger,
       prompt: genericTrigger,

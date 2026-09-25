@@ -270,7 +270,22 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             provider: candidate.provider,
           });
         } else if (sessionService?.startTurn) {
-          const effectiveProvider = candidate.provider || (canonicalSessionId && sessionService?.getSession ? (await sessionService.getSession(canonicalSessionId).catch(() => null))?.provider : null);
+          let effectiveProvider = candidate.provider;
+          if (canonicalSessionId && sessionPolicy === 'reuse') {
+            try {
+              const existingSess = sessionService?.getSession ? await sessionService.getSession(canonicalSessionId) : null;
+              if (existingSess?.provider) {
+                effectiveProvider = existingSess.provider;
+              }
+            } catch {}
+          } else if (!effectiveProvider && canonicalSessionId && sessionService?.getSession) {
+            try {
+              const existingSess = await sessionService.getSession(canonicalSessionId);
+              if (existingSess?.provider) {
+                effectiveProvider = existingSess.provider;
+              }
+            } catch {}
+          }
           startResult = await sessionService.startTurn(effectiveProvider, canonicalSessionId, {
             sessionId: canonicalSessionId,
             taskId: candidate.taskId,

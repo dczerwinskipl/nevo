@@ -241,4 +241,81 @@ describe('Task 26: Execution policy and mode selection (D21)', () => {
     assert.match(policyClientSrc, /export function resolvePolicyForTask/);
     assert.match(policyClientSrc, /export function useExecutionPolicy/);
   });
+
+  test('Role-based execution policy: supports default and per-role overrides (implementer, reviewer, refiner)', async () => {
+    const putRes = await app.inject({
+      method: 'PUT',
+      url: '/api/specs/multi-role-spec/execution-policy',
+      headers: {
+        'content-type': 'application/json',
+        'x-nevo-dashboard-action': '1',
+      },
+      payload: {
+        provider: 'claude',
+        mode: 'agent',
+        default: {
+          provider: 'claude',
+          mode: 'agent',
+        },
+        roles: {
+          implementer: {
+            provider: 'claude',
+            mode: 'agent',
+          },
+          reviewer: {
+            provider: 'codex',
+            mode: 'agent',
+          },
+          refiner: {
+            provider: 'claude',
+            mode: 'agent',
+          },
+        },
+        taskOverrides: {
+          'task-special': {
+            provider: 'gemini',
+            mode: 'agent',
+          },
+        },
+      },
+    });
+    assert.equal(putRes.statusCode, 200);
+
+    // 1. Reviewer role resolves to codex
+    const reviewerRes = policyService.resolveExecutionPolicy('multi-role-spec', null, { role: 'reviewer' });
+    assert.deepEqual(reviewerRes, { provider: 'codex', mode: 'agent' });
+
+    // 2. Implementer role resolves to claude
+    const implementerRes = policyService.resolveExecutionPolicy('multi-role-spec', null, { role: 'implementer' });
+    assert.deepEqual(implementerRes, { provider: 'claude', mode: 'agent' });
+
+    // 3. Unconfigured role falls back to default
+    const unknownRoleRes = policyService.resolveExecutionPolicy('multi-role-spec', null, { role: 'auditor' });
+    assert.deepEqual(unknownRoleRes, { provider: 'claude', mode: 'agent' });
+
+    // 4. Default without role
+    const defaultRes = policyService.resolveExecutionPolicy('multi-role-spec');
+    assert.deepEqual(defaultRes, { provider: 'claude', mode: 'agent' });
+
+    // 5. Task override still takes precedence over role
+    const taskOverrideRes = policyService.resolveExecutionPolicy('multi-role-spec', 'task-special', { role: 'reviewer' });
+    assert.deepEqual(taskOverrideRes, { provider: 'gemini', mode: 'agent' });
+  });
+
+  test('UI structural contract: SequentialQueueTaskPicker renders role configuration and removes generic blocked remediation group derivation', () => {
+    const overviewSrc = readFileSync(
+      fileURLToPath(new URL('../ui/screens/specification-detail/specification-overview.tsx', import.meta.url)),
+      'utf8',
+    );
+    // Role config badges/labels
+    assert.match(overviewSrc, /Konfiguracja wykonawców:/);
+    assert.match(overviewSrc, /Implementer:/);
+    assert.match(overviewSrc, /Reviewer:/);
+    assert.match(overviewSrc, /Refiner:/);
+    assert.match(overviewSrc, /onConfigureExecutionPolicy/);
+
+    // No derived remediation group from generic blocked / suspensions
+    assert.doesNotMatch(overviewSrc, /gate\?\.state === 'blocked' \|\| \(gate\?\.blockedBy/);
+    assert.doesNotMatch(overviewSrc, /\(t as any\)\.suspensions\?\.length > 0/);
+  });
 });

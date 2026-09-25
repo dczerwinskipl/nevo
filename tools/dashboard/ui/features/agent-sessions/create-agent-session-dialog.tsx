@@ -385,7 +385,12 @@ export function ProviderAndModePicker({
 export interface ExecutionPolicySelectionDialogProps {
   specificationTitle: string;
   onClose: () => void;
-  onConfirm: (policy: { provider: string; mode: AgentExecutionMode }) => void;
+  onConfirm: (policy: {
+    provider: string;
+    mode: AgentExecutionMode;
+    default?: { provider: string; mode: AgentExecutionMode };
+    roles?: Record<string, { provider: string; mode: AgentExecutionMode }>;
+  }) => void;
   confirming?: boolean;
 }
 
@@ -399,6 +404,9 @@ export function ExecutionPolicySelectionDialog({
   const rawProviders = providers.data?.providers ?? [];
   const [provider, setProvider] = useState('');
   const [mode, setMode] = useState<AgentExecutionMode>('agent');
+  const [implementerProvider, setImplementerProvider] = useState('');
+  const [reviewerProvider, setReviewerProvider] = useState('');
+  const [refinerProvider, setRefinerProvider] = useState('');
 
   useEffect(() => {
     if (!provider && rawProviders.length > 0) {
@@ -416,7 +424,18 @@ export function ExecutionPolicySelectionDialog({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!provider || !isSelectedProviderAvailable) return;
-    onConfirm({ provider, mode });
+
+    const roles: Record<string, { provider: string; mode: AgentExecutionMode }> = {};
+    if (implementerProvider) roles.implementer = { provider: implementerProvider, mode: 'agent' };
+    if (reviewerProvider) roles.reviewer = { provider: reviewerProvider, mode: 'agent' };
+    if (refinerProvider) roles.refiner = { provider: refinerProvider, mode: 'agent' };
+
+    onConfirm({
+      provider,
+      mode,
+      default: { provider, mode },
+      ...(Object.keys(roles).length > 0 ? { roles } : {}),
+    });
   };
 
   return (
@@ -466,6 +485,56 @@ export function ExecutionPolicySelectionDialog({
           loading={providers.loading}
           error={providers.error}
         />
+
+        <div className="mt-5 space-y-3 rounded-xl border border-border/70 bg-surface-muted/30 p-4">
+          <div>
+            <h3 className="text-xs font-semibold text-fg-primary">Nadpisania dla ról (Role Execution Overrides)</h3>
+            <p className="mt-0.5 text-[11px] text-fg-muted">
+              Opcjonalnie wybierz wykonawców dla konkretnych ról procesu automatycznego.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div>
+              <label className="text-[11px] font-medium text-fg-secondary">Implementer</label>
+              <select
+                value={implementerProvider}
+                onChange={(e) => setImplementerProvider(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+              >
+                <option value="">(Domyślny: {provider || 'brak'})</option>
+                {rawProviders.map((p) => (
+                  <option key={p.id} value={p.id}>{p.label || p.id}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] font-medium text-fg-secondary">Reviewer</label>
+              <select
+                value={reviewerProvider}
+                onChange={(e) => setReviewerProvider(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+              >
+                <option value="">(Domyślny: {provider || 'brak'})</option>
+                {rawProviders.map((p) => (
+                  <option key={p.id} value={p.id}>{p.label || p.id}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] font-medium text-fg-secondary">Refiner</label>
+              <select
+                value={refinerProvider}
+                onChange={(e) => setRefinerProvider(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+              >
+                <option value="">(Domyślny: {provider || 'brak'})</option>
+                {rawProviders.map((p) => (
+                  <option key={p.id} value={p.id}>{p.label || p.id}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
 
         <div className="mt-6 flex items-center justify-end gap-3 border-t border-border pt-4">
           <Button type="button" variant="secondary" onClick={onClose} disabled={confirming}>

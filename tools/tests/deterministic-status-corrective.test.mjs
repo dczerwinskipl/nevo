@@ -1899,5 +1899,242 @@ allowed_paths:
   }
 });
 
+test('Agent/provider selection policy: multi-provider role execution, session reuse retention, and explicit override', async () => {
+  const tmpRepo = createTempRepo('multi-provider-role-test');
+  resetAdmissionStateForTest();
+
+  try {
+    const { executionPolicyService } = await import('../dashboard/server/ai/sessions/execution-policy-service.mjs');
+
+    // 1. Save spec execution policy with role-specific defaults
+    // Implementer -> claude, Reviewer -> codex, Refiner -> claude
+    executionPolicyService.saveExecutionPolicy(
+      'role-spec',
+      {
+        provider: 'claude',
+        mode: 'agent',
+        default: { provider: 'claude', mode: 'agent' },
+        roles: {
+          implementer: { provider: 'claude', mode: 'agent' },
+          reviewer: { provider: 'codex', mode: 'agent' },
+          refiner: { provider: 'claude', mode: 'agent' },
+        },
+      },
+      { repoRoot: tmpRepo },
+    );
+
+    const change = {
+      _slug: 'role-spec',
+      id: '22222222-2222-4222-8222-222222222222',
+      spec_id: '22222222-2222-4222-8222-222222222222',
+      workflow: { mode: 'deterministic', definition: 'custom' },
+    };
+
+    const createdSessions = [];
+    const startedTurns = [];
+    const sessionsStore = new Map();
+
+    const mockSessionService = {
+      async createSession(provider, opts) {
+        const sessionId = `sess-${provider}-${createdSessions.length + 1}`;
+        const record = { sessionId, provider, ...opts };
+        createdSessions.push(record);
+        sessionsStore.set(sessionId, record);
+        return record;
+      },
+      async getSession(providerOrSessionId, providerSessionId) {
+        if (!providerSessionId) {
+          return sessionsStore.get(providerOrSessionId) || null;
+        }
+        return Array.from(sessionsStore.values()).find(
+          s => s.provider === providerOrSessionId && (s.providerSessionId === providerSessionId || s.sessionId === providerSessionId)
+        ) || null;
+      },
+      async listSessions() {
+        return Array.from(sessionsStore.values());
+      },
+      async startTurn(provider, sessionId, opts) {
+        startedTurns.push({ provider, sessionId, ...opts });
+        return { turnId: `turn-${startedTurns.length}` };
+      },
+      subscribeToSession() {
+        return () => {};
+      },
+    };
+
+    const multiRoleDefinition = {
+      entryStep: 'step-1',
+      steps: {
+        'step-1': {
+          executor: 'agent',
+          status: { active: 'in-progress', completed: 'completed' },
+          transitions: [
+            {
+              to: 'step-2',
+              value: 'success',
+              continuation: 'auto',
+              execution: { session: 'fresh', role: 'reviewer' },
+            },
+          ],
+        },
+        'step-2': {
+          executor: 'agent',
+          status: { active: 'in-progress', completed: 'completed' },
+          transitions: [
+            {
+              to: 'step-3',
+              value: 'success',
+              continuation: 'auto',
+              execution: { session: 'fresh', role: 'refiner' },
+            },
+          ],
+        },
+        'step-3': {
+          executor: 'agent',
+          status: { active: 'in-progress', completed: 'completed' },
+          transitions: [
+            {
+              to: 'step-4',
+              value: 'success',
+              continuation: 'auto',
+              execution: { session: 'reuse' },
+            },
+          ],
+        },
+        'step-4': {
+          executor: 'agent',
+          status: { active: 'in-progress', completed: 'completed' },
+        },
+      },
+    };
+
+    const task1 = {
+      id: 't1',
+      status: 'in-progress',
+      workflow_progress: {
+        current_step: 'step-1',
+        current_attempt: 1,
+        state: 'completed',
+        history: [{
+          step: 'step-1',
+          attempt: 1,
+          completed_at: new Date().toISOString(),
+          transitioned_to: 'step-2',
+          result: 'success',
+        }],
+      },
+    };
+    change.tasks = [task1];
+
+    const resReviewer = await reconcileWorkflowPosition(change, task1, {
+      repoRoot: tmpRepo,
+      definition: multiRoleDefinition,
+      sessionService: mockSessionService,
+      parentSessionId: 'sess-parent-impl',
+    });
+
+    assert.equal(resReviewer.action, 'agent-admitted');
+    assert.equal(createdSessions.length, 1);
+    assert.equal(createdSessions[0].role, 'reviewer');
+    assert.equal(createdSessions[0].provider, 'codex', 'Reviewer role must resolve to provider codex');
+    assert.equal(startedTurns.length, 1);
+    assert.equal(startedTurns[0].provider, 'codex', 'Turn must start with reviewer provider codex');
+
+    // Reset admission lock for next test
+    resetAdmissionStateForTest();
+    await releaseWorkspaceWriterIfOwned({ repoRoot: tmpRepo, expectedOwnerId: resReviewer.admission.ownerId });
+
+    // Transition 2: Step 2 -> Step 3 (Refiner role -> Provider A 'claude')
+    const task2 = {
+      id: 't1',
+      status: 'in-progress',
+      workflow_progress: {
+        current_step: 'step-2',
+        current_attempt: 1,
+        state: 'completed',
+        history: [{
+          step: 'step-2',
+          attempt: 1,
+          completed_at: new Date().toISOString(),
+          transitioned_to: 'step-3',
+          result: 'success',
+        }],
+      },
+    };
+    change.tasks = [task2];
+
+    const resRefiner = await reconcileWorkflowPosition(change, task2, {
+      repoRoot: tmpRepo,
+      definition: multiRoleDefinition,
+      sessionService: mockSessionService,
+      parentSessionId: createdSessions[0].sessionId,
+    });
+
+    assert.equal(resRefiner.action, 'agent-admitted');
+    assert.equal(createdSessions.length, 2);
+    assert.equal(createdSessions[1].role, 'refiner');
+    assert.equal(createdSessions[1].provider, 'claude', 'Refiner role must resolve to provider claude');
+    assert.equal(startedTurns.length, 2);
+    assert.equal(startedTurns[1].provider, 'claude', 'Turn must start with refiner provider claude');
+
+    // Reset admission lock
+    resetAdmissionStateForTest();
+    await releaseWorkspaceWriterIfOwned({ repoRoot: tmpRepo, expectedOwnerId: resRefiner.admission.ownerId });
+
+    // Transition 3: Step 3 -> Step 4 (Reuse session from Step 3 which was 'claude', retaining its provider)
+    const task3 = {
+      id: 't1',
+      status: 'in-progress',
+      workflow_progress: {
+        current_step: 'step-3',
+        current_attempt: 1,
+        state: 'completed',
+        history: [{
+          step: 'step-3',
+          attempt: 1,
+          completed_at: new Date().toISOString(),
+          transitioned_to: 'step-4',
+          result: 'success',
+        }],
+      },
+    };
+    change.tasks = [task3];
+
+    const refinerSessionId = createdSessions[1].sessionId;
+    const resReuse = await reconcileWorkflowPosition(change, task3, {
+      repoRoot: tmpRepo,
+      definition: multiRoleDefinition,
+      sessionService: mockSessionService,
+      parentSessionId: refinerSessionId,
+    });
+
+    assert.equal(resReuse.action, 'agent-admitted');
+    assert.equal(createdSessions.length, 2, 'session: reuse must not create a new session');
+    assert.equal(startedTurns.length, 3);
+    assert.equal(startedTurns[2].sessionId, refinerSessionId, 'Turn must reuse refiner session ID');
+    assert.equal(startedTurns[2].provider, 'claude', 'Turn must retain existing session provider');
+
+    // Reset admission lock
+    resetAdmissionStateForTest();
+    await releaseWorkspaceWriterIfOwned({ repoRoot: tmpRepo, expectedOwnerId: resReuse.admission.ownerId });
+
+    // 4. Explicit new session creation: user-selected provider overrides spec defaults without altering spec policy
+    const userSession = await mockSessionService.createSession('gemini', {
+      specId: change.spec_id,
+      taskId: 't1',
+      mode: 'agent',
+    });
+    assert.equal(userSession.provider, 'gemini', 'Explicit session creation must allow user-selected provider');
+
+    // Verify spec execution policy is not corrupted
+    const currentPolicy = executionPolicyService.getExecutionPolicy('role-spec', { repoRoot: tmpRepo });
+    assert.equal(currentPolicy.default.provider, 'claude');
+    assert.equal(currentPolicy.roles.reviewer.provider, 'codex');
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
 
 
