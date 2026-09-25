@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   PROVIDER_PATTERN,
@@ -35,6 +36,11 @@ export function resolveDeterministicExecutionTarget({ specId, slug, changeSlug, 
 
   if (!canonical?.change) {
     throw new AiValidationError(`Specification '${identifier}' not found.`);
+  }
+
+  const isArchived = existsSync(join(archiveDir, canonical.slug)) || !existsSync(join(activeDir, canonical.slug));
+  if (isArchived) {
+    throw new AiValidationError(`specification '${identifier}' is archived and cannot be executed`);
   }
 
   const change = canonical.change;

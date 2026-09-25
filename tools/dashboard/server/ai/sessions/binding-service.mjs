@@ -1354,6 +1354,8 @@ export class AgentSessionBindingService {
       if (query.specId && b.specId !== query.specId) continue;
       if (query.taskId && b.taskId !== query.taskId) continue;
       if (query.sessionId && b.sessionId !== query.sessionId) continue;
+      if (query.step && b.step !== query.step) continue;
+      if (query.attempt !== undefined && b.attempt !== query.attempt) continue;
       const session = sessionsMap.get(b.sessionId);
       if (query.provider && session?.provider !== query.provider && b.provider !== query.provider) continue;
       if (query.providerSessionId && session?.providerSessionId !== query.providerSessionId && b.sessionId !== query.providerSessionId) continue;
@@ -1410,6 +1412,8 @@ export class AgentSessionBindingService {
       if (query.specId && b.specId !== query.specId) continue;
       if (query.taskId && b.taskId !== query.taskId) continue;
       if (query.sessionId && b.sessionId !== query.sessionId) continue;
+      if (query.step && b.step !== query.step) continue;
+      if (query.attempt !== undefined && b.attempt !== query.attempt) continue;
       const session = sessionsMap.get(b.sessionId);
       if (query.provider && session?.provider !== query.provider && b.provider !== query.provider) continue;
       if (query.providerSessionId && session?.providerSessionId !== query.providerSessionId && b.sessionId !== query.providerSessionId) continue;

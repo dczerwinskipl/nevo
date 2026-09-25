@@ -102,16 +102,14 @@ declarative release/invalidation.
   matches the claim's `sessionId` from its very first invocation, even though the provider spawn
   itself precedes the `turnId` enrichment — to exercise D93.
 - Include a fixture covering D97's crash classification around `AgentTurnRuntime.startTurn()`:
-  (1) a crash before `startTurn()` is ever invoked, where the claim settles normally because no
-  turn was ever created; (2) `startTurn()` internally registering/persisting a real turn before
-  the simulated caller ever observes its returned `turnId` (a process-loss simulation), where
-  reconciliation discovers the real turn via transcript-cache evidence rather than assuming none
-  exists; (3) the same ambiguous boundary with the transcript-cache evidence made unavailable/
-  inconclusive, where reconciliation fails closed (`recovery-required`) instead of guessing; (4)
-  a persisted active turn allowing ownership-conditional `turnId` enrichment after a simulated
-  restart; (5) a stale recovered `turnId` failing to enrich a newer workspace claim; (6) an
-  assertion that no settlement/release decision anywhere in this fixture set ever depends on
-  assuming an unresolved `startTurn()` call means "not started."
+  (1) a crash before `startTurn()` is ever invoked (`turnStartState: 'prepared'`), where the claim
+  settles normally because no turn was ever created; (2) an ambiguous boundary crash in
+  `turnStartState: 'invoking'`, which fails closed to `recovery-required` because the claim carries
+  no `turnId` and Turn aggregates carry no workspace-claim `ownerId` (D98), leaving turn attribution
+  inconclusive; (3) a crash with legal `turnStartState: 'started'` and durable `turnId` present,
+  where reconciliation assesses settlement for that exact turn; (4) an assertion that no
+  settlement/release decision anywhere in this fixture set ever depends on assuming an unresolved
+  `startTurn()` call means "not started."
 - Include a fixture covering D98's `execution.session: fresh|reuse` integration: (7) a `fresh`
   transition creates a new canonical session before following D93's enrichment sequence; (8) a
   `reuse` transition resolves the existing target session's `sessionId` without ever calling
@@ -474,14 +472,14 @@ declarative release/invalidation.
 109. A crash with `turnStartState: 'prepared'` is reconciled as "start invocation never began" —
      `assessExecutionSettlement` settles the claim normally, and no transcript-cache lookup is
      needed or performed to reach that conclusion.
-110. A crash with `turnStartState: 'invoking'` plus persisted matching turn evidence
-     (`activeTurn`/`turns[]`) recovers the real `turnId` from `reconcileOrphanedTurns()`'s own
-     transcript-cache evidence and continues normal reconciliation — never treating the claim as
-     if no turn had started.
-111. A crash with `turnStartState: 'invoking'` and **no** persisted matching transcript evidence
-     does **not** release the claim and does **not** settle it normally — it becomes
-     `recovery-required`, because absent evidence during this window is inconclusive (transcript
-     persistence is debounced), never proof of absence.
+110. A crash with `turnStartState: 'invoking'` fails closed to `recovery-required` — under D98/D99,
+     Turn aggregates carry no workspace-claim `ownerId` and `invoking` claims carry no `turnId`
+     (which is only persisted atomically alongside `'started'`), so no authoritative execution-specific
+     correlation exists to prove a turn belongs to this exact execution rather than an older turn in a
+     reused session; Hook 3 never guesses or misattributes turn evidence.
+111. A crash with `turnStartState: 'invoking'` does **not** release the claim and does **not** settle
+     it normally — it becomes `recovery-required`, because absent or unauthoritative evidence during
+     this window is inconclusive, never proof of absence.
 112. `execution.session: reuse` with an old, already-persisted transcript (containing only older,
      unrelated turns from a prior execution on the same session) but no newly-flushed turn for
      *this* execution still treats `turnStartState: 'invoking'` as ambiguous, never "not

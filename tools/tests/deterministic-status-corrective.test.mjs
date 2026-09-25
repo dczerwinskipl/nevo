@@ -1199,13 +1199,37 @@ test('Finding 2c: Fresh auto-continuation inherits parentSessionId from bindingS
 
     const bindingService = createAgentSessionBindingService({ storageDir: path.join(tmpRepo, '.nevo-ai-local', 'sessions') });
 
-    // Seed prior reviewer session in bindingService
+    // Seed implementer session I
     await bindingService.bindSession({
       provider: 'mock',
-      sessionId: 'sess-reviewer-456',
+      sessionId: 'sess-implementer-1',
       specId,
       taskId: 't1',
+      step: 'step-implement',
+      attempt: 1,
+      role: 'implementer',
+    });
+
+    // Seed reviewer session R
+    await bindingService.bindSession({
+      provider: 'mock',
+      sessionId: 'sess-reviewer-2',
+      specId,
+      taskId: 't1',
+      step: 'step-review',
+      attempt: 1,
       role: 'reviewer',
+    });
+
+    // Seed unrelated session X registered after R
+    await bindingService.bindSession({
+      provider: 'mock',
+      sessionId: 'sess-unrelated-X',
+      specId,
+      taskId: 't1',
+      step: 'step-other',
+      attempt: 1,
+      role: 'researcher',
     });
 
     const change = {
@@ -1219,13 +1243,20 @@ test('Finding 2c: Fresh auto-continuation inherits parentSessionId from bindingS
     const definition = {
       entryStep: 'step-human-verify',
       steps: {
+        'step-implement': {
+          executor: 'agent',
+        },
+        'step-review': {
+          executor: 'agent',
+        },
         'step-human-verify': {
           executor: 'human',
           transitions: [
             {
               to: 'step-fix',
+              value: 'request-changes',
               continuation: 'auto',
-              execution: { session: 'fresh', role: 'implementer' },
+              execution: { session: 'fresh', role: 'refiner' },
             },
           ],
         },
@@ -1243,13 +1274,27 @@ test('Finding 2c: Fresh auto-continuation inherits parentSessionId from bindingS
         current_step: 'step-human-verify',
         current_attempt: 1,
         state: 'completed',
-        history: [{
-          step: 'step-human-verify',
-          attempt: 1,
-          completed_at: new Date().toISOString(),
-          transitioned_to: 'step-fix',
-          result: 'request-changes',
-        }],
+        history: [
+          {
+            step: 'step-implement',
+            attempt: 1,
+            completed_at: new Date(Date.now() - 3000).toISOString(),
+            sessionId: 'sess-implementer-1',
+          },
+          {
+            step: 'step-review',
+            attempt: 1,
+            completed_at: new Date(Date.now() - 2000).toISOString(),
+            sessionId: 'sess-reviewer-2',
+          },
+          {
+            step: 'step-human-verify',
+            attempt: 1,
+            completed_at: new Date(Date.now() - 1000).toISOString(),
+            transitioned_to: 'step-fix',
+            result: 'request-changes',
+          },
+        ],
       },
     };
     change.tasks = [taskAfterHuman];
@@ -1258,7 +1303,7 @@ test('Finding 2c: Fresh auto-continuation inherits parentSessionId from bindingS
     const mockSessionService = {
       async createSession(provider, opts) {
         capturedParentSessionId = opts.parentSessionId;
-        return { sessionId: 'sess-fix-789' };
+        return { sessionId: 'sess-fix-3' };
       },
       async listSessions() {
         return [];
@@ -1283,8 +1328,18 @@ test('Finding 2c: Fresh auto-continuation inherits parentSessionId from bindingS
     assert.equal(res.action, 'agent-admitted');
     assert.equal(
       capturedParentSessionId,
-      'sess-reviewer-456',
-      'Fresh session must inherit parentSessionId from the most recent session for this task in bindingService',
+      'sess-reviewer-2',
+      'Fresh session F must inherit parentSessionId from reviewer R across human step',
+    );
+    assert.notEqual(
+      capturedParentSessionId,
+      'sess-unrelated-X',
+      'Must NOT pick up unrelated session X registered after R',
+    );
+    assert.notEqual(
+      capturedParentSessionId,
+      'sess-implementer-1',
+      'Must NOT skip back to implementer I when reviewer R is the immediate prior agent session',
     );
   } finally {
     resetAdmissionStateForTest();
@@ -1415,7 +1470,8 @@ test('Finding 3: Hook 3 boot recovery does not match older reused-session turn w
     assert.ok(claimAfterNeg, 'Claim must still exist');
     assert.equal(claimAfterNeg.status, 'recovery-required', 'Claim must be marked status=recovery-required due to inconclusive evidence');
 
-    // 2. Positive test: Active turn matches claim turnId
+    // 2. Positive test: Claim is legally in turnStartState: 'started' with turnId: 'turn-xyz'
+    // Hook 3 assesses turn-xyz settlement and releases the claim when settled.
     resetAdmissionStateForTest();
     await updateWorkspaceWriterIfOwned({
       repoRoot: tmpRepo,
@@ -1425,34 +1481,19 @@ test('Finding 3: Hook 3 boot recovery does not match older reused-session turn w
       expectedChangeSlug: 'spec-test',
       expectedTaskId: 't1',
       sessionId: 'sess-reused-1',
-      turnId: 'turn-new-active-2',
+      turnId: 'turn-xyz',
       recoveryRequired: false,
-      turnStartState: 'invoking',
+      turnStartState: 'started',
     });
-
-    const positiveTranscriptCache = {
-      async getTranscript(prov, sessId) {
-        return {
-          activeTurn: {
-            turnId: 'turn-new-active-2',
-          },
-          turns: [],
-        };
-      },
-    };
 
     const reconPos = await reconcileBootState({
       repoRoot: tmpRepo,
-      transcriptCache: positiveTranscriptCache,
       sessionService: mockSessionService,
     });
 
     assert.ok(reconPos.reconciledClaims >= 1);
     const claimAfterPos = getWorkspaceWriterClaim(tmpRepo);
-    if (claimAfterPos) {
-      assert.equal(claimAfterPos.turnStartState, 'started');
-      assert.equal(claimAfterPos.turnId, 'turn-new-active-2');
-    }
+    assert.equal(claimAfterPos, null, 'Settled started claim should be released upon boot reconciliation');
   } finally {
     resetAdmissionStateForTest();
     fs.rmSync(tmpRepo, { recursive: true, force: true });
@@ -1554,5 +1595,309 @@ test('Finding 4: Delayed Hook 1 callback does not delete newer activeExecutions 
     fs.rmSync(tmpRepo, { recursive: true, force: true });
   }
 });
+
+test('Finding 5 / Req 3: Requesting execution for an archived deterministic spec returns 400, acquires no claim, creates no session, calls no provider', async () => {
+  const tmpRepo = createTempRepo('req3-archived-spec');
+  resetAdmissionStateForTest();
+
+  try {
+    const archiveDir = path.join(tmpRepo, 'specs', 'archive', 'archived-demo');
+    const tasksDir = path.join(archiveDir, 'tasks');
+    fs.mkdirSync(tasksDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(archiveDir, 'change.yaml'),
+      `schema_version: '1.0'
+id: 'archived-demo'
+spec_id: '22222222-2222-4222-8222-222222222222'
+title: archived-demo
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: t1
+    file: tasks/t1.md
+    status: in-progress
+`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(tasksDir, 't1.md'),
+      `---
+id: t1
+status: in-progress
+allowed_paths:
+  - README.md
+---
+# Task t1
+`,
+      'utf8',
+    );
+    execFileSync('git', ['add', '.'], { cwd: tmpRepo, stdio: 'ignore' });
+    execFileSync('git', ['commit', '-m', 'add archived spec'], { cwd: tmpRepo, stdio: 'ignore' });
+
+    let providerCalls = 0;
+    const baseMock = createMockAgentProvider({
+      specId: '22222222-2222-4222-8222-222222222222',
+      taskIds: ['t1'],
+      streamDelayMs: 1,
+    });
+    const originalStart = baseMock.startTurn.bind(baseMock);
+    baseMock.startTurn = async (params) => {
+      providerCalls++;
+      return await originalStart(params);
+    };
+
+    const registry = createAgentProviderRegistry([baseMock]);
+    const transcriptCache = createTranscriptCacheService({ baseDir: path.join(tmpRepo, '.nevo-ai-local', 'transcripts') });
+    const bindingService = createAgentSessionBindingService({ storageDir: path.join(tmpRepo, '.nevo-ai-local', 'sessions') });
+    const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+
+    const service = createAgentSessionService({
+      registry,
+      turnRuntime,
+      transcriptCache,
+      bindingService,
+      repoRoot: tmpRepo,
+    });
+
+    const app = await buildAiTestApp({ service, repoRoot: tmpRepo });
+
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/agent-sessions/turns',
+        headers: {
+          'content-type': 'application/json',
+          'x-nevo-dashboard-action': '1',
+        },
+        payload: {
+          provider: 'mock',
+          purpose: 'execution',
+          slug: 'archived-demo',
+          taskId: 't1',
+          message: 'Start archived task',
+        },
+      });
+
+      assert.equal(res.statusCode, 400);
+      const body = JSON.parse(res.payload);
+      const errorMessage = body.error?.message || body.message || '';
+      assert.match(errorMessage, /specification 'archived-demo' is archived and cannot be executed/);
+
+      // Verify no claim acquired
+      const claim = getWorkspaceWriterClaim(tmpRepo);
+      assert.equal(claim, null, 'Must acquire no workspace claim');
+
+      // Verify no sessions created
+      const sessions = await service.listSessions({ repoRoot: tmpRepo });
+      assert.equal(sessions.length, 0, 'Must create no sessions');
+
+      // Verify no provider called
+      assert.equal(providerCalls, 0, 'Must call no provider');
+    } finally {
+      await app.close();
+    }
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('Finding 5 / Req 4: Malformed specId fails closed with isValidSpecId before creating durable relations', async () => {
+  const tmpRepo = createTempRepo('req4-malformed-spec-id');
+  resetAdmissionStateForTest();
+
+  try {
+    const { resolveDeterministicWorkflowInfo } = await import('../dashboard/server/ai/sessions/service.mjs');
+    const { reconcileWorkflowPosition } = await import('../dashboard/server/ai/orchestration/reconciliation.mjs');
+
+    // 1. resolveDeterministicWorkflowInfo and reconcileWorkflowPosition fail closed on change with malformed spec_id
+    const badSpecDir = path.join(tmpRepo, 'specs', 'active', 'spec-bad');
+    const badTasksDir = path.join(badSpecDir, 'tasks');
+    fs.mkdirSync(badTasksDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(badSpecDir, 'change.yaml'),
+      `schema_version: '1.0'
+id: 'spec-bad'
+spec_id: 'not-a-valid-uuid'
+title: Bad Spec
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: t1
+    file: tasks/t1.md
+    status: in-progress
+`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(badTasksDir, 't1.md'),
+      `---
+id: t1
+status: in-progress
+allowed_paths:
+  - README.md
+---
+# Task t1
+`,
+      'utf8',
+    );
+    execFileSync('git', ['add', '.'], { cwd: tmpRepo, stdio: 'ignore' });
+    execFileSync('git', ['commit', '-m', 'add bad spec'], { cwd: tmpRepo, stdio: 'ignore' });
+
+    assert.throws(
+      () => {
+        resolveDeterministicWorkflowInfo('spec-bad', 't1', tmpRepo);
+      },
+      (err) => {
+        assert.match(err.message, /has no persisted spec_id/);
+        return true;
+      },
+    );
+
+    const badChange = {
+      _slug: 'spec-bad',
+      id: 'spec-bad',
+      spec_id: 'not-a-valid-uuid',
+      workflow: { mode: 'deterministic', definition: 'standard' },
+    };
+
+    await assert.rejects(
+      async () => {
+        await reconcileWorkflowPosition(badChange, { id: 't1' }, { repoRoot: tmpRepo });
+      },
+      (err) => {
+        assert.match(err.message, /has no persisted spec_id/);
+        return true;
+      },
+    );
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('Finding 5 / Req 5: Tripartite identity (slug !== id !== spec_id): filesystem uses slug, durable uses spec_id UUID, change.id never used as durable canonical identity', async () => {
+  const tmpRepo = createTempRepo('req5-tripartite-identity');
+  resetAdmissionStateForTest();
+
+  try {
+    const specSlug = 'filesystem-spec';
+    const logicalId = 'human-readable-logical-id';
+    const specUuid = '33333333-3333-4333-8333-333333333333';
+
+    // Verify all three identities are distinct
+    assert.notEqual(specSlug, logicalId);
+    assert.notEqual(specSlug, specUuid);
+    assert.notEqual(logicalId, specUuid);
+
+    const activeDir = path.join(tmpRepo, 'specs', 'active', specSlug);
+    const tasksDir = path.join(activeDir, 'tasks');
+    fs.mkdirSync(tasksDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(activeDir, 'change.yaml'),
+      `schema_version: '1.0'
+id: '${logicalId}'
+spec_id: '${specUuid}'
+title: Tripartite Identity Spec
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: t1
+    file: tasks/t1.md
+    status: in-progress
+`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(tasksDir, 't1.md'),
+      `---
+id: t1
+status: in-progress
+allowed_paths:
+  - README.md
+---
+# Task t1
+`,
+      'utf8',
+    );
+    execFileSync('git', ['add', '.'], { cwd: tmpRepo, stdio: 'ignore' });
+    execFileSync('git', ['commit', '-m', 'add tripartite spec'], { cwd: tmpRepo, stdio: 'ignore' });
+
+    // 1. Filesystem resolution: slug resolves to UUID specId
+    const { resolveCanonicalSpec } = await import('../specs/identity.mjs');
+    const { resolveDeterministicExecutionTarget } = await import('../dashboard/server/ai/sessions/turns/routes.mjs');
+
+    const canonicalFromSlug = resolveCanonicalSpec(specSlug, { activeDir: path.join(tmpRepo, 'specs', 'active') });
+    assert.equal(canonicalFromSlug.slug, specSlug);
+    assert.equal(canonicalFromSlug.specId, specUuid);
+
+    const canonicalFromUuid = resolveCanonicalSpec(specUuid, { activeDir: path.join(tmpRepo, 'specs', 'active') });
+    assert.equal(canonicalFromUuid.slug, specSlug);
+    assert.equal(canonicalFromUuid.specId, specUuid);
+
+    const target = resolveDeterministicExecutionTarget({ slug: specSlug, repoRoot: tmpRepo });
+    assert.equal(target.changeSlug, specSlug);
+    assert.equal(target.specId, specUuid);
+    assert.equal(target.change.id, logicalId);
+
+    // 2. Admission and durable orchestration uses spec_id UUID, NEVER change.id
+    const baseMock = createMockAgentProvider({
+      specId: specUuid,
+      taskIds: ['t1'],
+      streamDelayMs: 1,
+    });
+    const registry = createAgentProviderRegistry([baseMock]);
+    const transcriptCache = createTranscriptCacheService({ baseDir: path.join(tmpRepo, '.nevo-ai-local', 'transcripts') });
+    const bindingService = createAgentSessionBindingService({ storageDir: path.join(tmpRepo, '.nevo-ai-local', 'sessions') });
+    const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+
+    const service = createAgentSessionService({
+      registry,
+      turnRuntime,
+      transcriptCache,
+      bindingService,
+      repoRoot: tmpRepo,
+    });
+
+    const candidate = {
+      taskId: 't1',
+      changeSlug: target.changeSlug,
+      provider: 'mock',
+      message: 'Run tripartite test',
+    };
+
+    const adm = await admitAgentExecution(target.specId, candidate, {
+      repoRoot: tmpRepo,
+      sessionService: service,
+    });
+    assert.equal(adm.admitted, true);
+
+    // 3. Inspect durable workspace-writer claim on disk
+    const claim = getWorkspaceWriterClaim(tmpRepo);
+    assert.ok(claim, 'Claim must exist');
+    assert.equal(claim.specId, specUuid, 'Workspace writer claim must use canonical spec_id UUID');
+    assert.equal(claim.changeSlug, specSlug, 'Workspace writer claim must use filesystem slug');
+    assert.notEqual(claim.specId, logicalId, 'Claim specId must NEVER use change.id');
+    assert.notEqual(claim.changeSlug, logicalId, 'Claim changeSlug must NEVER use change.id');
+
+    // 4. In-memory admission tracking must be keyed by spec_id UUID
+    assert.ok(getActiveAgentExecution(specUuid), 'Admission must be tracked under spec_id UUID');
+    assert.equal(getActiveAgentExecution(logicalId), null, 'Admission must NOT be tracked under change.id');
+    assert.equal(getActiveAgentExecution(specSlug), null, 'Admission must NOT be tracked under slug');
+
+    // 5. Session binding in store must be keyed by spec_id UUID
+    const uuidBindings = await bindingService.listBindings({ specId: specUuid });
+    assert.ok(uuidBindings.length >= 1, 'Binding must be stored under spec_id UUID');
+    const logicalBindings = await bindingService.listBindings({ specId: logicalId });
+    assert.equal(logicalBindings.length, 0, 'Binding must NEVER be stored under change.id');
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
 
 

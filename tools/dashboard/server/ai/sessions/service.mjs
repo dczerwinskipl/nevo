@@ -13,6 +13,7 @@ import {
 import { validateAgentModelDescriptor, normalizeModelIdentifier } from '../model/model-catalog.mjs';
 import { compareBindingRecency } from './binding-service.mjs';
 import { listChanges, ROOT } from '../../../../specs/store.mjs';
+import { resolveStableSpecId } from '../../../../specs/identity.mjs';
 import { resolveWorkflowPosition } from '../../../../specs/workflow/step-runner.mjs';
 import { loadWorkflowDefinition } from '../../../../specs/workflow/definitions/loader.mjs';
 import { resolveWorkflowMode } from '../../../../specs/workflow/compatibility.mjs';
@@ -319,7 +320,7 @@ export function resolveDeterministicWorkflowInfo(specId, taskId, repoRoot = ROOT
     execution: true,
     workflowInfo: {
       changeSlug: change._slug,
-      specId: change.spec_id || change.id,
+      specId: resolveStableSpecId(change),
       taskId: rawTaskId,
       step,
       attempt,

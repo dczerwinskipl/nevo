@@ -380,7 +380,7 @@ async function ensureVerifyGates(record, step, context, gateRegistry, repoRoot) 
  * meaningful). D23's step-aware record identity already guarantees `record.step` is the
  * one step this comparison is ever about.
  */
-async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskId, repoRoot) {
+async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskId, repoRoot, context = {}) {
   const stage = findStage(record, 'update-task');
   if (stage.status === 'completed') return;
 
@@ -497,11 +497,13 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
     ? record.resolvedInputs.feedback.trim()
     : undefined;
 
+  const recordedSessionId = record.resolvedInputs?.sessionId || context.sessionId || undefined;
   const entry = {
     step: stepName,
     attempt,
     completed_at: new Date().toISOString(),
     transitioned_to: to,
+    ...(recordedSessionId ? { sessionId: recordedSessionId } : {}),
     ...(record.resolvedInputs?.result !== undefined ? { result: record.resolvedInputs.result } : {}),
     ...(artifacts !== undefined ? { artifacts } : {}),
     ...(feedback !== undefined ? { feedback } : {}),
@@ -515,6 +517,7 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
     toState: 'completed',
     transitioned_to: to,
     terminalStatus: isInternalTransition ? null : to,
+    ...(recordedSessionId ? { sessionId: recordedSessionId } : {}),
     ...(record.resolvedInputs?.result !== undefined ? { result: record.resolvedInputs.result } : {}),
     ...(artifacts !== undefined ? { artifacts } : {}),
     ...(feedback !== undefined ? { feedback } : {}),
@@ -775,7 +778,7 @@ export async function finishStep({
     await ensureVerifyGates(record, step, effectiveContext, gateRegistry, repoRoot);
     const existingLease = context.finalizeLease || effectiveContext.finalizeLease;
     await withGitFinalizeLock(async () => {
-      await ensureUpdateTask(record, definition, resolvedActiveDir, changeSlug, task.id, repoRoot);
+      await ensureUpdateTask(record, definition, resolvedActiveDir, changeSlug, task.id, repoRoot, effectiveContext);
       await ensureCommit(record, effectiveContext, repoRoot);
     }, existingLease, { repoRoot });
     await ensurePush(record, effectiveContext, repoRoot);

@@ -36,7 +36,7 @@ import { resolveStableSpecId } from '../../../../specs/identity.mjs';
  */
 export async function reconcileWorkflowPosition(change, task, options = {}) {
   const repoRoot = options.repoRoot;
-  const specId = change.spec_id || resolveStableSpecId(change);
+  const specId = resolveStableSpecId(change);
   const changeSlug = change._slug || change.slug;
 
   let definition = options.definition;
@@ -139,17 +139,39 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
       const sessionPolicy = matchedTransition?.execution?.session || 'fresh';
       const role = matchedTransition?.execution?.role;
       let parentSessionId = options.parentSessionId || options.priorSessionId || null;
-      if (!parentSessionId && repoRoot && sessionPolicy === 'fresh') {
-        try {
-          const { createAgentSessionBindingService } = await import('../sessions/binding-service.mjs');
-          const bindingService = options.bindingService || createAgentSessionBindingService({
-            storageDir: join(repoRoot, '.nevo-ai-local', 'sessions'),
-          });
-          const sessions = await bindingService.getSessionsForTask(specId, task.id);
-          if (sessions.length > 0) {
-            parentSessionId = sessions[0].sessionId;
+      if (!parentSessionId && repoRoot) {
+        const history = task.workflow_progress?.history || [];
+        for (let i = history.length - 1; i >= 0; i--) {
+          const h = history[i];
+          // 1. Direct history entry metadata (D26)
+          if (h.sessionId) {
+            parentSessionId = h.sessionId;
+            break;
           }
-        } catch {}
+          // 2. Human steps have no agent session; continue scanning backward
+          const priorStepDef = definition.steps?.[h.step];
+          const priorExecutor = priorStepDef?.executor || 'agent';
+          if (priorExecutor === 'human') {
+            continue;
+          }
+          // 3. Query bindingService for exact prior agent step & attempt
+          try {
+            const { createAgentSessionBindingService } = await import('../sessions/binding-service.mjs');
+            const bindingService = options.bindingService || createAgentSessionBindingService({
+              storageDir: join(repoRoot, '.nevo-ai-local', 'sessions'),
+            });
+            const stepBindings = await bindingService.listBindings({
+              specId,
+              taskId: task.id,
+              step: h.step,
+              ...(h.attempt !== undefined ? { attempt: h.attempt } : {}),
+            });
+            if (stepBindings.length > 0) {
+              parentSessionId = stepBindings[0].sessionId;
+              break;
+            }
+          } catch {}
+        }
       }
       const genericTrigger = options.message || options.prompt || `Start workflow step '${targetStepName}' for task '${task.id}'.`;
 
@@ -253,115 +275,23 @@ export async function reconcileBootState(options = {}) {
         reconciledClaims++;
       }
     } else if (turnStartState === 'invoking') {
-      // Invoking state: ambiguous start boundary (D99)
-      // Resolve provider through canonical sessionId using sessionService / binding state (Item 7)
-      let resolvedProvider = claimSnapshot.provider || null;
-      if (!resolvedProvider && sessionId) {
-        if (sessionService?.getSession) {
-          const sess = await sessionService.getSession(sessionId).catch(() => null);
-          if (sess?.provider) resolvedProvider = sess.provider;
-        } else if (bindingService?.getSession) {
-          const sess = await bindingService.getSession(sessionId).catch(() => null);
-          if (sess?.provider) resolvedProvider = sess.provider;
-        } else if (sessionService?.bindingService?.getSession) {
-          const sess = await sessionService.bindingService.getSession(sessionId).catch(() => null);
-          if (sess?.provider) resolvedProvider = sess.provider;
-        }
-      }
-
-      // If provider cannot be resolved, fail closed
-      if (!resolvedProvider) {
-        await markWorkspaceWriterRecoveryRequiredIfOwned({
-          repoRoot,
-          expectedOwnerId: ownerId,
-          expectedKind: 'agent',
-          expectedSpecId: specId,
-          ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
-          expectedTaskId: taskId,
-          expectedSessionId: sessionId,
-        });
-        reconciledClaims++;
-      } else {
-        // Inspect transcriptCache for positive turn evidence attributable to this claim
-        let recoveredTurnId = null;
-        if (transcriptCache && sessionId) {
-          try {
-            const transcript = await transcriptCache.getTranscript(resolvedProvider, sessionId);
-            const active = transcript?.activeTurn;
-            if (active?.turnId) {
-              if (turnId && (active.turnId === turnId || active.id === turnId)) {
-                recoveredTurnId = active.turnId;
-              }
-            }
-            if (!recoveredTurnId && Array.isArray(transcript?.turns) && transcript.turns.length > 0) {
-              const matchingTurn = transcript.turns.find(
-                (t) => turnId && (t.turnId === turnId || t.id === turnId)
-              );
-              if (matchingTurn) {
-                recoveredTurnId = matchingTurn.turnId || matchingTurn.id;
-              }
-            }
-          } catch {}
-        }
-
-        if (recoveredTurnId) {
-          // Positive evidence: advance claim to started and check settlement
-          await updateWorkspaceWriterIfOwned({
-            repoRoot,
-            expectedOwnerId: ownerId,
-            expectedKind: 'agent',
-            expectedSpecId: specId,
-            ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
-            expectedTaskId: taskId,
-            sessionId,
-            turnId: recoveredTurnId,
-            turnStartState: 'started',
-          });
-
-          const settlement = await assessExecutionSettlement({
-            repoRoot,
-            changeSlug,
-            taskId,
-          });
-
-          if (settlement.settled) {
-            await releaseWorkspaceWriterIfOwned({
-              repoRoot,
-              expectedOwnerId: ownerId,
-              expectedKind: 'agent',
-              expectedSpecId: specId,
-              ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
-              expectedTaskId: taskId,
-              expectedSessionId: sessionId,
-              expectedTurnId: recoveredTurnId,
-            });
-          } else {
-            await markWorkspaceWriterRecoveryRequiredIfOwned({
-              repoRoot,
-              expectedOwnerId: ownerId,
-              expectedKind: 'agent',
-              expectedSpecId: specId,
-              ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
-              expectedTaskId: taskId,
-              expectedSessionId: sessionId,
-              expectedTurnId: recoveredTurnId,
-            });
-          }
-          reconciledClaims++;
-        } else {
-          // Inconclusive evidence: fail closed, mark recovery-required (D99)
-          await markWorkspaceWriterRecoveryRequiredIfOwned({
-            repoRoot,
-            expectedOwnerId: ownerId,
-            expectedKind: 'agent',
-            expectedSpecId: specId,
-            ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
-            expectedTaskId: taskId,
-            expectedSessionId: sessionId,
-          });
-          reconciledClaims++;
-        }
-      }
+      // Invoking state: ambiguous start boundary (D99).
+      // Under D99, claims in turnStartState: 'invoking' do not yet carry turnId (which is persisted atomically
+      // alongside 'started' after startTurn resolves). Furthermore, Turn aggregates carry no workspace-claim
+      // ownerId (D98) and transcripts provide no execution-specific correlation token. Therefore, upon crash
+      // recovery in 'invoking', no authoritative correlation exists to prove whether a turn in the transcript
+      // belongs to this exact execution or an earlier execution on a reused session.
+      // To guarantee safety and prevent misattribution, 'invoking' fails closed to recovery-required (D99).
+      await markWorkspaceWriterRecoveryRequiredIfOwned({
+        repoRoot,
+        expectedOwnerId: ownerId,
+        expectedKind: 'agent',
+        expectedSpecId: specId,
+        ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
+        expectedTaskId: taskId,
+        expectedSessionId: sessionId,
+      });
+      reconciledClaims++;
     } else if (turnStartState === 'started') {
       // Started state: authoritative (D99)
       const settlement = await assessExecutionSettlement({
@@ -506,7 +436,7 @@ export async function reconcileContinuation(change, task, options = {}) {
   });
 
   if (queueState.nextRunnable) {
-    const specId = change.spec_id || resolveStableSpecId(change);
+    const specId = resolveStableSpecId(change);
     let policy = null;
     try {
       const { executionPolicyService } = await import('../sessions/execution-policy-service.mjs');

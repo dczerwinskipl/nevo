@@ -169,16 +169,13 @@ generic reconciler's registry (D88) at its own module-load time.
     proves it.
   - **`turnStartState: 'invoking'`** (a crash after step 6 lands but before step 8 is ever
     reached — the ambiguous start boundary) → recovery MUST NOT assume no turn exists merely
-    because the caller never observed step 7's return, **and MUST NOT treat an absent transcript
-    entry as proof either**, since transcript persistence is debounced (see above), not
-    synchronous. It inspects the same authoritative evidence `reconcileOrphanedTurns()`
-    (`turn-recovery.mjs`, import-only) already uses: if `transcriptCache.getTranscript(provider,
-    canonicalSessionId)` shows a real `activeTurn`/`turns[]` entry, recover its `turnId` and
-    enrich the claim with it ownership-conditionally (advancing to `turnStartState: 'started'` at
-    the same time, as step 8 would have) before any settlement decision; **if no matching
-    evidence is found, this is inconclusive, never proof of absence — fail closed
-    (`markWorkspaceWriterRecoveryRequiredIfOwned`)**, never release, never settle as if the turn
-    never started.
+    because the caller never observed step 7's return, and MUST NOT assume an absent transcript
+    entry is proof either. Because Turn aggregates carry no claim `ownerId` (D98) and `invoking`
+    claims carry no durable `turnId` (which is only persisted atomically upon reaching `'started'`),
+    transcripts provide no authoritative execution-specific correlation to distinguish a newly
+    started turn from an earlier turn in a reused session. Therefore, any crash in `invoking`
+    is inconclusive and fails closed (`markWorkspaceWriterRecoveryRequiredIfOwned`), never
+    releasing the workspace claim and never guessing turn identity.
   - **`turnStartState: 'started'`** (a crash after step 8 lands) → `turnId` is guaranteed present
     (the atomic write in step 8); `ownerId` + the already-enriched canonical `sessionId` +
     `turnId` are fully authoritative on their own; normal settlement/orphan reconciliation
