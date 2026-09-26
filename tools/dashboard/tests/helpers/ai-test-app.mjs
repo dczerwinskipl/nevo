@@ -9,9 +9,13 @@ import aiRoutes from '../../server/ai/routes.mjs';
 // Lives under `tools/dashboard/` (not `tools/tests/`) so its own `fastify`
 // import resolves against `tools/dashboard/node_modules` regardless of
 // which test file — inside or outside this project — imports it.
-export async function buildAiTestApp({ service, accessPolicy, config } = {}) {
+export async function buildAiTestApp({ service, accessPolicy, config = {}, repoRoot } = {}) {
+  const finalConfig = { ...config };
+  if (repoRoot && !finalConfig.root) {
+    finalConfig.root = repoRoot;
+  }
   const app = Fastify({ bodyLimit: 4096, exposeHeadRoutes: false });
   await registerGlobalHttpInfrastructure(app);
-  await app.register(aiRoutes, { service, accessPolicy, config });
+  await app.register(aiRoutes, { service, accessPolicy, config: finalConfig });
   return app;
 }

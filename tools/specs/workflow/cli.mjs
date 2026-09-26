@@ -13,12 +13,14 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { requireChange, requireTask, ROOT, ACTIVE_DIR } from '../store.mjs';
+import { resolveStableSpecId, isValidSpecId } from '../identity.mjs';
 import { parseVerificationCommands } from '../fingerprint.mjs';
 import { CliError } from '../../lib/cli-errors.mjs';
 import { resolveWorkflowMode, assertWorkflowVersionCompatible } from './compatibility.mjs';
 import { loadWorkflowDefinition } from './definitions/loader.mjs';
-import { compileStepContext, buildFinishContract, validateFinishInputs, aggregateFinalizeCheck, ensureStepActivated, resolveTaskScope, resolveWorkflowOwnedPaths } from './step-context.mjs';
+import { compileStepContext, buildFinishContract, validateFinishInputs, aggregateFinalizeCheck, ensureStepActivated, resolveTaskScope, resolveWorkflowOwnedPaths, buildWorkflowRuntimeContext } from './step-context.mjs';
 import { planFinish, finishStep } from './finish-operation.mjs';
+import { publishTask } from './publish/operation.mjs';
 import { resolveActiveStepName, resolveWorkflowPosition, gateDisplayId } from './step-runner.mjs';
 import { findInFlightOperationRecord } from './operation-record.mjs';
 import { WorkflowError } from './errors.mjs';
@@ -32,46 +34,49 @@ import { resolveHumanScopeTarget } from './gates/human-gate.mjs';
 // producing an empty finish contract for every real invocation.
 import './actions/index.mjs';
 import { autoBindAgentSession } from '../../specs.mjs';
-
-function resolveDefaultTask(change) {
-  const candidates = change.tasks.filter(t => t.status === 'in-implementation');
-  if (candidates.length === 1) return candidates[0];
-  if (candidates.length === 0) {
-    throw new CliError(`No task is currently in-implementation for change '${change._slug}' — specify a task id explicitly`);
-  }
-  throw new CliError(
-    `Multiple tasks are in-implementation for change '${change._slug}' — specify a task id explicitly: ${candidates.map(t => t.id).join(', ')}`
-  );
-}
+import { assertStepExecutor } from './executor-guard.mjs';
+import { startHumanStep, submitHumanStepResult, activateAndSubmitHumanStep } from './human-step/operations.mjs';
+import { assertExecutionReadiness } from './readiness-policy.mjs';
+import {
+  getWorkspaceWriterClaim,
+  acquireWorkspaceWriter,
+  releaseWorkspaceWriterIfOwned,
+  markWorkspaceWriterRecoveryRequiredIfOwned,
+  isProcessAlive,
+} from './workspace-writer.mjs';
+import { readAgentExecutionContext } from '../../dashboard/server/ai/sessions/binding-service.mjs';
+import {
+  recordCliWorkspaceExecution,
+  loadCliWorkspaceExecution,
+  updateCliWorkspaceExecutionStatus,
+} from './cli-workspace-execution.mjs';
+import { assessExecutionSettlement } from './execution-settlement.mjs';
+import {
+  planStart,
+  completeActivateStage,
+  completeConsumptionStage,
+  findInFlightStartOperation,
+} from './start-operation.mjs';
+import { recordDependencyConsumption } from './dependency-consumption.mjs';
+import { evaluateDependencySatisfaction } from './dependency-satisfaction.mjs';
 
 /**
  * Resolves the change/task/normalized-definition/runtime-context tuple shared by all
- * three `workflow` CLI commands.
+ * deterministic workflow CLI commands.
  */
 export function resolveWorkflowRuntime(changeSlug, taskId, { activeDir = ACTIVE_DIR, repoRoot = ROOT } = {}) {
   const change = requireChange(changeSlug, activeDir);
-  const task = taskId ? requireTask(change, taskId) : resolveDefaultTask(change);
+  if (!taskId) {
+    throw new CliError(
+      `Task ID is required for deterministic commands. Usage: node tools/specs.mjs workflow step <start|finish> ${changeSlug || change.id} <task>`
+    );
+  }
+  const task = requireTask(change, taskId);
   const resolvedMode = resolveWorkflowMode(change);
   const definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot });
   assertWorkflowVersionCompatible(resolvedMode, definition);
 
-  const scope = resolveTaskScope(change, task, { activeDir, repoRoot });
-  const resolvedChangeSlug = change._slug || change.id || changeSlug;
-  const workflowOwnedPaths = resolveWorkflowOwnedPaths({ activeDir, repoRoot, changeSlug: resolvedChangeSlug });
-
-  const context = {
-    repoRoot,
-    activeDir,
-    taskId: task.id,
-    task,
-    changeId: change.id,
-    changeSlug: resolvedChangeSlug,
-    sourceControl: definition.sourceControl,
-    baseBranch: 'main',
-    taskAllowedPaths: scope.allowedPaths,
-    allowedPaths: scope.allowedPaths,
-    workflowOwnedPaths,
-  };
+  const context = buildWorkflowRuntimeContext(change, task, definition, { repoRoot, activeDir, changeSlug });
 
   return { change, task, definition, context };
 }
@@ -248,31 +253,232 @@ function emit(payload, opts) {
 }
 
 export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
-  const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
+  const change = requireChange(changeSlug, opts.activeDir || ACTIVE_DIR);
+  const workflowMode = resolveWorkflowMode(change, opts);
+  if (workflowMode.mode === 'legacy') {
+    throw new CliError(
+      `Cannot run deterministic command 'workflow step start' against legacy specification '${changeSlug || change.id}'. ` +
+      `Use legacy command surface instead: approve, start, complete, verify.`
+    );
+  }
+  const { task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
   const position = resolveWorkflowPosition(definition, task);
-  const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, position.attempt);
+  const targetStepName = position.phase === 'new'
+    ? definition.entryStep
+    : (position.phase === 'active' ? position.step : (position.nextStep?.id || position.nextStep));
+  const targetStepConfig = definition.steps?.[targetStepName];
+  const slug = change._slug || changeSlug || change.id;
+  const currentAttempt = position.attempt || (task.workflow_progress?.history || []).filter(h => h.step === targetStepName).length + 1;
+
+  if (position.phase !== 'terminal') {
+    assertExecutionReadiness(task, change, 'agent', { definition, repoRoot: context.repoRoot });
+
+    // Workspace writer arbitration (D55, D62, D86)
+    const specId = isValidSpecId(change.spec_id) ? change.spec_id : (change.id || slug);
+    const existingClaim = getWorkspaceWriterClaim(context.repoRoot);
+    let reusedClaim = false;
+
+    if (existingClaim && existingClaim.specId === specId && (!existingClaim.taskId || existingClaim.taskId === task.id)) {
+      if (existingClaim.kind === 'agent') {
+        const ambientContext = readAgentExecutionContext(process.env, { repoRoot: context.repoRoot, specId, taskId: task.id });
+        if (ambientContext?.sessionId && existingClaim.sessionId === ambientContext.sessionId) {
+          if (!existingClaim.turnId || !ambientContext.turnId || existingClaim.turnId === ambientContext.turnId) {
+            reusedClaim = true;
+          }
+        }
+      } else if (existingClaim.kind === 'cli-manual') {
+        reusedClaim = true;
+      }
+    }
+
+    if (!reusedClaim) {
+      if (existingClaim && existingClaim.kind === 'cli-manual') {
+        const isLiveCli = existingClaim.pid && isProcessAlive(existingClaim.pid);
+        if (!isLiveCli) {
+          const settlement = await assessExecutionSettlement({
+            repoRoot: context.repoRoot,
+            changeSlug: slug,
+            taskId: existingClaim.taskId || task.id,
+            activeDir: context.activeDir,
+          });
+          if (settlement.settled) {
+            await releaseWorkspaceWriterIfOwned({
+              repoRoot: context.repoRoot,
+              expectedOwnerId: existingClaim.ownerId,
+              expectedKind: existingClaim.kind,
+              expectedSpecId: existingClaim.specId,
+              expectedChangeSlug: existingClaim.changeSlug,
+              expectedTaskId: existingClaim.taskId,
+            });
+          } else {
+            await markWorkspaceWriterRecoveryRequiredIfOwned({
+              repoRoot: context.repoRoot,
+              expectedOwnerId: existingClaim.ownerId,
+              expectedKind: existingClaim.kind,
+              expectedSpecId: existingClaim.specId,
+              expectedChangeSlug: existingClaim.changeSlug,
+              expectedTaskId: existingClaim.taskId,
+            });
+          }
+        }
+      }
+
+      const acquireRes = await acquireWorkspaceWriter({
+        repoRoot: context.repoRoot,
+        kind: 'cli-manual',
+        specId,
+        changeSlug: slug,
+        taskId: task.id,
+      });
+
+      if (!acquireRes.acquired) {
+        if (acquireRes.blocked) {
+          throw new WorkflowError(`Workspace writer is blocked by recovery-required`, {
+            code: 'WORKSPACE_WRITER_BLOCKED_BY_RECOVERY',
+            currentClaim: acquireRes.currentClaim,
+          });
+        }
+        throw new WorkflowError(`Workspace writer slot is currently held by ${acquireRes.currentClaim?.kind || 'another process'}`, {
+          code: 'WORKSPACE_WRITER_CONTENDED',
+          currentClaim: acquireRes.currentClaim,
+        });
+      }
+
+      recordCliWorkspaceExecution({
+        repoRoot: context.repoRoot,
+        change: slug,
+        taskId: task.id,
+        step: targetStepName,
+        attempt: currentAttempt,
+        workspaceOwnerId: acquireRes.ownerId,
+      });
+    }
+
+    // Start operation and dependency consumption (D52, D53, D58)
+    if (targetStepConfig?.consumesDependencies === true) {
+      const inFlightStart = findInFlightStartOperation(context.repoRoot, slug, task.id);
+      if (inFlightStart) {
+        const activateStage = inFlightStart.stages?.find(s => s.id === 'activate');
+        if (activateStage?.status !== 'completed') {
+          ensureStepActivated(change, task, definition, context);
+          completeActivateStage(context.repoRoot, inFlightStart);
+        }
+        const consumeStage = inFlightStart.stages?.find(s => s.id === 'record-consumption');
+        if (consumeStage?.status !== 'completed') {
+          recordDependencyConsumption({
+            repoRoot: context.repoRoot,
+            change: slug,
+            consumingTaskId: task.id,
+            consumingStep: inFlightStart.step,
+            consumingAttempt: inFlightStart.attempt,
+            consumptionSequence: inFlightStart.consumptionSequence,
+            dependencies: inFlightStart.dependencySnapshot,
+          });
+          completeConsumptionStage(context.repoRoot, inFlightStart);
+        }
+      } else {
+        const dependencySnapshot = [];
+        const dependsOn = Array.isArray(task.depends_on) ? task.depends_on : [];
+        if (dependsOn.length > 0) {
+          const allTasks = change.tasks || [];
+          for (const depId of dependsOn) {
+            let depTask = allTasks.find(t => t.id === depId || t.file?.endsWith(`/${depId}.md`) || t.file?.endsWith(`\\${depId}.md`));
+            if (!depTask) {
+              try {
+                depTask = requireTask(change, depId);
+              } catch {}
+            }
+            if (depTask) {
+              const evalResult = evaluateDependencySatisfaction(depTask, change, definition);
+              if (evalResult.releaseEpoch) {
+                dependencySnapshot.push({
+                  taskId: depId,
+                  releaseEpoch: evalResult.releaseEpoch,
+                });
+              }
+            }
+          }
+        }
+
+        const startOp = planStart({
+          repoRoot: context.repoRoot,
+          change: slug,
+          task: task.id,
+          step: targetStepName,
+          attempt: currentAttempt,
+          dependencySnapshot,
+        });
+
+        ensureStepActivated(change, task, definition, context);
+        completeActivateStage(context.repoRoot, startOp);
+
+        recordDependencyConsumption({
+          repoRoot: context.repoRoot,
+          change: slug,
+          consumingTaskId: task.id,
+          consumingStep: targetStepName,
+          consumingAttempt: currentAttempt,
+          consumptionSequence: startOp.consumptionSequence,
+          dependencies: startOp.dependencySnapshot,
+        });
+        completeConsumptionStage(context.repoRoot, startOp);
+      }
+    }
+  }
+
+  const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, slug, task.id, currentAttempt);
   const stepContext = await compileStepContext({ change, task, definition, context, gateRegistry });
   autoBindAgentSession(change, task.id, 'execution', { step: stepContext.currentStep, attempt: stepContext.attempt, repoRoot: context.repoRoot });
   return emit(stepContext, opts);
 }
 
 export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
+  const change = requireChange(changeSlug, opts.activeDir || ACTIVE_DIR);
+  const workflowMode = resolveWorkflowMode(change, opts);
+  if (workflowMode.mode === 'legacy') {
+    throw new CliError(
+      `Cannot run deterministic command 'workflow step finish' against legacy specification '${changeSlug || change.id}'. ` +
+      `Use legacy command surface instead: approve, start, complete, verify.`
+    );
+  }
   const inputs = parseFinishInputs(opts);
-  const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
+  const { task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
   const inFlight = context.repoRoot ? findInFlightOperationRecord(context.repoRoot, change._slug, task.id) : null;
-  // Task 04 AC1: an in-flight record is authoritative over workflow_progress for choosing
-  // execution identity — resolveWorkflowPosition must not even run when one exists (see
-  // the identical reasoning in finish-operation.mjs's planFinish).
   const position = inFlight ? null : resolveWorkflowPosition(definition, task);
-  const stepName = inFlight ? inFlight.step : position.step;
+  const stepName = inFlight
+    ? inFlight.step
+    : (position?.phase === 'active' ? position.step : (position?.phase === 'new' ? definition.entryStep : (position?.step || position?.nextStep)));
   const attempt = inFlight ? inFlight.attempt : position.attempt;
+  const step = definition.steps?.[stepName];
+  if (step) {
+    assertStepExecutor(step, 'agent', { stepId: stepName });
+  }
   autoBindAgentSession(change, task.id, 'finish', { step: stepName, attempt, repoRoot: context.repoRoot });
+
+  let ambientSessionId = null;
+  let specId = null;
+  try {
+    specId = resolveStableSpecId(change);
+  } catch {}
+  if (specId) {
+    const ambientContext = readAgentExecutionContext(process.env, { repoRoot: context.repoRoot, specId, taskId: task.id });
+    if (ambientContext?.sessionId) {
+      const existingClaim = getWorkspaceWriterClaim(context.repoRoot);
+      if (!existingClaim || existingClaim.kind !== 'agent' || existingClaim.sessionId === ambientContext.sessionId) {
+        ambientSessionId = ambientContext.sessionId;
+      }
+    }
+  }
+  if (ambientSessionId) {
+    context.sessionId = ambientSessionId;
+  }
+
   const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, attempt);
 
-  const step = (position?.phase === 'active' || inFlight) ? definition.steps?.[stepName] : null;
-  if (step) {
-    const finalizeCheck = await aggregateFinalizeCheck(step, context);
-    const parameters = buildFinishContract(finalizeCheck, step);
+  const activeStep = (position?.phase === 'active' || inFlight) ? definition.steps?.[stepName] : null;
+  if (activeStep) {
+    const finalizeCheck = await aggregateFinalizeCheck(activeStep, context);
+    const parameters = buildFinishContract(finalizeCheck, activeStep);
     const effectiveInputs = inFlight?.resolvedInputs ? { ...inFlight.resolvedInputs, ...inputs } : inputs;
     validateFinishInputs(effectiveInputs, parameters, { allowMissing: Boolean(opts.check) });
   }
@@ -282,7 +488,43 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
     return emit(plan, opts);
   }
 
-  const result = await finishStep({ change, task, definition, context, inputs, activeDir: context.activeDir, gateRegistry });
+  let result;
+  let finishError = null;
+  try {
+    result = await finishStep({ change, task, definition, context, inputs, activeDir: context.activeDir, gateRegistry });
+  } catch (err) {
+    finishError = err;
+  }
+
+  // D69: Settlement-gated release of cli-manual claim
+  const slug = change._slug || changeSlug || change.id;
+  const existingClaim = getWorkspaceWriterClaim(context.repoRoot);
+  if (existingClaim && existingClaim.kind === 'cli-manual' && (!existingClaim.taskId || existingClaim.taskId === task.id)) {
+    const settlement = await assessExecutionSettlement({
+      repoRoot: context.repoRoot,
+      changeSlug: slug,
+      taskId: task.id,
+      activeDir: context.activeDir,
+    });
+    if (settlement.settled) {
+      await releaseWorkspaceWriterIfOwned({
+        repoRoot: context.repoRoot,
+        expectedOwnerId: existingClaim.ownerId,
+        expectedKind: 'cli-manual',
+        expectedSpecId: existingClaim.specId,
+        ...(existingClaim.changeSlug ? { expectedChangeSlug: existingClaim.changeSlug } : {}),
+        expectedTaskId: existingClaim.taskId,
+      });
+      try {
+        updateCliWorkspaceExecutionStatus(context.repoRoot, slug, task.id, stepName, attempt, finishError ? 'failed' : 'completed');
+      } catch {}
+    }
+  }
+
+  if (finishError) {
+    throw finishError;
+  }
+
   return emit(result, opts);
 }
 
@@ -325,8 +567,9 @@ function resolveHumanGateForConfirmation(definition, task, stepName, gateIdOptio
 }
 
 export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
-  const isApprove = Boolean(opts.approve);
-  const isRequestChanges = Boolean(opts.requestChanges || opts.reject);
+  const extraInputs = parseFinishInputs(opts);
+  const isApprove = Boolean(opts.approve || extraInputs.result === 'pass');
+  const isRequestChanges = Boolean(opts.requestChanges || opts.reject || extraInputs.result === 'fail');
 
   if (isApprove || isRequestChanges) {
     return (async () => {
@@ -334,65 +577,28 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
         throw new CliError('Cannot specify both --approve and --request-changes');
       }
 
-      if (isRequestChanges && (!opts.feedback || typeof opts.feedback !== 'string' || opts.feedback.trim() === '')) {
+      if (isRequestChanges && (!opts.feedback && !extraInputs.feedback)) {
         throw new CliError('--request-changes requires --feedback <text>');
       }
       const { change, task, definition, context } = resolveWorkflowRuntime(changeSlug, taskId, opts);
       const position = resolveWorkflowPosition(definition, task);
 
-      let targetStep;
-      if (position.phase === 'active') {
-        targetStep = position.step;
-      } else if (position.phase === 'completed') {
-        targetStep = position.nextStep;
-      } else if (position.phase === 'new') {
-        targetStep = definition.entryStep;
-      }
-
-      if (targetStep !== 'human-verification') {
-        throw new WorkflowError(
-          `Cannot execute human decision on step '${targetStep || position.step}' — human decisions may only execute when the target step is 'human-verification'`,
-          { code: 'INVALID_HUMAN_DECISION_STEP', step: targetStep || position.step }
-        );
-      }
-
-      let effectiveTask = task;
-      let effectivePosition = position;
-      if (position.phase !== 'active') {
-        const activation = ensureStepActivated(change, task, definition, context);
-        effectiveTask = activation.task;
-        effectivePosition = activation.position;
-      }
-
-      const stepName = effectivePosition.step;
-      const step = definition.steps?.[stepName];
-      if (!step) {
-        throw new WorkflowError(`Step '${stepName}' not found in workflow definition`, { code: 'STEP_NOT_FOUND', step: stepName });
-      }
-
-      const finalizeCheck = await aggregateFinalizeCheck(step, context);
-      const parameters = buildFinishContract(finalizeCheck, step);
-
       const inputs = {
+        ...extraInputs,
         result: isApprove ? 'pass' : 'fail',
       };
       if (opts.feedback) {
         inputs.feedback = opts.feedback.trim();
       }
-      if (parameters['commit.title']) {
-        inputs['commit.title'] = opts['commit.title'] || (isApprove ? `verify(${task.id}): approve human verification` : `verify(${task.id}): request changes`);
+      if (opts['commit.title']) {
+        inputs['commit.title'] = opts['commit.title'];
+      } else if (!inputs['commit.title']) {
+        inputs['commit.title'] = isApprove
+          ? `verify(${task.id}): approve human verification`
+          : `verify(${task.id}): request changes`;
       }
 
-      const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, effectiveTask.id, effectivePosition.attempt);
-      const result = await finishStep({
-        change,
-        task: effectiveTask,
-        definition,
-        context,
-        inputs,
-        activeDir: context.activeDir,
-        gateRegistry,
-      });
+      const result = await activateAndSubmitHumanStep(change, task, definition, context, inputs);
       return emit(result, opts);
     })();
   }
@@ -426,3 +632,15 @@ export function handleWorkflowVerifyHuman(changeSlug, taskId, opts = {}) {
   const record = store.confirm({ scope, targetId, role, stepId: stepName, attempt, gateId: gateConfig.id || null });
   return emit({ change: changeSlug, task: taskId, confirmed: true, record }, opts);
 }
+
+/**
+ * CLI entry point: publish a task in a deterministic spec for execution.
+ */
+export async function handleWorkflowTaskPublish(changeSlug, taskId, options = {}) {
+  const result = publishTask(changeSlug, taskId, options);
+  if (!options.silent) {
+    process.stdout.write(`Task '${result.taskId}' in change '${result.changeSlug}' published successfully.\n`);
+  }
+  return result;
+}
+

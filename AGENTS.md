@@ -74,13 +74,13 @@ ADRs: `docs/decisions/`
 
 ## Git safety
 
-- Do not commit without explicit instruction
-- Do not push without explicit instruction
+- For deterministic workflow tasks (`workflow.mode: deterministic`), `workflow step finish` owns the declared finalize actions (including commit-and-push). Do not run raw `git commit`/`git push` manually before running the workflow completion command.
+- For work outside such a workflow-owned finalize protocol, commit and push verified changes when a task or requested pass is complete and all tests pass (do not leave completed work uncommitted), unless explicitly instructed otherwise.
 - Do not create pull requests without explicit instruction
 - Do not use `--no-verify`
+- Never force-push (`git push --force`)
 - Do not mix unrelated changes in one commit
 - Do not perform drive-by refactoring outside `allowed_paths`
-- Show diff and verification results before asking to commit
 - Opening a PR, checking/resolving its review comments, merging, and checking what's
   next each have a defined command in `docs/ai/specification-workflow.md` § "Tool
   adapters" (Claude Code: `.claude/commands/nevo-ai/`). Use those instead of improvising
@@ -88,6 +88,20 @@ ADRs: `docs/decisions/`
   Cursor/Copilot/terminal use follows the same shapes directly from that document. See
   `docs/ai/workflow-overview.md` for the concrete incident (a change archived before its
   PR was even pushed) this rule exists to prevent from recurring a different way.
+
+## Running commands and tests
+
+- Always run tests and other potentially long-running commands synchronously and wait
+  for them to finish in the same tool call — never launch one as a background/detached
+  process and then poll or wait for it separately.
+- Wrap any command that could hang or run long with an explicit OS-level timeout (e.g.
+  `timeout 60 node --test tools/tests/some.test.mjs` on POSIX, or the PowerShell
+  equivalent), so a stuck process is killed deterministically instead of relying on the
+  agent session's own idle/silence watchdog to notice and recover.
+- This matters most for CLI agents whose tool-call protocol can go fully silent while a
+  backgrounded command runs (no progress, no completion event) — that silence can trip
+  the session's protocol-silence watchdog and kill the whole turn, discarding work in
+  progress. Running synchronously with a timeout avoids relying on that watchdog.
 
 ## Source of truth precedence
 

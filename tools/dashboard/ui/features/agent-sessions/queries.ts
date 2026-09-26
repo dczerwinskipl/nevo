@@ -156,3 +156,13 @@ export function useDeleteAgentSession() {
     error: mutation.error instanceof Error ? mutation.error.message : null,
   };
 }
+
+/**
+ * Generic agent-step trigger message builder (Task 15, D15).
+ * Produces the one generic visible trigger message for starting execution of a task.
+ * Accepts ONLY taskId as input — structurally incapable of producing step-id-derived text.
+ */
+export function buildAgentStepTriggerMessage(taskId: string): string {
+  return `Execute the current workflow step for task ${taskId}.`;
+}
+

@@ -488,8 +488,9 @@ describe('Production standard workflow review loop and multi-attempt E2E proof (
   test('Step 15: repeated finish on terminal task reports already-completed without mutations', async () => {
     const commitsBefore = git(fx.root, ['rev-list', '--count', 'HEAD']).trim();
 
-    const repeatResult = await handleWorkflowStepFinish(fx.changeId, fx.taskId, {
+    const repeatResult = await handleWorkflowVerifyHuman(fx.changeId, fx.taskId, {
       ...RT,
+      approve: true,
       activeDir: fx.activeDir,
       repoRoot: fx.root,
     });
@@ -501,12 +502,13 @@ describe('Production standard workflow review loop and multi-attempt E2E proof (
   test('Generic transport: accepts --input-file with JSON payload', async () => {
     const inputFilePath = join(fx.root, 'test-input.json');
     writeFileSync(inputFilePath, JSON.stringify({
+      result: 'pass',
       'commit.title': 'input file test',
       include: ['*'],
     }));
 
     // On terminal task, calling with --input-file reports already-completed cleanly
-    const fileResult = await handleWorkflowStepFinish(fx.changeId, fx.taskId, {
+    const fileResult = await handleWorkflowVerifyHuman(fx.changeId, fx.taskId, {
       ...RT,
       activeDir: fx.activeDir,
       repoRoot: fx.root,

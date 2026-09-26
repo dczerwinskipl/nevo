@@ -13,9 +13,11 @@ import {
 import { validateAgentModelDescriptor, normalizeModelIdentifier } from '../model/model-catalog.mjs';
 import { compareBindingRecency } from './binding-service.mjs';
 import { listChanges, ROOT } from '../../../../specs/store.mjs';
+import { resolveStableSpecId } from '../../../../specs/identity.mjs';
 import { resolveWorkflowPosition } from '../../../../specs/workflow/step-runner.mjs';
 import { loadWorkflowDefinition } from '../../../../specs/workflow/definitions/loader.mjs';
 import { resolveWorkflowMode } from '../../../../specs/workflow/compatibility.mjs';
+import { evaluateExecutionReadiness } from '../../../../specs/workflow/readiness-policy.mjs';
 // Side-effect import: registers CommitAndPushAction into defaultActionRegistry (see
 // tools/specs/workflow/cli.mjs and actions/index.mjs). loadWorkflowDefinition() validates
 // every step's `finalize` action IDs against that registry — without this import, any
@@ -176,7 +178,13 @@ export function computeWorkSummary(turn) {
   };
 }
 
-export function formatNevoWorkflowContext({ changeSlug, taskId, step = 'implementation', attempt = 1 } = {}) {
+export function formatNevoWorkflowContext({ changeSlug, taskId, step, attempt } = {}) {
+  if (!step || typeof step !== 'string' || !step.trim()) {
+    throw new TypeError(`formatNevoWorkflowContext requires 'step' (got ${JSON.stringify(step)})`);
+  }
+  if (attempt === undefined || attempt === null || !Number.isInteger(attempt) || attempt < 1) {
+    throw new TypeError(`formatNevoWorkflowContext requires 'attempt' >= 1 (got ${JSON.stringify(attempt)})`);
+  }
   return [
     '[Nevo Workflow Context]',
     `Specification: ${changeSlug || 'active'}`,
@@ -196,7 +204,7 @@ export function formatNevoWorkflowContext({ changeSlug, taskId, step = 'implemen
     'Rules:',
     '1. Do not manually edit change.yaml or manifest files.',
     '2. Do not run manual git commit, git push, or git tag commands.',
-    '3. When implementation and verification are complete, inspect StepContext.finishContract.parameters and run:',
+    "3. When the current step's work and required verification are complete, inspect StepContext.finishContract.parameters and run:",
     `   node tools/specs.mjs workflow step finish ${changeSlug || 'active'} ${taskId} --input '{"commit.title":"..."}'`,
     '4. After successful step finish, summarize your work and STOP.',
   ].join('\n');
@@ -312,12 +320,37 @@ export function resolveDeterministicWorkflowInfo(specId, taskId, repoRoot = ROOT
     execution: true,
     workflowInfo: {
       changeSlug: change._slug,
-      specId: change.spec_id || change.id,
+      specId: resolveStableSpecId(change),
       taskId: rawTaskId,
       step,
       attempt,
     },
   };
+}
+
+export function assertTaskExecutionReadiness(specId, taskId, repoRoot = ROOT) {
+  if (!taskId || !specId) return;
+  const workflowInfo = resolveDeterministicWorkflowInfo(specId, taskId, repoRoot);
+  if (workflowInfo.mode === 'deterministic') {
+    let changes;
+    try {
+      changes = listChanges(resolve(repoRoot, 'specs', 'active'));
+    } catch (err) {
+      const message = `Failed to look up spec '${specId}' under repoRoot '${repoRoot}': ${err?.message || err}`;
+      throw new AiSpecContextUnavailableError(message, { specId, repoRoot });
+    }
+    const change = changes.find((c) => c.spec_id === specId || c.id === specId || c._slug === specId);
+    const resolvedTask = (change?.tasks || []).find((t) => String(t.id) === String(taskId));
+    const resolvedMode = resolveWorkflowMode(change);
+    const definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot });
+    const readiness = evaluateExecutionReadiness(resolvedTask, change, 'agent', { repoRoot, definition });
+    if (!readiness.ready) {
+      throw new AiDeterministicWorkflowUnavailableError(
+        `Task '${taskId}' in spec '${specId}' is not ready for execution: ${readiness.reason}`,
+        { specId, taskId, readiness }
+      );
+    }
+  }
 }
 
 export class AgentSessionService {
@@ -372,13 +405,14 @@ export class AgentSessionService {
       : options.taskId
         ? [options.taskId]
         : [];
-    // An explicit singular `options.taskId` is always authoritative. Absent that, a
-    // single associated task is unambiguous and may become the active task. But with
-    // *multiple* `taskIds` and no explicit primary, there is genuinely no authoritative
-    // active task — never guess `taskIds[0]`. A multi-task session with no designated
-    // primary is a valid neutral, spec-level context (e.g. the Create Agent Session
-    // dialog's multi-checkbox task selection).
-    const primaryTaskId = options.taskId || (taskIds.length === 1 ? taskIds[0] : undefined);
+    // D18 fix 1: An explicit singular `options.taskId` is always authoritative.
+    // A single contextual item in `taskIds` without an explicit `options.taskId` must
+    // never silently become the active task.
+    const primaryTaskId = options.taskId;
+
+    if (primaryTaskId && options.specId) {
+      assertTaskExecutionReadiness(options.specId, primaryTaskId, this.repoRoot);
+    }
     const purpose = options.purpose || options.title || (primaryTaskId ? `task:${primaryTaskId}` : 'interactive');
     const mode = options.mode ? validateAgentExecutionMode(options.mode, 'mode') : descriptor.defaultMode || 'edit';
 
@@ -415,6 +449,8 @@ export class AgentSessionService {
             purpose: options.purpose || options.title || `task:${tId}`,
             mode,
             model: options.model,
+            role: options.role,
+            parentSessionId: options.parentSessionId,
           });
         }
       } else {
@@ -427,6 +463,8 @@ export class AgentSessionService {
           purpose,
           mode,
           model: options.model,
+          role: options.role,
+          parentSessionId: options.parentSessionId,
         });
       }
     } else {
@@ -441,6 +479,8 @@ export class AgentSessionService {
         purpose,
         mode,
         model: options.model,
+        role: options.role,
+        parentSessionId: options.parentSessionId,
         title: options.title || `${provider} session`,
         createdAt: new Date().toISOString(),
         lastSeenAt: new Date().toISOString(),
@@ -454,7 +494,7 @@ export class AgentSessionService {
     // intentionally left unestablished (providerSessionId absent), never fabricated. The
     // provider error itself is allowed to propagate — the session persisted above is not
     // rolled back, since the provider side effect may already have partially happened.
-    if (!providerSessionId && typeof entry.provider.createSession === 'function') {
+    if (!providerSessionId && typeof entry?.provider?.createSession === 'function') {
       const created = await entry.provider.createSession({
         sessionId,
         specId: options.specId,
@@ -463,6 +503,8 @@ export class AgentSessionService {
         purpose,
         mode,
         model: options.model,
+        role: options.role,
+        parentSessionId: options.parentSessionId,
         title: options.title,
       });
       providerSessionId = typeof created === 'string' ? created : created?.providerSessionId;
@@ -483,22 +525,32 @@ export class AgentSessionService {
       taskId: primaryTaskId,
       activeTaskId: primaryTaskId,
       model: options.model,
+      role: options.role || binding?.role,
+      parentSessionId: options.parentSessionId || binding?.parentSessionId,
     };
   }
 
   async attachSession(provider, { providerSessionId, specId, taskId, taskIds, purpose, mode, model } = {}) {
     validateAgentIdentity({ provider, providerSessionId });
     const resolvedTaskIds = Array.isArray(taskIds) ? taskIds.filter(Boolean) : taskId ? [taskId] : [];
+    const primaryTaskId = taskId;
+
+    if (primaryTaskId && specId) {
+      assertTaskExecutionReadiness(specId, primaryTaskId, this.repoRoot);
+    }
 
     let binding;
     if (this.bindingService) {
       if (resolvedTaskIds.length > 0) {
+        const explicitActiveTaskId = primaryTaskId ?? null;
         for (const tId of resolvedTaskIds) {
           binding = await this.bindingService.bindSession({
             provider,
             providerSessionId,
             specId,
             taskId: tId,
+            activeTaskId: explicitActiveTaskId,
+            taskIds: resolvedTaskIds,
             purpose,
             mode,
             model,
@@ -509,21 +561,33 @@ export class AgentSessionService {
           provider,
           providerSessionId,
           specId,
-          taskId,
+          taskId: primaryTaskId,
+          activeTaskId: primaryTaskId ?? null,
           purpose,
           mode,
           model,
         });
       }
     } else {
-      binding = { provider, providerSessionId, specId, taskId, mode, model };
+      binding = {
+        provider,
+        providerSessionId,
+        specId,
+        taskId: primaryTaskId,
+        activeTaskId: primaryTaskId,
+        taskIds: resolvedTaskIds,
+        mode,
+        model,
+      };
     }
 
-    // Never fabricate an active task from `resolvedTaskIds[0]` — the authoritative value
-    // is whatever the binding itself actually reports (`activeTaskId` when backed by a
-    // real bindingService, `taskId` in the no-bindingService test-double shape). Multiple
-    // attached tasks with no explicit primary correctly yield no active task.
-    return { ...binding, taskIds: resolvedTaskIds, taskId: binding?.activeTaskId ?? binding?.taskId ?? undefined };
+    const activeTaskId = primaryTaskId ?? (binding?.activeTaskId ? binding.activeTaskId : undefined);
+    return {
+      ...binding,
+      taskIds: resolvedTaskIds,
+      taskId: activeTaskId,
+      activeTaskId,
+    };
   }
 
   async listSessions(filters = {}) {
@@ -996,6 +1060,14 @@ export class AgentSessionService {
       sessId = opts.sessionId || opts.providerSessionId;
     }
 
+    if (!prov || typeof prov !== 'string' || !prov.trim()) {
+      throw new AiValidationError("'provider' is required to start a turn.", { field: 'provider' });
+    }
+    const rawMessage = opts.message ?? opts.prompt;
+    if (rawMessage === undefined || rawMessage === null || (typeof rawMessage === 'string' && !rawMessage.trim())) {
+      throw new AiValidationError("'message' or 'prompt' is required and must not be empty to start a turn.", { field: 'message' });
+    }
+
     let session = null;
     // canonicalSessionId is only ever populated from an EXPLICIT sessionId (opts.sessionId,
     // or the legacy positional identity once a real store lookup — never string shape —
@@ -1125,6 +1197,10 @@ export class AgentSessionService {
       workflowResolution.mode === 'deterministic' && workflowResolution.execution
         ? workflowResolution.workflowInfo
         : null;
+
+    if (workflowResolution.mode === 'deterministic' && workflowResolution.execution) {
+      assertTaskExecutionReadiness(effectiveSpecId, effectiveTaskId, this.repoRoot);
+    }
     const hasExplicitWorkflowContext = opts.workflowContext !== undefined && opts.workflowContext !== false;
     const shouldInjectAutomatic = opts.workflowContext !== false && Boolean(deterministicWorkflowInfo);
 
@@ -1158,8 +1234,8 @@ export class AgentSessionService {
       if (deterministicWorkflowInfo || (typeof opts.workflowContext === 'object' && opts.workflowContext !== null)) {
         bootstrapToRecord = {
           taskId: deterministicWorkflowInfo?.taskId || opts.workflowContext?.taskId || effectiveTaskId,
-          step: deterministicWorkflowInfo?.step || opts.workflowContext?.step || 'implementation',
-          attempt: deterministicWorkflowInfo?.attempt ?? opts.workflowContext?.attempt ?? 1,
+          step: deterministicWorkflowInfo?.step || opts.workflowContext?.step,
+          attempt: deterministicWorkflowInfo?.attempt ?? opts.workflowContext?.attempt,
         };
       }
     }

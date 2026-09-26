@@ -1,9 +1,20 @@
 import { SpecificationActionError, executeHumanDecision } from './actions.mjs';
+import { executeHumanStepAction, HumanStepTransportError } from './human-step-transport.mjs';
 import { createSpecsCapability } from './service.mjs';
 import { SpecValidationError, SpecConflictError, SpecRollbackError } from '../../../specs/identity.mjs';
 import { HttpError } from './http-utils.mjs';
 import specEventRoutes from './events.mjs';
 import { resolveSpecsPaths } from './paths.mjs';
+import { publishTask, validateTaskDefinitionForPublish } from '../../../specs/workflow/publish/operation.mjs';
+import { requireChange, requireTask, setTaskStatus } from '../../../specs/store.mjs';
+import { resolveWorkflowMode } from '../../../specs/workflow/compatibility.mjs';
+import { operationFilePath, saveOperationRecord } from '../../../specs/workflow/operation-record.mjs';
+import { withGitFinalizeLock } from '../../../specs/workflow/git-finalize-lock.mjs';
+import { acquireWorkspaceWriter, releaseWorkspaceWriterIfOwned } from '../../../specs/workflow/workspace-writer.mjs';
+import { createWorkspaceRequest, transitionWorkspaceRequest } from '../../../specs/workflow/workspace-request.mjs';
+import { loadWorkflowDefinition } from '../../../specs/workflow/definitions/loader.mjs';
+import { addAndCommitAsync, pushAsync, getCurrentBranchAsync } from '../../../lib/git.mjs';
+import { randomUUID } from 'node:crypto';
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
 const SOURCES = new Set(['active', 'archive']);
@@ -199,6 +210,344 @@ export default async function specsRoutes(fastify, { config = {}, actionExecutor
     if (rejectSource(reply, request.params.source, ACTIVE_ONLY)) return;
     return handleHumanDecision(request, reply);
   });
+
+  const handleHumanStep = async (request, reply) => {
+    const slug = decodedSlug(request.params.slug);
+    const taskId = request.params.taskId;
+    if (!slug) {
+      reply.code(404).send({ error: 'Specification document not found' });
+      return;
+    }
+    const body = request.body ?? {};
+    if (typeof body !== 'object' || Array.isArray(body) || body === null) {
+      reply.code(400).send({ error: 'Request body must be a JSON object.' });
+      return;
+    }
+    const { action, result, feedback, artifacts } = body;
+    if (action !== 'start' && action !== 'submit') {
+      reply.code(400).send({ error: "Action must be 'start' or 'submit'.", code: 'INVALID_ACTION' });
+      return;
+    }
+    try {
+      const response = await executeHumanStepAction({
+        slug,
+        taskId,
+        action,
+        result,
+        feedback,
+        artifacts,
+        activeDir: paths.activeDir,
+        root: paths.root,
+      });
+      reply.code(200).send(response);
+    } catch (error) {
+      const status = error.status || 400;
+      const errorBody = {
+        error: error.message || 'Unable to execute human-step action.',
+        code: error.code || error.details?.code || 'HUMAN_STEP_ACTION_FAILED',
+      };
+      if (error.stepId || error.details?.stepId) {
+        errorBody.stepId = error.stepId || error.details?.stepId;
+      }
+      if (error.executor || error.details?.executor) {
+        errorBody.executor = error.executor || error.details?.executor;
+      }
+      if (error.allowedResults || error.details?.allowedResults) {
+        errorBody.allowedResults = error.allowedResults || error.details?.allowedResults;
+      }
+      if (error.blockedBy || error.details?.blockedBy) {
+        errorBody.blockedBy = error.blockedBy || error.details?.blockedBy;
+      }
+      if (error.details && typeof error.details === 'object') {
+        for (const [k, v] of Object.entries(error.details)) {
+          if (errorBody[k] === undefined && v !== undefined) {
+            errorBody[k] = v;
+          }
+        }
+      }
+      reply.code(status).send(errorBody);
+    }
+  };
+
+  fastify.post('/api/specs/:slug/tasks/:taskId/workflow/human-step', handleHumanStep);
+  fastify.post('/api/specs/:source/:slug/tasks/:taskId/workflow/human-step', async (request, reply) => {
+    if (rejectSource(reply, request.params.source, ACTIVE_ONLY)) return;
+    return handleHumanStep(request, reply);
+  });
+
+  const handlePublishTask = async (request, reply) => {
+    const slug = decodedSlug(request.params.slug);
+    const taskId = request.params.taskId;
+    if (!slug) {
+      reply.code(404).send({ error: 'Specification document not found' });
+      return;
+    }
+    try {
+      const result = await publishTask(slug, taskId, {
+        activeDir: paths.activeDir,
+        repoRoot: paths.root,
+      });
+      reply.code(200).send(result);
+    } catch (error) {
+      const message = error.message || 'Unable to publish task.';
+      if (message.includes('not found')) {
+        reply.code(404).send({ error: message, code: 'NOT_FOUND' });
+        return;
+      }
+      reply.code(400).send({
+        error: message,
+        code: 'TASK_PUBLISH_FAILED',
+      });
+    }
+  };
+
+  fastify.post('/api/specs/:slug/tasks/:taskId/workflow/publish', handlePublishTask);
+  fastify.post('/api/specs/:source/:slug/tasks/:taskId/workflow/publish', async (request, reply) => {
+    if (rejectSource(reply, request.params.source, ACTIVE_ONLY)) return;
+    return handlePublishTask(request, reply);
+  });
+
+  const handleBatchPublish = async (request, reply) => {
+    const slug = decodedSlug(request.params.slug);
+    if (!slug) {
+      reply.code(404).send({ error: 'Specification document not found' });
+      return;
+    }
+    const body = request.body ?? {};
+    if (typeof body !== 'object' || Array.isArray(body) || body === null) {
+      reply.code(400).send({ error: 'Request body must be a JSON object.' });
+      return;
+    }
+    try {
+      const change = requireChange(slug, paths.activeDir);
+      const resolvedMode = resolveWorkflowMode(change, { repoRoot: paths.root });
+      if (resolvedMode.mode !== 'deterministic') {
+        reply.code(400).send({
+          error: `Cannot run deterministic publish on legacy specification '${slug}'.`,
+          code: 'LEGACY_WORKFLOW_MODE',
+        });
+        return;
+      }
+
+      let taskIdsToPublish = [];
+      if (Array.isArray(body.taskIds) && body.taskIds.length > 0) {
+        taskIdsToPublish = body.taskIds;
+      } else {
+        const filterStatus = typeof body.status === 'string' ? body.status : 'draft';
+        taskIdsToPublish = change.tasks
+          .filter((t) => t.status === filterStatus)
+          .map((t) => t.id);
+      }
+
+      if (taskIdsToPublish.length === 0) {
+        reply.code(200).send({
+          ok: true,
+          changeSlug: slug,
+          published: [],
+          total: 0,
+        });
+        return;
+      }
+
+      // Prevalidate every selected task first (AC 198: if one fails, mutate none and commit nothing!)
+      const tasksToPublish = [];
+      for (const taskId of taskIdsToPublish) {
+        const task = requireTask(change, taskId);
+        if (task.status !== 'draft') {
+          reply.code(400).send({
+            error: `Task '${taskId}' is not in draft status (current: '${task.status}')`,
+            code: 'BATCH_PUBLISH_FAILED',
+          });
+          return;
+        }
+        if (task.workflow_progress) {
+          reply.code(400).send({
+            error: `Task '${taskId}' has already started (workflow_progress present)`,
+            code: 'BATCH_PUBLISH_FAILED',
+          });
+          return;
+        }
+        validateTaskDefinitionForPublish(change, task);
+        tasksToPublish.push(task);
+      }
+
+      // Source control configuration
+      let sourceControl = { enabled: false, push: false };
+      if (change.workflow?.definition) {
+        try {
+          const def = loadWorkflowDefinition(change.workflow.definition, { repoRoot: paths.root });
+          if (def?.sourceControl) {
+            sourceControl = def.sourceControl;
+          }
+        } catch {}
+      }
+
+      // Durable Batch-Publish record
+      const recordPath = operationFilePath(paths.root, slug, '_batch-publish', 'publish', 1);
+      const record = {
+        operationId: randomUUID(),
+        change: slug,
+        task: '_batch-publish',
+        step: 'publish',
+        attempt: 1,
+        status: 'running',
+        tasks: taskIdsToPublish,
+        operations: [
+          { id: 'validate', status: 'completed' },
+          { id: 'update-tasks', status: 'pending' },
+          { id: 'commit', status: 'pending' },
+          { id: 'push', status: 'pending' },
+        ],
+        createdAt: new Date().toISOString(),
+      };
+      saveOperationRecord(paths.root, record);
+
+      // Create paired workspace-request
+      const requestId = randomUUID();
+      await createWorkspaceRequest({
+        repoRoot: paths.root,
+        requestId,
+        kind: 'batch-publish',
+        specId: slug,
+        operationRef: recordPath,
+      });
+
+      // Claim workspace-writer
+      const acquireRes = await acquireWorkspaceWriter({
+        repoRoot: paths.root,
+        kind: 'batch-publish',
+        requestId,
+        operationRef: recordPath,
+        specId: slug,
+      });
+
+      if (!acquireRes.acquired) {
+        if (acquireRes.blocked) {
+          await transitionWorkspaceRequest({
+            repoRoot: paths.root,
+            requestId,
+            expectedStatus: ['queued', 'waiting-for-workspace'],
+            to: 'blocked-by-recovery',
+          });
+          reply.code(409).send({ error: 'Blocked by recovery', code: 'BLOCKED_BY_RECOVERY' });
+          return;
+        }
+        reply.code(409).send({ error: 'Workspace writer contended', code: 'WORKSPACE_WRITER_CONTENDED' });
+        return;
+      }
+
+      const workspaceOwnerId = acquireRes.ownerId;
+
+      // CAS to running
+      const casRes = await transitionWorkspaceRequest({
+        repoRoot: paths.root,
+        requestId,
+        expectedStatus: ['queued', 'waiting-for-workspace'],
+        to: 'running',
+        workspaceOwnerId,
+      });
+
+      if (!casRes.transitioned) {
+        await releaseWorkspaceWriterIfOwned({
+          repoRoot: paths.root,
+          expectedOwnerId: workspaceOwnerId,
+          expectedKind: 'batch-publish',
+          expectedRequestId: requestId,
+        });
+        reply.code(409).send({ error: 'State conflict', code: 'STATE_CONFLICT' });
+        return;
+      }
+
+      try {
+        await withGitFinalizeLock(async () => {
+          // Mutate all tasks
+          for (const taskId of taskIdsToPublish) {
+            setTaskStatus(change, taskId, 'approved');
+            const t = change.tasks.find((x) => x.id === taskId);
+            if (t) t.status = 'approved';
+          }
+          record.operations.find((o) => o.id === 'update-tasks').status = 'completed';
+          saveOperationRecord(paths.root, record);
+
+          // One combined commit naming all tasks (AC 201)
+          if (sourceControl.enabled) {
+            const commitMessage = `chore(workflow): publish ${taskIdsToPublish.join(', ')}`;
+            await addAndCommitAsync(paths.root, [change._file], commitMessage);
+            record.operations.find((o) => o.id === 'commit').status = 'completed';
+            saveOperationRecord(paths.root, record);
+          } else {
+            record.operations.find((o) => o.id === 'commit').status = 'completed';
+            record.operations.find((o) => o.id === 'commit').result = { skipped: true };
+            saveOperationRecord(paths.root, record);
+          }
+        }, { repoRoot: paths.root });
+
+        // push if configured
+        if (sourceControl.enabled && sourceControl.push) {
+          const branch = await getCurrentBranchAsync(paths.root);
+          await pushAsync(paths.root, branch);
+          record.operations.find((o) => o.id === 'push').status = 'completed';
+          saveOperationRecord(paths.root, record);
+        } else {
+          record.operations.find((o) => o.id === 'push').status = 'completed';
+          record.operations.find((o) => o.id === 'push').result = { skipped: true };
+          saveOperationRecord(paths.root, record);
+        }
+
+        record.status = 'completed';
+        saveOperationRecord(paths.root, record);
+
+        await transitionWorkspaceRequest({
+          repoRoot: paths.root,
+          requestId,
+          expectedStatus: 'running',
+          to: 'completed',
+        });
+
+        reply.code(200).send({
+          ok: true,
+          changeSlug: slug,
+          published: taskIdsToPublish,
+          total: taskIdsToPublish.length,
+        });
+      } catch (err) {
+        record.status = 'failed';
+        record.error = err.message;
+        saveOperationRecord(paths.root, record);
+        await transitionWorkspaceRequest({
+          repoRoot: paths.root,
+          requestId,
+          expectedStatus: 'running',
+          to: 'failed',
+        });
+        throw err;
+      } finally {
+        await releaseWorkspaceWriterIfOwned({
+          repoRoot: paths.root,
+          expectedOwnerId: workspaceOwnerId,
+          expectedKind: 'batch-publish',
+          expectedRequestId: requestId,
+        });
+      }
+    } catch (error) {
+      const message = error.message || 'Unable to batch publish tasks.';
+      if (message.includes('not found')) {
+        reply.code(404).send({ error: message, code: 'NOT_FOUND' });
+        return;
+      }
+      reply.code(400).send({
+        error: message,
+        code: 'BATCH_PUBLISH_FAILED',
+      });
+    }
+  };
+
+  fastify.post('/api/specs/:slug/workflow/publish', handleBatchPublish);
+  fastify.post('/api/specs/:source/:slug/workflow/publish', async (request, reply) => {
+    if (rejectSource(reply, request.params.source, ACTIVE_ONLY)) return;
+    return handleBatchPublish(request, reply);
+  });
+
 
   fastify.get('/api/specs/:source/:slug/content/:docId', async (request, reply) => {
     if (rejectSource(reply, request.params.source, SOURCES)) return;

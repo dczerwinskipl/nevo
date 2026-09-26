@@ -769,6 +769,7 @@ steps:
     finalize: []
     transitions:
       - to: verified
+        outcome: success
 `
     );
 

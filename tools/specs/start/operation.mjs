@@ -5,6 +5,7 @@ import {
   ACTIVE_DIR,
   ROOT,
 } from '../store.mjs';
+import { resolveWorkflowMode } from '../workflow/compatibility.mjs';
 import { buildContextPacket } from '../context.mjs';
 import {
   validateTransition,
@@ -36,9 +37,19 @@ export function startNeedsDirtyTreeCheck(postconditionResult, onExpectedBranch) 
  * Handles validation, postcondition inspection, git branch management, and status/provenance recording.
  * Returns structured result without stdout/stderr side-effects.
  */
-export function startTask(changeSlug, taskId, { activeDir = ACTIVE_DIR, gitRoot = ROOT } = {}) {
+export function startTask(changeSlug, taskId, options = {}) {
+  const { activeDir = ACTIVE_DIR, gitRoot = ROOT } = options;
   const change = requireChange(changeSlug, activeDir);
   const task = requireTask(change, taskId);
+
+  const workflowMode = resolveWorkflowMode(change, options);
+  if (workflowMode.mode === 'deterministic') {
+    throw new CliError(
+      `Cannot run legacy 'start' against deterministic specification '${changeSlug || change.id}'. ` +
+      `Use deterministic command surface instead: workflow task publish, workflow step start, workflow step finish, startHumanStep, submitHumanStepResult (or workflow verify-human).`
+    );
+  }
+
   guardAgainstUnsafeManual(task, taskId, 'start');
   const packet = buildContextPacket(change, task);
   const branch = packet.branch;

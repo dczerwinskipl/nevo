@@ -159,3 +159,37 @@ Specifications implementing workflow infrastructure (such as `agent-workflow-pro
 3. Merge the foundational pull request.
 4. Create a dedicated new specification explicitly configured for deterministic mode (e.g. `spec-history-and-timeline`).
 5. Run the first controlled end-to-end deterministic smoke/dogfood flow there, exercising full multi-attempt review and human verification loops.
+
+### 5. Architectural Module Trees & Mutation Ownership
+Lifecycle and status mutations are strictly partitioned into two non-overlapping module trees within the codebase:
+- **Legacy mutation tree:** `tools/specs/{approve,start,complete,verify}/**` (and associated legacy CLI commands). These modules govern specifications operating under standard legacy status lifecycles (`status: draft | in-implementation | review | completed | verified`).
+- **Deterministic mutation tree:** `tools/specs/workflow/**` mutation entry points (`workflow task publish`, `workflow step start`, `workflow step finish`, and human step operations `startHumanStep`, `submitHumanStepResult`). These modules govern specifications declared with `workflow.mode: deterministic`.
+
+#### Hard Mode-Guard & Fail-Closed Routing
+The CLI implements strict, fail-closed guards preventing cross-mode mutation:
+- Invoking deterministic commands on a legacy specification throws `CliError` with code `LEGACY_WORKFLOW_MODE`.
+- Invoking legacy lifecycle commands (`start`, `complete`, `verify`, `approve`) on a deterministic specification throws `CliError` with code `WORKFLOW_MODE_MISMATCH`.
+- The CLI never silently falls back or executes legacy logic against a deterministic specification or vice-versa.
+- For complete operational guidance and normative command allow/forbid sets per mode, agents must reference [.claude/skills/nevo-ai-spec-workflow/references/lifecycle-instructions.md](../../.claude/skills/nevo-ai-spec-workflow/references/lifecycle-instructions.md).
+
+#### No-Cross-Import Boundary & Neutral Status Vocabulary (D8)
+To prevent coupling between the two lifecycle architectures:
+- No file under `tools/specs/workflow/**` may import `tools/specs/lifecycle-primitives.mjs`.
+- Shared persistence vocabulary (`TERMINAL_STATUSES`) is extracted to `tools/specs/status-vocabulary.mjs`, providing a neutral contract without dragging legacy state transition machinery into the deterministic engine.
+- This boundary is structurally enforced by automated architecture guard tests (`tools/specs/tests/lifecycle-boundary-guards.test.mjs`).
+
+### 6. Step Executor Invariants
+Deterministic workflow steps define an explicit `executor` (`agent` vs. `human`) in their step descriptors. The engine enforces strict executor separation via `assertStepExecutor`:
+- **AI Agent Prohibition on Human Steps:** An AI agent must **never** attempt to start or finish human-owned steps (`executor: human`, such as verification, review sign-off, or manual checks). Any agent invocation of `workflow step start` or `workflow step finish` targeting a human step fails immediately with `WORKFLOW_STEP_EXECUTOR_MISMATCH`.
+- **Human Endpoint Separation:** Conversely, human step operations (`startHumanStep`, `submitHumanStepResult`) can only be executed against human-owned steps and will reject agent-owned steps with `WORKFLOW_STEP_EXECUTOR_MISMATCH`.
+
+### 7. Three-Way Source-Control Ownership Taxonomy (D30)
+To prevent uncommitted state leaks and preserve deterministic Git finalization integrity, all operations modifying repository or manifest state are partitioned into three explicit categories:
+1. **Standalone user-originated Git-tracked mutation** (e.g. `workflow task publish`, Batch Publish):
+   Must finalize its own Git state (commit and push) under the git-finalize lease and workspace-writer claim (D29). It claims the shared workspace-writer slot (`kind: 'publish'` or `'batch-publish'`) for the entire operation through push, nesting the git-finalize lease around the mutate-then-commit critical section specifically.
+2. **Technical activation that is part of an execution attempt** (e.g. `workflow step start`, human-step auto-activation, D27):
+   Does not perform an immediate standalone Git commit. It rides along with the execution attempt it belongs to, finalized by that attempt's own eventual completion (`workflow step finish` or `submitHumanStepResult`).
+3. **Completed lifecycle mutation** (e.g. `submitHumanStepResult`, `workflow step finish`):
+   Already owns its deterministic finalize/commit/push lifecycle sequence, protected under git-finalize lease and workspace-writer ownership.
+
+

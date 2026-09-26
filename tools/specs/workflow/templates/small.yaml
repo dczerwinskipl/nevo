@@ -19,3 +19,4 @@ steps:
       - id: commit-and-push
     transitions:
       - to: verified
+        outcome: success

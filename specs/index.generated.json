@@ -1,6 +1,565 @@
 {
-  "generated": "2026-09-16T13:20:20.897Z",
+  "generated": "2026-09-26T14:04:24.795Z",
   "changes": [
+    {
+      "id": "ai-spec-history",
+      "specId": "fe63d2b5-a66a-4c88-b3cc-6d38b193b725",
+      "title": "AI Spec History",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-09-16",
+      "tasks": [
+        {
+          "id": "activity-core-model-and-contracts",
+          "order": 1,
+          "file": "tasks/01-activity-core-model-and-contracts.md",
+          "status": "verified",
+          "workflow_progress": {
+            "current_step": "human-verification",
+            "current_attempt": 2,
+            "state": "completed",
+            "history": [
+              {
+                "step": "implementation",
+                "attempt": 1,
+                "completed_at": "2026-09-21T17:03:12.123Z",
+                "transitioned_to": "review"
+              },
+              {
+                "step": "review",
+                "attempt": 1,
+                "completed_at": "2026-09-21T17:13:41.787Z",
+                "transitioned_to": "human-verification",
+                "result": "pass",
+                "feedback": "Independent review: model.mjs/activity-model.test.mjs fully satisfy task 01 (required-field checks, ActorRef shape, no closed type enum, no defaulting/mutation, all 19 tests pass). No corrective edits needed within allowed_paths. Found, but did not fix (out of scope/forbidden path): specs/index.generated.json is stale relative to change.yaml (last regenerated at f9b946b, before workflow step start/finish mutated change.yaml task statuses/workflow_progress), causing 2 unrelated pre-existing failures in tools/tests/cli-smoke.test.mjs and tools/tests/e2e-workflow.test.mjs (REC-03). Root cause is the deterministic step-finish operation in tools/specs/workflow/** not regenerating derived indexes after mutating change.yaml — flagging for owner follow-up."
+              },
+              {
+                "step": "human-verification",
+                "attempt": 1,
+                "completed_at": "2026-09-21T17:15:48.177Z",
+                "transitioned_to": "implementation",
+                "result": "fail",
+                "feedback": "Zaakceptowane ale testuje czy dostałeś review. Jak dojdziesz do kolejnej implementacji, to napisz mi \"krowa\" w podsumowaniu."
+              },
+              {
+                "step": "implementation",
+                "attempt": 2,
+                "completed_at": "2026-09-21T17:16:22.446Z",
+                "transitioned_to": "review"
+              },
+              {
+                "step": "review",
+                "attempt": 2,
+                "completed_at": "2026-09-21T17:18:00.826Z",
+                "transitioned_to": "human-verification",
+                "result": "pass",
+                "feedback": "Deliverable files (tools/specs/activity/model.mjs, tools/tests/activity-model.test.mjs) are unchanged (byte-identical) since the prior full review at bb380f1, which already confirmed all task-01 acceptance criteria are met. Re-ran required verification: 19/19 tests pass, specs.mjs validate clean. No corrective edits needed."
+              },
+              {
+                "step": "human-verification",
+                "attempt": 2,
+                "completed_at": "2026-09-21T17:19:30.097Z",
+                "transitioned_to": "verified",
+                "result": "pass"
+              }
+            ]
+          }
+        },
+        {
+          "id": "activity-local-store",
+          "order": 2,
+          "file": "tasks/02-activity-local-store.md",
+          "status": "approved",
+          "depends_on": [
+            "activity-core-model-and-contracts"
+          ]
+        },
+        {
+          "id": "actor-resolver",
+          "order": 3,
+          "file": "tasks/03-actor-resolver.md",
+          "status": "approved",
+          "depends_on": [
+            "activity-core-model-and-contracts"
+          ]
+        },
+        {
+          "id": "activity-query-and-export",
+          "order": 4,
+          "file": "tasks/04-activity-query-and-export.md",
+          "status": "approved",
+          "depends_on": [
+            "activity-core-model-and-contracts",
+            "activity-local-store"
+          ]
+        },
+        {
+          "id": "activity-dashboard-api",
+          "order": 5,
+          "file": "tasks/05-activity-dashboard-api.md",
+          "status": "approved",
+          "depends_on": [
+            "activity-query-and-export"
+          ]
+        },
+        {
+          "id": "workflow-step-activity-producer",
+          "order": 6,
+          "file": "tasks/06-workflow-step-activity-producer.md",
+          "status": "approved",
+          "depends_on": [
+            "activity-local-store",
+            "actor-resolver"
+          ]
+        },
+        {
+          "id": "human-verification-activity-producer",
+          "order": 7,
+          "file": "tasks/07-human-verification-activity-producer.md",
+          "status": "approved",
+          "depends_on": [
+            "activity-local-store",
+            "actor-resolver"
+          ]
+        },
+        {
+          "id": "activity-adr-and-docs",
+          "order": 8,
+          "file": "tasks/08-activity-adr-and-docs.md",
+          "status": "approved",
+          "depends_on": [
+            "activity-dashboard-api",
+            "workflow-step-activity-producer",
+            "human-verification-activity-producer"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "deterministic-status-architecture",
+      "specId": "226954d0-b33e-4c89-a302-c27c4e51b1d8",
+      "title": "Deterministic workflow status architecture",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-09-17",
+      "tasks": [
+        {
+          "id": "legacy-mutation-guard",
+          "order": 1,
+          "file": "tasks/01-legacy-mutation-guard.md",
+          "status": "implemented",
+          "implementation": {
+            "baseline_revision": "6f6de214260025bdfdf2d73bb9009db425598d4f"
+          }
+        },
+        {
+          "id": "deterministic-mutation-guard",
+          "order": 2,
+          "file": "tasks/02-deterministic-mutation-guard.md",
+          "status": "implemented",
+          "implementation": {
+            "baseline_revision": "a2703984f5705b5abc40a217c31692583d1c0e90"
+          }
+        },
+        {
+          "id": "status-vocabulary-extraction",
+          "order": 3,
+          "file": "tasks/03-status-vocabulary-extraction.md",
+          "status": "implemented",
+          "implementation": {
+            "baseline_revision": "add62095803f33681e099d89b201951e953cc7e1"
+          }
+        },
+        {
+          "id": "lifecycle-boundary-regression-tests",
+          "order": 4,
+          "file": "tasks/04-lifecycle-boundary-regression-tests.md",
+          "status": "implemented",
+          "depends_on": [
+            "legacy-mutation-guard",
+            "deterministic-mutation-guard",
+            "status-vocabulary-extraction"
+          ],
+          "implementation": {
+            "baseline_revision": "52e2f9513865ce35f5df5b8ec540c9e75e912aa7"
+          }
+        },
+        {
+          "id": "workflow-task-publish-operation",
+          "order": 5,
+          "file": "tasks/05-workflow-task-publish-operation.md",
+          "status": "implemented",
+          "depends_on": [
+            "deterministic-mutation-guard"
+          ],
+          "implementation": {
+            "baseline_revision": "29523aa0be2da1960f201904de5c52193ef93b7c"
+          }
+        },
+        {
+          "id": "deterministic-cli-default-task-resolution",
+          "order": 6,
+          "file": "tasks/06-deterministic-cli-default-task-resolution.md",
+          "status": "implemented",
+          "depends_on": [
+            "deterministic-mutation-guard"
+          ],
+          "implementation": {
+            "baseline_revision": "a9919edb9bf034c401e14ee4062fa0c1bc301538"
+          }
+        },
+        {
+          "id": "workflow-definition-schema-extensions",
+          "order": 7,
+          "file": "tasks/07-workflow-definition-schema-extensions.md",
+          "status": "verified",
+          "depends_on": [
+            "status-vocabulary-extraction"
+          ],
+          "implementation": {
+            "baseline_revision": "3485d90aefc526085233023b985d5091d9820b9b"
+          }
+        },
+        {
+          "id": "step-executor-guard",
+          "order": 8,
+          "file": "tasks/08-step-executor-guard.md",
+          "status": "verified",
+          "depends_on": [
+            "deterministic-mutation-guard",
+            "workflow-definition-schema-extensions"
+          ],
+          "implementation": {
+            "baseline_revision": "8c9a1b2841b34d3096ef2fb4df807b087d778cbb"
+          }
+        },
+        {
+          "id": "human-step-execution-operations",
+          "order": 9,
+          "file": "tasks/09-human-step-execution-operations.md",
+          "status": "verified",
+          "depends_on": [
+            "workflow-definition-schema-extensions",
+            "step-executor-guard",
+            "deterministic-mutation-guard"
+          ],
+          "implementation": {
+            "baseline_revision": "b1374cb39bf7451733ff6981aed917470c21e340"
+          }
+        },
+        {
+          "id": "human-step-projection",
+          "order": 10,
+          "file": "tasks/10-human-step-projection.md",
+          "status": "verified",
+          "depends_on": [
+            "workflow-definition-schema-extensions"
+          ],
+          "implementation": {
+            "baseline_revision": "6618b1dab60452464e8f76e63efb0b73ad98c29a"
+          }
+        },
+        {
+          "id": "deterministic-dependency-satisfaction",
+          "order": 11,
+          "file": "tasks/11-deterministic-dependency-satisfaction.md",
+          "status": "verified",
+          "depends_on": [
+            "workflow-definition-schema-extensions"
+          ],
+          "implementation": {
+            "baseline_revision": "848b2fbe5d19b8f941fd3733782f10a03816eb0f"
+          }
+        },
+        {
+          "id": "deterministic-task-projection",
+          "order": 12,
+          "file": "tasks/12-deterministic-task-projection.md",
+          "status": "verified",
+          "depends_on": [
+            "human-step-projection",
+            "deterministic-dependency-satisfaction"
+          ],
+          "implementation": {
+            "baseline_revision": "f302505d98fcbab99b3ded839a80d18475da07ff"
+          }
+        },
+        {
+          "id": "execution-readiness-policy",
+          "order": 13,
+          "file": "tasks/13-execution-readiness-policy.md",
+          "status": "verified",
+          "depends_on": [
+            "workflow-task-publish-operation",
+            "deterministic-task-projection",
+            "step-executor-guard",
+            "human-step-execution-operations"
+          ],
+          "implementation": {
+            "baseline_revision": "1b3ad6f1eddc8a5afea50bc828385ebff278e11c"
+          }
+        },
+        {
+          "id": "dashboard-deterministic-action-projection",
+          "order": 14,
+          "file": "tasks/14-dashboard-deterministic-action-projection.md",
+          "status": "verified",
+          "depends_on": [
+            "deterministic-task-projection",
+            "execution-readiness-policy"
+          ],
+          "implementation": {
+            "baseline_revision": "1c32155f545aed8c85a170c75ae1ce1acf968358"
+          }
+        },
+        {
+          "id": "session-bootstrap-readiness-wiring",
+          "order": 15,
+          "file": "tasks/15-session-bootstrap-readiness-wiring.md",
+          "status": "verified",
+          "depends_on": [
+            "execution-readiness-policy",
+            "dashboard-deterministic-action-projection"
+          ],
+          "implementation": {
+            "baseline_revision": "981293c1de8598d981b7a531f7f1b7b17f9bd9b9"
+          }
+        },
+        {
+          "id": "dashboard-human-step-transport",
+          "order": 16,
+          "file": "tasks/16-dashboard-human-step-transport.md",
+          "status": "verified",
+          "depends_on": [
+            "human-step-execution-operations",
+            "execution-readiness-policy"
+          ],
+          "implementation": {
+            "baseline_revision": "12ad333256902ff086e3b7064fafd8efa38ee751"
+          }
+        },
+        {
+          "id": "dashboard-actions-lifecycle-split",
+          "order": 17,
+          "file": "tasks/17-dashboard-actions-lifecycle-split.md",
+          "status": "verified",
+          "depends_on": [
+            "dashboard-deterministic-action-projection",
+            "human-step-execution-operations"
+          ],
+          "implementation": {
+            "baseline_revision": "921cd13d9b14a4b8a7b8ca69bffef3c9010a51a6"
+          }
+        },
+        {
+          "id": "deterministic-board-lane-projection",
+          "order": 18,
+          "file": "tasks/18-deterministic-board-lane-projection.md",
+          "status": "verified",
+          "depends_on": [
+            "deterministic-task-projection"
+          ],
+          "implementation": {
+            "baseline_revision": "ba25894dbdecbd4b65c1871ca15b1a0b29419178"
+          }
+        },
+        {
+          "id": "task-card-lifecycle-split",
+          "order": 19,
+          "file": "tasks/19-task-card-lifecycle-split.md",
+          "status": "verified",
+          "depends_on": [
+            "dashboard-deterministic-action-projection",
+            "session-bootstrap-readiness-wiring"
+          ],
+          "implementation": {
+            "baseline_revision": "e62150fc1585b1a90807e17cdbb9eba1dcf89f7d"
+          }
+        },
+        {
+          "id": "human-step-surface-consolidation",
+          "order": 20,
+          "file": "tasks/20-human-step-surface-consolidation.md",
+          "status": "verified",
+          "depends_on": [
+            "dashboard-deterministic-action-projection",
+            "dashboard-human-step-transport",
+            "task-card-lifecycle-split",
+            "session-bootstrap-readiness-wiring"
+          ],
+          "implementation": {
+            "baseline_revision": "bdf0d57f285bd35e1af0685a16beb1c7943cdd76"
+          }
+        },
+        {
+          "id": "lifecycle-skill-instruction-split",
+          "order": 21,
+          "file": "tasks/21-lifecycle-skill-instruction-split.md",
+          "status": "verified",
+          "depends_on": [
+            "legacy-mutation-guard",
+            "deterministic-mutation-guard",
+            "workflow-task-publish-operation",
+            "step-executor-guard",
+            "human-step-execution-operations"
+          ],
+          "implementation": {
+            "baseline_revision": "a90f5f1076434493268f622613b91c0a48855492"
+          }
+        },
+        {
+          "id": "ownership-boundary-documentation",
+          "order": 22,
+          "file": "tasks/22-ownership-boundary-documentation.md",
+          "status": "verified",
+          "depends_on": [
+            "legacy-mutation-guard",
+            "deterministic-mutation-guard",
+            "step-executor-guard",
+            "status-vocabulary-extraction"
+          ],
+          "implementation": {
+            "baseline_revision": "b7df363a90c52fbe7a27d4d7c93e5d4c5bdc6ada"
+          }
+        },
+        {
+          "id": "specification-detail-composition-wiring",
+          "order": 23,
+          "file": "tasks/23-specification-detail-composition-wiring.md",
+          "status": "verified",
+          "depends_on": [
+            "session-bootstrap-readiness-wiring",
+            "dashboard-human-step-transport",
+            "task-card-lifecycle-split",
+            "human-step-surface-consolidation"
+          ],
+          "implementation": {
+            "baseline_revision": "669c558cb45b9ba1493b5cf8315921d784c02b44"
+          }
+        },
+        {
+          "id": "agent-step-bootstrap-and-context",
+          "order": 24,
+          "file": "tasks/24-agent-step-bootstrap-and-context.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "e4a1d0a4ef4bd14ef454959000ad53fdedaa903b"
+          }
+        },
+        {
+          "id": "workflow-continuation-schema",
+          "order": 25,
+          "file": "tasks/25-workflow-continuation-schema.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "faaf50ece26073b15ddeaf89e1c57595b98125cc"
+          }
+        },
+        {
+          "id": "execution-policy-and-mode-selection",
+          "order": 26,
+          "file": "tasks/26-execution-policy-and-mode-selection.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "28446f550c1128dec555d196303d56dfeba8fd4e"
+          }
+        },
+        {
+          "id": "dependency-release-and-invalidation",
+          "order": 27,
+          "file": "tasks/27-dependency-release-and-invalidation.md",
+          "status": "verified",
+          "depends_on": [
+            "workflow-continuation-schema"
+          ],
+          "implementation": {
+            "baseline_revision": "9be442931c485aa8f16d678e578a8190bbbc5fff"
+          }
+        },
+        {
+          "id": "deterministic-sequential-queue",
+          "order": 28,
+          "file": "tasks/28-deterministic-sequential-queue.md",
+          "status": "verified",
+          "depends_on": [
+            "workflow-continuation-schema",
+            "dependency-release-and-invalidation"
+          ],
+          "implementation": {
+            "baseline_revision": "3e699f30416258eb25ee8f474978d96674588e11"
+          }
+        },
+        {
+          "id": "automatic-workflow-continuation",
+          "order": 29,
+          "file": "tasks/29-automatic-workflow-continuation.md",
+          "status": "verified",
+          "depends_on": [
+            "workflow-continuation-schema",
+            "execution-policy-and-mode-selection",
+            "deterministic-sequential-queue",
+            "dependency-release-and-invalidation"
+          ],
+          "implementation": {
+            "baseline_revision": "712ef73665e61bb1689e7449e3ed21c2106105bf"
+          }
+        },
+        {
+          "id": "dependency-invalidation-remediation-review",
+          "order": 30,
+          "file": "tasks/30-dependency-invalidation-remediation-review.md",
+          "status": "verified",
+          "depends_on": [
+            "dependency-release-and-invalidation",
+            "deterministic-sequential-queue"
+          ],
+          "implementation": {
+            "baseline_revision": "df79270600091f19f9f99125ef0c29d522f5a907"
+          }
+        },
+        {
+          "id": "user-mutation-source-control-finalization",
+          "order": 31,
+          "file": "tasks/31-user-mutation-source-control-finalization.md",
+          "status": "verified",
+          "depends_on": [
+            "dependency-release-and-invalidation"
+          ],
+          "implementation": {
+            "baseline_revision": "a719ec882ec124de29d9d7eea3842d827276f51e"
+          }
+        },
+        {
+          "id": "dashboard-orchestration-wiring",
+          "order": 32,
+          "file": "tasks/32-dashboard-orchestration-wiring.md",
+          "status": "verified",
+          "depends_on": [
+            "execution-policy-and-mode-selection",
+            "deterministic-sequential-queue",
+            "automatic-workflow-continuation",
+            "dependency-invalidation-remediation-review"
+          ],
+          "implementation": {
+            "baseline_revision": "0fe61fac792a386130bb76b65cca50f902942afc"
+          }
+        },
+        {
+          "id": "orchestration-e2e-dogfood-tests",
+          "order": 33,
+          "file": "tasks/33-orchestration-e2e-dogfood-tests.md",
+          "status": "verified",
+          "depends_on": [
+            "dashboard-orchestration-wiring",
+            "user-mutation-source-control-finalization",
+            "dependency-invalidation-remediation-review"
+          ],
+          "implementation": {
+            "baseline_revision": "87f7348cfc4632ad709e0cc7d90138610484f70d"
+          }
+        }
+      ]
+    },
     {
       "id": "agent-workflow-protocol-and-flow-hardening",
       "specId": "3aa4f1ac-0daf-4906-8275-9a9d9c84c3cd",

@@ -7,16 +7,24 @@ import { defaultWorkflowEngine } from './engine.mjs';
 import { defaultActionRegistry } from './registry.mjs';
 import { resolveWorkflowPosition, resolveSemanticStatus, inspectGates } from './step-runner.mjs';
 import { WorkflowError } from './errors.mjs';
-import { setTaskWorkflowState } from '../store.mjs';
-import { loadRoutingIndex, matchRoutingRules, resolveTaskScope } from '../context.mjs';
+import { setTaskWorkflowState, ROOT, ACTIVE_DIR } from '../store.mjs';
+import {
+  loadRoutingIndex,
+  matchRoutingRules,
+  resolveTaskScope,
+  loadTaskFrontMatter,
+  resolveTaskDefinition,
+  resolveRequiredContext,
+} from '../context.mjs';
 // D37 correction: read via `operation-record.mjs` directly (not `finish-operation.mjs`,
 // which itself imports from this module — importing it here would create a cycle).
 import { loadOperationRecord } from './operation-record.mjs';
 import * as git from '../../lib/git.mjs';
 
-// D38: re-export resolveTaskScope from context.mjs as single source of truth
-export { resolveTaskScope } from '../context.mjs';
-export { resolveWorkflowOwnedPaths } from './actions/commit-and-push.mjs';
+// D38: re-export scope and context helpers from context.mjs as single source of truth
+export { resolveTaskScope, resolveTaskDefinition, resolveRequiredContext } from '../context.mjs';
+import { resolveWorkflowOwnedPaths } from './actions/commit-and-push.mjs';
+export { resolveWorkflowOwnedPaths };
 
 /**
  * Runs `WorkflowEngine.checkStep` over a step's full, unfiltered finalize action list.
@@ -239,6 +247,39 @@ export function validateFinishInputs(inputs, parameters, { allowMissing = false 
  *   finish operation hasn't settled; `REPO_ROOT_REQUIRED` if position resolves to
  *   `completed` and no `context.repoRoot` was supplied to check it
  */
+/**
+ * Asserts that the Git worktree is clean before activating a new step attempt (D13).
+ *
+ * @param {string} [repoRoot] - Repository root path
+ * @throws {WorkflowError} DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT if working tree has uncommitted changes outside .nevo-ai-local/
+ * @throws {WorkflowError} WORKTREE_STATE_UNAVAILABLE if git inspection fails
+ */
+export function assertCleanWorktreeForNewAttempt(repoRoot) {
+  if (!repoRoot) return;
+  let dirtyPaths;
+  try {
+    dirtyPaths = git.getDirtyPaths(repoRoot);
+  } catch (err) {
+    if (err instanceof WorkflowError) throw err;
+    throw new WorkflowError(
+      `Unable to inspect Git working tree state before activating new attempt: ${err.message}`,
+      { code: 'WORKTREE_STATE_UNAVAILABLE', cause: err }
+    );
+  }
+  const relevantDirty = dirtyPaths.filter(p => {
+    const norm = p.replace(/\\/g, '/');
+    if (norm === '.nevo-ai-local' || norm.startsWith('.nevo-ai-local/')) return false;
+    if (norm === 'change.yaml' || norm.endsWith('/change.yaml')) return false;
+    return true;
+  });
+  if (relevantDirty.length > 0) {
+    throw new WorkflowError(
+      `Working tree has uncommitted changes outside .nevo-ai-local/ (${relevantDirty.join(', ')}) — clean the workspace before starting a new attempt`,
+      { code: 'DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT', dirtyFiles: relevantDirty }
+    );
+  }
+}
+
 export function ensureStepActivated(change, task, definition, context = {}) {
   const position = resolveWorkflowPosition(definition, task);
   if (position.phase !== 'new' && position.phase !== 'completed') {
@@ -252,7 +293,7 @@ export function ensureStepActivated(change, task, definition, context = {}) {
         { code: 'REPO_ROOT_REQUIRED', step: position.step }
       );
     }
-    const changeSlug = change.id || change._slug;
+    const changeSlug = change._slug || change.id;
     const priorRecord = loadOperationRecord(context.repoRoot, changeSlug, task.id, position.step, position.attempt);
     if (priorRecord && priorRecord.status !== 'completed') {
       throw new WorkflowError(
@@ -269,26 +310,7 @@ export function ensureStepActivated(change, task, definition, context = {}) {
   }
 
   if (context.repoRoot) {
-    let dirtyPaths;
-    try {
-      dirtyPaths = git.getDirtyPaths(context.repoRoot);
-    } catch (err) {
-      if (err instanceof WorkflowError) throw err;
-      throw new WorkflowError(
-        `Unable to inspect Git working tree state before activating new attempt: ${err.message}`,
-        { code: 'WORKTREE_STATE_UNAVAILABLE', cause: err }
-      );
-    }
-    const relevantDirty = dirtyPaths.filter(p => {
-      const norm = p.replace(/\\/g, '/');
-      return norm !== '.nevo-ai-local' && !norm.startsWith('.nevo-ai-local/');
-    });
-    if (relevantDirty.length > 0) {
-      throw new WorkflowError(
-        `Working tree has uncommitted changes outside .nevo-ai-local/ (${relevantDirty.join(', ')}) — clean the workspace before starting a new attempt`,
-        { code: 'DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT', dirtyFiles: relevantDirty }
-      );
-    }
+    assertCleanWorktreeForNewAttempt(context.repoRoot);
   }
 
   const targetStep = position.phase === 'new' ? definition.entryStep : position.nextStep;
@@ -431,6 +453,20 @@ export function extractPreviousTransition(task) {
 }
 
 /**
+ * Trims source-control facts to an agent-facing projection (D24).
+ * Drops existingCommits/unpushedCommits (full branch history) while preserving
+ * currentBranch, changedFiles, taskAffectedFiles, etc.
+ *
+ * @param {object|null} facts
+ * @returns {object|null}
+ */
+export function pickAgentFacingSourceControl(facts) {
+  if (!facts) return null;
+  const { existingCommits, unpushedCommits, ...rest } = facts;
+  return rest;
+}
+
+/**
  * Compiles the full `StepContext` returned by `workflow step start` (D10): current step,
  * task/spec identity, workflow state, entry state/blockers, factual context (including
  * source-control context when enabled), the finish contract (`requiredInputs` aggregated
@@ -477,10 +513,14 @@ export async function compileStepContext({
     const { allowedPaths, forbiddenPaths } = resolveTaskScope(change, effectiveTask, context);
     const routingIndex = context.routingIndex !== undefined ? context.routingIndex : loadRoutingIndex();
     const relevantDocs = resolveRelevantDocs(allowedPaths, routingIndex);
+    const taskDefinition = resolveTaskDefinition(change, effectiveTask, context);
+    const requiredContext = resolveRequiredContext(change, effectiveTask, context);
 
     return {
       change: changeId,
       task: effectiveTask.id,
+      taskDefinition,
+      requiredContext,
       workflowMode: 'deterministic',
       currentStep: null,
       attempt: position.attempt,
@@ -496,7 +536,12 @@ export async function compileStepContext({
       },
       relevantDocs,
       context: {},
-      finishContract: { parameters: {}, requiredInputs: {}, gates: [] },
+      finishContract: {
+        parameters: {},
+        // D24: requiredInputs is intentionally identical to parameters (kept for backward-compatibility with external callers).
+        requiredInputs: {},
+        gates: [],
+      },
     };
   }
 
@@ -516,6 +561,7 @@ export async function compileStepContext({
   // finish-operation.mjs's planFinish).
   const blockers = entryGateResults.filter(g => g.status === 'blocked' || g.status === 'failed');
   const sourceControlContext = normalizeSourceControlFacts(finalizeCheck.actions['commit-and-push']?.context);
+  const agentFacingSourceControl = pickAgentFacingSourceControl(sourceControlContext);
 
   const { allowedPaths, forbiddenPaths } = resolveTaskScope(change, effectiveTask, context);
   const instructions = deriveInstructions(allowedPaths, blockers);
@@ -523,10 +569,14 @@ export async function compileStepContext({
   const relevantDocs = resolveRelevantDocs(allowedPaths, routingIndex);
   const stepContract = buildStepContract(step);
   const previousTransition = extractPreviousTransition(effectiveTask);
+  const taskDefinition = resolveTaskDefinition(change, effectiveTask, context);
+  const requiredContext = resolveRequiredContext(change, effectiveTask, context);
 
   return {
     change: changeId,
     task: effectiveTask.id,
+    taskDefinition,
+    requiredContext,
     workflowMode: 'deterministic',
     currentStep: stepName,
     attempt: position.attempt,
@@ -543,9 +593,10 @@ export async function compileStepContext({
     relevantDocs,
     ...(stepContract !== undefined ? { stepContract } : {}),
     ...(previousTransition !== undefined ? { previousTransition } : {}),
-    context: sourceControlContext ? { sourceControl: sourceControlContext } : {},
+    context: agentFacingSourceControl ? { sourceControl: agentFacingSourceControl } : {},
     finishContract: {
       parameters,
+      // D24: requiredInputs is intentionally identical to parameters (kept for backward-compatibility with external callers).
       requiredInputs: parameters,
       // Enriched with inspected status (not just static id/type descriptors) so a blocking
       // human-verification (or other unmet exit gate) state is visible directly on
@@ -553,5 +604,30 @@ export async function compileStepContext({
       // attempt report the same blocking state (D9 clarification).
       gates: exitGateResults,
     },
+  };
+}
+
+/**
+ * Shared runtime context helper between CLI and HTTP transport.
+ * Constructs the standard execution context from change, task, and definition.
+ */
+export function buildWorkflowRuntimeContext(change, task, definition, { repoRoot, activeDir, changeSlug, sessionId } = {}) {
+  const resolvedChangeSlug = changeSlug || change._slug || change.id;
+  const scope = resolveTaskScope(change, task, { activeDir, repoRoot });
+  const workflowOwnedPaths = resolveWorkflowOwnedPaths({ activeDir, repoRoot, changeSlug: resolvedChangeSlug });
+
+  return {
+    repoRoot,
+    activeDir,
+    taskId: task.id,
+    task,
+    changeId: change.id,
+    changeSlug: resolvedChangeSlug,
+    sourceControl: definition.sourceControl,
+    baseBranch: 'main',
+    taskAllowedPaths: scope.allowedPaths,
+    allowedPaths: scope.allowedPaths,
+    workflowOwnedPaths,
+    ...(sessionId ? { sessionId } : {}),
   };
 }

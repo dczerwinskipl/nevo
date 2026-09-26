@@ -2,16 +2,17 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import * as git from '../../../lib/git.mjs';
-import { createProgressEmitter } from '../../../lib/operation-progress.mjs';
 import { evaluateGate, evaluateTaskGate } from '../../../specs/gates.mjs';
 import { isTaskReady } from '../../../specs/lifecycle-primitives.mjs';
 import { ACTIVE_DIR, loadChange } from '../../../specs/store.mjs';
 import { loadFollowUps } from '../../../specs/follow-ups.mjs';
-import { approveTask } from '../../../specs/approve/operation.mjs';
-import { verifyTask } from '../../../specs/verify/operation.mjs';
-import { finalizeChange } from '../../../specs/finalize/operation.mjs';
-import { handleWorkflowVerifyHuman } from '../../../specs/workflow/cli.mjs';
+import { executeLegacySpecificationAction } from './actions/legacy-mutations.mjs';
+import { executeDeterministicHumanDecision } from './actions/deterministic-mutations.mjs';
 import { resolveWorkflowMode } from '../../../specs/workflow/compatibility.mjs';
+import { loadWorkflowDefinition } from '../../../specs/workflow/definitions/loader.mjs';
+import { projectTask } from '../../../specs/workflow/task-projection.mjs';
+import { describeStep, describeHumanInteraction } from '../../../specs/workflow/human-step/projection.mjs';
+import { evaluateExecutionReadiness } from '../../../specs/workflow/readiness-policy.mjs';
 import { REPOSITORY_ROOT } from '../infrastructure/paths.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -42,74 +43,20 @@ export function finalizeGate(change, facts = {}) {
   };
 }
 
-export function computeTaskAvailableActions(task, change) {
+/**
+ * Legacy workflow available actions.
+ */
+export function computeLegacyTaskAvailableActions(task, change) {
   if (!task) return [];
   if (task.status === 'verified') return [];
-
-  const wp = task.workflow_progress;
-  if (!wp || !wp.current_step) {
-    if (task.status === 'in-implementation') return [];
-    // A task with no workflow_progress yet has never been started — it is only really
-    // executable once its own dependencies are satisfied (isTaskReady), never merely
-    // because a `start-implementation` label would otherwise apply to its raw status.
-    // Without this check a `draft` task, or an `approved` task still blocked by an
-    // unmet depends_on, would incorrectly project an executable start action.
-    return isTaskReady(task, change) ? ['start-implementation'] : [];
-  }
-
-  if (wp.state === 'reconciliation-required' || task.status === 'reconciliation-required') {
-    return ['operator-reconciliation'];
-  }
-
-  if (wp.state === 'active') {
-    if (wp.current_step === 'human-verification' || task.status === 'awaiting-human-verification') {
-      return ['approve', 'request-changes'];
-    }
-    return [];
-  }
-
-  if (wp.state === 'completed') {
-    const history = Array.isArray(wp.history) ? wp.history : [];
-    const lastEntry = history[history.length - 1];
-    const destination = lastEntry?.transitioned_to;
-
-    if (destination === 'human-verification') {
-      return ['approve', 'request-changes'];
-    }
-    if (destination === 'review') {
-      return ['start-review'];
-    }
-    if (destination === 'implementation') {
-      return ['start-implementation'];
-    }
-    if (destination === 'verified') {
-      return [];
-    }
-
-    if (wp.current_step === 'implementation') {
-      return ['start-review'];
-    }
-    if (wp.current_step === 'review') {
-      return lastEntry?.result === 'pass'
-        ? ['approve', 'request-changes']
-        : ['start-implementation'];
-    }
-    if (wp.current_step === 'human-verification') {
-      return lastEntry?.result === 'pass' ? [] : ['start-implementation'];
-    }
-  }
-
-  return [];
+  if (task.status === 'in-implementation') return [];
+  return isTaskReady(task, change) ? ['start-implementation'] : [];
 }
 
 /**
- * Authoritative, server-owned read model of a task's deterministic-workflow position —
- * the single source the dashboard UI renders as its workflow bar / verification banner.
- * Never derived by the UI from `task.status` or defaulted (e.g. `attempt || 1`); a task
- * with no `workflow_progress` yet (legacy lifecycle, or not started) reports `null` for
- * every workflow-position field rather than a guessed value.
+ * Legacy workflow position projection.
  */
-export function computeTaskWorkflowProjection(task) {
+export function computeLegacyTaskWorkflowProjection(task) {
   const wp = task?.workflow_progress || null;
   return {
     status: task?.status ?? null,
@@ -117,6 +64,95 @@ export function computeTaskWorkflowProjection(task) {
     attempt: wp?.current_attempt ?? null,
     workflowState: wp?.state ?? null,
   };
+}
+
+/**
+ * Authoritative deterministic task action projection (DashboardActionProjection, D10).
+ * Composes TaskProjection with ExecutionReadiness.
+ *
+ * Exposes: state, executor, attempt, currentStep, blockedBy, blockingDependencies,
+ * terminalOutcome, terminalStatus, stepDescriptor, currentStepDescriptor, nextStepDescriptor,
+ * humanInteraction, and availableActions.
+ *
+ * availableActions is exactly ["start-step"] when waiting for a start and ExecutionReadiness allows it,
+ * for EITHER executor (D15). Never contains step-id-derived action names.
+ *
+ * Contains ZERO references to task.status, isTaskReady, or literal step names ('implementation', 'review', etc.).
+ */
+export function computeDeterministicTaskActionProjection(task, change, options = {}) {
+  const repoRoot = options.root || options.repoRoot || REPOSITORY_ROOT;
+  let definition = options.definition;
+  if (!definition) {
+    const resolvedMode = resolveWorkflowMode(change, options);
+    if (resolvedMode.definition) {
+      definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot });
+    }
+  }
+
+  const projection = projectTask(task, change, { ...options, repoRoot, definition });
+
+  // Resolve step descriptor (tier-1)
+  const isCurrentlyActive = projection.state === 'active' || projection.state === 'human-interaction';
+  const targetDescriptor = isCurrentlyActive
+    ? (definition && projection.currentStep ? describeStep(definition, projection.currentStep) : null)
+    : (projection.nextStep || null);
+
+  // Evaluate execution readiness for availableActions (D10, D15)
+  let availableActions = [];
+  const isWaitingForStart = projection.state === 'ready' || projection.state === 'waiting-for-step-start';
+  if (isWaitingForStart) {
+    const targetExecutor = targetDescriptor?.executor || projection.executor || 'agent';
+    const readiness = evaluateExecutionReadiness(task, change, targetExecutor, {
+      repoRoot,
+      definition,
+    });
+    if (readiness.ready) {
+      availableActions = ['start-step'];
+    }
+  }
+
+  let humanInteraction = projection.humanInteraction;
+  if (!humanInteraction && isWaitingForStart && targetDescriptor?.executor === 'human') {
+    const stepDef = definition?.steps?.[targetDescriptor.id];
+    if (stepDef) {
+      humanInteraction = describeHumanInteraction(stepDef, true);
+    }
+  }
+
+  return {
+    state: projection.state,
+    canPublish: projection.canPublish ?? (projection.state === 'draft'),
+    executor: projection.executor,
+    attempt: projection.currentAttempt,
+    currentStep: projection.currentStep,
+    blockedBy: projection.blockedBy,
+    blockingDependencies: projection.blockingDependencies,
+    terminalOutcome: projection.terminalOutcome,
+    terminalStatus: projection.terminalStatus,
+    stepDescriptor: targetDescriptor,
+    currentStepDescriptor: isCurrentlyActive ? targetDescriptor : null,
+    nextStepDescriptor: !isCurrentlyActive ? targetDescriptor : null,
+    humanInteraction,
+    availableActions,
+  };
+}
+
+export function computeTaskAvailableActions(task, change, options = {}) {
+  if (!task) return [];
+  const resolvedMode = change ? resolveWorkflowMode(change, options) : { mode: 'legacy' };
+  if (resolvedMode.mode === 'deterministic') {
+    const projection = computeDeterministicTaskActionProjection(task, change, options);
+    return projection.availableActions;
+  }
+  return computeLegacyTaskAvailableActions(task, change);
+}
+
+export function computeTaskWorkflowProjection(task, change, options = {}) {
+  const resolvedMode = change ? resolveWorkflowMode(change, options) : { mode: 'legacy' };
+  if (resolvedMode.mode === 'deterministic') {
+    return computeDeterministicTaskActionProjection(task, change, options);
+  }
+  return computeLegacyTaskWorkflowProjection(task);
 }
 
 function requireActiveChange(slug, activeDir) {
@@ -179,22 +215,37 @@ export async function loadSpecificationActions({
     { mode: 'fast' },
   );
 
-  const tasks = {};
-  for (const task of change.tasks) {
-    const gate = await taskGate(change, task, { taskGateEvaluator, root, slug });
-    const availableActions = computeTaskAvailableActions(task, change);
-    tasks[task.id] = {
-      ...(gate || {}),
-      ...computeTaskWorkflowProjection(task),
-      availableActions,
-    };
-  }
-
   // Authoritative source for whether this specification runs under the deterministic
   // workflow engine — the exact same resolver the CLI/workflow engine itself uses (D15).
   // The UI must read this rather than re-deriving it from task.status, a localStorage
   // preference, or session state.
   const resolvedWorkflow = resolveWorkflowMode(change);
+  let workflowDef = null;
+  if (resolvedWorkflow.mode === 'deterministic' && resolvedWorkflow.definition) {
+    workflowDef = loadWorkflowDefinition(resolvedWorkflow.definition, { repoRoot: root });
+  }
+
+  const tasks = {};
+  for (const task of change.tasks) {
+    const gate = await taskGate(change, task, { taskGateEvaluator, root, slug });
+    if (resolvedWorkflow.mode === 'deterministic') {
+      const projectionDto = computeDeterministicTaskActionProjection(task, change, {
+        root,
+        definition: workflowDef,
+      });
+      tasks[task.id] = {
+        ...(gate || {}),
+        ...projectionDto,
+      };
+    } else {
+      const availableActions = computeLegacyTaskAvailableActions(task, change);
+      tasks[task.id] = {
+        ...(gate || {}),
+        ...computeLegacyTaskWorkflowProjection(task),
+        availableActions,
+      };
+    }
+  }
 
   return {
     id: change.id || change._slug,
@@ -232,125 +283,28 @@ export function executeSpecificationAction({
   signal = null,
 } = {}) {
   const change = requireActiveChange(slug, activeDir);
-
-  let operationType;
-  if (action === 'approve' || action === 'verify') {
-    const task = change.tasks.find((candidate) => candidate.id === taskId);
-    if (!task) throw new SpecificationActionError('Task not found.', 404);
-    operationType = `spec-action-${action}`;
-  } else if (action === 'finalize') {
-    if (!confirmed) throw new SpecificationActionError('Finalization requires explicit confirmation.', 400);
-    operationType = 'spec-action-finalize';
-  } else {
-    throw new SpecificationActionError('Unknown specification action.', 400);
+  const workflowMode = resolveWorkflowMode(change, { activeDir, repoRoot: root });
+  if (workflowMode.mode === 'deterministic') {
+    throw new SpecificationActionError(
+      `Cannot run legacy '${action}' against deterministic specification '${slug || change.id}'. ` +
+      `Use deterministic command surface instead: workflow task publish, workflow step start, workflow step finish, startHumanStep, submitHumanStepResult, or workflow verify-human.`,
+      400,
+    );
   }
 
-  let finished = false;
-  function markFinished() {
-    if (finished) return;
-    finished = true;
-    if (typeof onFinished === 'function') {
-      try {
-        onFinished();
-      } catch {}
-    }
-  }
-
-  const operationId = operationRuntime ? operationRuntime.createOperation({ type: operationType }) : `op-${Date.now()}`;
-
-  // Forward only non-terminal step and progress events to OperationRuntime.
-  // Terminal state is owned exclusively by OperationRuntime.completeOperation / failOperation.
-  const emitter = createProgressEmitter({
-    out: null,
-    onEvent: (event) => {
-      if (
-        operationRuntime &&
-        event.type !== 'operation.started' &&
-        event.type !== 'operation.completed' &&
-        event.type !== 'operation.failed'
-      ) {
-        operationRuntime.recordEvent(operationId, event);
-      }
-    },
-  });
-
-  const useGit = useGitParam ?? root === REPOSITORY_ROOT;
-
-  let resolveCompletion;
-  const completion = new Promise((resolvePromise) => {
-    resolveCompletion = resolvePromise;
-  });
-
-  const runner = async () => {
-    try {
-      let result;
-      if (action === 'approve') {
-        result = await approveTask({
-          changeSlug: slug,
-          taskId,
-          activeDir,
-          gitRoot: root,
-          git: useGit,
-          emitter,
-          signal,
-        });
-      } else if (action === 'verify') {
-        result = await verifyTask({
-          changeSlug: slug,
-          taskId,
-          activeDir,
-          gitRoot: root,
-          git: useGit,
-          emitter,
-          signal,
-        });
-      } else if (action === 'finalize') {
-        result = await finalizeChange({
-          changeSlug: slug,
-          gitRoot: root,
-          emitter,
-          signal,
-        });
-      }
-
-      if (operationRuntime) {
-        operationRuntime.completeOperation(
-          operationId,
-          result || {
-            ok: true,
-            action,
-            ...(taskId ? { taskId } : {}),
-          },
-        );
-      }
-    } catch (error) {
-      if (operationRuntime) {
-        operationRuntime.failOperation(operationId, {
-          message: error?.message || 'Operation failed',
-          code: error?.code,
-        });
-      }
-    } finally {
-      markFinished();
-      resolveCompletion();
-    }
-  };
-
-  void runner();
-
-  return {
-    ok: true,
-    operationId,
+  return executeLegacySpecificationAction({
+    change,
+    slug,
     action,
-    ...(taskId ? { taskId } : {}),
-    message:
-      action === 'approve'
-        ? 'Zadanie zostało zatwierdzone.'
-        : action === 'verify'
-          ? 'Implementacja została zaakceptowana.'
-          : 'Specyfikacja została sfinalizowana.',
-    completion,
-  };
+    taskId,
+    confirmed,
+    activeDir,
+    root,
+    git: useGitParam,
+    operationRuntime,
+    onFinished,
+    signal,
+  });
 }
 
 /**
@@ -438,33 +392,23 @@ export async function executeHumanDecision({
   activeDir = ACTIVE_DIR,
   root = REPOSITORY_ROOT,
 } = {}) {
-  if (decision !== 'approve' && decision !== 'request-changes') {
-    throw new SpecificationActionError("Decision must be 'approve' or 'request-changes'.", 400);
-  }
-  if (decision === 'request-changes' && (!feedback || typeof feedback !== 'string' || feedback.trim() === '')) {
-    throw new SpecificationActionError('Feedback is required when requesting changes.', 400);
+  const change = requireActiveChange(slug, activeDir);
+  const workflowMode = resolveWorkflowMode(change, { activeDir, repoRoot: root });
+  if (workflowMode.mode === 'legacy') {
+    throw new SpecificationActionError(
+      `Cannot run deterministic human decision against legacy specification '${slug || change.id}'. ` +
+      `Use legacy command surface instead: approve, start, complete, verify.`,
+      400,
+    );
   }
 
-  const opts = {
-    approve: decision === 'approve',
-    requestChanges: decision === 'request-changes',
-    feedback: feedback ? feedback.trim() : undefined,
+  return await executeDeterministicHumanDecision({
+    change,
+    slug,
+    taskId,
+    decision,
+    feedback,
     activeDir,
-    repoRoot: root,
-    silent: true,
-  };
-
-  try {
-    const result = await handleWorkflowVerifyHuman(slug, taskId, opts);
-    return {
-      ok: true,
-      decision,
-      taskId,
-      result,
-    };
-  } catch (err) {
-    if (err instanceof SpecificationActionError) throw err;
-    const status = err.status || (err.message && err.message.includes('not found') ? 404 : 400);
-    throw new SpecificationActionError(err.message, status);
-  }
+    root,
+  });
 }

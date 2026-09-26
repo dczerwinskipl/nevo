@@ -16,3 +16,4 @@ steps:
         required: true
     transitions:
       - to: verified
+        outcome: success

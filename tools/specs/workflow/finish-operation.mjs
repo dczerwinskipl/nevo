@@ -9,7 +9,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { requireChange, requireTask, setTaskWorkflowState } from '../store.mjs';
-import { TERMINAL_STATUSES } from '../lifecycle-primitives.mjs';
+import { TERMINAL_STATUSES } from '../status-vocabulary.mjs';
 import { normalizeSourceControlConfig } from './definitions/schema.mjs';
 import { defaultActionRegistry, defaultGateRegistry } from './registry.mjs';
 import { defaultWorkflowEngine } from './engine.mjs';
@@ -22,6 +22,7 @@ import * as git from '../../lib/git.mjs';
 // `step start` activation guard can read these records too, without a circular import
 // between this module and `step-context.mjs`.
 import { loadOperationRecord, saveOperationRecord, findInFlightOperationRecord } from './operation-record.mjs';
+import { withGitFinalizeLock } from './git-finalize-lock.mjs';
 
 export const FINISH_STAGE_IDS = ['verify-gates', 'update-task', 'commit', 'push', 'transition'];
 
@@ -379,7 +380,7 @@ async function ensureVerifyGates(record, step, context, gateRegistry, repoRoot) 
  * meaningful). D23's step-aware record identity already guarantees `record.step` is the
  * one step this comparison is ever about.
  */
-async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskId, repoRoot) {
+async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskId, repoRoot, context = {}) {
   const stage = findStage(record, 'update-task');
   if (stage.status === 'completed') return;
 
@@ -496,11 +497,13 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
     ? record.resolvedInputs.feedback.trim()
     : undefined;
 
+  const recordedSessionId = record.resolvedInputs?.sessionId || context.sessionId || undefined;
   const entry = {
     step: stepName,
     attempt,
     completed_at: new Date().toISOString(),
     transitioned_to: to,
+    ...(recordedSessionId ? { sessionId: recordedSessionId } : {}),
     ...(record.resolvedInputs?.result !== undefined ? { result: record.resolvedInputs.result } : {}),
     ...(artifacts !== undefined ? { artifacts } : {}),
     ...(feedback !== undefined ? { feedback } : {}),
@@ -514,6 +517,7 @@ async function ensureUpdateTask(record, definition, activeDir, changeSlug, taskI
     toState: 'completed',
     transitioned_to: to,
     terminalStatus: isInternalTransition ? null : to,
+    ...(recordedSessionId ? { sessionId: recordedSessionId } : {}),
     ...(record.resolvedInputs?.result !== undefined ? { result: record.resolvedInputs.result } : {}),
     ...(artifacts !== undefined ? { artifacts } : {}),
     ...(feedback !== undefined ? { feedback } : {}),
@@ -772,8 +776,11 @@ export async function finishStep({
 
   try {
     await ensureVerifyGates(record, step, effectiveContext, gateRegistry, repoRoot);
-    await ensureUpdateTask(record, definition, resolvedActiveDir, changeSlug, task.id, repoRoot);
-    await ensureCommit(record, effectiveContext, repoRoot);
+    const existingLease = context.finalizeLease || effectiveContext.finalizeLease;
+    await withGitFinalizeLock(async () => {
+      await ensureUpdateTask(record, definition, resolvedActiveDir, changeSlug, task.id, repoRoot, effectiveContext);
+      await ensureCommit(record, effectiveContext, repoRoot);
+    }, existingLease, { repoRoot });
     await ensurePush(record, effectiveContext, repoRoot);
     await ensureTransition(record, definition);
   } catch (err) {

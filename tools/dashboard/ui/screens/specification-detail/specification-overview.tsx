@@ -1,17 +1,286 @@
-import { ArrowUpRight, Layers3, MessageSquarePlus } from 'lucide-react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { ArrowUpRight, Layers3, MessageSquarePlus, ListChecks, Play, AlertTriangle, ShieldAlert } from 'lucide-react';
 
 import type {
   SpecificationSummary,
   SpecificationTask,
   SpecificationOwnerAction,
   SpecificationTaskActionGate,
+  WorkflowStepDescriptor,
 } from '@/features/specifications/types';
 import type { AgentSession, TaskNavigationTarget } from '@/features/agent-sessions/types';
-import { formatStatus } from '@/shared/lib/utils';
+import type { ExecutionPolicy } from '@/features/agent-sessions/execution-policy';
+import { formatStatus, cn } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/button';
 import { Card } from '@/shared/ui/card';
+import { Badge } from '@/shared/ui/badge';
 import { AgentSessionList } from '@/features/agent-sessions/agent-session-list';
 import { StatusBoard } from '@/features/specifications/detail/status-board';
+
+export interface SequentialQueueTaskPickerProps {
+  tasks: SpecificationTask[];
+  taskActions?: Record<string, SpecificationTaskActionGate>;
+  onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor, taskIds?: string[]) => void | Promise<void>;
+  onTriggerRemediationReview?: (remediationTaskIds: string[]) => void | Promise<void>;
+  executionPolicy?: ExecutionPolicy | null;
+  onConfigureExecutionPolicy?: () => void;
+  durableRemediationTaskIds?: string[];
+}
+
+export function SequentialQueueTaskPicker({
+  tasks,
+  taskActions,
+  onStartStep,
+  onTriggerRemediationReview,
+  executionPolicy,
+  onConfigureExecutionPolicy,
+  durableRemediationTaskIds,
+}: SequentialQueueTaskPickerProps) {
+  // Pre-checks currently-ready tasks (D32, AC 104)
+  const readyTaskIds = useMemo(() => {
+    const ready = new Set<string>();
+    for (const t of tasks) {
+      const gate = taskActions?.[t.id];
+      if (
+        gate?.availableActions?.includes('start-step') ||
+        gate?.state === 'ready' ||
+        gate?.canPublish ||
+        t.status === 'approved'
+      ) {
+        ready.add(t.id);
+      }
+    }
+    return ready;
+  }, [tasks, taskActions]);
+
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(readyTaskIds);
+
+  useEffect(() => {
+    setSelectedTaskIds(readyTaskIds);
+  }, [readyTaskIds]);
+
+  const toggleTask = (taskId: string) => {
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    setSelectedTaskIds(new Set(tasks.map((t) => t.id)));
+  };
+
+  const clearAll = () => {
+    setSelectedTaskIds(new Set());
+  };
+
+  // Cross-selection dependency warnings (D32, AC 5)
+  // Names specific blocking tasks that are not selected and not satisfied
+  const dependencyWarnings = useMemo(() => {
+    const warnings: Array<{ taskId: string; taskTitle: string; blockingTaskId: string }> = [];
+    for (const task of tasks) {
+      if (!selectedTaskIds.has(task.id)) continue;
+      for (const depId of task.dependsOn || []) {
+        const depTask = tasks.find((t) => t.id === depId);
+        const depGate = taskActions?.[depId];
+        const isSatisfied =
+          depTask?.status === 'verified' ||
+          depGate?.state === 'terminal' ||
+          depGate?.terminalOutcome === 'success';
+        if (!isSatisfied && !selectedTaskIds.has(depId)) {
+          warnings.push({
+            taskId: task.id,
+            taskTitle: task.title,
+            blockingTaskId: depId,
+          });
+        }
+      }
+    }
+    return warnings;
+  }, [selectedTaskIds, tasks, taskActions]);
+
+  // Durable remediation group tasks (backed only by explicit durable remediation record, D31)
+  const remediationTaskIds = durableRemediationTaskIds ?? [];
+
+  const handleSelectRemediationGroup = () => {
+    if (remediationTaskIds.length > 0) {
+      setSelectedTaskIds(new Set(remediationTaskIds));
+      onTriggerRemediationReview?.(remediationTaskIds);
+    }
+  };
+
+  const defaultProvider = executionPolicy?.default?.provider || executionPolicy?.provider || 'Nie skonfigurowano';
+  const implementerProvider = executionPolicy?.roles?.implementer?.provider || defaultProvider;
+  const reviewerProvider = executionPolicy?.roles?.reviewer?.provider || defaultProvider;
+  const refinerProvider = executionPolicy?.roles?.refiner?.provider || defaultProvider;
+
+  // Submits the selection via server-side orchestration layer
+  // Starts exactly ONE session (for the queue's first nextRunnable item), never more than one (D33, AC 2, AC 8)
+  const handleStartBatch = useCallback(() => {
+    if (selectedTaskIds.size === 0) return;
+    const selectedTasks = tasks
+      .filter((t) => selectedTaskIds.has(t.id))
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+    const nextRunnable =
+      selectedTasks.find((t) => taskActions?.[t.id]?.availableActions?.includes('start-step')) ||
+      selectedTasks[0];
+
+    if (nextRunnable) {
+      const gate = taskActions?.[nextRunnable.id];
+      const descriptor =
+        gate?.stepDescriptor ||
+        gate?.nextStepDescriptor ||
+        gate?.currentStepDescriptor || {
+          id: null,
+          executor: gate?.executor || 'agent',
+        };
+      // Exactly ONE session start is initiated
+      onStartStep?.(nextRunnable, descriptor, Array.from(selectedTaskIds));
+    }
+  }, [onStartStep, selectedTaskIds, tasks, taskActions]);
+
+  if (!tasks || tasks.length === 0) return null;
+
+  return (
+    <Card className="mt-8 overflow-hidden border border-border bg-surface p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className="flex size-8 items-center justify-center rounded-lg bg-accent/10 text-accent">
+            <ListChecks className="size-4" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-fg-primary">Kolejka zadań (Sequential Queue)</h3>
+              <Badge className="text-[10px]">
+                {selectedTaskIds.size} / {tasks.length} wybranych
+              </Badge>
+            </div>
+            <p className="mt-0.5 text-xs text-fg-muted">
+              Wybierz zadania do uruchomienia w kolejce deterministycznej. Zadania wykonywane są sekwencyjnie (jedno na raz).
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="secondary" onClick={selectAll} className="h-7 text-xs">
+            Zaznacz wszystkie
+          </Button>
+          <Button size="sm" variant="secondary" onClick={clearAll} className="h-7 text-xs">
+            Wyczyść
+          </Button>
+          {remediationTaskIds.length > 0 && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleSelectRemediationGroup}
+              className="h-7 border-status-warning/40 text-xs text-status-warning hover:bg-status-warning/10"
+              title="Wybierz zadania wymagające naprawy (remediation group)"
+            >
+              <ShieldAlert className="mr-1 size-3" /> Grupa naprawcza ({remediationTaskIds.length})
+            </Button>
+          )}
+          <Button
+            size="sm"
+            onClick={handleStartBatch}
+            disabled={selectedTaskIds.size === 0}
+            className="h-7 cursor-pointer text-xs font-semibold"
+            aria-label="Start batch"
+          >
+            <Play className="mr-1 size-3" /> Start batch
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 bg-surface-muted/40 px-3 py-1.5 text-xs text-fg-muted">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Konfiguracja wykonawców:</span>
+          <span className="inline-flex items-center gap-1 text-fg-secondary">
+            <span className="text-fg-muted">Implementer:</span>
+            <span className="font-semibold capitalize text-fg-primary">{implementerProvider}</span>
+          </span>
+          <span className="text-border">•</span>
+          <span className="inline-flex items-center gap-1 text-fg-secondary">
+            <span className="text-fg-muted">Reviewer:</span>
+            <span className="font-semibold capitalize text-fg-primary">{reviewerProvider}</span>
+          </span>
+          <span className="text-border">•</span>
+          <span className="inline-flex items-center gap-1 text-fg-secondary">
+            <span className="text-fg-muted">Refiner:</span>
+            <span className="font-semibold capitalize text-fg-primary">{refinerProvider}</span>
+          </span>
+        </div>
+        {onConfigureExecutionPolicy && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onConfigureExecutionPolicy}
+            className="h-6 px-2 text-[11px] font-medium text-accent hover:bg-accent/10 hover:text-accent"
+            title="Konfiguruj wykonawców dla ról"
+          >
+            Konfiguruj
+          </Button>
+        )}
+      </div>
+
+      {dependencyWarnings.length > 0 && (
+        <div className="mt-4 space-y-1.5" role="alert" aria-label="Ostrzeżenia o zależnościach">
+          {dependencyWarnings.map((w) => (
+            <div
+              key={`${w.taskId}-${w.blockingTaskId}`}
+              className="flex items-center gap-2 rounded-lg border border-status-warning/30 bg-status-warning/10 px-3 py-2 text-xs text-status-warning"
+            >
+              <AlertTriangle className="size-3.5 shrink-0" />
+              <span>
+                Ostrzeżenie: Zadanie <strong>{w.taskTitle}</strong> zależy od niezaznaczonego lub niespełnionego zadania <code>{w.blockingTaskId}</code>.
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {tasks.map((task) => {
+          const isChecked = selectedTaskIds.has(task.id);
+          const gate = taskActions?.[task.id];
+          return (
+            <label
+              key={task.id}
+              className={cn(
+                'flex cursor-pointer items-start gap-2.5 rounded-lg border p-2.5 text-xs transition-colors',
+                isChecked
+                  ? 'border-accent/50 bg-accent/5'
+                  : 'border-border bg-surface-raised hover:bg-surface-hover',
+              )}
+            >
+              <input
+                type="checkbox"
+                aria-label={`Wybierz zadanie ${task.title}`}
+                className="mt-0.5 rounded border-border text-accent focus:ring-accent"
+                checked={isChecked}
+                onChange={() => toggleTask(task.id)}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="truncate font-semibold text-fg-primary">
+                    #{String(task.order ?? '—').padStart(2, '0')} {task.title}
+                  </span>
+                  {gate?.state && (
+                    <span className="text-[10px] uppercase text-fg-muted">{gate.state}</span>
+                  )}
+                </div>
+              </div>
+            </label>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
 
 export function SpecificationOverview({
   specification,
@@ -26,9 +295,13 @@ export function SpecificationOverview({
   isDeterministic = false,
   onDirectTaskAction,
   onBatchTaskAction,
-  onWorkflowAction,
+  onStartStep,
+  onPublishTask,
+  onBatchPublish,
   onCreateSession,
   onOpenTask,
+  executionPolicy,
+  onConfigureExecutionPolicy,
 }: {
   specification: SpecificationSummary;
   onTaskSelect: (task: SpecificationTask, trigger: HTMLElement) => void;
@@ -43,9 +316,13 @@ export function SpecificationOverview({
   isDeterministic?: boolean;
   onDirectTaskAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
   onBatchTaskAction?: (tasks: SpecificationTask[], action: SpecificationOwnerAction) => void;
-  onWorkflowAction?: (task: SpecificationTask, action: string) => void | Promise<void>;
+  onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor, taskIds?: string[]) => void | Promise<void>;
+  onPublishTask?: (task: SpecificationTask) => void | Promise<void>;
+  onBatchPublish?: (tasks: SpecificationTask[]) => void | Promise<void>;
   onCreateSession: () => void;
   onOpenTask?: (target: TaskNavigationTarget | string) => void;
+  executionPolicy?: ExecutionPolicy | null;
+  onConfigureExecutionPolicy?: () => void;
 }) {
   return (
     <>
@@ -98,6 +375,16 @@ export function SpecificationOverview({
         </Card>
       )}
 
+      {isDeterministic && specification.tasks && specification.tasks.length > 0 && (
+        <SequentialQueueTaskPicker
+          tasks={specification.tasks}
+          taskActions={taskActions}
+          onStartStep={onStartStep}
+          executionPolicy={executionPolicy}
+          onConfigureExecutionPolicy={onConfigureExecutionPolicy}
+        />
+      )}
+
       <div className="mt-11">
         <StatusBoard
           specification={specification}
@@ -106,7 +393,9 @@ export function SpecificationOverview({
           onTaskSelect={onTaskSelect}
           onTaskAction={onDirectTaskAction}
           onBatchAction={onBatchTaskAction}
-          onWorkflowAction={onWorkflowAction}
+          onStartStep={onStartStep}
+          onPublishTask={onPublishTask}
+          onBatchPublish={onBatchPublish}
         />
       </div>
     </>

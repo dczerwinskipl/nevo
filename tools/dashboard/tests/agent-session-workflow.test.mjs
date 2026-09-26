@@ -17,7 +17,7 @@ try {
   formatBoundTaskLabel = function (task) {
     const isVerified = task.status === 'verified';
     if (isVerified) return `✓ ${task.id} (verified)`;
-    const statusLabel = task.status || 'in-implementation';
+    const statusLabel = task.currentStep || task.status || 'unknown';
     const attemptLabel = task.attempt ? ` · attempt ${task.attempt}` : '';
     return `● ${task.id} (${statusLabel}${attemptLabel})`;
   };
@@ -72,50 +72,32 @@ describe('AC2: Dashboard task cards render availableActions (D8, C9, C10)', () =
 
     // Deterministic availableActions rendering
     assert.match(statusBoardSource, /actionGate\?\.availableActions/);
-    assert.match(statusBoardSource, /availableActions\.includes\('start-implementation'\)/);
-    assert.match(statusBoardSource, /Start implementation/);
-    assert.match(statusBoardSource, /availableActions\.includes\('start-review'\)/);
-    assert.match(statusBoardSource, /Start review/);
-    assert.match(statusBoardSource, /availableActions\.includes\('approve'\)/);
-    assert.match(statusBoardSource, /Approve/);
-    assert.match(statusBoardSource, /availableActions\.includes\('request-changes'\)/);
-    assert.match(statusBoardSource, /Request changes/);
-    assert.match(statusBoardSource, /availableActions\.includes\('operator-reconciliation'\)/);
+    assert.match(statusBoardSource, /availableActions\?\.includes\('start-step'\)/);
+    assert.match(statusBoardSource, /Start/);
+    assert.match(statusBoardSource, /Human action required/);
+    assert.match(statusBoardSource, /availableActions\?\.includes\('operator-reconciliation'\)/);
 
     // Classic action rendering preserved
     assert.match(statusBoardSource, /Zatwierdź/);
     assert.match(statusBoardSource, /Zaakceptuj/);
   });
 
-  test('SpecificationOverview passes isDeterministic and onWorkflowAction to StatusBoard, with no presentation toggle', () => {
+  test('SpecificationOverview passes isDeterministic and onStartStep to StatusBoard, with no presentation toggle', () => {
     const overviewSource = readSource('../ui/screens/specification-detail/specification-overview.tsx');
 
     assert.doesNotMatch(overviewSource, /WorkflowExperienceToggle/);
     assert.match(overviewSource, /isDeterministic=\{isDeterministic\}/);
-    assert.match(overviewSource, /onWorkflowAction=\{onWorkflowAction\}/);
+    assert.match(overviewSource, /onStartStep=\{onStartStep\}/);
   });
 
   test('SpecificationDetailContent initiates sessions via canonical sessionId UUID and queues initial dispatch', () => {
     const contentSource = readSource('../ui/screens/specification-detail/specification-detail-content.tsx');
 
     // Canonical sessionId anchor — queueAgentSessionInitialDispatch's identity key is
-    // named sessionId, never providerSessionId (Task 03 corrective pass). (Route params
-    // in navigate() calls legitimately keep the `providerSessionId` URL segment name —
-    // that is route-path cosmetics, not the runtime application identity.)
-    assert.match(contentSource, /queueAgentSessionInitialDispatch\(\{\s*provider: session\.provider,\s*sessionId: session\.sessionId,/);
+    // named sessionId, never providerSessionId (Task 03 corrective pass).
+    assert.match(contentSource, /queueAgentSessionInitialDispatch\(\{\s*provider:\s*session\.provider,\s*sessionId:\s*session\.sessionId,/);
     assert.match(contentSource, /queueAgentSessionInitialDispatch/);
-    assert.match(contentSource, /handleWorkflowAction/);
-    assert.match(contentSource, /action === 'start-implementation'/);
-    assert.match(contentSource, /action === 'start-review'/);
-    assert.match(contentSource, /action === 'approve'/);
-    assert.match(contentSource, /action === 'request-changes'/);
-  });
-
-  test('Task card "Request changes" queues an explicit navigation intent so chat opens directly in request-changes mode (no second click)', () => {
-    const contentSource = readSource('../ui/screens/specification-detail/specification-detail-content.tsx');
-    assert.match(contentSource, /pendingActionModeStore\.setPending\(targetSession\.sessionId, \{/);
-    assert.match(contentSource, /action: 'request-changes'/);
-    assert.match(contentSource, /taskId: task\.id/);
+    assert.match(contentSource, /const startStep = useCallback/);
   });
 });
 
@@ -166,7 +148,7 @@ describe('AC3: Bound tasks workflow bar and task switching (C11)', () => {
 });
 
 describe('AC4: In-chat human verification and workflow action surface (D7, D8)', () => {
-  test('AgentSessionChatSurface renders workflow bar and verification banner when availableActions present', () => {
+  test('AgentSessionChatSurface renders workflow bar and human step surface when availableActions present', () => {
     const source = readSource('../ui/features/agent-sessions/agent-session-chat-surface.tsx');
 
     // Renders workflow bar
@@ -174,14 +156,8 @@ describe('AC4: In-chat human verification and workflow action surface (D7, D8)',
     assert.match(source, /tasks=\{boundTasks\}/);
     assert.match(source, /activeTaskId=\{activeTaskId/);
 
-    // Human verification banner
-    assert.match(source, /Task \{activeTaskId\} · Human verification/);
-    assert.match(source, /Attempt \$\{activeTaskAttempt\}/);
-
-    // Action buttons
-    assert.match(source, /onApproveTask\?\.?\(activeTaskId\)/);
-    assert.match(source, /setActionMode\('request-changes'\)/);
-    assert.match(source, /onStartReviewTask\?\.?\(activeTaskId\)/);
+    // Human verification surface
+    assert.match(source, /<HumanStepSurface/);
   });
 });
 
@@ -217,7 +193,7 @@ describe('AC5 & AC6: Dedicated "Request Changes" composer mode (D3, D7, C8)', ()
     assert.doesNotMatch(source, /setDraft\(''\);\s*\n\s*await onRequestChangesSubmit/);
   });
 
-  test('AgentSessionPage anchors session navigation on canonical sessionId alone and handles human decisions', () => {
+  test('AgentSessionPage anchors session navigation on canonical sessionId alone', () => {
     const source = readSource('../ui/features/agent-sessions/agent-session-page.tsx');
 
     // Authoritative canonical sessionId UUID — never combined with providerSessionId as
@@ -233,11 +209,8 @@ describe('AC5 & AC6: Dedicated "Request Changes" composer mode (D3, D7, C8)', ()
     assert.match(source, /const activeTaskId: string \| null = sessionDetails\?\.taskId/);
     assert.doesNotMatch(source, /useState<string \| null>\(\(\) => boundTaskIds\[0\]/);
 
-    // Human decision dispatches
-    assert.match(source, /handleApproveTask/);
-    assert.match(source, /handleRequestChangesSubmit/);
-    assert.match(source, /decision: 'approve'/);
-    assert.match(source, /decision: 'request-changes'/);
+    // Generic start step
+    assert.match(source, /handleStartAgentStep/);
 
     // Workflow boundary refresh: a terminal turn refreshes availableActions immediately.
     assert.match(source, /onTurnCompleted:\s*\(\)\s*=>\s*\{[\s\S]*?onRefreshTaskActions\?\.\(\)/);

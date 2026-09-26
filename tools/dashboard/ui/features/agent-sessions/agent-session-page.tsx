@@ -7,7 +7,7 @@ import { resolveSessionTaskItems } from './session-tasks';
 import { ProviderUnavailableBanner } from './provider-unavailable-banner';
 import { AgentSessionChatSurface, type AgentSessionChatSurfaceHandle } from './agent-session-chat-surface';
 import { useAgentSessionRuntime } from './runtime/agent-session-runtime';
-import { useAgentProviders, useDeleteAgentSession, useSetSessionActiveTask } from './queries';
+import { useAgentProviders, useDeleteAgentSession, useSetSessionActiveTask, buildAgentStepTriggerMessage } from './queries';
 import { AI_PROVIDERS_CONFIG_PATH } from './provider-config';
 import { useInitialDispatch } from './runtime/use-initial-dispatch';
 import { useVisualViewport } from './transcript/use-visual-viewport';
@@ -34,6 +34,12 @@ export interface AgentSessionPageTaskAction {
   status?: string | null;
   currentStep?: string | null;
   attempt?: number | null;
+  state?: string;
+  executor?: string;
+  stepDescriptor?: { id: string | null; executor: string; purpose?: string | null; expectedWork?: any } | null;
+  currentStepDescriptor?: { id: string | null; executor: string; purpose?: string | null; expectedWork?: any } | null;
+  nextStepDescriptor?: { id: string | null; executor: string; purpose?: string | null; expectedWork?: any } | null;
+  humanInteraction?: { actions: Array<{ result?: string; label?: string; feedbackRequired: boolean }> } | null;
 }
 
 export interface AgentSessionPageProps {
@@ -97,7 +103,7 @@ export function AgentSessionPage({
       // Workflow boundary: a turn just went terminal (e.g. implementation finished,
       // review passed/failed). Refresh the authoritative availableActions/workflow
       // projection immediately rather than waiting for the next poll interval, so the
-      // next action (e.g. "Start review") appears without a stale ~30s delay.
+      // next action (e.g. generic "Start") appears without a stale ~30s delay.
       void onRefreshTaskActions?.();
     },
     onError: (err) => {
@@ -265,62 +271,20 @@ export function AgentSessionPage({
   const activeTaskActions = activeTaskProjection?.availableActions || [];
   const activeTaskAttempt = activeTaskProjection?.attempt ?? null;
 
-  const handleApproveTask = useCallback(async (taskId: string) => {
-    if (!spec?.slug) return;
-    setRuntimeError(null);
-    try {
-      const response = await fetch(`/api/specs/${encodeURIComponent(spec.slug)}/tasks/${encodeURIComponent(taskId)}/workflow/human-decision`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ decision: 'approve' }),
-      });
-      if (!response.ok) {
-        const errData = await response.json().catch(() => null);
-        throw new Error(errData?.error || `Nie udało się zatwierdzić zadania (${response.status})`);
+  const handleStartAgentStep = useCallback(
+    async (taskId: string) => {
+      if (!assistant.canStartTurn) return;
+      setRuntimeError(null);
+      try {
+        const prompt = buildAgentStepTriggerMessage(taskId);
+        await assistant.sendTurn(prompt, { mode: currentMode, userMessage: prompt });
+        await onRefreshTaskActions?.();
+      } catch (err) {
+        setRuntimeError(err instanceof Error ? err.message : String(err));
       }
-      await onRefreshTaskActions?.();
-      await assistant.reload();
-    } catch (err) {
-      setRuntimeError(err instanceof Error ? err.message : String(err));
-    }
-  }, [spec?.slug, onRefreshTaskActions, assistant]);
-
-  const handleStartReviewTask = useCallback(async (taskId: string) => {
-    if (!assistant.canStartTurn) return;
-    setRuntimeError(null);
-    try {
-      const prompt = `Review task ${taskId}`;
-      await assistant.sendTurn(prompt, { mode: 'agent', userMessage: prompt });
-      await onRefreshTaskActions?.();
-    } catch (err) {
-      setRuntimeError(err instanceof Error ? err.message : String(err));
-    }
-  }, [assistant, onRefreshTaskActions]);
-
-  const handleRequestChangesSubmit = useCallback(async (taskId: string, feedback: string) => {
-    if (!spec?.slug) return;
-    setRuntimeError(null);
-    try {
-      const response = await fetch(`/api/specs/${encodeURIComponent(spec.slug)}/tasks/${encodeURIComponent(taskId)}/workflow/human-decision`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ decision: 'request-changes', feedback }),
-      });
-      if (!response.ok) {
-        const errData = await response.json().catch(() => null);
-        throw new Error(errData?.error || `Nie udało się odrzucić zadania (${response.status})`);
-      }
-      await onRefreshTaskActions?.();
-      await assistant.reload();
-    } catch (err) {
-      const normalized = err instanceof Error ? err : new Error(String(err));
-      setRuntimeError(normalized.message);
-      // Rethrow so the composer/chat-surface know submission failed — otherwise the
-      // composer clears the typed feedback and exits request-changes mode as if the
-      // human decision had actually been recorded.
-      throw normalized;
-    }
-  }, [spec?.slug, onRefreshTaskActions, assistant]);
+    },
+    [assistant, currentMode, onRefreshTaskActions],
+  );
 
   const handleComposerSubmit = useCallback(
     async (promptText: string) => {
@@ -443,10 +407,11 @@ export function AgentSessionPage({
         onSelectActiveTask={(taskId) => void handleSelectActiveTask(taskId)}
         availableActions={activeTaskActions}
         activeTaskAttempt={activeTaskAttempt}
-        onApproveTask={handleApproveTask}
-        onStartReviewTask={handleStartReviewTask}
-        onRequestChangesSubmit={handleRequestChangesSubmit}
-        initialActionMode={initialActionMode}
+        onStartAgentStep={handleStartAgentStep}
+        stepDescriptor={activeTaskProjection?.stepDescriptor || activeTaskProjection?.currentStepDescriptor || activeTaskProjection?.nextStepDescriptor}
+        humanInteraction={activeTaskProjection?.humanInteraction}
+        specSlug={spec?.slug}
+        onRefreshTaskActions={onRefreshTaskActions}
         keyboardOpen={visualViewport.keyboardOpen}
         onReload={() => void handleReload()}
         onBack={onBack}

@@ -57,6 +57,7 @@ steps:
       - id: commit-and-push
     transitions:
       - to: verified
+        outcome: success
 `;
 
 const MULTI_GATE_CHANGE_YAML = `id: demo-change
@@ -96,6 +97,7 @@ steps:
       - id: commit-and-push
     transitions:
       - to: verified
+        outcome: success
 `;
 
 const REVIEWER_ROLE_CHANGE_YAML = `id: demo-change
@@ -132,6 +134,7 @@ steps:
       - id: commit-and-push
     transitions:
       - to: verified
+        outcome: success
 `;
 
 const CROSS_STEP_CHANGE_YAML = `id: demo-change
@@ -179,6 +182,7 @@ steps:
       - id: commit-and-push
     transitions:
       - to: verified
+        outcome: success
 `;
 
 const SEQUENCE_CHANGE_YAML = `id: demo-change
@@ -227,6 +231,7 @@ steps:
       - id: commit-and-push
     transitions:
       - to: verified
+        outcome: success
 `;
 
 const VERSION_MISMATCH_CHANGE_YAML = `id: demo-change

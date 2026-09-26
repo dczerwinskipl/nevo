@@ -7,6 +7,7 @@ import {
   setTaskStatus,
   ROOT,
 } from '../store.mjs';
+import { resolveWorkflowMode } from '../workflow/compatibility.mjs';
 import { guardAgainstUnsafeManual } from '../lifecycle/recovery.mjs';
 import {
   buildSpecsIndexes,
@@ -84,6 +85,15 @@ export async function verifyTask(options = {}) {
 
   const change = requireChange(changeSlug, activeDir);
   const task = requireTask(change, taskId);
+
+  const workflowMode = resolveWorkflowMode(change, options);
+  if (workflowMode.mode === 'deterministic') {
+    throw new CliError(
+      `Cannot run legacy 'verify' against deterministic specification '${changeSlug || change.id}'. ` +
+      `Use deterministic command surface instead: workflow task publish, workflow step start, workflow step finish, startHumanStep, submitHumanStepResult (or workflow verify-human).`
+    );
+  }
+
   guardAgainstUnsafeManual(task, taskId, 'verify');
 
   const useGit = git !== false && gitIntegration !== false && !check;

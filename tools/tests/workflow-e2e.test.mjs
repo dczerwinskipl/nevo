@@ -21,6 +21,9 @@ import {
   handleWorkflowStepFinish,
   handleWorkflowVerifyHuman,
 } from '../specs/workflow/cli.mjs';
+import { startHumanStep, submitHumanStepResult } from '../specs/workflow/human-step/operations.mjs';
+import { projectTask } from '../specs/workflow/task-projection.mjs';
+import { resolveSemanticStatus } from '../specs/workflow/step-runner.mjs';
 import { loadOperationRecord, saveOperationRecord } from '../specs/workflow/finish-operation.mjs';
 import { resolveWorkflowMode } from '../specs/workflow/compatibility.mjs';
 import { requireChange, requireTask, loadChange } from '../specs/store.mjs';
@@ -66,6 +69,7 @@ steps:
       - id: commit-and-push
     transitions:
       - to: verified
+        outcome: success
 `;
 
 function git(root, args) {
@@ -356,7 +360,17 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
     assert.equal(impl.exitGates.length, 1);
     assert.deepEqual(impl.exitGates[0], { type: 'command', action: 'test' });
     assert.deepEqual(impl.finalize, [{ id: 'commit-and-push' }]);
-    assert.deepEqual(impl.transitions, [{ to: 'review' }]);
+    assert.deepEqual(impl.transitions, [
+      {
+        to: 'review',
+        continuation: 'auto',
+        releasesDependencies: true,
+        execution: {
+          session: 'fresh',
+          role: 'reviewer',
+        },
+      },
+    ]);
 
     // 2. review step
     const rev = def.steps.review;
@@ -365,8 +379,17 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
     assert.deepEqual(rev.exitGates[0], { type: 'command', action: 'test' });
     assert.deepEqual(rev.finalize, [{ id: 'commit-and-push' }]);
     assert.deepEqual(rev.transitions, [
-      { value: 'pass', to: 'human-verification' },
-      { value: 'fail', to: 'implementation' },
+      { value: 'pass', to: 'human-verification', continuation: 'auto' },
+      {
+        value: 'fail',
+        to: 'implementation',
+        continuation: 'auto',
+        invalidatesDependencyRelease: true,
+        execution: {
+          session: 'fresh',
+          role: 'refiner',
+        },
+      },
     ]);
 
     // 3. human-verification step
@@ -376,8 +399,23 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
     assert.deepEqual(hv.exitGates, []);
     assert.deepEqual(hv.finalize, [{ id: 'commit-and-push' }]);
     assert.deepEqual(hv.transitions, [
-      { value: 'pass', to: 'verified' },
-      { value: 'fail', to: 'implementation' },
+      {
+        value: 'pass',
+        to: 'verified',
+        action: { label: 'Approve' },
+        outcome: 'success',
+      },
+      {
+        value: 'fail',
+        to: 'implementation',
+        action: { label: 'Request changes', feedback: { required: true } },
+        continuation: 'auto',
+        invalidatesDependencyRelease: true,
+        execution: {
+          session: 'fresh',
+          role: 'refiner',
+        },
+      },
     ]);
   });
 
@@ -530,29 +568,42 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
     });
 
     test('Phase 3: step start activates human-verification step with semantic status awaiting-human-verification', async () => {
-      const stepContext = await handleWorkflowStepStart('standard-change', 'standard-task', { ...RT, activeDir: fx.activeDir, repoRoot: fx.root });
-      assert.equal(stepContext.currentStep, 'human-verification');
-      assert.equal(stepContext.runtimeState, 'active');
-      assert.equal(stepContext.semanticStatus, 'awaiting-human-verification');
-      assert.equal('nextStepGuidance' in stepContext, false, 'nextStepGuidance must not exist on stepContext');
-      assert.ok(stepContext.stepContract.purpose.includes('Explicit owner/user acceptance'));
-      assert.equal(stepContext.finishContract.requiredInputs['result'].required, true);
+      const change = requireChange('standard-change', fx.activeDir);
+      const task = requireTask(change, 'standard-task');
+      const resolvedMode = resolveWorkflowMode(change);
+      const definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot: fx.root });
+      const context = { activeDir: fx.activeDir, repoRoot: fx.root };
+
+      const { task: activatedTask, position } = startHumanStep(change, task, definition, context);
+      assert.equal(position.step, 'human-verification');
+      assert.equal(position.phase, 'active');
+
+      const projection = projectTask(activatedTask, change, { definition, repoRoot: fx.root });
+      assert.equal(projection.state, 'human-interaction');
+      assert.equal(projection.executor, 'human');
+      assert.equal(resolveSemanticStatus(definition, activatedTask), 'awaiting-human-verification');
+      assert.ok(definition.steps['human-verification'].purpose.includes('Explicit owner/user acceptance'));
+      assert.equal(definition.steps['human-verification'].transitions.length > 0, true);
     });
 
     test('Phase 3: step finish fails closed without result input', async () => {
+      const change = requireChange('standard-change', fx.activeDir);
+      const task = requireTask(change, 'standard-task');
+      const resolvedMode = resolveWorkflowMode(change);
+      const definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot: fx.root });
+      const context = { activeDir: fx.activeDir, repoRoot: fx.root };
+
       await assert.rejects(
-        () => handleWorkflowStepFinish('standard-change', 'standard-task', {
-          ...RT, activeDir: fx.activeDir, repoRoot: fx.root, input: JSON.stringify({ 'commit.title': 'Attempt finish without result' }),
-        }),
+        () => submitHumanStepResult(change, task, definition, context, { 'commit.title': 'Attempt finish without result' }),
         (err) => {
           assert.equal(err.code, 'MISSING_REQUIRED_INPUT');
           return true;
         }
       );
 
-      const task = requireTask(requireChange('standard-change', fx.activeDir), 'standard-task');
-      assert.equal(task.status, 'in-implementation');
-      assert.equal(task.workflow_progress.state, 'active');
+      const updatedTask = requireTask(requireChange('standard-change', fx.activeDir), 'standard-task');
+      assert.equal(updatedTask.status, 'in-implementation');
+      assert.equal(updatedTask.workflow_progress.state, 'active');
     });
 
     test('Phase 3: verify-human --approve satisfies the step and completes to terminal verified status', async () => {
@@ -573,7 +624,7 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
     });
 
     test('Phase 3: repeated finish after completion returns already-completed', async () => {
-      const result = await handleWorkflowStepFinish('standard-change', 'standard-task', { ...RT, activeDir: fx.activeDir, repoRoot: fx.root });
+      const result = await handleWorkflowVerifyHuman('standard-change', 'standard-task', { ...RT, approve: true, activeDir: fx.activeDir, repoRoot: fx.root });
       assert.equal(result.status, 'already-completed');
     });
   });
