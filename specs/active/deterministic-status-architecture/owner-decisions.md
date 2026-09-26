@@ -909,8 +909,16 @@ points are asserted to route through the identical `startStep` function instance
   persists as the change-level policy exactly as already specified above. Every subsequent
   queued item and automatic handover reuses it without asking again, unless a task-level
   override applies.
+- **Corrected 2026-09-26 (pass 12 — role-based execution policy, precedence rules, and session reuse):**
+  The execution policy structure is enriched to support role execution overrides alongside the change-level default and per-task overrides:
+  `{ provider, mode, default?: { provider, mode }, roles?: { [role: string]: { provider, mode? } }, taskOverrides?: { [taskId: string]: { provider?, mode? } } }`.
+  Precedence order for resolving execution configuration:
+  1. `taskOverrides[taskId]` (highest precedence)
+  2. `roles[role]` (matching the target step's authoritative declared role: `implementer`, `reviewer`, `refiner`)
+  3. `default` / top-level `{ provider, mode }` (fallback default)
+  Session reuse semantics: when a workflow transition specifies `session: reuse`, the existing session and its original provider are preserved across handovers; role-based provider resolution applies to fresh session creation (`session: fresh`). An explicit one-off provider choice on manual turn start does not mutate the specification's saved policy.
 - **Date:** 2026-09-21 (transport/scope corrected 2026-09-21, pass 10; unconditional picker
-  corrected 2026-09-22, pass 11)
+  corrected 2026-09-22, pass 11; role-based policy & precedence corrected 2026-09-26, pass 12)
 - **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
   `tasks/26-execution-policy-and-mode-selection.md`.
 
@@ -4552,19 +4560,17 @@ points are asserted to route through the identical `startStep` function instance
       via `assessExecutionSettlement` and releases/marks as appropriate — **negative transcript
       evidence is not required to reach this conclusion**, the claim's own state already proves
       it.
-    - **`turnStartState: 'invoking'`** — the ambiguous start boundary. Recovery inspects the same
-      authoritative evidence D97 already established (`reconcileOrphanedTurns()`'s own
-      `transcriptCache.listPersistedSessions()`/`getTranscript()` model) for a persisted
-      `activeTurn`/matching `turns[]` entry:
-      - **Positive evidence found** → the turn was genuinely created; recover its `turnId`,
-        enrich the claim with it ownership-conditionally (advancing to `turnStartState:
-        'started'` at the same time), and continue normal turn/orphan reconciliation from there.
-      - **No matching evidence found** → **this is no longer treated as proof no turn was
-        created.** Absence of a persisted transcript entry is inconclusive during this window
-        because transcript persistence is debounced, not synchronous. Recovery does **not**
-        settle normally and does **not** release the claim — it fails closed
-        (`markWorkspaceWriterRecoveryRequiredIfOwned`), identical in spirit to any other
-        insufficient-evidence case this spec already treats conservatively.
+    - **`turnStartState: 'invoking'`** — the ambiguous start boundary. In this state, `turnId` is
+      absent by definition (as `turnId` and `turnStartState: 'started'` are persisted atomically
+      only after `startTurn()` returns). Under D98, turn records carry no workspace-claim `ownerId`
+      and transcript entries provide no execution-unique correlation token. Therefore, on server
+      restart or boot recovery, an observed turn in the session transcript cannot be authoritatively
+      correlated with this exact execution attempt versus an earlier execution on a reused session.
+      Correlating by taskId/sessionId alone or picking the "latest turn" is unsafe and forbidden.
+      Consequently, without an authoritative durable execution-unique correlation mechanism,
+      recovery from `turnStartState: 'invoking'` fails closed unconditionally to `recovery-required`
+      (`markWorkspaceWriterRecoveryRequiredIfOwned`). Automatic positive recovery from `invoking` is
+      not supported under the current data model.
     - **`turnStartState: 'started'`** — `turnId` is guaranteed present (atomic write, above).
       Normal settlement/orphan reconciliation applies exactly as D93's original Case C already
       specified; no ambiguity remains, since both fields landed together or not at all.

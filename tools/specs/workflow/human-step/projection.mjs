@@ -29,11 +29,13 @@ export function describeStep(stepOrDefinition, stepId) {
     return null;
   }
 
+  const role = step.execution?.role || step.role || undefined;
   return {
     id: id ?? step.id ?? null,
     executor: step.executor ?? 'agent',
     purpose: step.purpose,
     expectedWork: step.expectedWork,
+    ...(role !== undefined ? { role } : {}),
   };
 }
 

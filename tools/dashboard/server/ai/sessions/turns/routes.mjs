@@ -63,7 +63,10 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
   fastify.post('/api/agent-sessions/turns', { bodyLimit: TURN_BODY_LIMIT }, async (request, reply) => {
     authorize(accessPolicy, 'control', request);
     const body = assertBodyObject(request.body);
-    const provider = validatedSegment(body.provider, PROVIDER_PATTERN, 'provider ID');
+    const provider = body.provider ? validatedSegment(body.provider, PROVIDER_PATTERN, 'provider ID') : null;
+    if (body.purpose !== 'execution' && !provider) {
+      throw new AiValidationError('Provider ID is required.');
+    }
     if (body.specId !== undefined && body.specId !== null) {
       if (typeof body.specId !== 'string' || !IDENTIFIER_PATTERN.test(body.specId)) {
         throw new AiValidationError('Invalid specification ID.');
@@ -105,15 +108,37 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         enqueueTasks(effectiveRepoRoot, changeSlug, body.taskIds);
       }
 
+      let definition = null;
+      if (deterministicTarget.resolvedWorkflow?.definition) {
+        const { loadWorkflowDefinition } = await import('../../../../../specs/workflow/definitions/loader.mjs');
+        definition = loadWorkflowDefinition(deterministicTarget.resolvedWorkflow.definition, { repoRoot: effectiveRepoRoot });
+      }
+
+      const targetStepName = body.stepId || definition?.entryStep;
+      const targetStepDef = definition?.steps?.[targetStepName];
+      const authoritativeRole = body.role || targetStepDef?.execution?.role || targetStepDef?.role || 'implementer';
+
+      const { executionPolicyService } = await import('../execution-policy-service.mjs');
+      const resolvedPolicy = executionPolicyService.resolveExecutionPolicy(changeSlug, body.taskId, {
+        role: authoritativeRole,
+        repoRoot: effectiveRepoRoot,
+      });
+
+      const effectiveProvider = provider || resolvedPolicy?.provider;
+      if (!effectiveProvider) {
+        throw new AiValidationError('No execution provider specified or configured in execution policy.');
+      }
+      const effectiveMode = body.mode || resolvedPolicy?.mode || 'agent';
+      let sessionPolicy = body.sessionPolicy || resolvedPolicy?.session || 'fresh';
+
       // Persist spec-level execution policy from D21 if no policy exists yet
-      if (provider && (body.mode || 'agent')) {
+      if (effectiveProvider && effectiveMode) {
         try {
-          const { executionPolicyService } = await import('../execution-policy-service.mjs');
           const existing = executionPolicyService.getExecutionPolicy(changeSlug, { repoRoot: effectiveRepoRoot });
           if (!existing) {
             executionPolicyService.saveExecutionPolicy(
               changeSlug,
-              { provider, mode: body.mode || 'agent' },
+              { provider: effectiveProvider, mode: effectiveMode },
               { repoRoot: effectiveRepoRoot },
             );
           }
@@ -122,32 +147,25 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
 
       const { admitAgentExecution } = await import('../../orchestration/admission.mjs');
 
-      let sessionPolicy = body.sessionPolicy || 'fresh';
-      try {
-        const { executionPolicyService } = await import('../execution-policy-service.mjs');
-        const policy = executionPolicyService.resolveExecutionPolicy(changeSlug, body.taskId, { role: body.role, repoRoot: effectiveRepoRoot });
-        if (policy?.session) sessionPolicy = policy.session;
-      } catch {}
-
       const candidate = {
         taskId: body.taskId,
-        stepId: body.stepId,
-        provider,
+        stepId: body.stepId || targetStepName,
+        provider: effectiveProvider,
         changeSlug,
         specId: canonicalSpecId,
         sessionPolicy,
-        role: body.role,
+        role: authoritativeRole,
         sessionId: body.sessionId,
         message: body.message ?? body.prompt,
         userMessage: body.userMessage,
-        mode: body.mode,
+        mode: effectiveMode,
         model: body.model ? body.model.trim() : undefined,
         effort: effort ? effort.trim() : undefined,
         idempotencyKey: body.idempotencyKey,
       };
 
       console.log(
-        `[ai] [deterministic:admit] provider=${provider} specId=${canonicalSpecId} changeSlug=${changeSlug} taskId=${body.taskId} sessionPolicy=${sessionPolicy}`,
+        `[ai] [deterministic:admit] provider=${effectiveProvider} specId=${canonicalSpecId} changeSlug=${changeSlug} taskId=${body.taskId} sessionPolicy=${sessionPolicy} role=${authoritativeRole}`,
       );
 
       const admission = await admitAgentExecution(canonicalSpecId, candidate, {

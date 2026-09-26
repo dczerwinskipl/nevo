@@ -47,13 +47,16 @@ ownership in pass 10; unconditional picker in pass 11).
   `tools/dashboard/server/ai/sessions/execution-policy-service.mjs`: reads/writes
   `.nevo-ai-local/execution-policy/<change>.json` (git-ignored local runtime convention,
   atomic temp-file-then-rename writes, same family as `.nevo-ai-local/workflow-operations/**`)
-  with shape `{provider, mode, taskOverrides?: {[taskId]: {provider?, mode?}}}`. Add
+  with shape `{provider, mode, default?: {provider, mode}, roles?: {[role]: {provider, mode?}}, taskOverrides?: {[taskId]: {provider?, mode?}}}`. Add
   `GET`/`PUT /api/specs/:slug/execution-policy` to `tools/dashboard/server/ai/sessions/routes.mjs`
   backed by this service. The browser never reads/writes the local file directly —
   `execution-policy.ts` (client) calls only the HTTP route.
 - The policy's canonical scope is the **change**, not the task — resolved once, reused by
-  every task in the change's sequential queue and every automatic handover (D33). A
-  `taskOverrides` entry is an optional, additive exception on top of the change-level
+  every task in the change's sequential queue and every automatic handover (D33). Precedence:
+  1. `taskOverrides[taskId]` (highest precedence)
+  2. `roles[role]` (e.g. `implementer`, `reviewer`, `refiner`)
+  3. `default` / `{provider, mode}` (change-level fallback)
+  A `taskOverrides` entry is an optional, additive exception on top of the change-level
   default, never the primary storage.
 - **No conditional gate (corrected, pass 11).** Do not add a "does this provider need an
   explicit mode choice" check — that was itself wrong, since provider selection is part of
@@ -63,7 +66,7 @@ ownership in pass 10; unconditional picker in pass 11).
 - The existing default-to-`'edit'` provider contract (`DEFAULT_AGENT_EXECUTION_MODE`,
   `contracts.mjs`) is unchanged for any session-creation path that has not gone through this
   resolution (e.g. `CreateAgentSessionDialog`'s own generic "new session" path).
-- No step-id-specific mode mapping — the policy is keyed by change (+ optional task
+- No step-id-specific mode mapping — the policy is keyed by change (+ optional role or task
   override) and provider, never by step id.
 
 ## Acceptance criteria

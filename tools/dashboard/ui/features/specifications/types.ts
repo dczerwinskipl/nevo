@@ -163,6 +163,7 @@ export type SpecificationOwnerAction = 'approve' | 'verify' | 'finalize';
 export interface WorkflowStepDescriptor {
   id: string | null;
   executor: 'agent' | 'human' | string;
+  role?: string | null;
   purpose?: string | null;
   expectedWork?: { summary?: string; [key: string]: any } | null;
 }

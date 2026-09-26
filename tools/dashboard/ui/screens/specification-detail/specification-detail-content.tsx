@@ -140,7 +140,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
   const proceedWithAgentExecution = useCallback(
     async (
       targetTaskId: string,
-      policy: { provider: string; mode?: AgentExecutionMode },
+      policy: { provider: string; mode?: AgentExecutionMode; role?: string },
       taskIds?: string[],
     ) => {
       const userMessage = buildAgentStepTriggerMessage(targetTaskId);
@@ -153,6 +153,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
         body: JSON.stringify({
           provider: policy.provider,
           mode: policy.mode,
+          ...(policy.role ? { role: policy.role } : {}),
           specId: specification.specId,
           slug: specification.slug,
           changeSlug: specification.slug,
@@ -205,7 +206,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           }
           const stepRole = (stepDescriptor as any).role || (stepDescriptor as any).execution?.role;
           const effective = resolvePolicyForTask(currentPolicy, targetTaskId, { role: stepRole }) || currentPolicy;
-          await proceedWithAgentExecution(targetTaskId, effective, taskIds);
+          await proceedWithAgentExecution(targetTaskId, { ...effective, role: stepRole }, taskIds);
         } catch (err: any) {
           const message = err instanceof Error ? err.message : String(err);
           setWorkflowError(message);
@@ -552,6 +553,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           specificationTitle={specification.title}
           onClose={() => setPendingStart(null)}
           confirming={executionPolicyQuery.saving}
+          initialPolicy={executionPolicyQuery.policy}
           onConfirm={async (chosen) => {
             try {
               await executionPolicyQuery.savePolicy({
@@ -559,11 +561,13 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
                 mode: chosen.mode,
                 ...(chosen.default ? { default: chosen.default } : {}),
                 ...(chosen.roles ? { roles: chosen.roles } : {}),
+                ...(chosen.taskOverrides ? { taskOverrides: chosen.taskOverrides } : (executionPolicyQuery.policy?.taskOverrides ? { taskOverrides: executionPolicyQuery.policy.taskOverrides } : {})),
               });
               const target = pendingStart;
               setPendingStart(null);
               if (target.task && target.stepDescriptor?.id !== '__configure_only__') {
-                await proceedWithAgentExecution(target.task.id, chosen, target.taskIds);
+                const targetRole = (target.stepDescriptor as any)?.role || (target.stepDescriptor as any)?.execution?.role;
+                await proceedWithAgentExecution(target.task.id, { ...chosen, role: targetRole }, target.taskIds);
               }
             } catch (err: any) {
               const message = err instanceof Error ? err.message : String(err);

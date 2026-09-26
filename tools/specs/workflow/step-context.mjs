@@ -293,7 +293,7 @@ export function ensureStepActivated(change, task, definition, context = {}) {
         { code: 'REPO_ROOT_REQUIRED', step: position.step }
       );
     }
-    const changeSlug = change.id || change._slug;
+    const changeSlug = change._slug || change.id;
     const priorRecord = loadOperationRecord(context.repoRoot, changeSlug, task.id, position.step, position.attempt);
     if (priorRecord && priorRecord.status !== 'completed') {
       throw new WorkflowError(
@@ -611,7 +611,7 @@ export async function compileStepContext({
  * Shared runtime context helper between CLI and HTTP transport.
  * Constructs the standard execution context from change, task, and definition.
  */
-export function buildWorkflowRuntimeContext(change, task, definition, { repoRoot, activeDir, changeSlug } = {}) {
+export function buildWorkflowRuntimeContext(change, task, definition, { repoRoot, activeDir, changeSlug, sessionId } = {}) {
   const resolvedChangeSlug = changeSlug || change._slug || change.id;
   const scope = resolveTaskScope(change, task, { activeDir, repoRoot });
   const workflowOwnedPaths = resolveWorkflowOwnedPaths({ activeDir, repoRoot, changeSlug: resolvedChangeSlug });
@@ -628,5 +628,6 @@ export function buildWorkflowRuntimeContext(change, task, definition, { repoRoot
     taskAllowedPaths: scope.allowedPaths,
     allowedPaths: scope.allowedPaths,
     workflowOwnedPaths,
+    ...(sessionId ? { sessionId } : {}),
   };
 }

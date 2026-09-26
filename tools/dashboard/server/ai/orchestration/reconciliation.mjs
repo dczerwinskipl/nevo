@@ -167,8 +167,12 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
               step: h.step,
               ...(h.attempt !== undefined ? { attempt: h.attempt } : {}),
             });
-            if (stepBindings.length > 0) {
+            if (stepBindings.length === 1) {
               parentSessionId = stepBindings[0].sessionId;
+              break;
+            } else if (stepBindings.length > 1) {
+              // Ambiguous candidate sessions: fail closed rather than guessing
+              parentSessionId = null;
               break;
             }
           } catch {}

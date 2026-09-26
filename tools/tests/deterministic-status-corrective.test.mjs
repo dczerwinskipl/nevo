@@ -47,6 +47,7 @@ import {
 } from '../specs/workflow/publish/operation.mjs';
 import {
   handleWorkflowStepStart,
+  handleWorkflowStepFinish,
 } from '../specs/workflow/cli.mjs';
 import {
   saveOperationRecord,
@@ -2130,6 +2131,342 @@ test('Agent/provider selection policy: multi-provider role execution, session re
     const currentPolicy = executionPolicyService.getExecutionPolicy('role-spec', { repoRoot: tmpRepo });
     assert.equal(currentPolicy.default.provider, 'claude');
     assert.equal(currentPolicy.roles.reviewer.provider, 'codex');
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('handleWorkflowStepStart with slug !== id !== spec_id reuses agent claim acquired with canonical spec_id', async () => {
+  const tmpRepo = createTempRepo('specid-diff');
+  const oldSessionId = process.env.NEVO_SESSION_ID;
+  const oldProvider = process.env.NEVO_AGENT_PROVIDER;
+  try {
+    const slug = 'custom-slug';
+    const logicalId = 'human-id-123';
+    const canonicalSpecId = '33333333-3333-4333-8333-333333333333';
+    const specsDir = path.join(tmpRepo, 'specs', 'active');
+    const specDir = path.join(specsDir, slug);
+    const tasksDir = path.join(specDir, 'tasks');
+    fs.mkdirSync(tasksDir, { recursive: true });
+
+    // Workflow with sourceControl disabled so finishStep doesn't commit/push
+    const wfDir = path.join(tmpRepo, '.nevo-ai', 'workflows');
+    fs.writeFileSync(
+      path.join(wfDir, 'simple.yaml'),
+      `id: simple-v1
+title: "Simple Workflow"
+type: standard
+version: 1
+entryStep: implementation
+sourceControl:
+  enabled: false
+  push: false
+steps:
+  implementation:
+    status:
+      active: implementing
+      completed: implemented
+    entryGates: []
+    exitGates: []
+    finalize: []
+    transitions:
+      - to: verified
+        outcome: success
+`,
+      'utf8',
+    );
+
+    fs.writeFileSync(
+      path.join(specDir, 'change.yaml'),
+      `schema_version: '1.0'\nid: '${logicalId}'\nspec_id: '${canonicalSpecId}'\ntitle: custom-slug\nworkflow:\n  mode: deterministic\n  definition: simple\ntasks:\n  - id: t1\n    file: tasks/t1.md\n    status: in-progress\n`,
+      'utf8',
+    );
+
+    fs.writeFileSync(
+      path.join(tasksDir, 't1.md'),
+      `---\nid: t1\nstatus: in-progress\nallowed_paths:\n  - README.md\n---\n# Task 1\n`,
+      'utf8',
+    );
+
+    execFileSync('git', ['add', '.'], { cwd: tmpRepo, stdio: 'ignore' });
+    execFileSync('git', ['commit', '-m', 'add custom-slug spec'], { cwd: tmpRepo, stdio: 'ignore' });
+
+    // 1. Dashboard admission acquires claim using canonical UUID specId
+    const acq = await acquireWorkspaceWriter({
+      repoRoot: tmpRepo,
+      kind: 'agent',
+      specId: canonicalSpecId,
+      changeSlug: slug,
+      taskId: 't1',
+    });
+    assert.equal(acq.acquired, true, 'Agent claim must be acquired');
+
+    const agentSessionId = 'sess-agent-uuid-claim';
+    await updateWorkspaceWriterIfOwned({
+      repoRoot: tmpRepo,
+      expectedOwnerId: acq.ownerId,
+      expectedKind: 'agent',
+      expectedSpecId: canonicalSpecId,
+      expectedChangeSlug: slug,
+      expectedTaskId: 't1',
+      sessionId: agentSessionId,
+      turnStartState: 'prepared',
+    });
+
+    process.env.NEVO_SESSION_ID = agentSessionId;
+    process.env.NEVO_AGENT_PROVIDER = 'mock';
+
+    // 2. Agent invokes handleWorkflowStepStart via CLI
+    // Must recognize its own agent claim via resolveStableSpecId(change) === canonicalSpecId,
+    // NOT fail with WORKSPACE_WRITER_CONTENDED or acquire a cli-manual claim
+    const startResult = await handleWorkflowStepStart(slug, 't1', {
+      repoRoot: tmpRepo,
+      activeDir: specsDir,
+      silent: true,
+    });
+    assert.equal(startResult.currentStep, 'implementation');
+    assert.equal(startResult.attempt, 1);
+
+    // Verify claim is still the original agent claim
+    const claimAfterStart = getWorkspaceWriterClaim(tmpRepo);
+    assert.equal(claimAfterStart.kind, 'agent');
+    assert.equal(claimAfterStart.specId, canonicalSpecId);
+    assert.equal(claimAfterStart.sessionId, agentSessionId);
+
+    // 3. Agent invokes handleWorkflowStepFinish via CLI
+    // Must record ambient session ID to history[0].sessionId
+    const finishResult = await handleWorkflowStepFinish(slug, 't1', {
+      repoRoot: tmpRepo,
+      activeDir: specsDir,
+      silent: true,
+    });
+    assert.ok(finishResult);
+
+    // Check task history in change.yaml
+    const { loadChange } = await import('../specs/store.mjs');
+    const updatedChange = loadChange(slug, specsDir);
+    const updatedTask = updatedChange.tasks.find(t => t.id === 't1');
+    assert.ok(updatedTask.workflow_progress?.history?.length > 0);
+    assert.equal(
+      updatedTask.workflow_progress.history[0].sessionId,
+      agentSessionId,
+      'history entry must record ambient sessionId',
+    );
+  } finally {
+    if (oldSessionId) process.env.NEVO_SESSION_ID = oldSessionId;
+    else delete process.env.NEVO_SESSION_ID;
+    if (oldProvider) process.env.NEVO_AGENT_PROVIDER = oldProvider;
+    else delete process.env.NEVO_AGENT_PROVIDER;
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('reconcileWorkflowPosition fails closed (parentSessionId = null) when multiple candidate bindings match', async () => {
+  const tmpRepo = createTempRepo('ambig-lineage');
+  try {
+    const canonicalSpecId = '44444444-4444-4444-8444-444444444444';
+    const bindingService = createAgentSessionBindingService({
+      storageDir: path.join(tmpRepo, '.nevo-ai-local', 'sessions'),
+    });
+
+    // Create 2 bindings for the same (specId, taskId, step, attempt)
+    await bindingService.bindSession({
+      provider: 'mock-1',
+      sessionId: 'session-candidate-a',
+      specId: canonicalSpecId,
+      taskId: 't1',
+      step: 'step-1',
+      attempt: 1,
+    });
+    await bindingService.bindSession({
+      provider: 'mock-2',
+      sessionId: 'session-candidate-b',
+      specId: canonicalSpecId,
+      taskId: 't1',
+      step: 'step-1',
+      attempt: 1,
+    });
+
+    const change = {
+      _slug: 'spec-test',
+      spec_id: canonicalSpecId,
+      id: canonicalSpecId,
+      tasks: [],
+    };
+
+    const task = {
+      id: 't1',
+      status: 'in-progress',
+      workflow_progress: {
+        current_step: 'step-1',
+        current_attempt: 1,
+        state: 'completed',
+        history: [{
+          step: 'step-1',
+          attempt: 1,
+          completed_at: new Date().toISOString(),
+          transitioned_to: 'step-2',
+          // Note: no direct sessionId on history entry, forcing binding lookup
+        }],
+      },
+    };
+    change.tasks = [task];
+
+    const definition = {
+      id: 'test-wf',
+      entryStep: 'step-1',
+      steps: {
+        'step-1': {
+          executor: 'agent',
+          transitions: [{ to: 'step-2', continuation: 'auto', execution: { session: 'fresh', role: 'reviewer' } }],
+        },
+        'step-2': {
+          executor: 'agent',
+          transitions: [],
+        },
+      },
+    };
+
+    let admittedCandidate = null;
+    const mockSessionService = {
+      createSession: async (_provider, opts) => {
+        admittedCandidate = opts;
+        return { sessionId: 'fresh-reviewer-sess' };
+      },
+      turnRuntime: {
+        startTurn: async () => ({ turnId: 'turn-1' }),
+      },
+    };
+
+    const res = await reconcileWorkflowPosition(change, task, {
+      repoRoot: tmpRepo,
+      definition,
+      sessionService: mockSessionService,
+      bindingService,
+    });
+
+    assert.equal(res.action, 'agent-admitted');
+    assert.equal(
+      admittedCandidate?.parentSessionId,
+      null,
+      'Ambiguous candidate bindings must fail closed (parentSessionId = null)',
+    );
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('first implementation start resolves authoritative role from workflow definition and one-off provider choice does not mutate policy', async () => {
+  const tmpRepo = createTempRepo('authoritative-start');
+  try {
+    const { executionPolicyService } = await import('../dashboard/server/ai/sessions/execution-policy-service.mjs');
+    const slug = 'spec-test';
+    const canonicalSpecId = '11111111-1111-4111-8111-111111111111';
+
+    // Save policy with default claude and implementer role codex
+    executionPolicyService.saveExecutionPolicy(
+      slug,
+      {
+        provider: 'claude',
+        mode: 'agent',
+        default: { provider: 'claude', mode: 'agent' },
+        roles: {
+          implementer: { provider: 'codex', mode: 'agent' },
+          reviewer: { provider: 'claude', mode: 'agent' },
+        },
+      },
+      { repoRoot: tmpRepo },
+    );
+
+    function makeProvider(id) {
+      const p = createMockAgentProvider({ streamDelayMs: 1 });
+      p.descriptor = { ...p.descriptor, id, label: id };
+      return p;
+    }
+
+    const registry = createAgentProviderRegistry([
+      makeProvider('claude'),
+      makeProvider('codex'),
+      makeProvider('gemini'),
+    ]);
+
+    const transcriptCache = createTranscriptCacheService({ baseDir: path.join(tmpRepo, '.nevo-ai-local', 'transcripts') });
+    const bindingService = createAgentSessionBindingService({ storageDir: path.join(tmpRepo, '.nevo-ai-local', 'sessions') });
+    const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+
+    let createdSessionOpts = null;
+    const service = createAgentSessionService({
+      registry,
+      turnRuntime,
+      transcriptCache,
+      bindingService,
+      repoRoot: tmpRepo,
+    });
+
+    const origCreateSession = service.createSession.bind(service);
+    service.createSession = async (provider, opts) => {
+      createdSessionOpts = { provider, ...opts };
+      return await origCreateSession(provider, opts);
+    };
+
+    const app = await buildAiTestApp({ service, repoRoot: tmpRepo });
+
+    // 1. Start turn without providing role or provider (should resolve role: implementer -> provider: codex)
+    const res1 = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: {
+        'content-type': 'application/json',
+        'x-nevo-dashboard-action': '1',
+      },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskId: 't1',
+        prompt: 'Start t1',
+      },
+    });
+
+    assert.equal(res1.statusCode, 201, `Expected 201, got ${res1.statusCode}: ${res1.payload}`);
+    assert.equal(createdSessionOpts.role, 'implementer', 'Entry step must authoritatively resolve to implementer role');
+    assert.equal(createdSessionOpts.provider, 'codex', 'Implementer role must map to provider codex');
+
+    // Reset admission lock
+    resetAdmissionStateForTest();
+    await releaseWorkspaceWriterIfOwned({ repoRoot: tmpRepo, expectedSpecId: canonicalSpecId });
+
+    // 2. Start turn with one-off explicit provider choice (e.g. gemini)
+    const res2 = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: {
+        'content-type': 'application/json',
+        'x-nevo-dashboard-action': '1',
+      },
+      payload: {
+        purpose: 'execution',
+        provider: 'gemini',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskId: 't1',
+        prompt: 'Start t1 with gemini',
+      },
+    });
+
+    assert.equal(res2.statusCode, 201, `Expected 201, got ${res2.statusCode}: ${res2.payload}`);
+    assert.equal(createdSessionOpts.provider, 'gemini', 'Explicit one-off provider must be used');
+
+    // 3. Verify policy was NOT mutated
+    const preservedPolicy = executionPolicyService.getExecutionPolicy(slug, { repoRoot: tmpRepo });
+    assert.equal(preservedPolicy.default.provider, 'claude');
+    assert.equal(preservedPolicy.roles.implementer.provider, 'codex');
+    assert.equal(preservedPolicy.roles.reviewer.provider, 'claude');
+
+    await app.close();
   } finally {
     resetAdmissionStateForTest();
     fs.rmSync(tmpRepo, { recursive: true, force: true });

@@ -114,7 +114,7 @@ export function SequentialQueueTaskPicker({
     }
   };
 
-  const defaultProvider = executionPolicy?.default?.provider || executionPolicy?.provider || 'Claude';
+  const defaultProvider = executionPolicy?.default?.provider || executionPolicy?.provider || 'Nie skonfigurowano';
   const implementerProvider = executionPolicy?.roles?.implementer?.provider || defaultProvider;
   const reviewerProvider = executionPolicy?.roles?.reviewer?.provider || defaultProvider;
   const refinerProvider = executionPolicy?.roles?.refiner?.provider || defaultProvider;

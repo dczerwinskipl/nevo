@@ -13,6 +13,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { requireChange, requireTask, ROOT, ACTIVE_DIR } from '../store.mjs';
+import { resolveStableSpecId, isValidSpecId } from '../identity.mjs';
 import { parseVerificationCommands } from '../fingerprint.mjs';
 import { CliError } from '../../lib/cli-errors.mjs';
 import { resolveWorkflowMode, assertWorkflowVersionCompatible } from './compatibility.mjs';
@@ -273,7 +274,7 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
     assertExecutionReadiness(task, change, 'agent', { definition, repoRoot: context.repoRoot });
 
     // Workspace writer arbitration (D55, D62, D86)
-    const specId = change.id || slug;
+    const specId = isValidSpecId(change.spec_id) ? change.spec_id : (change.id || slug);
     const existingClaim = getWorkspaceWriterClaim(context.repoRoot);
     let reusedClaim = false;
 
@@ -453,6 +454,25 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
     assertStepExecutor(step, 'agent', { stepId: stepName });
   }
   autoBindAgentSession(change, task.id, 'finish', { step: stepName, attempt, repoRoot: context.repoRoot });
+
+  let ambientSessionId = null;
+  let specId = null;
+  try {
+    specId = resolveStableSpecId(change);
+  } catch {}
+  if (specId) {
+    const ambientContext = readAgentExecutionContext(process.env, { repoRoot: context.repoRoot, specId, taskId: task.id });
+    if (ambientContext?.sessionId) {
+      const existingClaim = getWorkspaceWriterClaim(context.repoRoot);
+      if (!existingClaim || existingClaim.kind !== 'agent' || existingClaim.sessionId === ambientContext.sessionId) {
+        ambientSessionId = ambientContext.sessionId;
+      }
+    }
+  }
+  if (ambientSessionId) {
+    context.sessionId = ambientSessionId;
+  }
+
   const gateRegistry = buildWorkflowGateRegistry(context.repoRoot, change._slug, task.id, attempt);
 
   const activeStep = (position?.phase === 'active' || inFlight) ? definition.steps?.[stepName] : null;

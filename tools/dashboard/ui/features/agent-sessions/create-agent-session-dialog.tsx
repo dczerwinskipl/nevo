@@ -7,6 +7,7 @@ import { initialPromptWithTaskContext } from './create-agent-session-helpers';
 import { AI_MODES } from './mode-meta';
 import { AI_PROVIDERS_ENABLE_MESSAGE } from './provider-config';
 import type { AgentSession, AgentExecutionMode, AgentSessionTaskRef, AgentProviderDescriptor } from './types';
+import type { ExecutionPolicy, TaskExecutionOverride } from './execution-policy';
 import { cn } from '@/shared/lib/utils';
 
 export interface CreateAgentSessionTarget {
@@ -390,8 +391,10 @@ export interface ExecutionPolicySelectionDialogProps {
     mode: AgentExecutionMode;
     default?: { provider: string; mode: AgentExecutionMode };
     roles?: Record<string, { provider: string; mode: AgentExecutionMode }>;
+    taskOverrides?: Record<string, TaskExecutionOverride>;
   }) => void;
   confirming?: boolean;
+  initialPolicy?: ExecutionPolicy | null;
 }
 
 export function ExecutionPolicySelectionDialog({
@@ -399,24 +402,41 @@ export function ExecutionPolicySelectionDialog({
   onClose,
   onConfirm,
   confirming = false,
+  initialPolicy = null,
 }: ExecutionPolicySelectionDialogProps) {
   const providers = useAgentProviders();
   const rawProviders = providers.data?.providers ?? [];
-  const [provider, setProvider] = useState('');
-  const [mode, setMode] = useState<AgentExecutionMode>('agent');
-  const [implementerProvider, setImplementerProvider] = useState('');
-  const [reviewerProvider, setReviewerProvider] = useState('');
-  const [refinerProvider, setRefinerProvider] = useState('');
+  const [provider, setProvider] = useState(initialPolicy?.default?.provider || initialPolicy?.provider || '');
+  const [mode, setMode] = useState<AgentExecutionMode>(initialPolicy?.default?.mode || initialPolicy?.mode || 'agent');
+  const [implementerProvider, setImplementerProvider] = useState(initialPolicy?.roles?.implementer?.provider || '');
+  const [reviewerProvider, setReviewerProvider] = useState(initialPolicy?.roles?.reviewer?.provider || '');
+  const [refinerProvider, setRefinerProvider] = useState(initialPolicy?.roles?.refiner?.provider || '');
 
   useEffect(() => {
-    if (!provider && rawProviders.length > 0) {
+    if (initialPolicy) {
+      if (initialPolicy.default?.provider || initialPolicy.provider) {
+        setProvider(initialPolicy.default?.provider || initialPolicy.provider);
+      }
+      if (initialPolicy.default?.mode || initialPolicy.mode) {
+        setMode(initialPolicy.default?.mode || initialPolicy.mode);
+      }
+      if (initialPolicy.roles?.implementer?.provider !== undefined) {
+        setImplementerProvider(initialPolicy.roles.implementer.provider);
+      }
+      if (initialPolicy.roles?.reviewer?.provider !== undefined) {
+        setReviewerProvider(initialPolicy.roles.reviewer.provider);
+      }
+      if (initialPolicy.roles?.refiner?.provider !== undefined) {
+        setRefinerProvider(initialPolicy.roles.refiner.provider);
+      }
+    } else if (!provider && rawProviders.length > 0) {
       const initial = computeInitialProviderAndMode(rawProviders);
       if (initial.provider) {
         setProvider(initial.provider);
         setMode(initial.mode);
       }
     }
-  }, [provider, rawProviders]);
+  }, [initialPolicy, provider, rawProviders]);
 
   const selectedProviderObj = rawProviders.find((p) => p.id === provider);
   const isSelectedProviderAvailable = selectedProviderObj?.available !== false;
@@ -435,8 +455,16 @@ export function ExecutionPolicySelectionDialog({
       mode,
       default: { provider, mode },
       ...(Object.keys(roles).length > 0 ? { roles } : {}),
+      ...(initialPolicy?.taskOverrides ? { taskOverrides: initialPolicy.taskOverrides } : {}),
     });
   };
+
+  const eligibleRoleProviders = rawProviders.filter((p) => {
+    if (p.enabled === false) return false;
+    if (p.available === false) return false;
+    const supported = p.supportedModes || ['ask', 'edit', 'agent'];
+    return supported.includes('agent');
+  });
 
   return (
     <div
@@ -502,7 +530,7 @@ export function ExecutionPolicySelectionDialog({
                 className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
               >
                 <option value="">(Domyślny: {provider || 'brak'})</option>
-                {rawProviders.map((p) => (
+                {eligibleRoleProviders.map((p) => (
                   <option key={p.id} value={p.id}>{p.label || p.id}</option>
                 ))}
               </select>
@@ -515,7 +543,7 @@ export function ExecutionPolicySelectionDialog({
                 className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
               >
                 <option value="">(Domyślny: {provider || 'brak'})</option>
-                {rawProviders.map((p) => (
+                {eligibleRoleProviders.map((p) => (
                   <option key={p.id} value={p.id}>{p.label || p.id}</option>
                 ))}
               </select>
@@ -528,7 +556,7 @@ export function ExecutionPolicySelectionDialog({
                 className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
               >
                 <option value="">(Domyślny: {provider || 'brak'})</option>
-                {rawProviders.map((p) => (
+                {eligibleRoleProviders.map((p) => (
                   <option key={p.id} value={p.id}>{p.label || p.id}</option>
                 ))}
               </select>
