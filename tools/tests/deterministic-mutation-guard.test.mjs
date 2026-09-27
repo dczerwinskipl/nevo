@@ -95,7 +95,9 @@ function createDeterministicSpec(activeDir, slug = 'det-spec') {
   mkdirSync(join(changeDir, 'tasks'), { recursive: true });
 
   const changeYaml = `id: ${slug}
+spec_id: 00000000-0000-4000-8000-000000000001
 title: "Deterministic Spec"
+type: standard
 status: draft
 workflow:
   mode: deterministic

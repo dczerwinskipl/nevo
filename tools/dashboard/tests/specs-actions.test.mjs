@@ -582,6 +582,7 @@ describe('AC 7: POST /api/specs/:slug/tasks/:taskId/workflow/human-decision with
       mkdirSync(tasksDir, { recursive: true });
 
       const changeYaml = `id: demo-change
+spec_id: 11111111-1111-4111-8111-111111111111
 title: "Demo Change"
 workflow:
   mode: deterministic
@@ -673,6 +674,7 @@ describe('AC 8: POST /api/specs/:slug/tasks/:taskId/workflow/human-decision with
       mkdirSync(tasksDir, { recursive: true });
 
       const changeYaml = `id: demo-change
+spec_id: 11111111-1111-4111-8111-111111111111
 title: "Demo Change"
 workflow:
   mode: deterministic

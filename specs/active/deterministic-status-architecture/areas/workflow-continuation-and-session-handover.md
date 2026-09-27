@@ -78,11 +78,21 @@ arbitrated against each other at all.
 
 ## Requirements
 
-- **Execution-mode/provider selection, always shown (D21).** Whenever a spec/change has no
-  resolved execution policy, the first explicit `start-step`/batch-Start **always** shows the
-  provider + mode picker (sensible defaults preselected) — never conditioned on provider
-  capability. Confirming persists `{provider, mode}` as the change-level default via a real
-  server transport.
+- **Execution-mode/provider selection, always shown and role-aware (D21).** Whenever a spec/change
+  has no resolved execution policy, the first explicit `start-step`/batch-Start **always** shows
+  the provider + mode picker (sensible defaults preselected) — never conditioned on provider
+  capability. Confirming persists the specification-level execution policy via a real server
+  transport (`PUT /api/specs/:slug/execution-policy`). The execution policy schema supports a
+  hierarchical resolution structure:
+  `{ provider, mode, default?: { provider, mode }, roles?: { [role: string]: { provider, mode? } }, taskOverrides?: { [taskId: string]: { provider?, mode? } } }`.
+  Precedence order for resolving execution configuration:
+  1. `taskOverrides[taskId]` (highest precedence)
+  2. `roles[role]` (matching the target step's authoritative declared role: `implementer`, `reviewer`, `refiner`)
+  3. `default` / top-level `{ provider, mode }` (fallback default)
+  Session reuse semantics: when a workflow transition specifies `session: reuse`, the existing
+  session and its original provider are preserved across handovers; role-based provider resolution
+  applies to fresh session creation (`session: fresh`). An explicit one-off provider choice on
+  manual turn start does not mutate the specification's saved policy.
 - **Continuation is eligibility, not scheduling (D25).** Unchanged from prior passes.
 - **One spec-level agent-admission gate, atomic through to durable visibility, with rollback
   (D41/D49) — claims the workspace-writer slot in one fixed lock order, resolves the canonical

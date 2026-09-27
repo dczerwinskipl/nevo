@@ -392,9 +392,11 @@ export interface ExecutionPolicySelectionDialogProps {
     default?: { provider: string; mode: AgentExecutionMode };
     roles?: Record<string, { provider: string; mode: AgentExecutionMode }>;
     taskOverrides?: Record<string, TaskExecutionOverride>;
+    [key: string]: any;
   }) => void;
   confirming?: boolean;
   initialPolicy?: ExecutionPolicy | null;
+  isOneOff?: boolean;
 }
 
 export function ExecutionPolicySelectionDialog({
@@ -403,6 +405,7 @@ export function ExecutionPolicySelectionDialog({
   onConfirm,
   confirming = false,
   initialPolicy = null,
+  isOneOff = false,
 }: ExecutionPolicySelectionDialogProps) {
   const providers = useAgentProviders();
   const rawProviders = providers.data?.providers ?? [];
@@ -445,16 +448,50 @@ export function ExecutionPolicySelectionDialog({
     e.preventDefault();
     if (!provider || !isSelectedProviderAvailable) return;
 
-    const roles: Record<string, { provider: string; mode: AgentExecutionMode }> = {};
-    if (implementerProvider) roles.implementer = { provider: implementerProvider, mode: 'agent' };
-    if (reviewerProvider) roles.reviewer = { provider: reviewerProvider, mode: 'agent' };
-    if (refinerProvider) roles.refiner = { provider: refinerProvider, mode: 'agent' };
+    const baseRoles: Record<string, { provider: string; mode: AgentExecutionMode }> = {
+      ...(initialPolicy?.roles || {}),
+    };
+
+    if (implementerProvider) {
+      baseRoles.implementer = {
+        ...(baseRoles.implementer || {}),
+        provider: implementerProvider,
+        mode: baseRoles.implementer?.mode || 'agent',
+      };
+    } else {
+      delete baseRoles.implementer;
+    }
+
+    if (reviewerProvider) {
+      baseRoles.reviewer = {
+        ...(baseRoles.reviewer || {}),
+        provider: reviewerProvider,
+        mode: baseRoles.reviewer?.mode || 'agent',
+      };
+    } else {
+      delete baseRoles.reviewer;
+    }
+
+    if (refinerProvider) {
+      baseRoles.refiner = {
+        ...(baseRoles.refiner || {}),
+        provider: refinerProvider,
+        mode: baseRoles.refiner?.mode || 'agent',
+      };
+    } else {
+      delete baseRoles.refiner;
+    }
 
     onConfirm({
+      ...(initialPolicy || {}),
       provider,
       mode,
-      default: { provider, mode },
-      ...(Object.keys(roles).length > 0 ? { roles } : {}),
+      default: {
+        ...(initialPolicy?.default || {}),
+        provider,
+        mode,
+      },
+      ...(Object.keys(baseRoles).length > 0 ? { roles: baseRoles } : {}),
       ...(initialPolicy?.taskOverrides ? { taskOverrides: initialPolicy.taskOverrides } : {}),
     });
   };
@@ -480,9 +517,13 @@ export function ExecutionPolicySelectionDialog({
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-[10px] font-bold tracking-[0.18em] text-accent uppercase">{specificationTitle}</p>
-            <h2 className="mt-2 text-xl font-semibold">Wybór wykonawcy (Execution Policy)</h2>
+            <h2 className="mt-2 text-xl font-semibold">
+              {isOneOff ? 'Jednorazowy wybór wykonawcy' : 'Wybór wykonawcy (Execution Policy)'}
+            </h2>
             <p className="mt-1 text-xs text-fg-muted">
-              Wybierz domyślnego providera i tryb wykonania dla tej specyfikacji. Wybór zostanie zapamiętany dla wszystkich zadań.
+              {isOneOff
+                ? 'Wybierz wykonawcę dla tego uruchomienia. Wybór nie zmieni zapisanej polityki specyfikacji.'
+                : 'Wybierz domyślnego providera i tryb wykonania dla tej specyfikacji. Wybór zostanie zapamiętany dla wszystkich zadań.'}
             </p>
           </div>
           <Button
@@ -574,7 +615,7 @@ export function ExecutionPolicySelectionDialog({
             className="gap-2"
           >
             {confirming && <LoaderCircle className="size-4 animate-spin" />}
-            Zatwierdź i rozpocznij
+            {isOneOff ? 'Uruchom jednorazowo' : 'Zatwierdź i rozpocznij'}
           </Button>
         </div>
       </form>

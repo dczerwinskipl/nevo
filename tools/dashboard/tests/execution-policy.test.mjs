@@ -317,5 +317,42 @@ describe('Task 26: Execution policy and mode selection (D21)', () => {
     // No derived remediation group from generic blocked / suspensions
     assert.doesNotMatch(overviewSrc, /gate\?\.state === 'blocked' \|\| \(gate\?\.blockedBy/);
     assert.doesNotMatch(overviewSrc, /\(t as any\)\.suspensions\?\.length > 0/);
+
+    // Item 3: SequentialQueueTaskPicker has one-off "Uruchom z..." button
+    assert.match(overviewSrc, /Uruchom z\.\.\./);
+    assert.match(overviewSrc, /handleStartBatch\(\{\s*oneOff:\s*true\s*\}\)/);
+  });
+
+  test('UI structural contract: ExecutionPolicySelectionDialog preserves free-form roles, untouched modes, and taskOverrides (Item 4)', () => {
+    const dialogSrc = readFileSync(
+      fileURLToPath(new URL('../ui/features/agent-sessions/create-agent-session-dialog.tsx', import.meta.url)),
+      'utf8',
+    );
+    // Preserves initialPolicy properties and taskOverrides
+    assert.match(dialogSrc, /\.\.\.\(initialPolicy \|\| \{\}\)/);
+    assert.match(dialogSrc, /\.\.\.\(initialPolicy\?\.roles \|\| \{\}\)/);
+    assert.match(dialogSrc, /initialPolicy\?\.taskOverrides/);
+
+    // Preserves untouched role modes (not hard-coded to 'agent')
+    assert.match(dialogSrc, /baseRoles\.reviewer\?\.mode \|\| 'agent'/);
+    assert.match(dialogSrc, /baseRoles\.implementer\?\.mode \|\| 'agent'/);
+    assert.match(dialogSrc, /baseRoles\.refiner\?\.mode \|\| 'agent'/);
+
+    // Supports isOneOff
+    assert.match(dialogSrc, /isOneOff\?: boolean/);
+    assert.match(dialogSrc, /isOneOff \? 'Uruchom jednorazowo' : 'Zatwierdź i rozpocznij'/);
+  });
+
+  test('UI structural contract: specification-detail-content supports one-off execution without mutating stored policy (Item 3)', () => {
+    const contentSrc = readFileSync(
+      fileURLToPath(new URL('../ui/screens/specification-detail/specification-detail-content.tsx', import.meta.url)),
+      'utf8',
+    );
+    // Bypasses savePolicy when target.isOneOff is true
+    assert.match(contentSrc, /if \(target\.isOneOff\)/);
+    assert.match(contentSrc, /oneOff:\s*true/);
+    // Preserves oneOff parameter in proceedWithAgentExecution
+    assert.match(contentSrc, /\.\.\.\(policy\.oneOff \? \{ oneOff: true \} : \{\}\)/);
   });
 });
+

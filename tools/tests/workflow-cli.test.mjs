@@ -22,6 +22,7 @@ import { WorkflowDefinitionError, WorkflowError } from '../specs/workflow/errors
 import { saveOperationRecord, FINISH_STAGE_IDS } from '../specs/workflow/finish-operation.mjs';
 
 const CHANGE_YAML = `id: demo-change
+spec_id: 00000000-0000-4000-8000-000000000001
 title: "Demo change"
 type: standard
 status: draft
@@ -61,6 +62,7 @@ steps:
 `;
 
 const MULTI_GATE_CHANGE_YAML = `id: demo-change
+spec_id: 00000000-0000-4000-8000-000000000001
 title: "Demo change"
 type: standard
 status: draft
@@ -101,6 +103,7 @@ steps:
 `;
 
 const REVIEWER_ROLE_CHANGE_YAML = `id: demo-change
+spec_id: 00000000-0000-4000-8000-000000000001
 title: "Demo change"
 type: standard
 status: draft
@@ -138,6 +141,7 @@ steps:
 `;
 
 const CROSS_STEP_CHANGE_YAML = `id: demo-change
+spec_id: 00000000-0000-4000-8000-000000000001
 title: "Demo change"
 type: standard
 status: draft
@@ -186,6 +190,7 @@ steps:
 `;
 
 const SEQUENCE_CHANGE_YAML = `id: demo-change
+spec_id: 00000000-0000-4000-8000-000000000001
 title: "Demo change"
 type: standard
 status: draft
@@ -235,6 +240,7 @@ steps:
 `;
 
 const VERSION_MISMATCH_CHANGE_YAML = `id: demo-change
+spec_id: 00000000-0000-4000-8000-000000000001
 title: "Demo change"
 type: standard
 status: draft
@@ -598,6 +604,7 @@ describe('in-flight operation precedes workflow_progress resolution via the publ
       // must never let resolveWorkflowPosition run — let alone throw — ahead of consulting
       // the in-flight record for execution identity.
       changeYaml: `id: demo-change
+spec_id: 00000000-0000-4000-8000-000000000001
 title: "Demo change"
 type: standard
 status: draft
@@ -687,7 +694,7 @@ describe('a matching effective version proceeds normally, including the workflow
       const changeDir = join(activeDir, 'demo-change');
       mkdirSync(changeDir, { recursive: true });
       writeFileSync(join(changeDir, 'change.yaml'), [
-        'id: demo-change', 'title: "Demo change"', 'type: standard', 'status: draft',
+        'id: demo-change', 'spec_id: 00000000-0000-4000-8000-000000000001', 'title: "Demo change"', 'type: standard', 'status: draft',
         'workflow_mode: deterministic', '',
         'tasks:', '  - id: demo-task', '    order: 1', '    file: tasks/01-demo.md', '    status: in-implementation', '',
       ].join('\n'));

@@ -114,9 +114,74 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         definition = loadWorkflowDefinition(deterministicTarget.resolvedWorkflow.definition, { repoRoot: effectiveRepoRoot });
       }
 
-      const targetStepName = body.stepId || definition?.entryStep;
+      const { requireTask } = await import('../../../../../specs/store.mjs');
+      const { resolveWorkflowPosition } = await import('../../../../../specs/workflow/step-runner.mjs');
+      const activeDir = join(effectiveRepoRoot, 'specs', 'active');
+      let task = deterministicTarget.change.tasks?.find((t) => t.id === body.taskId);
+      if (!task) {
+        try {
+          task = requireTask(changeSlug, body.taskId, activeDir);
+        } catch (err) {
+          throw new AiValidationError(`Task '${body.taskId}' not found in specification '${changeSlug}'.`, { cause: err });
+        }
+      }
+
+      const position = resolveWorkflowPosition(definition, task);
+      if (position.phase === 'terminal') {
+        throw new AiValidationError(`Task '${body.taskId}' is in terminal phase and cannot be executed.`);
+      }
+
+      const targetStepName = position.phase === 'new'
+        ? definition.entryStep
+        : (position.phase === 'active' ? position.step : position.nextStep);
+
+      if (!targetStepName) {
+        throw new AiValidationError(`Could not resolve target workflow step for task '${body.taskId}'.`);
+      }
+
+      if (body.stepId && body.stepId !== targetStepName) {
+        throw new AiValidationError(
+          `Requested stepId '${body.stepId}' does not match server-resolved target step '${targetStepName}'.`
+        );
+      }
+
       const targetStepDef = definition?.steps?.[targetStepName];
-      const authoritativeRole = body.role || targetStepDef?.execution?.role || targetStepDef?.role || 'implementer';
+
+      // Resolve matched incoming transition if applicable
+      let matchedTransition = null;
+      const history = task.workflow_progress?.history || [];
+      if (history.length > 0) {
+        const lastHistory = history[history.length - 1];
+        if (lastHistory.transitioned_to === targetStepName) {
+          const priorStepDef = definition.steps?.[lastHistory.step];
+          const candidateTransitions = (priorStepDef?.transitions || []).filter(
+            (t) => (t.to === targetStepName || t.step === targetStepName)
+          );
+          const historyResult = lastHistory.result;
+          const matching = candidateTransitions.filter((t) => {
+            if (t.value !== undefined) {
+              return t.value === historyResult;
+            }
+            return true;
+          });
+          if (matching.length === 1) {
+            matchedTransition = matching[0];
+          } else if (matching.length > 1) {
+            const exactMatches = matching.filter((t) => t.value !== undefined && t.value === historyResult);
+            if (exactMatches.length === 1) {
+              matchedTransition = exactMatches[0];
+            }
+          }
+        }
+      }
+
+      const authoritativeRole = matchedTransition?.execution?.role || targetStepDef?.execution?.role || targetStepDef?.role || 'implementer';
+
+      if (body.role && body.role !== authoritativeRole) {
+        throw new AiValidationError(
+          `Requested role '${body.role}' does not match server-resolved role '${authoritativeRole}'.`
+        );
+      }
 
       const { executionPolicyService } = await import('../execution-policy-service.mjs');
       const resolvedPolicy = executionPolicyService.resolveExecutionPolicy(changeSlug, body.taskId, {
@@ -129,10 +194,17 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         throw new AiValidationError('No execution provider specified or configured in execution policy.');
       }
       const effectiveMode = body.mode || resolvedPolicy?.mode || 'agent';
-      let sessionPolicy = body.sessionPolicy || resolvedPolicy?.session || 'fresh';
+      const declaredSessionPolicy = matchedTransition?.execution?.session || targetStepDef?.execution?.session;
+      let sessionPolicy = declaredSessionPolicy || resolvedPolicy?.session || 'fresh';
 
-      // Persist spec-level execution policy from D21 if no policy exists yet
-      if (effectiveProvider && effectiveMode) {
+      if (body.sessionPolicy && declaredSessionPolicy && body.sessionPolicy !== declaredSessionPolicy) {
+        throw new AiValidationError(
+          `Requested sessionPolicy '${body.sessionPolicy}' conflicts with server-resolved workflow session policy '${declaredSessionPolicy}'.`
+        );
+      }
+
+      // Persist spec-level execution policy from D21 if no policy exists yet and not a one-off execution
+      if (!body.oneOff && effectiveProvider && effectiveMode) {
         try {
           const existing = executionPolicyService.getExecutionPolicy(changeSlug, { repoRoot: effectiveRepoRoot });
           if (!existing) {
@@ -145,17 +217,53 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         } catch {}
       }
 
+      let parentSessionId = body.parentSessionId || null;
+      if (!parentSessionId && effectiveRepoRoot && history.length > 0) {
+        for (let i = history.length - 1; i >= 0; i--) {
+          const h = history[i];
+          if (h.sessionId) {
+            parentSessionId = h.sessionId;
+            break;
+          }
+          const priorStepDef = definition?.steps?.[h.step];
+          const priorExecutor = priorStepDef?.executor || 'agent';
+          if (priorExecutor === 'human') {
+            continue;
+          }
+          try {
+            const { createAgentSessionBindingService } = await import('../binding-service.mjs');
+            const bindingService = createAgentSessionBindingService({
+              storageDir: join(effectiveRepoRoot, '.nevo-ai-local', 'sessions'),
+            });
+            const stepBindings = await bindingService.listBindings({
+              specId: canonicalSpecId,
+              taskId: task.id,
+              step: h.step,
+              ...(h.attempt !== undefined ? { attempt: h.attempt } : {}),
+            });
+            if (stepBindings.length === 1) {
+              parentSessionId = stepBindings[0].sessionId;
+              break;
+            } else if (stepBindings.length > 1) {
+              parentSessionId = null;
+              break;
+            }
+          } catch {}
+        }
+      }
+
       const { admitAgentExecution } = await import('../../orchestration/admission.mjs');
 
       const candidate = {
         taskId: body.taskId,
-        stepId: body.stepId || targetStepName,
+        stepId: targetStepName,
         provider: effectiveProvider,
         changeSlug,
         specId: canonicalSpecId,
         sessionPolicy,
         role: authoritativeRole,
-        sessionId: body.sessionId,
+        parentSessionId,
+        sessionId: body.sessionId || (sessionPolicy === 'reuse' ? parentSessionId : undefined),
         message: body.message ?? body.prompt,
         userMessage: body.userMessage,
         mode: effectiveMode,

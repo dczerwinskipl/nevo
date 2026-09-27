@@ -11,6 +11,7 @@ import { finishStep } from '../finish-operation.mjs';
 import { assertStepExecutor } from '../executor-guard.mjs';
 import { findInFlightOperationRecord } from '../operation-record.mjs';
 import { assertExecutionReadiness } from '../readiness-policy.mjs';
+import { resolveStableSpecId } from '../../identity.mjs';
 import { ROOT } from '../../store.mjs';
 import {
   acquireWorkspaceWriter,
@@ -385,6 +386,7 @@ export async function activateAndSubmitHumanStep(
 
   const op = opResolution.created;
   const requestId = opResolution.requestId;
+  const specId = resolveStableSpecId(change);
 
   // 3. Create paired workspace-request (status: 'queued') (D91)
   const operationRef = { change: changeSlug, task: task.id, step: stepName, attempt };
@@ -392,7 +394,7 @@ export async function activateAndSubmitHumanStep(
     repoRoot,
     requestId,
     kind: 'human-submit',
-    specId: change.id || changeSlug,
+    specId,
     taskId: task.id,
     operationRef,
   });
@@ -403,7 +405,7 @@ export async function activateAndSubmitHumanStep(
     kind: 'human-submit',
     requestId,
     operationRef,
-    specId: change.id || changeSlug,
+    specId,
     changeSlug,
     taskId: task.id,
   });
@@ -437,7 +439,7 @@ export async function activateAndSubmitHumanStep(
         kind: 'human-submit',
         requestId,
         operationRef,
-        specId: change.id || changeSlug,
+        specId,
         taskId: task.id,
       });
       if (acquireRes.blocked) {
@@ -475,7 +477,7 @@ export async function activateAndSubmitHumanStep(
       repoRoot,
       expectedOwnerId: acquireRes.ownerId,
       expectedKind: 'human-submit',
-      expectedSpecId: change.id || changeSlug,
+      expectedSpecId: specId,
       expectedTaskId: task.id,
     });
     return loadWorkspaceRequest(repoRoot, requestId);
@@ -544,7 +546,7 @@ export async function activateAndSubmitHumanStep(
         repoRoot,
         expectedOwnerId: acquireRes.ownerId,
         expectedKind: 'human-submit',
-        expectedSpecId: change.id || changeSlug,
+        expectedSpecId: specId,
         expectedTaskId: task.id,
       });
     } catch {}
@@ -565,7 +567,7 @@ export async function activateAndSubmitHumanStep(
         repoRoot,
         expectedOwnerId: acquireRes.ownerId,
         expectedKind: 'human-submit',
-        expectedSpecId: change.id || changeSlug,
+        expectedSpecId: specId,
         expectedTaskId: task.id,
       });
     } catch {}

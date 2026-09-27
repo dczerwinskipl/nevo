@@ -148,6 +148,7 @@ describe('Dashboard human-step transport (Task 16, D14, D16, D17)', () => {
       mkdirSync(tasksDir, { recursive: true });
 
       const changeYaml = `id: demo-change
+spec_id: 11111111-1111-4111-8111-111111111111
 title: "Demo Change"
 workflow:
   mode: deterministic
@@ -219,6 +220,7 @@ tasks:
       mkdirSync(tasksDir, { recursive: true });
 
       const changeYaml = `id: demo-change
+spec_id: 11111111-1111-4111-8111-111111111111
 title: "Demo Change"
 workflow:
   mode: deterministic
@@ -293,6 +295,7 @@ tasks:
       mkdirSync(tasksDir, { recursive: true });
 
       const changeYaml = `id: demo-change
+spec_id: 11111111-1111-4111-8111-111111111111
 title: "Demo Change"
 workflow:
   mode: deterministic
@@ -394,6 +397,7 @@ tasks:
       mkdirSync(tasksDir, { recursive: true });
 
       const changeYaml = `id: demo-change
+spec_id: 11111111-1111-4111-8111-111111111111
 title: "Demo Change"
 workflow:
   mode: deterministic
@@ -472,6 +476,7 @@ tasks:
       mkdirSync(tasksDir, { recursive: true });
 
       const changeYaml = `id: demo-change
+spec_id: 11111111-1111-4111-8111-111111111111
 title: "Demo Change"
 workflow:
   mode: deterministic
@@ -531,6 +536,7 @@ tasks:
       mkdirSync(tasksDir, { recursive: true });
 
       const changeYaml = `id: demo-change
+spec_id: 11111111-1111-4111-8111-111111111111
 title: "Demo Change"
 workflow:
   mode: deterministic

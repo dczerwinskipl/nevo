@@ -97,6 +97,7 @@ describe('Deterministic Task Publish Transport & Projection', () => {
       mkdirSync(tasksDir, { recursive: true });
 
       const changeYaml = `id: demo-change
+spec_id: 11111111-1111-4111-8111-111111111111
 title: "Demo Change"
 status: in-progress
 workflow:
@@ -226,6 +227,7 @@ tasks:
       mkdirSync(tasksDir, { recursive: true });
 
       const changeYaml = `id: batch-change
+spec_id: 22222222-2222-4222-8222-222222222222
 title: "Batch Change"
 status: in-progress
 workflow:

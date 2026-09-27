@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { requireChange, requireTask, setTaskStatus, ROOT, ACTIVE_DIR } from '../../store.mjs';
+import { resolveStableSpecId } from '../../identity.mjs';
 import { resolveWithinBase, readUtf8 } from '../../../lib/fs.mjs';
 import { parseFrontMatterFile } from '../../../lib/yaml.mjs';
 import { CliError } from '../../../lib/cli-errors.mjs';
@@ -273,12 +274,14 @@ export function publishTask(changeSlug, taskId, options = {}) {
       saveOperationRecord(repoRoot, record);
     }
 
+    const specId = resolveStableSpecId(change);
+
     // Step 2: Create paired workspace-request with status: 'queued' (D72, D81, D91)
     await createWorkspaceRequest({
       repoRoot,
       requestId,
       kind: 'publish',
-      specId: change.id || changeSlug,
+      specId,
       taskId,
       operationRef: recordPath,
     });
@@ -289,7 +292,7 @@ export function publishTask(changeSlug, taskId, options = {}) {
       kind: 'publish',
       requestId,
       operationRef: recordPath,
-      specId: change.id || changeSlug,
+      specId,
       changeSlug,
       taskId,
       timeoutMs: options.timeoutMs || 15000,
@@ -325,7 +328,7 @@ export function publishTask(changeSlug, taskId, options = {}) {
         kind: 'publish',
         requestId,
         operationRef: recordPath,
-        specId: change.id || changeSlug,
+        specId,
         changeSlug,
         taskId,
         timeoutMs: options.timeoutMs || 15000,
@@ -446,7 +449,7 @@ export function publishTask(changeSlug, taskId, options = {}) {
 
       return {
         ok: true,
-        changeSlug: change.id || changeSlug,
+        changeSlug: change._slug || changeSlug || change.id,
         taskId: task.id,
         status: 'approved',
         requestId,
@@ -471,13 +474,14 @@ export function publishTask(changeSlug, taskId, options = {}) {
         expectedOwnerId: workspaceOwnerId,
         expectedKind: 'publish',
         expectedRequestId: requestId,
+        expectedSpecId: specId,
       });
     }
   };
 
   const promise = runAsync();
   promise.ok = true;
-  promise.changeSlug = change.id || changeSlug;
+  promise.changeSlug = change._slug || changeSlug || change.id;
   promise.taskId = task.id;
   promise.status = 'approved';
   return promise;

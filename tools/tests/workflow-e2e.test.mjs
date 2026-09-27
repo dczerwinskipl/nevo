@@ -34,6 +34,7 @@ import { loadWorkflowDefinition, parseWorkflowDefinition } from '../specs/workfl
 import { defaultActionRegistry } from '../specs/workflow/registry.mjs';
 
 const CHANGE_YAML = `id: demo-change
+spec_id: 00000000-0000-4000-8000-000000000001
 title: "Demo change"
 type: standard
 status: draft
@@ -462,6 +463,7 @@ describe('Production multi-step Standard workflow definition (Task 11, D31, D39)
       mkdirSync(join(changeDir, 'tasks'), { recursive: true });
       writeFileSync(join(changeDir, 'change.yaml'), [
         'id: standard-change',
+        'spec_id: 00000000-0000-4000-8000-000000000002',
         'title: "Standard Change"',
         'type: standard',
         'status: draft',

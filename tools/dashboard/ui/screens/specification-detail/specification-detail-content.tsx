@@ -131,6 +131,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
     task: SpecificationTask;
     stepDescriptor: WorkflowStepDescriptor;
     taskIds?: string[];
+    isOneOff?: boolean;
   } | null>(null);
 
   /**
@@ -140,7 +141,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
   const proceedWithAgentExecution = useCallback(
     async (
       targetTaskId: string,
-      policy: { provider: string; mode?: AgentExecutionMode; role?: string },
+      policy: { provider: string; mode?: AgentExecutionMode; role?: string; oneOff?: boolean },
       taskIds?: string[],
     ) => {
       const userMessage = buildAgentStepTriggerMessage(targetTaskId);
@@ -154,6 +155,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           provider: policy.provider,
           mode: policy.mode,
           ...(policy.role ? { role: policy.role } : {}),
+          ...(policy.oneOff ? { oneOff: true } : {}),
           specId: specification.specId,
           slug: specification.slug,
           changeSlug: specification.slug,
@@ -188,7 +190,12 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
   );
 
   const startStep = useCallback(
-    async (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor, taskIds?: string[]) => {
+    async (
+      task: SpecificationTask,
+      stepDescriptor: WorkflowStepDescriptor,
+      taskIds?: string[],
+      options?: { oneOff?: boolean },
+    ) => {
       setWorkflowError(null);
 
       if (!task || !stepDescriptor) {
@@ -200,8 +207,8 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
       if (stepDescriptor.executor === 'agent') {
         try {
           const currentPolicy = executionPolicyQuery.policy;
-          if (!currentPolicy) {
-            setPendingStart({ task, stepDescriptor, taskIds });
+          if (options?.oneOff || !currentPolicy) {
+            setPendingStart({ task, stepDescriptor, taskIds, isOneOff: Boolean(options?.oneOff) });
             return;
           }
           const stepRole = (stepDescriptor as any).role || (stepDescriptor as any).execution?.role;
@@ -554,20 +561,29 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           onClose={() => setPendingStart(null)}
           confirming={executionPolicyQuery.saving}
           initialPolicy={executionPolicyQuery.policy}
+          isOneOff={pendingStart.isOneOff}
           onConfirm={async (chosen) => {
             try {
-              await executionPolicyQuery.savePolicy({
-                provider: chosen.provider,
-                mode: chosen.mode,
-                ...(chosen.default ? { default: chosen.default } : {}),
-                ...(chosen.roles ? { roles: chosen.roles } : {}),
-                ...(chosen.taskOverrides ? { taskOverrides: chosen.taskOverrides } : (executionPolicyQuery.policy?.taskOverrides ? { taskOverrides: executionPolicyQuery.policy.taskOverrides } : {})),
-              });
               const target = pendingStart;
               setPendingStart(null);
-              if (target.task && target.stepDescriptor?.id !== '__configure_only__') {
-                const targetRole = (target.stepDescriptor as any)?.role || (target.stepDescriptor as any)?.execution?.role;
-                await proceedWithAgentExecution(target.task.id, { ...chosen, role: targetRole }, target.taskIds);
+              if (target.isOneOff) {
+                if (target.task && target.stepDescriptor?.id !== '__configure_only__') {
+                  const targetRole = (target.stepDescriptor as any)?.role || (target.stepDescriptor as any)?.execution?.role;
+                  await proceedWithAgentExecution(target.task.id, { ...chosen, role: targetRole, oneOff: true }, target.taskIds);
+                }
+              } else {
+                await executionPolicyQuery.savePolicy({
+                  ...chosen,
+                  provider: chosen.provider,
+                  mode: chosen.mode,
+                  ...(chosen.default ? { default: chosen.default } : {}),
+                  ...(chosen.roles ? { roles: chosen.roles } : {}),
+                  ...(chosen.taskOverrides ? { taskOverrides: chosen.taskOverrides } : (executionPolicyQuery.policy?.taskOverrides ? { taskOverrides: executionPolicyQuery.policy.taskOverrides } : {})),
+                });
+                if (target.task && target.stepDescriptor?.id !== '__configure_only__') {
+                  const targetRole = (target.stepDescriptor as any)?.role || (target.stepDescriptor as any)?.execution?.role;
+                  await proceedWithAgentExecution(target.task.id, { ...chosen, role: targetRole }, target.taskIds);
+                }
               }
             } catch (err: any) {
               const message = err instanceof Error ? err.message : String(err);

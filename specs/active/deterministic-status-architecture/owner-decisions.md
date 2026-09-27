@@ -4574,12 +4574,12 @@ points are asserted to route through the identical `startStep` function instance
     - **`turnStartState: 'started'`** — `turnId` is guaranteed present (atomic write, above).
       Normal settlement/orphan reconciliation applies exactly as D93's original Case C already
       specified; no ambiguity remains, since both fields landed together or not at all.
-  - **D97's own crash-case text is corrected accordingly**, not by changing its *mechanism*
-    (`reconcileOrphanedTurns()`/transcript-cache evidence remains exactly how positive evidence is
-    found) but by changing what a *negative* result means: it no longer, by itself, justifies
-    "settle normally." The only case where absence of transcript evidence is safe to treat as
-    "nothing happened" is `turnStartState: 'prepared'` — where the claim's own state, not the
-    transcript, is what proves it.
+  - **D97's own crash-case text is corrected accordingly**: because an observed turn cannot be
+    safely attributed to this execution under reused sessions without durable correlation, and
+    turnId is absent from `invoking` claims, `turnStartState: 'invoking'` fails closed to
+    `recovery-required`. The only case where absence of a running turn is safe to treat as
+    "nothing happened" is `turnStartState: 'prepared'` — where the claim's own state proves
+    `startTurn()` was never called.
 - **Rationale:** Matches the brief precisely — a debounced, best-effort persistence layer cannot
   serve as authoritative negative evidence for a narrow, latency-sized crash window; the fix is a
   small, agent-only, additive field on a record this spec already treats as the durable ownership
@@ -4590,9 +4590,9 @@ points are asserted to route through the identical `startStep` function instance
   optional field. `admitAgentExecution` (task 29) gains one new ownership-conditional write
   (`turnStartState: 'invoking'`, immediately before calling `startTurn()`) and combines its
   existing second enrichment into one atomic `{turnId, turnStartState: 'started'}` update. Hook
-  1/Hook 3 reconciliation branches on `turnStartState` first, only consulting transcript-cache
-  evidence for the `'invoking'` case, and never treats a negative transcript lookup as sufficient
-  to settle an `'invoking'` claim normally.
+  1/Hook 3 reconciliation branches on `turnStartState` first: `'prepared'` settles normally,
+  `'started'` reconciles normally via turn settlement, and `'invoking'` fails closed to
+  `recovery-required` due to the absence of execution-unique durable correlation on unstarted turns.
 - **Date:** 2026-09-24
 - **Affected artifacts:** `overview.md`, `areas/workflow-continuation-and-session-handover.md`,
   `areas/dependency-release-and-invalidation.md`, `tasks/27-dependency-release-and-invalidation.md`,

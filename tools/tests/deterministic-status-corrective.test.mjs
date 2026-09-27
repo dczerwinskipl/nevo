@@ -2473,5 +2473,292 @@ test('first implementation start resolves authoritative role from workflow defin
   }
 });
 
+test('handleWorkflowStepStart with missing or malformed spec_id fails closed before acquiring workspace claim or writing relations', async () => {
+  const tmpRepo = createTempRepo('spec-id-fail-closed');
+  try {
+    const { handleWorkflowStepStart } = await import('../specs/workflow/cli.mjs');
+    const { getWorkspaceWriterClaim } = await import('../specs/workflow/workspace-writer.mjs');
+    const slugMissing = 'spec-missing-id';
+    const slugMalformed = 'spec-malformed-id';
+    const activeDir = path.join(tmpRepo, 'specs', 'active');
+    fs.mkdirSync(path.join(activeDir, slugMissing, 'tasks'), { recursive: true });
+    fs.mkdirSync(path.join(activeDir, slugMalformed, 'tasks'), { recursive: true });
+
+    // 1. Spec with missing spec_id
+    fs.writeFileSync(
+      path.join(activeDir, slugMissing, 'change.yaml'),
+      `id: ${slugMissing}\ntitle: "Missing Spec ID"\nstatus: in-progress\nworkflow:\n  mode: deterministic\n  definition: standard-v1\ntasks:\n  - id: t1\n    title: "T1"\n    status: approved\n    file: tasks/t1.md\n`,
+    );
+    fs.writeFileSync(path.join(activeDir, slugMissing, 'overview.md'), '# Overview\n');
+    fs.writeFileSync(path.join(activeDir, slugMissing, 'tasks', 't1.md'), '---\nid: t1\nstatus: approved\n---\n# T1\n');
+
+    // 2. Spec with malformed spec_id
+    fs.writeFileSync(
+      path.join(activeDir, slugMalformed, 'change.yaml'),
+      `id: ${slugMalformed}\nspec_id: not-a-uuid\ntitle: "Malformed Spec ID"\nstatus: in-progress\nworkflow:\n  mode: deterministic\n  definition: standard-v1\ntasks:\n  - id: t1\n    title: "T1"\n    status: approved\n    file: tasks/t1.md\n`,
+    );
+    fs.writeFileSync(path.join(activeDir, slugMalformed, 'overview.md'), '# Overview\n');
+    fs.writeFileSync(path.join(activeDir, slugMalformed, 'tasks', 't1.md'), '---\nid: t1\nstatus: approved\n---\n# T1\n');
+
+    const { execFileSync } = await import('node:child_process');
+    execFileSync('git', ['add', '-A'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'add specs with missing and malformed spec_id'], { cwd: tmpRepo });
+
+    // Execute real handleWorkflowStepStart on missing spec_id
+    await assert.rejects(
+      async () => {
+        await handleWorkflowStepStart(slugMissing, 't1', {
+          activeDir,
+          repoRoot: tmpRepo,
+          silent: true,
+        });
+      },
+      (err) => {
+        assert.match(err.message, /has no persisted spec_id|backfill-spec-id/i);
+        return true;
+      },
+      'Must fail closed with backfill error when spec_id is missing',
+    );
+
+    // Verify no workspace writer claim or cli-manual claim exists
+    assert.equal(getWorkspaceWriterClaim(tmpRepo), null);
+    assert.equal(fs.existsSync(path.join(tmpRepo, '.nevo-ai-local', 'workspace-writer.json')), false);
+
+    // Execute real handleWorkflowStepStart on malformed spec_id
+    await assert.rejects(
+      async () => {
+        await handleWorkflowStepStart(slugMalformed, 't1', {
+          activeDir,
+          repoRoot: tmpRepo,
+          silent: true,
+        });
+      },
+      (err) => {
+        assert.match(err.message, /has no persisted spec_id|backfill-spec-id/i);
+        return true;
+      },
+      'Must fail closed with backfill error when spec_id is malformed',
+    );
+
+    // Verify no workspace writer claim or cli-manual claim exists
+    assert.equal(getWorkspaceWriterClaim(tmpRepo), null);
+    assert.equal(fs.existsSync(path.join(tmpRepo, '.nevo-ai-local', 'workspace-writer.json')), false);
+  } finally {
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('server-side target step and role resolution derives authoritative reviewer/refiner roles and rejects client hints on mismatch', async () => {
+  const tmpRepo = createTempRepo('authoritative-role-mismatch');
+  try {
+    const { executionPolicyService } = await import('../dashboard/server/ai/sessions/execution-policy-service.mjs');
+    const slug = 'spec-roles';
+    const canonicalSpecId = '33333333-3333-4333-8333-333333333333';
+    const activeDir = path.join(tmpRepo, 'specs', 'active');
+    const tasksDir = path.join(activeDir, slug, 'tasks');
+    fs.mkdirSync(tasksDir, { recursive: true });
+
+    // Spec with standard-v1 and task transitioned to review
+    fs.writeFileSync(
+      path.join(activeDir, slug, 'change.yaml'),
+      `id: ${slug}
+spec_id: ${canonicalSpecId}
+title: "Role Resolution Spec"
+status: in-progress
+workflow:
+  mode: deterministic
+  definition: standard-v1
+tasks:
+  - id: t1
+    title: "Task 1"
+    status: in-implementation
+    file: tasks/t1.md
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: "2026-01-01T00:00:00.000Z"
+          transitioned_to: review
+  - id: t2
+    title: "Task 2"
+    status: in-implementation
+    file: tasks/t2.md
+    workflow_progress:
+      current_step: human-verification
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: "2026-01-01T00:00:00.000Z"
+          transitioned_to: review
+        - step: review
+          attempt: 1
+          completed_at: "2026-01-01T01:00:00.000Z"
+          result: pass
+          transitioned_to: human-verification
+        - step: human-verification
+          attempt: 1
+          completed_at: "2026-01-01T02:00:00.000Z"
+          result: fail
+          transitioned_to: implementation
+`,
+    );
+    fs.writeFileSync(path.join(activeDir, slug, 'overview.md'), '# Overview\n');
+    fs.writeFileSync(path.join(tasksDir, 't1.md'), '---\nid: t1\nstatus: in-implementation\n---\n# T1\n');
+    fs.writeFileSync(path.join(tasksDir, 't2.md'), '---\nid: t2\nstatus: in-implementation\n---\n# T2\n');
+
+    const { execFileSync } = await import('node:child_process');
+    execFileSync('git', ['add', '-A'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'add spec-roles fixtures'], { cwd: tmpRepo });
+
+    executionPolicyService.saveExecutionPolicy(
+      slug,
+      {
+        provider: 'claude',
+        mode: 'agent',
+        roles: {
+          implementer: { provider: 'codex', mode: 'agent' },
+          reviewer: { provider: 'claude', mode: 'agent' },
+          refiner: { provider: 'gemini', mode: 'agent' },
+        },
+      },
+      { repoRoot: tmpRepo },
+    );
+
+    function makeProvider(id) {
+      const p = createMockAgentProvider({ streamDelayMs: 1 });
+      p.descriptor = { ...p.descriptor, id, label: id };
+      return p;
+    }
+
+    const registry = createAgentProviderRegistry([
+      makeProvider('claude'),
+      makeProvider('codex'),
+      makeProvider('gemini'),
+    ]);
+    const transcriptCache = createTranscriptCacheService({ baseDir: path.join(tmpRepo, '.nevo-ai-local', 'transcripts') });
+    const bindingService = createAgentSessionBindingService({ storageDir: path.join(tmpRepo, '.nevo-ai-local', 'sessions') });
+    const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+
+    let lastCreatedRole = null;
+    let lastCreatedProvider = null;
+    const service = createAgentSessionService({
+      registry,
+      turnRuntime,
+      transcriptCache,
+      bindingService,
+      repoRoot: tmpRepo,
+    });
+    const origCreate = service.createSession.bind(service);
+    service.createSession = async (provider, opts) => {
+      lastCreatedProvider = provider;
+      lastCreatedRole = opts?.role;
+      return await origCreate(provider, opts);
+    };
+
+    const app = await buildAiTestApp({ service, repoRoot: tmpRepo });
+
+    // 1. Task t1 is in completed implementation transitioning to review.
+    // Client sends conflicting role: 'implementer' -> REJECTED
+    const resRoleMismatch = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: {
+        'content-type': 'application/json',
+        'x-nevo-dashboard-action': '1',
+      },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskId: 't1',
+        role: 'implementer', // mismatch! server resolves 'reviewer'
+        prompt: 'Start review',
+      },
+    });
+    assert.equal(resRoleMismatch.statusCode, 400);
+    assert.match(resRoleMismatch.json().error.message, /Requested role 'implementer' does not match server-resolved role 'reviewer'/);
+
+    // 2. Client sends conflicting stepId: 'implementation' -> REJECTED
+    const resStepMismatch = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: {
+        'content-type': 'application/json',
+        'x-nevo-dashboard-action': '1',
+      },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskId: 't1',
+        stepId: 'implementation', // mismatch! server resolves 'review'
+        prompt: 'Start review',
+      },
+    });
+    assert.equal(resStepMismatch.statusCode, 400);
+    assert.match(resStepMismatch.json().error.message, /Requested stepId 'implementation' does not match server-resolved target step 'review'/);
+
+    // 3. Client sends matching or omitted role/step -> ACCEPTED and resolves role: 'reviewer' (provider: 'claude')
+    const resReview = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: {
+        'content-type': 'application/json',
+        'x-nevo-dashboard-action': '1',
+      },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskId: 't1',
+        prompt: 'Start review without hints',
+      },
+    });
+    assert.equal(resReview.statusCode, 201, `resReview failed with ${resReview.statusCode}: ${resReview.payload}`);
+    assert.equal(lastCreatedRole, 'reviewer');
+    assert.equal(lastCreatedProvider, 'claude');
+
+    // Reset admission state and release claim
+    resetAdmissionStateForTest();
+    const { getWorkspaceWriterClaim } = await import('../specs/workflow/workspace-writer.mjs');
+    const claimToRelease = getWorkspaceWriterClaim(tmpRepo);
+    if (claimToRelease) {
+      await releaseWorkspaceWriterIfOwned({ repoRoot: tmpRepo, expectedOwnerId: claimToRelease.ownerId });
+    }
+
+    // 4. Task t2 failed human-verification and transitioned back to implementation (refiner).
+    // Omitted role -> server resolves role: 'refiner' (provider: 'gemini')
+    const useRefiner = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: {
+        'content-type': 'application/json',
+        'x-nevo-dashboard-action': '1',
+      },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskId: 't2',
+        prompt: 'Refine t2',
+      },
+    });
+    assert.equal(useRefiner.statusCode, 201);
+    assert.equal(lastCreatedRole, 'refiner');
+    assert.equal(lastCreatedProvider, 'gemini');
+
+    await app.close();
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+
 
 

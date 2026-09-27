@@ -20,7 +20,12 @@ import { StatusBoard } from '@/features/specifications/detail/status-board';
 export interface SequentialQueueTaskPickerProps {
   tasks: SpecificationTask[];
   taskActions?: Record<string, SpecificationTaskActionGate>;
-  onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor, taskIds?: string[]) => void | Promise<void>;
+  onStartStep?: (
+    task: SpecificationTask,
+    stepDescriptor: WorkflowStepDescriptor,
+    taskIds?: string[],
+    options?: { oneOff?: boolean },
+  ) => void | Promise<void>;
   onTriggerRemediationReview?: (remediationTaskIds: string[]) => void | Promise<void>;
   executionPolicy?: ExecutionPolicy | null;
   onConfigureExecutionPolicy?: () => void;
@@ -121,7 +126,7 @@ export function SequentialQueueTaskPicker({
 
   // Submits the selection via server-side orchestration layer
   // Starts exactly ONE session (for the queue's first nextRunnable item), never more than one (D33, AC 2, AC 8)
-  const handleStartBatch = useCallback(() => {
+  const handleStartBatch = useCallback((options?: { oneOff?: boolean }) => {
     if (selectedTaskIds.size === 0) return;
     const selectedTasks = tasks
       .filter((t) => selectedTaskIds.has(t.id))
@@ -141,7 +146,7 @@ export function SequentialQueueTaskPicker({
           executor: gate?.executor || 'agent',
         };
       // Exactly ONE session start is initiated
-      onStartStep?.(nextRunnable, descriptor, Array.from(selectedTaskIds));
+      onStartStep?.(nextRunnable, descriptor, Array.from(selectedTaskIds), options);
     }
   }, [onStartStep, selectedTaskIds, tasks, taskActions]);
 
@@ -186,7 +191,18 @@ export function SequentialQueueTaskPicker({
           )}
           <Button
             size="sm"
-            onClick={handleStartBatch}
+            variant="secondary"
+            onClick={() => handleStartBatch({ oneOff: true })}
+            disabled={selectedTaskIds.size === 0}
+            className="h-7 cursor-pointer text-xs"
+            title="Uruchom zadania z jednorazowym wyborem wykonawcy (bez modyfikacji zapisanej polityki)"
+            aria-label="Start batch with custom provider"
+          >
+            Uruchom z...
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => handleStartBatch()}
             disabled={selectedTaskIds.size === 0}
             className="h-7 cursor-pointer text-xs font-semibold"
             aria-label="Start batch"
@@ -316,7 +332,12 @@ export function SpecificationOverview({
   isDeterministic?: boolean;
   onDirectTaskAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
   onBatchTaskAction?: (tasks: SpecificationTask[], action: SpecificationOwnerAction) => void;
-  onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor, taskIds?: string[]) => void | Promise<void>;
+  onStartStep?: (
+    task: SpecificationTask,
+    stepDescriptor: WorkflowStepDescriptor,
+    taskIds?: string[],
+    options?: { oneOff?: boolean },
+  ) => void | Promise<void>;
   onPublishTask?: (task: SpecificationTask) => void | Promise<void>;
   onBatchPublish?: (tasks: SpecificationTask[]) => void | Promise<void>;
   onCreateSession: () => void;
