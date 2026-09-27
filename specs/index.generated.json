@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-27T18:58:41.847Z",
+  "generated": "2026-09-27T19:22:47.636Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -567,7 +567,62 @@
       "status": "draft",
       "priority": 10,
       "created": "2026-09-27",
-      "tasks": []
+      "tasks": [
+        {
+          "id": "execution-scope-model",
+          "order": 1,
+          "file": "tasks/01-execution-scope-model.md",
+          "status": "draft"
+        },
+        {
+          "id": "batch-queue-reservation",
+          "order": 2,
+          "file": "tasks/02-batch-queue-reservation.md",
+          "status": "draft",
+          "depends_on": [
+            "execution-scope-model"
+          ]
+        },
+        {
+          "id": "batch-finish-operation",
+          "order": 3,
+          "file": "tasks/03-batch-finish-operation.md",
+          "status": "draft",
+          "depends_on": [
+            "execution-scope-model"
+          ]
+        },
+        {
+          "id": "batch-context-and-report",
+          "order": 4,
+          "file": "tasks/04-batch-context-and-report.md",
+          "status": "draft",
+          "depends_on": [
+            "execution-scope-model"
+          ]
+        },
+        {
+          "id": "multi-task-review-skill",
+          "order": 5,
+          "file": "tasks/05-multi-task-review-skill.md",
+          "status": "draft",
+          "depends_on": [
+            "batch-finish-operation",
+            "batch-context-and-report"
+          ]
+        },
+        {
+          "id": "dashboard-batch-review-ux",
+          "order": 6,
+          "file": "tasks/06-dashboard-batch-review-ux.md",
+          "status": "draft",
+          "depends_on": [
+            "batch-queue-reservation",
+            "batch-finish-operation",
+            "multi-task-review-skill"
+          ]
+        }
+      ]
     },
     {
       "id": "agent-workflow-protocol-and-flow-hardening",
