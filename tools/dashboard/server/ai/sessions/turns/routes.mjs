@@ -115,8 +115,25 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         }
       }
 
-      const { enqueueTasks, evaluateTaskQueue } = await import('../../../../../specs/workflow/queue/index.mjs');
-      const queueRecord = enqueueTasks(effectiveRepoRoot, changeSlug, selectedTaskIds);
+      // A. Pure resolution and validation (no disk side-effects)
+      const { loadTaskQueue, enqueueTasks, evaluateTaskQueue } = await import('../../../../../specs/workflow/queue/index.mjs');
+      const currentQueue = loadTaskQueue(effectiveRepoRoot, changeSlug);
+      const candidateQueue = {
+        changeSlug,
+        taskIds: currentQueue ? [...currentQueue.taskIds] : [],
+        eligibleAt: currentQueue ? { ...currentQueue.eligibleAt } : {},
+        metadata: currentQueue?.metadata || {},
+      };
+      const existingSet = new Set(candidateQueue.taskIds);
+      const now = Date.now();
+      for (const id of selectedTaskIds) {
+        if (!id || typeof id !== 'string') continue;
+        if (!existingSet.has(id)) {
+          candidateQueue.taskIds.push(id);
+          existingSet.add(id);
+          candidateQueue.eligibleAt[id] = now;
+        }
+      }
 
       let definition = null;
       if (deterministicTarget.resolvedWorkflow?.definition) {
@@ -126,7 +143,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
 
       const queueState = evaluateTaskQueue({
         change: deterministicTarget.change,
-        queueRecord,
+        queueRecord: candidateQueue,
         definition,
         repoRoot: effectiveRepoRoot,
       });
@@ -187,7 +204,8 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
       const matchedTransition = matchResult.transition;
       const authoritativeRole = matchedTransition?.execution?.role || null;
 
-      if (body.role && body.role !== authoritativeRole && !body.oneOff) {
+      // Item 3: Role validation must fail closed on mismatch regardless of oneOff
+      if (body.role && body.role !== authoritativeRole) {
         throw new AiValidationError(
           `Requested role '${body.role}' does not match server-resolved role '${authoritativeRole}'.`
         );
@@ -226,20 +244,6 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
 
       if (!effectiveProvider) {
         throw new AiValidationError('No execution provider specified or configured in execution policy.');
-      }
-
-      // Persist spec-level execution policy from D21 if no policy exists yet and not a one-off execution
-      if (!body.oneOff && effectiveProvider && effectiveMode) {
-        try {
-          const existing = executionPolicyService.getExecutionPolicy(changeSlug, { repoRoot: effectiveRepoRoot });
-          if (!existing) {
-            executionPolicyService.saveExecutionPolicy(
-              changeSlug,
-              { provider: effectiveProvider, mode: effectiveMode },
-              { repoRoot: effectiveRepoRoot },
-            );
-          }
-        } catch {}
       }
 
       const declaredSessionPolicy = matchedTransition?.execution?.session || null;
@@ -308,6 +312,36 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         }
       }
 
+      // Item 2: Build authoritative execution trigger from server-resolved targetTaskId
+      const canonicalTrigger = `Execute the current workflow step for task ${targetTaskId}.`;
+      let effectiveUserMessage = canonicalTrigger;
+      const rawUserText = body.userMessage || body.prompt || body.message;
+      if (rawUserText && typeof rawUserText === 'string') {
+        const trimmed = rawUserText.trim();
+        const isBoilerplate = /^Execute the current workflow step for task [^\s.]+\.?$/i.test(trimmed);
+        if (!isBoilerplate && trimmed.length > 0) {
+          effectiveUserMessage = `${canonicalTrigger}\n\n${trimmed}`;
+        }
+      }
+
+      // B. Durable mutation: persist tasks to the sequential queue
+      enqueueTasks(effectiveRepoRoot, changeSlug, selectedTaskIds);
+
+      // Persist spec-level execution policy from D21 if no policy exists yet and not a one-off execution
+      if (!body.oneOff && effectiveProvider && effectiveMode) {
+        try {
+          const existing = executionPolicyService.getExecutionPolicy(changeSlug, { repoRoot: effectiveRepoRoot });
+          if (!existing) {
+            executionPolicyService.saveExecutionPolicy(
+              changeSlug,
+              { provider: effectiveProvider, mode: effectiveMode },
+              { repoRoot: effectiveRepoRoot },
+            );
+          }
+        } catch {}
+      }
+
+      // C. Admission
       const { admitAgentExecution } = await import('../../orchestration/admission.mjs');
 
       const candidate = {
@@ -320,8 +354,8 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         role: authoritativeRole,
         parentSessionId,
         sessionId: sessionPolicy === 'reuse' ? (body.sessionId || parentSessionId) : undefined,
-        message: body.message ?? body.prompt,
-        userMessage: body.userMessage,
+        message: effectiveUserMessage,
+        userMessage: effectiveUserMessage,
         mode: effectiveMode,
         model: body.model ? body.model.trim() : undefined,
         effort: effort ? effort.trim() : undefined,

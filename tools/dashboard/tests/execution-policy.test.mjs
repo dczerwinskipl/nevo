@@ -410,5 +410,56 @@ describe('Task 26: Execution policy and mode selection (D21)', () => {
     const resolvedDefault = policyService.resolveExecutionPolicy('round-trip-spec', null);
     assert.deepEqual(resolvedDefault, { provider: 'claude', mode: 'custom-mode' });
   });
+
+  test('One-off execution configuration: resolves effective configuration for target step/role/task and preserves policy (Item 4)', async () => {
+    // 1. Verify resolution precedence (taskOverride > role > default)
+    const policy = {
+      provider: 'claude',
+      mode: 'agent',
+      default: { provider: 'claude', mode: 'agent' },
+      roles: {
+        implementer: { provider: 'claude', mode: 'agent' },
+        reviewer: { provider: 'codex', mode: 'agent' },
+      },
+      taskOverrides: {
+        'task-custom': { provider: 'antigravity', mode: 'edit' },
+      },
+    };
+
+    policyService.saveExecutionPolicy('one-off-spec', policy);
+    const resolvedReviewer = policyService.resolveExecutionPolicy('one-off-spec', 'task-1', { role: 'reviewer' });
+    assert.deepEqual(resolvedReviewer, { provider: 'codex', mode: 'agent' });
+
+    const resolvedCustomTask = policyService.resolveExecutionPolicy('one-off-spec', 'task-custom', { role: 'reviewer' });
+    assert.deepEqual(resolvedCustomTask, { provider: 'antigravity', mode: 'edit' });
+
+    const resolvedImplementer = policyService.resolveExecutionPolicy('one-off-spec', 'task-2', { role: 'implementer' });
+    assert.deepEqual(resolvedImplementer, { provider: 'claude', mode: 'agent' });
+
+    // 2. UI wiring contract: specification-detail-content passes initialConfig to ExecutionPolicySelectionDialog
+    const detailContentSrc = readFileSync(
+      fileURLToPath(new URL('../ui/screens/specification-detail/specification-detail-content.tsx', import.meta.url)),
+      'utf8',
+    );
+    assert.match(detailContentSrc, /const effective = resolvePolicyForTask\(currentPolicy, targetTaskId, \{\s*role:\s*stepRole\s*\}\)/);
+    assert.match(detailContentSrc, /initialConfig: effective/);
+    assert.match(detailContentSrc, /initialConfig=\{pendingStart\??\.initialConfig\}/);
+
+    // 3. UI wiring contract: ExecutionPolicySelectionDialog initializes from initialConfig
+    const dialogSrc = readFileSync(
+      fileURLToPath(new URL('../ui/features/agent-sessions/create-agent-session-dialog.tsx', import.meta.url)),
+      'utf8',
+    );
+    assert.match(dialogSrc, /initialConfig\?: \{ provider: string; mode\?: AgentExecutionMode \} \| null/);
+    assert.match(dialogSrc, /initialConfig\?\.provider/);
+    assert.match(dialogSrc, /setProvider\(initialConfig\.provider\)/);
+
+    // 4. Stored policy is untouched by one-off execution
+    const storedBefore = policyService.getExecutionPolicy('one-off-spec');
+    assert.deepEqual(storedBefore, policy);
+    const storedAfter = policyService.getExecutionPolicy('one-off-spec');
+    assert.deepEqual(storedAfter, storedBefore);
+  });
 });
+
 

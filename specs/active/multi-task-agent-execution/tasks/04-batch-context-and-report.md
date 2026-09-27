@@ -52,10 +52,14 @@ lineage against.
   per batch (D7), one section per task plus one "Cross-task findings" section; each finding's
   affected tasks are explicit (`affectedTaskIds: string[]`, D11), never an unattributed
   batch-wide note.
-- `predecessorSessions: {taskId, sessionId}[]` (D8) is populated only for `kind: "task-batch"` sessions,
-  at creation time, one entry per member task naming that task's own most-recent agent-owned
-  session. `parentSessionId` stays `null` for a batch session — do not populate it from any member
-  task's own lineage.
+- `predecessorSessions: {taskId, sessionId | null}[]` (D8) is populated only for `kind: "task-batch"`
+  sessions, at creation time. Resolution is strictly fail-closed:
+  1. Inspect authoritative exact history binding (`history.sessionId`) for the preceding implementer transition;
+  2. Else inspect `stepBindings` for the task at the implementer step: if exactly one session matches,
+     use its `sessionId`; if multiple exist (ambiguity) or none exists, fail closed to `null`;
+  3. Predecessor context in `BatchContext` represents missing or ambiguous lineage as unavailable (`null`),
+     never guessing or picking the latest turn/session.
+  `parentSessionId` stays `null` for a batch session — do not populate it from any member task's own lineage.
 - A refiner session created after a batch-reviewed task fails still sets its own
   `parentSessionId` to the batch session's id, using the existing single-scalar field unchanged —
   do not extend that specific case to use `predecessorSessions`.

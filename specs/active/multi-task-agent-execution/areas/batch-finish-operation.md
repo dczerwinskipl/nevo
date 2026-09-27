@@ -2,11 +2,15 @@
 
 ## Responsibility
 
-Provide one atomic/logical boundary — "workflow batch finish" — that validates every task's
-result before any of them becomes externally visible, persists the complete batch result
-durably, applies each task's own transition idempotently, and only then recomputes/dispatches
-continuations for the whole batch together. This is the mechanism that prevents "finish A →
-A's continuation fires while the reviewer is still processing B/C."
+Provide a durable resumable batch-finish saga and continuation barrier — "workflow batch finish" (D3) —
+that validates every task's result before mutations begin, persists intent durably, applies each task's
+own transition and commit idempotently, and enforces a continuation barrier preventing any downstream
+continuations from firing until all member tasks are durably completed.
+
+In git-backed repositories, member task finish operations commit and push individually. Because git
+commits and remote pushes cannot be rolled back atomically across crashes without dangerous force-pushes,
+this operation is designed not as an impossible distributed transaction, but as a durable, idempotent saga
+with a strict continuation barrier.
 
 ## Current state
 
@@ -28,34 +32,30 @@ A's continuation fires while the reviewer is still processing B/C."
 
 ## Requirements
 
-- A new durable **batch-finish record**
-  (`.nevo-ai-local/batch-finish/<changeSlug>/<batchExecutionId>.json`), written before any task
-  mutation begins, holding: the reserved `taskIds`, the submitted per-task `{result, feedback?}`
-  (validated per task against that task's own current step's `finishContract`, exactly as
-  `workflow step finish` already validates a single task), the `crossTaskFindings` list, the
-  shared report path, and a per-task status (`pending` | `applied`) plus an overall status
-  (`validating` | `validated` | `applying` | `completed`).
-- **Validate stage**: every task's submitted result is checked against its own current step's
-  declared transition values before anything is written. **Any single invalid result rejects the
-  whole batch-finish call — no partial acceptance (D10).**
-- **Persist stage**: only after every result validates does the record get durably written with
-  status `validated` — this is the point the prompt's "collect/validate all task outcomes"
-  requirement is satisfied.
-- **Apply stage**: for each task in the record, apply that task's own single-task `finishStep`
-  transition (reusing `finish-operation.mjs`'s existing per-task mutation stages unchanged),
-  attaching a durable reference (`batchExecutionId`, report path, task anchor) to that task's own
-  `workflow_progress.history` entry. Idempotent: re-running against an already-`applied` task is
-  a no-op, keyed off the record's own per-task status — crash-safe resume continues from
-  whichever tasks still show `pending`.
-- **Barrier stage**: only once every task in the record shows `applied` does the record move to
-  `completed`, and only then — as a distinct, final step, never folded into stage-by-stage
-  application — are continuations recomputed/dispatched for every affected task together (reusing
-  the existing single-task continuation-dispatch function per task, called only from this final
-  barrier).
-- Crash recovery: resuming reads the durable record's per-task status and continues from wherever
-  it left off; a record that never reached `validated` is simply abandoned (nothing was ever
-  externally visible); a record `validated` or later resumes deterministically from stored state,
-  never re-validating already-accepted results against possibly-changed current task state.
+The batch-finish operation executes as a **durable resumable saga and continuation barrier**:
+
+1. **Intent & Pre-condition Validation Stage**:
+   - Every task's submitted result is validated against its current step's declared transition values
+     and `finishContract`. Any single invalid result rejects the whole batch-finish call before any
+     writes (D10).
+   - Control-plane read-only verification: verifies working tree contains no uncommitted source changes
+     and no git commits modifying paths outside the canonical review report (`reviews/review-batch-<id>.md`).
+   - A durable batch-finish record (`.nevo-ai-local/batch-finishes/<changeSlug>/<batchExecutionId>.json`)
+     is written with status `pending`, containing the target `taskIds`, per-task verdicts/feedback,
+     `crossTaskFindings`, and report reference.
+2. **Apply Stage (Sequential & Idempotent)**:
+   - For each task in the record, applies that task's single-task finish transition (updating `change.yaml`,
+     committing and pushing per-task artifacts, and recording the batch report anchor in `workflow_progress.history`).
+   - Marks each task `applied` in the durable record as it succeeds. Already-`applied` tasks are skipped on resume.
+3. **Continuation Barrier Stage**:
+   - Only once **all** member tasks in the batch reach `applied` is the record marked `completed`.
+   - The continuation barrier guarantees that **no downstream continuations or queue advancements are dispatched**
+     until the batch-finish record reaches `completed`.
+   - Once `completed`, continuations are recomputed and dispatched for all affected tasks together, and the
+     queue reservation is released.
+4. **Crash Recovery**:
+   - If interrupted or crashed mid-saga, recovery inspects the durable record and resumes unfinished tasks
+     from their recorded status, completing remaining tasks before releasing the continuation barrier.
 
 ## Constraints
 

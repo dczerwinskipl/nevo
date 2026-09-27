@@ -25,11 +25,12 @@ every other queue item.
 ## Requirements
 
 - A **batch-selection function** determines whether a candidate set of queue items is a
-  compatible review batch: same specification/change, all currently eligible (per the existing
-  `ExecutionReadiness` verdict the queue evaluator already reads), same target workflow step,
-  executor `agent`, same effective execution role (via `execution-policy-service.mjs`'s existing
-  resolution), no incompatible suspension/blocking state on any member. Reuses the existing
-  eligibility computation — it is not a second, parallel eligibility check.
+  compatible review batch:
+  1. **Same change**: all member tasks belong to the same specification/change (`spec_id` / `slug`);
+  2. **Same target step**: all member tasks are currently targeting the exact same workflow step (e.g. `review`);
+  3. **Same authoritative role**: the step defines `executor: agent` with the same authoritative role (e.g. `reviewer`);
+  4. **Individually eligible**: all member tasks are individually eligible and runnable for that step per `ExecutionReadiness` (no pending prerequisites, unsatisfied dependencies, or gate suspensions);
+  5. **Fresh session semantics**: in v1, all member tasks require `session: fresh` semantics for the batch session. A batch review execution always executes in a fresh, dedicated session and never attaches to an existing single-task implementer session.
 - Grouping is **explicit and user-triggered only** (D5) — the batch-selection function is called
   against an owner/agent-supplied candidate task-id list, never invoked automatically by the
   queue evaluator on its own.
@@ -52,9 +53,12 @@ every other queue item.
     via the same settlement-assessment pattern already established for the workspace-writer claim
     (`assessExecutionSettlement`) — never silently dropped, never force-cleared without proof of
     settlement.
-- Provider/model/mode selection for the resulting batch session is the normal, explicit choice a
-  single-task session already offers, reusing the existing role-based execution policy unchanged
-  (D12) — this area does not special-case it.
+- **Execution policy resolution for the batch (D12)**:
+  - Provider and mode are selected once for the entire batch execution, not per task.
+  - If individual member tasks have conflicting task-level overrides in `executionPolicy`:
+    - The system must detect and surface the override conflict;
+    - The user must explicitly choose the execution configuration for the batch (or specify a one-off override), rather than silently inheriting the first task's override.
+  - If all grouped tasks share the same resolved policy or fall back to the same role/default policy, that configuration is preselected as the baseline.
 
 ## Constraints
 

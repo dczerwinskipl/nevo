@@ -40,7 +40,12 @@ session is created.
 
 - The batch-selection (compatibility) function is a pure function reusing the existing
   `ExecutionReadiness`/role-resolution the queue evaluator already reads — it is not a second,
-  parallel eligibility computation.
+  parallel eligibility computation. It enforces strict compatibility criteria:
+  1. Same change (`spec_id` / `slug`);
+  2. Same target workflow step (e.g. `review`);
+  3. Same authoritative role (`executor: agent`, role e.g. `reviewer`);
+  4. All members individually eligible and runnable (no unsatisfied dependencies or gate suspensions);
+  5. All members require `session: fresh` semantics for the batch session in v1.
 - Grouping is explicit/user-triggered only (D5) — never invoked automatically by the evaluator on
   its own eligibility pass.
 - No hard batch-size limit (D6) — accept any compatible set size ≥ 2.
@@ -54,9 +59,11 @@ session is created.
   lock already uses — no new locking primitive.
 - Crash recovery reuses `assessExecutionSettlement` — a reservation with no corresponding live/
   settled execution is never force-cleared without that proof.
-- Provider/model/mode selection for the resulting session is untouched by this task (D12) — this
-  task only produces the reserved scope, session creation and its provider picker belong to
-  `dashboard-batch-review-ux`.
+- Execution policy resolution for the batch (D12): provider and mode are selected once for the
+  batch; if member tasks have conflicting task-level overrides in `executionPolicy`, the conflict
+  is detected and surfaced, requiring an explicit batch configuration choice rather than silently
+  inheriting the first task's override. If overrides agree or match role/default policy, that
+  configuration is preselected.
 
 ## Acceptance criteria
 

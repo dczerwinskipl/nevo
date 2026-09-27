@@ -27,7 +27,7 @@ Write the `multi-task-review` skill (`.claude/skills/multi-task-review/SKILL.md`
 reviewer behavior for a batched review session: read shared context once, review each task
 independently against its own acceptance criteria, check cross-task consistency, produce
 structured per-task outcomes plus separate cross-task findings, and submit exactly one
-batch-finish call — read-only over source paths (D4).
+batch-finish call — under an explicit read-only execution capability profile over source paths (D4).
 
 ## Dependencies
 
@@ -41,9 +41,13 @@ batch-finish call — read-only over source paths (D4).
 - State explicitly, in the skill file itself: the skill defines *how* the agent reviews; it does
   not define *what* tasks the session owns (`ExecutionScope`) or *how results are committed*
   (`batch-finish-operation`) — a future reader must not conflate the three.
-- State the read-only constraint explicitly: no edit to any file under review; a failing task's
-  fix happens in a separate, fresh single-task refiner session, never inline in this skill's own
-  session.
+- State the read-only execution capability profile constraint explicitly: no edit to any source file
+  under review; allowed writes are strictly limited to the canonical review report (`reviews/review-batch-<id>.md`)
+  and the batch-finish mutation; a failing task's fix happens in a separate, fresh single-task refiner
+  session, never inline in this skill's own session. (Clarify that single-task review retains its
+  existing capability profile including corrective edits).
+- Specify that the control plane enforces read-only via provider tool sandboxing (where supported)
+  and post-condition validation on the working tree / commit log before accepting batch-finish.
 - State the single-batch-finish-call requirement explicitly — no per-task finish guidance
   anywhere in the skill text.
 - State explicitly that the skill must never compute or claim one aggregate verdict for the whole
@@ -51,8 +55,8 @@ batch-finish call — read-only over source paths (D4).
 
 ## Acceptance criteria
 
-- The skill file states the read-only constraint and the fresh-refiner handoff for a failing
-  task. `inspection: confirm both statements are present and unambiguous in SKILL.md`
+- The skill file states the read-only capability profile constraint, post-condition control-plane enforcement,
+  and the fresh-refiner handoff for a failing task. `inspection: confirm these statements are present and unambiguous in SKILL.md`
 - The skill file states the single-batch-finish-call requirement, with no per-task finish
   guidance present. `inspection: confirm SKILL.md contains exactly one finish-call instruction, scoped to the whole batch`
 - The skill file states the skill-vs-orchestrator boundary explicitly.

@@ -50,13 +50,23 @@ a batch session needs.
   reference — `{batchExecutionId, reportPath, taskAnchor}` — never a copy of the report content.
 - **Cross-task findings** are batch-level, each entry carrying an explicit `affectedTaskIds:
   string[]` (D11) — never an unattributed batch-wide note.
-- **Lineage (D8)**: a new, additive, optional `predecessorSessions: {taskId, sessionId}[]` field
-  on `AgentSession`, populated only for `kind: "task-batch"` sessions at creation time — one entry
-  per member task, naming that task's own most-recent agent-owned session before the batch.
-  `parentSessionId` stays `null` for a batch session (consistent with the existing "don't
-  fabricate cross-task lineage into one scalar" behavior already in `reconciliation.mjs`). A
-  refiner session spawned after a batch-reviewed task fails sets its own `parentSessionId` to the
-  batch session's id — a genuinely singular predecessor, using the existing scalar unchanged.
+- **Lineage (D8)**: a new, additive, optional `predecessorSessions: {taskId, sessionId | null}[]`
+  field on `AgentSession`, populated only for `kind: "task-batch"` sessions at creation time.
+  - **Fail-closed resolution semantics**:
+    1. For each member task, check if its current step has an authoritative exact history binding
+       (e.g. `history.sessionId` from the preceding implementer transition);
+    2. If not, inspect `stepBindings` / durable session index for sessions bound to that task for the
+       preceding implementer step:
+       - If exactly one active/completed implementer session exists for that task, use its `sessionId`;
+       - If multiple exist (ambiguous lineage) or none exists: fail closed to `sessionId: null` rather
+         than guessing or picking the newest session;
+    3. In `BatchContext`, any task whose predecessor lineage could not be unambiguously resolved is
+       explicitly marked as having `predecessorSession: null` (unavailable), so the reviewer knows
+       implementation dialogue history is incomplete rather than hallucinating or assuming a wrong predecessor.
+  - `parentSessionId` stays `null` for a batch session (consistent with the existing "don't
+    fabricate cross-task lineage into one scalar" behavior already in `reconciliation.mjs`). A
+    refiner session spawned after a batch-reviewed task fails sets its own `parentSessionId` to the
+    batch session's id — a genuinely singular predecessor, using the existing scalar unchanged.
 
 ## Constraints
 

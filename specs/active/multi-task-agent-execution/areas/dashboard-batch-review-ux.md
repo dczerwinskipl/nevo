@@ -21,9 +21,14 @@ current entry point creates a single-task session.
   and offers both:
   - **Review individually** — existing single-task flow, unchanged.
   - **Review together** — reserves the compatible set (`batch-queue-reservation`) and starts one
-    `task-batch`-scoped session.
-- Starting a batch session uses the normal, explicit provider/model/mode picker exactly as a
-  single-task session would (D12) — no special-cased selection UI for a batch.
+    `task-batch`-scoped session with fresh session semantics (`session: fresh`).
+- **Execution policy handling (D12)**:
+  - Provider and mode are selected once for the batch session.
+  - If member tasks have conflicting task-level overrides in `executionPolicy`, the UI surfaces
+    the conflict in the configuration dialog and requires an explicit batch configuration choice
+    (or one-off selection), rather than silently inheriting the first task's policy.
+  - If member tasks agree or fall back to the role/default policy, that effective configuration is
+    preselected as the starting baseline in the picker.
 - The owner can freely choose to review one task individually even when a compatible batch is
   available — batch review is always optional, never forced.
 - No hard batch-size limit is enforced by the UI (D6); the UI may recommend a small practical

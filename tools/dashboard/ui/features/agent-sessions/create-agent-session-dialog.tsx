@@ -396,6 +396,7 @@ export interface ExecutionPolicySelectionDialogProps {
   }) => void;
   confirming?: boolean;
   initialPolicy?: ExecutionPolicy | null;
+  initialConfig?: { provider: string; mode?: AgentExecutionMode } | null;
   isOneOff?: boolean;
 }
 
@@ -405,18 +406,28 @@ export function ExecutionPolicySelectionDialog({
   onConfirm,
   confirming = false,
   initialPolicy = null,
+  initialConfig = null,
   isOneOff = false,
 }: ExecutionPolicySelectionDialogProps) {
   const providers = useAgentProviders();
   const rawProviders = providers.data?.providers ?? [];
-  const [provider, setProvider] = useState(initialPolicy?.default?.provider || initialPolicy?.provider || '');
-  const [mode, setMode] = useState<AgentExecutionMode>(initialPolicy?.default?.mode || initialPolicy?.mode || 'agent');
+  const [provider, setProvider] = useState(
+    initialConfig?.provider || initialPolicy?.default?.provider || initialPolicy?.provider || ''
+  );
+  const [mode, setMode] = useState<AgentExecutionMode>(
+    initialConfig?.mode || initialPolicy?.default?.mode || initialPolicy?.mode || 'agent'
+  );
   const [implementerProvider, setImplementerProvider] = useState(initialPolicy?.roles?.implementer?.provider || '');
   const [reviewerProvider, setReviewerProvider] = useState(initialPolicy?.roles?.reviewer?.provider || '');
   const [refinerProvider, setRefinerProvider] = useState(initialPolicy?.roles?.refiner?.provider || '');
 
   useEffect(() => {
-    if (initialPolicy) {
+    if (initialConfig?.provider) {
+      setProvider(initialConfig.provider);
+      if (initialConfig.mode) {
+        setMode(initialConfig.mode);
+      }
+    } else if (initialPolicy) {
       if (initialPolicy.default?.provider || initialPolicy.provider) {
         setProvider(initialPolicy.default?.provider || initialPolicy.provider);
       }
@@ -439,7 +450,7 @@ export function ExecutionPolicySelectionDialog({
         setMode(initial.mode);
       }
     }
-  }, [initialPolicy, provider, rawProviders]);
+  }, [initialConfig, initialPolicy, provider, rawProviders]);
 
   const selectedProviderObj = rawProviders.find((p) => p.id === provider);
   const isSelectedProviderAvailable = selectedProviderObj?.available !== false;

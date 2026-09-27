@@ -35,20 +35,28 @@ The skill defines reviewer behavior:
 7. Produce separate cross-task findings, each naming its `affectedTaskIds` explicitly (D11).
 8. Submit exactly one `workflow batch finish` call carrying every member task's outcome plus the
    cross-task findings — never a per-task finish call.
-9. **Read-only (D4)**: the skill makes no edit to any source file under review. A task's failure
-   is reported via its own result/feedback; fixing it is out of this skill's scope — the failed
-   task proceeds through the existing single-task fresh refiner role.
+9. **Read-only execution capability profile (D4)**: batched review v1 operates under an explicit
+   read-only capability profile over source paths. No source-file writes are permitted; allowed writes
+   are strictly limited to the canonical review report (`reviews/review-batch-<id>.md`) and the batch-finish
+   mutation. (Single-task review retains its existing capability profile, including corrective edits
+   where configured; batch review does not weaken or redefine single-task review). A failing task's
+   fix is handled through the existing single-task fresh refiner role, never inline in the batch reviewer.
 
-**Boundary, stated explicitly**: the skill defines *how* the agent performs the review; it does
-not define *what* tasks the session owns (that's `ExecutionScope`, `execution-scope-model`) or
-*how results are committed* (that's `batch-finish-operation`). Correctness does not depend on
-prompt discipline alone — the read-only constraint and the single-batch-finish-call requirement
-are also enforced structurally: the skill's own execution grant carries no write permission over
-source paths, and `batch-finish-operation` is the only durable-mutation path available to it.
+**Boundary and enforcement, stated explicitly**: the skill defines *how* the agent performs the review;
+it does not define *what* tasks the session owns (that's `ExecutionScope`, `execution-scope-model`) or
+*how results are committed* (that's `batch-finish-operation`). Correctness does not depend on prompt
+discipline alone — the read-only capability profile is enforced at multiple layers:
+1. **Tool sandboxing**: where supported by the AI provider, the session is provisioned with a read-only tool
+   profile (no file edit/write tools provided outside report writing).
+2. **Nevo control-plane post-condition verification**: before accepting the batch-finish call, the orchestrator
+   verifies that the working tree contains no uncommitted source changes and no commits modifying paths
+   outside the permitted review report artifact (`reviews/review-batch-<id>.md`). Any violation fails closed
+   and rejects the batch finish.
 
 ## Constraints
 
-- No write tool access to any path outside the skill's own report file and the batch-finish call.
+- No write tool access or modifications to any path outside the skill's own report file and the batch-finish call.
+- The control plane verifies the working tree and commit history post-conditions before accepting batch finish.
 - The skill must not compute or claim an aggregate batch verdict — only per-task verdicts plus
   separate cross-task findings.
 

@@ -28,10 +28,11 @@ semantic_references:
 
 ## Goal
 
-Implement `workflow batch finish` as one atomic/logical boundary (D3): validate every task's
-submitted result before any of them becomes externally visible, persist the complete batch result
-durably, apply each task's own transition idempotently, and only once every task's mutation is
-durably confirmed, recompute/dispatch continuations for the whole batch together.
+Implement `workflow batch finish` as a durable resumable saga and continuation barrier (D3): validate
+every task's submitted result and working tree clean state before any task mutation begins, persist
+intent durably, apply each task's own transition and commits sequentially and idempotently, and only
+once every task's mutation is durably confirmed, release the continuation barrier to recompute/dispatch
+continuations for the whole batch together.
 
 ## Dependencies
 
@@ -44,9 +45,13 @@ own `ExecutionScope`; a call naming a task outside that scope is rejected.
   (`verify-gates, update-task, commit, push, transition`) unchanged — this task adds an outer
   validate-then-persist-then-apply-then-barrier envelope, it does not reimplement per-task
   finishing.
+- Acknowledge git commit reality: because member tasks commit and push individually, batch finish
+  is a durable resumable saga and continuation barrier, not an atomic transaction across the repo.
 - Reuse the existing `finishContract` validation per task — a submitted `result` is checked
   against that task's own current step's declared `transitions[].value` set; do not introduce a
   hardcoded `pass`/`fail` enum anywhere in this task's code.
+- Enforce control-plane read-only verification before accepting batch finish: verify clean working tree
+  and no git commits modifying paths outside the canonical review report (`reviews/review-batch-<id>.md`).
 - The durable batch-finish record lives at
   `.nevo-ai-local/batch-finish/<changeSlug>/<batchExecutionId>.json`, following the existing
   intent-then-derive convention (`batch.json`/`follow-ups.yaml`) — persist intent/results, derive
@@ -54,9 +59,9 @@ own `ExecutionScope`; a call naming a task outside that scope is rejected.
   `completed`/`current` field that could drift from that state.
 - **Any single invalid result rejects the whole call before any durable write happens** (D10) — no
   task's `change.yaml` may change if even one task's result fails validation.
-- Continuation dispatch for any task in the batch must not occur until every task in the record
-  shows `applied` — implement this as a distinct final stage, never interleaved with per-task
-  application.
+- Continuation barrier: continuation dispatch for any task in the batch must not occur until every
+  task in the record shows `applied` and the record reaches `completed` — implement this as a distinct
+  final stage, never interleaved with per-task application.
 - Idempotent resume: re-running against an already-`applied` task in a `validated`-or-later record
   is a no-op; a record that never reached `validated` is simply abandoned on resume, never
   re-validated against possibly-changed current task state.

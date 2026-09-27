@@ -3059,6 +3059,416 @@ tasks:
   }
 });
 
+test('Rejected deterministic Start does not mutate durable queue (role mismatch, stepId mismatch, policy mismatch) and persists only on valid start', async () => {
+  const tmpRepo = createTempRepo('queue-no-mutation-on-reject');
+  resetAdmissionStateForTest();
+
+  try {
+    const { executionPolicyService } = await import('../dashboard/server/ai/sessions/execution-policy-service.mjs');
+    const { waitForActiveExecutionSettled } = await import('../dashboard/server/ai/orchestration/admission.mjs');
+    const { loadTaskQueue } = await import('../specs/workflow/queue/index.mjs');
+    const slug = 'spec-queue-reject';
+    const canonicalSpecId = '55555555-5555-4555-8555-555555555555';
+    const activeDir = path.join(tmpRepo, 'specs', 'active');
+    const tasksDir = path.join(activeDir, slug, 'tasks');
+    fs.mkdirSync(tasksDir, { recursive: true });
+
+    fs.writeFileSync(
+      path.join(activeDir, slug, 'change.yaml'),
+      `id: ${slug}
+spec_id: ${canonicalSpecId}
+title: "Queue Mutation Test Spec"
+status: in-progress
+workflow:
+  mode: deterministic
+  definition: standard-v1
+tasks:
+  - id: t1
+    title: "Task 1"
+    status: in-implementation
+    file: tasks/t1.md
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+`,
+    );
+    fs.writeFileSync(path.join(activeDir, slug, 'overview.md'), '# Overview\n');
+    fs.writeFileSync(path.join(tasksDir, 't1.md'), '---\nid: t1\nstatus: in-implementation\n---\n# T1\n');
+
+    execFileSync('git', ['add', '-A'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'add fixtures'], { cwd: tmpRepo });
+
+    executionPolicyService.saveExecutionPolicy(
+      slug,
+      {
+        provider: 'claude',
+        mode: 'agent',
+      },
+      { repoRoot: tmpRepo },
+    );
+
+    function makeProvider(id) {
+      const p = createMockAgentProvider({ streamDelayMs: 1 });
+      p.descriptor = { ...p.descriptor, id, label: id };
+      return p;
+    }
+
+    const registry = createAgentProviderRegistry([makeProvider('claude')]);
+    const transcriptCache = createTranscriptCacheService({ baseDir: path.join(tmpRepo, '.nevo-ai-local', 'transcripts') });
+    const bindingService = createAgentSessionBindingService({ storageDir: path.join(tmpRepo, '.nevo-ai-local', 'sessions') });
+    const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+
+    const service = createAgentSessionService({
+      registry,
+      turnRuntime,
+      transcriptCache,
+      bindingService,
+      repoRoot: tmpRepo,
+    });
+
+    const app = await buildAiTestApp({ service, repoRoot: tmpRepo });
+
+    // Initial check: no queue file exists
+    assert.equal(loadTaskQueue(tmpRepo, slug), null, 'Queue file should be absent initially');
+
+    // 1. Invalid role -> 400 -> queue file unchanged / absent
+    const resRole = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskIds: ['t1'],
+        role: 'invalid-role',
+        prompt: 'Start with invalid role',
+      },
+    });
+    assert.equal(resRole.statusCode, 400);
+    assert.equal(loadTaskQueue(tmpRepo, slug), null, 'Queue file must remain absent after role mismatch');
+
+    // 2. Invalid stepId -> 400 -> queue file unchanged / absent
+    const resStep = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskIds: ['t1'],
+        stepId: 'invalid-step',
+        prompt: 'Start with invalid step',
+      },
+    });
+    assert.equal(resStep.statusCode, 400);
+    assert.equal(loadTaskQueue(tmpRepo, slug), null, 'Queue file must remain absent after stepId mismatch');
+
+    // 3. Invalid provider/mode policy mismatch -> 400 -> queue file unchanged / absent
+    const resPolicy = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskIds: ['t1'],
+        provider: 'mock-disallowed-provider',
+        prompt: 'Start with mismatched provider',
+      },
+    });
+    assert.equal(resPolicy.statusCode, 400);
+    assert.equal(loadTaskQueue(tmpRepo, slug), null, 'Queue file must remain absent after provider policy mismatch');
+
+    // 4. Valid request -> queue persisted -> admission proceeds
+    const resValid = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskIds: ['t1'],
+        prompt: 'Execute valid start',
+      },
+    });
+    assert.equal(resValid.statusCode, 201);
+    const persistedQueue = loadTaskQueue(tmpRepo, slug);
+    assert.ok(persistedQueue, 'Queue file must exist after valid start');
+    assert.deepEqual(persistedQueue.taskIds, ['t1'], 'Queue must contain the admitted task');
+
+    await waitForActiveExecutionSettled(canonicalSpecId);
+    await app.close();
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('Authoritative nextRunnable priority resolution overrides browser taskId/prompt hint; prompt and session bind to nextRunnable', async () => {
+  const tmpRepo = createTempRepo('priority-overrides-browser-hint');
+  resetAdmissionStateForTest();
+
+  try {
+    const { executionPolicyService } = await import('../dashboard/server/ai/sessions/execution-policy-service.mjs');
+    const { waitForActiveExecutionSettled } = await import('../dashboard/server/ai/orchestration/admission.mjs');
+    const slug = 'spec-priority-test';
+    const canonicalSpecId = '66666666-6666-4666-8666-666666666666';
+    const activeDir = path.join(tmpRepo, 'specs', 'active');
+    const tasksDir = path.join(activeDir, slug, 'tasks');
+    fs.mkdirSync(tasksDir, { recursive: true });
+
+    // Spec with taskA (in review, priority 10) and taskB (in implementation, priority 0) under standard-v1
+    fs.writeFileSync(
+      path.join(activeDir, slug, 'change.yaml'),
+      `id: ${slug}
+spec_id: ${canonicalSpecId}
+title: "Priority Test Spec"
+status: in-progress
+workflow:
+  mode: deterministic
+  definition: standard-v1
+tasks:
+  - id: taskA
+    title: "Task A Review"
+    status: in-implementation
+    file: tasks/taskA.md
+    workflow_progress:
+      current_step: review
+      current_attempt: 1
+      state: active
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: "2026-01-01T00:00:00.000Z"
+          result: completed
+          transitioned_to: review
+  - id: taskB
+    title: "Task B Implementation"
+    status: in-implementation
+    file: tasks/taskB.md
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+`,
+    );
+    fs.writeFileSync(path.join(activeDir, slug, 'overview.md'), '# Overview\n');
+    fs.writeFileSync(path.join(tasksDir, 'taskA.md'), '---\nid: taskA\nstatus: in-implementation\n---\n# Task A\n');
+    fs.writeFileSync(path.join(tasksDir, 'taskB.md'), '---\nid: taskB\nstatus: in-implementation\n---\n# Task B\n');
+
+    execFileSync('git', ['add', '-A'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'add priority fixtures'], { cwd: tmpRepo });
+
+    executionPolicyService.saveExecutionPolicy(
+      slug,
+      {
+        provider: 'claude',
+        mode: 'agent',
+        roles: {
+          reviewer: { provider: 'claude', mode: 'agent' },
+          implementer: { provider: 'claude', mode: 'agent' },
+        },
+      },
+      { repoRoot: tmpRepo },
+    );
+
+    let capturedStartTurnOpts = null;
+    function makeProvider(id) {
+      const p = createMockAgentProvider({ streamDelayMs: 1 });
+      p.descriptor = { ...p.descriptor, id, label: id };
+      return p;
+    }
+
+    const registry = createAgentProviderRegistry([makeProvider('claude')]);
+    const transcriptCache = createTranscriptCacheService({ baseDir: path.join(tmpRepo, '.nevo-ai-local', 'transcripts') });
+    const bindingService = createAgentSessionBindingService({ storageDir: path.join(tmpRepo, '.nevo-ai-local', 'sessions') });
+    const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+
+    const originalStartTurn = turnRuntime.startTurn.bind(turnRuntime);
+    turnRuntime.startTurn = async (opts) => {
+      capturedStartTurnOpts = opts;
+      return originalStartTurn(opts);
+    };
+
+    const service = createAgentSessionService({
+      registry,
+      turnRuntime,
+      transcriptCache,
+      bindingService,
+      repoRoot: tmpRepo,
+    });
+
+    const app = await buildAiTestApp({ service, repoRoot: tmpRepo });
+
+    // Client sends selection [taskA, taskB] with browser hint taskId: taskA and prompt mentioning taskA
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskIds: ['taskA', 'taskB'],
+        taskId: 'taskA', // Browser hint
+        prompt: 'Execute the current workflow step for task taskA.',
+        userMessage: 'Execute the current workflow step for task taskA.',
+      },
+    });
+
+    assert.equal(res.statusCode, 201);
+    const body = res.json();
+    assert.ok(body.sessionId, 'Session ID returned');
+
+    const session = await bindingService.getSession(body.sessionId);
+    assert.equal(session.activeTaskId, 'taskB', 'Session must be bound to taskB');
+
+    assert.ok(capturedStartTurnOpts, 'turnRuntime.startTurn must be called');
+    assert.equal(capturedStartTurnOpts.taskId, 'taskB', 'Turn execution taskId must be taskB');
+    assert.match(capturedStartTurnOpts.message, /Execute the current workflow step for task taskB\./, 'Prompt must target taskB');
+    assert.doesNotMatch(capturedStartTurnOpts.message, /Execute the current workflow step for task taskA\./, 'Must not tell agent to execute taskA');
+
+    await waitForActiveExecutionSettled(canonicalSpecId);
+    await app.close();
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('oneOff role validation rejects role mismatch and allows provider override when role matches or is omitted', async () => {
+  const tmpRepo = createTempRepo('one-off-role-validation');
+  resetAdmissionStateForTest();
+
+  try {
+    const { executionPolicyService } = await import('../dashboard/server/ai/sessions/execution-policy-service.mjs');
+    const { waitForActiveExecutionSettled } = await import('../dashboard/server/ai/orchestration/admission.mjs');
+    const slug = 'spec-oneoff-role';
+    const canonicalSpecId = '77777777-7777-4777-8777-777777777777';
+    const activeDir = path.join(tmpRepo, 'specs', 'active');
+    const tasksDir = path.join(activeDir, slug, 'tasks');
+    fs.mkdirSync(tasksDir, { recursive: true });
+
+    // Spec with task in review (authoritative role: reviewer)
+    fs.writeFileSync(
+      path.join(activeDir, slug, 'change.yaml'),
+      `id: ${slug}
+spec_id: ${canonicalSpecId}
+title: "OneOff Role Test Spec"
+status: in-progress
+workflow:
+  mode: deterministic
+  definition: standard-v1
+tasks:
+  - id: t1
+    title: "Task 1"
+    status: in-implementation
+    file: tasks/t1.md
+    workflow_progress:
+      current_step: review
+      current_attempt: 1
+      state: active
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: "2026-01-01T00:00:00.000Z"
+          result: completed
+          transitioned_to: review
+`,
+    );
+    fs.writeFileSync(path.join(activeDir, slug, 'overview.md'), '# Overview\n');
+    fs.writeFileSync(path.join(tasksDir, 't1.md'), '---\nid: t1\nstatus: in-implementation\n---\n# T1\n');
+
+    execFileSync('git', ['add', '-A'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'add review fixture'], { cwd: tmpRepo });
+
+    executionPolicyService.saveExecutionPolicy(
+      slug,
+      {
+        provider: 'claude',
+        mode: 'agent',
+        roles: {
+          reviewer: { provider: 'claude', mode: 'agent' },
+        },
+      },
+      { repoRoot: tmpRepo },
+    );
+
+    function makeProvider(id) {
+      const p = createMockAgentProvider({ streamDelayMs: 1 });
+      p.descriptor = { ...p.descriptor, id, label: id };
+      return p;
+    }
+
+    const registry = createAgentProviderRegistry([makeProvider('claude'), makeProvider('antigravity')]);
+    const transcriptCache = createTranscriptCacheService({ baseDir: path.join(tmpRepo, '.nevo-ai-local', 'transcripts') });
+    const bindingService = createAgentSessionBindingService({ storageDir: path.join(tmpRepo, '.nevo-ai-local', 'sessions') });
+    const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+
+    const service = createAgentSessionService({
+      registry,
+      turnRuntime,
+      transcriptCache,
+      bindingService,
+      repoRoot: tmpRepo,
+    });
+
+    const app = await buildAiTestApp({ service, repoRoot: tmpRepo });
+
+    // 1. oneOff: true with mismatching role 'refiner' -> rejected 400
+    const resMismatch = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskId: 't1',
+        oneOff: true,
+        provider: 'antigravity',
+        role: 'refiner',
+        prompt: 'Execute with mismatched role and oneOff',
+      },
+    });
+    assert.equal(resMismatch.statusCode, 400);
+    assert.match(resMismatch.json().error.message, /Requested role 'refiner' does not match server-resolved role 'reviewer'/);
+
+    // 2. oneOff: true with matching role 'reviewer' and provider override 'antigravity' -> allowed 201
+    const resMatching = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskId: 't1',
+        oneOff: true,
+        provider: 'antigravity',
+        role: 'reviewer',
+        prompt: 'Execute with matching role and oneOff',
+      },
+    });
+    assert.equal(resMatching.statusCode, 201);
+    await waitForActiveExecutionSettled(canonicalSpecId);
+
+    // Verify stored policy was not mutated
+    const stored = executionPolicyService.getExecutionPolicy(slug, { repoRoot: tmpRepo });
+    assert.equal(stored.roles.reviewer.provider, 'claude', 'Saved reviewer policy must not be mutated by oneOff override');
+
+    await app.close();
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
 
 
 

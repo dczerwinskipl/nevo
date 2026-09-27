@@ -44,9 +44,16 @@ This area is the foundation every other area in this change builds on.
 - The workspace-writer claim's optional singular `taskId` is replaced by an optional
   `scope: ExecutionScope` field. A claim for a single-task execution has
   `scope: {kind: "task", taskId}`; a claim for a batch execution has
-  `scope: {kind: "task-batch", taskIds}`. Every current reader of `claim.taskId` in
-  `workspace-writer.mjs`/`admission.mjs`/`reconciliation.mjs` is updated to read through `scope`
-  instead — no dual field, no silent fallback.
+  `scope: {kind: "task-batch", taskIds}`.
+- **Deserialization and normalization boundary for workspace-writer claims (D2)**:
+  - When reading `.nevo-ai-local/claims/workspace-writer.json`:
+    - Legacy claim records on disk may lack `scope` and only contain a scalar `taskId: string`.
+    - At the deserialization/read boundary, if `scope` is absent but `taskId` is present, it must normalize into `scope: { kind: 'task', taskId }`.
+    - If a claim record lacks both a valid `scope` and a valid legacy `taskId`, or is structurally invalid/corrupted: the system must fail closed and treat the claim as invalid or recovery-required.
+    - All runtime consumers (`workspace-writer.mjs`, `admission.mjs`, `reconciliation.mjs`, CLI status) read and operate strictly on normalized `scope`.
+  - When persisting new or updated claims:
+    - Single-task writes persist `scope: { kind: 'task', taskId }` (and may mirror scalar `taskId` for backwards read compatibility, though all internal code treats `scope` as canonical);
+    - Batch writes persist `scope: { kind: 'task-batch', taskIds }` with NO scalar `taskId`.
 - `admitAgentExecution`'s `candidate` accepts `scope: ExecutionScope` instead of a bare
   `taskId`; `activeExecutions`' stored value carries `scope`, not a singular `taskId`. D33 is
   unchanged: `activeExecutions` still holds at most one entry per `specId`, regardless of how

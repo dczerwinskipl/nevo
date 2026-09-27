@@ -132,6 +132,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
     stepDescriptor: WorkflowStepDescriptor;
     taskIds?: string[];
     isOneOff?: boolean;
+    initialConfig?: { provider: string; mode?: AgentExecutionMode } | null;
   } | null>(null);
 
   /**
@@ -207,13 +208,19 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
       if (stepDescriptor.executor === 'agent') {
         try {
           const currentPolicy = executionPolicyQuery.policy;
+          const stepRole = (stepDescriptor as any).role || (stepDescriptor as any).execution?.role;
+          const effective = resolvePolicyForTask(currentPolicy, targetTaskId, { role: stepRole });
           if (options?.oneOff || !currentPolicy) {
-            setPendingStart({ task, stepDescriptor, taskIds, isOneOff: Boolean(options?.oneOff) });
+            setPendingStart({
+              task,
+              stepDescriptor,
+              taskIds,
+              isOneOff: Boolean(options?.oneOff),
+              initialConfig: effective ? { provider: effective.provider, mode: effective.mode } : null,
+            });
             return;
           }
-          const stepRole = (stepDescriptor as any).role || (stepDescriptor as any).execution?.role;
-          const effective = resolvePolicyForTask(currentPolicy, targetTaskId, { role: stepRole }) || currentPolicy;
-          await proceedWithAgentExecution(targetTaskId, { ...effective, role: stepRole }, taskIds);
+          await proceedWithAgentExecution(targetTaskId, { ...(effective || currentPolicy), role: stepRole }, taskIds);
         } catch (err: any) {
           const message = err instanceof Error ? err.message : String(err);
           setWorkflowError(message);
@@ -561,6 +568,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           onClose={() => setPendingStart(null)}
           confirming={executionPolicyQuery.saving}
           initialPolicy={executionPolicyQuery.policy}
+          initialConfig={pendingStart.initialConfig}
           isOneOff={pendingStart.isOneOff}
           onConfirm={async (chosen) => {
             try {

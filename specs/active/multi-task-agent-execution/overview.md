@@ -134,34 +134,40 @@ within an area):
 2. **`batch-queue-reservation`** — compatibility-checked grouping of ready review items, durable
    reservation of the exact group so the sequential queue never dispatches a reserved item
    elsewhere, crash recovery, without changing ordinary single-item scheduling.
-3. **`batch-finish-operation`** — the atomic/durable "workflow batch finish" operation: validate
-   every task's result before any mutation is externally visible, persist the complete batch
-   result durably, apply each task's own transition idempotently, then — only once every task's
-   mutation is durably confirmed — recompute and dispatch continuations together.
+3. **`batch-finish-operation`** — the durable resumable saga and continuation barrier "workflow
+   batch finish" (D3): validate every task's result and clean working tree before any mutation begins,
+   persist intent durably, apply each task's own transition and commits sequentially and idempotently,
+   then — only once every task's mutation is durably confirmed — release the continuation barrier to
+   recompute and dispatch continuations for all affected tasks together.
 4. **`batch-context-and-report`** — the deduplicated `BatchContext` (shared docs/files delivered
    once with `usedBy` attribution, per-task specifics preserved), the one canonical shared batch
-   report, each task's durable reference into it, and the additive `predecessorSessions` lineage
-   field.
+   report, each task's durable reference into it, and the additive fail-closed `predecessorSessions`
+   lineage field (D8).
 5. **`multi-task-review-skill`** — the `multi-task-review` skill defining reviewer behavior
    (read shared context once, review each task independently, cross-task consistency check,
    produce structured per-task outcomes + cross-task findings, submit one batch-finish call),
-   read-only over source paths (D4).
+   operating under an explicit read-only execution capability profile over source paths (D4)
+   enforced by tool sandboxing and control-plane post-condition verification.
 6. **`dashboard-batch-review-ux`** — the minimal interaction semantics: task picker offering
    "review individually" vs. "review together" for a compatible set, starting one batch session
-   with the normal explicit provider/model/mode picker, and surfacing per-task verdicts plus the
-   shared report link.
+   with the normal explicit provider/model/mode picker (resolving policy conflicts explicitly, D12),
+   and surfacing per-task verdicts plus the shared report link.
 
-A compatible review batch requires every member task to share: the same specification/change, all
-currently eligible, the same target workflow step, executor `agent`, the same effective execution
-role (via the existing role-based execution policy), and no incompatible suspension/blocking
-state. The common v1 case is every member task at `review`/`reviewer`.
+A compatible review batch requires every member task to share: the same specification/change (`spec_id` /
+`slug`), all currently eligible per `ExecutionReadiness`, the same target workflow step (e.g. `review`),
+executor `agent`, the same effective execution role (e.g. `reviewer`), no incompatible suspension/blocking
+state, and `session: fresh` semantics for all members in v1. Provider/mode are selected once for the batch,
+surfacing conflicting task-level overrides for explicit user resolution rather than silently inheriting
+the first task's override.
 
 ## Compatibility and migration
 
 Additive throughout: existing single-task sessions/claims/queue items become
-`{kind: "task", taskId}` with zero behavior change; nothing currently persisted needs a data
-migration (absent scope field defaults to `kind: "task"` wherever read). `AgentSession.taskIds`/
-`activeTaskId` keep their existing meaning for single-task sessions.
+`{kind: "task", taskId}` with zero behavior change; legacy workspace-writer claim records lacking
+`scope` normalize at the deserialization boundary to `scope: { kind: 'task', taskId }` (records that cannot
+be safely normalized fail closed, D2). `AgentSession.taskIds`/`activeTaskId` keep their existing meaning
+for single-task sessions. Batch claim writes persist only `scope: { kind: 'task-batch', taskIds }` with no
+scalar `taskId`.
 
 ## Areas
 

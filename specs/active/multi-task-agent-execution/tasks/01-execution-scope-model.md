@@ -50,6 +50,12 @@ promoted to stand in for a batch (D2).
   the claim's replacement `scope` field is the only ownership reference — no dual `taskId`
   field, no silent fallback anywhere in `workspace-writer.mjs`/`admission.mjs`/
   `reconciliation.mjs`.
+- Implement explicit claim deserialization/normalization boundary (D2):
+  - When loading `.nevo-ai-local/claims/workspace-writer.json`, legacy records lacking `scope` but
+    containing `taskId: string` are normalized into `scope: { kind: 'task', taskId }`.
+  - Records lacking both `scope` and legacy `taskId`, or structurally corrupted, fail closed / are treated as invalid.
+  - All runtime consumers (`admission`, contention checks, release, CLI status) read and operate strictly on normalized `scope`.
+  - Single-task writes persist `scope: { kind: 'task', taskId }`; batch writes persist `scope: { kind: 'task-batch', taskIds }` with NO scalar `taskId`.
 - Do not add a `primaryTaskId` or equivalent representative-task field — none is required by this
   task, and D2 explicitly forbids reusing the existing scalars for that purpose.
 - `admitAgentExecution`'s `activeExecutions` map stays keyed by `specId`, holding at most one
