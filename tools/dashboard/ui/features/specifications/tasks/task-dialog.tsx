@@ -17,7 +17,12 @@ export interface TaskDialogProps {
   onClose: () => void;
   onOperationStarted?: (operationId: string, label: string) => void;
   sessionsContent?: React.ReactNode;
-  onStartStep?: (task: SpecificationTask, stepDescriptor: WorkflowStepDescriptor) => void;
+  onStartStep?: (
+    task: SpecificationTask,
+    stepDescriptor: WorkflowStepDescriptor,
+    taskIds?: string[],
+    options?: { oneOff?: boolean },
+  ) => void;
 }
 
 export function TaskDialog({ specification, taskId, onClose, onOperationStarted, sessionsContent, onStartStep }: TaskDialogProps) {
@@ -230,17 +235,35 @@ export function TaskDialog({ specification, taskId, onClose, onOperationStarted,
                   );
                 })()}
               </div>
-              <Button
-                size="sm"
-                onClick={() => {
+              <div className="flex items-center gap-2">
+                {(() => {
                   const stepDescriptor = actionGate.stepDescriptor || actionGate.currentStepDescriptor || actionGate.nextStepDescriptor;
-                  if (stepDescriptor && task) onStartStep?.(task, stepDescriptor);
-                }}
-                className="h-8 cursor-pointer px-4 text-xs font-semibold"
-                aria-label="Start"
-              >
-                Start
-              </Button>
+                  return stepDescriptor?.executor === 'agent' ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        if (stepDescriptor && task) onStartStep?.(task, stepDescriptor, undefined, { oneOff: true });
+                      }}
+                      className="h-8 cursor-pointer px-3 text-xs font-semibold"
+                      aria-label="Start with..."
+                    >
+                      Uruchom z...
+                    </Button>
+                  ) : null;
+                })()}
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const stepDescriptor = actionGate.stepDescriptor || actionGate.currentStepDescriptor || actionGate.nextStepDescriptor;
+                    if (stepDescriptor && task) onStartStep?.(task, stepDescriptor);
+                  }}
+                  className="h-8 cursor-pointer px-4 text-xs font-semibold"
+                  aria-label="Start"
+                >
+                  Start
+                </Button>
+              </div>
             </div>
           </div>
         )}

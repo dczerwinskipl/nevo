@@ -914,7 +914,7 @@ points are asserted to route through the identical `startStep` function instance
   `{ provider, mode, default?: { provider, mode }, roles?: { [role: string]: { provider, mode? } }, taskOverrides?: { [taskId: string]: { provider?, mode? } } }`.
   Precedence order for resolving execution configuration:
   1. `taskOverrides[taskId]` (highest precedence)
-  2. `roles[role]` (matching the target step's authoritative declared role: `implementer`, `reviewer`, `refiner`)
+  2. `roles[role]` (matching the authoritative role declared on the incoming transition to the target step; roles belong strictly to incoming transitions per D26, not steps, and `implementer`/`reviewer`/`refiner` are workflow-defined identifiers rather than a reserved application enum; for initial entry steps with no incoming transition, role resolves to `null` and falls back to the default execution policy)
   3. `default` / top-level `{ provider, mode }` (fallback default)
   Session reuse semantics: when a workflow transition specifies `session: reuse`, the existing session and its original provider are preserved across handovers; role-based provider resolution applies to fresh session creation (`session: fresh`). An explicit one-off provider choice on manual turn start does not mutate the specification's saved policy.
 - **Date:** 2026-09-21 (transport/scope corrected 2026-09-21, pass 10; unconditional picker
@@ -1102,7 +1102,10 @@ points are asserted to route through the identical `startStep` function instance
   `execution: {session: fresh, role: refiner}`; `human-verification` fail (Request changes)
   → `implementation`: `execution: {session: fresh, role: refiner}`. `review` pass →
   `human-verification` carries no `execution` (destination is human-owned; D12 unchanged —
-  starting a human step never creates a session).
+  starting a human step never creates a session). Role ownership is strictly on incoming transitions:
+  the initial workflow entry step has no incoming transition, so its authoritative execution role
+  resolves to `null` (falling back to task override or change-level default policy). Roles are
+  never declared on or inferred from steps directly.
 - **Date:** 2026-09-21 (canonical location and role extensibility settled 2026-09-21, pass 10)
 - **Affected artifacts:** `areas/workflow-continuation-and-session-handover.md`,
   `tasks/25-workflow-continuation-schema.md`, `tasks/29-automatic-workflow-continuation.md`,

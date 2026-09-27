@@ -23,6 +23,66 @@ import {
 } from '../../../../specs/workflow/human-step/submit-request.mjs';
 import { join } from 'node:path';
 import { resolveStableSpecId } from '../../../../specs/identity.mjs';
+ 
+/**
+ * Authoritatively matches the incoming workflow transition into targetStepName (D26).
+ *
+ * @param {object} task - Task object containing workflow_progress
+ * @param {object} definition - Workflow definition
+ * @param {string} targetStepName - Target step name being transitioned to
+ * @returns {{ transition: object | null, ambiguous: boolean, reason?: string }}
+ */
+export function matchIncomingTransition(task, definition, targetStepName) {
+  const history = task?.workflow_progress?.history || [];
+  if (history.length === 0) {
+    return { transition: null, ambiguous: false };
+  }
+
+  const lastHistory = history[history.length - 1];
+  if (lastHistory.transitioned_to && lastHistory.transitioned_to !== targetStepName) {
+    return { transition: null, ambiguous: false };
+  }
+
+  const priorStepDef = definition?.steps?.[lastHistory.step];
+  if (!priorStepDef) {
+    return { transition: null, ambiguous: false };
+  }
+
+  const candidateTransitions = (priorStepDef.transitions || []).filter(
+    (t) => (t.to === targetStepName || t.step === targetStepName)
+  );
+
+  if (candidateTransitions.length === 0) {
+    return { transition: null, ambiguous: false };
+  }
+
+  const historyResult = lastHistory.result;
+
+  const matching = candidateTransitions.filter((t) => {
+    if (t.value !== undefined) {
+      return t.value === historyResult;
+    }
+    return true;
+  });
+
+  if (matching.length === 1) {
+    return { transition: matching[0], ambiguous: false };
+  }
+
+  if (matching.length > 1) {
+    const exactMatches = matching.filter((t) => t.value !== undefined && t.value === historyResult);
+    if (exactMatches.length === 1) {
+      return { transition: exactMatches[0], ambiguous: false };
+    }
+    return {
+      transition: null,
+      ambiguous: true,
+      reason: `Ambiguous incoming transition to '${targetStepName}' from step '${lastHistory.step}' with result '${historyResult}' (${matching.length} candidates).`,
+    };
+  }
+
+  return { transition: null, ambiguous: false };
+}
 
 /**
  * Reconciles a task's workflow position and drives automatic continuation (D42).
@@ -79,36 +139,12 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
   // Check prior step's transition to targetStepName
   let continuationPolicy = null;
   let matchedTransition = null;
-  const history = task.workflow_progress?.history || [];
-  if (history.length > 0) {
-    const lastHistory = history[history.length - 1];
-    const priorStepDef = definition.steps?.[lastHistory.step];
-    const candidateTransitions = (priorStepDef?.transitions || []).filter(
-      (t) => (t.to === targetStepName || t.step === targetStepName)
-    );
-
-    const historyResult = lastHistory.result;
-
-    const matching = candidateTransitions.filter((t) => {
-      if (t.value !== undefined) {
-        return t.value === historyResult;
-      }
-      return true;
-    });
-
-    if (matching.length === 1) {
-      matchedTransition = matching[0];
-    } else if (matching.length > 1) {
-      const exactMatches = matching.filter((t) => t.value !== undefined && t.value === historyResult);
-      if (exactMatches.length === 1) {
-        matchedTransition = exactMatches[0];
-      } else {
-        return { action: 'noop', reason: 'AMBIGUOUS_TRANSITION_MATCH', step: targetStepName, matches: matching.length };
-      }
-    }
-
-    continuationPolicy = matchedTransition?.continuation || null;
+  const matchResult = matchIncomingTransition(task, definition, targetStepName);
+  if (matchResult.ambiguous) {
+    return { action: 'noop', reason: 'AMBIGUOUS_TRANSITION_MATCH', step: targetStepName, details: matchResult.reason };
   }
+  matchedTransition = matchResult.transition;
+  continuationPolicy = matchedTransition?.continuation || null;
 
   if (continuationPolicy !== 'auto') {
     return { action: 'noop', reason: 'NOT_AUTO_CONTINUATION', continuationPolicy };
@@ -442,26 +478,35 @@ export async function reconcileContinuation(change, task, options = {}) {
 
   if (queueState.nextRunnable) {
     const specId = resolveStableSpecId(change);
-    const entryStep = definition?.entryStep || queueState.nextRunnable.stepId;
-    const entryStepDef = definition?.steps?.[entryStep];
-    const role = entryStepDef?.execution?.role || entryStepDef?.role || 'implementer';
+    const targetTaskId = queueState.nextRunnable.taskId;
+    const targetStep = queueState.nextRunnable.stepId;
+    const task = change.tasks?.find((t) => t.id === targetTaskId);
+    const matchResult = matchIncomingTransition(task, definition, targetStep);
+    if (matchResult.ambiguous) {
+      return { action: 'noop', reason: 'AMBIGUOUS_TRANSITION_MATCH', step: targetStep, details: matchResult.reason };
+    }
+    const role = matchResult?.transition?.execution?.role || null;
+    const sessionPolicy = matchResult?.transition?.execution?.session || 'fresh';
 
     let policy = null;
     try {
       const { executionPolicyService } = await import('../sessions/execution-policy-service.mjs');
-      policy = executionPolicyService.resolveExecutionPolicy(changeSlug, queueState.nextRunnable.taskId, { role, repoRoot });
+      policy = executionPolicyService.resolveExecutionPolicy(changeSlug, targetTaskId, {
+        ...(role ? { role } : {}),
+        repoRoot,
+      });
     } catch {}
 
     const provider = policy?.provider || options.provider;
     const mode = policy?.mode || options.mode || 'agent';
-    const genericTrigger = options.message || options.prompt || `Start workflow task '${queueState.nextRunnable.taskId}'.`;
+    const genericTrigger = options.message || options.prompt || `Start workflow task '${targetTaskId}'.`;
     const candidate = {
       ...queueState.nextRunnable,
       provider,
       mode,
       changeSlug,
       specId,
-      sessionPolicy: 'fresh',
+      sessionPolicy,
       role,
       parentSessionId: null, // Ordinary queued task advancement does not fabricate lineage from prior task
       message: genericTrigger,

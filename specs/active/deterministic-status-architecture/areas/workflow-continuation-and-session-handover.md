@@ -87,7 +87,7 @@ arbitrated against each other at all.
   `{ provider, mode, default?: { provider, mode }, roles?: { [role: string]: { provider, mode? } }, taskOverrides?: { [taskId: string]: { provider?, mode? } } }`.
   Precedence order for resolving execution configuration:
   1. `taskOverrides[taskId]` (highest precedence)
-  2. `roles[role]` (matching the target step's authoritative declared role: `implementer`, `reviewer`, `refiner`)
+  2. `roles[role]` (matching the authoritative role declared on the incoming transition to the target step; roles belong strictly to incoming transitions per D26, not steps, and `implementer`/`reviewer`/`refiner` are workflow-defined identifiers rather than a reserved application enum; for initial entry steps with no incoming transition, role resolves to `null` and falls back to the default execution policy)
   3. `default` / top-level `{ provider, mode }` (fallback default)
   Session reuse semantics: when a workflow transition specifies `session: reuse`, the existing
   session and its original provider are preserved across handovers; role-based provider resolution

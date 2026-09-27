@@ -84,9 +84,14 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
     const effectiveRepoRoot = repoRoot || service.repoRoot || process.cwd();
 
     if (body.purpose === 'execution') {
-      if (!body.taskId) {
+      const selectedTaskIds = Array.isArray(body.taskIds) && body.taskIds.length > 0
+        ? body.taskIds
+        : (body.taskId ? [body.taskId] : []);
+
+      if (selectedTaskIds.length === 0) {
         throw new AiValidationError('Task ID is required for deterministic execution.');
       }
+
       const deterministicTarget = resolveDeterministicExecutionTarget({
         specId: body.specId,
         slug: body.slug,
@@ -102,11 +107,16 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
 
       const { changeSlug, specId: canonicalSpecId } = deterministicTarget;
 
-      // If multiple taskIds provided (SequentialQueueTaskPicker batch), enqueue them (Item 12)
-      if (Array.isArray(body.taskIds) && body.taskIds.length > 0) {
-        const { enqueueTasks } = await import('../../../../../specs/workflow/queue/index.mjs');
-        enqueueTasks(effectiveRepoRoot, changeSlug, body.taskIds);
+      // Validate all selected task IDs against canonical change tasks first
+      for (const tid of selectedTaskIds) {
+        const exists = deterministicTarget.change.tasks?.some((t) => t.id === tid);
+        if (!exists) {
+          throw new AiValidationError(`Task '${tid}' not found in specification '${changeSlug}'.`);
+        }
       }
+
+      const { enqueueTasks, evaluateTaskQueue } = await import('../../../../../specs/workflow/queue/index.mjs');
+      const queueRecord = enqueueTasks(effectiveRepoRoot, changeSlug, selectedTaskIds);
 
       let definition = null;
       if (deterministicTarget.resolvedWorkflow?.definition) {
@@ -114,29 +124,52 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         definition = loadWorkflowDefinition(deterministicTarget.resolvedWorkflow.definition, { repoRoot: effectiveRepoRoot });
       }
 
-      const { requireTask } = await import('../../../../../specs/store.mjs');
-      const { resolveWorkflowPosition } = await import('../../../../../specs/workflow/step-runner.mjs');
-      const activeDir = join(effectiveRepoRoot, 'specs', 'active');
-      let task = deterministicTarget.change.tasks?.find((t) => t.id === body.taskId);
-      if (!task) {
-        try {
-          task = requireTask(changeSlug, body.taskId, activeDir);
-        } catch (err) {
-          throw new AiValidationError(`Task '${body.taskId}' not found in specification '${changeSlug}'.`, { cause: err });
+      const queueState = evaluateTaskQueue({
+        change: deterministicTarget.change,
+        queueRecord,
+        definition,
+        repoRoot: effectiveRepoRoot,
+      });
+
+      const authoritativeTarget = queueState.nextRunnable;
+      if (!authoritativeTarget) {
+        if (selectedTaskIds.length === 1) {
+          const singleTask = deterministicTarget.change.tasks?.find((t) => t.id === selectedTaskIds[0]);
+          if (singleTask && definition) {
+            const { evaluateExecutionReadiness } = await import('../../../../../specs/workflow/readiness-policy.mjs');
+            const readiness = evaluateExecutionReadiness(singleTask, deterministicTarget.change, 'agent', {
+              definition,
+              repoRoot: effectiveRepoRoot,
+            });
+            if (readiness?.code === 'WORKFLOW_STEP_EXECUTOR_MISMATCH') {
+              const stepName = readiness.targetStep?.id || readiness.stepId || 'human-verification';
+              throw new AiValidationError(
+                `Target workflow step '${stepName}' requires human execution and cannot be admitted for an agent turn.`
+              );
+            }
+          }
         }
+        reply.code(409).send({
+          error: {
+            code: 'NO_RUNNABLE_TASK',
+            message: 'No runnable task in sequential queue.',
+            details: {
+              warnings: queueState.warnings,
+              selectedTaskIds,
+            },
+          },
+        });
+        return;
       }
 
-      const position = resolveWorkflowPosition(definition, task);
-      if (position.phase === 'terminal') {
-        throw new AiValidationError(`Task '${body.taskId}' is in terminal phase and cannot be executed.`);
-      }
+      const targetTaskId = authoritativeTarget.taskId;
+      const targetStepName = authoritativeTarget.stepId;
+      const task = deterministicTarget.change.tasks?.find((t) => t.id === targetTaskId);
 
-      const targetStepName = position.phase === 'new'
-        ? definition.entryStep
-        : (position.phase === 'active' ? position.step : position.nextStep);
-
-      if (!targetStepName) {
-        throw new AiValidationError(`Could not resolve target workflow step for task '${body.taskId}'.`);
+      if (authoritativeTarget.executor !== 'agent') {
+        throw new AiValidationError(
+          `Target workflow step '${targetStepName}' requires ${authoritativeTarget.executor} execution and cannot be admitted for an agent turn.`
+        );
       }
 
       if (body.stepId && body.stepId !== targetStepName) {
@@ -145,62 +178,54 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         );
       }
 
-      const targetStepDef = definition?.steps?.[targetStepName];
-
-      // Resolve matched incoming transition if applicable
-      let matchedTransition = null;
-      const history = task.workflow_progress?.history || [];
-      if (history.length > 0) {
-        const lastHistory = history[history.length - 1];
-        if (lastHistory.transitioned_to === targetStepName) {
-          const priorStepDef = definition.steps?.[lastHistory.step];
-          const candidateTransitions = (priorStepDef?.transitions || []).filter(
-            (t) => (t.to === targetStepName || t.step === targetStepName)
-          );
-          const historyResult = lastHistory.result;
-          const matching = candidateTransitions.filter((t) => {
-            if (t.value !== undefined) {
-              return t.value === historyResult;
-            }
-            return true;
-          });
-          if (matching.length === 1) {
-            matchedTransition = matching[0];
-          } else if (matching.length > 1) {
-            const exactMatches = matching.filter((t) => t.value !== undefined && t.value === historyResult);
-            if (exactMatches.length === 1) {
-              matchedTransition = exactMatches[0];
-            }
-          }
-        }
+      const { matchIncomingTransition } = await import('../../orchestration/reconciliation.mjs');
+      const matchResult = matchIncomingTransition(task, definition, targetStepName);
+      if (matchResult.ambiguous) {
+        throw new AiValidationError(matchResult.reason || `Ambiguous incoming transition to '${targetStepName}'.`);
       }
 
-      const authoritativeRole = matchedTransition?.execution?.role || targetStepDef?.execution?.role || targetStepDef?.role || 'implementer';
+      const matchedTransition = matchResult.transition;
+      const authoritativeRole = matchedTransition?.execution?.role || null;
 
-      if (body.role && body.role !== authoritativeRole) {
+      if (body.role && body.role !== authoritativeRole && !body.oneOff) {
         throw new AiValidationError(
           `Requested role '${body.role}' does not match server-resolved role '${authoritativeRole}'.`
         );
       }
 
       const { executionPolicyService } = await import('../execution-policy-service.mjs');
-      const resolvedPolicy = executionPolicyService.resolveExecutionPolicy(changeSlug, body.taskId, {
-        role: authoritativeRole,
+      const resolvedPolicy = executionPolicyService.resolveExecutionPolicy(changeSlug, targetTaskId, {
+        ...(authoritativeRole ? { role: authoritativeRole } : {}),
         repoRoot: effectiveRepoRoot,
       });
 
-      const effectiveProvider = provider || resolvedPolicy?.provider;
+      let effectiveProvider;
+      let effectiveMode;
+
+      if (body.oneOff === true) {
+        effectiveProvider = body.provider || resolvedPolicy?.provider;
+        effectiveMode = body.mode || resolvedPolicy?.mode || 'agent';
+      } else if (resolvedPolicy?.provider) {
+        if (body.provider && body.provider !== resolvedPolicy.provider) {
+          throw new AiValidationError(
+            `Requested provider '${body.provider}' does not match server-resolved execution policy provider '${resolvedPolicy.provider}'. Use oneOff to override.`
+          );
+        }
+        if (body.mode && body.mode !== resolvedPolicy.mode) {
+          throw new AiValidationError(
+            `Requested mode '${body.mode}' does not match server-resolved execution policy mode '${resolvedPolicy.mode}'. Use oneOff to override.`
+          );
+        }
+        effectiveProvider = resolvedPolicy.provider;
+        effectiveMode = resolvedPolicy.mode;
+      } else {
+        // First explicit start with no policy on disk yet (D21)
+        effectiveProvider = body.provider || null;
+        effectiveMode = body.mode || 'agent';
+      }
+
       if (!effectiveProvider) {
         throw new AiValidationError('No execution provider specified or configured in execution policy.');
-      }
-      const effectiveMode = body.mode || resolvedPolicy?.mode || 'agent';
-      const declaredSessionPolicy = matchedTransition?.execution?.session || targetStepDef?.execution?.session;
-      let sessionPolicy = declaredSessionPolicy || resolvedPolicy?.session || 'fresh';
-
-      if (body.sessionPolicy && declaredSessionPolicy && body.sessionPolicy !== declaredSessionPolicy) {
-        throw new AiValidationError(
-          `Requested sessionPolicy '${body.sessionPolicy}' conflicts with server-resolved workflow session policy '${declaredSessionPolicy}'.`
-        );
       }
 
       // Persist spec-level execution policy from D21 if no policy exists yet and not a one-off execution
@@ -217,8 +242,18 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         } catch {}
       }
 
-      let parentSessionId = body.parentSessionId || null;
-      if (!parentSessionId && effectiveRepoRoot && history.length > 0) {
+      const declaredSessionPolicy = matchedTransition?.execution?.session || null;
+      const sessionPolicy = declaredSessionPolicy || 'fresh';
+
+      if (body.sessionPolicy && declaredSessionPolicy && body.sessionPolicy !== declaredSessionPolicy) {
+        throw new AiValidationError(
+          `Requested sessionPolicy '${body.sessionPolicy}' conflicts with server-resolved workflow session policy '${declaredSessionPolicy}'.`
+        );
+      }
+
+      let parentSessionId = null;
+      const history = task?.workflow_progress?.history || [];
+      if (effectiveRepoRoot && history.length > 0) {
         for (let i = history.length - 1; i >= 0; i--) {
           const h = history[i];
           if (h.sessionId) {
@@ -237,7 +272,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
             });
             const stepBindings = await bindingService.listBindings({
               specId: canonicalSpecId,
-              taskId: task.id,
+              taskId: targetTaskId,
               step: h.step,
               ...(h.attempt !== undefined ? { attempt: h.attempt } : {}),
             });
@@ -252,10 +287,31 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         }
       }
 
+      // Validate client lineage hints
+      if (body.parentSessionId && body.parentSessionId !== parentSessionId) {
+        throw new AiValidationError(
+          `Requested parentSessionId '${body.parentSessionId}' does not match server-derived parentSessionId '${parentSessionId}'.`
+        );
+      }
+
+      if (sessionPolicy === 'reuse') {
+        if (body.sessionId && parentSessionId && body.sessionId !== parentSessionId) {
+          throw new AiValidationError(
+            `Requested sessionId '${body.sessionId}' does not match server-derived session to reuse '${parentSessionId}'.`
+          );
+        }
+      } else if (sessionPolicy === 'fresh') {
+        if (body.sessionId) {
+          throw new AiValidationError(
+            `Cannot specify sessionId '${body.sessionId}' for fresh session policy.`
+          );
+        }
+      }
+
       const { admitAgentExecution } = await import('../../orchestration/admission.mjs');
 
       const candidate = {
-        taskId: body.taskId,
+        taskId: targetTaskId,
         stepId: targetStepName,
         provider: effectiveProvider,
         changeSlug,
@@ -263,7 +319,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         sessionPolicy,
         role: authoritativeRole,
         parentSessionId,
-        sessionId: body.sessionId || (sessionPolicy === 'reuse' ? parentSessionId : undefined),
+        sessionId: sessionPolicy === 'reuse' ? (body.sessionId || parentSessionId) : undefined,
         message: body.message ?? body.prompt,
         userMessage: body.userMessage,
         mode: effectiveMode,
@@ -273,7 +329,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
       };
 
       console.log(
-        `[ai] [deterministic:admit] provider=${effectiveProvider} specId=${canonicalSpecId} changeSlug=${changeSlug} taskId=${body.taskId} sessionPolicy=${sessionPolicy} role=${authoritativeRole}`,
+        `[ai] [deterministic:admit] provider=${effectiveProvider} specId=${canonicalSpecId} changeSlug=${changeSlug} taskId=${targetTaskId} sessionPolicy=${sessionPolicy} role=${authoritativeRole}`,
       );
 
       const admission = await admitAgentExecution(canonicalSpecId, candidate, {
@@ -294,14 +350,14 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
       }
 
       console.log(
-        `[ai] [deterministic:started] provider=${provider} session=${admission.sessionId} turnId=${admission.turnId} ownerId=${admission.ownerId}`,
+        `[ai] [deterministic:started] provider=${effectiveProvider} session=${admission.sessionId} turnId=${admission.turnId} ownerId=${admission.ownerId}`,
       );
 
       reply.code(201).send({
         sessionId: admission.sessionId,
         turnId: admission.turnId,
         ownerId: admission.ownerId,
-        provider,
+        provider: effectiveProvider,
         idempotent: false,
       });
       return;
@@ -369,10 +425,38 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         }
 
         const { changeSlug, specId: canonicalSpecId } = deterministicTarget;
+
+        let definition = null;
+        if (deterministicTarget.resolvedWorkflow?.definition) {
+          const { loadWorkflowDefinition } = await import('../../../../../specs/workflow/definitions/loader.mjs');
+          definition = loadWorkflowDefinition(deterministicTarget.resolvedWorkflow.definition, { repoRoot: effectiveRepoRoot });
+        }
+        let targetStepName = body.stepId;
+        const task = deterministicTarget.change.tasks?.find((t) => t.id === taskId);
+        if (task && definition) {
+          const { resolveWorkflowPosition } = await import('../../../../../specs/workflow/step-runner.mjs');
+          const position = resolveWorkflowPosition(definition, task);
+          const serverStepName = position.phase === 'new'
+            ? definition.entryStep
+            : (position.phase === 'active' ? position.step : position.nextStep);
+          if (body.stepId && serverStepName && body.stepId !== serverStepName) {
+            throw new AiValidationError(
+              `Requested stepId '${body.stepId}' does not match server-resolved target step '${serverStepName}'.`
+            );
+          }
+          targetStepName = serverStepName || body.stepId;
+          const stepDef = definition.steps?.[targetStepName];
+          if (stepDef && (stepDef.executor || 'agent') !== 'agent') {
+            throw new AiValidationError(
+              `Target workflow step '${targetStepName}' requires ${stepDef.executor} execution and cannot be admitted for an agent turn.`
+            );
+          }
+        }
+
         const { admitAgentExecution } = await import('../../orchestration/admission.mjs');
         const candidate = {
           taskId,
-          stepId: body.stepId,
+          stepId: targetStepName,
           provider: session?.provider || provider,
           changeSlug,
           specId: canonicalSpecId,

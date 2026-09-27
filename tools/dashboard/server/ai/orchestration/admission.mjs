@@ -50,7 +50,17 @@ export function getActiveAgentExecution(specId) {
   return activeExecutions.get(specId) || null;
 }
 
+export async function waitForActiveExecutionSettled(specId) {
+  const active = activeExecutions.get(specId);
+  if (!active || active.settled) return null;
+  return await active.settledPromise;
+}
+
 export function resetAdmissionStateForTest() {
+  for (const record of activeExecutions.values()) {
+    record.settled = true;
+    record.resolveSettled?.({ reset: true });
+  }
   activeExecutions.clear();
   startLocks.clear();
   defaultSessionService = null;
@@ -221,6 +231,11 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
     }
 
     // Capture execution identity for closure-based Hook 1 reconciliation (D70, D100)
+    let resolveSettled;
+    const settledPromise = new Promise((resolve) => {
+      resolveSettled = resolve;
+    });
+
     const executionRecord = {
       ownerId,
       sessionId: canonicalSessionId,
@@ -230,6 +245,9 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
       candidate,
       turnId: null,
       admittedAt: new Date().toISOString(),
+      settled: false,
+      settledPromise,
+      resolveSettled,
     };
 
     activeExecutions.set(specId, executionRecord);
@@ -370,87 +388,92 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
     let unsub = null;
 
     const reconcileHook1 = async (turnOutcome = {}) => {
-      if (unsub) {
-        try { unsub(); } catch {}
-        unsub = null;
-      }
-
-      const turnIdResolved = executionRecord.turnId || turnOutcome.turnId || null;
-
-      // Settlement check before touching claim (D59, D60)
-      const settlement = await assessExecutionSettlement({
-        repoRoot,
-        changeSlug: capturedChangeSlug,
-        taskId: capturedTaskId,
-        activeDir: options.activeDir,
-      });
-
       let hookOutcome;
-      if (settlement.settled) {
-        const relRes = await releaseWorkspaceWriterIfOwned({
-          repoRoot,
-          expectedOwnerId: capturedOwnerId,
-          expectedKind: 'agent',
-          expectedSpecId: specId,
-          expectedChangeSlug: capturedChangeSlug,
-          expectedTaskId: capturedTaskId,
-          ...(capturedSessionId ? { expectedSessionId: capturedSessionId } : {}),
-          ...(turnIdResolved ? { expectedTurnId: turnIdResolved } : {}),
-        });
-        const currentActiveSettled = activeExecutions.get(specId);
-        if (currentActiveSettled?.ownerId === capturedOwnerId) {
-          activeExecutions.delete(specId);
+      try {
+        if (unsub) {
+          try { unsub(); } catch {}
+          unsub = null;
         }
-        if (typeof onTurnTerminal === 'function') {
-          await onTurnTerminal({ specId, taskId: capturedTaskId, settled: true, released: relRes.released });
-        }
-        hookOutcome = { settled: true, released: relRes.released };
 
-        // Automatic continuation for settled turn (Item 5 & Item 12)
-        if (repoRoot && capturedChangeSlug) {
-          try {
-            const { requireChange, requireTask } = await import('../../../../specs/store.mjs');
-            const { reconcileContinuation } = await import('./reconciliation.mjs');
-            const activeDir = options.activeDir || (repoRoot ? join(repoRoot, 'specs', 'active') : undefined);
-            const reloadedChange = requireChange(capturedChangeSlug, activeDir);
-            let reloadedTask = null;
-            try {
-              reloadedTask = requireTask(reloadedChange, capturedTaskId);
-            } catch {}
-            const contRes = await reconcileContinuation(reloadedChange, reloadedTask, {
-              repoRoot,
-              sessionService,
-              turnRuntime,
-              activeDir,
-              parentSessionId: capturedSessionId,
-            });
-            hookOutcome.continuation = contRes;
-          } catch (contErr) {
-            console.error('[admission] Hook 1 continuation failed:', contErr);
+        const turnIdResolved = executionRecord.turnId || turnOutcome.turnId || null;
+
+        // Settlement check before touching claim (D59, D60)
+        const settlement = await assessExecutionSettlement({
+          repoRoot,
+          changeSlug: capturedChangeSlug,
+          taskId: capturedTaskId,
+          activeDir: options.activeDir,
+        });
+
+        if (settlement.settled) {
+          const relRes = await releaseWorkspaceWriterIfOwned({
+            repoRoot,
+            expectedOwnerId: capturedOwnerId,
+            expectedKind: 'agent',
+            expectedSpecId: specId,
+            expectedChangeSlug: capturedChangeSlug,
+            expectedTaskId: capturedTaskId,
+            ...(capturedSessionId ? { expectedSessionId: capturedSessionId } : {}),
+            ...(turnIdResolved ? { expectedTurnId: turnIdResolved } : {}),
+          });
+          const currentActiveSettled = activeExecutions.get(specId);
+          if (currentActiveSettled?.ownerId === capturedOwnerId) {
+            activeExecutions.delete(specId);
           }
-        }
-      } else {
-        const markRes = await markWorkspaceWriterRecoveryRequiredIfOwned({
-          repoRoot,
-          expectedOwnerId: capturedOwnerId,
-          expectedKind: 'agent',
-          expectedSpecId: specId,
-          expectedChangeSlug: capturedChangeSlug,
-          expectedTaskId: capturedTaskId,
-          ...(capturedSessionId ? { expectedSessionId: capturedSessionId } : {}),
-          ...(turnIdResolved ? { expectedTurnId: turnIdResolved } : {}),
-        });
-        const currentActiveFailed = activeExecutions.get(specId);
-        if (currentActiveFailed?.ownerId === capturedOwnerId) {
-          activeExecutions.delete(specId);
-        }
-        if (typeof onTurnTerminal === 'function') {
-          await onTurnTerminal({ specId, taskId: capturedTaskId, settled: false, markedRecovery: markRes.marked });
-        }
-        hookOutcome = { settled: false, markedRecovery: markRes.marked };
-      }
+          if (typeof onTurnTerminal === 'function') {
+            await onTurnTerminal({ specId, taskId: capturedTaskId, settled: true, released: relRes.released });
+          }
+          hookOutcome = { settled: true, released: relRes.released };
 
-      return hookOutcome;
+          // Automatic continuation for settled turn (Item 5 & Item 12)
+          if (repoRoot && capturedChangeSlug) {
+            try {
+              const { requireChange, requireTask } = await import('../../../../specs/store.mjs');
+              const { reconcileContinuation } = await import('./reconciliation.mjs');
+              const activeDir = options.activeDir || (repoRoot ? join(repoRoot, 'specs', 'active') : undefined);
+              const reloadedChange = requireChange(capturedChangeSlug, activeDir);
+              let reloadedTask = null;
+              try {
+                reloadedTask = requireTask(reloadedChange, capturedTaskId);
+              } catch {}
+              const contRes = await reconcileContinuation(reloadedChange, reloadedTask, {
+                repoRoot,
+                sessionService,
+                turnRuntime,
+                activeDir,
+                parentSessionId: capturedSessionId,
+              });
+              hookOutcome.continuation = contRes;
+            } catch (contErr) {
+              console.error('[admission] Hook 1 continuation failed:', contErr);
+            }
+          }
+        } else {
+          const markRes = await markWorkspaceWriterRecoveryRequiredIfOwned({
+            repoRoot,
+            expectedOwnerId: capturedOwnerId,
+            expectedKind: 'agent',
+            expectedSpecId: specId,
+            expectedChangeSlug: capturedChangeSlug,
+            expectedTaskId: capturedTaskId,
+            ...(capturedSessionId ? { expectedSessionId: capturedSessionId } : {}),
+            ...(turnIdResolved ? { expectedTurnId: turnIdResolved } : {}),
+          });
+          const currentActiveFailed = activeExecutions.get(specId);
+          if (currentActiveFailed?.ownerId === capturedOwnerId) {
+            activeExecutions.delete(specId);
+          }
+          if (typeof onTurnTerminal === 'function') {
+            await onTurnTerminal({ specId, taskId: capturedTaskId, settled: false, markedRecovery: markRes.marked });
+          }
+          hookOutcome = { settled: false, markedRecovery: markRes.marked };
+        }
+
+        return hookOutcome;
+      } finally {
+        executionRecord.settled = true;
+        resolveSettled?.(hookOutcome);
+      }
     };
 
     executionRecord.reconcile = reconcileHook1;

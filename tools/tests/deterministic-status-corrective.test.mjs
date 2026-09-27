@@ -2414,7 +2414,10 @@ test('first implementation start resolves authoritative role from workflow defin
 
     const app = await buildAiTestApp({ service, repoRoot: tmpRepo });
 
-    // 1. Start turn without providing role or provider (should resolve role: implementer -> provider: codex)
+    const { waitForActiveExecutionSettled } = await import('../dashboard/server/ai/orchestration/admission.mjs');
+
+    // 1. Start turn without providing role or provider
+    // Entry step has no incoming transition -> authoritativeRole = null -> resolves to change-level default (claude)
     const res1 = await app.inject({
       method: 'POST',
       url: '/api/agent-sessions/turns',
@@ -2432,15 +2435,17 @@ test('first implementation start resolves authoritative role from workflow defin
     });
 
     assert.equal(res1.statusCode, 201, `Expected 201, got ${res1.statusCode}: ${res1.payload}`);
-    assert.equal(createdSessionOpts.role, 'implementer', 'Entry step must authoritatively resolve to implementer role');
-    assert.equal(createdSessionOpts.provider, 'codex', 'Implementer role must map to provider codex');
+    assert.equal(createdSessionOpts.role, null, 'Entry step with no incoming transition must have null/undefined role');
+    assert.equal(createdSessionOpts.provider, 'claude', 'Null role must resolve to change-level default provider claude');
+
+    await waitForActiveExecutionSettled(canonicalSpecId);
 
     // Reset admission lock
     resetAdmissionStateForTest();
     await releaseWorkspaceWriterIfOwned({ repoRoot: tmpRepo, expectedSpecId: canonicalSpecId });
 
-    // 2. Start turn with one-off explicit provider choice (e.g. gemini)
-    const res2 = await app.inject({
+    // 2. Normal Start with conflicting client provider without oneOff -> REJECTED
+    const resReject = await app.inject({
       method: 'POST',
       url: '/api/agent-sessions/turns',
       headers: {
@@ -2453,6 +2458,27 @@ test('first implementation start resolves authoritative role from workflow defin
         specId: canonicalSpecId,
         changeSlug: slug,
         taskId: 't1',
+        prompt: 'Start t1 with gemini without oneOff',
+      },
+    });
+    assert.equal(resReject.statusCode, 400);
+    assert.match(resReject.json().error.message, /Requested provider 'gemini' does not match server-resolved execution policy provider 'claude'/);
+
+    // 3. Start turn with explicit one-off provider choice (oneOff: true) -> ACCEPTED
+    const res2 = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: {
+        'content-type': 'application/json',
+        'x-nevo-dashboard-action': '1',
+      },
+      payload: {
+        purpose: 'execution',
+        provider: 'gemini',
+        oneOff: true,
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskId: 't1',
         prompt: 'Start t1 with gemini',
       },
     });
@@ -2460,7 +2486,9 @@ test('first implementation start resolves authoritative role from workflow defin
     assert.equal(res2.statusCode, 201, `Expected 201, got ${res2.statusCode}: ${res2.payload}`);
     assert.equal(createdSessionOpts.provider, 'gemini', 'Explicit one-off provider must be used');
 
-    // 3. Verify policy was NOT mutated
+    await waitForActiveExecutionSettled(canonicalSpecId);
+
+    // 4. Verify policy was NOT mutated
     const preservedPolicy = executionPolicyService.getExecutionPolicy(slug, { repoRoot: tmpRepo });
     assert.equal(preservedPolicy.default.provider, 'claude');
     assert.equal(preservedPolicy.roles.implementer.provider, 'codex');
@@ -2723,6 +2751,9 @@ tasks:
     assert.equal(lastCreatedRole, 'reviewer');
     assert.equal(lastCreatedProvider, 'claude');
 
+    const { waitForActiveExecutionSettled } = await import('../dashboard/server/ai/orchestration/admission.mjs');
+    await waitForActiveExecutionSettled(canonicalSpecId);
+
     // Reset admission state and release claim
     resetAdmissionStateForTest();
     const { getWorkspaceWriterClaim } = await import('../specs/workflow/workspace-writer.mjs');
@@ -2752,6 +2783,275 @@ tasks:
     assert.equal(lastCreatedRole, 'refiner');
     assert.equal(lastCreatedProvider, 'gemini');
 
+    await waitForActiveExecutionSettled(canonicalSpecId);
+
+    await app.close();
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('matchIncomingTransition unit contract: matches unique transition, fails closed on ambiguity, and returns null for entry/unrelated steps', async () => {
+  const { matchIncomingTransition } = await import('../dashboard/server/ai/orchestration/reconciliation.mjs');
+
+  const definition = {
+    entryStep: 'implementation',
+    steps: {
+      implementation: {
+        executor: 'agent',
+        transitions: [
+          { to: 'review', value: 'completed', execution: { session: 'fresh', role: 'reviewer' } },
+        ],
+      },
+      review: {
+        executor: 'agent',
+        transitions: [
+          { to: 'human-verification', value: 'pass' },
+          { to: 'implementation', value: 'fail', execution: { session: 'fresh', role: 'refiner' } },
+        ],
+      },
+      'ambiguous-step': {
+        executor: 'agent',
+        transitions: [
+          { to: 'implementation', value: 'fail', execution: { session: 'fresh', role: 'refiner-a' } },
+          { to: 'implementation', value: 'fail', execution: { session: 'fresh', role: 'refiner-b' } },
+        ],
+      },
+    },
+  };
+
+  // 1. Initial entry step (no history) -> returns null, not ambiguous
+  const taskEntry = { id: 't1', workflow_progress: { history: [] } };
+  const resEntry = matchIncomingTransition(taskEntry, definition, 'implementation');
+  assert.deepEqual(resEntry, { transition: null, ambiguous: false });
+
+  // 2. Transition from implementation to review on 'completed'
+  const taskReview = {
+    id: 't1',
+    workflow_progress: {
+      history: [{ step: 'implementation', result: 'completed', transitioned_to: 'review' }],
+    },
+  };
+  const resReview = matchIncomingTransition(taskReview, definition, 'review');
+  assert.equal(resReview.ambiguous, false);
+  assert.equal(resReview.transition?.execution?.role, 'reviewer');
+
+  // 3. Transition to different step recorded -> returns null
+  const resDifferent = matchIncomingTransition(taskReview, definition, 'other-step');
+  assert.deepEqual(resDifferent, { transition: null, ambiguous: false });
+
+  // 4. Ambiguous transitions from prior step -> fails closed with ambiguous: true
+  const taskAmbiguous = {
+    id: 't1',
+    workflow_progress: {
+      history: [{ step: 'ambiguous-step', result: 'fail', transitioned_to: 'implementation' }],
+    },
+  };
+  const resAmbiguous = matchIncomingTransition(taskAmbiguous, definition, 'implementation');
+  assert.equal(resAmbiguous.ambiguous, true);
+  assert.equal(resAmbiguous.transition, null);
+  assert.match(resAmbiguous.reason, /Ambiguous incoming transition to 'implementation'/);
+});
+
+test('Deterministic turn route: validates canonical task IDs, enforces sequential queue nextRunnable, and rejects human executor', async () => {
+  const tmpRepo = createTempRepo('turn-route-enforcement');
+  resetAdmissionStateForTest();
+
+  try {
+    const { executionPolicyService } = await import('../dashboard/server/ai/sessions/execution-policy-service.mjs');
+    const { waitForActiveExecutionSettled } = await import('../dashboard/server/ai/orchestration/admission.mjs');
+    const slug = 'spec-queue-test';
+    const canonicalSpecId = '44444444-4444-4444-8444-444444444444';
+    const activeDir = path.join(tmpRepo, 'specs', 'active');
+    const tasksDir = path.join(activeDir, slug, 'tasks');
+    fs.mkdirSync(tasksDir, { recursive: true });
+
+    // Spec with t1 (ready) and t2 (blocked by t1)
+    fs.writeFileSync(
+      path.join(activeDir, slug, 'change.yaml'),
+      `id: ${slug}
+spec_id: ${canonicalSpecId}
+title: "Queue Route Spec"
+status: in-progress
+workflow:
+  mode: deterministic
+  definition: standard-v1
+tasks:
+  - id: t1
+    title: "Task 1"
+    status: in-implementation
+    file: tasks/t1.md
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+  - id: t2
+    title: "Task 2"
+    status: planned
+    file: tasks/t2.md
+    depends_on:
+      - t1
+  - id: t3-human
+    title: "Task 3 Human"
+    status: in-implementation
+    file: tasks/t3-human.md
+    workflow_progress:
+      current_step: human-verification
+      current_attempt: 1
+      state: active
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: "2026-01-01T00:00:00.000Z"
+          transitioned_to: review
+        - step: review
+          attempt: 1
+          completed_at: "2026-01-01T01:00:00.000Z"
+          result: pass
+          transitioned_to: human-verification
+`,
+    );
+    fs.writeFileSync(path.join(activeDir, slug, 'overview.md'), '# Overview\n');
+    fs.writeFileSync(path.join(tasksDir, 't1.md'), '---\nid: t1\nstatus: in-implementation\n---\n# T1\n');
+    // t2 depends on t1
+    fs.writeFileSync(path.join(tasksDir, 't2.md'), '---\nid: t2\nstatus: planned\ndepends_on:\n  - t1\n---\n# T2\n');
+    fs.writeFileSync(path.join(tasksDir, 't3-human.md'), '---\nid: t3-human\nstatus: in-implementation\n---\n# T3\n');
+
+    execFileSync('git', ['add', '-A'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'add fixtures'], { cwd: tmpRepo });
+
+    executionPolicyService.saveExecutionPolicy(
+      slug,
+      {
+        provider: 'claude',
+        mode: 'agent',
+      },
+      { repoRoot: tmpRepo },
+    );
+
+    function makeProvider(id) {
+      const p = createMockAgentProvider({ streamDelayMs: 1 });
+      p.descriptor = { ...p.descriptor, id, label: id };
+      return p;
+    }
+
+    const registry = createAgentProviderRegistry([makeProvider('claude')]);
+    const transcriptCache = createTranscriptCacheService({ baseDir: path.join(tmpRepo, '.nevo-ai-local', 'transcripts') });
+    const bindingService = createAgentSessionBindingService({ storageDir: path.join(tmpRepo, '.nevo-ai-local', 'sessions') });
+    const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+
+    const service = createAgentSessionService({
+      registry,
+      turnRuntime,
+      transcriptCache,
+      bindingService,
+      repoRoot: tmpRepo,
+    });
+
+    const app = await buildAiTestApp({ service, repoRoot: tmpRepo });
+
+    // 1. Unknown task ID fails closed BEFORE enqueueing
+    const resUnknown = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: {
+        'content-type': 'application/json',
+        'x-nevo-dashboard-action': '1',
+      },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskIds: ['non-existent-task'],
+        prompt: 'Start non-existent',
+      },
+    });
+    assert.equal(resUnknown.statusCode, 400);
+    assert.match(resUnknown.json().error.message, /Task 'non-existent-task' not found in specification 'spec-queue-test'/);
+
+    // 2. Selecting only blocked task (t2 blocked by t1) returns 409 NO_RUNNABLE_TASK without acquiring claim or session
+    const resBlocked = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: {
+        'content-type': 'application/json',
+        'x-nevo-dashboard-action': '1',
+      },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskIds: ['t2'],
+        prompt: 'Start t2 directly',
+      },
+    });
+    assert.equal(resBlocked.statusCode, 409);
+    assert.equal(resBlocked.json().error.code, 'NO_RUNNABLE_TASK');
+    const writerClaim = getWorkspaceWriterClaim(tmpRepo);
+    assert.equal(writerClaim, null, 'No workspace writer claim should be created for blocked queue');
+
+    // 3. Human executor step rejects agent execution request
+    const resHuman = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: {
+        'content-type': 'application/json',
+        'x-nevo-dashboard-action': '1',
+      },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskId: 't3-human',
+        prompt: 'Start human step with agent',
+      },
+    });
+    assert.equal(resHuman.statusCode, 400);
+    assert.match(resHuman.json().error.message, /Target workflow step 'human-verification' requires human execution and cannot be admitted for an agent turn/);
+
+    // 4. Lineage constraint: fresh session policy rejects client providing sessionId
+    const resFreshWithSession = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: {
+        'content-type': 'application/json',
+        'x-nevo-dashboard-action': '1',
+      },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskId: 't1',
+        sessionId: 'forbidden-for-fresh-session',
+        prompt: 'Start t1 with forbidden sessionId',
+      },
+    });
+    assert.equal(resFreshWithSession.statusCode, 400);
+    assert.match(resFreshWithSession.json().error.message, /Cannot specify sessionId 'forbidden-for-fresh-session' for fresh session policy/);
+
+    // 5. Selecting [t1, t2] evaluates queue and admits t1 (server-selected nextRunnable)
+    const resSelection = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: {
+        'content-type': 'application/json',
+        'x-nevo-dashboard-action': '1',
+      },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskIds: ['t1', 't2'],
+        prompt: 'Start queue batch',
+      },
+    });
+    assert.equal(resSelection.statusCode, 201);
+    const claimAfterStart = getWorkspaceWriterClaim(tmpRepo);
+    assert.ok(claimAfterStart, 'Claim should be acquired for t1');
+    assert.equal(claimAfterStart.taskId, 't1');
+
+    await waitForActiveExecutionSettled(canonicalSpecId);
     await app.close();
   } finally {
     resetAdmissionStateForTest();

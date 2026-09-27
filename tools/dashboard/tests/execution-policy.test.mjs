@@ -354,5 +354,61 @@ describe('Task 26: Execution policy and mode selection (D21)', () => {
     // Preserves oneOff parameter in proceedWithAgentExecution
     assert.match(contentSrc, /\.\.\.\(policy\.oneOff \? \{ oneOff: true \} : \{\}\)/);
   });
+
+  test('Behavioral round-trip: preserves free-form roles, untouched modes, taskOverrides, and custom fields', async () => {
+    const policyPayload = {
+      provider: 'claude',
+      mode: 'custom-mode',
+      default: {
+        provider: 'claude',
+        mode: 'custom-mode',
+      },
+      roles: {
+        implementer: { provider: 'codex', mode: 'agent' },
+        reviewer: { provider: 'claude', mode: 'ask' },
+        specialist: { provider: 'gemini', mode: 'custom-role-mode' },
+      },
+      taskOverrides: {
+        'task-99': { provider: 'gemini', mode: 'edit' },
+      },
+    };
+
+    const putRes = await app.inject({
+      method: 'PUT',
+      url: '/api/specs/round-trip-spec/execution-policy',
+      headers: {
+        'content-type': 'application/json',
+        'x-nevo-dashboard-action': '1',
+      },
+      payload: policyPayload,
+    });
+    assert.equal(putRes.statusCode, 200);
+
+    const getRes = await app.inject({
+      method: 'GET',
+      url: '/api/specs/round-trip-spec/execution-policy',
+    });
+    assert.equal(getRes.statusCode, 200);
+    const retrieved = JSON.parse(getRes.payload).policy;
+
+    assert.equal(retrieved.provider, 'claude');
+    assert.equal(retrieved.mode, 'custom-mode');
+    assert.equal(retrieved.roles.specialist.provider, 'gemini');
+    assert.equal(retrieved.roles.specialist.mode, 'custom-role-mode');
+    assert.equal(retrieved.roles.reviewer.mode, 'ask');
+    assert.deepEqual(retrieved.taskOverrides['task-99'], { provider: 'gemini', mode: 'edit' });
+
+    // Resolving for custom role
+    const resolvedSpecialist = policyService.resolveExecutionPolicy('round-trip-spec', null, { role: 'specialist' });
+    assert.deepEqual(resolvedSpecialist, { provider: 'gemini', mode: 'custom-role-mode' });
+
+    // Resolving for task override
+    const resolvedTask = policyService.resolveExecutionPolicy('round-trip-spec', 'task-99', { role: 'specialist' });
+    assert.deepEqual(resolvedTask, { provider: 'gemini', mode: 'edit' });
+
+    // Resolving with null role falls back to default, not implementer
+    const resolvedDefault = policyService.resolveExecutionPolicy('round-trip-spec', null);
+    assert.deepEqual(resolvedDefault, { provider: 'claude', mode: 'custom-mode' });
+  });
 });
 

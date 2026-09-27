@@ -7,7 +7,7 @@ import { initialPromptWithTaskContext } from './create-agent-session-helpers';
 import { AI_MODES } from './mode-meta';
 import { AI_PROVIDERS_ENABLE_MESSAGE } from './provider-config';
 import type { AgentSession, AgentExecutionMode, AgentSessionTaskRef, AgentProviderDescriptor } from './types';
-import type { ExecutionPolicy, TaskExecutionOverride } from './execution-policy';
+import type { ExecutionPolicy, RoleExecutionOverride, TaskExecutionOverride } from './execution-policy';
 import { cn } from '@/shared/lib/utils';
 
 export interface CreateAgentSessionTarget {
@@ -390,7 +390,7 @@ export interface ExecutionPolicySelectionDialogProps {
     provider: string;
     mode: AgentExecutionMode;
     default?: { provider: string; mode: AgentExecutionMode };
-    roles?: Record<string, { provider: string; mode: AgentExecutionMode }>;
+    roles?: Record<string, RoleExecutionOverride>;
     taskOverrides?: Record<string, TaskExecutionOverride>;
     [key: string]: any;
   }) => void;
@@ -448,7 +448,7 @@ export function ExecutionPolicySelectionDialog({
     e.preventDefault();
     if (!provider || !isSelectedProviderAvailable) return;
 
-    const baseRoles: Record<string, { provider: string; mode: AgentExecutionMode }> = {
+    const baseRoles: Record<string, RoleExecutionOverride> = {
       ...(initialPolicy?.roles || {}),
     };
 
@@ -480,6 +480,15 @@ export function ExecutionPolicySelectionDialog({
       };
     } else {
       delete baseRoles.refiner;
+    }
+
+    if (isOneOff) {
+      onConfirm({
+        provider,
+        mode,
+        oneOff: true,
+      });
+      return;
     }
 
     onConfirm({
@@ -555,55 +564,57 @@ export function ExecutionPolicySelectionDialog({
           error={providers.error}
         />
 
-        <div className="mt-5 space-y-3 rounded-xl border border-border/70 bg-surface-muted/30 p-4">
-          <div>
-            <h3 className="text-xs font-semibold text-fg-primary">Nadpisania dla ról (Role Execution Overrides)</h3>
-            <p className="mt-0.5 text-[11px] text-fg-muted">
-              Opcjonalnie wybierz wykonawców dla konkretnych ról procesu automatycznego.
-            </p>
+        {!isOneOff && (
+          <div className="mt-5 space-y-3 rounded-xl border border-border/70 bg-surface-muted/30 p-4">
+            <div>
+              <h3 className="text-xs font-semibold text-fg-primary">Nadpisania dla ról (Role Execution Overrides)</h3>
+              <p className="mt-0.5 text-[11px] text-fg-muted">
+                Opcjonalnie wybierz wykonawców dla konkretnych ról procesu automatycznego.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div>
+                <label className="text-[11px] font-medium text-fg-secondary">Implementer</label>
+                <select
+                  value={implementerProvider}
+                  onChange={(e) => setImplementerProvider(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+                >
+                  <option value="">(Domyślny: {provider || 'brak'})</option>
+                  {eligibleRoleProviders.map((p) => (
+                    <option key={p.id} value={p.id}>{p.label || p.id}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-fg-secondary">Reviewer</label>
+                <select
+                  value={reviewerProvider}
+                  onChange={(e) => setReviewerProvider(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+                >
+                  <option value="">(Domyślny: {provider || 'brak'})</option>
+                  {eligibleRoleProviders.map((p) => (
+                    <option key={p.id} value={p.id}>{p.label || p.id}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-fg-secondary">Refiner</label>
+                <select
+                  value={refinerProvider}
+                  onChange={(e) => setRefinerProvider(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+                >
+                  <option value="">(Domyślny: {provider || 'brak'})</option>
+                  {eligibleRoleProviders.map((p) => (
+                    <option key={p.id} value={p.id}>{p.label || p.id}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div>
-              <label className="text-[11px] font-medium text-fg-secondary">Implementer</label>
-              <select
-                value={implementerProvider}
-                onChange={(e) => setImplementerProvider(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
-              >
-                <option value="">(Domyślny: {provider || 'brak'})</option>
-                {eligibleRoleProviders.map((p) => (
-                  <option key={p.id} value={p.id}>{p.label || p.id}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-[11px] font-medium text-fg-secondary">Reviewer</label>
-              <select
-                value={reviewerProvider}
-                onChange={(e) => setReviewerProvider(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
-              >
-                <option value="">(Domyślny: {provider || 'brak'})</option>
-                {eligibleRoleProviders.map((p) => (
-                  <option key={p.id} value={p.id}>{p.label || p.id}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-[11px] font-medium text-fg-secondary">Refiner</label>
-              <select
-                value={refinerProvider}
-                onChange={(e) => setRefinerProvider(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
-              >
-                <option value="">(Domyślny: {provider || 'brak'})</option>
-                {eligibleRoleProviders.map((p) => (
-                  <option key={p.id} value={p.id}>{p.label || p.id}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
+        )}
 
         <div className="mt-6 flex items-center justify-end gap-3 border-t border-border pt-4">
           <Button type="button" variant="secondary" onClick={onClose} disabled={confirming}>
