@@ -400,21 +400,24 @@ export class AgentSessionService {
     }
     const entry = this.registry.get(provider);
     const descriptor = entry.descriptor;
-    const taskIds = Array.isArray(options.taskIds)
-      ? options.taskIds.filter(Boolean)
-      : options.taskId
-        ? [options.taskId]
-        : [];
+    const executionScope = options.executionScope || options.scope;
+    const taskIds = executionScope?.kind === 'task-batch'
+      ? [...executionScope.taskIds]
+      : Array.isArray(options.taskIds)
+        ? options.taskIds.filter(Boolean)
+        : options.taskId
+          ? [options.taskId]
+          : [];
     // D18 fix 1: An explicit singular `options.taskId` is always authoritative.
     // A single contextual item in `taskIds` without an explicit `options.taskId` must
     // never silently become the active task.
-    const primaryTaskId = options.taskId;
+    const primaryTaskId = executionScope?.kind === 'task-batch' ? undefined : options.taskId;
 
     if (primaryTaskId && options.specId) {
       assertTaskExecutionReadiness(options.specId, primaryTaskId, this.repoRoot);
     }
-    const purpose = options.purpose || options.title || (primaryTaskId ? `task:${primaryTaskId}` : 'interactive');
-    const mode = options.mode ? validateAgentExecutionMode(options.mode, 'mode') : descriptor.defaultMode || 'edit';
+    const purpose = options.purpose || options.title || (primaryTaskId ? `task:${primaryTaskId}` : (executionScope?.kind === 'task-batch' ? `batch:${taskIds.join(',')}` : 'interactive'));
+    const mode = options.mode ? validateAgentExecutionMode(options.mode, 'mode') : descriptor?.defaultMode || 'edit';
 
     // Synchronous canonical sessionId UUID allocated at session creation time
     const sessionId = options.sessionId || randomUUID();
@@ -426,7 +429,26 @@ export class AgentSessionService {
 
     let binding;
     if (this.bindingService) {
-      if (taskIds.length > 0) {
+      if (executionScope?.kind === 'task-batch') {
+        binding = await this.bindingService.bindSession({
+          provider,
+          providerSessionId,
+          sessionId,
+          specId: options.specId,
+          executionScope,
+          taskIds,
+          activeTaskId: null,
+          step: options.stepId || options.step,
+          attempt: options.attempt,
+          purpose,
+          mode,
+          model: options.model,
+          role: options.role,
+          parentSessionId: options.parentSessionId,
+          perTaskStep: options.perTaskStep,
+          perTaskAttempt: options.perTaskAttempt,
+        });
+      } else if (taskIds.length > 0) {
         // bindSession's own fallback (`taskId || session?.activeTaskId`) only triggers
         // when `activeTaskId` is omitted entirely (`undefined`) — it cannot tell "caller
         // didn't say" from "caller explicitly wants no active task", since both look like
@@ -741,6 +763,23 @@ export class AgentSessionService {
       }
     }
     return null;
+  }
+
+  /**
+   * Scope-aware binding projection resolving all bindings for a session's executionScope (D24).
+   */
+  async resolveScopeBindings(providerOrSessionId, sessionIdOrNull) {
+    if (this.bindingService && typeof this.bindingService.resolveScopeBindings === 'function') {
+      return await this.bindingService.resolveScopeBindings(providerOrSessionId, sessionIdOrNull);
+    }
+    return [];
+  }
+
+  resolveScopeBindingsSync(providerOrSessionId, sessionIdOrNull) {
+    if (this.bindingService && typeof this.bindingService.resolveScopeBindingsSync === 'function') {
+      return this.bindingService.resolveScopeBindingsSync(providerOrSessionId, sessionIdOrNull);
+    }
+    return [];
   }
 
   /**

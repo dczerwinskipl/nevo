@@ -6,6 +6,11 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { WorkflowError } from './errors.mjs';
+import {
+  validateExecutionScope,
+  createTaskScope,
+  assertExecutionScope,
+} from './execution-scope.mjs';
 
 export function isProcessAlive(pid) {
   if (typeof pid !== 'number' || pid <= 0) return false;
@@ -36,6 +41,9 @@ function atomicWriteWorkspaceWriterClaim(repoRoot, claim) {
   }
   const lockFile = getWorkspaceWriterLockPath(repoRoot);
   const tempFile = path.join(locksDir, `workspace-writer.${randomUUID()}.tmp`);
+  if (claim.scope?.kind === 'task-batch') {
+    delete claim.taskId;
+  }
   fs.writeFileSync(tempFile, JSON.stringify(claim, null, 2), 'utf8');
   fs.renameSync(tempFile, lockFile);
 }
@@ -130,6 +138,74 @@ export function listPendingWorkspaceWriters(specId) {
 }
 
 /**
+ * Normalizes a raw workspace-writer claim record according to D2.
+ * Legacy records lacking scope but containing taskId: string are normalized
+ * into scope: { kind: 'task', taskId }.
+ * Records lacking both or structurally corrupted fail closed.
+ *
+ * @param {any} raw
+ * @returns {object} normalized claim or recovery-required record
+ */
+export function normalizeClaimRecord(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return {
+      status: 'recovery-required',
+      reason: 'corrupt-claim',
+      rawError: 'Claim record is not an object',
+    };
+  }
+
+  if (raw.status === 'recovery-required') {
+    return raw;
+  }
+
+  let scope = raw.scope;
+  if (!scope) {
+    if (typeof raw.taskId === 'string' && raw.taskId.trim().length > 0) {
+      scope = { kind: 'task', taskId: raw.taskId.trim() };
+    }
+  }
+
+  if (scope) {
+    const validation = validateExecutionScope(scope);
+    if (!validation.ok && !validation.valid) {
+      return {
+        status: 'recovery-required',
+        reason: 'corrupt-claim',
+        rawError: validation.error,
+      };
+    }
+
+    const normalized = {
+      ...raw,
+      scope: validation.scope,
+    };
+
+    if (validation.scope.kind === 'task-batch') {
+      delete normalized.taskId;
+    } else if (validation.scope.kind === 'task' && !normalized.taskId) {
+      normalized.taskId = validation.scope.taskId;
+    }
+
+    return normalized;
+  }
+
+  // If there is no scope and no taskId:
+  // For kind === 'agent', or if it has agent-specific fields (turnStartState, sessionId, turnId),
+  // a valid scope or legacy taskId is required (D2).
+  if (raw.kind === 'agent' || raw.turnStartState || raw.sessionId || raw.turnId) {
+    return {
+      status: 'recovery-required',
+      reason: 'corrupt-claim',
+      rawError: 'Claim record missing valid scope or legacy taskId',
+    };
+  }
+
+  // Non-agent and request-backed claims (e.g. human-submit, publish, batch-publish, cli-manual)
+  return { ...raw };
+}
+
+/**
  * Reads the current workspace-writer claim if one exists.
  *
  * @param {string} repoRoot
@@ -139,7 +215,8 @@ export function getWorkspaceWriterClaim(repoRoot) {
   const lockFile = getWorkspaceWriterLockPath(repoRoot);
   try {
     if (!fs.existsSync(lockFile)) return null;
-    return JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+    const parsed = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+    return normalizeClaimRecord(parsed);
   } catch (err) {
     return {
       status: 'recovery-required',
@@ -176,6 +253,7 @@ export async function acquireWorkspaceWriter(params = {}) {
     operationRef,
     specId,
     taskId,
+    scope,
     sessionId,
     turnId,
     turnStartState,
@@ -189,6 +267,14 @@ export async function acquireWorkspaceWriter(params = {}) {
   if (!kind || !specId) {
     throw new WorkflowError('acquireWorkspaceWriter requires kind and specId');
   }
+
+  let claimScope;
+  if (scope) {
+    claimScope = assertExecutionScope(scope);
+  } else if (taskId) {
+    claimScope = createTaskScope(taskId);
+  }
+
   if (turnStartState !== undefined) {
     if (kind !== 'agent') {
       throw new WorkflowError(`turnStartState is legal only for kind: 'agent'`);
@@ -214,7 +300,8 @@ export async function acquireWorkspaceWriter(params = {}) {
           ...(operationRef ? { operationRef } : {}),
           specId,
           ...(params.changeSlug ? { changeSlug: params.changeSlug } : {}),
-          ...(taskId ? { taskId } : {}),
+          ...(claimScope ? { scope: claimScope } : {}),
+          ...(claimScope?.kind === 'task' ? { taskId: claimScope.taskId } : {}),
           ...(sessionId ? { sessionId } : {}),
           ...(turnId ? { turnId } : {}),
           ...(turnStartState ? { turnStartState } : {}),
@@ -227,7 +314,7 @@ export async function acquireWorkspaceWriter(params = {}) {
 
       let current;
       try {
-        current = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+        current = normalizeClaimRecord(JSON.parse(fs.readFileSync(lockFile, 'utf8')));
       } catch (err) {
         const corruptClaim = {
           status: 'recovery-required',
@@ -258,6 +345,7 @@ export async function acquireWorkspaceWriter(params = {}) {
       return {
         acquired: true,
         ownerId: claim.ownerId,
+        claim,
         lease: {
           ...claim,
           release: () => releaseWorkspaceWriter({ repoRoot, ownerId: claim.ownerId }),
@@ -351,6 +439,7 @@ export async function releaseWorkspaceWriterIfOwned(params = {}) {
     expectedSpecId,
     expectedChangeSlug,
     expectedTaskId,
+    expectedScope,
     expectedSessionId,
     expectedTurnId,
   } = params;
@@ -368,7 +457,7 @@ export async function releaseWorkspaceWriterIfOwned(params = {}) {
 
     let current;
     try {
-      current = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+      current = normalizeClaimRecord(JSON.parse(fs.readFileSync(lockFile, 'utf8')));
     } catch {
       return { released: false, reason: 'corrupt-record' };
     }
@@ -388,8 +477,28 @@ export async function releaseWorkspaceWriterIfOwned(params = {}) {
     if (expectedChangeSlug !== undefined && current.changeSlug !== expectedChangeSlug) {
       return { released: false, reason: 'not-current-owner', currentClaim: current };
     }
-    if (expectedTaskId !== undefined && current.taskId !== expectedTaskId) {
-      return { released: false, reason: 'not-current-owner', currentClaim: current };
+    if (expectedScope !== undefined) {
+      if (!current.scope || current.scope.kind !== expectedScope.kind) {
+        return { released: false, reason: 'not-current-owner', currentClaim: current };
+      }
+      if (expectedScope.kind === 'task' && current.scope.taskId !== expectedScope.taskId) {
+        return { released: false, reason: 'not-current-owner', currentClaim: current };
+      }
+      if (expectedScope.kind === 'task-batch') {
+        const cIds = current.scope.taskIds || [];
+        const eIds = expectedScope.taskIds || [];
+        if (cIds.length !== eIds.length || !cIds.every((id, idx) => id === eIds[idx])) {
+          return { released: false, reason: 'not-current-owner', currentClaim: current };
+        }
+      }
+    }
+    if (expectedTaskId !== undefined) {
+      const match = current.scope
+        ? (current.scope.kind === 'task' ? current.scope.taskId === expectedTaskId : current.scope.taskIds?.includes(expectedTaskId))
+        : (current.taskId === expectedTaskId);
+      if (!match) {
+        return { released: false, reason: 'not-current-owner', currentClaim: current };
+      }
     }
     if (expectedSessionId !== undefined && current.sessionId !== expectedSessionId) {
       return { released: false, reason: 'not-current-owner', currentClaim: current };
@@ -421,6 +530,7 @@ export async function markWorkspaceWriterRecoveryRequiredIfOwned(params = {}) {
     expectedSpecId,
     expectedChangeSlug,
     expectedTaskId,
+    expectedScope,
     expectedSessionId,
     expectedTurnId,
   } = params;
@@ -438,7 +548,7 @@ export async function markWorkspaceWriterRecoveryRequiredIfOwned(params = {}) {
 
     let current;
     try {
-      current = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+      current = normalizeClaimRecord(JSON.parse(fs.readFileSync(lockFile, 'utf8')));
     } catch {
       return { marked: false, reason: 'corrupt-record' };
     }
@@ -458,8 +568,28 @@ export async function markWorkspaceWriterRecoveryRequiredIfOwned(params = {}) {
     if (expectedChangeSlug !== undefined && current.changeSlug !== expectedChangeSlug) {
       return { marked: false, reason: 'not-current-owner', currentClaim: current };
     }
-    if (expectedTaskId !== undefined && current.taskId !== expectedTaskId) {
-      return { marked: false, reason: 'not-current-owner', currentClaim: current };
+    if (expectedScope !== undefined) {
+      if (!current.scope || current.scope.kind !== expectedScope.kind) {
+        return { marked: false, reason: 'not-current-owner', currentClaim: current };
+      }
+      if (expectedScope.kind === 'task' && current.scope.taskId !== expectedScope.taskId) {
+        return { marked: false, reason: 'not-current-owner', currentClaim: current };
+      }
+      if (expectedScope.kind === 'task-batch') {
+        const cIds = current.scope.taskIds || [];
+        const eIds = expectedScope.taskIds || [];
+        if (cIds.length !== eIds.length || !cIds.every((id, idx) => id === eIds[idx])) {
+          return { marked: false, reason: 'not-current-owner', currentClaim: current };
+        }
+      }
+    }
+    if (expectedTaskId !== undefined) {
+      const match = current.scope
+        ? (current.scope.kind === 'task' ? current.scope.taskId === expectedTaskId : current.scope.taskIds?.includes(expectedTaskId))
+        : (current.taskId === expectedTaskId);
+      if (!match) {
+        return { marked: false, reason: 'not-current-owner', currentClaim: current };
+      }
     }
     if (expectedSessionId !== undefined && current.sessionId !== expectedSessionId) {
       return { marked: false, reason: 'not-current-owner', currentClaim: current };
@@ -499,12 +629,14 @@ export async function updateWorkspaceWriterIfOwned(params = {}) {
     expectedSpecId,
     expectedChangeSlug,
     expectedTaskId,
+    expectedScope,
     sessionId,
     turnId,
     turnStartState,
     specId,
     changeSlug,
     taskId,
+    scope,
   } = params;
 
   if (!repoRoot || !expectedOwnerId) {
@@ -520,7 +652,7 @@ export async function updateWorkspaceWriterIfOwned(params = {}) {
 
     let current;
     try {
-      current = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+      current = normalizeClaimRecord(JSON.parse(fs.readFileSync(lockFile, 'utf8')));
     } catch {
       return { updated: false, reason: 'corrupt-record' };
     }
@@ -540,8 +672,28 @@ export async function updateWorkspaceWriterIfOwned(params = {}) {
     if (expectedChangeSlug !== undefined && current.changeSlug !== expectedChangeSlug) {
       return { updated: false, reason: 'not-current-owner', currentClaim: current };
     }
-    if (expectedTaskId !== undefined && current.taskId !== expectedTaskId) {
-      return { updated: false, reason: 'not-current-owner', currentClaim: current };
+    if (expectedScope !== undefined) {
+      if (!current.scope || current.scope.kind !== expectedScope.kind) {
+        return { updated: false, reason: 'not-current-owner', currentClaim: current };
+      }
+      if (expectedScope.kind === 'task' && current.scope.taskId !== expectedScope.taskId) {
+        return { updated: false, reason: 'not-current-owner', currentClaim: current };
+      }
+      if (expectedScope.kind === 'task-batch') {
+        const cIds = current.scope.taskIds || [];
+        const eIds = expectedScope.taskIds || [];
+        if (cIds.length !== eIds.length || !cIds.every((id, idx) => id === eIds[idx])) {
+          return { updated: false, reason: 'not-current-owner', currentClaim: current };
+        }
+      }
+    }
+    if (expectedTaskId !== undefined) {
+      const match = current.scope
+        ? (current.scope.kind === 'task' ? current.scope.taskId === expectedTaskId : current.scope.taskIds?.includes(expectedTaskId))
+        : (current.taskId === expectedTaskId);
+      if (!match) {
+        return { updated: false, reason: 'not-current-owner', currentClaim: current };
+      }
     }
 
     if (turnStartState !== undefined) {
@@ -558,7 +710,18 @@ export async function updateWorkspaceWriterIfOwned(params = {}) {
     if (turnId !== undefined) current.turnId = turnId;
     if (specId !== undefined) current.specId = specId;
     if (changeSlug !== undefined) current.changeSlug = changeSlug;
-    if (taskId !== undefined) current.taskId = taskId;
+    if (scope !== undefined) {
+      const updatedScope = assertExecutionScope(scope);
+      current.scope = updatedScope;
+      if (updatedScope.kind === 'task-batch') {
+        delete current.taskId;
+      } else {
+        current.taskId = updatedScope.taskId;
+      }
+    } else if (taskId !== undefined) {
+      current.taskId = taskId;
+      current.scope = createTaskScope(taskId);
+    }
 
     current.updatedAt = new Date().toISOString();
     atomicWriteWorkspaceWriterClaim(repoRoot, current);

@@ -18,6 +18,13 @@ import {
   normalizeTimestamp,
   validateAgentExecutionMode,
 } from '../contracts.mjs';
+import {
+  assertExecutionScope,
+  createTaskScope,
+  createBatchScope,
+  normalizeExecutionScope,
+  validateExecutionScope,
+} from '../../../../specs/workflow/execution-scope.mjs';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
@@ -294,6 +301,9 @@ function normalizeStorageContent(parsed) {
         // `row.providerSessionId`, so comparing them would always match trivially.
         const isPlaceholder = row.established === false;
         const provSessionId = isPlaceholder ? undefined : (row.providerSessionId || undefined);
+        const executionScope = row.executionScope
+          ? normalizeExecutionScope(row.executionScope)
+          : (row.activeTaskId || row.taskId ? { kind: 'task', taskId: row.activeTaskId || row.taskId } : null);
         session = {
           sessionId: sId,
           provider: row.provider,
@@ -304,8 +314,9 @@ function normalizeStorageContent(parsed) {
           ...(row.purpose ? { purpose: row.purpose } : {}),
           ...(row.role ? { role: row.role } : {}),
           ...(row.parentSessionId ? { parentSessionId: row.parentSessionId } : {}),
-          ...(row.activeTaskId || row.taskId ? { activeTaskId: row.activeTaskId || row.taskId } : {}),
-          taskIds: Array.isArray(row.taskIds) ? [...row.taskIds] : (row.taskId ? [row.taskId] : []),
+          ...(executionScope ? { executionScope } : {}),
+          ...(executionScope?.kind === 'task' ? { activeTaskId: executionScope.taskId } : (row.activeTaskId && executionScope?.kind !== 'task-batch' ? { activeTaskId: row.activeTaskId } : {})),
+          taskIds: executionScope ? (executionScope.kind === 'task' ? [executionScope.taskId] : [...executionScope.taskIds]) : (Array.isArray(row.taskIds) ? [...row.taskIds] : (row.taskId ? [row.taskId] : [])),
           createdAt: row.createdAt || new Date().toISOString(),
           lastSeenAt: row.lastSeenAt || new Date().toISOString(),
           ...(row.lastBootstrapTaskId ? { lastBootstrapTaskId: row.lastBootstrapTaskId } : {}),
@@ -318,7 +329,7 @@ function normalizeStorageContent(parsed) {
         if (row.model && !session.model) session.model = row.model;
         if (row.role && !session.role) session.role = row.role;
         if (row.parentSessionId && !session.parentSessionId) session.parentSessionId = row.parentSessionId;
-        if (row.activeTaskId) session.activeTaskId = row.activeTaskId;
+        if (row.activeTaskId && session.executionScope?.kind !== 'task-batch') session.activeTaskId = row.activeTaskId;
         if (row.taskId && !session.taskIds.includes(row.taskId)) session.taskIds.push(row.taskId);
         if (Array.isArray(row.taskIds)) {
           for (const t of row.taskIds) {
@@ -350,7 +361,25 @@ function normalizeStorageContent(parsed) {
     };
   }
 
-  const sessions = Array.isArray(parsed.sessions) ? parsed.sessions : [];
+  const sessions = (Array.isArray(parsed.sessions) ? parsed.sessions : []).map((s) => {
+    let executionScope = s.executionScope ? normalizeExecutionScope(s.executionScope) : null;
+    if (!executionScope) {
+      if (s.activeTaskId) executionScope = { kind: 'task', taskId: s.activeTaskId };
+      else if (s.taskId) executionScope = { kind: 'task', taskId: s.taskId };
+      else if (Array.isArray(s.taskIds) && s.taskIds.length >= 2) executionScope = { kind: 'task-batch', taskIds: s.taskIds };
+      else if (Array.isArray(s.taskIds) && s.taskIds.length === 1) executionScope = { kind: 'task', taskId: s.taskIds[0] };
+    }
+    const res = {
+      ...s,
+      ...(executionScope ? { executionScope } : {}),
+    };
+    if (executionScope?.kind === 'task-batch') {
+      delete res.activeTaskId;
+    } else if (executionScope?.kind === 'task' && !res.activeTaskId) {
+      res.activeTaskId = executionScope.taskId;
+    }
+    return res;
+  });
   const bindings = Array.isArray(parsed.bindings) ? parsed.bindings : [];
   return { sessions, bindings };
 }
@@ -574,6 +603,7 @@ export class AgentSessionBindingService {
               model: s.model,
               ...(s.role ? { role: s.role } : {}),
               ...(s.parentSessionId ? { parentSessionId: s.parentSessionId } : {}),
+              ...(s.executionScope ? { executionScope: s.executionScope } : {}),
               activeTaskId: s.activeTaskId,
               taskIds: s.taskIds,
               createdAt: b.createdAt || s.createdAt,
@@ -591,6 +621,7 @@ export class AgentSessionBindingService {
             model: s.model,
             ...(s.role ? { role: s.role } : {}),
             ...(s.parentSessionId ? { parentSessionId: s.parentSessionId } : {}),
+            ...(s.executionScope ? { executionScope: s.executionScope } : {}),
             activeTaskId: s.activeTaskId,
             taskIds: s.taskIds,
             createdAt: s.createdAt,
@@ -629,6 +660,7 @@ export class AgentSessionBindingService {
               model: s.model,
               ...(s.role ? { role: s.role } : {}),
               ...(s.parentSessionId ? { parentSessionId: s.parentSessionId } : {}),
+              ...(s.executionScope ? { executionScope: s.executionScope } : {}),
               activeTaskId: s.activeTaskId,
               taskIds: s.taskIds,
               createdAt: b.createdAt || s.createdAt,
@@ -646,6 +678,7 @@ export class AgentSessionBindingService {
             model: s.model,
             ...(s.role ? { role: s.role } : {}),
             ...(s.parentSessionId ? { parentSessionId: s.parentSessionId } : {}),
+            ...(s.executionScope ? { executionScope: s.executionScope } : {}),
             activeTaskId: s.activeTaskId,
             taskIds: s.taskIds,
             createdAt: s.createdAt,
@@ -867,6 +900,9 @@ export class AgentSessionBindingService {
     lastSeenAt,
     activeTaskId,
     taskIds,
+    executionScope,
+    perTaskStep,
+    perTaskAttempt,
     established, // Ignored in target model (presence of providerSessionId dictates establishment)
   } = {}) {
     if (!provider || typeof provider !== 'string') {
@@ -899,14 +935,29 @@ export class AgentSessionBindingService {
           (cleanProvSessionId && s.provider === provider && s.providerSessionId === cleanProvSessionId),
       );
 
-      const accumulatedTaskIds = Array.from(
-        new Set([
-          ...(session?.taskIds || []),
-          ...(Array.isArray(taskIds) ? taskIds : taskId ? [taskId] : []),
-        ]),
-      );
+      let resolvedScope = null;
+      if (executionScope) {
+        resolvedScope = assertExecutionScope(executionScope);
+      } else if (taskId) {
+        resolvedScope = createTaskScope(taskId);
+      } else if (activeTaskId) {
+        resolvedScope = createTaskScope(activeTaskId);
+      } else if (Array.isArray(taskIds) && taskIds.length >= 2 && (activeTaskId === null || activeTaskId === undefined)) {
+        resolvedScope = createBatchScope(taskIds);
+      }
 
-      const resolvedActiveTaskId = activeTaskId !== undefined ? activeTaskId : (taskId || session?.activeTaskId || undefined);
+      let accumulatedTaskIds;
+      let resolvedActiveTaskId;
+      if (resolvedScope?.kind === 'task-batch') {
+        resolvedActiveTaskId = undefined;
+        accumulatedTaskIds = Array.from(new Set([...(session?.taskIds || []), ...resolvedScope.taskIds]));
+      } else if (resolvedScope?.kind === 'task') {
+        resolvedActiveTaskId = resolvedScope.taskId;
+        accumulatedTaskIds = Array.from(new Set([...(session?.taskIds || []), resolvedScope.taskId, ...(Array.isArray(taskIds) ? taskIds : [])]));
+      } else {
+        resolvedActiveTaskId = activeTaskId !== undefined ? activeTaskId : (taskId || session?.activeTaskId || undefined);
+        accumulatedTaskIds = Array.from(new Set([...(session?.taskIds || []), ...(Array.isArray(taskIds) ? taskIds : taskId ? [taskId] : [])]));
+      }
 
       if (session) {
         session.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
@@ -916,7 +967,16 @@ export class AgentSessionBindingService {
         if (role !== undefined) session.role = role;
         if (parentSessionId !== undefined) session.parentSessionId = parentSessionId;
         if (cleanProvSessionId && !session.providerSessionId) session.providerSessionId = cleanProvSessionId;
-        if (resolvedActiveTaskId !== undefined) session.activeTaskId = resolvedActiveTaskId;
+        if (resolvedScope) {
+          session.executionScope = resolvedScope;
+          if (resolvedScope.kind === 'task') {
+            session.activeTaskId = resolvedScope.taskId;
+          } else {
+            delete session.activeTaskId;
+          }
+        } else if (resolvedActiveTaskId !== undefined) {
+          session.activeTaskId = resolvedActiveTaskId;
+        }
         session.taskIds = accumulatedTaskIds;
       } else {
         session = {
@@ -929,7 +989,8 @@ export class AgentSessionBindingService {
           ...(purpose ? { purpose } : {}),
           ...(role ? { role } : {}),
           ...(parentSessionId ? { parentSessionId } : {}),
-          ...(resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {}),
+          ...(resolvedScope ? { executionScope: resolvedScope } : {}),
+          ...(resolvedScope?.kind === 'task' ? { activeTaskId: resolvedScope.taskId } : (resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {})),
           taskIds: accumulatedTaskIds,
           createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
           lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
@@ -937,11 +998,35 @@ export class AgentSessionBindingService {
         data.sessions.push(session);
       }
 
-      // 2. Update or create task binding if taskId is present
+      // 2. Update or create task bindings
       let binding = null;
-      if (taskId) {
+      if (resolvedScope?.kind === 'task-batch') {
+        for (const tId of resolvedScope.taskIds) {
+          const taskStep = perTaskStep?.[tId] ?? step;
+          const taskAttempt = perTaskAttempt?.[tId] ?? attempt;
+          let b = data.bindings.find((x) => x.sessionId === session.sessionId && x.taskId === tId);
+          if (b) {
+            b.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
+            if (taskStep !== undefined) b.step = taskStep;
+            if (taskAttempt !== undefined) b.attempt = taskAttempt;
+          } else {
+            b = {
+              sessionId: session.sessionId,
+              taskId: tId,
+              ...(taskStep ? { step: taskStep } : {}),
+              ...(taskAttempt !== undefined ? { attempt: taskAttempt } : {}),
+              specId,
+              provider,
+              createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
+              lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
+            };
+            data.bindings.push(b);
+          }
+        }
+      } else if (taskId || resolvedScope?.kind === 'task') {
+        const effectiveTaskId = taskId || resolvedScope.taskId;
         binding = data.bindings.find(
-          (b) => b.sessionId === session.sessionId && b.taskId === taskId,
+          (b) => b.sessionId === session.sessionId && b.taskId === effectiveTaskId,
         );
         if (binding) {
           binding.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
@@ -950,7 +1035,7 @@ export class AgentSessionBindingService {
         } else {
           binding = {
             sessionId: session.sessionId,
-            taskId,
+            taskId: effectiveTaskId,
             ...(step ? { step } : {}),
             ...(attempt !== undefined ? { attempt } : {}),
             specId,
@@ -969,7 +1054,8 @@ export class AgentSessionBindingService {
         provider: session.provider,
         providerSessionId: session.providerSessionId,
         specId: session.specId,
-        ...(taskId ? { taskId } : {}),
+        ...(resolvedScope?.kind === 'task' ? { taskId: resolvedScope.taskId } : (taskId ? { taskId } : {})),
+        ...(session.executionScope ? { executionScope: session.executionScope } : {}),
         ...(binding?.step ? { step: binding.step } : {}),
         ...(binding?.attempt !== undefined ? { attempt: binding.attempt } : {}),
         ...(session.purpose ? { purpose: session.purpose } : {}),
@@ -1002,6 +1088,9 @@ export class AgentSessionBindingService {
     lastSeenAt,
     activeTaskId,
     taskIds,
+    executionScope,
+    perTaskStep,
+    perTaskAttempt,
     established,
   } = {}) {
     if (!provider || typeof provider !== 'string') {
@@ -1033,14 +1122,29 @@ export class AgentSessionBindingService {
           (cleanProvSessionId && s.provider === provider && s.providerSessionId === cleanProvSessionId),
       );
 
-      const accumulatedTaskIds = Array.from(
-        new Set([
-          ...(session?.taskIds || []),
-          ...(Array.isArray(taskIds) ? taskIds : taskId ? [taskId] : []),
-        ]),
-      );
+      let resolvedScope = null;
+      if (executionScope) {
+        resolvedScope = assertExecutionScope(executionScope);
+      } else if (taskId) {
+        resolvedScope = createTaskScope(taskId);
+      } else if (activeTaskId) {
+        resolvedScope = createTaskScope(activeTaskId);
+      } else if (Array.isArray(taskIds) && taskIds.length >= 2 && (activeTaskId === null || activeTaskId === undefined)) {
+        resolvedScope = createBatchScope(taskIds);
+      }
 
-      const resolvedActiveTaskId = activeTaskId !== undefined ? activeTaskId : (taskId || session?.activeTaskId || undefined);
+      let accumulatedTaskIds;
+      let resolvedActiveTaskId;
+      if (resolvedScope?.kind === 'task-batch') {
+        resolvedActiveTaskId = undefined;
+        accumulatedTaskIds = Array.from(new Set([...(session?.taskIds || []), ...resolvedScope.taskIds]));
+      } else if (resolvedScope?.kind === 'task') {
+        resolvedActiveTaskId = resolvedScope.taskId;
+        accumulatedTaskIds = Array.from(new Set([...(session?.taskIds || []), resolvedScope.taskId, ...(Array.isArray(taskIds) ? taskIds : [])]));
+      } else {
+        resolvedActiveTaskId = activeTaskId !== undefined ? activeTaskId : (taskId || session?.activeTaskId || undefined);
+        accumulatedTaskIds = Array.from(new Set([...(session?.taskIds || []), ...(Array.isArray(taskIds) ? taskIds : taskId ? [taskId] : [])]));
+      }
 
       if (session) {
         session.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
@@ -1050,7 +1154,16 @@ export class AgentSessionBindingService {
         if (role !== undefined) session.role = role;
         if (parentSessionId !== undefined) session.parentSessionId = parentSessionId;
         if (cleanProvSessionId && !session.providerSessionId) session.providerSessionId = cleanProvSessionId;
-        if (resolvedActiveTaskId !== undefined) session.activeTaskId = resolvedActiveTaskId;
+        if (resolvedScope) {
+          session.executionScope = resolvedScope;
+          if (resolvedScope.kind === 'task') {
+            session.activeTaskId = resolvedScope.taskId;
+          } else {
+            delete session.activeTaskId;
+          }
+        } else if (resolvedActiveTaskId !== undefined) {
+          session.activeTaskId = resolvedActiveTaskId;
+        }
         session.taskIds = accumulatedTaskIds;
       } else {
         session = {
@@ -1063,7 +1176,8 @@ export class AgentSessionBindingService {
           ...(purpose ? { purpose } : {}),
           ...(role ? { role } : {}),
           ...(parentSessionId ? { parentSessionId } : {}),
-          ...(resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {}),
+          ...(resolvedScope ? { executionScope: resolvedScope } : {}),
+          ...(resolvedScope?.kind === 'task' ? { activeTaskId: resolvedScope.taskId } : (resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {})),
           taskIds: accumulatedTaskIds,
           createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
           lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
@@ -1072,9 +1186,33 @@ export class AgentSessionBindingService {
       }
 
       let binding = null;
-      if (taskId) {
+      if (resolvedScope?.kind === 'task-batch') {
+        for (const tId of resolvedScope.taskIds) {
+          const taskStep = perTaskStep?.[tId] ?? step;
+          const taskAttempt = perTaskAttempt?.[tId] ?? attempt;
+          let b = data.bindings.find((x) => x.sessionId === session.sessionId && x.taskId === tId);
+          if (b) {
+            b.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
+            if (taskStep !== undefined) b.step = taskStep;
+            if (taskAttempt !== undefined) b.attempt = taskAttempt;
+          } else {
+            b = {
+              sessionId: session.sessionId,
+              taskId: tId,
+              ...(taskStep ? { step: taskStep } : {}),
+              ...(taskAttempt !== undefined ? { attempt: taskAttempt } : {}),
+              specId,
+              provider,
+              createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
+              lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
+            };
+            data.bindings.push(b);
+          }
+        }
+      } else if (taskId || resolvedScope?.kind === 'task') {
+        const effectiveTaskId = taskId || resolvedScope.taskId;
         binding = data.bindings.find(
-          (b) => b.sessionId === session.sessionId && b.taskId === taskId,
+          (b) => b.sessionId === session.sessionId && b.taskId === effectiveTaskId,
         );
         if (binding) {
           binding.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
@@ -1083,7 +1221,7 @@ export class AgentSessionBindingService {
         } else {
           binding = {
             sessionId: session.sessionId,
-            taskId,
+            taskId: effectiveTaskId,
             ...(step ? { step } : {}),
             ...(attempt !== undefined ? { attempt } : {}),
             specId,
@@ -1100,7 +1238,8 @@ export class AgentSessionBindingService {
         provider: session.provider,
         providerSessionId: session.providerSessionId,
         specId: session.specId,
-        ...(taskId ? { taskId } : {}),
+        ...(resolvedScope?.kind === 'task' ? { taskId: resolvedScope.taskId } : (taskId ? { taskId } : {})),
+        ...(session.executionScope ? { executionScope: session.executionScope } : {}),
         ...(binding?.step ? { step: binding.step } : {}),
         ...(binding?.attempt !== undefined ? { attempt: binding.attempt } : {}),
         ...(session.purpose ? { purpose: session.purpose } : {}),
@@ -1209,6 +1348,67 @@ export class AgentSessionBindingService {
       lastBootstrapStep: session.lastBootstrapStep,
       lastBootstrapAttempt: session.lastBootstrapAttempt,
     };
+  }
+
+  /**
+   * Scope-aware binding projection resolving all bindings belonging to a session's executionScope (D24).
+   *
+   * @param {string|object} providerOrSessionId
+   * @param {string} [sessionIdOrNull]
+   * @returns {Promise<Array<object>>}
+   */
+  async resolveScopeBindings(providerOrSessionId, sessionIdOrNull) {
+    const all = await this.#loadForSpec();
+    return this.#resolveScopeBindingsFromData(all, providerOrSessionId, sessionIdOrNull);
+  }
+
+  /**
+   * Synchronous scope-aware binding projection resolving all bindings belonging to a session's executionScope (D24).
+   *
+   * @param {string|object} providerOrSessionId
+   * @param {string} [sessionIdOrNull]
+   * @returns {Array<object>}
+   */
+  resolveScopeBindingsSync(providerOrSessionId, sessionIdOrNull) {
+    const all = this.#loadForSpecSync();
+    return this.#resolveScopeBindingsFromData(all, providerOrSessionId, sessionIdOrNull);
+  }
+
+  #resolveScopeBindingsFromData(all, providerOrSessionId, sessionIdOrNull) {
+    let session = null;
+    if (typeof providerOrSessionId === 'object' && providerOrSessionId !== null && providerOrSessionId.sessionId) {
+      session = providerOrSessionId;
+    } else {
+      const id = sessionIdOrNull || providerOrSessionId;
+      const provider = sessionIdOrNull ? providerOrSessionId : null;
+      if (!id) return [];
+      const matches = all.sessions
+        .filter(
+          (s) =>
+            s.sessionId === id ||
+            (provider && s.provider === provider && s.providerSessionId === id) ||
+            (s.providerSessionId === id),
+        )
+        .sort(compareBindingRecency);
+      session = matches.find((s) => s.sessionId === id) || matches[0];
+    }
+    if (!session) return [];
+
+    const scope = session.executionScope;
+    let relevantTaskIds = [];
+    if (scope?.kind === 'task-batch') {
+      relevantTaskIds = scope.taskIds || [];
+    } else if (scope?.kind === 'task') {
+      relevantTaskIds = [scope.taskId];
+    } else if (session.activeTaskId) {
+      relevantTaskIds = [session.activeTaskId];
+    } else if (Array.isArray(session.taskIds)) {
+      relevantTaskIds = session.taskIds;
+    }
+
+    return all.bindings.filter(
+      (b) => b.sessionId === session.sessionId && relevantTaskIds.includes(b.taskId),
+    );
   }
 
   async updateSessionMode(provider, sessionIdOrProviderSessionId, mode) {

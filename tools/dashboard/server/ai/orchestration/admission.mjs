@@ -14,6 +14,11 @@ import {
 import { listWorkspaceRequests } from '../../../../specs/workflow/workspace-request.mjs';
 import { assessExecutionSettlement } from '../../../../specs/workflow/execution-settlement.mjs';
 import { WorkflowError } from '../../../../specs/workflow/errors.mjs';
+import {
+  assertExecutionScope,
+  createTaskScope,
+  getScopeTaskIds,
+} from '../../../../specs/workflow/execution-scope.mjs';
 
 // In-process admission tracking per specId
 const activeExecutions = new Map(); // specId -> { ownerId, sessionId, turnId, taskId, candidate }
@@ -86,8 +91,14 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
   const turnRuntime = options.turnRuntime || sessionService?.turnRuntime;
   const onTurnTerminal = options.onTurnTerminal;
 
-  if (!specId || !candidate?.taskId) {
-    throw new WorkflowError('admitAgentExecution requires specId and candidate.taskId');
+  const candidateScope = candidate?.scope
+    ? assertExecutionScope(candidate.scope)
+    : (candidate?.taskIds
+      ? assertExecutionScope({ kind: 'task-batch', taskIds: candidate.taskIds })
+      : (candidate?.taskId ? createTaskScope(candidate.taskId) : null));
+
+  if (!specId || !candidateScope) {
+    throw new WorkflowError('admitAgentExecution requires specId and candidate.taskId, candidate.taskIds, or candidate.scope');
   }
 
   const changeSlug = candidate.changeSlug || options.changeSlug || specId;
@@ -127,7 +138,8 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
       kind: 'agent',
       specId,
       changeSlug,
-      taskId: candidate.taskId,
+      scope: candidateScope,
+      ...(candidateScope.kind === 'task' ? { taskId: candidateScope.taskId } : {}),
     });
 
     if (!acquireRes.acquired) {
@@ -153,7 +165,8 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
           expectedKind: 'agent',
           expectedSpecId: specId,
           expectedChangeSlug: changeSlug,
-          expectedTaskId: candidate.taskId,
+          expectedScope: candidateScope,
+          ...(candidateScope.kind === 'task' ? { expectedTaskId: candidateScope.taskId } : {}),
         });
         return {
           admitted: false,
@@ -168,8 +181,10 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
         const resolvedProvider = candidate.provider || sessionService?.registry?.list?.()?.[0];
         const created = await sessionService.createSession(resolvedProvider, {
           specId,
-          taskId: candidate.taskId,
-          taskIds: candidate.taskIds || (candidate.taskId ? [candidate.taskId] : undefined),
+          ...(candidateScope.kind === 'task'
+            ? { taskId: candidateScope.taskId }
+            : { taskIds: candidateScope.taskIds }),
+          executionScope: candidateScope,
           purpose: 'execution',
           mode: candidate.mode,
           model: candidate.model,
@@ -191,7 +206,8 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
         expectedKind: 'agent',
         expectedSpecId: specId,
         expectedChangeSlug: changeSlug,
-        expectedTaskId: candidate.taskId,
+        expectedScope: candidateScope,
+        ...(candidateScope.kind === 'task' ? { expectedTaskId: candidateScope.taskId } : {}),
         sessionId: canonicalSessionId,
         turnStartState: 'prepared',
       });
@@ -204,7 +220,8 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
           expectedKind: 'agent',
           expectedSpecId: specId,
           expectedChangeSlug: changeSlug,
-          expectedTaskId: candidate.taskId,
+          expectedScope: candidateScope,
+          ...(candidateScope.kind === 'task' ? { expectedTaskId: candidateScope.taskId } : {}),
         });
         return {
           admitted: false,
@@ -219,7 +236,8 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
         expectedKind: 'agent',
         expectedSpecId: specId,
         expectedChangeSlug: changeSlug,
-        expectedTaskId: candidate.taskId,
+        expectedScope: candidateScope,
+        ...(candidateScope.kind === 'task' ? { expectedTaskId: candidateScope.taskId } : {}),
       });
       throw sessionErr;
     }
@@ -233,7 +251,8 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
     const executionRecord = {
       ownerId,
       sessionId: canonicalSessionId,
-      taskId: candidate.taskId,
+      scope: candidateScope,
+      ...(candidateScope.kind === 'task' ? { taskId: candidateScope.taskId } : {}),
       specId,
       changeSlug,
       candidate,
@@ -257,7 +276,8 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
         expectedKind: 'agent',
         expectedSpecId: specId,
         expectedChangeSlug: changeSlug,
-        expectedTaskId: candidate.taskId,
+        expectedScope: candidateScope,
+        ...(candidateScope.kind === 'task' ? { expectedTaskId: candidateScope.taskId } : {}),
         sessionId: canonicalSessionId,
         turnStartState: 'invoking',
       });
@@ -277,7 +297,8 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
         if (typeof candidate.invokeStartTurn === 'function') {
           startResult = await candidate.invokeStartTurn({
             sessionId: canonicalSessionId,
-            taskId: candidate.taskId,
+            ...(candidateScope.kind === 'task' ? { taskId: candidateScope.taskId } : {}),
+            scope: candidateScope,
             stepId: candidate.stepId,
             provider: candidate.provider,
           });
@@ -300,8 +321,9 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
           }
           startResult = await sessionService.startTurn(effectiveProvider, canonicalSessionId, {
             sessionId: canonicalSessionId,
-            taskId: candidate.taskId,
-            taskIds: candidate.taskIds || (candidate.taskId ? [candidate.taskId] : undefined),
+            ...(candidateScope.kind === 'task' ? { taskId: candidateScope.taskId } : {}),
+            ...(candidateScope.kind === 'task-batch' ? { taskIds: candidateScope.taskIds } : {}),
+            executionScope: candidateScope,
             stepId: candidate.stepId,
             specId,
             purpose: 'execution',
@@ -317,7 +339,8 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
         } else if (turnRuntime?.startTurn) {
           startResult = await turnRuntime.startTurn({
             sessionId: canonicalSessionId,
-            taskId: candidate.taskId,
+            ...(candidateScope.kind === 'task' ? { taskId: candidateScope.taskId } : {}),
+            scope: candidateScope,
             stepId: candidate.stepId,
             provider: candidate.provider,
             role: candidate.role,
@@ -335,7 +358,8 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
           expectedKind: 'agent',
           expectedSpecId: specId,
           expectedChangeSlug: changeSlug,
-          expectedTaskId: candidate.taskId,
+          expectedScope: candidateScope,
+          ...(candidateScope.kind === 'task' ? { expectedTaskId: candidateScope.taskId } : {}),
           sessionId: canonicalSessionId,
           turnId,
           turnStartState: 'started',
@@ -349,7 +373,8 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             expectedKind: 'agent',
             expectedSpecId: specId,
             expectedChangeSlug: changeSlug,
-            expectedTaskId: candidate.taskId,
+            expectedScope: candidateScope,
+            ...(candidateScope.kind === 'task' ? { expectedTaskId: candidateScope.taskId } : {}),
             sessionId: canonicalSessionId,
             turnStartState: 'invoking',
           }).catch(() => {});
@@ -376,7 +401,8 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
     // Register Hook 1 (per-turn subscription callback) closure with captured identity (D70, D100)
     const capturedOwnerId = ownerId;
     const capturedSessionId = canonicalSessionId;
-    const capturedTaskId = candidate.taskId;
+    const capturedScope = candidateScope;
+    const capturedTaskId = candidateScope.kind === 'task' ? candidateScope.taskId : null;
     const capturedChangeSlug = changeSlug;
 
     let unsub = null;
@@ -392,12 +418,17 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
         const turnIdResolved = executionRecord.turnId || turnOutcome.turnId || null;
 
         // Settlement check before touching claim (D59, D60)
-        const settlement = await assessExecutionSettlement({
-          repoRoot,
-          changeSlug: capturedChangeSlug,
-          taskId: capturedTaskId,
-          activeDir: options.activeDir,
-        });
+        let settlement = { settled: false };
+        if (capturedScope.kind === 'task') {
+          settlement = await assessExecutionSettlement({
+            repoRoot,
+            changeSlug: capturedChangeSlug,
+            taskId: capturedTaskId,
+            activeDir: options.activeDir,
+          });
+        } else {
+          settlement = { settled: Boolean(turnOutcome.settled) };
+        }
 
         if (settlement.settled) {
           const relRes = await releaseWorkspaceWriterIfOwned({
@@ -406,7 +437,8 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             expectedKind: 'agent',
             expectedSpecId: specId,
             expectedChangeSlug: capturedChangeSlug,
-            expectedTaskId: capturedTaskId,
+            expectedScope: capturedScope,
+            ...(capturedTaskId ? { expectedTaskId: capturedTaskId } : {}),
             ...(capturedSessionId ? { expectedSessionId: capturedSessionId } : {}),
             ...(turnIdResolved ? { expectedTurnId: turnIdResolved } : {}),
           });
@@ -415,12 +447,12 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             activeExecutions.delete(specId);
           }
           if (typeof onTurnTerminal === 'function') {
-            await onTurnTerminal({ specId, taskId: capturedTaskId, settled: true, released: relRes.released });
+            await onTurnTerminal({ specId, scope: capturedScope, taskId: capturedTaskId, settled: true, released: relRes.released });
           }
           hookOutcome = { settled: true, released: relRes.released };
 
           // Automatic continuation for settled turn (Item 5 & Item 12)
-          if (repoRoot && capturedChangeSlug) {
+          if (repoRoot && capturedChangeSlug && capturedTaskId) {
             try {
               const { requireChange, requireTask } = await import('../../../../specs/store.mjs');
               const { reconcileContinuation } = await import('./reconciliation.mjs');
@@ -449,7 +481,8 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             expectedKind: 'agent',
             expectedSpecId: specId,
             expectedChangeSlug: capturedChangeSlug,
-            expectedTaskId: capturedTaskId,
+            expectedScope: capturedScope,
+            ...(capturedTaskId ? { expectedTaskId: capturedTaskId } : {}),
             ...(capturedSessionId ? { expectedSessionId: capturedSessionId } : {}),
             ...(turnIdResolved ? { expectedTurnId: turnIdResolved } : {}),
           });
@@ -458,7 +491,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             activeExecutions.delete(specId);
           }
           if (typeof onTurnTerminal === 'function') {
-            await onTurnTerminal({ specId, taskId: capturedTaskId, settled: false, markedRecovery: markRes.marked });
+            await onTurnTerminal({ specId, scope: capturedScope, taskId: capturedTaskId, settled: false, markedRecovery: markRes.marked });
           }
           hookOutcome = { settled: false, markedRecovery: markRes.marked };
         }

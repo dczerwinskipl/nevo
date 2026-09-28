@@ -16,7 +16,9 @@ tasks:
   - id: execution-scope-model
     order: 1
     file: tasks/01-execution-scope-model.md
-    status: approved
+    status: verified
+    implementation:
+      baseline_revision: 4db32416f832ef76d6d8325fb0d538ff5027c192
   - id: batch-queue-reservation
     order: 2
     file: tasks/02-batch-queue-reservation.md

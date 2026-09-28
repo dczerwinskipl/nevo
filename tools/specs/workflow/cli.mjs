@@ -44,6 +44,7 @@ import {
   markWorkspaceWriterRecoveryRequiredIfOwned,
   isProcessAlive,
 } from './workspace-writer.mjs';
+import { createTaskScope, scopeContainsTask } from './execution-scope.mjs';
 import { readAgentExecutionContext } from '../../dashboard/server/ai/sessions/binding-service.mjs';
 import {
   recordCliWorkspaceExecution,
@@ -278,7 +279,11 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
     const existingClaim = getWorkspaceWriterClaim(context.repoRoot);
     let reusedClaim = false;
 
-    if (existingClaim && existingClaim.specId === specId && (!existingClaim.taskId || existingClaim.taskId === task.id)) {
+    const matchesTask = !existingClaim?.scope
+      ? (!existingClaim?.taskId || existingClaim?.taskId === task.id)
+      : scopeContainsTask(existingClaim.scope, task.id);
+
+    if (existingClaim && existingClaim.specId === specId && matchesTask) {
       if (existingClaim.kind === 'agent') {
         const ambientContext = readAgentExecutionContext(process.env, { repoRoot: context.repoRoot, specId, taskId: task.id });
         if (ambientContext?.sessionId && existingClaim.sessionId === ambientContext.sessionId) {
@@ -295,10 +300,13 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
       if (existingClaim && existingClaim.kind === 'cli-manual') {
         const isLiveCli = existingClaim.pid && isProcessAlive(existingClaim.pid);
         if (!isLiveCli) {
+          const targetClaimTask = existingClaim.scope
+            ? (existingClaim.scope.kind === 'task' ? existingClaim.scope.taskId : existingClaim.scope.taskIds[0])
+            : (existingClaim.taskId || task.id);
           const settlement = await assessExecutionSettlement({
             repoRoot: context.repoRoot,
             changeSlug: slug,
-            taskId: existingClaim.taskId || task.id,
+            taskId: targetClaimTask,
             activeDir: context.activeDir,
           });
           if (settlement.settled) {
@@ -308,6 +316,7 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
               expectedKind: existingClaim.kind,
               expectedSpecId: existingClaim.specId,
               expectedChangeSlug: existingClaim.changeSlug,
+              expectedScope: existingClaim.scope,
               expectedTaskId: existingClaim.taskId,
             });
           } else {
@@ -317,6 +326,7 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
               expectedKind: existingClaim.kind,
               expectedSpecId: existingClaim.specId,
               expectedChangeSlug: existingClaim.changeSlug,
+              expectedScope: existingClaim.scope,
               expectedTaskId: existingClaim.taskId,
             });
           }
@@ -328,6 +338,7 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
         kind: 'cli-manual',
         specId,
         changeSlug: slug,
+        scope: createTaskScope(task.id),
         taskId: task.id,
       });
 
@@ -494,7 +505,12 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
   // D69: Settlement-gated release of cli-manual claim
   const slug = change._slug || changeSlug || change.id;
   const existingClaim = getWorkspaceWriterClaim(context.repoRoot);
-  if (existingClaim && existingClaim.kind === 'cli-manual' && (!existingClaim.taskId || existingClaim.taskId === task.id)) {
+  const matchesFinishTask = existingClaim && (
+    existingClaim.scope
+      ? scopeContainsTask(existingClaim.scope, task.id)
+      : (!existingClaim.taskId || existingClaim.taskId === task.id)
+  );
+  if (existingClaim && existingClaim.kind === 'cli-manual' && matchesFinishTask) {
     const settlement = await assessExecutionSettlement({
       repoRoot: context.repoRoot,
       changeSlug: slug,
@@ -508,6 +524,7 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
         expectedKind: 'cli-manual',
         expectedSpecId: existingClaim.specId,
         ...(existingClaim.changeSlug ? { expectedChangeSlug: existingClaim.changeSlug } : {}),
+        ...(existingClaim.scope ? { expectedScope: existingClaim.scope } : {}),
         expectedTaskId: existingClaim.taskId,
       });
       try {

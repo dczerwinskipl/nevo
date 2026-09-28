@@ -23,66 +23,12 @@ import {
 } from '../../../../specs/workflow/human-step/submit-request.mjs';
 import { join } from 'node:path';
 import { resolveStableSpecId } from '../../../../specs/identity.mjs';
- 
-/**
- * Authoritatively matches the incoming workflow transition into targetStepName (D26).
- *
- * @param {object} task - Task object containing workflow_progress
- * @param {object} definition - Workflow definition
- * @param {string} targetStepName - Target step name being transitioned to
- * @returns {{ transition: object | null, ambiguous: boolean, reason?: string }}
- */
-export function matchIncomingTransition(task, definition, targetStepName) {
-  const history = task?.workflow_progress?.history || [];
-  if (history.length === 0) {
-    return { transition: null, ambiguous: false };
-  }
+import {
+  resolveIncomingExecution,
+  matchIncomingTransition,
+} from '../../../../specs/workflow/resolve-incoming-execution.mjs';
 
-  const lastHistory = history[history.length - 1];
-  if (lastHistory.transitioned_to && lastHistory.transitioned_to !== targetStepName) {
-    return { transition: null, ambiguous: false };
-  }
-
-  const priorStepDef = definition?.steps?.[lastHistory.step];
-  if (!priorStepDef) {
-    return { transition: null, ambiguous: false };
-  }
-
-  const candidateTransitions = (priorStepDef.transitions || []).filter(
-    (t) => (t.to === targetStepName || t.step === targetStepName)
-  );
-
-  if (candidateTransitions.length === 0) {
-    return { transition: null, ambiguous: false };
-  }
-
-  const historyResult = lastHistory.result;
-
-  const matching = candidateTransitions.filter((t) => {
-    if (t.value !== undefined) {
-      return t.value === historyResult;
-    }
-    return true;
-  });
-
-  if (matching.length === 1) {
-    return { transition: matching[0], ambiguous: false };
-  }
-
-  if (matching.length > 1) {
-    const exactMatches = matching.filter((t) => t.value !== undefined && t.value === historyResult);
-    if (exactMatches.length === 1) {
-      return { transition: exactMatches[0], ambiguous: false };
-    }
-    return {
-      transition: null,
-      ambiguous: true,
-      reason: `Ambiguous incoming transition to '${targetStepName}' from step '${lastHistory.step}' with result '${historyResult}' (${matching.length} candidates).`,
-    };
-  }
-
-  return { transition: null, ambiguous: false };
-}
+export { resolveIncomingExecution, matchIncomingTransition };
 
 /**
  * Reconciles a task's workflow position and drives automatic continuation (D42).
