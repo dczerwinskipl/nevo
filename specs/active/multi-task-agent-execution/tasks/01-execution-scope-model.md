@@ -9,12 +9,14 @@ context:
     - specs/active/multi-task-agent-execution/owner-decisions.md
 allowed_paths:
   - tools/specs/workflow/execution-scope.mjs
+  - tools/specs/workflow/resolve-incoming-execution.mjs
   - tools/dashboard/server/ai/sessions/binding-service.mjs
   - tools/dashboard/server/ai/sessions/service.mjs
   - tools/specs/workflow/workspace-writer.mjs
   - tools/dashboard/server/ai/orchestration/admission.mjs
   - tools/dashboard/server/ai/orchestration/reconciliation.mjs
   - tools/tests/execution-scope.test.mjs
+  - tools/tests/resolve-incoming-execution.test.mjs
   - tools/tests/agent-session-attach.test.mjs
   - tools/tests/workspace-writer.test.mjs
   - tools/tests/cli-workspace-execution.test.mjs
@@ -26,7 +28,7 @@ forbidden_paths:
   - tools/specs/workflow/queue/**
   - tools/specs/batch/**
 semantic_references:
-  decisions: [D2]
+  decisions: [D2, D20, D24]
   constraints: [C1, C3, C5]
 ---
 
@@ -58,6 +60,19 @@ promoted to stand in for a batch (D2).
   - Single-task writes persist `scope: { kind: 'task', taskId }`; batch writes persist `scope: { kind: 'task-batch', taskIds }` with NO scalar `taskId`.
 - Do not add a `primaryTaskId` or equivalent representative-task field — none is required by this
   task, and D2 explicitly forbids reusing the existing scalars for that purpose.
+- Batch session creation creates one real `SessionTaskBinding` row per member task, each with its
+  own correct step/attempt identity (D24) — this is real binding-creation logic to build, not
+  something `taskIds` already provides for free.
+- Add a new, scope-aware binding projection (e.g. `resolveScopeBindings(session)`) resolving every
+  binding for a batch session's `executionScope.taskIds`. `resolveCurrentBinding`/
+  `resolveCurrentBindingSync` are not modified to branch on batch scope — they keep returning no
+  task when `activeTaskId` is absent (D24).
+- Extract/define `resolveIncomingExecution(task, definition, targetStep)` (new module, e.g.
+  `tools/specs/workflow/resolve-incoming-execution.mjs`) returning `{transition, role, session}` or
+  an explicit `{ambiguous: true}` / `{error}` result, preserving the existing fail-closed
+  transition-matching semantics already implicit in `admission.mjs`/`reconciliation.mjs` (D20).
+  Every later task in this change that needs "what's the authoritative role/session for this
+  task's target step" calls this function — none re-derives the matching logic inline.
 - `admitAgentExecution`'s `activeExecutions` map stays keyed by `specId`, holding at most one
   entry regardless of scope kind (D33 unchanged) — its stored value's `taskId` field is replaced
   by `scope: ExecutionScope`.
@@ -75,6 +90,14 @@ promoted to stand in for a batch (D2).
 - `admitAgentExecution` given a `task-batch` candidate yields exactly one `activeExecutions` entry
   for that spec; a second admission attempt for any task already covered by that scope is refused.
   `automated: node --test tools/tests/execution-scope.test.mjs`
+- Given a `kind: "task-batch"` session for members A/B/C, exactly three `SessionTaskBinding` rows
+  exist, each with correct step/attempt identity. `automated: node --test tools/tests/execution-scope.test.mjs`
+- `resolveCurrentBinding` on a batch session returns no task; the new scope-aware projection
+  returns exactly the batch's own bindings. `automated: node --test tools/tests/execution-scope.test.mjs`
+- `resolveIncomingExecution` returns the correct transition/role/session for an unambiguous
+  history, and an explicit ambiguity/error result — never a guessed role — for an ambiguous match
+  or an entry step with no incoming transition.
+  `automated: node --test tools/tests/resolve-incoming-execution.test.mjs`
 - `tools/specs/workflow/queue/**` still contains zero imports of `tools/dashboard/**` (unaffected
   by this task — proven as a regression check, not merely assumed).
   `automated: node --test tools/tests/deterministic-task-queue.test.mjs`
@@ -84,7 +107,7 @@ promoted to stand in for a batch (D2).
 ## Verification
 
 ```bash
-node --test tools/tests/execution-scope.test.mjs tools/tests/agent-session-attach.test.mjs tools/tests/workspace-writer.test.mjs tools/tests/cli-workspace-execution.test.mjs tools/tests/workspace-claim-reconciliation.test.mjs tools/tests/deterministic-status-corrective.test.mjs
+node --test tools/tests/execution-scope.test.mjs tools/tests/resolve-incoming-execution.test.mjs tools/tests/agent-session-attach.test.mjs tools/tests/workspace-writer.test.mjs tools/tests/cli-workspace-execution.test.mjs tools/tests/workspace-claim-reconciliation.test.mjs tools/tests/deterministic-status-corrective.test.mjs
 node tools/specs.mjs validate
 ```
 
@@ -97,5 +120,6 @@ description to include `scope` replacing the bare `taskId` — in the same branc
 
 ## Out of scope
 
-The queue reservation mechanism, the batch-finish operation, batch context/report, the skill, and
-any UI — every later task in this change depends on this one but implements none of it here.
+The queue reservation mechanism, batch activation/`StepContext` resolution, the batch-finish
+operation, continuation-barrier release, batch context/report, the skill, and any UI — every later
+task in this change depends on this one but implements none of it here.

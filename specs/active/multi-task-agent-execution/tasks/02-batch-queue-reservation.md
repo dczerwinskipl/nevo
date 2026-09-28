@@ -18,7 +18,7 @@ forbidden_paths:
   - src/**
 depends_on: [ execution-scope-model ]
 semantic_references:
-  decisions: [D5, D6, D9, D12]
+  decisions: [D5, D6, D9, D12, D18, D19, D20]
   constraints: [C2]
   dependency_contracts: [execution-scope-model]
 ---
@@ -34,18 +34,25 @@ any other queue item, and without introducing any concurrency (D33 unchanged).
 ## Dependencies
 
 `execution-scope-model` — the `ExecutionScope` type a reservation's group becomes when the batch
-session is created.
+session is created, and the shared `resolveIncomingExecution` resolver this task's compatibility
+check reuses.
 
 ## Implementation constraints
 
 - The batch-selection (compatibility) function is a pure function reusing the existing
-  `ExecutionReadiness`/role-resolution the queue evaluator already reads — it is not a second,
-  parallel eligibility computation. It enforces strict compatibility criteria:
+  `ExecutionReadiness`/role-resolution the queue evaluator already reads, plus `execution-scope-model`'s
+  `resolveIncomingExecution` (D20) for the "same authoritative incoming-transition role" check — it
+  is not a second, parallel eligibility computation, and it never re-derives transition matching.
+  It enforces strict compatibility criteria:
   1. Same change (`spec_id` / `slug`);
   2. Same target workflow step (e.g. `review`);
-  3. Same authoritative role (`executor: agent`, role e.g. `reviewer`);
+  3. Same authoritative incoming-transition role (`executor: agent`, role e.g. `reviewer`, resolved
+     via `resolveIncomingExecution`, never re-derived inline);
   4. All members individually eligible and runnable (no unsatisfied dependencies or gate suspensions);
   5. All members require `session: fresh` semantics for the batch session in v1.
+- Generate the canonical `batchExecutionId` exactly once, here, at the moment a compatible group is
+  reserved (D18) — the single correlation identity every later task's durable record carries. The
+  reservation record's identity field is named `batchExecutionId`, not `reservationId`.
 - Grouping is explicit/user-triggered only (D5) — never invoked automatically by the evaluator on
   its own eligibility pass.
 - No hard batch-size limit (D6) — accept any compatible set size ≥ 2.
@@ -57,13 +64,18 @@ session is created.
   candidate; every eligible non-member item is returned exactly as today.
 - Reservation writes go through the same atomic critical-section convention the workspace-control
   lock already uses — no new locking primitive.
-- Crash recovery reuses `assessExecutionSettlement` — a reservation with no corresponding live/
-  settled execution is never force-cleared without that proof.
-- Execution policy resolution for the batch (D12): provider and mode are selected once for the
-  batch; if member tasks have conflicting task-level overrides in `executionPolicy`, the conflict
-  is detected and surfaced, requiring an explicit batch configuration choice rather than silently
-  inheriting the first task's override. If overrides agree or match role/default policy, that
-  configuration is preselected.
+- Crash recovery uses a **scope-aware** settlement check (D19) — conceptually
+  `assessExecutionSettlement({ executionScope, batchExecutionId, ... })` or a dedicated batch
+  checker — verifying the durable batch session/finish state as a whole. Do not reuse the existing
+  singular `assessExecutionSettlement({ taskId })` by picking one member as representative; a
+  reservation with no corresponding live/settled execution is never force-cleared without that
+  scope-aware proof.
+- **Synchronous rollback (D19)**: if reservation succeeds but admission/session creation then
+  fails, release the reservation synchronously, in the same call — do not leave this for boot-time
+  recovery to discover later.
+- Provider/model/mode selection for the resulting session is untouched by this task (D12) — this
+  task only produces the reserved scope, session creation and its provider picker belong to
+  `dashboard-batch-review-ux`.
 
 ## Acceptance criteria
 
@@ -72,8 +84,13 @@ session is created.
   naming the incompatible member. `automated: node --test tools/tests/batch-queue-reservation.test.mjs`
 - While a group is reserved, `nextRunnable` never returns a reserved member but does return an
   eligible non-member item unchanged. `automated: node --test tools/tests/batch-queue-reservation.test.mjs`
-- A crashed reservation (no live/settled execution) is reconciled via settlement assessment, never
-  auto-cleared without it. `automated: node --test tools/tests/batch-queue-reservation.test.mjs`
+- A crashed reservation (no live/settled execution) is reconciled via the scope-aware settlement
+  check, never by inspecting one representative member, and never auto-cleared without proof.
+  `automated: node --test tools/tests/batch-queue-reservation.test.mjs`
+- If admission/session creation fails right after a successful reservation, the reservation is
+  released synchronously in that same call. `automated: node --test tools/tests/batch-queue-reservation.test.mjs`
+- Every member of a reserved group shares one `batchExecutionId`, generated exactly once at
+  reservation time. `automated: node --test tools/tests/batch-queue-reservation.test.mjs`
 - Existing single-item queue behavior is unchanged. `automated: node --test tools/tests/deterministic-task-queue.test.mjs`
 
 ## Verification
@@ -91,5 +108,7 @@ reservation, in the same branch.
 ## Out of scope
 
 Automatic/heuristic grouping (D5, deferred). Session creation and its provider/model/mode picker
-(`dashboard-batch-review-ux`). The batch-finish operation itself (`batch-finish-operation`) — this
-task only reserves queue items, it never applies a task mutation.
+(`dashboard-batch-review-ux`). Activating member steps or resolving `StepContext`
+(`batch-start-and-context-bootstrap`). The batch-finish operation itself (`batch-finish-operation`)
+— this task only reserves queue items, it never applies a task mutation. Continuation dispatch
+(`batch-completion-orchestration`).

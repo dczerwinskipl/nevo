@@ -16,6 +16,10 @@ This area is the foundation every other area in this change builds on.
   binding matching it), `parentSessionId?: string` (single scalar).
 - `SessionTaskBinding` (`bindSession`, lines 940–963): `{sessionId, taskId, step?, attempt?,
   specId, provider, createdAt, lastSeenAt}` — one row per `(sessionId, taskId)` pair.
+  **Correction (D24):** `bindSession` today creates a binding only for a singular `taskId` — it
+  does **not** already create one row per `taskIds` array member. An earlier draft of this area
+  wrongly assumed multi-member binding creation was "already what `taskIds` does"; it is not, and
+  this area must build it.
 - Workspace-writer claim (`tools/specs/workflow/workspace-writer.mjs`, lines 209–223):
   `{ownerId, kind, status, requestId?, operationRef?, specId, changeSlug?, taskId?, sessionId?,
   turnId?, turnStartState?, pid, createdAt}` — `taskId` optional, singular, never an array.
@@ -58,9 +62,16 @@ This area is the foundation every other area in this change builds on.
   `taskId`; `activeExecutions`' stored value carries `scope`, not a singular `taskId`. D33 is
   unchanged: `activeExecutions` still holds at most one entry per `specId`, regardless of how
   many tasks that one entry's scope covers.
-- `SessionTaskBinding` is unaffected in shape (it already models one `(sessionId, taskId)` pair);
-  a batch session simply accumulates one binding row per member task, exactly as multi-task
-  `taskIds` already does today.
+- Batch session creation creates one real `SessionTaskBinding` row per member task, each with its
+  own correct step/attempt identity (D24) — this is new work, not a free consequence of
+  `taskIds` being an array.
+- A new, scope-aware binding projection (distinct from `resolveCurrentBinding`) resolves every
+  binding belonging to a batch session's `executionScope.taskIds` (D24).
+- A new, shared, pure `resolveIncomingExecution(task, definition, targetStep)` resolver returns
+  `{transition, role, session}` or an explicit `{ambiguous: true}` / `{error}` result, preserving
+  existing fail-closed transition-matching semantics — role/session belong to the transition,
+  never the step (D20). Every other area in this change reuses this resolver rather than
+  re-deriving the same matching logic inline.
 
 ## Constraints
 
@@ -76,11 +87,14 @@ This area is the foundation every other area in this change builds on.
 
 ## Interfaces and boundaries
 
-Exposes: the `ExecutionScope` type/validator, consumed by every other area in this change
-(`batch-queue-reservation`'s reservation record, `batch-finish-operation`'s durable record,
-`batch-context-and-report`'s lineage field) and by `admission.mjs`/`reconciliation.mjs`/
-`binding-service.mjs`/`workspace-writer.mjs` directly. Consumes: nothing new — this area only
-restates existing session/claim/admission state through the new type.
+Exposes: the `ExecutionScope` type/validator, the scope-aware binding projection, and the shared
+`resolveIncomingExecution` resolver — consumed by every other area in this change
+(`batch-queue-reservation`'s compatibility check and reservation record, `batch-start-and-context-bootstrap`'s
+target-step/role resolution, `batch-finish-operation`'s durable record, `batch-context-and-report`'s
+lineage field) and by `admission.mjs`/`reconciliation.mjs`/`binding-service.mjs`/`workspace-writer.mjs`
+directly. Consumes: nothing new — this area only restates existing session/claim/admission state
+through the new type, plus the transition-matching logic already implicit in
+`admission.mjs`/`reconciliation.mjs`.
 
 ## Area-specific acceptance criteria
 
@@ -93,6 +107,14 @@ restates existing session/claim/admission state through the new type.
 - `admitAgentExecution` given a `task-batch` candidate still yields exactly one
   `activeExecutions` entry for that spec, and a second admission attempt for any task already
   covered by that scope is refused exactly as a single-task admission conflict is refused today.
+- Given a `kind: "task-batch"` session for members A/B/C, exactly three `SessionTaskBinding` rows
+  exist (`R↔A`, `R↔B`, `R↔C`), each with its own correct step/attempt identity — proven directly
+  (D24).
+- `resolveCurrentBinding` on a batch session returns no task (never an arbitrary member); the new
+  scope-aware projection returns exactly the batch's own bindings (D24).
+- `resolveIncomingExecution` returns the exact transition/role/session for an unambiguous history,
+  and an explicit ambiguity/error result — never a guessed role or `'implementer'`-style default —
+  for an ambiguous or entry-with-no-incoming-transition case (D20).
 - `tools/specs/workflow/queue/**` still contains zero imports of `tools/dashboard/**`.
 
 ## Dependencies
@@ -101,7 +123,9 @@ None within this change — this is the foundational area every other area depen
 
 ## Out of scope
 
-The queue reservation mechanism itself (`batch-queue-reservation`), the batch-finish operation
-(`batch-finish-operation`), context delivery and reporting (`batch-context-and-report`), and any
-UI (`dashboard-batch-review-ux`) — this area only defines and wires the scope type through the
-session/claim/admission layer.
+The queue reservation mechanism itself (`batch-queue-reservation`), batch activation/`StepContext`
+resolution (`batch-start-and-context-bootstrap`), the batch-finish operation
+(`batch-finish-operation`), continuation-barrier release (`batch-completion-orchestration`),
+context delivery and reporting (`batch-context-and-report`), and any UI
+(`dashboard-batch-review-ux`) — this area only defines and wires the scope type, the shared
+resolver, and the binding projection through the session/claim/admission layer.

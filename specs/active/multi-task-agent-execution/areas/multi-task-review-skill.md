@@ -37,21 +37,27 @@ The skill defines reviewer behavior:
    cross-task findings — never a per-task finish call.
 9. **Read-only execution capability profile (D4)**: batched review v1 operates under an explicit
    read-only capability profile over source paths. No source-file writes are permitted; allowed writes
-   are strictly limited to the canonical review report (`reviews/review-batch-<id>.md`) and the batch-finish
-   mutation. (Single-task review retains its existing capability profile, including corrective edits
-   where configured; batch review does not weaken or redefine single-task review). A failing task's
-   fix is handled through the existing single-task fresh refiner role, never inline in the batch reviewer.
+   are strictly limited to the canonical review report (`reviews/review-batch-<batchExecutionId>.md`)
+   and the batch-finish mutation. **The reviewer session makes no Git commit of its own, ever — the
+   batch-finish operation owns the one report commit (D22).** (Single-task review retains its existing
+   capability profile, including corrective edits and its own commits where configured; batch review
+   does not weaken or redefine single-task review). A failing task's fix is handled through the existing
+   single-task fresh refiner role, never inline in the batch reviewer.
 
 **Boundary and enforcement, stated explicitly**: the skill defines *how* the agent performs the review;
 it does not define *what* tasks the session owns (that's `ExecutionScope`, `execution-scope-model`) or
 *how results are committed* (that's `batch-finish-operation`). Correctness does not depend on prompt
-discipline alone — the read-only capability profile is enforced at multiple layers:
-1. **Tool sandboxing**: where supported by the AI provider, the session is provisioned with a read-only tool
-   profile (no file edit/write tools provided outside report writing).
-2. **Nevo control-plane post-condition verification**: before accepting the batch-finish call, the orchestrator
-   verifies that the working tree contains no uncommitted source changes and no commits modifying paths
-   outside the permitted review report artifact (`reviews/review-batch-<id>.md`). Any violation fails closed
-   and rejects the batch finish.
+discipline alone — enforcement ownership is resolved explicitly (D27), not left to an unowned promise:
+1. **Mandatory: `batch-finish-operation`'s own control-plane post-condition check** (D22/D27) — before
+   accepting the batch-finish call, it verifies `HEAD == baseRevision` (no commit made by the reviewer
+   session) and that any dirty tracked paths are exactly and only the permitted review report artifact
+   (`reviews/review-batch-<batchExecutionId>.md`). Any violation fails closed and rejects the batch
+   finish. **Correctness never depends on anything beyond this check** — it is the one mechanism every
+   provider gets, regardless of capability.
+2. **Optional defense-in-depth: provider tool-capability restriction** — where the provider integration
+   already exposes a read-only/no-edit-tools profile today, the session may be provisioned with it. This
+   change does not add new provider-integration surface to obtain this, and no acceptance criterion
+   depends on it being available (D27).
 
 ## Constraints
 
