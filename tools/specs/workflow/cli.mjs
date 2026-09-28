@@ -39,6 +39,7 @@ import { startHumanStep, submitHumanStepResult, activateAndSubmitHumanStep } fro
 import { assertExecutionReadiness } from './readiness-policy.mjs';
 import { isTaskBarriered } from './queue/reservation.mjs';
 import { executeBatchStart } from './batch-start/index.mjs';
+import { executeBatchFinish } from './batch-finish/index.mjs';
 import {
   getWorkspaceWriterClaim,
   acquireWorkspaceWriter,
@@ -689,4 +690,43 @@ export async function handleWorkflowBatchStart(changeSlug, batchExecutionId, opt
   return emit(result, opts);
 }
 
+/**
+ * CLI entry point: finish a batch execution for reserved tasks (D21).
+ */
+export async function handleWorkflowBatchFinish(changeSlug, batchOrOpts = {}, maybeOpts = {}) {
+  const isSecondArgString = typeof batchOrOpts === 'string';
+  const batchExecutionId = isSecondArgString ? batchOrOpts : (batchOrOpts.batch || batchOrOpts.batchExecutionId);
+  const opts = isSecondArgString ? maybeOpts : batchOrOpts;
 
+  const change = requireChange(changeSlug, opts.activeDir || ACTIVE_DIR);
+  const workflowMode = resolveWorkflowMode(change, opts);
+  if (workflowMode.mode === 'legacy') {
+    throw new CliError(
+      `Cannot run deterministic command 'workflow batch finish' against legacy specification '${changeSlug || change.id}'.`
+    );
+  }
+
+  if (!batchExecutionId) {
+    throw new CliError("Missing required '--batch <id>' argument for 'workflow batch finish'.");
+  }
+
+  let inputs = opts.input || opts.inputs || {};
+  if (typeof inputs === 'string') {
+    try {
+      inputs = JSON.parse(inputs);
+    } catch (err) {
+      throw new CliError(`Failed to parse '--input' JSON: ${err.message}`);
+    }
+  }
+
+  const result = await executeBatchFinish({
+    changeSlug,
+    batchExecutionId,
+    inputs,
+    sessionId: opts.sessionId || opts['session-id'],
+    repoRoot: opts.repoRoot || ROOT,
+    activeDir: opts.activeDir || ACTIVE_DIR,
+  });
+
+  return emit(result, opts);
+}

@@ -36,13 +36,15 @@ tasks:
   - id: batch-finish-operation
     order: 4
     file: tasks/04-batch-finish-operation.md
-    status: approved
+    status: verified
     depends_on:
       [
         execution-scope-model,
         batch-queue-reservation,
         batch-start-and-context-bootstrap
       ]
+    implementation:
+      baseline_revision: 708202192572ec3e488d9c2253a91555fb6655da
   - id: batch-report
     order: 5
     file: tasks/05-batch-report.md

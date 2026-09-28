@@ -110,6 +110,20 @@ Inputs must conform to `finishContract.parameters`:
 
 Upon receiving a successful completion response (`status: 'completed'`), the agent prints a brief completion summary and **STOPS**. It must not autonomously start the next step or attempt.
 
+### Batch-Finish Envelope (Multi-Task Execution)
+For batch review execution (`workflow.mode: deterministic`), member task results are submitted together via:
+```bash
+node tools/specs.mjs workflow batch finish <change-slug> --batch <batch-execution-id> --input '<json>'
+```
+The batch-finish operation follows the D21 durable saga envelope:
+1. **Prevalidate (pure in-memory):** Verify ambient trusted session identity, live workspace-writer claim, persisted `AgentSession.executionScope`, queue reservation, member task results against individual `finishContract` transitions, and read-only Git provenance against the post-bootstrap baseline (`HEAD == baseRevision` and delta fingerprint matches baseline excluding only the canonical report). Zero durable writes occur if prevalidation fails.
+2. **Persist as `validated`:** Create the durable batch-finish record (`.nevo-ai-local/batch-finishes/<changeSlug>/<batchExecutionId>.json`) in state `validated`.
+3. **Report commit:** Commit the shared canonical report (`reviews/review-batch-<batchExecutionId>.md`) with an explicit report-path-only include list. Once recorded complete, crash recovery reuses this SHA without re-running `HEAD == baseRevision`.
+4. **Apply member finishes:** Sequentially apply each member task using its own single-task `finishStep` identity, recording individual completion and task history.
+5. **Durable `completed`:** The batch reaches `completed` once all members complete.
+
+**Continuation Dispatch Boundary:** The batch-finish operation stops at durably exposing `completed`. Continuation dispatch, claim release, and reservation release are explicitly **not** this operation's responsibility; they belong to `batch-completion-orchestration`.
+
 ## Explicit Behavior Matrix
 
 | Engine Status / Response | Meaning | Agent Required Action |
