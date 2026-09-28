@@ -20,7 +20,7 @@ forbidden_paths:
   - tools/specs/workflow/batch-finish/**
 depends_on: [ batch-queue-reservation, batch-start-and-context-bootstrap, batch-finish-operation, batch-completion-orchestration, multi-task-review-skill ]
 semantic_references:
-  decisions: [D6, D12, D13, D26]
+  decisions: [D6, D12, D13, D26, D33, D34]
   dependency_contracts: [batch-queue-reservation, batch-start-and-context-bootstrap, batch-finish-operation, batch-completion-orchestration, multi-task-review-skill]
 ---
 
@@ -37,7 +37,8 @@ independently plus one shared report link — reviewer role only for v1 (D13).
 ## Dependencies
 
 `batch-queue-reservation` (the compatibility check and reservation this task calls),
-`batch-start-and-context-bootstrap` (the bootstrap `admitAgentExecution` triggers, and the
+`batch-start-and-context-bootstrap` (the agent-invoked bootstrap the created session will call as
+its own first action, D33 — admission itself never triggers it — and the
 `BATCH_CONTEXT_TOO_LARGE` preflight this task surfaces), `batch-finish-operation` (the operation
 the started session's work ends in), `batch-completion-orchestration` (per-task verdicts are only
 final once its barrier releases), `multi-task-review-skill` (the skill the started session runs).
@@ -47,20 +48,30 @@ final once its barrier releases), `multi-task-review-skill` (the skill the start
 - Reuse the existing checkbox-picker component and its eligibility/warning display — add the
   "review together" affordance and the batch-scoped session-creation call, do not redesign task
   selection.
-- **Route session creation through the canonical `admitAgentExecution` gate** — the same single
-  entry point single-task Start already uses, wired alongside the existing AI turn/admission
-  transport (`tools/dashboard/server/ai/sessions/turns/**`,
-  `tools/dashboard/server/ai/orchestration/**`), never a second, independent session-creation
-  mechanism living only under `tools/dashboard/server/specs/**`.
+- **Route session creation through the canonical `admitAgentExecution` gate, then let the agent
+  call batch start itself (D33)** — this task's own server-side sequence is exactly: reserve →
+  `admitAgentExecution(scope: task-batch, batchExecutionId)` → create session + bindings → start
+  provider turn → inject the batch bootstrap prompt (carrying `batchExecutionId` as protocol
+  context only, never as scope authority). This task does **not** call `workflow batch start`
+  itself — that is the agent's own first tool call, per the skill (task
+  `multi-task-review-skill`). Wired alongside the existing AI turn/admission transport
+  (`tools/dashboard/server/ai/sessions/turns/**`, `tools/dashboard/server/ai/orchestration/**`),
+  never a second, independent session-creation mechanism living only under
+  `tools/dashboard/server/specs/**`.
 - Use the existing provider/model/mode picker unchanged for a batch session (D12) — no
   batch-specific selection UI.
 - No hard batch-size limit is enforced (D6); a UI-level soft recommendation (e.g. visual
   deprioritization past a small size) is allowed but must never refuse a larger compatible
   selection outright.
-- **Surface `BATCH_CONTEXT_TOO_LARGE` explicitly (D26)** — if batch start's preflight rejects the
-  batch for exceeding context capacity, show a distinct, actionable failure (e.g. suggest a
-  smaller selection or a different provider/model); never a generic error, never a silent retry
-  with truncated context.
+- **Resolve and pass the context-capacity figure (D26/D34)** — resolve `traits.maxContextTokens`
+  for the selected provider/model from the existing model catalog (this task has access to it;
+  `batch-start-and-context-bootstrap` does not) and pass it as a plain integer into the
+  `workflow batch start` call's own input — never let the provider-neutral batch-start operation
+  import the catalog itself.
+- **Surface `BATCH_CONTEXT_TOO_LARGE` explicitly (D26/D34)** — if batch start's preflight rejects
+  the batch for exceeding context capacity (before any member is activated), show a distinct,
+  actionable failure (e.g. suggest a smaller selection or a different provider/model); never a
+  generic error, never a silent retry with truncated context.
 - "Review individually" must remain fully available and unchanged even when a compatible batch
   exists — batch review is always optional.
 - No UI entry point exists for any role other than reviewer (D13) — do not add a generic

@@ -13,6 +13,7 @@ allowed_paths:
   - tools/dashboard/server/ai/sessions/binding-service.mjs
   - tools/dashboard/server/ai/sessions/service.mjs
   - tools/specs/workflow/workspace-writer.mjs
+  - tools/specs/workflow/cli.mjs
   - tools/dashboard/server/ai/orchestration/admission.mjs
   - tools/dashboard/server/ai/orchestration/reconciliation.mjs
   - tools/tests/execution-scope.test.mjs
@@ -28,7 +29,7 @@ forbidden_paths:
   - tools/specs/workflow/queue/**
   - tools/specs/batch/**
 semantic_references:
-  decisions: [D2, D20, D24]
+  decisions: [D2, D20, D24, D36]
   constraints: [C1, C3, C5]
 ---
 
@@ -80,6 +81,12 @@ promoted to stand in for a batch (D2).
   `admission.mjs`/`reconciliation.mjs` before editing — this neighborhood received four corrective
   commits in the ~30 hours before this spec was written (C5); do not assume this task file's own
   citations are still exact.
+- `tools/specs/workflow/cli.mjs`'s own claim-status reporting (a real, named consumer, not an
+  implicit one) reads normalized `scope` — update it alongside `admission.mjs`/`workspace-writer.mjs`,
+  never leave it reading the legacy scalar `taskId` after this task.
+- Batch membership cross-check (D36): when a batch session is created, `executionScope.taskIds`
+  is read directly from the reservation it fulfills — never independently authored — and later
+  operations that need to confirm membership compare the two rather than trusting either alone.
 
 ## Acceptance criteria
 
@@ -120,6 +127,7 @@ description to include `scope` replacing the bare `taskId` — in the same branc
 
 ## Out of scope
 
-The queue reservation mechanism, batch activation/`StepContext` resolution, the batch-finish
-operation, continuation-barrier release, batch context/report, the skill, and any UI — every later
-task in this change depends on this one but implements none of it here.
+The queue reservation and action barrier, batch activation/`StepContext`/`BatchContext`
+resolution, the batch-finish operation, continuation-barrier release, the batch report, the
+skill, and any UI — every later task in this change depends on this one but implements none of it
+here.

@@ -9,8 +9,12 @@ context:
     - specs/active/multi-task-agent-execution/owner-decisions.md
 allowed_paths:
   - tools/specs/workflow/queue/**
+  - tools/specs/workflow/step-runner.mjs
+  - tools/specs/workflow/human-step/operations.mjs
+  - tools/specs/workflow/readiness-policy.mjs
   - tools/tests/deterministic-task-queue.test.mjs
   - tools/tests/batch-queue-reservation.test.mjs
+  - tools/tests/batch-barrier-enforcement.test.mjs
 forbidden_paths:
   - tools/dashboard/**
   - tools/specs/batch/**
@@ -18,18 +22,21 @@ forbidden_paths:
   - src/**
 depends_on: [ execution-scope-model ]
 semantic_references:
-  decisions: [D5, D6, D9, D12, D18, D19, D20]
+  decisions: [D5, D6, D9, D12, D18, D19, D20, D31, D36]
   constraints: [C2]
   dependency_contracts: [execution-scope-model]
 ---
 
-# Task: Batch queue reservation
+# Task: Batch queue reservation and action barrier
 
 ## Goal
 
 Let the sequential queue durably reserve an explicit, compatible set of ready review items as one
 unit consumed by one `task-batch` execution, without changing ordinary single-item scheduling for
-any other queue item, and without introducing any concurrency (D33 unchanged).
+any other queue item, and without introducing any concurrency (D33 unchanged). **Also implement
+the canonical action barrier (D31)**: the same reservation record is the barrier state, and this
+task wires `isTaskBarriered` checks into the real workflow-core mutation boundaries — not only
+into dashboard projection.
 
 ## Dependencies
 
@@ -76,6 +83,21 @@ check reuses.
 - Provider/model/mode selection for the resulting session is untouched by this task (D12) — this
   task only produces the reserved scope, session creation and its provider picker belong to
   `dashboard-batch-review-ux`.
+- **Action barrier wiring (D31)**: export `isTaskBarriered(change, taskId)` from this task's own
+  queue/reservation module (no separate `batch-barrier.mjs`). Add an explicit guard call — before
+  any existing mutation/readiness logic runs — at each of:
+  1. `readiness-policy.mjs`'s `assertExecutionReadiness` (a barriered task is never reported
+     ready);
+  2. `step-runner.mjs`'s step-activation entry point (rejects a barriered task's
+     `workflow step start`, including a direct/raw CLI invocation, not only dashboard-mediated
+     dispatch);
+  3. `human-step/operations.mjs`'s `activateAndSubmitHumanStep` (rejects a barriered task's human
+     submission from any caller).
+  The queue evaluator's own `nextRunnable` exclusion of reserved items (already implemented above)
+  is the fourth, already-covered boundary — no separate change needed there.
+- Release of the reservation/barrier is **not** this task's job to call — it exposes the release
+  function, but `batch-completion-orchestration` (a later task) decides *when* to call it, as part
+  of its own ordered sequence (D35).
 
 ## Acceptance criteria
 
@@ -90,13 +112,20 @@ check reuses.
 - If admission/session creation fails right after a successful reservation, the reservation is
   released synchronously in that same call. `automated: node --test tools/tests/batch-queue-reservation.test.mjs`
 - Every member of a reserved group shares one `batchExecutionId`, generated exactly once at
-  reservation time. `automated: node --test tools/tests/batch-queue-reservation.test.mjs`
+  reservation time, matching the batch session's own `executionScope.taskIds` once created (D36).
+  `automated: node --test tools/tests/batch-queue-reservation.test.mjs`
+- While a member is barriered: `assertExecutionReadiness` reports it not ready;
+  a **direct** call to `workflow step start` for it is rejected (not merely hidden from the
+  dashboard); a **direct** call to `activateAndSubmitHumanStep` for it is rejected — each proven
+  independently. `automated: node --test tools/tests/batch-barrier-enforcement.test.mjs`
 - Existing single-item queue behavior is unchanged. `automated: node --test tools/tests/deterministic-task-queue.test.mjs`
+- Existing single-task readiness/step-start/human-step behavior for a non-barriered task is
+  unchanged. `automated: node --test tools/tests/batch-barrier-enforcement.test.mjs`
 
 ## Verification
 
 ```bash
-node --test tools/tests/batch-queue-reservation.test.mjs tools/tests/deterministic-task-queue.test.mjs
+node --test tools/tests/batch-queue-reservation.test.mjs tools/tests/batch-barrier-enforcement.test.mjs tools/tests/deterministic-task-queue.test.mjs
 node tools/specs.mjs validate
 ```
 
@@ -108,7 +137,8 @@ reservation, in the same branch.
 ## Out of scope
 
 Automatic/heuristic grouping (D5, deferred). Session creation and its provider/model/mode picker
-(`dashboard-batch-review-ux`). Activating member steps or resolving `StepContext`
+(`dashboard-batch-review-ux`). Activating member steps or resolving `StepContext`/`BatchContext`
 (`batch-start-and-context-bootstrap`). The batch-finish operation itself (`batch-finish-operation`)
-— this task only reserves queue items, it never applies a task mutation. Continuation dispatch
-(`batch-completion-orchestration`).
+— this task only reserves queue items and exposes the barrier check, it never applies a task
+mutation. Deciding *when* to release the barrier, and continuation dispatch
+(`batch-completion-orchestration`, D35) — this task only exposes the release mechanism.

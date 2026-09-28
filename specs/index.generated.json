@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-28T10:51:08.339Z",
+  "generated": "2026-09-28T12:06:11.685Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -180,12 +180,11 @@
           ]
         },
         {
-          "id": "batch-context-and-report",
+          "id": "batch-report",
           "order": 5,
-          "file": "tasks/05-batch-context-and-report.md",
+          "file": "tasks/05-batch-report.md",
           "status": "draft",
           "depends_on": [
-            "execution-scope-model",
             "batch-start-and-context-bootstrap"
           ]
         },
@@ -207,7 +206,7 @@
           "depends_on": [
             "batch-start-and-context-bootstrap",
             "batch-finish-operation",
-            "batch-context-and-report"
+            "batch-report"
           ]
         },
         {

@@ -54,10 +54,18 @@ This area is the foundation every other area in this change builds on.
     - Legacy claim records on disk may lack `scope` and only contain a scalar `taskId: string`.
     - At the deserialization/read boundary, if `scope` is absent but `taskId` is present, it must normalize into `scope: { kind: 'task', taskId }`.
     - If a claim record lacks both a valid `scope` and a valid legacy `taskId`, or is structurally invalid/corrupted: the system must fail closed and treat the claim as invalid or recovery-required.
-    - All runtime consumers (`workspace-writer.mjs`, `admission.mjs`, `reconciliation.mjs`, CLI status) read and operate strictly on normalized `scope`.
+    - All runtime consumers (`workspace-writer.mjs`, `admission.mjs`, `reconciliation.mjs`, the
+      raw CLI's own claim-status reporting in `tools/specs/workflow/cli.mjs`) read and operate
+      strictly on normalized `scope` — the CLI status consumer is a real, named consumer, not an
+      implicit claim this area leaves unaudited (task-graph audit finding).
   - When persisting new or updated claims:
     - Single-task writes persist `scope: { kind: 'task', taskId }` (and may mirror scalar `taskId` for backwards read compatibility, though all internal code treats `scope` as canonical);
     - Batch writes persist `scope: { kind: 'task-batch', taskIds }` with NO scalar `taskId`.
+- **Membership cross-check, never duplicated authority (D36).** `ExecutionScope.taskIds` is set
+  once, at batch session creation, by reading directly from the reservation it fulfills
+  (`batch-queue-reservation`) — never independently authored. Any operation that needs to confirm
+  batch membership (batch-start, batch-finish) cross-checks that the reservation's `taskIds` and
+  the session's `executionScope.taskIds` still agree, rather than trusting either alone.
 - `admitAgentExecution`'s `candidate` accepts `scope: ExecutionScope` instead of a bare
   `taskId`; `activeExecutions`' stored value carries `scope`, not a singular `taskId`. D33 is
   unchanged: `activeExecutions` still holds at most one entry per `specId`, regardless of how
@@ -90,8 +98,8 @@ This area is the foundation every other area in this change builds on.
 Exposes: the `ExecutionScope` type/validator, the scope-aware binding projection, and the shared
 `resolveIncomingExecution` resolver — consumed by every other area in this change
 (`batch-queue-reservation`'s compatibility check and reservation record, `batch-start-and-context-bootstrap`'s
-target-step/role resolution, `batch-finish-operation`'s durable record, `batch-context-and-report`'s
-lineage field) and by `admission.mjs`/`reconciliation.mjs`/`binding-service.mjs`/`workspace-writer.mjs`
+target-step/role resolution and lineage field) and by
+`admission.mjs`/`reconciliation.mjs`/`binding-service.mjs`/`workspace-writer.mjs`
 directly. Consumes: nothing new — this area only restates existing session/claim/admission state
 through the new type, plus the transition-matching logic already implicit in
 `admission.mjs`/`reconciliation.mjs`.
@@ -123,9 +131,9 @@ None within this change — this is the foundational area every other area depen
 
 ## Out of scope
 
-The queue reservation mechanism itself (`batch-queue-reservation`), batch activation/`StepContext`
-resolution (`batch-start-and-context-bootstrap`), the batch-finish operation
+The queue reservation mechanism itself (`batch-queue-reservation`), batch activation/`StepContext`/
+`BatchContext` resolution (`batch-start-and-context-bootstrap`), the batch-finish operation
 (`batch-finish-operation`), continuation-barrier release (`batch-completion-orchestration`),
-context delivery and reporting (`batch-context-and-report`), and any UI
-(`dashboard-batch-review-ux`) — this area only defines and wires the scope type, the shared
-resolver, and the binding projection through the session/claim/admission layer.
+report rendering (`batch-report`), and any UI (`dashboard-batch-review-ux`) — this area only
+defines and wires the scope type, the shared resolver, and the binding projection through the
+session/claim/admission layer.

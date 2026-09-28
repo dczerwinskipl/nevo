@@ -20,11 +20,15 @@ current entry point creates a single-task session.
   UI surfaces the existing compatible-set check (`batch-queue-reservation`'s selection function)
   and offers both:
   - **Review individually** — existing single-task flow, unchanged.
-  - **Review together** — reserves the compatible set (`batch-queue-reservation`), then creates the
-    batch session strictly through the canonical `admitAgentExecution` gate (the same single entry
-    point every execution — single-task or batch — must pass through; this UI never opens a second,
-    parallel session-creation path), which in turn triggers `batch-start-and-context-bootstrap`
-    with fresh session semantics (`session: fresh`).
+  - **Review together** — follows the exact canonical sequence D33 defines, never a shortcut or
+    an alternate ordering: reserve the compatible set (`batch-queue-reservation`, which also
+    activates the barrier, D31) → `admitAgentExecution(scope: task-batch, batchExecutionId)` (the
+    same single entry point every execution — single-task or batch — must pass through; this UI
+    never opens a second, parallel session-creation path) → create the canonical batch
+    `AgentSession` plus every member's `SessionTaskBinding` → start the provider turn → inject a
+    batch-specific bootstrap prompt carrying `batchExecutionId` as protocol context only, never as
+    scope authority → **the agent's own first tool call, `workflow batch start`, is what actually
+    activates members** — admission itself activates nothing.
 - **Execution policy handling (D12)**:
   - Provider and mode are selected once for the batch session.
   - If member tasks have conflicting task-level overrides in `executionPolicy`, the UI surfaces
@@ -39,10 +43,14 @@ current entry point creates a single-task session.
 - Once a batch session completes, the UI shows each member task's own verdict/feedback
   individually (never one aggregate status standing in for the group) and a link to the one
   shared batch report (`review-batch-<batchExecutionId>.md`).
-- **Context-capacity preflight (D26).** If `batch-start-and-context-bootstrap` rejects the batch
-  with `BATCH_CONTEXT_TOO_LARGE`, the UI surfaces this as a distinct, explicit failure (e.g.
-  suggesting a smaller selection or a different provider/model) — never a generic error, and never
-  silently retried with truncated context.
+- **Context-capacity preflight (D26/D34).** This UI/its server route resolves
+  `traits.maxContextTokens` for the selected provider/model from the existing model catalog and
+  passes it as a plain integer into the `workflow batch start` call the agent makes — the
+  provider-neutral batch-start operation itself never imports the catalog. If the operation
+  rejects the batch with `BATCH_CONTEXT_TOO_LARGE` (before any member is activated, D34), the UI
+  surfaces this as a distinct, explicit failure (e.g. suggesting a smaller selection or a
+  different provider/model) — never a generic error, and never silently retried with truncated
+  context.
 
 ## Constraints
 
@@ -59,12 +67,13 @@ current entry point creates a single-task session.
 
 ## Interfaces and boundaries
 
-Exposes: the "review individually"/"review together" choice and the post-batch per-task verdict
-display. Consumes: `batch-queue-reservation`'s compatibility check and reservation call,
-`execution-scope-model`'s scope (to create the batch session via `admitAgentExecution`),
-`batch-start-and-context-bootstrap`'s `BATCH_CONTEXT_TOO_LARGE` preflight result,
-`batch-context-and-report`'s report link and per-task references, the existing role-based
-execution-policy provider/model/mode picker.
+Exposes: the "review individually"/"review together" choice, the resolved capacity figure passed
+into batch start, and the post-batch per-task verdict display. Consumes:
+`batch-queue-reservation`'s compatibility check and reservation call, `execution-scope-model`'s
+scope (to create the batch session via `admitAgentExecution`),
+`batch-start-and-context-bootstrap`'s `BATCH_CONTEXT_TOO_LARGE` preflight result, `batch-report`'s
+report link and per-task references, the existing role-based execution-policy provider/model/mode
+picker (also the source of `traits.maxContextTokens`).
 
 ## Area-specific acceptance criteria
 
@@ -78,8 +87,8 @@ execution-policy provider/model/mode picker.
 ## Dependencies
 
 `areas/batch-queue-reservation.md`, `areas/batch-start-and-context-bootstrap.md` (the
-`admitAgentExecution`-triggered bootstrap this UI's session creation leads to, and the
-context-capacity preflight it surfaces), `areas/batch-finish-operation.md`,
+agent-invoked bootstrap the session this UI creates will call as its own first action, D33, and
+the context-capacity preflight it surfaces), `areas/batch-finish-operation.md`,
 `areas/batch-completion-orchestration.md` (per-task verdicts are only final once the barrier
 releases), `areas/multi-task-review-skill.md` (the session this UI starts runs the skill).
 

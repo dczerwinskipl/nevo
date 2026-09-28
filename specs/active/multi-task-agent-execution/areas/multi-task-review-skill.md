@@ -20,7 +20,9 @@ own instructions, even though the execution model underneath differs (this skill
 
 The skill defines reviewer behavior:
 
-1. Read the batch's shared context (`BatchContext.shared`) once.
+1. **Call `workflow batch start` as your own first required action** (D33) — never assume
+   `BatchContext` arrives any other way, and never call N single-task `workflow step start`
+   commands instead. Read the returned shared context (`BatchContext.shared`) once.
 2. Understand relationships between the selected tasks (shared files, shared contracts, declared
    dependencies).
 3. Review each task independently against its own acceptance criteria
@@ -69,8 +71,9 @@ discipline alone — enforcement ownership is resolved explicitly (D27), not lef
 ## Interfaces and boundaries
 
 Exposes: the skill definition itself (`.claude/skills/multi-task-review/SKILL.md`), invoked by an
-agent operating inside a `task-batch`-scoped session. Consumes: `batch-context-and-report`'s
-`BatchContext` and report-writing function, `batch-finish-operation`'s batch-finish call.
+agent operating inside a `task-batch`-scoped session. Consumes: `batch-start-and-context-bootstrap`'s
+final `BatchContext` (returned from the agent's own `workflow batch start` call, D32),
+`batch-report`'s report-writing function, `batch-finish-operation`'s batch-finish call.
 
 ## Area-specific acceptance criteria
 
@@ -83,7 +86,8 @@ agent operating inside a `task-batch`-scoped session. Consumes: `batch-context-a
 
 ## Dependencies
 
-`areas/batch-context-and-report.md` (the `BatchContext`/report this skill consumes and writes),
+`areas/batch-start-and-context-bootstrap.md` (the `BatchContext` this skill's own `workflow batch
+start` call returns), `areas/batch-report.md` (the report this skill writes),
 `areas/batch-finish-operation.md` (the one call this skill's work ends in).
 
 ## Out of scope

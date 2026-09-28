@@ -50,23 +50,36 @@ then derive**:
    rejected outright — a bare `--batch <id>` CLI/API argument is never trusted as proof of scope
    on its own. No separate manual/operator recovery path exists in this pass; a batch that cannot
    authorize this way fails closed to recovery-required.
-1. **Pure prevalidation (zero durable writes)** — every task's submitted result is checked against
-   its own current step's declared transition values and `finishContract`; the complete task set
-   is checked against the exact reserved `ExecutionScope`; read-only Git-provenance postconditions
-   are checked (D22): current `HEAD == baseRevision` recorded at batch start, and every dirty
-   tracked path is exactly and only the permitted review-report path — never a literally-clean-tree
-   check, since the report itself is an expected uncommitted write at this point. **Any single
-   invalid result, scope mismatch, or provenance violation rejects the whole call — nothing is
-   written to disk yet (D10, D21).**
+1. **Pure prevalidation** — every task's submitted result is checked against its own current
+   step's declared transition values and `finishContract`; the complete task set is checked
+   against the exact reserved `ExecutionScope`; read-only Git-provenance postconditions are
+   checked against `batch-start-and-context-bootstrap`'s **post-bootstrap** baseline (D29,
+   corrects D22's pre-activation assumption): current `HEAD == baseRevision` (recorded *after*
+   batch-start activation, not before — activation itself already, legitimately, dirtied
+   `change.yaml`), and every tracked file except the canonical report matches the recorded
+   post-bootstrap tracked-state baseline exactly — never "the tree must be clean," since
+   `change.yaml`'s bootstrap mutation is expected and the report itself may already exist
+   uncommitted at this point. **Any single invalid result, scope mismatch, or provenance
+   violation rejects the whole call. Precisely stated (D21, sharpened by D34): before this stage
+   succeeds, this operation performs zero control-plane/workflow-state durable mutation of its
+   own — no batch-finish record, no `change.yaml` mutation from finish, no Git commit/push, no
+   per-task finish operation starts. The report file the reviewer already wrote to disk before
+   calling finish is not itself a durable write this operation performs, and is left untouched by
+   a rejected call — never treated as though it never existed.**
 2. **Persist as `validated`** — only once prevalidation fully succeeds, the durable batch-finish
    record (`.nevo-ai-local/batch-finishes/<changeSlug>/<batchExecutionId>.json`) is written for the
    first time, with state `validated` (not `pending` — there is no durably-written pre-validation
    state), containing the target `taskIds`, per-task verdicts/feedback, `crossTaskFindings`, and
    report reference. This is the first durable write of the whole operation.
-3. **Report commit (D22)** — the batch-finish operation, not any individual member task, commits
-   the canonical shared report (`reviews/review-batch-<batchExecutionId>.md`) — one batch-level
-   commit, created before or alongside the per-task commits in stage 4, so the report is never
-   accidentally attributed to whichever member happens to finish first.
+3. **Report commit (D22, exact contract by D30)** — the batch-finish operation, not any
+   individual member task, commits the canonical shared report
+   (`reviews/review-batch-<batchExecutionId>.md`) with an **explicit `include` list containing
+   only that exact path** — never a default "stage everything" behavior that could absorb
+   `change.yaml`'s bootstrap dirt or another task's files. If `CommitAndPushAction` (or
+   equivalent) is reused, invoke it with that explicit include and a context that tolerates the
+   expected post-bootstrap `change.yaml` state (D29) without staging it. The commit's own
+   completion (recorded SHA) is a distinct, durable stage inside this record, ordered before the
+   per-task apply stage below.
 4. **Apply (sequential, idempotent, identity-referenced)** — for each task in the record, apply
    that task's finish transition using **that task's own existing single-task finish-operation
    identity** (`finish-operation.mjs`'s own durable operation-record family) — the batch record
@@ -78,12 +91,16 @@ then derive**:
    per-task finish is durably complete. This area's own responsibility ends here: it durably
    exposes `completed` plus the per-task facts `batch-completion-orchestration` needs — it does
    not itself recompute or dispatch any continuation, and it does not release the queue
-   reservation (that is `batch-completion-orchestration`'s job, D16).
-6. **Crash recovery** — a crash before stage 2 wrote anything is a clean retry from the original
-   request (stage 0/1 re-run in full). A crash after stage 2 resumes by reading the per-task
-   finish-operation identities the record already references and continuing only the ones not yet
-   complete — the record's own state is never treated as authoritative over those per-task
-   operations' own state.
+   reservation or the workspace-writer claim (that is `batch-completion-orchestration`'s job,
+   D16/D35).
+6. **Crash recovery follows frozen per-stage state, never a from-scratch re-check (D30).** A
+   crash before stage 2 wrote anything is a clean retry from the original request (stage 0/1
+   re-run in full). A crash after stage 2 resumes from the record's own frozen stage markers:
+   if the report commit is already recorded complete, its SHA is reused and it is never
+   re-committed — critically, resume in this case **never re-runs the original `HEAD ==
+   baseRevision` prevalidation as though the operation had never started**, since `HEAD` has
+   legitimately advanced by the report commit itself; if a per-task finish is already recorded
+   complete, it is skipped. Only the genuinely incomplete stages re-run.
 
 ## Constraints
 
@@ -96,34 +113,48 @@ then derive**:
 - Never trusts a bare `batchExecutionId`/`--batch` argument as authorization — always re-verifies
   against trusted ambient session identity, workspace claim, `executionScope`, and reservation
   (D23).
-- Owns the one report commit; never lets an individual member task's own commit implicitly absorb
-  the report (D22).
+- Owns the one report commit, staged with an explicit report-path-only `include` — never a
+  default include-all that could absorb `change.yaml`'s bootstrap dirt or another task's files
+  (D30).
+- Never re-runs the pre-report `HEAD == baseRevision` check on resume once the report commit is
+  recorded complete (D30) — resume reasons from frozen per-stage state, not a fresh full
+  re-validation.
+- Checks Git provenance against the **post-bootstrap** baseline (D29), never a pre-activation
+  assumption.
 
 ## Interfaces and boundaries
 
 Exposes: `workflow batch finish <change> --batch <batchExecutionId> --input <json>` (naming
 mirrors `workflow step finish`). Consumes: `execution-scope-model`'s `ExecutionScope` (a
 batch-finish call naming a task outside the session's own scope is rejected) and trusted-identity
-primitives (D23), `batch-queue-reservation`'s reservation/`batchExecutionId` (released on
-`completed`, by `batch-completion-orchestration`, not here), `batch-start-and-context-bootstrap`'s
-`baseRevision` (D22), the existing single-task `finishStep`/`finishContract` machinery. Consumed
-by: `multi-task-review-skill` (the one call a reviewer session makes to submit its complete
+primitives (D23), `batch-queue-reservation`'s reservation/`batchExecutionId` (queried, never
+released here — released by `batch-completion-orchestration`, D16/D35),
+`batch-start-and-context-bootstrap`'s `baseRevision` and post-bootstrap tracked-state baseline
+(D29), the existing single-task `finishStep`/`finishContract` machinery. Consumed by:
+`multi-task-review-skill` (the one call a reviewer session makes to submit its complete
 result); `batch-completion-orchestration` (observes this area's durable `completed` state — the
 only cross-area read, never a call into `tools/dashboard/**` from here).
 
 ## Area-specific acceptance criteria
 
-- Given three tasks with valid results, the batch-finish record reaches `completed` and all three
-  tasks show their own independent transition/history entry/feedback, and the report is committed
-  exactly once, owned by this operation, not any member task.
+- Given three tasks with valid results, on a fixture where batch start has already dirtied
+  `change.yaml` (the realistic post-bootstrap case), the batch-finish record reaches `completed`
+  and all three tasks show their own independent transition/history entry/feedback, and the
+  report is committed exactly once, owned by this operation, staging only the report path.
 - Given three tasks where one result is invalid (e.g. a `value` not in that task's own current
-  transition set), **zero durable writes occur at all** — not just "no task's `change.yaml`
-  entry changes" — and the call reports the specific invalid task.
-- A prevalidation failure on Git provenance (dirty tree outside the permitted report path, or
-  `HEAD != baseRevision`) is rejected the same way — zero durable writes, before any other check.
-- Simulating a crash after stage 2 (`validated`) but before task B's own finish completes, then
-  resuming, completes exactly the incomplete per-task finishes (reading their own finish-operation
-  identity), without re-touching an already-complete task or double-committing the report.
+  transition set), no batch-finish record is created, no `change.yaml` mutation from finish
+  occurs, and no per-task finish operation starts — while a report file the reviewer already
+  wrote before the call remains present and untouched — and the call reports the specific invalid
+  task.
+- A prevalidation failure on Git provenance (a tracked file other than the report diverging from
+  the recorded post-bootstrap baseline, or `HEAD != baseRevision`) is rejected the same way,
+  before any other durable effect.
+- Simulating a crash **immediately after the report commit lands** (before any per-task finish),
+  then resuming: resume does not reject on the grounds that `HEAD` advanced past `baseRevision`
+  — it recognizes the report commit as its own recorded, completed stage — and the report is not
+  committed a second time.
+- Simulating a crash after the report commit **and** task A's finish, then resuming, completes
+  exactly B and C, without re-touching A or re-committing the report.
 - A batch-finish call whose trusted ambient identity/`executionScope`/`batchExecutionId`/
   reservation/workspace claim don't all agree is rejected outright — proven for each individual
   mismatch case (D23).
@@ -142,8 +173,8 @@ checks).
 
 Building the reviewer's own judgment/skill (`multi-task-review-skill`) — this area only defines
 the durable operation a reviewer's finished judgment is submitted through. The `BatchContext`/
-report *content* (`batch-start-and-context-bootstrap`, `batch-context-and-report`) — this area
-only commits the already-written report file and stores the reference into each task's history.
-Continuation-barrier release and dispatch, and releasing the queue reservation
-(`batch-completion-orchestration`, D16) — this area's own responsibility ends at durable
-`completed`.
+report *content* (`batch-start-and-context-bootstrap` builds `BatchContext`; `batch-report`
+renders it) — this area only commits the already-written report file and stores the reference
+into each task's history. Continuation-barrier release, workspace-writer claim release, and
+dispatch, and releasing the queue reservation (`batch-completion-orchestration`, D16/D35) — this
+area's own responsibility ends at durable `completed`.

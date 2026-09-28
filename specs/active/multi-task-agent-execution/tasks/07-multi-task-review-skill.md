@@ -13,10 +13,10 @@ forbidden_paths:
   - src/**
   - tools/**
   - tools/dashboard/**
-depends_on: [ batch-start-and-context-bootstrap, batch-finish-operation, batch-context-and-report ]
+depends_on: [ batch-start-and-context-bootstrap, batch-finish-operation, batch-report ]
 semantic_references:
-  decisions: [D4, D22, D27]
-  dependency_contracts: [batch-start-and-context-bootstrap, batch-finish-operation, batch-context-and-report]
+  decisions: [D4, D22, D27, D33]
+  dependency_contracts: [batch-start-and-context-bootstrap, batch-finish-operation, batch-report]
 ---
 
 # Task: Multi-task review skill
@@ -33,15 +33,18 @@ read-only execution capability profile over source paths (D4) whose mandatory en
 
 ## Dependencies
 
-`batch-start-and-context-bootstrap` (provides the `BatchContext` this skill's session receives),
-`batch-finish-operation` (the one call this skill's work ends in, and the mandatory read-only
-enforcement mechanism, D27), `batch-context-and-report` (the extended `BatchContext`/report this
-skill consumes and writes).
+`batch-start-and-context-bootstrap` (the operation this skill's session must call as its own
+first action, D33, to receive the final `BatchContext`), `batch-finish-operation` (the one call
+this skill's work ends in, and the mandatory read-only enforcement mechanism, D27), `batch-report`
+(the report-rendering function this skill calls before batch-finish).
 
 ## Implementation constraints
 
 - Follow the existing skill file shape (frontmatter + body) used by
   `.claude/skills/nevo-ai-spec-workflow/SKILL.md`.
+- **State explicitly, as the skill's own first instruction, that the agent calls
+  `workflow batch start` itself** (D33) — never assume `BatchContext` arrives any other way, and
+  never call N single-task `workflow step start` commands instead.
 - State explicitly, in the skill file itself: the skill defines *how* the agent reviews; it does
   not define *what* tasks the session owns (`ExecutionScope`) or *how results are committed*
   (`batch-finish-operation`) — a future reader must not conflate the three.

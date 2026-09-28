@@ -149,7 +149,8 @@
 - **Decision:** One canonical shared batch report (`reviews/review-batch-<batchExecutionId>.md`)
   plus a durable per-task reference/anchor into it — never a full copy per task.
 - **Date:** 2026-09-27
-- **Affected artifacts:** `areas/batch-context-and-report.md`, `tasks/05-batch-context-and-report.md`
+- **Affected artifacts:** `areas/batch-report.md`, `tasks/05-batch-report.md` (renamed from
+  `batch-context-and-report` by D32)
 
 ## D8: Lineage representation and fail-closed resolution
 
@@ -177,7 +178,9 @@
   "implementer" literally; the mechanism is unchanged, only the role-name-agnostic wording is
   corrected.
 - **Date:** 2026-09-27
-- **Affected artifacts:** `areas/batch-context-and-report.md`, `tasks/05-batch-context-and-report.md`
+- **Affected artifacts:** `areas/batch-start-and-context-bootstrap.md`,
+  `tasks/03-batch-start-and-context-bootstrap.md` (lineage resolution/persistence moved here from
+  the renamed `batch-context-and-report` by D32)
 
 ## D9: Queue interaction
 
@@ -204,7 +207,9 @@
 - **Decision:** Batch-level findings, each carrying an explicit list of affected task IDs — never
   an unattributed, batch-wide note.
 - **Date:** 2026-09-27
-- **Affected artifacts:** `areas/batch-context-and-report.md`
+- **Affected artifacts:** `areas/batch-start-and-context-bootstrap.md` (computes findings),
+  `areas/batch-report.md` (renders them) — both renamed/relocated from the original
+  `batch-context-and-report` by D32
 
 ## D12: Batch compatibility, execution policy, and session semantics
 
@@ -589,3 +594,271 @@
 - **Affected artifacts:** `areas/multi-task-review-skill.md`,
   `areas/batch-finish-operation.md` (D4's enforcement description is corrected in place by this
   decision)
+
+<!-- D28–D36 below close concrete runtime/task-graph contradictions a final implementation-
+     readiness review found in D14–D27's own text (2026-09-28, second pass). Each states which
+     earlier decision it extends/corrects; none reopen the accepted D1–D27 product model. -->
+
+## D28: Batch start needs its own durable operation record — not `start-operation.mjs`
+
+- **Question:** D14's original text said partial batch-start crash recovery uses "each
+  member's own durable step-activation record." Is that true for the v1 case (batch review)?
+- **Decision:** No — corrected. `start-operation.mjs` is created by the single-task CLI path
+  only when the target step declares `consumesDependencies: true`. In `standard-v1`,
+  `implementation` declares it, `review` does not — so A/B/C entering `review` (the v1 batch
+  case) have **no** such record to recover from. `batch-start-and-context-bootstrap` must
+  persist its **own** durable batch-start operation record — e.g.
+  `.nevo-ai-local/batch-start/<changeSlug>/<batchExecutionId>.json` — after all members pass
+  pure compatibility/readiness validation but **before** the first member is activated. It
+  freezes: `batchExecutionId`, `executionScope`, the canonical session id, each member's target
+  step, each member's attempt identity, whatever pre-activation state reconciliation needs, and
+  a per-member activation-stage field. Activation then proceeds member-by-member, each one
+  reconciled/persisted into this record as it completes. Crash/retry derives, per member,
+  whether activation *definitely happened*, *definitely did not happen*, or is
+  *ambiguous/recovery-required*, by combining this durable intent with authoritative current
+  workflow state — never by assuming a `start-operation.mjs` record exists. Where a member's own
+  step *does* declare `consumesDependencies: true`, this record **composes with** that member's
+  existing single-task start-operation semantics — it does not replace or duplicate them.
+- **Rationale:** An architecture that assumes infrastructure exists only for a config value the
+  v1 case doesn't set is not implementation-ready — it would send an implementer looking for a
+  crash-recovery mechanism that silently isn't there for the exact case this spec targets.
+- **Consequences:** `batch-start-and-context-bootstrap` gains its own durable operation-record
+  module, parallel to (not built from) `finish-operation.mjs`'s and `start-operation.mjs`'s own
+  families.
+- **Date:** 2026-09-28
+- **Affected artifacts:** `areas/batch-start-and-context-bootstrap.md`,
+  `tasks/03-batch-start-and-context-bootstrap.md`
+
+## D29: Read-only Git baseline is recorded post-bootstrap, not pre-activation (corrects D22)
+
+- **Question:** D22 recorded `baseRevision = HEAD` "at the point activation begins." But
+  `ensureStepActivated()` mutates the tracked `change.yaml` as part of activating each member,
+  without committing it — so by the time activation for A/B/C finishes, the working tree is
+  already dirty from Nevo's own bootstrap, before the reviewer does anything. D22's finish-time
+  check (`HEAD == baseRevision`, dirty paths limited to the report) would then always fail for a
+  correct batch. Can D22 be applied as originally written?
+- **Decision:** No — corrected. `baseRevision = HEAD` is recorded **after** batch-start
+  activation completes for every member, immediately before reviewer work begins (still no
+  reviewer or product-code commit has happened at that point — only Nevo's own control-plane
+  bootstrap mutation). Alongside `baseRevision`, `batch-start-and-context-bootstrap` also
+  persists a **post-bootstrap tracked-state baseline** — a deterministic representation (e.g.
+  content hashes per tracked file the bootstrap touched, or an equivalent fingerprint) proving
+  what `change.yaml` (and any other file the bootstrap legitimately touched) looked like
+  immediately after activation, before the reviewer's own session does anything. At batch-finish
+  prevalidation (D21): `HEAD == baseRevision` still holds, **and** every tracked file except the
+  canonical report must match this recorded post-bootstrap baseline exactly — not "the tree must
+  be clean." The only tracked delta the reviewer's own session may ever produce is
+  `reviews/review-batch-<batchExecutionId>.md`.
+- **Rationale:** The reviewer must not be penalized for Nevo's own bootstrap dirtying
+  `change.yaml` — the actual read-only invariant is "the reviewer changed nothing tracked except
+  the report," which requires knowing what the tree looked like *after* bootstrap, not before.
+- **Consequences:** `batch-start-and-context-bootstrap` persists the post-bootstrap baseline as
+  part of its own durable record (D28); `batch-finish-operation`'s provenance check reads it
+  instead of a literal pre-activation `HEAD`/clean-tree assumption.
+- **Date:** 2026-09-28
+- **Affected artifacts:** `areas/batch-start-and-context-bootstrap.md`,
+  `areas/batch-finish-operation.md`, `tasks/03-batch-start-and-context-bootstrap.md`,
+  `tasks/04-batch-finish-operation.md` (D22's text is corrected in place by this decision)
+
+## D30: Report-commit contract — explicit include, durable identity, no re-check after landing
+
+- **Question:** D22 said the batch-finish operation "owns" the report commit, but didn't specify
+  the commit's exact staging contract or its own crash-recovery identity. What stops it from
+  absorbing `change.yaml`'s bootstrap dirt, another task's files, or double-committing on resume?
+- **Decision:** The report commit stages **only** the exact canonical report path — an explicit
+  `include` list containing exactly `reviews/review-batch-<batchExecutionId>.md`, never a
+  default "stage everything" behavior. If `CommitAndPushAction` (or equivalent) is reused, it is
+  invoked with that explicit include and with a context that tolerates the expected
+  post-bootstrap `change.yaml` state (D29) without staging it. The report commit has its own
+  durable identity (recorded SHA, completion flag) inside the batch-finish record (D28's sibling
+  record family) — once recorded complete, crash recovery reuses that SHA and never re-commits.
+  Critically: **once the report commit is recorded complete, resume never re-runs the original
+  `HEAD == baseRevision` prevalidation check as though the operation had never started** — `HEAD`
+  has legitimately advanced by the report commit itself. Recovery instead follows the batch
+  record's own frozen per-stage state (report commit done → reuse SHA; task A's finish done →
+  skip it; etc.), the same discipline D21 already established for per-task finishes.
+- **Rationale:** An unscoped commit (`include: ['*']`) would nondeterministically absorb whatever
+  else happens to be dirty at that instant — exactly the kind of provenance ambiguity D22 exists
+  to prevent. A resume path that blindly re-checks the pre-report `HEAD` would falsely reject an
+  otherwise-successful, already-partially-applied batch finish.
+- **Consequences:** The batch-finish durable record's `validated`→`completed` progression (D21)
+  gains an explicit report-commit stage with its own recorded SHA, ordered before the per-task
+  apply stage (D22 already says "before or alongside").
+- **Date:** 2026-09-28
+- **Affected artifacts:** `areas/batch-finish-operation.md`, `tasks/04-batch-finish-operation.md`
+
+## D31: Barrier enforcement lives in workflow-core, at real mutation boundaries — not projection
+
+- **Question:** D17 requires the barrier to block automatic continuation, queue dispatch, human
+  submission, and any other start/continuation path for a barriered member. The original task 06
+  scope (`tools/specs/workflow/human-step/projection.mjs`, dashboard `reconciliation.mjs`) is a
+  projection/UI boundary and dashboard-orchestration continuation path — it does not protect a
+  direct call to `activateAndSubmitHumanStep` or the raw CLI's `workflow step start`. Can the
+  barrier be enforced from there alone?
+- **Decision:** No. The durable/read side of the barrier must be a **provider-neutral
+  workflow-core primitive** — reusing the existing durable queue reservation itself (D9) as the
+  canonical barrier state (per D36 below, avoiding a third membership copy) rather than a
+  separate `batch-barrier.mjs` file. It exposes `isTaskBarriered(change, taskId)` (or
+  equivalent), callable without importing `tools/dashboard/**`, and is consulted at the actual
+  shared mutation/readiness boundaries: `ExecutionReadiness`/`assertExecutionReadiness`,
+  `workflow step start`, `activateAndSubmitHumanStep`, and queue eligibility/dispatch (the queue
+  evaluator already owns the reservation, so this is largely already colocated). Dashboard
+  reconciliation and action projection may **also** surface the barrier for UI purposes, but they
+  are not the correctness boundary — the workflow-core checks are.
+- **Rationale:** A barrier enforced only at the dashboard/projection layer is bypassable by any
+  direct domain call or raw CLI invocation — exactly the gap a "final" pass must close, not leave
+  as a known hole.
+- **Consequences:** `batch-queue-reservation` (task 02) gains ownership of wiring
+  `isTaskBarriered` checks into the real workflow-core mutation entry points
+  (`step-runner.mjs`, the human-step operations module, the execution-readiness module) in
+  addition to the queue evaluator it already owns — its scope is now "batch queue reservation
+  **and action barrier**." `batch-completion-orchestration` (task 06) no longer owns a separate
+  `batch-barrier.mjs` file; it owns *releasing* the reservation/barrier as part of its own
+  ordering (D35), and may still touch `human-step/projection.mjs` for UI surfacing only.
+- **Date:** 2026-09-28
+- **Affected artifacts:** `areas/batch-queue-reservation.md`,
+  `tasks/02-batch-queue-reservation.md`, `areas/batch-completion-orchestration.md`,
+  `tasks/06-batch-completion-orchestration.md`
+
+## D32: One task owns the public `workflow batch start` composition — no two-stage BatchContext
+
+- **Question:** The original graph had `batch-start-and-context-bootstrap` (03) return a "raw"
+  `BatchContext`, with `batch-context-and-report` (05) later extending it with cross-task overlap
+  and lineage — but 05 cannot wire itself back into 03's public operation, and 03 cannot depend
+  on 05 without a cycle. A reviewer would receive an unowned, half-built intermediate context.
+- **Decision:** Option B from the corrective review: **combine** raw-context construction and
+  its cross-task/lineage extension into `batch-start-and-context-bootstrap` (03) — it is the one
+  task that owns the public `workflow batch start` composition end to end and returns the final,
+  complete `BatchContext` (shared/task-specific docs and files with `usedBy` attribution,
+  per-member `StepContext`-derived contract, `crossTask` overlap attribution, per-member
+  `predecessorSession` lineage, `batchExecutionId`, and the post-bootstrap baseline, D29). The
+  former `batch-context-and-report` task (05) is renamed **`batch-report`** and narrows to
+  exactly what its new name says: rendering the already-final `BatchContext` into the one
+  canonical report file. It builds nothing — it consumes.
+- **Rationale:** A composed artifact with no single owning operation is exactly the kind of
+  "runtime pipeline with an unowned later extension" this pass exists to close. Folding
+  construction and extension into the one task that already produces the per-member
+  `StepContext`s removes the cycle without inventing a third task.
+- **Consequences:** `areas/batch-context-and-report.md` → renamed `areas/batch-report.md`;
+  `tasks/05-batch-context-and-report.md` → renamed `tasks/05-batch-report.md`; the change id
+  `batch-context-and-report` → `batch-report` throughout `change.yaml` and every
+  `depends_on`/`dependency_contracts` reference. `tools/specs/context/batch-context.mjs` (the
+  `BatchContext` type/builder, including cross-task overlap detection and lineage resolution)
+  moves into `batch-start-and-context-bootstrap`'s own allowed paths; `batch-report` owns only
+  the report-rendering module/function.
+- **Date:** 2026-09-28
+- **Affected artifacts:** `overview.md`, `areas/batch-start-and-context-bootstrap.md`,
+  `areas/batch-report.md` (renamed), `tasks/03-batch-start-and-context-bootstrap.md`,
+  `tasks/05-batch-report.md` (renamed), `change.yaml`, D15/D25 (their mechanism is unchanged,
+  only which task owns it)
+
+## D33: Canonical admission/bootstrap sequence
+
+- **Question:** The spec alternated between "`admitAgentExecution` triggers batch start" and
+  "the reviewer session runs `workflow batch start`" without picking one. Which is authoritative?
+- **Decision:** The sequence mirroring the established single-task protocol:
+  reserve compatible batch (D9/D18) → the reservation is also the action barrier, active from
+  here (D31) → `admitAgentExecution(scope: task-batch, batchExecutionId)` → create the canonical
+  batch `AgentSession` plus every member's `SessionTaskBinding` (D24) → start the provider turn →
+  inject a batch-specific Nevo workflow bootstrap message (not a step-name-derived prompt, same
+  principle the sibling change's own generic-trigger decision already established) → the agent's
+  own first required action is `workflow batch start ...` → that call's trusted ambient identity
+  is validated (D23's model, applied at start) → the final `BatchContext` (D32) is returned →
+  reviewer works → `workflow batch finish`.
+  - `AgentSessionService` gains a batch-aware bootstrap path that does not depend on
+    `activeTaskId` (a batch session has none, D2).
+  - The batch prompt carries `batchExecutionId` as protocol context the agent's next tool call
+    will reference — it is never treated as authority over persisted scope; the server always
+    re-derives/validates scope from the durable reservation/session, never from prompt text.
+  - The ordinary single-task bootstrap path is unchanged.
+  - **No member is activated merely by session admission** — activation happens only when the
+    agent itself calls `workflow batch start`, exactly mirroring how `workflow step start` is the
+    single-task agent's own first action, never something admission does on the agent's behalf.
+- **Rationale:** Matches the existing, proven single-task shape (admission creates the session;
+  the agent's own first tool call does the activation) rather than inventing a different pattern
+  for batches specifically, and removes the "does admission or the agent call batch-start"
+  ambiguity outright.
+- **Consequences:** `dashboard-batch-review-ux` (08) implements exactly this sequence for
+  "review together"; `batch-start-and-context-bootstrap` (03) is confirmed as agent-invoked, not
+  admission-invoked.
+- **Date:** 2026-09-28
+- **Affected artifacts:** `areas/dashboard-batch-review-ux.md`,
+  `tasks/08-dashboard-batch-review-ux.md`, `areas/batch-start-and-context-bootstrap.md`
+
+## D34: Context-capacity preflight happens before any member is activated (corrects D26)
+
+- **Question:** D26 said the capacity preflight occurs before member activation, but the
+  original task 03 text constructed authoritative `StepContext`s (which requires activation)
+  first and only checked capacity before *returning*. A `BATCH_CONTEXT_TOO_LARGE` result must
+  never leave A/B/C newly active — how is that actually achieved?
+- **Decision:** Option A from the corrective review: add a **non-mutating prospective
+  planning phase** before activation. Because the v1 batch case targets already-implemented
+  tasks awaiting review, each member's prospective document/file set (the same inputs
+  `StepContext` resolution would use — task definition, routing-derived docs, allowed paths) is
+  statically derivable from already-approved task state and the workflow definition, without
+  calling the mutating step-activation primitive. The planning phase computes the prospective
+  `BatchContext`'s size from these read-only inputs and checks it against a capacity figure
+  **passed in as a plain number** by the caller (the dashboard layer, which resolves
+  `traits.maxContextTokens` for the selected provider/model from the existing model catalog) —
+  the provider-neutral planning operation itself never imports dashboard AI modules or the model
+  catalog; it only receives an integer. If the prospective size would exceed that figure, the
+  whole batch start fails with `BATCH_CONTEXT_TOO_LARGE` **before any member's step activation
+  stage begins** — zero members are ever activated in this outcome.
+- **Rationale:** Rejecting after activation would violate D28's own "validate all before
+  mutating any" discipline and leave A/B/C wrongly active with no reviewer following through.
+  Passing capacity as a plain number (rather than importing the catalog) preserves workflow-core's
+  provider-neutrality.
+- **Consequences:** `batch-start-and-context-bootstrap`'s sequence gains an explicit planning
+  stage before its activation stage; `dashboard-batch-review-ux` resolves and passes the capacity
+  figure when starting a batch session.
+- **Date:** 2026-09-28
+- **Affected artifacts:** `areas/batch-start-and-context-bootstrap.md`,
+  `tasks/03-batch-start-and-context-bootstrap.md`, `areas/dashboard-batch-review-ux.md`
+
+## D35: Batch Hook1 terminal ordering — claim release strictly before continuation dispatch
+
+- **Question:** D16 said `batch-completion-orchestration` releases the barrier/reservation and
+  dispatches continuations, but didn't define the exact ordering relative to releasing the
+  workspace-writer claim. Could a refiner be dispatched while the batch's own claim is still held?
+- **Decision:** Define and enforce this exact terminal ordering, after the provider turn reaches
+  terminal, the batch-finish record reaches `completed`, and scope-aware settlement is proven
+  (D19's model, applied at completion): (1) release the batch workspace-writer claim; (2) clear
+  the `activeExecutions` batch record; (3) atomically release the action barrier/reservation
+  (D31); (4) only then recompute and dispatch each member's next action, including admitting a
+  fresh single-task refiner for any member whose result requires one. Dispatch never happens
+  while the batch's own workspace-writer claim is still held — a refiner's own admission needs
+  that slot free.
+- **Rationale:** D33 (this change's own admission model) and D9 (single active execution) both
+  depend on the workspace-writer slot being genuinely free before any new execution — including a
+  refiner — can be admitted; an out-of-order release would either deadlock the refiner or violate
+  the single-active-execution invariant if worked around.
+- **Consequences:** A failed batch member's fresh refiner is admitted immediately after batch
+  completion, with `parentSessionId` set to the batch reviewer session's id (D8/D25), and no
+  stale batch claim causes workspace contention.
+- **Date:** 2026-09-28
+- **Affected artifacts:** `areas/batch-completion-orchestration.md`,
+  `tasks/06-batch-completion-orchestration.md`
+
+## D36: No duplicated canonical batch membership across barrier/reservation records
+
+- **Question:** With a separate barrier record (as originally drafted) plus the reservation plus
+  `ExecutionScope`, batch membership risked three independently mutable copies. D31 folds the
+  barrier into the reservation — does that fully resolve the duplication risk?
+- **Decision:** Yes, with one remaining pair made explicit: the durable **reservation**
+  (`batch-queue-reservation`, created first, also the barrier per D31) is the initial membership
+  source at reservation time; `AgentSession.executionScope.taskIds` (D2) is set once, at session
+  creation, by reading directly from that same reservation — it is never independently
+  authored. Every operation that needs to confirm membership (batch-start, batch-finish) cross-
+  checks that the reservation's `taskIds` and the session's `executionScope.taskIds` still agree,
+  rather than trusting either one alone (the same discipline D23 already applies to
+  `batchExecutionId`/reservation/claim agreement). Any other place a `taskIds` list might be
+  persisted for query convenience is an explicitly validated **projection** of one of these two,
+  never an independent authority.
+- **Rationale:** `ExecutionScope` is the canonical *ownership* answer (D2); the reservation is
+  the canonical *queue/barrier* answer (D9/D31) — two records with different jobs, not three
+  copies of the same fact. Requiring cross-checked agreement rather than a single source removes
+  the drift risk without collapsing them into one record that would conflate ownership with
+  queue-scheduling state.
+- **Date:** 2026-09-28
+- **Affected artifacts:** `areas/execution-scope-model.md`, `areas/batch-queue-reservation.md`,
+  `areas/batch-start-and-context-bootstrap.md`, `areas/batch-finish-operation.md`

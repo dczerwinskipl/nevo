@@ -19,7 +19,7 @@ forbidden_paths:
   - src/**
 depends_on: [ execution-scope-model, batch-queue-reservation, batch-start-and-context-bootstrap ]
 semantic_references:
-  decisions: [D3, D10, D16, D21, D22, D23]
+  decisions: [D3, D10, D16, D21, D22, D23, D29, D30, D34]
   constraints: [C2, C5]
   dependency_contracts: [execution-scope-model, batch-queue-reservation, batch-start-and-context-bootstrap]
 ---
@@ -43,24 +43,35 @@ imports `tools/dashboard/**` and never dispatches continuations itself (D16).
 
 - **D21 ordering — non-negotiable**: (0) trusted-authorization check; (1) pure, in-memory
   prevalidation of every task's result, `finishContract`, `ExecutionScope` match, and Git
-  provenance — **zero durable writes**; (2) only on full success, persist the batch-finish record
-  for the first time with state `validated` (not `pending` — there is no durably-written
-  pre-validation state); (3) commit the canonical report (this operation owns that commit, D22);
-  (4) apply each task's finish using its own existing `finish-operation.mjs` operation-record
-  identity — reference it, do not duplicate its mutation logic or its completion status; (5) reach
+  provenance — **zero control-plane/workflow-state durable writes of this operation's own** (D34
+  — an already-existing, uncommitted report file the reviewer wrote before calling finish is not
+  itself a durable write this stage performs, and a rejected call leaves it untouched); (2) only
+  on full success, persist the batch-finish record for the first time with state `validated` (not
+  `pending` — there is no durably-written pre-validation state); (3) commit the canonical report
+  with an **explicit, report-path-only `include`** (this operation owns that commit, D22/D30 —
+  never a default stage-everything include that could absorb `change.yaml`'s bootstrap dirt); (4)
+  apply each task's finish using its own existing `finish-operation.mjs` operation-record identity
+  — reference it, do not duplicate its mutation logic or its completion status; (5) reach
   `completed` once every referenced per-task finish is durably complete.
 - **Trusted authorization (D23)**: verify the calling session's canonical session id, live
   workspace-writer claim, persisted `AgentSession.executionScope`, `batchExecutionId`, and
   reservation all agree before doing anything else. Reject on any mismatch — never trust a bare
   `--batch <id>` argument. No manual/operator recovery path is added in this task; an
   unauthorizable batch fails closed to recovery-required.
-- **Read-only Git provenance (D22)**: prevalidation checks `HEAD == baseRevision` (from
-  `batch-start-and-context-bootstrap`) and that every dirty tracked path is exactly and only the
-  permitted review-report path — never a literally-clean-tree check.
+- **Read-only Git provenance against the post-bootstrap baseline (D29, corrects D22's ordering)**:
+  prevalidation checks `HEAD == baseRevision` (recorded by `batch-start-and-context-bootstrap`
+  *after* its own activation, not before) and that every tracked file except the report matches
+  the recorded post-bootstrap tracked-state baseline exactly — never a literally-clean-tree check,
+  since `change.yaml`'s bootstrap mutation is expected and predates the reviewer's own session.
+- **Report-commit identity and no re-check-from-scratch on resume (D30)**: the report commit's
+  completion (recorded SHA) is its own durable stage inside the batch-finish record. Once it is
+  recorded complete, resume reuses that SHA and never re-commits — and **never re-runs the
+  original `HEAD == baseRevision` prevalidation check as though the operation had never started**,
+  since `HEAD` has legitimately advanced by the report commit itself.
 - **No continuation dispatch, ever, from this task's own code (D16)** — this task's
   responsibility ends at durably exposing `completed`. Do not import, call, or reference anything
-  under `tools/dashboard/**`. Do not release the queue reservation — `batch-completion-orchestration`
-  (a later task) does both.
+  under `tools/dashboard/**`. Do not release the queue reservation or the workspace-writer claim —
+  `batch-completion-orchestration` (a later task) does both, in its own defined order (D35).
 - Reuse `tools/specs/workflow/finish-operation.mjs`'s existing per-task mutation stages
   (`verify-gates, update-task, commit, push, transition`) unchanged.
 - Reuse the existing `finishContract` validation per task — a submitted `result` is checked
@@ -69,26 +80,34 @@ imports `tools/dashboard/**` and never dispatches continuations itself (D16).
 - **Any single invalid result, scope mismatch, or provenance violation rejects the whole call
   before any durable write happens** (D10, D21) — not merely "before task state changes."
 - Idempotent resume: a crash before stage 2 wrote anything is a clean retry (stages 0/1 re-run in
-  full); a crash after stage 2 resumes by reading the per-task finish-operation identities the
-  record already references, continuing only the incomplete ones — the batch record's own state
-  is never treated as authoritative over those per-task operations' own state.
+  full); a crash after stage 2 resumes by reading the record's own frozen per-stage state (report
+  commit done? per-task finish A done?), continuing only the incomplete stages/tasks — the batch
+  record's own state is never treated as authoritative over those per-task operations' own state,
+  and prior stages are never blindly re-validated from scratch.
 - This neighborhood (`finish-operation.mjs`, `cli.mjs`) is active ground (C5) — re-read current
   file contents before editing.
 
 ## Acceptance criteria
 
-- Given three tasks with valid results, the record reaches `completed`, all three tasks show
-  independent transition/history/feedback entries, and the report is committed exactly once,
-  owned by this operation. `automated: node --test tools/tests/batch-finish-operation.test.mjs`
-- Given three tasks where one result is invalid, **zero durable writes occur at all** — proven
-  directly (no batch-finish record file created, no `change.yaml` change), and the call reports
-  the specific invalid task. `automated: node --test tools/tests/batch-finish-operation.test.mjs`
-- A prevalidation failure on Git provenance (dirty tree outside the permitted report path, or
-  `HEAD != baseRevision`) is rejected the same way — zero durable writes.
+- Given three tasks with valid results, **on a fixture where batch start has already dirtied
+  `change.yaml`** (the realistic post-bootstrap case), the record reaches `completed`, all three
+  tasks show independent transition/history/feedback entries, and the report is committed exactly
+  once with an include list containing only the report path.
   `automated: node --test tools/tests/batch-finish-operation.test.mjs`
-- Simulating a crash after stage 2 (`validated`) but before task B's own finish completes, then
-  resuming, completes exactly the incomplete per-task finishes without re-touching an
-  already-complete task or double-committing the report.
+- Given three tasks where one result is invalid, no batch-finish record file is created, no
+  `change.yaml` mutation from finish occurs, and no per-task finish operation starts — while a
+  report file the reviewer already wrote before the call remains present and untouched — and the
+  call reports the specific invalid task.
+  `automated: node --test tools/tests/batch-finish-operation.test.mjs`
+- A prevalidation failure on Git provenance (a tracked file other than the report diverging from
+  the recorded post-bootstrap baseline, or `HEAD != baseRevision`) is rejected the same way.
+  `automated: node --test tools/tests/batch-finish-operation.test.mjs`
+- Simulating a crash **immediately after the report commit lands** (before any per-task finish),
+  then resuming: resume does not reject on the grounds that `HEAD` advanced past `baseRevision` —
+  it recognizes the report commit as its own recorded stage — and the report is not committed a
+  second time. `automated: node --test tools/tests/batch-finish-operation.test.mjs`
+- Simulating a crash after the report commit **and** task A's finish, then resuming, completes
+  exactly B and C, without re-touching A or re-committing the report.
   `automated: node --test tools/tests/batch-finish-operation.test.mjs`
 - A batch-finish call whose trusted identity/`executionScope`/`batchExecutionId`/reservation/
   workspace claim don't all agree is rejected — proven per mismatch case (wrong session, wrong
@@ -117,6 +136,7 @@ the same branch.
 ## Out of scope
 
 The reviewer's own judgment/skill (`multi-task-review-skill`). The `BatchContext`/report
-*content* (`batch-start-and-context-bootstrap`, `batch-context-and-report`) — this task only
-commits the already-written report file. Continuation-barrier release, dispatch, and releasing the
-queue reservation (`batch-completion-orchestration`, D16).
+*content* (`batch-start-and-context-bootstrap` builds `BatchContext`; `batch-report` renders it)
+— this task only commits the already-written report file. Continuation-barrier release,
+workspace-writer claim release, dispatch, and releasing the queue reservation
+(`batch-completion-orchestration`, D16/D35).

@@ -1,11 +1,15 @@
-# Area: Batch queue reservation
+# Area: Batch queue reservation and action barrier
 
 ## Responsibility
 
 Let the sequential queue understand that several queued review items may be consumed by one
 `task-batch` execution: selection (compatibility check), durable reservation of the exact group,
 removal/completion, and crash recovery — without changing ordinary single-item scheduling for
-every other queue item.
+every other queue item. **Also the canonical action barrier (D31, D36)**: the same durable
+reservation record *is* the barrier state — this area exposes `isTaskBarriered(change, taskId)`
+as a provider-neutral workflow-core primitive and wires the check into the real mutation/
+readiness boundaries (`ExecutionReadiness`, `workflow step start`, `activateAndSubmitHumanStep`,
+queue dispatch itself), not only into dashboard projection.
 
 ## Current state
 
@@ -42,9 +46,10 @@ every other queue item.
   size ≥ 2 (a size-1 "batch" is just a single-task execution).
 - **Canonical `batchExecutionId` (D18).** Generated exactly once, here, when a compatible group is
   reserved — this is the one correlation identity carried through every other durable record this
-  change introduces (batch session, `BatchContext`, report path, batch-start operation,
-  batch-finish record, barrier record). `ExecutionScope` remains the separate, canonical
-  *membership* source (D2); `batchExecutionId` never doubles as a second scope authority.
+  change introduces (batch session, batch-start operation record, `BatchContext`, report path,
+  batch-finish record). `ExecutionScope` remains the separate, canonical *membership* source
+  (D2), cross-checked against this reservation's own `taskIds` rather than trusted independently
+  (D36); `batchExecutionId` never doubles as a second scope authority.
 - A **durable reservation** record (extends the existing queue store —
   `.nevo-ai-local/task-queues/<changeSlug>.json` — with a `groupReservations` list:
   `{batchExecutionId, taskIds, status: "reserved"|"released", createdAt}` — the identity field is
@@ -60,8 +65,10 @@ every other queue item.
   - **Synchronous rollback (D19)**: if reservation succeeds but admission/session creation then
     fails, the reservation is released synchronously, in the same call — never left for boot-time
     recovery to discover later.
-  - **Completion**: cleared when `batch-finish-operation` durably completes, or on explicit
-    cancellation before any task mutation occurs.
+  - **Completion**: cleared (barrier released) only by `batch-completion-orchestration`'s own
+    ordered release sequence (D35) once `batch-finish-operation` durably completes — never by
+    `batch-finish-operation` itself (D16), and never independently of workspace-writer claim
+    release. Or, on explicit cancellation before any task mutation occurs.
   - **Scope-aware crash recovery (D19)**: a reservation with no corresponding live/settled
     execution is reconciled via a **scope-aware** settlement check — conceptually
     `assessExecutionSettlement({ executionScope, batchExecutionId, ... })` or a dedicated batch
@@ -69,6 +76,22 @@ every other queue item.
     arbitrary member task as a representative (the existing `assessExecutionSettlement({ taskId })`
     is singular and must not be reused as-is for a batch). Never silently dropped, never
     force-cleared without proof of settlement.
+- **Action barrier enforcement at real mutation boundaries (D31).** While a reservation is
+  active (from reservation through to explicit release by `batch-completion-orchestration`,
+  D35), `isTaskBarriered(change, taskId)` returns true for every member task. This function is
+  exported from this area's own workflow-core module (alongside the reservation itself, no
+  separate `batch-barrier.mjs` file) and is consulted — as an explicit guard, not an incidental
+  side effect — at:
+  1. `ExecutionReadiness`/`assertExecutionReadiness` (a barriered task is never reported ready);
+  2. `workflow step start` (rejects outright for a barriered task, even via direct/raw CLI
+     invocation, not only through dashboard-mediated dispatch);
+  3. `activateAndSubmitHumanStep` (rejects a barriered task's human submission, whether invoked
+     through the dashboard, a direct domain call, or the raw CLI);
+  4. the queue evaluator's own dispatch (already naturally covered — a barriered/reserved item is
+     never `nextRunnable` — confirmed as the same mechanism, not a second one).
+  Dashboard reconciliation and action projection may additionally read `isTaskBarriered` to
+  surface barrier state in the UI, but they are never the correctness boundary — the four checks
+  above are.
 - **Execution policy resolution for the batch (D12)**:
   - Provider and mode are selected once for the entire batch execution, not per task.
   - If individual member tasks have conflicting task-level overrides in `executionPolicy`:
@@ -80,18 +103,26 @@ every other queue item.
 
 - Ordinary single-item scheduling (the existing `nextRunnable` behavior for every non-reserved
   item) must be provably unaffected — same tests, same behavior.
-- `tools/specs/workflow/queue/**` continues to import nothing from `tools/dashboard/**`.
+- `tools/specs/workflow/queue/**` continues to import nothing from `tools/dashboard/**` — the
+  barrier check (`isTaskBarriered`) is itself workflow-core and must stay so, even though
+  dashboard code also calls it.
 - No concurrency: a reservation still yields exactly one eventual `task-batch` execution, never
   parallel dispatch of the group's members.
+- `isTaskBarriered` is queried, never mutated, by `ExecutionReadiness`/`workflow step start`/
+  `activateAndSubmitHumanStep` — this area owns the one write path (reservation create/release),
+  those call sites only read.
 
 ## Interfaces and boundaries
 
-Exposes: the batch-selection function, the reservation read/write/release functions. Consumed
-by: `dashboard-batch-review-ux` (offers compatible sets to the owner, calls reservation on
-confirmation), `batch-finish-operation` (releases the reservation on durable completion).
-Consumes: `execution-scope-model`'s `ExecutionScope` type and shared `resolveIncomingExecution`
-resolver (a reservation's `taskIds` becomes the `task-batch` scope's `taskIds` when the session is
-created), the existing `ExecutionReadiness` the queue evaluator already reads.
+Exposes: the batch-selection function, the reservation read/write/release functions,
+`isTaskBarriered(change, taskId)`. Consumed by: `dashboard-batch-review-ux` (offers compatible
+sets to the owner, calls reservation on confirmation), `batch-completion-orchestration` (releases
+the reservation/barrier on durable batch completion, D35), `ExecutionReadiness`/
+`workflow step start`/`activateAndSubmitHumanStep` (read `isTaskBarriered` at their own mutation
+boundaries, D31). Consumes: `execution-scope-model`'s `ExecutionScope` type and shared
+`resolveIncomingExecution` resolver (a reservation's `taskIds` becomes the `task-batch` scope's
+`taskIds` when the session is created), the existing `ExecutionReadiness` the queue evaluator
+already reads.
 
 ## Area-specific acceptance criteria
 
@@ -100,13 +131,17 @@ created), the existing `ExecutionReadiness` the queue evaluator already reads.
   mixed set naming the incompatible member.
 - While a group is reserved, `evaluateTaskQueue`'s `nextRunnable` never returns a reserved
   member, but does return an eligible non-member item unchanged.
+- While a group is reserved, a **direct** call to `workflow step start` for a barriered member is
+  rejected — not merely hidden from the dashboard. Same for a **direct** call to
+  `activateAndSubmitHumanStep`.
 - A crashed reservation (no live/settled execution) is reconciled via the scope-aware settlement
   check, never by inspecting one representative member, and never auto-cleared without proof.
 - If admission/session creation fails right after a successful reservation, the reservation is
   released synchronously in that same call — proven directly, not inferred from later boot
   recovery.
 - Every member of a reserved group shares one `batchExecutionId`, generated exactly once at
-  reservation time.
+  reservation time, and that `batchExecutionId` matches the batch session's own
+  `executionScope.taskIds` membership (D36) — proven directly, not merely assumed to agree.
 - Existing single-item queue tests (`deterministic-task-queue.test.mjs`) pass unmodified.
 
 ## Dependencies
@@ -117,6 +152,8 @@ the shared `resolveIncomingExecution` resolver this area's compatibility check r
 ## Out of scope
 
 Automatic/heuristic grouping (D5, deferred). Any concurrency of dispatch. Activating member steps
-or resolving `StepContext` (`batch-start-and-context-bootstrap`). The batch-finish operation
-itself (`batch-finish-operation`) — this area only reserves the queue items, it does not apply
-task mutations. Continuation dispatch (`batch-completion-orchestration`).
+or resolving `StepContext`/`BatchContext` (`batch-start-and-context-bootstrap`). The batch-finish
+operation itself (`batch-finish-operation`) — this area only reserves the queue items and exposes
+the barrier check, it does not apply task mutations. Continuation dispatch and the ordered
+claim/barrier release sequence (`batch-completion-orchestration`, D35) — this area only exposes
+the release *mechanism*, it does not decide *when* to call it.
