@@ -140,54 +140,48 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
     }
 
     const ownerId = acquireRes.ownerId;
-    let canonicalSessionId = candidate.sessionId || null;
-
     // 5. Resolve canonical session according to transition's session policy (fresh | reuse, D26, D98)
     const sessionPolicy = candidate.executionPolicy?.session || candidate.sessionPolicy || 'fresh';
+    let canonicalSessionId = null;
+
+    if (sessionPolicy === 'reuse') {
+      canonicalSessionId = candidate.sessionId || candidate.parentSessionId || null;
+      if (!canonicalSessionId) {
+        await releaseWorkspaceWriterIfOwned({
+          repoRoot,
+          expectedOwnerId: ownerId,
+          expectedKind: 'agent',
+          expectedSpecId: specId,
+          expectedChangeSlug: changeSlug,
+          expectedTaskId: candidate.taskId,
+        });
+        return {
+          admitted: false,
+          reason: 'REUSE_SESSION_NOT_RESOLVED',
+          error: 'Target workflow transition requires session reuse, but no exact predecessor session was provided or resolved.',
+        };
+      }
+    }
 
     try {
-      if (!canonicalSessionId) {
-        if (sessionPolicy === 'reuse' && sessionService) {
-          if (typeof sessionService.listSessions === 'function') {
-            const sessions = await sessionService.listSessions({
-              specId,
-              taskId: candidate.taskId,
-              provider: candidate.provider,
-            }).catch(() => []);
-            if (Array.isArray(sessions) && sessions.length > 0) {
-              const match = sessions.find(s => s.activeTaskId === candidate.taskId || (Array.isArray(s.taskIds) && s.taskIds.includes(candidate.taskId))) || sessions[0];
-              canonicalSessionId = match.sessionId;
-            }
-          } else if (typeof sessionService.getSession === 'function') {
-            const sess = await sessionService.getSession(candidate.provider, {
-              specId,
-              taskId: candidate.taskId,
-            }).catch(() => null);
-            if (sess?.sessionId) {
-              canonicalSessionId = sess.sessionId;
-            }
-          }
-        }
-
-        if (!canonicalSessionId && sessionService) {
-          const resolvedProvider = candidate.provider || sessionService?.registry?.list?.()?.[0];
-          const created = await sessionService.createSession(resolvedProvider, {
-            specId,
-            taskId: candidate.taskId,
-            taskIds: candidate.taskIds || (candidate.taskId ? [candidate.taskId] : undefined),
-            purpose: 'execution',
-            mode: candidate.mode,
-            model: candidate.model,
-            role: candidate.role,
-            parentSessionId: candidate.parentSessionId,
-          });
-          canonicalSessionId = created.sessionId;
-        }
+      if (!canonicalSessionId && sessionService) {
+        const resolvedProvider = candidate.provider || sessionService?.registry?.list?.()?.[0];
+        const created = await sessionService.createSession(resolvedProvider, {
+          specId,
+          taskId: candidate.taskId,
+          taskIds: candidate.taskIds || (candidate.taskId ? [candidate.taskId] : undefined),
+          purpose: 'execution',
+          mode: candidate.mode,
+          model: candidate.model,
+          role: candidate.role,
+          parentSessionId: candidate.parentSessionId,
+        });
+        canonicalSessionId = created.sessionId;
       }
 
       if (!canonicalSessionId) {
         // Fallback for direct unit tests without full session service
-        canonicalSessionId = `sess-${Date.now()}`;
+        canonicalSessionId = candidate.sessionId || `sess-${Date.now()}`;
       }
 
       // 6. First ownership-conditional enrichment: sessionId and turnStartState: 'prepared' (D89, D93, D99)

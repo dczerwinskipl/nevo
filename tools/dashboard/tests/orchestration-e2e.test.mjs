@@ -717,7 +717,7 @@ test('AC 115, 116, 117: D26 execution.session fresh vs reuse integration (D98)',
 
     const admReuse = await admitAgentExecution(
       'spec-A',
-      { taskId: 't1', sessionPolicy: 'reuse' },
+      { taskId: 't1', sessionPolicy: 'reuse', sessionId: 'existing-sess-1' },
       { repoRoot: tmpRepo, sessionService: mockSessionService },
     );
     assert.equal(admReuse.admitted, true);

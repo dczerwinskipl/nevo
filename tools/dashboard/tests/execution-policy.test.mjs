@@ -441,7 +441,7 @@ describe('Task 26: Execution policy and mode selection (D21)', () => {
       fileURLToPath(new URL('../ui/screens/specification-detail/specification-detail-content.tsx', import.meta.url)),
       'utf8',
     );
-    assert.match(detailContentSrc, /const effective = resolvePolicyForTask\(currentPolicy, targetTaskId, \{\s*role:\s*stepRole\s*\}\)/);
+    assert.match(detailContentSrc, /const effective = resolvePolicyForTask\(currentPolicy, targetTaskId, \{\s*role:\s*effectiveRole\s*\}\)/);
     assert.match(detailContentSrc, /initialConfig: effective/);
     assert.match(detailContentSrc, /initialConfig=\{pendingStart\??\.initialConfig\}/);
 

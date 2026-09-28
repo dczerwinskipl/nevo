@@ -299,7 +299,12 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
       }
 
       if (sessionPolicy === 'reuse') {
-        if (body.sessionId && parentSessionId && body.sessionId !== parentSessionId) {
+        if (!parentSessionId) {
+          throw new AiValidationError(
+            'Target workflow transition requires session reuse, but no exact predecessor session could be resolved from workflow history.'
+          );
+        }
+        if (body.sessionId && body.sessionId !== parentSessionId) {
           throw new AiValidationError(
             `Requested sessionId '${body.sessionId}' does not match server-derived session to reuse '${parentSessionId}'.`
           );
@@ -353,7 +358,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         sessionPolicy,
         role: authoritativeRole,
         parentSessionId,
-        sessionId: sessionPolicy === 'reuse' ? (body.sessionId || parentSessionId) : undefined,
+        sessionId: sessionPolicy === 'reuse' ? parentSessionId : undefined,
         message: effectiveUserMessage,
         userMessage: effectiveUserMessage,
         mode: effectiveMode,

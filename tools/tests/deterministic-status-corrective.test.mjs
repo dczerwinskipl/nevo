@@ -329,10 +329,11 @@ test('Item 4: execution.session reuse vs fresh semantics', async () => {
     // Release admitted execution
     await releaseAdmittedExecution(specId, { turnId: freshAdmission.turnId });
 
-    // 2. Reuse session policy resolves existing session via listSessions without calling createSession
+    // 2. Reuse session policy requires exact session and reuses it without calling createSession
     const reuseAdmission = await admitAgentExecution(specId, {
       taskId: 't1',
       sessionPolicy: 'reuse',
+      sessionId: firstSessionId,
       provider: 'mock',
       changeSlug: 'spec-test',
     }, {
@@ -349,6 +350,19 @@ test('Item 4: execution.session reuse vs fresh semantics', async () => {
     assert.notEqual(reuseAdmission.ownerId, freshAdmission.ownerId, 'new admission must acquire a new ownerId');
 
     await releaseAdmittedExecution(specId, { turnId: reuseAdmission.turnId });
+
+    // 2b. Reuse session policy fails closed if exact session cannot be determined
+    const failClosedReuse = await admitAgentExecution(specId, {
+      taskId: 't1',
+      sessionPolicy: 'reuse',
+      provider: 'mock',
+      changeSlug: 'spec-test',
+    }, {
+      repoRoot: tmpRepo,
+      sessionService: mockSessionService,
+    });
+    assert.equal(failClosedReuse.admitted, false);
+    assert.equal(failClosedReuse.reason, 'REUSE_SESSION_NOT_RESOLVED');
   } finally {
     resetAdmissionStateForTest();
     fs.rmSync(tmpRepo, { recursive: true, force: true });
@@ -3467,6 +3481,631 @@ tasks:
     resetAdmissionStateForTest();
     fs.rmSync(tmpRepo, { recursive: true, force: true });
   }
+});
+
+test('Test 33: Normal deterministic Start is fully server-authoritative for provider/mode/role without client hints', async () => {
+  const tmpRepo = createTempRepo('authoritative-start-flow');
+  resetAdmissionStateForTest();
+
+  try {
+    const { executionPolicyService } = await import('../dashboard/server/ai/sessions/execution-policy-service.mjs');
+    const { waitForActiveExecutionSettled } = await import('../dashboard/server/ai/orchestration/admission.mjs');
+    const slug = 'spec-authoritative';
+    const canonicalSpecId = '88888888-8888-4888-8888-888888888888';
+    const activeDir = path.join(tmpRepo, 'specs', 'active');
+    const specDir = path.join(activeDir, slug);
+    const tasksDir = path.join(specDir, 'tasks');
+    fs.mkdirSync(tasksDir, { recursive: true });
+
+    // Workflow definition with implementation, review, verification (human)
+    const workflowDef = {
+      id: 'authoritative-workflow',
+      version: 1,
+      steps: {
+        implementation: {
+          executor: 'agent',
+          schedulingPriority: 0,
+          status: { active: 'in-progress', completed: 'implemented' },
+          transitions: [
+            { to: 'review', execution: { role: 'reviewer', session: 'fresh' } },
+          ],
+        },
+        review: {
+          executor: 'agent',
+          schedulingPriority: 10,
+          status: { active: 'in-review', completed: 'reviewed' },
+          transitions: [
+            { to: 'verification' },
+          ],
+        },
+        verification: {
+          executor: 'human',
+          status: { active: 'in-verification', completed: 'verified' },
+          transitions: [
+            { value: 'pass', to: 'verified', outcome: 'success', action: { label: 'Approve' } },
+            { value: 'fail', to: 'implementation', action: { label: 'Reject' }, execution: { role: 'refiner', session: 'fresh' } },
+          ],
+        },
+      },
+    };
+    const defsDir = path.join(tmpRepo, '.nevo-ai', 'workflows');
+    fs.mkdirSync(defsDir, { recursive: true });
+    fs.writeFileSync(path.join(defsDir, 'authoritative-workflow.yaml'), JSON.stringify(workflowDef, null, 2));
+
+    const changeYaml = `id: ${slug}
+title: "Authoritative Start Spec"
+status: draft
+spec_id: "${canonicalSpecId}"
+workflow:
+  mode: deterministic
+  definition: authoritative-workflow
+tasks:
+  - id: tReview
+    status: in-implementation
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          transitioned_to: review
+          result: success
+          completed_at: "2026-09-28T09:00:00Z"
+  - id: tRefine
+    status: in-implementation
+    workflow_progress:
+      current_step: verification
+      current_attempt: 1
+      state: completed
+      history:
+        - step: verification
+          attempt: 1
+          transitioned_to: implementation
+          result: fail
+          completed_at: "2026-09-28T09:00:00Z"
+  - id: tNew
+    status: planned
+  - id: taskEntry
+    status: planned
+  - id: taskReview
+    status: in-implementation
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          transitioned_to: review
+          result: success
+          completed_at: "2026-09-28T09:00:00Z"
+`;
+    fs.writeFileSync(path.join(specDir, 'change.yaml'), changeYaml);
+    fs.writeFileSync(path.join(specDir, 'overview.md'), '# Overview\n');
+
+    // Create task markdown files with workflow_progress
+    // 1. tReview: completed implementation -> transitioned to review (reviewer role)
+    const tReviewContent = `---
+id: tReview
+title: "Task in review"
+status: implemented
+---
+Task in review content`;
+    fs.writeFileSync(path.join(tasksDir, 'tReview.md'), tReviewContent);
+
+    // 2. tRefine: completed verification with 'fail' -> transitioned to implementation (refiner role)
+    const tRefineContent = `---
+id: tRefine
+title: "Task in refinement"
+status: implemented
+---
+Task in refinement content`;
+    fs.writeFileSync(path.join(tasksDir, 'tRefine.md'), tRefineContent);
+
+    // 3. tNew: fresh entry step (no history)
+    const tNewContent = `---
+id: tNew
+title: "New Task"
+status: planned
+---
+New task content`;
+    fs.writeFileSync(path.join(tasksDir, 'tNew.md'), tNewContent);
+
+    // 4. taskEntry: fresh entry step (no history, priority 0)
+    fs.writeFileSync(path.join(tasksDir, 'taskEntry.md'), `---
+id: taskEntry
+title: "Batch Task Entry"
+status: planned
+---
+Entry task`);
+
+    // 5. taskReview: in review (priority 10)
+    fs.writeFileSync(path.join(tasksDir, 'taskReview.md'), `---
+id: taskReview
+title: "Batch Task Review"
+status: implemented
+---
+Review task`);
+
+    execFileSync('git', ['add', '.'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'Add authoritative test spec'], { cwd: tmpRepo });
+
+    // Save policy: default=claude, reviewer=codex, refiner=gemini
+    executionPolicyService.saveExecutionPolicy(
+      slug,
+      {
+        provider: 'claude',
+        mode: 'agent',
+        default: { provider: 'claude', mode: 'agent' },
+        roles: {
+          reviewer: { provider: 'codex', mode: 'agent' },
+          refiner: { provider: 'gemini', mode: 'agent' },
+        },
+      },
+      { repoRoot: tmpRepo },
+    );
+
+    function makeProvider(id) {
+      const p = createMockAgentProvider({ streamDelayMs: 1 });
+      p.descriptor = { ...p.descriptor, id, label: id };
+      return p;
+    }
+
+    const registry = createAgentProviderRegistry([
+      makeProvider('claude'),
+      makeProvider('codex'),
+      makeProvider('gemini'),
+    ]);
+    const transcriptCache = createTranscriptCacheService({ baseDir: path.join(tmpRepo, '.nevo-ai-local', 'transcripts') });
+    const bindingService = createAgentSessionBindingService({ storageDir: path.join(tmpRepo, '.nevo-ai-local', 'sessions') });
+    const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+    const originalStartTurn = turnRuntime.startTurn.bind(turnRuntime);
+    turnRuntime.startTurn = async (opts) => {
+      const res = await originalStartTurn(opts);
+      if (opts.taskId === 'tNew' || opts.taskId === 'taskEntry') {
+        const { updateYamlFile } = await import('../lib/yaml.mjs');
+        const changeFile = path.join(specDir, 'change.yaml');
+        updateYamlFile(changeFile, (doc) => {
+          const tasks = doc.get('tasks', true);
+          const item = tasks?.items?.find((it) => it.get('id') === opts.taskId);
+          if (item) item.set('status', 'completed');
+        });
+      }
+      return res;
+    };
+
+    const service = createAgentSessionService({
+      registry,
+      turnRuntime,
+      transcriptCache,
+      bindingService,
+      repoRoot: tmpRepo,
+    });
+
+    const app = await buildAiTestApp({ service, repoRoot: tmpRepo });
+
+    // Helper simulating EXACT frontend request construction for normal start
+    function buildFrontendNormalStartPayload(targetTaskId, taskIds) {
+      const userMessage = `Execute the current workflow step for task ${targetTaskId}.`;
+      return {
+        specId: canonicalSpecId,
+        slug,
+        changeSlug: slug,
+        taskId: targetTaskId,
+        taskIds: taskIds && taskIds.length > 0 ? taskIds : [targetTaskId],
+        purpose: 'execution',
+        prompt: userMessage,
+        userMessage,
+      };
+    }
+
+    // 1. Manual normal Start on review -> session provider = codex, no 400
+    const resReview = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      payload: buildFrontendNormalStartPayload('tReview'),
+    });
+    assert.equal(resReview.statusCode, 201, 'Normal start on review must succeed without 400');
+    assert.equal(resReview.json().provider, 'codex', 'Normal start on review must authoritatively resolve codex');
+    await waitForActiveExecutionSettled(canonicalSpecId);
+
+    // 2. Manual normal Start after human fail -> implementation/refiner -> session provider = gemini
+    const resRefine = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      payload: buildFrontendNormalStartPayload('tRefine'),
+    });
+    assert.equal(resRefine.statusCode, 201, 'Normal start after human fail must succeed');
+    assert.equal(resRefine.json().provider, 'gemini', 'Normal start with refiner transition must authoritatively resolve gemini');
+    await waitForActiveExecutionSettled(canonicalSpecId);
+
+    // 3. Initial entry step with no incoming transition -> default (claude) -> no fabricated role
+    const resNew = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      payload: buildFrontendNormalStartPayload('tNew'),
+    });
+    assert.equal(resNew.statusCode, 201, 'Normal start on initial entry step must succeed');
+    assert.equal(resNew.json().provider, 'claude', 'Normal start on entry step must use default policy provider');
+    await waitForActiveExecutionSettled(canonicalSpecId);
+
+    // 4. Batch Start where server-selected nextRunnable (taskEntry, prio 0) differs from browser's initial candidate (taskReview, prio 10)
+    const resBatch = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      payload: buildFrontendNormalStartPayload('taskReview', ['taskReview', 'taskEntry']),
+    });
+    assert.equal(resBatch.statusCode, 201, 'Batch start must succeed');
+    assert.equal(resBatch.json().provider, 'claude', 'Batch start must resolve provider for authoritative nextRunnable taskEntry (claude)');
+    const batchSession = await bindingService.getSession(resBatch.json().sessionId);
+    assert.equal(batchSession.activeTaskId, 'taskEntry', 'Batch session must bind to authoritative nextRunnable');
+    await waitForActiveExecutionSettled(canonicalSpecId);
+
+    await app.close();
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('Test 34: Exact session reuse requirements (Items 2A, 2B, 2C, 2D)', async () => {
+  const tmpRepo = createTempRepo('exact-session-reuse');
+  resetAdmissionStateForTest();
+
+  try {
+    const { executionPolicyService } = await import('../dashboard/server/ai/sessions/execution-policy-service.mjs');
+    const { waitForActiveExecutionSettled } = await import('../dashboard/server/ai/orchestration/admission.mjs');
+    const slug = 'spec-reuse';
+    const canonicalSpecId = '99999999-9999-4999-8999-999999999999';
+    const activeDir = path.join(tmpRepo, 'specs', 'active');
+    const specDir = path.join(activeDir, slug);
+    const tasksDir = path.join(specDir, 'tasks');
+    fs.mkdirSync(tasksDir, { recursive: true });
+
+    // Workflow with session: reuse and session: fresh transitions
+    const workflowDef = {
+      id: 'reuse-workflow',
+      version: 1,
+      steps: {
+        impl: {
+          executor: 'agent',
+          status: { active: 'in-progress', completed: 'implemented' },
+          transitions: [
+            { value: 'fail', to: 'fixup', execution: { role: 'fixer', session: 'reuse' } },
+            { value: 'pass', to: 'nextStep', execution: { role: 'implementer', session: 'fresh' } },
+          ],
+        },
+        fixup: {
+          executor: 'agent',
+          status: { active: 'in-fixup', completed: 'fixed' },
+          transitions: [
+            { to: 'verified', outcome: 'success' },
+          ],
+        },
+        nextStep: {
+          executor: 'agent',
+          status: { active: 'in-next', completed: 'implemented' },
+          transitions: [
+            { to: 'verified', outcome: 'success' },
+          ],
+        },
+      },
+    };
+    const defsDir = path.join(tmpRepo, '.nevo-ai', 'workflows');
+    fs.mkdirSync(defsDir, { recursive: true });
+    fs.writeFileSync(path.join(defsDir, 'reuse-workflow.yaml'), JSON.stringify(workflowDef, null, 2));
+
+    const predecessorSessionId = '00000000-0000-4000-8000-000000000001';
+    const changeYaml = `id: ${slug}
+title: "Reuse Workflow Spec"
+status: draft
+spec_id: "${canonicalSpecId}"
+workflow:
+  mode: deterministic
+  definition: reuse-workflow
+tasks:
+  - id: tKnown
+    status: in-implementation
+    workflow_progress:
+      current_step: impl
+      current_attempt: 1
+      state: completed
+      history:
+        - step: impl
+          attempt: 1
+          transitioned_to: fixup
+          result: fail
+          sessionId: "${predecessorSessionId}"
+          completed_at: "2026-09-28T09:00:00Z"
+  - id: tUnknown
+    status: in-implementation
+    workflow_progress:
+      current_step: impl
+      current_attempt: 1
+      state: completed
+      history:
+        - step: impl
+          attempt: 1
+          transitioned_to: fixup
+          result: fail
+          completed_at: "2026-09-28T09:00:00Z"
+  - id: tFresh
+    status: in-implementation
+    workflow_progress:
+      current_step: impl
+      current_attempt: 1
+      state: completed
+      history:
+        - step: impl
+          attempt: 1
+          transitioned_to: nextStep
+          result: pass
+          completed_at: "2026-09-28T09:00:00Z"
+`;
+    fs.writeFileSync(path.join(specDir, 'change.yaml'), changeYaml);
+    fs.writeFileSync(path.join(specDir, 'overview.md'), '# Overview\n');
+
+    // Predecessor session R
+    const tKnownContent = `---
+id: tKnown
+title: "Task with known predecessor"
+status: implemented
+---
+Known task`;
+    fs.writeFileSync(path.join(tasksDir, 'tKnown.md'), tKnownContent);
+
+    // tUnknown: history has step impl -> transitioned_to fixup, but NO sessionId recorded and no bindings exist
+    const tUnknownContent = `---
+id: tUnknown
+title: "Task without resolvable predecessor session"
+status: implemented
+---
+Unknown predecessor task`;
+    fs.writeFileSync(path.join(tasksDir, 'tUnknown.md'), tUnknownContent);
+
+    // tFresh: transitioned to nextStep which declares execution: { session: 'fresh' }
+    const tFreshContent = `---
+id: tFresh
+title: "Task with fresh session policy"
+status: implemented
+---
+Fresh task`;
+    fs.writeFileSync(path.join(tasksDir, 'tFresh.md'), tFreshContent);
+
+    execFileSync('git', ['add', '.'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'Add reuse test spec'], { cwd: tmpRepo });
+
+    executionPolicyService.saveExecutionPolicy(
+      slug,
+      { provider: 'claude', mode: 'agent' },
+      { repoRoot: tmpRepo },
+    );
+
+    function makeProvider(id) {
+      const p = createMockAgentProvider({ streamDelayMs: 1 });
+      p.descriptor = { ...p.descriptor, id, label: id };
+      return p;
+    }
+
+    const registry = createAgentProviderRegistry([makeProvider('claude')]);
+    const transcriptCache = createTranscriptCacheService({ baseDir: path.join(tmpRepo, '.nevo-ai-local', 'transcripts') });
+    const bindingService = createAgentSessionBindingService({ storageDir: path.join(tmpRepo, '.nevo-ai-local', 'sessions') });
+    const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+    const originalStartTurn = turnRuntime.startTurn.bind(turnRuntime);
+    turnRuntime.startTurn = async (opts) => {
+      const res = await originalStartTurn(opts);
+      if (opts.taskId === 'tKnown') {
+        const { updateYamlFile } = await import('../lib/yaml.mjs');
+        const changeFile = path.join(specDir, 'change.yaml');
+        updateYamlFile(changeFile, (doc) => {
+          const tasks = doc.get('tasks', true);
+          const item = tasks?.items?.find((it) => it.get('id') === opts.taskId);
+          if (item) item.set('status', 'completed');
+        });
+      }
+      return res;
+    };
+
+    const service = createAgentSessionService({
+      registry,
+      turnRuntime,
+      transcriptCache,
+      bindingService,
+      repoRoot: tmpRepo,
+    });
+
+    const unrelatedSessionId = '00000000-0000-4000-8000-000000000002';
+    const oldUnknown1 = '00000000-0000-4000-8000-000000000003';
+    const oldUnknown2 = '00000000-0000-4000-8000-000000000004';
+    const clientAttemptedX = '00000000-0000-4000-8000-000000000005';
+    const clientStaleX = '00000000-0000-4000-8000-000000000006';
+
+    // Create predecessor session R in service
+    await bindingService.bindSession({
+      sessionId: predecessorSessionId,
+      providerSessionId: 'prov-pred-R',
+      provider: 'claude',
+      specId: canonicalSpecId,
+      taskId: 'tKnown',
+      activeTaskId: 'tKnown',
+      purpose: 'execution',
+      mode: 'agent',
+    });
+
+    // Create an unrelated same-task session X in service
+    await bindingService.bindSession({
+      sessionId: unrelatedSessionId,
+      providerSessionId: 'prov-unrelated-X',
+      provider: 'claude',
+      specId: canonicalSpecId,
+      taskId: 'tKnown',
+      activeTaskId: 'tKnown',
+      purpose: 'execution',
+      mode: 'agent',
+    });
+
+    // Also create multiple sessions for tUnknown
+    await bindingService.bindSession({
+      sessionId: oldUnknown1,
+      providerSessionId: 'prov-unknown-1',
+      provider: 'claude',
+      specId: canonicalSpecId,
+      taskId: 'tUnknown',
+      activeTaskId: 'tUnknown',
+      purpose: 'execution',
+      mode: 'agent',
+    });
+    await bindingService.bindSession({
+      sessionId: oldUnknown2,
+      providerSessionId: 'prov-unknown-2',
+      provider: 'claude',
+      specId: canonicalSpecId,
+      taskId: 'tUnknown',
+      activeTaskId: 'tUnknown',
+      purpose: 'execution',
+      mode: 'agent',
+    });
+
+    const app = await buildAiTestApp({ service, repoRoot: tmpRepo });
+
+    // A. Transition says reuse; exact predecessor = R; unrelated same-task session X exists -> reuses R
+    const resA = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskId: 'tKnown',
+        prompt: 'Reuse predecessor',
+      },
+    });
+    assert.equal(resA.statusCode, 201, 'Start on reuse transition must succeed');
+    assert.equal(resA.json().sessionId, predecessorSessionId, 'Must reuse exact predecessor session R, not unrelated session X');
+    await waitForActiveExecutionSettled(canonicalSpecId);
+
+    // B. Transition says reuse; exact predecessor cannot be determined; body.sessionId = X -> reject (400)
+    const resB = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskId: 'tUnknown',
+        sessionId: clientAttemptedX,
+        prompt: 'Reuse unknown with client session hint',
+      },
+    });
+    assert.equal(resB.statusCode, 400, 'Must reject when exact predecessor cannot be determined even if body.sessionId supplied');
+    assert.match(resB.json().error.message, /no exact predecessor session could be resolved/i);
+    assert.equal(getWorkspaceWriterClaim(tmpRepo), null, 'No workspace claim must be created');
+
+    // C. Transition says reuse; exact predecessor cannot be determined; no body.sessionId; old task sessions exist -> reject (400), never sessions[0]
+    const resC = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskId: 'tUnknown',
+        prompt: 'Reuse unknown without session hint',
+      },
+    });
+    assert.equal(resC.statusCode, 400, 'Must reject when exact predecessor cannot be determined and multiple sessions exist');
+    assert.match(resC.json().error.message, /no exact predecessor session could be resolved/i);
+    assert.equal(getWorkspaceWriterClaim(tmpRepo), null, 'No workspace claim must be created');
+
+    // D. Transition says fresh; stale body.sessionId provided -> reject (400)
+    const resD = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions/turns',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      payload: {
+        purpose: 'execution',
+        specId: canonicalSpecId,
+        changeSlug: slug,
+        taskId: 'tFresh',
+        sessionId: clientStaleX,
+        prompt: 'Fresh with stale session id',
+      },
+    });
+    assert.equal(resD.statusCode, 400, 'Must reject client sessionId for fresh session policy');
+    assert.match(resD.json().error.message, new RegExp(`Cannot specify sessionId '${clientStaleX}' for fresh session policy`));
+    assert.equal(getWorkspaceWriterClaim(tmpRepo), null, 'No workspace claim must be created');
+
+    await app.close();
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('Test 35: D26 Step descriptor and projection model leak verification (Item 3)', async () => {
+  const { describeStep } = await import('../specs/workflow/human-step/projection.mjs');
+  const { computeDeterministicTaskActionProjection } = await import('../dashboard/server/specs/actions.mjs');
+
+  const stepDef = {
+    id: 'step-impl',
+    executor: 'agent',
+    purpose: 'Implement code',
+    expectedWork: { summary: 'Write code' },
+    role: 'leaked-role-legacy',
+    execution: { role: 'leaked-execution-role', session: 'reuse' },
+  };
+
+  const desc = describeStep(stepDef, 'step-impl');
+  assert.equal(desc.id, 'step-impl');
+  assert.equal(desc.executor, 'agent');
+  assert.equal(desc.purpose, 'Implement code');
+  assert.equal('role' in desc, false, 'Step descriptor must NOT contain role property');
+  assert.equal('execution' in desc, false, 'Step descriptor must NOT contain execution property');
+
+  // Verify computeDeterministicTaskActionProjection derives execution from incoming transition, not step
+  const workflowDef = {
+    name: 'test-wf',
+    entryStep: 'impl',
+    steps: {
+      impl: {
+        executor: 'agent',
+        transitions: [{ to: 'review', execution: { role: 'reviewer', session: 'fresh' } }],
+      },
+      review: {
+        executor: 'agent',
+        transitions: [{ to: 'done' }],
+      },
+    },
+  };
+  const task = {
+    id: 't1',
+    status: 'in-progress',
+    workflow_progress: {
+      current_step: 'impl',
+      current_attempt: 1,
+      state: 'completed',
+      history: [{ step: 'impl', attempt: 1, transitioned_to: 'review', result: 'success' }],
+    },
+  };
+  const change = {
+    id: 'spec-test',
+    workflow: { mode: 'deterministic' },
+    tasks: [task],
+  };
+
+  const projection = computeDeterministicTaskActionProjection(task, change, { definition: workflowDef });
+  assert.ok(projection.execution, 'Projection must contain execution property');
+  assert.equal(projection.execution.role, 'reviewer', 'Execution role must be derived from incoming transition');
+  assert.equal(projection.execution.session, 'fresh', 'Execution session must be derived from incoming transition');
+  assert.equal('role' in projection.stepDescriptor, false, 'stepDescriptor itself must not contain role');
 });
 
 

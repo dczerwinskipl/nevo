@@ -13,6 +13,7 @@ import { loadWorkflowDefinition } from '../../../specs/workflow/definitions/load
 import { projectTask } from '../../../specs/workflow/task-projection.mjs';
 import { describeStep, describeHumanInteraction } from '../../../specs/workflow/human-step/projection.mjs';
 import { evaluateExecutionReadiness } from '../../../specs/workflow/readiness-policy.mjs';
+import { matchIncomingTransition } from '../ai/orchestration/reconciliation.mjs';
 import { REPOSITORY_ROOT } from '../infrastructure/paths.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -119,6 +120,19 @@ export function computeDeterministicTaskActionProjection(task, change, options =
     }
   }
 
+  // Resolve incoming transition execution projection (D26)
+  let execution = null;
+  const targetStepId = isCurrentlyActive ? projection.currentStep : (targetDescriptor?.id || projection.currentStep);
+  if (targetStepId && definition) {
+    const matchResult = matchIncomingTransition(task, definition, targetStepId);
+    if (!matchResult.ambiguous && matchResult.transition) {
+      execution = {
+        role: matchResult.transition.execution?.role || null,
+        session: matchResult.transition.execution?.session || 'fresh',
+      };
+    }
+  }
+
   return {
     state: projection.state,
     canPublish: projection.canPublish ?? (projection.state === 'draft'),
@@ -132,6 +146,7 @@ export function computeDeterministicTaskActionProjection(task, change, options =
     stepDescriptor: targetDescriptor,
     currentStepDescriptor: isCurrentlyActive ? targetDescriptor : null,
     nextStepDescriptor: !isCurrentlyActive ? targetDescriptor : null,
+    execution,
     humanInteraction,
     availableActions,
   };

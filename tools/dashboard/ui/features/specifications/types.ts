@@ -163,9 +163,13 @@ export type SpecificationOwnerAction = 'approve' | 'verify' | 'finalize';
 export interface WorkflowStepDescriptor {
   id: string | null;
   executor: 'agent' | 'human' | string;
-  role?: string | null;
   purpose?: string | null;
   expectedWork?: { summary?: string; [key: string]: any } | null;
+}
+
+export interface WorkflowExecutionProjection {
+  role?: string | null;
+  session?: 'fresh' | 'reuse' | string | null;
 }
 
 export interface WorkflowHumanInteractionAction {
@@ -197,6 +201,7 @@ export interface SpecificationTaskActionGate {
   stepDescriptor?: WorkflowStepDescriptor | null;
   currentStepDescriptor?: WorkflowStepDescriptor | null;
   nextStepDescriptor?: WorkflowStepDescriptor | null;
+  execution?: WorkflowExecutionProjection | null;
   humanInteraction?: WorkflowHumanInteractionDescriptor | null;
 
   /**

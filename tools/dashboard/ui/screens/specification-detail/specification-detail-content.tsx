@@ -142,7 +142,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
   const proceedWithAgentExecution = useCallback(
     async (
       targetTaskId: string,
-      policy: { provider: string; mode?: AgentExecutionMode; role?: string; oneOff?: boolean },
+      policy: { provider?: string; mode?: AgentExecutionMode; oneOff?: boolean } = {},
       taskIds?: string[],
     ) => {
       const userMessage = buildAgentStepTriggerMessage(targetTaskId);
@@ -153,10 +153,9 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           'x-nevo-dashboard-action': '1',
         },
         body: JSON.stringify({
-          provider: policy.provider,
-          mode: policy.mode,
-          ...(policy.role ? { role: policy.role } : {}),
           ...(policy.oneOff ? { oneOff: true } : {}),
+          ...(policy.oneOff && policy.provider ? { provider: policy.provider } : {}),
+          ...(policy.oneOff && policy.mode ? { mode: policy.mode } : {}),
           specId: specification.specId,
           slug: specification.slug,
           changeSlug: specification.slug,
@@ -208,9 +207,10 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
       if (stepDescriptor.executor === 'agent') {
         try {
           const currentPolicy = executionPolicyQuery.policy;
-          const stepRole = (stepDescriptor as any).role || (stepDescriptor as any).execution?.role;
-          const effective = resolvePolicyForTask(currentPolicy, targetTaskId, { role: stepRole });
           if (options?.oneOff || !currentPolicy) {
+            const actionGate = actionsQuery.data?.tasks?.[targetTaskId];
+            const effectiveRole = actionGate?.execution?.role || undefined;
+            const effective = resolvePolicyForTask(currentPolicy, targetTaskId, { role: effectiveRole });
             setPendingStart({
               task,
               stepDescriptor,
@@ -220,7 +220,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
             });
             return;
           }
-          await proceedWithAgentExecution(targetTaskId, { ...(effective || currentPolicy), role: stepRole }, taskIds);
+          await proceedWithAgentExecution(targetTaskId, undefined, taskIds);
         } catch (err: any) {
           const message = err instanceof Error ? err.message : String(err);
           setWorkflowError(message);
@@ -232,6 +232,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
       }
     },
     [
+      actionsQuery.data?.tasks,
       executionPolicyQuery.policy,
       openTask,
       proceedWithAgentExecution,
@@ -576,8 +577,11 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
               setPendingStart(null);
               if (target.isOneOff) {
                 if (target.task && target.stepDescriptor?.id !== '__configure_only__') {
-                  const targetRole = (target.stepDescriptor as any)?.role || (target.stepDescriptor as any)?.execution?.role;
-                  await proceedWithAgentExecution(target.task.id, { ...chosen, role: targetRole, oneOff: true }, target.taskIds);
+                  await proceedWithAgentExecution(
+                    target.task.id,
+                    { provider: chosen.provider, mode: chosen.mode, oneOff: true },
+                    target.taskIds,
+                  );
                 }
               } else {
                 await executionPolicyQuery.savePolicy({
@@ -589,8 +593,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
                   ...(chosen.taskOverrides ? { taskOverrides: chosen.taskOverrides } : (executionPolicyQuery.policy?.taskOverrides ? { taskOverrides: executionPolicyQuery.policy.taskOverrides } : {})),
                 });
                 if (target.task && target.stepDescriptor?.id !== '__configure_only__') {
-                  const targetRole = (target.stepDescriptor as any)?.role || (target.stepDescriptor as any)?.execution?.role;
-                  await proceedWithAgentExecution(target.task.id, { ...chosen, role: targetRole }, target.taskIds);
+                  await proceedWithAgentExecution(target.task.id, undefined, target.taskIds);
                 }
               }
             } catch (err: any) {
