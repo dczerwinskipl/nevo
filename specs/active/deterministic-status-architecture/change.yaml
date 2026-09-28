@@ -46,7 +46,7 @@ tasks:
   - id: workflow-task-publish-operation
     order: 5
     file: tasks/05-workflow-task-publish-operation.md
-    status: implemented
+    status: verified
     depends_on: [ deterministic-mutation-guard ]
     implementation:
       baseline_revision: 29523aa0be2da1960f201904de5c52193ef93b7c
