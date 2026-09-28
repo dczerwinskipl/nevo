@@ -15,7 +15,7 @@ forbidden_paths:
   - tools/dashboard/**
 depends_on: [ batch-start-and-context-bootstrap, batch-finish-operation, batch-report ]
 semantic_references:
-  decisions: [D4, D22, D27, D33]
+  decisions: [D4, D22, D27, D33, D39]
   dependency_contracts: [batch-start-and-context-bootstrap, batch-finish-operation, batch-report]
 ---
 
@@ -55,12 +55,13 @@ this skill's work ends in, and the mandatory read-only enforcement mechanism, D2
   report commit; a failing task's fix happens in a separate, fresh single-task refiner session,
   never inline in this skill's own session. (Clarify that single-task review retains its existing
   capability profile including corrective edits and its own commits where configured).
-- **Enforcement ownership (D27)**: state explicitly that `batch-finish-operation`'s control-plane
-  post-condition check (`HEAD == baseRevision`, dirty paths limited to the report) is the mandatory
-  correctness mechanism — the skill's own prose discipline is not what makes read-only enforceable.
-  Provider tool-capability restriction, where the provider integration already exposes it, is
-  optional defense-in-depth only; this task does not add new provider-integration surface to
-  obtain it.
+- **Enforcement ownership (D27/D39)**: state explicitly that `batch-finish-operation`'s
+  mandatory provenance check compares the complete repository-visible workspace delta (tracked,
+  staged/unstaged and untracked) against the frozen post-bootstrap fingerprint, excluding only
+  `.nevo-ai-local/**` and the exact canonical report path, while `HEAD == baseRevision`.
+  Existing bootstrap dirt such as `change.yaml` is therefore allowed only if unchanged from the
+  baseline. The skill's prose is not the enforcement mechanism. Provider tool restrictions remain
+  optional defense-in-depth only.
 - State the single-batch-finish-call requirement explicitly — no per-task finish guidance
   anywhere in the skill text.
 - State explicitly that the skill must never compute or claim one aggregate verdict for the whole

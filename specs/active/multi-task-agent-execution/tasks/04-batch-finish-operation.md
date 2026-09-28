@@ -19,7 +19,7 @@ forbidden_paths:
   - src/**
 depends_on: [ execution-scope-model, batch-queue-reservation, batch-start-and-context-bootstrap ]
 semantic_references:
-  decisions: [D3, D10, D16, D21, D22, D23, D29, D30, D34]
+  decisions: [D3, D10, D16, D21, D22, D23, D29, D30, D34, D39]
   constraints: [C2, C5]
   dependency_contracts: [execution-scope-model, batch-queue-reservation, batch-start-and-context-bootstrap]
 ---
@@ -58,11 +58,13 @@ imports `tools/dashboard/**` and never dispatches continuations itself (D16).
   reservation all agree before doing anything else. Reject on any mismatch — never trust a bare
   `--batch <id>` argument. No manual/operator recovery path is added in this task; an
   unauthorizable batch fails closed to recovery-required.
-- **Read-only Git provenance against the post-bootstrap baseline (D29, corrects D22's ordering)**:
-  prevalidation checks `HEAD == baseRevision` (recorded by `batch-start-and-context-bootstrap`
-  *after* its own activation, not before) and that every tracked file except the report matches
-  the recorded post-bootstrap tracked-state baseline exactly — never a literally-clean-tree check,
-  since `change.yaml`'s bootstrap mutation is expected and predates the reviewer's own session.
+- **Read-only provenance against the complete post-bootstrap workspace baseline (D29/D39)**:
+  prevalidation checks `HEAD == baseRevision` and recomputes the deterministic workspace-delta
+  fingerprint relative to that revision. After excluding `.nevo-ai-local/**` and only the exact
+  canonical report path, it must equal the frozen post-bootstrap fingerprint exactly. The
+  fingerprint includes staged/unstaged tracked modifications/deletions and untracked files, so
+  expected bootstrap `change.yaml` is accepted but an unrelated modified doc/source file or a
+  newly-created untracked source file is rejected.
 - **Report-commit identity and no re-check-from-scratch on resume (D30)**: the report commit's
   completion (recorded SHA) is its own durable stage inside the batch-finish record. Once it is
   recorded complete, resume reuses that SHA and never re-commits — and **never re-runs the
@@ -99,8 +101,10 @@ imports `tools/dashboard/**` and never dispatches continuations itself (D16).
   report file the reviewer already wrote before the call remains present and untouched — and the
   call reports the specific invalid task.
   `automated: node --test tools/tests/batch-finish-operation.test.mjs`
-- A prevalidation failure on Git provenance (a tracked file other than the report diverging from
-  the recorded post-bootstrap baseline, or `HEAD != baseRevision`) is rejected the same way.
+- A prevalidation failure on provenance (`HEAD != baseRevision`, unexpected tracked/index
+  delta, or an unrelated untracked repository-visible file) is rejected the same way. Tests cover
+  both a modified tracked source/doc file and a newly-created untracked source file; expected
+  bootstrap `change.yaml` remains valid.
   `automated: node --test tools/tests/batch-finish-operation.test.mjs`
 - Simulating a crash **immediately after the report commit lands** (before any per-task finish),
   then resuming: resume does not reject on the grounds that `HEAD` advanced past `baseRevision` —

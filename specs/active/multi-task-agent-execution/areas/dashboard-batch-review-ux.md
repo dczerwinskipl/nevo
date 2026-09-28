@@ -20,15 +20,14 @@ current entry point creates a single-task session.
   UI surfaces the existing compatible-set check (`batch-queue-reservation`'s selection function)
   and offers both:
   - **Review individually** — existing single-task flow, unchanged.
-  - **Review together** — follows the exact canonical sequence D33 defines, never a shortcut or
-    an alternate ordering: reserve the compatible set (`batch-queue-reservation`, which also
-    activates the barrier, D31) → `admitAgentExecution(scope: task-batch, batchExecutionId)` (the
-    same single entry point every execution — single-task or batch — must pass through; this UI
-    never opens a second, parallel session-creation path) → create the canonical batch
-    `AgentSession` plus every member's `SessionTaskBinding` → start the provider turn → inject a
-    batch-specific bootstrap prompt carrying `batchExecutionId` as protocol context only, never as
-    scope authority → **the agent's own first tool call, `workflow batch start`, is what actually
-    activates members** — admission itself activates nothing.
+  - **Review together** — follows D33/D38 exactly: resolve the owner-selected provider/model/mode
+    and its catalog capacity trait first → atomically reserve the compatible set while freezing
+    that `executionConfigSnapshot` (the reservation also activates the barrier, D31) →
+    `admitAgentExecution(scope: task-batch, batchExecutionId)` using exactly the frozen
+    configuration → create the canonical batch `AgentSession` plus every member binding → start
+    provider turn → inject a bootstrap prompt carrying `batchExecutionId` as protocol context
+    only → **the agent's own first `workflow batch start` call activates members**. Prompt/tool
+    arguments never become authoritative provider/model/capacity input.
 - **Execution policy handling (D12)**:
   - Provider and mode are selected once for the batch session.
   - If member tasks have conflicting task-level overrides in `executionPolicy`, the UI surfaces
@@ -43,14 +42,14 @@ current entry point creates a single-task session.
 - Once a batch session completes, the UI shows each member task's own verdict/feedback
   individually (never one aggregate status standing in for the group) and a link to the one
   shared batch report (`review-batch-<batchExecutionId>.md`).
-- **Context-capacity preflight (D26/D34).** This UI/its server route resolves
-  `traits.maxContextTokens` for the selected provider/model from the existing model catalog and
-  passes it as a plain integer into the `workflow batch start` call the agent makes — the
-  provider-neutral batch-start operation itself never imports the catalog. If the operation
-  rejects the batch with `BATCH_CONTEXT_TOO_LARGE` (before any member is activated, D34), the UI
-  surfaces this as a distinct, explicit failure (e.g. suggesting a smaller selection or a
-  different provider/model) — never a generic error, and never silently retried with truncated
-  context.
+- **Context-capacity snapshot/preflight (D26/D34/D38).** This UI/server route resolves
+  `traits.maxContextTokens` **before reservation** and freezes either
+  `known(maxContextTokens, source)` or `unknown(reason)` in the reservation's execution
+  snapshot. Batch-start later reads that durable snapshot; the model cannot change it. If known
+  capacity produces `BATCH_CONTEXT_TOO_LARGE`, surface a distinct actionable failure and keep
+  zero members activated. If capacity is unknown (valid for providers/models whose catalog lacks
+  the trait), show an explicit warning that hard capacity preflight was unavailable; do not invent
+  a number, block the batch solely for missing metadata, or silently truncate context.
 
 ## Constraints
 
@@ -67,8 +66,9 @@ current entry point creates a single-task session.
 
 ## Interfaces and boundaries
 
-Exposes: the "review individually"/"review together" choice, the resolved capacity figure passed
-into batch start, and the post-batch per-task verdict display. Consumes:
+Exposes: the "review individually"/"review together" choice, the frozen execution/capacity
+snapshot written with reservation, unknown-capacity warning, and post-batch per-task verdict
+display. Consumes:
 `batch-queue-reservation`'s compatibility check and reservation call, `execution-scope-model`'s
 scope (to create the batch session via `admitAgentExecution`),
 `batch-start-and-context-bootstrap`'s `BATCH_CONTEXT_TOO_LARGE` preflight result, `batch-report`'s

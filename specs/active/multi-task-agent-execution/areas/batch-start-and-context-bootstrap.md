@@ -46,27 +46,40 @@ prompt injected → **the agent's own first tool call is this operation**):
    never from the prompt text alone.
 2. **Validate the request** against the exact reserved `ExecutionScope` — no member outside the
    reservation, no missing member.
-3. **Re-verify every member is still compatible and ready** (re-running the same compatibility
-   check `batch-queue-reservation` used at selection time via `resolveIncomingExecution`, D20 —
-   state may have changed between reservation and start).
-4. **Non-mutating context-capacity preflight (D34)** — before any member's activation stage
-   begins: statically derive each member's prospective document/file set from already-approved
-   task state and the workflow definition (the same inputs `StepContext` resolution would use),
-   without calling the mutating step-activation primitive. Compute the prospective `BatchContext`
-   size and compare it against a capacity figure supplied by the caller as a plain integer (the
-   dashboard layer resolves `traits.maxContextTokens` for the selected provider/model and passes
-   it in — this operation never imports the model catalog or any dashboard AI module). If the
-   prospective size would exceed that figure, fail the whole operation with
-   `BATCH_CONTEXT_TOO_LARGE` here — **zero members are activated in this outcome**.
-5. **Persist the durable batch-start operation record (D28)** — only after steps 2–4 all
-   succeed, before the first member is activated:
+3. **Re-verify every member's underlying workflow readiness (D37)** — after trusted identity
+   has already proven this batch owns the reservation, use the base readiness evaluation from
+   `batch-queue-reservation`/`readiness-policy`: workflow position, dependencies, suspensions,
+   executor, prior-operation and worktree preconditions all still apply, but this batch's own
+   reservation is not treated as an external blocker. Ordinary barrier-aware readiness remains
+   false for these members. Re-run `resolveIncomingExecution` as part of compatibility; if any
+   underlying condition changed, fail before activation.
+4. **Non-mutating context-capacity preflight (D34/D38)** — never trust a model-authored capacity
+   argument. Read the immutable `executionConfigSnapshot.contextCapacity` from the reservation
+   after identity validation. Statically derive the canonical prospective **text** batch-bootstrap
+   payload from already-approved task state/workflow inputs, with deterministic ordering and LF
+   normalization, without calling the mutating activation primitive.
+   - For `status: "known"`, calculate
+     `estimatedContextTokensUpperBound = UTF8 byteLength(canonicalPayload)` as Nevo's
+     deliberately conservative v1 text estimate and compare it with the frozen
+     `maxContextTokens`. If the estimate exceeds the limit, fail with
+     `BATCH_CONTEXT_TOO_LARGE` **before any member activation**.
+   - For `status: "unknown"`, do not invent a limit and do not reject solely for missing
+     metadata. Record/return `capacityStatus: "unknown"` and continue; the dashboard surfaces
+     the warning.
+   Passing the known-capacity preflight is a safety filter, not a guarantee against later
+   provider/system-overhead rejection.
+5. **Persist the durable batch-start operation record (D28/D38)** — only after steps 2–4 all
+   succeed (or step 4 explicitly records unknown capacity), before the first member is activated:
    `.nevo-ai-local/batch-start/<changeSlug>/<batchExecutionId>.json` (exact path open), freezing
-   at minimum: `batchExecutionId`, `executionScope`, the canonical session id, each member's
-   target step, each member's attempt identity, whatever pre-activation state reconciliation
-   needs, and a per-member activation-stage field.
-6. **Activate every member's target step, sequentially, idempotently** — reusing the single-task
-   step-activation primitive per member, reconciling/persisting each member's stage into the
-   record above as it completes. Where a member's own step *does* declare
+   at minimum: `batchExecutionId`, `executionScope`, canonical session id, the reservation's
+   immutable `executionConfigSnapshot`, the preflight estimate/status, each member's target step
+   and attempt identity, reconciliation inputs, and a per-member activation-stage field.
+6. **Activate every member's target step, sequentially, idempotently (D37)** — the reservation
+   remains barriered; batch start does not clear or pretend away the barrier. Because trusted
+   batch ownership and base readiness were already proven, call the same internal single-task
+   `ensureStepActivated` primitive per exact reservation member, reconciling/persisting each
+   stage as it completes. Never invoke raw `workflow step start` N times and never expose a
+   generic barrier-bypass option. Where a member's own step *does* declare
    `consumesDependencies: true`, this composes with (never replaces or duplicates) that member's
    own `start-operation.mjs` semantics.
 7. **Resolve each member's authoritative deterministic `StepContext`** — the same shape a
@@ -79,12 +92,14 @@ prompt injected → **the agent's own first tool call is this operation**):
    each member's role-name-agnostic `predecessorSession` lineage (D25) via
    `execution-scope-model`'s `resolveIncomingExecution` — fail-closed to `null` on ambiguity,
    never guessing.
-9. **Record the post-bootstrap Git baseline (D29)** — after all activation (which already
-   mutated tracked `change.yaml`) completes, record `baseRevision = HEAD` and a deterministic
-   post-bootstrap tracked-state baseline (e.g. content hashes of every tracked file the bootstrap
-   touched) proving what the tree legitimately looks like right after bootstrap, before the
-   reviewer does anything. `batch-finish-operation` later checks against this, not against a
-   pre-activation assumption.
+9. **Record the complete post-bootstrap workspace baseline (D29/D39)** — after all activation
+   completes, freeze `baseRevision = HEAD` plus a deterministic path-sorted workspace-delta
+   fingerprint relative to that revision. It covers every repository-visible path outside
+   `.nevo-ai-local/**` whose index/worktree state differs from HEAD, including staged/unstaged
+   tracked changes/deletions and untracked files; each entry records status/mode and a content
+   hash when content exists. This captures Nevo's legitimate bootstrap dirt such as
+   `change.yaml` *and* makes unrelated later reviewer changes detectable. Finish recomputes the
+   same fingerprint excluding only the canonical report path.
 10. **Return the final `BatchContext`** to the reviewer session.
 
 **Idempotency and crash recovery for partial activation (D28).** Resume derives, per member,
@@ -97,8 +112,9 @@ batch half-activated indefinitely.
 
 ## Constraints
 
-- No `tools/specs/workflow/**` module this area adds imports `tools/dashboard/**` (C2) — the
-  capacity figure (D34) arrives as a plain number, never a catalog import.
+- No `tools/specs/workflow/**` module this area adds imports `tools/dashboard/**` (C2).
+  Capacity is consumed only through the provider-neutral frozen reservation snapshot (D38), never
+  a catalog import or model-supplied argument.
 - Reuses the single-task step-activation primitive per member — does not reimplement step
   activation from scratch.
 - Reuses `execution-scope-model`'s `resolveIncomingExecution` — does not re-derive transition
@@ -111,11 +127,11 @@ batch half-activated indefinitely.
 
 ## Interfaces and boundaries
 
-Exposes: the batch-start operation, the final `BatchContext`, `baseRevision` and the
-post-bootstrap tracked-state baseline. Consumes: `execution-scope-model`'s `ExecutionScope`/
-`resolveIncomingExecution`, `batch-queue-reservation`'s reservation/`batchExecutionId`/
-compatibility check/barrier, the existing single-task `StepContext` resolution and step-activation
-primitives, a caller-supplied capacity figure. Consumed by: `batch-report` (renders the final
+Exposes: the batch-start operation, the final `BatchContext`, `baseRevision` and the complete
+post-bootstrap workspace-delta fingerprint. Consumes: `execution-scope-model`'s
+`ExecutionScope`/`resolveIncomingExecution`, `batch-queue-reservation`'s reservation,
+`batchExecutionId`, frozen `executionConfigSnapshot`, base-readiness helper and barrier, plus
+the existing single-task `StepContext` resolution and internal step-activation primitive. Consumed by: `batch-report` (renders the final
 `BatchContext` into the report file — builds nothing), `multi-task-review-skill` (receives the
 returned `BatchContext`), `batch-finish-operation` (reads `baseRevision`/baseline).
 
@@ -126,18 +142,22 @@ returned `BatchContext`), `batch-finish-operation` (reads `baseRevision`/baselin
   resume, activates exactly B and C (not re-activating A) using the batch-start operation
   record's own state — never `start-operation.mjs`, which doesn't exist for this step — and one
   batch-start operation record reaches `completed`.
-- A `BatchContext` engineered to exceed a fixture provider's capacity figure fails with
-  `BATCH_CONTEXT_TOO_LARGE` **before any member shows an activation stage in the durable
-  record** — proven directly (zero members activated), not merely a returned error after the
-  fact.
+- With a frozen **known** capacity, a canonical prospective payload whose conservative estimate
+  exceeds `maxContextTokens` fails with `BATCH_CONTEXT_TOO_LARGE` before any activation stage.
+  With frozen `capacityStatus: unknown`, no limit is fabricated: bootstrap proceeds and returns
+  the explicit warning/status. A caller/model-supplied larger number cannot override either
+  snapshot.
 - The reviewer session's own work requires zero independent `workflow step start` calls.
-- A member that fails re-verification at step 3 causes the whole bootstrap to fail with zero
-  members activated.
+- A member that fails **base** re-verification at step 3 causes the whole bootstrap to fail with
+  zero members activated. A member that is otherwise ready but ordinary-readiness-blocked only by
+  this batch's own reservation remains eligible for this authenticated bootstrap. A different
+  batch id or an out-of-scope task is rejected before mutation.
 - The final `BatchContext` returned to the reviewer already contains `crossTask` overlap findings
   and per-member `predecessorSession` lineage — no separate task call is needed to complete it.
-- `baseRevision` and the post-bootstrap baseline recorded after activation match the tree's real
-  post-bootstrap state, provable directly — and are recorded *after*, not before, `change.yaml`'s
-  bootstrap mutation.
+- `baseRevision` and the complete workspace-delta fingerprint recorded after activation match
+  the real post-bootstrap state. A later mutation to any unrelated tracked file **or creation of
+  an untracked repository-visible source/doc file** changes that fingerprint; unchanged bootstrap
+  `change.yaml` does not.
 - Existing single-task `workflow step start` behavior, and `start-operation.mjs`'s own
   `consumesDependencies`-gated behavior, are unchanged.
 

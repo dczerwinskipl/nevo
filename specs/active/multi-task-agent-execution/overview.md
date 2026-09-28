@@ -19,8 +19,8 @@ Deterministic execution is single-task scoped end to end today. When several tas
 change are ready for review, the only available flow is one review session per task, repeating
 the same shared architectural context/files each time and making cross-task consistency checks
 harder than they need to be. See `owner-decisions.md` for the full option analysis and the
-decisions recorded below (D1–D36; D14–D27 and D28–D36 close implementation-readiness gaps two
-successive corrective reviews found in earlier text — see each one's own "extends/corrects" note).
+decisions recorded below (D1–D40; D14–D27, D28–D36, and D37–D40 close implementation-readiness
+gaps found by successive corrective reviews — see each one's own "extends/corrects" note).
 
 ## Current architecture
 
@@ -102,7 +102,7 @@ once without silently faking it (`activeTaskId = first task` while secretly touc
 `tools/dashboard/server/ai/orchestration/{admission,reconciliation}.mjs` (D16/D35: gains
 batch-aware Hook1 observation and ordered claim/barrier release), `tools/dashboard/server/ai/sessions/turns/**`
 (D33: canonical `admitAgentExecution` entry for a batch session, batch-aware bootstrap),
-`tools/specs/workflow/{workspace-writer,queue/**,step-runner,human-step/operations,execution-readiness,step-context}.mjs`
+`tools/specs/workflow/{workspace-writer,queue/**,cli,readiness-policy,human-step/operations,step-context}.mjs`
 (new: `execution-scope.mjs`, `resolve-incoming-execution.mjs`, `batch-start/**`, `batch-finish/**`,
 `context/batch-context.mjs`; D31: `queue/**` gains the barrier-check primitive consulted from
 `step-runner.mjs`/human-step operations/execution-readiness), `tools/specs/reviews/batch-report.mjs`
@@ -124,7 +124,7 @@ for *why*, this document is the source of truth for *what*.
 
 ## Owner decisions
 
-See `owner-decisions.md`, D1–D36. Recorded 2026-09-27/28.
+See `owner-decisions.md`, D1–D40. Recorded 2026-09-27/28.
 
 ## Proposed architecture
 
@@ -157,21 +157,24 @@ within an area):
    D20's resolver), generation of the canonical `batchExecutionId` (D18), durable reservation of
    the exact group so the sequential queue never dispatches a reserved item elsewhere,
    scope-aware crash recovery and synchronous rollback on admission failure (D19). **Also the
-   canonical action barrier (D31)**: exposes `isTaskBarriered(change, taskId)` from
-   workflow-core, wired into `ExecutionReadiness`, `workflow step start`,
-   `activateAndSubmitHumanStep`, and queue dispatch itself — never enforced only at the
-   dashboard/projection layer.
+   canonical action barrier (D31/D37)**: exposes `isTaskBarriered(change, taskId)` from
+   workflow-core. Ordinary `ExecutionReadiness`, raw `workflow step start`, direct human
+   submission, and queue dispatch reject barriered members, while the authenticated owning
+   `workflow batch start` reuses a separate base-readiness evaluation after proving exact
+   reservation ownership — no generic barrier-bypass flag. The reservation also freezes the
+   selected execution configuration/capacity snapshot before the provider turn (D38).
 3. **`batch-start-and-context-bootstrap`** — the batch-equivalent of `workflow step start`,
    agent-invoked as its own first required action after admission (D33), never triggered by
    admission itself. Persists its own durable batch-start operation record before any activation
    (D28, since `start-operation.mjs` doesn't apply to a non-`consumesDependencies` step like
-   `review`). Runs a non-mutating capacity-preflight planning phase **before** any member is
-   activated (D34) — a `BATCH_CONTEXT_TOO_LARGE` result leaves zero members active. Activates
-   every member idempotently, resolves each member's authoritative deterministic `StepContext`,
-   and is the **one task that owns the full, final `BatchContext`** (D32) — dedup, `crossTask`
-   overlap attribution, and per-member `predecessorSession` lineage (D25) are all built here, not
-   in a later, unwired task. Records the post-bootstrap Git baseline (D29) the finish operation
-   later checks.
+   `review`). Re-validates members through base readiness after trusted batch ownership is
+   proven (D37), then runs a non-mutating capacity-preflight planning phase **before** activation
+   using the immutable reservation snapshot (D38). A known-capacity
+   `BATCH_CONTEXT_TOO_LARGE` result leaves zero members active; unknown capacity remains explicit
+   and does not fabricate a limit. It activates every member idempotently, resolves each member's
+   authoritative deterministic `StepContext`, and is the **one task that owns the full, final
+   `BatchContext`** (D32). After bootstrap it freezes the complete repository-visible workspace
+   delta relative to `baseRevision` (D39), which finish later checks.
 4. **`batch-finish-operation`** — the durable batch-finish saga (D3, corrected by D21/D30): pure
    in-memory prevalidation of every task's result and Git provenance before any durable write of
    its own (D34's precise wording: an already-existing, uncommitted report file is not itself a
@@ -187,10 +190,11 @@ within an area):
    report file. It builds nothing; it consumes and writes.
 6. **`batch-completion-orchestration`** — the dashboard-orchestration counterpart to
    `batch-finish-operation` (D16): batch-aware Hook1 terminal-settlement observation, detecting
-   batch completion from the durable finish record, then the exact ordering D35 defines — release
-   the workspace-writer claim, clear the `activeExecutions` batch record, atomically release the
-   barrier/reservation (D31), only then dispatch every affected member's next action (including
-   an immediate fresh refiner for a failing member).
+   batch completion from the durable finish record, then executes D35's ordering as the
+   crash-resumable staged settlement defined by D40: release the workspace-writer claim, clear the
+   batch's `activeExecutions` record, atomically release its barrier/reservation, and only then
+   dispatch every affected member's next action. Every stage is idempotently reconciled after a
+   crash; dispatch cannot run until the three release preconditions are authoritatively true.
 7. **`multi-task-review-skill`** — the `multi-task-review` skill defining reviewer behavior
    (read the final `BatchContext` area 3 provides once, review each task independently,
    cross-task consistency check, produce structured per-task outcomes + cross-task findings,
@@ -199,11 +203,12 @@ within an area):
    control-plane check (D27) — provider tool sandboxing is optional defense-in-depth only.
 8. **`dashboard-batch-review-ux`** — the minimal interaction semantics: task picker offering
    "review individually" vs. "review together" for a compatible set, then the canonical admission
-   sequence (D33): reserve → `admitAgentExecution` → create session/bindings → start turn → inject
-   batch bootstrap prompt → agent calls `workflow batch start` itself. Resolves and passes the
-   provider/model's context-capacity figure for D34's preflight, surfaces `BATCH_CONTEXT_TOO_LARGE`
-   distinctly, and surfaces per-task verdicts plus the shared report link once the barrier
-   releases.
+   sequence (D33/D38): choose provider/model/mode → atomically reserve the compatible set while
+   freezing that execution configuration and its known/unknown capacity snapshot → admit → create
+   session/bindings → start turn → inject the batch bootstrap prompt → agent calls
+   `workflow batch start` itself. Capacity is never supplied by model-authored arguments; an
+   unknown capacity is surfaced as an explicit warning, while known over-capacity failures surface
+   `BATCH_CONTEXT_TOO_LARGE`. Per-task verdicts and the shared report appear after settlement.
 
 A compatible review batch requires every member task to share: the same specification/change (`spec_id` /
 `slug`), all currently eligible per `ExecutionReadiness`, the same target workflow step (e.g. `review`),
@@ -243,12 +248,12 @@ batch-start operation record, `BatchContext`, report, finish record) carries the
 - A batch review produces N independent per-task results (verdict, feedback, workflow
   transition, history entry, lineage reference) — never one aggregate verdict standing in for the
   group.
-- **Barrier invariant (D17/D31), stated precisely — not overclaimed:** a batch member's own
-  `workflow_progress` state may become observable as its individual mutation lands, but no
-  downstream action — automatic agent continuation, sequential queue dispatch, human-interaction
-  submission (direct domain call or raw CLI), or `workflow step start` itself — is executable for
-  any batch member until the whole batch-finish record reaches `completed`. Enforced at
-  workflow-core mutation boundaries, not only dashboard projection.
+- **Barrier invariant (D17/D31/D37), stated precisely — not overclaimed:** a reservation blocks
+  ordinary/sibling action on every member — automatic continuation, sequential dispatch, direct
+  human submission, and raw/single-task `workflow step start`. The one scoped exception is the
+  owning authenticated `workflow batch start`, whose purpose is to bootstrap those reserved
+  members and which may use base readiness only after exact ambient identity/scope/reservation
+  proof. There is no generic bypass flag.
 - **Zero-durable-write invariant (D21/D34), stated precisely:** before batch-finish
   prevalidation succeeds, the batch-finish operation performs zero control-plane/workflow-state
   durable mutation of its own — no batch-finish record, no `change.yaml` mutation from finish, no
@@ -260,13 +265,19 @@ batch-start operation record, `BatchContext`, report, finish record) carries the
   workspace-writer claim is released (D35).
 - The batch reviewer session performs no Git commits of its own (D22); the batch-finish operation
   owns the one report commit, staged with an explicit report-path-only include (D30).
-- The batch reviewer session makes no write to any source path during v1 — enforced by
-  `batch-finish-operation`'s mandatory control-plane post-condition check (D27); provider tool
-  sandboxing, where available, is optional defense-in-depth only.
+- The batch reviewer session makes no repository-visible write during v1 except the canonical
+  report. Enforcement compares the complete current workspace delta (tracked, staged/unstaged,
+  and untracked, excluding `.nevo-ai-local/**` and the report) with the frozen post-bootstrap
+  fingerprint (D27/D39); provider tool sandboxing remains optional defense-in-depth only.
 - A batch-finish call is authorized only when trusted ambient session identity, workspace claim,
   `executionScope`, `batchExecutionId`, and reservation all agree (D23) — never by trusting a bare
   CLI/API argument.
-- A `BATCH_CONTEXT_TOO_LARGE` result leaves zero members activated (D34).
+- For a frozen **known** capacity, `BATCH_CONTEXT_TOO_LARGE` leaves zero members activated.
+  Unknown capacity remains explicit, never guessed, and proceeds with a warning rather than a
+  fabricated hard limit (D34/D38).
+- Completion settlement is restart-safe after every D35 release stage; continuation dispatch is
+  impossible until claim release, `activeExecutions` clear, and reservation release are all
+  authoritatively proven (D40).
 - No `tools/specs/workflow/**` module this change adds imports `tools/dashboard/**` (C2); no
   workflow-core module needs to.
 - `node tools/specs.mjs validate` passes with the new manifest/task shapes.

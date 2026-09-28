@@ -18,13 +18,16 @@ allowed_paths:
   - tools/tests/workflow-step-runner.test.mjs
   - tools/tests/workflow-step-context.test.mjs
 forbidden_paths:
-  - tools/dashboard/**
+  - tools/dashboard/ui/**
+  - tools/dashboard/server/ai/providers/**
+  - tools/dashboard/server/ai/orchestration/**
+  - tools/dashboard/server/ai/sessions/turns/**
   - tools/specs/batch/**
   - tools/specs/workflow/start-operation.mjs
   - src/**
 depends_on: [ execution-scope-model, batch-queue-reservation ]
 semantic_references:
-  decisions: [D8, D11, D14, D15, D20, D22, D25, D26, D28, D29, D32, D33, D34]
+  decisions: [D8, D11, D14, D15, D20, D22, D25, D26, D28, D29, D32, D33, D34, D37, D38, D39]
   constraints: [C1, C2, C5]
   dependency_contracts: [execution-scope-model, batch-queue-reservation]
 ---
@@ -58,17 +61,19 @@ inside).
   the reservation's `batchExecutionId`/`ExecutionScope` before doing anything else. The
   `batchExecutionId` the bootstrap prompt carried is protocol context only — this task always
   re-derives/validates scope from the durable reservation/session, never trusts the prompt text.
-- **Validate all before activating any**: re-verify every member's compatibility/readiness via
-  `resolveIncomingExecution`; if any member fails re-verification, fail the whole bootstrap before
-  any member is activated.
-- **Context-capacity preflight runs before activation, not after (D34) — do not build this in the
-  order "activate members, then discover context is too large."** Statically derive each member's
-  prospective document/file set from already-approved task state and the workflow definition (the
-  same inputs `StepContext` resolution would use) without calling the mutating activation
-  primitive. Compare the prospective `BatchContext` size against a capacity figure the caller
-  supplies as a plain integer (never import the model catalog or any dashboard AI module here —
-  `dashboard-batch-review-ux`, a later task, resolves `traits.maxContextTokens` and passes the
-  number in). On excess, fail with `BATCH_CONTEXT_TOO_LARGE` — zero members activated.
+- **Validate all before activating any (D37)**: after trusted batch identity is proven, re-check
+  every member with the base readiness helper plus `resolveIncomingExecution`. The owning
+  reservation itself is not treated as an external blocker, while dependencies/suspensions/
+  executor/prior-operation/worktree rules still are. Ordinary readiness remains barriered for all
+  other callers. Any underlying incompatibility fails the whole bootstrap before activation.
+- **Context-capacity preflight runs before activation (D34/D38)**. Never accept capacity from the
+  agent/tool-call payload. Read the immutable known/unknown capacity snapshot from the reservation.
+  Canonically serialize the prospective text bootstrap payload (stable ordering, LF normalization)
+  and use `UTF8 byteLength` as the deterministic conservative v1
+  `estimatedContextTokensUpperBound`. If frozen capacity is known and the estimate exceeds
+  `maxContextTokens`, return `BATCH_CONTEXT_TOO_LARGE` with zero activation. If capacity is
+  unknown, persist/return that fact and continue without inventing a number. Do not import the
+  dashboard model catalog here.
 - **Durable batch-start operation record, not `start-operation.mjs` (D28).** After validation and
   the capacity preflight both succeed, and before the first member is activated, persist
   `.nevo-ai-local/batch-start/<changeSlug>/<batchExecutionId>.json` (exact path/name may be
@@ -79,8 +84,11 @@ inside).
   `start-operation.mjs`** (see `forbidden_paths`); where a member's own step *does* declare
   `consumesDependencies: true`, compose with that member's existing record by reference, never by
   duplicating its fields.
-- **Idempotent partial-activation recovery**: activate members sequentially, reconciling/
-  persisting each member's stage into the durable batch-start record as it completes. Resume
+- **Idempotent partial-activation recovery (D37)**: the reservation remains barriered throughout.
+  After base-readiness and exact reservation ownership are proven, activate members sequentially
+  through the existing internal `ensureStepActivated` primitive — never raw `workflow step
+  start` and never a generic bypass flag — reconciling/persisting each member stage as it
+  completes. Resume
   derives, per member, whether activation *definitely happened*, *definitely did not happen*, or
   is *ambiguous/recovery-required*, from this record plus authoritative current workflow state —
   never a second activation attempt, never a silent loop over a non-resumable mutation.
@@ -97,11 +105,12 @@ inside).
   `parentSessionId: null` on the batch session — this task, not a later one, is where that field
   is set, since lineage resolution happens here (D32). Cross-task findings carry explicit
   `affectedTaskIds: string[]` (D11).
-- **Post-bootstrap Git baseline (D29)** — after activation completes (which has already, and
-  legitimately, dirtied tracked `change.yaml`), record `baseRevision = HEAD` and a deterministic
-  post-bootstrap tracked-state baseline (e.g. per-file content hashes) proving what the tree looks
-  like right after bootstrap. Do **not** record `baseRevision` before activation — that ordering
-  is exactly what made the original D22 provenance check impossible to satisfy.
+- **Post-bootstrap workspace baseline (D29/D39)** — after activation completes, record
+  `baseRevision = HEAD` and the complete path-sorted repository-visible workspace-delta
+  fingerprint relative to HEAD, excluding `.nevo-ai-local/**`. Include staged/unstaged tracked
+  modifications/deletions and untracked files, with status/mode and content hash where applicable.
+  Do **not** record it before activation. Finish later requires exact equality after excluding only
+  the canonical report path.
 - This neighborhood (`step-runner.mjs`, `cli.mjs`, `start-operation.mjs`) is active ground (C5) —
   re-verify current file contents before editing.
 
@@ -113,9 +122,10 @@ inside).
   operation record — proven that no read/write of `start-operation.mjs`'s own record family
   occurs for this fixture — and one batch-start operation record reaches `completed`.
   `automated: node --test tools/tests/batch-start-crash-recovery.test.mjs`
-- A `BatchContext` engineered to exceed a fixture capacity figure fails with
-  `BATCH_CONTEXT_TOO_LARGE` with **zero members showing any activation stage** in the durable
-  record — proven directly, not merely that an error was returned.
+- With a frozen known capacity, an over-budget canonical payload fails with
+  `BATCH_CONTEXT_TOO_LARGE` and **zero members showing any activation stage**. With frozen
+  unknown capacity, no number is guessed and the explicit unknown status is returned; a
+  model-authored capacity argument cannot alter either case.
   `automated: node --test tools/tests/batch-context-capacity-preflight.test.mjs`
 - The returned `BatchContext` already contains `crossTask` overlap findings and per-member
   `predecessorSession` lineage — no further call is needed to complete it.
@@ -127,11 +137,15 @@ inside).
 - The reviewer's own work requires zero independent `workflow step start` calls — proven by a
   fixture that fails the test if more than one activation call site is exercised.
   `automated: node --test tools/tests/batch-start-and-context-bootstrap.test.mjs`
-- A member that fails re-verification causes the whole bootstrap to fail with zero members
-  activated. `automated: node --test tools/tests/batch-start-and-context-bootstrap.test.mjs`
-- `baseRevision` and the post-bootstrap tracked-state baseline are recorded **after** activation
-  completes, matching the tree's real state at that point — proven directly, not merely that some
-  baseline exists. `automated: node --test tools/tests/batch-start-and-context-bootstrap.test.mjs`
+- A member that fails underlying/base re-verification causes whole-bootstrap failure with zero
+  activation. Conversely A/B/C that are blocked **only** by their own reservation can be
+  activated by authenticated batch X; raw single-task start, batch Y, and task D outside X are
+  rejected.
+  `automated: node --test tools/tests/batch-start-and-context-bootstrap.test.mjs`
+- `baseRevision` and the complete post-bootstrap workspace-delta fingerprint are recorded
+  **after** activation and match the real state. Mutating an unrelated tracked file or creating an
+  unrelated untracked source file changes the recomputed fingerprint.
+  `automated: node --test tools/tests/batch-start-and-context-bootstrap.test.mjs`
 - A batch-start call whose trusted identity doesn't match the reservation's
   `batchExecutionId`/`ExecutionScope` is rejected before any member is touched.
   `automated: node --test tools/tests/batch-start-and-context-bootstrap.test.mjs`
@@ -155,5 +169,5 @@ of `start-operation.mjs` — in the same branch.
 ## Out of scope
 
 Rendering the report (`batch-report` — this task builds `BatchContext`, it does not write
-Markdown). The batch-finish operation. Continuation dispatch. Any UI, including resolving
-`traits.maxContextTokens` itself (this task only receives the resulting number).
+Markdown). The batch-finish operation. Continuation dispatch. Any UI or model-catalog resolution; this task consumes only the frozen provider-neutral
+known/unknown capacity snapshot from the reservation.

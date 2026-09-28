@@ -862,3 +862,127 @@
 - **Date:** 2026-09-28
 - **Affected artifacts:** `areas/execution-scope-model.md`, `areas/batch-queue-reservation.md`,
   `areas/batch-start-and-context-bootstrap.md`, `areas/batch-finish-operation.md`
+
+
+## D37: The batch reservation blocks ordinary callers, not its own authenticated batch-start
+
+- **Question:** D31 makes the reservation an action barrier and says a barriered member is not
+  ready for ordinary execution. D33 then requires the already-admitted reviewer to call
+  `workflow batch start`, which must re-check readiness and activate those same reserved
+  members. Does the barrier therefore block its own batch?
+- **Decision:** No. The readiness contract is split into two layers. A provider-neutral
+  **base execution-readiness** evaluation owns workflow position, dependencies, suspensions,
+  executor, prior-operation and clean-worktree preconditions, but does not interpret a batch
+  reservation as an external blocker. The existing ordinary `ExecutionReadiness` surface wraps
+  that base evaluation and additionally rejects any task for which `isTaskBarriered` is true.
+  Raw/single-task `workflow step start`, direct human submission and queue dispatch continue to
+  use the barrier-aware ordinary surface and remain blocked. `workflow batch start` is the only
+  bootstrap path allowed to use base readiness for reserved members, and only **after** it has
+  validated trusted ambient session identity, the live workspace claim, `batchExecutionId`,
+  `ExecutionScope`, and exact reservation membership. It then invokes the same internal
+  step-activation primitive ordinary step start uses; it does not invoke the ordinary
+  barrier-aware CLI command N times.
+- **No generic bypass:** there is no caller-supplied `ignoreBarrier`, `force`, or boolean escape
+  hatch. The exception is structural: the authenticated batch-start operation owns exactly the
+  reservation it is bootstrapping. It cannot activate a task outside that reservation, and batch
+  Y cannot use batch X's reservation.
+- **Boundary correction:** the public raw `workflow step start` entry point is
+  `tools/specs/workflow/cli.mjs`; readiness lives in `readiness-policy.mjs`; the reusable
+  mutation primitive is `ensureStepActivated()` in `step-context.mjs`. `step-runner.mjs`
+  is not the public activation boundary and must not be named as if it were.
+- **Rationale:** A barrier must prevent a second execution from stealing or advancing a batch
+  member, not prevent the execution that owns the reservation from performing its required
+  bootstrap.
+- **Date:** 2026-09-28
+- **Affected artifacts:** `areas/batch-queue-reservation.md`,
+  `areas/batch-start-and-context-bootstrap.md`, `tasks/02-batch-queue-reservation.md`,
+  `tasks/03-batch-start-and-context-bootstrap.md`, `overview.md`
+
+## D38: Execution configuration and context capacity are frozen in the reservation before the turn
+
+- **Question:** D34 says dashboard code passes `maxContextTokens` into the later
+  agent-authored `workflow batch start` call. But D33 says the dashboard does not make that
+  call; the model does, after the provider turn has already started. Also, Claude/Antigravity
+  model catalogs can legitimately have no authoritative `maxContextTokens`. What is the
+  trusted data flow?
+- **Decision:** Provider/model/mode selection happens before the reservation write. The atomic
+  reservation freezes an immutable `executionConfigSnapshot` containing the selected provider,
+  model and mode plus a context-capacity snapshot:
+  - `{ status: "known", maxContextTokens, source }` when the selected model descriptor carries
+    an authoritative/configured numeric value;
+  - `{ status: "unknown", reason }` when the catalog does not know it.
+  The later batch session/admission must agree with this frozen configuration. The batch bootstrap
+  prompt carries only protocol context such as `batchExecutionId`; model-generated arguments
+  cannot supply or enlarge the capacity. `workflow batch start` reads the snapshot from the
+  durable reservation after trusted-identity validation.
+- **Known-capacity preflight:** the non-mutating planner constructs the canonical prospective
+  **text** batch-bootstrap payload using deterministic ordering and LF normalization. V1 uses
+  `UTF8 byteLength(canonicalPayload)` as a deliberately conservative
+  `estimatedContextTokensUpperBound` (one input token cannot represent less than one byte of
+  that text payload). This is a Nevo safety estimate, not fabricated provider metadata and not a
+  claim to reproduce the provider tokenizer. If that upper bound exceeds frozen
+  `maxContextTokens`, fail with `BATCH_CONTEXT_TOO_LARGE` before any member activation.
+  Passing this preflight is not a promise that provider/system overhead can never cause a later
+  provider rejection.
+- **Unknown-capacity policy:** do not invent a number and do not reject the batch solely because
+  the trait is unknown. Persist/return `capacityStatus: "unknown"`, continue bootstrap, and
+  surface an explicit UI warning that hard capacity preflight was unavailable. Therefore
+  `BATCH_CONTEXT_TOO_LARGE` is produced only from a frozen known capacity.
+- **Rationale:** The execution/model choice is owner-controlled configuration and must be frozen
+  before model execution; the model itself cannot be trusted to declare its own budget. Unknown
+  provider metadata must remain unknown rather than becoming guessed facts.
+- **Date:** 2026-09-28
+- **Affected artifacts:** `areas/batch-queue-reservation.md`,
+  `areas/batch-start-and-context-bootstrap.md`, `areas/dashboard-batch-review-ux.md`,
+  `tasks/02-batch-queue-reservation.md`, `tasks/03-batch-start-and-context-bootstrap.md`,
+  `tasks/08-dashboard-batch-review-ux.md`, `overview.md`
+
+## D39: Post-bootstrap provenance freezes the complete repository-visible workspace delta
+
+- **Question:** D29 suggested hashes of files the bootstrap touched. That proves bootstrap-owned
+  files such as `change.yaml` did not change again, but does not prove the reviewer did not edit
+  an unrelated tracked file or create an untracked source file. What must the baseline cover?
+- **Decision:** After activation completes, batch start freezes `baseRevision = HEAD` plus an
+  exact, deterministic **post-bootstrap workspace-delta fingerprint** relative to that revision.
+  The fingerprint covers every repository-visible path outside `.nevo-ai-local/**` whose
+  working-tree/index state differs from `baseRevision`, including staged/unstaged tracked
+  modifications/deletions and untracked files. Entries are path-sorted and include status/mode
+  plus a content hash where content exists. At finish prevalidation, with
+  `HEAD == baseRevision`, recompute the same fingerprint while excluding only the one canonical
+  batch report path; it must equal the frozen post-bootstrap fingerprint exactly. The report is
+  the only reviewer-created repository-visible delta permitted.
+- **Rationale:** Read-only means the reviewer changed no source/repository artifact, not merely
+  that files Nevo itself touched still have the right hash. Comparing the complete delta also
+  detects an unrelated modified documentation file or newly-created untracked source file.
+- **Consequences:** D29's "tracked files bootstrap touched" example is superseded by this complete
+  workspace-delta representation. D30's report-only staging contract is unchanged.
+- **Date:** 2026-09-28
+- **Affected artifacts:** `areas/batch-start-and-context-bootstrap.md`,
+  `areas/batch-finish-operation.md`, `areas/multi-task-review-skill.md`,
+  `tasks/03-batch-start-and-context-bootstrap.md`, `tasks/04-batch-finish-operation.md`,
+  `tasks/07-multi-task-review-skill.md`, `overview.md`
+
+## D40: Batch completion is an idempotent staged settlement, not an atomic cross-store action
+
+- **Question:** D35 defines claim release → `activeExecutions` clear → reservation release →
+  dispatch, while the task text also says the sequence is "never partially applied." Those effects
+  live in different durable/in-memory stores and cannot be one atomic transaction. What happens
+  when the process crashes between them?
+- **Decision:** Keep D35's ordering but implement it as a durable, idempotent completion-settlement
+  saga keyed by `batchExecutionId` (for example
+  `.nevo-ai-local/batch-completion/<change>/<batchExecutionId>.json`). Its ordered stages are:
+  `claim-release`, `active-execution-clear`, `reservation-release`, per-member
+  `continuation-dispatch`, then `completed`. On resume, each stage first derives authoritative
+  current state; an effect that landed before its stage marker is treated as satisfied and is not
+  blindly repeated. A different current owner/execution is never cleared as if it belonged to
+  this batch.
+- **Dispatch safety:** dispatch is illegal until authoritative checks prove the batch claim is
+  gone, its `activeExecutions` entry is gone, and its reservation/barrier is released. Each
+  member reuses the existing idempotent single-task continuation/admission mechanism. If a crash
+  occurs after dispatch but before the settlement marker, reconciliation derives the already
+  created/admitted continuation and records the stage rather than creating a duplicate.
+- **Rationale:** Crash-safe partial progress is expected in a saga. Pretending the cross-store
+  sequence is atomic would make the recovery contract impossible to implement honestly.
+- **Date:** 2026-09-28
+- **Affected artifacts:** `areas/batch-completion-orchestration.md`,
+  `tasks/06-batch-completion-orchestration.md`, `overview.md`

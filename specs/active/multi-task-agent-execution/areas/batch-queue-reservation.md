@@ -8,8 +8,10 @@ removal/completion, and crash recovery — without changing ordinary single-item
 every other queue item. **Also the canonical action barrier (D31, D36)**: the same durable
 reservation record *is* the barrier state — this area exposes `isTaskBarriered(change, taskId)`
 as a provider-neutral workflow-core primitive and wires the check into the real mutation/
-readiness boundaries (`ExecutionReadiness`, `workflow step start`, `activateAndSubmitHumanStep`,
-queue dispatch itself), not only into dashboard projection.
+readiness boundaries (ordinary `ExecutionReadiness`, raw `workflow step start`,
+`activateAndSubmitHumanStep`, queue dispatch itself), not only into dashboard projection. D37
+also separates base readiness from this ordinary barrier-aware surface so the authenticated batch
+that owns the reservation can bootstrap its own members without a generic bypass.
 
 ## Current state
 
@@ -50,13 +52,18 @@ queue dispatch itself), not only into dashboard projection.
   batch-finish record). `ExecutionScope` remains the separate, canonical *membership* source
   (D2), cross-checked against this reservation's own `taskIds` rather than trusted independently
   (D36); `batchExecutionId` never doubles as a second scope authority.
-- A **durable reservation** record (extends the existing queue store —
-  `.nevo-ai-local/task-queues/<changeSlug>.json` — with a `groupReservations` list:
-  `{batchExecutionId, taskIds, status: "reserved"|"released", createdAt}` — the identity field is
-  `batchExecutionId`, not a separate `reservationId`) marks the exact grouped items as consumed by
-  one pending/active `task-batch` execution. While reserved, none of the group's member items are
-  offered as `nextRunnable` to any other candidate — but every non-member eligible item continues
-  to be selected normally; a batch reservation never pauses the whole queue.
+- A **durable reservation** record extends the existing queue store
+  (`.nevo-ai-local/task-queues/<changeSlug>.json`) with a `groupReservations` list. Each
+  reservation stores
+  `{batchExecutionId, taskIds, status: "reserved"|"released", createdAt, executionConfigSnapshot}`;
+  the identity field is `batchExecutionId`, not a separate `reservationId`. Per D38,
+  `executionConfigSnapshot` is frozen in the same atomic reservation write and contains the
+  selected provider/model/mode plus
+  `contextCapacity: {status:"known", maxContextTokens, source} | {status:"unknown", reason}`.
+  Provider/model/mode are selected before reservation; later admission/session creation must agree
+  with this snapshot. While reserved, none of the group's member items are offered as
+  `nextRunnable` to any other candidate — but every non-member eligible item continues to be
+  selected normally; a batch reservation never pauses the whole queue.
 - Reservation lifecycle:
   - **Selection**: the batch-selection function validates compatibility.
   - **Reservation**: an atomic write (same critical-section convention the workspace-control lock
@@ -76,24 +83,28 @@ queue dispatch itself), not only into dashboard projection.
     arbitrary member task as a representative (the existing `assessExecutionSettlement({ taskId })`
     is singular and must not be reused as-is for a batch). Never silently dropped, never
     force-cleared without proof of settlement.
-- **Action barrier enforcement at real mutation boundaries (D31).** While a reservation is
-  active (from reservation through to explicit release by `batch-completion-orchestration`,
-  D35), `isTaskBarriered(change, taskId)` returns true for every member task. This function is
-  exported from this area's own workflow-core module (alongside the reservation itself, no
-  separate `batch-barrier.mjs` file) and is consulted — as an explicit guard, not an incidental
-  side effect — at:
-  1. `ExecutionReadiness`/`assertExecutionReadiness` (a barriered task is never reported ready);
-  2. `workflow step start` (rejects outright for a barriered task, even via direct/raw CLI
-     invocation, not only through dashboard-mediated dispatch);
-  3. `activateAndSubmitHumanStep` (rejects a barriered task's human submission, whether invoked
-     through the dashboard, a direct domain call, or the raw CLI);
-  4. the queue evaluator's own dispatch (already naturally covered — a barriered/reserved item is
-     never `nextRunnable` — confirmed as the same mechanism, not a second one).
-  Dashboard reconciliation and action projection may additionally read `isTaskBarriered` to
-  surface barrier state in the UI, but they are never the correctness boundary — the four checks
-  above are.
-- **Execution policy resolution for the batch (D12)**:
-  - Provider and mode are selected once for the entire batch execution, not per task.
+- **Action barrier enforcement at real boundaries (D31/D37).** While a reservation is active,
+  `isTaskBarriered(change, taskId)` stays true for every member — including while its owning
+  batch-start runs. Readiness is explicitly split:
+  - `evaluateBaseExecutionReadiness` (name illustrative) evaluates workflow position,
+    dependencies, suspensions, executor, prior-operation and clean-worktree preconditions without
+    interpreting the reservation as an external blocker;
+  - ordinary `evaluateExecutionReadiness`/`assertExecutionReadiness` composes that base result
+    with `isTaskBarriered` and therefore reports a reserved member as not ready.
+  The barrier-aware ordinary surface is used by queue eligibility and every normal execution path.
+  The actual public guards are:
+  1. `tools/specs/workflow/cli.mjs`'s raw/single-task `workflow step start` handler;
+  2. `activateAndSubmitHumanStep`/human execution operations;
+  3. queue dispatch/readiness itself.
+  `step-runner.mjs` is not an activation entry point. The authenticated `workflow batch start`
+  path is different: after it proves trusted ambient session/claim/scope/`batchExecutionId` and
+  exact reservation membership, it may call base readiness for exactly those members and then the
+  existing internal `ensureStepActivated` primitive. No generic `ignoreBarrier`/force option is
+  exported. Dashboard reconciliation/action projection may surface barrier state, but they are
+  never the correctness boundary.
+- **Execution policy resolution for the batch (D12/D38)**:
+  - Provider, model, and mode are selected once for the entire batch execution, before reservation,
+    and frozen in `executionConfigSnapshot`; they are not resolved independently per task.
   - If individual member tasks have conflicting task-level overrides in `executionPolicy`:
     - The system must detect and surface the override conflict;
     - The user must explicitly choose the execution configuration for the batch (or specify a one-off override), rather than silently inheriting the first task's override.
@@ -108,14 +119,16 @@ queue dispatch itself), not only into dashboard projection.
   dashboard code also calls it.
 - No concurrency: a reservation still yields exactly one eventual `task-batch` execution, never
   parallel dispatch of the group's members.
-- `isTaskBarriered` is queried, never mutated, by `ExecutionReadiness`/`workflow step start`/
-  `activateAndSubmitHumanStep` — this area owns the one write path (reservation create/release),
-  those call sites only read.
+- `isTaskBarriered` is queried, never mutated, by ordinary readiness/raw step-start/human
+  operations. This area owns reservation create/release and the base-vs-ordinary readiness
+  composition contract; batch-start consumes the base helper only after its own trusted
+  authorization (D37).
 
 ## Interfaces and boundaries
 
-Exposes: the batch-selection function, the reservation read/write/release functions,
-`isTaskBarriered(change, taskId)`. Consumed by: `dashboard-batch-review-ux` (offers compatible
+Exposes: the batch-selection function, reservation read/write/release functions (including the
+frozen `executionConfigSnapshot`), `isTaskBarriered(change, taskId)`, and the barrier-free base
+readiness helper ordinary readiness composes. Consumed by: `dashboard-batch-review-ux` (offers compatible
 sets to the owner, calls reservation on confirmation), `batch-completion-orchestration` (releases
 the reservation/barrier on durable batch completion, D35), `ExecutionReadiness`/
 `workflow step start`/`activateAndSubmitHumanStep` (read `isTaskBarriered` at their own mutation
@@ -131,9 +144,10 @@ already reads.
   mixed set naming the incompatible member.
 - While a group is reserved, `evaluateTaskQueue`'s `nextRunnable` never returns a reserved
   member, but does return an eligible non-member item unchanged.
-- While a group is reserved, a **direct** call to `workflow step start` for a barriered member is
-  rejected — not merely hidden from the dashboard. Same for a **direct** call to
-  `activateAndSubmitHumanStep`.
+- While a group is reserved, a **direct/raw single-task** `workflow step start` for a member is
+  rejected — not merely hidden from the dashboard. Same for direct human submission. Conversely,
+  base readiness for the same member can still report its underlying workflow eligibility for use
+  by the authenticated owning batch-start (D37); ordinary readiness remains blocked.
 - A crashed reservation (no live/settled execution) is reconciled via the scope-aware settlement
   check, never by inspecting one representative member, and never auto-cleared without proof.
 - If admission/session creation fails right after a successful reservation, the reservation is
@@ -141,7 +155,9 @@ already reads.
   recovery.
 - Every member of a reserved group shares one `batchExecutionId`, generated exactly once at
   reservation time, and that `batchExecutionId` matches the batch session's own
-  `executionScope.taskIds` membership (D36) — proven directly, not merely assumed to agree.
+  `executionScope.taskIds` membership (D36). The same atomic reservation freezes the selected
+  provider/model/mode and a known/unknown context-capacity snapshot; later admission cannot swap
+  that configuration (D38).
 - Existing single-item queue tests (`deterministic-task-queue.test.mjs`) pass unmodified.
 
 ## Dependencies

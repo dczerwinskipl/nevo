@@ -4,11 +4,11 @@
 
 Own the dashboard-orchestration side of the batch lifecycle that `batch-finish-operation`
 explicitly does not (D16): batch-aware Hook1 terminal-settlement observation, detecting batch
-completion from the durable finish record, then the exact terminal ordering D35 defines — release
-the workspace-writer claim, clear the batch's `activeExecutions` entry, atomically release the
-barrier/reservation (D31 — the reservation *is* the barrier; this area does not own a separate
-barrier file), and only then dispatch every affected member's next action, including an immediate
-fresh refiner for any member whose result requires one.
+completion from the durable finish record, then D35's terminal ordering implemented as D40's
+durable, restart-safe settlement saga — release the workspace-writer claim, clear the batch's
+`activeExecutions` entry, atomically release the barrier/reservation (D31), and only then
+dispatch every affected member's next action. Partial progress between those stores is expected
+and reconciled idempotently after a crash; it is never misrepresented as one atomic transaction.
 
 ## Current state
 
@@ -36,24 +36,22 @@ fresh refiner for any member whose result requires one.
   own Hook1-equivalent path checks whether the settled turn belongs to a `task-batch`-scoped
   session and, if so, does **not** run ordinary single-task `reconcileContinuation` for any member
   — it instead checks the durable batch-finish record's state.
-- **Exact terminal ordering (D35) — never reordered, never partially applied.** Once the provider
-  turn is terminal, the batch-finish record reads `completed`, and scope-aware settlement is
-  proven (the same discipline D19 already applies to reservation recovery, applied here to
-  completion):
-  1. **Release the batch workspace-writer claim.**
-  2. **Clear the `activeExecutions` batch record** (`admission.mjs`).
-  3. **Atomically release the barrier/reservation** (`batch-queue-reservation`'s own release
-     function, D31) — for every member at once, never one at a time, to avoid a window where
-     some members are unblocked and others aren't for no durable reason.
-  4. **Only then** recompute and dispatch each affected member's next action, reusing the
-     existing single-task continuation-dispatch function per task — the same function
-     `reconcileContinuation` already calls for a single task, invoked once per member here, never
-     a new dispatch mechanism. A member whose result requires a fresh refiner is admitted as part
-     of this step, with `parentSessionId` set to the batch reviewer session's id (D8/D25) — and
-     only *can* be admitted because step 1 already freed the workspace-writer slot.
-  **Dispatch (step 4) never happens before claim release (step 1)** — a refiner's own admission
-  needs the slot free, and dispatching while the claim is still held would either deadlock or
-  require an unsafe workaround.
+- **Exact terminal ordering as a durable staged settlement (D35/D40).** Once provider turn
+  terminality, durable batch-finish `completed`, and scope-aware settlement are proven, create
+  or resume a settlement record keyed by `batchExecutionId` (e.g.
+  `.nevo-ai-local/batch-completion/<change>/<batchExecutionId>.json`). Its ordered stages are:
+  1. **claim-release** — release only the workspace-writer claim proven to belong to this batch;
+  2. **active-execution-clear** — clear only this batch's `activeExecutions` entry;
+  3. **reservation-release** — atomically release this batch's barrier/reservation for all members;
+  4. **continuation-dispatch** — per member, reuse the existing single-task continuation/admission
+     mechanism; a fresh refiner gets `parentSessionId = batch reviewer session id`;
+  5. **completed**.
+  Each stage is idempotent and is marked complete only after its authoritative effect is observed.
+  On resume, derive current state before acting: if a prior effect landed before its marker, record
+  it as satisfied; if a different owner/execution now occupies that slot, fail closed rather than
+  clearing it. Dispatch is structurally illegal until authoritative checks prove stages 1–3 are
+  satisfied. A crash after dispatch but before its marker reuses existing continuation/admission
+  idempotency to observe the already-created continuation rather than duplicate it.
 - **Queue reservation/barrier release.** This area calls `batch-queue-reservation`'s own release
   function as step 3 above — it does not reimplement release logic, and `batch-finish-operation`
   itself never touches the reservation (D16).
@@ -67,8 +65,10 @@ fresh refiner for any member whose result requires one.
   one place allowed to import both workflow-core's durable batch-finish record (read-only) and
   dashboard orchestration primitives; `batch-finish-operation` itself never imports this area or
   anything under `tools/dashboard/**` (C2).
-- Never dispatches any member's continuation before all of steps 1–3 complete (D35) — partial
-  application is not an intermediate state this area produces.
+- Never dispatches any member continuation before claim release, this batch's active-execution
+  clear, and reservation release are all authoritatively true (D35/D40). Partial settlement
+  progress is a valid crash state and must be resumable, never treated as corruption merely
+  because only some earlier release stages landed.
 - Does not own a separate barrier record — releases `batch-queue-reservation`'s own reservation
   (D31/D36).
 - Reuses the existing single-task continuation-dispatch function — does not reimplement
@@ -76,25 +76,28 @@ fresh refiner for any member whose result requires one.
 
 ## Interfaces and boundaries
 
-Exposes: the batch-aware Hook1 observation path, the ordered completion/release sequence.
-Consumes: `batch-finish-operation`'s durable `completed` state (read-only observation, never a
-call into workflow-core beyond reading its durable record), `batch-queue-reservation`'s
-reservation-release function (D31). Consumed by: nothing downstream within this change — this is
+Exposes: the batch-aware Hook1 observation path and the durable staged completion settlement.
+Consumes: `batch-finish-operation`'s durable `completed` state, the batch workspace claim/
+admission state, and `batch-queue-reservation`'s reservation-release/read surface. The
+settlement record is orchestration metadata only; it never becomes a second authority for claim,
+active-execution, reservation, or continuation state. Consumed by: nothing downstream within this change — this is
 the terminal step of the batch lifecycle.
 
 ## Area-specific acceptance criteria
 
-- Once the batch-finish record reaches `completed`, the exact order — claim release,
-  `activeExecutions` clear, atomic barrier/reservation release, dispatch — is observed in that
-  order, every time, proven directly (not merely that all four eventually happen).
+- Once batch-finish reaches `completed`, the settlement observes claim release →
+  `activeExecutions` clear → reservation release → dispatch in that order. Simulated crashes
+  after each of the first three effects resume from authoritative current state without clearing
+  a different owner, repeating a destructive effect, or dispatching early.
 - Dispatch for any member never occurs while the batch workspace-writer claim is still held —
   proven by attempting to observe an admission attempt before release and confirming it cannot
   succeed.
 - Given member B's result is failure, a fresh single-task refiner for B is admitted immediately
   after batch completion, with `parentSessionId` equal to the batch reviewer session's id, and no
   stale batch claim causes workspace contention for that admission.
-- The barrier/reservation releases atomically for every member — no window where one member is
-  unblocked while another sibling member is not.
+- The barrier/reservation releases atomically for every member — no sibling is individually
+  unblocked. A crash after that atomic release but before dispatch is recoverable and dispatch
+  resumes idempotently without recreating an already-existing continuation.
 
 ## Dependencies
 

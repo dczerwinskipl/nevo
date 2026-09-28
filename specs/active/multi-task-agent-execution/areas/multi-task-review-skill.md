@@ -50,12 +50,13 @@ The skill defines reviewer behavior:
 it does not define *what* tasks the session owns (that's `ExecutionScope`, `execution-scope-model`) or
 *how results are committed* (that's `batch-finish-operation`). Correctness does not depend on prompt
 discipline alone — enforcement ownership is resolved explicitly (D27), not left to an unowned promise:
-1. **Mandatory: `batch-finish-operation`'s own control-plane post-condition check** (D22/D27) — before
-   accepting the batch-finish call, it verifies `HEAD == baseRevision` (no commit made by the reviewer
-   session) and that any dirty tracked paths are exactly and only the permitted review report artifact
-   (`reviews/review-batch-<batchExecutionId>.md`). Any violation fails closed and rejects the batch
-   finish. **Correctness never depends on anything beyond this check** — it is the one mechanism every
-   provider gets, regardless of capability.
+1. **Mandatory: `batch-finish-operation`'s control-plane provenance check** (D22/D27/D39) —
+   before accepting finish, it verifies `HEAD == baseRevision` and recomputes the complete
+   repository-visible workspace-delta fingerprint. After excluding `.nevo-ai-local/**` and only
+   the canonical report path, that fingerprint must exactly equal the post-bootstrap baseline.
+   This allows Nevo's own existing bootstrap dirt (for example `change.yaml`) while rejecting
+   any reviewer-created tracked **or untracked** repository artifact outside the report.
+   **Correctness never depends on provider sandboxing** — this check applies to every provider.
 2. **Optional defense-in-depth: provider tool-capability restriction** — where the provider integration
    already exposes a read-only/no-edit-tools profile today, the session may be provisioned with it. This
    change does not add new provider-integration surface to obtain this, and no acceptance criterion

@@ -53,13 +53,13 @@ then derive**:
 1. **Pure prevalidation** — every task's submitted result is checked against its own current
    step's declared transition values and `finishContract`; the complete task set is checked
    against the exact reserved `ExecutionScope`; read-only Git-provenance postconditions are
-   checked against `batch-start-and-context-bootstrap`'s **post-bootstrap** baseline (D29,
-   corrects D22's pre-activation assumption): current `HEAD == baseRevision` (recorded *after*
-   batch-start activation, not before — activation itself already, legitimately, dirtied
-   `change.yaml`), and every tracked file except the canonical report matches the recorded
-   post-bootstrap tracked-state baseline exactly — never "the tree must be clean," since
-   `change.yaml`'s bootstrap mutation is expected and the report itself may already exist
-   uncommitted at this point. **Any single invalid result, scope mismatch, or provenance
+   checked against `batch-start-and-context-bootstrap`'s **post-bootstrap workspace-delta
+   fingerprint** (D29/D39): current `HEAD == baseRevision` (recorded after activation), then
+   recompute the complete repository-visible delta relative to that revision, excluding
+   `.nevo-ai-local/**` and only the canonical report path. It must equal the frozen baseline
+   exactly. This deliberately includes staged/unstaged tracked changes/deletions **and untracked
+   files**, so unchanged bootstrap dirt such as `change.yaml` is accepted while any reviewer
+   source/doc edit or newly-created untracked source artifact is rejected. **Any single invalid result, scope mismatch, or provenance
    violation rejects the whole call. Precisely stated (D21, sharpened by D34): before this stage
    succeeds, this operation performs zero control-plane/workflow-state durable mutation of its
    own — no batch-finish record, no `change.yaml` mutation from finish, no Git commit/push, no
@@ -77,7 +77,7 @@ then derive**:
    only that exact path** — never a default "stage everything" behavior that could absorb
    `change.yaml`'s bootstrap dirt or another task's files. If `CommitAndPushAction` (or
    equivalent) is reused, invoke it with that explicit include and a context that tolerates the
-   expected post-bootstrap `change.yaml` state (D29) without staging it. The commit's own
+   expected post-bootstrap workspace state (D29/D39) without staging any of it. The commit's own
    completion (recorded SHA) is a distinct, durable stage inside this record, ordered before the
    per-task apply stage below.
 4. **Apply (sequential, idempotent, identity-referenced)** — for each task in the record, apply
@@ -119,8 +119,8 @@ then derive**:
 - Never re-runs the pre-report `HEAD == baseRevision` check on resume once the report commit is
   recorded complete (D30) — resume reasons from frozen per-stage state, not a fresh full
   re-validation.
-- Checks Git provenance against the **post-bootstrap** baseline (D29), never a pre-activation
-  assumption.
+- Checks Git provenance against the complete **post-bootstrap workspace-delta fingerprint**
+  (D29/D39), never a pre-activation or "only files bootstrap touched" assumption.
 
 ## Interfaces and boundaries
 
@@ -129,8 +129,8 @@ mirrors `workflow step finish`). Consumes: `execution-scope-model`'s `ExecutionS
 batch-finish call naming a task outside the session's own scope is rejected) and trusted-identity
 primitives (D23), `batch-queue-reservation`'s reservation/`batchExecutionId` (queried, never
 released here — released by `batch-completion-orchestration`, D16/D35),
-`batch-start-and-context-bootstrap`'s `baseRevision` and post-bootstrap tracked-state baseline
-(D29), the existing single-task `finishStep`/`finishContract` machinery. Consumed by:
+`batch-start-and-context-bootstrap`'s `baseRevision` and complete post-bootstrap
+workspace-delta fingerprint (D29/D39), the existing single-task `finishStep`/`finishContract` machinery. Consumed by:
 `multi-task-review-skill` (the one call a reviewer session makes to submit its complete
 result); `batch-completion-orchestration` (observes this area's durable `completed` state — the
 only cross-area read, never a call into `tools/dashboard/**` from here).
@@ -146,9 +146,9 @@ only cross-area read, never a call into `tools/dashboard/**` from here).
   occurs, and no per-task finish operation starts — while a report file the reviewer already
   wrote before the call remains present and untouched — and the call reports the specific invalid
   task.
-- A prevalidation failure on Git provenance (a tracked file other than the report diverging from
-  the recorded post-bootstrap baseline, or `HEAD != baseRevision`) is rejected the same way,
-  before any other durable effect.
+- A prevalidation failure on provenance — `HEAD != baseRevision`, any tracked/index delta
+  diverging from the frozen fingerprint, or any new/unexpected untracked repository-visible file
+  other than the canonical report — is rejected the same way before any other durable effect.
 - Simulating a crash **immediately after the report commit lands** (before any per-task finish),
   then resuming: resume does not reject on the grounds that `HEAD` advanced past `baseRevision`
   — it recognizes the report commit as its own recorded, completed stage — and the report is not

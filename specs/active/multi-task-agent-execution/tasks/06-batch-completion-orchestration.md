@@ -10,6 +10,7 @@ context:
 allowed_paths:
   - tools/dashboard/server/ai/orchestration/admission.mjs
   - tools/dashboard/server/ai/orchestration/reconciliation.mjs
+  - tools/dashboard/server/ai/orchestration/batch-completion-settlement.mjs
   - tools/specs/workflow/human-step/projection.mjs
   - tools/tests/batch-completion-orchestration.test.mjs
   - tools/tests/batch-claim-release-ordering.test.mjs
@@ -21,7 +22,7 @@ forbidden_paths:
   - tools/specs/workflow/queue/**
 depends_on: [ batch-finish-operation, batch-queue-reservation ]
 semantic_references:
-  decisions: [D8, D16, D17, D19, D31, D35]
+  decisions: [D8, D16, D17, D19, D31, D35, D40]
   constraints: [C1]
   dependency_contracts: [batch-finish-operation, batch-queue-reservation]
 ---
@@ -32,11 +33,10 @@ semantic_references:
 
 Own the dashboard-orchestration side of the batch lifecycle `batch-finish-operation` explicitly
 does not (D16): batch-aware Hook1 terminal-settlement observation, batch completion detection,
-then the exact terminal ordering D35 defines — release the workspace-writer claim, clear the
-batch's `activeExecutions` entry, atomically release the barrier/reservation
-(`batch-queue-reservation`'s own reservation, D31 — no separate barrier record owned here), and
-only then dispatch every affected member's next action, including an immediate fresh refiner for
-a failing member.
+then D35's terminal ordering as D40's durable, idempotent settlement saga — claim release,
+this batch's `activeExecutions` clear, atomic reservation/barrier release, then per-member
+continuation dispatch. A process crash between stores is an expected resumable state, not an
+impossible "partially applied" condition.
 
 ## Dependencies
 
@@ -50,23 +50,24 @@ reservation-release function this task calls, in the D35 ordering, never indepen
   a `batch-barrier.mjs` file or equivalent — `batch-queue-reservation`'s own reservation is the
   canonical barrier; this task only calls its exposed release function, at the right point in the
   ordering below.
-- **Exact terminal ordering (D35) — implement as one sequenced function, never reordered, never
-  partially applied:**
-  1. Confirm the provider turn is terminal, the batch-finish record reads `completed`, and
-     scope-aware settlement is proven (reuse D19's settlement-check discipline, applied at
-     completion rather than reservation-recovery time).
-  2. **Release the batch workspace-writer claim.**
-  3. **Clear the `activeExecutions` batch record** (`admission.mjs`).
-  4. **Atomically release the barrier/reservation** — for every member at once, never one at a
-     time.
-  5. **Only then** recompute and dispatch each affected member's next action, reusing the
-     existing single-task continuation-dispatch function per task — invoked once per member, never
-     a new dispatch mechanism. A member whose result requires a fresh refiner is admitted here,
-     with `parentSessionId` set to the batch reviewer session's id (D8) — this admission can only
-     succeed because step 2 already freed the workspace-writer slot.
-  **Step 5 must be structurally incapable of running before step 2** — e.g. by having the
-  dispatch function itself require the already-released-claim state as an input it cannot
-  fabricate, not merely by code-review discipline.
+- **Durable staged settlement (D35/D40)**: add a small orchestration-owned settlement record
+  keyed by `batchExecutionId` (module e.g. `batch-completion-settlement.mjs`) with ordered
+  stages `claim-release`, `active-execution-clear`, `reservation-release`, per-member
+  `continuation-dispatch`, `completed`.
+  1. Confirm terminal provider turn + durable batch-finish `completed` + scope-aware settlement.
+  2. Release only the workspace claim owned by this batch; observe absence/ownership before
+     marking the stage.
+  3. Clear only this batch's `activeExecutions` entry; an absent entry after restart satisfies
+     the stage, while a different current execution is never cleared.
+  4. Atomically release this reservation/barrier for all members; observe reservation state before
+     marking the stage.
+  5. Only when 2–4 are authoritatively satisfied, recompute/dispatch each member via the existing
+     single-task continuation mechanism. Persist/derive per-member dispatch progress; if the
+     process crashes after admission/dispatch but before the marker, retry must observe the
+     already-existing continuation and not duplicate it.
+  6. Mark settlement completed.
+  This is intentionally a resumable saga, not a cross-store atomic transaction and not a promise
+  that partial settlement can never exist after a crash.
 - **Barrier scope covers every downstream action path (D17)** — the actual enforcement of this
   lives in `batch-queue-reservation` (D31: `ExecutionReadiness`, `workflow step start`,
   `activateAndSubmitHumanStep`); this task's own responsibility is only to call the *release* at
@@ -80,9 +81,9 @@ reservation-release function this task calls, in the D35 ordering, never indepen
 
 ## Acceptance criteria
 
-- The exact order — settlement proof, claim release, `activeExecutions` clear, atomic barrier/
-  reservation release, dispatch — is observed in that order, every time, proven directly (not
-  merely that all steps eventually happen).
+- The exact order — settlement proof, claim release, this batch's `activeExecutions` clear,
+  atomic reservation release, dispatch — is observed. Fixtures crash after claim release, after
+  active-execution clear, and after reservation release; restart resumes safely from each point.
   `automated: node --test tools/tests/batch-claim-release-ordering.test.mjs`
 - Dispatch for any member never occurs while the batch workspace-writer claim is still held —
   proven by attempting to trigger dispatch before release and confirming it cannot succeed.
@@ -91,8 +92,9 @@ reservation-release function this task calls, in the D35 ordering, never indepen
   after batch completion, with `parentSessionId` equal to the batch reviewer session's id, and no
   stale batch claim causes workspace contention for that admission.
   `automated: node --test tools/tests/batch-completion-orchestration.test.mjs`
-- The barrier/reservation releases atomically for every member — no window where one member is
-  unblocked while a sibling is not.
+- The barrier/reservation releases atomically for every member — no sibling window. A crash after
+  release but before dispatch resumes dispatch idempotently; a crash after a member dispatch but
+  before its settlement marker observes the existing continuation rather than duplicating it.
   `automated: node --test tools/tests/batch-completion-orchestration.test.mjs`
 - A member's own `workflow_progress` history entry is readable before the barrier releases.
   `automated: node --test tools/tests/batch-completion-orchestration.test.mjs`

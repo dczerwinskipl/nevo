@@ -20,7 +20,7 @@ forbidden_paths:
   - tools/specs/workflow/batch-finish/**
 depends_on: [ batch-queue-reservation, batch-start-and-context-bootstrap, batch-finish-operation, batch-completion-orchestration, multi-task-review-skill ]
 semantic_references:
-  decisions: [D6, D12, D13, D26, D33, D34]
+  decisions: [D6, D12, D13, D26, D33, D34, D38]
   dependency_contracts: [batch-queue-reservation, batch-start-and-context-bootstrap, batch-finish-operation, batch-completion-orchestration, multi-task-review-skill]
 ---
 
@@ -49,10 +49,11 @@ final once its barrier releases), `multi-task-review-skill` (the skill the start
   "review together" affordance and the batch-scoped session-creation call, do not redesign task
   selection.
 - **Route session creation through the canonical `admitAgentExecution` gate, then let the agent
-  call batch start itself (D33)** — this task's own server-side sequence is exactly: reserve →
-  `admitAgentExecution(scope: task-batch, batchExecutionId)` → create session + bindings → start
-  provider turn → inject the batch bootstrap prompt (carrying `batchExecutionId` as protocol
-  context only, never as scope authority). This task does **not** call `workflow batch start`
+  call batch start itself (D33/D38)** — resolve owner-selected provider/model/mode and capacity
+  metadata first, then atomically reserve with that immutable `executionConfigSnapshot` →
+  `admitAgentExecution(scope: task-batch, batchExecutionId)` using exactly the frozen config →
+  create session + bindings → start provider turn → inject the batch bootstrap prompt (carrying
+  `batchExecutionId` as protocol context only, never scope/config/capacity authority). This task does **not** call `workflow batch start`
   itself — that is the agent's own first tool call, per the skill (task
   `multi-task-review-skill`). Wired alongside the existing AI turn/admission transport
   (`tools/dashboard/server/ai/sessions/turns/**`, `tools/dashboard/server/ai/orchestration/**`),
@@ -63,15 +64,16 @@ final once its barrier releases), `multi-task-review-skill` (the skill the start
 - No hard batch-size limit is enforced (D6); a UI-level soft recommendation (e.g. visual
   deprioritization past a small size) is allowed but must never refuse a larger compatible
   selection outright.
-- **Resolve and pass the context-capacity figure (D26/D34)** — resolve `traits.maxContextTokens`
-  for the selected provider/model from the existing model catalog (this task has access to it;
-  `batch-start-and-context-bootstrap` does not) and pass it as a plain integer into the
-  `workflow batch start` call's own input — never let the provider-neutral batch-start operation
-  import the catalog itself.
-- **Surface `BATCH_CONTEXT_TOO_LARGE` explicitly (D26/D34)** — if batch start's preflight rejects
-  the batch for exceeding context capacity (before any member is activated), show a distinct,
-  actionable failure (e.g. suggest a smaller selection or a different provider/model); never a
-  generic error, never a silent retry with truncated context.
+- **Freeze context capacity before the turn (D26/D34/D38)** — read
+  `traits.maxContextTokens` from the selected model descriptor before reservation. Persist
+  `contextCapacity: known(maxContextTokens, source)` when present, otherwise
+  `unknown(reason)`; never fabricate missing metadata. Batch-start reads this reservation
+  snapshot later, so no capacity value is passed through model-authored `workflow batch start`
+  arguments.
+- **Surface both capacity outcomes explicitly** — known over-budget preflight produces distinct
+  `BATCH_CONTEXT_TOO_LARGE` guidance (smaller selection/different model). Unknown capacity
+  produces a visible "hard capacity preflight unavailable" warning but does not itself reject the
+  batch. Never silently retry with truncation.
 - "Review individually" must remain fully available and unchanged even when a compatible batch
   exists — batch review is always optional.
 - No UI entry point exists for any role other than reviewer (D13) — do not add a generic
@@ -87,8 +89,9 @@ final once its barrier releases), `multi-task-review-skill` (the skill the start
   `automated: node --test tools/tests/dashboard-orchestration-wiring.test.mjs`
 - Choosing to review one of the three individually still works exactly as it does today.
   `automated: node --test tools/tests/dashboard-orchestration-wiring.test.mjs`
-- A `BATCH_CONTEXT_TOO_LARGE` preflight failure surfaces as a distinct, actionable UI failure, not
-  a generic error. `automated: node --test tools/tests/dashboard-orchestration-wiring.test.mjs`
+- A known-capacity `BATCH_CONTEXT_TOO_LARGE` failure surfaces as a distinct actionable UI
+  failure. An unknown-capacity snapshot surfaces a distinct warning and no fabricated numeric
+  limit. `automated: node --test tools/tests/dashboard-orchestration-wiring.test.mjs`
 - No UI entry point starts a batch execution for any role other than reviewer.
   `inspection: confirm no non-reviewer role has a "review/execute together" affordance`
 - No second, independent session-creation path exists outside `admitAgentExecution` — an explicit

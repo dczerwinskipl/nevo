@@ -9,7 +9,7 @@ context:
     - specs/active/multi-task-agent-execution/owner-decisions.md
 allowed_paths:
   - tools/specs/workflow/queue/**
-  - tools/specs/workflow/step-runner.mjs
+  - tools/specs/workflow/cli.mjs
   - tools/specs/workflow/human-step/operations.mjs
   - tools/specs/workflow/readiness-policy.mjs
   - tools/tests/deterministic-task-queue.test.mjs
@@ -22,7 +22,7 @@ forbidden_paths:
   - src/**
 depends_on: [ execution-scope-model ]
 semantic_references:
-  decisions: [D5, D6, D9, D12, D18, D19, D20, D31, D36]
+  decisions: [D5, D6, D9, D12, D18, D19, D20, D31, D36, D37, D38]
   constraints: [C2]
   dependency_contracts: [execution-scope-model]
 ---
@@ -65,8 +65,11 @@ check reuses.
 - No hard batch-size limit (D6) — accept any compatible set size ≥ 2.
 - The reservation record extends the existing queue store file
   (`.nevo-ai-local/task-queues/<changeSlug>.json`) with a `groupReservations` list; do not
-  introduce a second, separate durable file for this. This durable reservation of the exact
-  grouped queue items (D9) is this task's central mechanism.
+  introduce a second durable file for this. Besides exact membership, its atomic create call
+  freezes D38's `executionConfigSnapshot`: selected provider/model/mode and
+  `contextCapacity: known(maxContextTokens, source) | unknown(reason)`. The UI/server chooses
+  that configuration before calling reserve; later admission must match it. Never accept a
+  model-authored capacity override after the provider turn starts.
 - While reserved, none of the group's member items may be returned as `nextRunnable` to any other
   candidate; every eligible non-member item is returned exactly as today.
 - Reservation writes go through the same atomic critical-section convention the workspace-control
@@ -80,21 +83,23 @@ check reuses.
 - **Synchronous rollback (D19)**: if reservation succeeds but admission/session creation then
   fails, release the reservation synchronously, in the same call — do not leave this for boot-time
   recovery to discover later.
-- Provider/model/mode selection for the resulting session is untouched by this task (D12) — this
-  task only produces the reserved scope, session creation and its provider picker belong to
-  `dashboard-batch-review-ux`.
-- **Action barrier wiring (D31)**: export `isTaskBarriered(change, taskId)` from this task's own
-  queue/reservation module (no separate `batch-barrier.mjs`). Add an explicit guard call — before
-  any existing mutation/readiness logic runs — at each of:
-  1. `readiness-policy.mjs`'s `assertExecutionReadiness` (a barriered task is never reported
-     ready);
-  2. `step-runner.mjs`'s step-activation entry point (rejects a barriered task's
-     `workflow step start`, including a direct/raw CLI invocation, not only dashboard-mediated
-     dispatch);
-  3. `human-step/operations.mjs`'s `activateAndSubmitHumanStep` (rejects a barriered task's human
-     submission from any caller).
-  The queue evaluator's own `nextRunnable` exclusion of reserved items (already implemented above)
-  is the fourth, already-covered boundary — no separate change needed there.
+- Provider/model/mode selection UI remains outside this task (D12), but the reservation API
+  accepts and durably freezes the already-selected configuration/capacity snapshot (D38). Session
+  creation and the picker remain `dashboard-batch-review-ux` responsibilities.
+- **Action barrier wiring (D31/D37)**: export `isTaskBarriered(change, taskId)` from the queue/
+  reservation module and split readiness in `readiness-policy.mjs` into a reusable base
+  evaluation plus the existing ordinary barrier-aware surface. Base readiness contains all
+  workflow/dependency/suspension/executor/prior-operation/worktree checks but no reservation
+  rejection. Ordinary `evaluateExecutionReadiness`/`assertExecutionReadiness` adds the
+  `isTaskBarriered` rejection and remains the default everywhere.
+  Add explicit ordinary guards at the **actual current boundaries**:
+  1. `cli.mjs`'s public raw/single-task `handleWorkflowStepStart` path;
+  2. `human-step/operations.mjs`, including `activateAndSubmitHumanStep`;
+  3. queue `nextRunnable` eligibility/dispatch.
+  Do not name `step-runner.mjs` as the activation boundary; it is not one. Do not add
+  `ignoreBarrier` or another caller-controlled bypass. Task 03 may consume the base-readiness
+  helper only after its own trusted batch-ownership authorization and only for exact reservation
+  members; its actual mutation still reuses the existing internal activation primitive.
 - Release of the reservation/barrier is **not** this task's job to call — it exposes the release
   function, but `batch-completion-orchestration` (a later task) decides *when* to call it, as part
   of its own ordered sequence (D35).
@@ -112,12 +117,15 @@ check reuses.
 - If admission/session creation fails right after a successful reservation, the reservation is
   released synchronously in that same call. `automated: node --test tools/tests/batch-queue-reservation.test.mjs`
 - Every member of a reserved group shares one `batchExecutionId`, generated exactly once at
-  reservation time, matching the batch session's own `executionScope.taskIds` once created (D36).
+  reservation time, matching the batch session's own `executionScope.taskIds` once created (D36);
+  the reservation also freezes the exact provider/model/mode and known/unknown capacity snapshot,
+  and a later conflicting admission configuration is rejected (D38).
   `automated: node --test tools/tests/batch-queue-reservation.test.mjs`
-- While a member is barriered: `assertExecutionReadiness` reports it not ready;
-  a **direct** call to `workflow step start` for it is rejected (not merely hidden from the
-  dashboard); a **direct** call to `activateAndSubmitHumanStep` for it is rejected — each proven
-  independently. `automated: node --test tools/tests/batch-barrier-enforcement.test.mjs`
+- While a member is barriered: ordinary `assertExecutionReadiness` reports it not ready; a raw/
+  single-task `workflow step start` is rejected; direct human submission is rejected. The base
+  readiness helper still returns underlying workflow eligibility without mutation, so Task 03 can
+  bootstrap an already-authorized owning batch without weakening ordinary guards.
+  `automated: node --test tools/tests/batch-barrier-enforcement.test.mjs`
 - Existing single-item queue behavior is unchanged. `automated: node --test tools/tests/deterministic-task-queue.test.mjs`
 - Existing single-task readiness/step-start/human-step behavior for a non-barriered task is
   unchanged. `automated: node --test tools/tests/batch-barrier-enforcement.test.mjs`
