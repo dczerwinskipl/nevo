@@ -829,7 +829,7 @@ test('Model selection persists through the HTTP session contract: create -> chat
     const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
     const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: FIXTURE_REPO_ROOT });
     const server = await buildAiTestApp({ service });
-    return { server };
+    return { server, service };
   };
 
   // 1. Create with an explicit model.
@@ -868,6 +868,8 @@ test('Model selection persists through the HTTP session contract: create -> chat
     );
     assert.equal(turnRes.status, 202);
     assert.equal(lastExecutedModel, 'mock-model-a');
+    const { turnId: restoredModelTurnId } = await turnRes.json();
+    await waitFor(stack2.service, restoredModelTurnId, (turn) => turn.status === 'completed');
 
     // 5. Override on a provider that supports it (capability-driven) via PATCH.
     const patchRes = await fetch(`${baseUrl2}/api/agent-sessions/mock/${sessionId}`, {
