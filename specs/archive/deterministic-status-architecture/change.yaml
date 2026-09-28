@@ -2,7 +2,7 @@
 id: deterministic-status-architecture
 title: "Deterministic workflow status architecture"
 type: architectural
-status: draft
+status: archived
 priority: 10
 created: 2026-09-17
 workflow:
