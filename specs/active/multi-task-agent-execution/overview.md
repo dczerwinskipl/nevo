@@ -104,8 +104,10 @@ batch-aware Hook1 observation and ordered claim/barrier release), `tools/dashboa
 (D33: canonical `admitAgentExecution` entry for a batch session, batch-aware bootstrap),
 `tools/specs/workflow/{workspace-writer,queue/**,cli,readiness-policy,human-step/operations,step-context}.mjs`
 (new: `execution-scope.mjs`, `resolve-incoming-execution.mjs`, `batch-start/**`, `batch-finish/**`,
-`context/batch-context.mjs`; D31: `queue/**` gains the barrier-check primitive consulted from
-`step-runner.mjs`/human-step operations/execution-readiness), `tools/specs/reviews/batch-report.mjs`
+`context/batch-context.mjs`; D31/D37: `queue/**` gains the barrier-check primitive, and
+`readiness-policy.mjs` gains the base-vs-ordinary readiness split, consulted from `cli.mjs`'s
+`handleWorkflowStepStart`/human-step operations — never `step-runner.mjs`, which owns neither
+entry point), `tools/specs/reviews/batch-report.mjs`
 (new, D32), `.claude/skills/multi-task-review/` (new), `tools/dashboard/ui/screens/specification-detail/**`,
 `tools/dashboard/ui/features/agent-sessions/**`,
 `docs/development/{agent-workflow-protocol.md,workflow-engine.md,ai-sessions.md}`.

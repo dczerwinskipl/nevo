@@ -111,8 +111,9 @@ inside).
   modifications/deletions and untracked files, with status/mode and content hash where applicable.
   Do **not** record it before activation. Finish later requires exact equality after excluding only
   the canonical report path.
-- This neighborhood (`step-runner.mjs`, `cli.mjs`, `start-operation.mjs`) is active ground (C5) —
-  re-verify current file contents before editing.
+- This neighborhood (`cli.mjs`, `readiness-policy.mjs`, `step-context.mjs`,
+  `start-operation.mjs`) is active ground (C5) — re-verify current file contents (read-only for
+  this task) before relying on their exact shape. `step-runner.mjs` plays no role here (D37).
 
 ## Acceptance criteria
 

@@ -709,8 +709,10 @@
   direct domain call or raw CLI invocation — exactly the gap a "final" pass must close, not leave
   as a known hole.
 - **Consequences:** `batch-queue-reservation` (task 02) gains ownership of wiring
-  `isTaskBarriered` checks into the real workflow-core mutation entry points
-  (`step-runner.mjs`, the human-step operations module, the execution-readiness module) in
+  `isTaskBarriered` checks into the real workflow-core mutation entry points — **corrected by
+  D37**: the actual public raw `workflow step start` entry point is `handleWorkflowStepStart` in
+  `tools/specs/workflow/cli.mjs`, wired via a base-vs-ordinary split inside `readiness-policy.mjs`
+  itself, never `step-runner.mjs` (which owns neither activation nor readiness here) — in
   addition to the queue evaluator it already owns — its scope is now "batch queue reservation
   **and action barrier**." `batch-completion-orchestration` (task 06) no longer owns a separate
   `batch-barrier.mjs` file; it owns *releasing* the reservation/barrier as part of its own

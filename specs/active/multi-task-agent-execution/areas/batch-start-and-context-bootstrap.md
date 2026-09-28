@@ -13,7 +13,10 @@ starts itself, and never receives a half-built intermediate context from an unwi
 
 ## Current state
 
-- `workflow step start <change> <task>` (`tools/specs/workflow/cli.mjs` → `step-runner.mjs`)
+- `workflow step start <change> <task>` (`handleWorkflowStepStart` in
+  `tools/specs/workflow/cli.mjs`, calling `readiness-policy.mjs`'s ordinary readiness then
+  `step-context.mjs`'s `ensureStepActivated` — confirmed by reading it directly; **not**
+  `step-runner.mjs`, which owns neither entry point, per D37)
   activates a single task's target step, establishes attempt identity, and returns the
   authoritative `StepContext` (`taskDefinition`, `requiredContext`, `relevantDocs`, `stepContract`,
   `previousTransition`, `expectedWork`, allowed/forbidden paths, `finishContract`, gates) — see
@@ -122,8 +125,9 @@ batch half-activated indefinitely.
 - Owns the *entire* `BatchContext` — no later task extends or completes it (D32); `batch-report`
   (the renamed, narrowed former `batch-context-and-report`) only renders what this area already
   finished building.
-- This neighborhood (`step-runner.mjs`, `cli.mjs`, `start-operation.mjs`) is active ground (C5) —
-  re-verify current file contents before editing.
+- This neighborhood (`cli.mjs`, `readiness-policy.mjs`, `step-context.mjs`,
+  `start-operation.mjs`) is active ground (C5) — re-verify current file contents (read-only for
+  this area) before relying on their exact shape. `step-runner.mjs` plays no role here (D37).
 
 ## Interfaces and boundaries
 
