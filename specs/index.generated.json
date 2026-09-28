@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-28T10:46:25.821Z",
+  "generated": "2026-09-28T10:46:35.253Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -174,7 +174,7 @@
           "id": "lifecycle-boundary-regression-tests",
           "order": 4,
           "file": "tasks/04-lifecycle-boundary-regression-tests.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "legacy-mutation-guard",
             "deterministic-mutation-guard",

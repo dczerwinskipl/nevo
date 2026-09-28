@@ -34,7 +34,7 @@ tasks:
   - id: lifecycle-boundary-regression-tests
     order: 4
     file: tasks/04-lifecycle-boundary-regression-tests.md
-    status: implemented
+    status: verified
     depends_on:
       [
         legacy-mutation-guard,
