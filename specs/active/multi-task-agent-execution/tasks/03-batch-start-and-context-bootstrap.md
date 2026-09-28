@@ -55,6 +55,14 @@ inside).
 
 - Reuse the single-task step-activation primitive per member (the same one `workflow step start`
   itself calls) — do not reimplement step activation from scratch.
+- **`cli.mjs` scope, precisely**: this task owns the new agent-facing `workflow batch start`
+  command and **may modify `cli.mjs`** to add that command's own routing/handler — this is not a
+  contradiction with treating the file as "active ground" elsewhere; it is the one specific,
+  narrow addition this task is responsible for. It does **not** touch `handleWorkflowStepStart`'s
+  existing body or behavior in any way — that function's existing single-task semantics (guarded
+  by `batch-queue-reservation`'s D37 base-vs-ordinary readiness split, already in place by the
+  time this task runs per `depends_on`) are reused entirely unmodified. `step-runner.mjs` is not
+  the public activation boundary and is not touched or referenced as one (D37).
 - Reuse `execution-scope-model`'s `resolveIncomingExecution` for target-step/role/session
   resolution and for lineage resolution (D25) — do not re-derive transition matching here.
 - **Trusted identity at start (D33, mirroring D23 at finish)**: verify the calling session against
@@ -111,9 +119,16 @@ inside).
   modifications/deletions and untracked files, with status/mode and content hash where applicable.
   Do **not** record it before activation. Finish later requires exact equality after excluding only
   the canonical report path.
-- This neighborhood (`cli.mjs`, `readiness-policy.mjs`, `step-context.mjs`,
-  `start-operation.mjs`) is active ground (C5) — re-verify current file contents (read-only for
-  this task) before relying on their exact shape. `step-runner.mjs` plays no role here (D37).
+- This neighborhood is active ground (C5) — re-verify current file contents before relying on
+  their exact shape. Ownership is not uniform across it: `cli.mjs` is the one file in this list
+  this task **may modify**, narrowly to expose/wire the new `workflow batch start` entrypoint
+  (see the `cli.mjs` scope constraint above) — existing single-task `handleWorkflowStepStart`
+  semantics are reused as-is, never modified beyond that addition. `readiness-policy.mjs`,
+  `step-context.mjs`, and `start-operation.mjs` are genuinely **read-only** for this task —
+  existing architecture this task reuses by import, not edits; a real need to change any of them
+  belongs to whichever task already owns that file (`batch-queue-reservation` owns
+  `readiness-policy.mjs`'s base-vs-ordinary split, D37). `step-runner.mjs` plays no role in any of
+  this (D37).
 
 ## Acceptance criteria
 

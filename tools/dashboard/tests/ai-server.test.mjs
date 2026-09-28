@@ -892,9 +892,14 @@ test('Model selection persists through the HTTP session contract: create -> chat
     );
     assert.equal(resetTurn.status, 202);
     assert.equal(lastExecutedModel, undefined);
+    const { turnId: resetTurnId } = await resetTurn.json();
+    await waitFor(stack2.service, resetTurnId, (turn) => turn.status === 'completed');
 
+    // The public chat/session representation exposes `binding?.model ?? null` — after a
+    // provider-default reset the durable binding's own model is cleared, so the public value
+    // is the explicit sentinel `null`, never `undefined`.
     const chatAfterReset = await fetch(`${baseUrl2}/api/agent-sessions/${sessionId}/chat`);
-    assert.equal((await chatAfterReset.json()).session.model, undefined);
+    assert.equal((await chatAfterReset.json()).session.model, null);
   } finally {
     await closeServer(stack2.server);
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });

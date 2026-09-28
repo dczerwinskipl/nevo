@@ -32,9 +32,16 @@ starts itself, and never receives a half-built intermediate context from an unwi
   context contract, not the deterministic engine's — it is explicitly not reused here (D15).
 - No batch-start equivalent, and no `BatchContext` builder, exists anywhere in the repository
   today.
-- The model catalog already exposes `traits.maxContextTokens` per provider/model — but that
-  lives in dashboard AI code, not workflow-core; this area must receive a capacity figure as a
-  plain number rather than importing it (D34).
+- The model catalog exposes `traits.maxContextTokens` for some, not all, provider/models — that
+  resolution lives in dashboard AI code, not workflow-core. Provider/model/mode selection happens
+  before the reservation is written; the reservation freezes an immutable
+  `executionConfigSnapshot` containing that selection plus a context-capacity snapshot —
+  `{ status: "known", maxContextTokens, source }` when the selected model descriptor carries an
+  authoritative/configured numeric value, or `{ status: "unknown", reason }` when the catalog
+  doesn't know it (D38). This area reads that frozen snapshot from the durable reservation — it
+  never receives an authoritative capacity number as a live argument from its caller, and never
+  trusts a value a model-generated tool call might carry. Missing provider capacity metadata
+  stays explicitly `unknown`; it is never guessed or defaulted to a number.
 
 ## Requirements
 

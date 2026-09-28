@@ -787,7 +787,7 @@
 - **Affected artifacts:** `areas/dashboard-batch-review-ux.md`,
   `tasks/08-dashboard-batch-review-ux.md`, `areas/batch-start-and-context-bootstrap.md`
 
-## D34: Context-capacity preflight happens before any member is activated (corrects D26)
+## D34: Context-capacity preflight happens before any member is activated (corrects D26; capacity-source wording corrected by D38)
 
 - **Question:** D26 said the capacity preflight occurs before member activation, but the
   original task 03 text constructed authoritative `StepContext`s (which requires activation)
@@ -799,20 +799,23 @@
   `StepContext` resolution would use — task definition, routing-derived docs, allowed paths) is
   statically derivable from already-approved task state and the workflow definition, without
   calling the mutating step-activation primitive. The planning phase computes the prospective
-  `BatchContext`'s size from these read-only inputs and checks it against a capacity figure
-  **passed in as a plain number** by the caller (the dashboard layer, which resolves
-  `traits.maxContextTokens` for the selected provider/model from the existing model catalog) —
-  the provider-neutral planning operation itself never imports dashboard AI modules or the model
-  catalog; it only receives an integer. If the prospective size would exceed that figure, the
-  whole batch start fails with `BATCH_CONTEXT_TOO_LARGE` **before any member's step activation
-  stage begins** — zero members are ever activated in this outcome.
+  `BatchContext`'s size from these read-only inputs and checks it against a capacity figure. If
+  the prospective size would exceed that figure, the whole batch start fails with
+  `BATCH_CONTEXT_TOO_LARGE` **before any member's step activation stage begins** — zero members
+  are ever activated in this outcome. **Corrected by D38 below**: the capacity figure is not
+  passed in as a live argument by the caller — it is frozen into the durable reservation's
+  `executionConfigSnapshot` before the provider turn ever starts, and this planning phase reads
+  that frozen snapshot (which may explicitly be `{status: "unknown"}`) rather than trusting
+  anything a caller or a model-generated tool call could supply.
 - **Rationale:** Rejecting after activation would violate D28's own "validate all before
   mutating any" discipline and leave A/B/C wrongly active with no reviewer following through.
-  Passing capacity as a plain number (rather than importing the catalog) preserves workflow-core's
-  provider-neutrality.
+  Keeping the capacity source out of workflow-core (whether framed as a passed-in number, per this
+  entry's original text, or the frozen durable snapshot D38 corrects it to) preserves
+  workflow-core's provider-neutrality either way.
 - **Consequences:** `batch-start-and-context-bootstrap`'s sequence gains an explicit planning
-  stage before its activation stage; `dashboard-batch-review-ux` resolves and passes the capacity
-  figure when starting a batch session.
+  stage before its activation stage; `dashboard-batch-review-ux` resolves the capacity figure and
+  freezes it into the reservation before starting a batch session (D38 — not passed as a live
+  argument, as this entry originally described).
 - **Date:** 2026-09-28
 - **Affected artifacts:** `areas/batch-start-and-context-bootstrap.md`,
   `tasks/03-batch-start-and-context-bootstrap.md`, `areas/dashboard-batch-review-ux.md`
