@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-28T18:49:04.527Z",
+  "generated": "2026-09-28T18:50:41.271Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -195,10 +195,13 @@
           "id": "batch-report",
           "order": 5,
           "file": "tasks/05-batch-report.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "batch-start-and-context-bootstrap"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "f68356c6e54954b052597e19bd40f698a75e4de2"
+          }
         },
         {
           "id": "batch-completion-orchestration",

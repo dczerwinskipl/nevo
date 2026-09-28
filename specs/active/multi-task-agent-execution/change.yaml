@@ -48,8 +48,10 @@ tasks:
   - id: batch-report
     order: 5
     file: tasks/05-batch-report.md
-    status: approved
+    status: verified
     depends_on: [ batch-start-and-context-bootstrap ]
+    implementation:
+      baseline_revision: f68356c6e54954b052597e19bd40f698a75e4de2
   - id: batch-completion-orchestration
     order: 6
     file: tasks/06-batch-completion-orchestration.md
