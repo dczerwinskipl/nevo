@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-28T18:59:33.443Z",
+  "generated": "2026-09-28T19:00:29.285Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -220,12 +220,15 @@
           "id": "multi-task-review-skill",
           "order": 7,
           "file": "tasks/07-multi-task-review-skill.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "batch-start-and-context-bootstrap",
             "batch-finish-operation",
             "batch-report"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "a742ee79f04b9a88b5165d7135e96389ed8ce2d5"
+          }
         },
         {
           "id": "dashboard-batch-review-ux",
