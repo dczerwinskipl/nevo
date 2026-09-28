@@ -39,6 +39,8 @@ export function describeStep(stepOrDefinition, stepId) {
 
 export const projectStepDescriptor = describeStep;
 
+import { isTaskBarriered } from '../queue/reservation.mjs';
+
 /**
  * Human interaction actions descriptor function (tier 2).
  *
@@ -51,14 +53,18 @@ export const projectStepDescriptor = describeStep;
  *
  * @param {object} target - Active step object or task object
  * @param {object|boolean} [contextOrDefinition] - Workflow definition (if target is task), task context, or boolean
- * @returns {{ actions: Array<{ result?: string, label?: string, feedbackRequired: boolean }> } | null}
+ * @param {object} [options] - Optional settings including barriered or changeSlug / repoRoot for barrier surfacing (D31)
+ * @returns {{ actions: Array<{ result?: string, label?: string, feedbackRequired: boolean }>, barriered?: boolean } | null}
  */
-export function describeHumanInteraction(target, contextOrDefinition) {
+export function describeHumanInteraction(target, contextOrDefinition, options = {}) {
   let step = null;
   let isActive = false;
+  let taskId = null;
+  const changeSlug = options?.changeSlug;
 
   if (target?.workflow_progress) {
     const task = target;
+    taskId = task.id;
     const definition = contextOrDefinition;
     if (task.workflow_progress.state !== 'active') {
       return null;
@@ -73,6 +79,7 @@ export function describeHumanInteraction(target, contextOrDefinition) {
     step = target;
     if (contextOrDefinition?.workflow_progress) {
       isActive = contextOrDefinition.workflow_progress.state === 'active';
+      taskId = contextOrDefinition.id;
     } else if (typeof contextOrDefinition?.isActive === 'boolean') {
       isActive = contextOrDefinition.isActive;
     } else if (contextOrDefinition === undefined || contextOrDefinition === true) {
@@ -104,9 +111,28 @@ export function describeHumanInteraction(target, contextOrDefinition) {
     return entry;
   });
 
-  return {
+  const descriptor = {
     actions,
   };
+
+  let barriered = false;
+  if (typeof options?.barriered === 'boolean') {
+    barriered = options.barriered;
+  } else if (typeof target?.barriered === 'boolean') {
+    barriered = target.barriered;
+  } else if (taskId && (changeSlug || options?.repoRoot)) {
+    try {
+      barriered = isTaskBarriered(changeSlug, taskId, options);
+    } catch {
+      barriered = false;
+    }
+  }
+
+  if (barriered) {
+    descriptor.barriered = true;
+  }
+
+  return descriptor;
 }
 
 export const projectHumanInteraction = describeHumanInteraction;

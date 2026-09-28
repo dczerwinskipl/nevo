@@ -71,6 +71,21 @@ export function resetAdmissionStateForTest() {
   defaultSessionService = null;
 }
 
+export function clearActiveAgentExecution(specId) {
+  const active = activeExecutions.get(specId);
+  if (active) {
+    active.settled = true;
+    active.resolveSettled?.({ cleared: true });
+    activeExecutions.delete(specId);
+    return true;
+  }
+  return false;
+}
+
+export function registerActiveAgentExecution(specId, record) {
+  activeExecutions.set(specId, record);
+}
+
 /**
  * Admits an agent execution for a specification (D41, D49, D55, D66).
  * Single active execution gate per spec; claims workspace-writer slot;
@@ -431,6 +446,33 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
         }
 
         if (settlement.settled) {
+          if (capturedScope.kind === 'task-batch') {
+            const { executeBatchCompletionSettlement } = await import('./batch-completion-settlement.mjs');
+            const batchExecutionId = candidate.batchExecutionId || executionRecord.batchExecutionId || capturedScope.batchExecutionId;
+            let batchSettlement = null;
+            if (batchExecutionId) {
+              batchSettlement = await executeBatchCompletionSettlement({
+                repoRoot,
+                changeSlug: capturedChangeSlug,
+                batchExecutionId,
+                sessionId: capturedSessionId,
+                ownerId: capturedOwnerId,
+                activeDir: options.activeDir,
+                options: {
+                  ...options,
+                  sessionService,
+                  turnRuntime,
+                  parentSessionId: capturedSessionId,
+                },
+              });
+            }
+            if (typeof onTurnTerminal === 'function') {
+              await onTurnTerminal({ specId, scope: capturedScope, settled: true, batchSettlement });
+            }
+            hookOutcome = { settled: true, batchSettlement };
+            return hookOutcome;
+          }
+
           const relRes = await releaseWorkspaceWriterIfOwned({
             repoRoot,
             expectedOwnerId: capturedOwnerId,

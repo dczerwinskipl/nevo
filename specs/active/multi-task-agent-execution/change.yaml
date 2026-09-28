@@ -55,8 +55,10 @@ tasks:
   - id: batch-completion-orchestration
     order: 6
     file: tasks/06-batch-completion-orchestration.md
-    status: approved
+    status: verified
     depends_on: [ batch-finish-operation, batch-queue-reservation ]
+    implementation:
+      baseline_revision: d4145729cee8188cc4445518eea9826821226060
   - id: multi-task-review-skill
     order: 7
     file: tasks/07-multi-task-review-skill.md
