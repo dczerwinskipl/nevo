@@ -1,4 +1,4 @@
-// Tests for Dashboard Orchestration Wiring (Task 32, D32, D33, D47, D49).
+// Tests for Dashboard Orchestration Wiring (Task 32 + Task 08, D12, D13, D26, D32, D33, D34, D38, D47, D49).
 // Run: node --test tools/tests/dashboard-orchestration-wiring.test.mjs
 
 import test from 'node:test';
@@ -321,4 +321,295 @@ test('AC 7: While one task shows pending human interaction, an independent eligi
 
   assert.equal(isHumanInteractionForA, true, 'Task A is in human interaction');
   assert.equal(canStartStepForB, true, 'Task B Start button is independently enabled');
+});
+
+// ─── Task 08: Dashboard Batch Review UX ────────────────────────────────────
+
+const ROUTES_PATH = path.join(
+  REPO_ROOT,
+  'tools/dashboard/server/ai/sessions/turns/routes.mjs',
+);
+const ACTIONS_PATH = path.join(
+  REPO_ROOT,
+  'tools/dashboard/server/specs/actions.mjs',
+);
+
+const routesCode = fs.readFileSync(ROUTES_PATH, 'utf8');
+const actionsCode = fs.readFileSync(ACTIONS_PATH, 'utf8');
+
+// ─── AC T08-1: "Review together" eligibility and session routing ───────────
+test('T08 AC 1: isBatchReviewEligible requires ≥2 tasks with reviewer role and start-step action', () => {
+  // The logic mirrors specification-overview.tsx isBatchReviewEligible useMemo
+  function isBatchReviewEligible(selectedTaskIds, taskActions) {
+    if (selectedTaskIds.size < 2) return false;
+    for (const id of selectedTaskIds) {
+      const gate = taskActions?.[id];
+      const targetStep =
+        gate?.stepDescriptor?.id ||
+        gate?.nextStepDescriptor?.id ||
+        gate?.currentStepDescriptor?.id;
+      const role = gate?.execution?.role;
+      const isReviewer = targetStep === 'review' || role === 'reviewer';
+      const isRunnable = gate?.availableActions?.includes('start-step');
+      if (!isReviewer || !isRunnable) return false;
+    }
+    return true;
+  }
+
+  // Should be eligible: 3 reviewer tasks all with start-step
+  const eligibleTasks = {
+    'task-r1': { stepDescriptor: { id: 'review' }, execution: { role: 'reviewer' }, availableActions: ['start-step'] },
+    'task-r2': { stepDescriptor: { id: 'review' }, execution: { role: 'reviewer' }, availableActions: ['start-step'] },
+    'task-r3': { stepDescriptor: { id: 'review' }, execution: { role: 'reviewer' }, availableActions: ['start-step'] },
+  };
+  assert.equal(
+    isBatchReviewEligible(new Set(['task-r1', 'task-r2', 'task-r3']), eligibleTasks),
+    true,
+    'Three reviewer tasks with start-step should be eligible',
+  );
+
+  // Should NOT be eligible: only one task
+  assert.equal(
+    isBatchReviewEligible(new Set(['task-r1']), eligibleTasks),
+    false,
+    'Single task cannot form a batch',
+  );
+
+  // Should NOT be eligible: one task is not a reviewer step
+  const mixedTasks = {
+    'task-r1': { stepDescriptor: { id: 'review' }, execution: { role: 'reviewer' }, availableActions: ['start-step'] },
+    'task-d1': { stepDescriptor: { id: 'implement' }, execution: { role: 'developer' }, availableActions: ['start-step'] },
+  };
+  assert.equal(
+    isBatchReviewEligible(new Set(['task-r1', 'task-d1']), mixedTasks),
+    false,
+    'Mixed-role selection must not be eligible (D13)',
+  );
+
+  // Should NOT be eligible: reviewer task but no start-step
+  const notRunnableTasks = {
+    'task-r1': { stepDescriptor: { id: 'review' }, execution: { role: 'reviewer' }, availableActions: [] },
+    'task-r2': { stepDescriptor: { id: 'review' }, execution: { role: 'reviewer' }, availableActions: ['start-step'] },
+  };
+  assert.equal(
+    isBatchReviewEligible(new Set(['task-r1', 'task-r2']), notRunnableTasks),
+    false,
+    'All tasks must have start-step available',
+  );
+});
+
+// ─── AC T08-2: "Review together" sends reviewTogether:true through admitAgentExecution ──
+test('T08 AC 2: reviewTogether flag routes to batch handler (not individual) via admitAgentExecution', () => {
+  // Structural check: batch review handler keyed on reviewTogether / batchReview / scope.kind
+  assert.ok(
+    routesCode.includes("body.reviewTogether === true || body.batchReview === true || body.scope?.kind === 'task-batch'"),
+    'routes.mjs must gate batch execution on reviewTogether, batchReview, or scope.kind=task-batch',
+  );
+
+  // Batch handler enforces role=reviewer
+  assert.ok(
+    routesCode.includes("compat.role !== 'reviewer'"),
+    'routes.mjs batch handler must reject non-reviewer roles (D13)',
+  );
+
+  // Batch handler calls admitAgentExecution (not a second session creation path)
+  assert.ok(
+    routesCode.includes("await admitAgentExecution(canonicalSpecId, candidate") &&
+    routesCode.includes("scope: { kind: 'task-batch', taskIds: selectedTaskIds }"),
+    'Batch handler must call admitAgentExecution with task-batch scope, not a second session path',
+  );
+
+  // The UI sets reviewTogether: true in the fetch body
+  assert.ok(
+    detailContentCode.includes("executionOptions?.reviewTogether ? { reviewTogether: true }"),
+    'specification-detail-content.tsx must forward reviewTogether flag in fetch body',
+  );
+
+  // overview passes reviewTogether option
+  assert.ok(
+    overviewCode.includes("handleStartBatch({ reviewTogether: true })"),
+    'specification-overview.tsx must call handleStartBatch with reviewTogether: true for "Review together"',
+  );
+});
+
+// ─── AC T08-3: After batch completes — per-task verdict + shared report ─────
+test('T08 AC 3: Per-task lastReview verdict/feedback/reportPath is surfaced independently per task', () => {
+  // actions.mjs exposes lastReview in the projection DTO
+  assert.ok(
+    actionsCode.includes('let lastReview = null') &&
+    actionsCode.includes('verdict:') &&
+    actionsCode.includes('feedback:') &&
+    actionsCode.includes('reportPath:') &&
+    actionsCode.includes('lastReview,'),
+    'computeDeterministicTaskActionProjection must expose lastReview DTO with verdict, feedback, reportPath',
+  );
+
+  // Simulate per-task independent lastReview extraction (same as actions.mjs logic)
+  function extractLastReview(history) {
+    for (let i = history.length - 1; i >= 0; i--) {
+      const entry = history[i];
+      if (entry.step === 'review' || entry.result === 'pass' || entry.result === 'fail') {
+        const reportPath =
+          (Array.isArray(entry.artifacts) ? entry.artifacts.find((a) => typeof a === 'string' && a.includes('review-batch-')) : null) ||
+          (entry.batchExecutionId ? `reviews/review-batch-${entry.batchExecutionId}.md` : null);
+        return {
+          verdict: entry.result || entry.value || null,
+          feedback: entry.feedback || null,
+          reportPath: reportPath || null,
+          step: entry.step,
+          attempt: entry.attempt,
+          sessionId: entry.sessionId || null,
+        };
+      }
+    }
+    return null;
+  }
+
+  const batchId = 'batch-abc123';
+  const historyA = [{ step: 'review', result: 'pass', feedback: 'LGTM', batchExecutionId: batchId, attempt: 1 }];
+  const historyB = [{ step: 'review', result: 'fail', feedback: 'Needs more tests', batchExecutionId: batchId, attempt: 1 }];
+  const historyC = [{ step: 'review', result: 'pass', feedback: null, batchExecutionId: batchId, attempt: 1 }];
+
+  const reviewA = extractLastReview(historyA);
+  const reviewB = extractLastReview(historyB);
+  const reviewC = extractLastReview(historyC);
+
+  // Each task has its own independent verdict
+  assert.equal(reviewA.verdict, 'pass', 'Task A must have independent pass verdict');
+  assert.equal(reviewB.verdict, 'fail', 'Task B must have independent fail verdict');
+  assert.equal(reviewC.verdict, 'pass', 'Task C must have independent pass verdict');
+
+  // All share the same reportPath (constructed from same batchExecutionId)
+  const expectedReport = `reviews/review-batch-${batchId}.md`;
+  assert.equal(reviewA.reportPath, expectedReport, 'Task A must have shared report link');
+  assert.equal(reviewB.reportPath, expectedReport, 'Task B must have same shared report link');
+  assert.equal(reviewC.reportPath, expectedReport, 'Task C must have same shared report link');
+
+  // Shared report path surfaced in UI from sharedBatchReportPath useMemo
+  assert.ok(
+    overviewCode.includes('sharedBatchReportPath') &&
+    overviewCode.includes('?.lastReview?.reportPath'),
+    'specification-overview.tsx must compute sharedBatchReportPath from task lastReview.reportPath',
+  );
+
+  // Per-task verdict rendered independently per task card
+  assert.ok(
+    overviewCode.includes('lastReview.verdict') &&
+    overviewCode.includes('lastReview.feedback'),
+    'specification-overview.tsx must render per-task lastReview verdict and feedback independently',
+  );
+});
+
+// ─── AC T08-4: Reviewing individually still works (unchanged path) ──────────
+test('T08 AC 4: Individual review path is preserved alongside batch review option', () => {
+  // "Review individually" button calls handleStartBatch() without reviewTogether option
+  assert.ok(
+    overviewCode.includes("isBatchReviewEligible ? 'Review individually' : 'Start batch'"),
+    '"Review individually" label must appear when batch is eligible',
+  );
+
+  // The individual start path does NOT include reviewTogether flag
+  // Simulate logic: handleStartBatch() (no options) falls through to existing single-task path
+  function handleStartBatch(options, selectedTaskIds, taskActions, tasks) {
+    if (selectedTaskIds.size === 0) return null;
+    const selectedTasks = tasks
+      .filter((t) => selectedTaskIds.has(t.id))
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const nextRunnable = selectedTasks.find((t) => taskActions[t.id]?.availableActions?.includes('start-step'));
+    if (!nextRunnable) return null;
+    return {
+      task: nextRunnable,
+      reviewTogether: Boolean(options?.reviewTogether),
+    };
+  }
+
+  const tasks = [
+    { id: 't1', order: 1 },
+    { id: 't2', order: 2 },
+  ];
+  const taskActions = {
+    't1': { stepDescriptor: { id: 'review' }, execution: { role: 'reviewer' }, availableActions: ['start-step'] },
+    't2': { stepDescriptor: { id: 'review' }, execution: { role: 'reviewer' }, availableActions: ['start-step'] },
+  };
+  const selectedIds = new Set(['t1', 't2']);
+
+  const individualResult = handleStartBatch(undefined, selectedIds, taskActions, tasks);
+  assert.equal(individualResult?.reviewTogether, false, '"Review individually" must not set reviewTogether');
+  assert.equal(individualResult?.task?.id, 't1', '"Review individually" must start first runnable task');
+
+  const batchResult = handleStartBatch({ reviewTogether: true }, selectedIds, taskActions, tasks);
+  assert.equal(batchResult?.reviewTogether, true, '"Review together" must set reviewTogether flag');
+});
+
+// ─── AC T08-5: BATCH_CONTEXT_TOO_LARGE surfaces distinct actionable UI failure ─
+test('T08 AC 5: BATCH_CONTEXT_TOO_LARGE error surfaces distinct actionable guidance; unknown capacity surfaces warning', () => {
+  // Known capacity over-budget — actionable message
+  assert.ok(
+    detailContentCode.includes("err.error?.code === 'BATCH_CONTEXT_TOO_LARGE' || err.code === 'BATCH_CONTEXT_TOO_LARGE'"),
+    'specification-detail-content.tsx must check for BATCH_CONTEXT_TOO_LARGE error code',
+  );
+  assert.ok(
+    detailContentCode.includes("'Selection exceeds model context capacity. Choose fewer tasks or a model with larger context.'"),
+    'BATCH_CONTEXT_TOO_LARGE must produce distinct actionable guidance message',
+  );
+
+  // Simulate the error catch logic
+  function handleTurnFetchError(err) {
+    if (err.error?.code === 'BATCH_CONTEXT_TOO_LARGE' || err.code === 'BATCH_CONTEXT_TOO_LARGE') {
+      return { type: 'actionable', message: 'Selection exceeds model context capacity. Choose fewer tasks or a model with larger context.' };
+    }
+    return { type: 'generic', message: err.error?.message || err.message || 'Failed to admit agent execution' };
+  }
+
+  const knownCapacityError = handleTurnFetchError({ error: { code: 'BATCH_CONTEXT_TOO_LARGE', message: 'Too large' } });
+  assert.equal(knownCapacityError.type, 'actionable', 'Known capacity error must surface actionable guidance');
+  assert.ok(knownCapacityError.message.includes('Choose fewer tasks'), 'Guidance must tell user to choose fewer tasks or different model');
+
+  const unknownCapacityError = handleTurnFetchError({ error: { code: 'ADMISSION_BLOCKED', message: 'Blocked' } });
+  assert.equal(unknownCapacityError.type, 'generic', 'Non-BATCH_CONTEXT_TOO_LARGE errors surface generic message');
+
+  // Server stores contextCapacity with status 'unknown' when catalog trait unavailable (D34/D38)
+  assert.ok(
+    routesCode.includes("status: 'unknown', reason: 'Catalog trait not available'"),
+    'routes.mjs must store contextCapacity with status: unknown when catalog trait is absent (D34/D38)',
+  );
+
+  // Never fabricate numeric limits for unknown capacity
+  const unknownCapacityPattern = /status:\s*['"]unknown['"].*maxContextTokens/s;
+  assert.ok(
+    !unknownCapacityPattern.test(routesCode),
+    'routes.mjs must never fabricate maxContextTokens for unknown capacity',
+  );
+});
+
+// ─── AC T08-6: No second session-creation path — single admitAgentExecution boundary ─
+test('T08 AC 6: All batch sessions route through admitAgentExecution — no second session-creation path', () => {
+  // Both the single-task and batch paths both call admitAgentExecution (same gate)
+  const admitCallCount = (routesCode.match(/await admitAgentExecution\(/g) || []).length;
+  assert.ok(admitCallCount >= 2, `routes.mjs must contain at least 2 admitAgentExecution calls (single-task + batch), found ${admitCallCount}`);
+
+  // No direct session.create or createSession call in routes.mjs
+  assert.ok(
+    !routesCode.includes('session.create(') && !routesCode.includes('createSession.create('),
+    'routes.mjs must not bypass admission via direct session.create calls',
+  );
+
+  // Batch path sets scope.kind = 'task-batch' before admission
+  assert.ok(
+    routesCode.includes("scope: { kind: 'task-batch', taskIds: selectedTaskIds }"),
+    'Batch admission must set scope kind=task-batch before calling admitAgentExecution',
+  );
+
+  // Batch path performs rollback on admission failure (D19)
+  assert.ok(
+    routesCode.includes('rollbackReservationSynchronously') &&
+    routesCode.includes('!admission.admitted'),
+    'Batch handler must rollback reservation synchronously when admission fails (D19)',
+  );
+
+  // UI detail-content has no direct createSession.create call (already covered by AC 6, but also for batch)
+  assert.ok(
+    !detailContentCode.includes('createSession.create('),
+    'specification-detail-content.tsx must not contain any createSession.create call for batch or single execution',
+  );
 });

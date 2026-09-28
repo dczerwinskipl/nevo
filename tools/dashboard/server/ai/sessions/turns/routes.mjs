@@ -119,6 +119,146 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         }
       }
 
+      // Batch review execution ("Review together", Task 08, D6, D12, D13, D26, D33, D34, D38)
+      if (body.reviewTogether === true || body.batchReview === true || body.scope?.kind === 'task-batch') {
+        if (selectedTaskIds.length < 2) {
+          throw new AiValidationError('Batch review requires at least 2 tasks.');
+        }
+
+        let definition = null;
+        if (deterministicTarget.resolvedWorkflow?.definition) {
+          const { loadWorkflowDefinition } = await import('../../../../../specs/workflow/definitions/loader.mjs');
+          definition = loadWorkflowDefinition(deterministicTarget.resolvedWorkflow.definition, { repoRoot: effectiveRepoRoot });
+        }
+
+        const { validateBatchCompatibility, createGroupReservation } = await import('../../../../../specs/workflow/queue/index.mjs');
+        const compat = validateBatchCompatibility({
+          change: deterministicTarget.change,
+          taskIds: selectedTaskIds,
+          definition,
+          repoRoot: effectiveRepoRoot,
+        });
+
+        if (!compat.compatible) {
+          throw new AiValidationError(compat.error || `Incompatible batch review selection: task '${compat.incompatibleTaskId}'`);
+        }
+
+        if (compat.role !== 'reviewer') {
+          throw new AiValidationError(`Batch execution is restricted to the 'reviewer' role in v1 (resolved role: '${compat.role}').`);
+        }
+
+        const { executionPolicyService } = await import('../execution-policy-service.mjs');
+        const resolvedPolicy = executionPolicyService.resolveExecutionPolicy(changeSlug, selectedTaskIds[0], {
+          role: 'reviewer',
+          repoRoot: effectiveRepoRoot,
+        });
+
+        let effectiveProvider = body.oneOff ? (body.provider || resolvedPolicy?.provider) : (resolvedPolicy?.provider || body.provider);
+        let effectiveMode = body.oneOff ? (body.mode || resolvedPolicy?.mode || 'agent') : (resolvedPolicy?.mode || body.mode || 'agent');
+
+        if (!effectiveProvider) {
+          effectiveProvider = body.provider || null;
+        }
+
+        if (!effectiveProvider) {
+          throw new AiValidationError('No execution provider specified or configured in execution policy for reviewer.');
+        }
+
+        // Context capacity snapshot (D26, D34, D38)
+        let contextCapacity = null;
+        if (typeof body.maxContextTokens === 'number') {
+          contextCapacity = { status: 'known', maxContextTokens: body.maxContextTokens, source: 'configured' };
+        } else {
+          let modelMaxTokens = null;
+          try {
+            const providerInstance = service.registry?.get?.(effectiveProvider);
+            const modelDesc = providerInstance?.models?.find?.((m) => m.id === body.model || m.name === body.model);
+            if (typeof modelDesc?.traits?.maxContextTokens === 'number') {
+              modelMaxTokens = modelDesc.traits.maxContextTokens;
+            }
+          } catch {}
+
+          if (typeof modelMaxTokens === 'number') {
+            contextCapacity = { status: 'known', maxContextTokens: modelMaxTokens, source: 'catalog' };
+          } else {
+            contextCapacity = { status: 'unknown', reason: 'Catalog trait not available' };
+          }
+        }
+
+        const executionConfigSnapshot = {
+          provider: effectiveProvider,
+          model: body.model || null,
+          mode: effectiveMode,
+          contextCapacity,
+        };
+
+        // Atomically reserve group and activate barrier (D18, D31, D38)
+        const reservation = await createGroupReservation({
+          repoRoot: effectiveRepoRoot,
+          changeSlug,
+          taskIds: selectedTaskIds,
+          executionConfigSnapshot,
+        });
+
+        const batchExecutionId = reservation.batchExecutionId;
+        const batchPrompt = `Execute batched review for tasks: ${selectedTaskIds.join(', ')}. Batch execution ID: ${batchExecutionId}.`;
+
+        const { admitAgentExecution } = await import('../../orchestration/admission.mjs');
+        const candidate = {
+          scope: { kind: 'task-batch', taskIds: selectedTaskIds },
+          taskIds: selectedTaskIds,
+          batchExecutionId,
+          stepId: compat.step || 'review',
+          role: 'reviewer',
+          provider: effectiveProvider,
+          mode: effectiveMode,
+          model: body.model === null ? null : (body.model ? body.model.trim() : undefined),
+          changeSlug,
+          specId: canonicalSpecId,
+          sessionPolicy: 'fresh',
+          parentSessionId: null,
+          message: batchPrompt,
+          userMessage: batchPrompt,
+          effort: effort ? effort.trim() : undefined,
+          idempotencyKey: body.idempotencyKey,
+        };
+
+        const admission = await admitAgentExecution(canonicalSpecId, candidate, {
+          repoRoot: effectiveRepoRoot,
+          sessionService: service,
+          turnRuntime: service.turnRuntime,
+          activeDir: join(effectiveRepoRoot, 'specs', 'active'),
+        });
+
+        if (!admission.admitted) {
+          const { rollbackReservationSynchronously } = await import('../../../../../specs/workflow/queue/reservation.mjs');
+          await rollbackReservationSynchronously({
+            repoRoot: effectiveRepoRoot,
+            changeSlug,
+            batchExecutionId,
+            error: new Error(admission.reason),
+          });
+          reply.code(409).send({
+            error: {
+              code: admission.reason || 'ADMISSION_BLOCKED',
+              message: `Batch agent execution admission failed: ${admission.reason}`,
+              details: admission,
+            },
+          });
+          return;
+        }
+
+        reply.code(201).send({
+          sessionId: admission.sessionId,
+          ownerId: admission.ownerId,
+          turnId: admission.turnId,
+          batchExecutionId,
+          contextCapacity,
+          scope: candidate.scope,
+        });
+        return;
+      }
+
       // A. Pure resolution and validation (no disk side-effects)
       const { loadTaskQueue, enqueueTasks, evaluateTaskQueue } = await import('../../../../../specs/workflow/queue/index.mjs');
       const currentQueue = loadTaskQueue(effectiveRepoRoot, changeSlug);

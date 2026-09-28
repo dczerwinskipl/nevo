@@ -69,7 +69,7 @@ tasks:
   - id: dashboard-batch-review-ux
     order: 8
     file: tasks/08-dashboard-batch-review-ux.md
-    status: approved
+    status: verified
     depends_on:
       [
         batch-queue-reservation,
@@ -78,5 +78,7 @@ tasks:
         batch-completion-orchestration,
         multi-task-review-skill
       ]
+    implementation:
+      baseline_revision: acac07455f76351c7cc2f8a9f2f44503d3c09988
 
 spec_id: 3ca6a3e7-30da-4e10-a524-4eb4f49c3db4

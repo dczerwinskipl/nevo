@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-28T19:00:29.285Z",
+  "generated": "2026-09-28T19:12:41.201Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -234,14 +234,17 @@
           "id": "dashboard-batch-review-ux",
           "order": 8,
           "file": "tasks/08-dashboard-batch-review-ux.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "batch-queue-reservation",
             "batch-start-and-context-bootstrap",
             "batch-finish-operation",
             "batch-completion-orchestration",
             "multi-task-review-skill"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "acac07455f76351c7cc2f8a9f2f44503d3c09988"
+          }
         }
       ]
     },

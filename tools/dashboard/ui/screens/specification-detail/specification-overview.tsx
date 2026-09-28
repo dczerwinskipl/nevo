@@ -24,7 +24,7 @@ export interface SequentialQueueTaskPickerProps {
     task: SpecificationTask,
     stepDescriptor: WorkflowStepDescriptor,
     taskIds?: string[],
-    options?: { oneOff?: boolean },
+    options?: { oneOff?: boolean; reviewTogether?: boolean },
   ) => void | Promise<void>;
   onTriggerRemediationReview?: (remediationTaskIds: string[]) => void | Promise<void>;
   executionPolicy?: ExecutionPolicy | null;
@@ -126,7 +126,7 @@ export function SequentialQueueTaskPicker({
 
   // Submits the selection via server-side orchestration layer
   // Starts exactly ONE session (for the queue's first nextRunnable item), never more than one (D33, AC 2, AC 8)
-  const handleStartBatch = useCallback((options?: { oneOff?: boolean }) => {
+  const handleStartBatch = useCallback((options?: { oneOff?: boolean; reviewTogether?: boolean }) => {
     if (selectedTaskIds.size === 0) return;
     const selectedTasks = tasks
       .filter((t) => selectedTaskIds.has(t.id))
@@ -149,6 +149,31 @@ export function SequentialQueueTaskPicker({
       onStartStep?.(nextRunnable, descriptor, Array.from(selectedTaskIds), options);
     }
   }, [onStartStep, selectedTaskIds, tasks, taskActions]);
+
+  // Check if selected tasks are eligible for batch review together (D12, D13)
+  const isBatchReviewEligible = useMemo(() => {
+    if (selectedTaskIds.size < 2) return false;
+    for (const id of selectedTaskIds) {
+      const gate = taskActions?.[id];
+      const targetStep = gate?.stepDescriptor?.id || gate?.nextStepDescriptor?.id || gate?.currentStepDescriptor?.id;
+      const role = gate?.execution?.role;
+      const isReviewer = targetStep === 'review' || role === 'reviewer';
+      const isRunnable = gate?.availableActions?.includes('start-step');
+      if (!isReviewer || !isRunnable) {
+        return false;
+      }
+    }
+    return true;
+  }, [selectedTaskIds, taskActions]);
+
+  // Check if any task in change has an associated batch review report (Task 08, D7, D13)
+  const sharedBatchReportPath = useMemo(() => {
+    for (const t of tasks) {
+      const report = (taskActions?.[t.id] as any)?.lastReview?.reportPath;
+      if (report) return report;
+    }
+    return null;
+  }, [tasks, taskActions]);
 
   if (!tasks || tasks.length === 0) return null;
 
@@ -200,17 +225,41 @@ export function SequentialQueueTaskPicker({
           >
             Uruchom z...
           </Button>
+          {isBatchReviewEligible && (
+            <Button
+              size="sm"
+              onClick={() => handleStartBatch({ reviewTogether: true })}
+              className="h-7 cursor-pointer bg-accent text-accent-contrast text-xs font-semibold hover:bg-accent/90"
+              aria-label="Review together"
+              title="Review selected tasks together in one batch session"
+            >
+              <Layers3 className="mr-1 size-3" /> Review together ({selectedTaskIds.size})
+            </Button>
+          )}
           <Button
             size="sm"
             onClick={() => handleStartBatch()}
             disabled={selectedTaskIds.size === 0}
             className="h-7 cursor-pointer text-xs font-semibold"
-            aria-label="Start batch"
+            aria-label={isBatchReviewEligible ? 'Review individually' : 'Start batch'}
           >
-            <Play className="mr-1 size-3" /> Start batch
+            <Play className="mr-1 size-3" /> {isBatchReviewEligible ? 'Review individually' : 'Start batch'}
           </Button>
         </div>
       </div>
+
+      {sharedBatchReportPath && (
+        <div className="mt-3 flex items-center justify-between rounded-lg border border-accent/30 bg-accent/5 px-3 py-2 text-xs">
+          <span className="text-fg-secondary">Shared batch review report:</span>
+          <a
+            href={`#${sharedBatchReportPath}`}
+            className="font-semibold text-accent hover:underline"
+            aria-label="Shared batch review report"
+          >
+            Open Batch Review Report ({sharedBatchReportPath})
+          </a>
+        </div>
+      )}
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 bg-surface-muted/40 px-3 py-1.5 text-xs text-fg-muted">
         <div className="flex flex-wrap items-center gap-2.5">
@@ -262,7 +311,8 @@ export function SequentialQueueTaskPicker({
       <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {tasks.map((task) => {
           const isChecked = selectedTaskIds.has(task.id);
-          const gate = taskActions?.[task.id];
+          const gate = taskActions?.[task.id] as any;
+          const lastReview = gate?.lastReview;
           return (
             <label
               key={task.id}
@@ -289,6 +339,28 @@ export function SequentialQueueTaskPicker({
                     <span className="text-[10px] uppercase text-fg-muted">{gate.state}</span>
                   )}
                 </div>
+                {lastReview && (
+                  <div className="mt-1.5 flex flex-col gap-0.5 border-t border-border/40 pt-1 text-[10px]">
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-fg-muted">Review verdict:</span>
+                      <span
+                        className={cn(
+                          'rounded px-1.5 py-0.2 font-bold uppercase tracking-wider',
+                          lastReview.verdict === 'pass'
+                            ? 'bg-status-success/15 text-status-success'
+                            : 'bg-status-danger/15 text-status-danger',
+                        )}
+                      >
+                        {lastReview.verdict}
+                      </span>
+                    </div>
+                    {lastReview.feedback && (
+                      <p className="truncate text-fg-muted" title={lastReview.feedback}>
+                        {lastReview.feedback}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             </label>
           );

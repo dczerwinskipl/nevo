@@ -132,6 +132,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
     stepDescriptor: WorkflowStepDescriptor;
     taskIds?: string[];
     isOneOff?: boolean;
+    reviewTogether?: boolean;
     initialConfig?: { provider: string; mode?: AgentExecutionMode } | null;
   } | null>(null);
 
@@ -144,6 +145,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
       targetTaskId: string,
       policy: { provider?: string; mode?: AgentExecutionMode; oneOff?: boolean } = {},
       taskIds?: string[],
+      executionOptions?: { reviewTogether?: boolean },
     ) => {
       const userMessage = buildAgentStepTriggerMessage(targetTaskId);
       const res = await fetch('/api/agent-sessions/turns', {
@@ -156,6 +158,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           ...(policy.oneOff ? { oneOff: true } : {}),
           ...(policy.oneOff && policy.provider ? { provider: policy.provider } : {}),
           ...(policy.oneOff && policy.mode ? { mode: policy.mode } : {}),
+          ...(executionOptions?.reviewTogether ? { reviewTogether: true } : {}),
           specId: specification.specId,
           slug: specification.slug,
           changeSlug: specification.slug,
@@ -169,6 +172,9 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
+        if (err.error?.code === 'BATCH_CONTEXT_TOO_LARGE' || err.code === 'BATCH_CONTEXT_TOO_LARGE') {
+          throw new Error('Selection exceeds model context capacity. Choose fewer tasks or a model with larger context.');
+        }
         throw new Error(err.error?.message || err.message || `Failed to admit agent execution: ${res.status}`);
       }
 
@@ -194,7 +200,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
       task: SpecificationTask,
       stepDescriptor: WorkflowStepDescriptor,
       taskIds?: string[],
-      options?: { oneOff?: boolean },
+      options?: { oneOff?: boolean; reviewTogether?: boolean },
     ) => {
       setWorkflowError(null);
 
@@ -216,11 +222,12 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
               stepDescriptor,
               taskIds,
               isOneOff: Boolean(options?.oneOff),
+              reviewTogether: Boolean(options?.reviewTogether),
               initialConfig: effective ? { provider: effective.provider, mode: effective.mode } : null,
             });
             return;
           }
-          await proceedWithAgentExecution(targetTaskId, undefined, taskIds);
+          await proceedWithAgentExecution(targetTaskId, undefined, taskIds, options);
         } catch (err: any) {
           const message = err instanceof Error ? err.message : String(err);
           setWorkflowError(message);
@@ -581,6 +588,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
                     target.task.id,
                     { provider: chosen.provider, mode: chosen.mode, oneOff: true },
                     target.taskIds,
+                    { reviewTogether: target.reviewTogether },
                   );
                 }
               } else {
@@ -593,7 +601,12 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
                   ...(chosen.taskOverrides ? { taskOverrides: chosen.taskOverrides } : (executionPolicyQuery.policy?.taskOverrides ? { taskOverrides: executionPolicyQuery.policy.taskOverrides } : {})),
                 });
                 if (target.task && target.stepDescriptor?.id !== '__configure_only__') {
-                  await proceedWithAgentExecution(target.task.id, undefined, target.taskIds);
+                  await proceedWithAgentExecution(
+                    target.task.id,
+                    undefined,
+                    target.taskIds,
+                    { reviewTogether: target.reviewTogether },
+                  );
                 }
               }
             } catch (err: any) {
