@@ -52,6 +52,27 @@ test('postStartTurn omits mode entirely when not provided (no mode: undefined le
   await postStartTurn('sess-1', { message: 'Hi', idempotencyKey: 'idem-2' });
 });
 
+test('postStartTurn includes a trimmed model override when provided and omits it otherwise', async () => {
+  const bodies = [];
+  globalThis.fetch = async (_url, init) => {
+    bodies.push(JSON.parse(init.body));
+    return { ok: true, status: 200, json: async () => ({ turnId: 't-model' }) };
+  };
+
+  await postStartTurn('sess-1', {
+    message: 'Use the selected model',
+    idempotencyKey: 'idem-model-1',
+    model: '  claude-sonnet-5  ',
+  });
+  await postStartTurn('sess-1', {
+    message: 'Keep the persisted session model',
+    idempotencyKey: 'idem-model-2',
+  });
+
+  assert.equal(bodies[0].model, 'claude-sonnet-5');
+  assert.equal('model' in bodies[1], false);
+});
+
 test('postStartTurn throws the server-provided error message on failure', async () => {
   globalThis.fetch = async () => ({
     ok: false,

@@ -330,6 +330,32 @@ describe('Canonical Chat Surface Component Tests (RTL renders)', () => {
     expect(displayEmpty?.detail).toBeUndefined();
   });
 
+  it('Model picker renders provider models and reports a between-turn selection', () => {
+    const onModelChange = vi.fn();
+    render(
+      <AgentSessionComposer
+        currentMode="edit"
+        onModeChange={vi.fn()}
+        onSend={vi.fn()}
+        hasActiveTurn={false}
+        isRunning={false}
+        disabled={false}
+        currentModel="model-a"
+        canOverrideTurnModel
+        onModelChange={onModelChange}
+        models={[
+          { id: 'model-a', label: 'Model A', source: 'discovered' },
+          { id: 'model-b', label: 'Model B', source: 'configured' },
+        ]}
+      />,
+    );
+
+    const modelSelect = screen.getByRole('combobox', { name: /model/i });
+    expect(modelSelect).toHaveValue('model-a');
+    fireEvent.change(modelSelect, { target: { value: 'model-b' } });
+    expect(onModelChange).toHaveBeenCalledWith('model-b');
+  });
+
   describe('Finding 1: Send vs Stop control contract lifecycle', () => {
     it('Case 1: idle + ready renders Send button, enabled when draft has text', () => {
       const onSend = vi.fn();

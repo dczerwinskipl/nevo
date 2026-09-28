@@ -203,7 +203,7 @@ export function useAgentSessionRuntime({ sessionId, onTurnCompleted, onError }: 
   const handleSendTurn = useCallback(
     async (
       messageText: string,
-      options?: { mode?: AgentExecutionMode; idempotencyKey?: string; userMessage?: string },
+      options?: { mode?: AgentExecutionMode; model?: string; idempotencyKey?: string; userMessage?: string },
     ) => {
       const trimmed = messageText ? messageText.trim() : '';
       if (!trimmed) throw new Error('Cannot start turn with an empty message.');
@@ -226,6 +226,7 @@ export function useAgentSessionRuntime({ sessionId, onTurnCompleted, onError }: 
           message: trimmed,
           idempotencyKey,
           mode: options?.mode,
+          model: options?.model,
           userMessage: options?.userMessage,
         });
       } catch (err) {

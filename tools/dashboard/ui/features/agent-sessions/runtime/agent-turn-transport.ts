@@ -14,7 +14,13 @@ import type { AgentExecutionMode } from '../types';
 
 export async function postStartTurn(
   sessionId: string,
-  body: { message: string; idempotencyKey: string; mode?: AgentExecutionMode; userMessage?: string },
+  body: {
+    message: string;
+    idempotencyKey: string;
+    mode?: AgentExecutionMode;
+    model?: string;
+    userMessage?: string;
+  },
 ): Promise<{ turnId: string | undefined }> {
   const res = await fetch(`/api/agent-sessions/${encodeURIComponent(sessionId)}/turns`, {
     method: 'POST',
@@ -26,6 +32,7 @@ export async function postStartTurn(
       message: body.message,
       idempotencyKey: body.idempotencyKey,
       ...(body.mode ? { mode: body.mode } : {}),
+      ...(body.model?.trim() ? { model: body.model.trim() } : {}),
       ...(body.userMessage ? { userMessage: body.userMessage } : {}),
     }),
   });

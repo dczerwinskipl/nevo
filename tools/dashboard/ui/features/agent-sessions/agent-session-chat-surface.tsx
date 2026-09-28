@@ -4,7 +4,7 @@ import { AgentSessionComposer } from './composer/agent-session-composer';
 import { AgentSessionWorkflowBar, type BoundTaskInfo } from './agent-session-workflow-bar';
 import { AgentSessionTranscript, type AgentSessionTranscriptHandle } from './work/agent-session-transcript';
 import type { AgentSessionLoadError } from './runtime/agent-session-transport';
-import type { AgentExecutionMode, CanonicalTurn } from './types';
+import type { AgentExecutionMode, AgentModelDescriptor, CanonicalTurn } from './types';
 import { Button } from '@/shared/ui/button';
 import { cn } from '@/shared/lib/utils';
 import { HumanStepSurface, type HumanStepInteractionDescriptor } from '@/shared/workflow/human-step-surface';
@@ -28,6 +28,9 @@ export interface AgentSessionChatSurfaceProps {
 
   // Composer data & state
   currentMode?: AgentExecutionMode;
+  currentModel?: string | null;
+  models?: AgentModelDescriptor[];
+  canOverrideTurnModel?: boolean;
   isRunning?: boolean;
   hasActiveTurn?: boolean;
   canCancel?: boolean;
@@ -63,6 +66,7 @@ export interface AgentSessionChatSurfaceProps {
   onSend: (text: string) => void | Promise<void>;
   onCancel?: () => void;
   onModeChange?: (mode: AgentExecutionMode) => void;
+  onModelChange?: (model: string) => void;
   onRespondInteraction: (interactionId: string, response: unknown) => void | Promise<void>;
   onReload?: () => void | Promise<void>;
   onBack?: () => void;
@@ -88,6 +92,9 @@ export const AgentSessionChatSurface = forwardRef<AgentSessionChatSurfaceHandle,
       displayError = null,
       canRetryInitial = false,
       currentMode = 'edit',
+      currentModel = null,
+      models = [],
+      canOverrideTurnModel = false,
       isRunning = false,
       hasActiveTurn,
       canCancel = false,
@@ -111,6 +118,7 @@ export const AgentSessionChatSurface = forwardRef<AgentSessionChatSurfaceHandle,
       onSend,
       onCancel,
       onModeChange,
+      onModelChange,
       onRespondInteraction,
       onReload,
       onBack,
@@ -247,6 +255,10 @@ export const AgentSessionChatSurface = forwardRef<AgentSessionChatSurfaceHandle,
               textareaRef={composerTextareaRef}
               currentMode={currentMode}
               onModeChange={onModeChange || (() => {})}
+              currentModel={currentModel}
+              models={models}
+              canOverrideTurnModel={canOverrideTurnModel}
+              onModelChange={onModelChange}
               onSend={handleSend}
               onCancel={onCancel}
               isRunning={isRunning}

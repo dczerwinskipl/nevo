@@ -86,8 +86,11 @@ export function AgentSessionPage({
   const sessionId = session.sessionId;
 
   const [selectedModeOverride, setSelectedModeOverride] = useState<AgentExecutionMode | null>(null);
+  const [selectedModelOverride, setSelectedModelOverride] = useState<string | null>(null);
   const providersQuery = useAgentProviders();
   const providerInfo = providersQuery.data?.providers.find((p) => p.id === provider);
+  const providerModels = providerInfo?.models ?? [];
+  const canOverrideTurnModel = Boolean(providerInfo?.capabilities?.canOverrideTurnModel && providerModels.length > 0);
   const isProviderAvailable = Boolean(providerInfo && providerInfo.available !== false);
   const providerUnavailableReason = providerInfo
     ? providerInfo.unavailableReason ||
@@ -113,6 +116,7 @@ export function AgentSessionPage({
 
   const sessionDetails = assistant.sessionDetails || session;
   const currentMode: AgentExecutionMode = selectedModeOverride ?? sessionDetails?.mode ?? session?.mode ?? 'edit';
+  const currentModel = selectedModelOverride ?? sessionDetails?.model ?? session?.model ?? null;
 
   const initialDispatch = useInitialDispatch({
     provider,
@@ -180,6 +184,7 @@ export function AgentSessionPage({
 
   useEffect(() => {
     setRuntimeError(null);
+    setSelectedModelOverride(null);
   }, [provider, sessionId]);
 
   const { deleteSession, deleting } = useDeleteAgentSession();
@@ -277,13 +282,17 @@ export function AgentSessionPage({
       setRuntimeError(null);
       try {
         const prompt = buildAgentStepTriggerMessage(taskId);
-        await assistant.sendTurn(prompt, { mode: currentMode, userMessage: prompt });
+        await assistant.sendTurn(prompt, {
+          mode: currentMode,
+          model: selectedModelOverride ?? undefined,
+          userMessage: prompt,
+        });
         await onRefreshTaskActions?.();
       } catch (err) {
         setRuntimeError(err instanceof Error ? err.message : String(err));
       }
     },
-    [assistant, currentMode, onRefreshTaskActions],
+    [assistant, currentMode, selectedModelOverride, onRefreshTaskActions],
   );
 
   const handleComposerSubmit = useCallback(
@@ -293,12 +302,15 @@ export function AgentSessionPage({
       setRuntimeError(null);
       chatSurfaceRef.current?.scrollToBottom('auto');
       try {
-        await assistant.sendTurn(trimmed, { mode: currentMode });
+        await assistant.sendTurn(trimmed, {
+          mode: currentMode,
+          model: selectedModelOverride ?? undefined,
+        });
       } catch (err) {
         setRuntimeError(err instanceof Error ? err.message : String(err));
       }
     },
-    [assistant.canStartTurn, assistant.sendTurn, currentMode, isProviderAvailable],
+    [assistant.canStartTurn, assistant.sendTurn, currentMode, selectedModelOverride, isProviderAvailable],
   );
 
   const shellClassName =
@@ -388,6 +400,13 @@ export function AgentSessionPage({
         canRetryInitial={canRetryInitial}
         currentMode={currentMode}
         onModeChange={(m) => setSelectedModeOverride(m)}
+        currentModel={currentModel}
+        models={providerModels}
+        canOverrideTurnModel={canOverrideTurnModel}
+        onModelChange={(model) => {
+          setRuntimeError(null);
+          setSelectedModelOverride(model);
+        }}
         onSend={(text) => handleComposerSubmit(text)}
         onCancel={() => void handleCancelTurn()}
         isRunning={activeRuntime.isRunning}

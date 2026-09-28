@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect, useLayoutEffect, type Keyboar
 import { Send, CircleStop } from 'lucide-react';
 import { useMediaQuery } from 'usehooks-ts';
 import { Button } from '@/shared/ui/button';
-import type { AgentExecutionMode } from '../types';
+import type { AgentExecutionMode, AgentModelDescriptor } from '../types';
 import { AI_MODES, getModeMeta } from '../mode-meta';
 import { cn } from '@/shared/lib/utils';
 import {
@@ -38,6 +38,10 @@ export interface AgentSessionComposerProps {
   loadError?: unknown;
   currentMode: AgentExecutionMode;
   onModeChange: (mode: AgentExecutionMode) => void;
+  currentModel?: string | null;
+  models?: AgentModelDescriptor[];
+  canOverrideTurnModel?: boolean;
+  onModelChange?: (model: string) => void;
   placeholder?: string;
   textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
   actionMode?: 'request-changes' | null;
@@ -59,6 +63,10 @@ export function AgentSessionComposer({
   loadError,
   currentMode,
   onModeChange,
+  currentModel = null,
+  models = [],
+  canOverrideTurnModel = false,
+  onModelChange,
   placeholder,
   textareaRef: externalTextareaRef,
   actionMode = null,
@@ -83,6 +91,8 @@ export function AgentSessionComposer({
 
   const showCancelAction = hasActiveTurn !== undefined ? hasActiveTurn : isRunning;
   const isDisabled = disabled || !isProviderAvailable || Boolean(loadError) || isRunning || Boolean(hasActiveTurn);
+  const hasCurrentModelOutsideCatalog = Boolean(currentModel && !models.some((model) => model.id === currentModel));
+  const showModelPicker = canOverrideTurnModel && models.length > 0;
 
   const effectivePlaceholder =
     placeholder ??
@@ -192,26 +202,53 @@ export function AgentSessionComposer({
           />
         </label>
 
-        {/* Footer controls: Mode switcher on left, Send/Cancel on right */}
-        <div className="flex items-center justify-between border-t border-border/60 px-3 py-2">
-          {/* Mode Switcher */}
-          <div className="flex items-center gap-0.5 rounded-lg border border-border bg-surface-raised p-0.5 text-[10px]">
-            {AI_MODES.map((modeMeta) => (
-              <button
-                key={modeMeta.id}
-                type="button"
-                onClick={() => onModeChange(modeMeta.id)}
-                className={cn(
-                  'rounded px-2 py-1 text-[9px] font-semibold tracking-wider uppercase transition-colors',
-                  currentMode === modeMeta.id ? 'bg-accent text-fg-on-accent' : 'text-fg-muted hover:text-fg-primary',
-                )}
-                title={`${modeMeta.label} - ${modeMeta.description}`}
-                aria-label={`${modeMeta.label}: ${modeMeta.description}`}
-                disabled={isDisabled || actionMode === 'request-changes'}
-              >
-                {modeMeta.id}
-              </button>
-            ))}
+        {/* Footer controls: Mode/model selectors on left, Send/Cancel on right */}
+        <div className="flex items-center justify-between gap-2 border-t border-border/60 px-3 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            {/* Mode Switcher */}
+            <div className="flex shrink-0 items-center gap-0.5 rounded-lg border border-border bg-surface-raised p-0.5 text-[10px]">
+              {AI_MODES.map((modeMeta) => (
+                <button
+                  key={modeMeta.id}
+                  type="button"
+                  onClick={() => onModeChange(modeMeta.id)}
+                  className={cn(
+                    'rounded px-2 py-1 text-[9px] font-semibold tracking-wider uppercase transition-colors',
+                    currentMode === modeMeta.id ? 'bg-accent text-fg-on-accent' : 'text-fg-muted hover:text-fg-primary',
+                  )}
+                  title={`${modeMeta.label} - ${modeMeta.description}`}
+                  aria-label={`${modeMeta.label}: ${modeMeta.description}`}
+                  disabled={isDisabled || actionMode === 'request-changes'}
+                >
+                  {modeMeta.id}
+                </button>
+              ))}
+            </div>
+
+            {showModelPicker && (
+              <label className="min-w-0 max-w-32 sm:max-w-48">
+                <span className="sr-only">Model</span>
+                <select
+                  aria-label="Model"
+                  title="Model używany dla następnej wiadomości w tej sesji"
+                  value={currentModel || ''}
+                  onChange={(event) => {
+                    const nextModel = event.target.value;
+                    if (nextModel) onModelChange?.(nextModel);
+                  }}
+                  disabled={isDisabled || actionMode === 'request-changes'}
+                  className="h-7 w-full min-w-0 rounded-lg border border-border bg-surface-raised px-2 text-[10px] font-medium text-fg-secondary outline-none transition-colors hover:border-border-strong focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {!currentModel && <option value="">Provider default</option>}
+                  {hasCurrentModelOutsideCatalog && currentModel && <option value={currentModel}>{currentModel}</option>}
+                  {models.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
 
           {/* Action button: Send or Stop or Request-Changes actions */}

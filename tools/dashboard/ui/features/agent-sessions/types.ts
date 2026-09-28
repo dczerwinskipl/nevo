@@ -4,6 +4,25 @@ export type LiveConnectionStatus = 'connected' | 'reconnecting' | 'disconnected'
 
 export type AgentExecutionMode = 'ask' | 'edit' | 'agent';
 
+export type AgentModelSource = 'discovered' | 'configured' | 'known';
+
+export interface AgentModelTraits {
+  supportsReasoning?: boolean;
+  supportedReasoningEfforts?: string[];
+  defaultReasoningEffort?: string;
+  inputModalities?: string[];
+  supportsVision?: boolean;
+  maxContextTokens?: number;
+}
+
+export interface AgentModelDescriptor {
+  id: string;
+  label: string;
+  source: AgentModelSource;
+  isDefault?: boolean;
+  traits?: AgentModelTraits;
+}
+
 export interface AgentCapabilities {
   interactivePermissions: boolean;
   interactiveQuestions: boolean;
@@ -12,6 +31,8 @@ export interface AgentCapabilities {
   cancelTurn: boolean;
   toolCalls: boolean;
   reasoning: boolean;
+  reasoningEvents?: boolean;
+  canOverrideTurnModel?: boolean;
   usage: boolean;
   steerTurn: boolean;
   planUpdates: boolean;
@@ -24,6 +45,7 @@ export interface AgentProviderDescriptor {
   available?: boolean;
   unavailableReason?: string;
   capabilities: AgentCapabilities;
+  models?: AgentModelDescriptor[];
   supportedModes?: AgentExecutionMode[];
   defaultMode?: AgentExecutionMode;
 }
@@ -55,6 +77,7 @@ export interface AgentSession {
   taskIds: string[];
   purpose?: string;
   mode?: AgentExecutionMode;
+  model?: string;
   title?: string;
   status: AgentSessionStatus;
   readiness?: SessionReadiness;
@@ -329,6 +352,7 @@ export interface AgentSessionChatPayload {
     status: AgentSessionStatus | 'unavailable';
     readiness: SessionReadiness;
     mode: AgentExecutionMode;
+    model?: string;
     capabilities: AgentCapabilities;
     specId: string | null;
     taskId?: string;
