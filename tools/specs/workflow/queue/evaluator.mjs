@@ -5,6 +5,7 @@
 // never branching on step ids or step names.
 
 import { evaluateExecutionReadiness } from '../readiness-policy.mjs';
+import { isTaskBarriered } from './reservation.mjs';
 
 /**
  * Normalizes various selection input shapes into an array of string task IDs.
@@ -110,10 +111,16 @@ export function evaluateTaskQueue(params = {}) {
         definition,
         repoRoot,
         suspensions,
+        queueRecord,
       });
     }
 
     if (!readiness) {
+      continue;
+    }
+
+    // Action barrier exclusion (D31, D37): reserved tasks cannot be scheduled via ordinary single-task queue
+    if (isTaskBarriered(change, task.id, { repoRoot, queueRecord })) {
       continue;
     }
 

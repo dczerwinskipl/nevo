@@ -17,3 +17,16 @@ export {
   getQueueDir,
   getQueueFilePath,
 } from './store.mjs';
+
+export {
+  validateBatchCompatibility,
+  createGroupReservation,
+  releaseGroupReservation,
+  rollbackReservationSynchronously,
+  listGroupReservations,
+  getGroupReservation,
+  isTaskBarriered,
+  getTaskReservation,
+  assessBatchReservationSettlement,
+  reconcileCrashedReservation,
+} from './reservation.mjs';

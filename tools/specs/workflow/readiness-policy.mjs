@@ -7,6 +7,7 @@ import { assertStepExecutor } from './executor-guard.mjs';
 import { assertCleanWorktreeForNewAttempt } from './step-context.mjs';
 import { loadOperationRecord } from './operation-record.mjs';
 import { WorkflowError } from './errors.mjs';
+import { isTaskBarriered } from './queue/reservation.mjs';
 
 /**
  * Evaluates whether a task is ready for execution by a specific caller kind ('agent' | 'human').
@@ -27,7 +28,7 @@ import { WorkflowError } from './errors.mjs';
  * @param {object} [options.definition] - Optional pre-loaded workflow definition
  * @returns {{ ready: boolean, code: string|null, reason: string|null, projection?: object, targetStep?: object, blockedBy?: string[], dirtyFiles?: string[], error?: Error }}
  */
-export function evaluateExecutionReadiness(task, change, callerKind = 'agent', options = {}) {
+export function evaluateBaseExecutionReadiness(task, change, callerKind = 'agent', options = {}) {
   const projection = projectTask(task, change, options);
 
   // 1. Unpublished / Draft
@@ -162,6 +163,63 @@ export function evaluateExecutionReadiness(task, change, callerKind = 'agent', o
 }
 
 /**
+ * Evaluates execution readiness including the canonical action barrier (D31, D37).
+ * Fails closed if the task is reserved in an active batch execution.
+ *
+ * @param {object} task
+ * @param {object} change
+ * @param {'agent'|'human'} [callerKind='agent']
+ * @param {object} [options]
+ * @returns {object}
+ */
+export function evaluateExecutionReadiness(task, change, callerKind = 'agent', options = {}) {
+  const base = evaluateBaseExecutionReadiness(task, change, callerKind, options);
+  if (!base.ready) {
+    return base;
+  }
+
+  // Canonical action barrier check (D31, D37)
+  if (isTaskBarriered(change, task?.id, options)) {
+    return {
+      ready: false,
+      code: 'TASK_BARRIERED',
+      reason: `Task '${task?.id}' is reserved in an active batch execution and cannot be executed individually`,
+      projection: base.projection,
+      targetStep: base.targetStep,
+      suspensions: base.suspensions,
+    };
+  }
+
+  return base;
+}
+
+/**
+ * Asserts base execution readiness (ignoring the batch reservation barrier).
+ * Used only by authenticated batch-start operations after verifying batch claim (D37).
+ *
+ * @param {object} task
+ * @param {object} change
+ * @param {'agent'|'human'} [callerKind='agent']
+ * @param {object} [options]
+ * @returns {object}
+ */
+export function assertBaseExecutionReadiness(task, change, callerKind = 'agent', options = {}) {
+  const result = evaluateBaseExecutionReadiness(task, change, callerKind, options);
+  if (!result.ready) {
+    if (result.error) {
+      throw result.error;
+    }
+    throw new WorkflowError(result.reason, {
+      code: result.code,
+      step: result.targetStep?.id || result.projection?.currentStep,
+      blockedBy: result.blockedBy,
+      dirtyFiles: result.dirtyFiles,
+    });
+  }
+  return result;
+}
+
+/**
  * Asserts that a task is ready for execution, throwing a WorkflowError or WorkflowStepExecutorMismatchError if not.
  *
  * @param {object} task
@@ -189,4 +247,6 @@ export function assertExecutionReadiness(task, change, callerKind = 'agent', opt
 export const ExecutionReadiness = {
   evaluate: evaluateExecutionReadiness,
   assert: assertExecutionReadiness,
+  evaluateBase: evaluateBaseExecutionReadiness,
+  assertBase: assertBaseExecutionReadiness,
 };

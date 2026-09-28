@@ -37,6 +37,7 @@ import { autoBindAgentSession } from '../../specs.mjs';
 import { assertStepExecutor } from './executor-guard.mjs';
 import { startHumanStep, submitHumanStepResult, activateAndSubmitHumanStep } from './human-step/operations.mjs';
 import { assertExecutionReadiness } from './readiness-policy.mjs';
+import { isTaskBarriered } from './queue/reservation.mjs';
 import {
   getWorkspaceWriterClaim,
   acquireWorkspaceWriter,
@@ -270,6 +271,13 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
   const targetStepConfig = definition.steps?.[targetStepName];
   const slug = change._slug || changeSlug || change.id;
   const currentAttempt = position.attempt || (task.workflow_progress?.history || []).filter(h => h.step === targetStepName).length + 1;
+
+  if (isTaskBarriered(change, task.id, { repoRoot: context.repoRoot })) {
+    throw new WorkflowError(
+      `Task '${task.id}' is reserved in an active batch execution and cannot be started individually via 'workflow step start'`,
+      { code: 'TASK_BARRIERED', taskId: task.id }
+    );
+  }
 
   if (position.phase !== 'terminal') {
     assertExecutionReadiness(task, change, 'agent', { definition, repoRoot: context.repoRoot });

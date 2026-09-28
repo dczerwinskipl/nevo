@@ -11,6 +11,7 @@ import { finishStep } from '../finish-operation.mjs';
 import { assertStepExecutor } from '../executor-guard.mjs';
 import { findInFlightOperationRecord } from '../operation-record.mjs';
 import { assertExecutionReadiness } from '../readiness-policy.mjs';
+import { isTaskBarriered } from '../queue/reservation.mjs';
 import { resolveStableSpecId } from '../../identity.mjs';
 import { ROOT } from '../../store.mjs';
 import {
@@ -91,6 +92,13 @@ export function startHumanStep(change, task, definition, context = {}) {
     );
   }
 
+  if (isTaskBarriered(change, task.id, { repoRoot: context?.repoRoot })) {
+    throw new WorkflowError(
+      `Task '${task.id}' is reserved in an active batch execution and cannot be started via human step`,
+      { code: 'TASK_BARRIERED', taskId: task.id }
+    );
+  }
+
   assertExecutionReadiness(task, change, 'human', { definition, repoRoot: context?.repoRoot });
 
   return ensureStepActivated(change, task, definition, context);
@@ -123,6 +131,13 @@ export async function submitHumanStepResult(
     throw new CliError(
       `Cannot run deterministic command 'submitHumanStepResult' against legacy specification '${change._slug || change.id}'. ` +
       `Use legacy command surface instead: approve, start, complete, verify.`
+    );
+  }
+
+  if (isTaskBarriered(change, task.id, { repoRoot: context?.repoRoot })) {
+    throw new WorkflowError(
+      `Task '${task.id}' is reserved in an active batch execution and cannot be submitted via human step`,
+      { code: 'TASK_BARRIERED', taskId: task.id }
     );
   }
 
@@ -247,6 +262,14 @@ export async function activateAndSubmitHumanStep(
 ) {
   const repoRoot = context.repoRoot || ROOT;
   const changeSlug = change._slug || change.id;
+
+  if (isTaskBarriered(change, task.id, { repoRoot })) {
+    throw new WorkflowError(
+      `Task '${task.id}' is reserved in an active batch execution and cannot be submitted via human step`,
+      { code: 'TASK_BARRIERED', taskId: task.id }
+    );
+  }
+
   const inFlight = repoRoot ? findInFlightOperationRecord(repoRoot, changeSlug, task.id) : null;
   const position = inFlight ? null : resolveWorkflowPosition(definition, task);
   if (!inFlight && position?.phase === 'terminal') {

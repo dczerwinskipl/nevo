@@ -32,7 +32,11 @@ export function loadTaskQueue(repoRoot, changeSlug) {
   }
   try {
     const raw = fs.readFileSync(filePath, 'utf8');
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed.groupReservations)) {
+      parsed.groupReservations = [];
+    }
+    return parsed;
   } catch (err) {
     throw new WorkflowError(`Failed to load task queue from ${filePath}: ${err.message}`, {
       code: 'TASK_QUEUE_LOAD_FAILED',
@@ -63,15 +67,20 @@ export function saveTaskQueue(repoRoot, changeSlug, taskIdsOrRecord, options = {
   let taskIds = [];
   let eligibleAt = {};
   let metadata = {};
+  let groupReservations = [];
 
   if (Array.isArray(taskIdsOrRecord)) {
     taskIds = [...taskIdsOrRecord];
     eligibleAt = options.eligibleAt || {};
     metadata = options.metadata || {};
+    groupReservations = options.groupReservations || [];
   } else if (taskIdsOrRecord && typeof taskIdsOrRecord === 'object') {
     taskIds = Array.isArray(taskIdsOrRecord.taskIds) ? [...taskIdsOrRecord.taskIds] : [];
     eligibleAt = taskIdsOrRecord.eligibleAt || options.eligibleAt || {};
     metadata = taskIdsOrRecord.metadata || options.metadata || {};
+    groupReservations = Array.isArray(taskIdsOrRecord.groupReservations)
+      ? [...taskIdsOrRecord.groupReservations]
+      : (Array.isArray(options.groupReservations) ? [...options.groupReservations] : []);
   }
 
   const now = Date.now();
@@ -85,6 +94,7 @@ export function saveTaskQueue(repoRoot, changeSlug, taskIdsOrRecord, options = {
     changeSlug,
     taskIds,
     eligibleAt,
+    groupReservations,
     metadata,
     updatedAt: new Date(now).toISOString(),
   };
@@ -130,6 +140,7 @@ export function enqueueTasks(repoRoot, changeSlug, taskIds, options = {}) {
     changeSlug,
     taskIds: [],
     eligibleAt: {},
+    groupReservations: [],
     metadata: {},
   };
 
@@ -160,7 +171,7 @@ export function enqueueTasks(repoRoot, changeSlug, taskIds, options = {}) {
 export function dequeueTask(repoRoot, changeSlug, taskId) {
   const current = loadTaskQueue(repoRoot, changeSlug);
   if (!current) {
-    return { changeSlug, taskIds: [], eligibleAt: {}, updatedAt: new Date().toISOString() };
+    return { changeSlug, taskIds: [], eligibleAt: {}, groupReservations: [], updatedAt: new Date().toISOString() };
   }
 
   current.taskIds = current.taskIds.filter(id => id !== taskId);

@@ -22,8 +22,10 @@ tasks:
   - id: batch-queue-reservation
     order: 2
     file: tasks/02-batch-queue-reservation.md
-    status: approved
+    status: verified
     depends_on: [ execution-scope-model ]
+    implementation:
+      baseline_revision: 71f9db3217c5aeb165c824953ba289ab0a2cdcd6
   - id: batch-start-and-context-bootstrap
     order: 3
     file: tasks/03-batch-start-and-context-bootstrap.md
