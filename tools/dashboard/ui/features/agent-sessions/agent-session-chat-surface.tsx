@@ -66,7 +66,7 @@ export interface AgentSessionChatSurfaceProps {
   onSend: (text: string) => void | Promise<void>;
   onCancel?: () => void;
   onModeChange?: (mode: AgentExecutionMode) => void;
-  onModelChange?: (model: string) => void;
+  onModelChange?: (model: string | null) => void;
   onRespondInteraction: (interactionId: string, response: unknown) => void | Promise<void>;
   onReload?: () => void | Promise<void>;
   onBack?: () => void;

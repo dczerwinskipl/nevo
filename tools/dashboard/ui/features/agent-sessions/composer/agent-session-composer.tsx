@@ -41,7 +41,7 @@ export interface AgentSessionComposerProps {
   currentModel?: string | null;
   models?: AgentModelDescriptor[];
   canOverrideTurnModel?: boolean;
-  onModelChange?: (model: string) => void;
+  onModelChange?: (model: string | null) => void;
   placeholder?: string;
   textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
   actionMode?: 'request-changes' | null;
@@ -234,12 +234,12 @@ export function AgentSessionComposer({
                   value={currentModel || ''}
                   onChange={(event) => {
                     const nextModel = event.target.value;
-                    if (nextModel) onModelChange?.(nextModel);
+                    onModelChange?.(nextModel || null);
                   }}
                   disabled={isDisabled || actionMode === 'request-changes'}
                   className="h-7 w-full min-w-0 rounded-lg border border-border bg-surface-raised px-2 text-[10px] font-medium text-fg-secondary outline-none transition-colors hover:border-border-strong focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {!currentModel && <option value="">Provider default</option>}
+                  <option value="">Default</option>
                   {hasCurrentModelOutsideCatalog && currentModel && <option value={currentModel}>{currentModel}</option>}
                   {models.map((model) => (
                     <option key={model.id} value={model.id}>

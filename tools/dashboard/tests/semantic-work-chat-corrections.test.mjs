@@ -75,7 +75,8 @@ test('Model override is routed through the canonical session runtime and turn tr
   const runtimeSource = readRuntimeSource();
 
   assert.match(pageSource, /selectedModelOverride/);
-  assert.match(pageSource, /model: selectedModelOverride \?\? undefined/);
+  assert.match(pageSource, /selectedModelOverride !== undefined/);
+  assert.match(pageSource, /model: selectedModelOverride/);
   assert.match(pageSource, /canOverrideTurnModel=\{canOverrideTurnModel\}/);
   assert.match(runtimeSource, /model: options\?\.model/);
 });

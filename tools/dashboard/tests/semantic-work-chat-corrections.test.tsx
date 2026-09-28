@@ -352,8 +352,14 @@ describe('Canonical Chat Surface Component Tests (RTL renders)', () => {
 
     const modelSelect = screen.getByRole('combobox', { name: /model/i });
     expect(modelSelect).toHaveValue('model-a');
+    expect(screen.getByRole('option', { name: 'Default' })).toBeInTheDocument();
+
     fireEvent.change(modelSelect, { target: { value: 'model-b' } });
     expect(onModelChange).toHaveBeenCalledWith('model-b');
+    expect(screen.getByRole('option', { name: 'Default' })).toBeInTheDocument();
+
+    fireEvent.change(modelSelect, { target: { value: '' } });
+    expect(onModelChange).toHaveBeenCalledWith(null);
   });
 
   describe('Finding 1: Send vs Stop control contract lifecycle', () => {

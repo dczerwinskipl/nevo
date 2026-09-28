@@ -73,6 +73,23 @@ test('postStartTurn includes a trimmed model override when provided and omits it
   assert.equal('model' in bodies[1], false);
 });
 
+test('postStartTurn serializes model:null as an explicit provider-default reset', async () => {
+  let body;
+  globalThis.fetch = async (_url, init) => {
+    body = JSON.parse(init.body);
+    return { ok: true, status: 200, json: async () => ({ turnId: 't-default' }) };
+  };
+
+  await postStartTurn('sess-1', {
+    message: 'Return to provider default',
+    idempotencyKey: 'idem-model-default',
+    model: null,
+  });
+
+  assert.equal(Object.prototype.hasOwnProperty.call(body, 'model'), true);
+  assert.equal(body.model, null);
+});
+
 test('postStartTurn throws the server-provided error message on failure', async () => {
   globalThis.fetch = async () => ({
     ok: false,

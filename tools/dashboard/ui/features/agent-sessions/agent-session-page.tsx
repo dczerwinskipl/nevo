@@ -86,7 +86,10 @@ export function AgentSessionPage({
   const sessionId = session.sessionId;
 
   const [selectedModeOverride, setSelectedModeOverride] = useState<AgentExecutionMode | null>(null);
-  const [selectedModelOverride, setSelectedModelOverride] = useState<string | null>(null);
+  // undefined = no local override (follow authoritative session.model);
+  // null = explicit "Default" for the next turn (clear the persisted session model after admission);
+  // string = explicit model override for the next turn.
+  const [selectedModelOverride, setSelectedModelOverride] = useState<string | null | undefined>(undefined);
   const providersQuery = useAgentProviders();
   const providerInfo = providersQuery.data?.providers.find((p) => p.id === provider);
   const providerModels = providerInfo?.models ?? [];
@@ -116,7 +119,8 @@ export function AgentSessionPage({
 
   const sessionDetails = assistant.sessionDetails || session;
   const currentMode: AgentExecutionMode = selectedModeOverride ?? sessionDetails?.mode ?? session?.mode ?? 'edit';
-  const currentModel = selectedModelOverride ?? sessionDetails?.model ?? session?.model ?? null;
+  const currentModel =
+    selectedModelOverride !== undefined ? selectedModelOverride : (sessionDetails?.model ?? session?.model ?? null);
 
   const initialDispatch = useInitialDispatch({
     provider,
@@ -184,7 +188,7 @@ export function AgentSessionPage({
 
   useEffect(() => {
     setRuntimeError(null);
-    setSelectedModelOverride(null);
+    setSelectedModelOverride(undefined);
   }, [provider, sessionId]);
 
   const { deleteSession, deleting } = useDeleteAgentSession();
@@ -284,7 +288,7 @@ export function AgentSessionPage({
         const prompt = buildAgentStepTriggerMessage(taskId);
         await assistant.sendTurn(prompt, {
           mode: currentMode,
-          model: selectedModelOverride ?? undefined,
+          ...(selectedModelOverride !== undefined ? { model: selectedModelOverride } : {}),
           userMessage: prompt,
         });
         await onRefreshTaskActions?.();
@@ -304,7 +308,7 @@ export function AgentSessionPage({
       try {
         await assistant.sendTurn(trimmed, {
           mode: currentMode,
-          model: selectedModelOverride ?? undefined,
+          ...(selectedModelOverride !== undefined ? { model: selectedModelOverride } : {}),
         });
       } catch (err) {
         setRuntimeError(err instanceof Error ? err.message : String(err));

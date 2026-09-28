@@ -41,6 +41,7 @@ export function useCreateSpecificationForm({ onClose, onCreated }: UseCreateSpec
   const [startAiSession, setStartAiSession] = useState(false);
   const [provider, setProvider] = useState('');
   const [mode, setMode] = useState<AgentExecutionMode>('ask');
+  const [model, setModel] = useState('');
   const [initialPrompt, setInitialPrompt] = useState('');
 
   // Two-phase execution state
@@ -83,12 +84,14 @@ export function useCreateSpecificationForm({ onClose, onCreated }: UseCreateSpec
       const initP = availableProviders[0];
       setProvider(initP.id);
       setMode(resolveDefaultPlanningMode(initP));
+      setModel('');
     }
   }, [availableProviders, provider]);
 
   // When selected provider changes, revalidate supported modes
   const handleProviderChange = (newProviderId: string) => {
     setProvider(newProviderId);
+    setModel('');
     const pObj = enabledProviders.find((p) => p.id === newProviderId);
     setMode(resolveDefaultPlanningMode(pObj));
   };
@@ -96,12 +99,14 @@ export function useCreateSpecificationForm({ onClose, onCreated }: UseCreateSpec
   const selectedProviderObj = enabledProviders.find((p) => p.id === provider);
   const isSelectedProviderAvailable = selectedProviderObj?.available !== false;
   const supportedModes = selectedProviderObj?.supportedModes || ['ask', 'edit', 'agent'];
+  const providerModels = selectedProviderObj?.models ?? [];
 
   const executeAiSessionKickoff = async (spec: CreateSpecificationResult) => {
     const session = await createAiSession.create({
       provider,
       specId: spec.specId,
       mode,
+      ...(model ? { model } : {}),
       title: 'Planowanie specyfikacji',
     });
 
@@ -202,6 +207,9 @@ export function useCreateSpecificationForm({ onClose, onCreated }: UseCreateSpec
     provider,
     mode,
     setMode,
+    model,
+    setModel,
+    providerModels,
     initialPrompt,
     setInitialPrompt,
     handleProviderChange,

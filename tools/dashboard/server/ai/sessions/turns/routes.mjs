@@ -73,8 +73,12 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
       }
     }
     if (body.taskId && !TURN_PATTERN.test(body.taskId)) throw new AiValidationError('Invalid task ID.');
-    if (body.model !== undefined && (typeof body.model !== 'string' || !body.model.trim())) {
-      throw new AiValidationError('Model must be a non-empty string when provided.');
+    if (
+      body.model !== undefined &&
+      body.model !== null &&
+      (typeof body.model !== 'string' || !body.model.trim())
+    ) {
+      throw new AiValidationError('Model must be a non-empty string or null when provided.');
     }
     const effort = body.effort ?? body.reasoningEffort;
     if (effort !== undefined && (typeof effort !== 'string' || !effort.trim())) {
@@ -362,7 +366,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         message: effectiveUserMessage,
         userMessage: effectiveUserMessage,
         mode: effectiveMode,
-        model: body.model ? body.model.trim() : undefined,
+        model: body.model === null ? null : body.model ? body.model.trim() : undefined,
         effort: effort ? effort.trim() : undefined,
         idempotencyKey: body.idempotencyKey,
       };
@@ -412,7 +416,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
       taskId: body.taskId,
       purpose: body.purpose,
       mode: body.mode,
-      model: body.model ? body.model.trim() : undefined,
+      model: body.model === null ? null : body.model ? body.model.trim() : undefined,
       effort: effort ? effort.trim() : undefined,
       idempotencyKey: body.idempotencyKey,
     });
@@ -430,8 +434,12 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
       authorize(accessPolicy, 'control', request);
       const body = assertBodyObject(request.body);
       const sessionId = validatedSessionId(request.params.sessionId);
-      if (body.model !== undefined && (typeof body.model !== 'string' || !body.model.trim())) {
-        throw new AiValidationError('Model must be a non-empty string when provided.');
+      if (
+        body.model !== undefined &&
+        body.model !== null &&
+        (typeof body.model !== 'string' || !body.model.trim())
+      ) {
+        throw new AiValidationError('Model must be a non-empty string or null when provided.');
       }
       const effort = body.effort ?? body.reasoningEffort;
       if (effort !== undefined && (typeof effort !== 'string' || !effort.trim())) {
@@ -504,7 +512,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
           message: body.message ?? body.prompt,
           userMessage: body.userMessage,
           mode: body.mode,
-          model: body.model ? body.model.trim() : undefined,
+          model: body.model === null ? null : body.model ? body.model.trim() : undefined,
           effort: effort ? effort.trim() : undefined,
           idempotencyKey: body.idempotencyKey,
         };
@@ -546,7 +554,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         message: body.message ?? body.prompt,
         ...(typeof body.userMessage === 'string' ? { userMessage: body.userMessage } : {}),
         mode: body.mode,
-        model: body.model ? body.model.trim() : undefined,
+        model: body.model === null ? null : body.model ? body.model.trim() : undefined,
         effort: effort ? effort.trim() : undefined,
         ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
       });
@@ -591,8 +599,12 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
       const body = assertBodyObject(request.body);
       const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
       const sessionId = validatedSessionId(request.params.providerSessionId);
-      if (body.model !== undefined && (typeof body.model !== 'string' || !body.model.trim())) {
-        throw new AiValidationError('Model must be a non-empty string when provided.');
+      if (
+        body.model !== undefined &&
+        body.model !== null &&
+        (typeof body.model !== 'string' || !body.model.trim())
+      ) {
+        throw new AiValidationError('Model must be a non-empty string or null when provided.');
       }
       const effort = body.effort ?? body.reasoningEffort;
       if (effort !== undefined && (typeof effort !== 'string' || !effort.trim())) {
@@ -605,7 +617,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         message: body.message ?? body.prompt,
         ...(typeof body.userMessage === 'string' ? { userMessage: body.userMessage } : {}),
         mode: body.mode,
-        model: body.model ? body.model.trim() : undefined,
+        model: body.model === null ? null : body.model ? body.model.trim() : undefined,
         effort: effort ? effort.trim() : undefined,
         ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
       });

@@ -86,6 +86,7 @@ export function useCreateAgentSession() {
       title?: string;
       purpose?: string;
       mode?: AgentExecutionMode;
+      model?: string;
     }) => {
       const response = await fetch('/api/agent-sessions', {
         method: 'POST',

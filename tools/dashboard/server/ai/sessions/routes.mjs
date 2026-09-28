@@ -180,8 +180,16 @@ export default async function sessionRoutes(fastify, { service, accessPolicy, ex
         reply.send({ session });
         return;
       }
-      if (body.model) {
-        const session = await service.updateSessionModel(sessionId, body.model);
+      if (Object.prototype.hasOwnProperty.call(body, 'model')) {
+        const model =
+          body.model === null
+            ? null
+            : typeof body.model === 'string' && body.model.trim()
+              ? body.model.trim()
+              : (() => {
+                  throw new AiValidationError('Invalid model.');
+                })();
+        const session = await service.updateSessionModel(sessionId, model);
         reply.send({ session });
         return;
       }
@@ -264,8 +272,16 @@ export default async function sessionRoutes(fastify, { service, accessPolicy, ex
         reply.send({ session });
         return;
       }
-      if (body.model) {
-        const session = await service.updateSessionModel(provider, providerSessionId, body.model);
+      if (Object.prototype.hasOwnProperty.call(body, 'model')) {
+        const model =
+          body.model === null
+            ? null
+            : typeof body.model === 'string' && body.model.trim()
+              ? body.model.trim()
+              : (() => {
+                  throw new AiValidationError('Invalid model.');
+                })();
+        const session = await service.updateSessionModel(provider, providerSessionId, model);
         reply.send({ session });
         return;
       }

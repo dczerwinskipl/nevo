@@ -880,6 +880,19 @@ test('Model selection persists through the HTTP session contract: create -> chat
     // 6. Chat snapshot reflects the new model.
     const chatAfterOverride = await fetch(`${baseUrl2}/api/agent-sessions/mock/${sessionId}/chat`);
     assert.equal((await chatAfterOverride.json()).session.model, 'mock-model-b');
+
+    // 7. model:null on a genuinely new turn means "provider default": the provider receives
+    // no explicit model and the durable session model is cleared only after admission.
+    lastExecutedModel = 'sentinel';
+    const resetTurn = await fetch(
+      `${baseUrl2}/api/agent-sessions/${sessionId}/turns`,
+      control({ message: 'return to provider default', model: null }),
+    );
+    assert.equal(resetTurn.status, 202);
+    assert.equal(lastExecutedModel, undefined);
+
+    const chatAfterReset = await fetch(`${baseUrl2}/api/agent-sessions/${sessionId}/chat`);
+    assert.equal((await chatAfterReset.json()).session.model, undefined);
   } finally {
     await closeServer(stack2.server);
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });

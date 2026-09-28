@@ -801,8 +801,9 @@ export class AgentSessionService {
         provider = session.provider;
       }
     }
-    if (typeof model !== 'string' || !model.trim()) {
-      throw new AiValidationError("'model' must be a non-empty string.", { field: 'model' });
+    const clearModel = model === null;
+    if (!clearModel && (typeof model !== 'string' || !model.trim())) {
+      throw new AiValidationError("'model' must be a non-empty string or null.", { field: 'model' });
     }
     if (provider) {
       const entry = this.registry?.get?.(provider);
@@ -811,9 +812,13 @@ export class AgentSessionService {
       }
     }
     if (this.bindingService) {
-      return await this.bindingService.updateSessionModel(provider, sessId, model.trim());
+      return await this.bindingService.updateSessionModel(provider, sessId, clearModel ? null : model.trim());
     }
-    return { provider, providerSessionId: sessId, model: model.trim() };
+    return {
+      provider,
+      providerSessionId: sessId,
+      ...(clearModel ? {} : { model: model.trim() }),
+    };
   }
 
   /**
@@ -1103,7 +1108,7 @@ export class AgentSessionService {
         taskIds: opts.taskIds,
         purpose: opts.purpose,
         mode: opts.mode,
-        model: opts.model,
+        model: typeof opts.model === 'string' ? opts.model : undefined,
         title: opts.title,
       };
       if (canonicalSessionId) {
@@ -1138,11 +1143,25 @@ export class AgentSessionService {
       effectiveMode = entry?.descriptor?.defaultMode || 'edit';
     }
 
-    // Model resolution
-    let effectiveModel = opts.model;
+    // Model resolution. model:null is an explicit request to return to the provider's
+    // default behavior for this turn and, after successful admission, clear the durable
+    // session model. Omitted model keeps the persisted session model unchanged.
+    const resetModelToProviderDefault = opts.model === null;
+    let effectiveModel = resetModelToProviderDefault ? undefined : opts.model;
     let modelNeedsPersist = false;
+    let clearPersistedModel = false;
     if (session) {
-      if (effectiveModel && session.model && effectiveModel !== session.model) {
+      if (resetModelToProviderDefault) {
+        if (session.model) {
+          const entry = this.registry?.get?.(prov);
+          const canOverride = Boolean(entry?.descriptor?.capabilities?.canOverrideTurnModel);
+          if (!canOverride) {
+            throw new CapabilityNotSupportedError(prov, 'canOverrideTurnModel');
+          }
+          modelNeedsPersist = true;
+          clearPersistedModel = true;
+        }
+      } else if (effectiveModel && session.model && effectiveModel !== session.model) {
         const entry = this.registry?.get?.(prov);
         const canOverride = Boolean(entry?.descriptor?.capabilities?.canOverrideTurnModel);
         if (!canOverride) {
@@ -1276,7 +1295,11 @@ export class AgentSessionService {
     }
 
     if (modelNeedsPersist && !result?.idempotent && this.bindingService && canonicalSessionId) {
-      await this.bindingService.updateSessionModel(prov, canonicalSessionId, effectiveModel);
+      await this.bindingService.updateSessionModel(
+        prov,
+        canonicalSessionId,
+        clearPersistedModel ? null : effectiveModel,
+      );
     }
 
     return {

@@ -1260,8 +1260,9 @@ export class AgentSessionBindingService {
   }
 
   async updateSessionModel(provider, sessionIdOrProviderSessionId, model) {
-    if (typeof model !== 'string' || !model.trim()) {
-      throw new AiValidationError("'model' must be a non-empty string.", { field: 'model' });
+    const clearModel = model === null;
+    if (!clearModel && (typeof model !== 'string' || !model.trim())) {
+      throw new AiValidationError("'model' must be a non-empty string or null.", { field: 'model' });
     }
     const current = await this.resolveCurrentBinding(provider, sessionIdOrProviderSessionId);
     if (!current) return null;
@@ -1270,7 +1271,8 @@ export class AgentSessionBindingService {
       const session = data.sessions.find((s) => s.sessionId === current.sessionId);
       if (!session) return null;
       const now = new Date().toISOString();
-      session.model = model.trim();
+      if (clearModel) delete session.model;
+      else session.model = model.trim();
       session.lastSeenAt = now;
       for (const b of data.bindings) {
         if (b.sessionId === current.sessionId) {
@@ -1286,8 +1288,9 @@ export class AgentSessionBindingService {
   }
 
   updateSessionModelSync(provider, sessionIdOrProviderSessionId, model) {
-    if (typeof model !== 'string' || !model.trim()) {
-      throw new AiValidationError("'model' must be a non-empty string.", { field: 'model' });
+    const clearModel = model === null;
+    if (!clearModel && (typeof model !== 'string' || !model.trim())) {
+      throw new AiValidationError("'model' must be a non-empty string or null.", { field: 'model' });
     }
     const current = this.resolveCurrentBindingSync(provider, sessionIdOrProviderSessionId);
     if (!current) return null;
@@ -1296,7 +1299,8 @@ export class AgentSessionBindingService {
       const session = data.sessions.find((s) => s.sessionId === current.sessionId);
       if (!session) return null;
       const now = new Date().toISOString();
-      session.model = model.trim();
+      if (clearModel) delete session.model;
+      else session.model = model.trim();
       session.lastSeenAt = now;
       for (const b of data.bindings) {
         if (b.sessionId === current.sessionId) {

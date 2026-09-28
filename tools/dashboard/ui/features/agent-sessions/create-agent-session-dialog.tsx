@@ -41,6 +41,7 @@ export function CreateAgentSessionDialog({ specification, onClose, onCreated }: 
 
   const [provider, setProvider] = useState('');
   const [mode, setMode] = useState<AgentExecutionMode>('agent');
+  const [model, setModel] = useState('');
   const [taskIds, setTaskIds] = useState<string[]>([]);
   const [title, setTitle] = useState('');
   const [initialMessage, setInitialMessage] = useState('');
@@ -89,6 +90,7 @@ export function CreateAgentSessionDialog({ specification, onClose, onCreated }: 
       specId: specification.specId,
       taskIds,
       mode,
+      ...(model ? { model } : {}),
       ...(title.trim() ? { title: title.trim() } : {}),
     });
     const promptToSend = initialPromptWithTaskContext(initialMessage, taskIds, {
@@ -147,6 +149,7 @@ export function CreateAgentSessionDialog({ specification, onClose, onCreated }: 
           selectedProvider={provider}
           onSelectProvider={(pId) => {
             setProvider(pId);
+            setModel('');
             const pObj = enabledProviders.find((p) => p.id === pId);
             const supported = pObj?.supportedModes || ['ask', 'edit', 'agent'];
             if (!supported.includes(mode)) {
@@ -155,6 +158,8 @@ export function CreateAgentSessionDialog({ specification, onClose, onCreated }: 
           }}
           selectedMode={mode}
           onSelectMode={setMode}
+          selectedModel={model}
+          onSelectModel={setModel}
           loading={providers.loading}
           error={providers.error}
         />
@@ -276,6 +281,8 @@ export interface ProviderAndModePickerProps {
   onSelectProvider: (providerId: string) => void;
   selectedMode: AgentExecutionMode;
   onSelectMode: (mode: AgentExecutionMode) => void;
+  selectedModel?: string;
+  onSelectModel?: (model: string) => void;
   loading?: boolean;
   error?: string | null;
 }
@@ -286,10 +293,14 @@ export function ProviderAndModePicker({
   onSelectProvider,
   selectedMode,
   onSelectMode,
+  selectedModel = '',
+  onSelectModel,
   loading = false,
   error = null,
 }: ProviderAndModePickerProps) {
   const enabledProviders = providers.filter((p) => p.enabled);
+  const selectedProviderObj = enabledProviders.find((p) => p.id === selectedProvider);
+  const models = selectedProviderObj?.models ?? [];
 
   if (loading) {
     return (
@@ -354,6 +365,25 @@ export function ProviderAndModePicker({
           })}
         </div>
       </fieldset>
+
+      {onSelectModel && models.length > 0 && (
+        <fieldset className="mt-4">
+          <legend className="text-xs font-semibold text-fg-primary">Model</legend>
+          <select
+            aria-label="Model"
+            value={selectedModel}
+            onChange={(event) => onSelectModel(event.target.value)}
+            className="mt-2 h-10 w-full rounded-xl border border-border bg-surface px-3 text-xs text-fg-primary outline-none focus:border-accent"
+          >
+            <option value="">Default</option>
+            {models.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </fieldset>
+      )}
 
       <fieldset className="mt-4">
         <legend className="text-xs font-semibold text-fg-primary">Tryb wykonania</legend>

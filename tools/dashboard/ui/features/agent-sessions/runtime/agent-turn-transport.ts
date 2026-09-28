@@ -18,7 +18,7 @@ export async function postStartTurn(
     message: string;
     idempotencyKey: string;
     mode?: AgentExecutionMode;
-    model?: string;
+    model?: string | null;
     userMessage?: string;
   },
 ): Promise<{ turnId: string | undefined }> {
@@ -32,7 +32,7 @@ export async function postStartTurn(
       message: body.message,
       idempotencyKey: body.idempotencyKey,
       ...(body.mode ? { mode: body.mode } : {}),
-      ...(body.model?.trim() ? { model: body.model.trim() } : {}),
+      ...(body.model === null ? { model: null } : body.model?.trim() ? { model: body.model.trim() } : {}),
       ...(body.userMessage ? { userMessage: body.userMessage } : {}),
     }),
   });
