@@ -372,6 +372,7 @@ function normalizeStorageContent(parsed) {
     const res = {
       ...s,
       ...(executionScope ? { executionScope } : {}),
+      ...(Array.isArray(s.predecessorSessions) ? { predecessorSessions: s.predecessorSessions } : {}),
     };
     if (executionScope?.kind === 'task-batch') {
       delete res.activeTaskId;
@@ -904,6 +905,7 @@ export class AgentSessionBindingService {
     perTaskStep,
     perTaskAttempt,
     established, // Ignored in target model (presence of providerSessionId dictates establishment)
+    predecessorSessions,
   } = {}) {
     if (!provider || typeof provider !== 'string') {
       throw new AiValidationError("'provider' must be a valid string.", { field: 'provider' });
@@ -966,6 +968,7 @@ export class AgentSessionBindingService {
         if (model !== undefined) session.model = model.trim();
         if (role !== undefined) session.role = role;
         if (parentSessionId !== undefined) session.parentSessionId = parentSessionId;
+        if (Array.isArray(predecessorSessions)) session.predecessorSessions = [...predecessorSessions];
         if (cleanProvSessionId && !session.providerSessionId) session.providerSessionId = cleanProvSessionId;
         if (resolvedScope) {
           session.executionScope = resolvedScope;
@@ -989,6 +992,7 @@ export class AgentSessionBindingService {
           ...(purpose ? { purpose } : {}),
           ...(role ? { role } : {}),
           ...(parentSessionId ? { parentSessionId } : {}),
+          ...(Array.isArray(predecessorSessions) ? { predecessorSessions: [...predecessorSessions] } : {}),
           ...(resolvedScope ? { executionScope: resolvedScope } : {}),
           ...(resolvedScope?.kind === 'task' ? { activeTaskId: resolvedScope.taskId } : (resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {})),
           taskIds: accumulatedTaskIds,
@@ -1063,6 +1067,7 @@ export class AgentSessionBindingService {
         ...(session.model ? { model: session.model } : {}),
         ...(session.role ? { role: session.role } : {}),
         ...(session.parentSessionId ? { parentSessionId: session.parentSessionId } : {}),
+        ...(session.predecessorSessions ? { predecessorSessions: session.predecessorSessions } : {}),
         activeTaskId: session.activeTaskId,
         taskIds: session.taskIds,
         createdAt: session.createdAt,
@@ -1092,6 +1097,7 @@ export class AgentSessionBindingService {
     perTaskStep,
     perTaskAttempt,
     established,
+    predecessorSessions,
   } = {}) {
     if (!provider || typeof provider !== 'string') {
       throw new AiValidationError("'provider' must be a valid string.", { field: 'provider' });
@@ -1153,6 +1159,7 @@ export class AgentSessionBindingService {
         if (model !== undefined) session.model = model.trim();
         if (role !== undefined) session.role = role;
         if (parentSessionId !== undefined) session.parentSessionId = parentSessionId;
+        if (Array.isArray(predecessorSessions)) session.predecessorSessions = [...predecessorSessions];
         if (cleanProvSessionId && !session.providerSessionId) session.providerSessionId = cleanProvSessionId;
         if (resolvedScope) {
           session.executionScope = resolvedScope;
@@ -1176,6 +1183,7 @@ export class AgentSessionBindingService {
           ...(purpose ? { purpose } : {}),
           ...(role ? { role } : {}),
           ...(parentSessionId ? { parentSessionId } : {}),
+          ...(Array.isArray(predecessorSessions) ? { predecessorSessions: [...predecessorSessions] } : {}),
           ...(resolvedScope ? { executionScope: resolvedScope } : {}),
           ...(resolvedScope?.kind === 'task' ? { activeTaskId: resolvedScope.taskId } : (resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {})),
           taskIds: accumulatedTaskIds,
@@ -1247,6 +1255,7 @@ export class AgentSessionBindingService {
         ...(session.model ? { model: session.model } : {}),
         ...(session.role ? { role: session.role } : {}),
         ...(session.parentSessionId ? { parentSessionId: session.parentSessionId } : {}),
+        ...(session.predecessorSessions ? { predecessorSessions: session.predecessorSessions } : {}),
         activeTaskId: session.activeTaskId,
         taskIds: session.taskIds,
         createdAt: session.createdAt,
@@ -1456,6 +1465,34 @@ export class AgentSessionBindingService {
         taskId: current.taskId,
         taskIds: current.taskIds,
       };
+    });
+  }
+
+  async updateSessionLineage(sessionId, { predecessorSessions, parentSessionId = null } = {}, { specId } = {}) {
+    if (!sessionId) return null;
+    return this.#mutateSpec(specId !== undefined ? specId : null, (data) => {
+      const session = data.sessions.find((s) => s.sessionId === sessionId);
+      if (!session) return null;
+      if (Array.isArray(predecessorSessions)) {
+        session.predecessorSessions = [...predecessorSessions];
+      }
+      session.parentSessionId = parentSessionId;
+      session.lastSeenAt = new Date().toISOString();
+      return structuredClone(session);
+    });
+  }
+
+  updateSessionLineageSync(sessionId, { predecessorSessions, parentSessionId = null } = {}, { specId } = {}) {
+    if (!sessionId) return null;
+    return this.#mutateSpecSync(specId !== undefined ? specId : null, (data) => {
+      const session = data.sessions.find((s) => s.sessionId === sessionId);
+      if (!session) return null;
+      if (Array.isArray(predecessorSessions)) {
+        session.predecessorSessions = [...predecessorSessions];
+      }
+      session.parentSessionId = parentSessionId;
+      session.lastSeenAt = new Date().toISOString();
+      return structuredClone(session);
     });
   }
 
@@ -1994,6 +2031,11 @@ export class AgentSessionBindingService {
   }
 }
 
-export function createAgentSessionBindingService(options) {
-  return new AgentSessionBindingService(options);
+export function createAgentSessionBindingService(optionsOrRepoRoot) {
+  if (typeof optionsOrRepoRoot === 'string') {
+    return new AgentSessionBindingService({
+      storageDir: resolve(optionsOrRepoRoot, '.nevo-ai-local', 'sessions'),
+    });
+  }
+  return new AgentSessionBindingService(optionsOrRepoRoot);
 }

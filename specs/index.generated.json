@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-28T18:18:24.342Z",
+  "generated": "2026-09-28T18:37:13.739Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -168,11 +168,14 @@
           "id": "batch-start-and-context-bootstrap",
           "order": 3,
           "file": "tasks/03-batch-start-and-context-bootstrap.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "execution-scope-model",
             "batch-queue-reservation"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "256352d28f7e96606378eb0ad694540503259992"
+          }
         },
         {
           "id": "batch-finish-operation",

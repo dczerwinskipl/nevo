@@ -29,8 +29,10 @@ tasks:
   - id: batch-start-and-context-bootstrap
     order: 3
     file: tasks/03-batch-start-and-context-bootstrap.md
-    status: approved
+    status: verified
     depends_on: [ execution-scope-model, batch-queue-reservation ]
+    implementation:
+      baseline_revision: 256352d28f7e96606378eb0ad694540503259992
   - id: batch-finish-operation
     order: 4
     file: tasks/04-batch-finish-operation.md

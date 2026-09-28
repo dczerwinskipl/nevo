@@ -38,6 +38,7 @@ import { assertStepExecutor } from './executor-guard.mjs';
 import { startHumanStep, submitHumanStepResult, activateAndSubmitHumanStep } from './human-step/operations.mjs';
 import { assertExecutionReadiness } from './readiness-policy.mjs';
 import { isTaskBarriered } from './queue/reservation.mjs';
+import { executeBatchStart } from './batch-start/index.mjs';
 import {
   getWorkspaceWriterClaim,
   acquireWorkspaceWriter,
@@ -663,4 +664,29 @@ export async function handleWorkflowTaskPublish(changeSlug, taskId, options = {}
   }
   return result;
 }
+
+/**
+ * CLI entry point: start a batch execution for reserved tasks (D33).
+ */
+export async function handleWorkflowBatchStart(changeSlug, batchExecutionId, opts = {}) {
+  const change = requireChange(changeSlug, opts.activeDir || ACTIVE_DIR);
+  const workflowMode = resolveWorkflowMode(change, opts);
+  if (workflowMode.mode === 'legacy') {
+    throw new CliError(
+      `Cannot run deterministic command 'workflow batch start' against legacy specification '${changeSlug || change.id}'.`
+    );
+  }
+
+  const result = await executeBatchStart({
+    changeSlug,
+    batchExecutionId,
+    sessionId: opts.sessionId || opts['session-id'],
+    repoRoot: opts.repoRoot || ROOT,
+    activeDir: opts.activeDir || ACTIVE_DIR,
+    silent: opts.silent,
+  });
+
+  return emit(result, opts);
+}
+
 
