@@ -22,7 +22,7 @@ tasks:
   - id: deterministic-mutation-guard
     order: 2
     file: tasks/02-deterministic-mutation-guard.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: a2703984f5705b5abc40a217c31692583d1c0e90
   - id: status-vocabulary-extraction

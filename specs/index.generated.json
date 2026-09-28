@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-28T10:46:07.308Z",
+  "generated": "2026-09-28T10:46:17.470Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -156,7 +156,7 @@
           "id": "deterministic-mutation-guard",
           "order": 2,
           "file": "tasks/02-deterministic-mutation-guard.md",
-          "status": "implemented",
+          "status": "verified",
           "implementation": {
             "baseline_revision": "a2703984f5705b5abc40a217c31692583d1c0e90"
           }
