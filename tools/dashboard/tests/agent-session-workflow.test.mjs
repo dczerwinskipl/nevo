@@ -145,6 +145,16 @@ describe('AC3: Bound tasks workflow bar and task switching (C11)', () => {
     assert.match(source, /aria-pressed=\{isActive\}/);
     assert.match(source, /border-accent bg-accent\/15/);
   });
+
+  test('AgentSessionWorkflowBar supports collapsible toggle and compact mode for multi-task context', () => {
+    const source = readSource('../ui/features/agent-sessions/agent-session-workflow-bar.tsx');
+
+    assert.match(source, /hasMultipleTasks/);
+    assert.match(source, /toggleExpanded/);
+    assert.match(source, /aria-expanded=\{expanded\}/);
+    assert.match(source, /nevo:workflow-bar:expanded/);
+    assert.match(source, /tasks\.length <= 2/);
+  });
 });
 
 describe('AC4: In-chat human verification and workflow action surface (D7, D8)', () => {

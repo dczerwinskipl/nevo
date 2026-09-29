@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 import {
   type BoundTaskInfo,
@@ -33,20 +35,51 @@ export function AgentSessionWorkflowBar({
 }: AgentSessionWorkflowBarProps) {
   if (!tasks || tasks.length === 0) return null;
 
+  const [expanded, setExpanded] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('nevo:workflow-bar:expanded');
+      if (stored !== null) return stored === 'true';
+    } catch {}
+    return tasks.length <= 2;
+  });
+
+  const toggleExpanded = () => {
+    setExpanded((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('nevo:workflow-bar:expanded', String(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const hasMultipleTasks = tasks.length > 1;
+  const activeTask = tasks.find((t) => t.id === activeTaskId) || tasks[0];
+  const visibleTasks = expanded ? tasks : [activeTask];
+  const hiddenCount = tasks.length - 1;
+
   return (
     <div
       className={cn(
-        'mb-2 flex flex-wrap items-center gap-1.5 rounded-xl border border-border bg-surface-raised/80 px-3 py-1.5 text-xs',
+        'mb-2 flex flex-wrap items-center gap-1.5 rounded-xl border border-border bg-surface-raised/80 px-3 py-1.5 text-xs transition-all',
         className,
       )}
       role="toolbar"
       aria-label={isDeterministic ? 'Bound workflow tasks' : 'Session task context'}
     >
-      <span className="text-[10px] font-bold tracking-wider text-fg-muted uppercase">
-        {isDeterministic ? 'Zadania:' : 'Kontekst:'}
-      </span>
-      <div className="flex flex-wrap items-center gap-1">
-        {tasks.map((task) => {
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] font-bold tracking-wider text-fg-muted uppercase">
+          {isDeterministic ? 'Zadania:' : 'Kontekst:'}
+        </span>
+        {hasMultipleTasks && (
+          <span className="text-[10px] font-medium text-fg-muted">
+            ({tasks.indexOf(activeTask) + 1}/{tasks.length})
+          </span>
+        )}
+      </div>
+
+      <div className={cn('flex flex-wrap items-center gap-1', expanded && 'max-h-36 overflow-y-auto')}>
+        {visibleTasks.map((task) => {
           const isActive = task.id === activeTaskId;
           const label = isDeterministic ? formatBoundTaskLabel(task) : formatLegacyTaskLabel(task);
           const isVerified = isDeterministic && task.status === 'verified';
@@ -71,6 +104,21 @@ export function AgentSessionWorkflowBar({
           );
         })}
       </div>
+
+      {hasMultipleTasks && (
+        <button
+          type="button"
+          onClick={toggleExpanded}
+          className="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-md border border-border/80 bg-surface/80 px-1.5 py-0.5 text-[10px] font-medium text-fg-muted transition-colors hover:border-accent/40 hover:bg-surface-raised hover:text-fg-primary"
+          aria-expanded={expanded}
+          aria-label={expanded ? 'Zwiń listę zadań' : `Rozwiń listę zadań (${tasks.length})`}
+        >
+          <span>{expanded ? 'Zwiń' : `+${hiddenCount}`}</span>
+          <ChevronDown
+            className={cn('size-3 transition-transform duration-200', !expanded && '-rotate-90')}
+          />
+        </button>
+      )}
     </div>
   );
 }
