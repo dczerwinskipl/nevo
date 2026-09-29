@@ -324,4 +324,50 @@ describe('Activity local NDJSON store', () => {
     assert.equal(resolveSpecId({ specId: 'xyz-789' }), 'xyz-789');
     assert.equal(resolveSpecId({ scope: { specId: 'scope-id' } }), 'scope-id');
   });
+
+  test('recordActivity resolves manifest slug to stable spec_id UUID and readActivities finds it by both slug and UUID', () => {
+    const slug = 'ai-spec-history';
+    const rec = recordActivity(
+      minimalRecord({
+        scope: { specId: slug, taskId: 'task-test' },
+      }),
+      { activityDir: testBaseDir }
+    );
+
+    // Record scope.specId should be the canonical UUID
+    assert.match(rec.scope.specId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+
+    // File path is keyed by UUID
+    const filePath = activityFilePath(slug, { activityDir: testBaseDir });
+    assert.ok(filePath.endsWith(`${rec.scope.specId}.ndjson`));
+    assert.equal(existsSync(filePath), true);
+
+    // Readable by slug
+    const bySlug = readActivities(slug, { activityDir: testBaseDir });
+    assert.equal(bySlug.length, 1);
+    assert.equal(bySlug[0].id, rec.id);
+
+    // Readable by UUID
+    const byUuid = readActivities(rec.scope.specId, { activityDir: testBaseDir });
+    assert.equal(byUuid.length, 1);
+    assert.equal(byUuid[0].id, rec.id);
+  });
+
+  test('readActivities safely ignores malformed lines with non-object JSON or blank whitespace', () => {
+    const specId = 'spec-corrupted-lines-test';
+    const filePath = activityFilePath(specId, { activityDir: testBaseDir });
+
+    const rec1 = recordActivity(minimalRecord({ scope: { specId }, data: { seq: 1 } }), { activityDir: testBaseDir });
+
+    // Append invalid lines: blank whitespace, array, number, boolean, null, string, missing id
+    appendFileSync(filePath, '\n   \n[1,2,3]\n42\ntrue\nnull\n"bare string"\n{"missingId": true}', 'utf8');
+
+    const rec2 = recordActivity(minimalRecord({ scope: { specId }, data: { seq: 2 } }), { activityDir: testBaseDir });
+
+    const read = readActivities(specId, { activityDir: testBaseDir });
+    assert.equal(read.length, 2);
+    assert.equal(read[0].id, rec1.id);
+    assert.equal(read[1].id, rec2.id);
+  });
 });
+

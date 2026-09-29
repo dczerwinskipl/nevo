@@ -37,7 +37,12 @@ export function resolveSpecId(identifier, options = {}) {
       return trimmed;
     }
     try {
-      const canonical = resolveCanonicalSpec(trimmed, options);
+      const resolveOpts = { ...options };
+      if (options.repoRoot) {
+        if (!resolveOpts.activeDir) resolveOpts.activeDir = join(options.repoRoot, 'specs', 'active');
+        if (!resolveOpts.archiveDir) resolveOpts.archiveDir = join(options.repoRoot, 'specs', 'archive');
+      }
+      const canonical = resolveCanonicalSpec(trimmed, resolveOpts);
       if (canonical?.specId) {
         return canonical.specId;
       }
@@ -82,7 +87,8 @@ export function activityFilePath(specIdentifier, options = {}) {
  *
  * Construction order is fixed (Major 4):
  * (1) normalize/default full envelope: caller-supplied id ?? randomUUID(),
- *     occurredAt ?? now, schemaVersion ?? ACTIVITY_SCHEMA_VERSION.
+ *     occurredAt ?? now, schemaVersion ?? ACTIVITY_SCHEMA_VERSION,
+ *     and canonicalize scope.specId UUID if given as slug.
  * (2) validate the now-complete envelope via validateActivityEnvelope.
  * (3) append to file using leading-newline framing ("\n" + JSON.stringify(record)).
  *
@@ -98,6 +104,13 @@ export function recordActivity(fields, options = {}) {
     occurredAt: fields?.occurredAt ?? new Date().toISOString(),
     schemaVersion: fields?.schemaVersion ?? ACTIVITY_SCHEMA_VERSION,
   };
+
+  if (envelope.scope && typeof envelope.scope === 'object' && typeof envelope.scope.specId === 'string' && envelope.scope.specId.trim()) {
+    envelope.scope = {
+      ...envelope.scope,
+      specId: resolveSpecId(envelope.scope.specId, options),
+    };
+  }
 
   // 2. Validate now-complete envelope
   const validation = validateActivityEnvelope(envelope);
@@ -153,7 +166,7 @@ export function readActivities(specIdentifier, options = {}) {
 
   for (const line of lines) {
     const trimmed = line.endsWith('\r') ? line.slice(0, -1) : line;
-    if (trimmed === '') {
+    if (trimmed.trim() === '') {
       continue;
     }
 
@@ -165,7 +178,7 @@ export function readActivities(specIdentifier, options = {}) {
       continue;
     }
 
-    if (!parsed || typeof parsed !== 'object' || typeof parsed.id !== 'string' || !parsed.id.trim()) {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || typeof parsed.id !== 'string' || !parsed.id.trim()) {
       continue;
     }
 
