@@ -769,8 +769,9 @@ describe('Task 26: Execution policy and mode selection (D21)', () => {
       execSync('git init -b main && git config user.email test@test.com && git config user.name test', { cwd: tmpRoot });
 
       mkdirSync(join(tmpRoot, '.nevo-ai', 'workflows'), { recursive: true });
+      const realWorkflowPath = fileURLToPath(new URL('../../../.nevo-ai/workflows/standard-v1.yaml', import.meta.url));
       copyFileSync(
-        join(process.cwd(), '.nevo-ai', 'workflows', 'standard-v1.yaml'),
+        realWorkflowPath,
         join(tmpRoot, '.nevo-ai', 'workflows', 'standard-v1.yaml'),
       );
 

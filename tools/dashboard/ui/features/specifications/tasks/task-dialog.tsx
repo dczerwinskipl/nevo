@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef } from 'react';
-import { MessagesSquare, LoaderCircle, X, AlertCircle } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { MessagesSquare, LoaderCircle, X, AlertCircle, ChevronDown } from 'lucide-react';
 import type { SpecificationSummary, SpecificationTask, SpecificationTaskDocument, WorkflowStepDescriptor } from '../types';
-import { formatStatus } from '@/shared/lib/utils';
+import { formatStatus, cn } from '@/shared/lib/utils';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { MarkdownContent } from '@/shared/markdown/markdown-content';
@@ -29,6 +29,7 @@ export function TaskDialog({ specification, taskId, onClose, onOperationStarted,
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
+  const [sessionsExpanded, setSessionsExpanded] = useState(false);
   const task = specification.tasks.find((t) => t.id === taskId);
   const taskDocId = taskId ? `task:${taskId}` : null;
   const taskDocumentQuery = useSpecificationDocument(specification, taskDocId, Boolean(taskId));
@@ -166,11 +167,25 @@ export function TaskDialog({ specification, taskId, onClose, onOperationStarted,
 
           {sessionsContent && (
             <section className="mb-7" aria-label="Sesje powiązane z zadaniem">
-              <div className="mb-3 flex items-center gap-2">
-                <MessagesSquare className="size-4 text-accent" />
-                <h3 className="text-sm font-semibold text-fg-primary">Powiązane sesje</h3>
-              </div>
-              {sessionsContent}
+              <button
+                type="button"
+                onClick={() => setSessionsExpanded((prev) => !prev)}
+                className="group mb-3 flex w-full cursor-pointer items-center justify-between gap-2 rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                aria-expanded={sessionsExpanded}
+                aria-label={sessionsExpanded ? 'Zwiń powiązane sesje' : 'Rozwiń powiązane sesje'}
+              >
+                <div className="flex items-center gap-2">
+                  <MessagesSquare className="size-4 text-accent" />
+                  <h3 className="text-sm font-semibold text-fg-primary">Powiązane sesje</h3>
+                </div>
+                <ChevronDown
+                  className={cn(
+                    'size-4 text-fg-muted transition-transform duration-200 group-hover:text-fg-primary',
+                    !sessionsExpanded && '-rotate-90',
+                  )}
+                />
+              </button>
+              {sessionsExpanded && sessionsContent}
             </section>
           )}
 

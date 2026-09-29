@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { ArrowUpRight, Layers3, MessageSquarePlus, ListChecks, Play, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { ArrowUpRight, Layers3, MessageSquarePlus, ListChecks, Play, AlertTriangle, ShieldAlert, ChevronDown } from 'lucide-react';
 
 import type {
   SpecificationSummary,
@@ -425,32 +425,94 @@ export function SpecificationOverview({
   executionPolicy?: ExecutionPolicy | null;
   onConfigureExecutionPolicy?: () => void;
 }) {
+  const [sessionsExpanded, setSessionsExpanded] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('nevo:spec-overview:sessions-expanded');
+      return stored !== null ? stored === 'true' : false;
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleSessionsExpanded = () => {
+    setSessionsExpanded((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('nevo:spec-overview:sessions-expanded', String(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const hasActiveSession = useMemo(
+    () => sessions.some((s) => s.status === 'running' || s.status === 'waitingForUser'),
+    [sessions],
+  );
+
   return (
     <>
-      <section className="mb-9" aria-label="Ostatnie sesje specyfikacji">
-        <div className="mb-4 flex items-end justify-between gap-4">
-          <div>
-            <p className="text-[10px] font-bold tracking-[0.18em] text-accent uppercase">Sesje AI</p>
-            <h2 className="mt-1 text-xl font-semibold text-fg-primary">Ostatnie rozmowy</h2>
+      <section
+        className={cn(
+          'rounded-2xl border border-border bg-surface/40 p-4 transition-all',
+          sessionsExpanded ? 'mb-9' : 'mb-6 hover:border-border-strong hover:bg-surface/70',
+        )}
+        aria-label="Ostatnie sesje specyfikacji"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <button
+            type="button"
+            onClick={toggleSessionsExpanded}
+            className="group flex cursor-pointer items-center gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-lg"
+            aria-expanded={sessionsExpanded}
+            aria-label={sessionsExpanded ? 'Zwiń sekcję sesji AI' : 'Rozwiń sekcję sesji AI'}
+          >
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-fg-muted transition-colors group-hover:border-accent/40 group-hover:text-accent">
+              <ChevronDown
+                className={cn('size-4 transition-transform duration-200', !sessionsExpanded && '-rotate-90')}
+              />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="text-[10px] font-bold tracking-[0.18em] text-accent uppercase">Sesje AI</p>
+                {sessions.length > 0 && (
+                  <Badge className="px-1.5 py-0 text-[10px] font-medium">
+                    {sessions.length}
+                  </Badge>
+                )}
+                {hasActiveSession && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-status-active/15 px-2 py-0.5 text-[10px] font-semibold text-status-active">
+                    <span className="size-1.5 rounded-full bg-status-active animate-pulse" />
+                    Aktywna
+                  </span>
+                )}
+              </div>
+              <h2 className="mt-1 text-xl font-semibold text-fg-primary">Ostatnie rozmowy</h2>
+            </div>
+          </button>
+          <div className="flex items-center gap-2">
+            {specification.source === 'active' && specification.specId && (
+              <Button size="sm" onClick={onCreateSession}>
+                <MessageSquarePlus className="mr-1.5 size-3.5" />
+                Nowa sesja
+              </Button>
+            )}
           </div>
-          {specification.source === 'active' && specification.specId && (
-            <Button size="sm" onClick={onCreateSession}>
-              <MessageSquarePlus className="mr-1.5 size-3.5" />
-              Nowa sesja
-            </Button>
-          )}
         </div>
-        <AgentSessionList
-          sessions={sessions}
-          tasks={specification.tasks}
-          loading={sessionsLoading}
-          error={sessionsError}
-          onRetry={onSessionsRetry}
-          onOpen={onOpenSession}
-          onOpenTask={onOpenTask}
-          limit={8}
-          emptyLabel="Brak sesji dla tej specyfikacji."
-        />
+        {sessionsExpanded && (
+          <div className="mt-4 border-t border-border/60 pt-4">
+            <AgentSessionList
+              sessions={sessions}
+              tasks={specification.tasks}
+              loading={sessionsLoading}
+              error={sessionsError}
+              onRetry={onSessionsRetry}
+              onOpen={onOpenSession}
+              onOpenTask={onOpenTask}
+              limit={8}
+              emptyLabel="Brak sesji dla tej specyfikacji."
+            />
+          </div>
+        )}
       </section>
       {actions}
 
