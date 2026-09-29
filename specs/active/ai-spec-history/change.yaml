@@ -77,6 +77,16 @@ tasks:
     file: tasks/02-activity-local-store.md
     status: approved
     depends_on: [ activity-core-model-and-contracts ]
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          completed_at: 2026-09-29T21:07:35.324Z
+          transitioned_to: review
+          sessionId: 50246ee3-8c54-404a-a83e-10e22eda883b
   - id: actor-resolver
     order: 3
     file: tasks/03-actor-resolver.md
