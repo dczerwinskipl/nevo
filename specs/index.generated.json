@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-29T15:54:33.317Z",
+  "generated": "2026-09-29T20:41:47.479Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -132,119 +132,6 @@
             "workflow-step-activity-producer",
             "human-verification-activity-producer"
           ]
-        }
-      ]
-    },
-    {
-      "id": "multi-task-agent-execution",
-      "specId": "3ca6a3e7-30da-4e10-a524-4eb4f49c3db4",
-      "title": "Multi-task agent execution",
-      "status": "draft",
-      "priority": 10,
-      "created": "2026-09-27",
-      "tasks": [
-        {
-          "id": "execution-scope-model",
-          "order": 1,
-          "file": "tasks/01-execution-scope-model.md",
-          "status": "verified",
-          "implementation": {
-            "baseline_revision": "4db32416f832ef76d6d8325fb0d538ff5027c192"
-          }
-        },
-        {
-          "id": "batch-queue-reservation",
-          "order": 2,
-          "file": "tasks/02-batch-queue-reservation.md",
-          "status": "verified",
-          "depends_on": [
-            "execution-scope-model"
-          ],
-          "implementation": {
-            "baseline_revision": "71f9db3217c5aeb165c824953ba289ab0a2cdcd6"
-          }
-        },
-        {
-          "id": "batch-start-and-context-bootstrap",
-          "order": 3,
-          "file": "tasks/03-batch-start-and-context-bootstrap.md",
-          "status": "verified",
-          "depends_on": [
-            "execution-scope-model",
-            "batch-queue-reservation"
-          ],
-          "implementation": {
-            "baseline_revision": "256352d28f7e96606378eb0ad694540503259992"
-          }
-        },
-        {
-          "id": "batch-finish-operation",
-          "order": 4,
-          "file": "tasks/04-batch-finish-operation.md",
-          "status": "verified",
-          "depends_on": [
-            "execution-scope-model",
-            "batch-queue-reservation",
-            "batch-start-and-context-bootstrap"
-          ],
-          "implementation": {
-            "baseline_revision": "708202192572ec3e488d9c2253a91555fb6655da"
-          }
-        },
-        {
-          "id": "batch-report",
-          "order": 5,
-          "file": "tasks/05-batch-report.md",
-          "status": "verified",
-          "depends_on": [
-            "batch-start-and-context-bootstrap"
-          ],
-          "implementation": {
-            "baseline_revision": "f68356c6e54954b052597e19bd40f698a75e4de2"
-          }
-        },
-        {
-          "id": "batch-completion-orchestration",
-          "order": 6,
-          "file": "tasks/06-batch-completion-orchestration.md",
-          "status": "verified",
-          "depends_on": [
-            "batch-finish-operation",
-            "batch-queue-reservation"
-          ],
-          "implementation": {
-            "baseline_revision": "d4145729cee8188cc4445518eea9826821226060"
-          }
-        },
-        {
-          "id": "multi-task-review-skill",
-          "order": 7,
-          "file": "tasks/07-multi-task-review-skill.md",
-          "status": "verified",
-          "depends_on": [
-            "batch-start-and-context-bootstrap",
-            "batch-finish-operation",
-            "batch-report"
-          ],
-          "implementation": {
-            "baseline_revision": "a742ee79f04b9a88b5165d7135e96389ed8ce2d5"
-          }
-        },
-        {
-          "id": "dashboard-batch-review-ux",
-          "order": 8,
-          "file": "tasks/08-dashboard-batch-review-ux.md",
-          "status": "verified",
-          "depends_on": [
-            "batch-queue-reservation",
-            "batch-start-and-context-bootstrap",
-            "batch-finish-operation",
-            "batch-completion-orchestration",
-            "multi-task-review-skill"
-          ],
-          "implementation": {
-            "baseline_revision": "acac07455f76351c7cc2f8a9f2f44503d3c09988"
-          }
         }
       ]
     },
@@ -4821,6 +4708,119 @@
               }
             ],
             "status": "passed"
+          }
+        }
+      ]
+    },
+    {
+      "id": "multi-task-agent-execution",
+      "specId": "3ca6a3e7-30da-4e10-a524-4eb4f49c3db4",
+      "title": "Multi-task agent execution",
+      "status": "archived",
+      "priority": 10,
+      "created": "2026-09-27",
+      "tasks": [
+        {
+          "id": "execution-scope-model",
+          "order": 1,
+          "file": "tasks/01-execution-scope-model.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "4db32416f832ef76d6d8325fb0d538ff5027c192"
+          }
+        },
+        {
+          "id": "batch-queue-reservation",
+          "order": 2,
+          "file": "tasks/02-batch-queue-reservation.md",
+          "status": "verified",
+          "depends_on": [
+            "execution-scope-model"
+          ],
+          "implementation": {
+            "baseline_revision": "71f9db3217c5aeb165c824953ba289ab0a2cdcd6"
+          }
+        },
+        {
+          "id": "batch-start-and-context-bootstrap",
+          "order": 3,
+          "file": "tasks/03-batch-start-and-context-bootstrap.md",
+          "status": "verified",
+          "depends_on": [
+            "execution-scope-model",
+            "batch-queue-reservation"
+          ],
+          "implementation": {
+            "baseline_revision": "256352d28f7e96606378eb0ad694540503259992"
+          }
+        },
+        {
+          "id": "batch-finish-operation",
+          "order": 4,
+          "file": "tasks/04-batch-finish-operation.md",
+          "status": "verified",
+          "depends_on": [
+            "execution-scope-model",
+            "batch-queue-reservation",
+            "batch-start-and-context-bootstrap"
+          ],
+          "implementation": {
+            "baseline_revision": "708202192572ec3e488d9c2253a91555fb6655da"
+          }
+        },
+        {
+          "id": "batch-report",
+          "order": 5,
+          "file": "tasks/05-batch-report.md",
+          "status": "verified",
+          "depends_on": [
+            "batch-start-and-context-bootstrap"
+          ],
+          "implementation": {
+            "baseline_revision": "f68356c6e54954b052597e19bd40f698a75e4de2"
+          }
+        },
+        {
+          "id": "batch-completion-orchestration",
+          "order": 6,
+          "file": "tasks/06-batch-completion-orchestration.md",
+          "status": "verified",
+          "depends_on": [
+            "batch-finish-operation",
+            "batch-queue-reservation"
+          ],
+          "implementation": {
+            "baseline_revision": "d4145729cee8188cc4445518eea9826821226060"
+          }
+        },
+        {
+          "id": "multi-task-review-skill",
+          "order": 7,
+          "file": "tasks/07-multi-task-review-skill.md",
+          "status": "verified",
+          "depends_on": [
+            "batch-start-and-context-bootstrap",
+            "batch-finish-operation",
+            "batch-report"
+          ],
+          "implementation": {
+            "baseline_revision": "a742ee79f04b9a88b5165d7135e96389ed8ce2d5"
+          }
+        },
+        {
+          "id": "dashboard-batch-review-ux",
+          "order": 8,
+          "file": "tasks/08-dashboard-batch-review-ux.md",
+          "status": "verified",
+          "depends_on": [
+            "batch-queue-reservation",
+            "batch-start-and-context-bootstrap",
+            "batch-finish-operation",
+            "batch-completion-orchestration",
+            "multi-task-review-skill"
+          ],
+          "implementation": {
+            "baseline_revision": "acac07455f76351c7cc2f8a9f2f44503d3c09988"
           }
         }
       ]
