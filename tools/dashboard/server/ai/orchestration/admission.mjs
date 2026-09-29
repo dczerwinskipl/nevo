@@ -595,6 +595,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
       sessionId: canonicalSessionId,
       turnId: executionRecord.turnId,
       reconcile: reconcileHook1,
+      reconcileHook1,
     };
   } finally {
     // Release admission mutex (step 5 / step 7)

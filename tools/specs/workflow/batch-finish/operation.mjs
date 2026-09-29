@@ -8,12 +8,15 @@ import { requireChange, requireTask, ACTIVE_DIR } from '../../store.mjs';
 import { loadWorkflowDefinition } from '../definitions/loader.mjs';
 import { getGroupReservation } from '../queue/reservation.mjs';
 import { finishStep } from '../finish-operation.mjs';
+import '../actions/index.mjs';
 import { WorkflowError } from '../errors.mjs';
 import {
   createBatchFinishRecord,
   loadBatchFinishRecord,
   saveBatchFinishRecord,
 } from './record.mjs';
+import { loadBatchStartRecord } from '../batch-start/record.mjs';
+import { renderBatchReport } from '../../reviews/batch-report.mjs';
 import { prevalidateBatchFinish } from './preflight.mjs';
 
 /**
@@ -99,6 +102,22 @@ export async function executeBatchFinish(params = {}) {
     reservation,
     skipProvenanceCheck: reportAlreadyCommitted,
   });
+
+  // Stage 1.5: Render and write canonical batch review report (D21, D22, Item 8)
+  // Strictly performed only after all read-only prevalidation has succeeded.
+  const fullReportPath = path.join(repoRoot, canonicalReportPath);
+  if (!fs.existsSync(fullReportPath)) {
+    const startRecord = loadBatchStartRecord(repoRoot, changeSlug, batchExecutionId);
+    const batchCtx = startRecord?.batchContext || {
+      batchExecutionId,
+      change: changeSlug,
+      executionScope: { kind: 'task-batch', taskIds },
+      crossTaskFindings,
+    };
+    const rendered = renderBatchReport(batchCtx, { results: normalizedResults });
+    fs.mkdirSync(path.dirname(fullReportPath), { recursive: true });
+    fs.writeFileSync(fullReportPath, rendered, 'utf8');
+  }
 
   // Stage 2: Persist as 'validated' for the first time (D21).
   if (!record) {

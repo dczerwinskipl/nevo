@@ -14,6 +14,7 @@ import { resolveWorkflowPosition } from '../step-runner.mjs';
 import { loadWorkflowDefinition } from '../definitions/loader.mjs';
 import { renderBatchReport, getCanonicalBatchReportRelativePath } from '../../reviews/batch-report.mjs';
 import { verifyBatchTrustedIdentity } from '../execution-identity.mjs';
+import { resolveStableSpecId } from '../../identity.mjs';
 export { loadPersistedSessionSync } from '../execution-identity.mjs';
 
 function arraysEqual(a, b) {
@@ -245,7 +246,7 @@ export function prevalidateBatchFinish(params = {}) {
     skipProvenanceCheck = false,
   } = params;
 
-  const specId = change.id || change._slug || changeSlug;
+  const specId = resolveStableSpecId(change);
 
   // Stage 0: Trusted Identity Verification (D23)
   const { effectiveSessionId } = verifyTrustedIdentity({
@@ -320,43 +321,11 @@ export function prevalidateBatchFinish(params = {}) {
     }
   }
 
-  // Check 3: Canonical report presence on disk (Item 16)
-  const canonicalReportPath = (inputs.reportPath || inputs.report || getCanonicalBatchReportRelativePath(changeSlug, batchExecutionId))
-    .replace(/\\/g, '/');
-  let fullReportPath = path.join(repoRoot, canonicalReportPath);
+  // Check 3: Authoritative canonical report relative path (Item 7)
+  const canonicalReportPath = getCanonicalBatchReportRelativePath(changeSlug, batchExecutionId).replace(/\\/g, '/');
 
-  // If report not found at canonical path, check if it was placed at legacy relative path
-  if (!fs.existsSync(fullReportPath)) {
-    const legacyPath = `reviews/review-batch-${batchExecutionId}.md`;
-    const fullLegacyPath = path.join(repoRoot, legacyPath);
-    if (fs.existsSync(fullLegacyPath)) {
-      fs.mkdirSync(path.dirname(fullReportPath), { recursive: true });
-      fs.copyFileSync(fullLegacyPath, fullReportPath);
-    }
-  }
-
-  // If report still does not exist on disk, render it deterministically (Item 16)
-  if (!fs.existsSync(fullReportPath)) {
-    const startRecord = loadBatchStartRecord(repoRoot, changeSlug, batchExecutionId);
-    const batchCtx = startRecord?.batchContext || {
-      batchExecutionId,
-      change: changeSlug,
-      executionScope: { kind: 'task-batch', taskIds },
-      crossTaskFindings: inputs.crossTaskFindings || [],
-    };
-    const rendered = renderBatchReport(batchCtx, { results: normalizedResults });
-    fs.mkdirSync(path.dirname(fullReportPath), { recursive: true });
-    fs.writeFileSync(fullReportPath, rendered, 'utf8');
-  }
-
-  if (!fs.existsSync(fullReportPath)) {
-    throw new WorkflowError(
-      `Canonical batch review report file does not exist at '${canonicalReportPath}'`,
-      { code: 'BATCH_REPORT_MISSING', reportPath: canonicalReportPath }
-    );
-  }
-
-  // Check 4: Read-only Git provenance against post-bootstrap workspace baseline (D29, D39)
+  // Check 4: Read-only Git provenance against post-bootstrap workspace baseline (D29, D39, Item 8)
+  // Strictly non-mutating: zero file or directory writes before this check succeeds.
   if (!skipProvenanceCheck && fs.existsSync(path.join(repoRoot, '.git'))) {
     const startRecord = loadBatchStartRecord(repoRoot, changeSlug, batchExecutionId);
     if (!startRecord?.workspaceBaseline) {
@@ -375,10 +344,8 @@ export function prevalidateBatchFinish(params = {}) {
       );
     }
 
-    const legacyPath = `reviews/review-batch-${batchExecutionId}.md`;
     const currentFingerprint = computeDeltaFingerprint(repoRoot, {
       excludePath: canonicalReportPath,
-      excludePaths: [legacyPath],
     });
     const baselineFingerprint = startRecord.workspaceBaseline.fingerprint || [];
 

@@ -427,7 +427,7 @@ export interface ExecutionPolicySelectionDialogProps {
   }) => void;
   confirming?: boolean;
   initialPolicy?: ExecutionPolicy | null;
-  initialConfig?: { provider: string; mode?: AgentExecutionMode } | null;
+  initialConfig?: { provider: string; mode?: AgentExecutionMode; model?: string } | null;
   isOneOff?: boolean;
 }
 
@@ -449,7 +449,7 @@ export function ExecutionPolicySelectionDialog({
     initialConfig?.mode || initialPolicy?.default?.mode || initialPolicy?.mode || 'agent'
   );
   const [model, setModel] = useState<string>(
-    (initialConfig as any)?.model || (initialPolicy as any)?.model || ''
+    initialConfig?.model || ''
   );
   const [implementerProvider, setImplementerProvider] = useState(initialPolicy?.roles?.implementer?.provider || '');
   const [reviewerProvider, setReviewerProvider] = useState(initialPolicy?.roles?.reviewer?.provider || '');
@@ -461,8 +461,8 @@ export function ExecutionPolicySelectionDialog({
       if (initialConfig.mode) {
         setMode(initialConfig.mode);
       }
-      if ((initialConfig as any).model !== undefined) {
-        setModel((initialConfig as any).model);
+      if (initialConfig.model !== undefined) {
+        setModel(initialConfig.model);
       }
     } else if (initialPolicy) {
       if (initialPolicy.default?.provider || initialPolicy.provider) {

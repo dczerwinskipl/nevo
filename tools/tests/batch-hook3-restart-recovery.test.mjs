@@ -6,8 +6,8 @@
 // Scenario B: Crash after batch-start but before batch-finish — Hook 3 fails closed to recovery-required
 // Scenario C: Batch claim missing batchExecutionId — Hook 3 fails closed to recovery-required
 // Scenario D: Batch claim in 'invoking' state — Hook 3 fails closed to recovery-required
-// Scenario E: Batch-finish completed, settlement already completed — Hook 3 is idempotent (no double dispatch)
-// Scenario F: assessBatchExecutionSettlement returns false when batch-finish not completed
+// Scenario E: assessBatchExecutionSettlement returns false when batch-finish not completed, true when completed
+// Scenario F: acquireWorkspaceWriter persists batchExecutionId in workspace-writer claim
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,6 +17,22 @@ import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+
+import { createGroupReservation, getGroupReservation } from '../specs/workflow/queue/reservation.mjs';
+import {
+  acquireWorkspaceWriter,
+  updateWorkspaceWriterIfOwned,
+  getWorkspaceWriterClaim,
+} from '../specs/workflow/workspace-writer.mjs';
+import {
+  createBatchFinishRecord,
+  saveBatchFinishRecord,
+} from '../specs/workflow/batch-finish/record.mjs';
+import {
+  loadBatchCompletionSettlement,
+  assessBatchExecutionSettlement,
+} from '../dashboard/server/ai/orchestration/batch-completion-settlement.mjs';
+import { reconcileBootState } from '../dashboard/server/ai/orchestration/reconciliation.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,7 +56,9 @@ function setupBatchTestRepo(slug) {
     path.join(workflowDir, 'standard.yaml')
   );
 
+  const specUuid = randomUUID();
   const changeYaml = `id: ${slug}
+spec_id: ${specUuid}
 workflow:
   mode: deterministic
   definition: standard.yaml
@@ -50,9 +68,9 @@ tasks:
     title: Task 1
     status: in-implementation
     workflow_progress:
-      current_step: implementation
+      current_step: review
       current_attempt: 1
-      state: completed
+      state: active
       history:
         - step: implementation
           attempt: 1
@@ -63,9 +81,9 @@ tasks:
     title: Task 2
     status: in-implementation
     workflow_progress:
-      current_step: implementation
+      current_step: review
       current_attempt: 1
-      state: completed
+      state: active
       history:
         - step: implementation
           attempt: 1
@@ -79,84 +97,93 @@ tasks:
   execFileSync('git', ['add', '-A'], { cwd: tmpRoot });
   execFileSync('git', ['commit', '-m', 'Initial'], { cwd: tmpRoot });
 
-  return { tmpRoot, activeDir, changeDir };
-}
-
-function writeWorkspaceWriterClaim(tmpRoot, claim) {
-  const lockDir = path.join(tmpRoot, '.nevo-ai-local', 'locks');
-  fs.mkdirSync(lockDir, { recursive: true });
-  fs.writeFileSync(path.join(lockDir, 'workspace-writer.lock'), JSON.stringify(claim, null, 2), 'utf8');
-}
-
-function writeBatchFinishRecord(tmpRoot, changeSlug, record) {
-  const dir = path.join(tmpRoot, '.nevo-ai-local', 'batch-finishes', changeSlug);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, `${record.batchExecutionId}.json`), JSON.stringify(record, null, 2), 'utf8');
-}
-
-function writeBatchCompletionSettlement(tmpRoot, changeSlug, record) {
-  const dir = path.join(tmpRoot, '.nevo-ai-local', 'batch-completion', changeSlug);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, `${record.batchExecutionId}.json`), JSON.stringify(record, null, 2), 'utf8');
-}
-
-function readWorkspaceWriterClaim(tmpRoot) {
-  const lockFile = path.join(tmpRoot, '.nevo-ai-local', 'locks', 'workspace-writer.lock');
-  if (!fs.existsSync(lockFile)) return null;
-  return JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+  return { tmpRoot, activeDir, changeDir, specUuid };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Scenario A: Full batch lifecycle — batch-finish completed → Hook 3 resumes settlement
 // ─────────────────────────────────────────────────────────────────────────────
 test('Scenario A: Hook 3 resumes executeBatchCompletionSettlement when batch-finish completed but settlement not started', async () => {
-  const { tmpRoot, activeDir } = setupBatchTestRepo('hook3-scenario-a');
+  const { tmpRoot, activeDir, specUuid } = setupBatchTestRepo('hook3-scenario-a');
   try {
-    const batchExecutionId = randomUUID();
     const changeSlug = 'hook3-scenario-a';
     const sessionId = randomUUID();
-    const ownerId = randomUUID();
 
-    // Write a reservation
-    const resDir = path.join(tmpRoot, '.nevo-ai-local', 'reservations', changeSlug);
-    fs.mkdirSync(resDir, { recursive: true });
-    fs.writeFileSync(path.join(resDir, `${batchExecutionId}.json`), JSON.stringify({
-      batchExecutionId, changeSlug, taskIds: ['t1', 't2'],
-      status: 'reserved',
-      executionConfigSnapshot: { provider: 'mock', model: 'm', contextCapacity: { status: 'unknown' } },
-      createdAt: new Date().toISOString(),
-    }), 'utf8');
-
-    // Write completed batch-finish record
-    writeBatchFinishRecord(tmpRoot, changeSlug, {
-      batchExecutionId, changeSlug, taskIds: ['t1', 't2'],
-      status: 'completed', sessionId,
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    // 1. Production queue reservation
+    const reservation = await createGroupReservation({
+      repoRoot: tmpRoot,
+      changeSlug,
+      taskIds: ['t1', 't2'],
+      executionConfigSnapshot: { provider: 'mock', model: 'm', mode: 'agent', contextCapacity: { status: 'unknown' } },
     });
+    assert.ok(reservation, 'Reservation must be created');
+    const batchExecutionId = reservation.batchExecutionId;
 
-    // Write batch workspace-writer claim in 'started' state with batchExecutionId
-    writeWorkspaceWriterClaim(tmpRoot, {
-      ownerId, kind: 'agent', status: 'active',
-      specId: changeSlug, changeSlug,
+    // 2. Production workspace-writer claim in 'started' state
+    const acquireRes = await acquireWorkspaceWriter({
+      repoRoot: tmpRoot,
+      kind: 'agent',
+      specId: specUuid,
+      changeSlug,
       scope: { kind: 'task-batch', taskIds: ['t1', 't2'] },
       batchExecutionId,
+    });
+    assert.equal(acquireRes.acquired, true, 'Workspace writer must be acquired');
+
+    await updateWorkspaceWriterIfOwned({
+      repoRoot: tmpRoot,
+      expectedOwnerId: acquireRes.ownerId,
+      expectedKind: 'agent',
+      expectedSpecId: specUuid,
+      expectedChangeSlug: changeSlug,
+      expectedScope: { kind: 'task-batch', taskIds: ['t1', 't2'] },
       sessionId,
       turnStartState: 'started',
-      pid: 9999999, // non-existent process
-      createdAt: new Date().toISOString(),
+      batchExecutionId,
     });
 
-    const { reconcileBootState } = await import('../dashboard/server/ai/orchestration/reconciliation.mjs');
-    const result = await reconcileBootState({ repoRoot: tmpRoot, activeDir });
+    // 3. Production completed batch-finish record
+    const finishRecord = createBatchFinishRecord({
+      repoRoot: tmpRoot,
+      changeSlug,
+      batchExecutionId,
+      taskIds: ['t1', 't2'],
+      results: {
+        t1: { result: 'pass' },
+        t2: { result: 'pass' },
+      },
+      reportPath: `specs/active/${changeSlug}/reviews/review-batch-${batchExecutionId}.md`,
+      sessionId,
+    });
+    finishRecord.status = 'completed';
+    saveBatchFinishRecord(tmpRoot, changeSlug, finishRecord);
 
-    // Settlement should have been attempted — claim is released or marked recovery-required
+    // 4. Hook 3 boot reconciliation (simulates restart before Hook 1 was called)
+    const result = await reconcileBootState({ repoRoot: tmpRoot, activeDir });
     assert.ok(result.reconciledClaims >= 1, 'Should have reconciled at least 1 claim');
 
-    // Verify batch completion settlement record was created
-    const settlementPath = path.join(tmpRoot, '.nevo-ai-local', 'batch-completion', changeSlug, `${batchExecutionId}.json`);
-    // Settlement should have been created; it may be in any stage (full saga may or may not run
-    // without a real changeSlug/task data), but the attempt was made
-    assert.ok(true, 'Hook 3 batch claim reconciliation ran without throwing');
+    // 5. Assertions on settlement record
+    const settlement = loadBatchCompletionSettlement(tmpRoot, changeSlug, batchExecutionId);
+    assert.ok(settlement, 'Settlement record must exist');
+    assert.equal(settlement.status, 'completed', 'Settlement must reach completed status');
+    assert.equal(settlement.stages.claimRelease.status, 'completed', 'Claim release stage must be completed');
+    assert.equal(settlement.stages.activeExecutionClear.status, 'completed', 'Active execution clear stage must be completed');
+    assert.equal(settlement.stages.reservationRelease.status, 'completed', 'Reservation release stage must be completed');
+    assert.equal(settlement.stages.continuationDispatch.status, 'completed', 'Continuation dispatch stage must be completed');
+
+    // 6. Assertions on workspace claim & reservation
+    const claimAfter = getWorkspaceWriterClaim(tmpRoot);
+    // The batch workspace claim was released; t1's continuation was admitted and holds a single-task claim
+    assert.notEqual(claimAfter?.scope?.kind, 'task-batch', 'Batch workspace claim must be released');
+    assert.notEqual(claimAfter?.batchExecutionId, batchExecutionId, 'Batch claim must no longer be held');
+
+    const resAfter = getGroupReservation(tmpRoot, changeSlug, batchExecutionId);
+    assert.equal(resAfter?.status, 'released', 'Group reservation must be released');
+
+    // 7. Assertions on member continuations
+    assert.equal(settlement.stages.continuationDispatch.members.t1?.status, 'completed');
+    assert.equal(settlement.stages.continuationDispatch.members.t2?.status, 'completed');
+    assert.equal(settlement.stages.continuationDispatch.members.t1?.action, 'agent-admitted');
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
@@ -167,49 +194,54 @@ test('Scenario A: Hook 3 resumes executeBatchCompletionSettlement when batch-fin
 // → Hook 3 must fail closed to recovery-required, NOT release reservation
 // ─────────────────────────────────────────────────────────────────────────────
 test('Scenario B: Hook 3 fails closed when batch claim exists but batch-finish is not completed', async () => {
-  const { tmpRoot, activeDir } = setupBatchTestRepo('hook3-scenario-b');
+  const { tmpRoot, activeDir, specUuid } = setupBatchTestRepo('hook3-scenario-b');
   try {
-    const batchExecutionId = randomUUID();
     const changeSlug = 'hook3-scenario-b';
     const sessionId = randomUUID();
-    const ownerId = randomUUID();
 
-    // Write a reservation (still active)
-    const resDir = path.join(tmpRoot, '.nevo-ai-local', 'reservations', changeSlug);
-    fs.mkdirSync(resDir, { recursive: true });
-    fs.writeFileSync(path.join(resDir, `${batchExecutionId}.json`), JSON.stringify({
-      batchExecutionId, changeSlug, taskIds: ['t1', 't2'],
-      status: 'reserved',
-      executionConfigSnapshot: { provider: 'mock', model: 'm', contextCapacity: { status: 'unknown' } },
-      createdAt: new Date().toISOString(),
-    }), 'utf8');
+    // 1. Production queue reservation (still active)
+    const reservation = await createGroupReservation({
+      repoRoot: tmpRoot,
+      changeSlug,
+      taskIds: ['t1', 't2'],
+      executionConfigSnapshot: { provider: 'mock', model: 'm', mode: 'agent', contextCapacity: { status: 'unknown' } },
+    });
+    const batchExecutionId = reservation.batchExecutionId;
 
-    // NO batch-finish record → batch-finish was NOT completed
-
-    // Write batch workspace-writer claim in 'started' state
-    writeWorkspaceWriterClaim(tmpRoot, {
-      ownerId, kind: 'agent', status: 'active',
-      specId: changeSlug, changeSlug,
+    // 2. Production workspace-writer claim in 'started' state
+    const acquireRes = await acquireWorkspaceWriter({
+      repoRoot: tmpRoot,
+      kind: 'agent',
+      specId: specUuid,
+      changeSlug,
       scope: { kind: 'task-batch', taskIds: ['t1', 't2'] },
       batchExecutionId,
+    });
+    await updateWorkspaceWriterIfOwned({
+      repoRoot: tmpRoot,
+      expectedOwnerId: acquireRes.ownerId,
+      expectedKind: 'agent',
+      expectedSpecId: specUuid,
+      expectedChangeSlug: changeSlug,
+      expectedScope: { kind: 'task-batch', taskIds: ['t1', 't2'] },
       sessionId,
       turnStartState: 'started',
-      pid: 9999999,
-      createdAt: new Date().toISOString(),
+      batchExecutionId,
     });
 
-    const { reconcileBootState } = await import('../dashboard/server/ai/orchestration/reconciliation.mjs');
+    // NO batch-finish record → batch finish did NOT complete
+
+    // 3. Hook 3 boot reconciliation
     await reconcileBootState({ repoRoot: tmpRoot, activeDir });
 
-    // Claim should be marked recovery-required (not released)
-    const claimAfter = readWorkspaceWriterClaim(tmpRoot);
-    assert.ok(claimAfter !== null, 'Claim should not be deleted — reservation still holds');
-    assert.equal(claimAfter?.status, 'recovery-required', 'Claim should be marked recovery-required when batch-finish not completed');
+    // 4. Claim must be marked recovery-required (NOT released)
+    const claimAfter = getWorkspaceWriterClaim(tmpRoot);
+    assert.ok(claimAfter !== null, 'Claim should not be deleted');
+    assert.equal(claimAfter?.status, 'recovery-required', 'Claim must be recovery-required when batch-finish was not completed');
 
-    // Reservation should NOT be released
-    const reservationPath = path.join(tmpRoot, '.nevo-ai-local', 'reservations', changeSlug, `${batchExecutionId}.json`);
-    const reservation = JSON.parse(fs.readFileSync(reservationPath, 'utf8'));
-    assert.equal(reservation.status, 'reserved', 'Reservation must not be released when batch-finish did not complete');
+    // 5. Reservation must NOT be released
+    const resAfter = getGroupReservation(tmpRoot, changeSlug, batchExecutionId);
+    assert.equal(resAfter?.status, 'reserved', 'Reservation must remain reserved');
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
@@ -219,27 +251,32 @@ test('Scenario B: Hook 3 fails closed when batch claim exists but batch-finish i
 // Scenario C: Batch claim missing batchExecutionId → fails closed to recovery-required
 // ─────────────────────────────────────────────────────────────────────────────
 test('Scenario C: Batch claim without batchExecutionId fails closed to recovery-required', async () => {
-  const { tmpRoot, activeDir } = setupBatchTestRepo('hook3-scenario-c');
+  const { tmpRoot, activeDir, specUuid } = setupBatchTestRepo('hook3-scenario-c');
   try {
     const changeSlug = 'hook3-scenario-c';
-    const ownerId = randomUUID();
 
-    // Batch claim WITHOUT batchExecutionId — ambiguous identity
-    writeWorkspaceWriterClaim(tmpRoot, {
-      ownerId, kind: 'agent', status: 'active',
-      specId: changeSlug, changeSlug,
+    // Claim acquired without batchExecutionId
+    const acquireRes = await acquireWorkspaceWriter({
+      repoRoot: tmpRoot,
+      kind: 'agent',
+      specId: specUuid,
+      changeSlug,
       scope: { kind: 'task-batch', taskIds: ['t1', 't2'] },
-      // batchExecutionId intentionally omitted
+    });
+    await updateWorkspaceWriterIfOwned({
+      repoRoot: tmpRoot,
+      expectedOwnerId: acquireRes.ownerId,
+      expectedKind: 'agent',
+      expectedSpecId: specUuid,
+      expectedChangeSlug: changeSlug,
+      expectedScope: { kind: 'task-batch', taskIds: ['t1', 't2'] },
       sessionId: randomUUID(),
       turnStartState: 'started',
-      pid: 9999999,
-      createdAt: new Date().toISOString(),
     });
 
-    const { reconcileBootState } = await import('../dashboard/server/ai/orchestration/reconciliation.mjs');
     await reconcileBootState({ repoRoot: tmpRoot, activeDir });
 
-    const claimAfter = readWorkspaceWriterClaim(tmpRoot);
+    const claimAfter = getWorkspaceWriterClaim(tmpRoot);
     assert.equal(claimAfter?.status, 'recovery-required', 'Batch claim with missing batchExecutionId must be marked recovery-required');
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
@@ -250,27 +287,34 @@ test('Scenario C: Batch claim without batchExecutionId fails closed to recovery-
 // Scenario D: Batch claim in 'invoking' state → ambiguous, fails closed
 // ─────────────────────────────────────────────────────────────────────────────
 test('Scenario D: Batch claim in invoking state fails closed to recovery-required', async () => {
-  const { tmpRoot, activeDir } = setupBatchTestRepo('hook3-scenario-d');
+  const { tmpRoot, activeDir, specUuid } = setupBatchTestRepo('hook3-scenario-d');
   try {
-    const batchExecutionId = randomUUID();
     const changeSlug = 'hook3-scenario-d';
-    const ownerId = randomUUID();
+    const batchExecutionId = randomUUID();
 
-    writeWorkspaceWriterClaim(tmpRoot, {
-      ownerId, kind: 'agent', status: 'active',
-      specId: changeSlug, changeSlug,
+    const acquireRes = await acquireWorkspaceWriter({
+      repoRoot: tmpRoot,
+      kind: 'agent',
+      specId: specUuid,
+      changeSlug,
       scope: { kind: 'task-batch', taskIds: ['t1', 't2'] },
       batchExecutionId,
+    });
+    await updateWorkspaceWriterIfOwned({
+      repoRoot: tmpRoot,
+      expectedOwnerId: acquireRes.ownerId,
+      expectedKind: 'agent',
+      expectedSpecId: specUuid,
+      expectedChangeSlug: changeSlug,
+      expectedScope: { kind: 'task-batch', taskIds: ['t1', 't2'] },
       sessionId: randomUUID(),
-      turnStartState: 'invoking', // ambiguous — crashed mid-invoke
-      pid: 9999999,
-      createdAt: new Date().toISOString(),
+      turnStartState: 'invoking', // Crashed mid-invoke
+      batchExecutionId,
     });
 
-    const { reconcileBootState } = await import('../dashboard/server/ai/orchestration/reconciliation.mjs');
     await reconcileBootState({ repoRoot: tmpRoot, activeDir });
 
-    const claimAfter = readWorkspaceWriterClaim(tmpRoot);
+    const claimAfter = getWorkspaceWriterClaim(tmpRoot);
     assert.equal(claimAfter?.status, 'recovery-required', 'Batch claim in invoking state must be marked recovery-required');
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
@@ -287,44 +331,33 @@ test('Scenario E: assessBatchExecutionSettlement correctly reads durable batch-f
     const batchExecutionId = randomUUID();
     const changeSlug = 'hook3-scenario-e';
 
-    const { assessBatchExecutionSettlement } = await import('../dashboard/server/ai/orchestration/batch-completion-settlement.mjs');
-
     // No batch-finish record at all → not settled
     const r1 = assessBatchExecutionSettlement({ repoRoot: tmpRoot, changeSlug, batchExecutionId });
     assert.equal(r1.settled, false);
     assert.equal(r1.reason, 'batch-finish-not-found');
 
-    // Write a batch-finish in 'validated' (not completed) state
-    writeBatchFinishRecord(tmpRoot, changeSlug, {
-      batchExecutionId, changeSlug, taskIds: ['t1', 't2'],
-      status: 'validated', // NOT completed
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    // Batch-finish in 'validated' (not completed) state
+    const record = createBatchFinishRecord({
+      repoRoot: tmpRoot,
+      changeSlug,
+      batchExecutionId,
+      taskIds: ['t1', 't2'],
+      results: { t1: { result: 'pass' }, t2: { result: 'pass' } },
+      reportPath: `specs/active/${changeSlug}/reviews/review-batch-${batchExecutionId}.md`,
     });
+    assert.equal(record.status, 'validated');
 
     const r2 = assessBatchExecutionSettlement({ repoRoot: tmpRoot, changeSlug, batchExecutionId });
     assert.equal(r2.settled, false);
     assert.equal(r2.reason, 'batch-finish-not-completed');
 
-    // Write a batch-finish in 'completed' state
-    writeBatchFinishRecord(tmpRoot, changeSlug, {
-      batchExecutionId, changeSlug, taskIds: ['t1', 't2'],
-      status: 'completed',
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    });
+    // Update to completed
+    record.status = 'completed';
+    saveBatchFinishRecord(tmpRoot, changeSlug, record);
 
     const r3 = assessBatchExecutionSettlement({ repoRoot: tmpRoot, changeSlug, batchExecutionId });
     assert.equal(r3.settled, true);
     assert.ok(r3.finishRecord);
-
-    // Write completed settlement — idempotent: should still report settled
-    writeBatchCompletionSettlement(tmpRoot, changeSlug, {
-      batchExecutionId, changeSlug, status: 'completed',
-      stages: {}, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    });
-
-    const r4 = assessBatchExecutionSettlement({ repoRoot: tmpRoot, changeSlug, batchExecutionId });
-    assert.equal(r4.settled, true);
-    assert.equal(r4.reason, 'already-settled');
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
@@ -334,23 +367,21 @@ test('Scenario E: assessBatchExecutionSettlement correctly reads durable batch-f
 // Scenario F: acquireWorkspaceWriter persists batchExecutionId durably in claim
 // ─────────────────────────────────────────────────────────────────────────────
 test('Scenario F: acquireWorkspaceWriter persists batchExecutionId in workspace-writer claim', async () => {
-  const { tmpRoot } = setupBatchTestRepo('hook3-scenario-f');
+  const { tmpRoot, specUuid } = setupBatchTestRepo('hook3-scenario-f');
   try {
     const batchExecutionId = randomUUID();
     const changeSlug = 'hook3-scenario-f';
 
-    const { acquireWorkspaceWriter, getWorkspaceWriterClaim } = await import('../specs/workflow/workspace-writer.mjs');
-
     const result = await acquireWorkspaceWriter({
       repoRoot: tmpRoot,
       kind: 'agent',
-      specId: changeSlug,
+      specId: specUuid,
       changeSlug,
       scope: { kind: 'task-batch', taskIds: ['t1', 't2'] },
       batchExecutionId,
     });
 
-    assert.ok(result.acquired, 'Should have acquired workspace writer');
+    assert.equal(result.acquired, true, 'Should have acquired workspace writer');
 
     const claim = getWorkspaceWriterClaim(tmpRoot);
     assert.equal(claim?.batchExecutionId, batchExecutionId, 'batchExecutionId must be durably written to claim');

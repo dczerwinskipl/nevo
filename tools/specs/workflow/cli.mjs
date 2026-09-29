@@ -680,6 +680,8 @@ export async function handleWorkflowBatchStart(changeSlug, batchExecutionId, opt
     );
   }
 
+  const specId = resolveStableSpecId(change);
+
   const result = await executeBatchStart({
     changeSlug,
     batchExecutionId,
@@ -709,6 +711,8 @@ export async function handleWorkflowBatchFinish(changeSlug, batchOrOpts = {}, ma
       `Cannot run deterministic command 'workflow batch finish' against legacy specification '${changeSlug || change.id}'.`
     );
   }
+
+  const specId = resolveStableSpecId(change);
 
   if (!batchExecutionId) {
     throw new CliError("Missing required '--batch <id>' argument for 'workflow batch finish'.");

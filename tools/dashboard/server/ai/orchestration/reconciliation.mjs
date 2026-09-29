@@ -215,7 +215,7 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
  * @returns {Promise<{ reconciledClaims: number, reconciledRequests: number }>}
  */
 export async function reconcileBootState(options = {}) {
-  const { repoRoot, transcriptCache, sessionService, bindingService } = options;
+  const { repoRoot, transcriptCache, sessionService, bindingService, activeDir } = options;
   if (!repoRoot) return { reconciledClaims: 0, reconciledRequests: 0 };
 
   let reconciledClaims = 0;
@@ -263,6 +263,7 @@ export async function reconcileBootState(options = {}) {
               batchExecutionId,
               sessionId,
               ownerId,
+              activeDir,
               options: { repoRoot, sessionService, bindingService },
             });
           } catch (err) {

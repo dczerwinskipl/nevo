@@ -450,7 +450,7 @@ describe('Task 26: Execution policy and mode selection (D21)', () => {
       fileURLToPath(new URL('../ui/features/agent-sessions/create-agent-session-dialog.tsx', import.meta.url)),
       'utf8',
     );
-    assert.match(dialogSrc, /initialConfig\?: \{ provider: string; mode\?: AgentExecutionMode \} \| null/);
+    assert.match(dialogSrc, /initialConfig\?: \{ provider: string; mode\?: AgentExecutionMode; model\?: string \} \| null/);
     assert.match(dialogSrc, /initialConfig\?\.provider/);
     assert.match(dialogSrc, /setProvider\(initialConfig\.provider\)/);
 

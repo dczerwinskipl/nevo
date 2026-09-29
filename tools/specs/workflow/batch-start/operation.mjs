@@ -20,6 +20,7 @@ import { buildBatchContext } from '../../context/batch-context.mjs';
 import { WorkflowError } from '../errors.mjs';
 import { getWorkspaceWriterClaim } from '../workspace-writer.mjs';
 import { verifyBatchTrustedIdentity, updatePersistedSessionLineageSync } from '../execution-identity.mjs';
+import { resolveStableSpecId } from '../../identity.mjs';
 
 function arraysEqual(a, b) {
   if (!Array.isArray(a) || !Array.isArray(b)) return false;
@@ -88,7 +89,7 @@ export async function executeBatchStart(params = {}) {
   }
 
   // 2. Trusted identity verification (D23, D33) — fail closed before any activation
-  const specId = change.spec_id || change.id || change._slug || changeSlug;
+  const specId = resolveStableSpecId(change);
   const { effectiveSessionId } = verifyBatchTrustedIdentity({
     repoRoot,
     changeSlug,

@@ -34,8 +34,7 @@ node tools/specs.mjs workflow batch start <change> --batch <batchExecutionId>
 Batched review operates under a strict **read-only execution capability profile** over repository source code:
 - **No source-file modifications are permitted.** The reviewer must not edit, create, or delete any source files, test files, or specification manifests under review.
 - **Allowed writes are strictly limited to:**
-  1. The canonical review report at `specs/active/<change>/reviews/review-batch-<batchExecutionId>.md`.
-  2. The final `workflow batch finish` command invocation.
+  1. The final `workflow batch finish` command invocation.
 - **The reviewer session makes NO Git commit of its own, ever.** The reviewer must never run `git commit` or `git push`. The batch-finish operation owns staging and committing the canonical report in a dedicated batch-level commit.
 - **Failing tasks hand off to a fresh single-task refiner:** If a task fails review, the reviewer does not attempt to fix the task inline. The failed task's remediation will be handled by a dedicated, fresh single-task refiner session dispatched automatically after batch settlement, inheriting this batch reviewer session as its `parentSessionId`.
 - **Contrast with single-task review:** Single-task review retains its existing capability profile (including corrective edits or task-level commits where configured in the workflow definition). Batched review enforces read-only inspection to preserve clear file ownership, attribution, and non-conflicting multi-task provenance.
@@ -70,14 +69,10 @@ Correctness of the read-only profile does **not** depend on prompt adherence or 
   - Each cross-task finding must explicitly list its `affectedTaskIds` (`affectedTaskIds: ['task-1', 'task-2']`).
   - Unattributed, vague, or batch-wide generic notes are prohibited.
 
-### Step 5.4: Generate canonical review report
-- Render the shared batch review report and write it to:
-  `specs/active/<change>/reviews/review-batch-<batchExecutionId>.md`
-- The report includes:
-  - Executive summary and table of evaluated tasks.
-  - Per-task sections detailing acceptance criteria compliance, verified files, and verdict.
-  - Cross-task analysis and findings with explicit task attribution.
-  - Next steps (advancement for passed tasks, refiner handoff for failed tasks).
+### Step 5.4: Prepare structured per-task results and cross-task findings
+- Formulate structured results for each member task (`result`, `feedback`).
+- Compile cross-task findings (`summary`, `details`, `affectedTaskIds`).
+- Do not manually write Markdown to disk. Nevo's batch finish operation automatically renders and commits the canonical review report at `specs/active/<change>/reviews/review-batch-<batchExecutionId>.md` using the structured inputs.
 
 ## 6. Single batch-finish call
 
@@ -86,6 +81,10 @@ Review work terminates in **exactly one** batch-finish invocation:
 node tools/specs.mjs workflow batch finish <change> --batch <batchExecutionId> --input '<json-results>'
 ```
 (Or `--input-file <path>` to provide inputs from a file).
+- **Execution pattern:**
+  prepare structured per-task results and cross-task findings
+  → submit one `workflow batch finish` call
+  → Nevo renders/commits canonical report
 - **Single finish call requirement:** All member task results and cross-task findings must be submitted together in one call.
 - **No per-task finish guidance:** The reviewer must **never** invoke `workflow step finish` on individual tasks. Doing so would violate the action barrier, cause workspace contention, and fail closed.
 - **Result schema:**

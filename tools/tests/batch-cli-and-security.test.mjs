@@ -1,6 +1,6 @@
 // End-to-end integration test for public CLI workflow batch start / finish,
-// fail-closed ambient security, and policy conflict 409 error mapping.
-// Covers Items 1, 2, 3, 4, 6, 14, 18-25 from corrective pass.
+// fail-closed ambient security, canonical spec_id enforcement, and prevalidation semantics.
+// Covers Items 1, 2, 7, 8, 14, 15 from corrective pass.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,18 +9,21 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
 import { createGroupReservation } from '../specs/workflow/queue/index.mjs';
-import { acquireWorkspaceWriter } from '../specs/workflow/workspace-writer.mjs';
+import { acquireWorkspaceWriter, getWorkspaceWriterClaim } from '../specs/workflow/workspace-writer.mjs';
 import { getCanonicalBatchReportRelativePath } from '../specs/reviews/batch-report.mjs';
 import { loadBatchFinishRecord } from '../specs/workflow/batch-finish/record.mjs';
+import { executeBatchFinish } from '../specs/workflow/batch-finish/operation.mjs';
 import { AiPolicyConflictError } from '../dashboard/server/ai/contracts.mjs';
+import { requireChange, requireTask } from '../specs/store.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const SPECS_CLI = path.join(REPO_ROOT, 'tools', 'specs.mjs');
 
-function setupTestRepo(slug) {
+function setupTestRepo(slug, { omitSpecId = false, specId = randomUUID() } = {}) {
   const tmpRoot = fs.mkdtempSync(path.join(tmpdir(), `nevo-batch-cli-${slug}-`));
   execFileSync('git', ['init', '-q'], { cwd: tmpRoot });
   execFileSync('git', ['config', 'user.name', 'Test'], { cwd: tmpRoot });
@@ -38,8 +41,9 @@ function setupTestRepo(slug) {
     path.join(workflowDir, 'standard.yaml')
   );
 
+  const specIdField = omitSpecId ? '' : `spec_id: ${specId}\n`;
   const changeYaml = `id: ${slug}
-workflow:
+${specIdField}workflow:
   mode: deterministic
   definition: standard.yaml
 tasks:
@@ -77,7 +81,7 @@ tasks:
   execFileSync('git', ['add', '-A'], { cwd: tmpRoot });
   execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: tmpRoot });
 
-  return { tmpRoot, activeDir, changeDir };
+  return { tmpRoot, activeDir, changeDir, specId: omitSpecId ? null : specId };
 }
 
 test('1. CLI surface: node tools/specs.mjs workflow batch --help shows start and finish subcommands', () => {
@@ -93,7 +97,7 @@ test('1. CLI surface: node tools/specs.mjs workflow batch --help shows start and
 
 test('2. Security: workflow batch start fails closed when no ambient session identity exists', async () => {
   const slug = 'fail-closed-ambient';
-  const { tmpRoot, activeDir } = setupTestRepo(slug);
+  const { tmpRoot } = setupTestRepo(slug);
   try {
     const reservation = await createGroupReservation({
       repoRoot: tmpRoot,
@@ -131,10 +135,10 @@ test('2. Security: workflow batch start fails closed when no ambient session ide
 
 test('3. Full public CLI lifecycle: workflow batch start and finish via ambient session without --session-id', async () => {
   const slug = 'cli-full-lifecycle';
-  const { tmpRoot, activeDir, changeDir } = setupTestRepo(slug);
+  const { tmpRoot, specId } = setupTestRepo(slug);
   try {
-    const batchExecutionId = 'batch-exec-cli-101';
-    const sessionId = 'session-agent-cli-101';
+    const batchExecutionId = 'batch-exec-101';
+    const sessionId = 'session-agent-101';
     const taskIds = ['t1', 't2'];
 
     // 1. Group reservation
@@ -146,11 +150,11 @@ test('3. Full public CLI lifecycle: workflow batch start and finish via ambient 
       executionConfigSnapshot: { provider: 'mock', model: 'mock-model' },
     });
 
-    // 2. Persisted AgentSession with batchExecutionId
+    // 2. Persisted AgentSession under canonical specId
     const sessionsDir = path.join(tmpRoot, '.nevo-ai-local', 'sessions');
     fs.mkdirSync(sessionsDir, { recursive: true });
     fs.writeFileSync(
-      path.join(sessionsDir, `${slug}.json`),
+      path.join(sessionsDir, `${specId}.json`),
       JSON.stringify({
         sessions: [{
           sessionId,
@@ -162,11 +166,11 @@ test('3. Full public CLI lifecycle: workflow batch start and finish via ambient 
       'utf8'
     );
 
-    // 3. Workspace writer claim
+    // 3. Workspace writer claim with canonical specId
     await acquireWorkspaceWriter({
       repoRoot: tmpRoot,
       kind: 'agent',
-      specId: slug,
+      specId,
       sessionId,
       turnId: 'turn-1',
       scope: { kind: 'task-batch', taskIds },
@@ -179,7 +183,7 @@ test('3. Full public CLI lifecycle: workflow batch start and finish via ambient 
       NEVO_AGENT_PROVIDER: 'mock',
     };
 
-    // 4. Execute: node tools/specs.mjs workflow batch start <change> --batch <batchExecutionId>
+    // 4. Execute workflow batch start via CLI
     const startRes = spawnSync(
       'node',
       [SPECS_CLI, 'workflow', 'batch', 'start', slug, '--batch', batchExecutionId],
@@ -191,29 +195,23 @@ test('3. Full public CLI lifecycle: workflow batch start and finish via ambient 
     );
 
     assert.equal(startRes.status, 0, `batch start failed with stderr: ${startRes.stderr}\nstdout: ${startRes.stdout}`);
-    assert.ok(startRes.stdout.includes(batchExecutionId), 'batch start output must include batchExecutionId');
+    const startJson = JSON.parse(startRes.stdout);
+    assert.equal(startJson.batchExecutionId, batchExecutionId);
+    assert.ok(startJson.batchContext);
+    assert.ok(startJson.workspaceBaseline);
 
-    // Verify tasks activated in change.yaml
-    const postStartChange = fs.readFileSync(path.join(changeDir, 'change.yaml'), 'utf8');
-    assert.ok(postStartChange.includes('current_step: review'), 't1 and t2 must be in current_step: review');
-
-    // 5. Reviewer creates canonical report file
-    const reportRelativePath = getCanonicalBatchReportRelativePath(slug, batchExecutionId);
-    const fullReportPath = path.join(tmpRoot, reportRelativePath);
-    fs.mkdirSync(path.dirname(fullReportPath), { recursive: true });
-    fs.writeFileSync(fullReportPath, '# Batch Review Report\n\nAll tasks verified.\n', 'utf8');
-
-    // 6. Execute: node tools/specs.mjs workflow batch finish <change> --batch <batchExecutionId> --input '<json>'
-    const finishInput = JSON.stringify({
-      tasks: {
-        t1: { result: 'pass', feedback: 't1 looks great' },
-        t2: { result: 'pass', feedback: 't2 looks great' },
+    // 5. Execute workflow batch finish with structured --input
+    const resultsPayload = JSON.stringify({
+      results: {
+        t1: { result: 'pass', feedback: 'All good' },
+        t2: { result: 'pass', feedback: 'Verified' },
       },
+      crossTaskFindings: [{ summary: 'No collisions', affectedTaskIds: ['t1', 't2'] }],
     });
 
     const finishRes = spawnSync(
       'node',
-      [SPECS_CLI, 'workflow', 'batch', 'finish', slug, '--batch', batchExecutionId, '--input', finishInput],
+      [SPECS_CLI, 'workflow', 'batch', 'finish', slug, '--batch', batchExecutionId, '--input', resultsPayload],
       {
         cwd: tmpRoot,
         env,
@@ -225,14 +223,14 @@ test('3. Full public CLI lifecycle: workflow batch start and finish via ambient 
     const finishJson = JSON.parse(finishRes.stdout);
     assert.equal(finishJson.status, 'completed', 'Must report completed finish');
 
-    // 7. Verify durable batch-finish record
+    // 6. Verify durable batch-finish record
     const finishRecord = loadBatchFinishRecord(tmpRoot, slug, batchExecutionId);
     assert.ok(finishRecord);
     assert.equal(finishRecord.status, 'completed');
     assert.equal(finishRecord.results.t1.result, 'pass');
     assert.equal(finishRecord.results.t2.result, 'pass');
 
-    // 8. Verify report commit landed on git
+    // 7. Verify report commit landed on git
     const lastCommitLog = execFileSync('git', ['log', '-1', '--oneline'], { cwd: tmpRoot, encoding: 'utf8' }).trim();
     assert.ok(lastCommitLog.includes('review-batch') || lastCommitLog.includes('report'), `Report commit log: ${lastCommitLog}`);
   } finally {
@@ -242,7 +240,7 @@ test('3. Full public CLI lifecycle: workflow batch start and finish via ambient 
 
 test('4. CLI batch finish with --input-file works identically', async () => {
   const slug = 'cli-input-file';
-  const { tmpRoot, activeDir, changeDir } = setupTestRepo(slug);
+  const { tmpRoot, specId } = setupTestRepo(slug);
   try {
     const batchExecutionId = 'batch-exec-file-202';
     const sessionId = 'session-agent-file-202';
@@ -259,7 +257,7 @@ test('4. CLI batch finish with --input-file works identically', async () => {
     const sessionsDir = path.join(tmpRoot, '.nevo-ai-local', 'sessions');
     fs.mkdirSync(sessionsDir, { recursive: true });
     fs.writeFileSync(
-      path.join(sessionsDir, `${slug}.json`),
+      path.join(sessionsDir, `${specId}.json`),
       JSON.stringify({
         sessions: [{
           sessionId,
@@ -274,7 +272,7 @@ test('4. CLI batch finish with --input-file works identically', async () => {
     await acquireWorkspaceWriter({
       repoRoot: tmpRoot,
       kind: 'agent',
-      specId: slug,
+      specId,
       sessionId,
       turnId: 'turn-1',
       scope: { kind: 'task-batch', taskIds },
@@ -293,12 +291,7 @@ test('4. CLI batch finish with --input-file works identically', async () => {
       { cwd: tmpRoot, env, encoding: 'utf8' }
     );
 
-    const reportRelativePath = getCanonicalBatchReportRelativePath(slug, batchExecutionId);
-    const fullReportPath = path.join(tmpRoot, reportRelativePath);
-    fs.mkdirSync(path.dirname(fullReportPath), { recursive: true });
-    fs.writeFileSync(fullReportPath, '# Batch Review Report\n\nAll tasks verified.\n', 'utf8');
-
-    // Input file must be outside working tree or inside .nevo-ai-local so it doesn't violate git provenance
+    // Input file must be inside .nevo-ai-local so it doesn't violate git provenance
     const inputFile = path.join(tmpRoot, '.nevo-ai-local', 'results.json');
     fs.writeFileSync(
       inputFile,
@@ -336,4 +329,234 @@ test('5. Policy conflict throws AiPolicyConflictError with HTTP 409 mapping', ()
   assert.equal(err.status, 409, 'AiPolicyConflictError status must be 409');
   assert.equal(err.code, 'AI_POLICY_CONFLICT', 'Error code must be AI_POLICY_CONFLICT');
   assert.equal(err.recoveryHint, 'operator-action', 'Recovery hint must be operator-action');
+});
+
+test('6. Security: deterministic spec without spec_id fails closed on workflow batch start (Item 2)', async () => {
+  const slug = 'deterministic-no-spec-id';
+  const { tmpRoot, activeDir } = setupTestRepo(slug, { omitSpecId: true });
+  try {
+    const batchExecutionId = 'batch-no-spec-id-1';
+    const sessionId = 'session-no-spec-id-1';
+    const taskIds = ['t1', 't2'];
+
+    await createGroupReservation({
+      repoRoot: tmpRoot,
+      changeSlug: slug,
+      taskIds,
+      batchExecutionId,
+      executionConfigSnapshot: { provider: 'mock', model: 'mock-model' },
+    });
+
+    const env = {
+      ...process.env,
+      NEVO_SESSION_ID: sessionId,
+      NEVO_AGENT_PROVIDER: 'mock',
+    };
+
+    const startRes = spawnSync(
+      'node',
+      [SPECS_CLI, 'workflow', 'batch', 'start', slug, '--batch', batchExecutionId],
+      { cwd: tmpRoot, env, encoding: 'utf8' }
+    );
+
+    assert.notEqual(startRes.status, 0, 'Must exit non-zero when spec_id is missing on deterministic spec');
+    assert.ok(
+      startRes.stderr.includes('has no persisted spec_id') || startRes.stderr.includes('backfill-spec-id'),
+      `Error must explain missing spec_id: ${startRes.stderr}`
+    );
+
+    // Verify ZERO task activations occurred
+    const changeAfter = requireChange(slug, activeDir);
+    const t1 = requireTask(changeAfter, 't1');
+    const t2 = requireTask(changeAfter, 't2');
+    assert.equal(t1.workflow_progress.state, 'completed', 'Task t1 state must remain untouched');
+    assert.equal(t2.workflow_progress.state, 'completed', 'Task t2 state must remain untouched');
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test('7. Identity: canonical spec_id UUID resolution across admission, batch-start, batch-finish (Item 1)', async () => {
+  const slug = 'canonical-spec-uuid-flow';
+  const canonicalUuid = randomUUID();
+  const { tmpRoot } = setupTestRepo(slug, { specId: canonicalUuid });
+  try {
+    const batchExecutionId = 'batch-uuid-test-1';
+    const sessionId = 'session-uuid-test-1';
+    const taskIds = ['t1', 't2'];
+
+    // 1. Queue reservation
+    await createGroupReservation({
+      repoRoot: tmpRoot,
+      changeSlug: slug,
+      taskIds,
+      batchExecutionId,
+      executionConfigSnapshot: { provider: 'mock', model: 'mock-model' },
+    });
+
+    // 2. Persisted session under canonical UUID filename
+    const sessionsDir = path.join(tmpRoot, '.nevo-ai-local', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionsDir, `${canonicalUuid}.json`),
+      JSON.stringify({
+        sessions: [{
+          sessionId,
+          batchExecutionId,
+          executionScope: { kind: 'task-batch', changeSlug: slug, taskIds },
+        }],
+        bindings: [],
+      }, null, 2),
+      'utf8'
+    );
+
+    // 3. Workspace writer claim with canonical UUID
+    await acquireWorkspaceWriter({
+      repoRoot: tmpRoot,
+      kind: 'agent',
+      specId: canonicalUuid,
+      changeSlug: slug,
+      sessionId,
+      turnId: 'turn-1',
+      scope: { kind: 'task-batch', taskIds },
+      batchExecutionId,
+    });
+
+    const env = {
+      ...process.env,
+      NEVO_SESSION_ID: sessionId,
+      NEVO_AGENT_PROVIDER: 'mock',
+    };
+
+    // 4. Workflow batch start resolves canonical spec_id UUID
+    const startRes = spawnSync(
+      'node',
+      [SPECS_CLI, 'workflow', 'batch', 'start', slug, '--batch', batchExecutionId],
+      { cwd: tmpRoot, env, encoding: 'utf8' }
+    );
+    assert.equal(startRes.status, 0, `batch start failed: ${startRes.stderr}`);
+
+    // 5. Workflow batch finish resolves canonical spec_id UUID
+    const finishRes = spawnSync(
+      'node',
+      [
+        SPECS_CLI,
+        'workflow',
+        'batch',
+        'finish',
+        slug,
+        '--batch',
+        batchExecutionId,
+        '--input',
+        JSON.stringify({ results: { t1: { result: 'pass' }, t2: { result: 'pass' } } }),
+      ],
+      { cwd: tmpRoot, env, encoding: 'utf8' }
+    );
+    assert.equal(finishRes.status, 0, `batch finish failed: ${finishRes.stderr}`);
+
+    const finishRecord = loadBatchFinishRecord(tmpRoot, slug, batchExecutionId);
+    assert.ok(finishRecord);
+    assert.equal(finishRecord.status, 'completed');
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test('8. Prevalidation: failed provenance check leaves no report file, no batch-finish record, and no task mutations (Item 8)', async () => {
+  const slug = 'provenance-zero-write';
+  const { tmpRoot, activeDir, specId } = setupTestRepo(slug);
+  try {
+    const batchExecutionId = 'batch-prov-fail-1';
+    const sessionId = 'session-prov-fail-1';
+    const taskIds = ['t1', 't2'];
+
+    await createGroupReservation({
+      repoRoot: tmpRoot,
+      changeSlug: slug,
+      taskIds,
+      batchExecutionId,
+      executionConfigSnapshot: { provider: 'mock', model: 'mock-model' },
+    });
+
+    const sessionsDir = path.join(tmpRoot, '.nevo-ai-local', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionsDir, `${specId}.json`),
+      JSON.stringify({
+        sessions: [{
+          sessionId,
+          batchExecutionId,
+          executionScope: { kind: 'task-batch', changeSlug: slug, taskIds },
+        }],
+        bindings: [],
+      }, null, 2),
+      'utf8'
+    );
+
+    await acquireWorkspaceWriter({
+      repoRoot: tmpRoot,
+      kind: 'agent',
+      specId,
+      sessionId,
+      turnId: 'turn-1',
+      scope: { kind: 'task-batch', taskIds },
+      batchExecutionId,
+    });
+
+    const env = {
+      ...process.env,
+      NEVO_SESSION_ID: sessionId,
+      NEVO_AGENT_PROVIDER: 'mock',
+    };
+
+    // 1. Batch start captures workspace baseline
+    spawnSync(
+      'node',
+      [SPECS_CLI, 'workflow', 'batch', 'start', slug, '--batch', batchExecutionId],
+      { cwd: tmpRoot, env, encoding: 'utf8' }
+    );
+
+    // 2. Introduce an illegal modification in workspace (violates provenance)
+    fs.writeFileSync(path.join(tmpRoot, 'unauthorized-edit.js'), '// illegal edit\n', 'utf8');
+
+    // 3. Attempt batch finish
+    const canonicalReportRelPath = getCanonicalBatchReportRelativePath(slug, batchExecutionId);
+    const fullReportPath = path.join(tmpRoot, canonicalReportRelPath);
+
+    let finishErr = null;
+    try {
+      await executeBatchFinish({
+        repoRoot: tmpRoot,
+        activeDir,
+        changeSlug: slug,
+        batchExecutionId,
+        sessionId,
+        inputs: {
+          results: { t1: { result: 'pass' }, t2: { result: 'pass' } },
+        },
+      });
+    } catch (err) {
+      finishErr = err;
+    }
+
+    assert.ok(finishErr, 'executeBatchFinish must throw on provenance violation');
+    assert.equal(finishErr.code, 'BATCH_PROVENANCE_VIOLATION');
+
+    // 4. Assert zero durable writes occurred:
+    // - No report file written
+    assert.equal(fs.existsSync(fullReportPath), false, 'Report file must NOT be written when prevalidation fails');
+
+    // - No batch finish record persisted
+    const finishRecord = loadBatchFinishRecord(tmpRoot, slug, batchExecutionId);
+    assert.equal(finishRecord, null, 'Batch finish record must NOT be created when prevalidation fails');
+
+    // - No task mutations occurred
+    const changeAfter = requireChange(slug, activeDir);
+    const t1 = requireTask(changeAfter, 't1');
+    const t2 = requireTask(changeAfter, 't2');
+    assert.equal(t1.workflow_progress.state, 'active', 'Task t1 must remain in active state (not finished)');
+    assert.equal(t2.workflow_progress.state, 'active', 'Task t2 must remain in active state (not finished)');
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
 });

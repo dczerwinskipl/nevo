@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { WorkflowError } from '../../../../specs/workflow/errors.mjs';
+import '../../../../specs/workflow/actions/index.mjs';
 import {
   getWorkspaceWriterClaim,
   releaseWorkspaceWriterIfOwned,
@@ -22,6 +23,67 @@ import { getActiveAgentExecution, clearActiveAgentExecution } from './admission.
 import { reconcileContinuation } from './reconciliation.mjs';
 import { requireChange, requireTask, ACTIVE_DIR } from '../../../../specs/store.mjs';
 import { arraysEqual } from '../../../../specs/workflow/execution-identity.mjs';
+import { resolveStableSpecId } from '../../../../specs/identity.mjs';
+
+/**
+ * Exact matcher for live batch workspace-writer claim (D35, Item 3, 4).
+ * Requires exact kind === 'agent', scope.kind === 'task-batch', batchExecutionId, sessionId,
+ * canonical specId, changeSlug (if present), and exact taskIds set equality.
+ */
+export function matchesBatchClaimExact(liveClaim, {
+  batchExecutionId,
+  sessionId,
+  specId,
+  changeSlug,
+  taskIds,
+}) {
+  if (!liveClaim) return false;
+  if (liveClaim.kind !== 'agent') return false;
+  if (liveClaim.scope?.kind !== 'task-batch') return false;
+  if (!liveClaim.batchExecutionId || liveClaim.batchExecutionId !== batchExecutionId) return false;
+  if (!liveClaim.sessionId || liveClaim.sessionId !== sessionId) return false;
+  if (!liveClaim.specId || liveClaim.specId !== specId) return false;
+  if (liveClaim.changeSlug && changeSlug && liveClaim.changeSlug !== changeSlug) return false;
+  if (!Array.isArray(liveClaim.scope?.taskIds) || !arraysEqual(liveClaim.scope.taskIds, taskIds)) return false;
+  return true;
+}
+
+/**
+ * Checks whether a live workspace claim is ambiguous or corrupt with respect to this batch.
+ * If true, settlement CANNOT authoritatively prove this batch's claim is gone, and must fail closed.
+ */
+export function isAmbiguousBatchClaim(liveClaim, {
+  batchExecutionId,
+  sessionId,
+  specId,
+  taskIds,
+}) {
+  if (!liveClaim) return false;
+  // 1. Same batchExecutionId, but any required identity field is missing or mismatch
+  if (liveClaim.batchExecutionId === batchExecutionId) {
+    if (liveClaim.kind !== 'agent') return true;
+    if (liveClaim.scope?.kind !== 'task-batch') return true;
+    if (!liveClaim.sessionId || liveClaim.sessionId !== sessionId) return true;
+    if (!liveClaim.specId || liveClaim.specId !== specId) return true;
+    if (!Array.isArray(liveClaim.scope?.taskIds) || !arraysEqual(liveClaim.scope.taskIds, taskIds)) return true;
+  }
+  // 2. Same sessionId, but missing or mismatched batchExecutionId
+  if (liveClaim.sessionId && liveClaim.sessionId === sessionId) {
+    if (liveClaim.batchExecutionId !== batchExecutionId) return true;
+  }
+  // 3. Task batch claim with partial task overlap (not exact equal)
+  if (liveClaim.scope?.kind === 'task-batch' && Array.isArray(liveClaim.scope?.taskIds)) {
+    const hasOverlap = liveClaim.scope.taskIds.some(t => taskIds.includes(t));
+    if (hasOverlap && !arraysEqual(liveClaim.scope.taskIds, taskIds)) {
+      return true;
+    }
+  }
+  // 4. Single-task claim that matches one of our member tasks
+  if (liveClaim.scope?.kind === 'task' && liveClaim.scope?.taskId && taskIds.includes(liveClaim.scope.taskId)) {
+    return true;
+  }
+  return false;
+}
 
 export function getBatchCompletionSettlementDir(repoRoot, changeSlug) {
   return path.join(repoRoot, '.nevo-ai-local', 'batch-completion', changeSlug);
@@ -218,7 +280,7 @@ export async function executeBatchCompletionSettlement(params = {}) {
     batchExecutionId,
     sessionId: explicitSessionId,
     ownerId,
-    activeDir = ACTIVE_DIR,
+    activeDir = params.activeDir || (repoRoot ? path.join(repoRoot, 'specs', 'active') : ACTIVE_DIR),
     options = {},
     _crashAfterClaimRelease = false,
     _crashAfterActiveExecutionClear = false,
@@ -243,6 +305,17 @@ export async function executeBatchCompletionSettlement(params = {}) {
   const effectiveSessionId = explicitSessionId || finishRecord.sessionId || null;
   const taskIds = finishRecord.taskIds || [];
 
+  // Resolve canonical specId
+  let canonicalSpecId = params.specId;
+  if (!canonicalSpecId) {
+    try {
+      const change = requireChange(changeSlug, activeDir);
+      canonicalSpecId = resolveStableSpecId(change);
+    } catch {
+      canonicalSpecId = changeSlug;
+    }
+  }
+
   // 2. Load or create durable settlement record
   let settlement = loadBatchCompletionSettlement(repoRoot, changeSlug, batchExecutionId);
   if (!settlement) {
@@ -264,7 +337,7 @@ export async function executeBatchCompletionSettlement(params = {}) {
   }
 
   // -------------------------------------------------------------------------
-  // Stage 1: Workspace-writer claim release (D35 Step 1, D40)
+  // Stage 1: Workspace-writer claim release (D35 Step 1, D40, Item 3, 5)
   // -------------------------------------------------------------------------
   if (settlement.stages.claimRelease.status !== 'completed') {
     const liveClaim = getWorkspaceWriterClaim(repoRoot);
@@ -277,30 +350,32 @@ export async function executeBatchCompletionSettlement(params = {}) {
       };
       saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
     } else {
-      // Check if claim belongs to this batch (Item 8: exact match, no loose some())
-      const isBatchClaim = liveClaim.scope?.kind === 'task-batch' &&
-        (!liveClaim.batchExecutionId || liveClaim.batchExecutionId === batchExecutionId) &&
-        (!effectiveSessionId || !liveClaim.sessionId || liveClaim.sessionId === effectiveSessionId) &&
-        Array.isArray(liveClaim.scope?.taskIds) &&
-        arraysEqual(liveClaim.scope.taskIds, taskIds);
+      const isExactMatch = matchesBatchClaimExact(liveClaim, {
+        batchExecutionId,
+        sessionId: effectiveSessionId,
+        specId: canonicalSpecId,
+        changeSlug,
+        taskIds,
+      });
 
-      if (isBatchClaim) {
+      if (isExactMatch) {
         await releaseWorkspaceWriterIfOwned({
           repoRoot,
           expectedOwnerId: ownerId || liveClaim.ownerId,
           expectedKind: 'agent',
           expectedScope: liveClaim.scope,
-          ...(liveClaim.sessionId ? { expectedSessionId: liveClaim.sessionId } : {}),
+          expectedSessionId: liveClaim.sessionId,
           ...(liveClaim.turnId ? { expectedTurnId: liveClaim.turnId } : {}),
         });
 
         const afterClaim = getWorkspaceWriterClaim(repoRoot);
-        const stillHeld = afterClaim &&
-          afterClaim.scope?.kind === 'task-batch' &&
-          (!afterClaim.batchExecutionId || afterClaim.batchExecutionId === batchExecutionId) &&
-          (!effectiveSessionId || !afterClaim.sessionId || afterClaim.sessionId === effectiveSessionId) &&
-          Array.isArray(afterClaim.scope?.taskIds) &&
-          arraysEqual(afterClaim.scope.taskIds, taskIds);
+        const stillHeld = matchesBatchClaimExact(afterClaim, {
+          batchExecutionId,
+          sessionId: effectiveSessionId,
+          specId: canonicalSpecId,
+          changeSlug,
+          taskIds,
+        });
 
         if (!stillHeld) {
           settlement.stages.claimRelease = {
@@ -310,8 +385,32 @@ export async function executeBatchCompletionSettlement(params = {}) {
           saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
         }
       } else {
-        // If a different claim occupies the workspace (e.g. from an independent operation),
-        // we never clear it as if it belonged to this batch (D40)
+        // Live claim exists but does not match this batch.
+        // Check if the claim is ambiguous or corrupt with respect to this batch (Item 5)
+        if (isAmbiguousBatchClaim(liveClaim, {
+          batchExecutionId,
+          sessionId: effectiveSessionId,
+          specId: canonicalSpecId,
+          taskIds,
+        })) {
+          // Malformed / ambiguous identity: fail closed!
+          settlement.stages.claimRelease = {
+            status: 'recovery-required',
+            reason: 'AMBIGUOUS_WORKSPACE_CLAIM',
+          };
+          settlement.status = 'recovery-required';
+          settlement.recoveryReason = 'AMBIGUOUS_WORKSPACE_CLAIM';
+          saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
+          return {
+            settled: false,
+            status: 'recovery-required',
+            reason: 'AMBIGUOUS_WORKSPACE_CLAIM',
+            settlement,
+          };
+        }
+
+        // It is an authoritatively separate, valid, non-overlapping operation.
+        // We do NOT delete it, and mark this batch's claim release as satisfied.
         settlement.stages.claimRelease = {
           status: 'completed',
           completedAt: new Date().toISOString(),
@@ -327,13 +426,15 @@ export async function executeBatchCompletionSettlement(params = {}) {
   }
 
   // -------------------------------------------------------------------------
-  // Stage 2: Clear active execution (D35 Step 2, D40, Item 10)
+  // Stage 2: Clear active execution (D35 Step 2, D40, Item 6)
   // -------------------------------------------------------------------------
   if (settlement.stages.activeExecutionClear.status !== 'completed') {
-    const targetSpecKey = params.specId || changeSlug;
+    const targetSpecKey = canonicalSpecId || changeSlug;
     let active = getActiveAgentExecution(targetSpecKey);
+    let keyUsed = targetSpecKey;
     if (!active && targetSpecKey !== changeSlug) {
       active = getActiveAgentExecution(changeSlug);
+      keyUsed = changeSlug;
     }
 
     if (!active) {
@@ -344,21 +445,52 @@ export async function executeBatchCompletionSettlement(params = {}) {
       };
       saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
     } else {
-      const isThisBatchActive = (active.ownerId && active.ownerId === ownerId) ||
-        (active.sessionId && active.sessionId === effectiveSessionId) ||
-        (active.candidate?.batchExecutionId && active.candidate.batchExecutionId === batchExecutionId);
+      // Exact active execution correlation (Item 6)
+      const activeBatchId = active.batchExecutionId || active.candidate?.batchExecutionId;
+      const isExactBatchActive =
+        active.scope?.kind === 'task-batch' &&
+        activeBatchId === batchExecutionId &&
+        active.sessionId === effectiveSessionId &&
+        (active.specId ? active.specId === canonicalSpecId : true) &&
+        Array.isArray(active.scope?.taskIds) &&
+        arraysEqual(active.scope.taskIds, taskIds);
 
-      if (isThisBatchActive) {
-        clearActiveAgentExecution(targetSpecKey);
+      if (isExactBatchActive) {
+        clearActiveAgentExecution(keyUsed);
         if (targetSpecKey !== changeSlug) {
-          clearActiveAgentExecution(changeSlug);
+          const other = getActiveAgentExecution(changeSlug);
+          if (other && (other.batchExecutionId || other.candidate?.batchExecutionId) === batchExecutionId) {
+            clearActiveAgentExecution(changeSlug);
+          }
         }
+        settlement.stages.activeExecutionClear = {
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+        };
+        saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
+      } else {
+        // If the active execution does NOT match this batch, do not clear it!
+        // But if it is an ambiguous match (e.g. same batchId but wrong session/scope):
+        if (activeBatchId === batchExecutionId) {
+          settlement.status = 'recovery-required';
+          settlement.recoveryReason = 'AMBIGUOUS_ACTIVE_EXECUTION';
+          saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
+          return {
+            settled: false,
+            status: 'recovery-required',
+            reason: 'AMBIGUOUS_ACTIVE_EXECUTION',
+            settlement,
+          };
+        }
+
+        // Active execution belongs to another operation; this batch is not active.
+        settlement.stages.activeExecutionClear = {
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+          note: 'different-execution-active',
+        };
+        saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
       }
-      settlement.stages.activeExecutionClear = {
-        status: 'completed',
-        completedAt: new Date().toISOString(),
-      };
-      saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
     }
 
     if (_crashAfterActiveExecutionClear) {
@@ -402,17 +534,19 @@ export async function executeBatchCompletionSettlement(params = {}) {
   }
 
   // -------------------------------------------------------------------------
-  // Structural Dispatch Safety Guard (D35, D40)
+  // Structural Dispatch Safety Guard (D35, D40, Item 4)
   // Dispatch is illegal until stages 1–3 are authoritatively satisfied.
   // -------------------------------------------------------------------------
   const liveClaimBeforeDispatch = getWorkspaceWriterClaim(repoRoot);
   if (
     liveClaimBeforeDispatch &&
-    liveClaimBeforeDispatch.scope?.kind === 'task-batch' &&
-    (!liveClaimBeforeDispatch.batchExecutionId || liveClaimBeforeDispatch.batchExecutionId === batchExecutionId) &&
-    (!effectiveSessionId || !liveClaimBeforeDispatch.sessionId || liveClaimBeforeDispatch.sessionId === effectiveSessionId) &&
-    Array.isArray(liveClaimBeforeDispatch.scope?.taskIds) &&
-    liveClaimBeforeDispatch.scope.taskIds.some(t => taskIds.includes(t))
+    matchesBatchClaimExact(liveClaimBeforeDispatch, {
+      batchExecutionId,
+      sessionId: effectiveSessionId,
+      specId: canonicalSpecId,
+      changeSlug,
+      taskIds,
+    })
   ) {
     throw new WorkflowError(
       'Dispatch illegal: batch workspace-writer claim is still held',
