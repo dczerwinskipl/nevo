@@ -563,6 +563,11 @@ export default async function specsRoutes(fastify, { config = {}, actionExecutor
         reply.code(404).send({ error: 'Specification document not found' });
         return;
       }
+      const raw = request.query?.raw === '1' || request.query?.raw === 'true';
+      if (raw) {
+        reply.code(200).type('text/markdown; charset=utf-8').header('cache-control', 'no-store').send(document.markdown || '');
+        return;
+      }
       reply.code(200).header('cache-control', 'no-store').send(document);
     } catch {
       reply.code(404).send({ error: 'Specification document not found' });

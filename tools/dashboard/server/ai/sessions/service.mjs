@@ -447,6 +447,7 @@ export class AgentSessionService {
           parentSessionId: options.parentSessionId,
           perTaskStep: options.perTaskStep,
           perTaskAttempt: options.perTaskAttempt,
+          batchExecutionId: options.batchExecutionId || executionScope?.batchExecutionId,
         });
       } else if (taskIds.length > 0) {
         // bindSession's own fallback (`taskId || session?.activeTaskId`) only triggers

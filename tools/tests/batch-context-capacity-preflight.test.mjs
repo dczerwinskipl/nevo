@@ -13,6 +13,7 @@ import {
 } from '../specs/workflow/batch-start/index.mjs';
 import { createGroupReservation, releaseGroupReservation } from '../specs/workflow/queue/index.mjs';
 import { executeBatchStart } from '../specs/workflow/batch-start/operation.mjs';
+import { acquireWorkspaceWriter } from '../specs/workflow/workspace-writer.mjs';
 import { loadBatchStartRecord } from '../specs/workflow/batch-start/record.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -166,6 +167,32 @@ tasks:
     assert.equal(preflightOver.passed, false);
     assert.equal(preflightOver.code, 'BATCH_CONTEXT_TOO_LARGE');
 
+    const sessionId = 'session-cap-test';
+    const sessionsDir = path.join(tmpRoot, '.nevo-ai-local', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionsDir, 'cap-spec.json'),
+      JSON.stringify({
+        sessions: [{
+          sessionId,
+          batchExecutionId: overBudgetRes.batchExecutionId,
+          executionScope: { kind: 'task-batch', changeSlug: 'cap-spec', taskIds: ['task-1', 'task-2'] },
+        }],
+        bindings: [],
+      }, null, 2),
+      'utf8'
+    );
+
+    await acquireWorkspaceWriter({
+      repoRoot: tmpRoot,
+      kind: 'agent',
+      specId: 'cap-spec',
+      sessionId,
+      turnId: 'turn-cap-1',
+      scope: { kind: 'task-batch', taskIds: ['task-1', 'task-2'] },
+      batchExecutionId: overBudgetRes.batchExecutionId,
+    });
+
     // Executing batch start must fail closed with BATCH_CONTEXT_TOO_LARGE and ZERO member activations
     await assert.rejects(
       async () => {
@@ -174,6 +201,7 @@ tasks:
           activeDir,
           changeSlug: 'cap-spec',
           batchExecutionId: overBudgetRes.batchExecutionId,
+          sessionId,
         });
       },
       { code: 'BATCH_CONTEXT_TOO_LARGE' }

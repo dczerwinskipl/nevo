@@ -48,7 +48,7 @@ import {
   isProcessAlive,
 } from './workspace-writer.mjs';
 import { createTaskScope, scopeContainsTask } from './execution-scope.mjs';
-import { readAgentExecutionContext } from '../../dashboard/server/ai/sessions/binding-service.mjs';
+import { readAgentExecutionContext } from './execution-identity.mjs';
 import {
   recordCliWorkspaceExecution,
   loadCliWorkspaceExecution,
@@ -670,8 +670,10 @@ export async function handleWorkflowTaskPublish(changeSlug, taskId, options = {}
  * CLI entry point: start a batch execution for reserved tasks (D33).
  */
 export async function handleWorkflowBatchStart(changeSlug, batchExecutionId, opts = {}) {
-  const change = requireChange(changeSlug, opts.activeDir || ACTIVE_DIR);
-  const workflowMode = resolveWorkflowMode(change, opts);
+  const effectiveRepoRoot = opts.repoRoot || (existsSync(join(process.cwd(), 'specs', 'active', changeSlug)) ? process.cwd() : ROOT);
+  const effectiveActiveDir = opts.activeDir || join(effectiveRepoRoot, 'specs', 'active');
+  const change = requireChange(changeSlug, effectiveActiveDir);
+  const workflowMode = resolveWorkflowMode(change, { ...opts, repoRoot: effectiveRepoRoot, activeDir: effectiveActiveDir });
   if (workflowMode.mode === 'legacy') {
     throw new CliError(
       `Cannot run deterministic command 'workflow batch start' against legacy specification '${changeSlug || change.id}'.`
@@ -682,8 +684,8 @@ export async function handleWorkflowBatchStart(changeSlug, batchExecutionId, opt
     changeSlug,
     batchExecutionId,
     sessionId: opts.sessionId || opts['session-id'],
-    repoRoot: opts.repoRoot || ROOT,
-    activeDir: opts.activeDir || ACTIVE_DIR,
+    repoRoot: effectiveRepoRoot,
+    activeDir: effectiveActiveDir,
     silent: opts.silent,
   });
 
@@ -698,8 +700,10 @@ export async function handleWorkflowBatchFinish(changeSlug, batchOrOpts = {}, ma
   const batchExecutionId = isSecondArgString ? batchOrOpts : (batchOrOpts.batch || batchOrOpts.batchExecutionId);
   const opts = isSecondArgString ? maybeOpts : batchOrOpts;
 
-  const change = requireChange(changeSlug, opts.activeDir || ACTIVE_DIR);
-  const workflowMode = resolveWorkflowMode(change, opts);
+  const effectiveRepoRoot = opts.repoRoot || (existsSync(join(process.cwd(), 'specs', 'active', changeSlug)) ? process.cwd() : ROOT);
+  const effectiveActiveDir = opts.activeDir || join(effectiveRepoRoot, 'specs', 'active');
+  const change = requireChange(changeSlug, effectiveActiveDir);
+  const workflowMode = resolveWorkflowMode(change, { ...opts, repoRoot: effectiveRepoRoot, activeDir: effectiveActiveDir });
   if (workflowMode.mode === 'legacy') {
     throw new CliError(
       `Cannot run deterministic command 'workflow batch finish' against legacy specification '${changeSlug || change.id}'.`
@@ -710,12 +714,30 @@ export async function handleWorkflowBatchFinish(changeSlug, batchOrOpts = {}, ma
     throw new CliError("Missing required '--batch <id>' argument for 'workflow batch finish'.");
   }
 
-  let inputs = opts.input || opts.inputs || {};
-  if (typeof inputs === 'string') {
+  const hasInput = opts.input !== undefined;
+  const hasInputFile = opts.inputFile !== undefined || opts['input-file'] !== undefined;
+
+  if (hasInput && hasInputFile) {
+    throw new CliError('Cannot specify both --input and --input-file; choose one.');
+  }
+
+  let inputs = opts.inputs || {};
+  if (hasInput) {
+    if (typeof opts.input === 'string') {
+      try {
+        inputs = JSON.parse(opts.input);
+      } catch (err) {
+        throw new CliError(`Failed to parse '--input' JSON: ${err.message}`);
+      }
+    } else {
+      inputs = opts.input;
+    }
+  } else if (hasInputFile) {
+    const filePath = opts.inputFile || opts['input-file'];
     try {
-      inputs = JSON.parse(inputs);
+      inputs = JSON.parse(readFileSync(filePath, 'utf8'));
     } catch (err) {
-      throw new CliError(`Failed to parse '--input' JSON: ${err.message}`);
+      throw new CliError(`Failed to read or parse input file '${filePath}': ${err.message}`);
     }
   }
 
@@ -724,8 +746,8 @@ export async function handleWorkflowBatchFinish(changeSlug, batchOrOpts = {}, ma
     batchExecutionId,
     inputs,
     sessionId: opts.sessionId || opts['session-id'],
-    repoRoot: opts.repoRoot || ROOT,
-    activeDir: opts.activeDir || ACTIVE_DIR,
+    repoRoot: effectiveRepoRoot,
+    activeDir: effectiveActiveDir,
   });
 
   return emit(result, opts);

@@ -13,6 +13,7 @@ import { acquireWorkspaceWriter } from '../specs/workflow/workspace-writer.mjs';
 import { executeBatchFinish } from '../specs/workflow/batch-finish/operation.mjs';
 import { loadBatchFinishRecord } from '../specs/workflow/batch-finish/record.mjs';
 import { handleWorkflowBatchFinish } from '../specs/workflow/cli.mjs';
+import { getCanonicalBatchReportRelativePath } from '../specs/reviews/batch-report.mjs';
 import * as git from '../lib/git.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -182,7 +183,7 @@ test('1. AC1: 3 tasks with valid results on post-bootstrap fixture reaches compl
   assert.ok(statusAfterStart.includes('change.yaml'), 'change.yaml must be dirty post-bootstrap');
 
   // 5. Reviewer writes canonical report file
-  const reportPath = `reviews/review-batch-${batchExecutionId}.md`;
+  const reportPath = getCanonicalBatchReportRelativePath(slug, batchExecutionId);
   const fullReportPath = path.join(tmpRoot, reportPath);
   fs.mkdirSync(path.dirname(fullReportPath), { recursive: true });
   fs.writeFileSync(fullReportPath, '# Batch Review Report\n\nAll tasks passed.\n', 'utf8');
@@ -460,7 +461,7 @@ test('4. AC4: Crash immediately after report commit lands resumes without re-che
     sessionId,
   });
 
-  const reportPath = `reviews/review-batch-${batchExecutionId}.md`;
+  const reportPath = getCanonicalBatchReportRelativePath(slug, batchExecutionId);
   const fullReportPath = path.join(tmpRoot, reportPath);
   fs.mkdirSync(path.dirname(fullReportPath), { recursive: true });
   fs.writeFileSync(fullReportPath, '# Report Content\n', 'utf8');
@@ -552,7 +553,7 @@ test('5. AC5: Crash after report commit and task t1 finish resumes and completes
     sessionId,
   });
 
-  const reportPath = `reviews/review-batch-${batchExecutionId}.md`;
+  const reportPath = getCanonicalBatchReportRelativePath(slug, batchExecutionId);
   const fullReportPath = path.join(tmpRoot, reportPath);
   fs.mkdirSync(path.dirname(fullReportPath), { recursive: true });
   fs.writeFileSync(fullReportPath, '# Report Content\n', 'utf8');
@@ -814,9 +815,10 @@ test('8. CLI surface: handleWorkflowBatchFinish runs end-to-end via CLI options'
     sessionId,
   });
 
-  const reportPath = `reviews/review-batch-${batchExecutionId}.md`;
-  fs.mkdirSync(path.join(tmpRoot, 'reviews'), { recursive: true });
-  fs.writeFileSync(path.join(tmpRoot, reportPath), '# CLI Report\n', 'utf8');
+  const reportPath = getCanonicalBatchReportRelativePath(slug, batchExecutionId);
+  const fullReportPath = path.join(tmpRoot, reportPath);
+  fs.mkdirSync(path.dirname(fullReportPath), { recursive: true });
+  fs.writeFileSync(fullReportPath, '# CLI Report\n', 'utf8');
 
   const cliResult = await handleWorkflowBatchFinish(slug, {
     batch: batchExecutionId,

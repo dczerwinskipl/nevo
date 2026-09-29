@@ -34,7 +34,7 @@ node tools/specs.mjs workflow batch start <change> --batch <batchExecutionId>
 Batched review operates under a strict **read-only execution capability profile** over repository source code:
 - **No source-file modifications are permitted.** The reviewer must not edit, create, or delete any source files, test files, or specification manifests under review.
 - **Allowed writes are strictly limited to:**
-  1. The canonical review report at `reviews/review-batch-<batchExecutionId>.md`.
+  1. The canonical review report at `specs/active/<change>/reviews/review-batch-<batchExecutionId>.md`.
   2. The final `workflow batch finish` command invocation.
 - **The reviewer session makes NO Git commit of its own, ever.** The reviewer must never run `git commit` or `git push`. The batch-finish operation owns staging and committing the canonical report in a dedicated batch-level commit.
 - **Failing tasks hand off to a fresh single-task refiner:** If a task fails review, the reviewer does not attempt to fix the task inline. The failed task's remediation will be handled by a dedicated, fresh single-task refiner session dispatched automatically after batch settlement, inheriting this batch reviewer session as its `parentSessionId`.
@@ -72,7 +72,7 @@ Correctness of the read-only profile does **not** depend on prompt adherence or 
 
 ### Step 5.4: Generate canonical review report
 - Render the shared batch review report and write it to:
-  `reviews/review-batch-<batchExecutionId>.md`
+  `specs/active/<change>/reviews/review-batch-<batchExecutionId>.md`
 - The report includes:
   - Executive summary and table of evaluated tasks.
   - Per-task sections detailing acceptance criteria compliance, verified files, and verdict.
@@ -83,8 +83,9 @@ Correctness of the read-only profile does **not** depend on prompt adherence or 
 
 Review work terminates in **exactly one** batch-finish invocation:
 ```bash
-node tools/specs.mjs workflow batch finish <change> --batch <batchExecutionId> --results '<json-results>'
+node tools/specs.mjs workflow batch finish <change> --batch <batchExecutionId> --input '<json-results>'
 ```
+(Or `--input-file <path>` to provide inputs from a file).
 - **Single finish call requirement:** All member task results and cross-task findings must be submitted together in one call.
 - **No per-task finish guidance:** The reviewer must **never** invoke `workflow step finish` on individual tasks. Doing so would violate the action barrier, cause workspace contention, and fail closed.
 - **Result schema:**
@@ -93,8 +94,8 @@ node tools/specs.mjs workflow batch finish <change> --batch <batchExecutionId> -
     ```json
     {
       "results": {
-        "task-1": { "value": "pass", "feedback": "All acceptance criteria verified." },
-        "task-2": { "value": "fail", "feedback": "AC3 failed: edge case with null input causes unhandled rejection." }
+        "task-1": { "result": "pass", "feedback": "All acceptance criteria verified." },
+        "task-2": { "result": "fail", "feedback": "AC3 failed: edge case with null input causes unhandled rejection." }
       },
       "crossTaskFindings": [
         {

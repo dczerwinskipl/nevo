@@ -50,6 +50,8 @@ import {
   handleWorkflowStepFinish,
   handleWorkflowVerifyHuman,
   handleWorkflowTaskPublish,
+  handleWorkflowBatchStart,
+  handleWorkflowBatchFinish,
 } from './specs/workflow/cli.mjs';
 
 import { requireChange } from './specs/store.mjs';
@@ -311,6 +313,23 @@ export function buildProgram() {
     .option('--artifact <path>', '(Obsolete) Use --input or --input-file instead')
     .option('--artifacts <paths>', '(Obsolete) Use --input or --input-file instead')
     .action((changeSlug, taskId, opts) => handleWorkflowStepFinish(changeSlug, taskId, opts));
+
+  const batch = workflow.command('batch')
+    .description('Deterministic batch operations (D33, D21)');
+
+  batch.command('start')
+    .description('Bootstrap and activate a reserved batch of tasks (D33)')
+    .argument('<change>')
+    .requiredOption('--batch <batchExecutionId>', 'Batch execution ID')
+    .action((changeSlug, opts) => handleWorkflowBatchStart(changeSlug, opts.batch, opts));
+
+  batch.command('finish')
+    .description('Finish batch execution with structured input (D21)')
+    .argument('<change>')
+    .requiredOption('--batch <batchExecutionId>', 'Batch execution ID')
+    .option('--input <json>', 'Structured JSON input payload defined by finishContract.parameters')
+    .option('--input-file <path>', 'Path to file containing structured JSON input payload')
+    .action((changeSlug, opts) => handleWorkflowBatchFinish(changeSlug, opts.batch, opts));
 
   const task = workflow.command('task')
     .description('Deterministic task operations');

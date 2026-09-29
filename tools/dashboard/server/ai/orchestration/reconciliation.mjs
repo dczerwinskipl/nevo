@@ -259,6 +259,7 @@ export async function reconcileBootState(options = {}) {
             await executeBatchCompletionSettlement({
               repoRoot,
               changeSlug,
+              specId,
               batchExecutionId,
               sessionId,
               ownerId,

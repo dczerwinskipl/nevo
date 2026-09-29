@@ -476,6 +476,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
               batchSettlement = await executeBatchCompletionSettlement({
                 repoRoot,
                 changeSlug: capturedChangeSlug,
+                specId,
                 batchExecutionId,
                 sessionId: capturedSessionId,
                 ownerId: capturedOwnerId,

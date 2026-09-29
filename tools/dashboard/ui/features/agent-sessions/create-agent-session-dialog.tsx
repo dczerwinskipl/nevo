@@ -449,7 +449,7 @@ export function ExecutionPolicySelectionDialog({
     initialConfig?.mode || initialPolicy?.default?.mode || initialPolicy?.mode || 'agent'
   );
   const [model, setModel] = useState<string>(
-    initialConfig?.model || (initialPolicy as any)?.model || ''
+    (initialConfig as any)?.model || (initialPolicy as any)?.model || ''
   );
   const [implementerProvider, setImplementerProvider] = useState(initialPolicy?.roles?.implementer?.provider || '');
   const [reviewerProvider, setReviewerProvider] = useState(initialPolicy?.roles?.reviewer?.provider || '');
@@ -461,8 +461,8 @@ export function ExecutionPolicySelectionDialog({
       if (initialConfig.mode) {
         setMode(initialConfig.mode);
       }
-      if (initialConfig.model !== undefined) {
-        setModel(initialConfig.model);
+      if ((initialConfig as any).model !== undefined) {
+        setModel((initialConfig as any).model);
       }
     } else if (initialPolicy) {
       if (initialPolicy.default?.provider || initialPolicy.provider) {
@@ -619,6 +619,13 @@ export function ExecutionPolicySelectionDialog({
           loading={providers.loading}
           error={providers.error}
         />
+
+        {provider && isSelectedProviderAvailable && (!selectedProviderObj?.models?.find((m) => m.id === model)?.traits?.maxContextTokens) && (
+          <div className="mt-4 flex items-center gap-2 rounded-xl border border-status-warning/30 bg-status-warning/10 p-3 text-xs text-status-warning" role="alert">
+            <span className="font-semibold">Ostrzeżenie o pojemności:</span>
+            <span>Pojemność kontekstu dla tego modelu nie jest znana w katalogu providera. Batch może przekroczyć limit tokenów.</span>
+          </div>
+        )}
 
         {!isOneOff && (
           <div className="mt-5 space-y-3 rounded-xl border border-border/70 bg-surface-muted/30 p-4">

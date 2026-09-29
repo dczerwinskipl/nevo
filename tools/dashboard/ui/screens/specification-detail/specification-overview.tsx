@@ -256,7 +256,7 @@ export function SequentialQueueTaskPicker({
           <a
             href={
               specification?.slug
-                ? `/api/specs/${specification.source || 'active'}/${specification.slug}/content/review:${sharedBatchReportPath.replace(/^.*reviews\/|\.md$/g, '')}`
+                ? `/api/specs/${specification.source || 'active'}/${specification.slug}/content/review:${sharedBatchReportPath.replace(/^.*reviews\/|\.md$/g, '')}?raw=1`
                 : `#${sharedBatchReportPath}`
             }
             target="_blank"

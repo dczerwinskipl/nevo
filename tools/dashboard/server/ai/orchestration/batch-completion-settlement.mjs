@@ -21,6 +21,7 @@ import { loadBatchFinishRecord } from '../../../../specs/workflow/batch-finish/r
 import { getActiveAgentExecution, clearActiveAgentExecution } from './admission.mjs';
 import { reconcileContinuation } from './reconciliation.mjs';
 import { requireChange, requireTask, ACTIVE_DIR } from '../../../../specs/store.mjs';
+import { arraysEqual } from '../../../../specs/workflow/execution-identity.mjs';
 
 export function getBatchCompletionSettlementDir(repoRoot, changeSlug) {
   return path.join(repoRoot, '.nevo-ai-local', 'batch-completion', changeSlug);
@@ -276,12 +277,12 @@ export async function executeBatchCompletionSettlement(params = {}) {
       };
       saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
     } else {
-      // Check if claim belongs to this batch
+      // Check if claim belongs to this batch (Item 8: exact match, no loose some())
       const isBatchClaim = liveClaim.scope?.kind === 'task-batch' &&
         (!liveClaim.batchExecutionId || liveClaim.batchExecutionId === batchExecutionId) &&
         (!effectiveSessionId || !liveClaim.sessionId || liveClaim.sessionId === effectiveSessionId) &&
         Array.isArray(liveClaim.scope?.taskIds) &&
-        liveClaim.scope.taskIds.some(t => taskIds.includes(t));
+        arraysEqual(liveClaim.scope.taskIds, taskIds);
 
       if (isBatchClaim) {
         await releaseWorkspaceWriterIfOwned({
@@ -296,9 +297,10 @@ export async function executeBatchCompletionSettlement(params = {}) {
         const afterClaim = getWorkspaceWriterClaim(repoRoot);
         const stillHeld = afterClaim &&
           afterClaim.scope?.kind === 'task-batch' &&
+          (!afterClaim.batchExecutionId || afterClaim.batchExecutionId === batchExecutionId) &&
           (!effectiveSessionId || !afterClaim.sessionId || afterClaim.sessionId === effectiveSessionId) &&
           Array.isArray(afterClaim.scope?.taskIds) &&
-          afterClaim.scope.taskIds.some(t => taskIds.includes(t));
+          arraysEqual(afterClaim.scope.taskIds, taskIds);
 
         if (!stillHeld) {
           settlement.stages.claimRelease = {
@@ -325,10 +327,14 @@ export async function executeBatchCompletionSettlement(params = {}) {
   }
 
   // -------------------------------------------------------------------------
-  // Stage 2: Clear active execution (D35 Step 2, D40)
+  // Stage 2: Clear active execution (D35 Step 2, D40, Item 10)
   // -------------------------------------------------------------------------
   if (settlement.stages.activeExecutionClear.status !== 'completed') {
-    const active = getActiveAgentExecution(changeSlug);
+    const targetSpecKey = params.specId || changeSlug;
+    let active = getActiveAgentExecution(targetSpecKey);
+    if (!active && targetSpecKey !== changeSlug) {
+      active = getActiveAgentExecution(changeSlug);
+    }
 
     if (!active) {
       // Authoritatively satisfied: already absent
@@ -343,7 +349,10 @@ export async function executeBatchCompletionSettlement(params = {}) {
         (active.candidate?.batchExecutionId && active.candidate.batchExecutionId === batchExecutionId);
 
       if (isThisBatchActive) {
-        clearActiveAgentExecution(changeSlug);
+        clearActiveAgentExecution(targetSpecKey);
+        if (targetSpecKey !== changeSlug) {
+          clearActiveAgentExecution(changeSlug);
+        }
       }
       settlement.stages.activeExecutionClear = {
         status: 'completed',

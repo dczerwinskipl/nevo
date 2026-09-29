@@ -9,7 +9,7 @@ import {
   validatedSessionId,
 } from '../http.mjs';
 import { authorize } from '../../access-policy.mjs';
-import { AiValidationError } from '../../contracts.mjs';
+import { AiValidationError, AiPolicyConflictError } from '../../contracts.mjs';
 import { loadChange, listChanges } from '../../../../../specs/store.mjs';
 import { resolveWorkflowMode } from '../../../../../specs/workflow/compatibility.mjs';
 import { resolveCanonicalSpec } from '../../../../../specs/identity.mjs';
@@ -31,16 +31,7 @@ export function resolveDeterministicExecutionTarget({ specId, slug, changeSlug, 
   try {
     canonical = resolveCanonicalSpec(identifier, { activeDir, archiveDir });
   } catch (err) {
-    const change = loadChange(identifier, activeDir) || loadChange(identifier, archiveDir);
-    if (change) {
-      canonical = {
-        specId: change.spec_id || change.id || change._slug,
-        slug: change._slug,
-        change,
-      };
-    } else {
-      throw new AiValidationError(err.message, { cause: err });
-    }
+    throw new AiValidationError(err.message, { cause: err });
   }
 
   if (!canonical?.change) {
@@ -169,7 +160,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
           (p) => p?.provider !== firstPolicy?.provider || p?.mode !== firstPolicy?.mode
         );
         if (hasPolicyConflict && !body.oneOff && !body.provider) {
-          throw new AiValidationError(
+          throw new AiPolicyConflictError(
             'Selected tasks have conflicting execution policy overrides. An explicit provider and mode must be selected for the batch.'
           );
         }

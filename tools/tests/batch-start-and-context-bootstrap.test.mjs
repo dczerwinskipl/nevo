@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { createGroupReservation, releaseGroupReservation } from '../specs/workflow/queue/index.mjs';
 import { executeBatchStart } from '../specs/workflow/batch-start/operation.mjs';
+import { acquireWorkspaceWriter, forceReleaseWorkspaceWriterUnsafe } from '../specs/workflow/workspace-writer.mjs';
 import { loadBatchStartRecord } from '../specs/workflow/batch-start/record.mjs';
 import { computeWorkspaceDeltaFingerprint } from '../specs/workflow/batch-start/workspace-baseline.mjs';
 import { createAgentSessionBindingService } from '../dashboard/server/ai/sessions/binding-service.mjs';
@@ -17,6 +18,35 @@ import { handleWorkflowStepStart } from '../specs/workflow/cli.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
+
+async function setupBatchSessionAndClaim(tmpRoot, specId, taskIds, batchExecutionId, sessionId = 'session-batch-test') {
+  const sessionsDir = path.join(tmpRoot, '.nevo-ai-local', 'sessions');
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(sessionsDir, `${specId}.json`),
+    JSON.stringify({
+      sessions: [{
+        sessionId,
+        batchExecutionId,
+        executionScope: { kind: 'task-batch', changeSlug: specId, taskIds: [...taskIds] },
+      }],
+      bindings: [],
+    }, null, 2),
+    'utf8'
+  );
+
+  await acquireWorkspaceWriter({
+    repoRoot: tmpRoot,
+    kind: 'agent',
+    specId,
+    sessionId,
+    turnId: `turn-${sessionId}-1`,
+    scope: { kind: 'task-batch', taskIds: [...taskIds] },
+    batchExecutionId,
+  });
+
+  return sessionId;
+}
 
 function setupTestRepo(slug = 'batch-spec', customWorkflow = null) {
   const tmpRoot = fs.mkdtempSync(path.join(tmpdir(), 'nevo-test-batch-start-'));
@@ -183,10 +213,21 @@ tasks:
       providerSessionId: 'p-batch',
       specId: 'role-spec',
       step: 'audit',
+      batchExecutionId: reservation.batchExecutionId,
       executionScope: {
         kind: 'task-batch',
         taskIds: ['t1', 't2'],
       },
+    });
+
+    await acquireWorkspaceWriter({
+      repoRoot: tmpRoot,
+      kind: 'agent',
+      specId: 'role-spec',
+      sessionId: batchSessionId,
+      turnId: 'turn-batch-1',
+      scope: { kind: 'task-batch', taskIds: ['t1', 't2'] },
+      batchExecutionId: reservation.batchExecutionId,
     });
 
     // Execute batch start
@@ -283,12 +324,21 @@ tasks:
       executionConfigSnapshot: { provider: 'mock', model: 'm', contextCapacity: { status: 'unknown' } },
     });
 
+    const sessionId = await setupBatchSessionAndClaim(
+      tmpRoot,
+      'single-call-spec',
+      ['t1', 't2'],
+      reservation.batchExecutionId,
+      'session-single-call'
+    );
+
     // Exactly one call to executeBatchStart activates both members
     const result = await executeBatchStart({
       repoRoot: tmpRoot,
       activeDir,
       changeSlug: 'single-call-spec',
       batchExecutionId: reservation.batchExecutionId,
+      sessionId,
     });
 
     assert.ok(result);
@@ -348,6 +398,14 @@ tasks:
       executionConfigSnapshot: { provider: 'mock', model: 'm', contextCapacity: { status: 'unknown' } },
     });
 
+    const badSessionId = await setupBatchSessionAndClaim(
+      tmpRoot,
+      'readiness-spec',
+      ['t1', 't2'],
+      badRes.batchExecutionId,
+      'session-readiness-bad'
+    );
+
     await assert.rejects(
       async () => {
         await executeBatchStart({
@@ -355,6 +413,7 @@ tasks:
           activeDir,
           changeSlug: 'readiness-spec',
           batchExecutionId: badRes.batchExecutionId,
+          sessionId: badSessionId,
         });
       },
       { code: 'TASK_UNPUBLISHED' }
@@ -371,6 +430,7 @@ tasks:
       changeSlug: 'readiness-spec',
       batchExecutionId: badRes.batchExecutionId,
     });
+    await forceReleaseWorkspaceWriterUnsafe({ repoRoot: tmpRoot });
 
     fs.writeFileSync(
       path.join(changeDir, 'change.yaml'),
@@ -459,6 +519,14 @@ tasks:
       { code: 'TASK_ALREADY_RESERVED' }
     );
 
+    const batchXSessionId = await setupBatchSessionAndClaim(
+      tmpRoot,
+      'readiness-spec',
+      ['t1', 't2'],
+      'batch-X-id',
+      'session-batch-x'
+    );
+
     // 3. Batch X cannot be started with task-D which is outside its scope
     await assert.rejects(
       async () => {
@@ -468,9 +536,10 @@ tasks:
           changeSlug: 'readiness-spec',
           batchExecutionId: 'batch-X-id',
           taskIds: ['t1', 't2', 'task-D'], // scope mismatch
+          sessionId: batchXSessionId,
         });
       },
-      { code: 'EXECUTION_SCOPE_MISMATCH' }
+      (err) => err.code === 'EXECUTION_SCOPE_MISMATCH' || err.code === 'BATCH_IDENTITY_MISMATCH'
     );
 
     // 4. Authenticated batch X successfully activates t1 and t2
@@ -479,6 +548,7 @@ tasks:
       activeDir,
       changeSlug: 'readiness-spec',
       batchExecutionId: 'batch-X-id',
+      sessionId: batchXSessionId,
     });
     assert.ok(batchXResult);
     assert.deepEqual(batchXResult.batchContext.executionScope.taskIds, ['t1', 't2']);
@@ -540,11 +610,20 @@ tasks:
       executionConfigSnapshot: { provider: 'mock', model: 'm', contextCapacity: { status: 'unknown' } },
     });
 
+    const sessionId = await setupBatchSessionAndClaim(
+      tmpRoot,
+      'baseline-spec',
+      ['t1', 't2'],
+      reservation.batchExecutionId,
+      'session-baseline'
+    );
+
     const result = await executeBatchStart({
       repoRoot: tmpRoot,
       activeDir,
       changeSlug: 'baseline-spec',
       batchExecutionId: reservation.batchExecutionId,
+      sessionId,
     });
 
     assert.ok(result.workspaceBaseline);

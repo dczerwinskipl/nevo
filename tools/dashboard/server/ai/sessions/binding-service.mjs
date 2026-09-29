@@ -201,77 +201,11 @@ export async function removeCodexExecutionContextBridge(repoRoot, threadId, { sp
   } catch {}
 }
 
-export function readCodexExecutionContextBridgeSync(repoRoot, { specId, taskId, threadId } = {}) {
-  if (!repoRoot) return null;
-  const bridgeDir = resolve(repoRoot, '.nevo-ai-local', 'codex-context');
-  let filePath = null;
-  if (threadId) {
-    filePath = join(bridgeDir, `${threadId}.json`);
-  } else if (specId && taskId) {
-    filePath = join(bridgeDir, `${specId}-${taskId}.json`);
-  }
-  if (!filePath || !existsSync(filePath)) return null;
-  try {
-    const raw = readFileSync(filePath, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object') {
-      return parsed;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
+export {
+  readCodexExecutionContextBridgeSync,
+  readAgentExecutionContext,
+} from '../../../../specs/workflow/execution-identity.mjs';
 
-export function readAgentExecutionContext(envOrOpts = process.env, opts = {}) {
-  let env = envOrOpts;
-  let repoRoot = opts?.repoRoot;
-  let specId = opts?.specId;
-  let taskId = opts?.taskId;
-
-  if (envOrOpts && typeof envOrOpts === 'object' && ('env' in envOrOpts || 'repoRoot' in envOrOpts)) {
-    env = envOrOpts.env || process.env;
-    repoRoot = envOrOpts.repoRoot ?? repoRoot;
-    specId = envOrOpts.specId ?? specId;
-    taskId = envOrOpts.taskId ?? taskId;
-  }
-  if (!env) {
-    env = process.env;
-  }
-
-  const provider = env.NEVO_AGENT_PROVIDER?.trim();
-  const sessionId = env.NEVO_SESSION_ID?.trim();
-  const providerSessionId = env.NEVO_AGENT_PROVIDER_SESSION_ID?.trim();
-
-  if (sessionId) {
-    return {
-      provider: provider || 'unknown',
-      sessionId,
-      ...(providerSessionId ? { providerSessionId } : {}),
-    };
-  }
-
-  if (provider && providerSessionId) {
-    return {
-      provider,
-      providerSessionId,
-    };
-  }
-
-  // Codex bridge fallback: when NEVO_AGENT_PROVIDER === 'codex' and persistent app-server has no per-thread env
-  if (provider === 'codex' && repoRoot) {
-    const bridge = readCodexExecutionContextBridgeSync(repoRoot, { specId, taskId, threadId: providerSessionId });
-    if (bridge?.sessionId) {
-      return {
-        provider: 'codex',
-        sessionId: bridge.sessionId,
-        ...(bridge.threadId ? { providerSessionId: bridge.threadId } : {}),
-      };
-    }
-  }
-
-  return null;
-}
 
 /**
  * Normalizes raw storage content into `{ sessions: AgentSession[], bindings: SessionTaskBinding[] }`.
@@ -319,12 +253,14 @@ function normalizeStorageContent(parsed) {
           taskIds: executionScope ? (executionScope.kind === 'task' ? [executionScope.taskId] : [...executionScope.taskIds]) : (Array.isArray(row.taskIds) ? [...row.taskIds] : (row.taskId ? [row.taskId] : [])),
           createdAt: row.createdAt || new Date().toISOString(),
           lastSeenAt: row.lastSeenAt || new Date().toISOString(),
+          ...(row.batchExecutionId ? { batchExecutionId: row.batchExecutionId } : {}),
           ...(row.lastBootstrapTaskId ? { lastBootstrapTaskId: row.lastBootstrapTaskId } : {}),
           ...(row.lastBootstrapStep ? { lastBootstrapStep: row.lastBootstrapStep } : {}),
           ...(row.lastBootstrapAttempt !== undefined ? { lastBootstrapAttempt: row.lastBootstrapAttempt } : {}),
         };
         sessionsMap.set(sId, session);
       } else {
+        if (row.batchExecutionId && !session.batchExecutionId) session.batchExecutionId = row.batchExecutionId;
         if (row.mode && !session.mode) session.mode = row.mode;
         if (row.model && !session.model) session.model = row.model;
         if (row.role && !session.role) session.role = row.role;
@@ -662,6 +598,7 @@ export class AgentSessionBindingService {
               ...(s.role ? { role: s.role } : {}),
               ...(s.parentSessionId ? { parentSessionId: s.parentSessionId } : {}),
               ...(s.executionScope ? { executionScope: s.executionScope } : {}),
+              ...(s.batchExecutionId ? { batchExecutionId: s.batchExecutionId } : {}),
               activeTaskId: s.activeTaskId,
               taskIds: s.taskIds,
               createdAt: b.createdAt || s.createdAt,
@@ -680,6 +617,7 @@ export class AgentSessionBindingService {
             ...(s.role ? { role: s.role } : {}),
             ...(s.parentSessionId ? { parentSessionId: s.parentSessionId } : {}),
             ...(s.executionScope ? { executionScope: s.executionScope } : {}),
+            ...(s.batchExecutionId ? { batchExecutionId: s.batchExecutionId } : {}),
             activeTaskId: s.activeTaskId,
             taskIds: s.taskIds,
             createdAt: s.createdAt,
@@ -906,6 +844,7 @@ export class AgentSessionBindingService {
     perTaskAttempt,
     established, // Ignored in target model (presence of providerSessionId dictates establishment)
     predecessorSessions,
+    batchExecutionId,
   } = {}) {
     if (!provider || typeof provider !== 'string') {
       throw new AiValidationError("'provider' must be a valid string.", { field: 'provider' });
@@ -965,6 +904,7 @@ export class AgentSessionBindingService {
 
       if (session) {
         session.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
+        if (batchExecutionId !== undefined) session.batchExecutionId = batchExecutionId;
         if (purpose !== undefined) session.purpose = purpose;
         if (mode !== undefined) session.mode = mode;
         if (model !== undefined) session.model = model.trim();
@@ -996,6 +936,7 @@ export class AgentSessionBindingService {
           ...(parentSessionId ? { parentSessionId } : {}),
           ...(Array.isArray(predecessorSessions) ? { predecessorSessions: [...predecessorSessions] } : {}),
           ...(resolvedScope ? { executionScope: resolvedScope } : {}),
+          ...(batchExecutionId ? { batchExecutionId } : (resolvedScope?.batchExecutionId ? { batchExecutionId: resolvedScope.batchExecutionId } : {})),
           ...(resolvedScope?.kind === 'task' ? { activeTaskId: resolvedScope.taskId } : (resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {})),
           taskIds: accumulatedTaskIds,
           createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
@@ -1100,6 +1041,7 @@ export class AgentSessionBindingService {
     perTaskAttempt,
     established,
     predecessorSessions,
+    batchExecutionId,
   } = {}) {
     if (!provider || typeof provider !== 'string') {
       throw new AiValidationError("'provider' must be a valid string.", { field: 'provider' });
@@ -1163,6 +1105,7 @@ export class AgentSessionBindingService {
         if (parentSessionId !== undefined) session.parentSessionId = parentSessionId;
         if (Array.isArray(predecessorSessions)) session.predecessorSessions = [...predecessorSessions];
         if (cleanProvSessionId && !session.providerSessionId) session.providerSessionId = cleanProvSessionId;
+        if (batchExecutionId !== undefined) session.batchExecutionId = batchExecutionId;
         if (resolvedScope) {
           session.executionScope = resolvedScope;
           if (resolvedScope.kind === 'task') {
@@ -1189,6 +1132,7 @@ export class AgentSessionBindingService {
           ...(resolvedScope ? { executionScope: resolvedScope } : {}),
           ...(resolvedScope?.kind === 'task' ? { activeTaskId: resolvedScope.taskId } : (resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {})),
           taskIds: accumulatedTaskIds,
+          ...(batchExecutionId ? { batchExecutionId } : {}),
           createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
           lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
         };

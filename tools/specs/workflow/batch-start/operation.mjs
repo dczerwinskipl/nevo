@@ -18,6 +18,8 @@ import {
 import { recordWorkspaceBaseline } from './workspace-baseline.mjs';
 import { buildBatchContext } from '../../context/batch-context.mjs';
 import { WorkflowError } from '../errors.mjs';
+import { getWorkspaceWriterClaim } from '../workspace-writer.mjs';
+import { verifyBatchTrustedIdentity, updatePersistedSessionLineageSync } from '../execution-identity.mjs';
 
 function arraysEqual(a, b) {
   if (!Array.isArray(a) || !Array.isArray(b)) return false;
@@ -85,53 +87,18 @@ export async function executeBatchStart(params = {}) {
     }
   }
 
-  // 2. Trusted identity verification (D33, Issue #5 fix, Issue #6 fix).
-  // The session id must come from the caller — resolved from the trusted execution environment
-  // (env vars set by the provider, Codex bridge, etc.) — never from CLI arguments.
-  // The --batch value is a durable correlation key only; it is never authority by itself.
-  const effectiveSessionId = explicitSessionId !== undefined ? explicitSessionId : null;
-
-  // Resolve binding service once: prefer caller-injected; fall back via dynamic import.
-  // Dynamic import avoids a static module-level dependency from workflow/core onto dashboard/server.
-  let effectiveBindingService = bindingService || null;
-  if (!effectiveBindingService) {
-    try {
-      const { createAgentSessionBindingService } = await import('../../../dashboard/server/ai/sessions/binding-service.mjs');
-      effectiveBindingService = createAgentSessionBindingService(repoRoot);
-    } catch {}
-  }
-
-  // Fail-closed identity check: when a sessionId is present, verify it matches the reservation.
-  if (effectiveSessionId && effectiveBindingService) {
-    let session = null;
-    try {
-      session = effectiveBindingService.getSessionSync(effectiveSessionId);
-    } catch {}
-    if (session) {
-      // Verify batchExecutionId matches if already persisted on the session
-      if (session.batchExecutionId && session.batchExecutionId !== batchExecutionId) {
-        throw new WorkflowError(
-          `Session '${effectiveSessionId}' batchExecutionId '${session.batchExecutionId}' does not match reservation '${batchExecutionId}'`,
-          { code: 'BATCH_IDENTITY_MISMATCH', sessionId: effectiveSessionId }
-        );
-      }
-      // Verify scope if present
-      if (session.executionScope) {
-        if (session.executionScope.kind !== 'task-batch') {
-          throw new WorkflowError(
-            `Session '${effectiveSessionId}' executionScope kind is '${session.executionScope.kind}', expected 'task-batch'`,
-            { code: 'BATCH_IDENTITY_MISMATCH', sessionId: effectiveSessionId }
-          );
-        }
-        if (!arraysEqual(session.executionScope.taskIds, taskIds)) {
-          throw new WorkflowError(
-            `Session '${effectiveSessionId}' taskIds do not match reservation '${batchExecutionId}'`,
-            { code: 'BATCH_IDENTITY_MISMATCH', sessionId: effectiveSessionId }
-          );
-        }
-      }
-    }
-  }
+  // 2. Trusted identity verification (D23, D33) — fail closed before any activation
+  const specId = change.spec_id || change.id || change._slug || changeSlug;
+  const { effectiveSessionId } = verifyBatchTrustedIdentity({
+    repoRoot,
+    changeSlug,
+    specId,
+    batchExecutionId,
+    sessionId: explicitSessionId,
+    taskIds,
+    reservation,
+    getClaim: getWorkspaceWriterClaim,
+  });
 
   // 3. Pre-activation re-verification across all members (D37)
   const memberTasks = [];
@@ -257,25 +224,38 @@ export async function executeBatchStart(params = {}) {
     memberStepContexts,
     reservation,
     repoRoot,
-    bindingService: effectiveBindingService,
+    bindingService: params.bindingService,
   });
 
   // 10. Persist lineage onto AgentSession if bound (D8)
-  if (effectiveSessionId && effectiveBindingService) {
+  if (effectiveSessionId) {
     try {
-      effectiveBindingService.updateSessionLineageSync(
-        effectiveSessionId,
-        {
-          predecessorSessions: batchContext.predecessorSessions,
-          parentSessionId: null,
-        },
-        { specId: change.id || change._slug }
-      );
+      if (params.bindingService?.updateSessionLineageSync) {
+        params.bindingService.updateSessionLineageSync(
+          effectiveSessionId,
+          {
+            predecessorSessions: batchContext.predecessorSessions,
+            parentSessionId: null,
+          },
+          { specId: change.id || change._slug }
+        );
+      } else {
+        updatePersistedSessionLineageSync(
+          repoRoot,
+          effectiveSessionId,
+          {
+            predecessorSessions: batchContext.predecessorSessions,
+            parentSessionId: null,
+          },
+          { specId: change.id || change._slug }
+        );
+      }
     } catch {}
   }
 
 
   // 11. Mark operation record completed
+  record.batchContext = batchContext;
   record.status = 'completed';
   saveBatchStartRecord(repoRoot, changeSlug, record);
 

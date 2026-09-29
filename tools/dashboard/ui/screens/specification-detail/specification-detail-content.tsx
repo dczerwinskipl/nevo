@@ -222,7 +222,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
             hasConflict = policies.some((p) => p?.provider !== first?.provider || p?.mode !== first?.mode);
           }
 
-          if (options?.oneOff || !currentPolicy || hasConflict) {
+          if (options?.oneOff || !currentPolicy || hasConflict || isBatchReview) {
             const actionGate = actionsQuery.data?.tasks?.[targetTaskId];
             const effectiveRole = actionGate?.execution?.role || undefined;
             const effective = resolvePolicyForTask(currentPolicy, targetTaskId, { role: effectiveRole });
@@ -230,7 +230,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
               task,
               stepDescriptor,
               taskIds,
-              isOneOff: Boolean(options?.oneOff) || hasConflict,
+              isOneOff: Boolean(options?.oneOff) || hasConflict || isBatchReview,
               reviewTogether: Boolean(options?.reviewTogether),
               initialConfig: effective && !hasConflict ? { provider: effective.provider, mode: effective.mode, model: (effective as any)?.model } : null,
             });

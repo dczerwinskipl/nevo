@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { createGroupReservation } from '../specs/workflow/queue/index.mjs';
 import { executeBatchStart } from '../specs/workflow/batch-start/operation.mjs';
+import { acquireWorkspaceWriter } from '../specs/workflow/workspace-writer.mjs';
 import { loadBatchStartRecord } from '../specs/workflow/batch-start/record.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -103,6 +104,32 @@ tasks:
       },
     });
 
+    const sessionId = 'session-crash-recovery-1';
+    const sessionsDir = path.join(tmpRoot, '.nevo-ai-local', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionsDir, 'crash-spec.json'),
+      JSON.stringify({
+        sessions: [{
+          sessionId,
+          batchExecutionId: reservation.batchExecutionId,
+          executionScope: { kind: 'task-batch', changeSlug: 'crash-spec', taskIds: ['task-A', 'task-B', 'task-C'] },
+        }],
+        bindings: [],
+      }, null, 2),
+      'utf8'
+    );
+
+    await acquireWorkspaceWriter({
+      repoRoot: tmpRoot,
+      kind: 'agent',
+      specId: 'crash-spec',
+      sessionId,
+      turnId: 'turn-crash-1',
+      scope: { kind: 'task-batch', taskIds: ['task-A', 'task-B', 'task-C'] },
+      batchExecutionId: reservation.batchExecutionId,
+    });
+
     // 1. First execution crashes after activating member task-A
     await assert.rejects(
       async () => {
@@ -111,6 +138,7 @@ tasks:
           activeDir,
           changeSlug: 'crash-spec',
           batchExecutionId: reservation.batchExecutionId,
+          sessionId,
           _crashAfterTaskId: 'task-A',
         });
       },
@@ -138,6 +166,7 @@ tasks:
       activeDir,
       changeSlug: 'crash-spec',
       batchExecutionId: reservation.batchExecutionId,
+      sessionId,
     });
 
     assert.ok(resumeResult);

@@ -4,7 +4,7 @@
 import * as git from '../../lib/git.mjs';
 import { attributeTouchedPaths, detectBatchIntegrationFindings } from '../lifecycle/batch.mjs';
 import { resolveIncomingExecution } from '../workflow/resolve-incoming-execution.mjs';
-import { createAgentSessionBindingService } from '../../dashboard/server/ai/sessions/binding-service.mjs';
+import { listPersistedBindingsSync } from '../workflow/execution-identity.mjs';
 
 /**
  * Deduplicates an array of items across tasks, tracking usedBy taskIds.
@@ -69,11 +69,9 @@ export function resolveBatchLineage(params = {}) {
 
   let service = bindingService;
   if (!service && repoRoot) {
-    try {
-      service = createAgentSessionBindingService(repoRoot);
-    } catch {
-      service = null;
-    }
+    service = {
+      listBindingsSync: (query) => listPersistedBindingsSync(repoRoot, query),
+    };
   }
 
   const result = [];

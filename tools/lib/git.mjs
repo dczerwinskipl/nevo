@@ -24,11 +24,14 @@ export async function runGitAsync(root, args, options = {}) {
 }
 
 export function getWorkingTreeStatus(root) {
-  return run(root, ['status', '--porcelain']);
+  return execFileSync('git', ['-C', root, 'status', '--porcelain'], { encoding: 'utf8' }).trimEnd();
 }
 
 export async function getWorkingTreeStatusAsync(root, options = {}) {
-  return await runGitAsync(root, ['status', '--porcelain'], options);
+  const execOptions = { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024, ...options };
+  if (!execOptions.signal) delete execOptions.signal;
+  const result = await execFileAsync('git', ['-C', root, 'status', '--porcelain'], execOptions);
+  return result.stdout.trimEnd();
 }
 
 export function isWorkingTreeClean(root) {
