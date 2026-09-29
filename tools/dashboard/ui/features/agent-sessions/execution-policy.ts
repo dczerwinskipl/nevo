@@ -3,19 +3,23 @@ import type { AgentExecutionMode } from './types';
 
 export interface TaskExecutionOverride {
   provider?: string;
+  model?: string;
   mode?: AgentExecutionMode;
 }
 
 export interface RoleExecutionOverride {
   provider: string;
+  model?: string;
   mode?: AgentExecutionMode;
 }
 
 export interface ExecutionPolicy {
   provider: string;
+  model?: string;
   mode: AgentExecutionMode;
   default?: {
     provider: string;
+    model?: string;
     mode: AgentExecutionMode;
   };
   roles?: Record<string, RoleExecutionOverride>;
@@ -43,8 +47,9 @@ export async function saveExecutionPolicy(
   slug: string,
   policy: {
     provider: string;
+    model?: string;
     mode: AgentExecutionMode;
-    default?: { provider: string; mode: AgentExecutionMode };
+    default?: { provider: string; model?: string; mode: AgentExecutionMode };
     roles?: Record<string, RoleExecutionOverride>;
     taskOverrides?: Record<string, TaskExecutionOverride>;
   },
@@ -68,27 +73,53 @@ export function resolvePolicyForTask(
   policy: ExecutionPolicy | null,
   taskId?: string,
   options?: { role?: string },
-): { provider: string; mode: AgentExecutionMode } | null {
+): { provider: string; model?: string; mode: AgentExecutionMode } | null {
   if (!policy) return null;
   const defaultProvider = policy.default?.provider || policy.provider;
   const defaultMode = policy.default?.mode || policy.mode;
-  if (taskId && policy.taskOverrides?.[taskId]) {
-    const override = policy.taskOverrides[taskId];
-    return {
-      provider: override.provider || defaultProvider,
-      mode: override.mode || defaultMode,
-    };
-  }
+  const defaultModel = (policy.default?.model || policy.model || '').trim() || undefined;
+
+  let roleProvider = defaultProvider;
+  let roleMode = defaultMode;
+  let roleModel = defaultModel;
+
   if (options?.role && policy.roles?.[options.role]) {
     const roleOverride = policy.roles[options.role];
+    const newRoleProvider = roleOverride.provider || defaultProvider;
+    roleMode = roleOverride.mode || defaultMode;
+    if (roleOverride.model) {
+      roleModel = roleOverride.model.trim();
+    } else if (newRoleProvider !== defaultProvider) {
+      roleModel = undefined;
+    } else {
+      roleModel = defaultModel;
+    }
+    roleProvider = newRoleProvider;
+  }
+
+  if (taskId && policy.taskOverrides?.[taskId]) {
+    const override = policy.taskOverrides[taskId];
+    const effectiveProvider = override.provider || roleProvider;
+    const effectiveMode = override.mode || roleMode;
+    let effectiveModel: string | undefined;
+    if (override.model) {
+      effectiveModel = override.model.trim();
+    } else if (override.provider && override.provider !== roleProvider) {
+      effectiveModel = undefined;
+    } else {
+      effectiveModel = roleModel;
+    }
     return {
-      provider: roleOverride.provider || defaultProvider,
-      mode: roleOverride.mode || defaultMode,
+      provider: effectiveProvider,
+      ...(effectiveModel ? { model: effectiveModel } : {}),
+      mode: effectiveMode,
     };
   }
+
   return {
-    provider: defaultProvider,
-    mode: defaultMode,
+    provider: roleProvider,
+    ...(roleModel ? { model: roleModel } : {}),
+    mode: roleMode,
   };
 }
 

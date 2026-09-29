@@ -366,7 +366,7 @@ export function ProviderAndModePicker({
         </div>
       </fieldset>
 
-      {onSelectModel && models.length > 0 && (
+      {onSelectModel && (models.length > 0 || Boolean(selectedModel)) && (
         <fieldset className="mt-4">
           <legend className="text-xs font-semibold text-fg-primary">Model</legend>
           <select
@@ -376,6 +376,11 @@ export function ProviderAndModePicker({
             className="mt-2 h-10 w-full rounded-xl border border-border bg-surface px-3 text-xs text-fg-primary outline-none focus:border-accent"
           >
             <option value="">Default</option>
+            {selectedModel && !models.some((item) => item.id === selectedModel) && (
+              <option value={selectedModel}>
+                {selectedModel} (custom / unavailable)
+              </option>
+            )}
             {models.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.label}
@@ -449,11 +454,14 @@ export function ExecutionPolicySelectionDialog({
     initialConfig?.mode || initialPolicy?.default?.mode || initialPolicy?.mode || 'agent'
   );
   const [model, setModel] = useState<string>(
-    initialConfig?.model || ''
+    initialConfig?.model || initialPolicy?.default?.model || initialPolicy?.model || ''
   );
   const [implementerProvider, setImplementerProvider] = useState(initialPolicy?.roles?.implementer?.provider || '');
+  const [implementerModel, setImplementerModel] = useState(initialPolicy?.roles?.implementer?.model || '');
   const [reviewerProvider, setReviewerProvider] = useState(initialPolicy?.roles?.reviewer?.provider || '');
+  const [reviewerModel, setReviewerModel] = useState(initialPolicy?.roles?.reviewer?.model || '');
   const [refinerProvider, setRefinerProvider] = useState(initialPolicy?.roles?.refiner?.provider || '');
+  const [refinerModel, setRefinerModel] = useState(initialPolicy?.roles?.refiner?.model || '');
 
   useEffect(() => {
     if (initialConfig?.provider) {
@@ -471,15 +479,29 @@ export function ExecutionPolicySelectionDialog({
       if (initialPolicy.default?.mode || initialPolicy.mode) {
         setMode(initialPolicy.default?.mode || initialPolicy.mode);
       }
+      const initModel = initialPolicy.default?.model || initialPolicy.model || '';
+      setModel(initModel);
 
       if (initialPolicy.roles?.implementer?.provider !== undefined) {
         setImplementerProvider(initialPolicy.roles.implementer.provider);
+        setImplementerModel(initialPolicy.roles.implementer.model || '');
+      } else {
+        setImplementerProvider('');
+        setImplementerModel('');
       }
       if (initialPolicy.roles?.reviewer?.provider !== undefined) {
         setReviewerProvider(initialPolicy.roles.reviewer.provider);
+        setReviewerModel(initialPolicy.roles.reviewer.model || '');
+      } else {
+        setReviewerProvider('');
+        setReviewerModel('');
       }
       if (initialPolicy.roles?.refiner?.provider !== undefined) {
         setRefinerProvider(initialPolicy.roles.refiner.provider);
+        setRefinerModel(initialPolicy.roles.refiner.model || '');
+      } else {
+        setRefinerProvider('');
+        setRefinerModel('');
       }
     } else if (!provider && rawProviders.length > 0) {
       const initial = computeInitialProviderAndMode(rawProviders);
@@ -489,6 +511,28 @@ export function ExecutionPolicySelectionDialog({
       }
     }
   }, [initialConfig, initialPolicy, provider, rawProviders]);
+
+  const handleRoleProviderChange = (
+    role: 'implementer' | 'reviewer' | 'refiner',
+    newProvider: string,
+  ) => {
+    if (role === 'implementer') {
+      setImplementerProvider(newProvider);
+      const persisted = initialPolicy?.roles?.implementer;
+      const nextModel = newProvider && newProvider === persisted?.provider ? (persisted?.model || '') : '';
+      setImplementerModel(nextModel);
+    } else if (role === 'reviewer') {
+      setReviewerProvider(newProvider);
+      const persisted = initialPolicy?.roles?.reviewer;
+      const nextModel = newProvider && newProvider === persisted?.provider ? (persisted?.model || '') : '';
+      setReviewerModel(nextModel);
+    } else if (role === 'refiner') {
+      setRefinerProvider(newProvider);
+      const persisted = initialPolicy?.roles?.refiner;
+      const nextModel = newProvider && newProvider === persisted?.provider ? (persisted?.model || '') : '';
+      setRefinerModel(nextModel);
+    }
+  };
 
   const selectedProviderObj = rawProviders.find((p) => p.id === provider);
   const isSelectedProviderAvailable = selectedProviderObj?.available !== false;
@@ -505,8 +549,12 @@ export function ExecutionPolicySelectionDialog({
       baseRoles.implementer = {
         ...(baseRoles.implementer || {}),
         provider: implementerProvider,
+        ...(implementerModel ? { model: implementerModel } : {}),
         mode: baseRoles.implementer?.mode || 'agent',
       };
+      if (!implementerModel) {
+        delete baseRoles.implementer.model;
+      }
     } else {
       delete baseRoles.implementer;
     }
@@ -515,8 +563,12 @@ export function ExecutionPolicySelectionDialog({
       baseRoles.reviewer = {
         ...(baseRoles.reviewer || {}),
         provider: reviewerProvider,
+        ...(reviewerModel ? { model: reviewerModel } : {}),
         mode: baseRoles.reviewer?.mode || 'agent',
       };
+      if (!reviewerModel) {
+        delete baseRoles.reviewer.model;
+      }
     } else {
       delete baseRoles.reviewer;
     }
@@ -525,8 +577,12 @@ export function ExecutionPolicySelectionDialog({
       baseRoles.refiner = {
         ...(baseRoles.refiner || {}),
         provider: refinerProvider,
+        ...(refinerModel ? { model: refinerModel } : {}),
         mode: baseRoles.refiner?.mode || 'agent',
       };
+      if (!refinerModel) {
+        delete baseRoles.refiner.model;
+      }
     } else {
       delete baseRoles.refiner;
     }
@@ -535,25 +591,38 @@ export function ExecutionPolicySelectionDialog({
       onConfirm({
         provider,
         mode,
-        model: model || undefined,
+        ...(model ? { model } : {}),
         oneOff: true,
       });
       return;
     }
 
-    onConfirm({
+    const newDefault: { provider: string; mode: AgentExecutionMode; model?: string } = {
+      ...(initialPolicy?.default || {}),
+      provider,
+      mode,
+    };
+    if (model) {
+      newDefault.model = model;
+    } else {
+      delete newDefault.model;
+    }
+
+    const payload: ExecutionPolicy = {
       ...(initialPolicy || {}),
       provider,
       mode,
-      default: {
-        ...(initialPolicy?.default || {}),
-        provider,
-        mode,
-      },
-      ...(model ? { model } : {}),
+      default: newDefault,
       ...(Object.keys(baseRoles).length > 0 ? { roles: baseRoles } : {}),
       ...(initialPolicy?.taskOverrides ? { taskOverrides: initialPolicy.taskOverrides } : {}),
-    });
+    };
+    if (model) {
+      payload.model = model;
+    } else {
+      delete payload.model;
+    }
+
+    onConfirm(payload);
   };
 
   const eligibleRoleProviders = rawProviders.filter((p) => {
@@ -562,6 +631,13 @@ export function ExecutionPolicySelectionDialog({
     const supported = p.supportedModes || ['ask', 'edit', 'agent'];
     return supported.includes('agent');
   });
+
+  const implementerProviderObj = rawProviders.find((p) => p.id === implementerProvider);
+  const implementerModels = implementerProviderObj?.models ?? [];
+  const reviewerProviderObj = rawProviders.find((p) => p.id === reviewerProvider);
+  const reviewerModels = reviewerProviderObj?.models ?? [];
+  const refinerProviderObj = rawProviders.find((p) => p.id === refinerProvider);
+  const refinerModels = refinerProviderObj?.models ?? [];
 
   return (
     <div
@@ -603,7 +679,10 @@ export function ExecutionPolicySelectionDialog({
           selectedProvider={provider}
           onSelectProvider={(pId) => {
             setProvider(pId);
-            setModel('');
+            const persistedDefaultProvider = initialPolicy?.default?.provider || initialPolicy?.provider;
+            const persistedDefaultModel = initialPolicy?.default?.model || initialPolicy?.model || '';
+            const nextModel = pId === persistedDefaultProvider ? persistedDefaultModel : '';
+            setModel(nextModel);
             const pObj = rawProviders.find((p) => p.id === pId);
             const supported = pObj?.supportedModes || ['ask', 'edit', 'agent'];
             if (!supported.includes(mode)) {
@@ -634,44 +713,95 @@ export function ExecutionPolicySelectionDialog({
               </p>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div>
+              <div className="space-y-1.5">
                 <label className="text-[11px] font-medium text-fg-secondary">Implementer</label>
                 <select
+                  aria-label="Implementer Provider"
                   value={implementerProvider}
-                  onChange={(e) => setImplementerProvider(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+                  onChange={(e) => handleRoleProviderChange('implementer', e.target.value)}
+                  className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
                 >
                   <option value="">(Domyślny: {provider || 'brak'})</option>
                   {eligibleRoleProviders.map((p) => (
                     <option key={p.id} value={p.id}>{p.label || p.id}</option>
                   ))}
                 </select>
+                {implementerProvider && (implementerModels.length > 0 || Boolean(implementerModel)) && (
+                  <select
+                    aria-label="Implementer Model"
+                    value={implementerModel}
+                    onChange={(e) => setImplementerModel(e.target.value)}
+                    className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+                  >
+                    <option value="">(Domyślny model)</option>
+                    {implementerModel && !implementerModels.some((m) => m.id === implementerModel) && (
+                      <option value={implementerModel}>{implementerModel} (custom / unavailable)</option>
+                    )}
+                    {implementerModels.map((m) => (
+                      <option key={m.id} value={m.id}>{m.label}</option>
+                    ))}
+                  </select>
+                )}
               </div>
-              <div>
+              <div className="space-y-1.5">
                 <label className="text-[11px] font-medium text-fg-secondary">Reviewer</label>
                 <select
+                  aria-label="Reviewer Provider"
                   value={reviewerProvider}
-                  onChange={(e) => setReviewerProvider(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+                  onChange={(e) => handleRoleProviderChange('reviewer', e.target.value)}
+                  className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
                 >
                   <option value="">(Domyślny: {provider || 'brak'})</option>
                   {eligibleRoleProviders.map((p) => (
                     <option key={p.id} value={p.id}>{p.label || p.id}</option>
                   ))}
                 </select>
+                {reviewerProvider && (reviewerModels.length > 0 || Boolean(reviewerModel)) && (
+                  <select
+                    aria-label="Reviewer Model"
+                    value={reviewerModel}
+                    onChange={(e) => setReviewerModel(e.target.value)}
+                    className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+                  >
+                    <option value="">(Domyślny model)</option>
+                    {reviewerModel && !reviewerModels.some((m) => m.id === reviewerModel) && (
+                      <option value={reviewerModel}>{reviewerModel} (custom / unavailable)</option>
+                    )}
+                    {reviewerModels.map((m) => (
+                      <option key={m.id} value={m.id}>{m.label}</option>
+                    ))}
+                  </select>
+                )}
               </div>
-              <div>
+              <div className="space-y-1.5">
                 <label className="text-[11px] font-medium text-fg-secondary">Refiner</label>
                 <select
+                  aria-label="Refiner Provider"
                   value={refinerProvider}
-                  onChange={(e) => setRefinerProvider(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+                  onChange={(e) => handleRoleProviderChange('refiner', e.target.value)}
+                  className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
                 >
                   <option value="">(Domyślny: {provider || 'brak'})</option>
                   {eligibleRoleProviders.map((p) => (
                     <option key={p.id} value={p.id}>{p.label || p.id}</option>
                   ))}
                 </select>
+                {refinerProvider && (refinerModels.length > 0 || Boolean(refinerModel)) && (
+                  <select
+                    aria-label="Refiner Model"
+                    value={refinerModel}
+                    onChange={(e) => setRefinerModel(e.target.value)}
+                    className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+                  >
+                    <option value="">(Domyślny model)</option>
+                    {refinerModel && !refinerModels.some((m) => m.id === refinerModel) && (
+                      <option value={refinerModel}>{refinerModel} (custom / unavailable)</option>
+                    )}
+                    {refinerModels.map((m) => (
+                      <option key={m.id} value={m.id}>{m.label}</option>
+                    ))}
+                  </select>
+                )}
               </div>
             </div>
           </div>

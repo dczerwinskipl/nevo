@@ -157,11 +157,11 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         );
         const firstPolicy = resolvedPolicies[0];
         const hasPolicyConflict = resolvedPolicies.some(
-          (p) => p?.provider !== firstPolicy?.provider || p?.mode !== firstPolicy?.mode
+          (p) => p?.provider !== firstPolicy?.provider || p?.mode !== firstPolicy?.mode || p?.model !== firstPolicy?.model
         );
         if (hasPolicyConflict && !body.oneOff && !body.provider) {
           throw new AiPolicyConflictError(
-            'Selected tasks have conflicting execution policy overrides. An explicit provider and mode must be selected for the batch.'
+            'Selected tasks have conflicting execution policy overrides. An explicit provider, model, and mode must be selected for the batch.'
           );
         }
 
@@ -169,6 +169,9 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
 
         let effectiveProvider = body.oneOff ? (body.provider || resolvedPolicy?.provider) : (resolvedPolicy?.provider || body.provider);
         let effectiveMode = body.oneOff ? (body.mode || resolvedPolicy?.mode || 'agent') : (resolvedPolicy?.mode || body.mode || 'agent');
+        let effectiveModel = body.oneOff
+          ? (body.model !== undefined ? (body.model ? body.model.trim() : undefined) : resolvedPolicy?.model)
+          : (resolvedPolicy?.model || (body.model ? body.model.trim() : undefined));
 
         if (!effectiveProvider) {
           effectiveProvider = body.provider || null;
@@ -181,7 +184,6 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         // Context capacity snapshot (D26, D34, D38):
         // Capacity authority is ALWAYS the provider's canonical model catalog -- never client-supplied.
         let modelMaxTokens = null;
-        const effectiveModel = body.model || null;
         try {
           const providerEntry = service.registry?.get?.(effectiveProvider);
           if (providerEntry && typeof providerEntry.provider?.listModels === 'function') {
@@ -381,10 +383,12 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
 
       let effectiveProvider;
       let effectiveMode;
+      let effectiveModel;
 
       if (body.oneOff === true) {
         effectiveProvider = body.provider || resolvedPolicy?.provider;
         effectiveMode = body.mode || resolvedPolicy?.mode || 'agent';
+        effectiveModel = body.model !== undefined ? (body.model ? body.model.trim() : undefined) : resolvedPolicy?.model;
       } else if (resolvedPolicy?.provider) {
         if (body.provider && body.provider !== resolvedPolicy.provider) {
           throw new AiValidationError(
@@ -396,12 +400,19 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
             `Requested mode '${body.mode}' does not match server-resolved execution policy mode '${resolvedPolicy.mode}'. Use oneOff to override.`
           );
         }
+        if (body.model && resolvedPolicy.model && body.model.trim() !== resolvedPolicy.model) {
+          throw new AiValidationError(
+            `Requested model '${body.model}' does not match server-resolved execution policy model '${resolvedPolicy.model}'. Use oneOff to override.`
+          );
+        }
         effectiveProvider = resolvedPolicy.provider;
         effectiveMode = resolvedPolicy.mode;
+        effectiveModel = resolvedPolicy.model;
       } else {
         // First explicit start with no policy on disk yet (D21)
         effectiveProvider = body.provider || null;
         effectiveMode = body.mode || 'agent';
+        effectiveModel = body.model ? body.model.trim() : undefined;
       }
 
       if (!effectiveProvider) {
@@ -501,7 +512,11 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
           if (!existing) {
             executionPolicyService.saveExecutionPolicy(
               changeSlug,
-              { provider: effectiveProvider, mode: effectiveMode },
+              {
+                provider: effectiveProvider,
+                ...(effectiveModel ? { model: effectiveModel } : {}),
+                mode: effectiveMode,
+              },
               { repoRoot: effectiveRepoRoot },
             );
           }
@@ -524,7 +539,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         message: effectiveUserMessage,
         userMessage: effectiveUserMessage,
         mode: effectiveMode,
-        model: body.model === null ? null : body.model ? body.model.trim() : undefined,
+        model: effectiveModel || undefined,
         effort: effort ? effort.trim() : undefined,
         idempotencyKey: body.idempotencyKey,
       };

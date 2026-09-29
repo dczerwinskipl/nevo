@@ -460,6 +460,298 @@ describe('Task 26: Execution policy and mode selection (D21)', () => {
     const storedAfter = policyService.getExecutionPolicy('one-off-spec');
     assert.deepEqual(storedAfter, storedBefore);
   });
+
+  describe('Model selection for deterministic execution end-to-end', () => {
+    test('Policy persistence: save/load preserves model through normalization and round-trips to disk', async () => {
+      const putRes = await app.inject({
+        method: 'PUT',
+        url: '/api/specs/model-spec/execution-policy',
+        headers: {
+          'content-type': 'application/json',
+          'x-nevo-dashboard-action': '1',
+        },
+        payload: {
+          provider: 'claude',
+          model: 'sonnet',
+          mode: 'agent',
+        },
+      });
+      assert.equal(putRes.statusCode, 200);
+      const putData = JSON.parse(putRes.payload);
+      assert.deepEqual(putData.policy, {
+        provider: 'claude',
+        model: 'sonnet',
+        mode: 'agent',
+      });
+
+      // Proven on real disk
+      const diskFile = join(tempDir, '.nevo-ai-local', 'execution-policy', 'model-spec.json');
+      assert.ok(existsSync(diskFile));
+      const onDisk = JSON.parse(readFileSync(diskFile, 'utf8'));
+      assert.deepEqual(onDisk, {
+        provider: 'claude',
+        model: 'sonnet',
+        mode: 'agent',
+      });
+
+      // Subsequent GET returns model
+      const getRes = await app.inject({
+        method: 'GET',
+        url: '/api/specs/model-spec/execution-policy',
+      });
+      assert.equal(getRes.statusCode, 200);
+      const getData = JSON.parse(getRes.payload);
+      assert.equal(getData.policy.model, 'sonnet');
+    });
+
+    test('Validation: rejects invalid non-string or empty model at every policy level', () => {
+      // 1. Top-level invalid model
+      assert.throws(
+        () => validateExecutionPolicyShape({ provider: 'claude', mode: 'agent', model: '' }),
+        /Execution policy model must be a non-empty string/,
+      );
+      assert.throws(
+        () => validateExecutionPolicyShape({ provider: 'claude', mode: 'agent', model: 123 }),
+        /Execution policy model must be a non-empty string/,
+      );
+      assert.throws(
+        () => validateExecutionPolicyShape({ provider: 'claude', mode: 'agent', model: '   ' }),
+        /Execution policy model must be a non-empty string/,
+      );
+
+      // 2. Default invalid model
+      assert.throws(
+        () => validateExecutionPolicyShape({ default: { provider: 'claude', mode: 'agent', model: '' } }),
+        /Execution policy default\.model must be a non-empty string/,
+      );
+      assert.throws(
+        () => validateExecutionPolicyShape({ default: { provider: 'claude', mode: 'agent', model: {} } }),
+        /Execution policy default\.model must be a non-empty string/,
+      );
+
+      // 3. Roles invalid model
+      assert.throws(
+        () =>
+          validateExecutionPolicyShape({
+            provider: 'claude',
+            mode: 'agent',
+            roles: { reviewer: { provider: 'claude', model: '' } },
+          }),
+        /roles\['reviewer'\]\.model must be a non-empty string/,
+      );
+
+      // 4. TaskOverrides invalid model
+      assert.throws(
+        () =>
+          validateExecutionPolicyShape({
+            provider: 'claude',
+            mode: 'agent',
+            taskOverrides: { 'task-1': { model: '' } },
+          }),
+        /taskOverrides\['task-1'\]\.model must be a non-empty string/,
+      );
+
+      // 5. Valid shapes with omitted model or non-empty string are accepted
+      assert.doesNotThrow(() => validateExecutionPolicyShape({ provider: 'claude', mode: 'agent' }));
+      assert.doesNotThrow(() => validateExecutionPolicyShape({ provider: 'claude', mode: 'agent', model: 'opus' }));
+      assert.doesNotThrow(() =>
+        validateExecutionPolicyShape({
+          default: { provider: 'claude', mode: 'agent', model: 'sonnet' },
+          roles: { reviewer: { provider: 'claude', model: 'opus' } },
+          taskOverrides: { 'task-1': { model: 'haiku' } },
+        }),
+      );
+    });
+
+    test('Default resolution: policy default with model resolves model', async () => {
+      policyService.saveExecutionPolicy('res-default-spec', {
+        default: {
+          provider: 'claude',
+          model: 'sonnet',
+          mode: 'agent',
+        },
+      });
+
+      const backendResolved = policyService.resolveExecutionPolicy('res-default-spec');
+      assert.deepEqual(backendResolved, {
+        provider: 'claude',
+        model: 'sonnet',
+        mode: 'agent',
+      });
+
+      const { resolvePolicyForTask } = await import('../ui/features/agent-sessions/execution-policy.ts');
+      const loaded = policyService.getExecutionPolicy('res-default-spec');
+      const frontendResolved = resolvePolicyForTask(loaded);
+      assert.deepEqual(frontendResolved, {
+        provider: 'claude',
+        model: 'sonnet',
+        mode: 'agent',
+      });
+    });
+
+    test('Role override: reviewer resolves opus, implementer and refiner resolve sonnet', async () => {
+      policyService.saveExecutionPolicy('role-model-spec', {
+        default: {
+          provider: 'claude',
+          model: 'sonnet',
+          mode: 'agent',
+        },
+        roles: {
+          reviewer: {
+            provider: 'claude',
+            model: 'opus',
+          },
+        },
+      });
+
+      const reviewerRes = policyService.resolveExecutionPolicy('role-model-spec', null, { role: 'reviewer' });
+      assert.deepEqual(reviewerRes, {
+        provider: 'claude',
+        model: 'opus',
+        mode: 'agent',
+      });
+
+      const implementerRes = policyService.resolveExecutionPolicy('role-model-spec', null, { role: 'implementer' });
+      assert.deepEqual(implementerRes, {
+        provider: 'claude',
+        model: 'sonnet',
+        mode: 'agent',
+      });
+
+      const refinerRes = policyService.resolveExecutionPolicy('role-model-spec', null, { role: 'refiner' });
+      assert.deepEqual(refinerRes, {
+        provider: 'claude',
+        model: 'sonnet',
+        mode: 'agent',
+      });
+
+      // Frontend client function parity
+      const { resolvePolicyForTask } = await import('../ui/features/agent-sessions/execution-policy.ts');
+      const loaded = policyService.getExecutionPolicy('role-model-spec');
+      assert.deepEqual(resolvePolicyForTask(loaded, undefined, { role: 'reviewer' }), {
+        provider: 'claude',
+        model: 'opus',
+        mode: 'agent',
+      });
+      assert.deepEqual(resolvePolicyForTask(loaded, undefined, { role: 'implementer' }), {
+        provider: 'claude',
+        model: 'sonnet',
+        mode: 'agent',
+      });
+    });
+
+    test('Task override: task override model wins over role and default while provider/mode inherit', async () => {
+      policyService.saveExecutionPolicy('task-override-spec', {
+        default: {
+          provider: 'claude',
+          model: 'sonnet',
+          mode: 'agent',
+        },
+        roles: {
+          reviewer: {
+            provider: 'claude',
+            model: 'opus',
+            mode: 'ask',
+          },
+        },
+        taskOverrides: {
+          '03': {
+            model: 'haiku',
+          },
+          '04': {
+            mode: 'edit',
+          },
+          '05': {
+            provider: 'codex', // provider change without model
+          },
+        },
+      });
+
+      // Task '03' with role 'reviewer': model 'haiku' wins over role 'opus', provider and mode inherit from role
+      const task03Res = policyService.resolveExecutionPolicy('task-override-spec', '03', { role: 'reviewer' });
+      assert.deepEqual(task03Res, {
+        provider: 'claude',
+        model: 'haiku',
+        mode: 'ask',
+      });
+
+      // Task '04' with role 'reviewer': mode 'edit' wins, provider 'claude' and model 'opus' inherit from role
+      const task04Res = policyService.resolveExecutionPolicy('task-override-spec', '04', { role: 'reviewer' });
+      assert.deepEqual(task04Res, {
+        provider: 'claude',
+        model: 'opus',
+        mode: 'edit',
+      });
+
+      // Task '05' with role 'reviewer': provider changes to 'codex', so it does NOT inherit claude's 'opus' model
+      const task05Res = policyService.resolveExecutionPolicy('task-override-spec', '05', { role: 'reviewer' });
+      assert.deepEqual(task05Res, {
+        provider: 'codex',
+        mode: 'ask',
+      });
+      assert.equal(task05Res.model, undefined);
+
+      // Parity with frontend resolvePolicyForTask
+      const { resolvePolicyForTask } = await import('../ui/features/agent-sessions/execution-policy.ts');
+      const loaded = policyService.getExecutionPolicy('task-override-spec');
+      assert.deepEqual(resolvePolicyForTask(loaded, '03', { role: 'reviewer' }), {
+        provider: 'claude',
+        model: 'haiku',
+        mode: 'ask',
+      });
+      assert.deepEqual(resolvePolicyForTask(loaded, '04', { role: 'reviewer' }), {
+        provider: 'claude',
+        model: 'opus',
+        mode: 'edit',
+      });
+      assert.deepEqual(resolvePolicyForTask(loaded, '05', { role: 'reviewer' }), {
+        provider: 'codex',
+        mode: 'ask',
+      });
+    });
+
+    test('Provider default: policy with no model resolves without model property and does not invent fake ID', async () => {
+      policyService.saveExecutionPolicy('no-model-spec', {
+        provider: 'claude',
+        mode: 'agent',
+      });
+
+      const res = policyService.resolveExecutionPolicy('no-model-spec');
+      assert.deepEqual(res, { provider: 'claude', mode: 'agent' });
+      assert.equal('model' in res, false);
+
+      const { resolvePolicyForTask } = await import('../ui/features/agent-sessions/execution-policy.ts');
+      const loaded = policyService.getExecutionPolicy('no-model-spec');
+      const frontendRes = resolvePolicyForTask(loaded);
+      assert.deepEqual(frontendRes, { provider: 'claude', mode: 'agent' });
+      assert.equal('model' in frontendRes, false);
+    });
+
+    test('UI contracts: ExecutionPolicySelectionDialog and specification-detail-content wire model for default and roles', () => {
+      const dialogSrc = readFileSync(
+        fileURLToPath(new URL('../ui/features/agent-sessions/create-agent-session-dialog.tsx', import.meta.url)),
+        'utf8',
+      );
+      // Dialog supports model in default and role overrides
+      assert.match(dialogSrc, /selectedModel=\{model\}/);
+      assert.match(dialogSrc, /onSelectModel=\{setModel\}/);
+      assert.match(dialogSrc, /implementerModel/);
+      assert.match(dialogSrc, /reviewerModel/);
+      assert.match(dialogSrc, /refinerModel/);
+      assert.match(dialogSrc, /handleRoleProviderChange/);
+      assert.match(dialogSrc, /Implementer Model/);
+      assert.match(dialogSrc, /Reviewer Model/);
+      assert.match(dialogSrc, /Refiner Model/);
+
+      // specification-detail-content checks model conflict across batch tasks
+      const contentSrc = readFileSync(
+        fileURLToPath(new URL('../ui/screens/specification-detail/specification-detail-content.tsx', import.meta.url)),
+        'utf8',
+      );
+      assert.match(contentSrc, /p\?\.model !== first\?\.model/);
+      assert.match(contentSrc, /initialConfig: effective && !hasConflict \? \{ provider: effective\.provider, mode: effective\.mode, model: effective\.model \} : null/);
+    });
+  });
 });
 
 

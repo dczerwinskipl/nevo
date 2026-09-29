@@ -31,6 +31,9 @@ export function validateExecutionPolicyShape(policy) {
   if (policy.provider !== undefined && (typeof policy.provider !== 'string' || !policy.provider.trim())) {
     throw new AiValidationError('Execution policy provider must be a non-empty string.');
   }
+  if (policy.model !== undefined && (typeof policy.model !== 'string' || !policy.model.trim())) {
+    throw new AiValidationError('Execution policy model must be a non-empty string.');
+  }
   if (policy.mode !== undefined && (typeof policy.mode !== 'string' || !policy.mode.trim())) {
     throw new AiValidationError('Execution policy mode must be a non-empty string.');
   }
@@ -41,6 +44,9 @@ export function validateExecutionPolicyShape(policy) {
     }
     if (typeof policy.default.provider !== 'string' || !policy.default.provider.trim()) {
       throw new AiValidationError('Execution policy default.provider must be a non-empty string.');
+    }
+    if (policy.default.model !== undefined && (typeof policy.default.model !== 'string' || !policy.default.model.trim())) {
+      throw new AiValidationError('Execution policy default.model must be a non-empty string.');
     }
     if (policy.default.mode !== undefined && (typeof policy.default.mode !== 'string' || !policy.default.mode.trim())) {
       throw new AiValidationError('Execution policy default.mode must be a non-empty string.');
@@ -58,6 +64,9 @@ export function validateExecutionPolicyShape(policy) {
       if (typeof roleConfig.provider !== 'string' || !roleConfig.provider.trim()) {
         throw new AiValidationError(`roles['${role}'].provider must be a non-empty string.`);
       }
+      if (roleConfig.model !== undefined && (typeof roleConfig.model !== 'string' || !roleConfig.model.trim())) {
+        throw new AiValidationError(`roles['${role}'].model must be a non-empty string.`);
+      }
       if (roleConfig.mode !== undefined && (typeof roleConfig.mode !== 'string' || !roleConfig.mode.trim())) {
         throw new AiValidationError(`roles['${role}'].mode must be a non-empty string.`);
       }
@@ -74,6 +83,9 @@ export function validateExecutionPolicyShape(policy) {
       }
       if (override.provider !== undefined && (typeof override.provider !== 'string' || !override.provider.trim())) {
         throw new AiValidationError(`taskOverrides['${taskId}'].provider must be a non-empty string.`);
+      }
+      if (override.model !== undefined && (typeof override.model !== 'string' || !override.model.trim())) {
+        throw new AiValidationError(`taskOverrides['${taskId}'].model must be a non-empty string.`);
       }
       if (override.mode !== undefined && (typeof override.mode !== 'string' || !override.mode.trim())) {
         throw new AiValidationError(`taskOverrides['${taskId}'].mode must be a non-empty string.`);
@@ -108,14 +120,19 @@ export class ExecutionPolicyService {
 
     const defaultProvider = (policy.provider || policy.default?.provider || '').trim();
     const defaultMode = (policy.mode || policy.default?.mode || 'agent').trim();
+    const defaultModel = (policy.default?.model || policy.model || '').trim() || undefined;
 
     const normalized = {
       provider: defaultProvider,
+      ...(defaultModel ? { model: defaultModel } : {}),
       mode: defaultMode,
       ...(policy.default
         ? {
             default: {
               provider: (policy.default.provider || defaultProvider).trim(),
+              ...((policy.default.model || defaultModel)
+                ? { model: (policy.default.model || defaultModel).trim() }
+                : {}),
               mode: (policy.default.mode || defaultMode).trim(),
             },
           }
@@ -127,13 +144,27 @@ export class ExecutionPolicyService {
                 r,
                 {
                   provider: conf.provider.trim(),
+                  ...(conf.model?.trim() ? { model: conf.model.trim() } : {}),
                   mode: (conf.mode || defaultMode).trim(),
                 },
               ]),
             ),
           }
         : {}),
-      ...(policy.taskOverrides ? { taskOverrides: policy.taskOverrides } : {}),
+      ...(policy.taskOverrides
+        ? {
+            taskOverrides: Object.fromEntries(
+              Object.entries(policy.taskOverrides).map(([t, conf]) => [
+                t,
+                {
+                  ...(conf.provider?.trim() ? { provider: conf.provider.trim() } : {}),
+                  ...(conf.model?.trim() ? { model: conf.model.trim() } : {}),
+                  ...(conf.mode?.trim() ? { mode: conf.mode.trim() } : {}),
+                },
+              ]),
+            ),
+          }
+        : {}),
     };
 
     const tempFile = `${file}.${randomUUID()}.tmp`;
@@ -164,29 +195,51 @@ export class ExecutionPolicyService {
 
     const defaultProvider = policy.default?.provider || policy.provider;
     const defaultMode = policy.default?.mode || policy.mode;
+    const defaultModel = (policy.default?.model || policy.model || '').trim() || undefined;
 
-    // 1. Task override has highest priority
-    if (taskId && policy.taskOverrides?.[taskId]) {
-      const override = policy.taskOverrides[taskId];
-      return {
-        provider: override.provider || defaultProvider,
-        mode: override.mode || defaultMode,
-      };
-    }
+    let roleProvider = defaultProvider;
+    let roleMode = defaultMode;
+    let roleModel = defaultModel;
 
     // 2. Role-specific policy (e.g. implementer, reviewer, refiner)
     if (role && policy.roles?.[role]) {
       const roleConf = policy.roles[role];
+      const newRoleProvider = roleConf.provider || defaultProvider;
+      roleMode = roleConf.mode || defaultMode;
+      if (roleConf.model) {
+        roleModel = roleConf.model.trim();
+      } else if (newRoleProvider !== defaultProvider) {
+        roleModel = undefined;
+      } else {
+        roleModel = defaultModel;
+      }
+      roleProvider = newRoleProvider;
+    }
+
+    // 1. Task override has highest priority
+    if (taskId && policy.taskOverrides?.[taskId]) {
+      const override = policy.taskOverrides[taskId];
+      const effectiveProvider = override.provider || roleProvider;
+      const effectiveMode = override.mode || roleMode;
+      let effectiveModel;
+      if (override.model) {
+        effectiveModel = override.model.trim();
+      } else if (override.provider && override.provider !== roleProvider) {
+        effectiveModel = undefined;
+      } else {
+        effectiveModel = roleModel;
+      }
       return {
-        provider: roleConf.provider || defaultProvider,
-        mode: roleConf.mode || defaultMode,
+        provider: effectiveProvider,
+        ...(effectiveModel ? { model: effectiveModel } : {}),
+        mode: effectiveMode,
       };
     }
 
-    // 3. Fallback to change-level default
     return {
-      provider: defaultProvider,
-      mode: defaultMode,
+      provider: roleProvider,
+      ...(roleModel ? { model: roleModel } : {}),
+      mode: roleMode,
     };
   }
 }

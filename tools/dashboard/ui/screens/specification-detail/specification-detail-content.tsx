@@ -219,7 +219,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           if (isBatchReview && taskIds && taskIds.length > 1 && currentPolicy) {
             const policies = taskIds.map((id) => resolvePolicyForTask(currentPolicy, id, { role: 'reviewer' }));
             const first = policies[0];
-            hasConflict = policies.some((p) => p?.provider !== first?.provider || p?.mode !== first?.mode);
+            hasConflict = policies.some((p) => p?.provider !== first?.provider || p?.mode !== first?.mode || p?.model !== first?.model);
           }
 
           if (options?.oneOff || !currentPolicy || hasConflict || isBatchReview) {
@@ -232,7 +232,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
               taskIds,
               isOneOff: Boolean(options?.oneOff) || hasConflict || isBatchReview,
               reviewTogether: Boolean(options?.reviewTogether),
-              initialConfig: effective && !hasConflict ? { provider: effective.provider, mode: effective.mode, model: (effective as any)?.model } : null,
+              initialConfig: effective && !hasConflict ? { provider: effective.provider, mode: effective.mode, model: effective.model } : null,
             });
             return;
           }

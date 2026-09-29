@@ -120,6 +120,7 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
       } catch {}
 
       const provider = policy?.provider || options.provider;
+      const model = policy?.model || options.model || undefined;
       const mode = policy?.mode || options.mode || 'agent';
       let parentSessionId = options.parentSessionId || options.priorSessionId || null;
       if (!parentSessionId && repoRoot) {
@@ -165,6 +166,7 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
       const candidate = {
         ...queueState.nextRunnable,
         provider,
+        ...(model ? { model } : {}),
         mode,
         changeSlug,
         specId,
@@ -527,11 +529,13 @@ export async function reconcileContinuation(change, task, options = {}) {
     } catch {}
 
     const provider = policy?.provider || options.provider;
+    const model = policy?.model || options.model || undefined;
     const mode = policy?.mode || options.mode || 'agent';
     const genericTrigger = options.message || options.prompt || `Start workflow task '${targetTaskId}'.`;
     const candidate = {
       ...queueState.nextRunnable,
       provider,
+      ...(model ? { model } : {}),
       mode,
       changeSlug,
       specId,
