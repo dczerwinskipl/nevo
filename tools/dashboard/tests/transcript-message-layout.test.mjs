@@ -75,6 +75,13 @@ test('AC5: FinalAnswerView renders nothing for absent/null — never fabricates 
   );
 });
 
+test('FinalAnswerView provides a bottom copy button with copy icon for copying agent output', () => {
+  const source = readWorkSource('final-answer-view.tsx');
+  assert.match(source, /copyToClipboard/);
+  assert.match(source, /<Copy/);
+  assert.match(source, /aria-label=\{copied \? 'Skopiowano odpowiedź' : 'Kopiuj odpowiedź'\}/);
+});
+
 test('AC5: FinalAnswer renders once, after Work, never inside the Work timeline', () => {
   const timelineSource = readWorkSource('work-timeline.tsx');
   const panelSource = readWorkSource('turn-work-panel.tsx');

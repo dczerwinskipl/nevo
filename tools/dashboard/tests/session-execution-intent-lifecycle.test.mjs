@@ -15,8 +15,9 @@ import { AgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs';
 import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
 import { autoBindAgentSession } from '../../specs.mjs';
 import { handleWorkflowStepStart } from '../../specs/workflow/cli.mjs';
+import { fileURLToPath } from 'node:url';
 
-const REAL_REPO_ROOT = process.cwd();
+const REAL_REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
 
 function createMockRegistry(onStartTurn) {
   const registry = createAgentProviderRegistry();

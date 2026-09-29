@@ -628,5 +628,61 @@ describe('Canonical Chat Surface Component Tests (RTL renders)', () => {
       expect(screen.getByText('Zacommitowane i wypchniete przed przerwaniem.')).toBeInTheDocument();
       expect(screen.queryByText(/przerwano/i)).toBeNull();
     });
+
+    it('renders a copy button at the bottom of the answer card when text is present', () => {
+      render(
+        <FinalAnswerView
+          finalAnswer={buildFinalAnswer({
+            status: 'completed',
+            text: 'To jest odpowiedź agenta.',
+          })}
+        />,
+      );
+
+      const copyBtn = screen.getByRole('button', { name: /kopiuj odpowiedź/i });
+      expect(copyBtn).toBeInTheDocument();
+      expect(copyBtn).toHaveTextContent('Kopiuj');
+    });
+
+    it('copies answer text to clipboard and shows "Skopiowano" feedback on click', async () => {
+      const writeTextMock = vi.fn().mockResolvedValue(undefined);
+      Object.assign(navigator, {
+        clipboard: {
+          writeText: writeTextMock,
+        },
+      });
+
+      render(
+        <FinalAnswerView
+          finalAnswer={buildFinalAnswer({
+            status: 'completed',
+            text: 'To jest odpowiedź agenta do skopiowania.',
+          })}
+        />,
+      );
+
+      const copyBtn = screen.getByRole('button', { name: /kopiuj odpowiedź/i });
+      fireEvent.click(copyBtn);
+
+      expect(writeTextMock).toHaveBeenCalledWith('To jest odpowiedź agenta do skopiowania.');
+      expect(await screen.findByRole('button', { name: /skopiowano odpowiedź/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /skopiowano odpowiedź/i })).toHaveTextContent('Skopiowano');
+    });
+
+    it('does not render copy button when finalAnswer is pending without text', () => {
+      render(
+        <FinalAnswerView
+          finalAnswer={{
+            id: 'fa-pending',
+            text: '',
+            status: 'pending',
+            createdAt: '2026-09-13T09:14:00Z',
+            updatedAt: '2026-09-13T09:14:00Z',
+          }}
+        />,
+      );
+
+      expect(screen.queryByRole('button', { name: /kopiuj/i })).toBeNull();
+    });
   });
 });
