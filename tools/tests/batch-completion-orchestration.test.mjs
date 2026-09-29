@@ -173,6 +173,7 @@ test('Failed member B gets admitted as fresh refiner with parentSessionId = batc
     changeSlug: slug,
     scope: { kind: 'task-batch', taskIds },
     sessionId: batchSessionId,
+    batchExecutionId,
   });
   const ownerId = acq.ownerId;
 
@@ -271,6 +272,7 @@ test('Atomic reservation release across all members without sibling window + cra
     changeSlug: slug,
     scope: { kind: 'task-batch', taskIds },
     sessionId: batchSessionId,
+    batchExecutionId,
   });
 
   saveBatchFinishRecord(tmpRoot, slug, {
@@ -338,6 +340,7 @@ test('Crash after member dispatch observes existing continuation rather than dup
     changeSlug: slug,
     scope: { kind: 'task-batch', taskIds },
     sessionId: batchSessionId,
+    batchExecutionId,
   });
 
   saveBatchFinishRecord(tmpRoot, slug, {

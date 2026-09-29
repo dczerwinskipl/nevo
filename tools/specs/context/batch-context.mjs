@@ -160,7 +160,7 @@ export function buildBatchContext(params = {}) {
   } = params;
 
   const changeSlug = change.id || change._slug;
-  const specId = change.id || change._slug;
+  const specId = params.specId || change.spec_id || change.id || change._slug;
   const taskIds = reservation?.taskIds || tasks.map(t => t.id);
 
   // 1. Members sorted deterministically by order ascending, then ID ascending

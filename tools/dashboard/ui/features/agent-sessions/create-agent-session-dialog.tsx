@@ -471,9 +471,7 @@ export function ExecutionPolicySelectionDialog({
       if (initialPolicy.default?.mode || initialPolicy.mode) {
         setMode(initialPolicy.default?.mode || initialPolicy.mode);
       }
-      if ((initialPolicy as any)?.model) {
-        setModel((initialPolicy as any).model);
-      }
+
       if (initialPolicy.roles?.implementer?.provider !== undefined) {
         setImplementerProvider(initialPolicy.roles.implementer.provider);
       }

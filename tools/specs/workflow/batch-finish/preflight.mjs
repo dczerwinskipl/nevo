@@ -357,7 +357,46 @@ export function prevalidateBatchFinish(params = {}) {
     }
   }
 
-  const crossTaskFindings = Array.isArray(inputs.crossTaskFindings) ? inputs.crossTaskFindings : [];
+  // Check 5: Validate cross-task findings (D11, Item 8)
+  const rawFindings = inputs.crossTaskFindings;
+  let crossTaskFindings = [];
+  if (rawFindings !== undefined && rawFindings !== null) {
+    if (!Array.isArray(rawFindings)) {
+      throw new WorkflowError(
+        'inputs.crossTaskFindings must be an array of findings',
+        { code: 'BATCH_RESULT_INVALID' }
+      );
+    }
+    crossTaskFindings = rawFindings.map((finding, idx) => {
+      if (!finding || typeof finding !== 'object') {
+        throw new WorkflowError(
+          `Cross-task finding at index ${idx} must be an object`,
+          { code: 'BATCH_RESULT_INVALID', index: idx }
+        );
+      }
+      const rawAffected = finding.affectedTaskIds ?? finding.tasks ?? finding.taskIds;
+      if (rawAffected !== undefined && rawAffected !== null) {
+        if (!Array.isArray(rawAffected)) {
+          throw new WorkflowError(
+            `Cross-task finding at index ${idx} has invalid affectedTaskIds: must be an array of strings`,
+            { code: 'BATCH_RESULT_INVALID', index: idx, finding }
+          );
+        }
+        for (const tid of rawAffected) {
+          if (typeof tid !== 'string' || !taskIds.includes(tid)) {
+            throw new WorkflowError(
+              `Cross-task finding at index ${idx} references task '${tid}' outside reserved batch scope [${taskIds.join(', ')}]`,
+              { code: 'EXECUTION_SCOPE_MISMATCH', unexpectedTaskId: tid, validTaskIds: taskIds }
+            );
+          }
+        }
+      }
+      return {
+        ...finding,
+        affectedTaskIds: Array.isArray(rawAffected) ? rawAffected : [],
+      };
+    });
+  }
 
   return {
     effectiveSessionId,

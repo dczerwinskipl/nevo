@@ -87,8 +87,9 @@ function setupTestRepo(slug = 'test-claim-ordering') {
 
   fs.writeFileSync(path.join(workflowDir, 'standard.yaml'), standardWorkflowYaml, 'utf8');
 
+  const specId = randomUUID();
   const changeYaml = `id: ${slug}
-spec_id: ${randomUUID()}
+spec_id: ${specId}
 title: "Test Change"
 status: in-progress
 workflow:
@@ -122,12 +123,12 @@ tasks:
   fs.writeFileSync(path.join(taskDir, '01-t1.md'), `# Task 1\n`, 'utf8');
   fs.writeFileSync(path.join(taskDir, '02-t2.md'), `# Task 2\n`, 'utf8');
 
-  return { tmpRoot, activeDir, changeDir, taskDir, workflowDir, sessionsDir };
+  return { tmpRoot, activeDir, changeDir, taskDir, workflowDir, sessionsDir, specId };
 }
 
 test('Exact D35 ordering: claim release -> active-execution clear -> reservation release -> dispatch with crash recovery at each stage', async () => {
   const slug = 'test-ordering-saga';
-  const { tmpRoot, activeDir } = setupTestRepo(slug);
+  const { tmpRoot, activeDir, specId } = setupTestRepo(slug);
   const taskIds = ['t1', 't2'];
   const batchExecutionId = `batch-${randomUUID()}`;
   const batchSessionId = `session-${randomUUID()}`;
@@ -149,10 +150,11 @@ test('Exact D35 ordering: claim release -> active-execution clear -> reservation
   const acq = await acquireWorkspaceWriter({
     repoRoot: tmpRoot,
     kind: 'agent',
-    specId: slug,
+    specId,
     changeSlug: slug,
     scope: { kind: 'task-batch', taskIds },
     sessionId: batchSessionId,
+    batchExecutionId,
   });
   const ownerId = acq.ownerId;
 
@@ -168,6 +170,7 @@ test('Exact D35 ordering: claim release -> active-execution clear -> reservation
     sessionId: batchSessionId,
     candidate: { batchExecutionId },
     scope: { kind: 'task-batch', taskIds },
+    specId,
   });
   assert.ok(getActiveAgentExecution(slug));
 
@@ -297,7 +300,7 @@ test('Exact D35 ordering: claim release -> active-execution clear -> reservation
 
 test('Structural Dispatch Safety Guard: dispatch cannot occur while workspace claim is held', async () => {
   const slug = 'test-dispatch-guard';
-  const { tmpRoot, activeDir } = setupTestRepo(slug);
+  const { tmpRoot, activeDir, specId } = setupTestRepo(slug);
   const taskIds = ['t1', 't2'];
   const batchExecutionId = `batch-${randomUUID()}`;
   const batchSessionId = `session-${randomUUID()}`;
@@ -319,7 +322,8 @@ test('Structural Dispatch Safety Guard: dispatch cannot occur while workspace cl
     repoRoot: tmpRoot,
     ownerId,
     kind: 'agent',
-    specId: slug,
+    specId,
+    changeSlug: slug,
     scope: { kind: 'task-batch', taskIds },
     sessionId: batchSessionId,
     batchExecutionId,

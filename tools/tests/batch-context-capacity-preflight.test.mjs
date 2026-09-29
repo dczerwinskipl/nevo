@@ -83,6 +83,7 @@ test('AC2: Context-capacity preflight rejects over-budget payload with zero acti
     fs.writeFileSync(
       path.join(changeDir, 'change.yaml'),
       `id: cap-spec
+spec_id: "aaaaaaaa-0002-4000-a000-000000000001"
 workflow:
   mode: deterministic
   definition: standard.yaml
@@ -167,14 +168,16 @@ tasks:
     assert.equal(preflightOver.passed, false);
     assert.equal(preflightOver.code, 'BATCH_CONTEXT_TOO_LARGE');
 
+    const specId = 'aaaaaaaa-0002-4000-a000-000000000001';
     const sessionId = 'session-cap-test';
     const sessionsDir = path.join(tmpRoot, '.nevo-ai-local', 'sessions');
     fs.mkdirSync(sessionsDir, { recursive: true });
     fs.writeFileSync(
-      path.join(sessionsDir, 'cap-spec.json'),
+      path.join(sessionsDir, `${specId}.json`),
       JSON.stringify({
         sessions: [{
           sessionId,
+          specId,
           batchExecutionId: overBudgetRes.batchExecutionId,
           executionScope: { kind: 'task-batch', changeSlug: 'cap-spec', taskIds: ['task-1', 'task-2'] },
         }],
@@ -186,7 +189,7 @@ tasks:
     await acquireWorkspaceWriter({
       repoRoot: tmpRoot,
       kind: 'agent',
-      specId: 'cap-spec',
+      specId,
       sessionId,
       turnId: 'turn-cap-1',
       scope: { kind: 'task-batch', taskIds: ['task-1', 'task-2'] },

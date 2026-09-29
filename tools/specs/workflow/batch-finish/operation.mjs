@@ -114,7 +114,7 @@ export async function executeBatchFinish(params = {}) {
       executionScope: { kind: 'task-batch', taskIds },
       crossTaskFindings,
     };
-    const rendered = renderBatchReport(batchCtx, { results: normalizedResults });
+    const rendered = renderBatchReport(batchCtx, { results: normalizedResults, crossTaskFindings });
     fs.mkdirSync(path.dirname(fullReportPath), { recursive: true });
     fs.writeFileSync(fullReportPath, rendered, 'utf8');
   }

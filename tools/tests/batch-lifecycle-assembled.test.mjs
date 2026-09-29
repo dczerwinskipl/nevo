@@ -40,6 +40,53 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const SPECS_CLI = path.resolve(REPO_ROOT, 'tools', 'specs.mjs');
 
+const standardWorkflowYaml = `id: standard-v1
+title: "Standard Workflow"
+type: standard
+version: 1
+entryStep: implementation
+sourceControl:
+  enabled: true
+  push: false
+steps:
+  implementation:
+    status:
+      active: implementing
+      completed: implemented
+    purpose: "Implement code"
+    expectedWork:
+      summary: "Implement"
+    entryGates: []
+    exitGates: []
+    finalize: []
+    transitions:
+      - to: review
+        continuation: auto
+        execution:
+          session: fresh
+          role: reviewer
+  review:
+    status:
+      active: reviewing
+      completed: reviewed
+    purpose: "Review code"
+    expectedWork:
+      summary: "Review"
+    entryGates: []
+    exitGates: []
+    finalize: []
+    transitions:
+      - value: pass
+        to: verified
+        outcome: success
+      - value: fail
+        to: implementation
+        continuation: auto
+        execution:
+          session: fresh
+          role: refiner
+`;
+
 function setupAssembledTestRepo(slug, taskIds = ['t1', 't2', 't3']) {
   const tmpRoot = fs.mkdtempSync(path.join(tmpdir(), `nevo-assembled-${slug}-`));
   execFileSync('git', ['init', '-q'], { cwd: tmpRoot });
@@ -53,14 +100,8 @@ function setupAssembledTestRepo(slug, taskIds = ['t1', 't2', 't3']) {
 
   fs.mkdirSync(taskDir, { recursive: true });
   fs.mkdirSync(workflowDir, { recursive: true });
-  fs.copyFileSync(
-    path.join(REPO_ROOT, '.nevo-ai', 'workflows', 'standard.yaml'),
-    path.join(workflowDir, 'standard.yaml')
-  );
-  fs.copyFileSync(
-    path.join(REPO_ROOT, '.nevo-ai', 'workflows', 'standard.yaml'),
-    path.join(workflowDir, 'standard-v1.yaml')
-  );
+  fs.writeFileSync(path.join(workflowDir, 'standard.yaml'), standardWorkflowYaml, 'utf8');
+  fs.writeFileSync(path.join(workflowDir, 'standard-v1.yaml'), standardWorkflowYaml, 'utf8');
 
   const specId = randomUUID();
   const taskYamlLines = taskIds.map((id, idx) => `  - id: ${id}
@@ -274,19 +315,18 @@ test('1. Assembled Lifecycle: End-to-end multi-task batch review lifecycle with 
     assert.ok(['human-preview', 'agent-admitted', 'completed', 'noop'].includes(continuationStages.t1.action));
 
     // t2 (fail): rework continuation was dispatched with parentSessionId === batchSessionId!
+    assert.equal(continuationStages.t2.action, 'agent-admitted');
     const t2Admission = continuationStages.t2.admission;
-    if (continuationStages.t2.action === 'agent-admitted') {
-      assert.ok(t2Admission, 't2 refiner must be admitted');
-      // Assert refiner session has parentSessionId === batchSessionId (Item 11 requirement)
-      const t2Session = sessionService.createdSessions.find(s => s.taskId === 't2' || s.executionScope?.taskId === 't2');
-      if (t2Session) {
-        assert.equal(
-          t2Session.parentSessionId,
-          batchSessionId,
-          'Task B refiner session must have parentSessionId === batchSessionId'
-        );
-      }
-    }
+    assert.ok(t2Admission, 't2 refiner must be admitted');
+    assert.equal(t2Admission.admitted, true);
+    // Assert refiner session has parentSessionId === batchSessionId (Item 11 requirement)
+    const t2Session = sessionService.createdSessions.find(s => s.taskId === 't2' || s.executionScope?.taskId === 't2');
+    assert.ok(t2Session, 'Task B refiner session must exist');
+    assert.equal(
+      t2Session.parentSessionId,
+      batchSessionId,
+      'Task B refiner session must have parentSessionId === batchSessionId'
+    );
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
     resetAdmissionStateForTest();
@@ -401,6 +441,16 @@ test('2. Restart Recovery: reconcileBootState resumes settlement and dispatches 
     // Reservation released
     const reservation = getGroupReservation(tmpRoot, slug, batchExecutionId);
     assert.equal(reservation.status, 'released');
+
+    // 8. Call reconcileBootState a second time to assert strict idempotency
+    const secondBootResult = await reconcileBootState({
+      repoRoot: tmpRoot,
+      activeDir,
+    });
+    assert.equal(secondBootResult.reconciledClaims, 0, 'Second boot reconciliation must be a no-op');
+
+    const settlementAfterSecondBoot = loadBatchCompletionSettlement(tmpRoot, slug, batchExecutionId);
+    assert.equal(settlementAfterSecondBoot.status, 'completed');
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
     resetAdmissionStateForTest();
@@ -481,6 +531,8 @@ test('3. Idempotent continuation dispatch: resume after mid-dispatch interruptio
       { cwd: tmpRoot, env, encoding: 'utf8' }
     );
 
+    const sessionService = createMockSessionService(tmpRoot);
+
     // 2. First settlement run crashes immediately after dispatching continuation for task t1
     let crashErr = null;
     try {
@@ -489,6 +541,7 @@ test('3. Idempotent continuation dispatch: resume after mid-dispatch interruptio
         activeDir,
         changeSlug: slug,
         batchExecutionId,
+        options: { sessionService },
         _crashAfterMemberDispatchTaskId: 't1',
       });
     } catch (err) {
@@ -509,6 +562,7 @@ test('3. Idempotent continuation dispatch: resume after mid-dispatch interruptio
       activeDir,
       changeSlug: slug,
       batchExecutionId,
+      options: { sessionService },
     });
 
     assert.equal(resumeResult.status, 'completed');
@@ -517,14 +571,22 @@ test('3. Idempotent continuation dispatch: resume after mid-dispatch interruptio
     assert.ok(resumeResult.settlement.stages.continuationDispatch.members.t2);
     assert.ok(resumeResult.settlement.stages.continuationDispatch.members.t3);
 
-    // 4. Third run is completely idempotent
+    const sessionCountAfterResume = sessionService.createdSessions.length;
+
+    // 4. Third run is completely idempotent: creates zero additional sessions
     const rerunResult = await executeBatchCompletionSettlement({
       repoRoot: tmpRoot,
       activeDir,
       changeSlug: slug,
       batchExecutionId,
+      options: { sessionService },
     });
     assert.equal(rerunResult.status, 'completed');
+    assert.equal(
+      sessionService.createdSessions.length,
+      sessionCountAfterResume,
+      'Continuation idempotency: rerun must not create additional sessions'
+    );
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
     resetAdmissionStateForTest();

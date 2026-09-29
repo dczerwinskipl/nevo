@@ -37,6 +37,7 @@ test('AC1: Batch start crash recovery activates remaining members without re-act
     fs.writeFileSync(
       path.join(changeDir, 'change.yaml'),
       `id: crash-spec
+spec_id: "aaaaaaaa-0001-4000-a000-000000000001"
 workflow:
   mode: deterministic
   definition: standard.yaml
@@ -104,14 +105,16 @@ tasks:
       },
     });
 
+    const specId = 'aaaaaaaa-0001-4000-a000-000000000001';
     const sessionId = 'session-crash-recovery-1';
     const sessionsDir = path.join(tmpRoot, '.nevo-ai-local', 'sessions');
     fs.mkdirSync(sessionsDir, { recursive: true });
     fs.writeFileSync(
-      path.join(sessionsDir, 'crash-spec.json'),
+      path.join(sessionsDir, `${specId}.json`),
       JSON.stringify({
         sessions: [{
           sessionId,
+          specId,
           batchExecutionId: reservation.batchExecutionId,
           executionScope: { kind: 'task-batch', changeSlug: 'crash-spec', taskIds: ['task-A', 'task-B', 'task-C'] },
         }],
@@ -123,7 +126,7 @@ tasks:
     await acquireWorkspaceWriter({
       repoRoot: tmpRoot,
       kind: 'agent',
-      specId: 'crash-spec',
+      specId,
       sessionId,
       turnId: 'turn-crash-1',
       scope: { kind: 'task-batch', taskIds: ['task-A', 'task-B', 'task-C'] },

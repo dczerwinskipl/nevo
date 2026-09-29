@@ -56,6 +56,7 @@ export function isAmbiguousBatchClaim(liveClaim, {
   batchExecutionId,
   sessionId,
   specId,
+  changeSlug,
   taskIds,
 }) {
   if (!liveClaim) return false;
@@ -65,20 +66,31 @@ export function isAmbiguousBatchClaim(liveClaim, {
     if (liveClaim.scope?.kind !== 'task-batch') return true;
     if (!liveClaim.sessionId || liveClaim.sessionId !== sessionId) return true;
     if (!liveClaim.specId || liveClaim.specId !== specId) return true;
+    if (liveClaim.changeSlug && changeSlug && liveClaim.changeSlug !== changeSlug) return true;
     if (!Array.isArray(liveClaim.scope?.taskIds) || !arraysEqual(liveClaim.scope.taskIds, taskIds)) return true;
   }
   // 2. Same sessionId, but missing or mismatched batchExecutionId
   if (liveClaim.sessionId && liveClaim.sessionId === sessionId) {
     if (liveClaim.batchExecutionId !== batchExecutionId) return true;
   }
-  // 3. Task batch claim with partial task overlap (not exact equal)
+  // 3. Contradictory changeSlug when specId, batchExecutionId, or sessionId match (Section 5)
+  if (liveClaim.changeSlug && changeSlug && liveClaim.changeSlug !== changeSlug) {
+    if (
+      liveClaim.specId === specId ||
+      liveClaim.sessionId === sessionId ||
+      liveClaim.batchExecutionId === batchExecutionId
+    ) {
+      return true;
+    }
+  }
+  // 4. Task batch claim with partial task overlap (not exact equal)
   if (liveClaim.scope?.kind === 'task-batch' && Array.isArray(liveClaim.scope?.taskIds)) {
     const hasOverlap = liveClaim.scope.taskIds.some(t => taskIds.includes(t));
     if (hasOverlap && !arraysEqual(liveClaim.scope.taskIds, taskIds)) {
       return true;
     }
   }
-  // 4. Single-task claim that matches one of our member tasks
+  // 5. Single-task claim that matches one of our member tasks
   if (liveClaim.scope?.kind === 'task' && liveClaim.scope?.taskId && taskIds.includes(liveClaim.scope.taskId)) {
     return true;
   }
@@ -305,15 +317,76 @@ export async function executeBatchCompletionSettlement(params = {}) {
   const effectiveSessionId = explicitSessionId || finishRecord.sessionId || null;
   const taskIds = finishRecord.taskIds || [];
 
-  // Resolve canonical specId
+  // Resolve canonical specId (Section 2: never fall back to changeSlug)
   let canonicalSpecId = params.specId;
-  if (!canonicalSpecId) {
-    try {
-      const change = requireChange(changeSlug, activeDir);
-      canonicalSpecId = resolveStableSpecId(change);
-    } catch {
-      canonicalSpecId = changeSlug;
+  try {
+    const change = requireChange(changeSlug, activeDir);
+    const resolvedSpecId = resolveStableSpecId(change);
+    if (!canonicalSpecId) {
+      canonicalSpecId = resolvedSpecId;
+    } else if (canonicalSpecId !== resolvedSpecId) {
+      let settlement = loadBatchCompletionSettlement(repoRoot, changeSlug, batchExecutionId);
+      if (!settlement) {
+        settlement = createBatchCompletionSettlement({
+          repoRoot,
+          changeSlug,
+          batchExecutionId,
+          sessionId: effectiveSessionId,
+          taskIds,
+        });
+      }
+      settlement.status = 'recovery-required';
+      settlement.recoveryReason = 'CANONICAL_SPEC_ID_MISMATCH';
+      saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
+      return {
+        settled: false,
+        status: 'recovery-required',
+        reason: 'CANONICAL_SPEC_ID_MISMATCH',
+        settlement,
+      };
     }
+  } catch (err) {
+    let settlement = loadBatchCompletionSettlement(repoRoot, changeSlug, batchExecutionId);
+    if (!settlement) {
+      settlement = createBatchCompletionSettlement({
+        repoRoot,
+        changeSlug,
+        batchExecutionId,
+        sessionId: effectiveSessionId,
+        taskIds,
+      });
+    }
+    settlement.status = 'recovery-required';
+    settlement.recoveryReason = 'CANONICAL_SPEC_ID_UNAVAILABLE';
+    saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
+    return {
+      settled: false,
+      status: 'recovery-required',
+      reason: 'CANONICAL_SPEC_ID_UNAVAILABLE',
+      settlement,
+    };
+  }
+
+  if (!canonicalSpecId) {
+    let settlement = loadBatchCompletionSettlement(repoRoot, changeSlug, batchExecutionId);
+    if (!settlement) {
+      settlement = createBatchCompletionSettlement({
+        repoRoot,
+        changeSlug,
+        batchExecutionId,
+        sessionId: effectiveSessionId,
+        taskIds,
+      });
+    }
+    settlement.status = 'recovery-required';
+    settlement.recoveryReason = 'CANONICAL_SPEC_ID_UNAVAILABLE';
+    saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
+    return {
+      settled: false,
+      status: 'recovery-required',
+      reason: 'CANONICAL_SPEC_ID_UNAVAILABLE',
+      settlement,
+    };
   }
 
   // 2. Load or create durable settlement record
@@ -391,6 +464,7 @@ export async function executeBatchCompletionSettlement(params = {}) {
           batchExecutionId,
           sessionId: effectiveSessionId,
           specId: canonicalSpecId,
+          changeSlug,
           taskIds,
         })) {
           // Malformed / ambiguous identity: fail closed!
@@ -446,20 +520,31 @@ export async function executeBatchCompletionSettlement(params = {}) {
       saveBatchCompletionSettlement(repoRoot, changeSlug, settlement);
     } else {
       // Exact active execution correlation (Item 6)
+      // Missing specId is ambiguous identity — never a valid match for a canonical admitted batch.
       const activeBatchId = active.batchExecutionId || active.candidate?.batchExecutionId;
       const isExactBatchActive =
         active.scope?.kind === 'task-batch' &&
         activeBatchId === batchExecutionId &&
         active.sessionId === effectiveSessionId &&
-        (active.specId ? active.specId === canonicalSpecId : true) &&
+        !!active.specId && active.specId === canonicalSpecId &&
         Array.isArray(active.scope?.taskIds) &&
         arraysEqual(active.scope.taskIds, taskIds);
 
       if (isExactBatchActive) {
         clearActiveAgentExecution(keyUsed);
+        // Only clear the slug-keyed entry if it is unambiguously the same batch.
+        // Require full identity (specId, sessionId, scope.taskIds) — batchExecutionId alone is not sufficient.
         if (targetSpecKey !== changeSlug) {
           const other = getActiveAgentExecution(changeSlug);
-          if (other && (other.batchExecutionId || other.candidate?.batchExecutionId) === batchExecutionId) {
+          const otherBatchId = other?.batchExecutionId || other?.candidate?.batchExecutionId;
+          const isExactSlugEntry =
+            other &&
+            otherBatchId === batchExecutionId &&
+            other.sessionId === effectiveSessionId &&
+            !!other.specId && other.specId === canonicalSpecId &&
+            Array.isArray(other.scope?.taskIds) &&
+            arraysEqual(other.scope.taskIds, taskIds);
+          if (isExactSlugEntry) {
             clearActiveAgentExecution(changeSlug);
           }
         }

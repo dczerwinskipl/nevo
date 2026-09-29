@@ -121,6 +121,7 @@ steps:
     fs.writeFileSync(
       path.join(changeDir, 'change.yaml'),
       `id: role-spec
+spec_id: "aaaaaaaa-0003-4000-a000-000000000001"
 workflow:
   mode: deterministic
   definition: custom.yaml
@@ -177,7 +178,7 @@ tasks:
       sessionId: 'session-builder-t1',
       provider: 'mock',
       providerSessionId: 'p-t1',
-      specId: 'role-spec',
+      specId: 'aaaaaaaa-0003-4000-a000-000000000001',
       taskId: 't1',
       step: 'build',
       attempt: 1,
@@ -186,7 +187,7 @@ tasks:
       sessionId: 'session-builder-t2',
       provider: 'mock',
       providerSessionId: 'p-t2',
-      specId: 'role-spec',
+      specId: 'aaaaaaaa-0003-4000-a000-000000000001',
       taskId: 't2',
       step: 'build',
       attempt: 1,
@@ -211,7 +212,7 @@ tasks:
       sessionId: batchSessionId,
       provider: 'mock',
       providerSessionId: 'p-batch',
-      specId: 'role-spec',
+      specId: 'aaaaaaaa-0003-4000-a000-000000000001',
       step: 'audit',
       batchExecutionId: reservation.batchExecutionId,
       executionScope: {
@@ -223,7 +224,7 @@ tasks:
     await acquireWorkspaceWriter({
       repoRoot: tmpRoot,
       kind: 'agent',
-      specId: 'role-spec',
+      specId: 'aaaaaaaa-0003-4000-a000-000000000001',
       sessionId: batchSessionId,
       turnId: 'turn-batch-1',
       scope: { kind: 'task-batch', taskIds: ['t1', 't2'] },
@@ -278,6 +279,7 @@ test('AC5: Reviewer work requires zero independent workflow step start calls', a
     fs.writeFileSync(
       path.join(changeDir, 'change.yaml'),
       `id: single-call-spec
+spec_id: "aaaaaaaa-0004-4000-a000-000000000001"
 workflow:
   mode: deterministic
   definition: standard.yaml
@@ -326,7 +328,7 @@ tasks:
 
     const sessionId = await setupBatchSessionAndClaim(
       tmpRoot,
-      'single-call-spec',
+      'aaaaaaaa-0004-4000-a000-000000000001',
       ['t1', 't2'],
       reservation.batchExecutionId,
       'session-single-call'
@@ -360,6 +362,7 @@ test('AC6: Base readiness failure blocks bootstrap with zero activations; barrie
     fs.writeFileSync(
       path.join(changeDir, 'change.yaml'),
       `id: readiness-spec
+spec_id: "aaaaaaaa-0005-4000-a000-000000000001"
 workflow:
   mode: deterministic
   definition: standard.yaml
@@ -400,7 +403,7 @@ tasks:
 
     const badSessionId = await setupBatchSessionAndClaim(
       tmpRoot,
-      'readiness-spec',
+      'aaaaaaaa-0005-4000-a000-000000000001',
       ['t1', 't2'],
       badRes.batchExecutionId,
       'session-readiness-bad'
@@ -435,6 +438,7 @@ tasks:
     fs.writeFileSync(
       path.join(changeDir, 'change.yaml'),
       `id: readiness-spec
+spec_id: "aaaaaaaa-0005-4000-a000-000000000001"
 workflow:
   mode: deterministic
   definition: standard.yaml
@@ -521,7 +525,7 @@ tasks:
 
     const batchXSessionId = await setupBatchSessionAndClaim(
       tmpRoot,
-      'readiness-spec',
+      'aaaaaaaa-0005-4000-a000-000000000001',
       ['t1', 't2'],
       'batch-X-id',
       'session-batch-x'
@@ -564,6 +568,7 @@ test('AC7: Workspace baseline and delta fingerprint recorded after activation an
     fs.writeFileSync(
       path.join(changeDir, 'change.yaml'),
       `id: baseline-spec
+spec_id: "aaaaaaaa-0006-4000-a000-000000000001"
 workflow:
   mode: deterministic
   definition: standard.yaml
@@ -612,7 +617,7 @@ tasks:
 
     const sessionId = await setupBatchSessionAndClaim(
       tmpRoot,
-      'baseline-spec',
+      'aaaaaaaa-0006-4000-a000-000000000001',
       ['t1', 't2'],
       reservation.batchExecutionId,
       'session-baseline'
@@ -651,6 +656,7 @@ test('AC8: Mismatched trusted identity rejects batch-start before any member is 
     fs.writeFileSync(
       path.join(changeDir, 'change.yaml'),
       `id: identity-spec
+spec_id: "aaaaaaaa-0007-4000-a000-000000000001"
 workflow:
   mode: deterministic
   definition: standard.yaml

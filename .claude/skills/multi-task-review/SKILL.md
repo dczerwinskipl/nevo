@@ -1,6 +1,6 @@
 ---
 name: multi-task-review
-description: Reviewer execution contract for a batched review session. Reads shared BatchContext, conducts independent per-task reviews and cross-task consistency checks, writes canonical batch report, and submits single batch-finish call.
+description: Reviewer execution contract for a batched review session. Reads shared BatchContext, conducts independent per-task reviews and cross-task consistency checks, and submits results and findings via a single batch-finish call.
 user-invocable: false
 ---
 

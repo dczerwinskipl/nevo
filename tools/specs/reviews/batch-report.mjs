@@ -66,9 +66,17 @@ export function renderBatchReport(batchContext = {}, options = {}) {
   lines.push('## Cross-task findings');
   lines.push('');
 
-  const findings = Array.isArray(crossTask.findings)
-    ? [...crossTask.findings]
-    : (Array.isArray(batchContext.crossTaskFindings) ? [...batchContext.crossTaskFindings] : []);
+  const reviewerFindings = Array.isArray(options.crossTaskFindings) ? options.crossTaskFindings : [];
+  const contextFindings = Array.isArray(crossTask.findings)
+    ? crossTask.findings
+    : (Array.isArray(batchContext.crossTaskFindings) ? batchContext.crossTaskFindings : []);
+  const combinedFindings = [...reviewerFindings];
+  for (const cf of contextFindings) {
+    if (!combinedFindings.some(rf => (rf.id && cf.id && rf.id === cf.id))) {
+      combinedFindings.push(cf);
+    }
+  }
+  const findings = combinedFindings;
 
   if (findings.length === 0) {
     lines.push('No cross-task conflicts or integration issues detected.');

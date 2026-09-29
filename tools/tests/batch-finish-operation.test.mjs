@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { createGroupReservation } from '../specs/workflow/queue/index.mjs';
 import { executeBatchStart } from '../specs/workflow/batch-start/operation.mjs';
-import { acquireWorkspaceWriter } from '../specs/workflow/workspace-writer.mjs';
+import { acquireWorkspaceWriter as rawAcquireWorkspaceWriter } from '../specs/workflow/workspace-writer.mjs';
 import { executeBatchFinish } from '../specs/workflow/batch-finish/operation.mjs';
 import { loadBatchFinishRecord } from '../specs/workflow/batch-finish/record.mjs';
 import { handleWorkflowBatchFinish } from '../specs/workflow/cli.mjs';
@@ -83,10 +83,23 @@ function setupTestRepo(slug = 'batch-finish-spec') {
   return { tmpRoot, activeDir, changeDir, taskDir, workflowDir, sessionsDir };
 }
 
+// Canonical spec_id UUIDs for deterministic test fixtures (must match session/claim setup).
+const SPEC_IDS = {
+  'three-tasks-spec': 'bbbbbbbb-0001-4000-b000-000000000001',
+  'invalid-result-spec': 'bbbbbbbb-0002-4000-b000-000000000001',
+  'provenance-spec': 'bbbbbbbb-0003-4000-b000-000000000001',
+  'crash-report-spec': 'bbbbbbbb-0004-4000-b000-000000000001',
+  'crash-member-spec': 'bbbbbbbb-0005-4000-b000-000000000001',
+  'identity-mismatch-spec': 'bbbbbbbb-0006-4000-b000-000000000001',
+  'cli-batch-finish-spec': 'bbbbbbbb-0007-4000-b000-000000000001',
+  'cross-task-findings-spec': 'bbbbbbbb-0008-4000-b000-000000000001',
+};
+
 function createTasksAndBootstrap(tmpRoot, slug, taskIds = ['t1', 't2', 't3']) {
   const activeDir = path.join(tmpRoot, 'specs', 'active');
   const changeDir = path.join(activeDir, slug);
   const taskDir = path.join(changeDir, 'tasks');
+  const specId = SPEC_IDS[slug];
 
   const tasksYaml = taskIds.map((id, idx) => `  - id: ${id}
     order: ${idx + 1}
@@ -105,15 +118,10 @@ function createTasksAndBootstrap(tmpRoot, slug, taskIds = ['t1', 't2', 't3']) {
           transitioned_to: review
 `).join('');
 
+  const specIdLine = specId ? `spec_id: "${specId}"\n` : '';
   fs.writeFileSync(
     path.join(changeDir, 'change.yaml'),
-    `id: ${slug}
-workflow:
-  mode: deterministic
-  definition: standard.yaml
-tasks:
-${tasksYaml}
-`,
+    `id: ${slug}\n${specIdLine}workflow:\n  mode: deterministic\n  definition: standard.yaml\ntasks:\n${tasksYaml}\n`,
     'utf8'
   );
 
@@ -128,9 +136,19 @@ ${tasksYaml}
 }
 
 function writeSessionFile(tmpRoot, specId, session) {
-  const sessionFile = path.join(tmpRoot, '.nevo-ai-local', 'sessions', `${specId}.json`);
+  const canonicalSpecId = SPEC_IDS[specId] || specId;
+  const sessionFile = path.join(tmpRoot, '.nevo-ai-local', 'sessions', `${canonicalSpecId}.json`);
   fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
-  fs.writeFileSync(sessionFile, JSON.stringify({ sessions: [session], bindings: [] }, null, 2), 'utf8');
+  const normalizedSession = {
+    ...session,
+    ...(session.specId ? { specId: SPEC_IDS[session.specId] || session.specId } : {}),
+  };
+  fs.writeFileSync(sessionFile, JSON.stringify({ sessions: [normalizedSession], bindings: [] }, null, 2), 'utf8');
+}
+
+function acquireWorkspaceWriter(opts) {
+  const specId = (opts?.specId && SPEC_IDS[opts.specId]) ? SPEC_IDS[opts.specId] : opts?.specId;
+  return rawAcquireWorkspaceWriter({ ...opts, specId });
 }
 
 test('1. AC1: 3 tasks with valid results on post-bootstrap fixture reaches completed, report committed once', async () => {
@@ -833,4 +851,103 @@ test('8. CLI surface: handleWorkflowBatchFinish runs end-to-end via CLI options'
 
   assert.equal(cliResult.status, 'completed');
   assert.equal(cliResult.batchExecutionId, batchExecutionId);
+});
+
+test('9. AC9: Reviewer cross-task findings with affectedTaskIds reach canonical report, and unknown taskIds reject', async () => {
+  const { tmpRoot, activeDir } = setupTestRepo('cross-task-findings-spec');
+  const slug = 'cross-task-findings-spec';
+  const taskIds = ['t1', 't2', 't3'];
+  createTasksAndBootstrap(tmpRoot, slug, taskIds);
+
+  const batchExecutionId = 'batch-findings-109';
+  const sessionId = 'session-findings-109';
+
+  await createGroupReservation({
+    repoRoot: tmpRoot,
+    changeSlug: slug,
+    taskIds,
+    batchExecutionId,
+    executionConfigSnapshot: { provider: 'mock', model: 'mock-model' },
+  });
+
+  writeSessionFile(tmpRoot, slug, {
+    sessionId,
+    batchExecutionId,
+    executionScope: { kind: 'task-batch', changeSlug: slug, taskIds },
+  });
+
+  await acquireWorkspaceWriter({
+    repoRoot: tmpRoot,
+    kind: 'agent',
+    specId: slug,
+    sessionId,
+    turnId: 'turn-1',
+    scope: { kind: 'task-batch', taskIds },
+    batchExecutionId,
+  });
+
+  await executeBatchStart({
+    repoRoot: tmpRoot,
+    activeDir,
+    changeSlug: slug,
+    batchExecutionId,
+    sessionId,
+  });
+
+  // A. Rejection case: finding references an unknown taskId outside batch scope
+  await assert.rejects(
+    async () => {
+      await executeBatchFinish({
+        repoRoot: tmpRoot,
+        activeDir,
+        changeSlug: slug,
+        batchExecutionId,
+        sessionId,
+        inputs: {
+          results: { t1: 'pass', t2: 'pass', t3: 'pass' },
+          crossTaskFindings: [
+            {
+              id: 'FINDING-INVALID',
+              message: 'Invalid foreign task reference',
+              affectedTaskIds: ['t1', 'unknown-foreign-task'],
+            },
+          ],
+        },
+      });
+    },
+    (err) => {
+      assert.equal(err.code, 'EXECUTION_SCOPE_MISMATCH');
+      assert.ok(err.message.includes('unknown-foreign-task'));
+      return true;
+    }
+  );
+
+  // B. Success case: valid findings with affectedTaskIds within batch scope reach report
+  const finishRes = await executeBatchFinish({
+    repoRoot: tmpRoot,
+    activeDir,
+    changeSlug: slug,
+    batchExecutionId,
+    sessionId,
+    inputs: {
+      results: { t1: 'pass', t2: 'pass', t3: 'pass' },
+      crossTaskFindings: [
+        {
+          id: 'FINDING-VALID',
+          message: 'Reviewer detected shared API contract divergence',
+          affectedTaskIds: ['t1', 't2'],
+          severity: 'warning',
+        },
+      ],
+    },
+  });
+
+  assert.equal(finishRes.status, 'completed');
+
+  // Verify the canonical report contains the reviewer's finding and affected tasks
+  const reportRelPath = getCanonicalBatchReportRelativePath(slug, batchExecutionId);
+  const reportContent = fs.readFileSync(path.join(tmpRoot, reportRelPath), 'utf8');
+  assert.ok(reportContent.includes('FINDING-VALID'));
+  assert.ok(reportContent.includes('Reviewer detected shared API contract divergence'));
+  assert.ok(reportContent.includes('t1, t2'));
 });

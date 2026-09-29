@@ -219,6 +219,7 @@ export async function executeBatchStart(params = {}) {
   // 9. Build full BatchContext (D32)
   const batchContext = buildBatchContext({
     change,
+    specId,
     tasks: memberTasks,
     definition,
     targetStepName,
@@ -238,7 +239,7 @@ export async function executeBatchStart(params = {}) {
             predecessorSessions: batchContext.predecessorSessions,
             parentSessionId: null,
           },
-          { specId: change.id || change._slug }
+          { specId }
         );
       } else {
         updatePersistedSessionLineageSync(
@@ -248,7 +249,7 @@ export async function executeBatchStart(params = {}) {
             predecessorSessions: batchContext.predecessorSessions,
             parentSessionId: null,
           },
-          { specId: change.id || change._slug }
+          { specId }
         );
       }
     } catch {}
