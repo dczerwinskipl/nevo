@@ -1226,12 +1226,54 @@ export class AgentSessionService {
     }
 
     const effectiveSpecId = opts.specId || session?.specId;
-    // The session's own persisted `activeTaskId` is the authoritative source once no
-    // explicit per-turn override is given — raw session objects never carry a separate
-    // `.taskId` field (only `.activeTaskId`/`.taskIds`), so there is no first-bound-task
-    // fallback here. Absence of `activeTaskId` correctly yields `undefined`: a valid
-    // "no active task" turn, never guessed from `taskIds[0]`.
-    const effectiveTaskId = opts.activeTaskId || session?.activeTaskId || opts.taskId;
+
+    const hasExplicitPerTurnTaskIntent = Boolean(
+      opts.taskId ||
+      opts.activeTaskId ||
+      opts.executionScope?.taskId ||
+      opts.purpose === 'execution' ||
+      (opts.workflowContext && opts.workflowContext !== false && typeof opts.workflowContext === 'object' && opts.workflowContext.taskId)
+    );
+
+    let effectiveTaskId;
+    if (hasExplicitPerTurnTaskIntent) {
+      effectiveTaskId = opts.activeTaskId || opts.taskId || opts.executionScope?.taskId || opts.workflowContext?.taskId || session?.activeTaskId;
+    } else {
+      let candidateTaskId = session?.activeTaskId;
+      if (candidateTaskId && effectiveSpecId) {
+        try {
+          const changes = listChanges(resolve(this.repoRoot, 'specs', 'active'));
+          const change = changes.find((c) => c.spec_id === effectiveSpecId || c.id === effectiveSpecId || c._slug === effectiveSpecId);
+          if (change && resolveWorkflowMode(change).mode === 'deterministic') {
+            const resolvedTask = (change.tasks || []).find((t) => String(t.id) === String(candidateTaskId));
+            if (!resolvedTask) {
+              candidateTaskId = undefined;
+            } else {
+              const definition = loadWorkflowDefinition(resolveWorkflowMode(change).definition, { repoRoot: this.repoRoot });
+              const readiness = evaluateExecutionReadiness(resolvedTask, change, 'agent', { repoRoot: this.repoRoot, definition });
+              if (!readiness.ready) {
+                if (readiness.code === 'WORKFLOW_STEP_EXECUTOR_MISMATCH' || readiness.code === 'WORKFLOW_TERMINAL') {
+                  candidateTaskId = undefined;
+                  if (session?.sessionId && this.bindingService) {
+                    await this.bindingService.bindSession({
+                      sessionId: session.sessionId,
+                      provider: prov,
+                      specId: effectiveSpecId,
+                      activeTaskId: null,
+                    });
+                    delete session.activeTaskId;
+                    if (session.executionScope?.kind === 'task') {
+                      delete session.executionScope;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+      effectiveTaskId = candidateTaskId;
+    }
 
     let effectivePrompt = opts.message ?? opts.prompt;
     let effectiveUserMessage = opts.userMessage;

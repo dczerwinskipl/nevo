@@ -302,8 +302,6 @@ function normalizeStorageContent(parsed) {
     if (!executionScope) {
       if (s.activeTaskId) executionScope = { kind: 'task', taskId: s.activeTaskId };
       else if (s.taskId) executionScope = { kind: 'task', taskId: s.taskId };
-      else if (Array.isArray(s.taskIds) && s.taskIds.length >= 2) executionScope = { kind: 'task-batch', taskIds: s.taskIds };
-      else if (Array.isArray(s.taskIds) && s.taskIds.length === 1) executionScope = { kind: 'task', taskId: s.taskIds[0] };
     }
     const res = {
       ...s,
@@ -919,6 +917,11 @@ export class AgentSessionBindingService {
           } else {
             delete session.activeTaskId;
           }
+        } else if (activeTaskId === null) {
+          delete session.activeTaskId;
+          if (session.executionScope?.kind === 'task') {
+            delete session.executionScope;
+          }
         } else if (resolvedActiveTaskId !== undefined) {
           session.activeTaskId = resolvedActiveTaskId;
         }
@@ -1001,7 +1004,7 @@ export class AgentSessionBindingService {
         provider: session.provider,
         providerSessionId: session.providerSessionId,
         specId: session.specId,
-        ...(resolvedScope?.kind === 'task' ? { taskId: resolvedScope.taskId } : (taskId ? { taskId } : {})),
+        ...(resolvedScope?.kind === 'task' ? { taskId: resolvedScope.taskId } : (activeTaskId !== null && taskId ? { taskId } : {})),
         ...(session.executionScope ? { executionScope: session.executionScope } : {}),
         ...(binding?.step ? { step: binding.step } : {}),
         ...(binding?.attempt !== undefined ? { attempt: binding.attempt } : {}),
@@ -1075,11 +1078,13 @@ export class AgentSessionBindingService {
       let resolvedScope = null;
       if (executionScope) {
         resolvedScope = assertExecutionScope(executionScope);
-      } else if (taskId) {
-        resolvedScope = createTaskScope(taskId);
       } else if (activeTaskId) {
         resolvedScope = createTaskScope(activeTaskId);
-      } else if (Array.isArray(taskIds) && taskIds.length >= 2 && (activeTaskId === null || activeTaskId === undefined)) {
+      } else if (activeTaskId === null) {
+        // Explicit sentinel: caller explicitly requested NO active task.
+      } else if (taskId) {
+        resolvedScope = createTaskScope(taskId);
+      } else if (Array.isArray(taskIds) && taskIds.length >= 2) {
         resolvedScope = createBatchScope(taskIds);
       }
 
@@ -1092,12 +1097,13 @@ export class AgentSessionBindingService {
         resolvedActiveTaskId = resolvedScope.taskId;
         accumulatedTaskIds = Array.from(new Set([...(session?.taskIds || []), resolvedScope.taskId, ...(Array.isArray(taskIds) ? taskIds : [])]));
       } else {
-        resolvedActiveTaskId = activeTaskId !== undefined ? activeTaskId : (taskId || session?.activeTaskId || undefined);
+        resolvedActiveTaskId = (activeTaskId !== undefined && activeTaskId !== null) ? activeTaskId : undefined;
         accumulatedTaskIds = Array.from(new Set([...(session?.taskIds || []), ...(Array.isArray(taskIds) ? taskIds : taskId ? [taskId] : [])]));
       }
 
       if (session) {
         session.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
+        if (batchExecutionId !== undefined) session.batchExecutionId = batchExecutionId;
         if (purpose !== undefined) session.purpose = purpose;
         if (mode !== undefined) session.mode = mode;
         if (model !== undefined) session.model = model.trim();
@@ -1105,13 +1111,17 @@ export class AgentSessionBindingService {
         if (parentSessionId !== undefined) session.parentSessionId = parentSessionId;
         if (Array.isArray(predecessorSessions)) session.predecessorSessions = [...predecessorSessions];
         if (cleanProvSessionId && !session.providerSessionId) session.providerSessionId = cleanProvSessionId;
-        if (batchExecutionId !== undefined) session.batchExecutionId = batchExecutionId;
         if (resolvedScope) {
           session.executionScope = resolvedScope;
           if (resolvedScope.kind === 'task') {
             session.activeTaskId = resolvedScope.taskId;
           } else {
             delete session.activeTaskId;
+          }
+        } else if (activeTaskId === null) {
+          delete session.activeTaskId;
+          if (session.executionScope?.kind === 'task') {
+            delete session.executionScope;
           }
         } else if (resolvedActiveTaskId !== undefined) {
           session.activeTaskId = resolvedActiveTaskId;
@@ -1130,9 +1140,9 @@ export class AgentSessionBindingService {
           ...(parentSessionId ? { parentSessionId } : {}),
           ...(Array.isArray(predecessorSessions) ? { predecessorSessions: [...predecessorSessions] } : {}),
           ...(resolvedScope ? { executionScope: resolvedScope } : {}),
+          ...(batchExecutionId ? { batchExecutionId } : (resolvedScope?.batchExecutionId ? { batchExecutionId: resolvedScope.batchExecutionId } : {})),
           ...(resolvedScope?.kind === 'task' ? { activeTaskId: resolvedScope.taskId } : (resolvedActiveTaskId ? { activeTaskId: resolvedActiveTaskId } : {})),
           taskIds: accumulatedTaskIds,
-          ...(batchExecutionId ? { batchExecutionId } : {}),
           createdAt: createdAt ? normalizeTimestamp(createdAt, 'createdAt') : now,
           lastSeenAt: lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now,
         };
@@ -1192,7 +1202,7 @@ export class AgentSessionBindingService {
         provider: session.provider,
         providerSessionId: session.providerSessionId,
         specId: session.specId,
-        ...(resolvedScope?.kind === 'task' ? { taskId: resolvedScope.taskId } : (taskId ? { taskId } : {})),
+        ...(resolvedScope?.kind === 'task' ? { taskId: resolvedScope.taskId } : (activeTaskId !== null && taskId ? { taskId } : {})),
         ...(session.executionScope ? { executionScope: session.executionScope } : {}),
         ...(binding?.step ? { step: binding.step } : {}),
         ...(binding?.attempt !== undefined ? { attempt: binding.attempt } : {}),

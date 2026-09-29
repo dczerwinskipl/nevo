@@ -92,12 +92,34 @@ export function autoBindAgentSession(change, taskId, purpose, options = {}) {
       const bindingService = createAgentSessionBindingService({
         storageDir: resolve(repoRoot, '.nevo-ai-local/sessions'),
       });
+
+      const existingSession = context.sessionId ? bindingService.getSessionSync(context.sessionId) : null;
+      let activeTaskIdToSet;
+      if (options.clearActiveTask === true || purpose === 'finish') {
+        activeTaskIdToSet = null;
+      } else if (existingSession) {
+        // If existing session was generic (no activeTaskId), keep it generic unless explicitly promoted.
+        if (!existingSession.activeTaskId && options.promoteToActive !== true) {
+          activeTaskIdToSet = null;
+        } else {
+          activeTaskIdToSet = options.activeTaskId !== undefined
+            ? options.activeTaskId
+            : (taskId || existingSession.activeTaskId);
+        }
+      } else {
+        // New session created by/for workflow execution: establish activeTaskId from taskId or explicit options
+        activeTaskIdToSet = options.activeTaskId !== undefined
+          ? options.activeTaskId
+          : (taskId || process.env.NEVO_TASK_ID?.trim() || null);
+      }
+
       bindingService.bindSessionSync({
         sessionId: context.sessionId || undefined,
         provider: context.provider,
         providerSessionId: context.providerSessionId,
         specId,
         taskId: taskId || undefined,
+        activeTaskId: activeTaskIdToSet,
         step: options.step || undefined,
         attempt: options.attempt != null ? options.attempt : undefined,
         purpose,

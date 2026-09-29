@@ -474,7 +474,6 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
   if (step) {
     assertStepExecutor(step, 'agent', { stepId: stepName });
   }
-  autoBindAgentSession(change, task.id, 'finish', { step: stepName, attempt, repoRoot: context.repoRoot });
 
   let ambientSessionId = null;
   const specId = resolveStableSpecId(change);
@@ -510,6 +509,10 @@ export async function handleWorkflowStepFinish(changeSlug, taskId, opts = {}) {
     result = await finishStep({ change, task, definition, context, inputs, activeDir: context.activeDir, gateRegistry });
   } catch (err) {
     finishError = err;
+  }
+
+  if (!finishError) {
+    autoBindAgentSession(change, task.id, 'finish', { step: stepName, attempt, repoRoot: context.repoRoot, clearActiveTask: true });
   }
 
   // D69: Settlement-gated release of cli-manual claim
