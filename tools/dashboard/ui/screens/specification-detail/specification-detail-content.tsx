@@ -133,17 +133,17 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
     taskIds?: string[];
     isOneOff?: boolean;
     reviewTogether?: boolean;
-    initialConfig?: { provider: string; mode?: AgentExecutionMode } | null;
+    initialConfig?: { provider: string; mode?: AgentExecutionMode; model?: string } | null;
   } | null>(null);
 
   /**
-   * Submits candidate to the agent-admission gate (Item 1, D41/D49, Task 29) instead of
-   * bypassing admission for deterministic execution.
-   */
+    * Submits candidate to the agent-admission gate (Item 1, D41/D49, Task 29) instead of
+    * bypassing admission for deterministic execution.
+    */
   const proceedWithAgentExecution = useCallback(
     async (
       targetTaskId: string,
-      policy: { provider?: string; mode?: AgentExecutionMode; oneOff?: boolean } = {},
+      policy: { provider?: string; mode?: AgentExecutionMode; model?: string; oneOff?: boolean } = {},
       taskIds?: string[],
       executionOptions?: { reviewTogether?: boolean },
     ) => {
@@ -158,6 +158,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
           ...(policy.oneOff ? { oneOff: true } : {}),
           ...(policy.oneOff && policy.provider ? { provider: policy.provider } : {}),
           ...(policy.oneOff && policy.mode ? { mode: policy.mode } : {}),
+          ...(policy.model !== undefined ? { model: policy.model } : {}),
           ...(executionOptions?.reviewTogether ? { reviewTogether: true } : {}),
           specId: specification.specId,
           slug: specification.slug,
@@ -213,7 +214,15 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
       if (stepDescriptor.executor === 'agent') {
         try {
           const currentPolicy = executionPolicyQuery.policy;
-          if (options?.oneOff || !currentPolicy) {
+          const isBatchReview = Boolean(options?.reviewTogether);
+          let hasConflict = false;
+          if (isBatchReview && taskIds && taskIds.length > 1 && currentPolicy) {
+            const policies = taskIds.map((id) => resolvePolicyForTask(currentPolicy, id, { role: 'reviewer' }));
+            const first = policies[0];
+            hasConflict = policies.some((p) => p?.provider !== first?.provider || p?.mode !== first?.mode);
+          }
+
+          if (options?.oneOff || !currentPolicy || hasConflict) {
             const actionGate = actionsQuery.data?.tasks?.[targetTaskId];
             const effectiveRole = actionGate?.execution?.role || undefined;
             const effective = resolvePolicyForTask(currentPolicy, targetTaskId, { role: effectiveRole });
@@ -221,9 +230,9 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
               task,
               stepDescriptor,
               taskIds,
-              isOneOff: Boolean(options?.oneOff),
+              isOneOff: Boolean(options?.oneOff) || hasConflict,
               reviewTogether: Boolean(options?.reviewTogether),
-              initialConfig: effective ? { provider: effective.provider, mode: effective.mode } : null,
+              initialConfig: effective && !hasConflict ? { provider: effective.provider, mode: effective.mode, model: (effective as any)?.model } : null,
             });
             return;
           }
@@ -586,7 +595,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
                 if (target.task && target.stepDescriptor?.id !== '__configure_only__') {
                   await proceedWithAgentExecution(
                     target.task.id,
-                    { provider: chosen.provider, mode: chosen.mode, oneOff: true },
+                    { provider: chosen.provider, mode: chosen.mode, model: chosen.model, oneOff: true },
                     target.taskIds,
                     { reviewTogether: target.reviewTogether },
                   );
@@ -596,6 +605,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
                   ...chosen,
                   provider: chosen.provider,
                   mode: chosen.mode,
+                  ...(chosen.model ? { model: chosen.model } : {}),
                   ...(chosen.default ? { default: chosen.default } : {}),
                   ...(chosen.roles ? { roles: chosen.roles } : {}),
                   ...(chosen.taskOverrides ? { taskOverrides: chosen.taskOverrides } : (executionPolicyQuery.policy?.taskOverrides ? { taskOverrides: executionPolicyQuery.policy.taskOverrides } : {})),
@@ -603,7 +613,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
                 if (target.task && target.stepDescriptor?.id !== '__configure_only__') {
                   await proceedWithAgentExecution(
                     target.task.id,
-                    undefined,
+                    chosen.model ? { model: chosen.model } : undefined,
                     target.taskIds,
                     { reviewTogether: target.reviewTogether },
                   );

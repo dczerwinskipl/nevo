@@ -18,6 +18,7 @@ import { AgentSessionList } from '@/features/agent-sessions/agent-session-list';
 import { StatusBoard } from '@/features/specifications/detail/status-board';
 
 export interface SequentialQueueTaskPickerProps {
+  specification?: SpecificationSummary;
   tasks: SpecificationTask[];
   taskActions?: Record<string, SpecificationTaskActionGate>;
   onStartStep?: (
@@ -33,6 +34,7 @@ export interface SequentialQueueTaskPickerProps {
 }
 
 export function SequentialQueueTaskPicker({
+  specification,
   tasks,
   taskActions,
   onStartStep,
@@ -252,7 +254,13 @@ export function SequentialQueueTaskPicker({
         <div className="mt-3 flex items-center justify-between rounded-lg border border-accent/30 bg-accent/5 px-3 py-2 text-xs">
           <span className="text-fg-secondary">Shared batch review report:</span>
           <a
-            href={`#${sharedBatchReportPath}`}
+            href={
+              specification?.slug
+                ? `/api/specs/${specification.source || 'active'}/${specification.slug}/content/review:${sharedBatchReportPath.replace(/^.*reviews\/|\.md$/g, '')}`
+                : `#${sharedBatchReportPath}`
+            }
+            target="_blank"
+            rel="noreferrer"
             className="font-semibold text-accent hover:underline"
             aria-label="Shared batch review report"
           >
@@ -470,6 +478,7 @@ export function SpecificationOverview({
 
       {isDeterministic && specification.tasks && specification.tasks.length > 0 && (
         <SequentialQueueTaskPicker
+          specification={specification}
           tasks={specification.tasks}
           taskActions={taskActions}
           onStartStep={onStartStep}

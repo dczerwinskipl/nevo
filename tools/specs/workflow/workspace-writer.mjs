@@ -257,6 +257,7 @@ export async function acquireWorkspaceWriter(params = {}) {
     sessionId,
     turnId,
     turnStartState,
+    batchExecutionId,
     timeoutMs = 15000,
     retryIntervalMs = 50,
   } = params;
@@ -302,6 +303,7 @@ export async function acquireWorkspaceWriter(params = {}) {
           ...(params.changeSlug ? { changeSlug: params.changeSlug } : {}),
           ...(claimScope ? { scope: claimScope } : {}),
           ...(claimScope?.kind === 'task' ? { taskId: claimScope.taskId } : {}),
+          ...(batchExecutionId ? { batchExecutionId } : {}),
           ...(sessionId ? { sessionId } : {}),
           ...(turnId ? { turnId } : {}),
           ...(turnStartState ? { turnStartState } : {}),
@@ -633,6 +635,7 @@ export async function updateWorkspaceWriterIfOwned(params = {}) {
     sessionId,
     turnId,
     turnStartState,
+    batchExecutionId,
     specId,
     changeSlug,
     taskId,
@@ -708,6 +711,7 @@ export async function updateWorkspaceWriterIfOwned(params = {}) {
 
     if (sessionId !== undefined) current.sessionId = sessionId;
     if (turnId !== undefined) current.turnId = turnId;
+    if (batchExecutionId !== undefined) current.batchExecutionId = batchExecutionId;
     if (specId !== undefined) current.specId = specId;
     if (changeSlug !== undefined) current.changeSlug = changeSlug;
     if (scope !== undefined) {

@@ -31,7 +31,16 @@ export function resolveDeterministicExecutionTarget({ specId, slug, changeSlug, 
   try {
     canonical = resolveCanonicalSpec(identifier, { activeDir, archiveDir });
   } catch (err) {
-    throw new AiValidationError(err.message, { cause: err });
+    const change = loadChange(identifier, activeDir) || loadChange(identifier, archiveDir);
+    if (change) {
+      canonical = {
+        specId: change.spec_id || change.id || change._slug,
+        slug: change._slug,
+        change,
+      };
+    } else {
+      throw new AiValidationError(err.message, { cause: err });
+    }
   }
 
   if (!canonical?.change) {
@@ -148,10 +157,24 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         }
 
         const { executionPolicyService } = await import('../execution-policy-service.mjs');
-        const resolvedPolicy = executionPolicyService.resolveExecutionPolicy(changeSlug, selectedTaskIds[0], {
-          role: 'reviewer',
-          repoRoot: effectiveRepoRoot,
-        });
+        // D12: Detect task override conflicts across selected tasks
+        const resolvedPolicies = selectedTaskIds.map((tId) =>
+          executionPolicyService.resolveExecutionPolicy(changeSlug, tId, {
+            role: 'reviewer',
+            repoRoot: effectiveRepoRoot,
+          })
+        );
+        const firstPolicy = resolvedPolicies[0];
+        const hasPolicyConflict = resolvedPolicies.some(
+          (p) => p?.provider !== firstPolicy?.provider || p?.mode !== firstPolicy?.mode
+        );
+        if (hasPolicyConflict && !body.oneOff && !body.provider) {
+          throw new AiValidationError(
+            'Selected tasks have conflicting execution policy overrides. An explicit provider and mode must be selected for the batch.'
+          );
+        }
+
+        const resolvedPolicy = hasPolicyConflict ? null : firstPolicy;
 
         let effectiveProvider = body.oneOff ? (body.provider || resolvedPolicy?.provider) : (resolvedPolicy?.provider || body.provider);
         let effectiveMode = body.oneOff ? (body.mode || resolvedPolicy?.mode || 'agent') : (resolvedPolicy?.mode || body.mode || 'agent');
@@ -164,30 +187,34 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
           throw new AiValidationError('No execution provider specified or configured in execution policy for reviewer.');
         }
 
-        // Context capacity snapshot (D26, D34, D38)
-        let contextCapacity = null;
-        if (typeof body.maxContextTokens === 'number') {
-          contextCapacity = { status: 'known', maxContextTokens: body.maxContextTokens, source: 'configured' };
-        } else {
-          let modelMaxTokens = null;
-          try {
-            const providerInstance = service.registry?.get?.(effectiveProvider);
-            const modelDesc = providerInstance?.models?.find?.((m) => m.id === body.model || m.name === body.model);
+        // Context capacity snapshot (D26, D34, D38):
+        // Capacity authority is ALWAYS the provider's canonical model catalog -- never client-supplied.
+        let modelMaxTokens = null;
+        const effectiveModel = body.model || null;
+        try {
+          const providerEntry = service.registry?.get?.(effectiveProvider);
+          if (providerEntry && typeof providerEntry.provider?.listModels === 'function') {
+            // Use the same canonical model listing path as service.listProviders()
+            const models = await providerEntry.provider.listModels();
+            const modelDesc = Array.isArray(models)
+              ? models.find((m) => m.id === effectiveModel || m.name === effectiveModel)
+              : null;
             if (typeof modelDesc?.traits?.maxContextTokens === 'number') {
               modelMaxTokens = modelDesc.traits.maxContextTokens;
             }
-          } catch {}
-
-          if (typeof modelMaxTokens === 'number') {
-            contextCapacity = { status: 'known', maxContextTokens: modelMaxTokens, source: 'catalog' };
-          } else {
-            contextCapacity = { status: 'unknown', reason: 'Catalog trait not available' };
           }
+        } catch {}
+
+        let contextCapacity = null;
+        if (typeof modelMaxTokens === 'number') {
+          contextCapacity = { status: 'known', maxContextTokens: modelMaxTokens, source: 'catalog' };
+        } else {
+          contextCapacity = { status: 'unknown', reason: 'Catalog trait not available' };
         }
 
         const executionConfigSnapshot = {
           provider: effectiveProvider,
-          model: body.model || null,
+          model: effectiveModel,
           mode: effectiveMode,
           contextCapacity,
         };
@@ -687,7 +714,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
       console.log(
         `[ai] [turn:start] provider=${provider || 'unknown'} sessionId=${sessionId}${body.mode ? ` mode=${body.mode}` : ''}${body.model ? ` model=${body.model}` : ''} prompt="${(body.message ?? body.prompt ?? '').slice(0, 60)}"`,
       );
-      // sessionId is explicitly canonical here (the path param this route is named for) —
+      // sessionId is explicitly canonical here (the path param this route is named for) â€”
       // passed via opts.sessionId, never the ambiguous legacy positional identity slot.
       const result = await service.startTurn(provider, undefined, {
         sessionId,
@@ -808,4 +835,6 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
     },
   );
 }
+
+
 

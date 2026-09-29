@@ -419,6 +419,7 @@ export interface ExecutionPolicySelectionDialogProps {
   onConfirm: (policy: {
     provider: string;
     mode: AgentExecutionMode;
+    model?: string;
     default?: { provider: string; mode: AgentExecutionMode };
     roles?: Record<string, RoleExecutionOverride>;
     taskOverrides?: Record<string, TaskExecutionOverride>;
@@ -447,6 +448,9 @@ export function ExecutionPolicySelectionDialog({
   const [mode, setMode] = useState<AgentExecutionMode>(
     initialConfig?.mode || initialPolicy?.default?.mode || initialPolicy?.mode || 'agent'
   );
+  const [model, setModel] = useState<string>(
+    initialConfig?.model || (initialPolicy as any)?.model || ''
+  );
   const [implementerProvider, setImplementerProvider] = useState(initialPolicy?.roles?.implementer?.provider || '');
   const [reviewerProvider, setReviewerProvider] = useState(initialPolicy?.roles?.reviewer?.provider || '');
   const [refinerProvider, setRefinerProvider] = useState(initialPolicy?.roles?.refiner?.provider || '');
@@ -457,12 +461,18 @@ export function ExecutionPolicySelectionDialog({
       if (initialConfig.mode) {
         setMode(initialConfig.mode);
       }
+      if (initialConfig.model !== undefined) {
+        setModel(initialConfig.model);
+      }
     } else if (initialPolicy) {
       if (initialPolicy.default?.provider || initialPolicy.provider) {
         setProvider(initialPolicy.default?.provider || initialPolicy.provider);
       }
       if (initialPolicy.default?.mode || initialPolicy.mode) {
         setMode(initialPolicy.default?.mode || initialPolicy.mode);
+      }
+      if ((initialPolicy as any)?.model) {
+        setModel((initialPolicy as any).model);
       }
       if (initialPolicy.roles?.implementer?.provider !== undefined) {
         setImplementerProvider(initialPolicy.roles.implementer.provider);
@@ -527,6 +537,7 @@ export function ExecutionPolicySelectionDialog({
       onConfirm({
         provider,
         mode,
+        model: model || undefined,
         oneOff: true,
       });
       return;
@@ -541,6 +552,7 @@ export function ExecutionPolicySelectionDialog({
         provider,
         mode,
       },
+      ...(model ? { model } : {}),
       ...(Object.keys(baseRoles).length > 0 ? { roles: baseRoles } : {}),
       ...(initialPolicy?.taskOverrides ? { taskOverrides: initialPolicy.taskOverrides } : {}),
     });
@@ -593,6 +605,7 @@ export function ExecutionPolicySelectionDialog({
           selectedProvider={provider}
           onSelectProvider={(pId) => {
             setProvider(pId);
+            setModel('');
             const pObj = rawProviders.find((p) => p.id === pId);
             const supported = pObj?.supportedModes || ['ask', 'edit', 'agent'];
             if (!supported.includes(mode)) {
@@ -601,6 +614,8 @@ export function ExecutionPolicySelectionDialog({
           }}
           selectedMode={mode}
           onSelectMode={setMode}
+          selectedModel={model}
+          onSelectModel={setModel}
           loading={providers.loading}
           error={providers.error}
         />

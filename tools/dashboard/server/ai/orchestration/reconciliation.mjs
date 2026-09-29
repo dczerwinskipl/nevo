@@ -224,82 +224,131 @@ export async function reconcileBootState(options = {}) {
   // 1. Reconcile workspace-writer claim snapshot (Hook 3, D100)
   const claimSnapshot = getWorkspaceWriterClaim(repoRoot);
   if (claimSnapshot && claimSnapshot.kind === 'agent') {
-    const { ownerId, sessionId, turnId, turnStartState, specId, taskId } = claimSnapshot;
+    const { ownerId, sessionId, turnId, turnStartState, specId } = claimSnapshot;
+    const taskId = claimSnapshot.scope?.kind === 'task' ? claimSnapshot.scope.taskId : claimSnapshot.taskId;
     const changeSlug = claimSnapshot.changeSlug || specId;
+    const isBatchClaim = claimSnapshot.scope?.kind === 'task-batch';
 
-    // Unestablished identity: fail closed (D71, D97)
-    if (!sessionId && !turnStartState) {
-      // Do nothing, leave claim as found
-    } else if (turnStartState === 'prepared') {
-      // Prepared state: startTurn was never called. Settle directly (D99)
-      const settlement = await assessExecutionSettlement({
-        repoRoot,
-        changeSlug,
-        taskId,
-      });
+    if (isBatchClaim) {
+      // Batch claim reconciliation (Issue #3 fix): cannot use single-task assessExecutionSettlement.
+      // Use batchExecutionId from the durable claim to drive assessBatchExecutionSettlement.
+      const batchExecutionId = claimSnapshot.batchExecutionId;
 
-      if (settlement.settled) {
-        await releaseWorkspaceWriterIfOwned({
-          repoRoot,
-          expectedOwnerId: ownerId,
-          expectedKind: 'agent',
-          expectedSpecId: specId,
-          ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
-          expectedTaskId: taskId,
-          expectedSessionId: sessionId,
-        });
-        reconciledClaims++;
-      } else {
+      if (!sessionId && !turnStartState) {
+        // Unestablished: fail closed, leave as-is (D71)
+      } else if (turnStartState === 'invoking') {
+        // Invoking: ambiguous start boundary, fail closed to recovery-required (D99)
         await markWorkspaceWriterRecoveryRequiredIfOwned({
           repoRoot,
           expectedOwnerId: ownerId,
           expectedKind: 'agent',
           expectedSpecId: specId,
           ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
-          expectedTaskId: taskId,
+          expectedScope: claimSnapshot.scope,
           expectedSessionId: sessionId,
+        });
+        reconciledClaims++;
+      } else if (batchExecutionId && (turnStartState === 'prepared' || turnStartState === 'started')) {
+        // Authoritative: check durable batch-finish state
+        const { assessBatchExecutionSettlement, executeBatchCompletionSettlement } = await import('./batch-completion-settlement.mjs');
+        const batchSettlement = assessBatchExecutionSettlement({ repoRoot, changeSlug, batchExecutionId });
+
+        if (batchSettlement.settled) {
+          // Batch-finish is complete but settlement saga didn't finish — resume it
+          try {
+            await executeBatchCompletionSettlement({
+              repoRoot,
+              changeSlug,
+              batchExecutionId,
+              sessionId,
+              ownerId,
+              options: { repoRoot, sessionService, bindingService },
+            });
+          } catch (err) {
+            // Settlement failed: mark recovery-required so operator is aware
+            await markWorkspaceWriterRecoveryRequiredIfOwned({
+              repoRoot,
+              expectedOwnerId: ownerId,
+              expectedKind: 'agent',
+              expectedSpecId: specId,
+              ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
+              expectedScope: claimSnapshot.scope,
+              expectedSessionId: sessionId,
+            }).catch(() => {});
+          }
+          reconciledClaims++;
+        } else {
+          // Batch-finish not completed: provider turn ended without completing batch-finish.
+          // Fail closed to recovery-required (prevents premature reservation release).
+          await markWorkspaceWriterRecoveryRequiredIfOwned({
+            repoRoot,
+            expectedOwnerId: ownerId,
+            expectedKind: 'agent',
+            expectedSpecId: specId,
+            ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
+            expectedScope: claimSnapshot.scope,
+            expectedSessionId: sessionId,
+            ...(turnId && turnStartState === 'started' ? { expectedTurnId: turnId } : {}),
+          });
+          reconciledClaims++;
+        }
+      } else {
+        // Missing batchExecutionId: ambiguous identity, fail closed
+        await markWorkspaceWriterRecoveryRequiredIfOwned({
+          repoRoot,
+          expectedOwnerId: ownerId,
+          expectedKind: 'agent',
+          expectedSpecId: specId,
+          ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
+          expectedScope: claimSnapshot.scope,
         });
         reconciledClaims++;
       }
-    } else if (turnStartState === 'invoking') {
-      // Invoking state: ambiguous start boundary (D99).
-      // Under D99, claims in turnStartState: 'invoking' do not yet carry turnId (which is persisted atomically
-      // alongside 'started' after startTurn resolves). Furthermore, Turn aggregates carry no workspace-claim
-      // ownerId (D98) and transcripts provide no execution-specific correlation token. Therefore, upon crash
-      // recovery in 'invoking', no authoritative correlation exists to prove whether a turn in the transcript
-      // belongs to this exact execution or an earlier execution on a reused session.
-      // To guarantee safety and prevent misattribution, 'invoking' fails closed to recovery-required (D99).
-      await markWorkspaceWriterRecoveryRequiredIfOwned({
-        repoRoot,
-        expectedOwnerId: ownerId,
-        expectedKind: 'agent',
-        expectedSpecId: specId,
-        ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
-        expectedTaskId: taskId,
-        expectedSessionId: sessionId,
-      });
-      reconciledClaims++;
-    } else if (turnStartState === 'started') {
-      // Started state: authoritative (D99)
-      const settlement = await assessExecutionSettlement({
-        repoRoot,
-        changeSlug,
-        taskId,
-      });
+    } else {
+      // Single-task claim: existing behavior (D99)
 
-      if (settlement.settled) {
-        await releaseWorkspaceWriterIfOwned({
+      // Unestablished identity: fail closed (D71, D97)
+      if (!sessionId && !turnStartState) {
+        // Do nothing, leave claim as found
+      } else if (turnStartState === 'prepared') {
+        // Prepared state: startTurn was never called. Settle directly (D99)
+        const settlement = await assessExecutionSettlement({
           repoRoot,
-          expectedOwnerId: ownerId,
-          expectedKind: 'agent',
-          expectedSpecId: specId,
-          ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
-          expectedTaskId: taskId,
-          expectedSessionId: sessionId,
-          expectedTurnId: turnId,
+          changeSlug,
+          taskId,
         });
-        reconciledClaims++;
-      } else {
+
+        if (settlement.settled) {
+          await releaseWorkspaceWriterIfOwned({
+            repoRoot,
+            expectedOwnerId: ownerId,
+            expectedKind: 'agent',
+            expectedSpecId: specId,
+            ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
+            expectedTaskId: taskId,
+            expectedSessionId: sessionId,
+          });
+          reconciledClaims++;
+        } else {
+          await markWorkspaceWriterRecoveryRequiredIfOwned({
+            repoRoot,
+            expectedOwnerId: ownerId,
+            expectedKind: 'agent',
+            expectedSpecId: specId,
+            ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
+            expectedTaskId: taskId,
+            expectedSessionId: sessionId,
+          });
+          reconciledClaims++;
+        }
+      } else if (turnStartState === 'invoking') {
+        // Invoking state: ambiguous start boundary (D99).
+        // Under D99, claims in turnStartState: 'invoking' do not yet carry turnId (which is persisted atomically
+        // alongside 'started' after startTurn resolves). Furthermore, Turn aggregates carry no workspace-claim
+        // ownerId (D98) and transcripts provide no execution-specific correlation token. Therefore, upon crash
+        // recovery in 'invoking', no authoritative correlation exists to prove whether a turn in the transcript
+        // belongs to this exact execution or an earlier execution on a reused session.
+        // To guarantee safety and prevent misattribution, 'invoking' fails closed to recovery-required (D99).
         await markWorkspaceWriterRecoveryRequiredIfOwned({
           repoRoot,
           expectedOwnerId: ownerId,
@@ -308,9 +357,41 @@ export async function reconcileBootState(options = {}) {
           ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
           expectedTaskId: taskId,
           expectedSessionId: sessionId,
-          expectedTurnId: turnId,
         });
         reconciledClaims++;
+      } else if (turnStartState === 'started') {
+        // Started state: authoritative (D99)
+        const settlement = await assessExecutionSettlement({
+          repoRoot,
+          changeSlug,
+          taskId,
+        });
+
+        if (settlement.settled) {
+          await releaseWorkspaceWriterIfOwned({
+            repoRoot,
+            expectedOwnerId: ownerId,
+            expectedKind: 'agent',
+            expectedSpecId: specId,
+            ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
+            expectedTaskId: taskId,
+            expectedSessionId: sessionId,
+            expectedTurnId: turnId,
+          });
+          reconciledClaims++;
+        } else {
+          await markWorkspaceWriterRecoveryRequiredIfOwned({
+            repoRoot,
+            expectedOwnerId: ownerId,
+            expectedKind: 'agent',
+            expectedSpecId: specId,
+            ...(claimSnapshot.changeSlug ? { expectedChangeSlug: claimSnapshot.changeSlug } : {}),
+            expectedTaskId: taskId,
+            expectedSessionId: sessionId,
+            expectedTurnId: turnId,
+          });
+          reconciledClaims++;
+        }
       }
     }
   }

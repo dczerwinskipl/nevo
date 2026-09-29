@@ -262,12 +262,7 @@ export async function createGroupReservation(params = {}) {
   };
 
   if (repoRoot) {
-    try {
-      return await withWorkspaceControlLock(mutate, { repoRoot });
-    } catch (err) {
-      if (err instanceof WorkflowError) throw err;
-      return await mutate();
-    }
+    return await withWorkspaceControlLock(mutate, { repoRoot });
   }
 
   return await mutate();
@@ -315,11 +310,7 @@ export async function releaseGroupReservation(params = {}) {
   };
 
   if (repoRoot) {
-    try {
-      return await withWorkspaceControlLock(mutate, { repoRoot });
-    } catch {
-      return await mutate();
-    }
+    return await withWorkspaceControlLock(mutate, { repoRoot });
   }
 
   return await mutate();

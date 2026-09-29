@@ -148,6 +148,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
     }
 
     // 4. Claim workspace-writer slot (kind: 'agent', keyed by worktree, D55, D65)
+    const candidateBatchExecutionId = candidateScope.kind === 'task-batch' ? (candidate?.batchExecutionId || null) : null;
     const acquireRes = await acquireWorkspaceWriter({
       repoRoot,
       kind: 'agent',
@@ -155,7 +156,9 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
       changeSlug,
       scope: candidateScope,
       ...(candidateScope.kind === 'task' ? { taskId: candidateScope.taskId } : {}),
+      ...(candidateBatchExecutionId ? { batchExecutionId: candidateBatchExecutionId } : {}),
     });
+
 
     if (!acquireRes.acquired) {
       return {
@@ -205,6 +208,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
           model: candidate.model,
           role: candidate.role,
           parentSessionId: candidate.parentSessionId,
+          ...(candidate.batchExecutionId ? { batchExecutionId: candidate.batchExecutionId } : {}),
         });
         canonicalSessionId = created.sessionId;
       }
@@ -225,6 +229,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
         ...(candidateScope.kind === 'task' ? { expectedTaskId: candidateScope.taskId } : {}),
         sessionId: canonicalSessionId,
         turnStartState: 'prepared',
+        ...(candidate.batchExecutionId ? { batchExecutionId: candidate.batchExecutionId } : {}),
       });
 
       if (!enrichRes1.updated) {
@@ -268,6 +273,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
       sessionId: canonicalSessionId,
       scope: candidateScope,
       ...(candidateScope.kind === 'task' ? { taskId: candidateScope.taskId } : {}),
+      ...(candidate.batchExecutionId ? { batchExecutionId: candidate.batchExecutionId } : {}),
       specId,
       changeSlug,
       candidate,
@@ -295,6 +301,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
         ...(candidateScope.kind === 'task' ? { expectedTaskId: candidateScope.taskId } : {}),
         sessionId: canonicalSessionId,
         turnStartState: 'invoking',
+        ...(candidate.batchExecutionId ? { batchExecutionId: candidate.batchExecutionId } : {}),
       });
 
       if (!enrichRes2.updated) {
@@ -378,6 +385,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
           sessionId: canonicalSessionId,
           turnId,
           turnStartState: 'started',
+          ...(candidate.batchExecutionId ? { batchExecutionId: candidate.batchExecutionId } : {}),
         });
 
         if (!enrichRes3.updated) {
@@ -441,9 +449,23 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             taskId: capturedTaskId,
             activeDir: options.activeDir,
           });
-        } else {
-          settlement = { settled: Boolean(turnOutcome.settled) };
+        } else if (capturedScope.kind === 'task-batch') {
+          // For batch scope, settlement is determined by the authoritative durable batch-finish record
+          // — never by an arbitrary boolean from the callback caller (fixes Issue #2).
+          // Resolve batchExecutionId: prefer durable claim, then candidate closure.
+          const liveClaim = getWorkspaceWriterClaim(repoRoot);
+          const durableBatchId = liveClaim?.batchExecutionId || candidate?.batchExecutionId || executionRecord?.batchExecutionId || capturedScope?.batchExecutionId;
+          if (durableBatchId) {
+            const { assessBatchExecutionSettlement } = await import('./batch-completion-settlement.mjs');
+            settlement = assessBatchExecutionSettlement({
+              repoRoot,
+              changeSlug: capturedChangeSlug,
+              batchExecutionId: durableBatchId,
+            });
+          }
+          // If we can't resolve batchExecutionId, fail closed (settlement.settled remains false)
         }
+
 
         if (settlement.settled) {
           if (capturedScope.kind === 'task-batch') {

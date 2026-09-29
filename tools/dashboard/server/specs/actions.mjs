@@ -131,13 +131,15 @@ export function computeDeterministicTaskActionProjection(task, change, options =
         session: matchResult.transition.execution?.session || 'fresh',
       };
     }
+  }
+
   // Surface last review verdict, feedback, and report path (Task 08, D7, D13)
   let lastReview = null;
   const history = task?.workflow_progress?.history;
   if (Array.isArray(history)) {
     for (let i = history.length - 1; i >= 0; i--) {
       const entry = history[i];
-      if (entry.step === 'review' || entry.result === 'pass' || entry.result === 'fail') {
+      if (entry.result === 'pass' || entry.result === 'fail' || entry.batchExecutionId) {
         const reportPath = entry.artifacts?.find((a) => typeof a === 'string' && a.includes('review-batch-')) ||
           (entry.batchExecutionId ? `reviews/review-batch-${entry.batchExecutionId}.md` : null);
         lastReview = {

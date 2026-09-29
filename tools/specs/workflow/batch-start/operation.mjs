@@ -17,10 +17,6 @@ import {
 } from './record.mjs';
 import { recordWorkspaceBaseline } from './workspace-baseline.mjs';
 import { buildBatchContext } from '../../context/batch-context.mjs';
-import {
-  createAgentSessionBindingService,
-  readAgentExecutionContext,
-} from '../../../dashboard/server/ai/sessions/binding-service.mjs';
 import { WorkflowError } from '../errors.mjs';
 
 function arraysEqual(a, b) {
@@ -37,7 +33,8 @@ function arraysEqual(a, b) {
  * @param {object} params
  * @param {string} params.changeSlug
  * @param {string} params.batchExecutionId
- * @param {string} [params.sessionId]
+ * @param {string} [params.sessionId] - Trusted session id (resolved by caller from ambient execution context)
+ * @param {object} [params.bindingService] - Optional session binding service (passed in from dashboard layer, not imported here)
  * @param {string} [params.repoRoot]
  * @param {string} [params.activeDir]
  * @param {boolean} [params.silent]
@@ -48,6 +45,7 @@ export async function executeBatchStart(params = {}) {
     changeSlug,
     batchExecutionId,
     sessionId: explicitSessionId,
+    bindingService,
     repoRoot = process.cwd(),
     activeDir = ACTIVE_DIR,
   } = params;
@@ -87,27 +85,37 @@ export async function executeBatchStart(params = {}) {
     }
   }
 
-  // 2. Trusted identity verification (D33)
-  const isDefaultRepo = !repoRoot || repoRoot === process.cwd();
-  const ambient = isDefaultRepo
-    ? readAgentExecutionContext(process.env, { repoRoot, specId: change.id || change._slug })
-    : null;
-  const effectiveSessionId = explicitSessionId !== undefined ? explicitSessionId : (ambient?.sessionId || null);
+  // 2. Trusted identity verification (D33, Issue #5 fix, Issue #6 fix).
+  // The session id must come from the caller — resolved from the trusted execution environment
+  // (env vars set by the provider, Codex bridge, etc.) — never from CLI arguments.
+  // The --batch value is a durable correlation key only; it is never authority by itself.
+  const effectiveSessionId = explicitSessionId !== undefined ? explicitSessionId : null;
 
-  let bindingService = null;
-  try {
-    bindingService = createAgentSessionBindingService(repoRoot);
-  } catch {}
+  // Resolve binding service once: prefer caller-injected; fall back via dynamic import.
+  // Dynamic import avoids a static module-level dependency from workflow/core onto dashboard/server.
+  let effectiveBindingService = bindingService || null;
+  if (!effectiveBindingService) {
+    try {
+      const { createAgentSessionBindingService } = await import('../../../dashboard/server/ai/sessions/binding-service.mjs');
+      effectiveBindingService = createAgentSessionBindingService(repoRoot);
+    } catch {}
+  }
 
-  if (effectiveSessionId && bindingService) {
-    const session = bindingService.getSessionSync(effectiveSessionId);
+  // Fail-closed identity check: when a sessionId is present, verify it matches the reservation.
+  if (effectiveSessionId && effectiveBindingService) {
+    let session = null;
+    try {
+      session = effectiveBindingService.getSessionSync(effectiveSessionId);
+    } catch {}
     if (session) {
+      // Verify batchExecutionId matches if already persisted on the session
       if (session.batchExecutionId && session.batchExecutionId !== batchExecutionId) {
         throw new WorkflowError(
           `Session '${effectiveSessionId}' batchExecutionId '${session.batchExecutionId}' does not match reservation '${batchExecutionId}'`,
           { code: 'BATCH_IDENTITY_MISMATCH', sessionId: effectiveSessionId }
         );
       }
+      // Verify scope if present
       if (session.executionScope) {
         if (session.executionScope.kind !== 'task-batch') {
           throw new WorkflowError(
@@ -249,13 +257,13 @@ export async function executeBatchStart(params = {}) {
     memberStepContexts,
     reservation,
     repoRoot,
-    bindingService,
+    bindingService: effectiveBindingService,
   });
 
   // 10. Persist lineage onto AgentSession if bound (D8)
-  if (effectiveSessionId && bindingService) {
+  if (effectiveSessionId && effectiveBindingService) {
     try {
-      bindingService.updateSessionLineageSync(
+      effectiveBindingService.updateSessionLineageSync(
         effectiveSessionId,
         {
           predecessorSessions: batchContext.predecessorSessions,
@@ -265,6 +273,7 @@ export async function executeBatchStart(params = {}) {
       );
     } catch {}
   }
+
 
   // 11. Mark operation record completed
   record.status = 'completed';

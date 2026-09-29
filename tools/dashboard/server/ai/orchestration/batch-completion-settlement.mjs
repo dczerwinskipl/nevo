@@ -144,6 +144,49 @@ export function createBatchCompletionSettlement(params = {}) {
 }
 
 /**
+ * Determines whether a batch execution has reached a settleable terminal state,
+ * by inspecting the authoritative durable batch-finish record (D35).
+ *
+ * This is the single source of truth for Hook 1 (terminal subscription) and
+ * Hook 3 (boot reconciliation). Neither hook should trust a caller-supplied boolean.
+ *
+ * Settlement is true when and only when the durable batch-finish record has status 'completed'.
+ * Failed/cancelled provider turns that never completed batch-finish remain unsettled.
+ *
+ * @param {object} params
+ * @param {string} params.repoRoot
+ * @param {string} params.changeSlug
+ * @param {string} params.batchExecutionId
+ * @returns {{ settled: boolean, reason?: string, finishRecord?: object }}
+ */
+export function assessBatchExecutionSettlement({ repoRoot, changeSlug, batchExecutionId }) {
+  if (!repoRoot || !changeSlug || !batchExecutionId) {
+    return { settled: false, reason: 'missing-parameters' };
+  }
+
+  const finishRecord = loadBatchFinishRecord(repoRoot, changeSlug, batchExecutionId);
+  if (!finishRecord) {
+    return { settled: false, reason: 'batch-finish-not-found' };
+  }
+
+  if (finishRecord.status !== 'completed') {
+    return {
+      settled: false,
+      reason: 'batch-finish-not-completed',
+      finishRecord,
+    };
+  }
+
+  // Check if settlement saga has already fully completed (idempotent re-entry)
+  const existingSettlement = loadBatchCompletionSettlement(repoRoot, changeSlug, batchExecutionId);
+  if (existingSettlement?.status === 'completed') {
+    return { settled: true, reason: 'already-settled', finishRecord, existingSettlement };
+  }
+
+  return { settled: true, finishRecord };
+}
+
+/**
  * Executes the D35/D40 terminal settlement saga for a completed batch execution.
  *
  * Ordered stages:
