@@ -133,7 +133,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
     taskIds?: string[];
     isOneOff?: boolean;
     reviewTogether?: boolean;
-    initialConfig?: { provider: string; mode?: AgentExecutionMode; model?: string } | null;
+    initialConfig?: { provider: string; mode?: AgentExecutionMode; model?: string | null } | null;
   } | null>(null);
 
   /**
@@ -143,7 +143,7 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
   const proceedWithAgentExecution = useCallback(
     async (
       targetTaskId: string,
-      policy: { provider?: string; mode?: AgentExecutionMode; model?: string; oneOff?: boolean } = {},
+      policy: { provider?: string; mode?: AgentExecutionMode; model?: string | null; oneOff?: boolean } = {},
       taskIds?: string[],
       executionOptions?: { reviewTogether?: boolean },
     ) => {
@@ -601,8 +601,9 @@ export function SpecificationDetailContent({ specification }: SpecificationDetai
                   );
                 }
               } else {
+                const { model: _chosenModel, ...restChosen } = chosen;
                 await executionPolicyQuery.savePolicy({
-                  ...chosen,
+                  ...restChosen,
                   provider: chosen.provider,
                   mode: chosen.mode,
                   ...(chosen.model ? { model: chosen.model } : {}),

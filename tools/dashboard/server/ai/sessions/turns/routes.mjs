@@ -140,7 +140,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         });
 
         if (!compat.compatible) {
-          throw new AiValidationError(compat.error || `Incompatible batch review selection: task '${compat.incompatibleTaskId}'`);
+          throw new AiValidationError(compat.reason || compat.error || `Incompatible batch review selection: task '${compat.incompatibleTaskId}'`);
         }
 
         if (compat.role !== 'reviewer') {
@@ -167,14 +167,57 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
 
         const resolvedPolicy = hasPolicyConflict ? null : firstPolicy;
 
-        let effectiveProvider = body.oneOff ? (body.provider || resolvedPolicy?.provider) : (resolvedPolicy?.provider || body.provider);
-        let effectiveMode = body.oneOff ? (body.mode || resolvedPolicy?.mode || 'agent') : (resolvedPolicy?.mode || body.mode || 'agent');
-        let effectiveModel = body.oneOff
-          ? (body.model !== undefined ? (body.model ? body.model.trim() : undefined) : resolvedPolicy?.model)
-          : (resolvedPolicy?.model || (body.model ? body.model.trim() : undefined));
+        let effectiveProvider;
+        let effectiveMode;
+        let effectiveModel;
 
-        if (!effectiveProvider) {
+        if (body.oneOff === true) {
+          effectiveProvider = body.provider || resolvedPolicy?.provider;
+          effectiveMode = body.mode || resolvedPolicy?.mode || 'agent';
+          if (body.model === null) {
+            effectiveModel = undefined;
+          } else if (body.model !== undefined) {
+            effectiveModel = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : undefined;
+          } else {
+            effectiveModel = resolvedPolicy?.model;
+          }
+        } else if (resolvedPolicy?.provider) {
+          if (body.provider && body.provider !== resolvedPolicy.provider) {
+            throw new AiValidationError(
+              `Requested provider '${body.provider}' does not match server-resolved execution policy provider '${resolvedPolicy.provider}'. Use oneOff to override.`
+            );
+          }
+          if (body.mode && body.mode !== resolvedPolicy.mode) {
+            throw new AiValidationError(
+              `Requested mode '${body.mode}' does not match server-resolved execution policy mode '${resolvedPolicy.mode}'. Use oneOff to override.`
+            );
+          }
+          if (body.model !== undefined) {
+            const policyModel = resolvedPolicy.model ? resolvedPolicy.model.trim() : null;
+            const requestedModel = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null;
+            if (requestedModel !== policyModel) {
+              if (policyModel !== null && requestedModel === null) {
+                throw new AiValidationError(
+                  `Requested provider default model does not match server-resolved execution policy model '${resolvedPolicy.model}'. Use oneOff to override.`
+                );
+              }
+              if (policyModel === null && requestedModel !== null) {
+                throw new AiValidationError(
+                  `Requested model '${body.model}' does not match server-resolved execution policy (provider default). Use oneOff to override.`
+                );
+              }
+              throw new AiValidationError(
+                `Requested model '${body.model}' does not match server-resolved execution policy model '${resolvedPolicy.model}'. Use oneOff to override.`
+              );
+            }
+          }
+          effectiveProvider = resolvedPolicy.provider;
+          effectiveMode = resolvedPolicy.mode;
+          effectiveModel = resolvedPolicy.model;
+        } else {
           effectiveProvider = body.provider || null;
+          effectiveMode = body.mode || 'agent';
+          effectiveModel = (body.model && typeof body.model === 'string' && body.model.trim()) ? body.model.trim() : undefined;
         }
 
         if (!effectiveProvider) {
@@ -232,7 +275,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
           role: 'reviewer',
           provider: effectiveProvider,
           mode: effectiveMode,
-          model: body.model === null ? null : (body.model ? body.model.trim() : undefined),
+          model: effectiveModel,
           changeSlug,
           specId: canonicalSpecId,
           sessionPolicy: 'fresh',
@@ -388,7 +431,13 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
       if (body.oneOff === true) {
         effectiveProvider = body.provider || resolvedPolicy?.provider;
         effectiveMode = body.mode || resolvedPolicy?.mode || 'agent';
-        effectiveModel = body.model !== undefined ? (body.model ? body.model.trim() : undefined) : resolvedPolicy?.model;
+        if (body.model === null) {
+          effectiveModel = undefined;
+        } else if (body.model !== undefined) {
+          effectiveModel = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : undefined;
+        } else {
+          effectiveModel = resolvedPolicy?.model;
+        }
       } else if (resolvedPolicy?.provider) {
         if (body.provider && body.provider !== resolvedPolicy.provider) {
           throw new AiValidationError(
@@ -400,10 +449,24 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
             `Requested mode '${body.mode}' does not match server-resolved execution policy mode '${resolvedPolicy.mode}'. Use oneOff to override.`
           );
         }
-        if (body.model && resolvedPolicy.model && body.model.trim() !== resolvedPolicy.model) {
-          throw new AiValidationError(
-            `Requested model '${body.model}' does not match server-resolved execution policy model '${resolvedPolicy.model}'. Use oneOff to override.`
-          );
+        if (body.model !== undefined) {
+          const policyModel = resolvedPolicy.model ? resolvedPolicy.model.trim() : null;
+          const requestedModel = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null;
+          if (requestedModel !== policyModel) {
+            if (policyModel !== null && requestedModel === null) {
+              throw new AiValidationError(
+                `Requested provider default model does not match server-resolved execution policy model '${resolvedPolicy.model}'. Use oneOff to override.`
+              );
+            }
+            if (policyModel === null && requestedModel !== null) {
+              throw new AiValidationError(
+                `Requested model '${body.model}' does not match server-resolved execution policy (provider default). Use oneOff to override.`
+              );
+            }
+            throw new AiValidationError(
+              `Requested model '${body.model}' does not match server-resolved execution policy model '${resolvedPolicy.model}'. Use oneOff to override.`
+            );
+          }
         }
         effectiveProvider = resolvedPolicy.provider;
         effectiveMode = resolvedPolicy.mode;
@@ -412,7 +475,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         // First explicit start with no policy on disk yet (D21)
         effectiveProvider = body.provider || null;
         effectiveMode = body.mode || 'agent';
-        effectiveModel = body.model ? body.model.trim() : undefined;
+        effectiveModel = (body.model && typeof body.model === 'string' && body.model.trim()) ? body.model.trim() : undefined;
       }
 
       if (!effectiveProvider) {

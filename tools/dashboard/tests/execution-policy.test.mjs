@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import { test, describe, beforeEach, afterEach } from 'node:test';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
+import { execSync } from 'node:child_process';
 import Fastify from 'fastify';
 
 import sessionRoutes from '../server/ai/sessions/routes.mjs';
+import turnRoutes from '../server/ai/sessions/turns/routes.mjs';
+import { aiErrorHandler } from '../server/ai/sessions/http.mjs';
 import {
   ExecutionPolicyService,
   executionPolicyFilePath,
@@ -15,6 +19,14 @@ import {
 } from '../server/ai/sessions/execution-policy-service.mjs';
 import { createTrustedNetworkAiAccessPolicy } from '../server/ai/access-policy.mjs';
 import { DEFAULT_AGENT_EXECUTION_MODE } from '../server/ai/contracts.mjs';
+import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
+import { createAgentSessionService } from '../server/ai/sessions/service.mjs';
+import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs';
+import { createAgentSessionBindingService } from '../server/ai/sessions/binding-service.mjs';
+import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
+import { loadTaskQueue } from '../../specs/workflow/queue/store.mjs';
+import { reconcileContinuation } from '../server/ai/orchestration/reconciliation.mjs';
+import '../../specs/workflow/actions/index.mjs';
 
 describe('Task 26: Execution policy and mode selection (D21)', () => {
   let tempDir;
@@ -450,7 +462,7 @@ describe('Task 26: Execution policy and mode selection (D21)', () => {
       fileURLToPath(new URL('../ui/features/agent-sessions/create-agent-session-dialog.tsx', import.meta.url)),
       'utf8',
     );
-    assert.match(dialogSrc, /initialConfig\?: \{ provider: string; mode\?: AgentExecutionMode; model\?: string \} \| null/);
+    assert.match(dialogSrc, /initialConfig\?: \{ provider: string; mode\?: AgentExecutionMode; model\?: string \| null \} \| null/);
     assert.match(dialogSrc, /initialConfig\?\.provider/);
     assert.match(dialogSrc, /setProvider\(initialConfig\.provider\)/);
 
@@ -750,6 +762,389 @@ describe('Task 26: Execution policy and mode selection (D21)', () => {
       );
       assert.match(contentSrc, /p\?\.model !== first\?\.model/);
       assert.match(contentSrc, /initialConfig: effective && !hasConflict \? \{ provider: effective\.provider, mode: effective\.mode, model: effective\.model \} : null/);
+    });
+
+    async function setupDeterministicTestHarness({ tasks, policy } = {}) {
+      const tmpRoot = mkdtempSync(join(tmpdir(), 'nevo-det-model-test-'));
+      execSync('git init -b main && git config user.email test@test.com && git config user.name test', { cwd: tmpRoot });
+
+      mkdirSync(join(tmpRoot, '.nevo-ai', 'workflows'), { recursive: true });
+      copyFileSync(
+        join(process.cwd(), '.nevo-ai', 'workflows', 'standard-v1.yaml'),
+        join(tmpRoot, '.nevo-ai', 'workflows', 'standard-v1.yaml'),
+      );
+
+      const specId = randomUUID();
+      const changeSlug = 'det-spec';
+      const changeDir = join(tmpRoot, 'specs', 'active', changeSlug);
+      mkdirSync(changeDir, { recursive: true });
+
+      const tasksYaml = (tasks || [
+        { id: '01', step: 'implementation', state: 'active' },
+      ]).map((t, idx) => {
+        if (t.state === 'completed' && t.nextStep === 'review') {
+          return `  - id: "${t.id}"
+    order: ${idx + 1}
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: completed
+      history:
+        - step: implementation
+          attempt: 1
+          status: completed
+          transitioned_to: review`;
+        }
+        return `  - id: "${t.id}"
+    order: ${idx + 1}
+    workflow_progress:
+      current_step: ${t.step || 'implementation'}
+      current_attempt: 1
+      state: ${t.state || 'active'}`;
+      }).join('\n');
+
+      const changeYaml = `spec_id: ${specId}
+workflow:
+  mode: deterministic
+  definition: standard-v1
+tasks:
+${tasksYaml}
+`;
+      writeFileSync(join(changeDir, 'change.yaml'), changeYaml, 'utf8');
+      execSync('git add -A && git commit -m "init"', { cwd: tmpRoot });
+
+      const recordedSessions = [];
+      const recordedTurns = [];
+      const mockProvider = {
+        descriptor: {
+          id: 'claude',
+          label: 'Claude',
+          enabled: true,
+          capabilities: { canOverrideTurnModel: true },
+          supportedModes: ['ask', 'edit', 'agent'],
+          defaultMode: 'agent',
+        },
+        isAvailable: () => ({ available: true }),
+        listModels: async () => [
+          { id: 'sonnet', name: 'sonnet', traits: { maxContextTokens: 200000 } },
+          { id: 'opus', name: 'opus', traits: { maxContextTokens: 200000 } },
+        ],
+        createSession: async (options) => {
+          recordedSessions.push(options);
+          return { providerSessionId: `claude-sess-${recordedSessions.length}` };
+        },
+        startTurn: (context) => {
+          recordedTurns.push(context);
+          return (async function* () {
+            yield { type: 'final_answer.delta', text: 'done' };
+          })();
+        },
+        cancelTurn: async () => ({}),
+      };
+
+      const registry = createAgentProviderRegistry([mockProvider]);
+      const transcriptCache = createTranscriptCacheService({ baseDir: join(tmpRoot, '.nevo-ai-local', 'transcripts') });
+      const bindingService = createAgentSessionBindingService({ storageDir: join(tmpRoot, '.nevo-ai-local', 'sessions') });
+      const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+      const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService, repoRoot: tmpRoot });
+      const policyService = new ExecutionPolicyService({ repoRoot: tmpRoot });
+
+      if (policy) {
+        policyService.saveExecutionPolicy(changeSlug, policy);
+      }
+
+      const harnessApp = Fastify();
+      harnessApp.setErrorHandler(aiErrorHandler);
+      const accessPolicy = createTrustedNetworkAiAccessPolicy();
+      await harnessApp.register(sessionRoutes, { service, accessPolicy, executionPolicyService: policyService });
+      await harnessApp.register(turnRoutes, { service, accessPolicy, repoRoot: tmpRoot });
+
+      return {
+        tmpRoot,
+        specId,
+        changeSlug,
+        policyService,
+        service,
+        bindingService,
+        app: harnessApp,
+        recordedSessions,
+        recordedTurns,
+        cleanup: async () => {
+          await new Promise(r => setTimeout(r, 100));
+          await harnessApp.close();
+          rmSync(tmpRoot, { recursive: true, force: true });
+        },
+      };
+    }
+
+    test('A. Normal deterministic execution: policy model is authoritative and used by admitted session and provider', async () => {
+      const harness = await setupDeterministicTestHarness({
+        tasks: [
+          { id: '01', step: 'implementation', state: 'active' },
+        ],
+        policy: {
+          provider: 'claude',
+          model: 'sonnet',
+          mode: 'agent',
+        },
+      });
+      try {
+        const res = await harness.app.inject({
+          method: 'POST',
+          url: '/api/agent-sessions/turns',
+          headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+          payload: {
+            purpose: 'execution',
+            specId: harness.specId,
+            changeSlug: harness.changeSlug,
+            taskId: '01',
+            prompt: 'Implement task 01',
+          },
+        });
+        assert.equal(res.statusCode, 201);
+        assert.equal(harness.recordedSessions[0]?.model, 'sonnet');
+        assert.equal(harness.recordedTurns[0]?.model, 'sonnet');
+      } finally {
+        await harness.cleanup();
+      }
+    });
+
+    test('B. Batch execution uses frozen config: executionConfigSnapshot, admission candidate, and session/provider execution all receive frozen model', async () => {
+      const harness = await setupDeterministicTestHarness({
+        tasks: [
+          { id: '01', step: 'implementation', state: 'completed', nextStep: 'review' },
+          { id: '02', step: 'implementation', state: 'completed', nextStep: 'review' },
+        ],
+        policy: {
+          provider: 'claude',
+          mode: 'agent',
+          roles: {
+            reviewer: {
+              provider: 'claude',
+              model: 'sonnet',
+              mode: 'agent',
+            },
+          },
+        },
+      });
+      try {
+        const res = await harness.app.inject({
+          method: 'POST',
+          url: '/api/agent-sessions/turns',
+          headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+          payload: {
+            purpose: 'execution',
+            reviewTogether: true,
+            specId: harness.specId,
+            changeSlug: harness.changeSlug,
+            taskIds: ['01', '02'],
+            prompt: 'Review tasks together',
+          },
+        });
+        if (res.statusCode !== 201) console.log('Test B payload:', res.payload);
+        assert.equal(res.statusCode, 201);
+        const data = JSON.parse(res.payload);
+        assert.ok(data.batchExecutionId, 'batchExecutionId must be returned');
+
+        // Verify frozen snapshot in reservation
+        const queueRecord = loadTaskQueue(harness.tmpRoot, harness.changeSlug);
+        const reservation = queueRecord?.groupReservations?.find((r) => r.batchExecutionId === data.batchExecutionId);
+        assert.ok(reservation, 'group reservation must exist in task queue');
+        assert.equal(reservation.executionConfigSnapshot.model, 'sonnet');
+
+        // Verify admitted session and provider execution used the frozen model
+        assert.equal(harness.recordedSessions[0]?.model, 'sonnet');
+        assert.equal(harness.recordedTurns[0]?.model, 'sonnet');
+      } finally {
+        await harness.cleanup();
+      }
+    });
+
+    test('C. One-off explicit provider default: model=null clears model override and preserves persisted policy', async () => {
+      const harness = await setupDeterministicTestHarness({
+        tasks: [
+          { id: '01', step: 'implementation', state: 'active' },
+        ],
+        policy: {
+          provider: 'claude',
+          model: 'opus',
+          mode: 'agent',
+        },
+      });
+      try {
+        const res = await harness.app.inject({
+          method: 'POST',
+          url: '/api/agent-sessions/turns',
+          headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+          payload: {
+            purpose: 'execution',
+            specId: harness.specId,
+            changeSlug: harness.changeSlug,
+            taskId: '01',
+            oneOff: true,
+            model: null,
+            prompt: 'One-off execution with default model',
+          },
+        });
+        assert.equal(res.statusCode, 201);
+        // Provider execution receives undefined (provider default), not opus
+        assert.equal(harness.recordedSessions[0]?.model, undefined);
+        assert.equal(harness.recordedTurns[0]?.model, undefined);
+
+        // Persisted policy remains unchanged
+        const persisted = harness.policyService.getExecutionPolicy(harness.changeSlug);
+        assert.equal(persisted.model, 'opus');
+      } finally {
+        await harness.cleanup();
+      }
+    });
+
+    test('D. Normal execution cannot override explicit policy model without oneOff=true', async () => {
+      const harness = await setupDeterministicTestHarness({
+        tasks: [
+          { id: '01', step: 'implementation', state: 'active' },
+        ],
+        policy: {
+          provider: 'claude',
+          model: 'sonnet',
+          mode: 'agent',
+        },
+      });
+      try {
+        const res = await harness.app.inject({
+          method: 'POST',
+          url: '/api/agent-sessions/turns',
+          headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+          payload: {
+            purpose: 'execution',
+            specId: harness.specId,
+            changeSlug: harness.changeSlug,
+            taskId: '01',
+            model: 'opus',
+            oneOff: false,
+            prompt: 'Attempt override',
+          },
+        });
+        assert.equal(res.statusCode, 400);
+        const data = JSON.parse(res.payload);
+        assert.match(data.error.message, /does not match server-resolved execution policy model 'sonnet'/);
+      } finally {
+        await harness.cleanup();
+      }
+    });
+
+    test('E. Normal execution cannot override provider-default policy without oneOff=true', async () => {
+      const harness = await setupDeterministicTestHarness({
+        tasks: [
+          { id: '01', step: 'implementation', state: 'active' },
+        ],
+        policy: {
+          provider: 'claude',
+          mode: 'agent',
+        },
+      });
+      try {
+        const res = await harness.app.inject({
+          method: 'POST',
+          url: '/api/agent-sessions/turns',
+          headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+          payload: {
+            purpose: 'execution',
+            specId: harness.specId,
+            changeSlug: harness.changeSlug,
+            taskId: '01',
+            model: 'opus',
+            oneOff: false,
+            prompt: 'Attempt override',
+          },
+        });
+        assert.equal(res.statusCode, 400);
+        const data = JSON.parse(res.payload);
+        assert.match(data.error.message, /does not match server-resolved execution policy \(provider default\)/);
+      } finally {
+        await harness.cleanup();
+      }
+    });
+
+    test('F. Normal execution cannot reset explicit policy model with model=null without oneOff=true', async () => {
+      const harness = await setupDeterministicTestHarness({
+        tasks: [
+          { id: '01', step: 'implementation', state: 'active' },
+        ],
+        policy: {
+          provider: 'claude',
+          model: 'sonnet',
+          mode: 'agent',
+        },
+      });
+      try {
+        const res = await harness.app.inject({
+          method: 'POST',
+          url: '/api/agent-sessions/turns',
+          headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+          payload: {
+            purpose: 'execution',
+            specId: harness.specId,
+            changeSlug: harness.changeSlug,
+            taskId: '01',
+            model: null,
+            oneOff: false,
+            prompt: 'Attempt reset',
+          },
+        });
+        assert.equal(res.statusCode, 400);
+        const data = JSON.parse(res.payload);
+        assert.match(data.error.message, /Requested provider default model does not match server-resolved execution policy model 'sonnet'/);
+      } finally {
+        await harness.cleanup();
+      }
+    });
+
+    test('G. Reconciliation respects provider-default policy: does not fall back to options.model', async () => {
+      const harness = await setupDeterministicTestHarness({
+        tasks: [
+          { id: '01', step: 'implementation', state: 'completed', nextStep: 'review' },
+        ],
+        policy: {
+          provider: 'claude',
+          mode: 'agent',
+          // model deliberately absent (provider default)
+        },
+      });
+      try {
+        const change = {
+          _slug: harness.changeSlug,
+          slug: harness.changeSlug,
+          id: harness.changeSlug,
+          spec_id: harness.specId,
+          workflow: { definition: 'standard-v1' },
+          tasks: [
+            {
+              id: '01',
+              workflow_progress: {
+                current_step: 'implementation',
+                current_attempt: 1,
+                state: 'completed',
+                history: [
+                  { step: 'implementation', attempt: 1, status: 'completed', transitioned_to: 'review' },
+                ],
+              },
+            },
+          ],
+        };
+
+        const result = await reconcileContinuation(change, change.tasks[0], {
+          repoRoot: harness.tmpRoot,
+          model: 'opus', // options.model fallback
+          sessionService: harness.service,
+        });
+
+        assert.equal(result.action, 'agent-admitted');
+        // The admitted session must use provider default (undefined), NOT options.model ('opus')
+        assert.equal(harness.recordedSessions[0]?.model, undefined);
+      } finally {
+        await harness.cleanup();
+      }
     });
   });
 });

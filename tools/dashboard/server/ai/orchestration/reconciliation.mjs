@@ -119,9 +119,9 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
         policy = executionPolicyService.resolveExecutionPolicy(changeSlug, task.id, { role, repoRoot });
       } catch {}
 
-      const provider = policy?.provider || options.provider;
-      const model = policy?.model || options.model || undefined;
-      const mode = policy?.mode || options.mode || 'agent';
+      const provider = policy ? policy.provider : options.provider;
+      const model = policy ? policy.model : options.model;
+      const mode = policy ? policy.mode : (options.mode || 'agent');
       let parentSessionId = options.parentSessionId || options.priorSessionId || null;
       if (!parentSessionId && repoRoot) {
         const history = task.workflow_progress?.history || [];
@@ -528,9 +528,9 @@ export async function reconcileContinuation(change, task, options = {}) {
       });
     } catch {}
 
-    const provider = policy?.provider || options.provider;
-    const model = policy?.model || options.model || undefined;
-    const mode = policy?.mode || options.mode || 'agent';
+    const provider = policy ? policy.provider : options.provider;
+    const model = policy ? policy.model : options.model;
+    const mode = policy ? policy.mode : (options.mode || 'agent');
     const genericTrigger = options.message || options.prompt || `Start workflow task '${targetTaskId}'.`;
     const candidate = {
       ...queueState.nextRunnable,

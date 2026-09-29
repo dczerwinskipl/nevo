@@ -424,15 +424,15 @@ export interface ExecutionPolicySelectionDialogProps {
   onConfirm: (policy: {
     provider: string;
     mode: AgentExecutionMode;
-    model?: string;
-    default?: { provider: string; mode: AgentExecutionMode };
+    model?: string | null;
+    default?: { provider: string; mode: AgentExecutionMode; model?: string };
     roles?: Record<string, RoleExecutionOverride>;
     taskOverrides?: Record<string, TaskExecutionOverride>;
     [key: string]: any;
   }) => void;
   confirming?: boolean;
   initialPolicy?: ExecutionPolicy | null;
-  initialConfig?: { provider: string; mode?: AgentExecutionMode; model?: string } | null;
+  initialConfig?: { provider: string; mode?: AgentExecutionMode; model?: string | null } | null;
   isOneOff?: boolean;
 }
 
@@ -470,7 +470,7 @@ export function ExecutionPolicySelectionDialog({
         setMode(initialConfig.mode);
       }
       if (initialConfig.model !== undefined) {
-        setModel(initialConfig.model);
+        setModel(initialConfig.model || '');
       }
     } else if (initialPolicy) {
       if (initialPolicy.default?.provider || initialPolicy.provider) {
@@ -591,7 +591,7 @@ export function ExecutionPolicySelectionDialog({
       onConfirm({
         provider,
         mode,
-        ...(model ? { model } : {}),
+        model: model ? model : null,
         oneOff: true,
       });
       return;
