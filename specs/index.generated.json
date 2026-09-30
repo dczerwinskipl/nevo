@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-30T14:19:22.476Z",
+  "generated": "2026-09-30T14:23:01.423Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -255,7 +255,7 @@
           "id": "non-fatal-admission-for-remediable-blockers",
           "order": 3,
           "file": "tasks/03-non-fatal-admission-for-remediable-blockers.md",
-          "status": "in-implementation",
+          "status": "implemented",
           "depends_on": [
             "readiness-classification-split",
             "terminal-reconciliation-adopts-outcome"
@@ -300,10 +300,34 @@
           "id": "remediation-protocol-exception",
           "order": 4,
           "file": "tasks/04-remediation-protocol-exception.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "non-fatal-admission-for-remediable-blockers"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "5e9149ea7615b9839e12f657ad86d77dee92e53d",
+            "review_revision": "6663a7240cf848727270f2e7db04b9075a3dcb52",
+            "changed_paths": [
+              "docs/development/agent-workflow-protocol.md",
+              "tools/dashboard/server/ai/sessions/service.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "dec68008373003a0fe7a6579fe922b0acf50694b900a239d507ce33370ae9b3b",
+            "revision": "6663a7240cf848727270f2e7db04b9075a3dcb52",
+            "commands": [
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/dashboard-orchestration-wiring.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "three-outcome-terminal-classification",
