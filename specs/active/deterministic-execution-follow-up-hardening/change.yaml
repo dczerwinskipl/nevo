@@ -34,8 +34,24 @@ tasks:
   - id: readiness-classification-split
     order: 2
     file: tasks/02-readiness-classification-split.md
-    status: approved
+    status: implemented
     depends_on: [ shared-finish-operation-replayability-classifier ]
+    implementation:
+      baseline_revision: 53cc4e5b823cd31ebbed0ba90998f068546eb7be
+      review_revision: df4b757851694065059f159cb404ec6da35dfafd
+      changed_paths:
+        - tools/specs/workflow/readiness-policy.mjs
+        - tools/tests/execution-readiness-policy.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: cc7364bf83708e1a6629772ea5b1f19151c7c43a5c1aaada1aa995598bacd450
+      revision: df4b757851694065059f159cb404ec6da35dfafd
+      commands:
+        - command: node --test tools/tests/execution-readiness-policy.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
   - id: non-fatal-admission-for-remediable-blockers
     order: 3
     file: tasks/03-non-fatal-admission-for-remediable-blockers.md
