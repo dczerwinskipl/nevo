@@ -72,7 +72,7 @@ tasks:
   - id: acceptance-scenario-b-and-c
     order: 11
     file: tasks/11-acceptance-scenario-b-and-c.md
-    status: draft
+    status: approved
     depends_on:
       [
         terminal-reconciliation-adopts-outcome,
