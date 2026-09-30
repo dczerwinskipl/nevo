@@ -4,7 +4,7 @@
 // ordered declaratively by (schedulingPriority ascending, task.order ascending, eligibleAt ascending),
 // never branching on step ids or step names.
 
-import { evaluateExecutionReadiness } from '../readiness-policy.mjs';
+import { evaluateExecutionReadiness, isActivationOnlyBlocker } from '../readiness-policy.mjs';
 import { isTaskBarriered } from './reservation.mjs';
 
 /**
@@ -126,19 +126,28 @@ export function evaluateTaskQueue(params = {}) {
 
     // Ineligible cases (D37, D44, D45)
     if (!readiness.ready) {
-      // Check for unselected, unsatisfied dependencies (AC1, D32)
-      if (Array.isArray(readiness.blockedBy) && readiness.blockedBy.length > 0) {
-        for (const depId of readiness.blockedBy) {
-          if (!selectedSet.has(depId)) {
-            warnings.push({
-              taskId: task.id,
-              blockedByTaskId: depId,
-            });
+      const isActivationOnly = isActivationOnlyBlocker(readiness, {
+        repoRoot,
+        task,
+        change,
+        record: readiness.priorRecord,
+      });
+
+      if (!isActivationOnly) {
+        // Check for unselected, unsatisfied dependencies (AC1, D32)
+        if (Array.isArray(readiness.blockedBy) && readiness.blockedBy.length > 0) {
+          for (const depId of readiness.blockedBy) {
+            if (!selectedSet.has(depId)) {
+              warnings.push({
+                taskId: task.id,
+                blockedByTaskId: depId,
+              });
+            }
           }
         }
+        // A suspended task or admission-blocked task is excluded from eligible
+        continue;
       }
-      // A suspended task is excluded from eligible via ExecutionReadiness refusal (code: 'TASK_SUSPENDED')
-      continue;
     }
 
     // Task is ready and eligible for agent execution

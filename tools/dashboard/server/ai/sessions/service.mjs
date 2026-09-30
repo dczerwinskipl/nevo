@@ -17,7 +17,7 @@ import { resolveStableSpecId } from '../../../../specs/identity.mjs';
 import { resolveWorkflowPosition } from '../../../../specs/workflow/step-runner.mjs';
 import { loadWorkflowDefinition } from '../../../../specs/workflow/definitions/loader.mjs';
 import { resolveWorkflowMode } from '../../../../specs/workflow/compatibility.mjs';
-import { evaluateExecutionReadiness } from '../../../../specs/workflow/readiness-policy.mjs';
+import { evaluateExecutionReadiness, isActivationOnlyBlocker } from '../../../../specs/workflow/readiness-policy.mjs';
 // Side-effect import: registers CommitAndPushAction into defaultActionRegistry (see
 // tools/specs/workflow/cli.mjs and actions/index.mjs). loadWorkflowDefinition() validates
 // every step's `finalize` action IDs against that registry — without this import, any
@@ -178,18 +178,37 @@ export function computeWorkSummary(turn) {
   };
 }
 
-export function formatNevoWorkflowContext({ changeSlug, taskId, step, attempt } = {}) {
+export function formatNevoWorkflowContext({ changeSlug, taskId, step, attempt, activationBlocker } = {}) {
   if (!step || typeof step !== 'string' || !step.trim()) {
     throw new TypeError(`formatNevoWorkflowContext requires 'step' (got ${JSON.stringify(step)})`);
   }
   if (attempt === undefined || attempt === null || !Number.isInteger(attempt) || attempt < 1) {
     throw new TypeError(`formatNevoWorkflowContext requires 'attempt' >= 1 (got ${JSON.stringify(attempt)})`);
   }
-  return [
+  const lines = [
     '[Nevo Workflow Context]',
     `Specification: ${changeSlug || 'active'}`,
     `Task: ${taskId}`,
     `Step: ${step} (attempt ${attempt})`,
+  ];
+
+  if (activationBlocker) {
+    lines.push(
+      '',
+      '[Activation Precondition Open]',
+      'Status: workflow attempt not yet activated',
+      `Code: ${activationBlocker.code}`,
+      `Reason: ${activationBlocker.reason}`,
+    );
+    if (activationBlocker.dirtyFiles && activationBlocker.dirtyFiles.length > 0) {
+      lines.push(`Dirty Files: ${activationBlocker.dirtyFiles.join(', ')}`);
+    }
+    if (activationBlocker.replaySignal) {
+      lines.push(`Signal: ${activationBlocker.replaySignal}`);
+    }
+  }
+
+  lines.push(
     '',
     'You are executing a deterministic Nevo workflow task.',
     'Before modifying any files or running tests, you MUST start your step:',
@@ -207,7 +226,8 @@ export function formatNevoWorkflowContext({ changeSlug, taskId, step, attempt } 
     "3. When the current step's work and required verification are complete, inspect StepContext.finishContract.parameters and run:",
     `   node tools/specs.mjs workflow step finish ${changeSlug || 'active'} ${taskId} --input '{"commit.title":"..."}'`,
     '4. After successful step finish, summarize your work and STOP.',
-  ].join('\n');
+  );
+  return lines.join('\n');
 }
 
 // Discriminated resolution result, never a plain guessable object:
@@ -329,7 +349,7 @@ export function resolveDeterministicWorkflowInfo(specId, taskId, repoRoot = ROOT
 }
 
 export function assertTaskExecutionReadiness(specId, taskId, repoRoot = ROOT) {
-  if (!taskId || !specId) return;
+  if (!taskId || !specId) return null;
   const workflowInfo = resolveDeterministicWorkflowInfo(specId, taskId, repoRoot);
   if (workflowInfo.mode === 'deterministic') {
     let changes;
@@ -345,12 +365,37 @@ export function assertTaskExecutionReadiness(specId, taskId, repoRoot = ROOT) {
     const definition = loadWorkflowDefinition(resolvedMode.definition, { repoRoot });
     const readiness = evaluateExecutionReadiness(resolvedTask, change, 'agent', { repoRoot, definition });
     if (!readiness.ready) {
+      const isActivationOnly = isActivationOnlyBlocker(readiness, {
+        repoRoot,
+        task: resolvedTask,
+        change,
+        record: readiness.priorRecord,
+      });
+      if (isActivationOnly) {
+        return {
+          activationBlocked: true,
+          attemptNotYetActivated: true,
+          code: readiness.code,
+          reason: readiness.reason,
+          dirtyFiles: readiness.dirtyFiles || readiness.error?.details?.dirtyFiles || readiness.details?.dirtyFiles,
+          replayableFinish: readiness.code === 'FINISH_OPERATION_UNRESOLVED',
+          replaySignal: readiness.code === 'FINISH_OPERATION_UNRESOLVED'
+            ? "prior finish operation is still replayable — retry 'workflow step finish'"
+            : undefined,
+          readiness,
+        };
+      }
       throw new AiDeterministicWorkflowUnavailableError(
         `Task '${taskId}' in spec '${specId}' is not ready for execution: ${readiness.reason}`,
         { specId, taskId, readiness }
       );
     }
+    return {
+      activationBlocked: false,
+      readiness,
+    };
   }
+  return null;
 }
 
 export class AgentSessionService {
@@ -413,8 +458,12 @@ export class AgentSessionService {
     // never silently become the active task.
     const primaryTaskId = executionScope?.kind === 'task-batch' ? undefined : options.taskId;
 
+    let activationBlocker = null;
     if (primaryTaskId && options.specId) {
-      assertTaskExecutionReadiness(options.specId, primaryTaskId, this.repoRoot);
+      const readinessCheck = assertTaskExecutionReadiness(options.specId, primaryTaskId, this.repoRoot);
+      if (readinessCheck?.activationBlocked) {
+        activationBlocker = readinessCheck;
+      }
     }
     const purpose = options.purpose || options.title || (primaryTaskId ? `task:${primaryTaskId}` : (executionScope?.kind === 'task-batch' ? `batch:${taskIds.join(',')}` : 'interactive'));
     const mode = options.mode ? validateAgentExecutionMode(options.mode, 'mode') : descriptor?.defaultMode || 'edit';
@@ -550,6 +599,11 @@ export class AgentSessionService {
       model: options.model,
       role: options.role || binding?.role,
       parentSessionId: options.parentSessionId || binding?.parentSessionId,
+      ...(activationBlocker ? {
+        activationBlocker,
+        readiness: activationBlocker.readiness,
+        attemptNotYetActivated: true,
+      } : {}),
     };
   }
 
@@ -1338,14 +1392,18 @@ export class AgentSessionService {
         ? workflowResolution.workflowInfo
         : null;
 
+    let activationBlocker = null;
     if (workflowResolution.mode === 'deterministic' && workflowResolution.execution) {
-      assertTaskExecutionReadiness(effectiveSpecId, effectiveTaskId, this.repoRoot);
+      const readinessCheck = assertTaskExecutionReadiness(effectiveSpecId, effectiveTaskId, this.repoRoot);
+      if (readinessCheck?.activationBlocked) {
+        activationBlocker = readinessCheck;
+      }
     }
     const hasExplicitWorkflowContext = opts.workflowContext !== undefined && opts.workflowContext !== false;
     const shouldInjectAutomatic = opts.workflowContext !== false && Boolean(deterministicWorkflowInfo);
 
     let needsHeader = false;
-    if (hasExplicitWorkflowContext) {
+    if (hasExplicitWorkflowContext || activationBlocker) {
       needsHeader = true;
     } else if (shouldInjectAutomatic) {
       needsHeader =
@@ -1357,10 +1415,13 @@ export class AgentSessionService {
 
     let bootstrapToRecord = null;
     if (needsHeader) {
-      const contextToFormat =
+      const baseContext =
         typeof opts.workflowContext === 'object' && opts.workflowContext !== null
           ? opts.workflowContext
           : deterministicWorkflowInfo;
+      const contextToFormat = baseContext
+        ? { ...baseContext, ...(activationBlocker ? { activationBlocker } : {}) }
+        : null;
       const header =
         typeof opts.workflowContext === 'string'
           ? opts.workflowContext
@@ -1405,6 +1466,11 @@ export class AgentSessionService {
       model: effectiveModel,
       effort: opts.effort ?? opts.reasoningEffort,
       onProviderSessionIdAvailable: handleProviderSessionId,
+      ...(activationBlocker ? {
+        activationBlocker,
+        readiness: activationBlocker.readiness,
+        attemptNotYetActivated: true,
+      } : {}),
     });
 
     // Move recordBootstrapState post-admission (Finding 15)
@@ -1426,6 +1492,11 @@ export class AgentSessionService {
     return {
       ...result,
       sessionId: canonicalSessionId,
+      ...(activationBlocker ? {
+        activationBlocker,
+        readiness: activationBlocker.readiness,
+        attemptNotYetActivated: true,
+      } : {}),
     };
   }
 

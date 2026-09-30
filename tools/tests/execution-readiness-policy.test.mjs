@@ -17,7 +17,7 @@ import {
   ADMISSION_BLOCKING_READINESS_CODES,
   ALL_READINESS_FAILURE_CODES,
 } from '../specs/workflow/readiness-policy.mjs';
-import { isFinishOperationReplayable } from '../specs/workflow/operation-record.mjs';
+import { isFinishOperationReplayable, saveOperationRecord } from '../specs/workflow/operation-record.mjs';
 
 import { handleWorkflowStepStart } from '../specs/workflow/cli.mjs';
 import { startHumanStep } from '../specs/workflow/human-step/operations.mjs';
@@ -65,6 +65,16 @@ steps:
     purpose: "Implementation"
     expectedWork:
       summary: "Write code"
+    transitions:
+      - to: dev2
+  dev2:
+    executor: agent
+    status:
+      active: in-dev2
+      completed: dev2-complete
+    purpose: "Implementation part 2"
+    expectedWork:
+      summary: "Write more code"
     transitions:
       - to: signoff
   signoff:
@@ -131,6 +141,28 @@ tasks:
           attempt: 1
           transitioned_to: verified
           outcome: success
+  - id: t-finish-rep
+    status: in-progress
+    file: tasks/07-finish-rep.md
+    workflow_progress:
+      current_step: dev
+      current_attempt: 1
+      state: completed
+      history:
+        - step: dev
+          attempt: 1
+          transitioned_to: dev2
+  - id: t-finish-block
+    status: in-progress
+    file: tasks/08-finish-block.md
+    workflow_progress:
+      current_step: dev
+      current_attempt: 1
+      state: completed
+      history:
+        - step: dev
+          attempt: 1
+          transitioned_to: dev2
 `;
 
   writeFileSync(join(changeDir, 'change.yaml'), changeYaml);
@@ -152,6 +184,8 @@ forbidden_paths: []
   writeFileSync(join(changeDir, 'tasks', '04-ready.md'), makeTaskFile('t-ready'));
   writeFileSync(join(changeDir, 'tasks', '05-human.md'), makeTaskFile('t-human'));
   writeFileSync(join(changeDir, 'tasks', '06-terminal.md'), makeTaskFile('t-terminal'));
+  writeFileSync(join(changeDir, 'tasks', '07-finish-rep.md'), makeTaskFile('t-finish-rep'));
+  writeFileSync(join(changeDir, 'tasks', '08-finish-block.md'), makeTaskFile('t-finish-block'));
 
   writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'readiness-pkg', version: '1.0.0' }, null, 2));
   writeFileSync(join(root, '.gitignore'), '.nevo-ai-local/\n');
@@ -562,4 +596,163 @@ describe('Readiness failure classification split (Task 02, D2)', () => {
     }
   });
 });
+
+describe('Non-fatal admission for remediable activation blockers (Task 03, D1, D2)', () => {
+  let fx;
+  before(() => {
+    fx = makeFixtureRepo({ prefix: 'non-fatal-test' });
+    // Write replayable finish-operation record for t-finish-rep
+    saveOperationRecord(fx.root, {
+      change: 'demo-change',
+      task: 't-finish-rep',
+      step: 'dev',
+      attempt: 1,
+      operationId: 'op-replayable-1',
+      status: 'running',
+      operations: [
+        { id: 'verify-gates', status: 'completed' },
+        { id: 'update-task', status: 'running' },
+      ],
+    });
+    // Write non-replayable finish-operation record for t-finish-block
+    saveOperationRecord(fx.root, {
+      change: 'demo-change',
+      task: 't-finish-block',
+      step: 'dev',
+      attempt: 1,
+      operationId: 'op-blocked-1',
+      status: 'blocked',
+      operations: [
+        { id: 'verify-gates', status: 'completed' },
+        { id: 'update-task', status: 'unknown' },
+      ],
+    });
+  });
+  after(() => {
+    cleanup(fx);
+  });
+
+  function makeMockServiceWithTurnRuntime(repoRoot) {
+    const turnRuntime = {
+      startTurn: async (opts) => ({
+        id: 'turn-mock-test',
+        status: 'active',
+        prompt: opts.message,
+      }),
+    };
+    return new AgentSessionService({
+      registry: {
+        get: () => ({
+          descriptor: { id: 'mock-provider', defaultMode: 'edit' },
+          provider: {
+            createSession: async () => ({ id: 'mock-p-id' }),
+          },
+        }),
+      },
+      turnRuntime,
+      repoRoot,
+    });
+  }
+
+  test('createSession and startTurn do not throw for DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT and expose structured blocker', async () => {
+    const service = makeMockServiceWithTurnRuntime(fx.root);
+    writeFileSync(join(fx.root, 'dirty-turn.txt'), 'dirty content');
+    try {
+      // 1. createSession does not throw
+      const session = await service.createSession('mock-provider', {
+        specId: '00000000-0000-4000-8000-000000000001',
+        taskId: 't-ready',
+      });
+      assert.ok(session);
+      assert.equal(session.taskId, 't-ready');
+      assert.equal(session.attemptNotYetActivated, true);
+      assert.ok(session.activationBlocker);
+      assert.equal(session.activationBlocker.code, 'DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT');
+      assert.ok(Array.isArray(session.activationBlocker.dirtyFiles));
+      assert.ok(session.activationBlocker.dirtyFiles.includes('dirty-turn.txt'));
+
+      // 2. startTurn does not throw
+      const turn = await service.startTurn('mock-provider', session.sessionId, {
+        specId: '00000000-0000-4000-8000-000000000001',
+        taskId: 't-ready',
+        message: 'Implement the feature',
+      });
+      assert.ok(turn);
+      assert.equal(turn.attemptNotYetActivated, true);
+      assert.equal(turn.activationBlocker.code, 'DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT');
+      assert.ok(turn.prompt.includes('[Activation Precondition Open]'));
+      assert.ok(turn.prompt.includes('Status: workflow attempt not yet activated'));
+      assert.ok(turn.prompt.includes('Code: DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT'));
+      assert.ok(turn.prompt.includes('Dirty Files: dirty-turn.txt'));
+    } finally {
+      git(fx.root, ['clean', '-fd']);
+      git(fx.root, ['checkout', '--', '.']);
+    }
+  });
+
+  test('createSession and startTurn do not throw for safely-replayable FINISH_OPERATION_UNRESOLVED and expose retry signal', async () => {
+    const service = makeMockServiceWithTurnRuntime(fx.root);
+
+    // 1. createSession does not throw
+    const session = await service.createSession('mock-provider', {
+      specId: '00000000-0000-4000-8000-000000000001',
+      taskId: 't-finish-rep',
+    });
+    assert.ok(session);
+    assert.equal(session.taskId, 't-finish-rep');
+    assert.equal(session.attemptNotYetActivated, true);
+    assert.ok(session.activationBlocker);
+    assert.equal(session.activationBlocker.code, 'FINISH_OPERATION_UNRESOLVED');
+    assert.equal(session.activationBlocker.replayableFinish, true);
+    assert.ok(session.activationBlocker.replaySignal.includes("retry 'workflow step finish'"));
+
+    // 2. startTurn does not throw
+    const turn = await service.startTurn('mock-provider', session.sessionId, {
+      specId: '00000000-0000-4000-8000-000000000001',
+      taskId: 't-finish-rep',
+      message: 'Resume step finish',
+    });
+    assert.ok(turn);
+    assert.equal(turn.attemptNotYetActivated, true);
+    assert.equal(turn.activationBlocker.code, 'FINISH_OPERATION_UNRESOLVED');
+    assert.equal(turn.activationBlocker.replayableFinish, true);
+    assert.ok(turn.prompt.includes('[Activation Precondition Open]'));
+    assert.ok(turn.prompt.includes('Code: FINISH_OPERATION_UNRESOLVED'));
+    assert.ok(turn.prompt.includes("retry 'workflow step finish'"));
+  });
+
+  test('createSession and startTurn throw unchanged for non-replayable FINISH_OPERATION_UNRESOLVED', async () => {
+    const service = makeMockServiceWithTurnRuntime(fx.root);
+
+    // 1. createSession throws
+    await assert.rejects(
+      () => service.createSession('mock-provider', {
+        specId: '00000000-0000-4000-8000-000000000001',
+        taskId: 't-finish-block',
+      }),
+      (err) => {
+        assert.ok(err instanceof AiDeterministicWorkflowUnavailableError);
+        assert.ok(err.message.includes('not ready for execution'));
+        assert.equal(err.readiness?.code, 'FINISH_OPERATION_UNRESOLVED');
+        return true;
+      }
+    );
+
+    // 2. startTurn throws
+    await assert.rejects(
+      () => service.startTurn('mock-provider', 'sess-arbitrary', {
+        specId: '00000000-0000-4000-8000-000000000001',
+        taskId: 't-finish-block',
+        message: 'Try executing',
+      }),
+      (err) => {
+        assert.ok(err instanceof AiDeterministicWorkflowUnavailableError);
+        assert.ok(err.message.includes('not ready for execution'));
+        assert.equal(err.readiness?.code, 'FINISH_OPERATION_UNRESOLVED');
+        return true;
+      }
+    );
+  });
+});
+
 

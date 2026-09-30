@@ -11,7 +11,11 @@ import {
   admitAgentExecution,
   releaseAdmittedExecution,
   resetAdmissionStateForTest,
+  hasActiveAgentExecution,
+  getActiveAgentExecution,
 } from '../dashboard/server/ai/orchestration/admission.mjs';
+import { evaluateTaskQueue } from '../specs/workflow/queue/evaluator.mjs';
+import { loadWorkflowDefinition } from '../specs/workflow/definitions/loader.mjs';
 import {
   reconcileWorkflowPosition,
   reconcileBootState,
@@ -1123,5 +1127,236 @@ test('AC (Task 06): Scenario D: Non-terminal live claim rejects second admitAgen
     fs.rmSync(tmpRepo, { recursive: true, force: true });
   }
 });
+
+test('AC (Task 03): evaluateTaskQueue returns dirty-worktree and replayable-finish tasks as runnable; excludes non-replayable finish task', async () => {
+  const tmpRepo = createTempRepo();
+  resetAdmissionStateForTest();
+
+  try {
+    const definition = loadWorkflowDefinition('standard', { repoRoot: tmpRepo });
+
+    // 1. Task with dirty worktree is returned as eligible and nextRunnable
+    fs.writeFileSync(path.join(tmpRepo, 'dirty-queue.txt'), 'dirty content');
+    const changeDirty = {
+      id: 'spec-1',
+      _slug: 'spec-1',
+      workflow: { mode: 'deterministic', definition: 'standard' },
+      tasks: [
+        { id: 't1', status: 'in-progress', order: 1 },
+      ],
+    };
+    const queueRecordDirty = {
+      changeSlug: 'spec-1',
+      taskIds: ['t1'],
+      eligibleAt: { t1: 100 },
+    };
+    const qStateDirty = evaluateTaskQueue({
+      change: changeDirty,
+      queueRecord: queueRecordDirty,
+      definition,
+      repoRoot: tmpRepo,
+      callerKind: 'agent',
+    });
+    assert.equal(qStateDirty.eligible.length, 1);
+    assert.equal(qStateDirty.eligible[0].taskId, 't1');
+    assert.equal(qStateDirty.nextRunnable?.taskId, 't1');
+
+    // Clean up dirty file
+    fs.unlinkSync(path.join(tmpRepo, 'dirty-queue.txt'));
+
+    // 2. Task with safely-replayable finish operation is returned as eligible and nextRunnable
+    const changeFinish = {
+      id: 'spec-1',
+      _slug: 'spec-1',
+      workflow: { mode: 'deterministic', definition: 'standard' },
+      tasks: [
+        {
+          id: 't-rep',
+          status: 'in-progress',
+          order: 1,
+          workflow_progress: {
+            current_step: 'implementation',
+            current_attempt: 1,
+            state: 'completed',
+            history: [
+              {
+                step: 'implementation',
+                attempt: 1,
+                transitioned_to: 'review',
+              },
+            ],
+          },
+        },
+        {
+          id: 't-block',
+          status: 'in-progress',
+          order: 2,
+          workflow_progress: {
+            current_step: 'implementation',
+            current_attempt: 1,
+            state: 'completed',
+            history: [
+              {
+                step: 'implementation',
+                attempt: 1,
+                transitioned_to: 'review',
+              },
+            ],
+          },
+        },
+      ],
+    };
+    // Save replayable record for t-rep
+    saveOperationRecord(tmpRepo, {
+      change: 'spec-1',
+      task: 't-rep',
+      step: 'implementation',
+      attempt: 1,
+      operationId: 'op-rep-queue',
+      status: 'running',
+      operations: [
+        { id: 'verify-gates', status: 'completed' },
+        { id: 'update-task', status: 'running' },
+      ],
+    });
+    // Save non-replayable record for t-block
+    saveOperationRecord(tmpRepo, {
+      change: 'spec-1',
+      task: 't-block',
+      step: 'implementation',
+      attempt: 1,
+      operationId: 'op-block-queue',
+      status: 'blocked',
+      operations: [
+        { id: 'verify-gates', status: 'completed' },
+        { id: 'update-task', status: 'unknown' },
+      ],
+    });
+
+    const queueRecordFinish = {
+      changeSlug: 'spec-1',
+      taskIds: ['t-rep', 't-block'],
+      eligibleAt: { 't-rep': 100, 't-block': 200 },
+    };
+    const qStateFinish = evaluateTaskQueue({
+      change: changeFinish,
+      queueRecord: queueRecordFinish,
+      definition,
+      repoRoot: tmpRepo,
+      callerKind: 'agent',
+    });
+    // t-rep must be eligible, t-block must be excluded
+    const eligibleIds = qStateFinish.eligible.map((e) => e.taskId);
+    assert.deepEqual(eligibleIds, ['t-rep']);
+    assert.equal(qStateFinish.nextRunnable?.taskId, 't-rep');
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('AC (Task 03): Admitted activation-blocked execution has live claim (kind: "agent") and second admission fails (Scenario D)', async () => {
+  const tmpRepo = createTempRepo();
+  resetAdmissionStateForTest();
+
+  try {
+    // Create dirty file in worktree
+    fs.writeFileSync(path.join(tmpRepo, 'dirty-file.txt'), 'dirty');
+
+    const candidate1 = { taskId: 't1', stepId: 'implementation', sessionId: 'sess-dirty-1' };
+    const adm = await admitAgentExecution('spec-1', candidate1, { repoRoot: tmpRepo });
+    assert.equal(adm.admitted, true);
+
+    // Live workspace-writer claim exists with kind: 'agent'
+    const liveClaim = getWorkspaceWriterClaim(tmpRepo);
+    assert.ok(liveClaim);
+    assert.equal(liveClaim.kind, 'agent');
+    assert.equal(liveClaim.ownerId, adm.ownerId);
+    assert.equal(liveClaim.specId, 'spec-1');
+    assert.equal(liveClaim.taskId, 't1');
+
+    // Second admission while activation-blocked execution is live fails (Scenario D)
+    const candidate2 = { taskId: 't1', stepId: 'implementation', sessionId: 'sess-dirty-2' };
+    const adm2 = await admitAgentExecution('spec-1', candidate2, { repoRoot: tmpRepo });
+    assert.equal(adm2.admitted, false);
+    assert.equal(adm2.reason, 'ACTIVE_EXECUTION_EXISTS');
+
+    // Release admitted execution
+    await releaseAdmittedExecution('spec-1');
+    assert.equal(getWorkspaceWriterClaim(tmpRepo), null);
+    assert.equal(hasActiveAgentExecution('spec-1'), false);
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('AC (Task 03): Unexpected exception in startTurn leaves no dangling claim and no stale activeExecutions', async () => {
+  const tmpRepo = createTempRepo();
+  resetAdmissionStateForTest();
+
+  try {
+    const mockSessionService = {
+      createSession: async () => ({
+        sessionId: 'sess-fail-start',
+        id: 'sess-fail-start',
+      }),
+      startTurn: async () => {
+        throw new Error('Simulated startTurn unexpected exception');
+      },
+    };
+
+    const candidate = { taskId: 't1', stepId: 'implementation', sessionId: 'sess-fail-start' };
+    await assert.rejects(
+      () => admitAgentExecution('spec-1', candidate, { repoRoot: tmpRepo, sessionService: mockSessionService }),
+      (err) => err.message.includes('Simulated startTurn unexpected exception')
+    );
+
+    // Workspace claim was released and not left dangling
+    assert.equal(getWorkspaceWriterClaim(tmpRepo), null);
+    // activeExecutions was cleared and not left stale
+    assert.equal(hasActiveAgentExecution('spec-1'), false);
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('AC (Task 03): subscribeToSession failure leaves no dangling claim, no stale activeExecutions, and returns admitted: false', async () => {
+  const tmpRepo = createTempRepo();
+  resetAdmissionStateForTest();
+
+  try {
+    const mockSessionService = {
+      createSession: async () => ({
+        sessionId: 'sess-fail-sub',
+        id: 'sess-fail-sub',
+      }),
+      startTurn: async () => ({
+        turnId: 'turn-sub-fail',
+        status: 'active',
+      }),
+      subscribeToSession: () => {
+        throw new Error('Simulated subscribeToSession failure');
+      },
+    };
+
+    const candidate = { taskId: 't1', stepId: 'implementation', sessionId: 'sess-fail-sub' };
+    const adm = await admitAgentExecution('spec-1', candidate, { repoRoot: tmpRepo, sessionService: mockSessionService });
+
+    // Returns admitted: false
+    assert.equal(adm.admitted, false);
+    assert.equal(adm.reason, 'SESSION_SUBSCRIPTION_FAILED');
+
+    // Workspace claim was released and not left dangling
+    assert.equal(getWorkspaceWriterClaim(tmpRepo), null);
+    // activeExecutions was cleared and not left stale
+    assert.equal(hasActiveAgentExecution('spec-1'), false);
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
 
 

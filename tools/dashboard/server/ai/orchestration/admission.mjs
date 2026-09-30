@@ -435,7 +435,19 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
           };
         }
       } catch (startErr) {
-        // If startTurn throws, leave claim at 'invoking' (or assess settlement if not started)
+        await releaseWorkspaceWriterIfOwned({
+          repoRoot,
+          expectedOwnerId: ownerId,
+          expectedKind: 'agent',
+          expectedSpecId: specId,
+          expectedChangeSlug: changeSlug,
+          expectedScope: candidateScope,
+          ...(candidateScope.kind === 'task' ? { expectedTaskId: candidateScope.taskId } : {}),
+        }).catch(() => {});
+        const currentActive = activeExecutions.get(specId);
+        if (currentActive?.ownerId === ownerId) {
+          activeExecutions.delete(specId);
+        }
         throw startErr;
       }
     }
@@ -628,6 +640,24 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
         });
       } catch (subErr) {
         console.error('[admission] Failed to subscribe to session for Hook 1:', subErr);
+        await releaseWorkspaceWriterIfOwned({
+          repoRoot,
+          expectedOwnerId: ownerId,
+          expectedKind: 'agent',
+          expectedSpecId: specId,
+          expectedChangeSlug: changeSlug,
+          expectedScope: candidateScope,
+          ...(candidateScope.kind === 'task' ? { expectedTaskId: candidateScope.taskId } : {}),
+        }).catch(() => {});
+        const currentActive = activeExecutions.get(specId);
+        if (currentActive?.ownerId === ownerId) {
+          activeExecutions.delete(specId);
+        }
+        return {
+          admitted: false,
+          reason: 'SESSION_SUBSCRIPTION_FAILED',
+          error: subErr?.message || String(subErr),
+        };
       }
     }
 
