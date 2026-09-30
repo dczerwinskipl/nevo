@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-30T13:00:36.455Z",
+  "generated": "2026-09-30T13:00:43.328Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -260,7 +260,7 @@
           "id": "admission-ownership-model-adr",
           "order": 9,
           "file": "tasks/09-admission-ownership-model-adr.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "non-fatal-admission-for-remediable-blockers",
             "terminal-reconciliation-adopts-outcome",

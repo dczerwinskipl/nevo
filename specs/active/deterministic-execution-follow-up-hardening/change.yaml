@@ -56,7 +56,7 @@ tasks:
   - id: admission-ownership-model-adr
     order: 9
     file: tasks/09-admission-ownership-model-adr.md
-    status: draft
+    status: approved
     depends_on:
       [
         non-fatal-admission-for-remediable-blockers,
