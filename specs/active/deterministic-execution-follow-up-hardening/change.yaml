@@ -28,7 +28,7 @@ tasks:
   - id: remediation-protocol-exception
     order: 4
     file: tasks/04-remediation-protocol-exception.md
-    status: draft
+    status: approved
     depends_on: [ non-fatal-admission-for-remediable-blockers ]
   - id: three-outcome-terminal-classification
     order: 5
