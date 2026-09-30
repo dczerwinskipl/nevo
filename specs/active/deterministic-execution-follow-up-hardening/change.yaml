@@ -81,7 +81,7 @@ tasks:
   - id: acceptance-scenario-d-regression
     order: 12
     file: tasks/12-acceptance-scenario-d-regression.md
-    status: draft
+    status: approved
     depends_on: [ terminal-reconciliation-adopts-outcome ]
   - id: acceptance-scenario-finish-operation-replay
     order: 13

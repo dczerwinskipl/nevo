@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-30T13:01:15.347Z",
+  "generated": "2026-09-30T13:01:21.668Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -292,7 +292,7 @@
           "id": "acceptance-scenario-d-regression",
           "order": 12,
           "file": "tasks/12-acceptance-scenario-d-regression.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "terminal-reconciliation-adopts-outcome"
           ]
