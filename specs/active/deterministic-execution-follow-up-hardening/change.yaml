@@ -18,7 +18,7 @@ tasks:
   - id: readiness-classification-split
     order: 2
     file: tasks/02-readiness-classification-split.md
-    status: draft
+    status: approved
     depends_on: [ shared-finish-operation-replayability-classifier ]
   - id: non-fatal-admission-for-remediable-blockers
     order: 3

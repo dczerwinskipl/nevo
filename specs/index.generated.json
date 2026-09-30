@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-30T12:59:51.906Z",
+  "generated": "2026-09-30T12:59:59.592Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -198,7 +198,7 @@
           "id": "readiness-classification-split",
           "order": 2,
           "file": "tasks/02-readiness-classification-split.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "shared-finish-operation-replayability-classifier"
           ]
