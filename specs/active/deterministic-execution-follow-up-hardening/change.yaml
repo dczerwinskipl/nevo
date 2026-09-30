@@ -14,7 +14,7 @@ tasks:
   - id: shared-finish-operation-replayability-classifier
     order: 1
     file: tasks/01-shared-finish-operation-replayability-classifier.md
-    status: draft
+    status: approved
   - id: readiness-classification-split
     order: 2
     file: tasks/02-readiness-classification-split.md
@@ -39,7 +39,11 @@ tasks:
     order: 6
     file: tasks/06-terminal-reconciliation-adopts-outcome.md
     status: draft
-    depends_on: [ three-outcome-terminal-classification, dependency-consumption-idempotent-on-resume ]
+    depends_on:
+      [
+        three-outcome-terminal-classification,
+        dependency-consumption-idempotent-on-resume
+      ]
   - id: dependency-consumption-idempotent-on-resume
     order: 7
     file: tasks/07-dependency-consumption-idempotent-on-resume.md
@@ -53,7 +57,13 @@ tasks:
     order: 9
     file: tasks/09-admission-ownership-model-adr.md
     status: draft
-    depends_on: [ non-fatal-admission-for-remediable-blockers, terminal-reconciliation-adopts-outcome, dependency-consumption-idempotent-on-resume, shared-finish-operation-replayability-classifier ]
+    depends_on:
+      [
+        non-fatal-admission-for-remediable-blockers,
+        terminal-reconciliation-adopts-outcome,
+        dependency-consumption-idempotent-on-resume,
+        shared-finish-operation-replayability-classifier
+      ]
   - id: acceptance-scenario-a
     order: 10
     file: tasks/10-acceptance-scenario-a.md
@@ -63,7 +73,11 @@ tasks:
     order: 11
     file: tasks/11-acceptance-scenario-b-and-c.md
     status: draft
-    depends_on: [ terminal-reconciliation-adopts-outcome, dependency-consumption-idempotent-on-resume ]
+    depends_on:
+      [
+        terminal-reconciliation-adopts-outcome,
+        dependency-consumption-idempotent-on-resume
+      ]
   - id: acceptance-scenario-d-regression
     order: 12
     file: tasks/12-acceptance-scenario-d-regression.md
@@ -73,6 +87,11 @@ tasks:
     order: 13
     file: tasks/13-acceptance-scenario-finish-operation-replay.md
     status: draft
-    depends_on: [ non-fatal-admission-for-remediable-blockers, terminal-reconciliation-adopts-outcome, dependency-consumption-idempotent-on-resume ]
+    depends_on:
+      [
+        non-fatal-admission-for-remediable-blockers,
+        terminal-reconciliation-adopts-outcome,
+        dependency-consumption-idempotent-on-resume
+      ]
 
 spec_id: 4fadace2-645a-476c-8f46-daf448451078
