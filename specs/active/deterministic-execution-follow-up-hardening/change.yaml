@@ -33,7 +33,7 @@ tasks:
   - id: three-outcome-terminal-classification
     order: 5
     file: tasks/05-three-outcome-terminal-classification.md
-    status: draft
+    status: approved
     depends_on: [ shared-finish-operation-replayability-classifier ]
   - id: terminal-reconciliation-adopts-outcome
     order: 6
