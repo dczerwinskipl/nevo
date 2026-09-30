@@ -86,7 +86,7 @@ tasks:
   - id: acceptance-scenario-finish-operation-replay
     order: 13
     file: tasks/13-acceptance-scenario-finish-operation-replay.md
-    status: draft
+    status: approved
     depends_on:
       [
         non-fatal-admission-for-remediable-blockers,
