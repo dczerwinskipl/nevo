@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-30T14:01:18.263Z",
+  "generated": "2026-09-30T14:19:22.476Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -255,11 +255,46 @@
           "id": "non-fatal-admission-for-remediable-blockers",
           "order": 3,
           "file": "tasks/03-non-fatal-admission-for-remediable-blockers.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "readiness-classification-split",
             "terminal-reconciliation-adopts-outcome"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "eb2e139d20e3feb9c60224f164de268c10fccce0",
+            "review_revision": "3fd838a142d2d4b169c233b43a727dc9ea7d796b",
+            "changed_paths": [
+              "tools/dashboard/server/ai/orchestration/admission.mjs",
+              "tools/dashboard/server/ai/sessions/service.mjs",
+              "tools/specs/workflow/queue/evaluator.mjs",
+              "tools/tests/execution-readiness-policy.test.mjs",
+              "tools/tests/workflow-continuation.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "0a2abdc0021a284707d7108c9c6a5349bf17b32f4bc0ed7f57a650c8d8bb23b3",
+            "revision": "3fd838a142d2d4b169c233b43a727dc9ea7d796b",
+            "commands": [
+              {
+                "command": "node --test tools/tests/execution-readiness-policy.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/workflow-continuation.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/dashboard-orchestration-wiring.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "remediation-protocol-exception",
@@ -307,7 +342,7 @@
           "id": "terminal-reconciliation-adopts-outcome",
           "order": 6,
           "file": "tasks/06-terminal-reconciliation-adopts-outcome.md",
-          "status": "in-implementation",
+          "status": "implemented",
           "depends_on": [
             "three-outcome-terminal-classification",
             "dependency-consumption-idempotent-on-resume"
