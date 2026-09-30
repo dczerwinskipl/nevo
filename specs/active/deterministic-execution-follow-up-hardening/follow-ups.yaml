@@ -1,0 +1,30 @@
+follow_ups:
+  - id: execution-settlement-never-activated-misclassified-completed
+    source_task: acceptance-scenario-a
+    kind: implementation-defect
+    severity: blocking
+    reason: "tools/specs/workflow/execution-settlement.mjs
+      assessExecutionSettlement's isNeverActivated check misclassifies a task
+      that has NEVER had any attempt activated (no workflow_progress ever
+      persisted, so both the captured baselineProgress and the current
+      task.workflow_progress are null/undefined) as a genuinely-advanced,
+      settled attempt whenever the dirty file present is out-of-scope for the
+      task's own allowed_paths (inScopeDirty ends up empty). It falls through to
+      the final 'genuinely advanced' branch and returns { settled: true,
+      outcome: 'completed' } instead of 'resumable'. Confirmed via a temporary
+      diagnostic log (added and reverted, no code change left) while writing
+      tools/tests/scenario-a-dirty-baseline-activation.test.mjs's
+      abandoned-remediation variant (Acceptance Scenario A (2)): with an
+      out-of-scope dirty file and a task that never activated, wp is undefined
+      and baselineProgress is null, so none of isNeverActivated's OR-conditions
+      (preActivationBlocker flag, baselineProgress-match, wp.state ===
+      ready/waiting-for-step-start) fire. Fix belongs in
+      tools/specs/workflow/execution-settlement.mjs
+      (three-outcome-terminal-classification, already marked implemented), which
+      is outside acceptance-scenario-a's forbidden_paths
+      (tools/specs/workflow/**) and therefore out of scope to fix under this
+      task. Likely fix: also treat '!wp && !params.baselineProgress' as
+      never-activated."
+    resolver_task: null
+    status: open
+    resolution: null

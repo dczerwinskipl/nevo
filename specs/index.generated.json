@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-30T14:40:34.139Z",
+  "generated": "2026-09-30T20:48:32.968Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -481,7 +481,7 @@
           "id": "admission-ownership-model-adr",
           "order": 9,
           "file": "tasks/09-admission-ownership-model-adr.md",
-          "status": "in-implementation",
+          "status": "implemented",
           "depends_on": [
             "non-fatal-admission-for-remediable-blockers",
             "terminal-reconciliation-adopts-outcome",
@@ -512,11 +512,34 @@
           "id": "acceptance-scenario-a",
           "order": 10,
           "file": "tasks/10-acceptance-scenario-a.md",
-          "status": "approved",
+          "status": "implemented",
           "depends_on": [
             "non-fatal-admission-for-remediable-blockers",
             "remediation-protocol-exception"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "e41c3635a4180259ee6592214a8c78415fdf7f39",
+            "review_revision": "e41c3635a4180259ee6592214a8c78415fdf7f39",
+            "changed_paths": [
+              "tools/tests/scenario-a-dirty-baseline-activation.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "b5879e69a06271b220f8cf3aedb80e88c07e1861966e6f43e6963ed63c14934a",
+            "revision": "e41c3635a4180259ee6592214a8c78415fdf7f39",
+            "commands": [
+              {
+                "command": "node --test tools/tests/scenario-a-dirty-baseline-activation.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "acceptance-scenario-b-and-c",
