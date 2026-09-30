@@ -14,7 +14,23 @@ tasks:
   - id: shared-finish-operation-replayability-classifier
     order: 1
     file: tasks/01-shared-finish-operation-replayability-classifier.md
-    status: approved
+    status: implemented
+    implementation:
+      baseline_revision: b8c8c8a8bc89a7bd4ebe6d6cd8e89a0958de220b
+      review_revision: 6fe539bd6ef7663ce043d4954a24add7e240496f
+      changed_paths:
+        - tools/specs/workflow/operation-record.mjs
+        - tools/tests/workflow-operation-record.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: c6d5a71ed8aca99a0b5ea01207d7b5c07ba02151076573bdd8349267ce672b36
+      revision: 6fe539bd6ef7663ce043d4954a24add7e240496f
+      commands:
+        - command: node --test tools/tests/workflow-operation-record.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
   - id: readiness-classification-split
     order: 2
     file: tasks/02-readiness-classification-split.md
