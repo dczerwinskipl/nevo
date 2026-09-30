@@ -43,7 +43,7 @@ import {
 } from '../specs/workflow/workspace-request.mjs';
 import { reconcileRequestBackedWorkspaceClaim } from '../specs/workflow/workspace-claim-reconciliation.mjs';
 import { computeDeterministicTaskActionProjection } from '../dashboard/server/specs/actions.mjs';
-import { handleWorkflowVerifyHuman } from '../specs/workflow/cli.mjs';
+import { handleWorkflowVerifyHuman, handleWorkflowStepStart } from '../specs/workflow/cli.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -644,3 +644,83 @@ test('AC 489: Dead pid on human-submit claim never triggers bare delete; reconci
     fs.rmSync(tmpRepo, { recursive: true, force: true });
   }
 });
+
+test('AC 4 (Task 07): Resuming a resumable attempt via workflow step start never double-consumes dependencies end-to-end', async () => {
+  const tmpRepo = createTempRepo();
+  try {
+    const specsDir = path.join(tmpRepo, 'specs', 'active');
+    const sDir = path.join(specsDir, 'spec-resume-dep');
+    const tasksDir = path.join(sDir, 'tasks');
+    fs.mkdirSync(tasksDir, { recursive: true });
+    fs.writeFileSync(path.join(sDir, 'change.yaml'), `schema_version: '1.0'
+id: spec-resume-dep
+title: Resume Dep Spec
+spec_id: 'c7b94998-356a-4d2a-a9e9-fbb839818817'
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: t1
+    file: tasks/t1.md
+    status: in-progress
+`, 'utf8');
+
+    fs.writeFileSync(path.join(tasksDir, 't1.md'), `---
+id: t1
+status: in-progress
+allowed_paths:
+  - README.md
+---
+# Task 1
+`, 'utf8');
+
+    execFileSync('git', ['add', '-A'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'Add task t1'], { cwd: tmpRepo });
+
+    // 1. Initial workflow step start activates t1 and consumes dependencies (seq: 1)
+    const ctx1 = await handleWorkflowStepStart('spec-resume-dep', 't1', {
+      repoRoot: tmpRepo,
+      activeDir: specsDir,
+      silent: true,
+    });
+    assert.equal(ctx1.currentStep, 'implementation');
+    assert.equal(ctx1.attempt, 1);
+
+    const depDir = path.join(tmpRepo, '.nevo-ai-local', 'dependency-consumption', 'spec-resume-dep', 't1', 'implementation');
+    assert.deepEqual(fs.readdirSync(depDir), ['attempt-1.json']);
+    const record1 = JSON.parse(fs.readFileSync(path.join(depDir, 'attempt-1.json'), 'utf8'));
+    assert.equal(record1.consumptionSequence, 1);
+
+    // Release workspace writer as if turn ended / resumable release
+    const claim = getWorkspaceWriterClaim(tmpRepo);
+    if (claim) {
+      await releaseWorkspaceWriterIfOwned({
+        repoRoot: tmpRepo,
+        expectedOwnerId: claim.ownerId,
+        expectedKind: claim.kind,
+        expectedSpecId: claim.specId,
+        expectedChangeSlug: claim.changeSlug,
+        expectedScope: claim.scope,
+        expectedTaskId: claim.taskId,
+      });
+    }
+
+    // 2. Next execution starts (resume after resumable release)
+    const ctx2 = await handleWorkflowStepStart('spec-resume-dep', 't1', {
+      repoRoot: tmpRepo,
+      activeDir: specsDir,
+      silent: true,
+    });
+    assert.equal(ctx2.currentStep, 'implementation');
+    assert.equal(ctx2.attempt, 1);
+
+    // Exactly one consumption record, sequence unchanged, timestamp unchanged
+    assert.deepEqual(fs.readdirSync(depDir), ['attempt-1.json']);
+    const record2 = JSON.parse(fs.readFileSync(path.join(depDir, 'attempt-1.json'), 'utf8'));
+    assert.equal(record2.consumptionSequence, 1);
+    assert.equal(record2.createdAt, record1.createdAt);
+  } finally {
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+

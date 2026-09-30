@@ -164,6 +164,11 @@ export function planStart(params = {}) {
     throw new WorkflowError('planStart requires repoRoot, change, task, step, and attempt');
   }
 
+  const existingRecord = loadStartOperation(repoRoot, change, task, step, attempt);
+  if (existingRecord) {
+    return existingRecord;
+  }
+
   const existingInFlight = findInFlightStartOperation(repoRoot, change, task);
   if (existingInFlight && existingInFlight.step === step && existingInFlight.attempt === attempt) {
     return existingInFlight;

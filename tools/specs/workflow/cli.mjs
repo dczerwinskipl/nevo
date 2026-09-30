@@ -60,6 +60,7 @@ import {
   completeActivateStage,
   completeConsumptionStage,
   findInFlightStartOperation,
+  loadStartOperation,
 } from './start-operation.mjs';
 import { recordDependencyConsumption } from './dependency-consumption.mjs';
 import { evaluateDependencySatisfaction } from './dependency-satisfaction.mjs';
@@ -272,7 +273,9 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
     : (position.phase === 'active' ? position.step : (position.nextStep?.id || position.nextStep));
   const targetStepConfig = definition.steps?.[targetStepName];
   const slug = change._slug || changeSlug || change.id;
-  const currentAttempt = position.attempt || (task.workflow_progress?.history || []).filter(h => h.step === targetStepName).length + 1;
+  const currentAttempt = position.phase === 'active'
+    ? position.attempt
+    : ((task.workflow_progress?.history || []).filter(h => h.step === targetStepName).length + 1);
 
   if (isTaskBarriered(change, task.id, { repoRoot: context.repoRoot })) {
     throw new WorkflowError(
@@ -377,25 +380,26 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
 
     // Start operation and dependency consumption (D52, D53, D58)
     if (targetStepConfig?.consumesDependencies === true) {
-      const inFlightStart = findInFlightStartOperation(context.repoRoot, slug, task.id);
-      if (inFlightStart) {
-        const activateStage = inFlightStart.stages?.find(s => s.id === 'activate');
+      const existingStartOp = loadStartOperation(context.repoRoot, slug, task.id, targetStepName, currentAttempt)
+        || findInFlightStartOperation(context.repoRoot, slug, task.id);
+      if (existingStartOp) {
+        const activateStage = existingStartOp.stages?.find(s => s.id === 'activate');
         if (activateStage?.status !== 'completed') {
           ensureStepActivated(change, task, definition, context);
-          completeActivateStage(context.repoRoot, inFlightStart);
+          completeActivateStage(context.repoRoot, existingStartOp);
         }
-        const consumeStage = inFlightStart.stages?.find(s => s.id === 'record-consumption');
+        const consumeStage = existingStartOp.stages?.find(s => s.id === 'record-consumption');
         if (consumeStage?.status !== 'completed') {
           recordDependencyConsumption({
             repoRoot: context.repoRoot,
             change: slug,
             consumingTaskId: task.id,
-            consumingStep: inFlightStart.step,
-            consumingAttempt: inFlightStart.attempt,
-            consumptionSequence: inFlightStart.consumptionSequence,
-            dependencies: inFlightStart.dependencySnapshot,
+            consumingStep: existingStartOp.step,
+            consumingAttempt: existingStartOp.attempt,
+            consumptionSequence: existingStartOp.consumptionSequence,
+            dependencies: existingStartOp.dependencySnapshot,
           });
-          completeConsumptionStage(context.repoRoot, inFlightStart);
+          completeConsumptionStage(context.repoRoot, existingStartOp);
         }
       } else {
         const dependencySnapshot = [];

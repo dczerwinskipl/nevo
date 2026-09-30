@@ -1,7 +1,7 @@
-import { test, describe, before, after } from 'node:test';
+import { test, describe, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readdirSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -16,6 +16,10 @@ import {
 } from '../specs/workflow/step-context.mjs';
 import { WorkflowError } from '../specs/workflow/errors.mjs';
 import { requireChange, requireTask } from '../specs/store.mjs';
+import { handleWorkflowStepStart, handleWorkflowStepFinish } from '../specs/workflow/cli.mjs';
+import { loadStartOperation, saveStartOperation } from '../specs/workflow/start-operation.mjs';
+import { loadDependencyConsumption } from '../specs/workflow/dependency-consumption.mjs';
+import { getWorkspaceWriterClaim, releaseWorkspaceWriterIfOwned } from '../specs/workflow/workspace-writer.mjs';
 import '../specs/workflow/actions/index.mjs';
 
 function makeGitFixture(prefix) {
@@ -832,3 +836,252 @@ tasks:
     assert.equal(ctx.requiredContext[0].content, '# API Doc\n');
   });
 });
+
+describe('Task 07: Dependency consumption idempotent on resume (AC1, AC2, AC3)', () => {
+  let fx;
+
+  before(() => {
+    fx = makeGitFixture('nevo-dep-consumption-idempotent');
+    // Write workflow definition into .nevo-ai/workflows/dep-loop-v1.yaml
+    const wfDir = join(fx.repo, '.nevo-ai', 'workflows');
+    mkdirSync(wfDir, { recursive: true });
+    writeFileSync(join(wfDir, 'dep-loop-v1.yaml'), `id: dep-loop-v1
+title: Dependency Loop Workflow
+type: standard
+version: 1
+sourceControl:
+  enabled: true
+  push: false
+entryStep: implementation
+steps:
+  implementation:
+    status:
+      active: in-implementation
+      completed: implemented
+    consumesDependencies: true
+    entryGates: []
+    exitGates: []
+    finalize:
+      - id: commit-and-push
+    transitions:
+      - to: review
+  review:
+    status:
+      active: in-review
+      completed: reviewed
+    consumesDependencies: false
+    entryGates: []
+    exitGates: []
+    finalize:
+      - id: commit-and-push
+    transitions:
+      - value: pass
+        to: verified
+        outcome: success
+      - value: fail
+        to: implementation
+`);
+    execFileSync('git', ['add', '-A'], { cwd: fx.repo });
+    execFileSync('git', ['commit', '-m', 'Add workflow definition'], { cwd: fx.repo });
+  });
+  after(() => cleanupFixture(fx));
+  afterEach(async () => {
+    const claim = getWorkspaceWriterClaim(fx.repo);
+    if (claim) {
+      await releaseWorkspaceWriterIfOwned({
+        repoRoot: fx.repo,
+        expectedOwnerId: claim.ownerId,
+        expectedKind: claim.kind,
+        expectedSpecId: claim.specId,
+        expectedChangeSlug: claim.changeSlug,
+        expectedScope: claim.scope,
+        expectedTaskId: claim.taskId,
+      });
+    }
+  });
+
+  test('Calling workflow step start twice for same active, consumesDependencies: true step/attempt preserves single consumption record and sequence (AC1)', async () => {
+    const taskMd = `---
+id: dep-task-1
+status: in-progress
+allowed_paths:
+  - root.txt
+---
+# Dep Task 1
+`;
+    const changeYaml = `id: demo-change
+title: "Demo Change"
+spec_id: 'd9b7365c-6020-4ee8-a579-a78b5490ff7d'
+workflow:
+  mode: deterministic
+  definition: dep-loop-v1
+tasks:
+  - id: dep-task-1
+    file: tasks/01-dep-task-1.md
+    status: in-progress
+`;
+    writeFileSync(join(fx.changeDir, 'change.yaml'), changeYaml);
+    writeFileSync(join(fx.tasksDir, '01-dep-task-1.md'), taskMd);
+    execFileSync('git', ['add', '-A'], { cwd: fx.repo });
+    execFileSync('git', ['commit', '-m', 'Add demo task 1'], { cwd: fx.repo });
+
+    // 1. First call activates step and records consumption
+    const start1 = await handleWorkflowStepStart('demo-change', 'dep-task-1', {
+      activeDir: fx.activeDir,
+      repoRoot: fx.repo,
+      silent: true,
+    });
+    assert.equal(start1.currentStep, 'implementation');
+    assert.equal(start1.attempt, 1);
+
+    const startOp1 = loadStartOperation(fx.repo, 'demo-change', 'dep-task-1', 'implementation', 1);
+    assert.ok(startOp1);
+    assert.equal(startOp1.status, 'completed');
+    assert.equal(startOp1.consumptionSequence, 1);
+
+    const depConsumption1 = loadDependencyConsumption(fx.repo, 'demo-change', 'dep-task-1', 'implementation', 1);
+    assert.ok(depConsumption1);
+    assert.equal(depConsumption1.consumptionSequence, 1);
+    const createdAt1 = depConsumption1.createdAt;
+
+    // Check directory contents: exactly one attempt file
+    const depDir = join(fx.repo, '.nevo-ai-local', 'dependency-consumption', 'demo-change', 'dep-task-1', 'implementation');
+    const files = readdirSync(depDir);
+    assert.deepEqual(files, ['attempt-1.json']);
+
+    // 2. Second call is a resume of the active attempt (no finish in between)
+    const start2 = await handleWorkflowStepStart('demo-change', 'dep-task-1', {
+      activeDir: fx.activeDir,
+      repoRoot: fx.repo,
+      silent: true,
+    });
+    assert.equal(start2.currentStep, 'implementation');
+    assert.equal(start2.attempt, 1);
+
+    const startOp2 = loadStartOperation(fx.repo, 'demo-change', 'dep-task-1', 'implementation', 1);
+    assert.equal(startOp2.consumptionSequence, 1, 'consumptionSequence must not be incremented');
+
+    const depConsumption2 = loadDependencyConsumption(fx.repo, 'demo-change', 'dep-task-1', 'implementation', 1);
+    assert.equal(depConsumption2.consumptionSequence, 1, 'consumptionSequence must match on resume');
+    assert.equal(depConsumption2.createdAt, createdAt1, 'dependency-consumption record must not be re-written');
+
+    const filesAfterResume = readdirSync(depDir);
+    assert.deepEqual(filesAfterResume, ['attempt-1.json'], 'exactly one dependency consumption record must exist');
+  });
+
+  test('Genuinely new attempt after a prior attempt finish allocates a new consumptionSequence and records consumption once for the new attempt (AC2)', async () => {
+    // Finish implementation attempt 1 -> transitions to review
+    writeFileSync(join(fx.repo, 'root.txt'), 'work completed attempt 1\n');
+    const finish1 = await handleWorkflowStepFinish('demo-change', 'dep-task-1', {
+      activeDir: fx.activeDir,
+      repoRoot: fx.repo,
+      silent: true,
+      input: JSON.stringify({ 'commit.title': 'Finish attempt 1', include: ['*'] }),
+    });
+    assert.equal(finish1.status, 'completed');
+
+    // Start review step (attempt 1 of review)
+    const startReview = await handleWorkflowStepStart('demo-change', 'dep-task-1', {
+      activeDir: fx.activeDir,
+      repoRoot: fx.repo,
+      silent: true,
+    });
+    assert.equal(startReview.currentStep, 'review');
+
+    // Finish review with fail -> loops back to implementation (which will be attempt 2!)
+    const finishReview = await handleWorkflowStepFinish('demo-change', 'dep-task-1', {
+      activeDir: fx.activeDir,
+      repoRoot: fx.repo,
+      silent: true,
+      input: JSON.stringify({ 'commit.title': 'Review fail', include: ['*'], result: 'fail' }),
+    });
+    assert.equal(finishReview.status, 'completed');
+
+    // Start implementation (genuinely new attempt 2!)
+    const start2 = await handleWorkflowStepStart('demo-change', 'dep-task-1', {
+      activeDir: fx.activeDir,
+      repoRoot: fx.repo,
+      silent: true,
+    });
+    assert.equal(start2.currentStep, 'implementation');
+    assert.equal(start2.attempt, 2);
+
+    const startOpAttempt2 = loadStartOperation(fx.repo, 'demo-change', 'dep-task-1', 'implementation', 2);
+    assert.ok(startOpAttempt2);
+    assert.equal(startOpAttempt2.consumptionSequence, 2, 'New attempt must allocate next sequence');
+
+    const depConsumptionAttempt2 = loadDependencyConsumption(fx.repo, 'demo-change', 'dep-task-1', 'implementation', 2);
+    assert.ok(depConsumptionAttempt2);
+    assert.equal(depConsumptionAttempt2.consumptionSequence, 2);
+
+    const depDir = join(fx.repo, '.nevo-ai-local', 'dependency-consumption', 'demo-change', 'dep-task-1', 'implementation');
+    const files = readdirSync(depDir).sort();
+    assert.deepEqual(files, ['attempt-1.json', 'attempt-2.json']);
+  });
+
+  test('Actually in-flight start-operation record is completed by resuming unfinished stages, not planning a new record (AC3)', async () => {
+    const taskMd = `---
+id: dep-task-2
+status: in-progress
+allowed_paths:
+  - root.txt
+---
+# Dep Task 2
+`;
+    writeFileSync(join(fx.tasksDir, '02-dep-task-2.md'), taskMd);
+    writeFileSync(join(fx.changeDir, 'change.yaml'), `id: demo-change
+title: "Demo Change"
+spec_id: 'd9b7365c-6020-4ee8-a579-a78b5490ff7d'
+workflow:
+  mode: deterministic
+  definition: dep-loop-v1
+tasks:
+  - id: dep-task-1
+    file: tasks/01-dep-task-1.md
+    status: in-progress
+  - id: dep-task-2
+    file: tasks/02-dep-task-2.md
+    status: in-progress
+`);
+    execFileSync('git', ['add', '-A'], { cwd: fx.repo });
+    execFileSync('git', ['commit', '-m', 'Add dep-task-2'], { cwd: fx.repo });
+
+    // Pre-create an in-flight start-operation record with activate stage completed, consumption pending
+    const inFlightRecord = {
+      operationId: 'op-inflight-test',
+      change: 'demo-change',
+      task: 'dep-task-2',
+      step: 'implementation',
+      attempt: 1,
+      consumptionSequence: 42,
+      dependencySnapshot: [],
+      status: 'running',
+      stages: [
+        { id: 'activate', status: 'completed' },
+        { id: 'record-consumption', status: 'pending' },
+      ],
+      createdAt: new Date().toISOString(),
+    };
+    saveStartOperation(fx.repo, inFlightRecord);
+
+    // Call workflow step start
+    const startRes = await handleWorkflowStepStart('demo-change', 'dep-task-2', {
+      activeDir: fx.activeDir,
+      repoRoot: fx.repo,
+      silent: true,
+    });
+    assert.equal(startRes.currentStep, 'implementation');
+    assert.equal(startRes.attempt, 1);
+
+    // Verify it completed the existing record without planning a new sequence
+    const completedOp = loadStartOperation(fx.repo, 'demo-change', 'dep-task-2', 'implementation', 1);
+    assert.equal(completedOp.operationId, 'op-inflight-test');
+    assert.equal(completedOp.consumptionSequence, 42, 'Sequence 42 must be preserved');
+    assert.equal(completedOp.status, 'completed');
+
+    const depConsumption = loadDependencyConsumption(fx.repo, 'demo-change', 'dep-task-2', 'implementation', 1);
+    assert.ok(depConsumption);
+    assert.equal(depConsumption.consumptionSequence, 42, 'Dependency consumption must use preserved sequence 42');
+  });
+});
+
