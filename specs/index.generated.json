@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-30T13:28:00.943Z",
+  "generated": "2026-09-30T13:35:55.598Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -222,7 +222,7 @@
           "id": "readiness-classification-split",
           "order": 2,
           "file": "tasks/02-readiness-classification-split.md",
-          "status": "in-implementation",
+          "status": "implemented",
           "depends_on": [
             "shared-finish-operation-replayability-classifier"
           ],
@@ -274,10 +274,34 @@
           "id": "three-outcome-terminal-classification",
           "order": 5,
           "file": "tasks/05-three-outcome-terminal-classification.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "shared-finish-operation-replayability-classifier"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "8be3511bd01349cbe7e4d10991107e72c7f0dde0",
+            "review_revision": "0ea66f30ead8b375d3d27bb86fdf6d0257e71fbc",
+            "changed_paths": [
+              "tools/specs/workflow/execution-settlement.mjs",
+              "tools/tests/execution-settlement.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "131532f205ed6095550fac407d47eb5f8c95f704f88419676b126fb61df7e80f",
+            "revision": "0ea66f30ead8b375d3d27bb86fdf6d0257e71fbc",
+            "commands": [
+              {
+                "command": "node --test tools/tests/execution-settlement.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "terminal-reconciliation-adopts-outcome",
