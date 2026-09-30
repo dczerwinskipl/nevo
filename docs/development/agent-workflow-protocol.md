@@ -52,6 +52,15 @@ Specification: <change-slug>
 Task: <task-id>
 Step: <current-step> (attempt <attempt>)
 
+[Activation Precondition Open]           # (Present only when admitted at an activation-only blocker)
+Status: workflow attempt not yet activated
+Code: DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT  # (or FINISH_OPERATION_UNRESOLVED)
+Reason: <reason>
+Dirty Files: <file1, file2>              # (if DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT)
+Signal: <replay-signal>                  # (if replayable FINISH_OPERATION_UNRESOLVED)
+Remediation: You may remediate this activation precondition under user instruction before step start.
+Action: <remediation-action>
+
 You are executing a deterministic Nevo workflow task.
 Before modifying any files or running tests, run:
   node tools/specs.mjs workflow step start <change-slug> <task-id>
@@ -70,6 +79,25 @@ node tools/specs.mjs workflow step start <change-slug> <task-id>
 ```
 The CLI automatically associates the session with the task via ambient environment variables, activates the step (verifying a clean workspace baseline if starting a new attempt), and returns `StepContext` as structured JSON.
 
+### Remediation Protocol Exception (Activation-Only Blockers)
+The general rule requiring `workflow step start` before modifying any files or running tests has a narrow, explicit exception: when an agent session is admitted with an open **activation-only blocker** (`[Activation Precondition Open]`), the agent holds a valid `agent` workspace-writer claim and may perform scoped remediation before `workflow step start` succeeds, **strictly under explicit user instruction**:
+
+1. **`DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT`**:
+   - The workspace contains uncommitted changes outside `.nevo-ai-local/` before starting a new attempt.
+   - The agent may inspect working tree status (`git status`, `git diff`) and remediate files on the user's explicit instruction.
+   - **No automatic discard:** The agent must **never** autonomously run destructive git operations (`git reset --hard`, `git checkout --`, `git clean -fd`, `git stash`) without explicit user direction.
+   - Once the working tree is clean, the agent must invoke `workflow step start` to activate the attempt.
+
+2. **`FINISH_OPERATION_UNRESOLVED` (Replayable Finish)**:
+   - A prior finish operation crashed or remained unresolved mid-flight, but its durable record is proven safely replayable.
+   - **Retry finish only:** The *only* legal remediation action is retrying `workflow step finish` for the prior step:
+     ```bash
+     node tools/specs.mjs workflow step finish <change-slug> <task-id> --input '<json>'
+     ```
+   - The agent must **never** perform ad hoc manual git commits/pushes, must never bypass finish reconciliation, and must never fabricate having started the new step before the prior finish completes.
+
+For all other readiness failures (admission-blocking failures such as unpublished drafts, unsatisfied dependencies, terminal tasks, suspensions, executor mismatches, or non-replayable finish operations), no session is admitted and no exception applies.
+
 ### Stage 3: StepContext Authority
 The agent treats the JSON payload returned by `workflow step start` as absolute law:
 - **`currentStep` and `attempt`:** The immutable identity of the active unit of work.
@@ -85,7 +113,7 @@ The agent treats the JSON payload returned by `workflow step start` as absolute 
 ### Stage 4: Step Execution
 During execution:
 - The agent performs only the work required for the current step (e.g., implementing code and tests during `implementation`, or auditing code and running tests during `review`).
-- All edits must stay within `allowed_paths`. Touching `forbidden_paths` fails closed.
+- All edits must stay within `allowed_paths`. (Note: `forbidden_paths` violations are detected during task review via `classifyScopeFinding`, not enforced by a runtime write barrier).
 - The agent must never attempt manual Git operations (`git add`, `git commit`, `git push`).
 - The agent must never manually edit `change.yaml` or fabricate workflow state.
 
@@ -133,7 +161,8 @@ The batch-finish operation follows the D21 durable saga envelope:
 | `status: 'blocked'` | One or more entry or exit gates failed (e.g. test gate). | Remain in the same `(step, attempt)`. Fix tests or code within `allowed_paths` and retry `finish`. |
 | `status: 'already-completed'` | This step/attempt was already finished previously. | Do not edit files; report completion and **STOP**. |
 | `status: 'reconciliation-required'` | Repository HEAD drifted during commit or push. | Stop execution immediately; notify operator for manual reconciliation without attempting git repairs. |
-| Exit code non-zero (`DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT`) | Working tree was dirty when allocating a new attempt. | Do not proceed; inform operator to clean or stash uncommitted changes before starting a new attempt. |
+| Exit code non-zero (`DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT`) | Working tree was dirty when allocating a new attempt. | If admitted with open activation precondition, remediate on user instruction (no auto-discard) and retry `workflow step start`. |
+| Exit code non-zero (`FINISH_OPERATION_UNRESOLVED`) | Prior finish operation was unresolved. | If safely replayable, retry `workflow step finish` for the prior step; if not replayable, stop and request operator assistance. |
 | Transition to `human-verification` | Step requires human approval or request-changes decision. | Summarize readiness for human review and **STOP**. No agent turn is dispatched for human decisions. |
 | Terminal transition (`verified`) | Task has achieved terminal verification. | Inform the user that the task is verified and **STOP**. |
 

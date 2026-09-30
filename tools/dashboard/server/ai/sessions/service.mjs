@@ -206,6 +206,12 @@ export function formatNevoWorkflowContext({ changeSlug, taskId, step, attempt, a
     if (activationBlocker.replaySignal) {
       lines.push(`Signal: ${activationBlocker.replaySignal}`);
     }
+    lines.push(
+      'Remediation: You may remediate this activation precondition under user instruction before step start.',
+      activationBlocker.replayableFinish
+        ? "Action: Retry 'workflow step finish' for the prior step."
+        : 'Action: Inspect/clean working tree (do not discard/reset/stash automatically without user instruction).'
+    );
   }
 
   lines.push(
