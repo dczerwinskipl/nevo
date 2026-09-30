@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-30T13:01:28.347Z",
+  "generated": "2026-09-30T13:01:35.145Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -272,7 +272,7 @@
           "id": "acceptance-scenario-a",
           "order": 10,
           "file": "tasks/10-acceptance-scenario-a.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "non-fatal-admission-for-remediable-blockers",
             "remediation-protocol-exception"
