@@ -230,6 +230,27 @@ export async function getCurrentRevisionAsync(root, options = {}) {
   return await runGitAsync(root, ['rev-parse', 'HEAD'], options);
 }
 
+// Local git identity (`user.name`/`user.email`) for actor resolution (activity
+// history's `user` actor, D4) — each key is read independently since either may be
+// configured without the other, and neither being configured is a normal, expected
+// outcome (e.g. a fresh clone with no global config), not a fatal error: `git config`
+// exits non-zero when a key is unset, so each read is individually caught and
+// reported as an empty string rather than throwing.
+function readGitConfigValue(root, key) {
+  try {
+    return run(root, ['config', key]);
+  } catch {
+    return '';
+  }
+}
+
+export function getLocalUserIdentity(root) {
+  return {
+    name: readGitConfigValue(root, 'user.name'),
+    email: readGitConfigValue(root, 'user.email'),
+  };
+}
+
 // Asks the remote directly (PR review packet 03, Problem 2) rather than a
 // cached local `origin/<branch>` ref: in a clone where the remote branch
 // exists but its remote-tracking ref was never fetched, `rev-parse --verify
