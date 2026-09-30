@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-30T12:59:44.879Z",
+  "generated": "2026-09-30T12:59:51.906Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -245,7 +245,7 @@
           "id": "dependency-consumption-idempotent-on-resume",
           "order": 7,
           "file": "tasks/07-dependency-consumption-idempotent-on-resume.md",
-          "status": "draft"
+          "status": "approved"
         },
         {
           "id": "resume-and-terminal-audit-trail",
