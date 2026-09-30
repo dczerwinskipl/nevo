@@ -50,6 +50,7 @@ import { computeDeterministicTaskActionProjection } from '../dashboard/server/sp
 import { handleWorkflowVerifyHuman, handleWorkflowStepStart } from '../specs/workflow/cli.mjs';
 import { saveStartOperation } from '../specs/workflow/start-operation.mjs';
 import { saveOperationRecord, loadOperationRecord } from '../specs/workflow/operation-record.mjs';
+import { readActivities } from '../specs/activity/store.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1357,6 +1358,421 @@ test('AC (Task 03): subscribeToSession failure leaves no dangling claim, no stal
     fs.rmSync(tmpRepo, { recursive: true, force: true });
   }
 });
+
+test('AC (Task 08): Releasing a claim with outcome: "resumable" writes activity record for all three sub-cases', async () => {
+  const tmpRepo = createTempRepo();
+  resetAdmissionStateForTest();
+
+  try {
+    const specsDir = path.join(tmpRepo, 'specs', 'active');
+
+    // ── Sub-case 1: Active mid-flight ──
+    const sDirActive = path.join(specsDir, 'spec-sub-active');
+    const tasksDirActive = path.join(sDirActive, 'tasks');
+    fs.mkdirSync(tasksDirActive, { recursive: true });
+    fs.writeFileSync(path.join(sDirActive, 'change.yaml'), `schema_version: '1.0'
+id: spec-sub-active
+title: Active Mid-Flight Spec
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: t1
+    file: tasks/t1.md
+    status: in-progress
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+`, 'utf8');
+    fs.writeFileSync(path.join(tasksDirActive, 't1.md'), `---
+id: t1
+status: in-progress
+allowed_paths:
+  - README.md
+---
+# Task 1
+`, 'utf8');
+
+    // ── Sub-case 2: Pre-activation blocker abandoned (never-activated) ──
+    const sDirBlocker = path.join(specsDir, 'spec-sub-blocker');
+    const tasksDirBlocker = path.join(sDirBlocker, 'tasks');
+    fs.mkdirSync(tasksDirBlocker, { recursive: true });
+    fs.writeFileSync(path.join(sDirBlocker, 'change.yaml'), `schema_version: '1.0'
+id: spec-sub-blocker
+title: Blocker Spec
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: t1
+    file: tasks/t1.md
+    status: in-progress
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: waiting-for-step-start
+`, 'utf8');
+    fs.writeFileSync(path.join(tasksDirBlocker, 't1.md'), `---
+id: t1
+status: in-progress
+allowed_paths:
+  - README.md
+---
+# Task 1
+`, 'utf8');
+
+    // ── Sub-case 3: Replayable finish operation left behind ──
+    const sDirReplay = path.join(specsDir, 'spec-sub-replay');
+    const tasksDirReplay = path.join(sDirReplay, 'tasks');
+    fs.mkdirSync(tasksDirReplay, { recursive: true });
+    fs.writeFileSync(path.join(sDirReplay, 'change.yaml'), `schema_version: '1.0'
+id: spec-sub-replay
+title: Replay Spec
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: t1
+    file: tasks/t1.md
+    status: in-progress
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+`, 'utf8');
+    fs.writeFileSync(path.join(tasksDirReplay, 't1.md'), `---
+id: t1
+status: in-progress
+allowed_paths:
+  - README.md
+---
+# Task 1
+`, 'utf8');
+
+    execFileSync('git', ['add', '-A'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'Add test specs for audit trail'], { cwd: tmpRepo });
+
+    // Test Sub-case 1: Active mid-flight
+    const candidate1 = { taskId: 't1', stepId: 'implementation', sessionId: 'sess-sub1', turnId: 'turn-sub1' };
+    const adm1 = await admitAgentExecution('spec-sub-active', candidate1, { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(adm1.admitted, true);
+    const rel1 = await releaseAdmittedExecution('spec-sub-active');
+    assert.equal(rel1.outcome, 'resumable');
+
+    const activities1 = readActivities('spec-sub-active', { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(activities1.length, 1);
+    assert.equal(activities1[0].type, 'workflow.execution.resumable');
+    assert.equal(activities1[0].data.sessionId, 'sess-sub1');
+    assert.equal(activities1[0].data.turnId, 'turn-sub1');
+    assert.equal(activities1[0].data.step, 'implementation');
+    assert.equal(activities1[0].data.attempt, 1);
+    assert.equal(activities1[0].data.outcome, 'resumable');
+    assert.equal(activities1[0].data.changeSlug, 'spec-sub-active');
+    assert.equal(typeof activities1[0].occurredAt, 'string');
+    assert.ok(!Number.isNaN(Date.parse(activities1[0].occurredAt)));
+
+    // Test Sub-case 2: Never activated / blocker abandoned
+    const candidate2 = { taskId: 't1', stepId: 'implementation', sessionId: 'sess-sub2', turnId: 'turn-sub2' };
+    const adm2 = await admitAgentExecution('spec-sub-blocker', candidate2, { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(adm2.admitted, true);
+    const rel2 = await releaseAdmittedExecution('spec-sub-blocker');
+    assert.equal(rel2.outcome, 'resumable');
+
+    const activities2 = readActivities('spec-sub-blocker', { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(activities2.length, 1);
+    assert.equal(activities2[0].type, 'workflow.execution.resumable');
+    assert.equal(activities2[0].data.sessionId, 'sess-sub2');
+    assert.equal(activities2[0].data.turnId, 'turn-sub2');
+    assert.equal(activities2[0].data.step, 'implementation');
+    assert.equal(activities2[0].data.attempt, 1);
+    assert.equal(activities2[0].data.outcome, 'resumable');
+    assert.equal(typeof activities2[0].occurredAt, 'string');
+
+    // Test Sub-case 3: Replayable finish-operation left behind
+    const candidate3 = { taskId: 't1', stepId: 'implementation', sessionId: 'sess-sub3', turnId: 'turn-sub3' };
+    const adm3 = await admitAgentExecution('spec-sub-replay', candidate3, { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(adm3.admitted, true);
+
+    saveOperationRecord(tmpRepo, {
+      operationId: 'op-replayable-audit-1',
+      change: 'spec-sub-replay',
+      task: 't1',
+      step: 'implementation',
+      attempt: 1,
+      status: 'running',
+      operations: [
+        { id: 'verify-gates', status: 'pending' },
+        { id: 'update-task', status: 'pending' },
+      ],
+    });
+
+    const rel3 = await releaseAdmittedExecution('spec-sub-replay');
+    assert.equal(rel3.outcome, 'resumable');
+
+    const activities3 = readActivities('spec-sub-replay', { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(activities3.length, 1);
+    assert.equal(activities3[0].type, 'workflow.execution.resumable');
+    assert.equal(activities3[0].data.sessionId, 'sess-sub3');
+    assert.equal(activities3[0].data.turnId, 'turn-sub3');
+    assert.equal(activities3[0].data.step, 'implementation');
+    assert.equal(activities3[0].data.attempt, 1);
+    assert.equal(activities3[0].data.outcome, 'resumable');
+    assert.equal(typeof activities3[0].occurredAt, 'string');
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('AC (Task 08): Subsequent admission resuming same (changeSlug, taskId, step, attempt) writes linked second activity record', async () => {
+  const tmpRepo = createTempRepo();
+  resetAdmissionStateForTest();
+
+  try {
+    const specsDir = path.join(tmpRepo, 'specs', 'active');
+    const sDir = path.join(specsDir, 'spec-resume-link');
+    const tasksDir = path.join(sDir, 'tasks');
+    fs.mkdirSync(tasksDir, { recursive: true });
+    fs.writeFileSync(path.join(sDir, 'change.yaml'), `schema_version: '1.0'
+id: spec-resume-link
+title: Resume Link Spec
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: t1
+    file: tasks/t1.md
+    status: in-progress
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+`, 'utf8');
+    fs.writeFileSync(path.join(tasksDir, 't1.md'), `---
+id: t1
+status: in-progress
+allowed_paths:
+  - README.md
+---
+# Task 1
+`, 'utf8');
+
+    execFileSync('git', ['add', '-A'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'Add task t1 for resume link'], { cwd: tmpRepo });
+
+    // Turn 1 ends resumable
+    const candidate1 = { taskId: 't1', stepId: 'implementation', sessionId: 'sess-first', turnId: 'turn-first' };
+    const adm1 = await admitAgentExecution('spec-resume-link', candidate1, { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(adm1.admitted, true);
+    await releaseAdmittedExecution('spec-resume-link');
+
+    const activitiesAfterRel1 = readActivities('spec-resume-link', { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(activitiesAfterRel1.length, 1);
+    const rec1 = activitiesAfterRel1[0];
+    assert.equal(rec1.type, 'workflow.execution.resumable');
+
+    // Turn 2 admits, resuming the same (spec-resume-link, t1, implementation, 1)
+    const candidate2 = { taskId: 't1', stepId: 'implementation', sessionId: 'sess-second', turnId: 'turn-second' };
+    const adm2 = await admitAgentExecution('spec-resume-link', candidate2, { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(adm2.admitted, true);
+
+    const activitiesAfterAdm2 = readActivities('spec-resume-link', { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(activitiesAfterAdm2.length, 2);
+
+    const rec2 = activitiesAfterAdm2[1];
+    assert.equal(rec2.type, 'workflow.execution.resumed');
+    assert.equal(rec2.triggeredBy, rec1.id);
+    assert.equal(rec2.actor.id, 'sess-second');
+    assert.equal(rec2.data.sessionId, 'sess-second');
+    assert.equal(rec2.data.turnId, 'turn-second');
+    assert.equal(rec2.data.step, 'implementation');
+    assert.equal(rec2.data.attempt, 1);
+    assert.equal(rec2.data.changeSlug, 'spec-resume-link');
+    assert.equal(rec2.data.priorActivityId, rec1.id);
+    assert.equal(rec2.data.priorSessionId, 'sess-first');
+    assert.equal(rec2.data.priorTurnId, 'turn-first');
+    assert.equal(typeof rec2.occurredAt, 'string');
+    assert.ok(!Number.isNaN(Date.parse(rec2.occurredAt)));
+
+    await releaseAdmittedExecution('spec-resume-link');
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('AC (Task 08): Admission for a different task or next attempt after real finish does not produce spurious resumed correlation', async () => {
+  const tmpRepo = createTempRepo();
+  resetAdmissionStateForTest();
+
+  try {
+    const specsDir = path.join(tmpRepo, 'specs', 'active');
+    const sDir = path.join(specsDir, 'spec-no-spurious');
+    const tasksDir = path.join(sDir, 'tasks');
+    fs.mkdirSync(tasksDir, { recursive: true });
+    fs.writeFileSync(path.join(sDir, 'change.yaml'), `schema_version: '1.0'
+id: spec-no-spurious
+title: No Spurious Spec
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: t1
+    file: tasks/t1.md
+    status: in-progress
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+  - id: t2
+    file: tasks/t2.md
+    status: in-progress
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: waiting-for-step-start
+`, 'utf8');
+    fs.writeFileSync(path.join(tasksDir, 't1.md'), `---
+id: t1
+status: in-progress
+allowed_paths:
+  - README.md
+---
+# Task 1
+`, 'utf8');
+    fs.writeFileSync(path.join(tasksDir, 't2.md'), `---
+id: t2
+status: in-progress
+allowed_paths:
+  - README.md
+---
+# Task 2
+`, 'utf8');
+
+    execFileSync('git', ['add', '-A'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'Add tasks for spurious test'], { cwd: tmpRepo });
+
+    // 1. Task t1 released as resumable
+    const candT1 = { taskId: 't1', stepId: 'implementation', sessionId: 'sess-t1-orig', turnId: 'turn-t1-orig' };
+    const admT1 = await admitAgentExecution('spec-no-spurious', candT1, { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(admT1.admitted, true);
+    await releaseAdmittedExecution('spec-no-spurious');
+
+    const actsAfterT1 = readActivities('spec-no-spurious', { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(actsAfterT1.length, 1);
+    assert.equal(actsAfterT1[0].type, 'workflow.execution.resumable');
+
+    // 2. Admission for a DIFFERENT task (t2) does NOT produce a resumed event
+    const candT2 = { taskId: 't2', stepId: 'implementation', sessionId: 'sess-t2', turnId: 'turn-t2' };
+    const admT2 = await admitAgentExecution('spec-no-spurious', candT2, { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(admT2.admitted, true);
+
+    const actsAfterT2 = readActivities('spec-no-spurious', { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(actsAfterT2.length, 1); // No new resumed event written for t2!
+    await releaseAdmittedExecution('spec-no-spurious');
+
+    // 3. Admission for the same task (t1) but for the NEXT attempt (attempt 2) after real finish
+    // Update change.yaml to simulate real finish (attempt advanced to 2)
+    fs.writeFileSync(path.join(sDir, 'change.yaml'), `schema_version: '1.0'
+id: spec-no-spurious
+title: No Spurious Spec
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: t1
+    file: tasks/t1.md
+    status: in-progress
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 2
+      state: active
+      history:
+        - step: implementation
+          attempt: 1
+          transitioned_to: completed
+  - id: t2
+    file: tasks/t2.md
+    status: in-progress
+`, 'utf8');
+
+    const candT1Att2 = { taskId: 't1', stepId: 'implementation', sessionId: 'sess-t1-att2', turnId: 'turn-t1-att2' };
+    const admT1Att2 = await admitAgentExecution('spec-no-spurious', candT1Att2, { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(admT1Att2.admitted, true);
+
+    // Activities must still have no resumed event matching attempt 1's resumable record
+    const actsAfterT1Att2 = readActivities('spec-no-spurious', { repoRoot: tmpRepo, activeDir: specsDir });
+    const resumedEvents = actsAfterT1Att2.filter((a) => a.type === 'workflow.execution.resumed');
+    assert.equal(resumedEvents.length, 0);
+
+    await releaseAdmittedExecution('spec-no-spurious');
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('AC (Task 08): Simulated activity-store write failure does not prevent claim release or admission from succeeding', async () => {
+  const tmpRepo = createTempRepo();
+  resetAdmissionStateForTest();
+
+  try {
+    const specsDir = path.join(tmpRepo, 'specs', 'active');
+    const sDir = path.join(specsDir, 'spec-audit-fail');
+    const tasksDir = path.join(sDir, 'tasks');
+    fs.mkdirSync(tasksDir, { recursive: true });
+    fs.writeFileSync(path.join(sDir, 'change.yaml'), `schema_version: '1.0'
+id: spec-audit-fail
+title: Write Failure Spec
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: t1
+    file: tasks/t1.md
+    status: in-progress
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+`, 'utf8');
+    fs.writeFileSync(path.join(tasksDir, 't1.md'), `---
+id: t1
+status: in-progress
+allowed_paths:
+  - README.md
+---
+# Task 1
+`, 'utf8');
+
+    execFileSync('git', ['add', '-A'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'Add task t1 for write failure test'], { cwd: tmpRepo });
+
+    // Create a regular file at the activity directory path so mkdirSync / appendFileSync throws ENOTDIR
+    const brokenActivityDir = path.join(tmpRepo, '.nevo-ai-local', 'activity');
+    fs.mkdirSync(path.dirname(brokenActivityDir), { recursive: true });
+    fs.writeFileSync(brokenActivityDir, 'blocking-file-not-a-dir', 'utf8');
+
+    const candidate1 = { taskId: 't1', stepId: 'implementation', sessionId: 'sess-fail-1', turnId: 'turn-fail-1' };
+    const adm1 = await admitAgentExecution('spec-audit-fail', candidate1, { repoRoot: tmpRepo, activeDir: specsDir, activityDir: brokenActivityDir });
+    // Admission succeeds despite activity store failure
+    assert.equal(adm1.admitted, true);
+
+    // Release succeeds despite activity store failure
+    const rel1 = await releaseAdmittedExecution('spec-audit-fail');
+    assert.equal(rel1.outcome, 'resumable');
+    assert.equal(rel1.released, true);
+
+    // Workspace claim released cleanly
+    const claim = getWorkspaceWriterClaim(tmpRepo);
+    assert.equal(claim, null);
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
 
 
 

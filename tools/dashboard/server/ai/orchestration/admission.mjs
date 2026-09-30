@@ -19,6 +19,8 @@ import {
   createTaskScope,
   getScopeTaskIds,
 } from '../../../../specs/workflow/execution-scope.mjs';
+import { recordActivity, readActivities } from '../../../../specs/activity/store.mjs';
+import { resolveAgentSessionActor, SYSTEM_ACTOR } from '../../../../specs/activity/actor-resolver.mjs';
 
 // In-process admission tracking per specId
 const activeExecutions = new Map(); // specId -> { ownerId, sessionId, turnId, taskId, candidate }
@@ -296,7 +298,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
       changeSlug,
       candidate,
       baselineProgress,
-      turnId: null,
+      turnId: candidate.turnId || null,
       admittedAt: new Date().toISOString(),
       settled: false,
       settledPromise,
@@ -470,6 +472,8 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
         }
 
         const turnIdResolved = executionRecord.turnId || turnOutcome.turnId || null;
+        const liveClaim = getWorkspaceWriterClaim(repoRoot);
+        const expectedTurnId = (liveClaim?.turnId && turnIdResolved) ? turnIdResolved : undefined;
 
         // Settlement check before touching claim (D59, D60)
         let settlement = { settled: false, outcome: 'recovery-required' };
@@ -538,7 +542,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             expectedScope: capturedScope,
             ...(capturedTaskId ? { expectedTaskId: capturedTaskId } : {}),
             ...(capturedSessionId ? { expectedSessionId: capturedSessionId } : {}),
-            ...(turnIdResolved ? { expectedTurnId: turnIdResolved } : {}),
+            ...(expectedTurnId ? { expectedTurnId } : {}),
           });
           const currentActiveSettled = activeExecutions.get(specId);
           if (currentActiveSettled?.ownerId === capturedOwnerId) {
@@ -583,7 +587,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             expectedScope: capturedScope,
             ...(capturedTaskId ? { expectedTaskId: capturedTaskId } : {}),
             ...(capturedSessionId ? { expectedSessionId: capturedSessionId } : {}),
-            ...(turnIdResolved ? { expectedTurnId: turnIdResolved } : {}),
+            ...(expectedTurnId ? { expectedTurnId } : {}),
           });
           const currentActiveResumable = activeExecutions.get(specId);
           if (currentActiveResumable?.ownerId === capturedOwnerId) {
@@ -592,6 +596,65 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
           if (typeof onTurnTerminal === 'function') {
             await onTurnTerminal({ specId, scope: capturedScope, taskId: capturedTaskId, settled: false, outcome: 'resumable', released: relRes.released });
           }
+
+          // Emit resumable activity audit record (D5, Task 08)
+          try {
+            let currentTaskProgress = executionRecord.baselineProgress;
+            if (repoRoot && capturedChangeSlug && capturedTaskId) {
+              try {
+                const { requireChange, requireTask } = await import('../../../../specs/store.mjs');
+                const activeDir = options.activeDir || (repoRoot ? join(repoRoot, 'specs', 'active') : undefined);
+                const currentChange = requireChange(capturedChangeSlug, activeDir);
+                const currentTask = requireTask(currentChange, capturedTaskId);
+                if (currentTask?.workflow_progress) {
+                  currentTaskProgress = currentTask.workflow_progress;
+                }
+              } catch {}
+            }
+
+            const step = settlement.details?.step ||
+                         settlement.details?.finishOperation?.step ||
+                         currentTaskProgress?.current_step ||
+                         executionRecord.baselineProgress?.current_step ||
+                         candidate?.stepId ||
+                         candidate?.step ||
+                         null;
+            const attempt = settlement.details?.attempt ??
+                            settlement.details?.finishOperation?.attempt ??
+                            currentTaskProgress?.current_attempt ??
+                            executionRecord.baselineProgress?.current_attempt ??
+                            candidate?.attempt ??
+                            1;
+
+            const occurredAt = new Date().toISOString();
+            recordActivity(
+              {
+                type: 'workflow.execution.resumable',
+                occurredAt,
+                actor: capturedSessionId ? resolveAgentSessionActor(capturedSessionId) : SYSTEM_ACTOR,
+                scope: {
+                  specId,
+                  ...(capturedTaskId ? { taskId: capturedTaskId } : {}),
+                },
+                data: {
+                  changeSlug: capturedChangeSlug,
+                  sessionId: capturedSessionId,
+                  turnId: turnIdResolved,
+                  step,
+                  attempt,
+                  outcome: 'resumable',
+                  timestamp: occurredAt,
+                },
+              },
+              {
+                repoRoot,
+                ...(options.activityDir ? { activityDir: options.activityDir } : {}),
+              }
+            );
+          } catch (activityErr) {
+            console.error('[admission] Failed to record resumable activity:', activityErr);
+          }
+
           hookOutcome = { settled: false, outcome: 'resumable', released: relRes.released };
         } else {
           const markRes = await markWorkspaceWriterRecoveryRequiredIfOwned({
@@ -603,7 +666,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             expectedScope: capturedScope,
             ...(capturedTaskId ? { expectedTaskId: capturedTaskId } : {}),
             ...(capturedSessionId ? { expectedSessionId: capturedSessionId } : {}),
-            ...(turnIdResolved ? { expectedTurnId: turnIdResolved } : {}),
+            ...(expectedTurnId ? { expectedTurnId } : {}),
           });
           const currentActiveFailed = activeExecutions.get(specId);
           if (currentActiveFailed?.ownerId === capturedOwnerId) {
@@ -658,6 +721,91 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
           reason: 'SESSION_SUBSCRIPTION_FAILED',
           error: subErr?.message || String(subErr),
         };
+      }
+    }
+
+    // Record resume audit trail if resuming an earlier resumable execution (D5, Task 08)
+    if (candidateScope.kind === 'task' && changeSlug && candidateScope.taskId) {
+      try {
+        const taskId = candidateScope.taskId;
+        const step = executionRecord.baselineProgress?.current_step || candidate.stepId || candidate.step || null;
+        const attempt = executionRecord.baselineProgress?.current_attempt ?? candidate.attempt ?? 1;
+
+        if (executionRecord.baselineProgress?.state !== 'completed' && step !== null) {
+          const activities = readActivities(specId, {
+            repoRoot,
+            ...(options.activityDir ? { activityDir: options.activityDir } : {}),
+          });
+
+          const alreadyResumedTriggerIds = new Set(
+            activities
+              .filter((a) => a.type === 'workflow.execution.resumed' && a.triggeredBy)
+              .map((a) => a.triggeredBy)
+          );
+
+          const matchingResumables = activities.filter((a, idx) => {
+            if (a.type !== 'workflow.execution.resumable') return false;
+            const aTask = a.scope?.taskId || a.data?.taskId;
+            const aChange = a.data?.changeSlug;
+            const aStep = a.data?.step;
+            const aAttempt = a.data?.attempt;
+            if (
+              aTask !== taskId ||
+              aChange !== changeSlug ||
+              aStep !== step ||
+              aAttempt !== attempt ||
+              alreadyResumedTriggerIds.has(a.id)
+            ) {
+              return false;
+            }
+
+            // Check if any subsequent record in activities indicates this step/attempt was completed
+            const subsequentCompleted = activities.slice(idx + 1).some(
+              (later) =>
+                later.type === 'workflow.step.completed' &&
+                (later.scope?.taskId === taskId || later.data?.taskId === taskId) &&
+                (later.data?.step === undefined || later.data?.step === step) &&
+                (later.data?.attempt === undefined || later.data?.attempt === attempt)
+            );
+            if (subsequentCompleted) return false;
+
+            return true;
+          });
+
+          if (matchingResumables.length > 0) {
+            const priorRecord = matchingResumables[matchingResumables.length - 1];
+            const occurredAt = new Date().toISOString();
+            recordActivity(
+              {
+                type: 'workflow.execution.resumed',
+                occurredAt,
+                actor: canonicalSessionId ? resolveAgentSessionActor(canonicalSessionId) : SYSTEM_ACTOR,
+                scope: {
+                  specId,
+                  taskId,
+                },
+                triggeredBy: priorRecord.id,
+                data: {
+                  changeSlug,
+                  sessionId: canonicalSessionId,
+                  turnId: executionRecord.turnId,
+                  step,
+                  attempt,
+                  priorActivityId: priorRecord.id,
+                  priorSessionId: priorRecord.data?.sessionId,
+                  priorTurnId: priorRecord.data?.turnId,
+                  timestamp: occurredAt,
+                },
+              },
+              {
+                repoRoot,
+                ...(options.activityDir ? { activityDir: options.activityDir } : {}),
+              }
+            );
+          }
+        }
+      } catch (auditErr) {
+        console.error('[admission] Failed to record resume audit activity:', auditErr);
       }
     }
 

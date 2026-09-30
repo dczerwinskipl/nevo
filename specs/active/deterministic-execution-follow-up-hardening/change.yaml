@@ -182,8 +182,24 @@ tasks:
   - id: resume-and-terminal-audit-trail
     order: 8
     file: tasks/08-resume-and-terminal-audit-trail.md
-    status: approved
+    status: implemented
     depends_on: [ terminal-reconciliation-adopts-outcome ]
+    implementation:
+      baseline_revision: 6122a314d9b9d2d08bcbb9d001515e79cbc4b901
+      review_revision: 6122a314d9b9d2d08bcbb9d001515e79cbc4b901
+      changed_paths:
+        - tools/dashboard/server/ai/orchestration/admission.mjs
+        - tools/tests/workflow-continuation.test.mjs
+      worktree_patch_fingerprint: afee51b88edaa81cdb49c11c6d20e933dd83fca9aa5ae7241341d4c2907abcfe
+    self_check:
+      fingerprint: 82456d7ca9c8a5b6b8edcbb47060a3d4fe06aecdf6daf39618cfd32fdb891b33
+      revision: 6122a314d9b9d2d08bcbb9d001515e79cbc4b901
+      commands:
+        - command: node --test tools/tests/workflow-continuation.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
   - id: admission-ownership-model-adr
     order: 9
     file: tasks/09-admission-ownership-model-adr.md
