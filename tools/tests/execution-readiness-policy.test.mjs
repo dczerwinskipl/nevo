@@ -4,14 +4,21 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
   evaluateExecutionReadiness,
   assertExecutionReadiness,
+  isActivationOnlyBlocker,
+  classifyReadinessFailure,
+  ACTIVATION_ONLY_READINESS_CODES,
+  ADMISSION_BLOCKING_READINESS_CODES,
+  ALL_READINESS_FAILURE_CODES,
 } from '../specs/workflow/readiness-policy.mjs';
+import { isFinishOperationReplayable } from '../specs/workflow/operation-record.mjs';
+
 import { handleWorkflowStepStart } from '../specs/workflow/cli.mjs';
 import { startHumanStep } from '../specs/workflow/human-step/operations.mjs';
 import { WorkflowStepExecutorMismatchError } from '../specs/workflow/executor-guard.mjs';
@@ -443,3 +450,116 @@ describe('Execution Readiness Policy (Task 13, D10, D13, D15, D18)', () => {
     assert.equal(session.taskId, 't-ready');
   });
 });
+
+describe('Readiness failure classification split (Task 02, D2)', () => {
+  test('DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT is unconditionally activation-only', () => {
+    assert.equal(isActivationOnlyBlocker('DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT'), true);
+    assert.equal(classifyReadinessFailure('DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT'), 'activation-only');
+    assert.ok(ACTIVATION_ONLY_READINESS_CODES.has('DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT'));
+  });
+
+  test('Existing readiness failure codes are unconditionally admission-blocking', () => {
+    const admissionBlockingCodes = [
+      'TASK_UNPUBLISHED',
+      'DEPENDENCY_UNSATISFIED',
+      'WORKFLOW_TERMINAL',
+      'TASK_SUSPENDED',
+      'WORKFLOW_STEP_EXECUTOR_MISMATCH',
+      'TASK_BARRIERED',
+      'WORKTREE_STATE_UNAVAILABLE',
+    ];
+
+    for (const code of admissionBlockingCodes) {
+      assert.equal(isActivationOnlyBlocker(code), false, `${code} must not be activation-only`);
+      assert.equal(classifyReadinessFailure(code), 'admission-blocking', `${code} must be admission-blocking`);
+      assert.ok(ADMISSION_BLOCKING_READINESS_CODES.has(code), `${code} must be in ADMISSION_BLOCKING_READINESS_CODES`);
+    }
+  });
+
+  test('FINISH_OPERATION_UNRESOLVED is activation-only iff prior record is proven replayable via isFinishOperationReplayable', () => {
+    const replayableRecord = {
+      operationId: 'op-replayable',
+      status: 'running',
+      operations: [
+        { id: 'verify-gates', status: 'completed' },
+        { id: 'update-task', status: 'running' },
+      ],
+    };
+    assert.equal(isFinishOperationReplayable(replayableRecord), true);
+    assert.equal(isActivationOnlyBlocker('FINISH_OPERATION_UNRESOLVED', { record: replayableRecord }), true);
+    assert.equal(classifyReadinessFailure('FINISH_OPERATION_UNRESOLVED', { record: replayableRecord }), 'activation-only');
+    assert.equal(isActivationOnlyBlocker({ code: 'FINISH_OPERATION_UNRESOLVED', priorRecord: replayableRecord }), true);
+
+    const nonReplayableRecordBlocked = {
+      operationId: 'op-blocked',
+      status: 'blocked',
+      operations: [
+        { id: 'verify-gates', status: 'completed' },
+        { id: 'update-task', status: 'unknown' },
+      ],
+    };
+    assert.equal(isFinishOperationReplayable(nonReplayableRecordBlocked), false);
+    assert.equal(isActivationOnlyBlocker('FINISH_OPERATION_UNRESOLVED', { record: nonReplayableRecordBlocked }), false);
+    assert.equal(classifyReadinessFailure('FINISH_OPERATION_UNRESOLVED', { record: nonReplayableRecordBlocked }), 'admission-blocking');
+
+    const nonReplayableRecordUnknown = {
+      operationId: 'op-unknown',
+      status: 'unknown',
+    };
+    assert.equal(isFinishOperationReplayable(nonReplayableRecordUnknown), false);
+    assert.equal(isActivationOnlyBlocker('FINISH_OPERATION_UNRESOLVED', { record: nonReplayableRecordUnknown }), false);
+
+    // Missing / null record fails closed to admission-blocking
+    assert.equal(isActivationOnlyBlocker('FINISH_OPERATION_UNRESOLVED', { record: null }), false);
+    assert.equal(isActivationOnlyBlocker('FINISH_OPERATION_UNRESOLVED'), false);
+    assert.equal(classifyReadinessFailure('FINISH_OPERATION_UNRESOLVED'), 'admission-blocking');
+  });
+
+  test('Static check: readiness-policy.mjs imports isFinishOperationReplayable from operation-record.mjs without duplicate logic', () => {
+    const policyFile = join(process.cwd(), 'tools', 'specs', 'workflow', 'readiness-policy.mjs');
+    const source = readFileSync(policyFile, 'utf8');
+
+    // Asserts proper import
+    const importRegex = /import\s*\{[^}]*isFinishOperationReplayable[^}]*\}\s*from\s*['"]\.\/operation-record\.mjs['"]/;
+    assert.ok(importRegex.test(source), 'readiness-policy.mjs must import isFinishOperationReplayable from ./operation-record.mjs');
+
+    // Confirms no inline reimplementation of running / blocked / unknown literals in the classification logic
+    const classifyFnRegex = /export\s+function\s+isActivationOnlyBlocker[\s\S]*?^}/m;
+    const match = source.match(classifyFnRegex);
+    assert.ok(match, 'isActivationOnlyBlocker function definition must exist');
+    const fnBody = match[0];
+    assert.ok(!fnBody.includes("'running'"), 'isActivationOnlyBlocker must not hardcode status === running check');
+    assert.ok(!fnBody.includes("'blocked'"), 'isActivationOnlyBlocker must not hardcode status === blocked check');
+    assert.ok(!fnBody.includes("'unknown'"), 'isActivationOnlyBlocker must not hardcode status === unknown check');
+    assert.ok(fnBody.includes('isFinishOperationReplayable'), 'isActivationOnlyBlocker must delegate to isFinishOperationReplayable');
+  });
+
+  test('Exhaustive classification: every readiness failure code returned in evaluateBaseExecutionReadiness is classified', () => {
+    const policyFile = join(process.cwd(), 'tools', 'specs', 'workflow', 'readiness-policy.mjs');
+    const source = readFileSync(policyFile, 'utf8');
+
+    const evaluateBaseStart = source.indexOf('function evaluateBaseExecutionReadiness(');
+    const evaluateEnd = source.indexOf('function assertBaseExecutionReadiness(');
+    assert.ok(evaluateBaseStart !== -1 && evaluateEnd !== -1);
+
+    const evaluateSource = source.slice(evaluateBaseStart, evaluateEnd);
+    const codeRegex = /code:\s*(?:err\.code\s*\|\|\s*)?['"]([A-Z_]+)['"]/g;
+    const extractedCodes = new Set();
+    let m;
+    while ((m = codeRegex.exec(evaluateSource)) !== null) {
+      extractedCodes.add(m[1]);
+    }
+
+    assert.ok(extractedCodes.size >= 7, `Expected at least 7 error codes, found: ${[...extractedCodes].join(', ')}`);
+
+    for (const code of extractedCodes) {
+      // Must be classified as either activation-only or admission-blocking (never throwing or undefined)
+      const res = classifyReadinessFailure(code);
+      assert.ok(
+        res === 'activation-only' || res === 'admission-blocking',
+        `Code '${code}' must be classified as either activation-only or admission-blocking`
+      );
+    }
+  });
+});
+

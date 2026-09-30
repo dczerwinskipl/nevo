@@ -5,7 +5,7 @@ import { projectTask, resolveDefinition } from './task-projection.mjs';
 import { projectSuspensions } from './suspension-projection.mjs';
 import { assertStepExecutor } from './executor-guard.mjs';
 import { assertCleanWorktreeForNewAttempt } from './step-context.mjs';
-import { loadOperationRecord } from './operation-record.mjs';
+import { loadOperationRecord, isFinishOperationReplayable } from './operation-record.mjs';
 import { WorkflowError } from './errors.mjs';
 import { isTaskBarriered } from './queue/reservation.mjs';
 
@@ -132,8 +132,10 @@ export function evaluateBaseExecutionReadiness(task, change, callerKind = 'agent
             reason: `Step '${projection.currentStep}' has an unresolved finish operation (status: '${priorRecord.status}') — resume it with 'workflow step finish' before starting the next step`,
             projection,
             targetStep,
+            priorRecord,
           };
         }
+
       }
 
       try {
@@ -244,9 +246,108 @@ export function assertExecutionReadiness(task, change, callerKind = 'agent', opt
   return result;
 }
 
+export const ACTIVATION_ONLY_READINESS_CODES = Object.freeze(new Set([
+  'DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT',
+]));
+
+export const ADMISSION_BLOCKING_READINESS_CODES = Object.freeze(new Set([
+  'TASK_UNPUBLISHED',
+  'DEPENDENCY_UNSATISFIED',
+  'WORKFLOW_TERMINAL',
+  'TASK_SUSPENDED',
+  'WORKFLOW_STEP_EXECUTOR_MISMATCH',
+  'TASK_BARRIERED',
+  'WORKTREE_STATE_UNAVAILABLE',
+]));
+
+export const ALL_READINESS_FAILURE_CODES = Object.freeze([
+  'TASK_UNPUBLISHED',
+  'DEPENDENCY_UNSATISFIED',
+  'WORKFLOW_TERMINAL',
+  'TASK_SUSPENDED',
+  'WORKFLOW_STEP_EXECUTOR_MISMATCH',
+  'FINISH_OPERATION_UNRESOLVED',
+  'DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT',
+  'TASK_BARRIERED',
+  'WORKTREE_STATE_UNAVAILABLE',
+]);
+
+/**
+ * Classifies whether a readiness failure code or evaluation result represents
+ * an activation-only blocker (an agent-remediable condition that does not prevent session/turn admission)
+ * versus an admission-blocking failure (which blocks session/turn creation entirely).
+ *
+ * Semantic rules (D2):
+ * - DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT is unconditionally activation-only (remediable by agent).
+ * - FINISH_OPERATION_UNRESOLVED is activation-only IF AND ONLY IF the prior finish-operation
+ *   record is proven deterministically replayable via isFinishOperationReplayable. Ambiguous
+ *   or reconciliation-required finish states remain admission-blocking.
+ * - All other readiness failure codes (TASK_UNPUBLISHED, DEPENDENCY_UNSATISFIED, WORKFLOW_TERMINAL,
+ *   TASK_SUSPENDED, WORKFLOW_STEP_EXECUTOR_MISMATCH, TASK_BARRIERED, WORKTREE_STATE_UNAVAILABLE)
+ *   are unconditionally admission-blocking.
+ *
+ * @param {string|object} codeOrResult - Failure code string or evaluateBaseExecutionReadiness result object
+ * @param {object} [context] - Context containing the loaded record, or record directly, or { repoRoot, task, change, step, attempt }
+ * @returns {boolean} `true` if activation-only; `false` if admission-blocking
+ */
+export function isActivationOnlyBlocker(codeOrResult, context = {}) {
+  const code = typeof codeOrResult === 'string'
+    ? codeOrResult
+    : codeOrResult?.code;
+
+  if (!code) return false;
+
+  if (code === 'DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT') {
+    return true;
+  }
+
+  if (code === 'FINISH_OPERATION_UNRESOLVED') {
+    // If context is an operation record directly
+    if (context && typeof context === 'object' && typeof context.status === 'string') {
+      return isFinishOperationReplayable(context);
+    }
+    // If record was passed as context.record or context.priorRecord
+    const record = context.record || context.priorRecord || (typeof codeOrResult === 'object' ? codeOrResult.priorRecord : null);
+    if (record) {
+      return isFinishOperationReplayable(record);
+    }
+    // If repoRoot, change, task, etc. are passed in context, load the record
+    if (context.repoRoot && context.task && context.change) {
+      const changeSlug = context.change.id || context.change._slug;
+      const step = context.step || context.projection?.currentStep;
+      const attempt = context.attempt || context.projection?.currentAttempt;
+      if (step && attempt) {
+        const loaded = loadOperationRecord(context.repoRoot, changeSlug, context.task.id, step, attempt);
+        return isFinishOperationReplayable(loaded);
+      }
+    }
+    return false;
+  }
+
+  return false;
+}
+
+/**
+ * Returns 'activation-only' or 'admission-blocking' for a given failure code or evaluation result.
+ *
+ * @param {string|object} codeOrResult
+ * @param {object} [context]
+ * @returns {'activation-only' | 'admission-blocking'}
+ */
+export function classifyReadinessFailure(codeOrResult, context = {}) {
+  return isActivationOnlyBlocker(codeOrResult, context)
+    ? 'activation-only'
+    : 'admission-blocking';
+}
+
 export const ExecutionReadiness = {
   evaluate: evaluateExecutionReadiness,
   assert: assertExecutionReadiness,
   evaluateBase: evaluateBaseExecutionReadiness,
   assertBase: assertBaseExecutionReadiness,
+  isActivationOnly: isActivationOnlyBlocker,
+  classify: classifyReadinessFailure,
+  ACTIVATION_ONLY_CODES: ACTIVATION_ONLY_READINESS_CODES,
+  ADMISSION_BLOCKING_CODES: ADMISSION_BLOCKING_READINESS_CODES,
 };
+
