@@ -17,6 +17,9 @@ import {
   getWorkspaceWriterClaim,
   withWorkspaceControlLock,
 } from '../specs/workflow/workspace-writer.mjs';
+import { execFileSync } from 'node:child_process';
+import { handleWorkflowStepStart } from '../specs/workflow/cli.mjs';
+import { saveStartOperation } from '../specs/workflow/start-operation.mjs';
 import {
   createWorkspaceRequest,
   transitionWorkspaceRequest,
@@ -339,5 +342,135 @@ describe('workspace-writer slot and workspace-control lock', () => {
         `File ${f} must not import or call forceReleaseWorkspaceWriterUnsafe`
       );
     }
+  });
+
+  describe('cli-manual dead-pid takeover adopts three-outcome classification', () => {
+    function initTestRepo(dir) {
+      execFileSync('git', ['init'], { cwd: dir, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.name', 'Test'], { cwd: dir, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, stdio: 'ignore' });
+      fs.writeFileSync(path.join(dir, 'README.md'), '# Test\n', 'utf8');
+
+      const wfDir = path.join(dir, '.nevo-ai', 'workflows');
+      fs.mkdirSync(wfDir, { recursive: true });
+      const realWfDir = path.resolve('.nevo-ai', 'workflows');
+      if (fs.existsSync(realWfDir)) {
+        for (const f of fs.readdirSync(realWfDir)) {
+          if (f.endsWith('.yaml') || f.endsWith('.yml')) {
+            fs.copyFileSync(path.join(realWfDir, f), path.join(wfDir, f));
+          }
+        }
+      }
+
+      const sDir = path.join(dir, 'specs', 'active', 'spec-cli');
+      const tasksDir = path.join(sDir, 'tasks');
+      fs.mkdirSync(tasksDir, { recursive: true });
+      fs.writeFileSync(path.join(sDir, 'change.yaml'), `schema_version: '1.0'
+id: spec-cli
+title: CLI Spec
+spec_id: 'c1100000-0000-0000-0000-000000000001'
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: t1
+    file: tasks/t1.md
+    status: in-progress
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+`, 'utf8');
+      fs.writeFileSync(path.join(tasksDir, 't1.md'), `---
+id: t1
+status: in-progress
+allowed_paths:
+  - README.md
+---
+# Task 1
+`, 'utf8');
+
+      execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+      execFileSync('git', ['commit', '-m', 'initial'], { cwd: dir, stdio: 'ignore' });
+    }
+
+    test('cli-manual dead-pid takeover releases cleanly when resumable (active attempt) and acquires claim', async () => {
+      initTestRepo(tempRepoRoot);
+
+      // Simulate an abandoned cli-manual claim with dead PID on active task t1
+      const lockPath = path.join(tempRepoRoot, '.nevo-ai-local', 'locks', 'workspace-writer.lock');
+      fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+      fs.writeFileSync(lockPath, JSON.stringify({
+        ownerId: 'dead-cli-owner',
+        kind: 'cli-manual',
+        status: 'active',
+        specId: 'c1100000-0000-0000-0000-000000000001',
+        changeSlug: 'spec-cli',
+        taskId: 't1',
+        scope: { kind: 'task', taskId: 't1' },
+        pid: 99999999, // dead PID
+        createdAt: new Date().toISOString(),
+      }, null, 2));
+
+      // Call handleWorkflowStepStart
+      const ctx = await handleWorkflowStepStart('spec-cli', 't1', {
+        repoRoot: tempRepoRoot,
+        activeDir: path.join(tempRepoRoot, 'specs', 'active'),
+        silent: true,
+      });
+      assert.equal(ctx.currentStep, 'implementation');
+      assert.equal(ctx.attempt, 1);
+
+      // Verify claim was taken over by new live cli-manual owner
+      const claim = getWorkspaceWriterClaim(tempRepoRoot);
+      assert.ok(claim);
+      assert.equal(claim.kind, 'cli-manual');
+      assert.notEqual(claim.ownerId, 'dead-cli-owner');
+      assert.equal(claim.pid, process.pid);
+    });
+
+    test('cli-manual dead-pid takeover marks recovery-required when ambiguous (in-flight start-operation)', async () => {
+      initTestRepo(tempRepoRoot);
+
+      // Simulate an abandoned cli-manual claim with dead PID
+      const lockPath = path.join(tempRepoRoot, '.nevo-ai-local', 'locks', 'workspace-writer.lock');
+      fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+      fs.writeFileSync(lockPath, JSON.stringify({
+        ownerId: 'dead-cli-owner-ambiguous',
+        kind: 'cli-manual',
+        status: 'active',
+        specId: 'c1100000-0000-0000-0000-000000000001',
+        changeSlug: 'spec-cli',
+        taskId: 't1',
+        scope: { kind: 'task', taskId: 't1' },
+        pid: 99999999, // dead PID
+        createdAt: new Date().toISOString(),
+      }, null, 2));
+
+      // Persist an in-flight start-operation record (ambiguous / recovery-required)
+      saveStartOperation(tempRepoRoot, {
+        change: 'spec-cli',
+        task: 't1',
+        step: 'implementation',
+        attempt: 1,
+        status: 'running',
+        consumptionSequence: 1,
+      });
+
+      // Call handleWorkflowStepStart: should fail because claim is marked recovery-required
+      await assert.rejects(async () => {
+        await handleWorkflowStepStart('spec-cli', 't1', {
+          repoRoot: tempRepoRoot,
+          activeDir: path.join(tempRepoRoot, 'specs', 'active'),
+          silent: true,
+        });
+      }, /Workspace writer is blocked by recovery/);
+
+      // Verify claim status is recovery-required
+      const claim = getWorkspaceWriterClaim(tempRepoRoot);
+      assert.ok(claim);
+      assert.equal(claim.status, 'recovery-required');
+      assert.equal(claim.ownerId, 'dead-cli-owner-ambiguous');
+    });
   });
 });

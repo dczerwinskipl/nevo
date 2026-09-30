@@ -44,6 +44,8 @@ import {
 import { reconcileRequestBackedWorkspaceClaim } from '../specs/workflow/workspace-claim-reconciliation.mjs';
 import { computeDeterministicTaskActionProjection } from '../dashboard/server/specs/actions.mjs';
 import { handleWorkflowVerifyHuman, handleWorkflowStepStart } from '../specs/workflow/cli.mjs';
+import { saveStartOperation } from '../specs/workflow/start-operation.mjs';
+import { saveOperationRecord, loadOperationRecord } from '../specs/workflow/operation-record.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -723,4 +725,403 @@ allowed_paths:
     fs.rmSync(tmpRepo, { recursive: true, force: true });
   }
 });
+
+test('AC (Task 06): Active-attempt turn ending releases claim cleanly as resumable without continuation or attempt increment', async () => {
+  const tmpRepo = createTempRepo();
+  resetAdmissionStateForTest();
+
+  try {
+    const specsDir = path.join(tmpRepo, 'specs', 'active');
+    const sDir = path.join(specsDir, 'spec-resume-active');
+    const tasksDir = path.join(sDir, 'tasks');
+    fs.mkdirSync(tasksDir, { recursive: true });
+    fs.writeFileSync(path.join(sDir, 'change.yaml'), `schema_version: '1.0'
+id: spec-resume-active
+title: Resume Active Spec
+spec_id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: t1
+    file: tasks/t1.md
+    status: in-progress
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+`, 'utf8');
+
+    fs.writeFileSync(path.join(tasksDir, 't1.md'), `---
+id: t1
+status: in-progress
+allowed_paths:
+  - README.md
+---
+# Task 1
+`, 'utf8');
+
+    execFileSync('git', ['add', '-A'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'Add active task t1'], { cwd: tmpRepo });
+
+    // 1. First execution admitted
+    const candidate1 = { taskId: 't1', stepId: 'implementation', sessionId: 'sess-1' };
+    const adm1 = await admitAgentExecution('spec-resume-active', candidate1, { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(adm1.admitted, true);
+
+    // Verify claim exists
+    const claimBefore = getWorkspaceWriterClaim(tmpRepo);
+    assert.ok(claimBefore);
+    assert.equal(claimBefore.ownerId, adm1.ownerId);
+
+    // 2. Turn ends (Hook 1) while task is active
+    const relRes = await releaseAdmittedExecution('spec-resume-active');
+    assert.equal(relRes.outcome, 'resumable');
+    assert.equal(relRes.released, true);
+    assert.equal(relRes.settled, false);
+
+    // Claim released, null in lockfile
+    const claimAfter = getWorkspaceWriterClaim(tmpRepo);
+    assert.equal(claimAfter, null);
+
+    // workflow_progress unchanged
+    const changeAfter = fs.readFileSync(path.join(sDir, 'change.yaml'), 'utf8');
+    assert.ok(changeAfter.includes('current_attempt: 1'));
+    assert.ok(changeAfter.includes('state: active'));
+
+    // 3. Subsequent admission for same task succeeds and gets same attempt/step
+    const candidate2 = { taskId: 't1', stepId: 'implementation', sessionId: 'sess-2' };
+    const adm2 = await admitAgentExecution('spec-resume-active', candidate2, { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(adm2.admitted, true);
+    assert.notEqual(adm2.ownerId, adm1.ownerId);
+
+    await releaseAdmittedExecution('spec-resume-active');
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('AC (Task 06): Turn ending at pre-activation blocker releases claim cleanly as resumable without marking recovery', async () => {
+  const tmpRepo = createTempRepo();
+  resetAdmissionStateForTest();
+
+  try {
+    const specsDir = path.join(tmpRepo, 'specs', 'active');
+    const sDir = path.join(specsDir, 'spec-resume-blocker');
+    const tasksDir = path.join(sDir, 'tasks');
+    fs.mkdirSync(tasksDir, { recursive: true });
+    fs.writeFileSync(path.join(sDir, 'change.yaml'), `schema_version: '1.0'
+id: spec-resume-blocker
+title: Resume Blocker Spec
+spec_id: 'b2c3d4e5-f6a7-8901-bcde-f12345678901'
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: t1
+    file: tasks/t1.md
+    status: in-progress
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: waiting-for-step-start
+`, 'utf8');
+
+    fs.writeFileSync(path.join(tasksDir, 't1.md'), `---
+id: t1
+status: in-progress
+allowed_paths:
+  - README.md
+---
+# Task 1
+`, 'utf8');
+
+    execFileSync('git', ['add', '-A'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'Add task t1 with blocker'], { cwd: tmpRepo });
+
+    const candidate1 = { taskId: 't1', stepId: 'implementation', sessionId: 'sess-blocker-1' };
+    const adm1 = await admitAgentExecution('spec-resume-blocker', candidate1, { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(adm1.admitted, true);
+
+    const relRes = await releaseAdmittedExecution('spec-resume-blocker');
+    assert.equal(relRes.outcome, 'resumable');
+    assert.equal(relRes.released, true);
+    assert.equal(relRes.markedRecovery, undefined);
+
+    const claimAfter = getWorkspaceWriterClaim(tmpRepo);
+    assert.equal(claimAfter, null);
+
+    // Subsequent admission succeeds without attempt increment
+    const candidate2 = { taskId: 't1', stepId: 'implementation', sessionId: 'sess-blocker-2' };
+    const adm2 = await admitAgentExecution('spec-resume-blocker', candidate2, { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(adm2.admitted, true);
+
+    await releaseAdmittedExecution('spec-resume-blocker');
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('AC (Task 06): In-flight start-operation record marks recovery-required and blocks future admission', async () => {
+  const tmpRepo = createTempRepo();
+  resetAdmissionStateForTest();
+
+  try {
+    const specsDir = path.join(tmpRepo, 'specs', 'active');
+    const sDir = path.join(specsDir, 'spec-start-op');
+    const tasksDir = path.join(sDir, 'tasks');
+    fs.mkdirSync(tasksDir, { recursive: true });
+    fs.writeFileSync(path.join(sDir, 'change.yaml'), `schema_version: '1.0'
+id: spec-start-op
+title: Start Op Spec
+spec_id: 'c3d4e5f6-a7b8-9012-cdef-123456789012'
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: t1
+    file: tasks/t1.md
+    status: in-progress
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+`, 'utf8');
+
+    fs.writeFileSync(path.join(tasksDir, 't1.md'), `---
+id: t1
+status: in-progress
+allowed_paths:
+  - README.md
+---
+# Task 1
+`, 'utf8');
+
+    execFileSync('git', ['add', '-A'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'Add task t1'], { cwd: tmpRepo });
+
+    const candidate = { taskId: 't1', stepId: 'implementation', sessionId: 'sess-start' };
+    const adm = await admitAgentExecution('spec-start-op', candidate, { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(adm.admitted, true);
+
+    // Persist in-flight start-operation record
+    saveStartOperation(tmpRepo, {
+      change: 'spec-start-op',
+      task: 't1',
+      step: 'implementation',
+      attempt: 1,
+      status: 'running',
+      consumptionSequence: 1,
+    });
+
+    const relRes = await releaseAdmittedExecution('spec-start-op');
+    assert.equal(relRes.outcome, 'recovery-required');
+    assert.equal(relRes.markedRecovery, true);
+
+    const claimAfter = getWorkspaceWriterClaim(tmpRepo);
+    assert.ok(claimAfter);
+    assert.equal(claimAfter.status, 'recovery-required');
+
+    // Future admission blocked by recovery
+    const admBlocked = await admitAgentExecution('spec-start-op', { taskId: 't1', stepId: 'implementation', sessionId: 'sess-blocked' }, { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(admBlocked.admitted, false);
+    assert.equal(admBlocked.reason, 'WORKSPACE_WRITER_BLOCKED_BY_RECOVERY');
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('AC (Task 06): In-flight non-replayable finish-operation record marks recovery-required and blocks future admission', async () => {
+  const tmpRepo = createTempRepo();
+  resetAdmissionStateForTest();
+
+  try {
+    const specsDir = path.join(tmpRepo, 'specs', 'active');
+    const sDir = path.join(specsDir, 'spec-finish-non-rep');
+    const tasksDir = path.join(sDir, 'tasks');
+    fs.mkdirSync(tasksDir, { recursive: true });
+    fs.writeFileSync(path.join(sDir, 'change.yaml'), `schema_version: '1.0'
+id: spec-finish-non-rep
+title: Non-Replayable Finish Op Spec
+spec_id: 'd4e5f6a7-b8c9-0123-def1-234567890123'
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: t1
+    file: tasks/t1.md
+    status: in-progress
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+`, 'utf8');
+
+    fs.writeFileSync(path.join(tasksDir, 't1.md'), `---
+id: t1
+status: in-progress
+allowed_paths:
+  - README.md
+---
+# Task 1
+`, 'utf8');
+
+    execFileSync('git', ['add', '-A'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'Add task t1'], { cwd: tmpRepo });
+
+    const candidate = { taskId: 't1', stepId: 'implementation', sessionId: 'sess-finish-non-rep' };
+    const adm = await admitAgentExecution('spec-finish-non-rep', candidate, { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(adm.admitted, true);
+
+    // Save in-flight finish record with failed stage (non-replayable)
+    saveOperationRecord(tmpRepo, {
+      operationId: 'op-finish-fail',
+      change: 'spec-finish-non-rep',
+      task: 't1',
+      step: 'implementation',
+      attempt: 1,
+      status: 'running',
+      operations: [
+        { id: 'verify-gates', status: 'completed' },
+        { id: 'update-task', status: 'failed' },
+      ],
+    });
+
+    const relRes = await releaseAdmittedExecution('spec-finish-non-rep');
+    assert.equal(relRes.outcome, 'recovery-required');
+    assert.equal(relRes.markedRecovery, true);
+
+    const claimAfter = getWorkspaceWriterClaim(tmpRepo);
+    assert.ok(claimAfter);
+    assert.equal(claimAfter.status, 'recovery-required');
+
+    // Future admission blocked by recovery
+    const admBlocked = await admitAgentExecution('spec-finish-non-rep', { taskId: 't1', stepId: 'implementation' }, { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(admBlocked.admitted, false);
+    assert.equal(admBlocked.reason, 'WORKSPACE_WRITER_BLOCKED_BY_RECOVERY');
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('AC (Task 06): In-flight replayable finish-operation record produces resumable and leaves record intact', async () => {
+  const tmpRepo = createTempRepo();
+  resetAdmissionStateForTest();
+
+  try {
+    const specsDir = path.join(tmpRepo, 'specs', 'active');
+    const sDir = path.join(specsDir, 'spec-finish-rep');
+    const tasksDir = path.join(sDir, 'tasks');
+    fs.mkdirSync(tasksDir, { recursive: true });
+    fs.writeFileSync(path.join(sDir, 'change.yaml'), `schema_version: '1.0'
+id: spec-finish-rep
+title: Replayable Finish Op Spec
+spec_id: 'e5f6a7b8-c9d0-1234-ef12-345678901234'
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: t1
+    file: tasks/t1.md
+    status: in-progress
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+`, 'utf8');
+
+    fs.writeFileSync(path.join(tasksDir, 't1.md'), `---
+id: t1
+status: in-progress
+allowed_paths:
+  - README.md
+---
+# Task 1
+`, 'utf8');
+
+    execFileSync('git', ['add', '-A'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'Add task t1'], { cwd: tmpRepo });
+
+    const candidate = { taskId: 't1', stepId: 'implementation', sessionId: 'sess-finish-rep' };
+    const adm = await admitAgentExecution('spec-finish-rep', candidate, { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(adm.admitted, true);
+
+    // Save in-flight finish record that is deterministically replayable
+    saveOperationRecord(tmpRepo, {
+      operationId: 'op-finish-replayable-123',
+      change: 'spec-finish-rep',
+      task: 't1',
+      step: 'implementation',
+      attempt: 1,
+      status: 'running',
+      operations: [
+        { id: 'verify-gates', status: 'pending' },
+        { id: 'update-task', status: 'pending' },
+      ],
+    });
+
+    const relRes = await releaseAdmittedExecution('spec-finish-rep');
+    assert.equal(relRes.outcome, 'resumable');
+    assert.equal(relRes.released, true);
+    assert.equal(relRes.markedRecovery, undefined);
+
+    // Claim released cleanly
+    const claimAfter = getWorkspaceWriterClaim(tmpRepo);
+    assert.equal(claimAfter, null);
+
+    // Durable record left completely intact
+    const loadedOp = loadOperationRecord(tmpRepo, 'spec-finish-rep', 't1', 'implementation', 1);
+    assert.ok(loadedOp);
+    assert.equal(loadedOp.operationId, 'op-finish-replayable-123');
+    assert.equal(loadedOp.status, 'running');
+
+    // Subsequent admission succeeds
+    const adm2 = await admitAgentExecution('spec-finish-rep', { taskId: 't1', stepId: 'implementation', sessionId: 'sess-rep-2' }, { repoRoot: tmpRepo, activeDir: specsDir });
+    assert.equal(adm2.admitted, true);
+
+    await releaseAdmittedExecution('spec-finish-rep');
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test('AC (Task 06): Scenario D: Non-terminal live claim rejects second admitAgentExecution for same spec', async () => {
+  const tmpRepo = createTempRepo();
+  resetAdmissionStateForTest();
+
+  try {
+    const candidateA = { taskId: 't1', stepId: 'impl', sessionId: 'sess-live-A' };
+    const admA = await admitAgentExecution('spec-1', candidateA, { repoRoot: tmpRepo });
+    assert.equal(admA.admitted, true);
+
+    // Second admission while turn A is still live (same specId rejected by in-process admission guard)
+    const candidateB = { taskId: 't1', stepId: 'impl', sessionId: 'sess-live-B' };
+    const admB = await admitAgentExecution('spec-1', candidateB, { repoRoot: tmpRepo });
+    assert.equal(admB.admitted, false);
+    assert.equal(admB.reason, 'ACTIVE_EXECUTION_EXISTS');
+
+    // Admission for different spec in same worktree rejected by workspace-writer slot contention
+    const admOtherSpec = await admitAgentExecution('spec-boot', { taskId: 't1', stepId: 'impl' }, { repoRoot: tmpRepo });
+    assert.equal(admOtherSpec.admitted, false);
+    assert.equal(admOtherSpec.reason, 'WORKSPACE_WRITER_CONTENDED');
+
+    // Once turn A releases cleanly
+    await releaseAdmittedExecution('spec-1');
+
+    // Turn B can now be admitted
+    const admB2 = await admitAgentExecution('spec-1', candidateB, { repoRoot: tmpRepo });
+    assert.equal(admB2.admitted, true);
+
+    await releaseAdmittedExecution('spec-1');
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
 

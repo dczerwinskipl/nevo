@@ -320,9 +320,11 @@ export async function reconcileBootState(options = {}) {
           repoRoot,
           changeSlug,
           taskId,
+          neverActivated: true,
         });
 
-        if (settlement.settled) {
+        const outcome = settlement.outcome || (settlement.settled ? 'completed' : 'recovery-required');
+        if ((outcome === 'completed' && settlement.settled) || outcome === 'resumable') {
           await releaseWorkspaceWriterIfOwned({
             repoRoot,
             expectedOwnerId: ownerId,
@@ -371,7 +373,8 @@ export async function reconcileBootState(options = {}) {
           taskId,
         });
 
-        if (settlement.settled) {
+        const outcome = settlement.outcome || (settlement.settled ? 'completed' : 'recovery-required');
+        if ((outcome === 'completed' && settlement.settled) || outcome === 'resumable') {
           await releaseWorkspaceWriterIfOwned({
             repoRoot,
             expectedOwnerId: ownerId,

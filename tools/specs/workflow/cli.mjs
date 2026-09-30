@@ -305,7 +305,10 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
           }
         }
       } else if (existingClaim.kind === 'cli-manual') {
-        reusedClaim = true;
+        const isLiveCli = existingClaim.pid && isProcessAlive(existingClaim.pid);
+        if (isLiveCli) {
+          reusedClaim = true;
+        }
       }
     }
 
@@ -322,7 +325,8 @@ export async function handleWorkflowStepStart(changeSlug, taskId, opts = {}) {
             taskId: targetClaimTask,
             activeDir: context.activeDir,
           });
-          if (settlement.settled) {
+          const outcome = settlement.outcome || (settlement.settled ? 'completed' : 'recovery-required');
+          if ((outcome === 'completed' && settlement.settled) || outcome === 'resumable') {
             await releaseWorkspaceWriterIfOwned({
               repoRoot: context.repoRoot,
               expectedOwnerId: existingClaim.ownerId,

@@ -20,6 +20,10 @@ import {
   getWorkspaceWriterClaim,
   releaseWorkspaceWriterIfOwned,
 } from '../specs/workflow/workspace-writer.mjs';
+import { execFileSync } from 'node:child_process';
+import { reconcileBootState } from '../dashboard/server/ai/orchestration/reconciliation.mjs';
+import { saveStartOperation } from '../specs/workflow/start-operation.mjs';
+import { saveOperationRecord, loadOperationRecord } from '../specs/workflow/operation-record.mjs';
 
 describe('workspace-claim-reconciliation (D79, D88, D95)', () => {
   let tempRepoRoot;
@@ -201,5 +205,225 @@ describe('workspace-claim-reconciliation (D79, D88, D95)', () => {
 
     assert.equal(result.reconciled, false);
     assert.equal(result.reason, 'request-not-found');
+  });
+
+  describe('Hook 3 boot-time reconciliation (D99, D100)', () => {
+    function initBootRepo(dir) {
+      execFileSync('git', ['init'], { cwd: dir, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.name', 'Test'], { cwd: dir, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, stdio: 'ignore' });
+      fs.writeFileSync(path.join(dir, 'README.md'), '# Test\n', 'utf8');
+
+      const wfDir = path.join(dir, '.nevo-ai', 'workflows');
+      fs.mkdirSync(wfDir, { recursive: true });
+      const realWfDir = path.resolve('.nevo-ai', 'workflows');
+      if (fs.existsSync(realWfDir)) {
+        for (const f of fs.readdirSync(realWfDir)) {
+          if (f.endsWith('.yaml') || f.endsWith('.yml')) {
+            fs.copyFileSync(path.join(realWfDir, f), path.join(wfDir, f));
+          }
+        }
+      }
+
+      const sDir = path.join(dir, 'specs', 'active', 'spec-boot');
+      const tasksDir = path.join(sDir, 'tasks');
+      fs.mkdirSync(tasksDir, { recursive: true });
+      fs.writeFileSync(path.join(sDir, 'change.yaml'), `schema_version: '1.0'
+id: spec-boot
+title: Boot Spec
+spec_id: 'b0070000-0000-0000-0000-000000000001'
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: t1
+    file: tasks/t1.md
+    status: in-progress
+    workflow_progress:
+      current_step: implementation
+      current_attempt: 1
+      state: active
+`, 'utf8');
+      fs.writeFileSync(path.join(tasksDir, 't1.md'), `---
+id: t1
+status: in-progress
+allowed_paths:
+  - README.md
+---
+# Task 1
+`, 'utf8');
+
+      execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+      execFileSync('git', ['commit', '-m', 'initial'], { cwd: dir, stdio: 'ignore' });
+    }
+
+    test('Hook 3: prepared claim with clean state releases claim cleanly (D99)', async () => {
+      initBootRepo(tempRepoRoot);
+      const lockPath = path.join(tempRepoRoot, '.nevo-ai-local', 'locks', 'workspace-writer.lock');
+      fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+      fs.writeFileSync(lockPath, JSON.stringify({
+        ownerId: 'owner-boot-prep',
+        kind: 'agent',
+        status: 'active',
+        specId: 'spec-boot',
+        taskId: 't1',
+        sessionId: 'sess-prep',
+        turnStartState: 'prepared',
+        createdAt: new Date().toISOString(),
+      }, null, 2));
+
+      const res = await reconcileBootState({ repoRoot: tempRepoRoot });
+      assert.equal(res.reconciledClaims, 1);
+      assert.equal(getWorkspaceWriterClaim(tempRepoRoot), null);
+    });
+
+    test('Hook 3: invoking claim fails closed to recovery-required bypassing settlement (D99)', async () => {
+      initBootRepo(tempRepoRoot);
+      const lockPath = path.join(tempRepoRoot, '.nevo-ai-local', 'locks', 'workspace-writer.lock');
+      fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+      fs.writeFileSync(lockPath, JSON.stringify({
+        ownerId: 'owner-boot-inv',
+        kind: 'agent',
+        status: 'active',
+        specId: 'spec-boot',
+        taskId: 't1',
+        sessionId: 'sess-inv',
+        turnStartState: 'invoking',
+        createdAt: new Date().toISOString(),
+      }, null, 2));
+
+      const res = await reconcileBootState({ repoRoot: tempRepoRoot });
+      assert.equal(res.reconciledClaims, 1);
+      const claim = getWorkspaceWriterClaim(tempRepoRoot);
+      assert.ok(claim);
+      assert.equal(claim.status, 'recovery-required');
+    });
+
+    test('Hook 3: started claim with active task produces resumable and releases claim (D99)', async () => {
+      initBootRepo(tempRepoRoot);
+      const lockPath = path.join(tempRepoRoot, '.nevo-ai-local', 'locks', 'workspace-writer.lock');
+      fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+      fs.writeFileSync(lockPath, JSON.stringify({
+        ownerId: 'owner-boot-started-active',
+        kind: 'agent',
+        status: 'active',
+        specId: 'spec-boot',
+        taskId: 't1',
+        sessionId: 'sess-started-active',
+        turnId: 'turn-started-1',
+        turnStartState: 'started',
+        createdAt: new Date().toISOString(),
+      }, null, 2));
+
+      const res = await reconcileBootState({ repoRoot: tempRepoRoot });
+      assert.equal(res.reconciledClaims, 1);
+      assert.equal(getWorkspaceWriterClaim(tempRepoRoot), null);
+    });
+
+    test('Hook 3: started claim with in-flight start-operation marks recovery-required', async () => {
+      initBootRepo(tempRepoRoot);
+      const lockPath = path.join(tempRepoRoot, '.nevo-ai-local', 'locks', 'workspace-writer.lock');
+      fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+      fs.writeFileSync(lockPath, JSON.stringify({
+        ownerId: 'owner-boot-started-sop',
+        kind: 'agent',
+        status: 'active',
+        specId: 'spec-boot',
+        taskId: 't1',
+        sessionId: 'sess-started-sop',
+        turnId: 'turn-started-2',
+        turnStartState: 'started',
+        createdAt: new Date().toISOString(),
+      }, null, 2));
+
+      saveStartOperation(tempRepoRoot, {
+        change: 'spec-boot',
+        task: 't1',
+        step: 'implementation',
+        attempt: 1,
+        status: 'running',
+        consumptionSequence: 1,
+      });
+
+      const res = await reconcileBootState({ repoRoot: tempRepoRoot });
+      assert.equal(res.reconciledClaims, 1);
+      const claim = getWorkspaceWriterClaim(tempRepoRoot);
+      assert.ok(claim);
+      assert.equal(claim.status, 'recovery-required');
+    });
+
+    test('Hook 3: started claim with in-flight replayable finish-operation produces resumable and releases claim', async () => {
+      initBootRepo(tempRepoRoot);
+      const lockPath = path.join(tempRepoRoot, '.nevo-ai-local', 'locks', 'workspace-writer.lock');
+      fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+      fs.writeFileSync(lockPath, JSON.stringify({
+        ownerId: 'owner-boot-started-rep',
+        kind: 'agent',
+        status: 'active',
+        specId: 'spec-boot',
+        taskId: 't1',
+        sessionId: 'sess-started-rep',
+        turnId: 'turn-started-3',
+        turnStartState: 'started',
+        createdAt: new Date().toISOString(),
+      }, null, 2));
+
+      saveOperationRecord(tempRepoRoot, {
+        operationId: 'op-boot-rep',
+        change: 'spec-boot',
+        task: 't1',
+        step: 'implementation',
+        attempt: 1,
+        status: 'running',
+        operations: [
+          { id: 'verify-gates', status: 'pending' },
+          { id: 'update-task', status: 'pending' },
+        ],
+      });
+
+      const res = await reconcileBootState({ repoRoot: tempRepoRoot });
+      assert.equal(res.reconciledClaims, 1);
+      assert.equal(getWorkspaceWriterClaim(tempRepoRoot), null);
+
+      const op = loadOperationRecord(tempRepoRoot, 'spec-boot', 't1', 'implementation', 1);
+      assert.ok(op);
+      assert.equal(op.operationId, 'op-boot-rep');
+    });
+
+    test('Hook 3: started claim with in-flight non-replayable finish-operation marks recovery-required', async () => {
+      initBootRepo(tempRepoRoot);
+      const lockPath = path.join(tempRepoRoot, '.nevo-ai-local', 'locks', 'workspace-writer.lock');
+      fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+      fs.writeFileSync(lockPath, JSON.stringify({
+        ownerId: 'owner-boot-started-nonrep',
+        kind: 'agent',
+        status: 'active',
+        specId: 'spec-boot',
+        taskId: 't1',
+        sessionId: 'sess-started-nonrep',
+        turnId: 'turn-started-4',
+        turnStartState: 'started',
+        createdAt: new Date().toISOString(),
+      }, null, 2));
+
+      saveOperationRecord(tempRepoRoot, {
+        operationId: 'op-boot-nonrep',
+        change: 'spec-boot',
+        task: 't1',
+        step: 'implementation',
+        attempt: 1,
+        status: 'running',
+        operations: [
+          { id: 'verify-gates', status: 'completed' },
+          { id: 'update-task', status: 'failed' },
+        ],
+      });
+
+      const res = await reconcileBootState({ repoRoot: tempRepoRoot });
+      assert.equal(res.reconciledClaims, 1);
+      const claim = getWorkspaceWriterClaim(tempRepoRoot);
+      assert.ok(claim);
+      assert.equal(claim.status, 'recovery-required');
+    });
   });
 });

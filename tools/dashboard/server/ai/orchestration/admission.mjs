@@ -268,6 +268,24 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
       resolveSettled = resolve;
     });
 
+    let baselineProgress = null;
+    if (candidateScope.kind === 'task' && repoRoot && changeSlug && candidateScope.taskId) {
+      try {
+        const { requireChange, requireTask } = await import('../../../../specs/store.mjs');
+        const activeDir = options.activeDir || (repoRoot ? join(repoRoot, 'specs', 'active') : undefined);
+        const currentChange = requireChange(changeSlug, activeDir);
+        const currentTask = requireTask(currentChange, candidateScope.taskId);
+        if (currentTask.workflow_progress) {
+          baselineProgress = {
+            current_step: currentTask.workflow_progress.current_step,
+            current_attempt: currentTask.workflow_progress.current_attempt,
+            state: currentTask.workflow_progress.state,
+            historyLength: currentTask.workflow_progress.history?.length || 0,
+          };
+        }
+      } catch {}
+    }
+
     const executionRecord = {
       ownerId,
       sessionId: canonicalSessionId,
@@ -277,6 +295,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
       specId,
       changeSlug,
       candidate,
+      baselineProgress,
       turnId: null,
       admittedAt: new Date().toISOString(),
       settled: false,
@@ -441,13 +460,14 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
         const turnIdResolved = executionRecord.turnId || turnOutcome.turnId || null;
 
         // Settlement check before touching claim (D59, D60)
-        let settlement = { settled: false };
+        let settlement = { settled: false, outcome: 'recovery-required' };
         if (capturedScope.kind === 'task') {
           settlement = await assessExecutionSettlement({
             repoRoot,
             changeSlug: capturedChangeSlug,
             taskId: capturedTaskId,
             activeDir: options.activeDir,
+            baselineProgress: executionRecord.baselineProgress,
           });
         } else if (capturedScope.kind === 'task-batch') {
           // For batch scope, settlement is determined by the authoritative durable batch-finish record
@@ -466,8 +486,9 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
           // If we can't resolve batchExecutionId, fail closed (settlement.settled remains false)
         }
 
+        const outcome = settlement.outcome || (settlement.settled ? 'completed' : 'recovery-required');
 
-        if (settlement.settled) {
+        if (outcome === 'completed' && settlement.settled) {
           if (capturedScope.kind === 'task-batch') {
             const { executeBatchCompletionSettlement } = await import('./batch-completion-settlement.mjs');
             const batchExecutionId = candidate.batchExecutionId || executionRecord.batchExecutionId || capturedScope.batchExecutionId;
@@ -490,9 +511,9 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
               });
             }
             if (typeof onTurnTerminal === 'function') {
-              await onTurnTerminal({ specId, scope: capturedScope, settled: true, batchSettlement });
+              await onTurnTerminal({ specId, scope: capturedScope, settled: true, outcome: 'completed', batchSettlement });
             }
-            hookOutcome = { settled: true, batchSettlement };
+            hookOutcome = { settled: true, outcome: 'completed', batchSettlement };
             return hookOutcome;
           }
 
@@ -512,9 +533,9 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             activeExecutions.delete(specId);
           }
           if (typeof onTurnTerminal === 'function') {
-            await onTurnTerminal({ specId, scope: capturedScope, taskId: capturedTaskId, settled: true, released: relRes.released });
+            await onTurnTerminal({ specId, scope: capturedScope, taskId: capturedTaskId, settled: true, outcome: 'completed', released: relRes.released });
           }
-          hookOutcome = { settled: true, released: relRes.released };
+          hookOutcome = { settled: true, outcome: 'completed', released: relRes.released };
 
           // Automatic continuation for settled turn (Item 5 & Item 12)
           if (repoRoot && capturedChangeSlug && capturedTaskId) {
@@ -539,6 +560,27 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
               console.error('[admission] Hook 1 continuation failed:', contErr);
             }
           }
+        } else if (outcome === 'resumable') {
+          // outcome: 'resumable' -> release the claim without continuation, leave workflow_progress untouched (D1, D3, D4)
+          const relRes = await releaseWorkspaceWriterIfOwned({
+            repoRoot,
+            expectedOwnerId: capturedOwnerId,
+            expectedKind: 'agent',
+            expectedSpecId: specId,
+            expectedChangeSlug: capturedChangeSlug,
+            expectedScope: capturedScope,
+            ...(capturedTaskId ? { expectedTaskId: capturedTaskId } : {}),
+            ...(capturedSessionId ? { expectedSessionId: capturedSessionId } : {}),
+            ...(turnIdResolved ? { expectedTurnId: turnIdResolved } : {}),
+          });
+          const currentActiveResumable = activeExecutions.get(specId);
+          if (currentActiveResumable?.ownerId === capturedOwnerId) {
+            activeExecutions.delete(specId);
+          }
+          if (typeof onTurnTerminal === 'function') {
+            await onTurnTerminal({ specId, scope: capturedScope, taskId: capturedTaskId, settled: false, outcome: 'resumable', released: relRes.released });
+          }
+          hookOutcome = { settled: false, outcome: 'resumable', released: relRes.released };
         } else {
           const markRes = await markWorkspaceWriterRecoveryRequiredIfOwned({
             repoRoot,
@@ -556,9 +598,9 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             activeExecutions.delete(specId);
           }
           if (typeof onTurnTerminal === 'function') {
-            await onTurnTerminal({ specId, scope: capturedScope, taskId: capturedTaskId, settled: false, markedRecovery: markRes.marked });
+            await onTurnTerminal({ specId, scope: capturedScope, taskId: capturedTaskId, settled: false, outcome: 'recovery-required', markedRecovery: markRes.marked });
           }
-          hookOutcome = { settled: false, markedRecovery: markRes.marked };
+          hookOutcome = { settled: false, outcome: 'recovery-required', markedRecovery: markRes.marked };
         }
 
         return hookOutcome;
