@@ -203,7 +203,7 @@ tasks:
   - id: admission-ownership-model-adr
     order: 9
     file: tasks/09-admission-ownership-model-adr.md
-    status: approved
+    status: implemented
     depends_on:
       [
         non-fatal-admission-for-remediable-blockers,
@@ -211,6 +211,19 @@ tasks:
         dependency-consumption-idempotent-on-resume,
         shared-finish-operation-replayability-classifier
       ]
+    implementation:
+      baseline_revision: a17b8fe7b8ad9e4a8088ff0274a2c1373c313e5a
+      review_revision: a17b8fe7b8ad9e4a8088ff0274a2c1373c313e5a
+      changed_paths:
+        - docs/decisions/ADR-0009-agent-admission-and-execution-ownership-model.md
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: f1162e152c05f813f130b4ebbe1848a99c29319cebbc67b6eb84bbab64e3bb27
+      revision: a17b8fe7b8ad9e4a8088ff0274a2c1373c313e5a
+      commands:
+        - command: node tools/docs.mjs validate
+          exit_code: 0
+      status: passed
   - id: acceptance-scenario-a
     order: 10
     file: tasks/10-acceptance-scenario-a.md
