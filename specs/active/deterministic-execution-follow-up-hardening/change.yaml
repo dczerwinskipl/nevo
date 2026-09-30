@@ -38,7 +38,7 @@ tasks:
   - id: terminal-reconciliation-adopts-outcome
     order: 6
     file: tasks/06-terminal-reconciliation-adopts-outcome.md
-    status: draft
+    status: approved
     depends_on:
       [
         three-outcome-terminal-classification,

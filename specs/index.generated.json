@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-30T13:00:07.709Z",
+  "generated": "2026-09-30T13:00:14.023Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -235,7 +235,7 @@
           "id": "terminal-reconciliation-adopts-outcome",
           "order": 6,
           "file": "tasks/06-terminal-reconciliation-adopts-outcome.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "three-outcome-terminal-classification",
             "dependency-consumption-idempotent-on-resume"
