@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-30T13:00:14.023Z",
+  "generated": "2026-09-30T13:00:21.817Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -207,7 +207,7 @@
           "id": "non-fatal-admission-for-remediable-blockers",
           "order": 3,
           "file": "tasks/03-non-fatal-admission-for-remediable-blockers.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "readiness-classification-split",
             "terminal-reconciliation-adopts-outcome"
