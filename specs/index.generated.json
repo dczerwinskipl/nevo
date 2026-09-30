@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-30T13:00:29.327Z",
+  "generated": "2026-09-30T13:00:36.455Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -251,7 +251,7 @@
           "id": "resume-and-terminal-audit-trail",
           "order": 8,
           "file": "tasks/08-resume-and-terminal-audit-trail.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "terminal-reconciliation-adopts-outcome"
           ]
