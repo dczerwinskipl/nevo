@@ -8,7 +8,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { requireChange, requireTask } from '../store.mjs';
-import { findInFlightOperationRecord } from './operation-record.mjs';
+import { findInFlightOperationRecord, isFinishOperationReplayable } from './operation-record.mjs';
+
 import { findInFlightStartOperation } from './start-operation.mjs';
 import { resolveTaskScope, resolveWorkflowOwnedPaths } from './step-context.mjs';
 import { loadWorkflowDefinition } from './definitions/loader.mjs';
@@ -58,43 +59,34 @@ function expandDirtyPaths(repoRoot, paths) {
 }
 
 /**
- * Assesses whether execution for a given task has settled safely.
+ * Assesses whether execution for a given task has settled safely, returning a three-outcome
+ * terminal classification (D1, D2, D3): 'completed' | 'resumable' | 'recovery-required',
+ * along with backward-compatible settled: boolean and diagnostic details.
  *
  * @param {object} params
  * @param {string} params.repoRoot
  * @param {string} params.changeSlug
  * @param {string} params.taskId
  * @param {string} [params.activeDir]
- * @returns {Promise<{ settled: boolean, reason?: string, details?: any, dirtyPaths?: string[] }>}
+ * @param {object} [params.baselineProgress] - Optional baseline progress captured at execution admission
+ * @param {boolean} [params.neverActivated] - Explicit flag indicating execution never activated the attempt
+ * @param {boolean} [params.preActivationBlocker] - Explicit flag indicating an open activation blocker
+ * @returns {Promise<{ settled: boolean, outcome: 'completed'|'resumable'|'recovery-required', reason?: string, details?: any, dirtyPaths?: string[], outOfScopeDirty?: string[], outOfScopeDirtyPaths?: string[], forbiddenDirtyPaths?: string[] }>}
  */
-export async function assessExecutionSettlement({ repoRoot, changeSlug, taskId, activeDir }) {
+export async function assessExecutionSettlement(params = {}) {
+  const { repoRoot, changeSlug, taskId, activeDir } = params;
   if (!repoRoot || !changeSlug || !taskId) {
-    return { settled: false, reason: 'missing-parameters' };
+    return {
+      settled: false,
+      outcome: 'recovery-required',
+      reason: 'missing-parameters',
+      outOfScopeDirty: [],
+      outOfScopeDirtyPaths: [],
+    };
   }
 
   const resolvedActiveDir = activeDir || path.join(repoRoot, 'specs', 'active');
 
-  // 1. Check in-flight start operation
-  const inFlightStart = findInFlightStartOperation(repoRoot, changeSlug, taskId);
-  if (inFlightStart) {
-    return {
-      settled: false,
-      reason: 'in-flight-start-operation',
-      details: { startOperation: inFlightStart },
-    };
-  }
-
-  // 2. Check in-flight finish operation
-  const inFlightFinish = findInFlightOperationRecord(repoRoot, changeSlug, taskId);
-  if (inFlightFinish) {
-    return {
-      settled: false,
-      reason: 'in-flight-finish-operation',
-      details: { finishOperation: inFlightFinish },
-    };
-  }
-
-  // 3. Check task workflow progress state is not active
   let change;
   let task;
   try {
@@ -103,23 +95,15 @@ export async function assessExecutionSettlement({ repoRoot, changeSlug, taskId, 
   } catch (err) {
     return {
       settled: false,
+      outcome: 'recovery-required',
       reason: `Failed to load task '${taskId}': ${err.message}`,
+      outOfScopeDirty: [],
+      outOfScopeDirtyPaths: [],
+      forbiddenDirtyPaths: [],
     };
   }
 
-  const wp = task.workflow_progress;
-  if (wp?.state === 'active') {
-    return {
-      settled: false,
-      reason: 'task-active',
-      details: {
-        step: wp.current_step,
-        attempt: wp.current_attempt,
-      },
-    };
-  }
-
-  // 4. Check dirty tracked changes in owned scope (when source control is enabled)
+  // Diagnostic dirty files inspection (in-scope and out-of-scope diagnostics)
   let sourceControlEnabled = true;
   if (change.workflow?.definition) {
     try {
@@ -130,28 +114,126 @@ export async function assessExecutionSettlement({ repoRoot, changeSlug, taskId, 
     } catch {}
   }
 
+  let inScopeDirty = [];
+  let outOfScopeDirty = [];
+  let forbiddenDirty = [];
+
   if (sourceControlEnabled) {
-    const rawDirtyPaths = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
-    const dirtyPaths = expandDirtyPaths(repoRoot, rawDirtyPaths);
+    try {
+      const rawDirtyPaths = git.getDirtyPaths(repoRoot).filter(p => !p.startsWith('.nevo-ai-local/') && p !== '.nevo-ai-local');
+      const dirtyPaths = expandDirtyPaths(repoRoot, rawDirtyPaths);
 
-    if (dirtyPaths.length > 0) {
-      const { allowedPaths } = resolveTaskScope(change, task, { repoRoot, activeDir: resolvedActiveDir });
-      const workflowOwnedPaths = resolveWorkflowOwnedPaths({ repoRoot, changeSlug, activeDir: resolvedActiveDir });
-      const ownedScope = [
-        ...(allowedPaths || []),
-        ...(workflowOwnedPaths || []),
-      ];
+      if (dirtyPaths.length > 0) {
+        const { allowedPaths, forbiddenPaths } = resolveTaskScope(change, task, { repoRoot, activeDir: resolvedActiveDir });
+        const workflowOwnedPaths = resolveWorkflowOwnedPaths({ repoRoot, changeSlug, activeDir: resolvedActiveDir });
+        const ownedScope = [
+          ...(allowedPaths || []),
+          ...(workflowOwnedPaths || []),
+        ];
 
-      const inScopeDirty = dirtyPaths.filter(p => ownedScope.some(pat => matchesFilePattern(p, pat)));
-      if (inScopeDirty.length > 0) {
-        return {
-          settled: false,
-          reason: 'dirty-in-scope-files',
-          dirtyPaths: inScopeDirty,
-        };
+        inScopeDirty = dirtyPaths.filter(p => ownedScope.some(pat => matchesFilePattern(p, pat)));
+        outOfScopeDirty = dirtyPaths.filter(p => !ownedScope.some(pat => matchesFilePattern(p, pat)));
+
+        const forbiddenPatterns = [
+          ...(forbiddenPaths || []),
+          ...(task?.forbidden_paths || []),
+          ...(task?.forbiddenPaths || []),
+        ];
+        forbiddenDirty = outOfScopeDirty.filter(p => forbiddenPatterns.some(pat => matchesFilePattern(p, pat)));
       }
-    }
+    } catch {}
   }
 
-  return { settled: true };
+  const diagnostics = {
+    outOfScopeDirty,
+    outOfScopeDirtyPaths: outOfScopeDirty,
+    forbiddenDirtyPaths: forbiddenDirty,
+  };
+
+  // 1. Check in-flight start operation (unconditional recovery-required)
+  const inFlightStart = findInFlightStartOperation(repoRoot, changeSlug, taskId);
+  if (inFlightStart) {
+    return {
+      settled: false,
+      outcome: 'recovery-required',
+      reason: 'in-flight-start-operation',
+      details: { startOperation: inFlightStart },
+      dirtyPaths: inScopeDirty,
+      ...diagnostics,
+    };
+  }
+
+  // 2. Check in-flight finish operation (D2 symmetric replayability classification)
+  const inFlightFinish = findInFlightOperationRecord(repoRoot, changeSlug, taskId);
+  if (inFlightFinish) {
+    const isReplayable = isFinishOperationReplayable(inFlightFinish);
+    return {
+      settled: false,
+      outcome: isReplayable ? 'resumable' : 'recovery-required',
+      reason: 'in-flight-finish-operation',
+      details: { finishOperation: inFlightFinish, replayable: isReplayable },
+      dirtyPaths: inScopeDirty,
+      ...diagnostics,
+    };
+  }
+
+  // 3. Check task workflow progress state is active (resumable)
+  const wp = task.workflow_progress;
+  if (wp?.state === 'active') {
+    return {
+      settled: false,
+      outcome: 'resumable',
+      reason: 'task-active',
+      details: {
+        step: wp.current_step,
+        attempt: wp.current_attempt,
+      },
+      dirtyPaths: inScopeDirty,
+      ...diagnostics,
+    };
+  }
+
+  // 4. Task workflow progress state is not active
+  // Distinguish never-activated vs genuinely advanced:
+  const isNeverActivated = Boolean(
+    params.neverActivated ||
+    params.preActivationBlocker ||
+    (params.baselineProgress && (
+      wp?.current_step === params.baselineProgress.current_step &&
+      wp?.current_attempt === params.baselineProgress.current_attempt &&
+      wp?.state === params.baselineProgress.state &&
+      (wp?.history?.length || 0) === (params.baselineProgress.history?.length || params.baselineProgress.historyLength || 0)
+    )) ||
+    wp?.state === 'ready' ||
+    wp?.state === 'waiting-for-step-start'
+  );
+
+  if (isNeverActivated) {
+    return {
+      settled: false,
+      outcome: 'resumable',
+      reason: inScopeDirty.length > 0 ? 'dirty-worktree-pre-activation' : 'never-activated',
+      dirtyPaths: inScopeDirty,
+      ...diagnostics,
+    };
+  }
+
+  // Genuinely advanced attempt (completed)
+  if (inScopeDirty.length > 0) {
+    return {
+      settled: false,
+      outcome: 'completed',
+      reason: 'dirty-in-scope-files',
+      dirtyPaths: inScopeDirty,
+      ...diagnostics,
+    };
+  }
+
+  return {
+    settled: true,
+    outcome: 'completed',
+    dirtyPaths: [],
+    ...diagnostics,
+  };
 }
+
