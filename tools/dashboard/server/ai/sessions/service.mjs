@@ -1227,52 +1227,91 @@ export class AgentSessionService {
 
     const effectiveSpecId = opts.specId || session?.specId;
 
-    const hasExplicitPerTurnTaskIntent = Boolean(
-      opts.taskId ||
-      opts.activeTaskId ||
-      opts.executionScope?.taskId ||
-      opts.purpose === 'execution' ||
-      (opts.workflowContext && opts.workflowContext !== false && typeof opts.workflowContext === 'object' && opts.workflowContext.taskId)
-    );
+    let isDeterministic = false;
+    let specChange = null;
+    if (effectiveSpecId) {
+      try {
+        const changes = listChanges(resolve(this.repoRoot, 'specs', 'active'));
+        specChange = changes.find((c) => c.spec_id === effectiveSpecId || c.id === effectiveSpecId || c._slug === effectiveSpecId);
+        if (specChange && resolveWorkflowMode(specChange).mode === 'deterministic') {
+          isDeterministic = true;
+        }
+      } catch {}
+    }
 
-    let effectiveTaskId;
-    if (hasExplicitPerTurnTaskIntent) {
-      effectiveTaskId = opts.activeTaskId || opts.taskId || opts.executionScope?.taskId || opts.workflowContext?.taskId || session?.activeTaskId;
-    } else {
-      let candidateTaskId = session?.activeTaskId;
-      if (candidateTaskId && effectiveSpecId) {
-        try {
-          const changes = listChanges(resolve(this.repoRoot, 'specs', 'active'));
-          const change = changes.find((c) => c.spec_id === effectiveSpecId || c.id === effectiveSpecId || c._slug === effectiveSpecId);
-          if (change && resolveWorkflowMode(change).mode === 'deterministic') {
-            const resolvedTask = (change.tasks || []).find((t) => String(t.id) === String(candidateTaskId));
-            if (!resolvedTask) {
-              candidateTaskId = undefined;
-            } else {
-              const definition = loadWorkflowDefinition(resolveWorkflowMode(change).definition, { repoRoot: this.repoRoot });
-              const readiness = evaluateExecutionReadiness(resolvedTask, change, 'agent', { repoRoot: this.repoRoot, definition });
-              if (!readiness.ready) {
-                if (readiness.code === 'WORKFLOW_STEP_EXECUTOR_MISMATCH' || readiness.code === 'WORKFLOW_TERMINAL') {
-                  candidateTaskId = undefined;
-                  if (session?.sessionId && this.bindingService) {
-                    await this.bindingService.bindSession({
-                      sessionId: session.sessionId,
-                      provider: prov,
-                      specId: effectiveSpecId,
-                      activeTaskId: null,
-                    });
-                    delete session.activeTaskId;
-                    if (session.executionScope?.kind === 'task') {
-                      delete session.executionScope;
-                    }
-                  }
+    // Defensive lifecycle healing: if the session has a persisted activeTaskId but that task
+    // has since moved to a human-owned step or terminal state (or no longer exists in the spec),
+    // heal the persisted record so stale execution state does not linger in storage.
+    if (session?.activeTaskId && effectiveSpecId && isDeterministic && specChange) {
+      try {
+        const resolvedTask = (specChange.tasks || []).find((t) => String(t.id) === String(session.activeTaskId));
+        if (!resolvedTask) {
+          if (session.sessionId && this.bindingService) {
+            await this.bindingService.bindSession({
+              sessionId: session.sessionId,
+              provider: prov,
+              specId: effectiveSpecId,
+              activeTaskId: null,
+            });
+            delete session.activeTaskId;
+            if (session.executionScope?.kind === 'task') {
+              delete session.executionScope;
+            }
+          }
+        } else {
+          const definition = loadWorkflowDefinition(resolveWorkflowMode(specChange).definition, { repoRoot: this.repoRoot });
+          const readiness = evaluateExecutionReadiness(resolvedTask, specChange, 'agent', { repoRoot: this.repoRoot, definition });
+          if (!readiness.ready) {
+            if (readiness.code === 'WORKFLOW_STEP_EXECUTOR_MISMATCH' || readiness.code === 'WORKFLOW_TERMINAL') {
+              if (session.sessionId && this.bindingService) {
+                await this.bindingService.bindSession({
+                  sessionId: session.sessionId,
+                  provider: prov,
+                  specId: effectiveSpecId,
+                  activeTaskId: null,
+                });
+                delete session.activeTaskId;
+                if (session.executionScope?.kind === 'task') {
+                  delete session.executionScope;
                 }
               }
             }
           }
-        } catch {}
+        }
+      } catch {}
+    }
+
+    // Explicit task execution identity for THIS turn:
+    // Persisted task history (taskIds, session.activeTaskId, previous executionScope)
+    // must NOT decide the execution intent of a new turn. Only explicit per-turn identity
+    // (opts.taskId, opts.activeTaskId, opts.executionScope, opts.workflowContext.taskId)
+    // establishes task execution intent. Ordinary user turns without explicit task identity
+    // remain generic/spec-level turns (effectiveTaskId = undefined).
+    const explicitTaskId =
+      opts.activeTaskId ||
+      opts.taskId ||
+      (opts.executionScope?.kind === 'task' ? opts.executionScope.taskId : undefined) ||
+      (typeof opts.workflowContext === 'object' && opts.workflowContext !== null && opts.workflowContext.taskId
+        ? opts.workflowContext.taskId
+        : undefined);
+
+    if (opts.purpose === 'execution') {
+      if (!explicitTaskId && opts.executionScope?.kind !== 'task-batch') {
+        throw new AiValidationError('Task ID is required for execution purpose.', { field: 'taskId' });
       }
-      effectiveTaskId = candidateTaskId;
+    }
+
+    let effectiveTaskId;
+    if (explicitTaskId) {
+      effectiveTaskId = String(explicitTaskId);
+    } else if (isDeterministic) {
+      // Deterministic specifications require explicit per-turn task identity for execution.
+      // An ordinary turn without explicit task execution intent must never inherit a persisted
+      // activeTaskId from session history.
+      effectiveTaskId = undefined;
+    } else {
+      // Legacy specifications: preserve session activeTaskId if set (e.g. via setActiveTaskId).
+      effectiveTaskId = session?.activeTaskId ? String(session.activeTaskId) : undefined;
     }
 
     let effectivePrompt = opts.message ?? opts.prompt;

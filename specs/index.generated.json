@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-30T06:16:58.500Z",
+  "generated": "2026-09-30T10:17:56.080Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -104,7 +104,29 @@
           "status": "approved",
           "depends_on": [
             "activity-core-model-and-contracts"
-          ]
+          ],
+          "workflow_progress": {
+            "current_step": "review",
+            "current_attempt": 1,
+            "state": "completed",
+            "history": [
+              {
+                "step": "implementation",
+                "attempt": 1,
+                "completed_at": "2026-09-30T06:38:14.826Z",
+                "transitioned_to": "review",
+                "sessionId": "c1b76f10-cdca-49d2-bccc-781deb3d889d"
+              },
+              {
+                "step": "review",
+                "attempt": 1,
+                "completed_at": "2026-09-30T06:45:16.494Z",
+                "transitioned_to": "human-verification",
+                "sessionId": "c1b76f10-cdca-49d2-bccc-781deb3d889d",
+                "result": "pass"
+              }
+            ]
+          }
         },
         {
           "id": "activity-query-and-export",

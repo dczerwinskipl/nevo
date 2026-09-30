@@ -1170,9 +1170,16 @@ tasks:
     });
     const session = { sessionId, provider: 'mock', specId, taskId: '01', taskIds: ['01'] };
 
-    // Starting a turn against the unready (draft) task must throw AiDeterministicWorkflowUnavailableError
+    // 1. Generic turn on this session (with no per-turn taskId) must NOT inherit activeTaskId '01'
+    // and must be admitted as a generic/spec-level turn without readiness gating
+    const genericTurn = await sessionService.startTurn('mock', undefined, { sessionId: session.sessionId, message: 'generic discussion' });
+    assert.ok(genericTurn.turnId, 'Generic turn must be admitted');
+    assert.equal(turnCalled, true, 'Provider turn must run for generic turn');
+    turnCalled = false;
+
+    // 2. Explicit execution turn requesting task '01' must evaluate execution readiness and reject unready (draft) task
     await assert.rejects(
-      () => sessionService.startTurn('mock', undefined, { sessionId: session.sessionId, message: 'do work' }),
+      () => sessionService.startTurn('mock', undefined, { sessionId: session.sessionId, taskId: '01', message: 'do work' }),
       (err) => {
         assert.equal(err.name, 'AiDeterministicWorkflowUnavailableError');
         assert.match(err.message, /not ready for execution/);

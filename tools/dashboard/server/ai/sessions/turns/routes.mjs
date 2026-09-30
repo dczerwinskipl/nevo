@@ -690,7 +690,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         }
       }
       if (body.purpose === 'execution') {
-        const taskId = body.taskId || session?.activeTaskId;
+        const taskId = body.taskId || body.activeTaskId || body.executionScope?.taskId;
         if (!taskId) {
           throw new AiValidationError('Task ID is required for deterministic execution.');
         }
@@ -789,6 +789,11 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         sessionId,
         message: body.message ?? body.prompt,
         ...(typeof body.userMessage === 'string' ? { userMessage: body.userMessage } : {}),
+        specId: body.specId,
+        taskId: body.taskId,
+        activeTaskId: body.activeTaskId,
+        executionScope: body.executionScope,
+        purpose: body.purpose,
         mode: body.mode,
         model: body.model === null ? null : body.model ? body.model.trim() : undefined,
         effort: effort ? effort.trim() : undefined,

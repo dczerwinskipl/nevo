@@ -513,3 +513,128 @@ test('Scenario G: Real reproduction of session 38cc6ce3-8b41-41d5-b2d7-96a301a7a
     await rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('Scenario H: Ordinary turn on session with agent-ready activeTaskId does NOT inherit task execution intent', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-scenario-h-'));
+  let sessionService = null;
+  let remoteDir = null;
+  try {
+    const specId = randomUUID();
+    const sessionId = randomUUID();
+    const { bindingService, remote } = await setupDeterministicRepo(tmpDir, specId, [
+      {
+        id: 'task-a',
+        status: 'implementing',
+        workflow_progress: { state: 'active', current_step: 'implementation', current_attempt: 1 },
+      },
+    ]);
+    remoteDir = remote;
+
+    // Persisted session state with activeTaskId = 'task-a' and executionScope
+    await bindingService.bindSession({
+      sessionId,
+      provider: 'mock',
+      providerSessionId: 'mock-sess-h',
+      specId,
+      taskId: 'task-a',
+      taskIds: ['task-a'],
+      activeTaskId: 'task-a',
+      executionScope: { kind: 'task', taskId: 'task-a' },
+    });
+
+    let capturedTurn = null;
+    const registry = createMockRegistry((opts) => { capturedTurn = opts; });
+    const turnRuntime = new AgentTurnRuntime({ registry });
+    sessionService = new AgentSessionService({ registry, turnRuntime, bindingService, repoRoot: tmpDir });
+
+    // 1. Send ordinary turn through the same canonical session:
+    // message: "fix an unrelated repository issue"
+    // NO taskId, NO activeTaskId, NO executionScope, NO workflowContext
+    const genericTurn = await sessionService.startTurn('mock', undefined, {
+      sessionId,
+      message: 'fix an unrelated repository issue',
+    });
+
+    assert.ok(genericTurn.turnId, 'Generic turn must be admitted');
+    assert.equal(capturedTurn.taskId, undefined, 'Provider must receive taskId = undefined');
+    assert.equal(capturedTurn.activeTaskId, undefined, 'Provider must receive activeTaskId = undefined');
+    assert.doesNotMatch(capturedTurn.message, /Nevo Workflow Context/, 'Must not inject Nevo Workflow Context');
+    assert.doesNotMatch(capturedTurn.message, /Task: task-a/, 'Must not inject task-a in context');
+
+    // Contextual taskIds must remain preserved
+    const storedSession = bindingService.getSessionSync(sessionId);
+    assert.deepEqual(storedSession.taskIds, ['task-a'], 'task-a must remain as contextual association');
+
+    // 2. In the SAME session, explicitly request taskId = 'task-a'
+    capturedTurn = null;
+    const executionTurn = await sessionService.startTurn('mock', undefined, {
+      sessionId,
+      taskId: 'task-a',
+      message: 'now explicitly execute task-a',
+    });
+
+    assert.ok(executionTurn.turnId, 'Explicit execution turn must be admitted');
+    assert.equal(capturedTurn.taskId, 'task-a', 'Provider must receive taskId = task-a');
+    assert.match(capturedTurn.message, /Nevo Workflow Context/, 'Must inject Nevo Workflow Context for task-a');
+    assert.match(capturedTurn.message, /Task: task-a/, 'Must name task-a in workflow context');
+  } finally {
+    await sessionService?.shutdown?.().catch(() => {});
+    if (remoteDir) rmSync(remoteDir, { recursive: true, force: true });
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Scenario I: Turn with purpose: execution without explicit task identity is rejected rather than inferring session.activeTaskId', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-scenario-i-'));
+  let sessionService = null;
+  let remoteDir = null;
+  try {
+    const specId = randomUUID();
+    const sessionId = randomUUID();
+    const { bindingService, remote } = await setupDeterministicRepo(tmpDir, specId, [
+      {
+        id: 'task-a',
+        status: 'implementing',
+        workflow_progress: { state: 'active', current_step: 'implementation', current_attempt: 1 },
+      },
+    ]);
+    remoteDir = remote;
+
+    // Session has persisted activeTaskId = 'task-a'
+    await bindingService.bindSession({
+      sessionId,
+      provider: 'mock',
+      providerSessionId: 'mock-sess-i',
+      specId,
+      taskId: 'task-a',
+      taskIds: ['task-a'],
+      activeTaskId: 'task-a',
+      executionScope: { kind: 'task', taskId: 'task-a' },
+    });
+
+    let turnCalled = false;
+    const registry = createMockRegistry(() => { turnCalled = true; });
+    const turnRuntime = new AgentTurnRuntime({ registry });
+    sessionService = new AgentSessionService({ registry, turnRuntime, bindingService, repoRoot: tmpDir });
+
+    // Call startTurn with purpose: 'execution' but no taskId, activeTaskId, executionScope, workflowContext.taskId
+    await assert.rejects(
+      () => sessionService.startTurn('mock', undefined, {
+        sessionId,
+        purpose: 'execution',
+        message: 'run execution without task identity',
+      }),
+      (err) => {
+        assert.equal(err.name, 'AiValidationError');
+        assert.match(err.message, /Task ID is required for execution purpose/);
+        return true;
+      },
+    );
+    assert.equal(turnCalled, false, 'Turn must never be dispatched to provider when task identity is absent');
+  } finally {
+    await sessionService?.shutdown?.().catch(() => {});
+    if (remoteDir) rmSync(remoteDir, { recursive: true, force: true });
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
