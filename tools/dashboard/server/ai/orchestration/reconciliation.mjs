@@ -109,6 +109,20 @@ export async function reconcileWorkflowPosition(change, task, options = {}) {
       repoRoot,
     });
 
+    if (queueState.nextRunnable?.readiness?.ready === false) {
+      // nextRunnable is only "eligible" here because its readiness failure is
+      // activation-only (dirty worktree / replayable finish) — remediation requires
+      // explicit user instruction (remediation-protocol-exception.md), never automatic
+      // continuation. Fail closed to a deterministic noop; an explicit admission (the
+      // HTTP routes) may still pick this up for remediation.
+      return {
+        action: 'noop',
+        reason: 'ACTIVATION_ONLY_BLOCKER_REQUIRES_EXPLICIT_ADMISSION',
+        nextStep: targetStepName,
+        queueState,
+      };
+    }
+
     if (queueState.nextRunnable) {
       const sessionPolicy = matchedTransition?.execution?.session || 'fresh';
       const role = matchedTransition?.execution?.role;
@@ -509,6 +523,17 @@ export async function reconcileContinuation(change, task, options = {}) {
     definition,
     repoRoot,
   });
+
+  if (queueState.nextRunnable?.readiness?.ready === false) {
+    // Same explicit-admission-only rule as reconcileWorkflowPosition above: durable-queue
+    // draining must not auto-admit a candidate that is only eligible via an
+    // activation-only blocker.
+    return {
+      action: 'noop',
+      reason: 'ACTIVATION_ONLY_BLOCKER_REQUIRES_EXPLICIT_ADMISSION',
+      queueState,
+    };
+  }
 
   if (queueState.nextRunnable) {
     const specId = resolveStableSpecId(change);

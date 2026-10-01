@@ -17,6 +17,7 @@ import { getWorkspaceWriterClaim } from '../specs/workflow/workspace-writer.mjs'
 import {
   resetAdmissionStateForTest,
   releaseAdmittedExecution,
+  waitForActiveExecutionSettled,
 } from '../dashboard/server/ai/orchestration/admission.mjs';
 import { handleWorkflowStepStart, handleWorkflowStepFinish } from '../specs/workflow/cli.mjs';
 import { saveOperationRecord, loadOperationRecord } from '../specs/workflow/operation-record.mjs';
@@ -233,7 +234,7 @@ async function createAiApp(repoRoot, specId) {
       throw e;
     }
   };
-  return { app, service, turnRuntime };
+  return { app, service, turnRuntime, provider: baseMock };
 }
 
 describe('Scenario A: dirty baseline before activation', { concurrency: 1 }, () => {
@@ -398,7 +399,23 @@ describe('Scenario A: dirty baseline before activation', { concurrency: 1 }, () 
       // workflow_progress remains byte-for-byte unchanged (still unactivated)
       assert.equal(fs.readFileSync(changeYamlPath, 'utf8'), initialChangeYaml, 'change.yaml remains untouched');
 
-      // Later execution is admitted again (Session 2)
+      // Deterministically hold the second turn's provider execution open before admitting
+      // it, so this test can observe the live claim before the mock turn's own background
+      // completion could settle it. Never race HTTP 201 against the provider's natural
+      // completion — the mock's streamDelayMs is short enough that the turn can otherwise
+      // finish (and release the claim) before this test's own assertions run.
+      let releaseSecondTurn;
+      const secondTurnGate = new Promise((resolve) => {
+        releaseSecondTurn = resolve;
+      });
+      const originalStartTurn = ai.provider.startTurn.bind(ai.provider);
+      ai.provider.startTurn = async (opts) => {
+        await secondTurnGate;
+        return originalStartTurn(opts);
+      };
+
+      // Later execution is admitted again (Session 2) — the underlying provider turn is
+      // held live (gated above) until explicitly released further down.
       const res2 = await ai.app.inject({
         method: 'POST',
         url: '/api/agent-sessions/turns',
@@ -424,12 +441,13 @@ describe('Scenario A: dirty baseline before activation', { concurrency: 1 }, () 
       assert.ok(canonicalTurn2.prompt.includes('DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT'));
       assert.ok(canonicalTurn2.prompt.includes('unrelated-dirty.txt'));
 
-      // Claim held by Session 2
+      // Claim held by Session 2 — deterministic, not timing-dependent: the turn is still
+      // gated open, so no natural completion could have released it yet.
       const claim2 = getWorkspaceWriterClaim(fx.root);
-      assert.ok(claim2);
+      assert.ok(claim2, 'claim2 must exist after the second admission');
       assert.equal(claim2.sessionId, data2.sessionId);
 
-      // Now remediation succeeds in this later turn
+      // Remediation and attempt activation happen while the turn is still live.
       fs.unlinkSync(dirtyFile);
 
       process.env.NEVO_SESSION_ID = data2.sessionId;
@@ -443,7 +461,13 @@ describe('Scenario A: dirty baseline before activation', { concurrency: 1 }, () 
       const updatedTask = requireTask(requireChange(fx.changeSlug, fx.activeDir), fx.taskId);
       assert.equal(updatedTask.workflow_progress?.state, 'active');
 
-      await releaseAdmittedExecution(fx.specId);
+      // Explicitly allow the provider turn to complete, then deterministically await its
+      // own terminal settlement (Hook 1's real subscription path, not a manual trigger) —
+      // never a sleep or poll.
+      releaseSecondTurn();
+      await waitForActiveExecutionSettled(fx.specId);
+
+      assert.equal(getWorkspaceWriterClaim(fx.root), null, 'Claim must be released once the second turn settles');
     } finally {
       if (savedEnvSession !== undefined) process.env.NEVO_SESSION_ID = savedEnvSession;
       else delete process.env.NEVO_SESSION_ID;
@@ -780,6 +804,100 @@ describe('Scenario A: dirty baseline before activation', { concurrency: 1 }, () 
 
       // No claim was acquired
       assert.equal(getWorkspaceWriterClaim(fx.root), null, 'No workspace claim should be acquired');
+    } finally {
+      if (ai?.app) await ai.app.close();
+      if (ai?.turnRuntime) await ai.turnRuntime.shutdown();
+      resetAdmissionStateForTest();
+      if (fx?.root) fs.rmSync(fx.root, { recursive: true, force: true });
+      if (fx?.remote) fs.rmSync(fx.remote, { recursive: true, force: true });
+    }
+  });
+
+  test('Acceptance Scenario A (7): Existing-session route (POST /:sessionId/turns) — the route the UI\'s explicit "Start agent step" now uses — handles an activation-only blocker identically: admitted for remediation with correct bootstrap, abandoned remediation settles resumable', async () => {
+    resetAdmissionStateForTest();
+    const fx = makeFixtureRepo({
+      prefix: 'scen-a-existing-session',
+      specId: '22222222-2222-4222-8222-222222222207',
+      changeSlug: 'spec-scenario-a-7',
+    });
+    let ai = null;
+
+    try {
+      ai = await createAiApp(fx.root, fx.specId);
+
+      // 1. Introduce a dirty, out-of-scope file and admit a first turn via the no-sessionId
+      //    route to establish an existing session bound to the task (abandoned without
+      //    remediating, exactly like Scenario A (2), so nothing ever genuinely advances —
+      //    this avoids any risk of automatic continuation picking up a different step).
+      const dirtyFile = path.join(fx.root, 'unrelated-dirty.txt');
+      fs.writeFileSync(dirtyFile, 'uncommitted file\n', 'utf8');
+
+      const res1 = await ai.app.inject({
+        method: 'POST',
+        url: '/api/agent-sessions/turns',
+        headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+        payload: { provider: 'mock', specId: fx.specId, changeSlug: fx.changeSlug, taskId: fx.taskId, purpose: 'execution' },
+      });
+      assert.equal(res1.statusCode, 201);
+      const data1 = JSON.parse(res1.body);
+
+      // Deterministically await the first turn's own natural terminal settlement (never a
+      // manual force-release here) — the turn-runtime's per-session "live turn" tracking
+      // only clears once the turn itself goes terminal, so reusing this same sessionId for
+      // a second turn below must not race that.
+      const relRes1 = await waitForActiveExecutionSettled(fx.specId);
+      assert.equal(relRes1.outcome, 'resumable');
+      assert.equal(getWorkspaceWriterClaim(fx.root), null);
+
+      // Deterministically hold the second turn's provider execution open — never race
+      // HTTP 202 against the mock's own fast background completion (same technique as
+      // Acceptance Scenario A (2) above).
+      let releaseSecondTurn;
+      const secondTurnGate = new Promise((resolve) => {
+        releaseSecondTurn = resolve;
+      });
+      const originalStartTurn = ai.provider.startTurn.bind(ai.provider);
+      ai.provider.startTurn = async (opts) => {
+        await secondTurnGate;
+        return originalStartTurn(opts);
+      };
+
+      // 2. Explicit execution through the EXISTING-session route — this is the exact route
+      //    agent-session-page.tsx's handleStartAgentStep now uses (POST /:sessionId/turns
+      //    with purpose: 'execution' + taskId), continuing the SAME session.
+      const res2 = await ai.app.inject({
+        method: 'POST',
+        url: `/api/agent-sessions/${data1.sessionId}/turns`,
+        headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+        payload: {
+          purpose: 'execution',
+          taskId: fx.taskId,
+          changeSlug: fx.changeSlug,
+          message: `Execute the current workflow step for task ${fx.taskId}.`,
+          userMessage: `Execute the current workflow step for task ${fx.taskId}.`,
+        },
+      });
+      assert.equal(res2.statusCode, 202, `Expected 202 Accepted but got: ${res2.statusCode} ${res2.body}`);
+      const data2 = JSON.parse(res2.body);
+
+      // Workflow bootstrap contains the same structured activation blocker.
+      const canonicalTurn2 = ai.turnRuntime.getCanonicalTurn(data2.turnId);
+      assert.ok(canonicalTurn2.prompt.includes('DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT'));
+      assert.ok(canonicalTurn2.prompt.includes('unrelated-dirty.txt'));
+
+      // Execution was admitted: claim exists for this session — deterministic, not
+      // timing-dependent, since the turn is still gated open.
+      const claim2 = getWorkspaceWriterClaim(fx.root);
+      assert.ok(claim2, 'Claim must exist for the admitted remediation turn');
+      assert.equal(claim2.sessionId, data1.sessionId);
+
+      // 3. Explicitly allow the provider turn to complete (abandoned, no remediation),
+      //    then deterministically await its own terminal settlement.
+      releaseSecondTurn();
+      const relRes2 = await waitForActiveExecutionSettled(fx.specId);
+      assert.equal(relRes2.outcome, 'resumable', "Must settle resumable, never recovery-required (ADR-0009)");
+      assert.equal(relRes2.released, true);
+      assert.equal(getWorkspaceWriterClaim(fx.root), null, 'Claim must be released; no recovery-required state remains');
     } finally {
       if (ai?.app) await ai.app.close();
       if (ai?.turnRuntime) await ai.turnRuntime.shutdown();

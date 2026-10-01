@@ -774,6 +774,91 @@ test('Item 12: Sequential queue automation advances nextRunnable task server-sid
   }
 });
 
+test('Item 9 regression: a resumable task\'s durable queue entry is consumed on its own release, so an unrelated task\'s later settlement cannot silently auto-readmit it (ADR-0009)', async () => {
+  const tmpRepo = createTempRepo('item9-stale-queue');
+  resetAdmissionStateForTest();
+
+  try {
+    const specId = '11111111-1111-4111-8111-111111111111';
+    const { enqueueTasks, loadTaskQueue } = await import('../specs/workflow/queue/index.mjs');
+    const { reconcileContinuation } = await import('../dashboard/server/ai/orchestration/reconciliation.mjs');
+    const { requireChange, requireTask, setTaskStatus } = await import('../specs/store.mjs');
+    const { updateYamlFile } = await import('../lib/yaml.mjs');
+
+    const activeDir = path.join(tmpRepo, 'specs', 'active');
+    const changeFile = path.join(activeDir, 'spec-test', 'change.yaml');
+
+    // t1: explicitly admitted and durably queued (matching what routes.mjs does for every
+    // real execution request), then left mid-flight ("active") when its own turn ends
+    // resumable without ever finishing.
+    enqueueTasks(tmpRepo, 'spec-test', ['t1']);
+    updateYamlFile(changeFile, (doc) => {
+      const tasks = doc.get('tasks', true);
+      const t1 = tasks?.items?.find((it) => it.get('id') === 't1');
+      t1.set('workflow_progress', { current_step: 'implementation', current_attempt: 1, state: 'active', history: [] });
+    });
+    execFileSync('git', ['add', '.'], { cwd: tmpRepo, stdio: 'ignore' });
+    execFileSync('git', ['commit', '-m', 'advance t1 to active'], { cwd: tmpRepo, stdio: 'ignore' });
+
+    const admissionT1 = await admitAgentExecution(
+      specId,
+      { taskId: 't1', changeSlug: 'spec-test', stepId: 'implementation', sessionId: 'sess-t1' },
+      { repoRoot: tmpRepo },
+    );
+    assert.equal(admissionT1.admitted, true);
+    const releaseT1 = await releaseAdmittedExecution(specId);
+    assert.equal(releaseT1.outcome, 'resumable', "t1's own turn must settle resumable (task-active)");
+    assert.equal(releaseT1.released, true);
+
+    // t1 must be consumed from the durable queue at the moment its own resumable release
+    // happens — not left behind for some other, unrelated task's settlement to rediscover.
+    assert.ok(
+      !loadTaskQueue(tmpRepo, 'spec-test')?.taskIds.includes('t1'),
+      'Resumable release must consume the durable queue entry (ADR-0009: later continuation is a new deterministic admission)',
+    );
+
+    // t2 (a different, unrelated task) now completes its own attempt — never durably queued.
+    const initialChange = requireChange('spec-test', activeDir);
+    setTaskStatus(initialChange, 't2', 'completed');
+    execFileSync('git', ['add', '.'], { cwd: tmpRepo, stdio: 'ignore' });
+    execFileSync('git', ['commit', '-m', 'complete t2'], { cwd: tmpRepo, stdio: 'ignore' });
+
+    const change = requireChange('spec-test', activeDir);
+    const task2 = requireTask(change, 't2');
+
+    const startedTurns = [];
+    const mockSessionService = {
+      async createSession(provider, opts) {
+        return { sessionId: `sess-${opts.taskId}` };
+      },
+      async listSessions() {
+        return [];
+      },
+      async startTurn(provider, sessionId, opts) {
+        startedTurns.push({ taskId: opts.taskId, sessionId });
+        return { turnId: `turn-${opts.taskId}` };
+      },
+      subscribeToSession() {
+        return () => {};
+      },
+    };
+
+    const contRes = await reconcileContinuation(change, task2, {
+      repoRoot: tmpRepo,
+      activeDir,
+      sessionService: mockSessionService,
+    });
+
+    // t2's own completion must never resurrect t1's dormant, resumable attempt.
+    assert.notEqual(contRes.action, 'queue-agent-admitted', "t2's settlement must not trigger an automatic admission of an unrelated stale queue entry");
+    assert.equal(startedTurns.length, 0, 'No turn must be auto-started for t1');
+    assert.equal(getWorkspaceWriterClaim(tmpRepo), null, 'No claim must be acquired for t1');
+  } finally {
+    resetAdmissionStateForTest();
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
 test('Finding 1: Deterministic dashboard Start resolves canonical spec_id UUID from slug and uses UUID in admission and workspace claim', async () => {
   const tmpRepo = createTempRepo('finding1-uuid-resolution');
   resetAdmissionStateForTest();

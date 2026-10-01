@@ -271,6 +271,14 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
     });
 
     let baselineProgress = null;
+    // The single authoritative boundary for "this candidate was only admitted because its
+    // readiness failure is activation-only" (D2, ADR-0009) — computed here from the
+    // readiness verdict the caller resolved for this exact candidate (candidate.readiness),
+    // never a route-local shortcut like `readiness.ready === false`. Every supported caller
+    // of admitAgentExecution gets identical settlement semantics regardless of which route
+    // or internal mechanism initiated admission. Absent a readiness verdict, this stays
+    // false — never assumed true without proof.
+    let preActivationBlocker = false;
     if (candidateScope.kind === 'task' && repoRoot && changeSlug && candidateScope.taskId) {
       try {
         const { requireChange, requireTask } = await import('../../../../specs/store.mjs');
@@ -285,6 +293,15 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             historyLength: currentTask.workflow_progress.history?.length || 0,
           };
         }
+        if (candidate.readiness && candidate.readiness.ready === false) {
+          const { isActivationOnlyBlocker } = await import('../../../../specs/workflow/readiness-policy.mjs');
+          preActivationBlocker = isActivationOnlyBlocker(candidate.readiness, {
+            repoRoot,
+            task: currentTask,
+            change: currentChange,
+            record: candidate.readiness.priorRecord,
+          });
+        }
       } catch {}
     }
 
@@ -298,6 +315,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
       changeSlug,
       candidate,
       baselineProgress,
+      preActivationBlocker,
       turnId: candidate.turnId || null,
       admittedAt: new Date().toISOString(),
       settled: false,
@@ -484,7 +502,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             taskId: capturedTaskId,
             activeDir: options.activeDir,
             baselineProgress: executionRecord.baselineProgress,
-            preActivationBlocker: executionRecord.candidate?.preActivationBlocker === true,
+            preActivationBlocker: executionRecord.preActivationBlocker === true,
           });
         } else if (capturedScope.kind === 'task-batch') {
           // For batch scope, settlement is determined by the authoritative durable batch-finish record
@@ -594,6 +612,20 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
           if (currentActiveResumable?.ownerId === capturedOwnerId) {
             activeExecutions.delete(specId);
           }
+
+          // Consume this task's durable sequential-queue entry (if any) now that its own
+          // execution ended resumable without genuinely advancing. ADR-0009: "later
+          // continuation is a new deterministic admission" — a resumable attempt requires
+          // its own fresh explicit admission to resume; it must never be silently
+          // rediscovered and auto-readmitted by some OTHER, unrelated task's settlement
+          // draining the same durable queue (reconcileContinuation's queue-wide section).
+          if (repoRoot && capturedChangeSlug && capturedTaskId && capturedScope.kind === 'task') {
+            try {
+              const { dequeueTask } = await import('../../../../specs/workflow/queue/store.mjs');
+              dequeueTask(repoRoot, capturedChangeSlug, capturedTaskId);
+            } catch {}
+          }
+
           if (typeof onTurnTerminal === 'function') {
             await onTurnTerminal({ specId, scope: capturedScope, taskId: capturedTaskId, settled: false, outcome: 'resumable', released: relRes.released });
           }
@@ -693,6 +725,13 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
       try {
         unsub = sessionService.subscribeToSession(canonicalSessionId, {
           onEvent: async (event) => {
+            // subscribeToSession replays the session's buffered event backlog from the
+            // start on every new subscription (turn-event-stream.mjs) — on a *reused*
+            // session, that backlog can still contain a PRIOR turn's own terminal event.
+            // Without this turnId filter, that stale replay would fire this execution's
+            // own reconcileHook1 immediately on subscribe, releasing (or recovery-marking)
+            // the claim this admission JUST acquired, for a turn that never actually ran.
+            if (event.turnId && event.turnId !== turnId) return;
             if (event.type === 'turn.completed' || event.type === 'turn.failed' || event.type === 'turn.cancelled') {
               if (unsub) {
                 try { unsub(); } catch {}

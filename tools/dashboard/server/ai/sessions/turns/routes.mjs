@@ -611,12 +611,12 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         model: effectiveModel || undefined,
         effort: effort ? effort.trim() : undefined,
         idempotencyKey: body.idempotencyKey,
-        // This candidate was only eligible via an activation-only readiness blocker (D2:
-        // DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT or a replayable FINISH_OPERATION_UNRESOLVED) —
-        // the attempt itself was never activated, so settlement must classify an
-        // unremediated end as 'resumable', never fall through to the genuinely-advanced
-        // branch (ADR-0009 Scenario A).
-        preActivationBlocker: authoritativeTarget.readiness?.ready === false,
+        // The queue-resolved readiness verdict for this exact candidate (D2: may be
+        // ready, or activation-only via DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT / a replayable
+        // FINISH_OPERATION_UNRESOLVED) — admitAgentExecution is the single authoritative
+        // boundary that classifies this into preActivationBlocker via
+        // isActivationOnlyBlocker, never a route-local shortcut (ADR-0009).
+        readiness: authoritativeTarget.readiness,
       };
 
       console.log(
@@ -682,6 +682,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
       authorize(accessPolicy, 'control', request);
       const body = assertBodyObject(request.body);
       const sessionId = validatedSessionId(request.params.sessionId);
+      const effectiveRepoRoot = repoRoot || service.repoRoot || process.cwd();
       if (
         body.model !== undefined &&
         body.model !== null &&
@@ -748,6 +749,37 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
           }
         }
 
+        // Readiness must be checked explicitly on this route too — admitAgentExecution
+        // itself never evaluates readiness (only the caller does), and this route's
+        // sessionPolicy is always 'reuse', so it never passes through
+        // service.createSession's own readiness check either. Without this, an
+        // admission-blocking failure (e.g. a non-replayable finish operation) would
+        // silently admit here even though it fails closed on the new-session route
+        // (ADR-0009, D2) — and an activation-only blocker (dirty worktree, replayable
+        // finish) would admit without the execution record ever recording that fact for
+        // settlement.
+        let readiness = null;
+        if (task && definition) {
+          const { evaluateExecutionReadiness, isActivationOnlyBlocker } = await import('../../../../../specs/workflow/readiness-policy.mjs');
+          readiness = evaluateExecutionReadiness(task, deterministicTarget.change, 'agent', {
+            definition,
+            repoRoot: effectiveRepoRoot,
+          });
+          if (!readiness.ready) {
+            const isActivationOnly = isActivationOnlyBlocker(readiness, {
+              repoRoot: effectiveRepoRoot,
+              task,
+              change: deterministicTarget.change,
+              record: readiness.priorRecord,
+            });
+            if (!isActivationOnly) {
+              throw new AiValidationError(
+                `Task '${taskId}' in specification '${changeSlug}' is not ready for execution: ${readiness.reason}`
+              );
+            }
+          }
+        }
+
         const { admitAgentExecution } = await import('../../orchestration/admission.mjs');
         const candidate = {
           taskId,
@@ -763,6 +795,7 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
           model: body.model === null ? null : body.model ? body.model.trim() : undefined,
           effort: effort ? effort.trim() : undefined,
           idempotencyKey: body.idempotencyKey,
+          readiness,
         };
 
         const admission = await admitAgentExecution(canonicalSpecId, candidate, {
