@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-09-13T17:21:19.440Z_
+_Generated: 2026-10-01T07:05:39.135Z_
 
 ## Hub
 
@@ -102,6 +102,7 @@ _Generated: 2026-09-13T17:21:19.440Z_
 | `adr.0006-process-continuity-and-hardening` | [Process continuity and hardening — suspension-based recovery, derived batch state, tiered fingerprints, and verify-before-destructive-cleanup finalization](decisions/ADR-0006-process-continuity-and-hardening.md) | accepted |  |
 | `adr.0007-provider-neutral-ai-sessions` | [Use provider-neutral local AI sessions in the specification dashboard](decisions/ADR-0007-provider-neutral-ai-sessions.md) | superseded |  |
 | `adr.0008-canonical-ai-session-chat-and-turn-model` | [Canonical AI session chat and turn model in the specification dashboard](decisions/ADR-0008-canonical-ai-session-chat-and-turn-model.md) | accepted |  |
+| `adr.0009-agent-admission-and-execution-ownership-model` | [Agent admission, execution ownership, and terminal classification model](decisions/ADR-0009-agent-admission-and-execution-ownership-model.md) | accepted |  |
 
 ## Ai
 

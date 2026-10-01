@@ -225,6 +225,42 @@ describe('AC5 & AC6: Dedicated "Request Changes" composer mode (D3, D7, C8)', ()
     // Workflow boundary refresh: a terminal turn refreshes availableActions immediately.
     assert.match(source, /onTurnCompleted:\s*\(\)\s*=>\s*\{[\s\S]*?onRefreshTaskActions\?\.\(\)/);
   });
+
+  test('handleStartAgentStep sends structured execution intent (purpose: execution, taskId); the generic composer never does (ADR-0009)', () => {
+    const source = readSource('../ui/features/agent-sessions/agent-session-page.tsx');
+
+    const handleStartAgentStepMatch = source.match(
+      /const handleStartAgentStep = useCallback\(([\s\S]*?)const handleComposerSubmit/,
+    );
+    assert.ok(handleStartAgentStepMatch, 'handleStartAgentStep callback body must be found');
+    const handleStartAgentStepBody = handleStartAgentStepMatch[1];
+    assert.match(
+      handleStartAgentStepBody,
+      /purpose:\s*'execution'/,
+      "the explicit 'Start agent step' action must send purpose: 'execution'",
+    );
+    assert.match(
+      handleStartAgentStepBody,
+      /\btaskId,/,
+      'the explicit action must send its own taskId as the authoritative execution identity',
+    );
+
+    const handleComposerSubmitMatch = source.match(
+      /const handleComposerSubmit = useCallback\(([\s\S]*?)const shellClassName/,
+    );
+    assert.ok(handleComposerSubmitMatch, 'handleComposerSubmit callback body must be found');
+    const handleComposerSubmitBody = handleComposerSubmitMatch[1];
+    assert.doesNotMatch(
+      handleComposerSubmitBody,
+      /purpose:\s*['"]execution['"]/,
+      'an ordinary composer message must never carry structured execution intent (D2: generic chat stays generic)',
+    );
+    assert.doesNotMatch(
+      handleComposerSubmitBody,
+      /\btaskId[,:]/,
+      'an ordinary composer message must never carry a taskId (no implicit task inheritance)',
+    );
+  });
 });
 
 describe('D15: sessions inherit but never select workflow mode; Create Session UX is informational only', () => {

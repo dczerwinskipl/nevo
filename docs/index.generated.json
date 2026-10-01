@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-13T17:21:19.440Z",
+  "generated": "2026-10-01T07:05:39.135Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -935,6 +935,16 @@
       "status": "accepted",
       "date": "2026-09-06",
       "supersedes": "adr.0007-provider-neutral-ai-sessions",
+      "superseded_by": null
+    },
+    {
+      "file": "docs/decisions/ADR-0009-agent-admission-and-execution-ownership-model.md",
+      "id": "adr.0009-agent-admission-and-execution-ownership-model",
+      "type": "adr",
+      "title": "Agent admission, execution ownership, and terminal classification model",
+      "status": "accepted",
+      "date": "2026-09-30",
+      "supersedes": null,
       "superseded_by": null
     },
     {

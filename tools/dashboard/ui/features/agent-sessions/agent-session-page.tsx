@@ -286,10 +286,15 @@ export function AgentSessionPage({
       setRuntimeError(null);
       try {
         const prompt = buildAgentStepTriggerMessage(taskId);
+        // Structured execution intent (ADR-0009) — taskId is the authoritative identity
+        // for this explicit action; the prompt text above is display/agent context only
+        // and is never parsed server-side to recover which task to execute.
         await assistant.sendTurn(prompt, {
           mode: currentMode,
           ...(selectedModelOverride !== undefined ? { model: selectedModelOverride } : {}),
           userMessage: prompt,
+          purpose: 'execution',
+          taskId,
         });
         await onRefreshTaskActions?.();
       } catch (err) {

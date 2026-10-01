@@ -142,20 +142,29 @@ tasks:
   });
 
   test('Condition 4: Dirty tracked change within execution owned scope blocks settlement', async () => {
-    // Task in completed state
-    fs.writeFileSync(path.join(tempRepoRoot, 'specs', 'active', 'demo-change', 'tasks', '01-demo-task.md'), `---
-id: demo-task
-status: completed
-allowed_paths:
-  - src/feature/**
-workflow_progress:
-  current_step: implement
-  current_attempt: 1
-  state: completed
-  history: []
----
-# Demo Task
+    // Task genuinely advanced: workflow_progress persisted in change.yaml (the
+    // authoritative location — see Condition 3; a task .md frontmatter copy is never
+    // read back by setTaskWorkflowState/requireTask and would silently leave `wp`
+    // undefined, which is a distinct, never-activated case this test must not conflate).
+    fs.writeFileSync(path.join(tempRepoRoot, 'specs', 'active', 'demo-change', 'change.yaml'), `
+schema_version: '1.0'
+id: demo-change
+title: Demo Change
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: demo-task
+    file: tasks/01-demo-task.md
+    status: completed
+    workflow_progress:
+      current_step: implement
+      current_attempt: 1
+      state: completed
+      history: []
 `, 'utf8');
+    git(tempRepoRoot, ['add', 'specs/active/demo-change/change.yaml']);
+    git(tempRepoRoot, ['commit', '-m', 'Advance workflow_progress to completed']);
 
     // Create a tracked dirty file in src/feature/
     const featDir = path.join(tempRepoRoot, 'src', 'feature');
@@ -180,20 +189,26 @@ workflow_progress:
   });
 
   test('Dirty file entirely outside execution owned scope does NOT block settlement', async () => {
-    // Task in completed state
-    fs.writeFileSync(path.join(tempRepoRoot, 'specs', 'active', 'demo-change', 'tasks', '01-demo-task.md'), `---
-id: demo-task
-status: completed
-allowed_paths:
-  - src/feature/**
-workflow_progress:
-  current_step: implement
-  current_attempt: 1
-  state: completed
-  history: []
----
-# Demo Task
+    // Task genuinely advanced: workflow_progress persisted in change.yaml (see Condition 4).
+    fs.writeFileSync(path.join(tempRepoRoot, 'specs', 'active', 'demo-change', 'change.yaml'), `
+schema_version: '1.0'
+id: demo-change
+title: Demo Change
+workflow:
+  mode: deterministic
+  definition: standard
+tasks:
+  - id: demo-task
+    file: tasks/01-demo-task.md
+    status: completed
+    workflow_progress:
+      current_step: implement
+      current_attempt: 1
+      state: completed
+      history: []
 `, 'utf8');
+    git(tempRepoRoot, ['add', 'specs/active/demo-change/change.yaml']);
+    git(tempRepoRoot, ['commit', '-m', 'Advance workflow_progress to completed']);
 
     // Create a tracked dirty file in unrelated/outside scope
     const unrelatedDir = path.join(tempRepoRoot, 'docs', 'unrelated');

@@ -343,14 +343,6 @@ describe('Scenario A: dirty baseline before activation', { concurrency: 1 }, () 
 
   test(
     'Acceptance Scenario A (2): Abandoned-remediation variant (F1/F4) terminates with resumable outcome, releases claim, and later execution succeeds upon remediation',
-    {
-      skip:
-        "Blocked by known defect in tools/specs/workflow/execution-settlement.mjs's " +
-        'isNeverActivated check (outside this task\'s allowed_paths) — see follow-up ' +
-        "'execution-settlement-never-activated-misclassified-completed' in this change's " +
-        'follow-ups.yaml. A never-activated task with an out-of-scope dirty file is ' +
-        "misclassified as outcome: 'completed' instead of 'resumable'. Un-skip once fixed.",
-    },
     async () => {
     resetAdmissionStateForTest();
     const fx = makeFixtureRepo({

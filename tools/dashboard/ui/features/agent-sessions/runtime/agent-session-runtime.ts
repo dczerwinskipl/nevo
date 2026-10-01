@@ -203,7 +203,18 @@ export function useAgentSessionRuntime({ sessionId, onTurnCompleted, onError }: 
   const handleSendTurn = useCallback(
     async (
       messageText: string,
-      options?: { mode?: AgentExecutionMode; model?: string | null; idempotencyKey?: string; userMessage?: string },
+      options?: {
+        mode?: AgentExecutionMode;
+        model?: string | null;
+        idempotencyKey?: string;
+        userMessage?: string;
+        /**
+         * Structured deterministic execution intent (ADR-0009) — set only by an explicit
+         * task action, never derived from message text or carried over from session state.
+         */
+        purpose?: 'execution';
+        taskId?: string;
+      },
     ) => {
       const trimmed = messageText ? messageText.trim() : '';
       if (!trimmed) throw new Error('Cannot start turn with an empty message.');
@@ -228,6 +239,8 @@ export function useAgentSessionRuntime({ sessionId, onTurnCompleted, onError }: 
           mode: options?.mode,
           model: options?.model,
           userMessage: options?.userMessage,
+          purpose: options?.purpose,
+          taskId: options?.taskId,
         });
       } catch (err) {
         setOptimisticPending(null);

@@ -20,6 +20,14 @@ export async function postStartTurn(
     mode?: AgentExecutionMode;
     model?: string | null;
     userMessage?: string;
+    /**
+     * Structured deterministic execution intent (owner-decisions.md ADR-0009). Only an
+     * explicit task action (e.g. "Start agent step") may set this — never inferred from
+     * the prompt text or from session metadata. Omitted entirely for ordinary chat, which
+     * must always resolve as a generic turn server-side.
+     */
+    purpose?: 'execution';
+    taskId?: string;
   },
 ): Promise<{ turnId: string | undefined }> {
   const res = await fetch(`/api/agent-sessions/${encodeURIComponent(sessionId)}/turns`, {
@@ -34,6 +42,8 @@ export async function postStartTurn(
       ...(body.mode ? { mode: body.mode } : {}),
       ...(body.model === null ? { model: null } : body.model?.trim() ? { model: body.model.trim() } : {}),
       ...(body.userMessage ? { userMessage: body.userMessage } : {}),
+      ...(body.purpose ? { purpose: body.purpose } : {}),
+      ...(body.taskId ? { taskId: body.taskId } : {}),
     }),
   });
 

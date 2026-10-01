@@ -26,5 +26,21 @@ follow_ups:
       task. Likely fix: also treat '!wp && !params.baselineProgress' as
       never-activated."
     resolver_task: null
-    status: open
-    resolution: null
+    status: resolved
+    resolution: "Fixed in tools/specs/workflow/execution-settlement.mjs:
+      isNeverActivated now also treats the absence of both current
+      task.workflow_progress and the admission-time baselineProgress as
+      never-activated (workflow_progress.current_step is never cleared once
+      written per D28, so its absence on both ends unambiguously means no
+      attempt ever ran, regardless of which paths are dirty). Verified this
+      cannot misclassify genuinely-completed work: a real completed/advanced
+      attempt always has a persisted workflow_progress in change.yaml (never
+      cleared), so the new condition only fires when wp is truly absent.
+      Un-skipped and passing:
+      tools/tests/scenario-a-dirty-baseline-activation.test.mjs Acceptance
+      Scenario A (2). Also corrected two execution-settlement.test.mjs fixtures
+      (Condition 4 and the out-of-scope-dirty case) that wrote workflow_progress
+      into the task .md frontmatter instead of change.yaml's task entry (the
+      actual authoritative location), which had been silently leaving wp
+      undefined and passing for the wrong reason; both now persist
+      workflow_progress correctly and still pass."

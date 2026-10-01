@@ -484,6 +484,7 @@ export async function admitAgentExecution(specId, candidate, options = {}) {
             taskId: capturedTaskId,
             activeDir: options.activeDir,
             baselineProgress: executionRecord.baselineProgress,
+            preActivationBlocker: executionRecord.candidate?.preActivationBlocker === true,
           });
         } else if (capturedScope.kind === 'task-batch') {
           // For batch scope, settlement is determined by the authoritative durable batch-finish record

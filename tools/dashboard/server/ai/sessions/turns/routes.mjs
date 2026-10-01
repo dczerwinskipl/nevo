@@ -323,23 +323,29 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
       }
 
       // A. Pure resolution and validation (no disk side-effects)
+      //
+      // candidateQueue is scoped to exactly this request's own selectedTaskIds — never
+      // merged with whatever else happens to still be sitting in the durable queue file.
+      // Cross-request batch continuation (draining a durably-enqueued multi-task batch one
+      // settlement at a time) is reconcileContinuation's job (Hook 1, automatic), never this
+      // HTTP handler's; merging in unrelated historical entries here let a stale, still-
+      // "eligible" (but already-used) single-task entry silently outrank a brand new,
+      // unrelated explicit task request via the FIFO tie-break (ADR-0009: an explicit
+      // execution action must target exactly the task it names).
       const { loadTaskQueue, enqueueTasks, evaluateTaskQueue } = await import('../../../../../specs/workflow/queue/index.mjs');
       const currentQueue = loadTaskQueue(effectiveRepoRoot, changeSlug);
       const candidateQueue = {
         changeSlug,
-        taskIds: currentQueue ? [...currentQueue.taskIds] : [],
-        eligibleAt: currentQueue ? { ...currentQueue.eligibleAt } : {},
+        taskIds: [],
+        eligibleAt: {},
         metadata: currentQueue?.metadata || {},
       };
-      const existingSet = new Set(candidateQueue.taskIds);
       const now = Date.now();
       for (const id of selectedTaskIds) {
         if (!id || typeof id !== 'string') continue;
-        if (!existingSet.has(id)) {
-          candidateQueue.taskIds.push(id);
-          existingSet.add(id);
-          candidateQueue.eligibleAt[id] = now;
-        }
+        if (candidateQueue.taskIds.includes(id)) continue;
+        candidateQueue.taskIds.push(id);
+        candidateQueue.eligibleAt[id] = currentQueue?.eligibleAt?.[id] ?? now;
       }
 
       let definition = null;
@@ -605,6 +611,12 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         model: effectiveModel || undefined,
         effort: effort ? effort.trim() : undefined,
         idempotencyKey: body.idempotencyKey,
+        // This candidate was only eligible via an activation-only readiness blocker (D2:
+        // DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT or a replayable FINISH_OPERATION_UNRESOLVED) —
+        // the attempt itself was never activated, so settlement must classify an
+        // unremediated end as 'resumable', never fall through to the genuinely-advanced
+        // branch (ADR-0009 Scenario A).
+        preActivationBlocker: authoritativeTarget.readiness?.ready === false,
       };
 
       console.log(

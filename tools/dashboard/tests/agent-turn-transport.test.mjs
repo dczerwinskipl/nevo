@@ -90,6 +90,27 @@ test('postStartTurn serializes model:null as an explicit provider-default reset'
   assert.equal(body.model, null);
 });
 
+test('postStartTurn includes purpose and taskId when provided (explicit execution intent, ADR-0009) and omits both otherwise', async () => {
+  const bodies = [];
+  globalThis.fetch = async (_url, init) => {
+    bodies.push(JSON.parse(init.body));
+    return { ok: true, status: 200, json: async () => ({ turnId: 't-exec' }) };
+  };
+
+  await postStartTurn('sess-1', {
+    message: 'Execute the current workflow step for task t1.',
+    idempotencyKey: 'idem-exec-1',
+    purpose: 'execution',
+    taskId: 't1',
+  });
+  await postStartTurn('sess-1', { message: 'Ordinary chat message', idempotencyKey: 'idem-chat-1' });
+
+  assert.equal(bodies[0].purpose, 'execution');
+  assert.equal(bodies[0].taskId, 't1');
+  assert.equal('purpose' in bodies[1], false, 'ordinary chat must never carry purpose: execution');
+  assert.equal('taskId' in bodies[1], false, 'ordinary chat must never carry a taskId');
+});
+
 test('postStartTurn throws the server-provided error message on failure', async () => {
   globalThis.fetch = async () => ({
     ok: false,
