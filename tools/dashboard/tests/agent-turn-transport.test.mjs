@@ -30,7 +30,7 @@ test('postStartTurn posts message/idempotencyKey/mode to the canonical sessionId
     mode: 'agent',
   });
 
-  assert.deepEqual(result, { turnId: 'turn-abc' });
+  assert.deepEqual(result, { turnId: 'turn-abc', sessionId: undefined, isNewSession: undefined });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, '/api/agent-sessions/sess-1/turns', 'must use the canonical sessionId route, not /:provider/:providerSessionId/turns');
   assert.equal(calls[0].init.method, 'POST');

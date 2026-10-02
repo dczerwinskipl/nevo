@@ -289,19 +289,27 @@ export function AgentSessionPage({
         // Structured execution intent (ADR-0009) — taskId is the authoritative identity
         // for this explicit action; the prompt text above is display/agent context only
         // and is never parsed server-side to recover which task to execute.
-        await assistant.sendTurn(prompt, {
+        const result = await assistant.sendTurn(prompt, {
           mode: currentMode,
           ...(selectedModelOverride !== undefined ? { model: selectedModelOverride } : {}),
           userMessage: prompt,
           purpose: 'execution',
           taskId,
         });
+        // The workflow's own declared session policy (fresh vs. reuse) always wins over
+        // which session this explicit action was invoked from (ADR-0009) — the server may
+        // have admitted a brand-new session rather than this one. Follow it: this session
+        // page has no further work to do for a turn that isn't its own.
+        if (result?.sessionId && result.sessionId !== sessionId) {
+          onSwitchSession({ sessionId: result.sessionId } as AgentSession);
+          return;
+        }
         await onRefreshTaskActions?.();
       } catch (err) {
         setRuntimeError(err instanceof Error ? err.message : String(err));
       }
     },
-    [assistant, currentMode, selectedModelOverride, onRefreshTaskActions],
+    [assistant, currentMode, selectedModelOverride, onRefreshTaskActions, sessionId, onSwitchSession],
   );
 
   const handleComposerSubmit = useCallback(

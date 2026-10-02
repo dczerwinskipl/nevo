@@ -233,7 +233,7 @@ export function useAgentSessionRuntime({ sessionId, onTurnCompleted, onError }: 
       setOptimisticPending({ text: displayText });
 
       try {
-        await postStartTurn(sessionId, {
+        return await postStartTurn(sessionId, {
           message: trimmed,
           idempotencyKey,
           mode: options?.mode,

@@ -29,7 +29,7 @@ export async function postStartTurn(
     purpose?: 'execution';
     taskId?: string;
   },
-): Promise<{ turnId: string | undefined }> {
+): Promise<{ turnId: string | undefined; sessionId: string | undefined; isNewSession?: boolean }> {
   const res = await fetch(`/api/agent-sessions/${encodeURIComponent(sessionId)}/turns`, {
     method: 'POST',
     headers: {
@@ -53,7 +53,12 @@ export async function postStartTurn(
   }
 
   const data = await res.json();
-  return { turnId: data.turnId };
+  // For structured execution intent, the admitted session can differ from the one this
+  // request targeted — the workflow's own declared session policy (fresh vs. reuse)
+  // always wins over which session the explicit action was invoked from (ADR-0009).
+  // Callers must follow data.sessionId, never assume continuity with the session they
+  // posted to.
+  return { turnId: data.turnId, sessionId: data.sessionId, isNewSession: data.isNewSession };
 }
 
 export async function postCancelTurn(

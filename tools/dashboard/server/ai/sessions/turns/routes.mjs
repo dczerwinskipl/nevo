@@ -322,69 +322,26 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         return;
       }
 
-      // A. Pure resolution and validation (no disk side-effects)
-      //
-      // candidateQueue is scoped to exactly this request's own selectedTaskIds — never
-      // merged with whatever else happens to still be sitting in the durable queue file.
-      // Cross-request batch continuation (draining a durably-enqueued multi-task batch one
-      // settlement at a time) is reconcileContinuation's job (Hook 1, automatic), never this
-      // HTTP handler's; merging in unrelated historical entries here let a stale, still-
-      // "eligible" (but already-used) single-task entry silently outrank a brand new,
-      // unrelated explicit task request via the FIFO tie-break (ADR-0009: an explicit
-      // execution action must target exactly the task it names).
-      const { loadTaskQueue, enqueueTasks, evaluateTaskQueue } = await import('../../../../../specs/workflow/queue/index.mjs');
-      const currentQueue = loadTaskQueue(effectiveRepoRoot, changeSlug);
-      const candidateQueue = {
-        changeSlug,
-        taskIds: [],
-        eligibleAt: {},
-        metadata: currentQueue?.metadata || {},
-      };
-      const now = Date.now();
-      for (const id of selectedTaskIds) {
-        if (!id || typeof id !== 'string') continue;
-        if (candidateQueue.taskIds.includes(id)) continue;
-        candidateQueue.taskIds.push(id);
-        candidateQueue.eligibleAt[id] = currentQueue?.eligibleAt?.[id] ?? now;
-      }
-
-      let definition = null;
-      if (deterministicTarget.resolvedWorkflow?.definition) {
-        const { loadWorkflowDefinition } = await import('../../../../../specs/workflow/definitions/loader.mjs');
-        definition = loadWorkflowDefinition(deterministicTarget.resolvedWorkflow.definition, { repoRoot: effectiveRepoRoot });
-      }
-
-      const queueState = evaluateTaskQueue({
-        change: deterministicTarget.change,
-        queueRecord: candidateQueue,
-        definition,
+      // A. Pure resolution and validation (no disk side-effects) — the one authoritative
+      // deterministic execution plan, shared with the existing-session route below
+      // (ADR-0009: the difference between HTTP entry points is caller intent/context,
+      // never workflow semantics).
+      const { resolveDeterministicExecutionPlan } = await import('../../orchestration/deterministic-execution-plan.mjs');
+      const plan = await resolveDeterministicExecutionPlan({
+        deterministicTarget,
+        selectedTaskIds,
+        body,
+        effort,
         repoRoot: effectiveRepoRoot,
       });
 
-      const authoritativeTarget = queueState.nextRunnable;
-      if (!authoritativeTarget) {
-        if (selectedTaskIds.length === 1) {
-          const singleTask = deterministicTarget.change.tasks?.find((t) => t.id === selectedTaskIds[0]);
-          if (singleTask && definition) {
-            const { evaluateExecutionReadiness } = await import('../../../../../specs/workflow/readiness-policy.mjs');
-            const readiness = evaluateExecutionReadiness(singleTask, deterministicTarget.change, 'agent', {
-              definition,
-              repoRoot: effectiveRepoRoot,
-            });
-            if (readiness?.code === 'WORKFLOW_STEP_EXECUTOR_MISMATCH') {
-              const stepName = readiness.targetStep?.id || readiness.stepId || 'human-verification';
-              throw new AiValidationError(
-                `Target workflow step '${stepName}' requires human execution and cannot be admitted for an agent turn.`
-              );
-            }
-          }
-        }
+      if (plan.noRunnableTask) {
         reply.code(409).send({
           error: {
             code: 'NO_RUNNABLE_TASK',
             message: 'No runnable task in sequential queue.',
             details: {
-              warnings: queueState.warnings,
+              warnings: plan.warnings,
               selectedTaskIds,
             },
           },
@@ -392,184 +349,21 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
         return;
       }
 
-      const targetTaskId = authoritativeTarget.taskId;
-      const targetStepName = authoritativeTarget.stepId;
-      const task = deterministicTarget.change.tasks?.find((t) => t.id === targetTaskId);
-
-      if (authoritativeTarget.executor !== 'agent') {
-        throw new AiValidationError(
-          `Target workflow step '${targetStepName}' requires ${authoritativeTarget.executor} execution and cannot be admitted for an agent turn.`
-        );
-      }
-
-      if (body.stepId && body.stepId !== targetStepName) {
-        throw new AiValidationError(
-          `Requested stepId '${body.stepId}' does not match server-resolved target step '${targetStepName}'.`
-        );
-      }
-
-      const { matchIncomingTransition } = await import('../../orchestration/reconciliation.mjs');
-      const matchResult = matchIncomingTransition(task, definition, targetStepName);
-      if (matchResult.ambiguous) {
-        throw new AiValidationError(matchResult.reason || `Ambiguous incoming transition to '${targetStepName}'.`);
-      }
-
-      const matchedTransition = matchResult.transition;
-      const authoritativeRole = matchedTransition?.execution?.role || null;
-
-      // Item 3: Role validation must fail closed on mismatch regardless of oneOff
-      if (body.role && body.role !== authoritativeRole) {
-        throw new AiValidationError(
-          `Requested role '${body.role}' does not match server-resolved role '${authoritativeRole}'.`
-        );
-      }
+      const {
+        targetTaskId,
+        targetStepName,
+        authoritativeTarget,
+        authoritativeRole,
+        sessionPolicy,
+        parentSessionId,
+        effectiveProvider,
+        effectiveMode,
+        effectiveModel,
+        effectiveUserMessage,
+      } = plan;
 
       const { executionPolicyService } = await import('../execution-policy-service.mjs');
-      const resolvedPolicy = executionPolicyService.resolveExecutionPolicy(changeSlug, targetTaskId, {
-        ...(authoritativeRole ? { role: authoritativeRole } : {}),
-        repoRoot: effectiveRepoRoot,
-      });
-
-      let effectiveProvider;
-      let effectiveMode;
-      let effectiveModel;
-
-      if (body.oneOff === true) {
-        effectiveProvider = body.provider || resolvedPolicy?.provider;
-        effectiveMode = body.mode || resolvedPolicy?.mode || 'agent';
-        if (body.model === null) {
-          effectiveModel = undefined;
-        } else if (body.model !== undefined) {
-          effectiveModel = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : undefined;
-        } else {
-          effectiveModel = resolvedPolicy?.model;
-        }
-      } else if (resolvedPolicy?.provider) {
-        if (body.provider && body.provider !== resolvedPolicy.provider) {
-          throw new AiValidationError(
-            `Requested provider '${body.provider}' does not match server-resolved execution policy provider '${resolvedPolicy.provider}'. Use oneOff to override.`
-          );
-        }
-        if (body.mode && body.mode !== resolvedPolicy.mode) {
-          throw new AiValidationError(
-            `Requested mode '${body.mode}' does not match server-resolved execution policy mode '${resolvedPolicy.mode}'. Use oneOff to override.`
-          );
-        }
-        if (body.model !== undefined) {
-          const policyModel = resolvedPolicy.model ? resolvedPolicy.model.trim() : null;
-          const requestedModel = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null;
-          if (requestedModel !== policyModel) {
-            if (policyModel !== null && requestedModel === null) {
-              throw new AiValidationError(
-                `Requested provider default model does not match server-resolved execution policy model '${resolvedPolicy.model}'. Use oneOff to override.`
-              );
-            }
-            if (policyModel === null && requestedModel !== null) {
-              throw new AiValidationError(
-                `Requested model '${body.model}' does not match server-resolved execution policy (provider default). Use oneOff to override.`
-              );
-            }
-            throw new AiValidationError(
-              `Requested model '${body.model}' does not match server-resolved execution policy model '${resolvedPolicy.model}'. Use oneOff to override.`
-            );
-          }
-        }
-        effectiveProvider = resolvedPolicy.provider;
-        effectiveMode = resolvedPolicy.mode;
-        effectiveModel = resolvedPolicy.model;
-      } else {
-        // First explicit start with no policy on disk yet (D21)
-        effectiveProvider = body.provider || null;
-        effectiveMode = body.mode || 'agent';
-        effectiveModel = (body.model && typeof body.model === 'string' && body.model.trim()) ? body.model.trim() : undefined;
-      }
-
-      if (!effectiveProvider) {
-        throw new AiValidationError('No execution provider specified or configured in execution policy.');
-      }
-
-      const declaredSessionPolicy = matchedTransition?.execution?.session || null;
-      const sessionPolicy = declaredSessionPolicy || 'fresh';
-
-      if (body.sessionPolicy && declaredSessionPolicy && body.sessionPolicy !== declaredSessionPolicy) {
-        throw new AiValidationError(
-          `Requested sessionPolicy '${body.sessionPolicy}' conflicts with server-resolved workflow session policy '${declaredSessionPolicy}'.`
-        );
-      }
-
-      let parentSessionId = null;
-      const history = task?.workflow_progress?.history || [];
-      if (effectiveRepoRoot && history.length > 0) {
-        for (let i = history.length - 1; i >= 0; i--) {
-          const h = history[i];
-          if (h.sessionId) {
-            parentSessionId = h.sessionId;
-            break;
-          }
-          const priorStepDef = definition?.steps?.[h.step];
-          const priorExecutor = priorStepDef?.executor || 'agent';
-          if (priorExecutor === 'human') {
-            continue;
-          }
-          try {
-            const { createAgentSessionBindingService } = await import('../binding-service.mjs');
-            const bindingService = createAgentSessionBindingService({
-              storageDir: join(effectiveRepoRoot, '.nevo-ai-local', 'sessions'),
-            });
-            const stepBindings = await bindingService.listBindings({
-              specId: canonicalSpecId,
-              taskId: targetTaskId,
-              step: h.step,
-              ...(h.attempt !== undefined ? { attempt: h.attempt } : {}),
-            });
-            if (stepBindings.length === 1) {
-              parentSessionId = stepBindings[0].sessionId;
-              break;
-            } else if (stepBindings.length > 1) {
-              parentSessionId = null;
-              break;
-            }
-          } catch {}
-        }
-      }
-
-      // Validate client lineage hints
-      if (body.parentSessionId && body.parentSessionId !== parentSessionId) {
-        throw new AiValidationError(
-          `Requested parentSessionId '${body.parentSessionId}' does not match server-derived parentSessionId '${parentSessionId}'.`
-        );
-      }
-
-      if (sessionPolicy === 'reuse') {
-        if (!parentSessionId) {
-          throw new AiValidationError(
-            'Target workflow transition requires session reuse, but no exact predecessor session could be resolved from workflow history.'
-          );
-        }
-        if (body.sessionId && body.sessionId !== parentSessionId) {
-          throw new AiValidationError(
-            `Requested sessionId '${body.sessionId}' does not match server-derived session to reuse '${parentSessionId}'.`
-          );
-        }
-      } else if (sessionPolicy === 'fresh') {
-        if (body.sessionId) {
-          throw new AiValidationError(
-            `Cannot specify sessionId '${body.sessionId}' for fresh session policy.`
-          );
-        }
-      }
-
-      // Item 2: Build authoritative execution trigger from server-resolved targetTaskId
-      const canonicalTrigger = `Execute the current workflow step for task ${targetTaskId}.`;
-      let effectiveUserMessage = canonicalTrigger;
-      const rawUserText = body.userMessage || body.prompt || body.message;
-      if (rawUserText && typeof rawUserText === 'string') {
-        const trimmed = rawUserText.trim();
-        const isBoilerplate = /^Execute the current workflow step for task [^\s.]+\.?$/i.test(trimmed);
-        if (!isBoilerplate && trimmed.length > 0) {
-          effectiveUserMessage = `${canonicalTrigger}\n\n${trimmed}`;
-        }
-      }
+      const { enqueueTasks } = await import('../../../../../specs/workflow/queue/index.mjs');
 
       // B. Durable mutation: persist tasks to the sequential queue
       enqueueTasks(effectiveRepoRoot, changeSlug, selectedTaskIds);
@@ -720,83 +514,107 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
           );
         }
 
-        const { changeSlug, specId: canonicalSpecId } = deterministicTarget;
+        // The one authoritative deterministic execution plan — identical resolution to
+        // the new-session route (ADR-0009: caller intent/context differs between HTTP
+        // entry points, workflow semantics never do). This route must NOT treat "the
+        // caller already had a session open" as authority to override the workflow's
+        // own declared session policy: a transition declaring session: fresh must get a
+        // fresh session even when the explicit action was invoked from inside an
+        // existing one; a transition declaring session: reuse must reuse the exact
+        // server-resolved predecessor, never whichever sessionId happens to appear in
+        // this URL.
+        const { resolveDeterministicExecutionPlan } = await import('../../orchestration/deterministic-execution-plan.mjs');
+        const plan = await resolveDeterministicExecutionPlan({
+          deterministicTarget,
+          selectedTaskIds: [taskId],
+          body,
+          effort,
+          repoRoot: effectiveRepoRoot,
+        });
 
-        let definition = null;
-        if (deterministicTarget.resolvedWorkflow?.definition) {
-          const { loadWorkflowDefinition } = await import('../../../../../specs/workflow/definitions/loader.mjs');
-          definition = loadWorkflowDefinition(deterministicTarget.resolvedWorkflow.definition, { repoRoot: effectiveRepoRoot });
-        }
-        let targetStepName = body.stepId;
-        const task = deterministicTarget.change.tasks?.find((t) => t.id === taskId);
-        if (task && definition) {
-          const { resolveWorkflowPosition } = await import('../../../../../specs/workflow/step-runner.mjs');
-          const position = resolveWorkflowPosition(definition, task);
-          const serverStepName = position.phase === 'new'
-            ? definition.entryStep
-            : (position.phase === 'active' ? position.step : position.nextStep);
-          if (body.stepId && serverStepName && body.stepId !== serverStepName) {
-            throw new AiValidationError(
-              `Requested stepId '${body.stepId}' does not match server-resolved target step '${serverStepName}'.`
-            );
-          }
-          targetStepName = serverStepName || body.stepId;
-          const stepDef = definition.steps?.[targetStepName];
-          if (stepDef && (stepDef.executor || 'agent') !== 'agent') {
-            throw new AiValidationError(
-              `Target workflow step '${targetStepName}' requires ${stepDef.executor} execution and cannot be admitted for an agent turn.`
-            );
-          }
-        }
-
-        // Readiness must be checked explicitly on this route too — admitAgentExecution
-        // itself never evaluates readiness (only the caller does), and this route's
-        // sessionPolicy is always 'reuse', so it never passes through
-        // service.createSession's own readiness check either. Without this, an
-        // admission-blocking failure (e.g. a non-replayable finish operation) would
-        // silently admit here even though it fails closed on the new-session route
-        // (ADR-0009, D2) — and an activation-only blocker (dirty worktree, replayable
-        // finish) would admit without the execution record ever recording that fact for
-        // settlement.
-        let readiness = null;
-        if (task && definition) {
-          const { evaluateExecutionReadiness, isActivationOnlyBlocker } = await import('../../../../../specs/workflow/readiness-policy.mjs');
-          readiness = evaluateExecutionReadiness(task, deterministicTarget.change, 'agent', {
-            definition,
-            repoRoot: effectiveRepoRoot,
+        if (plan.noRunnableTask) {
+          reply.code(409).send({
+            error: {
+              code: 'NO_RUNNABLE_TASK',
+              message: 'No runnable task in sequential queue.',
+              details: { warnings: plan.warnings, selectedTaskIds: [taskId] },
+            },
           });
-          if (!readiness.ready) {
-            const isActivationOnly = isActivationOnlyBlocker(readiness, {
-              repoRoot: effectiveRepoRoot,
-              task,
-              change: deterministicTarget.change,
-              record: readiness.priorRecord,
-            });
-            if (!isActivationOnly) {
-              throw new AiValidationError(
-                `Task '${taskId}' in specification '${changeSlug}' is not ready for execution: ${readiness.reason}`
+          return;
+        }
+
+        const {
+          targetTaskId,
+          targetStepName,
+          authoritativeRole,
+          sessionPolicy,
+          parentSessionId,
+          effectiveProvider,
+          effectiveMode,
+          effectiveModel,
+          effectiveUserMessage,
+          changeSlug,
+          canonicalSpecId,
+          readiness,
+        } = plan;
+
+        // Exact-reuse invariant (deterministic-status-corrective Test 34): a reuse
+        // transition may only continue the exact server-resolved predecessor session —
+        // never an arbitrary same-task session merely because its id appears in this
+        // URL.
+        if (sessionPolicy === 'reuse' && sessionId !== parentSessionId) {
+          throw new AiValidationError(
+            `This session ('${sessionId}') does not match the server-derived session to reuse ('${parentSessionId}') for this workflow transition.`
+          );
+        }
+
+        const { executionPolicyService } = await import('../execution-policy-service.mjs');
+        const { enqueueTasks } = await import('../../../../../specs/workflow/queue/index.mjs');
+        enqueueTasks(effectiveRepoRoot, changeSlug, [targetTaskId]);
+        if (!body.oneOff && effectiveProvider && effectiveMode) {
+          try {
+            const existing = executionPolicyService.getExecutionPolicy(changeSlug, { repoRoot: effectiveRepoRoot });
+            if (!existing) {
+              executionPolicyService.saveExecutionPolicy(
+                changeSlug,
+                {
+                  provider: effectiveProvider,
+                  ...(effectiveModel ? { model: effectiveModel } : {}),
+                  mode: effectiveMode,
+                },
+                { repoRoot: effectiveRepoRoot },
               );
             }
-          }
+          } catch {}
         }
 
         const { admitAgentExecution } = await import('../../orchestration/admission.mjs');
         const candidate = {
-          taskId,
+          taskId: targetTaskId,
           stepId: targetStepName,
-          provider: session?.provider || provider,
+          provider: effectiveProvider,
           changeSlug,
           specId: canonicalSpecId,
-          sessionPolicy: 'reuse',
-          sessionId,
-          message: body.message ?? body.prompt,
-          userMessage: body.userMessage,
-          mode: body.mode,
-          model: body.model === null ? null : body.model ? body.model.trim() : undefined,
+          sessionPolicy,
+          role: authoritativeRole,
+          parentSessionId,
+          // 'fresh' never carries a sessionId — admitAgentExecution creates the required
+          // new session itself (via sessionService.createSession) regardless of which
+          // sessionId this request's own URL named; the URL's session is caller context,
+          // not an authoritative admission target.
+          sessionId: sessionPolicy === 'reuse' ? parentSessionId : undefined,
+          message: effectiveUserMessage,
+          userMessage: effectiveUserMessage,
+          mode: effectiveMode,
+          model: effectiveModel || undefined,
           effort: effort ? effort.trim() : undefined,
           idempotencyKey: body.idempotencyKey,
           readiness,
         };
+
+        console.log(
+          `[ai] [deterministic:admit] provider=${effectiveProvider} specId=${canonicalSpecId} changeSlug=${changeSlug} taskId=${targetTaskId} sessionPolicy=${sessionPolicy} role=${authoritativeRole} requestSessionId=${sessionId}`,
+        );
 
         const admission = await admitAgentExecution(canonicalSpecId, candidate, {
           repoRoot: effectiveRepoRoot,
@@ -819,8 +637,13 @@ export default async function turnRoutes(fastify, { service, accessPolicy, repoR
           sessionId: admission.sessionId,
           turnId: admission.turnId,
           ownerId: admission.ownerId,
-          provider: session?.provider || provider,
+          provider: effectiveProvider,
           idempotent: false,
+          // The caller's own session differs from the admitted one whenever the
+          // workflow's declared session policy required a fresh session (or a
+          // different exact predecessor) than the one this request was made through.
+          // The caller must follow this id, never assume the URL's own sessionId.
+          isNewSession: admission.sessionId !== sessionId,
         });
         return;
       }

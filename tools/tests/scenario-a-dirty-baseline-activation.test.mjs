@@ -813,7 +813,7 @@ describe('Scenario A: dirty baseline before activation', { concurrency: 1 }, () 
     }
   });
 
-  test('Acceptance Scenario A (7): Existing-session route (POST /:sessionId/turns) — the route the UI\'s explicit "Start agent step" now uses — handles an activation-only blocker identically: admitted for remediation with correct bootstrap, abandoned remediation settles resumable', async () => {
+  test('Acceptance Scenario A (7) / Case E: Existing-session route (POST /:sessionId/turns) — the route the UI\'s explicit "Start agent step" now uses — honors the workflow\'s own session policy (fresh, here) rather than reusing the URL\'s session, and still admits for activation-only remediation with correct bootstrap; abandoned remediation settles resumable', async () => {
     resetAdmissionStateForTest();
     const fx = makeFixtureRepo({
       prefix: 'scen-a-existing-session',
@@ -864,7 +864,11 @@ describe('Scenario A: dirty baseline before activation', { concurrency: 1 }, () 
 
       // 2. Explicit execution through the EXISTING-session route — this is the exact route
       //    agent-session-page.tsx's handleStartAgentStep now uses (POST /:sessionId/turns
-      //    with purpose: 'execution' + taskId), continuing the SAME session.
+      //    with purpose: 'execution' + taskId), invoked from inside data1's session. This
+      //    task's entry step has no incoming transition, so its session policy defaults to
+      //    'fresh' (same as the canonical new-session route) — session-policy unification
+      //    means this must still admit a brand-new session, never silently reuse
+      //    data1.sessionId merely because that's the URL the action was invoked from.
       const res2 = await ai.app.inject({
         method: 'POST',
         url: `/api/agent-sessions/${data1.sessionId}/turns`,
@@ -879,17 +883,21 @@ describe('Scenario A: dirty baseline before activation', { concurrency: 1 }, () 
       });
       assert.equal(res2.statusCode, 202, `Expected 202 Accepted but got: ${res2.statusCode} ${res2.body}`);
       const data2 = JSON.parse(res2.body);
+      assert.notEqual(data2.sessionId, data1.sessionId, 'Fresh session policy must win over the URL the action was invoked from');
+      assert.equal(data2.isNewSession, true);
 
-      // Workflow bootstrap contains the same structured activation blocker.
+      // Workflow bootstrap contains the same structured activation blocker — the
+      // preActivationBlocker/resumable semantics introduced in 3e5ddd6a remain intact
+      // after session-policy unification.
       const canonicalTurn2 = ai.turnRuntime.getCanonicalTurn(data2.turnId);
       assert.ok(canonicalTurn2.prompt.includes('DIRTY_WORKTREE_BEFORE_NEW_ATTEMPT'));
       assert.ok(canonicalTurn2.prompt.includes('unrelated-dirty.txt'));
 
-      // Execution was admitted: claim exists for this session — deterministic, not
-      // timing-dependent, since the turn is still gated open.
+      // Execution was admitted: claim exists for the newly-admitted session —
+      // deterministic, not timing-dependent, since the turn is still gated open.
       const claim2 = getWorkspaceWriterClaim(fx.root);
       assert.ok(claim2, 'Claim must exist for the admitted remediation turn');
-      assert.equal(claim2.sessionId, data1.sessionId);
+      assert.equal(claim2.sessionId, data2.sessionId);
 
       // 3. Explicitly allow the provider turn to complete (abandoned, no remediation),
       //    then deterministically await its own terminal settlement.

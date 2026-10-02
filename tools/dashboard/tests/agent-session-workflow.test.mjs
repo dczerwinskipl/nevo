@@ -260,6 +260,21 @@ describe('AC5 & AC6: Dedicated "Request Changes" composer mode (D3, D7, C8)', ()
       /\btaskId[,:]/,
       'an ordinary composer message must never carry a taskId (no implicit task inheritance)',
     );
+
+    // Session-policy unification (ADR-0009): the admitted session can differ from the one
+    // this explicit action was invoked from (workflow session policy wins over the URL
+    // clicked) — handleStartAgentStep must follow the server-resolved session, never
+    // assume continuity with its own.
+    assert.match(
+      handleStartAgentStepBody,
+      /result\?\.sessionId\s*&&\s*result\.sessionId\s*!==\s*sessionId/,
+      'handleStartAgentStep must detect when the admitted session differs from its own',
+    );
+    assert.match(
+      handleStartAgentStepBody,
+      /onSwitchSession\(/,
+      'handleStartAgentStep must follow/open the server-resolved session via the existing navigation mechanism',
+    );
   });
 });
 
