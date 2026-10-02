@@ -270,12 +270,14 @@ tasks:
   - id: acceptance-scenario-finish-operation-replay
     order: 13
     file: tasks/13-acceptance-scenario-finish-operation-replay.md
-    status: approved
+    status: implemented
     depends_on:
       [
         non-fatal-admission-for-remediable-blockers,
         terminal-reconciliation-adopts-outcome,
         dependency-consumption-idempotent-on-resume
       ]
+    implementation:
+      baseline_revision: ec54de0b1d93b4aeefd5b8c5a7a841673a6818a0
 
 spec_id: 4fadace2-645a-476c-8f46-daf448451078
