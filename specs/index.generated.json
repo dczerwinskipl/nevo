@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-02T17:54:33.599Z",
+  "generated": "2026-10-02T22:07:24.205Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -558,10 +558,13 @@
           "id": "acceptance-scenario-d-regression",
           "order": 12,
           "file": "tasks/12-acceptance-scenario-d-regression.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "terminal-reconciliation-adopts-outcome"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "add2f5fa3cfef5385acc4308e7352bcbd22816d8"
+          }
         },
         {
           "id": "acceptance-scenario-finish-operation-replay",
