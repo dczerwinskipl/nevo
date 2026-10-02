@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-02T16:56:49.101Z",
+  "generated": "2026-10-02T17:54:33.599Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -545,11 +545,14 @@
           "id": "acceptance-scenario-b-and-c",
           "order": 11,
           "file": "tasks/11-acceptance-scenario-b-and-c.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "terminal-reconciliation-adopts-outcome",
             "dependency-consumption-idempotent-on-resume"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "2076672f3c7e2e088a614f4597e4e77f7e91c34b"
+          }
         },
         {
           "id": "acceptance-scenario-d-regression",

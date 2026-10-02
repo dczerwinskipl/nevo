@@ -252,7 +252,7 @@ tasks:
   - id: acceptance-scenario-b-and-c
     order: 11
     file: tasks/11-acceptance-scenario-b-and-c.md
-    status: implemented
+    status: verified
     depends_on:
       [
         terminal-reconciliation-adopts-outcome,
