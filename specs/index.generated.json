@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-02T22:07:24.205Z",
+  "generated": "2026-10-02T22:09:36.309Z",
   "changes": [
     {
       "id": "ai-spec-history",
@@ -570,12 +570,15 @@
           "id": "acceptance-scenario-finish-operation-replay",
           "order": 13,
           "file": "tasks/13-acceptance-scenario-finish-operation-replay.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "non-fatal-admission-for-remediable-blockers",
             "terminal-reconciliation-adopts-outcome",
             "dependency-consumption-idempotent-on-resume"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "ec54de0b1d93b4aeefd5b8c5a7a841673a6818a0"
+          }
         }
       ]
     },
